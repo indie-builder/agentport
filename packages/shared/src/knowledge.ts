@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cronSchema } from './ops.js';
 import { slugSchema } from './params.js';
 
 /** 知识库任务队列；jobId 即 knowledge_jobs.id，重复投递由 BullMQ 去重。 */
@@ -118,6 +119,17 @@ export const knowledgeBaseSchema = knowledgeBaseInputSchema.extend({
 
 export type KnowledgeBase = z.infer<typeof knowledgeBaseSchema>;
 export type KnowledgeBaseSettings = z.infer<typeof knowledgeBaseSettingsSchema>;
+
+/** 无管理权限的创建/设置页只需选择项：不含端点、模型与任何密钥线索。 */
+export const knowledgeModelProfileSelectionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(['embedding', 'rerank', 'asr']),
+  enabled: z.boolean(),
+  supportsImageVectors: z.boolean(),
+});
+
+export type KnowledgeModelProfileSelection = z.infer<typeof knowledgeModelProfileSelectionSchema>;
 
 export const knowledgeSourceTypeSchema = z.enum([
   'upload',
@@ -575,6 +587,11 @@ export const knowledgeJobSchema = z.object({
   error: z.string().nullable(),
   /** source_probe 等任务的可见结果；普通任务为 null。 */
   result: knowledgeSourceProbeResultSchema.nullable().default(null),
+  /** 归属对象；列表左连名字，单任务读取不带名字时为 null。 */
+  documentId: z.string().nullable(),
+  sourceId: z.string().nullable(),
+  documentTitle: z.string().nullable(),
+  sourceName: z.string().nullable(),
   createdAt: z.string(),
   startedAt: z.string().nullable(),
   endedAt: z.string().nullable(),
@@ -600,10 +617,6 @@ export const knowledgeSyncItemSchema = z.object({
 });
 
 export type KnowledgeSyncItem = z.infer<typeof knowledgeSyncItemSchema>;
-
-const cron5Schema = z
-  .string()
-  .regex(/^\S+ \S+ \S+ \S+ \S+$/, '需为 5 段 cron（分 时 日 月 周），UTC');
 
 export const knowledgeSourceRangeInputSchema = z.object({
   kind: z.enum([
@@ -633,7 +646,7 @@ export const knowledgeSourceRangeInputSchema = z.object({
 
 const sourceBase = {
   name: z.string().trim().min(1).max(120),
-  syncCron: cron5Schema.nullable().default(null),
+  syncCron: cronSchema.nullable().default(null),
   ranges: z.array(knowledgeSourceRangeInputSchema).min(1),
 };
 
@@ -969,4 +982,3 @@ export type KnowledgeReadInput = z.infer<typeof knowledgeReadInputSchema>;
 export type KnowledgeReadResult = z.infer<typeof knowledgeReadResultSchema>;
 export type KnowledgeListInput = z.infer<typeof knowledgeListInputSchema>;
 export type KnowledgeListResult = z.infer<typeof knowledgeListResultSchema>;
-export type KnowledgeMcpResult = z.infer<typeof knowledgeMcpResultSchema>;

@@ -8,9 +8,39 @@ import { runStatusSchema } from './schemas.js';
  * 这里只描述审核请求、提案和历史变更的形状。
  */
 
+/** 记忆目录内的扁平 Markdown 文件名；API 参数、回顾目标、journal 与 web 表单共用这一份。 */
+export const memoryFileNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.md$/;
+export const memoryFileNameSchema = z
+  .string()
+  .regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md');
+
+/** 官方启动只读 MEMORY.md 的前 200 行或 25KB，先到者为准；超限拒绝而非截断。 */
+export const AGENT_MEMORY_MAX_LINES = 200;
+export const AGENT_MEMORY_MAX_BYTES = 25 * 1024;
+/** 任何记忆文件的底层大小上限。 */
+export const MEMORY_FILE_MAX_BYTES = 200_000;
+
+/**
+ * 个人偏好正文上限：9000 个 Unicode 字符（按码点计，不是 UTF-8 字节）。
+ * 官方 UserPromptSubmit additionalContext 单次上限为 10,000 字符，这里留出余量。
+ * API 保存、worker 注入与 web 表单共用这一份。
+ */
+export const PERSONAL_MEMORY_MAX_CHARS = 9000;
+/** 异常内容护栏：9000 个字符最坏约 36 KB，超过说明文件异常，读写都拒绝。 */
+export const PERSONAL_MEMORY_MAX_BYTES = 36 * 1024;
+/** 个人偏好投影到宿主与沙盒只读挂载的文件名。 */
+export const PERSONAL_MEMORY_FILENAME = 'CLAUDE.md';
+
 export const memoryReviewTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('personal') }).strict(),
-  z.object({ kind: z.literal('agent_memory'), agentId: z.string().min(1) }).strict(),
+  z
+    .object({
+      kind: z.literal('agent_memory'),
+      agentId: z.string().min(1),
+      /** 一次回顾只处理一个文件；MEMORY.md 也走同名目标，不设隐式默认值。 */
+      name: memoryFileNameSchema,
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('agent_rule'),
@@ -23,11 +53,18 @@ export const memoryReviewTargetSchema = z.discriminatedUnion('kind', [
 
 export type MemoryReviewTarget = z.infer<typeof memoryReviewTargetSchema>;
 
-/** 变更前后的记忆快照；个人记忆没有路径作用域，globs 为 null。 */
+/** 主题文件伴随的 MEMORY.md 快照；没有索引文件时 content 为 null。 */
+export const memoryIndexSnapshotSchema = z.object({ content: z.string().nullable() }).strict();
+
+/**
+ * 变更前后的记忆快照；personal 与 agent_memory 没有路径作用域，globs 为 null，agent_rule 保留规则自身的 globs。
+ * personal、agent_rule、agent_memory/MEMORY.md 的 index 为 null。
+ */
 export const memoryContentSnapshotSchema = z
   .object({
     content: z.string().nullable(),
     globs: z.string().nullable(),
+    index: memoryIndexSnapshotSchema.nullable(),
   })
   .strict();
 
@@ -55,13 +92,26 @@ export const createMemoryReviewInputSchema = z
 
 export type CreateMemoryReviewInput = z.infer<typeof createMemoryReviewInputSchema>;
 
+/** 证据只用于审核归因，不进入官方记忆文件。 */
+export const memoryReviewEvidenceKindSchema = z.enum([
+  'user_fact',
+  'confirmed_decision',
+  'assistant_suggestion',
+]);
+
+export type MemoryReviewEvidenceKind = z.infer<typeof memoryReviewEvidenceKindSchema>;
+
 export const memoryReviewEvidenceSchema = z
-  .object({ messageId: z.string().min(1), quote: z.string().min(1) })
+  .object({
+    messageId: z.string().min(1),
+    quote: z.string().min(1),
+    kind: memoryReviewEvidenceKindSchema,
+  })
   .strict();
 
 export type MemoryReviewEvidence = z.infer<typeof memoryReviewEvidenceSchema>;
 
-/** 提案允许没有证据（模型判断不需要引用）或不需要改正文。 */
+/** 只有不写入正文（proposedContent 为 null）的提案可以没有证据；非 null 正文要求入口验证至少一条 user 证据。 */
 export const memoryReviewProposalSchema = z
   .object({
     summary: z.string().min(1),
@@ -72,14 +122,123 @@ export const memoryReviewProposalSchema = z
 
 export type MemoryReviewProposal = z.infer<typeof memoryReviewProposalSchema>;
 
+const INDEX_FILE_NAME = 'MEMORY.md';
+const UTF8_BYTES_2 = 0x800;
+const UTF8_BYTES_3 = 0x10000;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function indexHasLink(indexContent: string, name: string): boolean {
+  // 只识别带标签的普通行内链接并排除图片；目标是平面文件名的相对路径（可带 ./ 与 title）。
+  const link = `(?<!!)\\[[^\\]\\n]*\\]\\(\\s*(?:\\./)?${escapeRegExp(name)}(?:\\s+(?:"[^"\\n]*"|'[^'\\n]*'|\\([^)\\n]*\\)))?\\s*\\)`;
+  return new RegExp(link).test(indexContent);
+}
+
+/**
+ * 主题正文非 null 时保证索引里有一行指向它的相对链接，其余索引字节原样保留。
+ * MEMORY.md 自身不调用；缺索引时从空串开始。
+ */
+export function memoryIndexContentAfter(
+  name: string,
+  content: string | null,
+  indexContent: string | null,
+): string | null {
+  if (content === null || name === INDEX_FILE_NAME) return indexContent;
+  if (indexHasLink(indexContent ?? '', name)) return indexContent;
+  const index = indexContent ?? '';
+  const separator = index === '' || index.endsWith('\n') ? '' : '\n';
+  return `${index}${separator}- [${name}](${name})\n`;
+}
+
+function sameIndex(
+  before: MemoryContentSnapshot['index'],
+  after: MemoryContentSnapshot['index'],
+): boolean {
+  if (before === null || after === null) return before === after;
+  return before.content === after.content;
+}
+
+/** null 表示没有值得写入的内容，也就是不改变任何文件。 */
+export function memoryReviewAfter(
+  target: MemoryReviewTarget,
+  before: MemoryContentSnapshot,
+  proposedContent: string | null,
+): MemoryContentSnapshot {
+  if (proposedContent === null) return before;
+  if (target.kind === 'agent_memory' && target.name !== INDEX_FILE_NAME) {
+    return {
+      content: proposedContent,
+      globs: before.globs,
+      index: {
+        content: memoryIndexContentAfter(
+          target.name,
+          proposedContent,
+          before.index?.content ?? null,
+        ),
+      },
+    };
+  }
+  return { content: proposedContent, globs: before.globs, index: before.index };
+}
+
+/** 纯函数判断一次提案是否真的会改动文件；补索引链接也算变化。 */
+export function memoryReviewHasChanges(
+  target: MemoryReviewTarget,
+  before: MemoryContentSnapshot,
+  proposal: MemoryReviewProposal,
+): boolean {
+  if (proposal.proposedContent === null) return false;
+  const after = memoryReviewAfter(target, before, proposal.proposedContent);
+  return (
+    after.content !== before.content ||
+    after.globs !== before.globs ||
+    !sameIndex(before.index, after.index)
+  );
+}
+
+/** shared 不带 Node/DOM lib；按码点手算 UTF-8 字节数，浏览器与 Node 都能用。 */
+function utf8Bytes(value: string): number {
+  let bytes = 0;
+  for (const ch of value) {
+    const cp = ch.codePointAt(0) ?? 0;
+    bytes += cp < 0x80 ? 1 : cp < UTF8_BYTES_2 ? 2 : cp < UTF8_BYTES_3 ? 3 : 4;
+  }
+  return bytes;
+}
+
+function lineCount(content: string): number {
+  if (content === '') return 0;
+  const withoutTrailingNewline = content.endsWith('\n') ? content.slice(0, -1) : content;
+  return withoutTrailingNewline.split('\n').length;
+}
+
+/**
+ * 返回内容超限的用户可见问题，未超限返回 null。
+ * 调用方按上下文区分错误码：总字节限额是 413，索引限额是 400。
+ */
+export function validateMemoryContent(name: string, content: string): string | null {
+  const bytes = utf8Bytes(content);
+  if (bytes > MEMORY_FILE_MAX_BYTES) {
+    return `记忆文件不能超过 ${MEMORY_FILE_MAX_BYTES} 字节（UTF-8）`;
+  }
+  if (name !== INDEX_FILE_NAME) return null;
+  if (bytes > AGENT_MEMORY_MAX_BYTES) {
+    return `MEMORY.md 不能超过 ${AGENT_MEMORY_MAX_BYTES} 字节（UTF-8）；请把详细内容移到主题文件`;
+  }
+  if (lineCount(content) > AGENT_MEMORY_MAX_LINES) {
+    return `MEMORY.md 不能超过 ${AGENT_MEMORY_MAX_LINES} 行；请把详细内容移到主题文件`;
+  }
+  return null;
+}
+
 export const memoryReviewDecisionSchema = z.enum(['pending', 'applied', 'rejected']);
 
 export type MemoryReviewDecision = z.infer<typeof memoryReviewDecisionSchema>;
 
 /** 变更只会在事务提交时落账，不存在 prepared 中间态。 */
 export const memoryChangeStateSchema = z.literal('applied');
-
-export type MemoryChangeState = z.infer<typeof memoryChangeStateSchema>;
 
 /** 审核详情：status 来自它背后的运行，decision 是用户是否采纳提案。 */
 export const memoryReviewSchema = z.object({

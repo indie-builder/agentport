@@ -1,7 +1,7 @@
 # Agentport · 智能体平台 · 项目简报
 
 > 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
-> 最后更新：2026-10-28 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本；其余结论保持原样。
+> 最后更新：2026-10-31 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Node 24 LTS 24.22.2、pnpm 12.16.1 等）；其余结论保持原样。
 > 项目名：**Agentport**（仓库与包名保持 `agentport`；对外展示名 **PACE**，见 [USER-STORIES.md](USER-STORIES.md)）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
@@ -104,16 +104,16 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 ## 3. 技术栈
 
-所有版本均在 2026-10-28 通过 npm registry / docker manifest 实际核对，只取 stable 标签；以根 `package.json`、各包 `package.json`、`pnpm-workspace.yaml` 的 catalog 与 `pnpm-lock.yaml` 的实际解析结果为准。
+包版本于 2026-10-31 通过 npm registry 核对，只取 stable / LTS 标签；镜像 tag/digest 以 `Dockerfile`、`docker-compose.yml` 与 CI 的实际引用为准。以根 `package.json`、各包 `package.json`、`pnpm-workspace.yaml` 的 catalog 与 `pnpm-lock.yaml` 的实际解析结果为准。
 
 ### 3.1 语言与工程
 
 | 用途 | 选型 | 版本 | 备注 |
 |---|---|---|---|
 | 语言 | TypeScript | 7.0.2 | 当前 stable |
-| 运行时 | Node.js | 24 LTS | 要求 Node 24 的最新补丁版本；`engines` 为 `>=24`，容器镜像用 `node:24-alpine` |
-| 包管理 | pnpm workspace | 12.15.0 | `packageManager` 字段与本地版本一致 |
-| Lint + 格式化 | Biome | 2.6.3 | 替代 ESLint + Prettier |
+| 运行时 | Node.js | 24 LTS | 要求 24 的最新补丁版本（当前 24.22.2）；`engines` 为 `>=24.22.2 <25`，容器镜像用 `node:24-alpine` |
+| 包管理 | pnpm workspace | 12.16.1 | `packageManager` 字段与本地版本一致 |
+| Lint + 格式化 | Biome | 2.6.4 | 替代 ESLint + Prettier |
 | 开发运行 | tsx | 4.23.15 | watch 模式 |
 | 生产构建 | tsc | 7.0.2 | Node 直接运行 `dist`，不引入打包器 |
 
@@ -130,16 +130,16 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.168.48 |
 | 服务端状态 | TanStack Query | 5.105.0 |
 | 数据表格 | TanStack Table + dnd-kit（`@dnd-kit/core`/`sortable`/`utilities`） | 9.3.1 / 6.3.1 / 10.0.0 / 3.2.2 |
-| 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 6.0.1 |
+| 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 6.0.2 |
 | 校验 | zod（与后端共享） | 4.6.7 |
 | 客户端状态 | Zustand | 5.0.16 |
-| 动效 | Motion | 14.7.1 |
+| 动效 | Motion | 14.9.0 |
 | 图表 | Recharts | 3.10.1 |
 | 源码编辑 | CodeMirror 6（按需加载） | 6.43.15（`@codemirror/view`）等子包 |
 | 智能体输出渲染 | Streamdown（含 `@streamdown/code`） | 2.7.1 / 2.0.0 |
 | 生成式 UI | OpenUI：`@openuidev/lang-core`（后端）、`@openuidev/react-lang`（前端）、`@openuidev/cli`（生成 spec） | 1.0.2 / 1.0.2 / 0.6.1；`@openuidev/react-ui` 0.18.1 仅作开发期契约对照（测试用） |
 | 提示 | sonner | 2.0.8 |
-| 图标 | lucide-react | 1.62.0 |
+| 图标 | lucide-react | 1.66.0 |
 | 流式 | 原生 `EventSource` | 无需额外库 |
 | 本地访问 | Portless（开发期 `pnpm dev` 分配域名） | 0.15.12 |
 
@@ -164,15 +164,15 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 压缩 | @fastify/compress | 9.3.0 |
 | 静态托管 | @fastify/static | 10.1.8 |
 | 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.14 |
-| API 文档 | @fastify/swagger + `@scalar/fastify-api-reference`（已接入，需登录访问） | 9.9.2 / 1.76.0 |
+| API 文档 | @fastify/swagger + `@scalar/fastify-api-reference`（已接入，需登录访问） | 9.9.2 / 1.76.4 |
 | 过载保护 | 未接入（无 `@fastify/under-pressure` 依赖；`/health/live`、`/health/ready` 由 `routes/health.ts` 自行实现） | — |
 | Redis 客户端 | ioredis | 6.0.0 |
-| 队列 | BullMQ | 6.5.0 |
+| 队列 | BullMQ | 6.5.3 |
 | 队列面板 | 不接（见 D-15） | — |
 | 队列遥测 | 不接 | — |
 | 并发控制 | p-limit | 7.3.3 |
 | ID | typeid-js | 1.2.0 |
-| 副作用运行时 | effect | 4.0.6 |
+| 副作用运行时 | effect | 4.1.1 |
 
 **为什么从 SQLite 改为 PostgreSQL**：上一轮建议 SQLite 是按「单机学习项目」判断的。引入 BullMQ worker 后，API 进程与 worker 进程会并发写同一份数据，SQLite 的单写者限制会成为真实瓶颈，而且队列本身又要求 Redis，基础设施复杂度已经上去了。PostgreSQL 18 与 Redis 8 都通过 compose 起，运维成本相当。Drizzle 的 schema 写法在两者间基本一致，但迁移文件不通用，越早切换成本越低。
 
@@ -182,7 +182,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.311 |
+| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.316 |
 | MCP Server 实现 | @modelcontextprotocol/server | 2.4.0 |
 | MCP Node 适配 | @modelcontextprotocol/node | 2.1.2 |
 | MCP Client | @modelcontextprotocol/client | 2.4.0 |
@@ -204,7 +204,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 |---|---|---|
 | 单元/集成测试 | Vitest | 5.0.5 |
 | 覆盖率 | 未配置（无 `@vitest/coverage-v8` 直接依赖与 coverage 配置） | — |
-| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.21.3 / 0.15.3 |
+| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.22.0 / 0.15.4 |
 | 集成测试 | 本地/CI service containers（未用 testcontainers） | — |
 | 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
 | CI | GitHub Actions | — |
@@ -405,29 +405,50 @@ audit_log(
 
 ```sql
 knowledge_bases      (id, slug unique, name, description, status, server_id unique fk,
-                      embedding_profile_id fk, rerank_profile_id fk, settings jsonb)
+                      embedding_profile_id fk, rerank_profile_id fk, asr_profile_id fk nullable,
+                      settings jsonb)
 knowledge_folders    (id, base_id fk, parent_id fk, name, path)          -- 物化路径 /a/b
 knowledge_tags / knowledge_document_tags                                 -- 文档标签
 knowledge_documents  (id, base_id, folder_id, title,
-                      source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,feed,manual),
-                      source_id, source_url, mime_type, status, current_version_id, content_hash, metadata)
+                      source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,github,feed,manual,
+                        lark_wiki,lark_drive,notion,confluence,yuque,dingtalk,ima,seafile,nextcloud),
+                      content_kind document|faq|wiki, source_id, source_connection_id,
+                      source_url, source_path, mime_type, size_bytes, status,
+                      disabled_reason check (manual,source,range,remote), current_version_id,
+                      content_hash, metadata, last_synced_at)
 knowledge_document_versions (id, document_id, version, blob_sha256, markdown_sha256,
-                      source_revision, parse_status, page_map, images, embedding_profile_id)
-knowledge_chunks     (id, base_id, document_id, version_id, folder_id, ordinal, kind, heading,
+                      original_filename, mime_type, size_bytes, source_revision,
+                      origin source|manual|faq|wiki, parent_version_id, metadata, faq,
+                      parse_status, page_map, images, embedding_profile_id)
+knowledge_chunks     (id, base_id, document_id, version_id, folder_id, ordinal, parent_ordinal,
+                      index_role leaf|parent, kind text|table|image, heading,
                       content, search_text, search_vector generated, embedding vector(1024),
-                      enabled, edited_by_user, page_from, page_to)
-knowledge_sources    (id, base_id, type check in (feishu_wiki,feishu_drive,gitlab,feed),
-                      name, config, secrets_encrypted, status, sync_cron, cursor)
-knowledge_source_ranges (id, source_id, kind, external_id, ref, paths, enabled)
-knowledge_sync_runs  (id, source_id, status, cursor_before, cursor_after, stats)
-knowledge_jobs       (id, type, status, step, progress, payload)     -- BullMQ jobId = id
-knowledge_model_profiles (id, kind embedding|rerank, endpoint_url, model, dimensions, secrets)
+                      enabled, edited_by_user, page_from, page_to, locator, token_count, metadata)
+knowledge_sources    (id, base_id, type check in (feishu_wiki,feishu_drive,gitlab,github,feed,
+                        lark_wiki,lark_drive,notion,confluence,yuque,dingtalk,ima,seafile,nextcloud),
+                      name, config, secrets_encrypted, status, sync_cron, cursor,
+                      last_sync_at, last_sync_status, last_error)
+knowledge_source_ranges (id, source_id, kind check in (wiki_space,wiki_node,drive_folder,gitlab_project,
+                      github_repo,feed,notion_page,notion_database,notion_data_source,
+                      confluence_space,confluence_page,yuque_repo,dingtalk_workspace,dingtalk_node,
+                      ima_kb,seafile_repo,nextcloud_path), external_id, ref, paths, enabled)
+knowledge_document_source_ranges (document_id fk, range_id fk, pk(document_id, range_id))
+knowledge_sync_runs  (id, source_id, status, started_at, ended_at, cursor_before, cursor_after, stats, error)
+knowledge_sync_items (id, sync_run_id fk, source_id fk, range_id fk, external_id, document_id fk,
+                      status failed|skipped, code, message, retryable)
+knowledge_jobs       (id, type check in (ingest,reindex,sync,source_probe,wiki_generate,cleanup),
+                      base_id, document_id, source_id, status, step, progress, attempts,
+                      error, result, payload)     -- BullMQ jobId = id
+knowledge_model_profiles (id, kind embedding|rerank|asr, name, endpoint_url, model, dimensions,
+                      embedding_protocol openai|cohere_v2, image_input_enabled,
+                      secrets_encrypted, enabled)
 knowledge_wiki_pages / knowledge_wiki_versions / knowledge_wiki_sources
+                      -- pages 含 parent_id/position 主题目录；versions 记录生成来源；sources 关联页面引用
 ```
 
-`source_id` 是外部条目的稳定 ID（worker 写入时形如 `<来源连接 ID>:<源端 ID>`，源端 ID 为飞书 token / GitLab `project:ref:path` / `feedURL:itemId`）；`upload`/`manual` 为空，身份只按 ID 匹配而不是标题。飞书的 `appId` 放在 `knowledge_sources.config`，`appSecret` 只在 `secrets_encrypted`。
+`source_id` 是外部条目的稳定 ID（worker 写入时形如 `<来源连接 ID>:<源端 ID>`，源端 ID 按类型使用飞书 token、GitLab/GitHub `project:ref:path`、`feedURL:itemId`、Notion page、Confluence page、语雀 doc ID、钉钉 node ID、IMA kb/media、Seafile repo+路径哈希、Nextcloud `oc:id`）；`upload`/`manual` 为空，身份只按 ID 匹配而不是标题。来源归属以 `source_connection_id` 与 `knowledge_document_source_ranges` 为准；`disabled_reason` 区分 manual/source/range/remote，source/range/remote 只能由后续成功同步重新证明权限后恢复。飞书/Lark 的 `appId` 放在 `knowledge_sources.config`，`appSecret` 只在 `secrets_encrypted`。
 
-`search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用只写 `search_text`），embedding 固定 1024 维。业务实体主键同样用 TypeID（`kb_`、`kdoc_`、`kdv_`、`kchk_`、`ksrc_`、`kjob_` 等）；`knowledge_document_tags` 与 `knowledge_wiki_sources` 是纯关联表，不单独生成 ID。
+`search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用只写 `search_text`）；embedding 固定 1024 维且只对 `kind='embedding'` 生效，`rerank`/`asr` 的 `dimensions` 必须为 null，ASR profile 固定 openai 协议且不允许图片输入。业务实体主键同样用 TypeID（`kb_`、`kdoc_`、`kdv_`、`kchk_`、`ksrc_`、`kjob_` 等）；`knowledge_document_tags`、`knowledge_document_source_ranges` 与 `knowledge_wiki_sources` 是纯关联表，不单独生成 ID。
 
 ---
 
@@ -491,7 +512,7 @@ query({
 
 镜像内容（根 `Dockerfile` 的 `sandbox` target）：
 
-- 固定为 `node:24-alpine`（构建时锁定 digest；没有 debian slim 分支）
+- 固定为 `node:24-alpine`（Dockerfile 中锁定 digest；没有 debian slim 分支）
 - `runner` 构建产物（含 `@anthropic-ai/claude-agent-sdk` 及其平台原生 binary、MCP client）
 - `git`（官方插件市场安装）、`poppler-utils`（长 PDF 分页读取）与 `bash`（官方 CLI 执行 Bash 工具所需的真实 shell）
 - 固定的非 root 用户（uid 1000）
@@ -706,7 +727,7 @@ interface SandboxProvider {
    - **npm 使用 scope**：`@agentport/api`、`@agentport/web`、`@agentport/shared`、`@agentport/worker`（scope 需在 npm 注册，若不用公开 npm 则直接使用）。
    - **Docker 镜像名**：`agentport/api`、`agentport/worker`、`agentport/sandbox`。
    - **展示名**：PACE（仓库与包名仍为 `agentport`）。
-2. **登录方式**：当前为单管理员 + Better Auth（会话落库，httpOnly cookie `agentport_token`）。是否需要多用户 / RBAC？
+2. **登录方式**：Better Auth（username/密码 + Drizzle adapter，会话写 PostgreSQL，httpOnly Cookie `agentport_token`），不使用 JWT，也不在 Redis 校验会话。多账户/RBAC 已在本工作树实现、未合入 main、已通过最终 review、准备发布：稳定 `businessId`、默认四角色、DB 可配置的角色·功能矩阵与对象范围、私有会话/个人记忆隔离；见 §18 与 [account-rbac.md](tasks/account-rbac.md)。
 3. **HTTP→MCP 的输入方式**：当前先做手动建工具，表结构按可导入 OpenAPI 设计。是否要 OpenAPI 导入？
 4. **智能体是否允许非 MCP 工具**：Bash 默认启用；原生 Read/Write/Edit 仅限记忆、产出、附件与技能参考；其余内置工具默认禁止。
 5. ~~**Redis 镜像标签**~~ 已确认 `redis:8-alpine` 可用（§15.2）；当前配置为 Redis 8.10.3（`redis:8.10.3-alpine`）。
@@ -781,11 +802,11 @@ cd ~/Documents/myself/agentport
 | PostgreSQL 18 镜像的数据目录 | 挂载 `/var/lib/postgresql/data` 会导致容器无限重启；18+ 要求挂载 `/var/lib/postgresql` | compose 已改为后者 |
 | `redis:8-alpine` | 实际可用（`docker pull` 成功，容器 healthy）；此前 `docker manifest inspect` 因网络超时误判 | 当时维持该标签；当前配置为 8.10.3（见 §10.1） |
 | npm 官方源 | 本机经代理访问 registry.npmjs.org 极慢（15s+），导致 `pnpm install` 长时间无输出 | 根目录 `.npmrc` 固定 `registry=https://registry.npmmirror.com` |
-| pnpm 12 的 build script 审批 | `ignoredBuiltDependencies` 不会放行，必须 `onlyBuiltDependencies` 或 `pnpm approve-builds --all` | 已用 `approve-builds --all`，配置写入 workspace yaml（当前键名 `allowBuilds`，见 OPERATIONS §2.1） |
+| pnpm 12 的 build script 审批 | pnpm 11 起移除 `onlyBuiltDependencies`、`ignoredBuiltDependencies` 等旧键，统一由 `allowBuilds` 的 `true`/`false` 决定（https://pnpm.io/settings/build#allowbuilds） | 已用 `pnpm approve-builds --all`，配置写入 `pnpm-workspace.yaml` 的 `allowBuilds`（见 OPERATIONS §2.1） |
 | BullMQ 6 在 ESM 下 | 不自动加载 ioredis，报 "could not load the optional 'ioredis' package" | worker 包显式依赖 `ioredis@6.0.0` |
 | TypeScript `-b --noEmit` | 与 project references 冲突（TS6310） | 各包 typecheck 统一为 `tsc -b`，无 `--noEmit` |
 | tsx 与 env | `--env-file-if-exists` 在 tsx 下不生效 | 该参数交给 tsx 传参即可；migrate 脚本用 Node 原生 `--env-file-if-exists` |
-| Biome 2.5（历史记录） | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`），当前版本 2.6.3 |
+| Biome 2.5（历史记录） | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`），当前版本 2.6.4 |
 
 ### 15.3 起步命令
 
@@ -844,6 +865,7 @@ pnpm dev
 | knowledge source | `ksrc` | — |
 | knowledge source range | `krng` | — |
 | knowledge sync run | `ksyn` | — |
+| knowledge sync item | `ksit` | — |
 | knowledge wiki page | `kwp` | — |
 | knowledge wiki version | `kwv` | — |
 | knowledge wiki source | `kws` | — |
@@ -853,8 +875,9 @@ TypeID 由 uuidv7 编码而来，按时间排序，便于按创建顺序扫描�
 
 例外：
 
-- `agent_skills`、`agent_servers`、`knowledge_document_tags`、`knowledge_wiki_sources`：关联表只有复合唯一索引，没有独立 `id`。
-- Better Auth 的管理员用户与账号使用固定 ID；`session` / `verification` 默认随机 ID。
+- `agent_skills`、`agent_servers`、`knowledge_document_tags`、`knowledge_document_source_ranges`、`knowledge_wiki_sources`：关联表只有复合唯一索引，没有独立 `id`。
+- Better Auth 的用户与账号技术 ID 随机生成（bootstrap 也是随机 ID）；`session` / `verification` 默认随机 ID。
+- 认证账户的技术 ID 只作登录载体，可删除并重建；业务记录不引用它，统一直接保存稳定 `businessId`（创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权、个人记忆）。`session` 属于认证载体，账户重建时不恢复旧会话。字段与接口见 §18 及配套契约文件；实现只在本工作树，未合入 main、已通过最终 review、准备发布。
 - `audit_log` 默认用 `newId('audit')`；调用方提供 `dedupeKey` 时直接以其作为主键。
 - 市场资源沿用上游的 owner/repo/skill 标识。
 
@@ -892,7 +915,7 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 
 ### 17.1 两类业务任务与账号
 
-- 平台仍为单账号，不新增角色或权限模型。
+- 多账户与权限已在本工作树实现（未合入 main，已通过最终 review、准备发布）；页面行为按 §18 的授权范围执行。
 - **使用专家**：找专家 → 开始对话 → 取交付物；在「记忆」维护个人偏好、发起历史回顾。
 - **定义专家**：创建/配置专家 → 维护专家记忆；自动进化是已确认缺口。
 - 主路径：找专家 → 直接用或创建 → 沟通 → 交付物预览、下载、分享 → 个人与专家记忆。固定版本公开分享、个人偏好、历史回顾已实现；自动进化仍是已确认缺口。现有成果预览、版本切换、下载与基于版本修改继续保留。
@@ -927,10 +950,10 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 - 创建：名称、角色、职责与工作方式前置；职责与工作方式写入同一个系统提示词（渲染到 `CLAUDE.md`），不新增职责字段；高级设置放模型与 slug；保留导入。
 - 登录：按钮文案为「登录」/「正在登录…」/「重试」；登录成功回到工作区（`/` 重定向 `/agents`）。
 - 专家详情：页签为配置 / 专家记忆 / 项目规则 / 输出风格 / 完整文件；不再有运行统计页签，改为「查看运行」次级链接。
-- 记忆：页内 line 页签「个人偏好 / 历史回顾」。个人偏好以 DB 为权威、投影为只读 `_user/CLAUDE.md` 并由 `UserPromptSubmit` hook 每轮注入（不是 SDK 自动发现的用户级 `CLAUDE.md`）；可保存、下载、查看版本与回滚。历史回顾是用户触发的 `trigger='review'` 运行，产出个人偏好 / 专家 `MEMORY.md` / 专家规则提案，采用后才写入。
+- 记忆：页内 line 页签「个人偏好 / 历史回顾」。个人偏好以 DB 为权威、投影为只读 `_users/<sha256(businessId)>/CLAUDE.md` 并由 `UserPromptSubmit` hook 每轮按主体注入（不是 SDK 自动发现的用户级 `CLAUDE.md`）；可保存、下载、查看版本与回滚。历史回顾是用户触发的 `trigger='review'` 运行，产出个人偏好 / 专家 `MEMORY.md` / 专家规则提案，采用后才写入。
 - 专家记忆：由原生 auto-memory 在运行中自动写入，不逐条确认；面板可浏览、编辑、删除文件，`MEMORY.md` 是索引。
 - 公开分享：成果按 `runId + path` 固定版本，链接为 `/s/<shareId>#<token>`，token 只在 URL 片段；可撤销，撤销后统一 404。
-- 不再提供新建艺术卡与独立数字分身卡；数字分身仍是完整角色选项。
+- 专家网格常驻「新建专家」扇形动效卡与「创建数字分身」入口卡（有 `agents.create` 权限时）；数字分身仍是完整角色选项。
 - 交付物：预览、版本切换、下载、基于版本修改保持现状；分享从对应版本的会话成果面板发起。
 
 ### 17.4 不变量
@@ -939,6 +962,51 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 - 个人偏好的权威是 DB，文件只是投影；专家记忆与规则的权威分别是 `agent-memory/` 文件与 `agent_rules`，版本账本记录完整快照。
 - 只使用 Claude Agent SDK 一个运行底座；历史回顾复用同一个 `query()`，不引入第二套执行循环或外部记忆服务。
 - 品牌视觉数值、已选技术栈不变。
+
+---
+
+## 18. 账户、业务身份与权限矩阵（2026-10-31，本工作树已实现；未合入 main）
+
+> 本节描述本工作树的最终实现，尚未合入 main、已通过最终 review、准备发布；实施契约以 [account-rbac.md](tasks/account-rbac.md) 及其配套契约文件为准，证据与剩余项见任务记录。
+
+### 18.1 业务身份
+
+- 认证账户的技术 ID 保持随机，只作登录载体，可以删除并用同一 `businessId` 重建。
+- `businessId` 稳定，由管理员录入且不可修改、不可回收给其他自然人；业务创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权和个人记忆都直接记录 `businessId`，不依赖认证技术 ID。
+- 删除认证资料后以同一 `businessId` 重建账户，原业务归属、角色、成员授权与个人记忆恢复；旧会话永久失效，不随重建复活。
+- 管理员引导（bootstrap）只在首次初始化创建管理员，不覆盖已有密码。
+
+### 18.2 默认角色与边界
+
+| 角色 | 允许 | 不允许 |
+|---|---|---|
+| 平台管理员 | 全部功能；跨用户运维与审计（读取私有内容留审计） | — |
+| 用户 | 使用被授权的专家；访问自己的私有会话、消息与个人记忆 | 管理其他用户或全局资源 |
+| 负责人 | 创建并管理本人负责的专家；分配使用、指定维护人员、转交 | 管理账户、全局资源或授权；读取其他用户正文 |
+| 维护人员 | 维护被指定的专家 | 管理账户、全局资源、授权、新建/删除/转交；读取其他用户正文 |
+
+默认角色只是数据库初始数据，不按角色名硬编码；可新增/调整角色并配置功能授权。系统 admin 角色授权固定、不可删除或改矩阵（可改显示名）；至少保留一名未停用的活跃管理员，删除、停用、降权或矩阵保存导致无管理员时返回 409。
+
+### 18.3 角色·功能矩阵
+
+- 界面为功能树纵向行、角色横向列；可展开到叶动作单独勾选，父级按叶权限三态聚合。
+- 同一授权同时受动作与对象范围（全部/本人/被指定）约束；多角色只合并完整授权结果，不把不同角色的动作与范围拼接。
+- 评估与定时任务在功能树中分立，不共用一条权限开关。
+- 服务端每个入口执行动作授权与对象范围检查；前端按同一功能目录显示菜单与动作。
+
+### 18.4 数据与隔离
+
+- 私有会话、用户消息与个人偏好/个人记忆按 `businessId` 隔离；平台管理员可跨用户运维与审计，负责人与维护人员不因角色获得其他用户正文读取权。
+- 既有专家共享 auto-memory 的读写语义保持不变；个人记忆与专家记忆是不同对象，不互相替代。
+- 独立 MCP（`/mcp` 平台 token、`/mcp/:serverId` Bearer token）与公开分享（`/s/<shareId>#<token>`）沿用各自凭据；登录用户权限不扩展到这两类凭据。
+
+### 18.5 范围外
+
+第三方登录、飞书/钉钉等身份源同步、用量/套餐额度/计费、组织多租户均不在本期；不因此新增第二套执行底座或改变现有 SDK 文件契约。
+
+### 18.6 状态
+
+本工作树已实现，未合入 main，已通过最终 review、准备发布。已覆盖同 `businessId` 重建恢复与旧 Cookie 失效、bootstrap 不覆盖密码、多角色不跨对象串联、负责人/维护人员不能读他人正文、跨用户运维审计、角色矩阵配置与入口覆盖、个人记忆隔离，以及 MCP/分享凭据边界不被登录权限覆盖；数据库迁移只在全新空库验证，新增 NOT NULL 字段不回填，不声称旧库可无损升级，部署到既有库需用户明确决定重建数据，不能自动清库。
 
 ---
 

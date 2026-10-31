@@ -316,6 +316,36 @@ describe('session sandboxes', () => {
     await sessions.close();
   });
 
+  it('keeps two business users of the same agent in separate containers and mounts', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+
+    const first = await acquire(
+      sessions,
+      spec({ conversationId: 'conv-user-a', personalDir: '/host/users/a' }),
+    );
+    const second = await acquire(
+      sessions,
+      spec({ conversationId: 'conv-user-b', personalDir: '/host/users/b' }),
+    );
+
+    expect(first.sandboxId).not.toBe(second.sandboxId);
+    expect(provider.creates[0]?.extraMounts).toContainEqual({
+      hostPath: '/host/users/a',
+      containerPath: '/mnt/user',
+      readonly: true,
+    });
+    expect(provider.creates[1]?.extraMounts).toContainEqual({
+      hostPath: '/host/users/b',
+      containerPath: '/mnt/user',
+      readonly: true,
+    });
+
+    await first.release({ reuse: false });
+    await second.release({ reuse: false });
+    await sessions.close();
+  });
+
   it('mounts every child memory directory rw under the project memory root', async () => {
     const provider = new FakeProvider();
     const sessions = await createManager(provider);
@@ -1364,6 +1394,128 @@ describe('session sandboxes', () => {
     await execution.done;
     expect(events).toEqual([{ type: 'error', message: 'kept' }]);
     await lease.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('closes only the idle container for a deleted conversation', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const lease = await acquire(sessions, spec());
+    await lease.release({ reuse: true });
+
+    await sessions.closeIdle('conv_1', [lease.sandboxId]);
+
+    expect(provider.destroyed).toEqual(['sandbox-1']);
+    await sessions.close();
+  });
+
+  it('closes an idle entry by conversation even without a persisted container id', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const lease = await acquire(sessions, spec());
+    await lease.release({ reuse: true });
+
+    await sessions.closeIdle('conv_1', []);
+
+    expect(provider.destroyed).toEqual(['sandbox-1']);
+    await sessions.close();
+  });
+
+  it('refuses to close an active run or a held lease', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+
+    const held = await acquire(sessions, spec());
+    await expect(sessions.closeIdle('conv_1', [held.sandboxId])).rejects.toThrow(/busy/i);
+    const execution = await startRun(held, provider, 'run_1');
+    await expect(sessions.closeIdle('conv_1', [held.sandboxId])).rejects.toThrow(/busy/i);
+    expect(provider.destroyed).toEqual([]);
+
+    settle(provider.childOf(held.sandboxId), 'run_1');
+    await execution.done;
+    await held.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('refuses to close while a new acquire is waiting on an idle destroy', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider, 1_000);
+    const lease = await acquire(sessions, spec());
+
+    vi.useFakeTimers();
+    provider.holdDestroy = true;
+    await lease.release({ reuse: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(provider.destroyed).toEqual(['sandbox-1']);
+
+    const acquiring = acquire(sessions, spec(), undefined, 'run_2');
+    await expect(sessions.closeIdle('conv_1', [lease.sandboxId])).rejects.toThrow(/busy/i);
+
+    provider.releaseDestroy();
+    vi.useRealTimers();
+    const next = await acquiring;
+    provider.holdDestroy = false;
+    await next.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('closes persisted containers by id when the manager has no entry, deduping repeats', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+
+    await sessions.closeIdle('conv_missing', ['sandbox-old', 'sandbox-old']);
+    expect(provider.destroyed).toEqual(['sandbox-old']);
+
+    // 没有条目也没有持久化 id 才是空操作。
+    await sessions.closeIdle('conv_missing', []);
+    expect(provider.destroyed).toEqual(['sandbox-old']);
+    await sessions.close();
+  });
+
+  it('keeps a failed idle close retryable and reports it', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const lease = await acquire(sessions, spec());
+    await lease.release({ reuse: true });
+
+    provider.failing.add(lease.sandboxId);
+    await expect(sessions.closeIdle('conv_1', [lease.sandboxId])).rejects.toThrow(/close failed/);
+    expect(provider.destroyed).toEqual(['sandbox-1']);
+
+    provider.failing.delete(lease.sandboxId);
+    await expect(sessions.closeIdle('conv_1', [lease.sandboxId])).resolves.toBeUndefined();
+    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']);
+    await sessions.close();
+  });
+
+  it('attempts the remaining persisted ids after one close fails', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    provider.failing.add('sandbox-b');
+
+    await expect(sessions.closeIdle('conv_missing', ['sandbox-a', 'sandbox-b'])).rejects.toThrow(
+      /close failed/,
+    );
+
+    expect(provider.destroyed).toEqual(['sandbox-a', 'sandbox-b']);
+    provider.failing.delete('sandbox-b');
+    await sessions.close();
+  });
+
+  it('removes an older container by id without touching the current idle one', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const first = await acquire(sessions, spec());
+    await first.release({ reuse: false });
+    const current = await acquire(sessions, spec());
+    await current.release({ reuse: true });
+
+    await sessions.closeIdle('conv_1', [first.sandboxId]);
+
+    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']);
+    const reused = await acquire(sessions, spec());
+    expect(reused.sandboxId).toBe('sandbox-2');
+    await reused.release({ reuse: false });
     await sessions.close();
   });
 

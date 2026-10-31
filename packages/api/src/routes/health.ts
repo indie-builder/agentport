@@ -3,12 +3,23 @@ import type { FastifyInstance } from 'fastify';
 import { collectMetrics } from '../plugins/metrics.js';
 
 export async function registerHealthRoutes(app: FastifyInstance) {
-  app.get('/health/live', async () => ({ status: 'ok' }));
+  // 运维指标需登录与平台运维权限；单项依赖失败时该字段返回 null。
+  // 非 /api 路由不会被 access hook 自动接线，这里显式挂认证与权限。
+  app.get(
+    '/health/metrics',
+    {
+      config: { access: { kind: 'permission', permissionId: 'operations.read' } },
+      preHandler: [app.requireAuth, app.requirePermission('operations.read')],
+    },
+    async () => collectMetrics(app),
+  );
 
-  // 运维指标需登录；单项依赖失败时该字段返回 null。
-  app.get('/health/metrics', { preHandler: [app.requireAuth] }, async () => collectMetrics(app));
+  app.get('/health/live', { config: { access: { kind: 'public', reason: 'liveness probe' } } }, async () => ({ status: 'ok' }));
 
-  app.get('/health/ready', async (_request, reply) => {
+  app.get(
+    '/health/ready',
+    { config: { access: { kind: 'public', reason: 'readiness probe' } } },
+    async (_request, reply) => {
     const checks = { db: 'ok' as 'ok' | 'error', redis: 'ok' as 'ok' | 'error' };
     try {
       await app.db.execute(sql`select 1`);

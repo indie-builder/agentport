@@ -1,5 +1,5 @@
 import type { MemoryChange, MemoryContentSnapshot, MemoryReviewTarget } from '@agentport/shared';
-import { and, desc, eq, lt, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, or, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { memoryChanges } from '../schema.js';
@@ -7,7 +7,9 @@ import { memoryChanges } from '../schema.js';
 export type MemoryChangeRow = typeof memoryChanges.$inferSelect;
 
 export interface InsertMemoryChangeInput {
-  userId: string;
+  /** 手工写入预分配的稳定操作身份；缺省由仓储生成。 */
+  id?: string;
+  businessId: string;
   agentId?: string | null;
   target: MemoryReviewTarget;
   before: MemoryContentSnapshot;
@@ -20,9 +22,10 @@ export async function insert(
   db: Database,
   input: InsertMemoryChangeInput,
 ): Promise<MemoryChangeRow> {
+  const { id = newId('memoryChange'), ...values } = input;
   const [row] = await db
     .insert(memoryChanges)
-    .values({ id: newId('memoryChange'), ...input, state: 'applied' })
+    .values({ id, ...values, state: 'applied' })
     .returning();
   if (!row) throw new Error('memory change insert returned no row');
   return row;
@@ -54,41 +57,38 @@ export async function findByReverses(
   return row ?? null;
 }
 
-export async function listByUser(
+/** 个人记忆版本：同一 businessId 也会作为操作者写入专家记忆/规则，必须按目标类型收窄。 */
+export async function listPersonalByUser(
   db: Database,
-  userId: string,
-  limit = 50,
+  businessId: string,
+  options: { before?: Date; limit: number },
 ): Promise<MemoryChangeRow[]> {
+  const filters: SQL[] = [
+    eq(memoryChanges.businessId, businessId),
+    sql`${memoryChanges.target}->>'kind' = 'personal'`,
+  ];
+  if (options.before) filters.push(lt(memoryChanges.createdAt, options.before));
   return db
     .select()
     .from(memoryChanges)
-    .where(eq(memoryChanges.userId, userId))
+    .where(and(...filters))
     .orderBy(desc(memoryChanges.createdAt), desc(memoryChanges.id))
-    .limit(limit);
-}
-
-export async function listByAgent(
-  db: Database,
-  agentId: string,
-  limit = 50,
-): Promise<MemoryChangeRow[]> {
-  return db
-    .select()
-    .from(memoryChanges)
-    .where(eq(memoryChanges.agentId, agentId))
-    .orderBy(desc(memoryChanges.createdAt), desc(memoryChanges.id))
-    .limit(limit);
+    .limit(options.limit);
 }
 
 export interface ListMemoryChangesOptions {
   agentId: string;
   kind: 'personal' | 'agent_memory' | 'agent_rule';
   slug?: string;
+  /** 专家记忆文件名；在 LIMIT 之前按目标名收窄。 */
+  name?: string;
+  /** MEMORY.md 的历史还包含实际改动了伴随索引的主题变更。 */
+  includeIndexChanges?: boolean;
   before?: Date;
   limit: number;
 }
 
-/** 专家记忆/规则版本：按目标类型过滤，规则再按 slug 收窄。 */
+/** 专家记忆/规则版本：按目标类型过滤，规则再按 slug、记忆按文件名收窄。 */
 export async function listFiltered(
   db: Database,
   options: ListMemoryChangesOptions,
@@ -99,6 +99,19 @@ export async function listFiltered(
   ];
   if (options.slug !== undefined) {
     filters.push(sql`${memoryChanges.target}->>'slug' = ${options.slug}`);
+  }
+  if (options.name !== undefined) {
+    const ownTarget = sql`${memoryChanges.target}->>'name' = ${options.name}`;
+    if (options.includeIndexChanges) {
+      filters.push(
+        or(
+          ownTarget,
+          sql`${memoryChanges.before}->'index' IS DISTINCT FROM ${memoryChanges.after}->'index'`,
+        ) as SQL,
+      );
+    } else {
+      filters.push(ownTarget);
+    }
   }
   if (options.before) filters.push(lt(memoryChanges.createdAt, options.before));
   return db

@@ -15,6 +15,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { z } from 'zod';
 import { toastSuccess } from '../src/lib/toast.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
+import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -162,6 +163,7 @@ afterAll(() => msw.close());
 
 beforeEach(() => {
   msw.reset();
+  server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
   vi.mocked(toastSuccess).mockClear();
   vi.stubGlobal(
     'ResizeObserver',
@@ -338,6 +340,155 @@ function faqListHandler(items: unknown[]) {
     HttpResponse.json({ items, nextCursor: null }),
   );
 }
+
+describe('FAQ 叶权限入口', () => {
+  it.each([
+    {
+      leaf: 'knowledge.read',
+      content: false,
+      publish: false,
+      execute: false,
+      importing: false,
+      exporting: false,
+    },
+    {
+      leaf: 'knowledge.content.manage',
+      content: true,
+      publish: false,
+      execute: false,
+      importing: false,
+      exporting: false,
+    },
+    {
+      leaf: 'knowledge.publish',
+      content: false,
+      publish: true,
+      execute: false,
+      importing: false,
+      exporting: false,
+    },
+    {
+      leaf: 'knowledge.execute',
+      content: false,
+      publish: false,
+      execute: true,
+      importing: false,
+      exporting: false,
+    },
+    {
+      leaf: 'knowledge.import',
+      content: false,
+      publish: false,
+      execute: false,
+      importing: true,
+      exporting: false,
+    },
+    {
+      leaf: 'knowledge.export',
+      content: false,
+      publish: false,
+      execute: false,
+      importing: false,
+      exporting: true,
+    },
+  ])(
+    '$leaf 只显示对应 FAQ 动作，历史保持可读',
+    async ({ leaf, content, publish, execute, importing, exporting }) => {
+      baseHandlers();
+      server.use(
+        http.get('/api/auth/me', () =>
+          HttpResponse.json({
+            ...allAccessMe,
+            grants: allAccessMe.grants.filter((grant) =>
+              ['knowledge.read', leaf].includes(grant.permissionId),
+            ),
+          }),
+        ),
+        faqListHandler([faqSummary]),
+        http.get('/api/knowledge/faqs/kdoc_faq', () => HttpResponse.json(faqDetail)),
+        http.get('/api/knowledge/documents/kdoc_faq/versions', () =>
+          HttpResponse.json({ items: [faqDraftVersion, faqPublishedVersion], nextCursor: null }),
+        ),
+      );
+      await mount('/knowledge/kb_1', { panel: 'faqs' });
+      await waitFor(() => maybeButton('历史') !== undefined);
+      for (const label of ['新建 FAQ', '编辑', '停用', '删除']) {
+        expect(maybeButton(label) !== undefined).toBe(content);
+      }
+      expect(maybeButton('导入') !== undefined).toBe(importing);
+      expect(maybeButton('批次发布') !== undefined).toBe(publish && !importing);
+      expect(maybeButton('JSON') !== undefined).toBe(exporting);
+      expect(maybeButton('CSV') !== undefined).toBe(exporting);
+      expect(document.querySelector('[aria-label="导出 FAQ 版本"]') !== null).toBe(exporting);
+      expect(maybeButton('发布草稿') !== undefined).toBe(publish);
+      expect(document.querySelector('[aria-label="FAQ 命中测试"]') !== null).toBe(execute);
+      expect(document.querySelector('[aria-label^="选择 "]') !== null).toBe(content);
+      if (content) {
+        await selectAllFaqs();
+        expect(document.querySelector('[aria-label="FAQ 批量操作"]')).not.toBeNull();
+      }
+      await click(button('历史'));
+      const history = dialog('FAQ 版本历史');
+      expect(history.textContent).toContain('每日自动备份。');
+      const historical = [...history.querySelectorAll<HTMLButtonElement>('button')].find((node) =>
+        node.textContent?.includes('v2'),
+      );
+      expect(historical).toBeDefined();
+      await click(historical!);
+      expect(maybeButton('回退到所选版本', history) !== undefined).toBe(publish);
+      expect(calls.some((call) => call.method !== 'GET')).toBe(false);
+    },
+  );
+
+  it('仅发布用户可发布 FAQ，失败索引不提供无权重试', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/auth/me', () =>
+        HttpResponse.json({
+          ...allAccessMe,
+          grants: allAccessMe.grants.filter((grant) =>
+            ['knowledge.read', 'knowledge.publish'].includes(grant.permissionId),
+          ),
+        }),
+      ),
+      faqListHandler([faqSummary]),
+      http.get('/api/knowledge/faqs/kdoc_faq', () =>
+        HttpResponse.json({
+          ...faqDetail,
+          draftVersion: {
+            ...faqDraftVersion,
+            metadata: { publication: 'draft', indexingJobId: 'kjob_failed' },
+          },
+        }),
+      ),
+      http.get('/api/knowledge/jobs/kjob_failed', () =>
+        HttpResponse.json(job('failed', 'kjob_failed')),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await click(button('发布草稿'));
+    await waitFor(() => dialog('发布 FAQ').textContent?.includes('本次索引失败') === true);
+    expect(maybeButton('重试索引', dialog('发布 FAQ'))).toBeUndefined();
+    expect(button('发布', dialog('发布 FAQ')).disabled).toBe(true);
+    expect(calls.some((call) => call.method === 'POST')).toBe(false);
+  });
+
+  it('只读空列表不提供新建 FAQ', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/auth/me', () =>
+        HttpResponse.json({
+          ...allAccessMe,
+          grants: allAccessMe.grants.filter((grant) => grant.permissionId === 'knowledge.read'),
+        }),
+      ),
+      faqListHandler([]),
+    );
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await waitFor(() => document.body.textContent?.includes('还没有 FAQ') === true);
+    expect(maybeButton('新建 FAQ')).toBeUndefined();
+  });
+});
 
 describe('FAQ editor state against refetches', () => {
   it('keeps the draft and its expected version when detail changes or a refetch fails', async () => {
@@ -605,6 +756,66 @@ describe('FAQ import batch recovery', () => {
       }),
     );
   }
+
+  it('仅导入用户可查看未完成批次但不能发布或重试索引', async () => {
+    recoveryHandlers({ kjob_a: 'succeeded', kjob_b: 'failed' });
+    server.use(
+      http.get('/api/auth/me', () =>
+        HttpResponse.json({
+          ...allAccessMe,
+          grants: allAccessMe.grants.filter((grant) =>
+            ['knowledge.read', 'knowledge.import'].includes(grant.permissionId),
+          ),
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await click(button('导入'));
+    const importer = dialog('导入 FAQ');
+    await waitFor(() => importer.textContent?.includes('有索引任务失败') === true);
+    expect(maybeButton('重试失败索引', importer)).toBeUndefined();
+    expect(maybeButton('发布批次 2 条 FAQ', importer)).toBeUndefined();
+    expect(calls.some((call) => call.method === 'POST')).toBe(false);
+  });
+
+  it('仅发布用户可恢复已完成索引批次并提交发布，不提供导入或索引重试', async () => {
+    recoveryHandlers({ kjob_a: 'succeeded', kjob_b: 'succeeded' });
+    server.use(
+      http.get('/api/auth/me', () =>
+        HttpResponse.json({
+          ...allAccessMe,
+          grants: allAccessMe.grants.filter((grant) =>
+            ['knowledge.read', 'knowledge.publish'].includes(grant.permissionId),
+          ),
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    expect(maybeButton('导入')).toBeUndefined();
+    await click(button('批次发布'));
+    const publisher = dialog('批次发布 FAQ');
+    await waitFor(() => maybeButton('发布批次 2 条 FAQ', publisher)?.disabled === false);
+    expect(publisher.textContent).toContain('继续未完成批次');
+    expect(publisher.textContent).toContain('索引已完成，可整批发布');
+    expect(maybeButton('预览', publisher)).toBeUndefined();
+    expect(maybeButton('确认导入', publisher)).toBeUndefined();
+    expect(maybeButton('重试失败索引', publisher)).toBeUndefined();
+    expect(publisher.querySelector('#faq-import-content')).toBeNull();
+    expect(publisher.querySelector('#faq-import-file')).toBeNull();
+    await click(button('发布批次 2 条 FAQ', publisher));
+    const posts = calls.filter((call) => call.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.path).toBe('/api/knowledge/bases/kb_1/faqs/batch');
+    expect(posts[0]?.body).toEqual({
+      action: 'publish',
+      importBatchId: 'imp_9',
+      items: [
+        { documentId: 'kdoc_a', versionId: 'kdv_a', expectedVersionId: null },
+        { documentId: 'kdoc_b', versionId: 'kdv_b', expectedVersionId: 'kdv_b_pub' },
+      ],
+    });
+    expect(toastSuccess).toHaveBeenCalledWith('已发布批次 2 条 FAQ');
+  });
 
   it('restores the pending batch after the dialog is closed and publishes every member', async () => {
     recoveryHandlers({ kjob_a: 'succeeded', kjob_b: 'succeeded' });

@@ -50,13 +50,15 @@ describe('DataTable accessibility', () => {
   });
 
   it.each([
-    { prefs: ['id'] },
+    { prefs: ['name'] },
     { prefs: { hidden: ['id'], order: ['name', 'id', 'id', 'removed'] } },
   ])('keeps locked columns visible despite saved preferences %j', ({ prefs }) => {
     vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(prefs) });
     const html = renderTable({ storageKey: 'test.columns' });
     expect(html).toContain('run-1');
     expect(html.match(/<th\b/g)).toHaveLength(2);
+    // 旧版裸数组偏好不再读取：专家列不能被 ['name'] 隐藏。
+    expect(html).toContain('专家');
   });
 
   it.each([

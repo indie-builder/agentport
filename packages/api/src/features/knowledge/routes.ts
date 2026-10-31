@@ -12,7 +12,7 @@ import {
   segmentForSearch,
 } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
-import type { KnowledgeBaseSettings, KnowledgeJobPayload } from '@agentport/shared';
+import type { KnowledgeBaseSettings } from '@agentport/shared';
 import {
   httpUrlSchema,
   knowledgeBaseInputSchema,
@@ -22,6 +22,7 @@ import {
   knowledgeFaqImportMetadataSchema,
   knowledgeImageChunkMetadataSchema,
   knowledgeJobPayloadSchema,
+  knowledgeModelProfileSelectionSchema,
   knowledgeTargetKindSchema,
 } from '@agentport/shared';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -31,6 +32,7 @@ import { writeAudit } from '../../plugins/audit.js';
 import { AppError, isAppError, isPgCode, reject } from '../../plugins/errors.js';
 import { publishKnowledgeCancel } from '../../queue/producer.js';
 import { typed } from '../../types.js';
+import { actorOf, authorizeObject } from '../access.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 import { searchKnowledge } from './retrieval.js';
 import { createJob, documentWire, enqueueKnowledgeJob, ensureKnowledgeServer } from './service.js';
@@ -51,6 +53,7 @@ const chunkParams = z.object({ chunkId: z.string().min(1) });
 const versionParams = z.object({ versionId: z.string().min(1) });
 const jobParams = z.object({ jobId: z.string().min(1) });
 const profileParams = z.object({ profileId: z.string().min(1) });
+const profileListQuery = z.object({ view: z.literal('selection').optional() });
 
 const pageQuery = z.object({
   cursor: z.string().optional(),
@@ -233,6 +236,7 @@ const profilePatchSchema = z.object({
 
 const jobQuery = pageQuery.extend({
   baseId: z.string().optional(),
+  documentId: z.string().optional(),
   status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).optional(),
 });
 
@@ -288,6 +292,7 @@ const profileSchema = z.object({
 type DocumentRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getDocument>>>;
 type ChunkRow = Awaited<ReturnType<typeof repo.knowledge.listChunkSummaries>>['items'][number];
 type JobRow = Awaited<ReturnType<typeof repo.knowledge.listJobs>>['items'][number];
+type RawJobRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getJob>>>;
 type FolderRow = Awaited<ReturnType<typeof repo.knowledge.listFolders>>['items'][number];
 type TagRow = Awaited<ReturnType<typeof repo.knowledge.listTags>>[number];
 type ProfileRow = Awaited<ReturnType<typeof repo.knowledge.listModelProfiles>>[number];
@@ -333,7 +338,8 @@ function toChunk(row: ChunkRow) {
   };
 }
 
-function toJob(row: JobRow) {
+/** 列表带关联名字；单任务读取不额外查名字，保持 null。 */
+function toJob(row: JobRow | RawJobRow) {
   return {
     id: row.id,
     type: row.type,
@@ -343,6 +349,10 @@ function toJob(row: JobRow) {
     attempts: row.attempts,
     error: row.error,
     result: row.result,
+    documentId: row.documentId,
+    sourceId: row.sourceId,
+    documentTitle: 'documentTitle' in row ? row.documentTitle : null,
+    sourceName: 'sourceName' in row ? row.sourceName : null,
     createdAt: row.createdAt.toISOString(),
     startedAt: row.startedAt?.toISOString() ?? null,
     endedAt: row.endedAt?.toISOString() ?? null,
@@ -530,7 +540,6 @@ async function imageSettingsProblem(
 
 export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
   const secretKey = (): string => app.config.APP_SECRET_KEY;
 
   const enqueue = async (
@@ -770,7 +779,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases',
-    { ...auth, schema: { querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { querystring: pageQuery },
+    },
     async (request) => {
       const page = await repo.knowledge.listBases(app.db, pageOptions(request.query));
       return { items: page.items.map(toBase), nextCursor: page.nextCursor };
@@ -779,7 +791,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases',
-    { ...auth, schema: { body: baseCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.create' } },
+      schema: { body: baseCreateSchema },
+    },
     async (request, reply) => {
       const input = request.body;
       const [embedding, rerank, asr] = await Promise.all([
@@ -817,7 +832,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         });
         await ensureKnowledgeServer(app.db, { slug: row.slug, id: row.id, serverId: server.id });
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'knowledge.base.created',
           target: row.id,
           input: { slug: row.slug },
@@ -834,7 +849,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id',
-    { ...auth, schema: { params: baseParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getBase(app.db, request.params.id);
       return row ? toBase(row) : notFound(reply, '知识库');
@@ -843,7 +861,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/bases/:id',
-    { ...auth, schema: { params: baseParams, body: basePatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.update' } },
+      schema: { params: baseParams, body: basePatchSchema },
+    },
     async (request, reply) => {
       const current = await repo.knowledge.getBase(app.db, request.params.id);
       if (!current) return notFound(reply, '知识库');
@@ -917,7 +938,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   // 删内置 server 即级联删库与 agent_servers 绑定；blob 由 cleanup job 按引用回收。
   app.delete(
     '/api/knowledge/bases/:id',
-    { ...auth, schema: { params: baseParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.delete' } },
+      schema: { params: baseParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getBase(app.db, request.params.id);
       if (!row) return notFound(reply, '知识库');
@@ -927,7 +951,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       );
       await repo.servers.deleteServer(app.db, row.serverId);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'knowledge.base.deleted',
         target: row.id,
         input: { unboundAgents: unbound.rows.map((r) => r.agent_id) },
@@ -943,7 +967,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/knowledge/bases/:id/folders',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
       schema: {
         params: baseParams,
         querystring: pageQuery,
@@ -964,10 +988,20 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/folders',
-    { ...auth, schema: { params: baseParams, body: folderCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: baseParams, body: folderCreateSchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return notFound(reply, '知识库');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       const parent = request.body.parentId
         ? await repo.knowledge.getFolder(app.db, request.body.parentId)
         : null;
@@ -991,7 +1025,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/folders/:folderId',
-    { ...auth, schema: { params: folderParams, body: folderPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: folderParams, body: folderPatchSchema },
+    },
     async (request, reply) => {
       const current = await repo.knowledge.getFolder(app.db, request.params.folderId);
       if (!current) return notFound(reply, '文件夹');
@@ -1009,7 +1046,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/folders/:folderId',
-    { ...auth, schema: { params: folderParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: folderParams },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.deleteFolder(app.db, request.params.folderId))) {
         return notFound(reply, '文件夹');
@@ -1020,7 +1060,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/tags',
-    { ...auth, schema: { params: baseParams, response: { 200: z.array(tagSchema) } } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams, response: { 200: z.array(tagSchema) } },
+    },
     async (request) => {
       const rows = await repo.knowledge.listTags(app.db, request.params.id);
       return rows.map(toTag);
@@ -1030,7 +1073,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/knowledge/bases/:id/tags',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
       schema: { params: baseParams, body: z.object({ name: z.string().trim().min(1).max(64) }) },
     },
     async (request, reply) => {
@@ -1043,7 +1086,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/tags/:tagId',
-    { ...auth, schema: { params: tagParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: tagParams },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.deleteTag(app.db, request.params.tagId)))
         return notFound(reply, '标签');
@@ -1055,7 +1101,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/documents',
-    { ...auth, schema: { params: baseParams, querystring: documentQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams, querystring: documentQuery },
+    },
     async (request) => {
       const { folderId, tag, status, q, ...rest } = request.query;
       const page = await repo.knowledge.listDocuments(app.db, {
@@ -1082,10 +1131,21 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   // 上传走 base64 JSON（避免 multipart 依赖）：先落 blob，再建行，最后入队 ingest。
   app.put(
     '/api/knowledge/bases/:id/documents/upload',
-    { ...auth, bodyLimit: UPLOAD_BODY_LIMIT, schema: { params: baseParams, body: uploadSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      bodyLimit: UPLOAD_BODY_LIMIT,
+      schema: { params: baseParams, body: uploadSchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return notFound(reply, '知识库');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       const data = decodeBase64(request.body.dataBase64);
       if (!data) return reject(reply, 'INVALID_INPUT', 'dataBase64 不是合法的 base64');
       if (data.length > MAX_UPLOAD_BYTES) {
@@ -1166,7 +1226,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         { baseId: base.id, documentId: document.id },
       );
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'knowledge.document.uploaded',
         target: document.id,
         input: { filename: request.body.filename, sizeBytes: data.length },
@@ -1179,7 +1239,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/documents/:documentId',
-    { ...auth, schema: { params: documentParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: documentParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       return row ? documentWithTags(row) : notFound(reply, '文档');
@@ -1188,7 +1251,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/documents/:documentId',
-    { ...auth, schema: { params: documentParams, body: documentPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: documentParams, body: documentPatchSchema },
+    },
     async (request, reply) => {
       const current = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!current) return notFound(reply, '文档');
@@ -1241,7 +1307,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/documents/:documentId',
-    { ...auth, schema: { params: documentParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: documentParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!row) return notFound(reply, '文档');
@@ -1249,7 +1318,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       const wikiPagesMarkedStale = await repo.knowledge.markWikiStaleByDocument(app.db, row.id);
       await repo.knowledge.deleteDocument(app.db, row.id);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'knowledge.document.deleted',
         target: row.id,
         input: { wikiPagesMarkedStale },
@@ -1262,7 +1331,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/documents/:documentId/reprocess',
-    { ...auth, schema: { params: documentParams, body: reprocessSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: documentParams, body: reprocessSchema },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!row) return notFound(reply, '文档');
@@ -1303,7 +1375,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/knowledge/documents/:documentId/chunks',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
       schema: {
         params: documentParams,
         querystring: pageQuery.extend({ versionId: z.string().optional() }),
@@ -1342,7 +1414,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/documents/:documentId/chunks',
-    { ...auth, schema: { params: documentParams, body: chunkCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: documentParams, body: chunkCreateSchema },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!row) return notFound(reply, '文档');
@@ -1418,7 +1493,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/chunks/:chunkId',
-    { ...auth, schema: { params: chunkParams, body: chunkPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: chunkParams, body: chunkPatchSchema },
+    },
     async (request, reply) => {
       const current = await repo.knowledge.getChunk(app.db, request.params.chunkId);
       if (!current) return notFound(reply, '分块');
@@ -1492,7 +1570,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/chunks/:chunkId',
-    { ...auth, schema: { params: chunkParams, body: chunkDeleteSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: chunkParams, body: chunkDeleteSchema },
+    },
     async (request, reply) => {
       const chunk = await repo.knowledge.getChunk(app.db, request.params.chunkId);
       if (!chunk) return notFound(reply, '分块');
@@ -1533,7 +1614,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/knowledge/documents/:documentId/versions',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
       schema: {
         params: documentParams,
         querystring: pageQuery,
@@ -1548,6 +1629,13 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const document = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!document) return notFound(reply, '文档');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: document.id },
+        '对象不存在',
+      );
       const page = await repo.knowledge.listDocumentVersions(
         app.db,
         document.id,
@@ -1562,10 +1650,20 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/documents/:documentId/rollback',
-    { ...auth, schema: { params: documentParams, body: rollbackSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.publish' } },
+      schema: { params: documentParams, body: rollbackSchema },
+    },
     async (request, reply) => {
       const document = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!document) return notFound(reply, '文档');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.publish',
+        { objectId: document.id },
+        '对象不存在',
+      );
       const version = await repo.knowledge.getVersion(app.db, request.body.versionId);
       // 跨文档版本必须 404，不能让一个 documentId 借到别的文档历史。
       if (!version || version.documentId !== document.id) {
@@ -1573,6 +1671,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       }
       const base = await repo.knowledge.getBase(app.db, document.baseId);
       if (!base) return notFound(reply, '知识库');
+      await authorizeObject(app, request, 'knowledge.publish', { objectId: base.id }, '对象不存在');
       if (version.embeddingProfileId !== base.embeddingProfileId) {
         return reject(reply, 'CONFLICT', '该版本来自不同 embedding 空间，需重建后才能切换');
       }
@@ -1595,7 +1694,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/versions/:versionId/content',
-    { ...auth, schema: { params: versionParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: versionParams },
+    },
     async (request, reply) => {
       const version = await repo.knowledge.getVersion(app.db, request.params.versionId);
       if (!version) return notFound(reply, '版本');
@@ -1616,7 +1718,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/versions/:versionId/markdown',
-    { ...auth, schema: { params: versionParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: versionParams },
+    },
     async (request, reply) => {
       const version = await repo.knowledge.getVersion(app.db, request.params.versionId);
       if (!version) return notFound(reply, '版本');
@@ -1639,7 +1744,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/search',
-    { ...auth, schema: { params: baseParams, querystring: searchQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: baseParams, querystring: searchQuery },
+    },
     async (request, reply) => {
       try {
         return await searchKnowledge(app.db, request.params.id, request.query, {
@@ -1654,10 +1762,14 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/rebuild',
-    { ...auth, schema: { params: baseParams, body: rebuildSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: baseParams, body: rebuildSchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return notFound(reply, '知识库');
+      await authorizeObject(app, request, 'knowledge.execute', { objectId: base.id }, '对象不存在');
       const ids = request.body.documentIds ? [...new Set(request.body.documentIds)] : null;
       // reindex 的 documentIds 必须属于该库；否则跨库文档会被按错误 base 重建。
       if (ids && ids.length > 0) {
@@ -1822,10 +1934,27 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/documents/batch',
-    { ...auth, schema: { params: baseParams, body: batchSchema } },
+    {
+      config: { access: { kind: 'authenticated' } },
+      schema: { params: baseParams, body: batchSchema },
+      preHandler: async (request, reply) => {
+        await app
+          .requirePermission(
+            request.body.action === 'reprocess' ? 'knowledge.execute' : 'knowledge.content.manage',
+          )
+          .call(app, request, reply, () => undefined);
+      },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return notFound(reply, '知识库');
+      await authorizeObject(
+        app,
+        request,
+        request.body.action === 'reprocess' ? 'knowledge.execute' : 'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       const input = request.body;
       if (input.action === 'move') {
         if (input.folderId === undefined) {
@@ -1941,12 +2070,16 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/jobs',
-    { ...auth, schema: { querystring: jobQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { querystring: jobQuery },
+    },
     async (request) => {
-      const { baseId, status, ...rest } = request.query;
+      const { baseId, documentId, status, ...rest } = request.query;
       const page = await repo.knowledge.listJobs(app.db, {
         ...pageOptions(rest),
         ...(baseId === undefined ? {} : { baseId }),
+        ...(documentId === undefined ? {} : { documentId }),
         ...(status === undefined ? {} : { status }),
       });
       return { items: page.items.map(toJob), nextCursor: page.nextCursor };
@@ -1955,7 +2088,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/jobs/:jobId',
-    { ...auth, schema: { params: jobParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: jobParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getJob(app.db, request.params.jobId);
       return row ? toJob(row) : notFound(reply, '任务');
@@ -1965,29 +2101,29 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   // 重试不复用原行：终态只写一次，新行才能真正重新执行。
   app.post(
     '/api/knowledge/jobs/:jobId/retry',
-    { ...auth, schema: { params: jobParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: jobParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getJob(app.db, request.params.jobId);
       if (!row) return notFound(reply, '任务');
       if (row.status !== 'failed' && row.status !== 'cancelled') {
         return reject(reply, 'CONFLICT', '只有失败或已取消的任务可以重试');
       }
-      // schema 已包含输入快照/覆盖确认等字段，重试因此复用原任务语义。
-      let retryPayload: KnowledgeJobPayload = knowledgeJobPayloadSchema.parse(row.payload);
-      if (retryPayload.type === 'sync') {
-        const source = await repo.knowledge.getSource(app.db, retryPayload.sourceId);
-        if (!source) return notFound(reply, '来源');
-        const [run] = await app.db
-          .insert(schema.knowledgeSyncRuns)
-          .values({
-            id: newId('knowledgeSyncRun'),
-            sourceId: source.id,
-            status: 'queued',
-            cursorBefore: source.cursor,
-          })
-          .returning();
-        if (!run) throw new Error('knowledge sync run insert returned no row');
-        retryPayload = { ...retryPayload, syncRunId: run.id };
+      const payload = knowledgeJobPayloadSchema.parse(row.payload);
+      // 同步重试是一次新同步：新建 run 才能保留旧 run 的历史，不能覆写。
+      if (payload.type === 'sync') {
+        const created = await repo.knowledge.createSyncJob(app.db, payload.sourceId);
+        if (created.status === 'not_found') return notFound(reply, '来源');
+        if (created.status === 'not_active') {
+          return reject(reply, 'CONFLICT', '来源未启用，无法同步');
+        }
+        if (created.status === 'in_progress') {
+          return reject(reply, 'CONFLICT', '该来源已有同步任务在进行中');
+        }
+        await enqueueKnowledgeJob(created.job);
+        return reply.status(202).send({ jobId: created.job.id });
       }
       // 普通 FAQ 草稿版本由 API 预落库，worker 只补分块、不写 metadata；
       // 重试必须把草稿改绑到新任务：普通草稿写 indexingJobId，批次导入草稿写
@@ -1997,13 +2133,13 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         jobKey: 'indexingJobId' | 'faqImportJobId';
       } | null = null;
       if (
-        retryPayload.type === 'ingest' &&
-        retryPayload.publish === 'draft' &&
-        retryPayload.versionId !== undefined
+        payload.type === 'ingest' &&
+        payload.publish === 'draft' &&
+        payload.versionId !== undefined
       ) {
-        const document = await repo.knowledge.getDocument(app.db, retryPayload.documentId);
+        const document = await repo.knowledge.getDocument(app.db, payload.documentId);
         const version = document
-          ? await repo.knowledge.getVersion(app.db, retryPayload.versionId)
+          ? await repo.knowledge.getVersion(app.db, payload.versionId)
           : null;
         if (
           document?.contentKind === 'faq' &&
@@ -2028,7 +2164,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
             baseId: row.baseId,
             documentId: row.documentId,
             sourceId: row.sourceId,
-            payload: retryPayload,
+            payload,
           });
           // 只补一个键：faqImport 快照、replaceTargets 等其它 metadata 原样保留。
           const rebind =
@@ -2056,7 +2192,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         await enqueueKnowledgeJob(job);
         return reply.status(202).send({ jobId: job.id });
       }
-      const job = await enqueue(retryPayload, {
+      const job = await enqueue(payload, {
         baseId: row.baseId,
         documentId: row.documentId,
         sourceId: row.sourceId,
@@ -2071,28 +2207,21 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
    */
   app.post(
     '/api/knowledge/jobs/:jobId/cancel',
-    { ...auth, schema: { params: jobParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: jobParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getJob(app.db, request.params.jobId);
       if (!row) return notFound(reply, '任务');
       if (row.status === 'queued') {
-        const cancelled = await repo.knowledge.requestCancel(app.db, row.id);
-        if (cancelled) {
-          // 排队中取消不会再经过 worker，sync run 必须同一次收尾，否则永久显示进行中。
-          const payload = knowledgeJobPayloadSchema.safeParse(cancelled.payload);
-          if (payload.success && payload.data.type === 'sync') {
-            await repo.knowledge.finishSyncRun(app.db, payload.data.syncRunId, {
-              status: 'cancelled',
-              error: 'cancelled',
-            });
-            await repo.knowledge.updateSource(app.db, payload.data.sourceId, {
-              lastSyncAt: new Date(),
-              lastSyncStatus: 'cancelled',
-              lastError: 'cancelled',
-            });
-          }
-          return toJob(cancelled);
-        }
+        // 排队中取消不会再经过 worker：job/run/source 摘要必须一次原子提交。
+        const cancelled = await repo.knowledge.finishJob(app.db, row.id, {
+          fromStatus: 'queued',
+          status: 'cancelled',
+          error: 'cancelled',
+        });
+        if (cancelled) return toJob(cancelled);
         // worker 抢在取消前认领：按运行中处理，别把这次取消当成失败。
         const claimed = await repo.knowledge.getJob(app.db, row.id);
         if (!claimed || claimed.status !== 'running') {
@@ -2109,18 +2238,47 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   // ---- 模型 profile -------------------------------------------------------
 
+  /**
+   * 同一个 URL 两种形状：管理列表要 manage，选择投影只要 read。
+   * 权限在 preHandler 里按已校验的 view 选择，不能给 read 暴露管理端点。
+   */
   app.get(
     '/api/knowledge/model-profiles',
-    { ...auth, schema: { response: { 200: z.array(profileSchema) } } },
-    async () => {
+    {
+      config: { access: { kind: 'authenticated' } },
+      schema: {
+        querystring: profileListQuery,
+        response: {
+          200: z.union([z.array(profileSchema), z.array(knowledgeModelProfileSelectionSchema)]),
+        },
+      },
+      preHandler: async (request, reply) => {
+        const { view } = request.query as { view?: 'selection' | undefined };
+        await app
+          .requirePermission(view === 'selection' ? 'knowledge.read' : 'knowledge.models.manage')
+          .call(app, request, reply, () => undefined);
+      },
+    },
+    async (request) => {
       const rows = await repo.knowledge.listModelProfiles(app.db);
-      return rows.map(toProfile);
+      if (request.query.view !== 'selection') return rows.map(toProfile);
+      // 显式挑 5 个字段：端点、模型、协议、密钥与时间戳都不属于选择投影。
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        kind: row.kind,
+        enabled: row.enabled,
+        supportsImageVectors: row.kind === 'embedding' && supportsImageVectors(row),
+      }));
     },
   );
 
   app.post(
     '/api/knowledge/model-profiles',
-    { ...auth, schema: { body: profileCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } },
+      schema: { body: profileCreateSchema },
+    },
     async (request, reply) => {
       const input = request.body;
       const capabilityProblem = imageCapabilityProblem(input);
@@ -2153,7 +2311,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/model-profiles/:profileId',
-    { ...auth, schema: { params: profileParams, body: profilePatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } },
+      schema: { params: profileParams, body: profilePatchSchema },
+    },
     async (request, reply) => {
       const { apiKey, ...rest } = request.body;
       if (rest.endpointUrl !== undefined)
@@ -2217,7 +2378,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/model-profiles/:profileId',
-    { ...auth, schema: { params: profileParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } },
+      schema: { params: profileParams },
+    },
     async (request, reply) => {
       try {
         const result = await app.pool.query('delete from knowledge_model_profiles where id = $1', [
@@ -2238,7 +2402,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   // 只发一次最小请求验证凭证/维度；不落 job，也不改 profile。
   app.post(
     '/api/knowledge/model-profiles/:profileId/test',
-    { ...auth, schema: { params: profileParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } },
+      schema: { params: profileParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getModelProfileWithSecret(app.db, request.params.profileId);
       if (!row) return notFound(reply, '模型 profile');

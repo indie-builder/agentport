@@ -22,7 +22,7 @@ import {
 } from '../src/sandbox/sessions.js';
 
 /**
- * 真实验收：官方 SDK 0.3.311 的原生 CLI 在 SANDBOX_IMAGE（默认 sandbox:dev）里经 supervisor
+ * 真实验收：官方 SDK 0.3.316 的原生 CLI 在 SANDBOX_IMAGE（默认 sandbox:dev）里经 supervisor
  * 执行，模型流量全部打到宿主本地假 Anthropic SSE，不读 .env、不向外发模型请求。
  * Bash 用例直接使用镜像自带的真实 bash，不再放测试专用包装脚本。
  *
@@ -31,7 +31,7 @@ import {
  */
 const IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const MODEL = 'claude-sonnet-5-5';
-const SDK_VERSION = '0.3.311';
+const SDK_VERSION = '0.3.316';
 /** 官方子智能体 project 记忆根；每个 slug 是独立 rw bind mount。 */
 const SUBAGENT_MEMORY_ROOT = '/workspace/.claude/agent-memory';
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));

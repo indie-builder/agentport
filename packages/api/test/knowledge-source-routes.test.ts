@@ -563,6 +563,11 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       [created.syncRunId],
     );
     expect(run.rows[0]!.status).toBe('cancelled');
+    const sourceRow = await app.pool.query<{ last_sync_status: string; cursor: unknown }>(
+      'select last_sync_status, cursor from knowledge_sources where id = $1',
+      [source.id],
+    );
+    expect(sourceRow.rows[0]).toMatchObject({ last_sync_status: 'cancelled', cursor: {} });
 
     const retried = await inject(app, {
       method: 'POST',
@@ -627,6 +632,60 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       headers: { cookie },
     });
     expect(duplicate.statusCode, duplicate.body).toBe(409);
+  });
+
+  it('rolls back the sync run on manual sync and retry when the job insert fails', async () => {
+    const baseId = await createBase();
+    const source = await createSource(baseId);
+    const runId = unique('ksyn');
+    const failedJobId = unique('kjob');
+    await app.pool.query(
+      `insert into knowledge_sync_runs (id, source_id, status, cursor_before)
+       values ($1, $2, 'failed', '{}'::jsonb)`,
+      [runId, source.id],
+    );
+    await app.pool.query(
+      `insert into knowledge_jobs (id, type, base_id, source_id, status, payload)
+       values ($1, 'sync', $2, $3, 'failed', $4::jsonb)`,
+      [
+        failedJobId,
+        baseId,
+        source.id,
+        JSON.stringify({ type: 'sync', sourceId: source.id, syncRunId: runId }),
+      ],
+    );
+
+    const suffix = unique('fault').replaceAll('-', '_');
+    const fn = `fail_pair_${suffix}`;
+    await app.pool.query(
+      `create function ${fn}() returns trigger language plpgsql as $$ begin raise exception 'injected job insert'; end $$`,
+    );
+    await app.pool.query(
+      `create trigger ${fn}_trg before insert on knowledge_jobs for each row when (new.source_id = '${source.id}') execute function ${fn}()`,
+    );
+    try {
+      const manual = await inject(app, {
+        method: 'POST',
+        url: `/api/knowledge/sources/${source.id}/sync`,
+        headers: { cookie },
+      });
+      expect(manual.statusCode, manual.body).toBe(500);
+      const retry = await inject(app, {
+        method: 'POST',
+        url: `/api/knowledge/jobs/${failedJobId}/retry`,
+        headers: { cookie },
+      });
+      expect(retry.statusCode, retry.body).toBe(500);
+    } finally {
+      await app.pool.query(`drop trigger if exists ${fn}_trg on knowledge_jobs`);
+      await app.pool.query(`drop function if exists ${fn}()`);
+    }
+
+    const runs = await app.pool.query<{ id: string }>(
+      'select id from knowledge_sync_runs where source_id = $1',
+      [source.id],
+    );
+    expect(runs.rows.map((row) => row.id)).toEqual([runId]);
   });
 
   async function seedSourceDocument(baseId: string, sourceId: string): Promise<string> {
@@ -734,5 +793,77 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       [kept],
     );
     expect(other.rows[0]!.status).toBe('ready');
+  });
+
+  it('rejects a sync cron that BullMQ cannot schedule, and writes nothing', async () => {
+    const baseId = await createBase();
+    for (const syncCron of ['99 99 99 99 99', '0 0 31 2 *']) {
+      const res = await inject(app, {
+        method: 'POST',
+        url: `/api/knowledge/bases/${baseId}/sources`,
+        headers: { cookie },
+        payload: sourcePayload({ syncCron }),
+      });
+      expect(res.statusCode, res.body).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'INVALID_INPUT', path: '/syncCron' });
+    }
+    const stored = await app.pool.query<{ count: string }>(
+      'select count(*)::text as count from knowledge_sources where base_id = $1',
+      [baseId],
+    );
+    expect(stored.rows[0]!.count).toBe('0');
+  });
+
+  it('accepts schedulable crons including leap day and surrounding whitespace, and null disables', async () => {
+    const baseId = await createBase();
+    const leap = await createSource(baseId, { syncCron: '  0 0 29 2 *  ' });
+    expect(leap).toMatchObject({ id: expect.stringMatching(/^ksrc_/) });
+    const stored = await app.pool.query<{ sync_cron: string }>(
+      'select sync_cron from knowledge_sources where id = $1',
+      [leap.id],
+    );
+    expect(stored.rows[0]!.sync_cron).toBe('0 0 29 2 *');
+    const step = await createSource(baseId, { syncCron: '*/5   * * * *' });
+    const disabled = await createSource(baseId, { syncCron: null });
+    expect([step.id, disabled.id]).toHaveLength(2);
+  });
+
+  it('PATCH validates syncCron, keeps it when omitted, and never writes an invalid value', async () => {
+    const baseId = await createBase();
+    const source = await createSource(baseId, { syncCron: '0 3 * * *' });
+
+    const omitted = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${source.id}`,
+      headers: { cookie },
+      payload: { name: 'renamed' },
+    });
+    expect(omitted.statusCode, omitted.body).toBe(200);
+    expect(omitted.json()).toMatchObject({ name: 'renamed', syncCron: '0 3 * * *' });
+
+    for (const syncCron of ['99 99 99 99 99', '0 0 31 2 *']) {
+      const bad = await inject(app, {
+        method: 'PATCH',
+        url: `/api/knowledge/sources/${source.id}`,
+        headers: { cookie },
+        payload: { syncCron },
+      });
+      expect(bad.statusCode, bad.body).toBe(400);
+      expect(bad.json()).toMatchObject({ code: 'INVALID_INPUT', path: '/syncCron' });
+    }
+    const unchanged = await app.pool.query<{ sync_cron: string }>(
+      'select sync_cron from knowledge_sources where id = $1',
+      [source.id],
+    );
+    expect(unchanged.rows[0]!.sync_cron).toBe('0 3 * * *');
+
+    const nulled = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${source.id}`,
+      headers: { cookie },
+      payload: { syncCron: null },
+    });
+    expect(nulled.statusCode, nulled.body).toBe(200);
+    expect(nulled.json()).toMatchObject({ syncCron: null });
   });
 });

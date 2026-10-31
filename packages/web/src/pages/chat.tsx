@@ -10,7 +10,7 @@ import {
   type ProgressTodo,
   type PublicRunQuestion,
 } from '@agentport/shared';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   ArrowDown,
@@ -114,6 +114,7 @@ import {
   TraceLine,
   TraceTitle,
 } from '../components/ui/trace.js';
+import { can } from '../lib/access.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
@@ -132,6 +133,7 @@ import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatBytes, formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import {
+  meQuery,
   useAgents,
   useConversation,
   useConversationOutputs,
@@ -152,6 +154,9 @@ export function ChatPage() {
   const search = useSearch({ from: '/_shell/chat' });
   const navigate = useNavigate();
   const agents = useAgents();
+  const me = useQuery(meQuery);
+  const canCreate = can(me.data, 'agents.create');
+  const canReadAgents = can(me.data, 'agents.read');
   const conversationId = search.conversation ?? null;
   const detail = useConversation(conversationId);
 
@@ -184,7 +189,11 @@ export function ChatPage() {
           <LoadingState rows={3} />
         ) : agents.isError ? (
           <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-        ) : (
+        ) : me.isPending ? (
+          <LoadingState rows={3} />
+        ) : me.isError ? (
+          <ErrorState error={me.error} onRetry={() => void me.refetch()} />
+        ) : canCreate ? (
           <EmptyState
             icon={<Bot className="size-5" />}
             title="先创建一位专家"
@@ -193,6 +202,19 @@ export function ChatPage() {
               <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
                 前往专家
               </Link>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<Bot className="size-5" />}
+            title="暂无可用专家"
+            description="当前账户尚未分配可用专家，请联系管理员。"
+            action={
+              canReadAgents ? (
+                <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
+                  前往专家
+                </Link>
+              ) : undefined
             }
           />
         )}
@@ -1019,6 +1041,10 @@ function ChatTopBar({
   onDelete: (trigger: HTMLElement) => void;
 }) {
   const headerTriggerRef = useRef<HTMLElement | null>(null);
+  const me = useQuery(meQuery);
+  const canUpdate = can(me.data, 'conversations.update');
+  const canDelete = can(me.data, 'conversations.delete');
+  const canCreate = can(me.data, 'conversations.create');
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 px-6">
       {/* 会话内的面板开关比导航折叠更轻：虚线面板图标，保持 32px 点击区与同一中心线。 */}
@@ -1088,28 +1114,34 @@ function ChatTopBar({
           />
           <DropdownMenuContent align="start" sideOffset={4} className="w-40">
             <DropdownMenuGroup>
-              <DropdownMenuItem
-                disabled={deleting}
-                onClick={() => {
-                  const trigger = headerTriggerRef.current;
-                  if (trigger) onRename(trigger);
-                }}
-              >
-                <Pencil /> 重命名
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={deleting} onClick={onFork}>
-                <GitBranch /> Fork 会话
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={deleting}
-                onClick={() => {
-                  const trigger = headerTriggerRef.current;
-                  if (trigger) onDelete(trigger);
-                }}
-              >
-                <Trash2 /> 删除会话
-              </DropdownMenuItem>
+              {canUpdate ? (
+                <DropdownMenuItem
+                  disabled={deleting}
+                  onClick={() => {
+                    const trigger = headerTriggerRef.current;
+                    if (trigger) onRename(trigger);
+                  }}
+                >
+                  <Pencil /> 重命名
+                </DropdownMenuItem>
+              ) : null}
+              {canCreate ? (
+                <DropdownMenuItem disabled={deleting} onClick={onFork}>
+                  <GitBranch /> Fork 会话
+                </DropdownMenuItem>
+              ) : null}
+              {canDelete ? (
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={deleting}
+                  onClick={() => {
+                    const trigger = headerTriggerRef.current;
+                    if (trigger) onDelete(trigger);
+                  }}
+                >
+                  <Trash2 /> 删除会话
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1845,6 +1877,9 @@ export function Composer({
   onCancel?: () => void;
 }) {
   // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
+  const me = useQuery(meQuery);
+  const canSend = can(me.data, 'conversations.create');
+  const canCancelRun = can(me.data, 'runs.cancel');
   const input = useChatStore((state) => state.input);
   const setInput = useChatStore((state) => state.setInput);
   const run = useChatStore((state) => state.run);
@@ -1857,7 +1892,7 @@ export function Composer({
 
   // Enter 与发送按钮共用同一条发送路径；输入框在欢迎与会话之间保持同一个节点。
   const submit = (): void => {
-    if (!historyReady || run) return;
+    if (!historyReady || run || !canSend) return;
     void send();
   };
   return (
@@ -1959,26 +1994,30 @@ export function Composer({
             </div>
             {run?.runId && onCancel ? (
               // 运行中发送位换成停止：动作在用户正在打字的地方，不用到消息流里找。
-              <InputGroupButton
-                variant="outline"
-                size="icon-sm"
-                onClick={onCancel}
-                disabled={cancelling}
-                aria-busy={cancelling}
-                aria-label="停止运行"
-                title="停止本轮运行"
-                className="ml-auto size-11 sm:size-8"
-              >
-                {cancelling ? <LoaderCircle className="animate-spin" /> : <CircleStop />}
-              </InputGroupButton>
+              canCancelRun ? (
+                <InputGroupButton
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={onCancel}
+                  disabled={cancelling}
+                  aria-busy={cancelling}
+                  aria-label="停止运行"
+                  title="停止本轮运行"
+                  className="ml-auto size-11 sm:size-8"
+                >
+                  {cancelling ? <LoaderCircle className="animate-spin" /> : <CircleStop />}
+                </InputGroupButton>
+              ) : null
             ) : (
               <InputGroupButton
                 type="submit"
                 variant="solid"
                 size="icon-sm"
-                disabled={!agent || Boolean(run) || !hasContent || !historyReady}
+                disabled={!agent || Boolean(run) || !hasContent || !historyReady || !canSend}
                 aria-label="发送消息"
-                title={run ? '本轮结束后可发送' : undefined}
+                title={
+                  !canSend ? '当前账户没有新建会话的权限' : run ? '本轮结束后可发送' : undefined
+                }
                 className="ml-auto size-11 sm:size-8"
               >
                 <ArrowUp />
@@ -2093,7 +2132,8 @@ function RunReconciliation({
   run: RunState;
   reconcileRun: ReturnType<typeof useChatStream>['reconcileRun'];
 }) {
-  const runQuery = useRun(run.runId);
+  // 健康事件流会自己补终态；只在连接未开/断开时靠详情回读，恢复后自动停。
+  const runQuery = useRun(run.runId, run.status !== 'streaming');
   useEffect(() => {
     if (runQuery.data && (run.status !== 'streaming' || runQuery.data.run.status === 'cancelled')) {
       reconcileRun(runQuery.data.run);
@@ -2774,21 +2814,6 @@ function assignApprovals(
     if (host) hosts.set(host.toolUseId, approval);
   }
   return hosts;
-}
-
-/** 审批卡放在被拒工具的原位置；匹配不上的兜底放在末尾，不能吞掉。 */
-export function findApproval(
-  item: ToolItem,
-  approvalItems: ApprovalRequest[],
-): ApprovalRequest | undefined {
-  const exact = approvalItems.filter(
-    (approval) => approval.serverName && approvalMatchesTool(item, approval),
-  );
-  if (exact.length > 0) return exact.length === 1 ? exact[0] : undefined;
-  const candidates = approvalItems.filter(
-    (approval) => !approval.serverName && approvalMatchesTool(item, approval),
-  );
-  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>;

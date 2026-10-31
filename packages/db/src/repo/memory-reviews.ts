@@ -14,7 +14,7 @@ export type MemoryReviewRow = typeof memoryReviews.$inferSelect;
 
 export interface InsertMemoryReviewInput {
   runId: string;
-  userId: string;
+  businessId: string;
   modelAgentId: string;
   requestKey: string;
   requestHash: string;
@@ -35,7 +35,7 @@ const runColumns = {
 
 const reviewColumns = {
   runId: memoryReviews.runId,
-  userId: memoryReviews.userId,
+  businessId: memoryReviews.businessId,
   modelAgentId: memoryReviews.modelAgentId,
   requestKey: memoryReviews.requestKey,
   requestHash: memoryReviews.requestHash,
@@ -82,6 +82,8 @@ export async function createWithRun(
       agentId: input.modelAgentId,
       status: 'queued',
       trigger: 'review',
+      subjectKind: 'user',
+      initiatedBy: input.businessId,
       agentVersion: input.agentVersion,
     });
     return insert(txdb, { ...input, runId });
@@ -99,27 +101,27 @@ export async function find(db: Database, runId: string): Promise<MemoryReviewRow
 
 export async function findByRequest(
   db: Database,
-  userId: string,
+  businessId: string,
   requestKey: string,
 ): Promise<MemoryReviewRow | null> {
   const [row] = await db
     .select()
     .from(memoryReviews)
-    .where(and(eq(memoryReviews.userId, userId), eq(memoryReviews.requestKey, requestKey)))
+    .where(and(eq(memoryReviews.businessId, businessId), eq(memoryReviews.requestKey, requestKey)))
     .limit(1);
   return row ?? null;
 }
 
 export async function findForUser(
   db: Database,
-  userId: string,
+  businessId: string,
   runId: string,
 ): Promise<MemoryReviewDetail | null> {
   const [row] = await db
     .select({ ...reviewColumns, ...runColumns })
     .from(memoryReviews)
     .innerJoin(agentRuns, eq(agentRuns.id, memoryReviews.runId))
-    .where(and(eq(memoryReviews.userId, userId), eq(memoryReviews.runId, runId)))
+    .where(and(eq(memoryReviews.businessId, businessId), eq(memoryReviews.runId, runId)))
     .limit(1);
   return row ?? null;
 }
@@ -133,10 +135,10 @@ export interface ListMemoryReviewsOptions {
 
 export async function listForUser(
   db: Database,
-  userId: string,
+  businessId: string,
   options: ListMemoryReviewsOptions,
 ): Promise<MemoryReviewDetail[]> {
-  const filters: SQL[] = [eq(memoryReviews.userId, userId)];
+  const filters: SQL[] = [eq(memoryReviews.businessId, businessId)];
   if (options.before) filters.push(lt(memoryReviews.createdAt, options.before));
   if (options.conversationId) filters.push(eq(agentRuns.conversationId, options.conversationId));
   if (options.agentId) {

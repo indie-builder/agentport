@@ -30,10 +30,10 @@
 | 包 | 职责 | 不做什么 |
 |---|---|---|
 | `shared` | `agentInputSchema`、`serverInputSchema`、`chatEventSchema`、`agentRunJobSchema` 等 | 不 import 其他包（zod 除外） |
-| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`toMcpJsonEntry()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()` | 不碰数据库、不读写宿主文件；`knowledge-models.ts` 只发 HTTP |
+| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`parseMcpJson()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()`、`writePersonalMemoryProjection()` | 不碰数据库、不启动进程；纯函数模块不做 I/O，`outputs.ts` / `attachments.ts` / `personal-memory.ts` 只在调用方传入的根内读写宿主文件；`knowledge-models.ts` 只发 HTTP |
 | `db` | 表定义、repo、TypeID 生成、迁移 | 不含 HTTP 或业务编排 |
-| `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不写工作区 |
-| `worker` | 消费队列、每轮渲染定义到会话工作区、管理会话沙盒（复用/空闲回收）、回传事件、维护任务 | 不暴露 HTTP |
+| `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不渲染每轮定义；宿主文件只经既有记忆/附件/成果入口读写投影 |
+| `worker` | 消费队列、每轮渲染定义到会话工作区、管理会话沙盒（复用/空闲回收）、回传事件、维护任务 | 不承业务 REST；唯一 HTTP 监听是模型凭证代理 |
 | `sandbox` | 容器内 supervisor 常驻；每轮启动新 runner query，读任务并逐行输出 NDJSON 事件 | 不含业务代码与智能体定义 |
 | `web` | SPA；生产由 api 托管静态产物 | 不 import db/api/worker，也不 import core 根入口（根入口含 `node:crypto` 模块）；仅引用 core 的纯函数子路径 `workspace`、`tools`、`plugin-display` |
 
@@ -55,6 +55,11 @@
 | 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge-settings.tsx` | 同上，优先复用而不是新写 |
 
 页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。
+
+### 1.2 状态与副作用库的职责边界
+
+- **客户端状态**：Zustand 统一管理跨组件、非服务端的交互状态，按业务域复用现有 store；服务端数据归 TanStack Query，可导航状态归 TanStack Router，平台表单归 RHF/`useZodForm`，生成式表单归 OpenUI 官方运行时，组件私有临时状态留本地。细则见 [packages/web/CLAUDE.md](../packages/web/CLAUDE.md#状态与复用)。
+- **任务/请求内副作用**：Effect 只管单个任务内的类型化错误、取消/超时、资源释放与并发。Fastify 请求生命周期、BullMQ 分发与重试、`SessionSandboxes` 容器生命周期、Claude Agent SDK 唯一执行循环各自负责，Effect 不接管，也不做全仓机械改写。公共契约在 `packages/core/src/effect-runtime.ts`（`DbError` / `RunFailure` / `runProgram`）；api/worker 按各自语义用 `Effect.runPromiseExit` / `Effect.runPromise` 进入，边界细则见各包规则。
 
 ## 2. 运行时拓扑
 
@@ -138,10 +143,20 @@
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 把官方定义刷新写入 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/workspace/`；该会话目录只读挂载，每轮覆盖定义内容，根目录不按 run 重命名或删除。
 5. worker 通过会话沙盒管理器 `SessionSandboxes.acquire(conversationId)` 取得该会话的容器：首次创建时按智能体绑定环境（`null` 为平台默认环境）解析当时线上版本，用版本记录的本地不可变 image ID 创建并启动常驻 supervisor，之后复用空闲容器；已存活容器保持创建时的旧版本，发布/回退只影响之后新建的容器。线上版本缺失或本地镜像不存在时明确失败，不隐式 pull、不回落其他环境。取得容器后先把 sandbox id（容器名）写入运行行，再启动本轮 runner，供 worker 重启后按 id 清理。supervisor 轻量驻留，每轮由 worker 经 stdin 投递任务，并在容器内启动新的 runner query，不复用上一轮的 query 或进程环境。会话容器与试连、native plugin 的一次性容器共用同一个 `DockerSandboxProvider.create/destroy` 底层接口；一次性容器不走会话复用。create 请求已经发出后取消会等待创建结果并删除，绝不继续启动。
 6. 会话容器准确挂载 `sdk-sessions/<conversationId>`（→ `/home/node/.claude`）、`agent-memory`、`conversation-inputs`（首轮无附件也预建并挂载）与只读 `/workspace`；`/mnt/outputs` 指向稳定的 session outputs 目录，读写。每轮凭证只经新 runner 的进程环境与当轮 `.mcp.json` 注入。容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`（可选带 `todos` 快照，见 §3.1）、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
-7. worker 逐行解析并按事件写入 Redis Stream（每次 `XADD` 与 TTL 续期合并为一次 pipeline）；supervisor 的业务事件保持原 `ChatEvent` 契约，`ready`/`started`/`settled`/`rejected` 等 control 事件只用于宿主握手，不写 SSE。工具调用经 `.mcp.json` 中的地址访问 api。
+7. worker 逐行解析并按事件写入 Redis Stream：`XADD` 不做 MAXLEN 裁剪，每次写入把 TTL 续到 1 小时（同一 pipeline）；写入量只受 worker 的展示/落库预算约束，不再由 Redis 按条数裁掉流头，无新事件满 1 小时后整条流过期。supervisor 的业务事件保持原 `ChatEvent` 契约，`ready`/`started`/`settled`/`rejected` 等 control 事件只用于宿主握手，不写 SSE。工具调用经 `.mcp.json` 中的地址访问 api。
 8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 通知 supervisor 停止本轮。supervisor 发出 `settled` 并确认所有 run 进程停稳后，正常完成或成功取消可 `release(reuse=true)` 进入空闲；超时、异常或无法确认停稳则销毁容器。创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。试连与 native plugin 也走同一 provider，但每次一次性 `create/destroy`，不进入会话复用。
-9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度与落库额度分开：`text_delta`、块边界等瞬时事件超出展示上限只停止展示，完整 `assistant_text` 与工具事件另有落库上限，不会被增量挤出。真正超过落库上限时保留已收集结果，将成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。若本次 attempt 还会被 BullMQ 重试，失败轮次的 `outcome.sessionId` 与 fork `uuidMap` 不落库，保留会话已有的 `sdkSessionId`/fork 锚点；成功或最终失败才提交本轮 SDK 状态。
+9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度（`RUN_TRANSIENT_MAX_EVENTS=2000` / `RUN_TRANSIENT_MAX_BYTES=32MiB`）与落库额度（`RUN_PERSISTED_MAX_EVENTS=2000` / `RUN_PERSISTED_MAX_BYTES=32MiB`）分开，常量只在 `shared/run-stream.ts` 定义：`text_delta`、块边界等瞬时事件超出展示上限只停止展示；完整 `assistant_text`、工具事件与问题快照共用落库额度，不会被增量挤出。两类溢出都发布非终态的 `replay_truncated {reason:'budget'}`：瞬时溢出只停止展示，后续完整 `assistant_text` 仍继续补齐；落库溢出则停止继续收集，保留已收集结果，把成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。若本次 attempt 还会被 BullMQ 重试，失败轮次的 `outcome.sessionId` 与 fork `uuidMap` 不落库，保留会话已有的 `sdkSessionId`/fork 锚点；成功或最终失败才提交本轮 SDK 状态。
 10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。清理失败不作为基础设施失败重跑；已确定的终态与取消收尾的 `sessionId`、费用 metadata 保留。停稳未确认且容器销毁失败时不写终态、不发布 `run_finished`、不触发 BullMQ 重试：运行保持 `running`、`endedAt` 为 NULL，完整终态事件暂存到 `agent_runs.pending_finish`（可空 JSONB）。下一轮 reconciler 在队列 job 仍有效时继续等待，job 已消失或已终态才按运行行保存的 sandbox id 清理；probe 后重读 run status，并用 `expectedRunId` 拒绝清理仍被其他 run 持有的容器。清理失败继续占用，成功后条件更新终态、清空 `pending_finish` 并只发布一次终态与写一次审计。跨 worker 重启仍按 id 清理，Docker 暂不可用时保持占用、恢复后下一轮再清理。销毁失败期间不发布成果并保留草稿，避免把未停稳的一轮当成已交付。
+
+事件流保留与恢复（2026-10-31）：`subscribeRun` 首次回放从 `0-0` 正序按 `XRANGE COUNT 2` 逐页读取，每页 `await` 回调完成后才读下一批，再以最后一条真实 ID 做 `XREAD BLOCK` 跟读；不再从尾部累计 8MiB，也不再在服务端截断或补 `reason:'bytes'`。前端在 `run_started` 时只清掉本轮旧 attempt 的助手输出，保留本轮 user 与更早轮次；收到终态后重新分页读取本轮完整消息并合并已加载历史 prefix，跨页补出本轮 user 锚点，避免首屏历史在 run 查询变终态后仍是旧内容；截断补读期间保留本轮 run 作为发送屏障，补读结束才释放；run 详情 404 时释放 `detached` 假运行并保留可读历史。
+
+恢复链路仍有的真实限制：Redis 流无新事件满 1 小时会过期，之后只能靠已落库消息恢复；runner 单块受 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）约束；落库额度为 2000 条 / 32MiB，超出即失败；终态 `uiProgram` 不受 8MiB NDJSON 行预算约束，因此不承诺日志严格 64MiB 总量；单条 SSE 事件本身可以较大（如 `run_finished` 的 canonical），回放不设累计字节上限；不引入新 snapshot 或游标。
+
+会话读写边界（2026-10-31）：会话详情、搜索、列表、改名与分支都注册 shared response schema；详情只返回公开四字段（`id`/`agentId`/`title`/`createdAt`）与消息公开字段，SDK session/message UUID、fork 锚点与 `createdBy` 等内部状态不进 wire，分支额外保留 `parentId`/`branchOfMessageId`。`content`/`uiState` 仍为不裁剪的 unknown JSON，日期显式 ISO；成果列表、元数据与正文复用 shared output schema；web 的运行与概况类型由 shared schema 推导，不再维护第二份声明。授权、续聊与分支仍读 repo 整行，收窄只发生在响应投影。
+
+事件流健康与回读（2026-10-31）：`streaming` 只在 EventSource `onopen` 后成立；发送已接受但尚未连上时为 `reconnecting`，`onerror`、协议 error 与重试耗尽转 `detached`。会话内 `RunReconciliation` 仅在 run 状态不是 `streaming` 时保留每 2 秒完整 `GET /runs/:id` 回读；健康窗口只保留首次详情请求，服务端每 2 秒终态补偿、断线回放、canonical 恢复与审批/原生提问独立轮询不变，取消的 `onSettled` invalidate 仍可回读。
+
+账户级状态撤销（2026-10-31）：显式退出由 `logoutAccount` 同时清 Query 与聊天 store（草稿、消息、附件、run/成果引用等），并同步递增 `accountEpoch`；`/me` 确认业务身份时同身份不清稿，换人或无归属先 reset。已挂载的聊天页订阅该信号同步 `closeStream()`（递增 generation、关闭 EventSource、清重试计时器），晚到发送、恢复与 SSE 事件不能写回新账户；401 与改密重登仍只清 Query 并保留草稿。
 
 会话串行与范围：同一会话的 run 通过 lease 串行执行，lease 持续到消息与本轮成果发布完成；不同会话相互独立。首版仍是现有单 worker 的进程内管理，不包含多 worker 路由、容器池、快照或新 provider；空闲容器计入资源占用，但不计入 `AGENT_MAX_CONCURRENT` 的同时执行数。容器复用只省创建/启动（缓存镜像基线约 122ms/次），不跳过每轮 SDK query 启动，不算也不承诺 SDK 冷启动优化。实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核。最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK + 本地假 Anthropic SSE 4 例，均从当前源码独立临时编译）；真实付费模型与浏览器全链路未测，不据此声称生产可用或多 worker 支持。
 
@@ -235,20 +250,23 @@ data/workspaces/<agent-slug>/
       └─ files/**                 发布后不可变的完整文件快照
 ```
 
-工作区按会话稳定复用，每轮只刷新定义内容；根目录不按 run 重命名或删除。目录 0700、文件 0600。持久数据只有 `agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/`；`session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存：`workspace` 每轮由数据库重渲染，`outputs` 在停稳后复制进 `conversation-outputs`，容器回收或关停不删除它，但它不是不可丢失的持久交付。run 保留期清理不删除会话成果；删除会话时 API 回收 `sdk-sessions/<conversationId>/`、`session-sandboxes/<conversationId>/`、成果与附件目录；删除专家只回收 `sdk-sessions/`、成果与附件目录，当前不清理 `session-sandboxes/`。
+工作区按会话稳定复用，每轮只刷新定义内容；根目录不按 run 重命名或删除。目录 0700、文件 0600。持久数据只有 `agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/`；`session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存：`workspace` 每轮由数据库重渲染，`outputs` 在停稳后复制进 `conversation-outputs`，容器回收或关停不删除它，但它不是不可丢失的持久交付。run 保留期清理不删除会话成果；删除会话或专家时 API 都回收 `sdk-sessions/<conversationId>/`、`session-sandboxes/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/` 四类目录，`agent-memory/`、子专家与个人记忆保留。删除编排固定为同一 checked-out 连接持 session advisory lock → 短 tx A 取快照 → 事务外等待沙盒关闭 ACK（连接保持 idle、无事务）→ 同连接短 tx B 精确重核并删除 → unlock 成功后按 A/B 核对过的快照 best-effort 回收目录。控制查询（读设置、取锁/解锁、写设置）有 5s 客户端截止；删除持锁总预算 40s 从确认拿到锁起覆盖设置恢复、tx A、ACK、tx B 与 unlock。B 提交前任何失败都保留实体行与全部目录；B 提交后 unlock/reset 失败不能伪装成回滚；rm 失败只记录并尽力收敛，可能残留目录。全局绑定锁使 ACK 等待窗口短时挡住其他专家的准入、绑定修改与经过绑定锁的记忆操作，这是已接受的代价；更细粒度需另改准入协议。上述编排已在 agent 与 conversation 两个删除入口落地。
 
 子智能体各自的工作区同样包含 `agent-memory/`。运行时按 slug 把该目录 rw 挂到父会话 workspace 的 `/workspace/.claude/agent-memory/<slug>/`，不复制、不回写；会话刷新保留这棵挂载子树的 inode，挂载集合变化时重建容器。源码评审已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS）；SDK 最新接口 16/16 PASS（`/tmp/subagent-memory-sdk-final-interface-unique.json`，含跨 run、容器内自动 system 加载与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留。运行整合 13 文件 195/195 PASS（`/tmp/subagent-memory-runtime-final-green.json`）；未提交、未合并，不能记为已交付或整体通过。
 
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
 | `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers（env/headers 含解密后的上游 secrets），generated 写 `${SANDBOX_API_URL}/mcp/<id>` + 按 run 的短期 Bearer token 与 `x-agentport-run-id` |
-| `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 技能 + 子智能体清单（含超时）+ 多步骤任务用原生 `TodoWrite` 维护清单的约束；前台执行与单层委派由运行时环境变量强制，不再逐次写在提示里 |
+| `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 技能 + 子智能体清单（含实际 `maxTurns` 与委派等待规则）+ 多步骤任务用原生 `TodoWrite` 维护清单的约束；前台执行与单层委派由运行时环境变量强制，不再逐次写在提示里 |
 | `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`mcpServers`（按名引用根 `.mcp.json`）、`disallowedTools`、`maxTurns`、`memory` 及子级绑定的 `skills`；`memory` 仅接受官方 `project`，`user` / `local` 拒绝。**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。父级不写 server 级 `disallowedTools`：子级继承会话权限，server 级 deny 会把子级工具一起移除，父级越权改由 PreToolUse 边界 hook 拒绝。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
 | `.claude/skills/<slug>/SKILL.md` | `skills` 表 | frontmatter：`name`、`description`，正文为技能步骤 |
 
 运行时约定：
 
 - 每轮在会话 workspace 内先删除并重建 `.claude/agents/` 与 `.claude/skills/`，解绑后的旧文件不会残留。不要手工往这两个目录放东西。
+- 用户正文之后是成对、末尾锚定的 `<!-- agentport:generated:start -->` / `<!-- agentport:generated:end -->` 生成后缀；导入取终端结束标记前最后一个独占开始行之前为用户正文，用户正文中的同名标题、单独或成对标记、完整示例与重复标题全部保留。最终生成后缀进入的 OpenUI 与服务/技能/子智能体派生文本会逐行转义独占保留标记行（`<` 前加反斜杠），根与子级共用同一解析规则；生成区只是编辑识别约定，不是权限边界。
+- 根 `CLAUDE.md` 的工具枚举、无 MCP 分支与等待说明只依据根 `serverNames`；`.mcp.json` 仍是根与启用子级的并集，子级定义按自身 `mcpServers` 引用，运行时由 PreToolUse 边界 hook 保证父级不隐式获得子级工具。`serverNames` 缺省表示传入全集，显式 `[]` 表示根无绑定。
+- `timeoutMs` 是专家独立运行超时；作为子智能体被委派时由主运行总超时约束，子级文件只声明官方 `maxTurns` 与委派等待规则，不写非官方 timeout frontmatter，也不在平台侧另造委派计时器。
 - 会话 workspace 以只读方式挂载到容器 `/workspace`；agent 不能修改自己的定义。稳定的 `session-sandboxes/<conversationId>/outputs` 以 rw 挂到 `/mnt/outputs`，主会话用原生 Read/Write/Edit 交付文件；不使用 SDK `additionalDirectories`，避免可写目录被当作配置来源加载。原生 Read/Write/Edit/Glob/Grep/NotebookEdit 另有 PreToolUse 边界 hook 逐次校验路径；Bash 不在该 hook 内，文件边界由只读/可写挂载决定，无法写入只读挂载。容器另准确挂载 `sdk-sessions/<conversationId>`、`agent-memory` 与预建的 `conversation-inputs`，不挂整个 agent 目录。
 - 每轮 `.mcp.json` 与 runner 进程环境携带本轮短期 MCP/模型凭证；stdio 的 `env` 与 http 的 `headers` 还会写入对应的上游解密 secrets，可能是长期凭证，generated 只给按 run 的短期 token。运行结束（不论容器是否停稳）都会尝试清空本轮 MCP/模型 token：模型 token 结束时从代理内存集合移除并尝试清空 DB hash；内存移除不保证独立于 DB 立即失效（集合里还有活跃 run 时，代理会拒绝不在集合中的 token），清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。MCP token 的 DB 清空失败只记 warning，token 可能保留到过期时间（该 agent 超时 + 5 分钟）。终态停稳后从会话工作区移除 `.mcp.json`；移除失败时 worker 记录错误、禁止复用该会话容器，并在仍持有 lease 时销毁容器，但持久工作区里的文件可能留到下一轮刷新时被覆盖。本轮 token 撤销不影响上游 secrets，文件残留期间长期 secret 仍可能有效。目录 0700、文件 0600。空闲容器不保留上一轮身份，下一轮重新渲染。
 - 运行结束后 worker 等本轮 runner 停稳（`settled`），由 core 的 `captureOutputDraft` 从 stable outputs 复制出本轮草稿，再以当前最新完整快照为基线发布不可变快照；stable outputs 根只读复制，不发布也不删除。用户选定旧版时只把所选文件覆盖到草稿，其他最新文件保持原样。正在重试、消息保存失败、容器未停稳或销毁失败时不发布并保留草稿；空基线清空后发布空快照。
@@ -258,7 +276,7 @@ data/workspaces/<agent-slug>/
 - 有子智能体时才放行 `Agent` / `TaskStop`；子智能体自身不再获得委派能力。
 - 会话间消息工具（`ListAgents`、`SendMessage`、`SendUserMessage`、`EndConversation`、`Monitor`）默认禁用：
   平台只支持「同步等待返回」这一种智能体沟通模型，发送方不等对方返回就继续与平台约定相悖。
-- 平台内的「文件预览」与运行时使用同一个 `renderWorkspace()`，但不落盘；写文件只发生在 worker。
+- 平台内的「文件预览」与运行时使用同一个 `renderWorkspace()`，但不落盘。每轮定义渲染、会话工作区落盘与沙盒执行只发生在 worker；API 不渲染每轮定义，只经既有入口读写个人偏好、记忆与会话附件，并读取成果文件。
 - 知识库不是工作区文件能力：语料不写进 `.claude/`，也不挂载进沙盒。专家只在 `.mcp.json` 里得到一个知识库 MCP 条目（§4），知识正文由 api 在工具调用时读取。
 
 ### 官方文件能力与接入状态（2026-10-22核对）
@@ -297,7 +315,7 @@ data/workspaces/<agent-slug>/
 - **段归属**：消息的每个UI围栏按`s0/s1…`编号，Markdown段不占编号；状态保存在`ui_state.blocks[sN]`。外部请求另带真实conversationId/messageId，不能把messageId编码到state键，也不能从全局store倒找最后一条消息。分支复制快照后不需重写段键。
 - **工具目录单一来源**：`repo.openui.listOpenUiTools(agentId)` 同时喂提示词（worker 渲染 CLAUDE.md）和执行桥（API 校验）。只收已绑定且启用的 http / generated server 工具；stdio 由用户提供任意命令，仅沙盒内可见。http server 的目录来自最近一次「测试连接」写入 `servers.config.toolCatalog` 的快照——worker 没有 MCP client。
 - **审批与会话绑定**：生成式UI的工具需要批准时返回202与approvalId，由当前UI段提供批准及重试；会话级批准8小时有效，重放不能续期，过期须重新请求并批准。Query可显式重试，Mutation不自动重放。它与run级审批分开：`approval_requests.run_id` 可空，UI来源使用 `conversation_id/message_id/source` 和会话工具部分唯一索引；run审批行为不变。
-- 提示词进 CLAUDE.md 而不是 `.claude/rules/`：该段位于 `parseClaudeMd` 的截断标记之后，不污染用户可编辑正文，导出包也不会丢失。
+- 提示词进 CLAUDE.md 而不是 `.claude/rules/`：该段位于成对、末尾锚定的 `agentport:generated:start/end` 生成区内，不污染用户可编辑正文；导出→导入按生成区解析，用户同名标题与标记正文逐字保留。
 - `pnpm-workspace.yaml` 的 `allowBuilds` 明确拒绝 `@openuidev/lang-core` 的构建脚本：否则每次 `pnpm install --frozen-lockfile` 因 `ERR_PNPM_IGNORED_BUILDS` 失败；该脚本只发匿名安装遥测。`.npmrc` 的变量**不会**作为进程环境传给 postinstall，因此不靠它关闭遥测。
 
 
@@ -332,30 +350,38 @@ data/workspaces/<agent-slug>/
 - https://code.claude.com/docs/en/agent-sdk/plugins
 - https://code.claude.com/docs/en/agent-sdk/modifying-system-prompts
 
-### 5.1 记忆、历史回顾与固定版本分享（2026-10-30）
+### 5.1 记忆、历史回顾与固定版本分享（2026-10-31）
 
-记忆按对象分类，权威、加载方式与版本能力各不相同（子智能体记忆源码评审与最终夹具复验通过）：
+记忆按对象分类，权威、加载方式与版本能力各不相同；现有用户偏好与子智能体记忆链路已核实：
 
 | 对象 | 权威 | 沙盒加载 | 版本与回滚 |
 |---|---|---|---|
-| 个人偏好 | `user_preferences` 单行（`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_user/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本 |
-| 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` + 主题文件） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制；子智能体的原生 Read/Write/Edit 默认启用但仅可读写自身记忆 Markdown，兄弟、父级与未知子智能体拒绝 | 仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes` |
-| 子智能体记忆（源码评审与最终夹具复验通过） | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes`，SDK 自主学习直接写 Markdown 不自动记账；源码整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留；运行整合 13 文件 195/195 PASS；未提交 |
+| 个人偏好 | `user_preferences` 单行（按 `businessId`，`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_users/<sha256(businessId)>/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮按主体读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本；按 `businessId` 隔离 |
+| 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` 索引 + 平铺主题 `.md`） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制；子智能体的原生 Read/Write/Edit 默认启用但仅可读写自身记忆 Markdown，兄弟、父级与未知子智能体拒绝 | 平台写入（回顾采纳、主题/索引手工 PUT/DELETE、回滚）按目标文件进 `memory_changes`，主题变更同时记录伴随索引；SDK 原生自动写入直接改 Markdown，不进账本 |
+| 子智能体记忆 | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：平台写入口进账本，SDK 自动写入不记账；验收证据见[子记忆任务记录](tasks/subagent-memory-20261030.md) |
 | 专家规则 | `agent_rules`（DB） | 渲染为 `.claude/rules/<slug>.md`，每次运行自动生效 | `memory_changes` 完整快照 |
 
-- **个人偏好不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_user/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。DB 写入成功即成功，文件投影失败只记日志；下一次保存会重新投影，当前没有 worker 启动前自动重建。
-- **历史回顾是用户触发的运行**：`agent_runs.trigger='review'`，读已落库的会话快照，`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema` 返回提案。沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停；不建沙盒、不追加消息、不写成果。证据必须是快照消息原文的连续子串。
-- **确认制，不是自动进化**：提案写入个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。
-- **`MEMORY.md` 是索引**：采纳时限制 200 行 / 25KB（官方启动只加载这个范围）；详细内容放主题文件或规则。
-- **专家记忆写入可恢复**：先写 `.memory-journal/` 日志，再原子 rename，再提交账本；账本失败按原字节恢复，恢复不了就保留日志供下次显式恢复，不根据内容等于提案来补记。
-- **子智能体记忆的准入与并发（源码评审与最终夹具复验通过）**：chat / schedule / eval 只使用稳定启用的直接子智能体集合；执行活动期间资源变化返回 409，普通字段与无关专家仍可编辑。锁顺序固定为绑定锁 → 排序后的 agent 记忆锁 → 行锁；目标自身有执行型活动 run，或目标是启用子专家且其直接父专家有执行型活动 run，就拒绝记忆写入并返回 409；审核 run 与其他无合法归属关系的 run 不占用。会话工作区刷新保留官方记忆子树 inode，挂载集合变化时重建容器。已知子智能体的原生 Read/Write/Edit 默认启用但只允许自己的 Markdown，兄弟、父级与未知子智能体拒绝，既有显式 deny 保留且恢复只移除裸 deny/allow、不清除路径规则；Bash 共享可见，不声称隔离。分层验证：stable 25 文件 376 用例、web 72、outputs 31、migration `generate` + `migrate` 隔离库通过；SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留。源码整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；运行整合 13 文件 195/195 PASS（`/tmp/subagent-memory-runtime-final-green.json`），未提交、未合并。
+- **个人偏好不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。API 保存以 DB 事务提交为准，投影失败只记日志；worker 在每轮用户运行、挂载工作区前按 DB 重建该用户的投影，崩溃遗留的旧投影不会带入下一轮。服务主体不重建也不挂个人记忆；重建失败则中止该轮运行。
+- **个人记忆按 `businessId` 隔离**：投影目录与锁都以 `businessId` 为键；worker 从 DB 读取运行主体，服务主体没有个人记忆，也不回退到管理员。既有专家共享 auto-memory 的读写语义保持不变。
+- **历史回顾是用户触发的运行**：`agent_runs.trigger='review'`，目标为个人偏好、指定专家的某个记忆文件或规则；`agent_memory` 目标必须带 `name`，不设 `MEMORY.md` 隐式默认。一次回顾只处理一个文件，读已落库的会话快照（最多 10 段，可选用首尾消息固定窗口），`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema` 返回提案；沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停，不建沙盒、不追加消息、不写成果。快照在创建时固定：来源正文 + 目标正文 + 伴随索引合计不超过 256 KiB，超限入队前拒绝。证据必须是快照消息原文的连续子串，并带 `user_fact | confirmed_decision | assistant_suggestion` 归因：用户事实与已确认决定只能引用 user，助手建议只能引用 assistant 且仅作背景；非 null 正文至少有一条用户依据，纯助手建议不能变成可采纳记忆。
+- **确认制，不是自动进化**：提案写入个人偏好、专家记忆文件或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。
+- **`MEMORY.md` 是索引**：官方启动只加载前 200 行或 25KB；回顾采纳与手工 PUT 都按 200 行 / 25KB 拒绝超限，不截断。主题文件正文上限 200000 UTF-8 字节。
+- **主题 + 索引是固定两文件**：主题目标的快照为 `{ content, globs, index: { content } | null }`，`index` 是同专家 `MEMORY.md` 原文；personal、规则与 `MEMORY.md` 自身为 null。主题正文非 null 且索引缺少指向它的行内链接时，平台按确定规则在索引末尾补一行 `- [name](name)`，原索引其余字节、链接与结构逐字保留；已有普通相对链接或 `./name` 链接不重复补。模型不输出索引，也不得顺手整理其它主题。补链后的索引仍须满足 200 行 / 25KB，超限整次写入拒绝，不只写主题。
+- **一次采纳/回滚是一个逻辑变更**：持锁后先要求目标与伴随索引的当前快照都等于 before（任一变化返回 409 并保留完整提案），校验全部候选文件限额，再按“目标文件 → 需要变化的 `MEMORY.md`”顺序原子 rename；一个 `memory_changes` 行同时保存主题与索引前后快照，审核的 `appliedChangeId` 只指向它，重复 apply 返回同一变更。主题手工 PUT 使用同一补链规则；DELETE 保持索引原样，账本中 index before/after 相同。回滚只检查并恢复该次变更实际改过的文件，因此后续无关索引变动不阻断单主题回滚；新主题回滚会移除主题并恢复本次修改前的索引（原来不存在则恢复不存在），但若这些文件之后又被修改则冲突，不覆盖后来内容。删除主题不扫描或重写用户自定义索引链接。
+- **双文件写入可恢复**：`.memory-journal/` 是平台控制目录，不导出、不供 SDK 读取、不是记忆权威。review、rollback、manual 三种写入都先写日志，记录本次涉及的固定文件集合（最多两个）、每个文件的 name、before/after hash（null 区分不存在）和恢复所需原始字节，再原子写文件、提交账本；任一文件写入或 DB 提交失败时恢复全部原始字节，恢复失败保留日志并报告失败，不补记假成功。锁内恢复只认日志证据：全部等于 before 则丢弃，全部等于 after 则补完账本，before/after 混合先恢复原字节，出现第三方内容返回冲突；同专家有未完成两文件变更时，其共享索引占用会阻止其它手工编辑、拒绝与回滚绕过。
+- **无变化**：`proposedContent` 为 null，或按同一确定性函数算出的完整 after 与 before 一致，都表示没有文件要改；内容相同但仍需补主题链接属于有变化。无变化时 run 仍为 `succeeded`、DB decision 保持 `pending`（表示用户尚未决定），UI 显示“无需变更”，不显示待采用/采用/拒绝/回滚；apply 返回 409，零文件、零账本变更，不新增 decision 枚举或伪造 applied 记录。
+- **版本与回滚**：`GET /api/agents/:id/memory/:name/versions` 对所有合法记忆文件返回实际历史；DB 在 LIMIT 前按目标 `kind + agentId + name` 收窄。`MEMORY.md` 的列表还包含“以主题为目标、实际改动了伴随索引”的变更，让索引版本可解释；主题列表按 name 精确命中。回滚沿用 `POST /api/memory/changes/:id/rollback`，返回一个 `MemoryChange`。个人版本按 `businessId` 且 `kind='personal'` 过滤，专家账本不混入个人范围。
+- **原生记忆目录独立下载与回导**：`GET /api/agents/:id/memory/download` 复用 `agents.memory.read` 对象权限，持同专家锁打包。ZIP 根只含实际存在的 `MEMORY.md` 与平铺主题 `.md`，不含 agent ID JSON、版本账本、回顾原文、journal、个人偏好、其它专家或子级目录；无内容返回 404，不用伪 `MEMORY.md` 占位，沿用既有条目数、解压大小、压缩大小与符号链接边界。解压后可直接作为官方 auto-memory 目录使用；回导复用现有 `PUT /api/agents/:id/memory/:name` 写入新专家，不新增 ZIP 上传或整目录覆盖 API。相对链接不依赖原 agentId/slug。专家定义包仍只携带定义，不携带学习到的记忆正文；定义包与这份原生记忆目录是两个交付物。
+- **当前范围与未覆盖**：API 列表/CRUD 只管理 `agent-memory/` 顶层的合法 `.md` 文件；原生文件工具允许的嵌套主题目录尚未进入列表、编辑器、版本与下载管理，属于待办边界。SDK 原生 auto-memory 直接写入的文件不进入 `memory_changes`，因此版本与回滚只覆盖平台写入口（回顾采纳、手工 PUT/DELETE、回滚），不能宣称全部记忆历史可追。
+- **子智能体记忆的准入与并发**：chat / schedule / eval 只使用稳定启用的直接子智能体集合；执行活动期间资源变化返回 409，普通字段与无关专家仍可编辑。锁顺序固定为绑定锁 → 排序后的 agent 记忆锁 → 行锁；目标自身有执行型活动 run，或目标是启用子专家且其直接父专家有执行型活动 run，就拒绝记忆写入并返回 409；审核 run 与其他无合法归属关系的 run 不占用。会话工作区刷新保留官方记忆子树 inode，挂载集合变化时重建容器。子智能体的原生 Read/Write/Edit 默认启用但只允许自己的 Markdown，兄弟、父级与未知子智能体拒绝，既有显式 deny 保留且恢复只移除裸 deny/allow、不清除路径规则；Bash 共享可见，不声称 OS 级隔离。平台写入口进账本，SDK 自动写入不记账。验收证据见[子记忆任务记录](tasks/subagent-memory-20261030.md)；其中真实 SDK 16/16 使用本地假模型，只证明加载与文件边界，不代表真实模型记忆质量。
 - **定义包边界**：子定义 `memory: project` 可导入导出；`user` / `local` 明确拒绝；专家包只携带定义，不携带学习到的记忆正文。
-- **完整快照比较**：`memory_changes` 保存 before/after 完整内容（规则含 `globs`）；个人偏好与规则的冲突判断按完整快照，不用局部 diff。
+- **完整快照比较**：`memory_changes` 保存 before/after 完整内容（规则含 `globs`，主题含伴随 `index`）；个人偏好、规则与记忆的冲突判断按完整快照，不用局部 diff。
+- **验收状态（2026-10-31）**：主题 `name/index/kind` 共享契约、worker 主题回顾、API 双文件账本/版本/下载与 web 面板均已落地；shared、worker、web 独立 review 已 PASS，完整浏览器主路径（受控提案的来源归因、主题/索引双对比、采用、索引版本、ZIP 下载与公开 PUT 回导、整次回滚、无需变更）已实测通过；API 与跨端最终独立评审均 PASS。验证及独立评审通过；本任务 PR 交付，合并状态以 GitHub 为准，不能据此宣称已上线；最终回归数字与证据以[任务记录](tasks/memory-upgrade.md)为准。真实容器 + 官方 SDK + 本地假模型只证明加载与文件边界，付费真实模型的归纳质量与跨 run 召回未审计。沿用既有 `memory_reviews` / `memory_changes` jsonb，不新增表、列或迁移，不兼容旧 JSON 记录、不自动清库。详见[执行契约](tasks/memory-upgrade-contract.md)。
 - **固定版本公开分享**：`output_shares` 锚定 `conversationId + runId + path` 与真实字节 sha256；token 只存哈希与密文，链接为 `/s/<shareId>#<token>`。公开接口校验 token、未撤销、实际字节哈希三重条件，无效统一 404；撤销幂等，已发出的链接不随同一路径的新版本变化。
 
-### 5.2 调研结论：不引入外部记忆服务（2026-10-30）
+### 5.2 调研结论：不引入外部记忆服务（2026-10-31）
 
-不引入 Mem0、Zep、Letta、LangMem 等外部记忆服务，也不新增第二套执行底座。借鉴的是产品做法而非依赖：Manus / Fleet 的候选确认、Devin 的来源与索引分离、Letta 的 Git 式版本思想、claude-mem 的索引优先。当前以官方文件和 PostgreSQL 账本实现；只有实测文件检索不足时，才做可重建的检索索引（PostgreSQL 已具备），并需先给出基准证据。详见 D-73。
+不引入 Mem0、Zep、Letta、LangMem 等外部记忆服务，也不新增第二套执行底座。借鉴的是产品做法而非依赖：Manus / Fleet 的候选确认、Devin 的来源与索引分离、Letta 的 Git 式版本思想、claude-mem 的索引优先。当前以官方文件和 PostgreSQL 账本实现；只有实测文件检索不足时，才做可重建的检索索引（PostgreSQL 已具备），并需先给出基准证据。详见 D-73。本次主题经验升级遵守同一边界：不新增 L1/L2/L3 私有记忆库、后台提取管线、向量/检索索引、服务或依赖，只扩展回顾目标、固定两文件采纳与版本、原生目录下载。
 
 ## 6. 知识库运行时
 
@@ -367,7 +393,7 @@ data/workspaces/<agent-slug>/
 
 | 位置 | 内容 | 说明 |
 |---|---|---|
-| PostgreSQL 18 + pgvector | 知识库/文件夹/标签/文档/版本/chunk/任务/来源/同步运行/Wiki/模型 profile | 迁移 `0036_demonic_dust.sql` 建基础表，`0045_real_nightmare.sql` 增三类内容、来源范围归属与同步逐项记录，`0046_many_wildside.sql` 增 ASR profile kind 与 `knowledge_bases.asr_profile_id`，`0047_outstanding_orphan.sql` 扩三类来源枚举与 range kind；`CREATE EXTENSION vector` 与 HNSW 索引是手工补的 SQL |
+| PostgreSQL 18 + pgvector | 知识库/文件夹/标签/文档/版本/chunk/任务/来源/同步运行/Wiki/模型 profile | 迁移 `0036_demonic_dust.sql` 建基础表（`CREATE EXTENSION vector` 与 HNSW 索引是手工补进迁移的 SQL）；`0045_married_expediter.sql` 是已合入 main 的角色/主体迁移，与知识库无关；知识库扩展集中在 `0046_cold_slipstream.sql`：三类内容、来源范围归属与逐项同步记录、ASR profile 与 `knowledge_bases.asr_profile_id`、九种来源类型与 range kind、版本/分块/Wiki 扩展。PR 旧 `0045_real_nightmare` / `0046_many_wildside` / `0047_outstanding_orphan` 三份迁移已删除，不参与迁移链 |
 | `$KNOWLEDGE_DIR/blobs/<前2位>/<sha256>` | 原件，按内容寻址、只读 | 上传/抓取先写临时文件再原子 rename；同内容复用 |
 | `$KNOWLEDGE_DIR/docs/<documentId>/<versionId>/` | `markdown.md` 与 `images/` | 解析产物；版本删除后目录不会立即消失，等 cleanup 任务回收 |
 | `$KNOWLEDGE_DIR/wiki-sdk/<jobId>/` | Wiki 生成时的平台私有临时 cwd（同时作 HOME / `CLAUDE_CONFIG_DIR`） | 不是 Claude 官方目录约定，也不进入专家工作区或导出包；任务结束即删除 |
@@ -431,20 +457,20 @@ PATCH 范围或来源状态走 `replaceSourceScope`：同一事务缩小范围�
 - 飞书 Wiki/Drive、GitLab 与 GitHub 只有在连接器明确声明「枚举完整」且本轮无失败时，`syncDeletions: true` 才允许把未再出现的条目置为 `disabled`（不物理删除、不参与检索）。
 - 上传入口不做格式预筛，PDF/Office/OCR 交给 `DOCLING_URL`；未配置时该格式以任务失败明确报出，不静默降级。来源侧并非一律绕过 parser：飞书 Wiki/docx 已在连接器转成 Markdown，GitLab/GitHub/Feed 的文本条目直接以文本内容入库，二者都不进入 parser；GitLab/GitHub 的受支持二进制与飞书云盘 `file` 原件按字节进入同一 parser，因此同样依赖 `DOCLING_URL` 或图片处理配置，未配置或格式不受支持时以单项/任务失败报出。GitLab/GitHub 的未知扩展名逐项失败；飞书云盘 `file` 的未知扩展名按 `application/octet-stream` 尝试解析，不保证成功。
 - 来源的「测试」先做本地配置/凭证校验，配置错误 400；通过后投 `source_probe` 任务只读探测远程凭证与范围首项，结果写入 job `result.checks`，不导入、不推进游标，也不等于完整同步验收。
-- 来源 UI 分「选择 provider → 配置」两步；手动同步要求来源为 `active`，已有 queued/running 同步任务时返回 409。该检查是非事务检查，与定时触发并发时仍可能各建一条；要严格串行需复用 scheduler 的 advisory lock。
+- 来源 UI 分「选择 provider → 配置」两步；手动同步要求来源为 `active`。手动、失败任务重试与定时触发统一通过 `repo.knowledge.createSyncJob` 创建：同一事务取来源级 `pg_advisory_xact_lock(hashtext(sourceId))`、重读来源与在途 queued/running，再插入 queued sync run 与 job，Redis add 只在事务提交后。同一来源已有在途同步时，手动/重试返回 409，定时触发跳过；缺失 404、非 active 409。
 - 私网出站：`KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 只做精确 `host` / `host:port` / origin 匹配，默认空。它当前作用于两处：worker 的来源连接器抓取（全部来源逐跳校验，使用独立的 `validateSourceUrl`；Lark/Notion/钉钉/IMA/语雀为固定 SaaS origin、不接受用户自填，自建 Confluence/Seafile/Nextcloud 的站点需在此精确放行 `host:port`）与 API 侧模型 profile 的创建/修改/测试。名单外的地址分别走各自的私网校验；名单只对知识出站生效，不会让普通 MCP server 把任意 URL 变成可信。
 - 目前**没有**接入该名单的知识出站还有三处，部署时应知悉：URL 导入只经 `assertSafeUrl`；worker 调 Docling 与 embedding/rerank 直接用已保存端点，不再逐次复核；这些端点的可信性依赖部署配置与 API 入口校验，公网部署仍需网络层出站限制兜底 DNS 重绑定。
 - 凭证（飞书 appSecret、GitLab/GitHub token、模型 apiKey）沿用 `encryptSecrets` 加密入库，API 只回 `hasSecret`。
 - GitHub 连接器目前只在本地 fixture 验证；真实 GitHub 授权、限流与私有仓库内容尚未验收。
 
-知识库是单管理员部署下的共享资源：所有 REST 路由挂 `requireAuth`，不新增多租户或 RBAC。专家在编辑器里选中某个知识库、写入 `agent_servers` 后才获得该连接；没有「按用户授权」的中间层。
+知识库当前是共享资源：所有 REST 路由挂 `requireAuth`，并按 `knowledge.*` 功能叶声明动作授权；专家在编辑器里选中某个知识库、写入 `agent_servers` 后才获得该连接。仍不引入组织多租户，也不按知识库对象做跨用户范围授权。
 
 ### 6.4 任务、调度与恢复
 
-知识任务使用独立队列 `knowledge-jobs`（BullMQ jobId 即 `knowledge_jobs.id`），不占聊天 run 的并发额度，也不出现在运行历史。`queued → running` 用条件更新认领，终态只写一次；运行中取消通过 Redis 键 + `AbortController` 落地。超时为 ingest/sync/cleanup 30 分钟、reindex 2 小时、wiki_generate 15 分钟。
+知识任务使用独立队列 `knowledge-jobs`（BullMQ jobId 即 `knowledge_jobs.id`），不占聊天 run 的并发额度，也不出现在运行历史。`queued → running` 用条件更新认领；job 终态由 DB 仓库 `finishJob` 的条件事务一次提交，sync 同时提交 sync run 终态、source 摘要与成功游标；失败/取消不推进 `source.cursor`，中间检查点只保留在本次 sync run，任务内部重试不重新打开终态。运行中取消通过 Redis 键 + `AbortController` 落地。超时为 ingest/sync/cleanup 30 分钟、reindex 2 小时、wiki_generate 15 分钟。
 
 - `knowledge/reconcile.ts` 定期对账：running 且超过 2 倍超时、或 Redis 中已消失的置 failed；Redis 丢失但 DB 仍 queued 的重新入队。
-- `knowledge/scheduler.ts` 以数据库的 `sync_cron` 为权威，在 Redis 维护 `knowledge-sync:<sourceId>` 调度器；到点只创建 sync run 与任务，不在 Redis 保存凭证。清空 cron 即移除调度器；同一来源已有 queued/running 任务时跳过重复触发。
+- `knowledge/scheduler.ts` 以数据库的 `sync_cron` 为权威，在 Redis 维护 `knowledge-sync:<sourceId>` 调度器；到点经同一 `createSyncJob` 创建 pair，不在 Redis 保存凭证。清空 cron 即移除调度器；同一来源已有 queued/running 任务时跳过重复触发。入口 cron 先用 shared `cronSchema` 做结构校验，API 再用 BullMQ `getNextMillis` 判定实际可调度性（`99 99 99 99 99` 等被拒），scheduler 不重复预解析；每个来源的「移除旧 pattern → upsert 新 pattern」在独立 `try/catch` 内执行，单来源失败记录来源 ID 与阶段后继续其余来源。
 - 任务重试不复用原行，而是创建新任务；这样才能被重新认领。
 - 知识队列观测复用现有 JSON `GET /health/metrics` 的 `knowledgeQueue:{waiting,active,completed,failed,delayed}`（读既有 producer Queue；单项失败为 `null`），不新增 Prometheus 端点或采集器。
 
@@ -487,15 +513,17 @@ SDK 生成与管理端手工保存都只追加草稿版本，不移动已发布�
 | Redis 流契约只在 `shared/run-stream.ts` 定义 | api 与 worker 分属两个进程，键名/通道/取消载荷一旦漂移就是「事件写了没人读」这类静默故障；第 1 轮发现两处独立副本后收敛 | `@agentport/shared` 因此成为沙盒镜像的运行时依赖（见下） |
 | 审计写入支持 `dedupeKey` | BullMQ 基础设施重试会重放同一件事；没有幂等键时每次重试都多写一行审计 | 有键时用 `onConflictDoNothing` 而不是覆盖，重复上报被丢弃 |
 | 内置工具默认禁用（Bash 与受路径规则约束的文件工具例外） | 用户可配置任意 stdio server，必须收紧默认权限；Bash 在容器内运行，文件边界由只读挂载约束 | 无需 MCP 即可执行命令；Bash 可访问容器可写挂载，网络按出站配置 |
-| SSE 走 Redis Stream + 阻塞读取 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接（`XREAD BLOCK`）；回调过慢导致未读事件被 MAXLEN 裁剪时不再补截断提示 |
+| SSE 走 Redis Stream + 阻塞读取 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接（`XREAD BLOCK`）；流不按条数裁剪，写入量由 worker 的展示/落库预算约束；无新事件 1 小时后过期，之后只能靠落库消息恢复 |
 | MCP容量按执行计数 | 握手、SSE、平台invoke与审批等待不占上游执行槽，避免自等待 | 每进程执行4槽、排队8项；审批等待独立4槽且满时立即需批准，invoke既有4并发入场；非全局多进程限额 |
 | 会话历史使用独占游标页 | 网页默认50条、最多100条，按(created_at,id)倒取后正序展示；before须属于当前会话 | nextBefore为空则结束；消息内容字节未单独限制，内部完整复制调用保持原语义 |
 | api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
 | 单机优先，不抽象多机 | 少一层存储与服务发现 | 不能横向扩容 worker |
 | TypeID（`srv_`、`agt_`、`run_`…） | 可排序、日志与 URL 自解释 | 依赖 `typeid-js` |
 | 智能体版本快照 + 回滚 | 配置变更可追溯，回滚生成新版本 | 需维护保留策略 |
-| 评估跑批在 worker 队列内 | API 只建行并入队，重启不丢跑批 | `eval-runs` 串行（并发 1）；超时 running 由 reconciler 收敛 |
+| 评估跑批在 worker 队列内 | 批次与用例快照先持久化，API 重启不打断 worker 执行；未认领的队列任务可在 worker 重启后执行 | `eval-runs` 串行（并发 1）；已认领批次中断后不续跑，重投或队列最终失败时条件置 failed，保留已有结果；事件或 DB 收口失败仍由原有超过 1 小时的队列探测对账兜底 |
 | 评估批次列表使用游标分页 | 列表只投影摘要列，避免大字段随分页带出；`(agent_id,created_at,id)` 与 `(created_at,id)` 索引覆盖筛选和全局倒序分页 | `GET /api/eval/runs` 默认 50、最大 100，返回 `{items,nextCursor}`；详情仍按单批次读取 |
+
+2026-10-31 状态：评估生命周期修复已实施，并通过独立 Opus PASS（14 文件 / 112 项、0 failed / 0 skipped，含 case output 修复）；本表描述当前实现语义。
 
 ### 7.1 `shared/run-stream.ts`：跨进程的事件流契约
 
@@ -505,14 +533,15 @@ SDK 生成与管理端手工保存都只追加草稿版本，不移动已发布�
 
 | 导出 | 作用 |
 |---|---|
-| `RUN_STREAM_MAXLEN`（1000） | `XADD` 的 `MAXLEN ~`，事件流按条数截断 |
+| `RUN_TRANSIENT_MAX_EVENTS`（2000）/ `RUN_TRANSIENT_MAX_BYTES`（32MiB） | worker 瞬时展示额度；超出只停止展示并发布 `replay_truncated {reason:'budget'}` |
+| `RUN_PERSISTED_MAX_EVENTS`（2000）/ `RUN_PERSISTED_MAX_BYTES`（32MiB） | worker 落库额度，完整消息、工具事件与问题快照共用；超出将成功改为不可重试失败 |
 | `runStreamKey(runId)` | `run:<runId>:events`，SSE 回放的事件流 |
 | `runEventsConnectionName(runId)` | `run-events:<runId>`，订阅连接的名称，用于计数观众 |
 | `runCancelKey(runId)` | `run:<runId>:cancel`，取消标记 |
 | `RUN_CANCEL_PAYLOAD` | 取消键的固定值 |
 | `runEnqueueOptions(jobId)` | BullMQ `jobId` + `attempts: 2` + 5s 指数退避 |
 
-流的 TTL（1 小时）在写入侧设置，api 与 worker 的 `XADD` 都和 `EXPIRE` 合并为一次 pipeline 并逐条检查命令错误。订阅者按有界批次 XREVRANGE 回放最近 8MiB（顺序不变，累计不超过上限），再用 `XREAD BLOCK` 从最后一条真实 ID 跟读；每个观众仍是独立连接/独立订阅，`XADD` 本身唤醒阻塞读取，不再有单独的 pub/sub 唤醒通道或轮询兜底。终态事件丢失仍由 SSE 路由每 2 秒查数据库兜底。
+流的 TTL（1 小时）在写入侧设置，api 与 worker 的 `XADD` 都不带 MAXLEN，每次写入都和 `EXPIRE 3600` 合并为一次 pipeline 并逐条检查命令错误；保留条数不再由 Redis 裁剪，写入量只受上面两个 worker 预算约束。订阅者从流头按 `XRANGE COUNT 2` 正序逐页回放，每页 `await` 回调后才读下一批，再用 `XREAD BLOCK` 从最后一条真实 ID 跟读；回放完成后服务端才补发终态，因此晚加入或重连的观众也能拿到完整流。每个观众仍是独立连接/独立订阅，`XADD` 本身唤醒阻塞读取，不再有单独的 pub/sub 唤醒通道或轮询兜底。终态事件丢失仍由 SSE 路由每 2 秒查数据库兜底。
 
 ### 7.2 审计幂等：`writeAudit(dedupeKey)`
 
@@ -534,3 +563,44 @@ runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`ag
 - 步骤见 [OPERATIONS.md §2.2.1](OPERATIONS.md#221-手动构建沙盒镜像)；`pnpm run up --rebuild` 与 `pnpm --filter @agentport/sandbox image` 都走这条路径。
 
 更细的选择理由（为什么 PostgreSQL、为什么 v2 MCP 包线、为什么不用 microsandbox 起步）见 `PROJECT-BRIEF.md` 与 `DECISIONS-PENDING.md`。
+
+## 8. 账户、业务身份与权限（2026-10-31，已合入 main）
+
+> 本节描述最终实现，已合入 main、已通过最终 review；实施契约见 [account-rbac.md](tasks/account-rbac.md) 及其配套契约文件。验收证据与剩余项见任务记录。
+
+### 8.1 两类身份
+
+- **认证技术 ID**：Better Auth `user`/`account` 的随机 ID，只承载登录与会话；允许删除并重建。
+- **`businessId`**：稳定业务身份，由管理员录入、不可修改、不可回收给其他自然人。
+- 业务创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权和个人记忆直接记录 `businessId`，不引用可删除的认证 ID；不以指向认证用户的外键作为业务归属依据。
+- 用同一 `businessId` 重建认证账户时，业务归属、角色、成员授权和个人记忆恢复；旧会话行不恢复，旧 Cookie 立即失效。
+- 管理员引导（bootstrap）只在首次初始化创建管理员，不覆盖已有密码。
+
+### 8.2 授权模型
+
+- 角色、功能与授权存 DB；默认四角色是初始数据，不写死角色名，也不以角色名代替权限判定。系统 admin 角色的授权固定、不可删除或改矩阵（可改显示名），其他默认与自定义角色可编辑。
+- 每条授权 = 动作（功能树叶节点）+ 对象范围（全部/本人/被指定）；判定必须同时满足 permission 与 scope。
+- 多角色合并完整授权结果：不把 A 角色的动作与 B 角色的范围拼接。
+- 服务端每个业务入口声明并执行动作授权与对象范围检查；前端菜单与动作由同一功能目录驱动。
+- 功能树纵向为功能行、横向为角色列，可展开到叶动作单独授权，父级按叶权限三态聚合；评估与定时任务分立。
+- 至少保留一名未停用的活跃管理员；删除、停用、降权或矩阵保存导致无管理员时返回 409。
+
+### 8.3 默认角色边界
+
+| 角色 | 允许 | 不允许 |
+|---|---|---|
+| 平台管理员 | 全部功能；跨用户运维与审计（读取私有内容留审计） | — |
+| 用户 | 使用被授权的专家；访问自己的私有会话、消息、运行与个人记忆 | 管理其他用户或全局资源 |
+| 负责人 | 创建并管理本人负责的专家；分配使用、指定维护人员、转交 | 管理账户、全局资源或授权；读取其他用户正文 |
+| 维护人员 | 维护被指定的专家 | 管理账户、全局资源、授权、新建/删除/转交；读取其他用户正文 |
+
+### 8.4 数据隔离与凭据边界
+
+- 私有会话、用户消息、运行与个人记忆按 `businessId` 归属；个人记忆按 `businessId` 独立目录与锁隔离，不与其他用户共享。
+- 既有专家共享 auto-memory 的读写语义不变；个人记忆与专家记忆不互相替代，也不因账户隔离把专家记忆改成只读或私有。
+- 平台管理员可跨用户运维与审计并留痕；负责人、维护人员不因角色获得其他用户正文读取权。
+- `/mcp` 平台 token、`/mcp/:serverId` Bearer token 与 `/s/<shareId>#<token>` 分享 token 保持独立边界；登录用户权限不扩展到这些凭据。
+
+### 8.5 实施状态
+
+已合入 main 并通过定向验证（已通过最终 review）：`0045_married_expediter.sql` 在全新隔离库建库迁移通过；账户/角色/成员与对象范围由 `packages/db/src/repo/accounts.ts`、`access.ts`、`identities.ts` 承接，API 入口按功能叶声明动作与范围，前端功能树复用 `@agentport/shared` 的同一目录。默认角色与验收边界见本节与 [USER-STORIES.md](USER-STORIES.md) EPIC 8；技术字段、表结构与接口以配套契约文件为准。迁移新增 NOT NULL 字段且不回填，仅验证空库；不声称旧库可无损升级，部署到既有库需用户明确决定重建数据，不能自动清库。

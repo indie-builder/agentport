@@ -1968,6 +1968,24 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const baseId = await createBase();
     const profileId = profileIds.at(-1)!;
     for (const contentKind of ['faq', 'wiki'] as const) {
+      // Wiki 索引文档切指针要核真实发布链：页面已发布且版本 metadata 指回该 Wiki 版本。
+      let metadata: Record<string, unknown> | undefined;
+      if (contentKind === 'wiki') {
+        const page = await repo.knowledge.createWikiPage(app.db, {
+          baseId,
+          slug: unique('internal-wiki'),
+          title: '内部 Wiki 页',
+        });
+        const wikiVersion = await repo.knowledge.saveWikiDraft(app.db, page.id, {
+          markdown: '内部块',
+          sourceChunkIds: [],
+          model: 'manual',
+          generatedBy: 'manual',
+        });
+        if (!wikiVersion) throw new Error('wiki draft not saved');
+        await repo.knowledge.publishWikiVersion(app.db, page.id, wikiVersion.id);
+        metadata = { wikiPageId: page.id, wikiVersionId: wikiVersion.id };
+      }
       const document = await repo.knowledge.createDocument(app.db, {
         baseId,
         folderId: null,
@@ -1979,6 +1997,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
         mimeType: 'text/markdown',
         sizeBytes: 1,
         contentKind,
+        metadata,
       });
       const version = await repo.knowledge.createVersion(app.db, {
         documentId: document.id,
@@ -1993,6 +2012,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
         pageMap: [],
         images: [],
         embeddingProfileId: profileId,
+        metadata,
       });
       const [chunk] = await repo.knowledge.insertChunks(app.db, {
         baseId,

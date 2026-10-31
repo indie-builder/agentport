@@ -14,6 +14,12 @@ import {
 } from '../src/scheduler.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
+const access = vi.hoisted(() => ({ check: vi.fn() }));
+vi.mock('../src/run-access.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/run-access.js')>();
+  return { ...actual, checkUserAgentAccess: access.check };
+});
+
 async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;
   const redisUrl = process.env.REDIS_URL;
@@ -60,6 +66,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
   } as unknown as Logger;
   const agentId = newId('agent');
   const disabledAgentId = newId('agent');
+  const scheduleBusinessId = 'schedule-owner';
   let scheduleIds: string[] = [];
   let runsQueue: Queue<AgentRunJob>;
 
@@ -79,6 +86,8 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       id,
       agentId: input.agentId ?? agentId,
       name: 'digest',
+      createdBy: scheduleBusinessId,
+      executeAsBusinessId: scheduleBusinessId,
       cron: input.cron ?? '*/5 * * * *',
       prompt: 'summarize',
       enabled: input.enabled ?? true,
@@ -159,13 +168,22 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       prefix,
     });
     await db.insert(schema.agents).values([
-      { id: agentId, slug: `sched-${agentId.slice(4, 12)}`, name: 'sched', model: 'test' },
+      {
+        id: agentId,
+        slug: `sched-${agentId.slice(4, 12)}`,
+        name: 'sched',
+        model: 'test',
+        createdBy: scheduleBusinessId,
+        ownerBusinessId: scheduleBusinessId,
+      },
       {
         id: disabledAgentId,
         slug: `sched-off-${disabledAgentId.slice(4, 12)}`,
         name: 'sched-off',
         model: 'test',
         enabled: false,
+        createdBy: scheduleBusinessId,
+        ownerBusinessId: scheduleBusinessId,
       },
     ]);
     runsQueue = new Queue<AgentRunJob>(`${RUNS_QUEUE}-sched-test-${randomUUID()}`, {
@@ -174,6 +192,8 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
   });
 
   beforeEach(async () => {
+    access.check.mockReset();
+    access.check.mockResolvedValue(null);
     await clearSchedulers();
     await resetData();
     await runsQueue.obliterate({ force: true });
@@ -310,6 +330,47 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
         .where(eq(schema.agentSchedules.id, scheduleId));
       expect(stored?.lastRunAt?.getTime()).toBe(job.opts.prevMillis);
       expect(await runsQueue.getJob(runs[0]?.id)).toBeDefined();
+      expect(access.check).toHaveBeenCalledWith(expect.anything(), {
+        businessId: scheduleBusinessId,
+        agentId,
+        permissions: ['agents.use', 'schedules.manage'],
+      });
+    });
+
+    it('skips without creating a run when the executor lost access', async () => {
+      const scheduleId = await insertSchedule({});
+      access.check.mockResolvedValue({
+        reason: 'permission_denied',
+        message: '当前账户没有该操作的专家权限，运行未启动',
+      });
+      expect(await processScheduleTrigger({ db, logger, runsQueue }, fakeJob({ scheduleId }))).toBe(
+        'skipped',
+      );
+      expect(await runsOf(agentId)).toHaveLength(0);
+      const audits = await db
+        .select({ inputDigest: schema.auditLog.inputDigest })
+        .from(schema.auditLog)
+        .where(
+          and(
+            eq(schema.auditLog.action, 'schedule.skipped'),
+            eq(schema.auditLog.target, scheduleId),
+          ),
+        );
+      expect(audits).toHaveLength(1);
+      expect(await lastRunAtOf(scheduleId)).toBeNull();
+    });
+
+    it('skips without creating a run when the executor account is disabled', async () => {
+      const scheduleId = await insertSchedule({});
+      access.check.mockResolvedValue({
+        reason: 'account_inactive',
+        message: '账户已停用或不存在，运行未启动',
+      });
+      expect(await processScheduleTrigger({ db, logger, runsQueue }, fakeJob({ scheduleId }))).toBe(
+        'skipped',
+      );
+      expect(await runsOf(agentId)).toHaveLength(0);
+      expect(await lastRunAtOf(scheduleId)).toBeNull();
     });
 
     it('creates only one run when the same trigger is delivered twice', async () => {

@@ -11,7 +11,7 @@ import {
   loginCookie,
   startApp,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID, } from './helpers.js';
 
 // 直接写 repo：不经过 /api/chat，避免依赖 worker 空闲。
 const ready = await infraReady;
@@ -99,7 +99,8 @@ describe.skipIf(!ready)('openui state', () => {
       id: conversationId,
       agentId: agent.id,
       title: 'openui state',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     conversationIds.push(conversationId);
     const content = {
       type: 'text',
@@ -253,7 +254,7 @@ describe.skipIf(!ready)('openui state', () => {
     expectProblem(await put(conversationId, messageId, payload), 'INVALID_INPUT');
   });
 
-  it('saves a state after a single ownership read', async () => {
+  it('saves a state after one ownership read per real object', async () => {
     const { conversationId, messageId } = await seed();
 
     // 旧实现先 getConversation 再 getMessageInConversation：同一判据下命中 2 条。
@@ -268,8 +269,8 @@ describe.skipIf(!ready)('openui state', () => {
     try {
       const res = await put(conversationId, messageId, { blockKey: 's0', state: { a: 1 } });
       expect(res.statusCode, res.body).toBe(200);
-      // 命中路径只查一次消息归属，不再先 getConversation。
-      expect(countOwnershipReads(spy.sql)).toBe(1);
+      // 对象授权必须先读会话归属，消息归属再读一次：两个真实对象各一次。
+      expect(countOwnershipReads(spy.sql)).toBe(2);
       // 正对照：spy 确实抓到了后续写入，不是恒 0 的空抓取。
       expect(spy.sql.some((text) => /^\s*update\s+"?messages"?/i.test(text))).toBe(true);
       expect(spy.sql.some((text) => /^\s*insert\s+into\s+"?audit_log"?/i.test(text))).toBe(true);

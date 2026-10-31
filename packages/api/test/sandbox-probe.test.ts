@@ -337,6 +337,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     expect(result.ok).toBe(false);
     expect(result.tools).toEqual([]);
     expect(result.error).toContain('超时');
-    expect(result.durationMs).toBeGreaterThanOrEqual(300);
+    // Date.now() 有毫秒截断，定时器按 >=300ms 触发时实测可能落在 299。
+    expect(result.durationMs).toBeGreaterThanOrEqual(299);
   });
 });

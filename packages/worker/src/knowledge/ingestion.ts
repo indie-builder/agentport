@@ -617,18 +617,14 @@ function withParentChunks(drafts: ChunkDraft[]): ChunkDraft[] {
   return output;
 }
 
-/**
- * FAQ 不走通用解析：标准问/相似问建立可检索 leaf，答案作为同一 parent 上下文；
- * 反例只由检索按归一化精确排除，不生成任何正向索引块。
- * 草稿版本由 API 预先落库，这里只按 job 指定的版本补分块，不切发布指针。
- */
-async function ingestFaqVersion(
+/** FAQ 标准问/相似问建立 leaf、答案作为 parent；反例不生成正向索引块。 */
+async function buildFaqChunks(
   deps: KnowledgeDeps,
   document: KnowledgeDocumentRow,
   jobId: string,
   versionId: string,
   signal: AbortSignal,
-): Promise<void> {
+): Promise<repo.knowledge.NewChunk[]> {
   const base = await repo.knowledge.getBase(deps.db, document.baseId);
   if (!base) throw new Error('知识库不存在，文档可能已删除');
   const version = await repo.knowledge.getVersion(deps.db, versionId);
@@ -684,27 +680,46 @@ async function ingestFaqVersion(
   ];
   await setStep(deps, jobId, 'indexing', 80);
   checkAborted(signal);
-  await repo.knowledge.replaceChunks(deps.db, {
-    baseId: document.baseId,
-    documentId: document.id,
-    versionId: version.id,
-    folderId: document.folderId,
-    chunks: drafts.map((draft, ordinal) => ({
-      ordinal,
-      parentOrdinal: draft.parentOrdinal ?? null,
-      indexRole: draft.indexRole ?? 'leaf',
-      kind: draft.kind,
-      heading: draft.heading,
-      content: draft.content,
-      searchText: draft.searchText ?? segmentForSearch(draft.content),
-      embedding: draft.embedding ?? null,
-      pageFrom: draft.pageFrom,
-      pageTo: draft.pageTo,
-      locator: null,
-      tokenCount: Math.ceil(draft.content.length / 2),
-      ...(draft.metadata ? { metadata: draft.metadata } : {}),
-    })),
-  });
+  return drafts.map((draft, ordinal) => ({
+    ordinal,
+    parentOrdinal: draft.parentOrdinal ?? null,
+    indexRole: draft.indexRole ?? 'leaf',
+    kind: draft.kind,
+    heading: draft.heading,
+    content: draft.content,
+    searchText: draft.searchText ?? segmentForSearch(draft.content),
+    embedding: draft.embedding ?? null,
+    pageFrom: draft.pageFrom,
+    pageTo: draft.pageTo,
+    locator: null,
+    tokenCount: Math.ceil(draft.content.length / 2),
+    ...(draft.metadata ? { metadata: draft.metadata } : {}),
+  }));
+}
+
+/** API 草稿只替换本任务绑定的索引，不切发布指针；取消错误交给队列写 cancelled。 */
+async function ingestFaqVersion(
+  deps: KnowledgeDeps,
+  document: KnowledgeDocumentRow,
+  jobId: string,
+  versionId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const chunks = await buildFaqChunks(deps, document, jobId, versionId, signal);
+  try {
+    await repo.knowledge.replaceChunks(deps.db, {
+      baseId: document.baseId,
+      documentId: document.id,
+      versionId,
+      folderId: document.folderId,
+      jobId,
+      isAborted: () => signal.aborted,
+      chunks,
+    });
+  } catch (err) {
+    await ensureJobRunning(deps, jobId, signal);
+    throw err;
+  }
   await ensureJobRunning(deps, jobId, signal);
 }
 
@@ -747,7 +762,7 @@ async function ingestContent(
     versionMetadata?: Record<string, unknown>;
     /** draft 只生成草稿版本，不切换线上指针；缺省沿用自动原子发布。 */
     publish?: 'draft' | 'automatic';
-    /** 父版本与发布守卫都用任务输入快照里的期望指针，而不是运行时最新值。 */
+    /** 普通文档用任务快照；Wiki 用执行时索引指针，并在切版事务内重核页面发布版。 */
     expectedCurrentVersionId: string | null;
     /** 外部来源必须带本次读取的来源快照；发布守卫在锁内重核配置、密文与范围。 */
     sourceSnapshot?: repo.knowledge.SourceReadSnapshot | undefined;
@@ -914,7 +929,7 @@ async function ingestContent(
   await ensureJobRunning(deps, input.jobId, input.signal);
   if (draft) {
     // 草稿只落版本与索引，线上指针和已发布正文保持不动；无发布版时文档仍是 pending。
-    await settleDocumentStatus(deps, document.id, document.currentVersionId ? 'ready' : 'pending');
+    await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'pending');
     checkAborted(input.signal);
     return version.id;
   }
@@ -930,7 +945,6 @@ async function ingestContent(
   });
   if (!published) throw new Error('知识库配置已变化或已停用，未发布本次结果');
   await repo.knowledge.updateDocument(deps.db, document.id, {
-    contentHash: sha256(input.data),
     lastSyncedAt: new Date(),
   });
   // 只有成功切版本才推进 Wiki；失败/取消在上面的异常路径返回，不会走到这里。
@@ -946,11 +960,11 @@ function requirePayload(job: KnowledgeJobRow) {
 
 /**
  * 失败/草稿收尾只恢复状态，绝不把处理期间被撤权/停用（disabledReason 非空）的文档复活。
- * 用条件更新而不是先读后写，避免与来源撤权并发时用旧快照覆盖新状态。
+ * 用启动时版本做条件更新，避免旧任务覆盖新版本状态或与来源撤权并发时覆盖新状态。
  */
 async function settleDocumentStatus(
   deps: KnowledgeDeps,
-  documentId: string,
+  document: KnowledgeDocumentRow,
   status: KnowledgeDocumentRow['status'],
 ): Promise<void> {
   await deps.db
@@ -958,7 +972,10 @@ async function settleDocumentStatus(
     .set({ status, updatedAt: new Date() })
     .where(
       and(
-        eq(schema.knowledgeDocuments.id, documentId),
+        eq(schema.knowledgeDocuments.id, document.id),
+        document.currentVersionId === null
+          ? isNull(schema.knowledgeDocuments.currentVersionId)
+          : eq(schema.knowledgeDocuments.currentVersionId, document.currentVersionId),
         ne(schema.knowledgeDocuments.status, 'disabled'),
         isNull(schema.knowledgeDocuments.disabledReason),
       ),
@@ -996,11 +1013,7 @@ export async function runIngest(
       await ingestFaqVersion(deps, document, job.id, payload.versionId, signal);
     } catch (err) {
       // 尚无发布版的 FAQ 草稿失败后仍是 pending，不能伪装成可读的 ready，也不能复活已停用文档。
-      await settleDocumentStatus(
-        deps,
-        document.id,
-        document.currentVersionId ? 'ready' : 'pending',
-      );
+      await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'pending');
       throw err;
     }
     return;
@@ -1010,9 +1023,12 @@ export async function runIngest(
   const snapshot = payload.input;
   const blobSha = snapshot?.blobSha256 ?? document.contentHash;
   if (!blobSha) throw new Error('文档没有已上传的原件');
-  const expectedCurrentVersionId = snapshot
-    ? snapshot.expectedCurrentVersionId
-    : document.currentVersionId;
+  const expectedCurrentVersionId =
+    document.contentKind === 'wiki'
+      ? document.currentVersionId
+      : snapshot
+        ? snapshot.expectedCurrentVersionId
+        : document.currentVersionId;
   // 已有当前版本的文档在摄取期间保持原状态：失败时旧版本必须继续可查。
   if (!document.currentVersionId) {
     await repo.knowledge.updateDocument(deps.db, document.id, { status: 'processing' });
@@ -1025,16 +1041,7 @@ export async function runIngest(
       data,
       sourceRevision: null,
       origin: originOf(document),
-      versionMetadata: {
-        ...(document.contentKind === 'wiki'
-          ? Object.fromEntries(
-              ['wikiPageId', 'wikiVersionId']
-                .filter((key) => typeof document.metadata[key] === 'string')
-                .map((key) => [key, document.metadata[key]]),
-            )
-          : {}),
-        ...(payload.versionMetadata ?? {}),
-      },
+      versionMetadata: payload.versionMetadata ?? {},
       publish: payload.publish,
       expectedCurrentVersionId,
       signal,
@@ -1042,7 +1049,7 @@ export async function runIngest(
     });
   } catch (err) {
     // 取消也要收尾：首次摄取无旧版本可回退，留着 processing 会永久卡住。
-    await settleDocumentStatus(deps, document.id, document.currentVersionId ? 'ready' : 'failed');
+    await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'failed');
     throw err;
   }
 }
@@ -1168,7 +1175,16 @@ async function rebuildFaqDocument(
     images: current.images,
     embeddingProfileId: base.embeddingProfileId,
   });
-  await ingestFaqVersion(deps, document, jobId, version.id, signal);
+  const chunks = await buildFaqChunks(deps, document, jobId, version.id, signal);
+  // 重建只向刚分配的新版本写入，已发布快照及其分块始终不可变。
+  await repo.knowledge.insertChunks(deps.db, {
+    baseId: document.baseId,
+    documentId: document.id,
+    versionId: version.id,
+    folderId: document.folderId,
+    chunks,
+  });
+  await ensureJobRunning(deps, jobId, signal);
   const published = await repo.knowledge.setCurrentVersion(deps.db, document.id, version.id, {
     jobId,
     baseId: document.baseId,
@@ -1177,7 +1193,10 @@ async function rebuildFaqDocument(
     expectedCurrentVersionId: current.id,
     isAborted: () => signal.aborted,
   });
-  if (!published) throw new Error('知识库配置已变化或已停用，未发布本次结果');
+  if (!published) {
+    await ensureJobRunning(deps, jobId, signal);
+    throw new Error('知识库配置已变化或已停用，未发布本次结果');
+  }
   return version.id;
 }
 
@@ -1254,16 +1273,28 @@ export async function runReindex(
         `reindex:${index + 1}/${documents.length}`,
         Math.round((index / documents.length) * 100),
       );
+      // Wiki 身份只继承当前索引版本；document.metadata 可能已指向尚未索引的新发布版。
+      const indexedWikiVersion =
+        document.contentKind === 'wiki' && document.currentVersionId
+          ? await repo.knowledge.getVersion(deps.db, document.currentVersionId)
+          : null;
       await ingestContent(deps, document, {
         filename: filenameOf(document),
         mimeType: document.mimeType,
         data,
         sourceRevision: null,
         origin: originOf(document),
-        versionMetadata:
-          typeof document.metadata.contentCompleteness === 'string'
+        versionMetadata: {
+          ...(typeof document.metadata.contentCompleteness === 'string'
             ? { contentCompleteness: document.metadata.contentCompleteness }
-            : {},
+            : {}),
+          ...(indexedWikiVersion
+            ? {
+                wikiPageId: indexedWikiVersion.metadata.wikiPageId,
+                wikiVersionId: indexedWikiVersion.metadata.wikiVersionId,
+              }
+            : {}),
+        },
         expectedCurrentVersionId: document.currentVersionId,
         ...(sourceSnapshot ? { sourceSnapshot } : {}),
         signal,
@@ -1459,18 +1490,25 @@ async function disableStaleDocuments(
 /** 非 active 来源（paused/disabled/auth_error）不同步：只把 run 记成 cancelled，不动游标与文档。 */
 const SYNCABLE = new Set(['active']);
 
+/** 同步执行的最终结果；终态由队列通过 finishJob 原子提交。 */
+export interface SyncRunResult {
+  cursorAfter: Record<string, unknown>;
+  stats: {
+    listed: number;
+    created: number;
+    updated: number;
+    disabled: number;
+    failed: number;
+  };
+}
+
 export async function runSync(
   deps: KnowledgeDeps,
   job: KnowledgeJobRow,
   signal: AbortSignal,
-): Promise<void> {
+): Promise<SyncRunResult> {
   const payload = requirePayload(job);
   if (payload.type !== 'sync') throw new Error('job 类型不是 sync');
-  // BullMQ 重试复用同一个 syncRunId：上一次尝试可能已留下终态，恢复为 running 再跑。
-  await deps.db
-    .update(schema.knowledgeSyncRuns)
-    .set({ status: 'running', endedAt: null, error: null })
-    .where(eq(schema.knowledgeSyncRuns.id, payload.syncRunId));
   const read = await repo.knowledge.getSourceReadSnapshot(deps.db, payload.sourceId);
   if (!read) throw new Error('来源不存在，可能已被删除');
   const { source, snapshot } = read;
@@ -1663,17 +1701,7 @@ export async function runSync(
     stats.disabled += await disableStaleDocuments(deps, source, seen, signal);
   }
 
-  await repo.knowledge.finishSyncRun(deps.db, payload.syncRunId, {
-    status: 'succeeded',
-    cursorAfter,
-    stats,
-  });
-  await repo.knowledge.updateSource(deps.db, source.id, {
-    cursor: cursorAfter,
-    lastSyncAt: new Date(),
-    lastSyncStatus: 'succeeded',
-    lastError: null,
-  });
+  return { cursorAfter, stats };
 }
 
 // ---------------------------------------------------------------------------
@@ -1777,26 +1805,24 @@ export async function runCleanup(
 // ---------------------------------------------------------------------------
 // 已认领 job 的分发
 
+export type KnowledgeJobResult = Pick<repo.knowledge.FinishJobInput, 'result' | 'probeResult'>;
+
 export async function runKnowledgeJob(
   deps: KnowledgeDeps,
   job: KnowledgeJobRow,
   signal: AbortSignal,
-): Promise<KnowledgeSourceProbeResult | null> {
+): Promise<KnowledgeJobResult | void> {
   switch (job.type) {
     case 'ingest':
-      await runIngest(deps, job, signal);
-      return null;
+      return runIngest(deps, job, signal);
     case 'reindex':
-      await runReindex(deps, job, signal);
-      return null;
+      return runReindex(deps, job, signal);
     case 'sync':
-      await runSync(deps, job, signal);
-      return null;
+      return { result: await runSync(deps, job, signal) };
     case 'source_probe':
-      return runSourceProbe(deps, job, signal);
+      return { probeResult: await runSourceProbe(deps, job, signal) };
     case 'cleanup':
-      await runCleanup(deps, job, signal);
-      return null;
+      return runCleanup(deps, job, signal);
     case 'wiki_generate':
       throw new Error('wiki_generate 由 P5 的 wiki worker 处理');
   }

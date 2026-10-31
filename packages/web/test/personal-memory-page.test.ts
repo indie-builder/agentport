@@ -17,6 +17,7 @@ import { AppShell } from '../src/components/app-shell.js';
 import { ApiError, api } from '../src/lib/api.js';
 import { MemoryPage } from '../src/pages/memory.js';
 import { memorySearchSchema } from '../src/routes/-search.js';
+import { allAccessMe } from './me-fixture.js';
 
 const memory: PersonalMemory = {
   content: '旧偏好',
@@ -27,8 +28,8 @@ const memory: PersonalMemory = {
 const change: MemoryChange = {
   id: 'chg_1',
   target: { kind: 'personal' },
-  before: { content: '更早的偏好', globs: null },
-  after: { content: '旧偏好', globs: null },
+  before: { content: '更早的偏好', globs: null, index: null },
+  after: { content: '旧偏好', globs: null, index: null },
   sourceReviewRunId: null,
   reversesChangeId: null,
   state: 'applied',
@@ -175,9 +176,9 @@ beforeEach(() => {
       queries: { retry: false, refetchOnWindowFocus: false, staleTime: Infinity },
     },
   });
-  client.setQueryData(['me'], { authenticated: true, username: 'admin' });
+  client.setQueryData(['me'], allAccessMe);
   client.setQueryData(['agents'], []);
-  vi.spyOn(api, 'me').mockResolvedValue({ authenticated: true, username: 'admin' });
+  vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
   vi.spyOn(api, 'personalMemory').mockResolvedValue(memory);
   vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [change] });
   vi.spyOn(api, 'writePersonalMemory').mockResolvedValue({
@@ -251,8 +252,8 @@ describe('记忆页个人偏好', () => {
     const savedChange: MemoryChange = {
       ...change,
       id: 'chg_2',
-      before: { content: '旧偏好', globs: null },
-      after: { content: '新偏好', globs: null },
+      before: { content: '旧偏好', globs: null, index: null },
+      after: { content: '新偏好', globs: null, index: null },
       createdAt: '2026-10-02T00:00:00.000Z',
     };
     let saved = false;
@@ -343,8 +344,8 @@ describe('记忆页个人偏好', () => {
     const rollbackChange: MemoryChange = {
       ...change,
       id: 'chg_3',
-      before: { content: '旧偏好', globs: null },
-      after: { content: '更早的偏好', globs: null },
+      before: { content: '旧偏好', globs: null, index: null },
+      after: { content: '更早的偏好', globs: null, index: null },
       reversesChangeId: change.id,
       createdAt: '2026-10-02T00:00:00.000Z',
     };
@@ -423,6 +424,37 @@ describe('记忆页个人偏好', () => {
     });
     await vi.waitFor(() => expect(host.textContent).toContain('个人偏好已被其他编辑更新'));
     expect(editorValue()).toBe('本地草稿');
+  });
+
+  it('后台刷新失败保留草稿和保存基线，重试不清空草稿', async () => {
+    await mount();
+    await fillEditor('本地草稿');
+    expect(host.textContent).toContain('未保存');
+
+    let fail = true;
+    vi.mocked(api.personalMemory).mockImplementation(async () => {
+      if (fail) throw new Error('刷新失败');
+      return { content: '服务器新内容', revision: 5, updatedAt: '2026-10-05T00:00:00.000Z' };
+    });
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['personal-memory'], exact: true });
+    });
+    await flush();
+    expect(host.textContent).toContain('刷新失败');
+    expect(editorValue()).toBe('本地草稿');
+    expect(host.textContent).toContain('未保存');
+
+    fail = false;
+    await click(button('重试'));
+    await vi.waitFor(() => expect(host.textContent).not.toContain('刷新失败'));
+    expect(editorValue()).toBe('本地草稿');
+    expect(host.textContent).toContain('未保存');
+
+    await click(button('保存'));
+    expect(api.writePersonalMemory).toHaveBeenCalledWith({
+      content: '本地草稿',
+      expectedRevision: 2,
+    });
   });
 
   it('浏览器返回走同一放弃确认，取消后草稿仍在', async () => {

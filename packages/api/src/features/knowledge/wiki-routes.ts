@@ -14,6 +14,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
 import { isAppError, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { authorizeObject } from '../access.js';
 import { createJob, enqueueKnowledgeJob } from './service.js';
 
 const baseParams = z.object({ id: z.string().min(1) });
@@ -300,7 +301,6 @@ async function publishWithWikiIndex(
 
 export function registerWikiRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   const pageOptions = (query: { cursor?: string | undefined; limit?: number | undefined }) => ({
     ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
@@ -309,11 +309,21 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/wiki-pages',
-    { ...auth, schema: { params: baseParams, querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams, querystring: pageQuery },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.getBase(app.db, request.params.id))) {
         return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
       }
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: request.params.id },
+        '对象不存在',
+      );
       const page = await repo.knowledge.listWikiPages(
         app.db,
         request.params.id,
@@ -325,10 +335,20 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/wiki-pages',
-    { ...auth, schema: { params: baseParams, body: pageCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: baseParams, body: pageCreateSchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       const row = await repo.knowledge.createWikiPage(app.db, {
         baseId: base.id,
         slug: request.body.slug,
@@ -356,10 +376,14 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/wiki-pages/:pageId',
-    { ...auth, schema: { params: pageParams, querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: pageParams, querystring: pageQuery },
+    },
     async (request, reply) => {
       const page = await repo.knowledge.getWikiPage(app.db, request.params.pageId);
       if (!page) return reject(reply, 'NOT_FOUND', 'Wiki 页面不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.read', { objectId: page.id }, '对象不存在');
       const versions = await repo.knowledge.listWikiVersions(
         app.db,
         page.id,
@@ -375,10 +399,14 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/wiki-pages/:pageId',
-    { ...auth, schema: { params: pageParams, body: pagePatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.publish' } },
+      schema: { params: pageParams, body: pagePatchSchema },
+    },
     async (request, reply) => {
       const page = await repo.knowledge.getWikiPage(app.db, request.params.pageId);
       if (!page) return reject(reply, 'NOT_FOUND', 'Wiki 页面不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.publish', { objectId: page.id }, '对象不存在');
       try {
         const structure = {
           ...(request.body.title === undefined ? {} : { title: request.body.title }),
@@ -418,10 +446,14 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/wiki-pages/:pageId/generate',
-    { ...auth, schema: { params: pageParams, body: generateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: pageParams, body: generateSchema },
+    },
     async (request, reply) => {
       const page = await repo.knowledge.getWikiPage(app.db, request.params.pageId);
       if (!page) return reject(reply, 'NOT_FOUND', 'Wiki 页面不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.execute', { objectId: page.id }, '对象不存在');
       const job = await createJob(app.db, {
         baseId: page.baseId,
         documentId: null,
@@ -445,10 +477,14 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
   // 草稿版本列表：sdk 与人工都只追加，人工从这里挑一版发布。
   app.get(
     '/api/knowledge/wiki-pages/:pageId/versions',
-    { ...auth, schema: { params: pageParams, querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: pageParams, querystring: pageQuery },
+    },
     async (request, reply) => {
       const page = await repo.knowledge.getWikiPage(app.db, request.params.pageId);
       if (!page) return reject(reply, 'NOT_FOUND', 'Wiki 页面不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.read', { objectId: page.id }, '对象不存在');
       const versions = await repo.knowledge.listWikiVersions(
         app.db,
         page.id,
@@ -460,10 +496,14 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/wiki-pages/:pageId/links',
-    { ...auth, schema: { params: pageParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: pageParams },
+    },
     async (request, reply) => {
       const page = await repo.knowledge.getWikiPage(app.db, request.params.pageId);
       if (!page) return reject(reply, 'NOT_FOUND', 'Wiki 页面不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.read', { objectId: page.id }, '对象不存在');
       const rows = await latestPageMarkdowns(app, page.baseId);
       const bySlug = new Map(rows.map((row) => [row.slug.toLowerCase(), row.id]));
       const current = rows.find((row) => row.id === page.id);
@@ -486,10 +526,14 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/wiki-pages/:pageId/diff',
-    { ...auth, schema: { params: pageParams, querystring: diffQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: pageParams, querystring: diffQuery },
+    },
     async (request, reply) => {
       const page = await repo.knowledge.getWikiPage(app.db, request.params.pageId);
       if (!page) return reject(reply, 'NOT_FOUND', 'Wiki 页面不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.read', { objectId: page.id }, '对象不存在');
       const diff = await repo.knowledge.getWikiVersionDiff(
         app.db,
         page.id,
@@ -503,10 +547,14 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/wiki-pages/:pageId/publish',
-    { ...auth, schema: { params: pageParams, body: publishSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.publish' } },
+      schema: { params: pageParams, body: publishSchema },
+    },
     async (request, reply) => {
       const page = await repo.knowledge.getWikiPage(app.db, request.params.pageId);
       if (!page) return reject(reply, 'NOT_FOUND', 'Wiki 页面不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.publish', { objectId: page.id }, '对象不存在');
       try {
         // 先写内容寻址 blob：文件失败时数据库零发布变更；事务内再切指针并建任务。
         const prepared = await prepareWikiIndex(app, page, request.body.versionId);
@@ -523,10 +571,14 @@ export function registerWikiRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/wiki-pages/:pageId/rollback',
-    { ...auth, schema: { params: pageParams, body: rollbackSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.publish' } },
+      schema: { params: pageParams, body: rollbackSchema },
+    },
     async (request, reply) => {
       const page = await repo.knowledge.getWikiPage(app.db, request.params.pageId);
       if (!page) return reject(reply, 'NOT_FOUND', 'Wiki 页面不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.publish', { objectId: page.id }, '对象不存在');
       try {
         // 回退 = 复制目标版本为新草稿再显式发布；来源失效由发布事务按同一规则拒绝。
         const [source] = await app.db

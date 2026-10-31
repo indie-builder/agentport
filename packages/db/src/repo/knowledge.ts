@@ -338,18 +338,6 @@ export async function getBase(db: Database, id: string): Promise<KnowledgeBaseRo
   return row ?? null;
 }
 
-export async function getBaseByServerId(
-  db: Database,
-  serverId: string,
-): Promise<KnowledgeBaseRow | null> {
-  const [row] = await db
-    .select()
-    .from(knowledgeBases)
-    .where(eq(knowledgeBases.serverId, serverId))
-    .limit(1);
-  return row ?? null;
-}
-
 export async function listBases(
   db: Database,
   options: PageOptions = {},
@@ -897,13 +885,63 @@ export async function setCurrentVersion(
   guard?: PublishGuard,
 ): Promise<KnowledgeDocumentRow | null> {
   return db.transaction(async (tx) => {
-    // 锁序与来源范围调整一致：source -> document；这里先拿来源共享锁再锁文档。
+    const [version] = await tx
+      .select({
+        documentId: knowledgeDocumentVersions.documentId,
+        embeddingProfileId: knowledgeDocumentVersions.embeddingProfileId,
+        metadata: knowledgeDocumentVersions.metadata,
+        blobSha256: knowledgeDocumentVersions.blobSha256,
+        originalFilename: knowledgeDocumentVersions.originalFilename,
+        mimeType: knowledgeDocumentVersions.mimeType,
+        parentVersionId: knowledgeDocumentVersions.parentVersionId,
+      })
+      .from(knowledgeDocumentVersions)
+      .where(eq(knowledgeDocumentVersions.id, versionId))
+      .limit(1);
+    if (version?.documentId !== documentId) return null;
+    // Wiki 发布先锁来源/来源文档，再锁页面，最后更新内部索引文档；切版必须同序。
     const [preview] = await tx
-      .select({ sourceConnectionId: knowledgeDocuments.sourceConnectionId })
+      .select({
+        sourceConnectionId: knowledgeDocuments.sourceConnectionId,
+        contentKind: knowledgeDocuments.contentKind,
+        baseId: knowledgeDocuments.baseId,
+        metadata: knowledgeDocuments.metadata,
+      })
       .from(knowledgeDocuments)
       .where(eq(knowledgeDocuments.id, documentId))
       .limit(1);
     if (!preview) return null;
+    if (preview.contentKind === 'wiki') {
+      const { wikiPageId, wikiVersionId } = version.metadata;
+      if (typeof wikiPageId !== 'string' || typeof wikiVersionId !== 'string') return null;
+      if (preview.metadata.wikiPageId !== wikiPageId) return null;
+      const [wikiVersion] = await tx
+        .select()
+        .from(knowledgeWikiVersions)
+        .where(
+          and(
+            eq(knowledgeWikiVersions.id, wikiVersionId),
+            eq(knowledgeWikiVersions.pageId, wikiPageId),
+          ),
+        )
+        .limit(1);
+      if (!wikiVersion) return null;
+      await lockWikiSourceScope(tx, preview.baseId, wikiVersion.sourceChunkIds);
+      const [page] = await tx
+        .select()
+        .from(knowledgeWikiPages)
+        .where(eq(knowledgeWikiPages.id, wikiPageId))
+        .for('update');
+      if (
+        !page ||
+        page.baseId !== preview.baseId ||
+        page.status !== 'published' ||
+        page.currentVersionId !== wikiVersionId
+      )
+        return null;
+      if ((await usableSourceChunks(tx, page, wikiVersion.sourceChunkIds)).unusable > 0)
+        return null;
+    }
     if (preview.sourceConnectionId) {
       await tx
         .select({ id: knowledgeSources.id })
@@ -936,20 +974,6 @@ export async function setCurrentVersion(
       if (guard.isAborted?.()) return null;
       if ((document.currentVersionId ?? null) !== guard.expectedCurrentVersionId) return null;
     }
-    const [version] = await tx
-      .select({
-        documentId: knowledgeDocumentVersions.documentId,
-        embeddingProfileId: knowledgeDocumentVersions.embeddingProfileId,
-        metadata: knowledgeDocumentVersions.metadata,
-        blobSha256: knowledgeDocumentVersions.blobSha256,
-        originalFilename: knowledgeDocumentVersions.originalFilename,
-        mimeType: knowledgeDocumentVersions.mimeType,
-        parentVersionId: knowledgeDocumentVersions.parentVersionId,
-      })
-      .from(knowledgeDocumentVersions)
-      .where(eq(knowledgeDocumentVersions.id, versionId))
-      .limit(1);
-    if (version?.documentId !== documentId) return null;
     // 批次导入的草稿只能走 publishFaqImport 整批发布，逐条切版会破坏 replace 原子性；
     // 已正式发布的批次历史与普通发布版一样可回退。
     if (
@@ -1232,20 +1256,71 @@ export async function insertChunks(
   return inserted;
 }
 
-/** 重建版本时整批替换：同事务内清空旧 chunk 再插入。 */
+/** 仅重建未发布草稿；与发布共用文档锁，取消或任一批写入失败时保留原分块。 */
 export async function replaceChunks(
   db: Database,
-  input: {
-    baseId: string;
-    documentId: string;
-    versionId: string;
-    folderId: string | null;
-    chunks: NewChunk[];
+  input: Parameters<typeof insertChunks>[1] & {
+    jobId: string;
+    isAborted: () => boolean;
   },
 ): Promise<KnowledgeChunkRow[]> {
   return db.transaction(async (tx) => {
+    const [document] = await tx
+      .select({ currentVersionId: knowledgeDocuments.currentVersionId })
+      .from(knowledgeDocuments)
+      .where(
+        and(
+          eq(knowledgeDocuments.id, input.documentId),
+          eq(knowledgeDocuments.baseId, input.baseId),
+        ),
+      )
+      .for('update');
+    const [version] = await tx
+      .select({ metadata: knowledgeDocumentVersions.metadata })
+      .from(knowledgeDocumentVersions)
+      .where(
+        and(
+          eq(knowledgeDocumentVersions.id, input.versionId),
+          eq(knowledgeDocumentVersions.documentId, input.documentId),
+        ),
+      )
+      .for('update');
+    if (
+      !document ||
+      document.currentVersionId === input.versionId ||
+      version?.metadata.publication !== 'draft' ||
+      (version.metadata.faqImport === undefined
+        ? version.metadata.indexingJobId
+        : version.metadata.faqImportJobId) !== input.jobId
+    ) {
+      throw new AppError('CONFLICT', '只能替换本任务绑定的未发布草稿分块');
+    }
+    const [job] = await tx
+      .select({ payload: knowledgeJobs.payload })
+      .from(knowledgeJobs)
+      .where(
+        and(
+          eq(knowledgeJobs.id, input.jobId),
+          eq(knowledgeJobs.type, 'ingest'),
+          eq(knowledgeJobs.baseId, input.baseId),
+          eq(knowledgeJobs.documentId, input.documentId),
+          eq(knowledgeJobs.status, 'running'),
+        ),
+      )
+      .for('share');
+    if (
+      job?.payload.type !== 'ingest' ||
+      job.payload.publish !== 'draft' ||
+      job.payload.documentId !== input.documentId ||
+      job.payload.versionId !== input.versionId ||
+      input.isAborted()
+    ) {
+      throw new AppError('CONFLICT', '草稿索引任务已失效或取消');
+    }
     await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.versionId, input.versionId));
-    return insertChunks(tx, input);
+    const inserted = await insertChunks(tx, input);
+    if (input.isAborted()) throw new AppError('CONFLICT', '草稿索引任务已取消');
+    return inserted;
   });
 }
 
@@ -2120,10 +2195,11 @@ export async function getJob(db: Database, id: string): Promise<KnowledgeJobRow 
 
 export interface ListJobsFilter extends PageOptions {
   baseId?: string;
+  documentId?: string;
   status?: KnowledgeJobRow['status'];
 }
 
-/** 列表只需展示字段：payload 与归属外键留给 getJob/worker，避免列表读出整块任务载荷。 */
+/** 列表只需展示字段：payload 与来源 config 留给 getJob/worker，避免读出整块任务载荷。 */
 const jobSummaryColumns = {
   id: knowledgeJobs.id,
   type: knowledgeJobs.type,
@@ -2133,20 +2209,18 @@ const jobSummaryColumns = {
   attempts: knowledgeJobs.attempts,
   error: knowledgeJobs.error,
   result: knowledgeJobs.result,
+  documentId: knowledgeJobs.documentId,
+  sourceId: knowledgeJobs.sourceId,
   createdAt: knowledgeJobs.createdAt,
   startedAt: knowledgeJobs.startedAt,
   endedAt: knowledgeJobs.endedAt,
 };
 
-export type KnowledgeJobSummary = Pick<KnowledgeJobRow, keyof typeof jobSummaryColumns>;
-
-export async function listJobs(
-  db: Database,
-  filter: ListJobsFilter = {},
-): Promise<Page<KnowledgeJobSummary>> {
+export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
   const limit = pageLimit(filter);
   const filters: SQL[] = [];
   if (filter.baseId) filters.push(eq(knowledgeJobs.baseId, filter.baseId));
+  if (filter.documentId) filters.push(eq(knowledgeJobs.documentId, filter.documentId));
   if (filter.status) filters.push(eq(knowledgeJobs.status, filter.status));
   if (filter.cursor) {
     filters.push(sql`(${knowledgeJobs.createdAt}, ${knowledgeJobs.id}) < (
@@ -2154,65 +2228,158 @@ export async function listJobs(
     )`);
   }
   const rows = await db
-    .select(jobSummaryColumns)
+    .select({
+      ...jobSummaryColumns,
+      documentTitle: knowledgeDocuments.title,
+      sourceName: knowledgeSources.name,
+    })
     .from(knowledgeJobs)
+    .leftJoin(knowledgeDocuments, eq(knowledgeJobs.documentId, knowledgeDocuments.id))
+    .leftJoin(knowledgeSources, eq(knowledgeJobs.sourceId, knowledgeSources.id))
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(knowledgeJobs.createdAt), desc(knowledgeJobs.id))
     .limit(limit + 1);
   return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
 }
 
+/** 同步任务的 payload 关联；缺失或与行上的 sourceId 不一致都是跨行数据错误。 */
+function syncRefOf(job: KnowledgeJobRow): { syncRunId: string; sourceId: string } {
+  const payload = job.payload;
+  if (
+    payload.type !== 'sync' ||
+    typeof payload.syncRunId !== 'string' ||
+    payload.syncRunId === ''
+  ) {
+    throw new Error(`knowledge sync job ${job.id} has no syncRunId`);
+  }
+  if (
+    job.sourceId === null ||
+    (payload.sourceId !== undefined && payload.sourceId !== job.sourceId)
+  ) {
+    throw new Error(`knowledge sync job ${job.id} has an invalid sourceId`);
+  }
+  return { syncRunId: payload.syncRunId, sourceId: job.sourceId };
+}
+
 /** 条件更新认领：BullMQ 重复投递时只有一个 worker 能把 queued 改成 running。 */
 export async function claimJob(db: Database, id: string): Promise<KnowledgeJobRow | null> {
-  const [row] = await db
-    .update(knowledgeJobs)
-    .set({
-      status: 'running',
-      startedAt: new Date(),
-      attempts: sql`${knowledgeJobs.attempts} + 1`,
-    })
-    .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'queued')))
-    .returning();
-  return row ?? null;
+  return db.transaction(async (tx) => {
+    const startedAt = new Date();
+    const [row] = await tx
+      .update(knowledgeJobs)
+      .set({
+        status: 'running',
+        startedAt,
+        attempts: sql`${knowledgeJobs.attempts} + 1`,
+      })
+      .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'queued')))
+      .returning();
+    if (!row) return null;
+    if (row.type === 'sync') {
+      const { syncRunId, sourceId } = syncRefOf(row);
+      // 只有 queued run 需要进入 running；内部重试保持已写入的 startedAt 与检查点。
+      const [run] = await tx
+        .update(knowledgeSyncRuns)
+        .set({
+          status: 'running',
+          startedAt: sql`coalesce(${knowledgeSyncRuns.startedAt}, ${startedAt})`,
+        })
+        .where(
+          and(
+            eq(knowledgeSyncRuns.id, syncRunId),
+            eq(knowledgeSyncRuns.sourceId, sourceId),
+            inArray(knowledgeSyncRuns.status, ['queued', 'running']),
+          ),
+        )
+        .returning({ id: knowledgeSyncRuns.id });
+      if (!run) throw new Error(`sync run ${syncRunId} is not active for job ${row.id}`);
+    }
+    return row;
+  });
+}
+
+export interface SyncRunResult {
+  cursorAfter: Record<string, unknown>;
+  stats: KnowledgeSyncRunRow['stats'];
 }
 
 export interface FinishJobInput {
+  /** 允许转换的唯一前态；排队取消与调度入队失败传 queued。 */
+  fromStatus?: Extract<KnowledgeJobRow['status'], 'queued' | 'running'>;
   status: Extract<KnowledgeJobRow['status'], 'succeeded' | 'failed' | 'cancelled'>;
   error?: string | null;
   step?: string | null;
   progress?: number;
-  result?: KnowledgeSourceProbeResult | null;
+  /** 仅成功的 sync 任务必须携带；同一事务写入 run 与 source 游标。 */
+  result?: SyncRunResult;
+  /** source_probe 的可见结果，不修改 source 游标或同步状态。 */
+  probeResult?: KnowledgeSourceProbeResult | null;
 }
 
-/** 终态只写一次：非 running 的行不会被覆盖。 */
+/**
+ * 一个 job 的原子终态提交：job CAS、sync run 终态、source 摘要与成功游标一次提交。
+ * 任何后续写入失败都回滚 job，让重投/对账仍能看到活动行。
+ */
 export async function finishJob(
   db: Database,
   id: string,
   input: FinishJobInput,
 ): Promise<KnowledgeJobRow | null> {
-  const [row] = await db
-    .update(knowledgeJobs)
-    .set({
-      status: input.status,
-      error: input.error ?? null,
-      step: input.step ?? null,
-      progress: input.progress ?? 100,
-      result: input.result ?? null,
-      endedAt: new Date(),
-    })
-    .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'running')))
-    .returning();
-  return row ?? null;
-}
+  const fromStatus = input.fromStatus ?? 'running';
+  const syncResult = input.result;
+  const probeResult = input.probeResult ?? null;
+  return db.transaction(async (tx) => {
+    const endedAt = new Date();
+    const [row] = await tx
+      .update(knowledgeJobs)
+      .set({
+        status: input.status,
+        error: input.error ?? null,
+        step: input.step ?? null,
+        progress: input.progress ?? 100,
+        result: probeResult,
+        endedAt,
+      })
+      .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, fromStatus)))
+      .returning();
+    if (row?.type !== 'sync') return row ?? null;
 
-/** 只取消仍未开始的 job；运行中的取消由 worker 侧 cancel key + AbortController 完成。 */
-export async function requestCancel(db: Database, id: string): Promise<KnowledgeJobRow | null> {
-  const [row] = await db
-    .update(knowledgeJobs)
-    .set({ status: 'cancelled', endedAt: new Date() })
-    .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'queued')))
-    .returning();
-  return row ?? null;
+    const { syncRunId, sourceId } = syncRefOf(row);
+    if (input.status === 'succeeded' && !syncResult) {
+      throw new Error(`sync job ${row.id} succeeded without cursorAfter`);
+    }
+    const [run] = await tx
+      .update(knowledgeSyncRuns)
+      .set({
+        status: input.status,
+        endedAt,
+        error: input.error ?? null,
+        ...(input.status === 'succeeded' && syncResult
+          ? { cursorAfter: syncResult.cursorAfter, stats: syncResult.stats }
+          : {}),
+      })
+      .where(
+        and(
+          eq(knowledgeSyncRuns.id, syncRunId),
+          eq(knowledgeSyncRuns.sourceId, sourceId),
+          inArray(knowledgeSyncRuns.status, ['queued', 'running']),
+        ),
+      )
+      .returning({ id: knowledgeSyncRuns.id });
+    if (!run) throw new Error(`sync run ${syncRunId} is not active for job ${row.id}`);
+
+    await tx
+      .update(knowledgeSources)
+      .set({
+        lastSyncAt: endedAt,
+        lastSyncStatus: input.status,
+        lastError: input.error ?? null,
+        updatedAt: endedAt,
+        ...(input.status === 'succeeded' && syncResult ? { cursor: syncResult.cursorAfter } : {}),
+      })
+      .where(eq(knowledgeSources.id, sourceId));
+    return row;
+  });
 }
 // ---------------------------------------------------------------------------
 // 外部来源 / 同步
@@ -2590,49 +2757,64 @@ export async function setDocumentSourceRanges(
   });
 }
 
-export async function createSyncRun(
-  db: Database,
-  sourceId: string,
-  cursorBefore: Record<string, unknown> | null,
-): Promise<KnowledgeSyncRunRow> {
-  const [row] = await db
-    .insert(knowledgeSyncRuns)
-    .values({
-      id: newId('knowledgeSyncRun'),
-      sourceId,
-      status: 'running',
-      startedAt: new Date(),
-      cursorBefore,
-    })
-    .returning();
-  if (!row) throw new Error('knowledge sync run insert returned no row');
-  return row;
-}
+export type CreateSyncJobResult =
+  | { status: 'created'; job: KnowledgeJobRow; run: KnowledgeSyncRunRow }
+  | { status: 'not_found' }
+  | { status: 'not_active' }
+  | { status: 'in_progress' };
 
-export interface FinishSyncRunInput {
-  status: Extract<KnowledgeSyncRunRow['status'], 'succeeded' | 'failed' | 'cancelled'>;
-  cursorAfter?: Record<string, unknown> | null;
-  stats?: KnowledgeSyncRunRow['stats'];
-  error?: string | null;
-}
+/**
+ * 手动、重试与定时触发共用的一次创建事务：来源级 advisory lock + 在途检查后，
+ * queued sync run 与 queued job 全有或全无；Redis add 必须等本事务提交后再做。
+ */
+export async function createSyncJob(db: Database, sourceId: string): Promise<CreateSyncJobResult> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${sourceId}))`);
+    const [source] = await tx
+      .select()
+      .from(knowledgeSources)
+      .where(eq(knowledgeSources.id, sourceId))
+      .limit(1);
+    if (!source) return { status: 'not_found' } as const;
+    if (source.status !== 'active') return { status: 'not_active' } as const;
+    const [active] = await tx
+      .select({ id: knowledgeJobs.id })
+      .from(knowledgeJobs)
+      .where(
+        and(
+          eq(knowledgeJobs.sourceId, sourceId),
+          inArray(knowledgeJobs.status, ['queued', 'running']),
+        ),
+      )
+      .limit(1);
+    if (active) return { status: 'in_progress' } as const;
 
-export async function finishSyncRun(
-  db: Database,
-  id: string,
-  input: FinishSyncRunInput,
-): Promise<KnowledgeSyncRunRow | null> {
-  const [row] = await db
-    .update(knowledgeSyncRuns)
-    .set({
-      status: input.status,
-      endedAt: new Date(),
-      cursorAfter: input.cursorAfter ?? null,
-      ...(input.stats ? { stats: input.stats } : {}),
-      error: input.error ?? null,
-    })
-    .where(eq(knowledgeSyncRuns.id, id))
-    .returning();
-  return row ?? null;
+    const runId = newId('knowledgeSyncRun');
+    const jobId = newId('knowledgeJob');
+    const [run] = await tx
+      .insert(knowledgeSyncRuns)
+      .values({
+        id: runId,
+        sourceId,
+        status: 'queued',
+        cursorBefore: source.cursor,
+      })
+      .returning();
+    const [job] = await tx
+      .insert(knowledgeJobs)
+      .values({
+        id: jobId,
+        type: 'sync',
+        baseId: source.baseId,
+        documentId: null,
+        sourceId,
+        status: 'queued',
+        payload: { type: 'sync', sourceId, syncRunId: runId },
+      })
+      .returning();
+    if (!run || !job) throw new Error('knowledge sync pair insert returned no row');
+    return { status: 'created', job, run } as const;
+  });
 }
 
 export async function listSyncRuns(

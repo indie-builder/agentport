@@ -20,6 +20,7 @@ import { locatorLabel } from '../src/components/knowledge-shared.js';
 import { toastError } from '../src/lib/toast.js';
 import { KnowledgePage } from '../src/pages/knowledge.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
+import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -75,6 +76,33 @@ const disabledAsrProfile = {
   name: 'whisper-off',
   enabled: false,
 };
+
+function profileSelection(profile: { id: string; name: string; kind: string; enabled: boolean }) {
+  return {
+    id: profile.id,
+    name: profile.name,
+    kind: profile.kind,
+    enabled: profile.enabled,
+    supportsImageVectors: false,
+  };
+}
+
+/** `/model-profiles` 按 view=selection 返回安全的精简选择项，管理视图才返回完整 profile。 */
+function profilesHandler(
+  profiles: Array<{
+    id: string;
+    name: string;
+    kind: string;
+    enabled: boolean;
+    imageInputEnabled: boolean;
+  }>,
+) {
+  return http.get('/api/knowledge/model-profiles', ({ request }) =>
+    new URL(request.url).searchParams.get('view') === 'selection'
+      ? HttpResponse.json(profiles.map(profileSelection))
+      : HttpResponse.json(profiles),
+  );
+}
 
 const audioDocument = {
   id: 'kdoc_1',
@@ -140,6 +168,7 @@ function markdownResponse(text: string) {
 
 function apiHandlers() {
   server.use(
+    http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)),
     http.get('/api/knowledge/bases', () => HttpResponse.json({ items: [base], nextCursor: null })),
     http.get('/api/knowledge/bases/kb_1', () => HttpResponse.json(base)),
     http.get('/api/knowledge/bases/kb_1/folders', () => HttpResponse.json([])),
@@ -199,6 +228,7 @@ afterAll(() => msw.close());
 
 beforeEach(() => {
   msw.reset();
+  server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
   vi.mocked(toastError).mockClear();
   vi.stubGlobal(
     'ResizeObserver',
@@ -390,16 +420,25 @@ describe('knowledge audio base binding', () => {
   it('creates a base with the selected ASR profile and guards an ASR-only draft', async () => {
     apiHandlers();
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, asrProfile, disabledAsrProfile]),
-      ),
+      profilesHandler([embeddingProfile, asrProfile, disabledAsrProfile]),
       http.post('/api/knowledge/bases', () =>
         HttpResponse.json({ ...base, id: 'kb_new', slug: 'new-base', name: '新库' }),
+      ),
+      // 创建成功后主 #132 会直接进入详情，详情查询也要有对应 handler。
+      http.get('/api/knowledge/bases/kb_new', () =>
+        HttpResponse.json({ ...base, id: 'kb_new', slug: 'new-base', name: '新库' }),
+      ),
+      http.get('/api/knowledge/bases/kb_new/folders', () => HttpResponse.json([])),
+      http.get('/api/knowledge/bases/kb_new/tags', () => HttpResponse.json([])),
+      http.get('/api/knowledge/bases/kb_new/documents', () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
       ),
     );
     await mountRoute('/knowledge');
     await click(button('新建知识库'));
     const creator = dialog('新建知识库');
+    // 主 #132 的建库弹层把模型与分块参数收进高级设置。
+    await click(button('高级设置', creator));
     const asrSelect = document.getElementById('knowledge-asr');
     expect(asrSelect).not.toBeNull();
     await chooseOption('knowledge-asr', 'whisper-1');
@@ -412,19 +451,22 @@ describe('knowledge audio base binding', () => {
 
     await fill('knowledge-name', '新库');
     await fill('knowledge-slug', 'new-base');
-    await chooseOption('knowledge-embedding', 'bge-m3');
+    // 只有一个启用的 embedding 时是只读展示，不渲染可选控件。
+    expect(document.getElementById('knowledge-embedding')).toBeNull();
+    expect(creator.textContent).toContain('bge-m3');
+    expect(calls.some((item) => item.path === '/api/knowledge/model-profiles?view=selection')).toBe(
+      true,
+    );
     await click(button('创建', creator));
     expect(
       calls.find((item) => item.method === 'POST' && item.path === '/api/knowledge/bases')?.body,
-    ).toMatchObject({ asrProfileId: 'profile_asr' });
+    ).toMatchObject({ asrProfileId: 'profile_asr', embeddingProfileId: 'profile_embed' });
   });
 
   it('keeps a bound disabled ASR visible as disabled and saves null when turned off', async () => {
     const boundBase = { ...base, asrProfileId: disabledAsrProfile.id };
     server.use(
-      http.get('/api/knowledge/model-profiles', () =>
-        HttpResponse.json([embeddingProfile, asrProfile, disabledAsrProfile]),
-      ),
+      profilesHandler([embeddingProfile, asrProfile, disabledAsrProfile]),
       http.patch('/api/knowledge/bases/kb_1', () =>
         HttpResponse.json({ ...boundBase, asrProfileId: null }),
       ),
@@ -468,7 +510,7 @@ describe('knowledge ASR model profile', () => {
   it('shows the fixed protocol without a paid test call and submits only ASR fields', async () => {
     const request = deferred<void>();
     server.use(
-      http.get('/api/knowledge/model-profiles', () => HttpResponse.json([asrProfile])),
+      profilesHandler([asrProfile]),
       http.post('/api/knowledge/model-profiles', async () => {
         await request.promise;
         return HttpResponse.json(asrProfile);

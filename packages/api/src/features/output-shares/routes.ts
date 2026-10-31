@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isAppError, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf, authorizeObject } from '../access.js';
 import {
   agentSlug,
   contentDisposition,
@@ -105,7 +106,9 @@ async function resolveSharedFile(
 
 export function registerOutputShareRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
+  const auth = {
+    config: { access: { kind: 'permission', permissionId: 'conversations.share' } as const },
+  };
 
   app.post(
     '/api/conversations/:id/output-shares',
@@ -113,6 +116,13 @@ export function registerOutputShareRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const conversation = await repo.chat.getConversation(app.db, request.params.id);
       if (!conversation) return conversationNotFound(reply);
+      await authorizeObject(
+        app,
+        request,
+        'conversations.share',
+        { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+        '会话不存在，可能已被删除；请从会话列表重新打开',
+      );
       const slug = await agentSlug(app, conversation.agentId);
       if (slug === null) return reject(reply, 'NOT_FOUND', '成果文件不存在，可能已被清理');
 
@@ -163,7 +173,7 @@ export function registerOutputShareRoutes(rawApp: FastifyInstance): void {
         tokenEncrypted: encryptSecrets({ token }, app.config.APP_SECRET_KEY),
       });
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'share.created',
         target: row.id,
         input: { conversationId: conversation.id, runId: row.runId, path: row.path },
@@ -180,6 +190,13 @@ export function registerOutputShareRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const conversation = await repo.chat.getConversation(app.db, request.params.id);
       if (!conversation) return conversationNotFound(reply);
+      await authorizeObject(
+        app,
+        request,
+        'conversations.share',
+        { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+        '会话不存在，可能已被删除；请从会话列表重新打开',
+      );
       const rows = await repo.outputShares.listByTriple(
         app.db,
         conversation.id,
@@ -195,10 +212,23 @@ export function registerOutputShareRoutes(rawApp: FastifyInstance): void {
     '/api/output-shares/:id',
     { ...auth, schema: { params: shareParams } },
     async (request, reply) => {
+      // 撤销同样按真实会话对象判权；已撤销/不存在保持幂等 204。
+      const active = await repo.outputShares.findActiveById(app.db, request.params.id);
+      if (active !== null) {
+        const conversation = await repo.chat.getConversation(app.db, active.conversationId);
+        if (!conversation) return notShared(reply);
+        await authorizeObject(
+          app,
+          request,
+          'conversations.share',
+          { objectId: active.id, createdBy: conversation.createdBy, privateContent: true },
+          '分享不存在或已失效',
+        );
+      }
       const row = await repo.outputShares.revoke(app.db, request.params.id);
       if (row !== null) {
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'share.revoked',
           target: row.id,
           input: { conversationId: row.conversationId, runId: row.runId, path: row.path },
@@ -213,7 +243,16 @@ export function registerOutputShareRoutes(rawApp: FastifyInstance): void {
   // 公开例外：分享链接不登录即可访问。无效、撤销或来源已删除统一普通 404，不泄露存在性。
   app.get(
     '/api/public/output-shares/:id',
-    { schema: { params: shareParams } },
+    {
+      config: {
+        access: {
+          kind: 'service',
+          boundary: 'share-token',
+          reason: 'public share authenticates with the link token, not a session',
+        },
+      },
+      schema: { params: shareParams },
+    },
     async (request, reply) => {
       reply.header('cache-control', 'no-store');
       const shared = await resolveSharedFile(app, request.params.id, request);
@@ -224,7 +263,16 @@ export function registerOutputShareRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/public/output-shares/:id/content',
-    { schema: { params: shareParams } },
+    {
+      config: {
+        access: {
+          kind: 'service',
+          boundary: 'share-token',
+          reason: 'public share authenticates with the link token, not a session',
+        },
+      },
+      schema: { params: shareParams },
+    },
     async (request, reply) => {
       reply.header('cache-control', 'no-store');
       const shared = await resolveSharedFile(app, request.params.id, request);
@@ -245,7 +293,16 @@ export function registerOutputShareRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/public/output-shares/:id/download',
-    { schema: { params: shareParams } },
+    {
+      config: {
+        access: {
+          kind: 'service',
+          boundary: 'share-token',
+          reason: 'public share authenticates with the link token, not a session',
+        },
+      },
+      schema: { params: shareParams },
+    },
     async (request, reply) => {
       reply.header('cache-control', 'no-store');
       const shared = await resolveSharedFile(app, request.params.id, request);

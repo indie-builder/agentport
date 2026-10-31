@@ -14,6 +14,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { z } from 'zod';
 import { KnowledgePage } from '../src/pages/knowledge.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
+import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -102,6 +103,7 @@ async function flush() {
 
 async function mount(sources: unknown[] = []) {
   server.use(
+    http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)),
     http.get('/api/knowledge/bases', () => HttpResponse.json({ items: [base], nextCursor: null })),
     http.get('/api/knowledge/bases/kb_1', () => HttpResponse.json(base)),
     http.get('/api/knowledge/bases/kb_1/folders', () => HttpResponse.json([])),

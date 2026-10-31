@@ -3,6 +3,7 @@ import type {
   RuntimeEnvironmentVersion,
   RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
   createRootRoute,
@@ -21,6 +22,7 @@ import { buildShouldPoll } from '../src/lib/queries.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environment-detail.js';
 import { RuntimeEnvironmentsPage } from '../src/pages/runtime-environments.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -40,6 +42,8 @@ const state = vi.hoisted(() => {
     updatePending: false,
     createPending: false,
     removePending: false,
+    environmentError: null as unknown,
+    environmentRefetch: vi.fn(),
     create: vi.fn(),
     realRouter: false,
     setCreatePending(value: boolean) {
@@ -106,9 +110,9 @@ vi.mock('../src/lib/queries.js', async (original) => {
     useRuntimeEnvironment: () => ({
       data: state.environment,
       isPending: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
+      isError: state.environmentError !== null,
+      error: state.environmentError,
+      refetch: state.environmentRefetch,
     }),
     useRuntimeEnvironmentVersions: () => ({
       data: state.versions,
@@ -151,6 +155,12 @@ vi.mock('../src/lib/queries.js', async (original) => {
     usePublishRuntimeEnvironment: () => ({ isPending: false, mutate: state.publish }),
   };
 });
+
+let client: QueryClient;
+
+function withClient(element: ReactNode) {
+  return createElement(QueryClientProvider, { client }, element);
+}
 
 const environment: RuntimeEnvironment = {
   id: 'rte_1',
@@ -243,7 +253,7 @@ async function mountPage(page: ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(page));
+  await act(async () => root.render(withClient(page)));
   await flush();
   return {
     host,
@@ -299,7 +309,7 @@ async function mountWithRouter(initialPath: string) {
   const root = createRoot(host);
   await act(async () => {
     await router.load();
-    root.render(createElement(RouterProvider, { router }));
+    root.render(withClient(createElement(RouterProvider, { router })));
   });
   await flush();
   return {
@@ -347,9 +357,16 @@ async function click(element: HTMLElement): Promise<void> {
   await flush();
 }
 
-async function editInput(element: HTMLInputElement, value: string): Promise<void> {
+async function editInput(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+): Promise<void> {
+  const prototype =
+    element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(element, value);
+    Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
     element.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await flush();
@@ -357,10 +374,16 @@ async function editInput(element: HTMLInputElement, value: string): Promise<void
 
 beforeEach(() => {
   vi.clearAllMocks();
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+  });
+  client.setQueryData(['me'], allAccessMe);
   state.realRouter = false;
   state.updatePending = false;
   state.createPending = false;
   state.removePending = false;
+  state.environmentError = null;
+  state.environmentRefetch = vi.fn();
   state.create = vi.fn();
   state.remove = vi.fn();
   state.blockerOptions = [];
@@ -373,13 +396,16 @@ beforeEach(() => {
     },
   );
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  client.clear();
+  vi.unstubAllGlobals();
+});
 
 describe('runtime environments page', () => {
   it('lists named environments with the online version and one h1', () => {
     state.environments = [environment];
     state.search = {};
-    const html = renderToStaticMarkup(createElement(RuntimeEnvironmentsPage));
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(html).toContain('数据分析');
     expect(html).toContain('线上');
@@ -390,7 +416,7 @@ describe('runtime environments page', () => {
   it('shows the create action for an empty list', () => {
     state.environments = [];
     state.search = {};
-    const html = renderToStaticMarkup(createElement(RuntimeEnvironmentsPage));
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(html).toContain('新建第一个运行环境');
     expect(html).toContain('新建环境');
@@ -514,7 +540,7 @@ describe('runtime environment detail page', () => {
       version('rtev_dddddddd', 'building', null),
     ];
     state.search = {};
-    const html = renderToStaticMarkup(createElement(RuntimeEnvironmentDetailPage));
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentDetailPage)));
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(html).toContain('线上');
     expect(html.match(/设为线上/g)).toHaveLength(1);
@@ -529,7 +555,7 @@ describe('runtime environment detail page', () => {
       version('rtev_bbbbbbbb', 'failed', null),
     ];
     state.search = { status: 'failed' };
-    const html = renderToStaticMarkup(createElement(RuntimeEnvironmentDetailPage));
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentDetailPage)));
     expect(html).toContain('bbbbbbbb');
     expect(html).not.toContain('aaaaaaaa');
   });
@@ -584,10 +610,12 @@ describe('runtime environment detail page', () => {
     state.search = {};
     let tree: Element[] = [];
     renderToStaticMarkup(
-      createElement(function Probe() {
-        tree = elements(RuntimeEnvironmentDetailPage());
-        return null;
-      }),
+      withClient(
+        createElement(function Probe() {
+          tree = elements(RuntimeEnvironmentDetailPage());
+          return null;
+        }),
+      ),
     );
     const build = buttonWith(tree, '构建新版本');
     const publish = buttonWith(tree, '设为线上');
@@ -740,11 +768,121 @@ describe('runtime environment detail page', () => {
     if (!draftInput) throw new Error('Missing environment name');
     await editInput(draftInput, '未保存的草稿');
     state.environment = { ...environment };
-    await act(async () => page.root.render(createElement(RuntimeEnvironmentDetailPage)));
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
     await flush();
     expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
       '未保存的草稿',
     );
+    await page.unmount();
+  });
+
+  it('shows the full error when the environment has no cached data', () => {
+    state.environment = undefined;
+    state.environmentError = new Error('环境加载失败');
+    state.versions = [];
+    state.search = {};
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentDetailPage)));
+    expect(html.match(/<h1/g)).toHaveLength(1);
+    expect(html).toContain('环境加载失败');
+    expect(html).not.toContain('保存更改');
+  });
+
+  it('keeps the config draft and inline error when the detail refresh fails, and retries', async () => {
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const name = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
+    const dockerfile = page.host.querySelector<HTMLTextAreaElement>(
+      '#runtime-environment-dockerfile',
+    );
+    if (!name || !dockerfile) throw new Error('Missing environment fields');
+    await editInput(name, '未保存名称');
+    await editInput(dockerfile, 'FROM draft');
+    name.focus();
+    expect(document.activeElement).toBe(name);
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+
+    const refetch = vi.fn(() => {
+      state.environmentError = null;
+    });
+    state.environmentRefetch = refetch;
+    state.environmentError = new Error('详情刷新失败');
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+
+    expect(page.host.textContent).toContain('详情刷新失败');
+    expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
+    expect(page.host.querySelector('#runtime-environment-dockerfile')).toBe(dockerfile);
+    expect(document.activeElement).toBe(name);
+    expect(name.value).toBe('未保存名称');
+    expect(dockerfile.value).toBe('FROM draft');
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+
+    await click(button('重试'));
+    expect(refetch).toHaveBeenCalled();
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.textContent).not.toContain('详情刷新失败');
+    expect(name.value).toBe('未保存名称');
+    expect(dockerfile.value).toBe('FROM draft');
+    await page.unmount();
+  });
+
+  it('keeps a same-entity draft and its original baseline across a failed refresh and later server changes', async () => {
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const name = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
+    const dockerfile = page.host.querySelector<HTMLTextAreaElement>(
+      '#runtime-environment-dockerfile',
+    );
+    if (!name || !dockerfile) throw new Error('Missing environment fields');
+    await editInput(name, '本地草稿');
+    await editInput(dockerfile, 'FROM local draft');
+    expect(button('保存更改').disabled).toBe(false);
+
+    state.environmentError = new Error('详情刷新失败');
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
+    expect(page.host.querySelector('#runtime-environment-dockerfile')).toBe(dockerfile);
+    expect(name.value).toBe('本地草稿');
+    expect(dockerfile.value).toBe('FROM local draft');
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+
+    // 重试成功时服务端值刚好等于草稿，基线不能被推进成草稿值。
+    state.environmentError = null;
+    state.environment = { ...environment, name: '本地草稿', dockerfile: 'FROM local draft' };
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
+    expect(name.value).toBe('本地草稿');
+    expect(dockerfile.value).toBe('FROM local draft');
+    expect(button('保存更改').disabled).toBe(false);
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+
+    state.environment = { ...environment, name: '服务器C', dockerfile: 'FROM server C' };
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
+    expect(name.value).toBe('本地草稿');
+    expect(dockerfile.value).toBe('FROM local draft');
+    expect(button('保存更改').disabled).toBe(false);
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
     await page.unmount();
   });
 
@@ -768,6 +906,19 @@ describe('runtime environment detail page', () => {
     expect(button('保存更改').disabled).toBe(true);
     await click(button('构建新版本'));
     expect(state.build).toHaveBeenCalledWith('rte_1', expect.anything());
+    // 保存后已无草稿，后台刷新应正常带入新值。
+    state.environment = { ...environment, name: '服务器新名称', dockerfile: 'FROM server' };
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
+      '服务器新名称',
+    );
+    expect(
+      page.host.querySelector<HTMLTextAreaElement>('#runtime-environment-dockerfile')?.value,
+    ).toBe('FROM server');
+    expect(button('保存更改').disabled).toBe(true);
     await page.unmount();
   });
 });

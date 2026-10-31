@@ -317,9 +317,9 @@ describe('turn checklist rendering', () => {
     expect(html).toContain('整理资料');
     expect(html).not.toContain('旧步骤');
     expect(html.match(/aria-label="任务清单"/g)).toHaveLength(1);
-    // 字号沿用既有 token：计数 12px（xs），步骤正文 15px（md），不另造小字号。
+    // 字号沿用既有 token：计数 12px（xs），步骤正文 14px（base），不另造小字号。
     expect(html).toContain('font-mono text-xs tabular-nums');
-    expect(html).toContain('flex items-start gap-1.5 text-md');
+    expect(html).toContain('flex items-start gap-1.5 text-base');
     expect(html).not.toContain('text-2xs');
   });
 

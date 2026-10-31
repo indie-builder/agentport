@@ -790,7 +790,7 @@ test('切换会话后迟到的恢复结果被丢弃', async () => {
   });
 });
 
-test('新一轮发送开始后，上一轮的恢复结果不能改写当前会话', async () => {
+test('截断结果补全完成前阻止发送，完成后才解除屏障', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const recovery = deferred<unknown>();
   apiMock.conversation.mockReturnValue(recovery.promise);
@@ -802,18 +802,28 @@ test('新一轮发送开始后，上一轮的恢复结果不能改写当前会�
   opened.onmessage?.(message({ type: 'text_delta', text: 'partial' }));
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
 
-  // 第二次发送停在 queued：此时 run 非空，旧恢复结果必须丢弃。
-  apiMock.sendChat.mockReturnValue(new Promise(() => {}));
+  // 补全未完成：保留本轮 run 屏障，发送不能抢在 canonical 落地前开始下一轮。
+  expect(useChatStore.getState().run).toMatchObject({ runId: 'r1' });
   useChatStore.getState().setInput('next');
-  void hook.send();
-  const afterSend = useChatStore.getState().items;
-  expect(useChatStore.getState().run?.status).toBe('queued');
+  await hook.send();
+  expect(apiMock.sendChat).toHaveBeenCalledTimes(1);
+  expect(useChatStore.getState().input).toBe('next');
 
-  recovery.resolve(conversationPage([assistantMessage('m2', 'stale')]));
+  recovery.resolve(conversationPage([userMessage, assistantMessage('m2', 'canonical')]));
   await settle();
 
-  expect(useChatStore.getState().items).toBe(afterSend);
-  expect(useChatStore.getState().items.at(-1)).toEqual({ kind: 'user', text: 'next' });
+  expect(useChatStore.getState().run).toBeNull();
+  expect(useChatStore.getState().items.map((item) => ('text' in item ? item.text : ''))).toEqual([
+    'hi',
+    'canonical',
+  ]);
+
+  // 屏障解除后可以继续发送下一轮。
+  apiMock.sendChat.mockResolvedValue({ runId: 'r2', conversationId: 'c1' });
+  await act(async () => {
+    await hook.send();
+  });
+  expect(apiMock.sendChat).toHaveBeenCalledTimes(2);
 });
 
 test('恢复等待期间加载的更早历史不会被旧发送快照覆盖', async () => {
@@ -992,19 +1002,30 @@ test('run_unavailable 后可以继续发送，旧流迟到的事件不污染新�
   ).toEqual(['partial', 'next']);
 });
 
-test('error 事件仍只是通知：断流后标记 detached，不结束本轮', async () => {
+test('协议 error 立即失去健康资格但保留本轮，onerror 只负责连接清理', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
   opened.onmessage?.(message({ type: 'error', message: '工具失败' }));
-  expect(useChatStore.getState().run?.status).toBe('streaming');
+  // 服务端明确报错后不再视为健康流，回读轮询立即接替，不必等浏览器 onerror。
+  expect(useChatStore.getState().run?.status).toBe('detached');
 
   opened.onerror?.();
   expect(useChatStore.getState().run?.status).toBe('detached');
   expect(events.FakeEventSource.instances).toHaveLength(1);
   expect(useChatStore.getState().lastRun).toBeNull();
+});
+
+test('已接受但事件流尚未打开时用 reconnecting，onopen 后才算健康', async () => {
+  apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
+  const hook = render('a1');
+  await startRun(hook);
+
+  expect(useChatStore.getState().run?.status).toBe('reconnecting');
+  source().onopen?.();
+  expect(useChatStore.getState().run?.status).toBe('streaming');
 });
 
 test('离开后请求失败：不恢复旧输入、不追加错误通知', async () => {

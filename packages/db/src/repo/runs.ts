@@ -1,5 +1,10 @@
 import { fail } from '@agentport/core';
-import type { PublicRunQuestion, ResolvedRuntimeEnvironment, RunTrigger } from '@agentport/shared';
+import type {
+  AccessFilter,
+  PublicRunQuestion,
+  ResolvedRuntimeEnvironment,
+  RunTrigger,
+} from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -126,9 +131,17 @@ export async function listRuns(
     status?: RunStatus;
     trigger?: RunTrigger;
     limit?: number;
-  } = {},
+    access: AccessFilter;
+  },
 ): Promise<RunListItem[]> {
   const filters: SQL[] = [];
+  if (options.access.scopes.includes('platform')) {
+    // P 看全平台真实运行。
+  } else if (options.access.scopes.includes('own_data')) {
+    filters.push(eq(agentRuns.initiatedBy, options.access.businessId));
+  } else {
+    filters.push(sql`false`);
+  }
   if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
   if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
@@ -138,7 +151,7 @@ export async function listRuns(
     .select(runColumns)
     .from(agentRuns)
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
-    .where(filters.length > 0 ? and(...filters) : undefined)
+    .where(and(...filters))
     .orderBy(sql`${agentRuns.startedAt} desc nulls last`, desc(agentRuns.id))
     .limit(options.limit ?? 50);
 }
@@ -235,15 +248,6 @@ export async function isRunBoundToServer(
     .where(and(eq(agentRuns.id, runId), eq(agentServers.serverId, serverId)))
     .limit(1);
   return row !== undefined;
-}
-
-export async function getRunAgentId(db: Database, runId: string): Promise<string | null> {
-  const [row] = await db
-    .select({ agentId: agentRuns.agentId })
-    .from(agentRuns)
-    .where(eq(agentRuns.id, runId))
-    .limit(1);
-  return row?.agentId ?? null;
 }
 
 /** 写入本次 run 的短期 MCP token hash 与过期时间（明文只进工作区文件）。 */

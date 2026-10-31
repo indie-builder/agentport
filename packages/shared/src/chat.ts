@@ -91,7 +91,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('run_started'), runId: z.string(), conversationId: z.string() }),
   z.object({
     type: z.literal('replay_truncated'),
-    reason: z.enum(['retention', 'bytes', 'terminal_missing']),
+    reason: z.enum(['retention', 'bytes', 'budget', 'terminal_missing']),
   }),
   /**
    * 助手消息内的内容块边界：一个 SDK assistant 消息可以有多块文本/工具，
@@ -349,6 +349,24 @@ export const conversationSummarySchema = z.object({
 
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
 
+/** 会话对外公开的四字段：SDK 续聊状态、归属与分支内部列都不上 wire。 */
+export const publicConversationSchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  title: z.string(),
+  createdAt: z.string(),
+});
+
+export type PublicConversation = z.infer<typeof publicConversationSchema>;
+
+/** 分支响应只额外公开来源关系；fork 状态与 SDK session 仍是内部列。 */
+export const conversationBranchSchema = publicConversationSchema.extend({
+  parentId: z.string().nullable(),
+  branchOfMessageId: z.string().nullable(),
+});
+
+export type ConversationBranch = z.infer<typeof conversationBranchSchema>;
+
 /** 会话详情中的单条消息。 */
 export const conversationMessageSchema = z.object({
   id: z.string(),
@@ -386,12 +404,7 @@ export const conversationRunMetricsSchema = z.object({
 export type ConversationRunMetrics = z.infer<typeof conversationRunMetricsSchema>;
 
 export const conversationDetailSchema = z.object({
-  conversation: z.object({
-    id: z.string(),
-    agentId: z.string(),
-    title: z.string(),
-    createdAt: z.string(),
-  }),
+  conversation: publicConversationSchema,
   messages: z.array(conversationMessageSchema),
   /** 本页消息涉及的 run 读数，按 runId 索引；前端用它给每条历史回复补上读数行。 */
   runMetrics: z.array(conversationRunMetricsSchema).default([]),
@@ -407,8 +420,6 @@ export const conversationSearchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
   before: z.string().min(1).optional(),
 });
-
-export type ConversationSearchQuery = z.infer<typeof conversationSearchQuerySchema>;
 
 export const conversationSearchMatchSchema = z.object({
   kind: z.enum(['id', 'title', 'message']),

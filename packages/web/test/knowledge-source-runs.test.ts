@@ -166,12 +166,26 @@ async function click(element: HTMLElement) {
   await flush();
 }
 
-function button(text: string): HTMLButtonElement {
-  const element = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+function findButton(text: string): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll<HTMLButtonElement>('button')].find(
     (item) => item.textContent?.trim() === text || item.getAttribute('aria-label') === text,
   );
+}
+
+function button(text: string): HTMLButtonElement {
+  const element = findButton(text);
   if (!element) throw new Error(`Missing button: ${text}`);
   return element;
+}
+
+/** 查询 promise resolve 后才出现目标 DOM：按条件等待真实异步，不用固定 tick 猜时长。 */
+async function waitForDom(probe: () => boolean): Promise<void> {
+  await vi.waitFor(
+    () => {
+      expect(probe()).toBe(true);
+    },
+    { timeout: 5_000, interval: 20 },
+  );
 }
 
 function sourcePanel(name: string): HTMLElement {
@@ -300,11 +314,18 @@ describe('knowledge source runs', () => {
       await mount();
       expect(runCalls()).toEqual([]);
 
+      await waitForDom(() => findButton('来源 A') !== undefined);
       await click(button('来源 A'));
+      await waitForDom(
+        () => sourcePanel('来源 A').textContent?.includes('新增 7') === true,
+      );
       expect(runCalls()).toEqual(['/api/knowledge/sources/ksrc_a/runs']);
       expect(sourcePanel('来源 A').textContent).toContain('新增 7');
 
       await click(button('来源 B'));
+      await waitForDom(
+        () => sourcePanel('来源 B').textContent?.includes('新增 9') === true,
+      );
       expect(runCalls()).toEqual([
         '/api/knowledge/sources/ksrc_a/runs',
         '/api/knowledge/sources/ksrc_b/runs',
@@ -315,6 +336,11 @@ describe('knowledge source runs', () => {
       expect(sourcePanel('来源 B').textContent).not.toContain('新增 7');
 
       await close.finish();
+      await waitForDom(
+        () =>
+          document.body.textContent?.includes('新增 7') === false &&
+          document.body.textContent?.includes('新增 9') === true,
+      );
       expect(document.body.textContent).not.toContain('新增 7');
       expect(document.body.textContent).toContain('新增 9');
     } finally {
@@ -328,12 +354,17 @@ describe('knowledge source runs', () => {
 
     try {
       await mount();
+      await waitForDom(() => findButton('来源 A') !== undefined);
       await click(button('来源 A'));
       await click(button('来源 A'));
+      await waitForDom(
+        () => sourcePanel('来源 A').textContent?.includes('新增 7') === true,
+      );
       expect(sourcePanel('来源 A').textContent).toContain('新增 7');
       expect(document.body.textContent).toContain('新增 7');
 
       await close.finish();
+      await waitForDom(() => document.body.textContent?.includes('新增 7') === false);
       expect(document.body.textContent).not.toContain('新增 7');
       expect(document.querySelectorAll('[data-slot="collapsible-content"]')).toHaveLength(0);
     } finally {

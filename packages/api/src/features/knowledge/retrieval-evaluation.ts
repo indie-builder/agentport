@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isAppError, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { authorizeObject } from '../access.js';
 import { searchKnowledge } from './retrieval.js';
 
 export const EVALUATION_MAX_CASES = 100;
@@ -161,7 +162,7 @@ export function registerRetrievalEvaluationRoutes(rawApp: FastifyInstance): void
   app.post(
     '/api/knowledge/bases/:id/retrieval-evaluations',
     {
-      preHandler: [rawApp.requireAuth],
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
       schema: { params: baseParams, body: evaluationBodySchema },
     },
     async (request, reply) => {
@@ -169,6 +170,13 @@ export function registerRetrievalEvaluationRoutes(rawApp: FastifyInstance): void
       if (!(await repo.knowledge.getBase(app.db, baseId))) {
         return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
       }
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.execute',
+        { objectId: baseId },
+        '知识库不存在',
+      );
       if (Buffer.byteLength(JSON.stringify(request.body), 'utf8') > EVALUATION_MAX_BYTES) {
         return reject(reply, 'PAYLOAD_TOO_LARGE', '评估内容超过 1MiB 上限');
       }

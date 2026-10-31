@@ -21,6 +21,18 @@ it('loads overview with three concurrent queries and one combined counts stateme
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('requireAuth', async () => {});
+  app.decorateRequest('principal', null);
+  app.addHook('onRequest', async (request) => {
+    request.principal = {
+      kind: 'user',
+      authUserId: 'test-auth-user',
+      businessId: 'test-user',
+      username: 'test-user',
+      name: 'test-user',
+      roles: [],
+      grants: [{ permissionId: 'overview.read', scope: 'platform' }],
+    };
+  });
   app.decorate('db', drizzle(client as unknown as DbPool));
   registerOverviewRoutes(app);
   await app.ready();

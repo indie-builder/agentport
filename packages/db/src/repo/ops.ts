@@ -1,7 +1,20 @@
-import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import type { AccessFilter } from '@agentport/shared';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
+  agentMembers,
   agentRuns,
   agentSchedules,
   agents,
@@ -23,6 +36,25 @@ export interface ScheduleWrite {
   cron: string;
   prompt: string;
   enabled: boolean;
+  createdBy: string;
+  executeAsBusinessId: string;
+}
+
+/** 定时任务按专家范围可见：P 全部，W 本人负责，M 本人负责或 canMaintain。 */
+function scheduleAccessWhere(access: AccessFilter) {
+  if (access.scopes.includes('platform')) return undefined;
+  const visible = [];
+  if (access.scopes.includes('maintained_agents')) {
+    visible.push(
+      sql`(exists (select 1 from ${agents} a where a.id = ${agentSchedules.agentId} and a.owner_business_id = ${access.businessId}) or exists (select 1 from ${agentMembers} m where m.agent_id = ${agentSchedules.agentId} and m.business_id = ${access.businessId} and m.can_maintain))`,
+    );
+  }
+  if (access.scopes.includes('owned_agents')) {
+    visible.push(
+      sql`exists (select 1 from ${agents} a where a.id = ${agentSchedules.agentId} and a.owner_business_id = ${access.businessId})`,
+    );
+  }
+  return visible.length === 0 ? sql`false` : or(...visible);
 }
 
 /** 创建定时任务；下次触发时间由 BullMQ 原生 scheduler 展示，不在库里自算。 */
@@ -37,11 +69,13 @@ export async function createSchedule(db: Database, input: ScheduleWrite): Promis
 
 export async function listSchedules(
   db: Database,
+  access: AccessFilter,
 ): Promise<Array<ScheduleRow & { agentName: string | null }>> {
   return db
     .select({ ...getTableColumns(agentSchedules), agentName: agents.name })
     .from(agentSchedules)
     .leftJoin(agents, eq(agents.id, agentSchedules.agentId))
+    .where(scheduleAccessWhere(access))
     .orderBy(desc(agentSchedules.createdAt));
 }
 
@@ -140,6 +174,7 @@ export async function claimScheduleTrigger(
       id: input.conversationId,
       agentId: schedule.agentId,
       title: `定时: ${schedule.name}`.slice(0, 80),
+      createdBy: schedule.executeAsBusinessId,
     });
     await tx.insert(agentRuns).values({
       id: input.runId,
@@ -147,12 +182,15 @@ export async function claimScheduleTrigger(
       agentId: schedule.agentId,
       status: 'queued',
       trigger: 'schedule',
+      subjectKind: 'user',
+      initiatedBy: schedule.executeAsBusinessId,
       agentVersion,
     });
     await tx.insert(messages).values({
       id: input.messageId,
       conversationId: input.conversationId,
       role: 'user',
+      senderBusinessId: schedule.executeAsBusinessId,
       content: { type: 'text', text: schedule.prompt },
       runId: input.runId,
     });

@@ -90,10 +90,12 @@ function wikiTreePages(pages: WikiPageSummary[]): Array<{ page: WikiPageSummary;
 
 export function WikiTab({
   baseId,
+  caps,
   pageId,
   onSelect,
 }: {
   baseId: string;
+  caps: { content: boolean; execute: boolean; publish: boolean };
   pageId: string | undefined;
   onSelect: (pageId: string) => void;
 }) {
@@ -114,14 +116,16 @@ export function WikiTab({
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-fg">页面</h2>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="新建 Wiki 页面"
-            onClick={() => setCreating(true)}
-          >
-            <Plus />
-          </Button>
+          {caps.content ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="新建 Wiki 页面"
+              onClick={() => setCreating(true)}
+            >
+              <Plus />
+            </Button>
+          ) : null}
         </div>
         {pages.isPending ? <LoadingState rows={3} /> : null}
         {pages.isError ? (
@@ -162,6 +166,7 @@ export function WikiTab({
           <WikiPageEditor
             key={pageId}
             baseId={baseId}
+            caps={caps}
             pageId={pageId}
             pages={pageItems}
             onSelect={onSelect}
@@ -171,9 +176,11 @@ export function WikiTab({
             icon={<BookOpen className="size-5" />}
             title="选择一个页面开始编辑"
             action={
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                新建页面
-              </Button>
+              caps.content ? (
+                <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                  新建页面
+                </Button>
+              ) : undefined
             }
           />
         )}
@@ -196,11 +203,13 @@ export function WikiTab({
 
 function WikiPageEditor({
   baseId,
+  caps,
   pageId,
   pages,
   onSelect,
 }: {
   baseId: string;
+  caps: { content: boolean; execute: boolean; publish: boolean };
   pageId: string;
   pages: WikiPageSummary[];
   onSelect: (pageId: string) => void;
@@ -325,49 +334,55 @@ function WikiPageEditor({
           : {})}
         actions={
           <>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              onClick={() => setOrganizing(true)}
-            >
-              组织
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              onClick={() =>
-                setEditing(
-                  versions[0]
-                    ? { versionId: versions[0].id, markdown: versions[0].markdown }
-                    : { versionId: null, markdown: '' },
-                )
-              }
-            >
-              编辑正文
-            </Button>
-            <Button
-              size="sm"
-              disabled={pending}
-              aria-busy={generate.isPending}
-              onClick={() =>
-                generate.mutate(
-                  { pageId, ...(instruction.trim() ? { instruction: instruction.trim() } : {}) },
-                  {
-                    onSuccess: (result) => {
-                      setGenerateJobId(result.jobId);
-                      // Pick up the new job once so its polling starts; terminal handling comes from the job status.
-                      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
-                      toastSuccess('已提交生成任务');
+            {caps.publish ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setOrganizing(true)}
+              >
+                组织
+              </Button>
+            ) : null}
+            {caps.publish ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() =>
+                  setEditing(
+                    versions[0]
+                      ? { versionId: versions[0].id, markdown: versions[0].markdown }
+                      : { versionId: null, markdown: '' },
+                  )
+                }
+              >
+                编辑正文
+              </Button>
+            ) : null}
+            {caps.execute ? (
+              <Button
+                size="sm"
+                disabled={pending}
+                aria-busy={generate.isPending}
+                onClick={() =>
+                  generate.mutate(
+                    { pageId, ...(instruction.trim() ? { instruction: instruction.trim() } : {}) },
+                    {
+                      onSuccess: (result) => {
+                        setGenerateJobId(result.jobId);
+                        // Pick up the new job once so its polling starts; terminal handling comes from the job status.
+                        void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+                        toastSuccess('已提交生成任务');
+                      },
+                      onError: toastError,
                     },
-                    onError: toastError,
-                  },
-                )
-              }
-            >
-              重新生成
-            </Button>
+                  )
+                }
+              >
+                {hasCurrent ? '重新生成' : '生成草稿'}
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -440,22 +455,26 @@ function WikiPageEditor({
                           <GitCompare data-icon="inline-start" aria-hidden="true" /> 对比上一版
                         </Button>
                       ) : null}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={pending}
-                        onClick={() => setPublishTarget(version)}
-                      >
-                        发布此版本
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={pending}
-                        onClick={() => setRollbackTarget(version)}
-                      >
-                        回退到此版本
-                      </Button>
+                      {caps.publish ? (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={pending}
+                            onClick={() => setPublishTarget(version)}
+                          >
+                            发布此版本
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={pending}
+                            onClick={() => setRollbackTarget(version)}
+                          >
+                            回退到此版本
+                          </Button>
+                        </>
+                      ) : null}
                     </>
                   )}
                 </div>

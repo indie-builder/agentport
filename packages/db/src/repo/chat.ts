@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { fail } from '@agentport/core';
+import { AppError, fail } from '@agentport/core';
+import type { AccessFilter, ExecutionSubject } from '@agentport/shared';
 import { type MessageAttachment, messageAttachments } from '@agentport/shared';
 import {
   and,
@@ -15,11 +16,30 @@ import {
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, agents, conversations, messages } from '../schema.js';
-import { lockRunResources } from './locks.js';
+import { lockAgentBindings, lockRunResources } from './locks.js';
 import { inheritApprovals } from './runs.js';
 
 /** 事务句柄：准入逻辑在事务内复用同一批写函数。 */
 export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+function conversationSubject(subject: ExecutionSubject) {
+  return subject.kind === 'user'
+    ? { createdBy: subject.businessId, serviceId: null }
+    : { createdBy: null, serviceId: subject.serviceId };
+}
+
+function runSubject(subject: ExecutionSubject) {
+  return subject.kind === 'user'
+    ? { subjectKind: 'user' as const, initiatedBy: subject.businessId, serviceId: null }
+    : { subjectKind: 'service' as const, initiatedBy: null, serviceId: subject.serviceId };
+}
+
+/** 私有列表只认 O/P：P 看全部，O 只看自己的业务身份。 */
+function conversationAccessWhere(access: AccessFilter) {
+  if (access.scopes.includes('platform')) return undefined;
+  if (access.scopes.includes('own_data')) return eq(conversations.createdBy, access.businessId);
+  return sql`false`;
+}
 
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -69,11 +89,16 @@ export async function agentEnabled(db: Database, agentId: string): Promise<boole
 
 export async function createConversation(
   db: Database | Tx,
-  input: { id: string; agentId: string; title: string },
+  input: { id: string; agentId: string; title: string; subject: ExecutionSubject },
 ): Promise<Conversation> {
   const [row] = await db
     .insert(conversations)
-    .values({ id: input.id, agentId: input.agentId, title: input.title })
+    .values({
+      id: input.id,
+      agentId: input.agentId,
+      title: input.title,
+      ...conversationSubject(input.subject),
+    })
     .returning();
   if (!row) throw new Error('conversation insert returned no row');
   return row;
@@ -105,49 +130,140 @@ export async function getConversation(
   return row ?? null;
 }
 
-/**
- * 删除会话及其消息/运行（FK 级联）；Fork 出来的子会话靠 parent_id set null 保留。
- * 锁序与 admitChatRun 一致（agents key share → conversations update），否则外键检查会和准入死锁。
- */
-export async function deleteConversation(db: Database, conversationId: string): Promise<boolean> {
+/** 删除前关闭的目标：会话身份与它落库过的容器名（同一容器复用时去重）。 */
+export interface ConversationSandboxTarget {
+  conversationId: string;
+  sandboxIds: string[];
+}
+
+export interface ConversationDeletionInput {
+  id: string;
+  /** conversations.delete 的范围；own_data 只匹配本人创建的会话。 */
+  access: AccessFilter;
+}
+
+export interface ConversationDeletionSnapshot {
+  id: string;
+  agentId: string;
+  agentSlug: string;
+  createdBy: string | null;
+  /** 即使 sandboxIds=[] 也保留会话身份，事务外据此等待关闭确认。 */
+  targets: ConversationSandboxTarget[];
+}
+
+/** 短 tx A：按删除范围重查主体与全部目标，提交后由调用方在事务外等待关闭。 */
+export async function prepareConversationDeletion(
+  db: Database,
+  input: ConversationDeletionInput,
+): Promise<ConversationDeletionSnapshot | null> {
+  return db.transaction((tx) => readConversationDeletionSnapshot(tx, input));
+}
+
+/** 短 tx B：重读完整快照并与 A 精确比较，匹配才删除；任何变化回滚。 */
+export async function deleteConversation(
+  db: Database,
+  input: ConversationDeletionInput & { expected: ConversationDeletionSnapshot },
+): Promise<boolean> {
   return db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({ agentId: conversations.agentId })
-      .from(conversations)
-      .where(eq(conversations.id, conversationId))
-      .limit(1);
-    if (!row) return false;
-
-    await tx
-      .select({ id: agents.id })
-      .from(agents)
-      .where(eq(agents.id, row.agentId))
-      .limit(1)
-      .for('key share');
-
-    const [locked] = await tx
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(eq(conversations.id, conversationId))
-      .limit(1)
-      .for('update');
-    if (!locked) return false;
-
-    const [active] = await tx
-      .select({ id: agentRuns.id })
-      .from(agentRuns)
-      .where(
-        and(
-          eq(agentRuns.conversationId, conversationId),
-          inArray(agentRuns.status, ['queued', 'running']),
-        ),
-      )
-      .limit(1);
-    if (active) fail('CONFLICT', '该会话仍有运行未结束，请等待完成或取消后再删除');
-
-    await tx.delete(conversations).where(eq(conversations.id, conversationId));
-    return true;
+    const actual = await readConversationDeletionSnapshot(tx, input);
+    if (actual === null) return false;
+    if (!sameConversationSnapshot(input.expected, actual)) {
+      throw new AppError('CONFLICT', '会话在删除期间发生变化，请重试', { retryable: true });
+    }
+    const rows = await tx
+      .delete(conversations)
+      .where(and(eq(conversations.id, input.id), conversationAccessWhere(input.access)))
+      .returning({ id: conversations.id });
+    return rows.length > 0;
   });
+}
+
+/**
+ * 锁序与 admitChatRun 一致（agents key share → conversations update），否则外键检查会和准入死锁。
+ * A/B 都先取绑定锁，再按主体范围重查；目标集合与身份变化由调用方据此拒绝。
+ */
+async function readConversationDeletionSnapshot(
+  tx: Tx,
+  input: ConversationDeletionInput,
+): Promise<ConversationDeletionSnapshot | null> {
+  await lockAgentBindings(tx);
+  const scope = and(eq(conversations.id, input.id), conversationAccessWhere(input.access));
+  const [owner] = await tx
+    .select({ agentId: conversations.agentId })
+    .from(conversations)
+    .where(scope)
+    .limit(1);
+  if (!owner) return null;
+
+  await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(eq(agents.id, owner.agentId))
+    .limit(1)
+    .for('key share');
+
+  const [locked] = await tx.select().from(conversations).where(scope).limit(1).for('update');
+  if (!locked) return null;
+
+  const [active] = await tx
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(eq(agentRuns.conversationId, input.id), inArray(agentRuns.status, ['queued', 'running'])),
+    )
+    .limit(1);
+  if (active) fail('CONFLICT', '该会话仍有运行未结束，请等待完成或取消后再删除');
+
+  const [agent] = await tx
+    .select({ slug: agents.slug })
+    .from(agents)
+    .where(eq(agents.id, locked.agentId))
+    .limit(1);
+  if (!agent) return null;
+
+  return {
+    id: locked.id,
+    agentId: locked.agentId,
+    agentSlug: agent.slug,
+    createdBy: locked.createdBy,
+    targets: await sandboxTargetsForConversation(tx, input.id),
+  };
+}
+
+function sameConversationSnapshot(
+  expected: ConversationDeletionSnapshot,
+  actual: ConversationDeletionSnapshot,
+): boolean {
+  return (
+    expected.id === actual.id &&
+    expected.agentId === actual.agentId &&
+    expected.agentSlug === actual.agentSlug &&
+    expected.createdBy === actual.createdBy &&
+    expected.targets.length === actual.targets.length &&
+    expected.targets.every((target, index) => {
+      const other = actual.targets[index];
+      return (
+        other !== undefined &&
+        target.conversationId === other.conversationId &&
+        target.sandboxIds.length === other.sandboxIds.length &&
+        target.sandboxIds.every((id, sandboxIndex) => id === other.sandboxIds[sandboxIndex])
+      );
+    })
+  );
+}
+
+async function sandboxTargetsForConversation(
+  tx: Tx,
+  conversationId: string,
+): Promise<ConversationSandboxTarget[]> {
+  const runRows = await tx
+    .select({ sandboxId: agentRuns.sandboxId })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.conversationId, conversationId), isNotNull(agentRuns.sandboxId)));
+  const sandboxIds = [
+    ...new Set(runRows.flatMap((run) => (run.sandboxId === null ? [] : [run.sandboxId]))),
+  ].sort();
+  return [{ conversationId, sandboxIds }];
 }
 
 export interface ListMessagesOptions {
@@ -327,7 +443,13 @@ export async function listConversationMessageUuids(
  */
 export async function branchConversation(
   db: Database,
-  input: { id: string; conversationId: string; fromMessageId?: string; title?: string },
+  input: {
+    id: string;
+    conversationId: string;
+    fromMessageId?: string;
+    title?: string;
+    subject: ExecutionSubject;
+  },
 ): Promise<{
   conversation: Conversation;
   copied: number;
@@ -370,6 +492,7 @@ export async function branchConversation(
         // 分叉前仍指向来源会话；首轮运行 fork 成功后改写为新 session。
         sdkSessionId: source.sdkSessionId,
         forkFromSdkMessageUuid: forkPoint,
+        ...conversationSubject(input.subject),
       })
       .returning();
     if (!conversation) throw new Error('conversation insert returned no row');
@@ -383,6 +506,7 @@ export async function branchConversation(
           id,
           conversationId: conversation.id,
           role: row.role,
+          senderBusinessId: row.senderBusinessId,
           content: row.content,
           runId: null,
           // 复制的是来源会话的 uuid；fork 后由运行收尾统一重映射到新 session。
@@ -413,8 +537,10 @@ export interface ConversationSummary {
 /** 会话列表：updatedAt 取最后一条消息时间，无消息时退回创建时间。 */
 export async function listConversations(
   db: Database,
-  options: { agentId?: string; limit?: number } = {},
+  options: { agentId?: string; limit?: number; access: AccessFilter },
 ): Promise<ConversationSummary[]> {
+  const agentFilter =
+    options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId);
   // 先按 last_message_at 取一页会话（由 messages 触发器维护），lateral 只对这几行求最后一条消息。
   // 直接 lateral + orderBy 会把子查询跑遍全表（N 个会话 × messages 扫描）。
   const page = db
@@ -425,7 +551,7 @@ export async function listConversations(
       createdAt: conversations.createdAt,
     })
     .from(conversations)
-    .where(options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId))
+    .where(and(agentFilter, conversationAccessWhere(options.access)))
     .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
     .limit(options.limit ?? 50)
     .as('page');
@@ -531,6 +657,7 @@ export interface ConversationSearchOptions {
   limit: number;
   /** 上一页最后一项的不透明游标（活动时间 + 会话 id）。 */
   before?: string | undefined;
+  access: AccessFilter;
 }
 
 export interface ConversationSearchMatch {
@@ -575,6 +702,7 @@ export async function searchConversations(
       : sql`(${conversations.lastMessageAt}, ${conversations.id}) < (${before.at}::timestamptz, ${before.id})`;
   const agentFilter =
     options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId);
+  const accessFilter = conversationAccessWhere(options.access);
   const take = options.limit + 1;
   // 查询、正文、id 与 title 全部走同一份 SQL 规范化；JS 的 lower 与 PG 不一致，不参与比较。
   const needle =
@@ -596,7 +724,7 @@ export async function searchConversations(
       })
       .from(conversations)
       .innerJoin(agents, eq(agents.id, conversations.agentId))
-      .where(and(agentFilter, cursorFilter))
+      .where(and(agentFilter, accessFilter, cursorFilter))
       .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
       .limit(take);
   } else {
@@ -625,6 +753,7 @@ export async function searchConversations(
       .where(
         and(
           agentFilter,
+          accessFilter,
           // 字面子串：strpos 不解释 % / _；lower 让匹配大小写不敏感。
           sql`(
             ${idMatch}
@@ -711,6 +840,8 @@ export async function appendMessage(
     conversationId: string;
     role: string;
     content: unknown;
+    /** 自然人消息的业务身份；assistant/tool/服务输入为 null。 */
+    senderBusinessId?: string | null;
     runId?: string;
     sdkMessageUuid?: string;
   },
@@ -721,6 +852,7 @@ export async function appendMessage(
       id: input.id,
       conversationId: input.conversationId,
       role: input.role,
+      senderBusinessId: input.senderBusinessId ?? null,
       content: input.content,
       runId: input.runId ?? null,
       ...(input.sdkMessageUuid === undefined ? {} : { sdkMessageUuid: input.sdkMessageUuid }),
@@ -738,6 +870,7 @@ export async function createRun(
     agentId: string;
     trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
     agentVersion?: number | null;
+    subject: ExecutionSubject;
   },
 ): Promise<AgentRun> {
   const [row] = await db
@@ -747,6 +880,7 @@ export async function createRun(
       conversationId: input.conversationId,
       agentId: input.agentId,
       status: 'queued',
+      ...runSubject(input.subject),
       ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
       ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
     })
@@ -768,6 +902,7 @@ export async function admitChatRun(
     title?: string;
     /** 用户消息的完整 content；缺省等价于 `{ type: 'text', text: input.message }`。 */
     userContent?: unknown;
+    subject: ExecutionSubject;
   },
 ): Promise<{
   run: AgentRun;
@@ -800,6 +935,7 @@ export async function admitChatRun(
         id: conversationId,
         agentId: input.agentId,
         title: input.title ?? input.message.slice(0, 80),
+        subject: input.subject,
       });
     } else {
       conversationId = input.conversationId;
@@ -830,6 +966,7 @@ export async function admitChatRun(
       id: newId('run'),
       conversationId,
       agentId: input.agentId,
+      subject: input.subject,
       ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
       ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
     });
@@ -841,6 +978,7 @@ export async function admitChatRun(
       id: newId('message'),
       conversationId,
       role: 'user',
+      senderBusinessId: input.subject.kind === 'user' ? input.subject.businessId : null,
       content: input.userContent ?? { type: 'text', text: input.message },
       runId: run.id,
       sdkMessageUuid: userMessageUuid,

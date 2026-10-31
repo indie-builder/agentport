@@ -17,6 +17,7 @@ import {
   runInSandbox,
 } from '../src/runner-client.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
+import { agentOwnership, userSubject } from './fixtures/access.js';
 
 async function probeRedis(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
@@ -258,13 +259,18 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
 
     const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
     try {
-      // 增量展示确实被截断：完整消息之前紧挨着一条截断标记。
-      const entries = (await redis.xrevrange(runStreamKey(runId), '+', '-', 'COUNT', 2)) as Array<
+      // 展示截断只是提示，不是终端错误：后续完整消息仍要能送达前端。
+      const entries = (await redis.xrange(runStreamKey(runId), '-', '+')) as Array<
         [string, string[]]
       >;
-      const payloads = entries.map(([, fields]) => JSON.parse(fields[1] ?? '{}'));
-      expect(payloads[0]).toMatchObject({ type: 'assistant_text', text: '完整回答' });
-      expect(payloads[1]).toEqual({ type: 'error', message: '输出超出上限' });
+      const payloads = entries.map(
+        ([, fields]) => JSON.parse(fields[1] ?? '{}') as { type: string },
+      );
+      expect(payloads.filter((event) => event.type === 'error')).toEqual([]);
+      expect(payloads.filter((event) => event.type === 'replay_truncated')).toEqual([
+        { type: 'replay_truncated', reason: 'budget' },
+      ]);
+      expect(payloads.at(-1)).toMatchObject({ type: 'assistant_text', text: '完整回答' });
     } finally {
       await redis.del(runStreamKey(runId));
       redis.disconnect();
@@ -309,9 +315,24 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
       message: expect.stringMatching(/保存上限/),
     });
 
+    // 内部 error 只用于最终判失败；对外发布的是非终端提示，不能替成一条 error 中断 SSE。
+    expect(await waitForLastEvent(runId, 'replay_truncated')).toBeDefined();
     const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
-    await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    try {
+      const entries = (await redis.xrange(runStreamKey(runId), '-', '+')) as Array<
+        [string, string[]]
+      >;
+      const payloads = entries.map(
+        ([, fields]) => JSON.parse(fields[1] ?? '{}') as { type: string },
+      );
+      expect(payloads.filter((event) => event.type === 'error')).toEqual([]);
+      expect(payloads.filter((event) => event.type === 'replay_truncated')).toEqual([
+        { type: 'replay_truncated', reason: 'budget' },
+      ]);
+    } finally {
+      await redis.del(runStreamKey(runId));
+      redis.disconnect();
+    }
   });
 
   it('fails a succeeded run when the persisted bytes overflow below the event count limit', async () => {
@@ -476,9 +497,20 @@ describe.skipIf(!ready || !dbReady)('runInSandbox cleanup persistence', () => {
       slug: `cleanup-${agentId.slice(4)}`,
       name: 'cleanup',
       model: 'test',
+      ...agentOwnership,
     });
-    await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'cleanup' });
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createConversation(db, {
+      id: conversationId,
+      agentId,
+      title: 'cleanup',
+      subject: userSubject,
+    });
+    await repo.chat.createRun(db, {
+      id: runId,
+      conversationId,
+      agentId,
+      subject: userSubject,
+    });
     await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })
@@ -543,9 +575,20 @@ describe.skipIf(!ready || !dbReady)('runInSandbox byte overflow persistence', ()
       slug: `limits-${agentId.slice(4)}`,
       name: 'limits',
       model: 'test',
+      ...agentOwnership,
     });
-    await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'limits' });
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createConversation(db, {
+      id: conversationId,
+      agentId,
+      title: 'limits',
+      subject: userSubject,
+    });
+    await repo.chat.createRun(db, {
+      id: runId,
+      conversationId,
+      agentId,
+      subject: userSubject,
+    });
     await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })

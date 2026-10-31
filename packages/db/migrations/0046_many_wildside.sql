@@ -1,8 +1,0 @@
-ALTER TABLE "knowledge_model_profiles" DROP CONSTRAINT "knowledge_model_profiles_kind_check";--> statement-breakpoint
-ALTER TABLE "knowledge_model_profiles" DROP CONSTRAINT "knowledge_model_profiles_dimensions_check";--> statement-breakpoint
-ALTER TABLE "knowledge_bases" ADD COLUMN "asr_profile_id" text;--> statement-breakpoint
-ALTER TABLE "knowledge_bases" ADD CONSTRAINT "knowledge_bases_asr_profile_id_knowledge_model_profiles_id_fk" FOREIGN KEY ("asr_profile_id") REFERENCES "public"."knowledge_model_profiles"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "knowledge_bases_asr_profile_idx" ON "knowledge_bases" USING btree ("asr_profile_id");--> statement-breakpoint
-ALTER TABLE "knowledge_model_profiles" ADD CONSTRAINT "knowledge_model_profiles_asr_fields_check" CHECK ("knowledge_model_profiles"."kind" <> 'asr' or ("knowledge_model_profiles"."embedding_protocol" = 'openai' and "knowledge_model_profiles"."image_input_enabled" = false));--> statement-breakpoint
-ALTER TABLE "knowledge_model_profiles" ADD CONSTRAINT "knowledge_model_profiles_kind_check" CHECK ("knowledge_model_profiles"."kind" in ('embedding', 'rerank', 'asr'));--> statement-breakpoint
-ALTER TABLE "knowledge_model_profiles" ADD CONSTRAINT "knowledge_model_profiles_dimensions_check" CHECK (("knowledge_model_profiles"."kind" = 'embedding' and "knowledge_model_profiles"."dimensions" = 1024) or ("knowledge_model_profiles"."kind" in ('rerank', 'asr') and "knowledge_model_profiles"."dimensions" is null));

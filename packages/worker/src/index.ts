@@ -19,22 +19,23 @@ import {
   agentRunJobSchema,
   EVAL_RUNS_QUEUE,
   effortSchema,
-  evalRunJobSchema,
   knowledgeMcpEntry,
   messageAttachments,
   permissionModeSchema,
   previewMcpEntry,
   RUNS_QUEUE,
   type SandboxTaskInput,
+  SESSION_CLEANUP_TIMEOUT_MS,
   serverInputSchema,
   wireFailureKind,
 } from '@agentport/shared';
 import { Worker } from 'bullmq';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import pino from 'pino';
+import pino, { type Logger } from 'pino';
 import { conversationInputsMount, promptWithAttachments } from './attachments.js';
 import { loadConfig } from './config.js';
-import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
+import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
+import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
 import { readForkUuidMap } from './fork-uuids.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
@@ -55,6 +56,7 @@ import {
 } from './outputs.js';
 import { projectPersonalMemory } from './personal-memory.js';
 import { startReconciler } from './reconcile.js';
+import { checkQueuedRunAccess, type RunAccessDenial, runExecutionSubject } from './run-access.js';
 import { finalizeRun, handOffPendingFinish, type RunFinishedEvent } from './run-finish.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -74,6 +76,7 @@ import { startRuntimeEnvironmentBuildReconciler } from './runtime-environments/r
 import { createRuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider, resolveLocalImageId } from './sandbox/docker.js';
 import { SandboxCleanupError } from './sandbox/provider.js';
+import { closeSessionRuntime, startSessionCleanupChannel } from './sandbox/session-cleanup.js';
 import { SessionSandboxes, type SessionSandboxLease } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
 import { startScheduleScheduler } from './scheduler.js';
@@ -106,6 +109,7 @@ if (config.SANDBOX_EGRESS === 'none') {
 }
 
 const { db, pool } = createDb(config.DATABASE_URL);
+type Db = typeof db;
 /**
  * 惰性解析：只在真实创建容器时读线上版本。
  * 存活容器不因发布/回退替换，也不会为它重新解析。
@@ -128,6 +132,13 @@ const sessionSandboxes = new SessionSandboxes({
   idleTimeoutMs: config.SANDBOX_IDLE_TIMEOUT_MS,
   resolveRuntimeEnvironment,
   logger,
+});
+
+// 删除 API 在事务内经该信道确认空闲容器已关闭；启动时等待订阅成功，避免请求无监听静默超时。
+const sessionCleanup = await startSessionCleanupChannel({
+  redisUrl: config.REDIS_URL,
+  logger,
+  sessions: sessionSandboxes,
 });
 
 type ServerRow = typeof schema.servers.$inferSelect;
@@ -489,6 +500,32 @@ function cleanupSandboxIdOf(err: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * 排队期间账户被停用或权限被撤销：在启动前明确失败，不建容器、不降级成服务身份。
+ * 只改 queued，已被别的 worker 认领的运行交给现有取消/收尾路径。
+ */
+async function denyQueuedRun(
+  db: Db,
+  logger: Logger,
+  runId: string,
+  denial: RunAccessDenial,
+): Promise<void> {
+  const won = await finalizeRun({
+    db,
+    logger,
+    runId,
+    fromStatus: 'queued',
+    event: { type: 'run_finished', status: 'failed', error: denial.message },
+    values: { error: denial.message, errorKind: 'agent' },
+    audit: {
+      action: 'agent.run.denied',
+      status: 'error',
+      dedupeKey: `aud_denied_${runId.slice(4)}`,
+    },
+  });
+  if (!won) logger.info({ runId }, 'run no longer queued, access denial skipped');
+}
+
 const worker = new Worker(
   RUNS_QUEUE,
   async (job) => {
@@ -496,13 +533,18 @@ const worker = new Worker(
     if (!parsed.success) {
       throw new Error(`invalid job payload: ${parsed.error.message}`);
     }
-    const { runId, agentId, conversationId, prompt } = parsed.data;
+    const { runId, prompt } = parsed.data;
 
     const [run] = await db
       .select({
         status: schema.agentRuns.status,
         agentVersion: schema.agentRuns.agentVersion,
         trigger: schema.agentRuns.trigger,
+        agentId: schema.agentRuns.agentId,
+        conversationId: schema.agentRuns.conversationId,
+        subjectKind: schema.agentRuns.subjectKind,
+        initiatedBy: schema.agentRuns.initiatedBy,
+        serviceId: schema.agentRuns.serviceId,
       })
       .from(schema.agentRuns)
       .where(eq(schema.agentRuns.id, runId))
@@ -512,6 +554,36 @@ const worker = new Worker(
       logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
       return;
     }
+    // 主体只从 run 行读取；job/client 里的任何用户或管理员字段都不参与判定。
+    const subject = runExecutionSubject(run);
+    if (run.status === 'queued') {
+      if (subject === null) {
+        await denyQueuedRun(db, logger, runId, {
+          reason: 'invalid_subject',
+          message: '运行缺少有效执行主体，未启动',
+        });
+        return;
+      }
+      if (subject.kind === 'user') {
+        const denial = await checkQueuedRunAccess(db, {
+          runId,
+          trigger: run.trigger,
+          agentId: run.agentId,
+          conversationId: run.conversationId,
+          businessId: subject.businessId,
+        });
+        if (denial !== null) {
+          logger.warn({ runId, reason: denial.reason }, 'run denied before sandbox start');
+          await denyQueuedRun(db, logger, runId, denial);
+          return;
+        }
+      }
+    }
+    // running 行的重投只会在认领时被拒绝；主体损坏时不继续使用它挂载任何目录。
+    if (subject === null) return;
+    // 后续会话/专家归属以 run 行为准，不能用 job 里的 ID 改写挂载来源。
+    const agentId = run.agentId;
+    const conversationId = run.conversationId;
     // 只认领 queued：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
     // 若这里也接受 running，同一 run 会被两个 worker 各跑一遍（重复计费、消息互相覆盖）。
     const claimed = await db
@@ -586,12 +658,15 @@ const worker = new Worker(
           .orderBy(asc(schema.agents.id));
         const enabledChildren = subAgentRows.filter((row) => row.enabled);
         const subAgentSlugs = enabledChildren.map((row) => row.slug).sort();
-        // 个人记忆先按 DB 重写再挂载，崩溃后不会把旧投影带进本轮。
-        await projectPersonalMemory(db, pool, workspacesDir);
+        // 个人记忆先按 DB 重写再挂载，崩溃后不会把旧投影带进本轮；服务主体没有个人记忆。
+        if (subject.kind === 'user') {
+          await projectPersonalMemory(db, pool, workspacesDir, subject.businessId);
+        }
         const sessionPaths = await ensureSessionWorkspace({
           workspacesDir,
           slug: agent.slug,
           conversationId,
+          ...(subject.kind === 'user' ? { businessId: subject.businessId } : {}),
           subAgentSlugs,
         });
         const inputsMount = await conversationInputsMount({
@@ -615,7 +690,9 @@ const worker = new Worker(
             inputsDir: inputsMount.hostPath,
             memoryDir: toHostWorkspacePath(sessionPaths.memoryDir),
             sessionsDir: toHostWorkspacePath(sessionPaths.sessionsDir),
-            personalDir: toHostWorkspacePath(sessionPaths.personalDir),
+            ...(sessionPaths.personalDir === undefined
+              ? {}
+              : { personalDir: toHostWorkspacePath(sessionPaths.personalDir) }),
             subAgentMemoryDirs: sessionPaths.subAgentMemoryDirs.map((dir) => ({
               slug: dir.slug,
               memoryDir: toHostWorkspacePath(dir.memoryDir),
@@ -1206,23 +1283,20 @@ worker.on('failed', async (job, err) => {
 // 评估本身串行：并发固定 1。
 const evalWorker = new Worker(
   EVAL_RUNS_QUEUE,
-  async (job) => {
-    const parsed = evalRunJobSchema.safeParse(job.data);
-    if (!parsed.success) {
-      throw new Error(`invalid eval job payload: ${parsed.error.message}`);
-    }
-    await executeEvalRun({
-      db,
-      logger,
-      redisUrl: config.REDIS_URL,
-      evalRunId: parsed.data.evalRunId,
-    });
-  },
+  (job) => runEvalJob({ db, logger, redisUrl: config.REDIS_URL, job }),
   { connection: { url: config.REDIS_URL }, concurrency: 1 },
 );
 
 evalWorker.on('failed', (job, err) => {
-  logger.error({ jobId: job?.id, err }, 'eval job failed');
+  // DB 错误原文可能含 SQL 参数；只记错误类型与 PG code。
+  logger.error({ jobId: job?.id, ...evalFailureDiagnostics(err) }, 'eval job failed');
+  // processor 前就终止的 deferred stalled failure 也在这里条件收口；事件回调不能留 unhandled rejection。
+  handleEvalJobFailed({ db, logger, job, error: err }).catch((settleError: unknown) => {
+    logger.error(
+      { jobId: job?.id, ...evalFailureDiagnostics(settleError) },
+      'eval job failure settlement failed',
+    );
+  });
 });
 
 const maintenanceWorker = await startMaintenanceWorker({
@@ -1357,13 +1431,13 @@ const shutdown = async (): Promise<void> => {
     ],
     provider: {
       label: 'sandbox provider',
-      close: async () => {
-        try {
-          await sessionSandboxes.close();
-        } finally {
-          await provider.destroyAll();
-        }
-      },
+      close: () =>
+        closeSessionRuntime({
+          channel: sessionCleanup,
+          sessions: sessionSandboxes,
+          provider,
+          timeoutMs: SESSION_CLEANUP_TIMEOUT_MS,
+        }),
     },
     steps: [
       { label: 'maintenance worker', close: () => maintenanceWorker.close() },

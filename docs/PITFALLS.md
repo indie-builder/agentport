@@ -12,8 +12,8 @@
 ## 复制到 worktree 的 `.env` 可能比刚确认的配置旧
 
 - **现象**：新 worktree 起了服务，但用户刚确认的管理员密码失效；或 `.env` 缺 `APP_SECRET_KEY` / `ANTHROPIC_API_KEY` 起不来，装好依赖后前端也可能无法解析 `@agentport/shared`。
-- **原因**：`.env` 不受 Git 管理；`.worktreeinclude` 只在建树时复制一次，来源是发起建树的那棵树（可能是旧 worktree），结果不代表最新。主 checkout 的 `.env` 也可能是旧残留。worktree 还不带 `node_modules` 与 workspace `dist`。各树共用数据库，API 首次登录时 `ensureAdmin` 会按当时的 `ADMIN_PASSWORD` 重播管理员，旧配置一登录就把用户刚设的密码覆盖掉。
-- **规避**：配置默认取主 checkout `.env` 的绝对路径，启动前核对 `ADMIN_USER`/`ADMIN_PASSWORD`/`ALLOW_WEAK_ADMIN_PASSWORD` 等改动过的关键项；用户最新明确决定优先于磁盘上的值，不以「来自 main 的 `.env`」当成用户决定。登录验证使用用户确认的配置，不拿测试或调试任务改掉用户登录态。然后 `pnpm install --frozen-lockfile`，前端预览前构建 shared/core。新增必填 env 文件时同步加进 `.worktreeinclude`（仅作初始化副本，仍不保证最新）。规则集中在 `docs/DEV-WORKFLOW.md`「配置与启动」。
+- **原因**：`.env` 不受 Git 管理；`.worktreeinclude` 只在建树时复制一次，来源是发起建树的那棵树（可能是旧 worktree），结果不代表最新。主 checkout 的 `.env` 也可能是旧残留。worktree 还不带 `node_modules` 与 workspace `dist`。各树共用数据库；历史实现曾在首次登录时用 `ensureAdmin` 按当时的 `ADMIN_PASSWORD` 重播管理员，旧配置一登录就把用户刚设的密码覆盖掉。当前已改为 `ensureBootstrap`：`platform_bootstrap` marker 只允许初始化一次，之后 `.env` 的 `ADMIN_PASSWORD` 不再覆盖现有账户。
+- **规避**：配置默认取主 checkout `.env` 的绝对路径，启动前核对 `ADMIN_USER`/`ADMIN_PASSWORD`/`ALLOW_WEAK_ADMIN_PASSWORD` 等改动过的关键项；用户最新明确决定优先于磁盘上的值，不以「来自 main 的 `.env`」当成用户决定。登录验证使用用户确认的账号密码，不把 `.env` 的值等同于当前密码；也不拿测试或调试任务改掉用户登录态。然后 `pnpm install --frozen-lockfile`，前端预览前构建 shared/core。新增必填 env 文件时同步加进 `.worktreeinclude`（仅作初始化副本，仍不保证最新）。规则集中在 `docs/DEV-WORKFLOW.md`「配置与启动」。
 
 ## 多个 worktree 同时跑全栈 compose 会互相踩
 
@@ -249,6 +249,12 @@
 - **原因**：测试模块在 import 时捕获 `DATABASE_URL`、擅自改 `process.env`，或把地址重写回固定历史库；复用的旧迁移账本不含后来合入的表，迁移异常又被吞成 infra 不可用。
 - **规避**：默认入口由 backend globalSetup 每轮创建随机库并迁移，经 `provide`/`inject` + `setupFiles` 在导入测试前写入 `process.env`；套件确需独立库时调用 `createIsolatedDatabase(prefix, adminUrl)`，显式使用返回的 `url`（不再隐式改 env），关闭连接后只删自己创建的库。建库/迁移失败必须抛错；只有 PG/Docker 不可用才发布不可连地址并跳过，不能回落开发库或共享 Redis。核验清理时只认本次函数返回的库名及唯一容器名/句柄：同一 worktree 可能有并行代理在跑测试，不要按 `backend_test_*` 前缀或镜像名批量删库/删容器。
 
+## 测试：用行锁编排 claim/取消竞争时，等锁对象不一定是同一个
+
+- **现象**：测试事务 `SELECT ... FOR UPDATE` 锁住 `knowledge_jobs` 行后，希望 worker claim 先于 API 排队取消获胜；实际 claim 的 UPDATE 等待 `transactionid`，取消的 UPDATE 等待 `tuple`，两者不在同一等待队列，释放锁后次序不保证。
+- **原因**：被 `FOR UPDATE` 锁住的行会让后续 UPDATE 等待持有者事务 ID；更晚的 UPDATE 可能转而等待 tuple 锁。跨不同锁对象没有单一 FIFO 语义，按“先发起就先赢”的直觉写测试会偶发反序。
+- **规避**：让必须获胜的一方先持有目标行、再阻塞在一个**下游行**上（例如 claim 先锁 job、再等 sync run）。另一方对目标行的 CAS 只能等获胜事务提交，释放下游锁后 CAS 必然看到已提交的新状态而落空；用 `pg_locks` 未授予锁事件确认两个等待已建立，不用 sleep。参考 `packages/api/test/knowledge-jobs.test.ts` 的 `queued cancel loses to a claimed sync job`。
+
 ## 测试：依赖真实文件系统的 spawn 就绪要用明确信号，不能数 `setImmediate` 轮数
 
 - **现象**：`runtime-environment-build` 单跑或全量时，固定 20 次 `setImmediate` 后 buildx 仍可能未 spawn（`buildIndex === -1`）。
@@ -410,3 +416,68 @@
 - **现象**：并发保存或打开组织弹层时，按 `created_at DESC` 取到的“最新”版本不是版本号最大的那版，乐观锁误报 409。
 - **原因**：PostgreSQL 的 `now()` 是事务开始时间；先开始、后提交的事务可能得到更早的 `created_at`。版本行在同一事务内写入，时间戳不保证随版本单调递增。
 - **规避**：最新版本、版本列表与 keyset 分页统一按 `version DESC`（同页再加 version keyset），版本号在页面行锁与唯一约束内生成；不要按 `created_at`/`id` 推断业务顺序。当前仓储已改为 `version DESC`，相关定向测试与独立复核结论以任务记录为准，不把本条写成全绿。
+## 数据库：`userId` 改 `businessId` 必须选 rename，且 Vite 会把真实迁移错误掩成 `charCodeAt`
+
+- **现象**：drizzle-kit 生成迁移后，新库执行报 PostgreSQL `multiple primary keys for table ... are not allowed`；在 Vitest globalSetup 里可能只看到 `TypeError: code.charCodeAt is not a function`，看不出是迁移失败。
+- **原因**：交互式生成时把改名默认当成「新增列 + 新主键」，会生成 `ADD PRIMARY KEY`，而旧主键还在；真实错误又被 Vite 的 globalSetup 包装改写成 `charCodeAt` 堆栈（另见「真实容器测试可能加载旧 dist」一条）。
+- **规避**：生成时明确把该列选为 rename，保留 `RENAME COLUMN`，并在同一迁移里删除原列上指向 auth `user` 的外键，不要接受默认的 add 方案。验证时绕过 Vite，直接用 `pnpm --filter api exec tsx` 调用 `createIsolatedDatabase` 建全新随机库并迁移，拿到真实 Pg 错误；不要在共享库上试。
+
+## 运行：`/health` 只证明连通，不证明 schema 与当前代码匹配
+
+- **现象**：API `/health` 返回 DB/Redis ok，worker 一启动就报 `agent_runs.subject_kind` / `audit_log.actor_kind` 缺列；或旧库的迁移账本停在旧编号，直到业务请求才 500。
+- **原因**：健康检查只 ping 连接，不校验迁移是否追平当前 journal、表结构是否含新列。
+- **规避**：复用旧库或新起进程前，先核对 `__drizzle_migrations` 末条与当前 journal、用 `\d <table>` 或一次真实业务查询确认列已存在；不要把健康检查当作迁移完成。数据集与测试优先使用独立库。
+
+## 运行：运行环境的 base image 由 API 入队冻结，API 与 worker 必须同 `SANDBOX_IMAGE`
+
+- **现象**：`.env` 换成专用沙盒镜像并重启 worker 后，环境版本仍从旧 `agentport/sandbox:dev` 构建，报缺 `session-supervisor.js`；或 API 与 worker 实际使用不同镜像。
+- **原因**：API 入队时把自身的 `SANDBOX_IMAGE` 冻结进运行/版本，worker 按版本的 `baseImageId` 构建；只改 worker 或只改 `.env`、不重启 API 都不生效。已有运行环境的默认 base 指针也不会随 env 更新。
+- **规避**：API 与 worker 用同一 `SANDBOX_IMAGE` 启动，改镜像后两者都重启；需要专用底座时显式指定或更新运行环境 base，并核对版本记录里的 `baseImageId`，不要假设默认指针跟随 env。
+
+## 测试：E2E session 只保存登录，不会替你打开页面
+
+- **现象**：auth setup 登录成功并保存 session，后续用例或 helper 在写请求/查 UI 前没 `app.open`，报 `APP_NOT_OPEN` 或定位不到元素。
+- **原因**：`test.setup` + `session.save` 只落登录态；页面上下文要显式打开，已有 session 不等于页面已就绪。
+- **规避**：需要 UI 的步骤先 `app.open(路径)`；helper 里先打开再读写页面。纯 API 校验可以不开页，但不能用它宣布 UI 已通过。
+
+## 测试：macOS 的 `os.tmpdir()` 是软链路径，测试工作区要先 realpath
+
+- **现象**：在 macOS 上以 `mkdtemp(join(tmpdir(), ...))` 建工作区，路径校验报越界或不是真实路径，测试随机失败。
+- **原因**：`/var/folders/...` 经 `/var -> /private/var` 软链；工作区按 realpath 做越界校验时，未解析的 tmpdir 与真实路径不一致。
+- **规避**：创建测试目录前先 `await realpath(tmpdir())` 再 `mkdtemp`（如 `packages/api/test/agents-access.test.ts`）；不要放宽路径校验或改业务代码，明确指定非软链 `TMPDIR` 只算临时绕过。
+
+## 运行：本地 CA 签发的 HTTPS 在 Node 中默认不受信任
+
+- **现象**：调度 guardian 用 Node 直接请求本地 HTTPS 地址时因证书不受信任失败，而浏览器或 curl 正常。
+- **原因**：Node 自带 CA 集合不包含本机开发 CA，需要显式使用系统 CA 或传入 CA。
+- **规避**：本地 HTTPS 联调时给 Node 加 `--use-system-ca`（或临时 `NODE_USE_SYSTEM_CA=1`）后重新验证，不要关闭 TLS 校验；固化到脚本前确认当前 Node 版本支持该参数。
+
+## 运行：worker 写入预算与 Redis 保留窗口不一致会让刷新丢掉流头
+
+- **现象**：生成中刷新后早期文本和工具事件消失，Redis 流 `streamEntries` 停在 1013 左右且 `trimmed=true`，而 worker 自报的事件预算远未用尽。
+- **原因**：worker 按自己的展示/落库预算接受事件，`XADD` 却仍带 `MAXLEN ~ 1000`，Redis 先按保留窗口裁掉流头；两个上限互不知情。生成中的助手消息此时还没落库，重放只能从剩余尾部开始，刷新也就补不回被裁内容。
+- **规避**：保留窗口与写入预算要由同一套契约常量约束，写入端不做条数裁剪。验证长流必须用超过旧上限的事件数（如 1200/1600）断言完整回放且无 `replay_truncated`，不能把「流只剩 1000 条」当成正常 fixture。当前契约是 `shared/run-stream.ts` 的瞬时/落库各 2000 条、32MiB，`XADD` 无 MAXLEN，仍靠每次写入续期 `EXPIRE 3600`，没有 PERSIST 或新增生命周期。
+
+## 恢复：终态要先确认再读本轮 canonical，不能沿用首次 history
+
+- **现象**：刷新时首屏历史已返回，随后 run 查询才变终态，页面只显示用户问题或旧的半截回答；运行记录被清理时还会留下永远 `detached` 的假运行。
+- **原因**：历史请求与 run 查询并发，首次历史可能早于本轮落库完成；终态分支沿用了首次 history，没有在终态确认后重读消息。404 又和「暂时读不到 run」走了同一恢复分支。
+- **规避**：先确认 run 详情是终态，再按 runId 分页重读完整本轮消息；合并已加载旧轮 prefix、跨页补出本轮 user 锚点，不用默认 50 条覆盖。404 视为记录已清理：释放假运行但保留已保存历史。测试要让首次 history 返回旧内容、run 详情延后返回终态，才能覆盖这个竞态。
+
+## 测试：故障删除用例持共享绑定锁等满 ACK，会拖垮同轮并行套件
+
+- **现象**：全量并行时 `conversations` 的删除用例偶发返回 503（期望 204），单跑或换一轮不一定复现；同一批里其它删除/准入用例也可能撞 5s 控制查询超时。
+- **原因**：删除路由在事务外等 worker 关闭 ACK（最长 10s），期间仍持全局 `AGENT_BINDINGS_LOCK_KEY` 会话锁；「worker 不在线/不 ACK」的故障用例要等满预算，共享库上的其它套件删除/准入被这把锁阻塞，失败不是删除实现回归。
+- **规避**：故障/无 ACK 用例用 `createIsolatedDatabase` 独占库（`packages/api/test/delete-lifecycle.test.ts`），并配独享 Redis（Pub/Sub 不按库隔离）；不要放宽 ACK 预算、缩短超时或把整套串行。ACK 等待保持在事务外，锁由会话级持有到文件回收完成。
+
+## 测试：跨进程共享的同步写文件不是原子操作
+
+- **现象**：宿主读到 fixture 输出的 `Unexpected end of JSON input`，但 writer 进程没报错；重跑时有时通过。
+- **原因**：`writeFileSync` 先截断再写，另一端恰好落在截断与写完之间就会读到半截 JSON；同一文件由不同进程高频覆盖时概率更高。
+- **规避**：同目录写临时文件再 `renameSync` 到目标（`packages/worker/test/fixtures/session-task.mjs` 的 busy 输出）；跨进程读的文件都按这条处理，不用「重试解析」掩盖。
+
+## 测试：依赖安装与 vitest 运行并发会让新 worker 丢掉旧 peer 路径
+
+- **现象**：长测试跑着时执行 `pnpm install`/升级依赖，已启动的 worker 多数正常，但新 fork 的 worker 报模块找不到，路径指向已被替换的 `.pnpm` 目录；单独重跑整套又全绿。
+- **原因**：pnpm 安装会重排 `node_modules/.pnpm` 的虚拟 store 并更新顶层链接；已加载模块的进程不受影响，新 worker 按新解析结果启动，旧 peer 路径已不存在，失败被误当成代码回归。
+- **规避**：测试运行期间不安装/升级依赖；先停掉测试进程，等 `pnpm install` 完成后再从干净状态重跑。出现这类「路径不存在」先核对是否刚装过依赖，不要改业务代码或删测试。

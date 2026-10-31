@@ -2,6 +2,8 @@ import {
   type Agent,
   type ApiTool,
   agentInputSchema,
+  PERMISSIONS,
+  type PermissionId,
   type RuntimeEnvironment,
   type Server,
 } from '@agentport/shared';
@@ -20,6 +22,7 @@ import { Toggle } from '../src/components/ui/toggle.js';
 import { api } from '../src/lib/api.js';
 import { AgentEditor, AgentsPage } from '../src/pages/agents.js';
 import { ServersPage } from '../src/pages/servers.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('@/components/ui/toggle', () => import('../src/components/ui/toggle.js'));
 vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));
@@ -45,6 +48,10 @@ vi.mock('../src/lib/queries.js', async (original) => {
   const queries = await original<typeof import('../src/lib/queries.js')>();
   return {
     ...queries,
+    meQuery: {
+      queryKey: ['me'],
+      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+    },
     useUpdateAgent: () => ({ ...queries.useUpdateAgent(), isPending: state.saving }),
   };
 });
@@ -143,6 +150,7 @@ function client() {
   const result = new QueryClient({
     defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } },
   });
+  result.setQueryData(['me'], allAccessMe);
   result.setQueryData(['agents'], [agent, { ...agent, id: 'child', parentId: agent.id }]);
   result.setQueryData(['servers'], [server]);
   result.setQueryData(['knowledge', 'bases'], {
@@ -173,9 +181,11 @@ function inspect(
     createElement(QueryClientProvider, { client: queryClient }, createElement(Probe)),
   );
 }
+const allPermissions: readonly PermissionId[] = PERMISSIONS.map((permission) => permission.id);
 function editor() {
   return AgentEditor({
     agent,
+    permissions: allPermissions,
     onDirtyChange: () => {},
     onPendingChange: () => {},
     onDeleteRequest: () => {},
@@ -256,7 +266,8 @@ describe('resource async state regressions', () => {
             node.props.to === '/agents/$agentId' ||
             node.props.to === '/chat' ||
             node.props['aria-label'] === '新建专家' ||
-            (Array.isArray(node.props.children) && node.props.children.includes(' 新建专家')),
+            (Array.isArray(node.props.children) && node.props.children.includes(' 新建专家')) ||
+            (Array.isArray(node.props.children) && node.props.children.includes(' 创建数字分身')),
         );
         expect(entries.length).toBeGreaterThan(0);
         expect(entries.every((node) => node.props.disabled === true)).toBe(true);

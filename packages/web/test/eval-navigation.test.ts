@@ -99,6 +99,12 @@ async function mount(editing = false, options: MountOptions = {}) {
       { id: 'agent-b', name: 'Expert B' },
     ],
   );
+  for (const agentId of ['agent-a', 'agent-b']) {
+    client.setQueryData(['agent-access', agentId], {
+      agentId,
+      permissionIds: ['eval.read', 'eval.manage', 'eval.execute'],
+    });
+  }
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const evalRoute = createRoute({

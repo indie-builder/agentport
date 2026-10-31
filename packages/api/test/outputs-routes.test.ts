@@ -3,11 +3,19 @@ import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prepareOutputDraft, publishOutputSnapshot } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
-import { type OutputFile, problemSchema } from '@agentport/shared';
+import {
+  type OutputFile,
+  outputContentSchema,
+  outputFileSchema,
+  outputListSchema,
+  problemSchema,
+} from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -18,25 +26,32 @@ import {
   startApp,
   unique,
 } from './helpers.js';
+import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 // POST /api/chat 会入队；没有 worker 消费才能断言用户消息的持久化内容。
 const ready = (await infraReady) && (await queueIdle);
+// 删除套件在共享库持绑定锁等 ACK 最长 10s；独享库避免聊天准入被同轮锁等待拖到 20s 超时。
+const isolated = ready ? await createIsolatedDatabase('outputs_routes') : null;
 
 const MAX_PREVIEW = 1024 * 1024;
 
-describe.skipIf(!ready)('conversation outputs', () => {
+describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
   let app: FastifyInstance;
   let cookie: string;
+  let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const agentSlugs: string[] = [];
   const conversationIds: string[] = [];
   const runIds: string[] = [];
 
   beforeAll(async () => {
-    app = await startApp();
+    if (!isolated) throw new Error('isolated database missing');
+    app = await startApp({ DATABASE_URL: isolated.url });
     cookie = await loginCookie(app);
+    sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
   });
 
   afterAll(async () => {
+    await sessions.close();
     for (const runId of runIds) {
       await getQueue()
         .getJob(runId)
@@ -52,6 +67,7 @@ describe.skipIf(!ready)('conversation outputs', () => {
       });
     }
     await app.close();
+    await isolated?.close();
   });
 
   const auth = () => ({ cookie });
@@ -64,7 +80,12 @@ describe.skipIf(!ready)('conversation outputs', () => {
 
   const newConversation = async (agentId: string): Promise<string> => {
     const id = newId('conversation');
-    await repo.chat.createConversation(app.db, { id, agentId, title: '成果' });
+    await repo.chat.createConversation(app.db, {
+      id,
+      agentId,
+      title: '成果',
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
     conversationIds.push(id);
     return id;
   };
@@ -145,6 +166,7 @@ describe.skipIf(!ready)('conversation outputs', () => {
       items: Array<{ runId: string; path: string; mediaType: string; status: string }>;
       nextBefore: string | null;
     }>();
+    expect(outputListSchema.parse(page)).toEqual(page);
     expect(page.items.map((item) => `${item.runId}:${item.path}`)).toEqual([
       'run_2:report.md',
       'run_1:data.csv',
@@ -191,6 +213,7 @@ describe.skipIf(!ready)('conversation outputs', () => {
     expect(exact.statusCode, exact.body).toBe(200);
     const body = exact.json<{ file: OutputFile; content?: string }>();
     expect(Object.keys(body)).toEqual(['file']);
+    expect(outputFileSchema.parse(body.file)).toEqual(body.file);
     expect(body.file).toEqual({
       runId: 'run_meta_1',
       path: 'report.md',
@@ -261,7 +284,9 @@ describe.skipIf(!ready)('conversation outputs', () => {
 
     const text = await get(`/api/conversations/${id}/outputs/run_text/content?path=note.md`);
     expect(text.statusCode, text.body).toBe(200);
-    expect(text.json()).toMatchObject({
+    const textBody = text.json<{ file: OutputFile; content: string }>();
+    expect(outputContentSchema.parse(textBody)).toEqual(textBody);
+    expect(textBody).toMatchObject({
       content: '# 标题\n\n正文 ✨\n',
       file: { runId: 'run_text', path: 'note.md', mediaType: 'text/markdown' },
     });

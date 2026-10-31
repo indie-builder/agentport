@@ -1,15 +1,18 @@
 import { decryptSecrets, encryptSecrets } from '@agentport/core';
-import { newId, repo, schema } from '@agentport/db';
+import { repo, schema } from '@agentport/db';
 import {
+  cronSchema,
   knowledgeSourceInputSchema,
   knowledgeSourceRangeExternalIdMax,
   knowledgeSourceRangeInputSchema,
 } from '@agentport/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { AppError, isAppError, isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { authorizeObject } from '../access.js';
 import { createJob, enqueueKnowledgeJob } from './service.js';
 
 const baseParams = z.object({ id: z.string().min(1) });
@@ -27,16 +30,22 @@ const sourcePatchSchema = z.object({
   config: z.record(z.string(), z.unknown()).optional(),
   secrets: z.record(z.string(), z.string()).optional(),
   status: z.enum(['active', 'paused', 'disabled']).optional(),
-  syncCron: z
-    .string()
-    .regex(/^\S+ \S+ \S+ \S+ \S+$/, '需为 5 段 cron（分 时 日 月 周），UTC')
-    .nullable()
-    .optional(),
+  syncCron: cronSchema.nullable().optional(),
   // 空数组绝不解释成「全量范围」，与创建一致直接 400。
   ranges: z.array(knowledgeSourceRangeInputSchema).min(1).optional(),
 });
 
 type SourcePatch = z.infer<typeof sourcePatchSchema>;
+const sourcePatchBodySchema = sourcePatchSchema.refine(
+  (value) =>
+    value.syncCron === undefined || value.syncCron === null || isSchedulableCron(value.syncCron),
+  { message: INVALID_CRON_MESSAGE, path: ['syncCron'] },
+);
+
+const sourceBodySchema = knowledgeSourceInputSchema.refine(
+  (value) => value.syncCron === null || isSchedulableCron(value.syncCron),
+  { message: INVALID_CRON_MESSAGE, path: ['syncCron'] },
+);
 
 type SourceRow = typeof schema.knowledgeSources.$inferSelect;
 type RangeRow = typeof schema.knowledgeSourceRanges.$inferSelect;
@@ -361,7 +370,6 @@ function pageOptions(query: { cursor?: string | undefined; limit?: number | unde
 
 export function registerSourceRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
   const secretKey = (): string => app.config.APP_SECRET_KEY;
 
   const encryptIfAny = (secrets: Record<string, string> | undefined): string | null | undefined => {
@@ -412,11 +420,21 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/sources',
-    { ...auth, schema: { params: baseParams, querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams, querystring: pageQuery },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.getBase(app.db, request.params.id))) {
         return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
       }
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: request.params.id },
+        '对象不存在',
+      );
       const page = await repo.knowledge.listSources(
         app.db,
         request.params.id,
@@ -433,10 +451,20 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/sources',
-    { ...auth, schema: { params: baseParams, body: knowledgeSourceInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } },
+      schema: { params: baseParams, body: sourceBodySchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.sources.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       const input = request.body;
       // ranges 已由 shared schema 的 min(1) 保证非空。
       const issues = configIssues(input.type, input.config, input.secrets, input.ranges);
@@ -463,11 +491,21 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/sources/:sourceId',
-    { ...auth, schema: { params: sourceParams, body: sourcePatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } },
+      schema: { params: sourceParams, body: sourcePatchBodySchema },
+    },
     async (request, reply) => {
       const found = await loadSource(request.params.sourceId);
       if (!found) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
       const { source, ranges } = found;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.sources.manage',
+        { objectId: source.id },
+        '对象不存在',
+      );
       const body = request.body;
 
       // 身份字段只对新增九类固定；既有来源仍保留原有可编辑 config 行为。
@@ -513,10 +551,20 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/sources/:sourceId',
-    { ...auth, schema: { params: sourceParams, querystring: deleteQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } },
+      schema: { params: sourceParams, querystring: deleteQuery },
+    },
     async (request, reply) => {
       const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
       if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.sources.manage',
+        { objectId: source.id },
+        '对象不存在',
+      );
 
       let affected: number;
       if (request.query.documents === 'keep') {
@@ -546,11 +594,21 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
   // 本地配置错误在入口直接 400；其余进入既有队列做最小只读远程探针，不导入、不推进游标。
   app.post(
     '/api/knowledge/sources/:sourceId/test',
-    { ...auth, schema: { params: sourceParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } },
+      schema: { params: sourceParams },
+    },
     async (request, reply) => {
       const found = await loadSource(request.params.sourceId);
       if (!found) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
       const { source, ranges } = found;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.sources.manage',
+        { objectId: source.id },
+        '对象不存在',
+      );
       const issues: string[] = [];
       let secrets: Record<string, string> | null = null;
       if (source.secretsEncrypted) {
@@ -582,54 +640,44 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/sources/:sourceId/sync',
-    { ...auth, schema: { params: sourceParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: sourceParams },
+    },
     async (request, reply) => {
-      const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
-      if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
-      if (source.status !== 'active') {
+      const created = await repo.knowledge.createSyncJob(app.db, request.params.sourceId);
+      if (created.status === 'not_found') {
+        return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
+      }
+      if (created.status === 'not_active') {
         return reject(reply, 'CONFLICT', '来源未启用，无法同步');
       }
-      // shortcut: 非事务检查，与定时触发并发时仍可能各建一条；要严格串行再复用 scheduler 的 advisory lock。
-      const [activeJob] = await app.db
-        .select({ id: schema.knowledgeJobs.id })
-        .from(schema.knowledgeJobs)
-        .where(
-          and(
-            eq(schema.knowledgeJobs.sourceId, source.id),
-            inArray(schema.knowledgeJobs.status, ['queued', 'running']),
-          ),
-        )
-        .limit(1);
-      if (activeJob) return reject(reply, 'CONFLICT', '该来源已有同步任务在进行中');
-      // 先落 run 再落 job：worker 认领时 run 必须已存在，检查点才有行可写。
-      const [run] = await app.db
-        .insert(schema.knowledgeSyncRuns)
-        .values({
-          id: newId('knowledgeSyncRun'),
-          sourceId: source.id,
-          status: 'queued',
-          cursorBefore: source.cursor,
-        })
-        .returning();
-      if (!run) throw new Error('knowledge sync run insert returned no row');
-      const job = await createJob(app.db, {
-        baseId: source.baseId,
-        documentId: null,
-        sourceId: source.id,
-        payload: { type: 'sync', sourceId: source.id, syncRunId: run.id },
-      });
-      await enqueueKnowledgeJob(job);
-      return reply.status(202).send({ jobId: job.id, syncRunId: run.id });
+      if (created.status === 'in_progress') {
+        return reject(reply, 'CONFLICT', '该来源已有同步任务在进行中');
+      }
+      // 入队失败时 queued pair 已完整落库，由既有 knowledge reconciler 补投。
+      await enqueueKnowledgeJob(created.job);
+      return reply.status(202).send({ jobId: created.job.id, syncRunId: created.run.id });
     },
   );
 
   app.get(
     '/api/knowledge/sources/:sourceId/runs',
-    { ...auth, schema: { params: sourceParams, querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: sourceParams, querystring: pageQuery },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.getSource(app.db, request.params.sourceId))) {
         return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
       }
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: request.params.sourceId },
+        '对象不存在',
+      );
       const page = await repo.knowledge.listSyncRuns(
         app.db,
         request.params.sourceId,
@@ -642,7 +690,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/knowledge/sources/:sourceId/runs/:syncRunId/items',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
       schema: {
         params: z.object({
           sourceId: z.string().min(1),
@@ -654,6 +702,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
       if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.read', { objectId: source.id }, '对象不存在');
       const [run] = await app.db
         .select({ id: schema.knowledgeSyncRuns.id })
         .from(schema.knowledgeSyncRuns)

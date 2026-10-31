@@ -219,6 +219,8 @@ createModelProfile / listModelProfiles / getModelProfileWithSecret / updateModel
 
 约定：写 `current_version_id` 与 `embedding_profile_id` 必须同一事务；`claimJob` 用 `UPDATE ... WHERE status='queued' RETURNING`；列表接口一律 cursor（`createdAt,id`）分页。
 
+演进现状：`getBaseByServerId`、`deleteVersionsExcept`、`replaceChunks` 已废弃且无调用方，不再作为现行契约；本清单其余函数保持有效。
+
 ### 6.2 `packages/core/src/knowledge-models.ts`（P2）
 
 ```ts
@@ -301,7 +303,7 @@ export const KNOWLEDGE_TOOL_NAMES = ['knowledge_search','knowledge_read','knowle
 代价是下列所有按 kind 分派的调用方必须同时加分支，全部由 **P1** 完成（P2/P4 不再碰）：
 
 - `packages/shared/src/mcp.ts`：`serverKindSchema` 加 `knowledge`；`knowledgeServerSchema` 描述读形状；`serverSchema` 用读联合纳入 knowledge；`serverInputSchema` 不带 knowledge；`knowledgeMcpEntry(apiUrl, serverId, runId, token)` 统一构造运行时/预览条目。
-- `packages/core/src/tools.ts`：**不改**。`toMcpJsonEntry` 只接受 `ServerInput`（不含 knowledge）；knowledge 条目由 `knowledgeMcpEntry` 直接构造，避免把内部 kind 塞进通用输入类型。
+- `packages/core/src/tools.ts`：**不改**。`toMcpJsonEntry` 只接受 `ServerInput`（不含 knowledge）；knowledge 条目由 `knowledgeMcpEntry` 直接构造，避免把内部 kind 塞进通用输入类型。（演进现状：`toMcpJsonEntry` 已删除，`tools.ts` 只保留 `McpJsonEntry` 类型；条目由 `@agentport/shared` 的 `previewMcpEntry()` / `knowledgeMcpEntry()` 构造。）
 - `packages/api/src/features/servers/repo.ts`：`toApiServer` 返回 `{ ...base, kind:'knowledge', knowledgeBaseId }`，不生成/回显 `mcpToken`；`splitInput` 只写 `{ knowledgeBaseId }`，拒绝外部 headers；`ServerPatch` 不接受该 kind。
 - `packages/api/src/features/servers/test-connection.ts`：knowledge 直接返回 `{ ok: true, tools: 3 }` 的本地实现结果，不发外部请求（真实连通性由 run smoke 验证）。
 - `packages/api/src/features/agent-package.ts`：knowledge server 不写入导出包；导入时遇到该 kind 拒绝并给 warning。

@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity, Download, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
@@ -7,6 +8,7 @@ import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
+import { can } from '../lib/access.js';
 import { api, type RunListItem, type RunStatus } from '../lib/api.js';
 import {
   formatCost,
@@ -17,7 +19,7 @@ import {
   runStatusLabel,
   shortId,
 } from '../lib/format.js';
-import { useAgents, useRuns } from '../lib/queries.js';
+import { meQuery, useAgents, useRuns } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
 
 const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
@@ -118,6 +120,8 @@ const columns: DataColumn<RunListItem>[] = [
 
 export function RunsPage() {
   const navigate = useNavigate();
+  const me = useQuery(meQuery);
+  const canExport = can(me.data, 'runs.export');
   const agents = useAgents();
   // 筛选放在 URL 里：刷新、分享、前进后退都保留条件。
   const search = useSearch({ from: '/_shell/runs/' });
@@ -179,10 +183,12 @@ export function RunsPage() {
         title="运行"
         actions={
           <>
-            <Button variant="outline" onClick={() => void exportRuns()} disabled={exporting}>
-              <Download data-icon="inline-start" aria-hidden="true" />
-              {exporting ? '导出中…' : '导出运行'}
-            </Button>
+            {canExport ? (
+              <Button variant="outline" onClick={() => void exportRuns()} disabled={exporting}>
+                <Download data-icon="inline-start" aria-hidden="true" />
+                {exporting ? '导出中…' : '导出运行'}
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               onClick={() => void runs.refetch()}

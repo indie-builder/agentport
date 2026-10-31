@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
-import type { Agent } from '@agentport/shared';
+import { type Agent, conversationSummarySchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -15,6 +16,7 @@ import {
   startApp,
   unique,
 } from './helpers.js';
+import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 // 会话 fixture 直接写 repo，不经过 /api/chat：不会产生 queued run，也就不依赖 worker 空闲。
 const ready = await infraReady;
@@ -22,15 +24,19 @@ const ready = await infraReady;
 describe.skipIf(!ready)('conversations', () => {
   let app: FastifyInstance;
   let cookie: string;
+  let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const agentSlugs: string[] = [];
   const conversationIds: string[] = [];
 
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
+    // 删除路由在事务外等待 worker 关闭确认（仍持会话锁）；测试进程注册真实信道处理器。
+    sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
   });
 
   afterAll(async () => {
+    await sessions.close();
     await cleanup(app, { agentSlugs });
     if (conversationIds.length > 0) {
       await app.pool.query('delete from audit_log where target = any($1::text[])', [
@@ -49,7 +55,12 @@ describe.skipIf(!ready)('conversations', () => {
 
   const newConversation = async (agentId: string, title = '原会话') => {
     const id = newId('conversation');
-    await repo.chat.createConversation(app.db, { id, agentId, title });
+    await repo.chat.createConversation(app.db, {
+      id,
+      agentId,
+      title,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
     conversationIds.push(id);
     return id;
   };
@@ -145,9 +156,11 @@ describe.skipIf(!ready)('conversations', () => {
       url: `/api/conversations?agentId=${agent.id}`,
       headers: auth(),
     });
-    const item = list
-      .json<Array<{ id: string; title: string; createdAt: string; lastMessage: unknown }>>()
-      .find((entry) => entry.id === id);
+    const listBody = list.json<unknown>();
+    expect(conversationSummarySchema.array().parse(listBody)).toEqual(listBody);
+    const item = (
+      listBody as Array<{ id: string; title: string; createdAt: string; lastMessage: unknown }>
+    ).find((entry) => entry.id === id);
     expect(item).toMatchObject({ title: '会议 ✨', createdAt: beforeBody.conversation.createdAt });
     expect(item?.lastMessage).toEqual({
       role: 'user',
@@ -182,6 +195,7 @@ describe.skipIf(!ready)('conversations', () => {
       id: newId('run'),
       conversationId: id,
       agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     await repo.chat.updateRun(app.db, run.id, {
       status: 'succeeded',
@@ -235,6 +249,138 @@ describe.skipIf(!ready)('conversations', () => {
     ]);
   });
 
+  it('returns only public fields with ISO dates, preserving content, UI snapshots and pagination', async () => {
+    const agent = await newAgent();
+    const id = await newConversation(agent.id, '公开边界');
+    await app.pool.query(
+      `update conversations
+         set sdk_session_id = $2, fork_from_sdk_message_uuid = $3
+       where id = $1`,
+      [id, '11111111-2222-4333-8444-555555555555', '66666666-7777-4888-8999-000000000000'],
+    );
+
+    const arrayContent = [
+      { type: 'text', text: '数组内容' },
+      { type: 'openui_action', params: { nested: { depth: [1, null, 'x'] } } },
+    ];
+    const objectContent = {
+      type: 'openui',
+      blocks: [{ kind: 'card', unknown: { list: [true, null, { deep: '值' }] } }],
+    };
+    const uiState = { version: 1, blocks: { card: { tab: 'b', nested: { ok: true } } } };
+    const messageIds = ['msg_public_1', 'msg_public_2', 'msg_public_3'];
+    const createdTimes = [
+      '2026-10-30T12:00:01.123Z',
+      '2026-10-30T12:00:02.456Z',
+      '2026-10-30T12:00:03.789Z',
+    ];
+    await app.pool.query(
+      `insert into messages
+         (id, conversation_id, role, sender_business_id, content, sdk_message_uuid,
+          ui_format, ui_program, ui_state, created_at)
+       values
+         ($1, $4, 'user', $5, $6, $7, 'markdown', null, null, $8),
+         ($2, $4, 'assistant', null, $9, $10, 'openui', 'root = Card([...])', $11, $12),
+         ($3, $4, 'user', $5, $13, $14, 'markdown', null, null, $15)`,
+      [
+        messageIds[0],
+        messageIds[1],
+        messageIds[2],
+        id,
+        ADMIN_BUSINESS_ID,
+        JSON.stringify(arrayContent),
+        'aaaaaaaa-1111-4222-8333-444444444444',
+        createdTimes[0],
+        JSON.stringify(objectContent),
+        'bbbbbbbb-1111-4222-8333-444444444444',
+        JSON.stringify(uiState),
+        createdTimes[1],
+        JSON.stringify({ type: 'text', text: '最后一页' }),
+        'cccccccc-1111-4222-8333-444444444444',
+        createdTimes[2],
+      ],
+    );
+
+    const first = await inject(app, {
+      method: 'GET',
+      url: `/api/conversations/${id}?limit=2`,
+      headers: auth(),
+    });
+    expect(first.statusCode, first.body).toBe(200);
+    const firstBody = first.json<{
+      conversation: Record<string, unknown>;
+      messages: Array<Record<string, unknown>>;
+      runMetrics: unknown[];
+      nextBefore: string | null;
+    }>();
+
+    expect(Object.keys(firstBody.conversation).sort()).toEqual(
+      ['agentId', 'createdAt', 'id', 'title'].sort(),
+    );
+    expect(firstBody.conversation).toEqual({
+      id,
+      agentId: agent.id,
+      title: '公开边界',
+      createdAt: expect.any(String),
+    });
+    expect(firstBody.conversation).not.toHaveProperty('sdkSessionId');
+    expect(firstBody.conversation).not.toHaveProperty('forkFromSdkMessageUuid');
+    expect(firstBody.conversation).not.toHaveProperty('createdBy');
+    expect(firstBody.conversation).not.toHaveProperty('serviceId');
+    expect(firstBody.messages.map((message) => message.id)).toEqual([messageIds[1], messageIds[2]]);
+    expect(firstBody.nextBefore).toBe(messageIds[1]);
+
+    const assistant = firstBody.messages[0];
+    expect(assistant).toBeDefined();
+    expect(Object.keys(assistant ?? {}).sort()).toEqual(
+      [
+        'content',
+        'conversationId',
+        'createdAt',
+        'id',
+        'role',
+        'runId',
+        'uiFormat',
+        'uiProgram',
+        'uiState',
+      ].sort(),
+    );
+    expect(assistant).toMatchObject({
+      id: messageIds[1],
+      conversationId: id,
+      role: 'assistant',
+      content: objectContent,
+      runId: null,
+      createdAt: createdTimes[1],
+      uiFormat: 'openui',
+      uiProgram: 'root = Card([...])',
+      uiState,
+    });
+    expect(assistant).not.toHaveProperty('sdkMessageUuid');
+    expect(assistant).not.toHaveProperty('senderBusinessId');
+    expect(firstBody.messages[1]?.createdAt).toBe(createdTimes[2]);
+
+    const second = await inject(app, {
+      method: 'GET',
+      url: `/api/conversations/${id}?limit=2&before=${messageIds[1] ?? ''}`,
+      headers: auth(),
+    });
+    expect(second.statusCode, second.body).toBe(200);
+    const secondBody = second.json<{
+      messages: Array<Record<string, unknown>>;
+      nextBefore: string | null;
+    }>();
+    expect(secondBody.messages.map((message) => message.id)).toEqual([messageIds[0]]);
+    expect(secondBody.messages[0]).toMatchObject({
+      content: arrayContent,
+      createdAt: createdTimes[0],
+      uiFormat: 'markdown',
+      uiProgram: null,
+      uiState: null,
+    });
+    expect(secondBody.nextBefore).toBeNull();
+  });
+
   it('overwrites the title on repeat rename and repo returns null for unknown ids', async () => {
     const agent = await newAgent();
     const id = await newConversation(agent.id, 'first');
@@ -268,6 +414,7 @@ describe.skipIf(!ready)('conversations', () => {
       id: newId('run'),
       conversationId: id,
       agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     // 终态 run 不阻塞删除，同时验证删除会级联带走运行记录。
     await repo.chat.updateRun(app.db, run.id, { status: 'cancelled', endedAt: new Date() });
@@ -318,6 +465,7 @@ describe.skipIf(!ready)('conversations', () => {
       id: newId('run'),
       conversationId: id,
       agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
 
     expectProblem(await remove(id), 'CONFLICT');
@@ -342,6 +490,7 @@ describe.skipIf(!ready)('conversations', () => {
     const branched = await repo.chat.branchConversation(app.db, {
       id: newId('conversation'),
       conversationId: parentId,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     if (!branched) throw new Error('branchConversation returned null');
     const childId = branched.conversation.id;

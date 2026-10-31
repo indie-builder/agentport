@@ -10,6 +10,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   createAgent,
   infraReady,
   inject,
@@ -182,7 +183,14 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     createdAgents.push(slug);
     await app.db
       .insert(schema.agents)
-      .values({ id: agentId, slug, name: slug, model: 'test-model' });
+      .values({
+        id: agentId,
+        slug,
+        name: slug,
+        model: 'test-model',
+        createdBy: ADMIN_BUSINESS_ID,
+        ownerBusinessId: ADMIN_BUSINESS_ID,
+      });
     if (bind === 'self') {
       await app.db.insert(schema.agentServers).values({ agentId, serverId });
     } else if (bind === 'disabled-child') {
@@ -194,6 +202,8 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         slug: childSlug,
         name: childSlug,
         model: 'test-model',
+        createdBy: ADMIN_BUSINESS_ID,
+        ownerBusinessId: ADMIN_BUSINESS_ID,
         parentId: agentId,
         enabled: false,
       });

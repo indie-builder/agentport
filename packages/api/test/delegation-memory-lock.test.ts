@@ -22,14 +22,29 @@ import {
 
 const ready = await infraReady;
 
+// 与 personal-memory.test.ts 共用会话级锁：两者都会以管理员身份写 memory_changes。
+const MEMORY_TEST_LOCK = 'agentport.memory-tests';
+
 describe.skipIf(!ready)('delegation memory occupancy', () => {
   let app: FastifyInstance;
   let cookie: string;
   let workspaces: string;
+  let releaseLock: (() => Promise<void>) | undefined;
   const createdSlugs: string[] = [];
   const agentIds: string[] = [];
   const runIds: string[] = [];
   const scheduleIds: string[] = [];
+
+  async function acquireMemoryLock(pool: FastifyInstance['pool']): Promise<() => Promise<void>> {
+    const client = await pool.connect();
+    // 等锁可能超过连接默认的 statement_timeout。
+    await client.query('set statement_timeout = 0');
+    await client.query('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
+    return async () => {
+      await client.query('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
+      client.release();
+    };
+  }
 
   beforeAll(async () => {
     // macOS 的 tmpdir 是符号链接；记忆文件写入会拒绝符号链接路径。
@@ -37,8 +52,9 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     app = await startApp({ WORKSPACES_DIR: workspaces });
     // 有 worker 消费时排队 run 会被真实执行，chat 准入断言失去意义。
     expect(await queueIdle, 'worker must be stopped before admission tests').toBe(true);
+    releaseLock = await acquireMemoryLock(app.pool);
     cookie = await loginCookie(app);
-  });
+  }, 60_000);
 
   afterEach(async () => {
     if (runIds.length > 0) {
@@ -54,9 +70,13 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
   });
 
   afterAll(async () => {
-    await cleanup(app, { agentSlugs: createdSlugs, runIds });
-    await app.close();
-    await rm(workspaces, { recursive: true, force: true });
+    try {
+      await cleanup(app, { agentSlugs: createdSlugs, runIds });
+    } finally {
+      await releaseLock?.();
+      await app.close();
+      await rm(workspaces, { recursive: true, force: true });
+    }
   });
 
   const newAgent = async (prefix: string): Promise<Agent> => {
@@ -96,8 +116,12 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     const id = newId('schedule');
     scheduleIds.push(id);
     await app.pool.query(
-      `insert into agent_schedules (id, agent_id, name, cron, prompt, enabled)
-       values ($1, $2, $3, '* * * * *', 'tick', true)`,
+      `insert into agent_schedules
+         (id, agent_id, name, created_by, execute_as_business_id, cron, prompt, enabled)
+       values ($1, $2, $3,
+         (select business_id from "user" where username = 'admin'),
+         (select business_id from "user" where username = 'admin'),
+         '* * * * *', 'tick', true)`,
       [id, agentId, `schedule-${id}`],
     );
     return id;

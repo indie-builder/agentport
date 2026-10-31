@@ -1,4 +1,4 @@
-import type { Agent } from '@agentport/shared';
+import { type Agent, PERMISSIONS } from '@agentport/shared';
 import {
   act,
   createElement,
@@ -27,6 +27,8 @@ import {
   CreateAgentDialog,
   VersionHistory,
 } from '../src/pages/agents.js';
+
+const TEST_PERMISSIONS = PERMISSIONS.map((permission) => permission.id);
 
 vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));
 vi.mock('@/components/ui/input-group', () => import('../src/components/ui/input-group.js'));
@@ -80,6 +82,10 @@ const state = vi.hoisted(() => ({
   search: {} as Record<string, string | undefined>,
 }));
 vi.mock('../src/lib/queries.js', () => ({
+  meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
   useAgents: () => ({
     data: state.agents,
     isPending: state.agentsPending,
@@ -87,7 +93,27 @@ vi.mock('../src/lib/queries.js', () => ({
     error: new Error('Agents unavailable'),
     refetch: state.agentsRetry,
   }),
-  useAgent: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
+  useAgentOptions: () => ({
+    data: { servers: [], skills: [], plugins: [], runtimeEnvironments: [] },
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
+  agentDetailQuery: (id: string) => ({
+    queryKey: ['agent-detail', id],
+    queryFn: async () => null,
+    enabled: false,
+  }),
+  useAgentSummary: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
+  useAgentDetail: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
+  useAgentAccess: () => ({
+    data: {
+      agentId: state.agents[0]?.id ?? 'parent',
+      permissionIds: PERMISSIONS.map((permission) => permission.id),
+    },
+    isPending: false,
+    isError: false,
+  }),
   useServers: () => ({ data: state.servers }),
   useKnowledgeBases: () => ({ data: state.knowledgeBases, isPending: false, isError: false }),
   useRuntimeEnvironments: () => ({
@@ -124,7 +150,14 @@ vi.mock('../src/lib/queries.js', () => ({
     refetch: () => {},
   }),
 }));
-vi.mock('@tanstack/react-query', () => ({ useQueries: () => [], useQueryClient: () => ({}) }));
+vi.mock('@tanstack/react-query', async () => {
+  const { allAccessMe } = await import('./me-fixture.js');
+  return {
+    useQueries: () => [],
+    useQueryClient: () => ({}),
+    useQuery: () => ({ data: allAccessMe, isPending: false, isError: false, refetch: vi.fn() }),
+  };
+});
 vi.mock('@tanstack/react-router', () => ({
   Link: 'a',
   useBlocker: (options: (typeof state.blockerOptions)[number]) => {
@@ -206,6 +239,7 @@ async function inspect(
 function editor() {
   return AgentEditor({
     agent: parent,
+    permissions: TEST_PERMISSIONS,
     onDirtyChange: () => {},
     onPendingChange: () => {},
     onDeleteRequest: () => {},
@@ -278,6 +312,7 @@ describe('expert editor regressions', () => {
       () =>
         AgentEditor({
           agent: legacy,
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
@@ -312,6 +347,7 @@ describe('expert editor regressions', () => {
       () =>
         AgentEditor({
           agent: { ...parent, role: '数字分身' },
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
@@ -404,6 +440,7 @@ describe('expert editor regressions', () => {
       () =>
         AgentEditor({
           agent: current,
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
@@ -464,6 +501,7 @@ describe('expert editor regressions', () => {
       () =>
         AgentEditor({
           agent: configured,
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
@@ -497,33 +535,53 @@ describe('expert editor regressions', () => {
     );
   });
 
-  it('keeps the configured effort when saving a rename', async () => {
+  it('keeps the configured effort after a rename without resending it', async () => {
     const configured = { ...parent, effort: 'high' as const };
+    let saved: Agent | undefined;
+    state.mutate.mockReset();
+    state.mutate.mockImplementationOnce((vars, callbacks) => {
+      // 真实 PATCH 只合并脏字段并回读完整 Agent；这里按同样语义模拟服务端响应。
+      saved = { ...configured, ...vars.input, updatedAt: '2026-03-01' };
+      callbacks?.onSuccess?.(saved);
+    });
     await inspect(
       () =>
         AgentEditor({
           agent: configured,
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
         }),
       async (tree, pass) => {
-        const name = tree.find((node) => node.props.id === 'agent-name');
-        if (!name) throw new Error('Missing name field');
         if (pass === 0) {
+          const name = tree.find((node) => node.props.id === 'agent-name');
+          if (!name) throw new Error('Missing name field');
           (name.props.onChange as (event: unknown) => void)({
             target: { name: 'name', value: 'Renamed' },
           });
           return true;
         }
-        const form = tree.find((node) => node.type === 'form');
-        if (!form) throw new Error('Missing editor form');
-        await (form.props.onSubmit as (event: unknown) => Promise<void>)({
-          preventDefault() {},
-        });
-        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
-          input: { name: 'Renamed', effort: 'high' },
-        });
+        if (pass === 1) {
+          const form = tree.find((node) => node.type === 'form');
+          if (!form) throw new Error('Missing editor form');
+          await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+            preventDefault() {},
+          });
+          expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+            input: { name: 'Renamed' },
+          });
+          expect(state.mutate.mock.calls[0]?.[0].input).not.toHaveProperty('effort');
+          return true;
+        }
+        if (pass === 2) {
+          selectSection(tree, '行为');
+          return true;
+        }
+        expect(saved?.effort).toBe('high');
+        expect(
+          tree.find((node) => node.type === Select && node.props.value === 'high'),
+        ).toBeDefined();
       },
     );
   });
@@ -565,6 +623,7 @@ describe('expert editor regressions', () => {
       () =>
         AgentEditor({
           agent: { ...parent, parentId: 'parent' },
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
@@ -585,15 +644,24 @@ describe('expert editor regressions', () => {
     );
   });
 
-  it('shows the real default environment name and keeps its explicit id on save', async () => {
+  it('shows the real default environment name and keeps its explicit id after an unrelated save', async () => {
     state.runtimeEnvironments = [
       { id: 'rte_default', name: '默认环境', isDefault: true },
       { id: 'rte_named', name: '数据分析' },
     ];
+    const configured = { ...parent, runtimeEnvironmentId: 'rte_default' };
+    let saved: Agent | undefined;
+    state.mutate.mockReset();
+    state.mutate.mockImplementationOnce((vars, callbacks) => {
+      // 未变的环境绑定不随 PATCH 提交，服务端响应回读的仍是原值。
+      saved = { ...configured, ...vars.input, updatedAt: '2026-03-01' };
+      callbacks?.onSuccess?.(saved);
+    });
     await inspect(
       () =>
         AgentEditor({
-          agent: { ...parent, runtimeEnvironmentId: 'rte_default' },
+          agent: configured,
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
@@ -619,23 +687,36 @@ describe('expert editor regressions', () => {
           changeNumberField(tree, 'agent-turns', 30);
           return true;
         }
-        const form = tree.find((node) => node.type === 'form');
-        if (!form) throw new Error('Missing editor form');
-        await (form.props.onSubmit as (event: unknown) => Promise<void>)({
-          preventDefault() {},
-        });
-        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
-          input: { runtimeEnvironmentId: 'rte_default' },
-        });
+        if (pass === 2) {
+          const form = tree.find((node) => node.type === 'form');
+          if (!form) throw new Error('Missing editor form');
+          await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+            preventDefault() {},
+          });
+          expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+            input: { maxTurns: 30 },
+          });
+          expect(state.mutate.mock.calls[0]?.[0].input).not.toHaveProperty('runtimeEnvironmentId');
+          return true;
+        }
+        expect(saved?.runtimeEnvironmentId).toBe('rte_default');
+        expect(picker.props.value).toBe('default');
       },
     );
   });
 
-  it('keeps the null default binding when saving an unrelated field', async () => {
+  it('keeps the null default binding after saving an unrelated field without resending it', async () => {
     state.runtimeEnvironments = [
       { id: 'rte_default', name: '默认环境', isDefault: true },
       { id: 'rte_named', name: '数据分析' },
     ];
+    let saved: Agent | undefined;
+    state.mutate.mockReset();
+    state.mutate.mockImplementationOnce((vars, callbacks) => {
+      // runtimeEnvironmentId 未变时不提交，服务端保留原来的 null。
+      saved = { ...parent, ...vars.input, updatedAt: '2026-03-01' };
+      callbacks?.onSuccess?.(saved);
+    });
     await inspect(editor, async (tree, pass) => {
       if (pass === 0) {
         selectSection(tree, '运行限制');
@@ -645,30 +726,49 @@ describe('expert editor regressions', () => {
         changeNumberField(tree, 'agent-turns', 30);
         return true;
       }
+      if (pass === 2) {
+        const picker = tree.find(
+          (node) =>
+            node.type === Select &&
+            elements(node).some((child) => child.props.id === 'agent-runtime-environment'),
+        );
+        expect(picker?.props.value).toBe('default');
+        const form = tree.find((node) => node.type === 'form');
+        if (!form) throw new Error('Missing editor form');
+        await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+          preventDefault() {},
+        });
+        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+          input: { maxTurns: 30 },
+        });
+        expect(state.mutate.mock.calls[0]?.[0].input).not.toHaveProperty('runtimeEnvironmentId');
+        return true;
+      }
+      expect(saved?.runtimeEnvironmentId).toBeNull();
       const picker = tree.find(
         (node) =>
           node.type === Select &&
           elements(node).some((child) => child.props.id === 'agent-runtime-environment'),
       );
       expect(picker?.props.value).toBe('default');
-      const form = tree.find((node) => node.type === 'form');
-      if (!form) throw new Error('Missing editor form');
-      await (form.props.onSubmit as (event: unknown) => Promise<void>)({
-        preventDefault() {},
-      });
-      expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
-        input: { runtimeEnvironmentId: null },
-      });
     });
   });
 
   it('offers retry when runtime environments fail without dropping the binding', async () => {
     state.runtimeEnvironmentsError = true;
     const bound = { ...parent, runtimeEnvironmentId: 'rte_named' };
+    let saved: Agent | undefined;
+    state.mutate.mockReset();
+    state.mutate.mockImplementationOnce((vars, callbacks) => {
+      // 加载失败时草稿仍保留原绑定；未改动的绑定不提交，响应回读保持不变。
+      saved = { ...bound, ...vars.input, updatedAt: '2026-03-01' };
+      callbacks?.onSuccess?.(saved);
+    });
     await inspect(
       () =>
         AgentEditor({
           agent: bound,
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
@@ -694,20 +794,130 @@ describe('expert editor regressions', () => {
           changeNumberField(tree, 'agent-turns', 30);
           return true;
         }
-        const form = tree.find((node) => node.type === 'form');
-        if (!form) throw new Error('Missing editor form');
-        await (form.props.onSubmit as (event: unknown) => Promise<void>)({
-          preventDefault() {},
-        });
-        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
-          input: { runtimeEnvironmentId: 'rte_named' },
-        });
+        if (pass === 2) {
+          const form = tree.find((node) => node.type === 'form');
+          if (!form) throw new Error('Missing editor form');
+          await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+            preventDefault() {},
+          });
+          expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+            input: { maxTurns: 30 },
+          });
+          expect(state.mutate.mock.calls[0]?.[0].input).not.toHaveProperty('runtimeEnvironmentId');
+          return true;
+        }
+        expect(saved?.runtimeEnvironmentId).toBe('rte_named');
+        const picker = tree.find(
+          (node) =>
+            node.type === Select &&
+            elements(node).some((child) => child.props.id === 'agent-runtime-environment'),
+        );
+        expect(picker?.props.value).toBe('rte_named');
+      },
+    );
+  });
+
+  it('labels timeout for independent runs and explains delegation only for sub-agents', async () => {
+    await inspect(editor, (tree, pass) => {
+      if (pass === 0) {
+        selectSection(tree, '运行限制');
+        return true;
+      }
+      const label = tree.find((node) => node.props.htmlFor === 'agent-timeout');
+      expect(flatText(label?.props.children as ReactNode)).toBe('独立运行超时 (毫秒)');
+      expect(tree.find((node) => node.props.id === 'agent-timeout-hint')).toBeUndefined();
+    });
+
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: { ...parent, parentId: 'parent', timeoutMs: 120_000 },
+          permissions: TEST_PERMISSIONS,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      (tree, pass) => {
+        if (pass === 0) {
+          selectSection(tree, '运行限制');
+          return true;
+        }
+        const label = tree.find((node) => node.props.htmlFor === 'agent-timeout');
+        expect(flatText(label?.props.children as ReactNode)).toBe('独立运行超时 (毫秒)');
+        const hint = tree.find((node) => node.props.id === 'agent-timeout-hint');
+        expect(flatText(hint?.props.children as ReactNode)).toBe('被委派时使用主运行总超时。');
+        const input = tree.find((node) => node.props.id === 'agent-timeout');
+        expect(input?.props['aria-describedby']).toBe('agent-timeout-hint');
+      },
+    );
+  });
+
+  it('keeps the edited independent-run timeout when unbinding a child', async () => {
+    const configured = { ...parent, timeoutMs: 600_000 };
+    let saved: Agent | undefined;
+    state.mutate.mockReset();
+    state.mutate.mockImplementationOnce((vars, callbacks) => {
+      saved = { ...configured, ...vars.input, updatedAt: '2026-03-01' };
+      callbacks?.onSuccess?.(saved);
+    });
+    await inspect(
+      () =>
+        AgentEditor({
+          agent: configured,
+          permissions: TEST_PERMISSIONS,
+          onDirtyChange() {},
+          onPendingChange() {},
+          onDeleteRequest() {},
+        }),
+      async (tree, pass) => {
+        if (pass === 0) {
+          selectSection(tree, '运行限制');
+          return true;
+        }
+        if (pass === 1) {
+          changeNumberField(tree, 'agent-timeout', 90_000);
+          selectSection(tree, '能力');
+          return true;
+        }
+        if (pass === 2) {
+          const picker = tree.find(
+            (node) =>
+              node.type === Combobox &&
+              (node.props.items as Array<{ id: string }>).some((item) => item.id === 'free'),
+          );
+          if (!picker) throw new Error('Missing delegate picker');
+          expect((picker.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
+            'child',
+          ]);
+          (picker.props.onValueChange as (items: unknown[]) => void)([]);
+          return true;
+        }
+        if (pass === 3) {
+          const form = tree.find((node) => node.type === 'form');
+          if (!form) throw new Error('Missing editor form');
+          await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+            preventDefault() {},
+          });
+          expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+            input: { timeoutMs: 90_000, subAgentIds: [] },
+          });
+          return true;
+        }
+        expect(saved?.timeoutMs).toBe(90_000);
+        expect(saved?.subAgentIds).toEqual([]);
       },
     );
   });
 
   it('shows loading and retry for delegate options without changing bound drafts', async () => {
     state.agentsPending = true;
+    let saved: Agent | undefined;
+    state.mutate.mockReset();
+    state.mutate.mockImplementationOnce((vars, callbacks) => {
+      // 子智能体绑定未改动就不提交；服务端合并后仍回读原有绑定。
+      saved = { ...parent, ...vars.input, updatedAt: '2026-03-01' };
+      callbacks?.onSuccess?.(saved);
+    });
     await inspect(editor, async (tree, pass) => {
       if (pass === 0) {
         const name = tree.find((node) => node.props.id === 'agent-name');
@@ -732,14 +942,29 @@ describe('expert editor regressions', () => {
         expect(state.agentsRetry).toHaveBeenCalledOnce();
         return true;
       }
-      const form = tree.find((node) => node.type === 'form');
-      if (!form) throw new Error('Missing editor form');
-      await (form.props.onSubmit as (event: unknown) => Promise<void>)({
-        preventDefault() {},
-      });
-      expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
-        input: { name: 'Edited', subAgentIds: ['child'] },
-      });
+      if (pass === 3) {
+        const form = tree.find((node) => node.type === 'form');
+        if (!form) throw new Error('Missing editor form');
+        await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+          preventDefault() {},
+        });
+        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+          input: { name: 'Edited' },
+        });
+        expect(state.mutate.mock.calls[0]?.[0].input).not.toHaveProperty('subAgentIds');
+        state.agentsError = false;
+        return true;
+      }
+      expect(saved?.subAgentIds).toEqual(['child']);
+      const picker = tree.find(
+        (node) =>
+          node.type === Combobox &&
+          (node.props.items as Array<{ id: string }>).some((item) => item.id === 'free'),
+      );
+      if (!picker) throw new Error('Missing delegate picker');
+      expect((picker.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
+        'child',
+      ]);
     });
   });
 
@@ -895,10 +1120,18 @@ describe('expert editor regressions', () => {
       serverIds: ['knowledge-server'],
       pluginBindings: [{ pluginId: 'plugin', allowHooks: true, allowMcp: false }],
     };
+    let saved: Agent | undefined;
+    state.mutate.mockReset();
+    state.mutate.mockImplementationOnce((vars, callbacks) => {
+      // 只改普通连接器时 pluginBindings 未脏、不提交；服务端合并后仍回读原绑定。
+      saved = { ...configured, ...vars.input, updatedAt: '2026-03-01' };
+      callbacks?.onSuccess?.(saved);
+    });
     await inspect(
       () =>
         AgentEditor({
           agent: configured,
+          permissions: TEST_PERMISSIONS,
           onDirtyChange() {},
           onPendingChange() {},
           onDeleteRequest() {},
@@ -920,15 +1153,39 @@ describe('expert editor regressions', () => {
           );
           return true;
         }
-        const form = tree.find((node) => node.type === 'form');
-        if (!form) throw new Error('Missing editor form');
-        await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
-        expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
-          input: {
-            serverIds: ['knowledge-server', 'connector'],
-            pluginBindings: configured.pluginBindings,
-          },
-        });
+        if (pass === 2) {
+          const form = tree.find((node) => node.type === 'form');
+          if (!form) throw new Error('Missing editor form');
+          await (form.props.onSubmit as (event: unknown) => Promise<void>)({
+            preventDefault() {},
+          });
+          expect(state.mutate.mock.calls[0]?.[0]).toMatchObject({
+            input: { serverIds: ['knowledge-server', 'connector'] },
+          });
+          expect(state.mutate.mock.calls[0]?.[0].input).not.toHaveProperty('pluginBindings');
+          return true;
+        }
+        expect(saved?.pluginBindings).toEqual(configured.pluginBindings);
+        const knowledge = tree.find(
+          (node) =>
+            node.type === Combobox &&
+            (node.props.items as Array<{ id: string }>).some(
+              (item) => item.id === 'knowledge-server',
+            ),
+        );
+        if (!knowledge) throw new Error('Missing knowledge picker');
+        expect((knowledge.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
+          'knowledge-server',
+        ]);
+        const connector = tree.find(
+          (node) =>
+            node.type === Combobox &&
+            (node.props.items as Array<{ id: string }>).some((item) => item.id === 'connector'),
+        );
+        if (!connector) throw new Error('Missing connector picker');
+        expect((connector.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
+          'connector',
+        ]);
       },
     );
   });
@@ -1210,9 +1467,11 @@ describe('expert editor regressions', () => {
       if (!toolbar) throw new Error('Missing toolbar trigger');
       (toolbar.props.ref as { current: unknown }).current = fallback;
       if (pass === 0) {
-        const empty = tree.find((node) => node.props.title === '还没有专家');
-        const action = empty?.props.action as Element;
-        (action.props.onClick as (event: unknown) => void)({ currentTarget: trigger });
+        const fan = tree.find(
+          (node) => node.type === 'button' && node.props['aria-label'] === '新建专家',
+        );
+        if (!fan) throw new Error('Missing create trigger');
+        (fan.props.onClick as (event: unknown) => void)({ currentTarget: trigger });
         return;
       }
       const dialog = tree.find((node) => node.type === CreateAgentDialog);

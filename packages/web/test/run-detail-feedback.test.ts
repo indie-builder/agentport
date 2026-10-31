@@ -1,3 +1,4 @@
+import { DEFAULT_ROLES } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createMemoryHistory,
@@ -19,6 +20,12 @@ vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn
 
 const at = '2026-10-28T00:00:00Z';
 const LARGE = 'x'.repeat(64 * 1024 + 1);
+const adminMe = {
+  authenticated: true as const,
+  user: { businessId: 'admin', username: 'admin', name: '管理员' },
+  roles: [],
+  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+};
 
 function detail(status: RunStatus, steps: RunDetail['steps']): RunDetail {
   return {
@@ -117,6 +124,7 @@ beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
+  client.setQueryData(['me'], adminMe);
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

@@ -1,10 +1,12 @@
 import type {
   Agent,
   AgentInput,
+  AgentOptions,
   AgentPatch,
   ApiTool,
   ApiToolInput,
   Attention,
+  AuthMe,
   ChatRequest,
   ConnectorCatalogItem,
   CreateMemoryReviewInput,
@@ -52,7 +54,12 @@ import {
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
+  type Account,
+  type AccountPage,
+  type AgentAccess,
   type AgentFiles,
+  type AgentMemberList,
+  type AgentSummary,
   type AgentVersionDetail,
   type AgentVersionSummary,
   ApiError,
@@ -62,6 +69,7 @@ import {
   type Conversation,
   type ConversationDetail,
   type ConversationSearchOptions,
+  type CreateAccountInput,
   type EvalCase,
   type EvalCaseInput,
   type EvalComparison,
@@ -70,21 +78,25 @@ import {
   type HealthMetrics,
   type HealthProbe,
   type HealthReady,
+  type IdentityPage,
   type KnowledgeBaseInput,
   type KnowledgeBatchInput,
   type KnowledgeJob,
   type KnowledgeRetrievalEvaluationInput,
   type KnowledgeSearchOptions,
   type KnowledgeSearchResponse,
-  type Me,
   type NativePlugins,
   type OutputShareList,
   type Overview,
   type OverviewTimeseriesPoint,
+  type PermissionCatalog,
+  type RoleMatrix,
+  type RoleMatrixInput,
   type RunDetail,
   type RunList,
   type RunQuery,
 } from './api.js';
+import { bindChatIdentity, useChatStore } from './chat-store.js';
 import { toastError, toastSuccess } from './toast.js';
 import { useDebouncedValue } from './use-debounced-value.js';
 
@@ -94,11 +106,28 @@ export const queryClient = new QueryClient({
   },
 });
 
-export const meQuery = queryOptions<Me>({
+export const meQuery = queryOptions<AuthMe>({
   queryKey: ['me'],
-  queryFn: api.me,
+  // 身份确认后再把聊天状态交给受保护页面；同一个人重复 /me 不会清草稿。
+  queryFn: async () => {
+    const identity = await api.me();
+    if (identity.authenticated) bindChatIdentity(identity.user.businessId);
+    return identity;
+  },
   staleTime: 30_000,
 });
+
+/** 只清查询缓存；登录、改密等拿不准身份的时机用它，不能顺手删草稿。 */
+export function clearSessionQueries(client = queryClient): void {
+  client.clear();
+}
+
+/** 用户主动退出登录：清查询缓存与聊天状态；401 等隐式过期不走这里。 */
+export async function logoutAccount(): Promise<void> {
+  await api.logout().catch(() => undefined);
+  clearSessionQueries();
+  useChatStore.getState().reset();
+}
 
 export const serversQuery = queryOptions<Server[]>({
   queryKey: ['servers'],
@@ -123,10 +152,64 @@ export const connectorCatalogQuery = queryOptions<ConnectorCatalogItem[]>({
   queryFn: api.connectorCatalog,
   staleTime: 5 * 60_000,
 });
-export const agentsQuery = queryOptions<Agent[]>({
+export const agentsQuery = queryOptions<AgentSummary[]>({
   queryKey: ['agents'],
   queryFn: api.agents,
 });
+
+export const agentDetailQuery = (id: string, enabled = true) =>
+  queryOptions<Agent>({
+    queryKey: ['agent-detail', id],
+    queryFn: ({ signal }) => api.agent(id, signal),
+    enabled,
+    staleTime: 0,
+  });
+
+export const agentAccessQuery = (id: string | null) =>
+  queryOptions<AgentAccess>({
+    queryKey: ['agent-access', id],
+    queryFn: () => api.agentAccess(id ?? ''),
+    enabled: id !== null,
+    staleTime: 0,
+  });
+
+export const agentMembersQuery = (id: string | null) =>
+  queryOptions<AgentMemberList>({
+    queryKey: ['agent-members', id],
+    queryFn: () => api.agentMembers(id ?? ''),
+    enabled: id !== null,
+    staleTime: 0,
+  });
+
+export const accountQuery = (query: { q: string; limit: number; offset: number }) =>
+  queryOptions<AccountPage>({
+    queryKey: ['accounts', query],
+    queryFn: ({ signal }) => api.accounts(query, signal),
+    staleTime: 0,
+  });
+
+export const permissionCatalogQuery = queryOptions<PermissionCatalog>({
+  queryKey: ['permission-catalog'],
+  queryFn: ({ signal }) => api.permissions(signal),
+  staleTime: 5 * 60_000,
+});
+
+export const roleMatrixQuery = queryOptions<RoleMatrix>({
+  queryKey: ['role-matrix'],
+  queryFn: ({ signal }) => api.roles(signal),
+  staleTime: 0,
+});
+
+export const identitiesQuery = (
+  agentId: string | null,
+  query: { q?: string; limit?: number; offset?: number } = {},
+) =>
+  queryOptions<IdentityPage>({
+    queryKey: ['identities', agentId, query],
+    queryFn: ({ signal }) => api.identities({ ...query, agentId: agentId ?? '' }, signal),
+    enabled: agentId !== null,
+    staleTime: 10_000,
+  });
 
 export const skillsQuery = queryOptions<SkillWithAgentCount[]>({
   queryKey: ['skills'],
@@ -210,7 +293,8 @@ export const memoryVersionsQuery = (target: MemoryReviewTarget) =>
     queryKey: ['memory-versions', target],
     queryFn: ({ signal }) => {
       if (target.kind === 'personal') return api.personalMemoryVersions({}, signal);
-      if (target.kind === 'agent_memory') return api.agentMemoryVersions(target.agentId, signal);
+      if (target.kind === 'agent_memory')
+        return api.agentMemoryVersions(target.agentId, target.name, signal);
       return api.agentRuleVersions(target.agentId, target.slug, signal);
     },
     staleTime: 0,
@@ -245,6 +329,8 @@ function invalidateMemoryContent(client: ReturnType<typeof useQueryClient>): voi
   void client.invalidateQueries({ queryKey: personalMemoryVersionsQuery.queryKey });
   void client.invalidateQueries({ queryKey: ['memory-versions'] });
   void client.invalidateQueries({ queryKey: ['agent-memory'] });
+  // 采纳主题会同时补索引，两个文件的正文缓存都必须刷新。
+  void client.invalidateQueries({ queryKey: ['agent-memory-file'] });
   void client.invalidateQueries({ queryKey: ['agent-rules'] });
 }
 
@@ -320,12 +406,23 @@ export function useCancelMemoryReview() {
   });
 }
 
-export function useServers() {
-  return useQuery(serversQuery);
+export const agentOptionsQuery = queryOptions<AgentOptions>({
+  queryKey: ['agent-options'],
+  queryFn: api.agentOptions,
+  staleTime: 60_000,
+});
+
+/** 绑定选择器摘要；只有具备 agents.bindings.manage 的调用方才发请求。 */
+export function useAgentOptions(enabled = true) {
+  return useQuery({ ...agentOptionsQuery, enabled });
 }
 
-export function usePlugins() {
-  return useQuery(pluginsQuery);
+export function useServers(enabled = true) {
+  return useQuery({ ...serversQuery, enabled });
+}
+
+export function usePlugins(enabled = true) {
+  return useQuery({ ...pluginsQuery, enabled });
 }
 
 export function usePlugin(id: string) {
@@ -341,11 +438,154 @@ export function useAgents() {
   return useQuery(agentsQuery);
 }
 
-/** 单个专家从列表缓存里取；配置页用它，slug 不存在时返回 null。 */
-export function useAgent(id: string) {
+/** 列表摘要：只用于选择器和卡片，不包含配置正文。 */
+export function useAgentSummary(id: string | null) {
   return useQuery({
     ...agentsQuery,
-    select: (agents) => agents.find((agent) => agent.id === id) ?? null,
+    select: (agents: AgentSummary[]) => agents.find((agent) => agent.id === id) ?? null,
+  });
+}
+
+/** 完整配置：调用前必须已有 agents.config.read；禁用的查询不会发请求。 */
+export function useAgentDetail(id: string | null, enabled = true) {
+  return useQuery({ ...agentDetailQuery(id ?? '', enabled && id !== null) });
+}
+
+export function useAgentAccess(id: string | null) {
+  return useQuery(agentAccessQuery(id));
+}
+
+export function useAgentMembers(id: string | null) {
+  return useQuery(agentMembersQuery(id));
+}
+
+export function useIdentities(
+  agentId: string | null,
+  query: { q?: string; limit?: number; offset?: number } = {},
+) {
+  return useQuery(identitiesQuery(agentId, query));
+}
+
+export function useAccounts(query: { q: string; limit: number; offset: number }) {
+  return useQuery(accountQuery(query));
+}
+
+export function useRoleMatrix(enabled = true) {
+  return useQuery({ ...roleMatrixQuery, enabled });
+}
+
+export function useCreateAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateAccountInput) => api.createAccount(input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useUpdateAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { businessId: string; input: { username?: string; name?: string } }) =>
+      api.updateAccount(vars.businessId, vars.input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useSetAccountStatus() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { businessId: string; status: Account['status'] }) =>
+      api.setAccountStatus(vars.businessId, vars.status),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useResetAccountPassword() {
+  return useMutation({
+    mutationFn: (vars: { businessId: string; password: string }) =>
+      api.resetAccountPassword(vars.businessId, vars.password),
+  });
+}
+
+export function useDeleteAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (businessId: string) => api.deleteAccount(businessId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useSetAccountRoles() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { businessId: string; roleIds: string[] }) =>
+      api.setAccountRoles(vars.businessId, vars.roleIds),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useSaveRoleMatrix() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RoleMatrixInput) => api.saveRoles(input),
+    onSuccess: (matrix) => {
+      client.setQueryData(roleMatrixQuery.queryKey, matrix);
+      // 角色改变会影响当前用户的 grants 与所有按权限过滤的列表。
+      void client.invalidateQueries({ queryKey: ['me'] });
+      void client.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useSetAgentMember() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      agentId: string;
+      businessId: string;
+      canUse: boolean;
+      canMaintain: boolean;
+    }) =>
+      api.setAgentMember(vars.agentId, vars.businessId, {
+        canUse: vars.canUse,
+        canMaintain: vars.canMaintain,
+      }),
+    onSuccess: (_member, vars) => {
+      void client.invalidateQueries({ queryKey: ['agent-members', vars.agentId] });
+      void client.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useDeleteAgentMember() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; businessId: string }) =>
+      api.deleteAgentMember(vars.agentId, vars.businessId),
+    onSuccess: (_ok, vars) => {
+      void client.invalidateQueries({ queryKey: ['agent-members', vars.agentId] });
+      void client.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useTransferAgent() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; ownerBusinessId: string }) =>
+      api.transferAgent(vars.agentId, vars.ownerBusinessId),
+    onSuccess: (agent) => {
+      client.setQueryData(['agent-detail', agent.id], agent);
+      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['agent-access', agent.id] });
+    },
+  });
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (vars: { currentPassword: string; newPassword: string }) =>
+      api.changePassword(vars.currentPassword, vars.newPassword),
   });
 }
 
@@ -516,12 +756,13 @@ export const runQuery = (runId: string) =>
     staleTime: 5_000,
   });
 
-export function useRun(runId: string) {
+export function useRun(runId: string, poll = true) {
   return useQuery({
     ...runQuery(runId),
-    // 运行中要能看到新落库的步骤。
+    // 运行中要能看到新落库的步骤；会话里事件流健康时可临时关掉周期请求。
     refetchInterval: (query) =>
-      query.state.data?.run.status === 'running' || query.state.data?.run.status === 'queued'
+      poll &&
+      (query.state.data?.run.status === 'running' || query.state.data?.run.status === 'queued')
         ? 2_000
         : false,
   });
@@ -925,8 +1166,8 @@ export function runtimeEnvironmentVersionQuery(id: string, versionId: string) {
   });
 }
 
-export function useRuntimeEnvironments() {
-  return useQuery(runtimeEnvironmentsQuery);
+export function useRuntimeEnvironments(enabled = true) {
+  return useQuery({ ...runtimeEnvironmentsQuery, enabled });
 }
 
 export function useRuntimeEnvironment(id: string) {
@@ -1135,6 +1376,8 @@ export function useDeleteAgent() {
     // 删除成功才移除缓存：失败时要保留详情与草稿，等用户重试或取消。
     onSuccess: (_data, id) => {
       client.setQueryData<Agent[]>(['agents'], (old) => old?.filter((agent) => agent.id !== id));
+      client.removeQueries({ queryKey: ['agent-detail', id], exact: true });
+      client.removeQueries({ queryKey: ['agent-access', id], exact: true });
       void client.invalidateQueries({ queryKey: ['overview'] });
     },
     onSettled: () => {
@@ -1143,8 +1386,8 @@ export function useDeleteAgent() {
   });
 }
 
-export function useSkills() {
-  return useQuery(skillsQuery);
+export function useSkills(enabled = true) {
+  return useQuery({ ...skillsQuery, enabled });
 }
 
 export function useCreateSkill() {
@@ -1447,15 +1690,17 @@ export const knowledgeKeys = {
   wikiDiff: (pageId: string, fromVersionId: string, toVersionId: string) =>
     ['knowledge', 'wiki-diff', pageId, fromVersionId, toVersionId] as const,
   profiles: ['knowledge', 'model-profiles'] as const,
+  profileSelections: ['knowledge', 'model-profiles', 'selection'] as const,
 };
 
-export function useKnowledgeBases() {
+export function useKnowledgeBases(enabled = true) {
   return useInfiniteQuery({
     queryKey: knowledgeKeys.bases,
     queryFn: ({ pageParam, signal }) =>
       api.knowledgeBases(pageParam === null ? {} : { cursor: pageParam }, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled,
     // 调用方（专家绑定等）只关心已加载的库；分页方法仍保留在结果上。
     select: (data) => data.pages.flatMap((page) => page.items),
   });
@@ -2132,12 +2377,28 @@ export function useKnowledgeSearch(baseId: string, options: KnowledgeSearchOptio
   });
 }
 
-export function useKnowledgeJobs(baseId: string) {
-  return useQuery({
-    queryKey: knowledgeKeys.jobs(baseId),
-    queryFn: () => api.knowledgeJobs(baseId),
-    select: (page) => page.items,
-    refetchInterval: (query) => (knowledgeShouldPoll(query.state.data?.items) ? 2_000 : false),
+/**
+ * 任务按游标翻页；select 仍返回扁平数组，旧的 data?.find 调用不变。
+ * queryKey 保留 knowledgeKeys.jobs(baseId) 前缀，重试/取消/同步的前缀失效覆盖所有过滤。
+ */
+export function useKnowledgeJobs(baseId: string, filters: { documentId?: string } = {}) {
+  return useInfiniteQuery({
+    queryKey: [...knowledgeKeys.jobs(baseId), filters],
+    queryFn: ({ pageParam, signal }) =>
+      api.knowledgeJobs(
+        baseId,
+        {
+          ...(filters.documentId ? { documentId: filters.documentId } : {}),
+          ...(pageParam === null ? {} : { cursor: pageParam }),
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    select: (data) => data.pages.flatMap((page) => page.items),
+    // 轮询只看已加载的页，过时窗口规则不变。
+    refetchInterval: (query) =>
+      knowledgeShouldPoll(query.state.data?.pages.flatMap((page) => page.items)) ? 2_000 : false,
   });
 }
 
@@ -2145,7 +2406,11 @@ export function useRetryKnowledgeJob(baseId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (jobId: string) => api.retryKnowledgeJob(jobId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+      // 失败文档重试后状态会回到排队，列表轮询要立刻重新接上。
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+    },
   });
 }
 
@@ -2420,6 +2685,15 @@ export function useKnowledgeModelProfiles() {
   return useQuery({
     queryKey: knowledgeKeys.profiles,
     queryFn: () => api.knowledgeModelProfiles(),
+    staleTime: 60_000,
+  });
+}
+
+/** 创建/设置页只需要选择项；这个视图对 knowledge.read 开放，不要求管理权限。 */
+export function useKnowledgeModelProfileSelections() {
+  return useQuery({
+    queryKey: knowledgeKeys.profileSelections,
+    queryFn: () => api.knowledgeModelProfileSelections(),
     staleTime: 60_000,
   });
 }

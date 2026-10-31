@@ -4,6 +4,7 @@ import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { typed } from '../../types.js';
+import { accessFilter } from '../access.js';
 
 /** drizzle 的 sql<Date> 在运行时可能是字符串（pg 驱动按列类型返回），统一归一。 */
 function toIso(value: unknown): string | null {
@@ -19,12 +20,11 @@ function toIso(value: unknown): string | null {
  */
 export function registerOverviewRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   app.get(
     '/api/overview',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'overview.read' } },
       schema: {
         querystring: z.object({
           days: z.coerce.number().int().min(1).max(3650).default(7),
@@ -35,14 +35,24 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
     async (request) => {
       const { days } = request.query;
       const since = utcWindowStart(days);
+      const access = accessFilter(request, 'overview.read');
+      // O 只统计本人发起/创建的记录；全局资源（servers）不在本人数据范围。
+      const ownOnly = !access.scopes.includes('platform');
+      const runScope = ownOnly ? eq(schema.agentRuns.initiatedBy, access.businessId) : undefined;
+      const agentScope = ownOnly ? eq(schema.agents.createdBy, access.businessId) : undefined;
 
       const inWindow = sql`${schema.agentRuns.startedAt} >= ${since}`;
+      const runWindow = runScope === undefined ? or(inWindow, eq(schema.agentRuns.status, 'running')) : and(or(inWindow, eq(schema.agentRuns.status, 'running')), runScope);
       const [[runAgg], agentRows, recent] = await Promise.all([
         app.db
           .select({
             // 知识库连接器由知识库生命周期管理，与 /api/servers 列表同一口径。
-            servers: sql<number>`(select count(*)::int from ${schema.servers} where ${schema.servers.kind} <> 'knowledge')`,
-            agents: sql<number>`(select count(*)::int from ${schema.agents})`,
+            servers: ownOnly
+              ? sql<number>`0::int`
+              : sql<number>`(select count(*)::int from ${schema.servers} where ${schema.servers.kind} <> 'knowledge')`,
+            agents: ownOnly
+              ? sql<number>`(select count(*)::int from ${schema.agents} where ${schema.agents.createdBy} = ${access.businessId})`
+              : sql<number>`(select count(*)::int from ${schema.agents})`,
             running: sql<number>`count(*) filter (where ${schema.agentRuns.status} = 'running')::int`,
             total: sql<number>`count(*) filter (where ${inWindow})::int`,
             failed: sql<number>`count(*) filter (where ${inWindow} and ${schema.agentRuns.status} in ('failed','timeout'))::int`,
@@ -53,7 +63,7 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
             >`avg(${schema.agentRuns.latencyMs}) filter (where ${inWindow})`,
           })
           .from(schema.agentRuns)
-          .where(or(inWindow, eq(schema.agentRuns.status, 'running'))),
+          .where(runWindow),
         // 每个智能体的聚合指标。FILTER 子句让「失败率」与「延迟」一次扫描完成。
         app.db
           .select({
@@ -82,8 +92,11 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
             and(
               eq(schema.agentRuns.agentId, schema.agents.id),
               sql`${schema.agentRuns.startedAt} >= ${since}`,
+              // 运行范围必须进 JOIN：放进 WHERE 会把没有本人运行的专家整行过滤掉。
+              runScope,
             ),
           )
+          .where(agentScope)
           .groupBy(schema.agents.id)
           .orderBy(desc(sql`max(${schema.agentRuns.startedAt})`)),
         app.db
@@ -101,6 +114,7 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
           })
           .from(schema.agentRuns)
           .leftJoin(schema.agents, eq(schema.agents.id, schema.agentRuns.agentId))
+          .where(runScope)
           .orderBy(desc(schema.agentRuns.startedAt))
           .limit(20),
       ]);
@@ -137,7 +151,7 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/overview/timeseries',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'overview.read' } },
       schema: {
         querystring: z.object({
           days: z.coerce.number().int().min(1).max(3650).default(7),
@@ -148,6 +162,10 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
     async (request) => {
       const { days } = request.query;
       const since = utcWindowStart(days);
+      const access = accessFilter(request, 'overview.read');
+      const ownFilter = access.scopes.includes('platform')
+        ? sql``
+        : sql`and r.initiated_by = ${access.businessId}`;
 
       // 与 /api/overview 同一个 UTC 自然日窗口：起点 days-1 天前的 UTC 零点，恰好 N 个点。
       const result = await app.db.execute(sql`
@@ -170,6 +188,7 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
         left join ${schema.agentRuns} r
           on date_trunc('day', r.started_at at time zone 'UTC') = d.day
          and r.started_at >= ${since}
+         ${ownFilter}
         group by d.day
         order by d.day
       `);

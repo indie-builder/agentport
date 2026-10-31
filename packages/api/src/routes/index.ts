@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { registerAgentRoutes } from '../features/agents/routes.js';
 import { registerAuditRoutes } from '../features/audit/routes.js';
+import { registerAccountRoutes } from '../features/auth/accounts.js';
 import { registerAuth } from '../features/auth/routes.js';
 import { registerChatRoutes } from '../features/chat/routes.js';
 import { registerEvalRoutes } from '../features/eval/routes.js';
@@ -29,12 +30,16 @@ import { registerAgentToolsEndpoint } from '../features/servers/agent-tools-endp
 import { registerMcpEndpoint } from '../features/servers/mcp-endpoint.js';
 import { registerServerRoutes } from '../features/servers/routes.js';
 import { registerSkillRoutes } from '../features/skills/routes.js';
+import { registerAccess } from '../plugins/access.js';
 import { registerErrorHandler } from '../plugins/errors.js';
 import { registerHealthRoutes } from './health.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   registerErrorHandler(app);
+  // 先装 decorations 与 onRoute：后续注册的每条 /api 路由都必须声明 config.access。
+  registerAccess(app);
   await registerAuth(app);
+  registerAccountRoutes(app);
   await registerHealthRoutes(app);
   await registerServerRoutes(app);
   await registerMcpEndpoint(app);

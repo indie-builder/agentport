@@ -7,12 +7,64 @@ import { parseMarkdownFrontmatter } from './markdown-frontmatter.js';
  * 只解析官方文件本身，不在这里做平台绑定的推断。
  */
 
-const GENERATED_CLAUDE_SECTION = '\n## 工具使用\n';
-const DELEGATION_NOTE = '你是被父智能体同步调用的：直接执行任务并返回最终文本。';
+/**
+ * 平台生成后缀的边界：独占行、成对、结束标记必须位于文件末尾。
+ * 用户正文里的同名标记或完整示例都位于渲染器追加的开始标记之前，不参与切分。
+ */
+export const GENERATED_SUFFIX_START = '<!-- agentport:generated:start -->';
+export const GENERATED_SUFFIX_END = '<!-- agentport:generated:end -->';
 
 /**
- * 根智能体的显示名与系统提示都来自 CLAUDE.md；其后的工具/技能/委派段落是渲染产物。
- * shortcut: 以渲染器自己的 `## 工具使用` 作为正文边界，手写目录若没有该段落就整篇当提示词。
+ * 生成区内的外来多行文本（工具描述、schema 等）可能恰好含独占边界行，读取端会把它当成
+ * 真正的后缀边界。转义 `<` 保留原文字面量，但不构成可识别的 HTML 注释边界。
+ */
+export function escapeGeneratedBoundaryLines(content: string): string {
+  return content
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      return trimmed === GENERATED_SUFFIX_START || trimmed === GENERATED_SUFFIX_END
+        ? line.replace(trimmed, `\\${trimmed}`)
+        : line;
+    })
+    .join('\n');
+}
+
+interface LineSpan {
+  value: string;
+  start: number;
+  end: number;
+}
+
+function lineSpans(text: string): LineSpan[] {
+  const lines: LineSpan[] = [];
+  let start = 0;
+  for (;;) {
+    const newline = text.indexOf('\n', start);
+    const end = newline === -1 ? text.length : newline;
+    lines.push({ value: text.slice(start, end), start, end });
+    if (newline === -1) return lines;
+    start = newline + 1;
+  }
+}
+
+/** 返回末尾生成后缀的字符区间；没有终端有效后缀时返回 null（全文当用户正文）。 */
+function terminalGeneratedSuffix(text: string): { start: number; end: number } | null {
+  const lines = lineSpans(text);
+  let last = lines.length - 1;
+  while (last >= 0 && lines[last]?.value.trim() === '') last--;
+  if (last < 0 || lines[last]?.value.trim() !== GENERATED_SUFFIX_END) return null;
+  for (let index = last - 1; index >= 0; index--) {
+    if (lines[index]?.value.trim() === GENERATED_SUFFIX_START) {
+      return { start: lines[index]?.start ?? 0, end: lines[last]?.end ?? text.length };
+    }
+  }
+  return null;
+}
+
+/**
+ * 根智能体的显示名与系统提示都来自 CLAUDE.md；其后的生成后缀是渲染产物。
+ * 只认终端有效生成区，不用普通标题或自然语言截断；手写文件整篇当提示词。
  */
 export function parseClaudeMd(content: string): { name: string; systemPrompt: string } {
   // 导出的文件会被 Windows 编辑器/autocrlf 存成 CRLF，生成段边界与子定义解析统一按 LF 判定。
@@ -23,8 +75,9 @@ export function parseClaudeMd(content: string): { name: string; systemPrompt: st
     fail('INVALID_INPUT', 'CLAUDE.md 必须以一行 `# 智能体名称` 开头', { path: '/CLAUDE.md' });
   }
   const afterHeading = text.slice(firstLine.length + 1);
-  const markerIndex = afterHeading.indexOf(GENERATED_CLAUDE_SECTION);
-  const systemPrompt = (markerIndex === -1 ? afterHeading : afterHeading.slice(0, markerIndex))
+  const suffix = terminalGeneratedSuffix(afterHeading);
+  const systemPrompt = afterHeading
+    .slice(0, suffix?.start ?? afterHeading.length)
     .replace(/^\r?\n/, '')
     .trim();
   return { name: heading[1].trim(), systemPrompt };
@@ -115,7 +168,10 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
   if (effort !== undefined && effortLevel === undefined) {
     fail('INVALID_INPUT', '子智能体文件的 effort 取值不合法', { path: `${path}/effort` });
   }
-  const lines = body.replace(/\r\n/g, '\n').split('\n');
+  const text = body.replace(/\r\n/g, '\n');
+  // 生成后缀是渲染器追加的固定说明；用户正文里的同名标题、委派提示与标记示例都在它之前。
+  const suffix = terminalGeneratedSuffix(text);
+  const lines = text.slice(0, suffix?.start ?? text.length).split('\n');
   const headingIndex = lines.findIndex((line) => line.startsWith('# '));
   const displayName =
     headingIndex === -1 ? (description ?? name) : (lines[headingIndex] ?? '').slice(2).trim();
@@ -123,9 +179,9 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
   // 去掉紧随标题的描述行（与 frontmatter 一致时才删，避免误删正文）。
   if (typeof description === 'string' && rest[0] === '' && rest[1] === description)
     rest.splice(0, 2);
-  const noteIndex = rest.indexOf(DELEGATION_NOTE);
-  const prompt = (noteIndex === -1 ? rest : rest.slice(0, noteIndex)).join('\n').trim();
-  if (prompt === '') {
+  const prompt = rest.join('\n').trim();
+  // 没有生成后缀的手写文件仍需正文；渲染器产物的空正文是合法的。
+  if (prompt === '' && suffix === null) {
     fail('INVALID_INPUT', '子智能体文件的正文不能为空', { path });
   }
 

@@ -1,18 +1,24 @@
 import type {
-  Agent,
   ConversationSummary,
   CreateMemoryReviewInput,
   MemoryReview,
+  MemoryReviewEvidenceKind,
   MemoryReviewTarget,
 } from '@agentport/shared';
-import { slugSchema } from '@agentport/shared';
+import {
+  memoryFileNameSchema,
+  memoryReviewAfter,
+  memoryReviewHasChanges,
+  slugSchema,
+} from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, errorMessage } from '../lib/api.js';
+import { type AgentSummary, ApiError, errorMessage } from '../lib/api.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatCost, runStatusLabel, runStatusVariant, shortId } from '../lib/format.js';
 import {
+  agentMemoryQuery,
   agentRulesQuery,
   memoryVersionsQuery,
   useAgents,
@@ -57,14 +63,44 @@ const targetKindOptions = [
   { value: 'agent_rule', label: '专家规则' },
 ] as const;
 
+const MEMORY_INDEX_NAME = 'MEMORY.md';
+const NEW_MEMORY_CHOICE = '__new__';
+
+const evidenceKindLabel: Record<MemoryReviewEvidenceKind, string> = {
+  user_fact: '用户事实',
+  confirmed_decision: '已确认决定',
+  assistant_suggestion: '助手建议',
+};
+
 function targetDisplay(
   target: MemoryReviewTarget,
-  agents: Agent[] | undefined,
+  agents: AgentSummary[] | undefined,
 ): { label: string; detail: string | null } {
   if (target.kind === 'personal') return { label: '个人偏好', detail: null };
   const agentName = agents?.find((agent) => agent.id === target.agentId)?.name ?? target.agentId;
-  if (target.kind === 'agent_memory') return { label: '专家记忆', detail: agentName };
+  if (target.kind === 'agent_memory') {
+    return { label: '专家记忆', detail: `${agentName} / ${target.name}` };
+  }
   return { label: '专家规则', detail: `${agentName} / ${target.slug}` };
+}
+
+/** 文件名可以省略 .md；最终提交值仍由 shared schema 校验。 */
+function memoryFileNameOf(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
+}
+
+function memoryFormatErrorOf(value: string): string | null {
+  if (value.trim() === '') return null;
+  const parsed = memoryFileNameSchema.safeParse(memoryFileNameOf(value));
+  return parsed.success ? null : (parsed.error.issues[0]?.message ?? '记忆文件名格式不正确');
+}
+
+function reviewHasChanges(review: MemoryReview): boolean {
+  return (
+    review.proposal !== null &&
+    memoryReviewHasChanges(review.target, review.before, review.proposal)
+  );
 }
 
 function formatTimeout(ms: number): string {
@@ -76,7 +112,11 @@ function decisionDisplay(
   rolledBack: boolean,
 ): { label: string; tone: 'default' | 'success' | 'warn' | 'outline' } | null {
   if (review.status !== 'succeeded') return null;
-  if (review.decision === 'pending') return { label: '待采用', tone: 'warn' };
+  if (review.decision === 'pending') {
+    return reviewHasChanges(review)
+      ? { label: '待采用', tone: 'warn' }
+      : { label: '无需变更', tone: 'default' };
+  }
   if (review.decision === 'rejected') return { label: '已拒绝', tone: 'default' };
   return rolledBack ? { label: '已回滚', tone: 'outline' } : { label: '已采用', tone: 'success' };
 }
@@ -101,6 +141,19 @@ export function MemoryReviews({
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailPending, setDetailPending] = useState(false);
   const [detailErrors, setDetailErrors] = useState<Record<string, string | null>>({});
+  // 详情操作在途时，浏览器后退/刷新不能把请求丢下；结算后取消被拦下的导航。
+  const pendingBlocker = useFormBlocker(false, detailPending);
+  const pendingBlockerRef = useRef(pendingBlocker);
+  pendingBlockerRef.current = pendingBlocker;
+  useEffect(() => {
+    if (!detailPending && pendingBlocker.status === 'blocked') pendingBlocker.reset?.();
+  }, [detailPending, pendingBlocker.status, pendingBlocker.reset]);
+  useEffect(
+    () => () => {
+      if (pendingBlockerRef.current.status === 'blocked') pendingBlockerRef.current.reset?.();
+    },
+    [],
+  );
   const createTrigger = useRef<HTMLButtonElement>(null);
   const detailTrigger = useRef<HTMLButtonElement | null>(null);
   const items = reviews.data?.items ?? [];
@@ -295,6 +348,7 @@ interface CreateFieldErrors {
   model?: string;
   target?: string;
   slug?: string;
+  memory?: string;
   sources?: string;
   instruction?: string;
   form?: string;
@@ -316,7 +370,7 @@ function slugFormatErrorOf(value: string): string | null {
 }
 
 function createInitialState(
-  agents: Agent[],
+  agents: AgentSummary[],
   defaultAgentId: string | null,
   seed: MemoryReview | null,
 ): {
@@ -325,6 +379,8 @@ function createInitialState(
   targetAgentId: string;
   ruleChoice: string;
   newRuleSlug: string;
+  memoryChoice: string;
+  newMemoryName: string;
   sourceExpertId: string;
   sources: SelectedSource[];
   instruction: string;
@@ -338,6 +394,8 @@ function createInitialState(
       targetAgentId: initialAgent?.id ?? '',
       ruleChoice: '__new__',
       newRuleSlug: '',
+      memoryChoice: MEMORY_INDEX_NAME,
+      newMemoryName: '',
       sourceExpertId: initialAgent?.id ?? '',
       sources: [],
       instruction: '',
@@ -352,6 +410,8 @@ function createInitialState(
     targetAgentId,
     ruleChoice: target.kind === 'agent_rule' ? target.slug : '__new__',
     newRuleSlug: '',
+    memoryChoice: target.kind === 'agent_memory' ? target.name : MEMORY_INDEX_NAME,
+    newMemoryName: '',
     sourceExpertId,
     sources: seed.sources.map((source) => ({
       conversationId: source.conversationId,
@@ -369,7 +429,7 @@ function CreateMemoryReviewDialog({
   onClose,
   finalFocus,
 }: {
-  agents: Agent[];
+  agents: AgentSummary[];
   defaultAgentId: string | null;
   seed: MemoryReview | null;
   onClose: () => void;
@@ -381,6 +441,8 @@ function CreateMemoryReviewDialog({
   const [targetAgentId, setTargetAgentId] = useState(initial.targetAgentId);
   const [ruleChoice, setRuleChoice] = useState(initial.ruleChoice);
   const [newRuleSlug, setNewRuleSlug] = useState(initial.newRuleSlug);
+  const [memoryChoice, setMemoryChoice] = useState(initial.memoryChoice);
+  const [newMemoryName, setNewMemoryName] = useState(initial.newMemoryName);
   const [sourceExpertId, setSourceExpertId] = useState(initial.sourceExpertId);
   const [sources, setSources] = useState<SelectedSource[]>(initial.sources);
   const [instruction, setInstruction] = useState(initial.instruction);
@@ -396,6 +458,10 @@ function CreateMemoryReviewDialog({
     ...agentRulesQuery(targetAgentId),
     enabled: targetKind === 'agent_rule' && targetAgentId !== '',
   });
+  const memory = useQuery({
+    ...agentMemoryQuery(targetAgentId),
+    enabled: targetKind === 'agent_memory' && targetAgentId !== '',
+  });
   const enabled = agents.filter((agent) => agent.enabled);
   const agentOptions = enabled.map((agent) => ({ value: agent.id, label: agent.name }));
   const ruleSlug = ruleChoice === '__new__' ? newRuleSlug.trim() : ruleChoice;
@@ -406,12 +472,30 @@ function CreateMemoryReviewDialog({
   const ruleOptions = baseRuleOptions.some((option) => option.value === ruleChoice)
     ? baseRuleOptions
     : [{ value: ruleChoice, label: ruleChoice }, ...baseRuleOptions];
+  // 已存在的主题在前，MEMORY.md 始终可选；候选文件尚不存在时同样允许创建。
+  const memoryFileNames = [
+    MEMORY_INDEX_NAME,
+    ...(memory.data?.files ?? [])
+      .map((file) => file.name)
+      .filter((fileName) => fileName !== MEMORY_INDEX_NAME),
+  ];
+  const baseMemoryOptions = [
+    ...memoryFileNames.map((fileName) => ({ value: fileName, label: fileName })),
+    { value: NEW_MEMORY_CHOICE, label: '新主题…' },
+  ];
+  const memoryOptions = baseMemoryOptions.some((option) => option.value === memoryChoice)
+    ? baseMemoryOptions
+    : [{ value: memoryChoice, label: memoryChoice }, ...baseMemoryOptions];
+  const selectedMemoryName =
+    memoryChoice === NEW_MEMORY_CHOICE ? memoryFileNameOf(newMemoryName) : memoryChoice;
   const dirty =
     modelAgentId !== initial.modelAgentId ||
     targetKind !== initial.targetKind ||
     targetAgentId !== initial.targetAgentId ||
     ruleChoice !== initial.ruleChoice ||
     newRuleSlug !== initial.newRuleSlug ||
+    memoryChoice !== initial.memoryChoice ||
+    newMemoryName !== initial.newMemoryName ||
     sourceExpertId !== initial.sourceExpertId ||
     instruction !== initial.instruction ||
     sources.length !== initial.sources.length ||
@@ -424,6 +508,11 @@ function CreateMemoryReviewDialog({
       ? slugFormatErrorOf(newRuleSlug.trim())
       : null;
   const slugError = slugFormatError ?? fieldErrors.slug;
+  const memoryFormatError =
+    targetKind === 'agent_memory' && memoryChoice === NEW_MEMORY_CHOICE
+      ? memoryFormatErrorOf(newMemoryName)
+      : null;
+  const memoryError = memoryFormatError ?? fieldErrors.memory;
   const instructionError =
     instructionLength > INSTRUCTION_MAX_CHARS
       ? `最多 ${INSTRUCTION_MAX_CHARS} 个字符，请精简后再提交。`
@@ -450,6 +539,8 @@ function CreateMemoryReviewDialog({
     setSources([]);
     setRuleChoice('__new__');
     setNewRuleSlug('');
+    setMemoryChoice(MEMORY_INDEX_NAME);
+    setNewMemoryName('');
   };
 
   const toggleSource = (conversation: ConversationSummary): void => {
@@ -488,6 +579,16 @@ function CreateMemoryReviewDialog({
         if (formatError) next.slug = formatError;
       }
     }
+    if (targetKind === 'agent_memory') {
+      if (memoryChoice === NEW_MEMORY_CHOICE && newMemoryName.trim() === '') {
+        next.memory = '填写新主题文件名。';
+      } else {
+        const formatError = memoryFormatErrorOf(
+          memoryChoice === NEW_MEMORY_CHOICE ? newMemoryName : memoryChoice,
+        );
+        if (formatError) next.memory = formatError;
+      }
+    }
     if (sources.length === 0) next.sources = '至少选择一段来源会话。';
     if (sources.length > MAX_SOURCES) next.sources = `最多选择 ${MAX_SOURCES} 段来源会话。`;
     if (instructionLength > INSTRUCTION_MAX_CHARS) {
@@ -500,7 +601,7 @@ function CreateMemoryReviewDialog({
       targetKind === 'personal'
         ? { kind: 'personal' }
         : targetKind === 'agent_memory'
-          ? { kind: 'agent_memory', agentId: targetAgentId }
+          ? { kind: 'agent_memory', agentId: targetAgentId, name: selectedMemoryName }
           : { kind: 'agent_rule', agentId: targetAgentId, slug: ruleSlug };
     const input: CreateMemoryReviewInput = {
       modelAgentId,
@@ -625,8 +726,10 @@ function CreateMemoryReviewDialog({
                     setSources([]);
                     setRuleChoice('__new__');
                     setNewRuleSlug('');
+                    setMemoryChoice(MEMORY_INDEX_NAME);
+                    setNewMemoryName('');
                     setFieldErrors((previous) =>
-                      clearFieldErrors(previous, 'target', 'slug', 'form'),
+                      clearFieldErrors(previous, 'target', 'slug', 'memory', 'form'),
                     );
                   }}
                 >
@@ -708,6 +811,65 @@ function CreateMemoryReviewDialog({
                   ) : null}
                   {slugError ? (
                     <FieldError id="memory-review-rule-error">{slugError}</FieldError>
+                  ) : null}
+                </Field>
+              ) : targetKind === 'agent_memory' ? (
+                <Field
+                  className="gap-1.5"
+                  data-disabled={create.isPending}
+                  data-invalid={memoryError ? true : undefined}
+                >
+                  <FieldLabel htmlFor="memory-review-memory-file">记忆文件</FieldLabel>
+                  <Select
+                    value={memoryChoice}
+                    items={memoryOptions}
+                    disabled={create.isPending}
+                    onValueChange={(next) => {
+                      if (next === null) return;
+                      setMemoryChoice(next);
+                      setFieldErrors((previous) => clearFieldErrors(previous, 'memory', 'form'));
+                    }}
+                  >
+                    <SelectTrigger
+                      id="memory-review-memory-file"
+                      className="w-full"
+                      aria-label="记忆文件"
+                      aria-invalid={memoryError ? true : undefined}
+                      aria-describedby={memoryError ? 'memory-review-memory-file-error' : undefined}
+                    >
+                      <SelectValue placeholder="选择记忆文件" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {memoryOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {memory.isError ? (
+                    <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
+                  ) : null}
+                  {memoryChoice === NEW_MEMORY_CHOICE ? (
+                    <Input
+                      id="memory-review-new-file"
+                      value={newMemoryName}
+                      aria-label="新主题文件名"
+                      aria-invalid={memoryError ? true : undefined}
+                      aria-describedby={memoryError ? 'memory-review-memory-file-error' : undefined}
+                      placeholder="新主题文件名，如 deployment.md"
+                      className="mt-2 font-mono"
+                      disabled={create.isPending}
+                      onChange={(event) => {
+                        setNewMemoryName(event.target.value);
+                        setFieldErrors((previous) => clearFieldErrors(previous, 'memory', 'form'));
+                      }}
+                    />
+                  ) : null}
+                  {memoryError ? (
+                    <FieldError id="memory-review-memory-file-error">{memoryError}</FieldError>
                   ) : null}
                 </Field>
               ) : null}
@@ -869,8 +1031,14 @@ function CreateMemoryReviewDialog({
 
           {modelAgent ? (
             <p className="text-sm text-muted-foreground">
-              将使用「{modelAgent.name}」（{modelAgent.model}），单次预算上限 $
-              {modelAgent.maxBudgetUsd} / 超时 {formatTimeout(modelAgent.timeoutMs)}。
+              将使用「{modelAgent.name}」{modelAgent.model ? `（${modelAgent.model}）` : ''}
+              {modelAgent.maxBudgetUsd === undefined
+                ? ''
+                : `，单次预算上限 $${modelAgent.maxBudgetUsd}`}
+              {modelAgent.timeoutMs === undefined
+                ? ''
+                : ` / 超时 ${formatTimeout(modelAgent.timeoutMs)}`}
+              。
             </p>
           ) : null}
 
@@ -926,7 +1094,7 @@ function MemoryReviewDetail({
   onClose,
 }: {
   review: MemoryReview;
-  agents: Agent[] | undefined;
+  agents: AgentSummary[] | undefined;
   rolledBack: boolean;
   actionError: string | null;
   onActionError: (message: string | null) => void;
@@ -942,6 +1110,14 @@ function MemoryReviewDetail({
   const active = review.status === 'queued' || review.status === 'running';
   const succeeded = review.status === 'succeeded';
   const candidate = review.proposal?.proposedContent ?? null;
+  const hasChanges = reviewHasChanges(review);
+  const after = review.proposal
+    ? memoryReviewAfter(review.target, review.before, review.proposal.proposedContent)
+    : review.before;
+  const indexChanged =
+    review.before.index !== null &&
+    after.index !== null &&
+    after.index.content !== review.before.index.content;
   const failed = !active && !succeeded;
   const pending = apply.isPending || reject.isPending || cancel.isPending || rollback.isPending;
 
@@ -1002,16 +1178,34 @@ function MemoryReviewDetail({
         ) : null}
       </div>
 
+      {succeeded && !hasChanges ? (
+        <StatusBadge tone="default" className="self-start">
+          无需变更
+        </StatusBadge>
+      ) : null}
+
       {review.sources.length > 0 ? (
-        <p className="text-sm text-muted-foreground">
-          来源：
-          {review.sources
-            .map(
-              (source) =>
-                `${source.title || source.conversationId}（${source.messageCount} 条消息）`,
-            )
-            .join('、')}
-        </p>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted-foreground">
+          <span>来源</span>
+          {review.sources.map((source) => (
+            <a
+              key={source.conversationId}
+              href={`/chat?conversation=${encodeURIComponent(source.conversationId)}`}
+              aria-disabled={pending || undefined}
+              onClick={(event) => {
+                // 保留链接语义；在途操作结算前只阻止离开，不伪造一次导航。
+                if (pending) event.preventDefault();
+              }}
+              className={
+                pending
+                  ? 'cursor-not-allowed text-muted-foreground underline underline-offset-4'
+                  : 'text-primary underline underline-offset-4 hover:text-primary-hover'
+              }
+            >
+              {source.title || source.conversationId}（{source.messageCount} 条消息）
+            </a>
+          ))}
+        </div>
       ) : null}
 
       {review.proposal ? (
@@ -1028,9 +1222,19 @@ function MemoryReviewDetail({
           <h3 className="text-sm font-medium text-fg">证据</h3>
           <ul className="flex flex-col gap-2">
             {review.proposal.evidence.map((evidence) => (
-              <li key={evidence.messageId} className="border-l-2 border-line-strong/70 pl-3">
+              <li
+                key={`${evidence.messageId}:${evidence.kind}:${evidence.quote}`}
+                className="border-l-2 border-line-strong/70 pl-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-tag bg-sunken px-1.5 py-0.5 text-2xs text-muted-foreground">
+                    {evidenceKindLabel[evidence.kind]}
+                  </span>
+                  <span className="font-mono text-2xs text-muted-foreground">
+                    {evidence.messageId}
+                  </span>
+                </div>
                 <p className="whitespace-pre-wrap text-sm text-fg">{evidence.quote}</p>
-                <p className="font-mono text-2xs text-muted-foreground">{evidence.messageId}</p>
               </li>
             ))}
           </ul>
@@ -1062,6 +1266,29 @@ function MemoryReviewDetail({
           )}
         </div>
       </section>
+
+      {indexChanged ? (
+        <section aria-label="索引对比" className="grid gap-4 md:grid-cols-2">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <h3 className="text-sm font-medium text-fg">索引回顾前内容</h3>
+            <CodeBlock
+              code={review.before.index?.content ?? ''}
+              maxHeight="12rem"
+              copyable={false}
+              className="min-w-0"
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <h3 className="text-sm font-medium text-fg">索引提案内容</h3>
+            <CodeBlock
+              code={after.index?.content ?? ''}
+              maxHeight="12rem"
+              copyable={false}
+              className="min-w-0"
+            />
+          </div>
+        </section>
+      ) : null}
 
       {failed ? (
         <div role="alert" className="text-sm text-danger">
@@ -1124,7 +1351,7 @@ function MemoryReviewDetail({
           </Button>
         ) : null}
 
-        {succeeded && review.decision === 'pending' && candidate !== null ? (
+        {succeeded && review.decision === 'pending' && hasChanges ? (
           <>
             <Button
               variant="outline"

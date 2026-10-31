@@ -192,7 +192,12 @@ function wikiHandlers(detail: () => unknown, links: () => Response) {
 
 function mountWiki() {
   return mount(
-    createElement(WikiTab, { baseId: 'kb_1', pageId: 'kwp_1', onSelect: () => undefined }),
+    createElement(WikiTab, {
+      baseId: 'kb_1',
+      caps: { content: true, execute: true, publish: true },
+      pageId: 'kwp_1',
+      onSelect: () => undefined,
+    }),
   );
 }
 
@@ -441,6 +446,57 @@ describe('Wiki management regressions', () => {
     );
     expect(button('链接')).toBeDefined();
   });
+
+  it.each([
+    { content: true, publish: false },
+    { content: false, publish: true },
+  ])(
+    '组织操作仅使用发布权限（content=$content publish=$publish）',
+    async ({ content, publish }) => {
+      const page = {
+        ...wikiSummary,
+        versions: [wikiVersion('kwv_old', 1, '## 当前\n\n线上正文。')],
+        nextCursor: null,
+      };
+      mockFetch(
+        wikiHandlers(
+          () => page,
+          () => json({ outgoing: [], incoming: [] }),
+        ),
+      );
+      await mount(
+        createElement(WikiTab, {
+          baseId: 'kb_1',
+          caps: { content, publish, execute: false },
+          pageId: 'kwp_1',
+          onSelect: () => undefined,
+        }),
+      );
+      await waitFor(
+        () => document.body.textContent?.includes('线上正文。') === true,
+        'Wiki page not ready',
+      );
+      const organize = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+        (node) => node.textContent?.trim() === '组织',
+      );
+      expect(organize !== undefined).toBe(publish);
+      if (organize) {
+        await click(organize);
+        await click(button('保存'));
+        await waitFor(
+          () => calls.some((call) => call.method === 'PATCH'),
+          'Organize payload was not sent',
+        );
+        expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({
+          parentId: null,
+          position: 0,
+          expectedVersion: 'kwv_old',
+        });
+      } else {
+        expect(calls.some((call) => call.method === 'PATCH')).toBe(false);
+      }
+    },
+  );
 
   it('organizes against the latest version instead of the published pointer', async () => {
     const page = {

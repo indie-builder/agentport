@@ -14,6 +14,7 @@ const ready = await pool.query('select 1').then(
 );
 
 describe.skipIf(!ready)('db repo guards', () => {
+  const businessId = 'guard-owner';
   const agentId = newId('agent');
   const conversationId = newId('conversation');
 
@@ -29,12 +30,15 @@ describe.skipIf(!ready)('db repo guards', () => {
       slug: `guard-${agentId}`,
       name: 'guard',
       model: 'test',
+      createdBy: businessId,
+      ownerBusinessId: businessId,
     });
-    await db.insert(conversations).values({ id: conversationId, agentId });
+    await db.insert(conversations).values({ id: conversationId, agentId, createdBy: businessId });
     const rows = Array.from({ length: 5 }, (_, i) => ({
       id: newId('message'),
       conversationId,
       role: 'user',
+      senderBusinessId: businessId,
       content: { text: `m${i}` },
       createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
     }));
@@ -56,8 +60,10 @@ describe.skipIf(!ready)('db repo guards', () => {
   it('a reconciled failed eval run cannot be overwritten or duplicated', async () => {
     const caseId = newId('evalCase');
     const evalRunId = newId('evalRun');
-    await db.insert(evalCases).values({ id: caseId, agentId, name: 'c', prompt: 'p' });
-    await evalRepo.createEvalRun(db, { id: evalRunId, agentId, total: 1 });
+    await db
+      .insert(evalCases)
+      .values({ id: caseId, agentId, name: 'c', prompt: 'p', createdBy: businessId });
+    await evalRepo.createEvalRun(db, { id: evalRunId, agentId, total: 1, createdBy: businessId });
     await db
       .update(evalRuns)
       .set({ status: 'failed', error: 'reconciled' })
@@ -72,7 +78,12 @@ describe.skipIf(!ready)('db repo guards', () => {
 
     // 新外键要求 run 真实存在：造一条属于本测试的 run。
     const realRunId = newId('run');
-    await chat.createRun(db, { id: realRunId, conversationId, agentId });
+    await chat.createRun(db, {
+      id: realRunId,
+      conversationId,
+      agentId,
+      subject: { kind: 'user', businessId },
+    });
     const result = { evalRunId, caseId, runId: realRunId, passed: true, output: '' };
     await evalRepo.addResult(db, { id: newId('evalResult'), ...result });
     await evalRepo.addResult(db, { id: newId('evalResult'), ...result });

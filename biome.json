@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.6.3/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.4/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -50,10 +50,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "packages/*/test/**",
-        "tests/**"
-      ],
+      "includes": ["packages/*/test/**", "tests/**"],
       "linter": {
         "rules": {
           "correctness": {
@@ -63,9 +60,7 @@
       }
     },
     {
-      "includes": [
-        "packages/web/src/components/ui/chart.tsx"
-      ],
+      "includes": ["packages/web/src/components/ui/chart.tsx"],
       "linter": {
         "rules": {
           "security": {
@@ -78,9 +73,7 @@
       }
     },
     {
-      "includes": [
-        "packages/web/src/components/ui/field.tsx"
-      ],
+      "includes": ["packages/web/src/components/ui/field.tsx"],
       "linter": {
         "rules": {
           "a11y": {
@@ -108,9 +101,7 @@
       }
     },
     {
-      "includes": [
-        "packages/web/src/components/ui/carousel.tsx"
-      ],
+      "includes": ["packages/web/src/components/ui/carousel.tsx"],
       "linter": {
         "rules": {
           "a11y": {
@@ -120,9 +111,7 @@
       }
     },
     {
-      "includes": [
-        "packages/web/src/components/ui/calendar.tsx"
-      ],
+      "includes": ["packages/web/src/components/ui/calendar.tsx"],
       "linter": {
         "rules": {
           "correctness": {
@@ -132,9 +121,7 @@
       }
     },
     {
-      "includes": [
-        "packages/web/src/components/ui/slider.tsx"
-      ],
+      "includes": ["packages/web/src/components/ui/slider.tsx"],
       "linter": {
         "rules": {
           "suspicious": {

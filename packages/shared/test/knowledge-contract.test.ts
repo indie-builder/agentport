@@ -8,7 +8,9 @@ import {
   knowledgeFaqSchema,
   knowledgeFaqTransferDocumentSchema,
   knowledgeJobPayloadSchema,
+  knowledgeJobSchema,
   knowledgeLocatorSchema,
+  knowledgeModelProfileSelectionSchema,
   knowledgeReadInputSchema,
   knowledgeSearchHitSchema,
   knowledgeSearchQuerySchema,
@@ -39,6 +41,84 @@ const documentFixture = {
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
+
+describe('knowledge job wire', () => {
+  it('keeps probe results together with job object references and display names', () => {
+    const result = { ok: true, checks: [{ rangeId: 'range-1', ok: true }] };
+    expect(
+      knowledgeJobSchema.parse({
+        id: 'kjob_1',
+        type: 'source_probe',
+        status: 'succeeded',
+        step: null,
+        progress: 100,
+        attempts: 1,
+        error: null,
+        result,
+        documentId: null,
+        sourceId: 'ksrc_1',
+        documentTitle: null,
+        sourceName: '来源',
+        createdAt: '2026-10-31T00:00:00Z',
+        startedAt: null,
+        endedAt: null,
+      }),
+    ).toMatchObject({ result, sourceId: 'ksrc_1', sourceName: '来源' });
+  });
+});
+
+describe('knowledge model profile selection wire', () => {
+  const selection = {
+    id: 'kmp_1',
+    name: 'Whisper',
+    kind: 'asr',
+    enabled: true,
+    supportsImageVectors: false,
+  };
+
+  it('accepts embedding, rerank and asr selection kinds', () => {
+    for (const kind of ['embedding', 'rerank', 'asr'] as const) {
+      expect(knowledgeModelProfileSelectionSchema.parse({ ...selection, kind }).kind).toBe(kind);
+    }
+    expect(
+      knowledgeModelProfileSelectionSchema.safeParse({ ...selection, kind: 'chat' }).success,
+    ).toBe(false);
+  });
+
+  it('keeps stripping management-only profile fields from the selection projection', () => {
+    expect(
+      knowledgeModelProfileSelectionSchema.parse({
+        ...selection,
+        endpointUrl: 'https://api.example.com/v1',
+        model: 'whisper-1',
+        dimensions: 1024,
+        embeddingProtocol: 'openai',
+        imageInputEnabled: false,
+        hasSecret: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toEqual(selection);
+  });
+
+  it('requires id/name and boolean flags', () => {
+    expect(
+      knowledgeModelProfileSelectionSchema.safeParse({ ...selection, id: undefined }).success,
+    ).toBe(false);
+    expect(
+      knowledgeModelProfileSelectionSchema.safeParse({ ...selection, name: undefined }).success,
+    ).toBe(false);
+    expect(
+      knowledgeModelProfileSelectionSchema.safeParse({ ...selection, enabled: 'yes' }).success,
+    ).toBe(false);
+    expect(
+      knowledgeModelProfileSelectionSchema.safeParse({
+        ...selection,
+        supportsImageVectors: 'no',
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe('knowledge document wire', () => {
   it('defaults contentKind/disabledReason/sourceConnectionId', () => {

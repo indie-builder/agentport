@@ -28,18 +28,25 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
   const conversationId = newId('conversation');
   const runId = newId('run');
   try {
+    // RBAC NOT NULL：夹具归属首次初始化的 bootstrap 管理员业务身份。
     await database.db.insert(agents).values({
       id: agentId,
       slug: `regression-${agentId}`,
       name: 'Run navigation fixture',
       model: 'test-model',
+      createdBy: 'bootstrap-admin',
+      ownerBusinessId: 'bootstrap-admin',
     });
-    await database.db.insert(conversations).values({ id: conversationId, agentId });
+    await database.db
+      .insert(conversations)
+      .values({ id: conversationId, agentId, createdBy: 'bootstrap-admin' });
     await database.db.insert(agentRuns).values({
       id: runId,
       agentId,
       conversationId,
       status: 'succeeded',
+      subjectKind: 'user',
+      initiatedBy: 'bootstrap-admin',
       prompt: 'Run navigation fixture',
       startedAt: new Date(),
       endedAt: new Date(),

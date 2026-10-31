@@ -9,6 +9,7 @@ import {
   parseAgentPackage,
 } from '../src/features/agent-package.js';
 import { getServer, listServers, toApiServer } from '../src/features/servers/repo.js';
+import { BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/features/auth/types.js';
 
 // 只给占位域名一个公网地址，其余域名仍走真实解析，
 // 这样「解析到内网要拒绝」那条用例照常生效。
@@ -61,6 +62,8 @@ beforeAll(async () => {
       name: 'Knowledge expert',
       model: 'test',
       systemPromptMd: 'Use the knowledge base.',
+      createdBy: BOOTSTRAP_ADMIN_BUSINESS_ID,
+      ownerBusinessId: BOOTSTRAP_ADMIN_BUSINESS_ID,
     })
     .returning();
   if (!agent) throw new Error('agent insert returned no row');
@@ -141,6 +144,7 @@ describe('knowledge binding in the agent package', () => {
     const result = await importAgentPackage(handle.db, parsed, {
       nodeEnv: 'development',
       selfUrl: 'https://pace.example.com',
+      businessId: BOOTSTRAP_ADMIN_BUSINESS_ID,
     });
     createdAgents.push(result.agent.id);
     expect(result.reusedServers).toEqual([knowledgeServerName]);
@@ -165,6 +169,7 @@ describe('knowledge binding in the agent package', () => {
       importAgentPackage(handle.db, parsed, {
         nodeEnv: 'production',
         selfUrl: 'https://pace.example.com',
+        businessId: BOOTSTRAP_ADMIN_BUSINESS_ID,
       }),
     ).rejects.toThrow('该地址解析到内网');
   });
@@ -179,6 +184,7 @@ describe('knowledge binding in the agent package', () => {
     const result = await importAgentPackage(handle.db, parsed, {
       nodeEnv: 'production',
       selfUrl,
+      businessId: BOOTSTRAP_ADMIN_BUSINESS_ID,
     });
     createdAgents.push(result.agent.id);
     expect(result.reusedServers).toEqual([knowledgeServerName]);
@@ -215,6 +221,7 @@ describe('knowledge binding in the agent package', () => {
     const result = await importAgentPackage(handle.db, parsed, {
       nodeEnv: 'development',
       selfUrl: 'https://pace.example.com',
+      businessId: BOOTSTRAP_ADMIN_BUSINESS_ID,
     });
     createdAgents.push(result.agent.id);
     try {

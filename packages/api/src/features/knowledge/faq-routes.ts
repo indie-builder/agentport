@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { problem, reject, toAppError } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf, authorizeObject } from '../access.js';
 import {
   FAQ_MAX_BYTES,
   type FaqExistingEntry,
@@ -294,6 +295,7 @@ interface WriteFaqVersionInput {
   tags: string[] | undefined;
   parentVersionId: string | null;
   requestId: string;
+  actor: string;
   log: FastifyInstance['log'];
   auditAction: string;
 }
@@ -360,7 +362,7 @@ async function writeFaqVersion(
   });
   await enqueueKnowledgeJob(job);
   await writeAudit(app.db, input.log, {
-    actor: 'admin',
+    actor: input.actor,
     action: input.auditAction,
     target: input.document.id,
     input: { title: input.title, question: input.faq.question },
@@ -538,7 +540,6 @@ async function prepareImportDraft(
 
 export function registerFaqRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   const loadActiveBase = async (id: string, reply: FastifyReply) => {
     const base = await repo.knowledge.getBase(app.db, id);
@@ -582,10 +583,14 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/faqs',
-    { ...auth, schema: { params: baseParams, querystring: listQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams, querystring: listQuery },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.read', { objectId: base.id }, '对象不存在');
       const filters = [
         eq(schema.knowledgeDocuments.baseId, base.id),
         eq(schema.knowledgeDocuments.contentKind, 'faq'),
@@ -658,10 +663,20 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/faqs',
-    { ...auth, schema: { params: baseParams, body: faqCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: baseParams, body: faqCreateSchema },
+    },
     async (request, reply) => {
       const base = await loadActiveBase(request.params.id, reply);
       if (!base) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       if (await folderIssue(base.id, request.body.folderId)) {
         return reject(reply, 'INVALID_INPUT', '文件夹不存在或属于其他知识库');
       }
@@ -676,6 +691,7 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
           tags: request.body.tags,
           parentVersionId: null,
           requestId: request.id,
+          actor: actorOf(request),
           log: request.log,
           auditAction: 'knowledge.faq.created',
         });
@@ -693,22 +709,49 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/faqs/:documentId',
-    { ...auth, schema: { params: faqParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: faqParams },
+    },
     async (request, reply) => {
       const document = await loadFaqDocument(app, request.params.documentId, reply);
       if (!document) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: document.id },
+        '对象不存在',
+      );
       return detail(document);
     },
   );
 
   app.put(
     '/api/knowledge/faqs/:documentId',
-    { ...auth, schema: { params: faqParams, body: faqUpdateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: faqParams, body: faqUpdateSchema },
+    },
     async (request, reply) => {
       const document = await loadFaqDocument(app, request.params.documentId, reply);
       if (!document) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: document.id },
+        '对象不存在',
+      );
       const base = await repo.knowledge.getBase(app.db, document.baseId);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       if (base.status !== 'active')
         return reject(reply, 'CONFLICT', '知识库已禁用，启用后再编辑 FAQ');
       const latest = await latestVersion(app, document.id);
@@ -733,6 +776,7 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
           tags: request.body.tags,
           parentVersionId: request.body.expectedVersionId,
           requestId: request.id,
+          actor: actorOf(request),
           log: request.log,
           auditAction: 'knowledge.faq.updated',
         });
@@ -756,10 +800,20 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/faqs/:documentId',
-    { ...auth, schema: { params: faqParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: faqParams },
+    },
     async (request, reply) => {
       const document = await loadFaqDocument(app, request.params.documentId, reply);
       if (!document) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: document.id },
+        '对象不存在',
+      );
       await repo.knowledge.deleteDocument(app.db, document.id);
       return reply.status(204).send();
     },
@@ -767,10 +821,20 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/faqs/:documentId/publish',
-    { ...auth, schema: { params: faqParams, body: publishSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.publish' } },
+      schema: { params: faqParams, body: publishSchema },
+    },
     async (request, reply) => {
       const document = await loadFaqDocument(app, request.params.documentId, reply);
       if (!document) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.publish',
+        { objectId: document.id },
+        '对象不存在',
+      );
       try {
         const updated = await publishFaqVersion(
           app,
@@ -789,10 +853,20 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/faqs/:documentId/status',
-    { ...auth, schema: { params: faqParams, body: statusSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: faqParams, body: statusSchema },
+    },
     async (request, reply) => {
       const document = await loadFaqDocument(app, request.params.documentId, reply);
       if (!document) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: document.id },
+        '对象不存在',
+      );
       try {
         const updated = await setFaqEnabled(app, document, request.body.enabled);
         const tags = await repo.knowledge.getDocumentTagNames(app.db, [updated.id]);
@@ -806,10 +880,27 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/faqs/batch',
-    { ...auth, schema: { params: baseParams, body: batchSchema } },
+    {
+      config: { access: { kind: 'authenticated' } },
+      schema: { params: baseParams, body: batchSchema },
+      preHandler: async (request, reply) => {
+        await app
+          .requirePermission(
+            request.body.action === 'publish' ? 'knowledge.publish' : 'knowledge.content.manage',
+          )
+          .call(app, request, reply, () => undefined);
+      },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
+      await authorizeObject(
+        app,
+        request,
+        request.body.action === 'publish' ? 'knowledge.publish' : 'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       if (request.body.importBatchId !== undefined) {
         if (request.body.action !== 'publish' || request.body.items.length > 500) {
           return reject(reply, 'INVALID_INPUT', '导入批次只能整批发布，最多 500 条');
@@ -897,13 +988,14 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/knowledge/bases/:id/faqs/import',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'knowledge.import' } },
       bodyLimit: 3 * 1024 * 1024,
       schema: { params: baseParams, body: knowledgeFaqImportInputSchema },
     },
     async (request, reply) => {
       const base = await loadActiveBase(request.params.id, reply);
       if (!base) return;
+      await authorizeObject(app, request, 'knowledge.import', { objectId: base.id }, '对象不存在');
       try {
         const rows = await parseFaqImport({
           format: request.body.format,
@@ -986,7 +1078,7 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
             : result;
         });
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'knowledge.faq.imported',
           target: base.id,
           input: { importBatchId, mode: request.body.mode, counts: plan.counts },
@@ -1008,10 +1100,14 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/faqs/export',
-    { ...auth, schema: { params: baseParams, querystring: exportQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.export' } },
+      schema: { params: baseParams, querystring: exportQuery },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.export', { objectId: base.id }, '对象不存在');
       const documents = await app.db
         .select()
         .from(schema.knowledgeDocuments)
@@ -1081,11 +1177,21 @@ export function registerFaqRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/faqs/test',
-    { ...auth, schema: { params: baseParams, body: testSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: baseParams, body: testSchema },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.getBase(app.db, request.params.id))) {
         return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
       }
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.execute',
+        { objectId: request.params.id },
+        '对象不存在',
+      );
       try {
         return await searchKnowledge(
           app.db,

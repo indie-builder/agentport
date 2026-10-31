@@ -223,19 +223,20 @@ async function makeSource(
 }
 
 async function runSyncJob(fixtureBase: FixtureBase, sourceId: string): Promise<string> {
-  const run = await repo.knowledge.createSyncRun(db, sourceId, {});
-  const job = await repo.knowledge.createJob(db, {
-    type: 'sync',
-    baseId: fixtureBase.baseId,
-    documentId: null,
-    sourceId,
-    payload: { type: 'sync', sourceId, syncRunId: run.id },
-  });
-  await repo.knowledge.claimJob(db, job.id);
-  const claimed = await repo.knowledge.getJob(db, job.id);
-  if (!claimed) throw new Error('sync job missing');
-  await runSync(fixtureBase.deps, claimed, new AbortController().signal);
-  return run.id;
+  const created = await repo.knowledge.createSyncJob(db, sourceId);
+  if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
+  const claimed = await repo.knowledge.claimJob(db, created.job.id);
+  if (!claimed) throw new Error('sync job not claimed');
+  const job = await repo.knowledge.getJob(db, claimed.id);
+  if (!job) throw new Error('sync job missing');
+  try {
+    const result = await runSync(fixtureBase.deps, job, new AbortController().signal);
+    await repo.knowledge.finishJob(db, claimed.id, { status: 'succeeded', result });
+  } catch (err) {
+    await repo.knowledge.finishJob(db, claimed.id, { status: 'failed', error: String(err) });
+    throw err;
+  }
+  return created.run.id;
 }
 
 async function documentsOfBase(fixtureBase: FixtureBase) {

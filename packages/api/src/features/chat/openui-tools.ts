@@ -15,6 +15,7 @@ import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { mcpRateLimit } from '../../plugins/security.js';
 import { typed } from '../../types.js';
+import { actorOf, authorizeObject } from '../access.js';
 import { buildGeneratedServer } from '../servers/generated.js';
 import { getServerWithSecrets, listTools } from '../servers/repo.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
@@ -69,8 +70,11 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/chat/:conversationId/openui/tools/:toolName',
     {
-      preHandler: [rawApp.requireAuth],
       ...mcpRateLimit,
+      config: {
+        ...mcpRateLimit.config,
+        access: { kind: 'permission', permissionId: 'conversations.update' },
+      },
       schema: { params, body },
     },
     async (request, reply) => {
@@ -81,6 +85,22 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
       if (!conversation) {
         return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
       }
+      // 工具调用是会话写操作：先按真实会话判定范围，不能只看 URL 里的 conversationId。
+      await authorizeObject(
+        app,
+        request,
+        'conversations.update',
+        { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+        '会话不存在，可能已被删除；请刷新后重试',
+      );
+      // 每次执行都复核 agents.use：撤掉成员使用授权后，历史消息里的旧工具也不能再跑。
+      await authorizeObject(
+        app,
+        request,
+        'agents.use',
+        { agentId: conversation.agentId, objectId: conversation.agentId },
+        '专家不存在或无权使用；请让负责人重新授权后再试',
+      );
       const message = await repo.openui.getMessageInConversation(app.db, conversationId, messageId);
       if (!message) {
         return reject(reply, 'NOT_FOUND', '消息不属于该会话，可能已被删除；请刷新后重试');
@@ -109,7 +129,7 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
       const tool = catalog.find((entry) => entry.name === toolName);
       if (!tool) {
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'openui.tool.denied',
           target: conversationId,
           input: { toolName, blockKey },
@@ -143,7 +163,7 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
           toolName: tool.name,
         });
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'openui.tool.approval_required',
           target: conversationId,
           input: { toolName: tool.name, approvalId: pending.id },
@@ -159,7 +179,7 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
       try {
         const data = extractToolResult(await callTool(app, tool, args));
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'openui.tool.called',
           target: conversationId,
           input: { toolName: tool.name, blockKey },
@@ -171,7 +191,7 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
       } catch (err) {
         const message = err instanceof AppError ? err.message : '工具调用失败';
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'openui.tool.called',
           target: conversationId,
           input: { toolName: tool.name, blockKey, error: message },
@@ -191,7 +211,7 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/chat/:conversationId/openui/approvals/:approvalId/approve',
     {
-      preHandler: [rawApp.requireAuth],
+      config: { access: { kind: 'permission', permissionId: 'runs.approve' } },
       schema: { params: approvalParams },
     },
     async (request, reply) => {
@@ -200,6 +220,14 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
       if (!conversation) {
         return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
       }
+      // 批准是运行审批，不是重命名：按真实会话对象判定 runs.approve 范围。
+      await authorizeObject(
+        app,
+        request,
+        'runs.approve',
+        { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+        '会话不存在，可能已被删除；请刷新后重试',
+      );
       const approved = await repo.openui.approveOpenUiApproval(app.db, conversationId, approvalId);
       if (!approved) {
         return reject(
@@ -209,7 +237,7 @@ export function registerOpenUiToolRoutes(rawApp: FastifyInstance): void {
         );
       }
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'openui.tool.approved',
         target: conversationId,
         input: { approvalId },

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loginPath, resolveReturnTo, safeReturnTo } from '../src/lib/auth-redirect.js';
 import { LoginPage } from '../src/pages/login.js';
+import { allAccessMe } from './me-fixture.js';
 
 const PLUGIN_TARGET = '/plugins/plugin_1?tab=content&file=skills%2Fdemo%2FSKILL.md&mode=source#top';
 const KNOWLEDGE_TARGET = '/knowledge/kb_1?panel=wiki&page=guide&folder=docs';
@@ -68,7 +69,8 @@ const state = vi.hoisted(() => ({
     data: { authenticated: false },
   },
   navigate: vi.fn(),
-  refetch: vi.fn(),
+  fetch: vi.fn(),
+  clear: vi.fn(),
   mutation: null as { onSuccess: () => Promise<void> } | null,
 }));
 
@@ -84,8 +86,12 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }));
 vi.mock('../src/lib/queries.js', () => ({
-  meQuery: { queryKey: ['me'] },
-  queryClient: { refetchQueries: (...args: unknown[]) => state.refetch(...args) },
+  meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
+  queryClient: { fetchQuery: (...args: unknown[]) => state.fetch(...args) },
+  clearSessionQueries: (...args: unknown[]) => state.clear(...args),
 }));
 
 async function renderLogin() {
@@ -110,7 +116,9 @@ beforeEach(() => {
     data: { authenticated: false },
   };
   state.navigate.mockClear();
-  state.refetch.mockClear();
+  state.fetch.mockReset();
+  state.fetch.mockResolvedValue(allAccessMe);
+  state.clear.mockReset();
   state.mutation = null;
 });
 
@@ -150,7 +158,7 @@ describe('login page return target', () => {
     state.query = {
       isFetchedAfterMount: false,
       isSuccess: true,
-      data: { authenticated: true },
+      data: allAccessMe,
     };
     const page = await renderLogin();
     try {
@@ -166,7 +174,7 @@ describe('login page return target', () => {
     state.query = {
       isFetchedAfterMount: true,
       isSuccess: true,
-      data: { authenticated: true },
+      data: allAccessMe,
     };
     const page = await renderLogin();
     try {
@@ -181,7 +189,7 @@ describe('login page return target', () => {
     state.query = {
       isFetchedAfterMount: true,
       isSuccess: false,
-      data: { authenticated: true },
+      data: allAccessMe,
     };
     const page = await renderLogin();
     try {
@@ -197,8 +205,74 @@ describe('login page return target', () => {
     const page = await renderLogin();
     try {
       await act(async () => state.mutation?.onSuccess());
-      expect(state.refetch).toHaveBeenCalled();
+      expect(state.fetch).toHaveBeenCalledWith(expect.objectContaining({ staleTime: 0 }));
       expect(state.navigate).toHaveBeenCalledWith({ href: PLUGIN_TARGET, replace: true });
+    } finally {
+      await page.cleanup();
+    }
+  });
+
+  it('clears the previous session before fetching the new identity', async () => {
+    state.clear.mockImplementation(() => {
+      expect(state.fetch).not.toHaveBeenCalled();
+    });
+    const page = await renderLogin();
+    try {
+      await act(async () => state.mutation?.onSuccess());
+      expect(state.clear).toHaveBeenCalledTimes(1);
+      expect(state.fetch).toHaveBeenCalled();
+    } finally {
+      await page.cleanup();
+    }
+  });
+
+  it('does not navigate until the new identity has loaded', async () => {
+    const nextMe = {
+      ...allAccessMe,
+      user: { businessId: 'test-next', username: 'next', name: '新账户' },
+    };
+    let settle!: (me: typeof allAccessMe) => void;
+    state.fetch.mockReturnValue(
+      new Promise<typeof allAccessMe>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const page = await renderLogin();
+    try {
+      let pending: Promise<void> | undefined;
+      await act(async () => {
+        pending = state.mutation?.onSuccess();
+      });
+      expect(state.navigate).not.toHaveBeenCalled();
+      await act(async () => {
+        settle(nextMe);
+        await pending;
+      });
+      expect(state.navigate).toHaveBeenCalledWith({ href: '/', replace: true });
+    } finally {
+      await page.cleanup();
+    }
+  });
+
+  it('keeps the form and reports when login does not establish a session', async () => {
+    state.fetch.mockResolvedValue({ authenticated: false });
+    const page = await renderLogin();
+    try {
+      await act(async () => state.mutation?.onSuccess());
+      expect(state.navigate).not.toHaveBeenCalled();
+      expect(page.container.textContent).toContain('登录状态确认失败');
+    } finally {
+      await page.cleanup();
+    }
+  });
+
+  it('shows the identity fetch failure instead of swallowing it', async () => {
+    state.fetch.mockRejectedValue(new Error('offline'));
+    const page = await renderLogin();
+    try {
+      await act(async () => state.mutation?.onSuccess());
+      expect(state.navigate).not.toHaveBeenCalled();
+      expect(page.container.textContent).toContain('offline');
     } finally {
       await page.cleanup();
     }

@@ -51,6 +51,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
           message: prompt,
           title: `mcp: ${prompt.slice(0, 60)}`,
           trigger: 'mcp',
+          subject: { kind: 'service', serviceId: 'mcp' },
           ...(agentVersion === null ? {} : { agentVersion }),
         });
         const abortRun = async (
@@ -60,6 +61,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
           if (await cancelAgentRun(app, run.id)) {
             await writeAudit(app.db, app.log, {
               actor: 'mcp',
+              actorKind: 'service',
               action: 'agent.run.cancelled',
               target: run.id,
               input,
@@ -106,6 +108,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
         }
         await writeAudit(app.db, app.log, {
           actor: 'mcp',
+          actorKind: 'service',
           action: 'agent.run.requested',
           target: run.id,
           input: { slug, agentId: agent.id, promptLength: prompt.length },

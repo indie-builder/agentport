@@ -17,6 +17,7 @@ import { BatchActionDialog, ManualDraftDialog } from '../src/components/knowledg
 import { knowledgeKeys } from '../src/lib/queries.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
 import { knowledgeDetailSearchSchema } from '../src/routes/-search.js';
+import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -84,6 +85,7 @@ beforeEach(() => {
   );
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   server.use(
+    http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)),
     http.get('/api/knowledge/bases/kb_1', () => HttpResponse.json(base)),
     http.get('/api/knowledge/bases/kb_1/folders', () => HttpResponse.json([])),
     http.get('/api/knowledge/bases/kb_1/tags', () => HttpResponse.json([])),
@@ -193,6 +195,142 @@ async function input(id: string, value: string) {
 function dialogs() {
   return [...document.querySelectorAll('[role="dialog"]')];
 }
+
+describe('知识库受限用户入口', () => {
+  function permissions(...ids: string[]) {
+    server.use(
+      http.get('/api/auth/me', () =>
+        HttpResponse.json({
+          ...allAccessMe,
+          grants: allAccessMe.grants.filter((grant) => ids.includes(grant.permissionId)),
+        }),
+      ),
+    );
+  }
+
+  function hasButton(label: string, scope: ParentNode = document.body) {
+    return [...scope.querySelectorAll('button')].some(
+      (node) => node.textContent?.trim() === label || node.getAttribute('aria-label') === label,
+    );
+  }
+
+  it.each([
+    { permission: 'knowledge.read', content: false, execute: false },
+    { permission: 'knowledge.content.manage', content: true, execute: false },
+    { permission: 'knowledge.execute', content: false, execute: true },
+  ])('文档批量动作遵循 $permission', async ({ permission, content, execute }) => {
+    permissions('knowledge.read', permission);
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc], nextCursor: null }),
+      ),
+    );
+    await mount();
+    await until(() => expect(hasButton(doc.title)).toBe(true));
+    const select = document.querySelector<HTMLElement>(`[aria-label="选择 ${doc.title}"]`);
+    expect(select !== null).toBe(content || execute);
+    expect(document.querySelector('[aria-label="选择全部文档"]') !== null).toBe(content || execute);
+    if (select) {
+      await click(select);
+      const toolbar = document.querySelector('[aria-label="批量操作"]');
+      expect(toolbar).not.toBeNull();
+      for (const label of ['移动', '复制', '标签', '删除']) {
+        expect(hasButton(label, toolbar!)).toBe(content);
+      }
+      expect(hasButton('重新解析', toolbar!)).toBe(execute);
+    }
+    expect(calls.some((call) => call.method !== 'GET')).toBe(false);
+  });
+
+  it('只读用户可切换历史正文但不能新增分块或编辑', async () => {
+    permissions('knowledge.read');
+    server.use(
+      http.get('/api/knowledge/documents/kdoc_99/versions', () =>
+        HttpResponse.json({
+          items: [
+            { ...version, version: 2 },
+            { ...version, id: 'kdv_old', version: 1, isCurrent: false },
+          ],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/knowledge/versions/kdv_old/markdown', () => HttpResponse.text('历史正文')),
+      http.get('/api/knowledge/versions/kdv_old/details', () => HttpResponse.json({ images: [] })),
+    );
+    await mount(KnowledgeDetailPage, '/knowledge/kb_1?document=kdoc_99');
+    await until(() => expect(document.body.textContent).toContain('分页外的完整正文'));
+    expect(hasButton('新增分块')).toBe(false);
+    expect(hasButton('编辑正文')).toBe(false);
+    expect(hasButton('编辑属性')).toBe(false);
+    await click(button('选择文档版本'));
+    await click(
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+        option.textContent?.includes('v1'),
+      )!,
+    );
+    await until(() => expect(document.body.textContent).toContain('历史正文'));
+    expect(hasButton('设为当前版本')).toBe(false);
+  });
+
+  it.each([true, false])('仅发布用户可切换并发布文档版本（草稿=$0）', async (draft) => {
+    permissions('knowledge.read', 'knowledge.publish');
+    const target = {
+      ...version,
+      id: 'kdv_target',
+      version: 2,
+      isCurrent: false,
+      metadata: draft ? { publication: 'draft' } : {},
+    };
+    server.use(
+      http.get('/api/knowledge/documents/kdoc_99/versions', () =>
+        HttpResponse.json({ items: [target, version], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_target/markdown', () =>
+        HttpResponse.text('目标版本正文'),
+      ),
+      http.get('/api/knowledge/versions/kdv_target/details', () =>
+        HttpResponse.json({ images: [] }),
+      ),
+      http.post(`/api/knowledge/documents/kdoc_99/${draft ? 'publish' : 'rollback'}`, () =>
+        HttpResponse.json({ ...doc, currentVersionId: target.id }),
+      ),
+    );
+    await mount(KnowledgeDetailPage, '/knowledge/kb_1?document=kdoc_99');
+    await until(() => expect(document.body.textContent).toContain('分页外的完整正文'));
+    expect(hasButton('编辑正文')).toBe(false);
+    expect(hasButton('编辑属性')).toBe(false);
+    expect(hasButton('新增分块')).toBe(false);
+    await click(button('选择文档版本'));
+    await click(
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+        option.textContent?.includes('v2'),
+      )!,
+    );
+    await until(() => expect(document.body.textContent).toContain('目标版本正文'));
+    await click(button(draft ? '发布草稿' : '设为当前版本'));
+    if (!draft) await click(button('切换'));
+    await until(() => expect(calls.some((call) => call.method === 'POST')).toBe(true));
+    expect(calls.find((call) => call.method === 'POST')?.body).toEqual({
+      versionId: target.id,
+      expectedVersionId: version.id,
+    });
+  });
+
+  it('离线评估无执行权限时隐藏运行且 Enter 不提交', async () => {
+    permissions('knowledge.read');
+    await mount(KnowledgeDetailPage, '/knowledge/kb_1?panel=evaluations');
+    await until(() => expect(document.getElementById('knowledge-evaluation-query')).not.toBeNull());
+    expect(hasButton('运行评估')).toBe(false);
+    await input('knowledge-evaluation-query', '发布');
+    await input('knowledge-evaluation-targets', 'document:kdoc_99');
+    await act(async () => {
+      document
+        .querySelector('form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(calls.some((call) => call.method === 'POST')).toBe(false);
+  });
+});
 
 describe('知识管理真实路由回归', () => {
   it('分页外 document 深链独立取详情，URL 去掉 document 后关闭查看器', async () => {

@@ -13,13 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from '../src/components/app-shell.js';
 import { PageHeader } from '../src/components/page.js';
 import { routeTree } from '../src/routeTree.gen.js';
+import { allAccessMe } from './me-fixture.js';
 
 async function inspectRoute(
   path: string,
   auth: 'success' | 'pending' | 'error' | 'unauthenticated',
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  if (auth === 'success') client.setQueryData(['me'], { authenticated: true, username: 'review' });
+  if (auth === 'success') client.setQueryData(['me'], allAccessMe);
   if (auth === 'unauthenticated') client.setQueryData(['me'], { authenticated: false });
   client.setQueryDefaults(['me'], {
     queryFn: () =>
@@ -418,6 +419,8 @@ describe('business and operations navigation contexts', () => {
         '/runtime-environments',
         '/status',
         '/audit',
+        '/accounts',
+        '/roles',
       ]);
       expect(view.host.querySelector('a[aria-label="返回工作区"]')?.getAttribute('href')).toBe(
         '/agents',
@@ -489,12 +492,25 @@ describe('default workspace route', () => {
   it('redirects / to the expert-finding page', async () => {
     const history = createMemoryHistory({ initialEntries: ['/'] });
     const router = createRouter({ routeTree, history });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(['me'], allAccessMe);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
     try {
       await act(async () => {
         await router.load();
+        root.render(
+          createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+        );
       });
-      expect(router.state.location.pathname).toBe('/agents');
+      await vi.waitFor(() => expect(router.state.location.pathname).toBe('/agents'));
     } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      client.clear();
       history.destroy();
     }
   });

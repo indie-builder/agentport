@@ -496,7 +496,7 @@ describe.skipIf(!ready)(
      * API 创建的 job 仍留在测试独享 Redis 里（没有知识 worker 消费）；
      * 这里用真实 repo 认领并从 worker 真实入口执行，终态也用真实 finishJob 写入。
      */
-    async function runJob(jobId: string): Promise<void> {
+    async function runJob(jobId: string, parse = workerDeps.parse): Promise<void> {
       const claimed = await repo.knowledge.claimJob(app.db, jobId);
       if (!claimed) throw new Error(`job ${jobId} is not queued`);
       const controller = new AbortController();
@@ -505,11 +505,12 @@ describe.skipIf(!ready)(
           db: app.db,
           logger: app.log,
           ...workerDeps,
+          parse,
           signal: controller.signal,
         });
         const finished = await repo.knowledge.finishJob(app.db, claimed.id, {
           status: 'succeeded',
-          ...(result === null ? {} : { result }),
+          ...result,
         });
         if (!finished) throw new Error(`job ${jobId} finish was refused`);
       } catch (err) {
@@ -1045,6 +1046,181 @@ describe.skipIf(!ready)(
       expect(Number(remaining.rows[0]?.count ?? 0)).toBe(2);
     });
 
+    async function publishWikiDraft(baseId: string, pageId?: string) {
+      if (!pageId) {
+        const created = await inject(app, {
+          method: 'POST',
+          url: `/api/knowledge/bases/${baseId}/wiki-pages`,
+          headers: { cookie },
+          payload: { slug: unique('wiki-regression'), title: 'Wiki 发布回归' },
+        });
+        expect(created.statusCode, created.body).toBe(201);
+        pageId = created.json<{ id: string }>().id;
+      }
+      const saved = await inject(app, {
+        method: 'PATCH',
+        url: `/api/knowledge/wiki-pages/${pageId}`,
+        headers: { cookie },
+        payload: { markdown: `# Wiki\n\nwikimarker ${unique('published')}` },
+      });
+      expect(saved.statusCode, saved.body).toBe(200);
+      const versions = await repo.knowledge.listWikiVersions(app.db, pageId, { limit: 1 });
+      const versionId = versions.items[0]?.id;
+      if (!versionId) throw new Error('wiki draft missing');
+      const published = await inject(app, {
+        method: 'POST',
+        url: `/api/knowledge/wiki-pages/${pageId}/publish`,
+        headers: { cookie },
+        payload: { versionId },
+      });
+      expect(published.statusCode, published.body).toBe(200);
+      return { pageId, versionId, jobId: await wikiIndexJobId(baseId, pageId) };
+    }
+
+    it('Wiki queued w1 then w2 rejects stale w1 and makes the current publication searchable', async () => {
+      const base = await createBase();
+      const first = await publishWikiDraft(base.id);
+      const second = await publishWikiDraft(base.id, first.pageId);
+      expect(first.jobId).not.toBe(second.jobId);
+      expect(await jobPayload(first.jobId)).toMatchObject({
+        input: { expectedCurrentVersionId: null },
+      });
+      expect(await jobPayload(second.jobId)).toMatchObject({
+        input: { expectedCurrentVersionId: null },
+      });
+
+      await expect(runJob(first.jobId)).rejects.toThrow('未发布本次结果');
+      expect((await repo.knowledge.getJob(app.db, first.jobId))?.status).toBe('failed');
+      const firstJob = await repo.knowledge.getJob(app.db, first.jobId);
+      if (!firstJob?.documentId) throw new Error('wiki index document missing');
+      expect(
+        (await repo.knowledge.getDocument(app.db, firstJob.documentId))?.currentVersionId,
+      ).toBeNull();
+      await runJob(second.jobId);
+      const hits = (await search(base.id, 'wikimarker', ['wiki'])).hits;
+      expect(hits.length).toBeGreaterThan(0);
+      expect(
+        hits.every(
+          (hit) => hit.target.id === first.pageId && hit.targetVersionId === second.versionId,
+        ),
+      ).toBe(true);
+    });
+
+    it('Wiki stale w1 failure preserves ready w2 after concurrent indexing', async () => {
+      const base = await createBase();
+      const first = await publishWikiDraft(base.id);
+      const firstJob = await repo.knowledge.getJob(app.db, first.jobId);
+      if (!firstJob?.documentId) throw new Error('wiki index document missing');
+      expect((await documentState(firstJob.documentId)).currentVersionId).toBeNull();
+
+      let markReached!: () => void;
+      let release!: () => void;
+      const reached = new Promise<void>((resolve) => {
+        markReached = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const firstOutcome = runJob(first.jobId, async (input) => {
+        const parsed = await parsing.parse(input);
+        markReached();
+        await gate;
+        return parsed;
+      }).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      try {
+        await Promise.race([
+          reached,
+          firstOutcome.then((err) => {
+            throw err ?? new Error('w1 finished before parsing pause');
+          }),
+        ]);
+        expect((await repo.knowledge.getJob(app.db, first.jobId))?.status).toBe('running');
+        const second = await publishWikiDraft(base.id, first.pageId);
+        await runJob(second.jobId);
+        expect((await repo.knowledge.getJob(app.db, second.jobId))?.status).toBe('succeeded');
+        const indexed = await documentState(firstJob.documentId);
+        expect(indexed.status).toBe('ready');
+        expect(indexed.currentVersionId).not.toBeNull();
+        const before = (await search(base.id, 'wikimarker', ['wiki'])).hits;
+        expect(before.length).toBeGreaterThan(0);
+        expect(before.every((hit) => hit.targetVersionId === second.versionId)).toBe(true);
+
+        release();
+        expect(await firstOutcome).toEqual(
+          expect.objectContaining({ message: expect.stringContaining('未发布本次结果') }),
+        );
+        expect((await repo.knowledge.getJob(app.db, first.jobId))?.status).toBe('failed');
+        const retained = await documentState(firstJob.documentId);
+        const after = (await search(base.id, 'wikimarker', ['wiki'])).hits;
+        expect(retained.currentVersionId).toBe(indexed.currentVersionId);
+        expect(after).toEqual(before);
+        expect(retained.status).toBe('ready');
+      } finally {
+        release();
+        await firstOutcome;
+      }
+    });
+
+    it('Wiki indexing uses the execution pointer when the same publication was indexed after enqueue', async () => {
+      const base = await createBase();
+      const first = await publishWikiDraft(base.id);
+      const repeated = await inject(app, {
+        method: 'POST',
+        url: `/api/knowledge/wiki-pages/${first.pageId}/publish`,
+        headers: { cookie },
+        payload: { versionId: first.versionId },
+      });
+      expect(repeated.statusCode, repeated.body).toBe(200);
+      const secondJobId = await wikiIndexJobId(base.id, first.pageId);
+      expect(secondJobId).not.toBe(first.jobId);
+      await runJob(first.jobId);
+      await runJob(secondJobId);
+      const hits = (await search(base.id, 'wikimarker', ['wiki'])).hits;
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.every((hit) => hit.targetVersionId === first.versionId)).toBe(true);
+    });
+
+    it('Wiki full reindex keeps the immutable indexed publication metadata and remains searchable', async () => {
+      const base = await createBase();
+      const published = await publishWikiDraft(base.id);
+      await runJob(published.jobId);
+      const before = (await search(base.id, 'wikimarker', ['wiki'])).hits;
+      expect(before.length).toBeGreaterThan(0);
+      const index = before[0];
+      if (!index) throw new Error('wiki search hit missing');
+      // 文档级 metadata 可先被后续发布更新，重建只能继承当前索引版本的不可变身份。
+      const document = await repo.knowledge.getDocument(app.db, index.documentId);
+      await repo.knowledge.updateDocument(app.db, index.documentId, {
+        metadata: { ...document?.metadata, wikiVersionId: 'kwv_mutable_metadata_must_not_be_used' },
+      });
+      const rebuilt = await inject(app, {
+        method: 'POST',
+        url: `/api/knowledge/bases/${base.id}/rebuild`,
+        headers: { cookie },
+        payload: { chunksOnly: false },
+      });
+      expect(rebuilt.statusCode, rebuilt.body).toBe(202);
+      await runJob(rebuilt.json<{ jobId: string }>().jobId);
+      const after = (await search(base.id, 'wikimarker', ['wiki'])).hits;
+      expect(after.length).toBeGreaterThan(0);
+      expect(
+        after.every(
+          (hit) => hit.targetVersionId === published.versionId && hit.versionId !== index.versionId,
+        ),
+      ).toBe(true);
+      const current = await repo.knowledge.getDocument(app.db, index.documentId);
+      if (!current?.currentVersionId) throw new Error('rebuilt index missing');
+      expect(
+        (await repo.knowledge.getVersion(app.db, current.currentVersionId))?.metadata,
+      ).toMatchObject({
+        wikiPageId: published.pageId,
+        wikiVersionId: published.versionId,
+      });
+    });
+
     it('manual wiki publishes through a real ingest job and source-backed wiki disappears after revocation', async () => {
       const base = await createBase();
       const page = await inject(app, {
@@ -1129,7 +1305,17 @@ describe.skipIf(!ready)(
         headers: { cookie },
       });
       expect(sync.statusCode, sync.body).toBe(202);
-      await runJob(sync.json<{ jobId: string }>().jobId);
+      const syncJobId = sync.json<{ jobId: string }>().jobId;
+      await runJob(syncJobId);
+      const syncPayload = await jobPayload(syncJobId);
+      const syncRun = await app.pool.query<{ status: string; stats: Record<string, number> }>(
+        'select status, stats from knowledge_sync_runs where id = $1',
+        [syncPayload.syncRunId],
+      );
+      expect(syncRun.rows[0]).toMatchObject({
+        status: 'succeeded',
+        stats: { listed: 1, created: 1, updated: 0, disabled: 0, failed: 0 },
+      });
 
       const sourceDocument = await app.pool.query<{
         id: string;

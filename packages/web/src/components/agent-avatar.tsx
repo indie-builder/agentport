@@ -1,6 +1,12 @@
 import type { Agent } from '@agentport/shared';
 import backendEngineer from '../assets/agents/backend-engineer.png';
 import contentOps from '../assets/agents/content-ops.png';
+import createBackend from '../assets/agents/create-backend.png';
+import createData from '../assets/agents/create-data.png';
+import createDevops from '../assets/agents/create-devops.png';
+import createFrontend from '../assets/agents/create-frontend.png';
+import createQa from '../assets/agents/create-qa.png';
+import createUi from '../assets/agents/create-ui.png';
 import dataAnalyst from '../assets/agents/data-analyst.jpg';
 import devopsEngineer from '../assets/agents/devops-engineer.jpg';
 import digitalTwin from '../assets/agents/digital-twin.png';
@@ -45,6 +51,16 @@ const roleAvatars: ReadonlyArray<readonly [RegExp, string]> = [
   [/客服|答疑|support|助手|助理/i, supportBot],
 ];
 
+/** 「新建」卡展开用的六张插画，顺序决定叠放的左右次序。 */
+export const createShowcaseAvatars: readonly string[] = [
+  createFrontend,
+  createQa,
+  createUi,
+  createData,
+  createDevops,
+  createBackend,
+];
+
 function hash(value: string): number {
   let h = 0;
   for (let i = 0; i < value.length; i += 1) h = (h * 31 + value.charCodeAt(i)) >>> 0;
@@ -68,13 +84,14 @@ const occupationAvatars: Record<string, string> = {
 };
 
 export function agentAvatar(
-  agent: Pick<Agent, 'slug' | 'name' | 'description'> & Partial<Pick<Agent, 'role'>>,
+  agent: Pick<Agent, 'name' | 'description'> & { role?: string | null; slug?: string | null },
 ): string {
   const occupation = agent.role ? occupationAvatars[agent.role] : undefined;
   if (occupation) return occupation;
-  const identity = `${agent.name} ${agent.slug} ${agent.description}`;
+  const slug = agent.slug ?? '';
+  const identity = `${agent.name} ${slug} ${agent.description}`;
   for (const [pattern, src] of roleAvatars) if (pattern.test(identity)) return src;
-  return avatars[hash(agent.slug) % avatars.length] ?? frontendEngineer;
+  return avatars[hash(slug) % avatars.length] ?? frontendEngineer;
 }
 
 /** 圆形插画头像；尺寸由外部用 size-* 决定，默认 40px。 */
@@ -82,7 +99,7 @@ export function AgentAvatar({
   agent,
   className,
 }: {
-  agent: Pick<Agent, 'slug' | 'name' | 'role' | 'description'>;
+  agent: Pick<Agent, 'name' | 'description'> & { role?: string | null; slug?: string | null };
   className?: string;
 }) {
   return (

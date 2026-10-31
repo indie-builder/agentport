@@ -51,10 +51,12 @@ import {
 import { Input } from '../components/ui/input.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError, api } from '../lib/api.js';
+import { can } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatTokens } from '../lib/format.js';
 import {
+  meQuery,
   useCreateSkill,
   useDeleteSkill,
   useImportSkillFile,
@@ -108,6 +110,15 @@ const skillFileFormSchema = skillFileInputSchema.extend({
 });
 
 export function SkillsPage() {
+  const me = useQuery(meQuery);
+  const canReadSkills = can(me.data, 'skills.read');
+  const canReadMarket = can(me.data, 'market.read');
+  const canCreateSkill = can(me.data, 'skills.create');
+  const canUpdateSkill = can(me.data, 'skills.update');
+  const canDeleteSkill = can(me.data, 'skills.delete');
+  const canImportSkill = can(me.data, 'skills.import');
+  const canReadSkillFiles = can(me.data, 'skills.files.read');
+  const canInstallMarket = can(me.data, 'market.install');
   const skills = useSkills();
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
@@ -174,7 +185,24 @@ export function SkillsPage() {
       );
   }, [skills.data, query, sort, usage]);
 
-  if (scope === 'market') return <MarketSkillsPage skills={skills} install={install} />;
+  if (scope === 'market') {
+    return (
+      <MarketSkillsPage
+        skills={skills}
+        install={install}
+        canInstall={canInstallMarket}
+      />
+    );
+  }
+  if (!canReadSkills && canReadMarket) {
+    return (
+      <MarketSkillsPage
+        skills={skills}
+        install={install}
+        canInstall={canInstallMarket}
+      />
+    );
+  }
 
   return (
     <ResourcePage
@@ -224,6 +252,7 @@ export function SkillsPage() {
               if (file) void importSkillMd(file);
             }}
           />
+          {canImportSkill ? (
           <Button
             variant="outline"
             disabled={importSkill.isPending}
@@ -233,6 +262,8 @@ export function SkillsPage() {
             <Upload data-icon="inline-start" aria-hidden="true" />{' '}
             {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}
           </Button>
+          ) : null}
+          {canCreateSkill ? (
           <Button
             ref={createButtonRef}
             onClick={(event) => {
@@ -242,6 +273,7 @@ export function SkillsPage() {
           >
             <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
           </Button>
+          ) : null}
         </>
       }
     >
@@ -320,21 +352,27 @@ export function SkillsPage() {
                       />
                       <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                         <DropdownMenuGroup>
-                          <DropdownMenuItem onClick={() => setEditing(skill)}>
-                            <Pencil /> 编辑
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            nativeButton={false}
-                            render={<a href={`/api/skills/${skill.id}/file`} />}
-                          >
-                            <Download /> 导出 SKILL.md
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => setDeleting(skill)}
-                          >
-                            <Trash2 /> 删除
-                          </DropdownMenuItem>
+                          {canUpdateSkill ? (
+                            <DropdownMenuItem onClick={() => setEditing(skill)}>
+                              <Pencil /> 编辑
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canReadSkillFiles ? (
+                            <DropdownMenuItem
+                              nativeButton={false}
+                              render={<a href={`/api/skills/${skill.id}/file`} />}
+                            >
+                              <Download /> 导出 SKILL.md
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canDeleteSkill ? (
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => setDeleting(skill)}
+                            >
+                              <Trash2 /> 删除
+                            </DropdownMenuItem>
+                          ) : null}
                         </DropdownMenuGroup>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -429,9 +467,11 @@ function SegmentedToggle<T extends string>({
 function MarketSkillsPage({
   skills,
   install,
+  canInstall,
 }: {
   skills: ReturnType<typeof useSkills>;
   install: ReturnType<typeof useInstallMarketSkill>;
+  canInstall: boolean;
 }) {
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });

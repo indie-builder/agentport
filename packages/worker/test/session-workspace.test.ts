@@ -1,6 +1,6 @@
 import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ensureSessionWorkspace, refreshSessionDirectory } from '../src/session-workspace.js';
 
@@ -207,29 +207,78 @@ describe('stable session workspace', () => {
     expect(await readFile(join(again.inputsDir, 'later.txt'), 'utf8')).toBe('new attachment');
   });
 
-  it('precreates the private personal memory directory at the workspace root', async () => {
+  it('precreates each business user private directory under _users', async () => {
     root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const businessId = 'user.one@example';
     const paths = await ensureSessionWorkspace({
       workspacesDir: root,
       slug: 'demo',
       conversationId: 'conversation-1',
+      businessId,
     });
-    expect(paths.personalDir).toBe(join(root, '_user'));
-    const info = await stat(paths.personalDir);
+    expect(paths.personalDir?.startsWith(join(root, '_users'))).toBe(true);
+    expect(basename(paths.personalDir as string)).toMatch(/^[0-9a-f]{64}$/);
+    const info = await stat(paths.personalDir as string);
     expect(info.isDirectory()).toBe(true);
     expect(info.mode & 0o777).toBe(0o700);
   });
 
-  it('rejects a symlinked personal directory', async () => {
+  it('precreates the mount for a 160-character Unicode business ID', async () => {
+    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const businessId = '人'.repeat(160);
+    const paths = await ensureSessionWorkspace({
+      workspacesDir: root,
+      slug: 'demo',
+      conversationId: 'conversation-unicode',
+      businessId,
+    });
+    expect(basename(paths.personalDir as string)).toHaveLength(64);
+    expect((await stat(paths.personalDir as string)).isDirectory()).toBe(true);
+  });
+
+  it('keeps two business users on separate personal directories', async () => {
+    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const first = await ensureSessionWorkspace({
+      workspacesDir: root,
+      slug: 'demo',
+      conversationId: 'conversation-a',
+      businessId: 'user-a',
+    });
+    const second = await ensureSessionWorkspace({
+      workspacesDir: root,
+      slug: 'demo',
+      conversationId: 'conversation-b',
+      businessId: 'user-b',
+    });
+    expect(first.personalDir).toBeDefined();
+    expect(second.personalDir).toBeDefined();
+    expect(first.personalDir).not.toBe(second.personalDir);
+    await writeFile(join(first.personalDir as string, 'CLAUDE.md'), 'a');
+    await expect(stat(join(second.personalDir as string, 'CLAUDE.md'))).rejects.toThrow(/ENOENT/);
+  });
+
+  it('omits personal memory for service subjects', async () => {
+    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const paths = await ensureSessionWorkspace({
+      workspacesDir: root,
+      slug: 'demo',
+      conversationId: 'conversation-service',
+    });
+    expect(paths.personalDir).toBeUndefined();
+    await expect(lstat(join(root, '_users'))).rejects.toThrow(/ENOENT/);
+  });
+
+  it('rejects a symlinked personal root', async () => {
     root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
     const outside = join(root, 'outside');
     await mkdir(outside);
-    await symlink(outside, join(root, '_user'));
+    await symlink(outside, join(root, '_users'));
     await expect(
       ensureSessionWorkspace({
         workspacesDir: root,
         slug: 'demo',
         conversationId: 'conversation-1',
+        businessId: 'user-a',
       }),
     ).rejects.toThrow(/real directory/);
   });

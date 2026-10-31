@@ -1605,9 +1605,6 @@ describe.skipIf(!ready)('runSync', () => {
       secretsEncrypted: null,
       syncCron: null,
     });
-    if (options.status) {
-      await repo.knowledge.updateSource(db, source.id, { status: options.status });
-    }
     await repo.knowledge.replaceRanges(db, source.id, [
       {
         kind: type === 'feed' ? 'feed' : 'gitlab_project',
@@ -1617,16 +1614,33 @@ describe.skipIf(!ready)('runSync', () => {
         enabled: true,
       },
     ]);
-    const run = await repo.knowledge.createSyncRun(db, source.id, {});
-    const job = await repo.knowledge.createJob(db, {
-      type: 'sync',
-      baseId: fixtureBase.baseId,
-      documentId: null,
-      sourceId: source.id,
-      payload: { type: 'sync', sourceId: source.id, syncRunId: run.id },
-    });
-    await repo.knowledge.claimJob(db, job.id);
-    return { sourceId: source.id, syncRunId: run.id, jobId: job.id };
+    const created = await repo.knowledge.createSyncJob(db, source.id);
+    if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
+    // 暂停来源仍要覆盖 runSync 的取消分支：先用真实创建事务拿到 pair，再停用。
+    if (options.status) {
+      await repo.knowledge.updateSource(db, source.id, { status: options.status });
+    }
+    await repo.knowledge.claimJob(db, created.job.id);
+    return { sourceId: source.id, syncRunId: created.run.id, jobId: created.job.id };
+  }
+
+  /** 成功同步必须经过队列的终态 seam：run、source 摘要与游标一次原子提交。 */
+  async function runSyncToSuccess(
+    deps: Fixture['deps'],
+    job: Parameters<typeof runSync>[1],
+  ): Promise<void> {
+    const result = await runSync(deps, job, new AbortController().signal);
+    await repo.knowledge.finishJob(db, job.id, { status: 'succeeded', result });
+  }
+
+  /** 同一来源的下一轮同步必须先让上一轮进入终态。 */
+  async function nextSync(sourceId: string) {
+    const created = await repo.knowledge.createSyncJob(db, sourceId);
+    if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
+    await repo.knowledge.claimJob(db, created.job.id);
+    const claimed = await repo.knowledge.getJob(db, created.job.id);
+    if (!claimed) throw new Error('job missing');
+    return { run: created.run, job: claimed };
   }
 
   it('never disables documents when listing fails', async () => {
@@ -1688,7 +1702,7 @@ describe.skipIf(!ready)('runSync', () => {
     const syncJob = await repo.knowledge.getJob(db, syncJobId);
     if (!syncJob) throw new Error('job missing');
 
-    await runSync(fixtureBase.deps, syncJob, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, syncJob);
 
     const document = await repo.knowledge.getDocument(db, documentId);
     expect(document?.status).toBe('disabled');
@@ -1730,19 +1744,8 @@ describe.skipIf(!ready)('runSync', () => {
       sourceConnectionId: source.id,
       metadata: { knowledgeSourceId: source.id },
     });
-    const run = await repo.knowledge.createSyncRun(db, source.id, {});
-    const job = await repo.knowledge.createJob(db, {
-      type: 'sync',
-      baseId: fixtureBase.baseId,
-      documentId: null,
-      sourceId: source.id,
-      payload: { type: 'sync', sourceId: source.id, syncRunId: run.id },
-    });
-    await repo.knowledge.claimJob(db, job.id);
-    const claimed = await repo.knowledge.getJob(db, job.id);
-    if (!claimed) throw new Error('job missing');
-
-    await runSync(fixtureBase.deps, claimed, new AbortController().signal);
+    const { run, job: claimed } = await nextSync(source.id);
+    await runSyncToSuccess(fixtureBase.deps, claimed);
 
     const ready = await db
       .select({ id: schema.knowledgeDocuments.id })
@@ -1869,7 +1872,7 @@ describe.skipIf(!ready)('runSync', () => {
     try {
       const syncJob = await repo.knowledge.getJob(db, jobId);
       if (!syncJob) throw new Error('job missing');
-      await runSync(fixtureBase.deps, syncJob, new AbortController().signal);
+      await runSyncToSuccess(fixtureBase.deps, syncJob);
     } finally {
       documentCalls = spy.mock.calls
         .map((call, index) => {
@@ -1965,40 +1968,20 @@ describe.skipIf(!ready)('runSync', () => {
     const { sourceId, jobId } = await makeSource(fixtureBase, connector, { type: 'gitlab' });
     const first = await repo.knowledge.getJob(db, jobId);
     if (!first) throw new Error('job missing');
-    await runSync(fixtureBase.deps, first, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, first);
     expect(await documentsOfType(fixtureBase, 'gitlab')).toHaveLength(2);
 
     // 第二次返回完全相同的条目：文档一个都不能被 disable。
-    const run = await repo.knowledge.createSyncRun(db, sourceId, {});
-    const job = await repo.knowledge.createJob(db, {
-      type: 'sync',
-      baseId: fixtureBase.baseId,
-      documentId: null,
-      sourceId,
-      payload: { type: 'sync', sourceId, syncRunId: run.id },
-    });
-    await repo.knowledge.claimJob(db, job.id);
-    const claimed = await repo.knowledge.getJob(db, job.id);
-    if (!claimed) throw new Error('job missing');
-    await runSync(fixtureBase.deps, claimed, new AbortController().signal);
+    const { job: claimed } = await nextSync(sourceId);
+    await runSyncToSuccess(fixtureBase.deps, claimed);
 
     const documents = await documentsOfType(fixtureBase, 'gitlab');
     expect(documents.map((doc) => doc.status).sort()).toEqual(['ready', 'ready']);
 
     // 第三次少了一个：只有缺失的那个被 disable。
     listed = ['item-1'];
-    const thirdRun = await repo.knowledge.createSyncRun(db, sourceId, {});
-    const thirdJob = await repo.knowledge.createJob(db, {
-      type: 'sync',
-      baseId: fixtureBase.baseId,
-      documentId: null,
-      sourceId,
-      payload: { type: 'sync', sourceId, syncRunId: thirdRun.id },
-    });
-    await repo.knowledge.claimJob(db, thirdJob.id);
-    const thirdClaimed = await repo.knowledge.getJob(db, thirdJob.id);
-    if (!thirdClaimed) throw new Error('job missing');
-    await runSync(fixtureBase.deps, thirdClaimed, new AbortController().signal);
+    const { job: thirdClaimed } = await nextSync(sourceId);
+    await runSyncToSuccess(fixtureBase.deps, thirdClaimed);
 
     const after = await documentsOfType(fixtureBase, 'gitlab');
     const bySource = Object.fromEntries(after.map((doc) => [doc.sourceId, doc.status]));
@@ -2022,7 +2005,7 @@ describe.skipIf(!ready)('runSync', () => {
     });
     const job = await repo.knowledge.getJob(db, jobId);
     if (!job) throw new Error('job missing');
-    await runSync(fixtureBase.deps, job, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, job);
 
     const rows = await db
       .select({ id: schema.knowledgeDocuments.id, status: schema.knowledgeDocuments.status })
@@ -2061,7 +2044,7 @@ describe.skipIf(!ready)('runSync', () => {
     const { sourceId, jobId } = await makeSource(fixtureBase, connector, { type: 'gitlab' });
     const job = await repo.knowledge.getJob(db, jobId);
     if (!job) throw new Error('job missing');
-    await runSync(fixtureBase.deps, job, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, job);
 
     const documents = await documentsOfType(fixtureBase, 'gitlab');
     expect(documents).toHaveLength(1);
@@ -2180,7 +2163,7 @@ describe.skipIf(!ready)('runSync', () => {
     const first = await makeSource(fixtureBase, connector, { type: 'gitlab' });
     const firstJob = await repo.knowledge.getJob(db, first.jobId);
     if (!firstJob) throw new Error('job missing');
-    await runSync(fixtureBase.deps, firstJob, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, firstJob);
     const [document] = await documentsOfType(fixtureBase, 'gitlab');
     if (!document) throw new Error('document missing');
     const page = await repo.knowledge.createWikiPage(db, {
@@ -2208,8 +2191,7 @@ describe.skipIf(!ready)('runSync', () => {
 
     // 临时故障（超时/限流）不撤权，来源继续 active、文档继续可读。
     failure = new Error('network timeout');
-    const transientJob = await repo.knowledge.getJob(db, first.jobId);
-    if (!transientJob) throw new Error('job missing');
+    const transientJob = (await nextSync(first.sourceId)).job;
     await expect(
       runSync(fixtureBase.deps, transientJob, new AbortController().signal),
     ).rejects.toThrow('network timeout');
@@ -2218,17 +2200,12 @@ describe.skipIf(!ready)('runSync', () => {
 
     // 明确鉴权失败：来源停用、旧文档退出检索/read、Wiki 引用显式 stale。
     failure = new SourceAuthError('HTTP 401 from https://gitlab.example.com');
-    const revokedRun = await repo.knowledge.createSyncRun(db, first.sourceId, {});
-    const revokedJob = await repo.knowledge.createJob(db, {
-      type: 'sync',
-      baseId: fixtureBase.baseId,
-      documentId: null,
-      sourceId: first.sourceId,
-      payload: { type: 'sync', sourceId: first.sourceId, syncRunId: revokedRun.id },
+    // 重试耗尽才进入下一次新同步；先按真实终态收掉上一轮。
+    await repo.knowledge.finishJob(db, transientJob.id, {
+      status: 'failed',
+      error: 'network timeout',
     });
-    await repo.knowledge.claimJob(db, revokedJob.id);
-    const claimed = await repo.knowledge.getJob(db, revokedJob.id);
-    if (!claimed) throw new Error('job missing');
+    const { job: claimed } = await nextSync(first.sourceId);
     await expect(
       runSync(fixtureBase.deps, claimed, new AbortController().signal),
     ).rejects.toBeInstanceOf(SourceAuthError);
@@ -2298,7 +2275,7 @@ describe.skipIf(!ready)('runSync', () => {
     expect(source?.lastSyncStatus).toBeNull();
   });
 
-  it('reopens the same sync run as running when a retry reuses it', async () => {
+  it('never reopens a terminal sync run when a retry reuses it', async () => {
     const fixtureBase = await makeBase();
     let runId = '';
     let observed: { status: string; endedAt: Date | null } | null = null;
@@ -2319,22 +2296,27 @@ describe.skipIf(!ready)('runSync', () => {
     };
     const { syncRunId, jobId } = await makeSource(fixtureBase, connector, { type: 'gitlab' });
     runId = syncRunId;
-    // BullMQ 重试复用同一个 job/run；上一次尝试可能已把它写成终态。
+    // 人为制造「job 仍活动但 run 已终态」的坏数据：重试不得把它改回 running。
+    const priorEndedAt = new Date(Date.now() - 60_000);
     await db
       .update(schema.knowledgeSyncRuns)
-      .set({ status: 'failed', endedAt: new Date(), error: 'prior attempt' })
+      .set({ status: 'failed', endedAt: priorEndedAt, error: 'prior attempt' })
       .where(eq(schema.knowledgeSyncRuns.id, syncRunId));
     const job = await repo.knowledge.getJob(db, jobId);
     if (!job) throw new Error('job missing');
 
-    await runSync(fixtureBase.deps, job, new AbortController().signal);
+    const result = await runSync(fixtureBase.deps, job, new AbortController().signal);
 
-    expect(observed).toMatchObject({ status: 'running', endedAt: null });
+    expect(observed).toMatchObject({ status: 'failed' });
     const run = (await repo.knowledge.listSyncRuns(db, job.sourceId ?? '')).items.find(
       (item) => item.id === syncRunId,
     );
-    expect(run?.status).toBe('succeeded');
-    expect(run?.endedAt).not.toBeNull();
+    expect(run).toMatchObject({ status: 'failed', error: 'prior attempt', endedAt: priorEndedAt });
+    // 终态 run 不能与活动 job 一起提交；finishJob 回滚，job 保持 running 交给对账。
+    await expect(
+      repo.knowledge.finishJob(db, job.id, { status: 'succeeded', result }),
+    ).rejects.toThrow('sync run');
+    expect((await repo.knowledge.getJob(db, job.id))?.status).toBe('running');
   });
 
   it('propagates transient item failures so the queue can retry without re-ingesting successes', async () => {
@@ -2383,7 +2365,7 @@ describe.skipIf(!ready)('runSync', () => {
     expect((await repo.knowledge.getSource(db, sourceId))?.cursor).toEqual({});
 
     parserDown = false;
-    await runSync(fixtureBase.deps, job, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, job);
 
     const documents = await documentsOfType(fixtureBase, 'gitlab');
     const ok = documents.find((document) => document.sourceId === 'ok');
@@ -2418,12 +2400,12 @@ describe.skipIf(!ready)('runSync', () => {
     const first = await makeSource(fixtureBase, items('first'), { type: 'gitlab' });
     const firstJob = await repo.knowledge.getJob(db, first.jobId);
     if (!firstJob) throw new Error('job missing');
-    await runSync(fixtureBase.deps, firstJob, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, firstJob);
 
     const second = await makeSource(fixtureBase, items('second'), { type: 'gitlab' });
     const secondJob = await repo.knowledge.getJob(db, second.jobId);
     if (!secondJob) throw new Error('job missing');
-    await runSync(fixtureBase.deps, secondJob, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, secondJob);
 
     const documents = await documentsOfType(fixtureBase, 'gitlab');
     expect(documents).toHaveLength(2);
@@ -2448,25 +2430,15 @@ describe.skipIf(!ready)('runSync', () => {
         await onCheckpoint({}, { complete: true });
       },
     };
-    const { jobId } = await makeSource(fixtureBase, connector, { type: 'gitlab' });
+    const { sourceId, jobId } = await makeSource(fixtureBase, connector, { type: 'gitlab' });
     const job = await repo.knowledge.getJob(db, jobId);
     if (!job) throw new Error('job missing');
-    await runSync(fixtureBase.deps, job, new AbortController().signal);
+    await runSyncToSuccess(fixtureBase.deps, job);
 
     title = 'renamed';
     path = 'docs/renamed.md';
-    const run = await repo.knowledge.createSyncRun(db, job.sourceId ?? '', {});
-    const next = await repo.knowledge.createJob(db, {
-      type: 'sync',
-      baseId: fixtureBase.baseId,
-      documentId: null,
-      sourceId: job.sourceId,
-      payload: { type: 'sync', sourceId: job.sourceId ?? '', syncRunId: run.id },
-    });
-    await repo.knowledge.claimJob(db, next.id);
-    const claimed = await repo.knowledge.getJob(db, next.id);
-    if (!claimed) throw new Error('job missing');
-    await runSync(fixtureBase.deps, claimed, new AbortController().signal);
+    const { job: claimed } = await nextSync(sourceId);
+    await runSyncToSuccess(fixtureBase.deps, claimed);
 
     const documents = await documentsOfType(fixtureBase, 'gitlab');
     expect(documents).toHaveLength(1);

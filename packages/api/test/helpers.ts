@@ -1,13 +1,17 @@
 import { randomBytes } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createDb } from '@agentport/db';
 import {
+  type Account,
   type ErrorCode,
+  type ExecutionSubject,
   errorCode,
   type Problem,
   problemSchema,
+  type Role,
   RUNS_QUEUE,
   runEventsConnectionName,
   type Server,
@@ -17,7 +21,10 @@ import { Redis } from 'ioredis';
 import { expect } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { type Config, loadConfig } from '../src/config.js';
-import { AUTH_COOKIE } from '../src/features/auth/types.js';
+import { AUTH_COOKIE, BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/features/auth/types.js';
+
+/** 默认管理员账户的稳定业务 ID；直接落库的测试夹具用工位一致的主体。 */
+export const ADMIN_BUSINESS_ID = BOOTSTRAP_ADMIN_BUSINESS_ID;
 
 // 每个测试文件独立后缀：并行执行时名称不会互相冲突，也不需要全局清理。
 const SUFFIX = randomBytes(4).toString('hex');
@@ -49,8 +56,8 @@ export function unique(prefix: string): string {
   return `${prefix}-${SUFFIX}-${counter.toString(36)}`;
 }
 
-/** 工作区写到系统临时目录，避免污染仓库 data/。 */
-process.env.WORKSPACES_DIR = join(tmpdir(), 'agentport-test-workspaces');
+/** 工作区写到系统临时目录，避免污染仓库 data/；macOS 的 tmpdir 是符号链接，记忆写入拒绝符号链接路径。 */
+process.env.WORKSPACES_DIR = join(realpathSync(tmpdir()), 'agentport-test-workspaces');
 
 export function testConfig(overrides: Partial<Record<string, string>> = {}): Config {
   return loadConfig({ ...process.env, ...overrides });
@@ -118,10 +125,19 @@ export async function startApp(
 
 export async function loginCookie(app: FastifyInstance): Promise<string> {
   const config = testConfig();
+  return loginAs(app, config.ADMIN_USER, config.ADMIN_PASSWORD);
+}
+
+/** 用任意账户登录；返回可直接放进 headers.cookie 的 Cookie 头。 */
+export async function loginAs(
+  app: FastifyInstance,
+  username: string,
+  password: string,
+): Promise<string> {
   const res = await inject(app, {
     method: 'POST',
     url: '/api/auth/login',
-    payload: { username: config.ADMIN_USER, password: config.ADMIN_PASSWORD },
+    payload: { username, password },
   });
   if (res.statusCode !== 200) {
     throw new Error(`login failed: ${res.statusCode} ${res.body}`);
@@ -129,6 +145,98 @@ export async function loginCookie(app: FastifyInstance): Promise<string> {
   const cookie = res.cookies.find((c) => c.name === AUTH_COOKIE);
   if (!cookie) throw new Error('login did not set the auth cookie');
   return `${cookie.name}=${cookie.value}`;
+}
+
+/** 默认角色 id：按 systemKey 从当前矩阵读取，测试不硬编码角色 ID。 */
+export async function roleIds(
+  app: FastifyInstance,
+  adminCookie: string,
+  systemKeys: ReadonlyArray<NonNullable<Role['systemKey']>>,
+): Promise<string[]> {
+  const res = await inject(app, {
+    method: 'GET',
+    url: '/api/roles',
+    headers: { cookie: adminCookie },
+  });
+  if (res.statusCode !== 200) throw new Error(`roles failed: ${res.statusCode} ${res.body}`);
+  const matrix = res.json<{ roles: Role[] }>();
+  return systemKeys.map((systemKey) => {
+    const role = matrix.roles.find((entry) => entry.systemKey === systemKey);
+    if (!role) throw new Error(`role ${systemKey} not found`);
+    return role.id;
+  });
+}
+
+interface TestAccountOptions {
+  businessId?: string;
+  username?: string;
+  name?: string;
+  password?: string;
+  /** 默认 user；负责人/维护人员等测试显式传入。 */
+  systemKeys?: ReadonlyArray<NonNullable<Role['systemKey']>>;
+}
+
+export interface TestAccount {
+  businessId: string;
+  username: string;
+  password: string;
+  cookie: string;
+}
+
+/**
+ * 通过公共账户 API 建号并登录；不直接写 auth 表，测试与生产走同一路径。
+ * 返回的 cookie 可直接用于业务路由。
+ */
+export async function createTestAccount(
+  app: FastifyInstance,
+  adminCookie: string,
+  options: TestAccountOptions = {},
+): Promise<TestAccount> {
+  const businessId = options.businessId ?? unique('biz');
+  const username = options.username ?? unique('user');
+  const password = options.password ?? 'test-password-123';
+  const roleIdsForAccount =
+    options.systemKeys === undefined
+      ? undefined
+      : await roleIds(app, adminCookie, options.systemKeys);
+  const res = await inject(app, {
+    method: 'POST',
+    url: '/api/accounts',
+    headers: { cookie: adminCookie },
+    payload: {
+      businessId,
+      username,
+      name: options.name ?? '测试账户',
+      password,
+      restore: false,
+      ...(roleIdsForAccount === undefined ? {} : { roleIds: roleIdsForAccount }),
+    },
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  const account = res.json<Account>();
+  return {
+    businessId: account.businessId,
+    username: account.username,
+    password,
+    cookie: await loginAs(app, account.username, password),
+  };
+}
+
+/** 负责人给自己负责的专家加成员；canUse/canMaintain 至少一个为 true。 */
+export async function setAgentMember(
+  app: FastifyInstance,
+  cookie: string,
+  agentId: string,
+  businessId: string,
+  input: { canUse: boolean; canMaintain: boolean },
+): Promise<void> {
+  const res = await inject(app, {
+    method: 'PUT',
+    url: `/api/agents/${agentId}/members/${encodeURIComponent(businessId)}`,
+    headers: { cookie },
+    payload: input,
+  });
+  expect(res.statusCode, res.body).toBe(200);
 }
 
 interface CreateAgentOptions {
@@ -195,21 +303,42 @@ export async function createServer(
 export async function seedRun(
   app: FastifyInstance,
   agentId: string,
-  options: { runId?: string; conversationId?: string; mcpTokenHash?: string } = {},
+  options: {
+    runId?: string;
+    conversationId?: string;
+    mcpTokenHash?: string;
+    /** 默认平台管理员本人；服务发起的运行显式传 service。 */
+    subject?: ExecutionSubject;
+    status?: 'queued' | 'running';
+  } = {},
 ): Promise<{ runId: string; conversationId: string }> {
   const runId = options.runId ?? unique('seed-run');
   const conversationId = options.conversationId ?? unique('seed-conv');
-  await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
-    conversationId,
-    agentId,
-  ]);
+  const subject: ExecutionSubject = options.subject ?? {
+    kind: 'user',
+    businessId: BOOTSTRAP_ADMIN_BUSINESS_ID,
+  };
   await app.pool.query(
-    'insert into agent_runs (id, conversation_id, agent_id, status, mcp_token_hash, mcp_token_expires_at) values ($1, $2, $3, $4, $5, $6)',
+    'insert into conversations (id, agent_id, created_by, service_id) values ($1, $2, $3, $4)',
+    [
+      conversationId,
+      agentId,
+      subject.kind === 'user' ? subject.businessId : null,
+      subject.kind === 'service' ? subject.serviceId : null,
+    ],
+  );
+  await app.pool.query(
+    `insert into agent_runs
+       (id, conversation_id, agent_id, status, subject_kind, initiated_by, service_id, mcp_token_hash, mcp_token_expires_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       runId,
       conversationId,
       agentId,
-      'running',
+      options.status ?? 'running',
+      subject.kind,
+      subject.kind === 'user' ? subject.businessId : null,
+      subject.kind === 'service' ? subject.serviceId : null,
       options.mcpTokenHash ?? null,
       options.mcpTokenHash === undefined ? null : new Date(Date.now() + 5 * 60_000),
     ],

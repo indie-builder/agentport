@@ -68,7 +68,13 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 vi.mock('../src/lib/queries.js', () => ({
   queryClient: {},
-  meQuery: { queryKey: ['me'] },
+  meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
+  useAgentAccess: () => ({
+    data: { permissionIds: ['eval.read', 'eval.manage', 'eval.execute'] },
+  }),
   agentsQuery: {},
   serversQuery: {},
   healthMetricsQuery: {},

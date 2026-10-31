@@ -20,8 +20,6 @@ export const BUILTIN_TOOLS = [
   'TaskStop',
 ] as const;
 
-export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
-
 export const AGENT_ROLES = [
   '通用助手',
   '前端工程师',
@@ -48,11 +46,9 @@ export const agentRoleSchema = z
 
 /** 推理强度；不填则用 SDK 默认。DB 存 text，写入运行配置前用它收窄。 */
 export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
-export type Effort = z.infer<typeof effortSchema>;
 
 /** 助手回复的渲染格式：Markdown（默认）或生成式 UI（围栏内的 OpenUI Lang）。 */
 export const uiFormatSchema = z.enum(['markdown', 'openui']);
-export type UiFormat = z.infer<typeof uiFormatSchema>;
 
 export const agentInputSchema = z.object({
   slug: slugSchema,
@@ -104,6 +100,10 @@ export type AgentPatch = Omit<Partial<AgentInput>, 'effort'> & {
 export const agentSchema = agentInputSchema.extend({ role: z.string().default('通用助手') }).and(
   z.object({
     id: z.string(),
+    /** 创建时的业务身份；不随转交改变。 */
+    createdBy: z.string(),
+    /** 当前负责人；决定 W 范围与成员管理权。 */
+    ownerBusinessId: z.string(),
     /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
     parentId: z.string().nullable(),
     createdAt: z.string(),
@@ -112,6 +112,42 @@ export const agentSchema = agentInputSchema.extend({ role: z.string().default('�
 );
 
 export type Agent = z.infer<typeof agentSchema>;
+
+/** 列表摘要：只含成员可见的业务字段；其余为服务端附带的可选元数据，不作为授权依据。 */
+export const agentSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  enabled: z.boolean(),
+  createdBy: z.string(),
+  ownerBusinessId: z.string(),
+  role: z.string().optional(),
+  slug: z.string().optional(),
+  parentId: z.string().nullable().optional(),
+  createdAt: z.string().optional(),
+  uiFormat: uiFormatSchema.optional(),
+  serverIds: z.array(z.string()).optional(),
+  skillIds: z.array(z.string()).optional(),
+  model: z.string().optional(),
+  maxBudgetUsd: z.number().optional(),
+  timeoutMs: z.number().int().optional(),
+});
+
+export type AgentSummary = z.infer<typeof agentSummarySchema>;
+
+/** 绑定选择器只拿摘要；不含资源配置、密钥或正文。 */
+export const agentOptionsSchema = z.object({
+  servers: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string() })),
+  skills: z.array(
+    z.object({ id: z.string(), slug: z.string(), name: z.string(), description: z.string() }),
+  ),
+  plugins: z.array(z.object({ id: z.string(), slug: z.string(), name: z.string() })),
+  runtimeEnvironments: z.array(
+    z.object({ id: z.string(), name: z.string(), hasOnlineVersion: z.boolean() }),
+  ),
+});
+
+export type AgentOptions = z.infer<typeof agentOptionsSchema>;
 
 export const agentDuplicateInputSchema = z.object({
   slug: slugSchema,
@@ -188,8 +224,6 @@ export const skillFileInputSchema = z.object({
   content: z.string().max(200_000).default(''),
 });
 
-export type SkillFileInput = z.infer<typeof skillFileInputSchema>;
-
 export const skillFileSchema = skillFileInputSchema.and(
   z.object({ id: z.string(), createdAt: z.string() }),
 );
@@ -202,8 +236,6 @@ export const ruleInputSchema = z.object({
   content: z.string().max(100_000).default(''),
   globs: z.string().max(1000).default(''),
 });
-
-export type RuleInput = z.infer<typeof ruleInputSchema>;
 
 export const ruleSchema = ruleInputSchema.and(
   z.object({
@@ -223,8 +255,6 @@ export const outputStyleInputSchema = z.object({
   keepCodingInstructions: z.boolean().default(false),
   body: z.string().max(50_000).default(''),
 });
-
-export type OutputStyleInput = z.infer<typeof outputStyleInputSchema>;
 
 export const outputStyleSchema = outputStyleInputSchema.and(
   z.object({

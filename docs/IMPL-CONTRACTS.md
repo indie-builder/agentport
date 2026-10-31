@@ -157,7 +157,7 @@ export function renderWorkspace(input: {
 - `.mcp.json`：`{ "mcpServers": { [name]: entry } }`
 - `CLAUDE.md`：systemPrompt + 工具使用说明
 - `.claude/agents/<slug>.md`：frontmatter `name/description/model/disallowedTools/maxTurns`，正文为 systemPrompt 摘要。子智能体文件不写 `tools`（SDK 派生时 MCP 工具尚未注册，写 `mcp__<server>__*` 会被当成空集拒绝启动）；主智能体的 md 仅供预览，不落盘。
-- `McpJsonEntry` 复用 `packages/core/src/tools.ts` 的 `toMcpJsonEntry`。
+- `McpJsonEntry` 类型定义在 `packages/core/src/tools.ts`；worker 运行时条目由 `@agentport/shared` 的 `previewMcpEntry()` 构造，knowledge 条目统一走 `knowledgeMcpEntry()`；API 预览与专家包导出各自构造脱敏条目。`.mcp.json` 导入解析是另一条路径（core `parseMcpJson()` 产出 `ServerInput`），与条目预览无关。
 
 **`features/agents/workspace.ts`**（api）：从 DB 读 agent + 绑定 servers → 解密 secrets → 调 `renderWorkspace` → **写到** `path.join(WORKSPACES_DIR, slug)`（三个文件），返回内容。若 `WORKSPACES_DIR` 未配置，用 `./data/workspaces`。
 
@@ -248,7 +248,7 @@ README.md
   - `servers.test.ts`：CRUD + 脱敏 + 非法输入 400
   - `auth.test.ts`：未登录 401、登录成功、登出
 - 需要 `DATABASE_URL` 和 `REDIS_URL`；在测试里用 `describe.skipIf(!process.env.DATABASE_URL)`。
-- CI：`pnpm install --frozen-lockfile` → `pnpm -r typecheck` → `pnpm -r build` → `biome ci` → `pnpm test`；service containers: postgres:18-alpine、`redis:8.10.3-alpine@sha256:896f241f…`（精确 tag/digest 以 `.github/workflows/ci.yml` 与 `packages/worker/test/global-setup.ts` 为唯一来源）。
+- CI：`pnpm install --frozen-lockfile` → `pnpm -r typecheck` → `pnpm -r build` → `biome ci` → `pnpm test`；service containers: postgres:18-alpine、`redis:8.10.3-alpine@sha256:21090af…`（精确 tag/digest 以 `.github/workflows/ci.yml` 与 `packages/worker/test/global-setup.ts` 为唯一来源）。
 - `README.md`：项目简介、架构图、启动步骤、环境变量表、里程碑状态。
 
 ## 9. 通用硬性要求

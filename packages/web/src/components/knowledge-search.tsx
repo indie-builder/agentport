@@ -418,10 +418,12 @@ export function KnowledgeSearchResults({
 
 export function SearchTab({
   baseId,
+  canExecute,
   state,
   onChange,
 }: {
   baseId: string;
+  canExecute: boolean;
   state: KnowledgeSearchState;
   onChange: (patch: Partial<KnowledgeSearchState>, replace?: boolean) => void;
 }) {
@@ -444,6 +446,15 @@ export function SearchTab({
     ...(state.diagnostics === undefined ? {} : { diagnostics: state.diagnostics }),
   });
   const terms = state.q ?? '';
+
+  if (!canExecute) {
+    return (
+      <PageNote
+        title="没有检索权限"
+        description="可以查看知识库内容，但检索与处理需要「执行检索与处理」权限。"
+      />
+    );
+  }
 
   return (
     <div className="flex min-w-0 flex-col gap-4">

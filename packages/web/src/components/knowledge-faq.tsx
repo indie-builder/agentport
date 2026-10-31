@@ -659,7 +659,19 @@ function recoverBatches(details: Array<KnowledgeFaqDetail | undefined>): Recover
   );
 }
 
-function FaqImportDialog({ baseId, onClose }: { baseId: string; onClose: () => void }) {
+function FaqImportDialog({
+  baseId,
+  canImport,
+  canPublish: hasPublishPermission,
+  canExecute,
+  onClose,
+}: {
+  baseId: string;
+  canImport: boolean;
+  canPublish: boolean;
+  canExecute: boolean;
+  onClose: () => void;
+}) {
   const importer = useImportKnowledgeFaqs(baseId);
   const publisher = usePublishKnowledgeFaqBatch(baseId);
   const existing = useKnowledgeFaqs(baseId, {});
@@ -915,7 +927,7 @@ function FaqImportDialog({ baseId, onClose }: { baseId: string; onClose: () => v
       }}
     >
       <DialogShell
-        title="导入 FAQ"
+        title={canImport ? '导入 FAQ' : '批次发布 FAQ'}
         closeDisabled={pending}
         className="max-w-[720px] sm:max-w-[720px]"
       >
@@ -976,7 +988,10 @@ function FaqImportDialog({ baseId, onClose }: { baseId: string; onClose: () => v
                     重试读取任务状态
                   </Button>
                 ) : null}
-                {recoveryReadReady && !recoveredJobError && retryTargets.length > 0 ? (
+                {canExecute &&
+                recoveryReadReady &&
+                !recoveredJobError &&
+                retryTargets.length > 0 ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -988,7 +1003,7 @@ function FaqImportDialog({ baseId, onClose }: { baseId: string; onClose: () => v
                     {retryJob.isPending ? '重试中…' : '重试失败索引'}
                   </Button>
                 ) : null}
-                {recoveryReadReady && !recoveredJobError ? (
+                {hasPublishPermission && recoveryReadReady && !recoveredJobError ? (
                   <Button
                     type="button"
                     size="sm"
@@ -1039,125 +1054,131 @@ function FaqImportDialog({ baseId, onClose }: { baseId: string; onClose: () => v
               </div>
             </div>
           ) : null}
-          <FieldGroup className="grid gap-3 sm:grid-cols-2">
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="faq-import-format">格式</FieldLabel>
-              <Select
-                value={format}
-                disabled={locked}
-                onValueChange={(next) => {
-                  if (next === 'json' || next === 'csv' || next === 'xlsx') {
-                    setFormat(next);
+          {canImport ? (
+            <>
+              <FieldGroup className="grid gap-3 sm:grid-cols-2">
+                <Field className="gap-1.5">
+                  <FieldLabel htmlFor="faq-import-format">格式</FieldLabel>
+                  <Select
+                    value={format}
+                    disabled={locked}
+                    onValueChange={(next) => {
+                      if (next === 'json' || next === 'csv' || next === 'xlsx') {
+                        setFormat(next);
+                        resetPreview();
+                      }
+                    }}
+                    items={[
+                      { value: 'json', label: 'JSON' },
+                      { value: 'csv', label: 'CSV' },
+                      { value: 'xlsx', label: 'Excel (.xlsx)' },
+                    ]}
+                  >
+                    <SelectTrigger id="faq-import-format" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="json">JSON</SelectItem>
+                        <SelectItem value="csv">CSV</SelectItem>
+                        <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field className="gap-1.5">
+                  <FieldLabel htmlFor="faq-import-mode">导入方式</FieldLabel>
+                  <Select
+                    value={mode}
+                    disabled={locked}
+                    onValueChange={(next) => {
+                      if (next === 'append' || next === 'replace') {
+                        setMode(next);
+                        resetPreview();
+                      }
+                    }}
+                    items={[
+                      { value: 'append', label: '追加' },
+                      { value: 'replace', label: '替换全部' },
+                    ]}
+                  >
+                    <SelectTrigger id="faq-import-mode" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="append">追加</SelectItem>
+                        <SelectItem value="replace">替换全部</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {mode === 'replace' ? (
+                    existingComplete ? (
+                      <span className="text-2xs text-muted-foreground">
+                        旧 FAQ 会保留到整批发布成功；失败时线上不变。
+                      </span>
+                    ) : existing.isError ? (
+                      <span className="text-2xs text-danger">
+                        旧 FAQ 数量读取失败，暂不能替换。
+                      </span>
+                    ) : (
+                      <span className="text-2xs text-muted-foreground">正在读取旧 FAQ 数量…</span>
+                    )
+                  ) : null}
+                </Field>
+              </FieldGroup>
+              <Field className="gap-1.5">
+                <FieldLabel htmlFor="faq-import-content">内容</FieldLabel>
+                <Textarea
+                  id="faq-import-content"
+                  value={content}
+                  rows={8}
+                  disabled={locked}
+                  onChange={(event) => {
+                    setContent(event.target.value);
                     resetPreview();
+                  }}
+                  className="font-mono"
+                  placeholder={
+                    format === 'xlsx' ? 'Excel 文件会以 base64 读取；也可直接粘贴 base64' : ''
                   }
-                }}
-                items={[
-                  { value: 'json', label: 'JSON' },
-                  { value: 'csv', label: 'CSV' },
-                  { value: 'xlsx', label: 'Excel (.xlsx)' },
-                ]}
-              >
-                <SelectTrigger id="faq-import-format" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="json">JSON</SelectItem>
-                    <SelectItem value="csv">CSV</SelectItem>
-                    <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="faq-import-mode">导入方式</FieldLabel>
-              <Select
-                value={mode}
-                disabled={locked}
-                onValueChange={(next) => {
-                  if (next === 'append' || next === 'replace') {
-                    setMode(next);
-                    resetPreview();
-                  }
-                }}
-                items={[
-                  { value: 'append', label: '追加' },
-                  { value: 'replace', label: '替换全部' },
-                ]}
-              >
-                <SelectTrigger id="faq-import-mode" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="append">追加</SelectItem>
-                    <SelectItem value="replace">替换全部</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              {mode === 'replace' ? (
-                existingComplete ? (
-                  <span className="text-2xs text-muted-foreground">
-                    旧 FAQ 会保留到整批发布成功；失败时线上不变。
-                  </span>
-                ) : existing.isError ? (
-                  <span className="text-2xs text-danger">旧 FAQ 数量读取失败，暂不能替换。</span>
-                ) : (
-                  <span className="text-2xs text-muted-foreground">正在读取旧 FAQ 数量…</span>
-                )
-              ) : null}
-            </Field>
-          </FieldGroup>
-          <Field className="gap-1.5">
-            <FieldLabel htmlFor="faq-import-content">内容</FieldLabel>
-            <Textarea
-              id="faq-import-content"
-              value={content}
-              rows={8}
-              disabled={locked}
-              onChange={(event) => {
-                setContent(event.target.value);
-                resetPreview();
-              }}
-              className="font-mono"
-              placeholder={
-                format === 'xlsx' ? 'Excel 文件会以 base64 读取；也可直接粘贴 base64' : ''
-              }
-            />
-          </Field>
-          <Field className="gap-1.5">
-            <FieldLabel htmlFor="faq-import-file">或选择文件</FieldLabel>
-            <Input
-              id="faq-import-file"
-              type="file"
-              accept=".json,.csv,.xlsx,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              disabled={locked}
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                event.target.value = '';
-                if (!file) return;
-                const nextFormat = detectImportFormat(file.name);
-                try {
-                  const text = await importFileContent(file, nextFormat);
-                  setFormat(nextFormat);
-                  setContent(text);
-                  resetPreview();
-                } catch {
-                  setError('文件读取失败，请重新选择。');
-                }
-              }}
-            />
-          </Field>
+                />
+              </Field>
+              <Field className="gap-1.5">
+                <FieldLabel htmlFor="faq-import-file">或选择文件</FieldLabel>
+                <Input
+                  id="faq-import-file"
+                  type="file"
+                  accept=".json,.csv,.xlsx,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  disabled={locked}
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (!file) return;
+                    const nextFormat = detectImportFormat(file.name);
+                    try {
+                      const text = await importFileContent(file, nextFormat);
+                      setFormat(nextFormat);
+                      setContent(text);
+                      resetPreview();
+                    } catch {
+                      setError('文件读取失败，请重新选择。');
+                    }
+                  }}
+                />
+              </Field>
 
-          {preview ? (
-            <div className="flex flex-col gap-1 rounded-item border border-line px-3 py-2">
-              <span className="text-xs font-medium text-fg">预览 · 未写入</span>
-              <ImportCounts response={preview} />
-              <ImportResults response={preview} />
-              {preview.counts.failed > 0 ? (
-                <span className="text-xs text-danger">存在失败行，整批不会写入。</span>
+              {preview ? (
+                <div className="flex flex-col gap-1 rounded-item border border-line px-3 py-2">
+                  <span className="text-xs font-medium text-fg">预览 · 未写入</span>
+                  <ImportCounts response={preview} />
+                  <ImportResults response={preview} />
+                  {preview.counts.failed > 0 ? (
+                    <span className="text-xs text-danger">存在失败行，整批不会写入。</span>
+                  ) : null}
+                </div>
               ) : null}
-            </div>
+            </>
           ) : null}
 
           {committed ? (
@@ -1231,35 +1252,37 @@ function FaqImportDialog({ baseId, onClose }: { baseId: string; onClose: () => v
               {published ? '完成' : '取消'}
             </Button>
             {committed === null ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={runDryRun}
-                  disabled={pending || content.trim() === ''}
-                >
-                  {importer.isPending && !preview ? '预览中…' : '预览'}
-                </Button>
-                <Button
-                  type="button"
-                  disabled={
-                    pending ||
-                    content.trim() === '' ||
-                    preview === null ||
-                    preview.committed ||
-                    preview.counts.failed > 0 ||
-                    (mode === 'replace' && !existingComplete)
-                  }
-                  aria-busy={importer.isPending}
-                  onClick={() => {
-                    if (mode === 'replace') setConfirmReplace(true);
-                    else commit();
-                  }}
-                >
-                  {importer.isPending ? '导入中…' : '确认导入'}
-                </Button>
-              </>
-            ) : published ? null : (
+              canImport ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={runDryRun}
+                    disabled={pending || content.trim() === ''}
+                  >
+                    {importer.isPending && !preview ? '预览中…' : '预览'}
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={
+                      pending ||
+                      content.trim() === '' ||
+                      preview === null ||
+                      preview.committed ||
+                      preview.counts.failed > 0 ||
+                      (mode === 'replace' && !existingComplete)
+                    }
+                    aria-busy={importer.isPending}
+                    onClick={() => {
+                      if (mode === 'replace') setConfirmReplace(true);
+                      else commit();
+                    }}
+                  >
+                    {importer.isPending ? '导入中…' : '确认导入'}
+                  </Button>
+                </>
+              ) : null
+            ) : published || !hasPublishPermission ? null : (
               <Button
                 type="button"
                 disabled={!canPublish || publisher.isPending}
@@ -1386,7 +1409,13 @@ function FaqTest({ baseId }: { baseId: string }) {
 }
 
 /** FAQ 是 contentKind=faq 的文档：列表、编辑、发布与启停都复用文档版本语义。 */
-export function FaqTab({ baseId }: { baseId: string }) {
+export function FaqTab({
+  baseId,
+  caps,
+}: {
+  baseId: string;
+  caps: { content: boolean; publish: boolean; execute: boolean; import: boolean; export: boolean };
+}) {
   const [query, setQuery] = useState('');
   const settledQuery = useDebouncedValue(query.trim(), 300);
   const [status, setStatus] = useState('all');
@@ -1558,52 +1587,61 @@ export function FaqTab({ baseId }: { baseId: string }) {
             onChange={setQuery}
             className="min-w-40 flex-1 sm:w-56 sm:flex-none"
           />
-          <Button variant="outline" onClick={() => setImporting(true)}>
-            <Upload data-icon="inline-start" aria-hidden="true" /> 导入
-          </Button>
-          <Select
-            value={exportVersion}
-            onValueChange={(next) => {
-              if (next === 'published' || next === 'draft') setExportVersion(next);
-            }}
-            items={[
-              { value: 'published', label: '已发布' },
-              { value: 'draft', label: '草稿' },
-            ]}
-          >
-            <SelectTrigger aria-label="导出 FAQ 版本" className="w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="published">已发布</SelectItem>
-                <SelectItem value="draft">草稿</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            disabled={exporter.isPending}
-            aria-busy={exporter.isPending}
-            onClick={() => download('json')}
-          >
-            <Download data-icon="inline-start" aria-hidden="true" /> JSON
-          </Button>
-          <Button
-            variant="outline"
-            disabled={exporter.isPending}
-            aria-busy={exporter.isPending}
-            onClick={() => download('csv')}
-          >
-            <Download data-icon="inline-start" aria-hidden="true" /> CSV
-          </Button>
-          <Button onClick={() => setCreating(true)}>
-            <Plus data-icon="inline-start" aria-hidden="true" /> 新建 FAQ
-          </Button>
+          {caps.import || caps.publish ? (
+            <Button variant="outline" onClick={() => setImporting(true)}>
+              <Upload data-icon="inline-start" aria-hidden="true" />
+              {caps.import ? '导入' : '批次发布'}
+            </Button>
+          ) : null}
+          {caps.export ? (
+            <>
+              <Select
+                value={exportVersion}
+                onValueChange={(next) => {
+                  if (next === 'published' || next === 'draft') setExportVersion(next);
+                }}
+                items={[
+                  { value: 'published', label: '已发布' },
+                  { value: 'draft', label: '草稿' },
+                ]}
+              >
+                <SelectTrigger aria-label="导出 FAQ 版本" className="w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="published">已发布</SelectItem>
+                    <SelectItem value="draft">草稿</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                disabled={exporter.isPending}
+                aria-busy={exporter.isPending}
+                onClick={() => download('json')}
+              >
+                <Download data-icon="inline-start" aria-hidden="true" /> JSON
+              </Button>
+              <Button
+                variant="outline"
+                disabled={exporter.isPending}
+                aria-busy={exporter.isPending}
+                onClick={() => download('csv')}
+              >
+                <Download data-icon="inline-start" aria-hidden="true" /> CSV
+              </Button>
+            </>
+          ) : null}
+          {caps.content ? (
+            <Button onClick={() => setCreating(true)}>
+              <Plus data-icon="inline-start" aria-hidden="true" /> 新建 FAQ
+            </Button>
+          ) : null}
         </div>
       </PageToolbar>
 
-      {selectedItems.length > 0 ? (
+      {caps.content && selectedItems.length > 0 ? (
         <div
           role="toolbar"
           aria-label="FAQ 批量操作"
@@ -1650,12 +1688,16 @@ export function FaqTab({ baseId }: { baseId: string }) {
       {faqs.isSuccess && items.length === 0 ? (
         <EmptyState
           title={settledQuery === '' ? '还没有 FAQ' : '没有匹配的 FAQ'}
-          {...(settledQuery === '' ? { description: '新建或导入 FAQ，发布后可被专家召回。' } : {})}
+          {...(settledQuery === '' && caps.content
+            ? { description: '新建或导入 FAQ，发布后可被专家召回。' }
+            : {})}
           action={
             settledQuery === '' ? (
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                新建 FAQ
-              </Button>
+              caps.content ? (
+                <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                  新建 FAQ
+                </Button>
+              ) : undefined
             ) : (
               <Button variant="outline" size="sm" onClick={() => setQuery('')}>
                 清除搜索
@@ -1671,12 +1713,14 @@ export function FaqTab({ baseId }: { baseId: string }) {
             return (
               <li key={item.id} className="flex flex-col gap-1 border-b py-3 last:border-b-0">
                 <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <Checkbox
-                    className="self-center"
-                    checked={selectedIds.has(item.id)}
-                    onCheckedChange={() => toggleSelected(item.id)}
-                    aria-label={`选择 ${item.faq?.question ?? item.title}`}
-                  />
+                  {caps.content ? (
+                    <Checkbox
+                      className="self-center"
+                      checked={selectedIds.has(item.id)}
+                      onCheckedChange={() => toggleSelected(item.id)}
+                      aria-label={`选择 ${item.faq?.question ?? item.title}`}
+                    />
+                  ) : null}
                   <span className="min-w-0 truncate text-sm font-medium text-fg">
                     {item.faq?.question ?? item.title}
                   </span>
@@ -1706,60 +1750,71 @@ export function FaqTab({ baseId }: { baseId: string }) {
                   </p>
                 ) : null}
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={item.faq === null}
-                    onClick={() => setEditing(item.id)}
-                  >
-                    <Pencil data-icon="inline-start" aria-hidden="true" /> 编辑
-                  </Button>
+                  {caps.content ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={item.faq === null}
+                      onClick={() => setEditing(item.id)}
+                    >
+                      <Pencil data-icon="inline-start" aria-hidden="true" /> 编辑
+                    </Button>
+                  ) : null}
                   <Button variant="ghost" size="sm" onClick={() => setHistorying(item)}>
                     历史
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => setPublishing(item)}
-                  >
-                    发布草稿
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={
-                      pending || (item.disabledReason !== null && item.disabledReason !== 'manual')
-                    }
-                    title={
-                      item.disabledReason !== null && item.disabledReason !== 'manual'
-                        ? '来源失效导致的停用需先恢复来源'
-                        : undefined
-                    }
-                    onClick={() =>
-                      setStatusMutation.mutate(
-                        {
-                          documentId: item.id,
-                          enabled: item.status === 'disabled',
-                        },
-                        {
-                          onSuccess: () =>
-                            toastSuccess(item.status === 'disabled' ? 'FAQ 已启用' : 'FAQ 已停用'),
-                          onError: toastError,
-                        },
-                      )
-                    }
-                  >
-                    {item.status === 'disabled' ? '启用' : '停用'}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => setDeleting(item)}
-                  >
-                    <Trash2 data-icon="inline-start" aria-hidden="true" /> 删除
-                  </Button>
+                  {caps.publish ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => setPublishing(item)}
+                    >
+                      发布草稿
+                    </Button>
+                  ) : null}
+                  {caps.content ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={
+                          pending ||
+                          (item.disabledReason !== null && item.disabledReason !== 'manual')
+                        }
+                        title={
+                          item.disabledReason !== null && item.disabledReason !== 'manual'
+                            ? '来源失效导致的停用需先恢复来源'
+                            : undefined
+                        }
+                        onClick={() =>
+                          setStatusMutation.mutate(
+                            {
+                              documentId: item.id,
+                              enabled: item.status === 'disabled',
+                            },
+                            {
+                              onSuccess: () =>
+                                toastSuccess(
+                                  item.status === 'disabled' ? 'FAQ 已启用' : 'FAQ 已停用',
+                                ),
+                              onError: toastError,
+                            },
+                          )
+                        }
+                      >
+                        {item.status === 'disabled' ? '启用' : '停用'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={pending}
+                        onClick={() => setDeleting(item)}
+                      >
+                        <Trash2 data-icon="inline-start" aria-hidden="true" /> 删除
+                      </Button>
+                    </>
+                  ) : null}
                 </div>
               </li>
             );
@@ -1779,7 +1834,7 @@ export function FaqTab({ baseId }: { baseId: string }) {
         </Button>
       ) : null}
 
-      <FaqTest baseId={baseId} />
+      {caps.execute ? <FaqTest baseId={baseId} /> : null}
 
       {creating ? (
         <FaqDialog
@@ -1802,13 +1857,27 @@ export function FaqTab({ baseId }: { baseId: string }) {
         <FaqPublishDialog
           baseId={baseId}
           documentId={publishing.id}
+          canExecute={caps.execute}
           onClose={() => setPublishing(null)}
         />
       ) : null}
       {historying ? (
-        <FaqHistoryDialog baseId={baseId} item={historying} onClose={() => setHistorying(null)} />
+        <FaqHistoryDialog
+          baseId={baseId}
+          canPublish={caps.publish}
+          item={historying}
+          onClose={() => setHistorying(null)}
+        />
       ) : null}
-      {importing ? <FaqImportDialog baseId={baseId} onClose={() => setImporting(false)} /> : null}
+      {importing ? (
+        <FaqImportDialog
+          baseId={baseId}
+          canImport={caps.import}
+          canPublish={caps.publish}
+          canExecute={caps.execute}
+          onClose={() => setImporting(false)}
+        />
+      ) : null}
       {batchDeleting ? (
         <ConfirmDialog
           open
@@ -1843,10 +1912,12 @@ export function FaqTab({ baseId }: { baseId: string }) {
 /** 历史版本以版本自身的 faq 正文为准，不用当前详情兜底。 */
 function FaqHistoryDialog({
   baseId,
+  canPublish,
   item,
   onClose,
 }: {
   baseId: string;
+  canPublish: boolean;
   item: KnowledgeFaqSummary;
   onClose: () => void;
 }) {
@@ -1920,7 +1991,7 @@ function FaqHistoryDialog({
                 ))}
               </ul>
             )}
-            {versions.versions.length === 0 ? null : (
+            {!canPublish || versions.versions.length === 0 ? null : (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">
                   {blockedImport
@@ -1977,10 +2048,12 @@ function FaqHistoryDialog({
 function FaqPublishDialog({
   baseId,
   documentId,
+  canExecute,
   onClose,
 }: {
   baseId: string;
   documentId: string;
+  canExecute: boolean;
   onClose: () => void;
 }) {
   const detail = useKnowledgeFaq(documentId);
@@ -2054,7 +2127,7 @@ function FaqPublishDialog({
               <Button variant="outline" onClick={onClose} disabled={publish.isPending}>
                 取消
               </Button>
-              {indexFailed && jobId !== null ? (
+              {canExecute && indexFailed && jobId !== null ? (
                 <Button
                   variant="outline"
                   disabled={retry.isPending}

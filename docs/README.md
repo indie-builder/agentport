@@ -6,6 +6,7 @@
 
 | 文档 | 用途 |
 |---|---|
+| [`../CLAUDE.md`](../CLAUDE.md) | 根规则与模块规则入口（各包专属规则见其「模块规则」表） |
 | [DEV-WORKFLOW.md](DEV-WORKFLOW.md) | **研发流程规范**：文档体系、任务生命周期、任务记录模板、踩坑流程、门禁策略 |
 | [PITFALLS.md](PITFALLS.md) | 跨任务踩坑汇总（现象 → 原因 → 规避），开工前/报错时读 |
 | [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) | 设计系统：颜色、字号、间距、组件、焦点与边框、信息表达规约 |
@@ -22,6 +23,9 @@
 | [tasks/knowledge-review-findings.md](tasks/knowledge-review-findings.md) | 知识实现独立审查发现与整改范围 |
 | [tasks/knowledge-implementation.md](tasks/knowledge-implementation.md) | 知识实施进度、测试与部署配置记录 |
 | [tasks/knowledge-implementation-contract.md](tasks/knowledge-implementation-contract.md) | 知识实现契约：表、接口、模块与执行包 |
+| [tasks/memory-upgrade.md](tasks/memory-upgrade.md) | 记忆主题升级任务记录（验证及独立评审通过，本任务 PR 交付，合并状态以 GitHub 为准） |
+| [tasks/memory-upgrade-contract.md](tasks/memory-upgrade-contract.md) | 记忆主题升级执行契约：目标、快照、账本与验收 |
+| [tasks/memory-upgrade-research.md](tasks/memory-upgrade-research.md) | 腾讯记忆能力研究与本仓现状映射（证据报告） |
 | [tasks/runtime-environment-config.md](tasks/runtime-environment-config.md) | 运行环境能力：命名环境、构建版本、线上指针与专家绑定 |
 | [tasks/runtime-environment-contract.md](tasks/runtime-environment-contract.md) | 运行环境 DB/shared 共享契约与方法签名 |
 | [tasks/runtime-environment-probe-contract.md](tasks/runtime-environment-probe-contract.md) | stdio 试连的环境身份、jsonb 字段与读写行为 |

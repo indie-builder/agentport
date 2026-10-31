@@ -3,7 +3,7 @@ import {
   type ScheduleTriggerJob,
   scheduleTriggerArgs,
 } from '@agentport/shared';
-import { getNextMillis, Queue } from 'bullmq';
+import { Queue } from 'bullmq';
 
 let queue: Queue<ScheduleTriggerJob> | undefined;
 
@@ -18,15 +18,6 @@ export function getScheduleQueue(redisUrl: string): Queue<ScheduleTriggerJob> {
     );
   }
   return queue;
-}
-
-/** 用 BullMQ 自己的 cron 解析判定表达式是否可调度；解析异常与 undefined 都算非法。 */
-export function isSchedulableCron(cron: string): boolean {
-  try {
-    return getNextMillis(Date.now(), { pattern: cron, tz: 'UTC' }) !== undefined;
-  } catch {
-    return false;
-  }
 }
 
 export async function upsertScheduler(

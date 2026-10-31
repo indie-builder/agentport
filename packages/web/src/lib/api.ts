@@ -1,11 +1,17 @@
 import type {
+  AccessScope,
+  Account,
   Agent,
+  AgentAccess,
   AgentInput,
+  AgentMember,
   AgentPatch,
   ApiTool,
   ApiToolInput,
   Attention,
+  AuthMe,
   ConnectorCatalogItem,
+  ConversationBranch,
   ConversationSearchResponse,
   ConversationSummary,
   CreateMemoryReviewInput,
@@ -22,6 +28,7 @@ import type {
   KnowledgeFaqImportResponse,
   KnowledgeJob,
   KnowledgeLocator,
+  KnowledgeModelProfileSelection,
   KnowledgeSearchDiagnostics,
   KnowledgeSearchDirectAnswer,
   KnowledgeSearchHit,
@@ -49,7 +56,11 @@ import type {
   OutputList,
   OutputShare,
   OutputStyle,
+  Overview,
+  OverviewAgentRow,
   OverviewTimeseriesPoint,
+  PermissionDefinition,
+  PermissionGrant,
   PersonalMemory,
   Plugin,
   PluginInput,
@@ -58,8 +69,16 @@ import type {
   PublicOutputShare,
   PublicQuestionResponse,
   PublicRunQuestion,
-  ResolvedRuntimeEnvironment,
+  RecentRun,
+  Role,
+  RoleMatrix,
+  RoleMatrixInput,
   Rule,
+  RunDetail,
+  RunList,
+  RunListItem,
+  RunStatus,
+  RunStep,
   RuntimeEnvironment,
   RuntimeEnvironmentInput,
   RuntimeEnvironmentPatch,
@@ -133,10 +152,89 @@ export interface McpImportResult {
   warnings: string[];
 }
 
-export interface Me {
-  authenticated: boolean;
-  username?: string;
+export type Me = AuthMe;
+
+/** 列表只拿业务摘要；role/slug 仅在服务端摘要附带时展示，不作为授权依据。 */
+/** 绑定选择器只拿摘要；不含资源配置、密钥或正文。 */
+export type AgentOptions = {
+  servers: Array<{ id: string; name: string; kind: string }>;
+  skills: Array<{ id: string; slug: string; name: string; description: string }>;
+  plugins: Array<{ id: string; slug: string; name: string }>;
+  runtimeEnvironments: Array<{ id: string; name: string; hasOnlineVersion: boolean }>;
+};
+
+export type AgentSummary = Pick<Agent, 'id' | 'name' | 'description' | 'enabled'> & {
+  createdBy: string;
+  ownerBusinessId: string;
+  role?: string;
+  slug?: string;
+  parentId?: string | null;
+  createdAt?: string;
+  /** 以下字段仅在服务端摘要附带时可用；不作为授权或正文读取的依据。 */
+  uiFormat?: 'markdown' | 'openui';
+  serverIds?: string[];
+  skillIds?: string[];
+  model?: string;
+  maxBudgetUsd?: number;
+  timeoutMs?: number;
+};
+
+export interface AccountPage {
+  items: Account[];
+  total: number;
 }
+
+export interface IdentityCandidate {
+  businessId: string;
+  name: string;
+  accountActive: boolean;
+}
+
+export interface IdentityPage {
+  items: IdentityCandidate[];
+  total: number;
+}
+
+export interface PermissionCatalog {
+  permissions: PermissionDefinition[];
+  scopes: { id: AccessScope; label: string }[];
+}
+
+export interface AgentMemberList {
+  ownerBusinessId: string;
+  members: AgentMember[];
+}
+
+export interface CreateAccountInput {
+  businessId: string;
+  username: string;
+  name: string;
+  password: string;
+  /** 历史业务 ID 必须显式恢复；普通新账户传 false。 */
+  restore: boolean;
+  roleIds?: string[];
+}
+
+export type {
+  AccessScope,
+  Account,
+  AgentAccess,
+  AgentMember,
+  ConversationBranch,
+  Overview,
+  OverviewAgentRow,
+  PermissionDefinition,
+  PermissionGrant,
+  RecentRun,
+  Role,
+  RoleMatrix,
+  RoleMatrixInput,
+  RunDetail,
+  RunList,
+  RunListItem,
+  RunStatus,
+  RunStep,
+};
 
 /** 个人偏好保存结果：多返回本次写入的变更 id，供页面提示。 */
 export interface PersonalMemoryWriteResult extends PersonalMemory {
@@ -184,56 +282,6 @@ export interface AgentVersionDetail {
   createdAt: string;
 }
 
-export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout';
-
-export interface RecentRun {
-  id: string;
-  agentId: string;
-  agentName: string | null;
-  status: RunStatus;
-  startedAt: string | null;
-  endedAt: string | null;
-  costUsd: string | null;
-  turns: number | null;
-  latencyMs: number | null;
-  error: string | null;
-}
-
-export interface RunListItem extends RecentRun {
-  inputTokens: number | null;
-  outputTokens: number | null;
-  /** 入队时锁定的智能体配置版本号；未知/旧数据为 null。 */
-  agentVersion?: number | null;
-}
-
-export type RunStep =
-  | { kind: 'user'; at: string; text: string }
-  | { kind: 'assistant'; at: string; text: string }
-  | {
-      kind: 'tool';
-      at: string;
-      name: string | null;
-      toolUseId: string | null;
-      content: unknown;
-      /** 调用结果；与 content（参数）分开。 */
-      result?: unknown;
-      parentToolUseId: string | null;
-      /** 原生提问的最终展示快照；只有提问工具行才带。 */
-      question?: PublicRunQuestion;
-    };
-
-export interface RunDetail {
-  run: RunListItem & {
-    conversationId: string;
-    sessionId: string | null;
-    sandboxId: string | null;
-    /** 容器实际使用的身份；尚未创建容器时为 null。 */
-    runtimeEnvironment: ResolvedRuntimeEnvironment | null;
-  };
-  steps: RunStep[];
-  conversation: { id: string; agentId: string; title: string };
-}
-
 /** 结构化审批请求；approvedAt 非空表示已批准，waiting 由服务端计算。 */
 export interface ApprovalRequest {
   id: string;
@@ -250,45 +298,10 @@ export interface ApprovalRequestList {
   items: ApprovalRequest[];
 }
 
-export interface RunList {
-  items: RunListItem[];
-}
-
 export interface RunQuery {
   agentId?: string;
   status?: RunStatus;
   limit?: number;
-}
-
-export interface OverviewAgentRow {
-  agentId: string;
-  name: string;
-  slug: string;
-  createdAt: string;
-  enabled: boolean;
-  lastRunStartTime: string | null;
-  runCount: number;
-  totalCost: number;
-  errorRate: number;
-  latencyP50: number | null;
-  latencyP99: number | null;
-  totalTokens: number;
-}
-
-export interface Overview {
-  window: { days: number; since: string };
-  counts: {
-    servers: number;
-    agents: number;
-    runs: number;
-    running: number;
-    failed: number;
-    tokens: number;
-    costUsd: number;
-    avgLatencyMs: number | null;
-  };
-  agents: OverviewAgentRow[];
-  recent: RecentRun[];
 }
 
 export type AuditStatus = 'ok' | 'error' | 'denied';
@@ -900,7 +913,10 @@ async function publicShareRequest<T>(
 }
 
 export const api = {
-  me: (): Promise<Me> => request<Me>('/auth/me'),
+  me: (): Promise<AuthMe> => request<AuthMe>('/auth/me'),
+  /** 改密成功后服务端撤销全部会话，调用方必须重新登录。 */
+  changePassword: (currentPassword: string, newPassword: string): Promise<{ ok: true }> =>
+    request('/auth/change-password', 'POST', { currentPassword, newPassword }),
   /** 指标端点不在 /api 下；不可用时返回 null，页面显示「不可用」。 */
   healthMetrics: async (): Promise<HealthMetrics | null> => {
     const probe = await probeHealth<HealthMetrics>('/health/metrics');
@@ -911,6 +927,50 @@ export const api = {
   login: (username: string, password: string): Promise<{ ok: boolean }> =>
     request('/auth/login', 'POST', { username, password }),
   logout: (): Promise<{ ok: boolean }> => request('/auth/logout', 'POST'),
+
+  accounts: (
+    query: { q?: string; limit?: number; offset?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<AccountPage> => {
+    const params = new URLSearchParams();
+    if (query.q) params.set('q', query.q);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.offset !== undefined) params.set('offset', String(query.offset));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/accounts${search}`, 'GET', undefined, signal);
+  },
+  createAccount: (input: CreateAccountInput): Promise<Account> =>
+    request('/accounts', 'POST', input),
+  updateAccount: (
+    businessId: string,
+    input: { username?: string; name?: string },
+  ): Promise<Account> => request(`/accounts/${encodeURIComponent(businessId)}`, 'PATCH', input),
+  setAccountStatus: (businessId: string, status: Account['status']): Promise<Account> =>
+    request(`/accounts/${encodeURIComponent(businessId)}/status`, 'PATCH', { status }),
+  resetAccountPassword: (businessId: string, password: string): Promise<{ ok: true }> =>
+    request(`/accounts/${encodeURIComponent(businessId)}/password`, 'POST', {
+      password,
+    }),
+  deleteAccount: (businessId: string): Promise<{ ok: true }> =>
+    request(`/accounts/${encodeURIComponent(businessId)}`, 'DELETE'),
+  setAccountRoles: (businessId: string, roleIds: string[]): Promise<{ ok: true }> =>
+    request(`/accounts/${encodeURIComponent(businessId)}/roles`, 'PUT', { roleIds }),
+
+  roles: (signal?: AbortSignal): Promise<RoleMatrix> => request('/roles', 'GET', undefined, signal),
+  permissions: (signal?: AbortSignal): Promise<PermissionCatalog> =>
+    request('/permissions', 'GET', undefined, signal),
+  saveRoles: (input: RoleMatrixInput): Promise<RoleMatrix> => request('/roles', 'PUT', input),
+
+  identities: (
+    query: { q?: string; limit?: number; offset?: number; agentId: string },
+    signal?: AbortSignal,
+  ): Promise<IdentityPage> => {
+    const params = new URLSearchParams({ agentId: query.agentId });
+    if (query.q) params.set('q', query.q);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.offset !== undefined) params.set('offset', String(query.offset));
+    return request(`/identities?${params.toString()}`, 'GET', undefined, signal);
+  },
 
   overview: (): Promise<Overview> => request('/overview'),
   overviewTimeseries: (days = 14): Promise<OverviewTimeseriesPoint[]> =>
@@ -991,8 +1051,23 @@ export const api = {
   ): Promise<{ serverId: string; toolName: string; approvedAt: string; waiting: boolean }> =>
     request(`/runs/${runId}/approve`, 'POST', { serverId, toolName }),
 
-  agents: (): Promise<Agent[]> => request('/agents'),
+  agents: (): Promise<AgentSummary[]> => request('/agents'),
+  agent: (id: string, signal?: AbortSignal): Promise<Agent> =>
+    request(`/agents/${id}`, 'GET', undefined, signal),
   createAgent: (input: AgentInput): Promise<Agent> => request('/agents', 'POST', input),
+  agentAccess: (id: string): Promise<AgentAccess> => request(`/agents/${id}/access`),
+  agentOptions: (): Promise<AgentOptions> => request('/agents/options'),
+  agentMembers: (id: string): Promise<AgentMemberList> => request(`/agents/${id}/members`),
+  setAgentMember: (
+    id: string,
+    businessId: string,
+    input: { canUse: boolean; canMaintain: boolean },
+  ): Promise<AgentMember> =>
+    request(`/agents/${id}/members/${encodeURIComponent(businessId)}`, 'PUT', input),
+  deleteAgentMember: (id: string, businessId: string): Promise<{ ok: true }> =>
+    request(`/agents/${id}/members/${encodeURIComponent(businessId)}`, 'DELETE'),
+  transferAgent: (id: string, ownerBusinessId: string): Promise<Agent> =>
+    request(`/agents/${id}/transfer`, 'POST', { ownerBusinessId }),
   updateAgent: (id: string, input: AgentPatch, expectedUpdatedAt?: string): Promise<Agent> =>
     request(`/agents/${id}`, 'PATCH', {
       ...input,
@@ -1004,8 +1079,14 @@ export const api = {
   agentFiles: (id: string): Promise<AgentFiles> => request(`/agents/${id}/files`),
   agentVersions: (id: string): Promise<AgentVersionSummary[]> => request(`/agents/${id}/versions`),
   agentMemory: (id: string): Promise<MemoryFileList> => request(`/agents/${id}/memory`),
-  agentMemoryVersions: (id: string, signal?: AbortSignal): Promise<MemoryChangeList> =>
-    request(`/agents/${id}/memory/MEMORY.md/versions`, 'GET', undefined, signal),
+  /** 原生记忆目录 ZIP；只含 MEMORY.md 与主题 Markdown。 */
+  agentMemoryDownloadUrl: (id: string): string => `/api/agents/${id}/memory/download`,
+  agentMemoryVersions: (
+    id: string,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<MemoryChangeList> =>
+    request(`/agents/${id}/memory/${encodeURIComponent(name)}/versions`, 'GET', undefined, signal),
   agentRuleVersions: (id: string, slug: string, signal?: AbortSignal): Promise<MemoryChangeList> =>
     request(`/agents/${id}/rules/${encodeURIComponent(slug)}/versions`, 'GET', undefined, signal),
   agentRules: (id: string): Promise<Rule[]> => request(`/agents/${id}/rules`),
@@ -1239,7 +1320,7 @@ export const api = {
     publicShareRequest(id, token, '/content', 'json'),
   publicOutputShareDownload: (id: string, token: string): Promise<Blob> =>
     publicShareRequest(id, token, '/download', 'blob'),
-  branchConversation: (id: string, fromMessageId?: string): Promise<{ id: string }> =>
+  branchConversation: (id: string, fromMessageId?: string): Promise<ConversationBranch> =>
     request(`/conversations/${id}/branch`, 'POST', {
       ...(fromMessageId === undefined ? {} : { fromMessageId }),
     }),
@@ -1337,8 +1418,6 @@ export const api = {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return request(`/memory-reviews${search}`, 'GET', undefined, signal);
   },
-  memoryReview: (runId: string, signal?: AbortSignal): Promise<MemoryReview> =>
-    request(`/memory-reviews/${encodeURIComponent(runId)}`, 'GET', undefined, signal),
   /** 幂等键随请求头提交；同一键重复提交返回同一个 runId。 */
   createMemoryReview: (
     input: CreateMemoryReviewInput,
@@ -1618,8 +1697,17 @@ export const api = {
   ): Promise<KnowledgeRetrievalEvaluationReport> =>
     request(`/knowledge/bases/${encodeURIComponent(baseId)}/retrieval-evaluations`, 'POST', input),
 
-  knowledgeJobs: (baseId: string): Promise<KnowledgePage<KnowledgeJob>> =>
-    request(`/knowledge/jobs?baseId=${encodeURIComponent(baseId)}`),
+  knowledgeJobs: (
+    baseId: string,
+    options: { documentId?: string; cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<KnowledgePage<KnowledgeJob>> => {
+    const params = new URLSearchParams({ baseId });
+    if (options.documentId) params.set('documentId', options.documentId);
+    if (options.cursor) params.set('cursor', options.cursor);
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    return request(`/knowledge/jobs?${params.toString()}`, 'GET', undefined, signal);
+  },
   knowledgeJob: (jobId: string): Promise<KnowledgeJob> => request(`/knowledge/jobs/${jobId}`),
   retryKnowledgeJob: (jobId: string): Promise<{ jobId: string }> =>
     request(`/knowledge/jobs/${jobId}/retry`, 'POST'),
@@ -1822,6 +1910,8 @@ export const api = {
 
   knowledgeModelProfiles: (): Promise<KnowledgeModelProfile[]> =>
     request('/knowledge/model-profiles'),
+  knowledgeModelProfileSelections: (): Promise<KnowledgeModelProfileSelection[]> =>
+    request('/knowledge/model-profiles?view=selection'),
   updateKnowledgeModelProfile: (
     id: string,
     patch: {

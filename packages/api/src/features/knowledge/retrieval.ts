@@ -11,7 +11,6 @@ import type {
   KnowledgeFaq,
   KnowledgeFaqHit,
   KnowledgeImageRef,
-  KnowledgeJobPayload,
   KnowledgeLocator,
   KnowledgeSearchDiagnostics,
   KnowledgeSearchDirectAnswer,
@@ -755,9 +754,3 @@ export async function searchKnowledge(
   }
   return result;
 }
-
-export async function createJob(db: Db, input: repo.knowledge.CreateJobInput) {
-  return repo.knowledge.createJob(db, input);
-}
-
-export type { KnowledgeJobPayload };

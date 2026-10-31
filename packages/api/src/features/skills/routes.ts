@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf } from '../access.js';
 import { rethrowConflict, toApi } from './api.js';
 
 const repo = skillRepo.skills;
@@ -49,21 +50,20 @@ function notFound(reply: FastifyReply) {
 
 export function registerSkillRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
-  app.get('/api/skills', auth, async () => {
+  app.get('/api/skills', { config: { access: { kind: 'permission', permissionId: 'skills.read' } } }, async () => {
     const rows = await repo.listSkills(app.db);
     return rows.map((row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }));
   });
 
   app.post(
     '/api/skills',
-    { ...auth, schema: { body: skillInputSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'skills.create' } }, schema: { body: skillInputSchema } },
     async (request, reply) => {
       try {
         const row = await repo.createSkill(app.db, request.body);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'skill.created',
           target: row.id,
           input: request.body,
@@ -80,13 +80,13 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
   // 导入只接受官方 SKILL.md；slug 即 frontmatter 的 name，冲突与手动创建一样返回 409。
   app.post(
     '/api/skills/import',
-    { ...auth, schema: { body: importSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'skills.import' } }, schema: { body: importSchema } },
     async (request, reply) => {
       const { skill, warnings } = request.body;
       try {
         const row = await repo.createSkill(app.db, skill);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'skill.imported',
           target: row.id,
           input: { slug: row.slug },
@@ -100,7 +100,7 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/skills/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
+  app.get('/api/skills/:id', { config: { access: { kind: 'permission', permissionId: 'skills.read' } }, schema: { params: idParams } }, async (request, reply) => {
     const row = await repo.getSkill(app.db, request.params.id);
     return row ? toApi(row) : notFound(reply);
   });
@@ -108,7 +108,7 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
   // 下载内容必须与 worker 落盘的 SKILL.md 一致，因此复用同一个渲染函数。
   app.get(
     '/api/skills/:id/file',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'skills.read' } }, schema: { params: idParams } },
     async (request, reply) => {
       const row = await repo.getSkill(app.db, request.params.id);
       if (!row) return notFound(reply);
@@ -121,7 +121,10 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/skills/:id',
-    { ...auth, schema: { params: idParams, body: patchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.update' } },
+      schema: { params: idParams, body: patchSchema },
+    },
     async (request, reply) => {
       const input = request.body;
       const patch: Partial<SkillWrite> = {
@@ -143,7 +146,7 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
         );
         if (!row) return notFound(reply);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'skill.updated',
           target: row.id,
           input: patch,
@@ -159,12 +162,12 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/skills/:id',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'skills.delete' } }, schema: { params: idParams } },
     async (request, reply) => {
       const ok = await repo.deleteSkill(app.db, request.params.id);
       if (!ok) return notFound(reply);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'skill.deleted',
         target: request.params.id,
         status: 'ok',
@@ -177,7 +180,7 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
   // 技能支持资源文件（官方 SKILL.md 目录里的 scripts/、references/ 等）。
   app.get(
     '/api/skills/:id/files',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'skills.files.read' } }, schema: { params: idParams } },
     async (request, reply) => {
       const skill = await repo.getSkill(app.db, request.params.id);
       if (!skill) return notFound(reply);
@@ -194,7 +197,7 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
   app.put(
     '/api/skills/:id/files/*',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'skills.files.write' } },
       schema: { params: skillFileParams, body: skillFileInputSchema.pick({ content: true }) },
     },
     async (request, reply) => {
@@ -203,7 +206,7 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
       const path = request.params['*'];
       const row = await filesRepo.upsertSkillFile(app.db, skill.id, path, request.body.content);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'skill.file.written',
         target: skill.id,
         input: { path },
@@ -221,14 +224,17 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/skills/:id/files/*',
-    { ...auth, schema: { params: skillFileParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.files.write' } },
+      schema: { params: skillFileParams },
+    },
     async (request, reply) => {
       const skill = await repo.getSkill(app.db, request.params.id);
       if (!skill) return notFound(reply);
       const ok = await filesRepo.deleteSkillFile(app.db, skill.id, request.params['*']);
       if (!ok) return notFound(reply);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'skill.file.deleted',
         target: skill.id,
         input: { path: request.params['*'] },

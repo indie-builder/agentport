@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf } from '../access.js';
 import { toApi } from '../skills/api.js';
 import { installFromMarket } from './install.js';
 import { fetchLeaderboard } from './leaderboard.js';
@@ -19,11 +20,13 @@ const listQuerySchema = z.object({
 
 export function registerMarketRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   app.get(
     '/api/market/skills',
-    { ...auth, schema: { querystring: listQuerySchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'market.read' } },
+      schema: { querystring: listQuerySchema },
+    },
     async (request) => {
       const { view, q } = request.query;
       if (q === undefined) return fetchLeaderboard(view ?? 'all-time');
@@ -35,7 +38,10 @@ export function registerMarketRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/market/skills/install',
-    { ...auth, schema: { body: marketInstallInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'market.install' } },
+      schema: { body: marketInstallInputSchema },
+    },
     async (request, reply) => {
       const input = request.body;
       if (await skills.getSkillBySourceId(app.db, input.id)) {
@@ -50,7 +56,7 @@ export function registerMarketRoutes(rawApp: FastifyInstance): void {
           installed.files,
         );
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'skill.installed',
           target: row.id,
           input: { sourceId: input.id },

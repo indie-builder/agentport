@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { createDb, newId, schema } from '@agentport/db';
+import { basename, join } from 'node:path';
+import { personalMemoryDir } from '@agentport/core';
+import { createDb, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { projectPersonalMemory } from '../src/personal-memory.js';
@@ -19,7 +20,8 @@ async function probeDatabase(): Promise<boolean> {
 }
 
 const ready = await probeDatabase();
-const userId = newId('user');
+const businessId = 'personal.projection';
+const otherBusinessId = 'personal.projection.other';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -27,36 +29,96 @@ function sleep(ms: number): Promise<void> {
 
 beforeAll(async () => {
   if (!ready) return;
-  await db.insert(schema.authUsers).values({
-    id: userId,
-    name: 'personal projection',
-    email: `personal-projection-${userId.slice(4)}@test.local`,
-  });
+  await db.insert(schema.userPreferences).values({ businessId, content: '初始偏好', revision: 1 });
 });
 
 afterAll(async () => {
-  if (ready) await db.delete(schema.authUsers).where(eq(schema.authUsers.id, userId));
+  if (ready) {
+    await db
+      .delete(schema.userPreferences)
+      .where(eq(schema.userPreferences.businessId, businessId));
+    await db
+      .delete(schema.userPreferences)
+      .where(eq(schema.userPreferences.businessId, otherBusinessId));
+  }
   await dbHandle.pool.end();
 });
 
 describe.skipIf(!ready)('projectPersonalMemory', () => {
-  it('rewrites the projection with private permissions', async () => {
+  it('rewrites the projection under the sha256 directory with private permissions', async () => {
     const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
     try {
-      await db.insert(schema.userPreferences).values({
-        userId,
-        content: '恢复后的偏好',
-        revision: 4,
-      });
-      await mkdir(join(root, '_user'), { recursive: true });
-      await writeFile(join(root, '_user', 'CLAUDE.md'), 'stale');
+      await db
+        .update(schema.userPreferences)
+        .set({ content: '恢复后的偏好', revision: 4 })
+        .where(eq(schema.userPreferences.businessId, businessId));
+      const dir = personalMemoryDir(root, businessId);
+      expect(dir.startsWith(join(root, '_users'))).toBe(true);
+      expect(basename(dir)).toMatch(/^[0-9a-f]{64}$/);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'CLAUDE.md'), 'stale');
 
-      await projectPersonalMemory(db, dbHandle.pool, root, userId);
+      await projectPersonalMemory(db, dbHandle.pool, root, businessId);
 
-      const file = join(root, '_user', 'CLAUDE.md');
+      const file = join(dir, 'CLAUDE.md');
       expect(await readFile(file, 'utf8')).toBe('恢复后的偏好');
       expect((await stat(file)).mode & 0o777).toBe(0o600);
-      expect((await stat(join(root, '_user'))).mode & 0o777).toBe(0o700);
+      expect((await stat(dir)).mode & 0o777).toBe(0o700);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('projects a 160-character Unicode business ID without exceeding filesystem name limits', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
+    const longBusinessId = '人'.repeat(160);
+    try {
+      await db
+        .insert(schema.userPreferences)
+        .values({ businessId: longBusinessId, content: '长身份偏好' })
+        .onConflictDoUpdate({
+          target: schema.userPreferences.businessId,
+          set: { content: '长身份偏好', revision: 1 },
+        });
+
+      await projectPersonalMemory(db, dbHandle.pool, root, longBusinessId);
+
+      const dir = personalMemoryDir(root, longBusinessId);
+      expect(basename(dir)).toHaveLength(64);
+      expect(await readFile(join(dir, 'CLAUDE.md'), 'utf8')).toBe('长身份偏好');
+    } finally {
+      if (ready) {
+        await db
+          .delete(schema.userPreferences)
+          .where(eq(schema.userPreferences.businessId, longBusinessId));
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps two business users in separate projections', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
+    try {
+      await db
+        .update(schema.userPreferences)
+        .set({ content: '第一个人的偏好', revision: 1 })
+        .where(eq(schema.userPreferences.businessId, businessId));
+      await db
+        .insert(schema.userPreferences)
+        .values({ businessId: otherBusinessId, content: '另一个人的偏好', revision: 1 })
+        .onConflictDoUpdate({
+          target: schema.userPreferences.businessId,
+          set: { content: '另一个人的偏好', revision: 1 },
+        });
+
+      await projectPersonalMemory(db, dbHandle.pool, root, businessId);
+      await projectPersonalMemory(db, dbHandle.pool, root, otherBusinessId);
+
+      const first = personalMemoryDir(root, businessId);
+      const second = personalMemoryDir(root, otherBusinessId);
+      expect(first).not.toBe(second);
+      expect(await readFile(join(first, 'CLAUDE.md'), 'utf8')).toBe('第一个人的偏好');
+      expect(await readFile(join(second, 'CLAUDE.md'), 'utf8')).toBe('另一个人的偏好');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -65,12 +127,13 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
   it('refuses a symlinked projection and leaves the target untouched', async () => {
     const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
     try {
+      const dir = personalMemoryDir(root, businessId);
       const outside = join(root, 'outside.md');
       await writeFile(outside, 'do not touch');
-      await mkdir(join(root, '_user'), { recursive: true });
-      await symlink(outside, join(root, '_user', 'CLAUDE.md'));
+      await mkdir(dir, { recursive: true });
+      await symlink(outside, join(dir, 'CLAUDE.md'));
 
-      await expect(projectPersonalMemory(db, dbHandle.pool, root, userId)).rejects.toThrow(
+      await expect(projectPersonalMemory(db, dbHandle.pool, root, businessId)).rejects.toThrow(
         'without links',
       );
       expect(await readFile(outside, 'utf8')).toBe('do not touch');
@@ -79,17 +142,17 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
     }
   });
 
-  it('waits on the same user advisory lock used by API saves', async () => {
+  it('waits on the same business advisory lock used by API saves', async () => {
     const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
     const client = await dbHandle.pool.connect();
     try {
       await client.query('set statement_timeout = 0');
-      await client.query('select pg_advisory_lock(hashtext($1))', [`user:${userId}`]);
-      const projection = projectPersonalMemory(db, dbHandle.pool, root, userId);
+      await client.query('select pg_advisory_lock(hashtext($1))', [`user:${businessId}`]);
+      const projection = projectPersonalMemory(db, dbHandle.pool, root, businessId);
       expect(
         await Promise.race([projection.then(() => 'done'), sleep(150).then(() => 'waiting')]),
       ).toBe('waiting');
-      await client.query('select pg_advisory_unlock(hashtext($1))', [`user:${userId}`]);
+      await client.query('select pg_advisory_unlock(hashtext($1))', [`user:${businessId}`]);
       await projection;
     } finally {
       client.release();

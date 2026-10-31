@@ -3,20 +3,20 @@ import { constants } from 'node:fs';
 import { type FileHandle, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join, parse, resolve, sep } from 'node:path';
 import { fail } from '@agentport/core';
-import type { MemoryFile, MemoryFileContent, MemoryFileList } from '@agentport/shared';
+import {
+  type MemoryFile,
+  type MemoryFileContent,
+  type MemoryFileList,
+  memoryFileNamePattern,
+} from '@agentport/shared';
 
 const MEMORY_FILE_MODE = 0o600;
 const MEMORY_DIR_MODE = 0o700;
 const MAX_MEMORY_BYTES = 200_000;
-export const memoryFileNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.md$/;
 
 function workspaceSubdir(workspacesDir: string, slug: string, leaf: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(slug)) fail('INVALID_INPUT', '智能体目录名非法');
   return resolve(workspacesDir, slug, leaf);
-}
-
-export function memoryDir(workspacesDir: string, slug: string): string {
-  return workspaceSubdir(workspacesDir, slug, 'agent-memory');
 }
 
 function safeName(name: string): string {

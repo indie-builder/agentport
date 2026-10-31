@@ -1,13 +1,48 @@
 import { DbError, runProgram } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import { type AgentRunJob, judge, RUNS_QUEUE, runEnqueueOptions } from '@agentport/shared';
-import { Queue, QueueEvents } from 'bullmq';
+import { Queue, QueueEvents, UnrecoverableError } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
+import { loadUserAgentAccess } from './run-access.js';
 
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
+
+/** 已认领的批次被重投说明上次执行被中断；不续跑，交由 processor 收口为 failed。 */
+const EVAL_INTERRUPTED_ERROR = 'eval run execution was interrupted; start a new evaluation';
+
+/** DB/infra 原文含 SQL 与参数；对外只落固定、可操作的说明。 */
+export const EVAL_FAILURE_PUBLIC_MESSAGE =
+  'eval run failed due to a database or infrastructure error; start a new evaluation';
+
+/** 只保留最小的领域中断消息（UnrecoverableError）；其余错误不把原文写进 DB。 */
+export function publicEvalFailureMessage(error: unknown): string {
+  return error instanceof UnrecoverableError ? error.message : EVAL_FAILURE_PUBLIC_MESSAGE;
+}
+
+function errorCodeOf(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (typeof current !== 'object' || current === null) return undefined;
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/** 日志诊断：只给错误类型与 PG code，不序列化 message/cause（可能含 SQL 参数）。 */
+export function evalFailureDiagnostics(error: unknown): {
+  errorName: string;
+  errorCode?: string;
+} {
+  const errorName =
+    error instanceof Error ? error.name : error instanceof DbError ? 'DbError' : typeof error;
+  const errorCode = errorCodeOf(error);
+  return errorCode === undefined ? { errorName } : { errorName, errorCode };
+}
 
 let runQueue: Queue<AgentRunJob> | undefined;
 let runQueueEvents: QueueEvents | undefined;
@@ -59,7 +94,13 @@ function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages
 function runOneCase(
   db: Database,
   redisUrl: string,
-  input: { agentId: string; prompt: string; timeoutMs: number; title: string },
+  input: {
+    agentId: string;
+    businessId: string;
+    prompt: string;
+    timeoutMs: number;
+    title: string;
+  },
   context: { runId: string | null },
 ) {
   return Effect.gen(function* () {
@@ -67,11 +108,15 @@ function runOneCase(
       repo.agentVersions.latestAgentVersion(db, input.agentId),
     );
     // 评估用例与聊天共用准入：同一事务取绑定锁、锁「发起专家 + enabled 子级」的记忆。
+    // 执行主体显式取 evalRuns.createdBy，不接受 job/client 用户字段。
     const admitted = yield* dbQuery(() =>
       chatRepo.admitChatRun(db, {
         agentId: input.agentId,
         message: input.prompt,
         title: input.title,
+        // 用例运行在 DB 标记为 event：worker 排队复核据此从 evalRuns 重查 eval.execute。
+        trigger: 'event',
+        subject: { kind: 'user', businessId: input.businessId },
         ...(agentVersion === null ? {} : { agentVersion }),
       }),
     );
@@ -141,10 +186,15 @@ export async function executeEvalRun(input: {
       logger.info({ evalRunId }, 'eval run no longer running, skipping');
       return;
     }
-    // BullMQ 重复投递时只让一个 worker 执行：认领失败说明别人已经在跑。
+    // BullMQ 重复投递时只让一个 worker 执行：认领失败说明该批次已经启动过。
     const claimed = yield* dbQuery(() => evalRepo.claimEvalRun(db, evalRunId));
     if (!claimed) {
-      logger.info({ evalRunId }, 'eval run already claimed, skipping duplicate delivery');
+      const current = yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId));
+      if (current?.status === 'running' && current.claimedAt !== null) {
+        // 已认领的重投不续跑、不重跑 case：明确失败，保留已落库结果与 passed。
+        return yield* Effect.fail(new UnrecoverableError(EVAL_INTERRUPTED_ERROR));
+      }
+      logger.info({ evalRunId }, 'eval run no longer running, skipping duplicate delivery');
       return;
     }
 
@@ -158,9 +208,47 @@ export async function executeEvalRun(input: {
     if (!agent) return yield* Effect.fail(new Error(`agent ${evalRun.agentId} not found`));
     if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
 
+    // 执行主体是 evalRuns.createdBy：每次开跑前用 DB 实时账户与授权重查，不降级。
+    const { denial, grants } = yield* dbQuery(() =>
+      loadUserAgentAccess(db, {
+        businessId: evalRun.createdBy,
+        agentId: evalRun.agentId,
+        permissions: ['agents.use', 'eval.execute'],
+      }),
+    );
+    if (denial !== null) {
+      yield* dbQuery(() =>
+        evalRepo.finishEvalRun(db, evalRunId, {
+          status: 'failed',
+          passed: 0,
+          error: denial.message,
+        }),
+      );
+      yield* dbQuery(() =>
+        repo.audit.writeAudit(db, logger, {
+          actor: 'worker',
+          action: 'eval.denied',
+          target: evalRunId,
+          status: 'denied',
+          input: { reason: denial.reason, businessId: evalRun.createdBy },
+        }),
+      );
+      return;
+    }
+    // 用例读取仍受当前用户自己的 eval.read 范围约束，不把执行身份当全平台。
+    const accessFilter = {
+      businessId: evalRun.createdBy,
+      scopes: [
+        ...new Set(
+          grants.filter((grant) => grant.permissionId === 'eval.read').map((grant) => grant.scope),
+        ),
+      ],
+    };
+
     // 有快照就只跑快照：跑批期间改了用例也不能改变本次结果；[] 表示零条，不回读。
     const cases =
-      evalRun.caseSnapshot ?? (yield* dbQuery(() => evalRepo.listCases(db, evalRun.agentId)));
+      evalRun.caseSnapshot ??
+      (yield* dbQuery(() => evalRepo.listCases(db, accessFilter, evalRun.agentId)));
     let passed = 0;
     let crashed: string | null = null;
 
@@ -180,6 +268,7 @@ export async function executeEvalRun(input: {
               redisUrl,
               {
                 agentId: evalRun.agentId,
+                businessId: evalRun.createdBy,
                 prompt: testCase.prompt,
                 timeoutMs: agent.timeoutMs,
                 title: `eval: ${testCase.name}`.slice(0, 80),
@@ -200,7 +289,12 @@ export async function executeEvalRun(input: {
           if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
             return;
           if (Result.isSuccess(result)) ok = result.success;
-          else output = errorMessage(result.failure);
+          // DB 原文含 SQL 与参数，不能作为模型输出公开；其他用例/领域失败仍保留可读原文。
+          else
+            output =
+              result.failure instanceof DbError
+                ? publicEvalFailureMessage(result.failure)
+                : errorMessage(result.failure);
 
           yield* dbQuery(() =>
             evalRepo.addResult(
@@ -231,25 +325,20 @@ export async function executeEvalRun(input: {
       Effect.catchCause((cause) =>
         Effect.sync(() => {
           const err = Cause.squash(cause);
-          crashed = errorMessage(err);
-          logger.error({ err, evalRunId }, 'eval run crashed');
+          crashed = publicEvalFailureMessage(err);
+          logger.error({ evalRunId, ...evalFailureDiagnostics(err) }, 'eval run crashed');
         }),
       ),
     );
 
     if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
+    // 最终持久化失败必须传播给 processor 收口，不能只记日志后当作成功返回。
     yield* dbQuery(() =>
       evalRepo.finishEvalRun(db, evalRunId, {
         status: crashed === null && passed === cases.length ? 'succeeded' : 'failed',
         passed,
         error: crashed,
       }),
-    ).pipe(
-      Effect.catch((err) =>
-        Effect.sync(() => {
-          logger.error({ err, evalRunId }, 'eval run finalize failed');
-        }),
-      ),
     );
   });
   await runProgram(program);

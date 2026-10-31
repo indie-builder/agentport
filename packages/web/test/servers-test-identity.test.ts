@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { ServersPage } from '../src/pages/servers.js';
+import { allAccessMe } from './me-fixture.js';
 
 const state = vi.hoisted(() => ({
   search: {} as Record<string, string | undefined>,
@@ -108,6 +109,7 @@ async function mount(
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
   });
+  client.setQueryData(['me'], allAccessMe);
   client.setQueryData(['servers'], servers);
   client.setQueryData(['agents'], []);
   if (cacheEnvironments) {

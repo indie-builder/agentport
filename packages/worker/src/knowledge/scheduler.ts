@@ -1,7 +1,6 @@
-import { type createDb, newId, repo, schema } from '@agentport/db';
+import { type createDb, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
 import { Queue, Worker } from 'bullmq';
-import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 
 /**
@@ -48,71 +47,122 @@ export async function processKnowledgeSyncTrigger(
   }
 
   const source = await repo.knowledge.getSource(input.db, sourceId);
-  if (source?.status !== 'active' || source.syncCron === null) {
+  if (source?.status !== 'active' || source.syncCron === null || source.syncCron === '') {
     return 'skipped';
   }
 
-  const created = await input.db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${source.id}))`);
-    const [active] = await tx
-      .select({ id: schema.knowledgeJobs.id })
-      .from(schema.knowledgeJobs)
-      .where(
-        and(
-          eq(schema.knowledgeJobs.sourceId, source.id),
-          inArray(schema.knowledgeJobs.status, ['queued', 'running']),
-        ),
-      )
-      .limit(1);
-    if (active) return null;
-
-    const syncRunId = newId('knowledgeSyncRun');
-    const jobId = newId('knowledgeJob');
-    await tx.insert(schema.knowledgeSyncRuns).values({
-      id: syncRunId,
-      sourceId: source.id,
-      status: 'queued',
-      cursorBefore: source.cursor,
-    });
-    await tx.insert(schema.knowledgeJobs).values({
-      id: jobId,
-      type: 'sync',
-      baseId: source.baseId,
-      documentId: null,
-      sourceId: source.id,
-      status: 'queued',
-      payload: { type: 'sync', sourceId: source.id, syncRunId },
-    });
-    return { jobId, syncRunId };
-  });
-  if (!created) return 'duplicate';
+  const created = await repo.knowledge.createSyncJob(input.db, source.id);
+  if (created.status === 'not_found' || created.status === 'not_active') return 'skipped';
+  if (created.status === 'in_progress') return 'duplicate';
 
   for (let attempt = 1; attempt <= ENQUEUE_ATTEMPTS; attempt += 1) {
     try {
       await input.queue.add(
         'knowledge',
-        { jobId: created.jobId },
-        knowledgeEnqueueOptions(created.jobId),
+        { jobId: created.job.id },
+        knowledgeEnqueueOptions(created.job.id),
       );
-      input.logger.info({ sourceId: source.id, jobId: created.jobId }, 'knowledge sync fired');
+      input.logger.info({ sourceId: source.id, jobId: created.job.id }, 'knowledge sync fired');
       return 'fired';
     } catch (err) {
       input.logger.warn({ err, sourceId: source.id, attempt }, 'knowledge sync enqueue failed');
     }
   }
 
-  // 入队最终失败：只把仍 queued 的行收为 failed，sync run 同步收尾。
-  await input.db
-    .update(schema.knowledgeJobs)
-    .set({ status: 'failed', error: '定时同步入队失败', endedAt: new Date() })
-    .where(
-      and(eq(schema.knowledgeJobs.id, created.jobId), eq(schema.knowledgeJobs.status, 'queued')),
-    );
-  await repo.knowledge.finishSyncRun(input.db, created.syncRunId, {
+  // 入队最终失败：只有仍为 queued 的 CAS 赢家能收口 job/run/source；已认领不覆盖。
+  await repo.knowledge.finishJob(input.db, created.job.id, {
+    fromStatus: 'queued',
     status: 'failed',
     error: '定时同步入队失败',
   });
   return 'failed';
+}
+
+/** 对账所需的队列子集；测试可注入故障而不关停共用 Redis。 */
+export interface KnowledgeSchedulerQueue {
+  getJobSchedulers(): Promise<Array<{ key: string; pattern?: string | null }>>;
+  upsertJobScheduler(
+    id: string,
+    repeat: { pattern: string; tz: 'UTC' },
+    template: {
+      name: string;
+      data: { sourceId: string };
+      opts: {
+        attempts: number;
+        backoff: { type: 'exponential'; delay: number };
+        removeOnComplete: number;
+        removeOnFail: number;
+      };
+    },
+  ): Promise<unknown>;
+  removeJobScheduler(id: string): Promise<unknown>;
+}
+
+/**
+ * DB 是调度权威：只对 active 且 cron 非空的来源保留 scheduler。
+ * 每个来源的移除/更新独立隔离；坏 cron 或 Redis 单项失败不阻断其他来源与回收。
+ */
+export async function syncKnowledgeSchedulers(input: {
+  db: Db;
+  logger: Logger;
+  queue: KnowledgeSchedulerQueue;
+}): Promise<void> {
+  const rows = await input.db
+    .select({
+      id: schema.knowledgeSources.id,
+      cron: schema.knowledgeSources.syncCron,
+      status: schema.knowledgeSources.status,
+    })
+    .from(schema.knowledgeSources);
+  const desired = new Map(
+    rows
+      .filter((row) => row.status === 'active' && row.cron !== null && row.cron !== '')
+      .map((row) => [schedulerId(row.id), row.cron as string]),
+  );
+  const existing = new Map(
+    (await input.queue.getJobSchedulers())
+      .filter((entry) => entry.key.startsWith(SCHEDULER_ID_PREFIX))
+      .map((entry) => [entry.key, entry.pattern ?? null]),
+  );
+  for (const [id, cron] of desired) {
+    if (existing.get(id) === cron) continue;
+    const sourceId = id.slice(SCHEDULER_ID_PREFIX.length);
+    let stage = 'remove';
+    try {
+      // 先移除旧 pattern，避免 DB 改成坏值后旧 cron 继续触发。
+      if (existing.has(id)) await input.queue.removeJobScheduler(id);
+      stage = 'upsert';
+      const entry = await input.queue.upsertJobScheduler(
+        id,
+        { pattern: cron, tz: 'UTC' },
+        {
+          name: 'knowledge-sync',
+          data: { sourceId },
+          opts: {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5_000 },
+            removeOnComplete: 100,
+            removeOnFail: 200,
+          },
+        },
+      );
+      if (entry === undefined || entry === null)
+        throw new Error('scheduler upsert returned no entry');
+    } catch (err) {
+      input.logger.warn(
+        { err, sourceId, stage, pattern: cron },
+        'knowledge scheduler update failed',
+      );
+    }
+  }
+  for (const id of existing.keys()) {
+    if (desired.has(id)) continue;
+    try {
+      await input.queue.removeJobScheduler(id);
+    } catch (err) {
+      input.logger.warn({ err, schedulerId: id }, 'knowledge scheduler removal failed');
+    }
+  }
 }
 
 export interface KnowledgeScheduler {
@@ -153,43 +203,11 @@ export function startKnowledgeScheduler(input: {
   queue.on('error', (err) => input.logger.error({ err }, 'knowledge sync queue error'));
 
   async function sync(): Promise<void> {
-    const rows = await input.db
-      .select({
-        id: schema.knowledgeSources.id,
-        cron: schema.knowledgeSources.syncCron,
-        status: schema.knowledgeSources.status,
-      })
-      .from(schema.knowledgeSources);
-    const desired = new Map(
-      rows
-        .filter((row) => row.status === 'active' && row.cron !== null && row.cron !== '')
-        .map((row) => [schedulerId(row.id), row.cron as string]),
-    );
-    const existing = new Map(
-      (await queue.getJobSchedulers())
-        .filter((entry) => entry.key.startsWith(SCHEDULER_ID_PREFIX))
-        .map((entry) => [entry.key, entry.pattern]),
-    );
-    for (const [id, cron] of desired) {
-      if (existing.get(id) === cron) continue;
-      await queue.upsertJobScheduler(
-        id,
-        { pattern: cron, tz: 'UTC' },
-        {
-          name: 'knowledge-sync',
-          data: { sourceId: id.slice(SCHEDULER_ID_PREFIX.length) },
-          opts: {
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 5_000 },
-            removeOnComplete: 100,
-            removeOnFail: 200,
-          },
-        },
-      );
-    }
-    for (const id of existing.keys()) {
-      if (!desired.has(id)) await queue.removeJobScheduler(id);
-    }
+    await syncKnowledgeSchedulers({
+      db: input.db,
+      logger: input.logger,
+      queue: queue as unknown as KnowledgeSchedulerQueue,
+    });
   }
 
   const timer = setInterval(() => {

@@ -115,9 +115,10 @@ const knowledgeKinds = ['document', 'faq', 'wiki'] as const;
  */
 export const knowledgeDetailSearchSchema = z.object({
   panel: z.enum(knowledgeTabs).optional().catch(undefined),
+  /** 处理记录按文档过滤；API 参数名为 documentId，URL 用面向用户的 document。 */
+  document: z.string().min(1).optional().catch(undefined),
   page: z.string().optional().catch(undefined),
   folder: z.string().optional().catch(undefined),
-  document: z.string().optional().catch(undefined),
   source: z.string().optional().catch(undefined),
   q: z.string().optional().catch(undefined),
   folders: z.array(z.string()).optional().catch(undefined),

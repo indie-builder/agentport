@@ -1,4 +1,5 @@
-import type { MemoryChange } from '@agentport/shared';
+import { type MemoryChange, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -10,11 +11,13 @@ import { ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
+import { can } from '../lib/access.js';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatDateTime } from '../lib/format.js';
 import {
+  meQuery,
   usePersonalMemory,
   usePersonalMemoryVersions,
   useRollbackMemoryChange,
@@ -22,8 +25,6 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
-/** 与后端 PERSONAL_MEMORY_MAX_CHARS 一致；按 Unicode 码点计数，不是 UTF-8 字节。 */
-const PERSONAL_MEMORY_MAX_CHARS = 9000;
 const PERSONAL_MEMORY_NEAR_LIMIT = 8500;
 
 type MemoryTab = 'personal' | 'reviews';
@@ -31,7 +32,11 @@ type MemoryTab = 'personal' | 'reviews';
 export function MemoryPage() {
   const search = useSearch({ from: '/_shell/memory' });
   const navigate = useNavigate();
-  const tab: MemoryTab = search.tab ?? 'personal';
+  const me = useQuery(meQuery);
+  const canWrite = can(me.data, 'personal_memory.write');
+  const canReview = can(me.data, 'personal_memory.review');
+  const requestedTab: MemoryTab = search.tab ?? 'personal';
+  const tab: MemoryTab = requestedTab === 'reviews' && !canReview ? 'personal' : requestedTab;
   const [personalDirty, setPersonalDirty] = useState(false);
   const [personalPending, setPersonalPending] = useState(false);
   // 确认放弃后重建个人偏好面板，丢掉子组件里的草稿。
@@ -50,12 +55,13 @@ export function MemoryPage() {
       <Tabs value={tab} onValueChange={(next) => switchTab(next as MemoryTab)}>
         <TabsList variant="line" aria-label="记忆任务" className="gap-4 border-b pb-3">
           <TabsTrigger value="personal">个人偏好</TabsTrigger>
-          <TabsTrigger value="reviews">历史回顾</TabsTrigger>
+          {canReview ? <TabsTrigger value="reviews">历史回顾</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="personal">
           <PersonalMemoryPanel
             key={draftResetKey}
+            canWrite={canWrite}
             onDirtyChange={setPersonalDirty}
             onPendingChange={setPersonalPending}
           />
@@ -91,9 +97,11 @@ export function MemoryPage() {
 }
 
 function PersonalMemoryPanel({
+  canWrite,
   onDirtyChange,
   onPendingChange,
 }: {
+  canWrite: boolean;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
 }) {
@@ -172,7 +180,7 @@ function PersonalMemoryPanel({
   };
 
   if (memory.isPending) return <LoadingState rows={4} />;
-  if (memory.isError) {
+  if (memory.data === undefined) {
     return <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />;
   }
 
@@ -192,7 +200,7 @@ function PersonalMemoryPanel({
         <div className="flex flex-wrap items-center gap-2">
           <Button
             onClick={submit}
-            disabled={!dirty || overLimit || save.isPending}
+            disabled={!dirty || overLimit || save.isPending || !canWrite}
             aria-busy={save.isPending}
           >
             {save.isPending ? '保存中…' : '保存'}
@@ -225,6 +233,10 @@ function PersonalMemoryPanel({
           ) : null}
         </div>
 
+        {memory.isError ? (
+          <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
+        ) : null}
+
         {conflict ? (
           <div
             role="alert"
@@ -249,7 +261,7 @@ function PersonalMemoryPanel({
             language="markdown"
             aria-label="个人偏好内容（Markdown）"
             aria-invalid={overLimit}
-            disabled={pending}
+            disabled={pending || !canWrite}
             onChange={(next) => {
               setDraft(next);
               setConflict(false);
@@ -297,8 +309,14 @@ function PersonalMemoryPanel({
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={pending || dirty}
-                      title={dirty ? '先保存或放弃当前草稿再回滚' : undefined}
+                      disabled={pending || dirty || !canWrite}
+                      title={
+                        !canWrite
+                          ? '没有修改个人记忆的权限'
+                          : dirty
+                            ? '先保存或放弃当前草稿再回滚'
+                            : undefined
+                      }
                       aria-label={`回滚 ${formatDateTime(change.createdAt)} 的保存`}
                       onClick={() => {
                         setRollbackError(null);

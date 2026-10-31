@@ -12,7 +12,7 @@
 | 要建什么、为谁 | `PRODUCT.md` + `docs/PROJECT-BRIEF.md` + `docs/USER-STORIES.md` | 需求澄清时 |
 | 技术栈、目录、数据流 | `docs/ARCHITECTURE.md` | 设计时 |
 | 颜色、字体、组件、氛围 | `docs/DESIGN-SYSTEM.md`；实现产物快照 `packages/web/DESIGN.md` | 做 UI 时 |
-| 编码规则与 AI 禁止事项 | `CLAUDE.md` | 每会话自动加载 |
+| 编码规则与 AI 禁止事项 | 根 `CLAUDE.md`（始终加载）+ `packages/<pkg>/CLAUDE.md`（进入该包时按需加载，入口见根「模块规则」） | 每会话自动加载根；进入/编辑包文件前读对应模块规则 |
 | 项目级待办 | `docs/REMAINING-TODOS.md` | 规划时 |
 | 变更历史 | `CHANGELOG.md` | 追溯时 |
 | **单个任务的记录** | `docs/tasks/<slug>.md` | 任务期间/追溯 |
@@ -29,10 +29,12 @@
    **完成判据**：用户明确确认「按这个做」。
 
 2. **建隔离环境**
-   先 `git fetch origin main`。worktree 位置固定为主 checkout 的 `.claude/worktrees/<任务 slug>`（绝对路径 `<主 checkout>/.claude/worktrees/<slug>`）；默认用 `EnterWorktree`，手动执行时同样是 `git worktree add <主 checkout>/.claude/worktrees/<slug> -b <branch> origin/main`，起点为刚 fetch 的 `origin/main`（用 `EnterWorktree` 时同样核对其起点）。主 checkout 指仓库主目录本身，**不是当前任务 worktree**；新树不建在仓库同级，也不建在当前或其他任何已有**任务 worktree** 内部——现有旧位置属历史，不重构也不照抄。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
+   **每个独立新开发任务首次写入前建专属 worktree；续做同一未完成任务时复用原树与任务记录，不重新建树、不重置基线。** 任务按独立目标与验收划分，同一目标内的步骤与子任务共用该树，不各自建树。
+   新建任务时先 `git fetch origin main`。worktree 位置固定为主 checkout 的 `.claude/worktrees/<任务 slug>`（绝对路径 `<主 checkout>/.claude/worktrees/<slug>`）；默认用 `EnterWorktree`，手动执行时同样是 `git worktree add <主 checkout>/.claude/worktrees/<slug> -b <branch> origin/main`，起点为刚 fetch 的 `origin/main`（用 `EnterWorktree` 时同样核对其起点）。主 checkout 指仓库主目录本身，**不是当前任务 worktree**；新树不建在仓库同级，也不建在当前或其他任何已有**任务 worktree** 内部——现有旧位置属历史，不重构也不照抄。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
    主 checkout 默认不改动、保持干净，任务产出只在 worktree。
+   **主会话先进入目标任务树再派发代码执行**；子代理 `isolation: worktree` 只是额外隔离，不能替代这一步，且额外隔离树同样落在固定位置、禁止套娃。
    进树后记录一次绝对路径、`git rev-parse HEAD` 与 `git status`：已有未提交差异原地写明归属（他人/未完成），不顺手提交、还原或覆盖。这是开工时的一次性记录，后续不反复查全局 status，也不为核对额外加流程；所有动手只在本 worktree 内，子代理保持并行。
-   **完成判据**：会话已位于目标 worktree（`<主 checkout>/.claude/worktrees/<slug>`），HEAD 与声明的起点一致（默认 `origin/main`，偏离时已注明原因），初始差异归属已记入任务记录，产出不落到主 checkout。
+   **完成判据**：主会话已位于目标 worktree（`<主 checkout>/.claude/worktrees/<slug>`）；新建时 HEAD 与声明的起点一致（默认刚 fetch 的 `origin/main`，偏离时已注明原因），续做时保留原基线与任务记录、HEAD 可包含本任务后续提交；初始差异归属已记入任务记录，产出不落到主 checkout。
 
 3. **先写任务记录**
    在 worktree 内创建 `docs/tasks/<slug>.md`（模板见 §3），先把目标、方案、基线、当前有效决定写下来再动手。范围或决定变化时，先改记录再继续。
@@ -41,7 +43,7 @@
 4. **实现（子代理并行）**
    主会话和执行子代理动手前先读 `docs/PITFALLS.md`，将与当前任务相关的规避方式落实到方案、操作和验证中；任务范围变化时重新核对相关条目。不能只在报错后查阅，或只追加记录而不使用。
    涉及参考 UI 时，实现前实际操作目标控件，确认区域、数据与状态并写进记录；无法操作时标为缺口，不凭截图或记忆猜测。参考维度分开：配色与控件外观以 Qoder CN 桌面浅色界面为准（来自实际截图采样，不是其源码 token），布局、尺寸与结构以 `docs/DESIGN-SYSTEM.md` 当前规范为准（含用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任一维度不扩到另一维度。
-   按 `CLAUDE.md` 协作方式：Opus 定契约，Sonnet 子代理并行落地，主会话只编排。所有产出只写进 worktree。
+   按任务性质与模型分工派发，分类与 effort 只在 `CLAUDE.md`「协作方式」定义，此处不重复；主会话只编排。派发时写明目标模块规则路径；跨包或改根目录 `scripts/`、`tests/`、`Dockerfile` 等共享文件时，先读所有相关 `packages/<pkg>/CLAUDE.md`。子代理默认共享当前任务树，按文件边界并行，不各自建树。所有产出只写进 worktree。
    工程纪律按 `ub-mode`：First Make it Work → Then Make it Right → Follow Practice（先实现目标功能 → 再完善设计与实现 → 遵循工作纪律）。第一阶段就要求正确、可验证并有测试，不把正确性与测试推后。
    模块设计按 `codebase-design`：Interface 写清不变量、调用顺序、失败模式与配置，调用方不重复承担同一事实；模块按 leverage / locality 取舍深度，不按文件长度拆；只在已有真实变化处放 Seam，不为单个 Adapter 预造抽象；调用方与测试经过同一 Seam，通过同一 Interface 验证行为。
    文件资源的路径语法、保留入口与文件/目录集合冲突在各独立入口调用同一共享校验判定，入口内不重复校验，表单、导入、导出复用同一规则；唯一性按实际目录命名空间比较（大小写规则见 `docs/ARCHITECTURE.md`），写入成功必须能整棵投影出对应文件。
@@ -52,8 +54,8 @@
    **完成判据**：契约固定、子代理产出在各自边界内、产出不落到主 checkout、主会话未亲自编辑代码文件。
 
 5. **Review**
-   每轮固定基线（commit/diff 范围）、文件清单和审查重点，交给独立 review 子代理；固定的是范围与重点，不是问题上限，独立审查仍可报清单外的新问题。新增发现或范围变化时先扩展基线与清单再继续，不压掉新问题；后续轮次复核已修复项及新增发现，不重扫已通过部分。涉及合并时先核用户最新明确决定，不以 main 的提交顺序推断哪条有效。
-   判断类问题交 Opus 子代理；纯机械规则可直接跑 `pnpm lint:focus`、`pnpm exec biome check`（按需、秒级、不阻塞）。
+   每轮固定基线（commit/diff 范围）、文件清单和审查重点，按 `CLAUDE.md` 的模型分工交给独立 review 子代理；固定的是范围与重点，不是问题上限，独立审查仍可报清单外的新问题。review 同时检查改动是否遵循对应模块规则，规则放错层时先调整归属再改代码。新增发现或范围变化时先扩展基线与清单再继续，不压掉新问题；后续轮次复核已修复项及新增发现，不重扫已通过部分。涉及合并时先核用户最新明确决定，不以 main 的提交顺序推断哪条有效。
+   Sonnet 初审按需，不固定多加一轮；提交前保留独立 Opus 终审，按固定 diff、契约与验证证据聚焦判断，必要时扩读关联代码，不全量重复探索；后续只复核修复与新增影响。纯机械规则可直接跑 `pnpm lint:focus`、`pnpm exec biome check`（按需、秒级、不阻塞）。
    **完成判据**：独立评审子代理明确给出通过结论，评审发现的问题已修复并复核；未返回结论的项不视为通过。
 
 6. **验证与收尾**
@@ -62,10 +64,17 @@
    更新任务记录（下一步、验证结果）；切回 main 时说明成果是否已合入。
    **完成判据**：验证命令有真实输出、记录已更新、提交状态与用户授权一致。
 
-7. **`ExitWorktree`**
-   有改动就 keep（保留分支），确认收尾后按需移除。
+7. **工作区收尾（`ExitWorktree`）**
+   用户说「收尾工作区」指：清理本任务已交付的 worktree、退出回主 checkout、把主 checkout 的 main 更新到最新；只处理本任务，不做全局清扫。该口令本身不自动授权 commit/push/merge，只有用户在本任务明确授权时才执行，并如实报告。
 
-   **清理判据（任务收尾必做）**：只要该分支的改动**已全部提交且已合并到 main**，对应 worktree 就没有继续存在的必要，直接 `git worktree remove` 删掉；分支引用与远程保留，删树不丢代码。删之前用 `git status --porcelain` 确认为空；只有 `node_modules` 等可重建依赖挡住时用 `--force`，其它任何未提交内容一律不删、先报告。未合并的分支保留 worktree 供继续开发。
+   **清理前核对**，全部满足才删：
+   - 本分支改动已全部提交，且已合入 main；以 PR 的真实合并状态为准（squash 合并后本地祖先关系不再成立），不能只用 `git merge-base --is-ancestor` 判断。
+   - `git status --porcelain` 为空。
+   - 没有其他会话正在使用该 worktree。
+
+   满足后先 `ExitWorktree` 退出（有改动就 keep 保留分支），再 `git worktree remove`；本地与远程分支都保留，删树不丢代码。只有 `node_modules` 等可重建依赖挡住时用 `--force`；未提交、未合并或被占用时一律保留并报告，不删。
+   回到主 checkout 后确认身处 main 且工作区干净，再 `git fetch origin` 与 `git merge --ff-only origin/main`。不在 main、有本地差异或不能快进时保留现状并报告原因，不 reset、不 stash。
+   **完成判据**：报告每个 worktree 删除或保留的原因、主 checkout 的绝对路径，以及 main 更新到的 commit 或未更新原因。
 
 ### 配置与启动
 
@@ -74,7 +83,7 @@
 - **默认来源是主 checkout 的 `.env`（绝对路径）**：api/worker/db 只读工作树内的 `../../.env`（`--env-file-if-exists`），web 的 Vite 只读包内 `.env*` 且当前没有 env 用法，因此仓库根 `.env` 是唯一实际入口。`cp` 或显式注入都取自该来源；`.env.local` 只有出现真实加载需要时才另议，不作为第二优先级预先引入。主 checkout 的 `.env` 本身也可能是旧残留。
 - **用户最新明确决定优先于磁盘残留**：冲突时以用户最近一次明确说的为准，不以某份 `.env` 的内容反推决定；不能把「来自 main 的 `.env`」等同于用户决定。
 - **启动前核对改动过的关键项**（如 `ADMIN_USER`/`ADMIN_PASSWORD`/`ALLOW_WEAK_ADMIN_PASSWORD`、`CORS_ORIGINS`、镜像变量）；日志、回复、任务记录不输出明文密码。
-- **服务可共用，登录态不能动**：各树代码/配置可以不同，但共用同一数据库；API 在首次登录时按启动配置调用 `ensureAdmin` 重播管理员，之后所有登录都用新密码。调试、测试、样式验收不得改掉用户正在用的登录，需要时用独立库或显式临时配置，结束后不留在默认路径。
+- **服务可共用，登录态不能动**：各树代码/配置可以不同，但共用同一数据库。历史实现曾在首次登录时按启动配置调用 `ensureAdmin` 重播管理员，旧 `.env` 一登录就会覆盖用户刚设的密码；当前改为 `ensureBootstrap`：只有 `platform_bootstrap` marker 不存在时才初始化一次，首次创建随机技术 ID、业务 ID 为 `bootstrap-admin` 的管理员，之后 `ADMIN_PASSWORD` 不再作为账号实时密码，也不会覆盖已有账户。调试、测试、样式验收不得改掉用户正在用的登录，需要时用独立库或显式临时配置，结束后不留在默认路径。
 - **运行源**：旧 worktree 或遗留镜像不是默认运行源。已合并的验收跑最新 `origin/main`；未合并功能只能显式在该功能树预览，并在结果里标注代码根目录与分支。
 - **每次启动只记四件事**：代码根目录、commit、配置路径（`.env` 绝对路径）、访问 URL；不为此新增 preflight 脚本、框架或门禁（§5）。
 - 权限不允许修改主配置时，明确说明「未同步」，不声称已修好，也不反复请求批准；任务内可用用户已确认的临时配置恢复服务。
@@ -141,5 +150,5 @@
 - **合并不等待 CI**：用户要求提交或合并时直接执行，不自动开启 PR 监控、冷却等待或远端检查门禁。只有用户明确要求时才监控 CI。
 - **本地验证按改动范围选择**：保留现有测试、类型检查和构建命令，不把全套检查固定绑定到每次修改或提交。发布工作流保持独立。
 - **机械检查按需跑**：`lint:focus`、`lint:contract`、`biome check`、`openui:audit` 这类秒级脚本交给 review 阶段顺手执行。
-- **判断类标准**交给 Opus review 代理（跨文件一致性、符合周边风格、契约取舍），不写进常驻上下文。
+- **判断类标准**交独立 review 代理：风格与跨文件一致性可交 Sonnet 初审，契约、架构与安全取舍交 Opus；规则不写进常驻上下文。
 - **配套工具只按需试用**：crapper、dryer、mutator、uml-viewer 未安装也未实测，不写入门禁；有具体问题时才在有限模块内试验，重复/等价候选与存活变异须做语义判断，CRAP、重复度与变异分数不设硬阈值。普通测试通过不能当作这些指标的证据。不新增术语表或工具，除非具体任务确实需要；已有能力优先。

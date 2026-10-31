@@ -76,6 +76,91 @@ describe('streamed assistant blocks', () => {
   });
 });
 
+describe('run_started replay attempts', () => {
+  const started = (runId = 'r1') =>
+    ({ type: 'run_started', runId, conversationId: 'c1' }) as ChatEvent;
+
+  it('keeps only the latest attempt when a retried run reuses block ids', () => {
+    const history: ChatItem[] = [
+      { kind: 'user', text: 'old question' },
+      { kind: 'text', text: 'old answer' },
+      { kind: 'user', text: 'current question', runId: 'r1' },
+    ];
+    const items = fold(history, [
+      started(),
+      delta('first attempt', { blockIndex: 0, streamBlockId: 'b0', sdkUuid: 'u1' }),
+      { type: 'tool_start', toolUseId: 'tool-first', name: 'first_tool' },
+      started(),
+      delta('second attempt', { blockIndex: 0, streamBlockId: 'b0', sdkUuid: 'u2' }),
+      { type: 'tool_start', toolUseId: 'tool-second', name: 'second_tool' },
+    ]);
+
+    expect(items).toEqual([
+      { kind: 'user', text: 'old question' },
+      { kind: 'text', text: 'old answer' },
+      { kind: 'user', text: 'current question', runId: 'r1' },
+      {
+        kind: 'text',
+        text: 'second attempt',
+        blockIndex: 0,
+        streamBlockId: 'b0',
+        sdkUuid: 'u2',
+      },
+      {
+        kind: 'tool',
+        toolUseId: 'tool-second',
+        name: 'second_tool',
+        startedAt: expect.any(Number),
+      },
+    ]);
+  });
+
+  it('keeps the current prompt and clears only this turn on the first start', () => {
+    const items = fold(
+      [
+        { kind: 'user', text: 'old question' },
+        { kind: 'text', text: 'old answer' },
+        { kind: 'user', text: 'current question', runId: 'r1' },
+        { kind: 'text', text: 'partial' },
+        { kind: 'notice', tone: 'error', text: 'boom' },
+      ],
+      [started()],
+    );
+
+    expect(items).toEqual([
+      { kind: 'user', text: 'old question' },
+      { kind: 'text', text: 'old answer' },
+      { kind: 'user', text: 'current question', runId: 'r1' },
+    ]);
+  });
+
+  it('does not wipe history when no prompt owns the attempt', () => {
+    const history: ChatItem[] = [
+      { kind: 'text', text: 'saved answer' },
+      { kind: 'notice', tone: 'muted', text: 'kept' },
+    ];
+    expect(fold(history, [started()])).toEqual(history);
+  });
+
+  it('shows one budget notice and keeps it across a full replay', () => {
+    const budget = { type: 'replay_truncated', reason: 'budget' } as ChatEvent;
+    const items = fold(
+      [{ kind: 'user', text: 'current question', runId: 'r1' }],
+      [budget, budget, started(), delta('replayed block', { blockIndex: 0, streamBlockId: 'b0' })],
+    );
+
+    expect(items).toEqual([
+      { kind: 'user', text: 'current question', runId: 'r1' },
+      {
+        kind: 'notice',
+        tone: 'muted',
+        text: '增量事件超出回放预算，已跳过部分增量；完整块仍会继续显示。',
+      },
+      { kind: 'text', text: 'replayed block', blockIndex: 0, streamBlockId: 'b0' },
+    ]);
+  });
+});
+
 describe('history block reconstruction', () => {
   const message = (content: unknown): ConversationMessage => ({
     id: 'm1',

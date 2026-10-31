@@ -31,6 +31,7 @@
   "dependencies": {
     "@agentport/core": "workspace:*",
     "@agentport/shared": "workspace:*",
+    "better-auth": "1.7.14",
     "drizzle-orm": "catalog:",
     "pg": "8.23.1",
     "typeid-js": "1.2.0"

@@ -14,8 +14,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
-import { useAgent } from '../src/lib/queries.js';
+import { useAgentSummary } from '../src/lib/queries.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('@agentport/core/workspace', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentport/core/workspace')>();
@@ -176,6 +177,13 @@ async function mount() {
   await flush();
   return router;
 }
+/** 详情页的完整配置来自独立详情查询；摘要与详情都指向同一个 fixture。 */
+function useAgentAs(current: Agent): void {
+  vi.mocked(api.agents).mockResolvedValue([current]);
+  vi.mocked(api.agent).mockResolvedValue(current);
+  client.setQueryData(['agents'], [current]);
+  client.setQueryData(['agent-detail', current.id], current);
+}
 async function mountAgentProbe(id: string) {
   // 与真实详情页一样只读取 data；提交计数放在 effect 里，只统计 React 真正提交的渲染。
   const snapshot: { commits: number; data: Agent | null | undefined } = {
@@ -183,7 +191,7 @@ async function mountAgentProbe(id: string) {
     data: undefined,
   };
   function Probe({ agentId }: { agentId: string }) {
-    const { data } = useAgent(agentId);
+    const { data } = useAgentSummary(agentId);
     snapshot.data = data;
     useEffect(() => {
       snapshot.commits += 1;
@@ -252,6 +260,12 @@ beforeEach(() => {
     },
   );
   vi.spyOn(api, 'agents').mockResolvedValue([agent]);
+  vi.spyOn(api, 'agent').mockResolvedValue(agent);
+  vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
+  vi.spyOn(api, 'agentAccess').mockResolvedValue({
+    agentId: agent.id,
+    permissionIds: allAccessMe.grants.map((grant) => grant.permissionId),
+  });
   vi.spyOn(api, 'servers').mockResolvedValue([]);
   vi.spyOn(api, 'skills').mockResolvedValue([]);
   vi.spyOn(api, 'runtimeEnvironments').mockResolvedValue([defaultEnvironment, namedEnvironment]);
@@ -265,6 +279,12 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
   });
   client.setQueryData(['agents'], [agent]);
+  client.setQueryData(['me'], allAccessMe);
+  client.setQueryData(['agent-detail', agent.id], agent);
+  client.setQueryData(['agent-access', agent.id], {
+    agentId: agent.id,
+    permissionIds: allAccessMe.grants.map((grant) => grant.permissionId),
+  });
   client.setQueryData(['servers'], []);
   client.setQueryData(['skills'], []);
   client.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
@@ -281,7 +301,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe('useAgent cache selection', () => {
+describe('useAgentSummary cache selection', () => {
   const other: Agent = { ...agent, id: 'other', slug: 'other', name: 'Other' };
 
   it('does not commit when another expert changes', async () => {
@@ -464,6 +484,9 @@ describe('expert creation lifecycle', () => {
     };
     const create = vi.spyOn(api, 'createAgent').mockResolvedValue(created);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([agent, created]));
+    vi.mocked(api.agent).mockImplementation(async (id) => (id === created.id ? created : agent));
+    client.setQueryData(['agents'], [agent, created]);
+    client.setQueryData(['agent-detail', created.id], created);
     const router = await mount();
     await click(button('新建专家'));
     await editInput('new-agent-slug', 'new-expert');
@@ -645,6 +668,120 @@ describe('expert creation lifecycle', () => {
   });
 });
 
+describe('expert employee badges', () => {
+  const badgeAgent: Agent = {
+    ...agent,
+    id: 'badge',
+    slug: 'badge',
+    name: '工牌专家',
+    role: '测试工程师',
+    description: '负责接口测试。\n覆盖完整回归与发布检查。',
+    createdAt: '2026-01-01T08:30:00Z',
+  };
+
+  it('shows the real employee badge from list data without requesting agent details', async () => {
+    client.setQueryData(['agents'], [badgeAgent]);
+    vi.mocked(api.agents).mockResolvedValue([badgeAgent]);
+    await mount();
+    const trigger = await waitFor(() => button('查看 工牌专家 工牌'));
+    expect(trigger.getAttribute('title')).toBe('数字员工工牌');
+    await click(trigger);
+    const panel = dialog('工牌专家 的工牌');
+    expect(panel.textContent).toContain('数字员工');
+    expect(panel.textContent).toContain('测试工程师');
+    expect(panel.textContent).toContain('已启用');
+    expect(panel.textContent).toContain('负责接口测试。');
+    expect(panel.textContent).toContain('覆盖完整回归与发布检查。');
+    expect(panel.textContent).toContain('badge');
+    const time = panel.querySelector('time');
+    expect(time?.getAttribute('datetime')).toBe('2026-01-01T08:30:00Z');
+    expect(time?.getAttribute('title')).toBe('2026-01-01T08:30:00Z');
+    expect(time?.textContent).toContain('2026');
+    expect(api.agent).not.toHaveBeenCalled();
+  });
+
+  it('labels an empty introduction and an invalid creation time instead of inventing them', async () => {
+    const empty: Agent = {
+      ...badgeAgent,
+      id: 'empty',
+      name: '空介绍',
+      description: '',
+      createdAt: 'not-a-date',
+    };
+    client.setQueryData(['agents'], [empty]);
+    vi.mocked(api.agents).mockResolvedValue([empty]);
+    await mount();
+    await click(await waitFor(() => button('查看 空介绍 工牌')));
+    const panel = dialog('空介绍 的工牌');
+    expect(panel.textContent).toContain('未填写介绍');
+    expect(panel.textContent).toContain('未记录');
+    expect(panel.querySelector('time')).toBeNull();
+  });
+
+  it('shows 未记录 when the creation time is missing', async () => {
+    const missing = {
+      ...badgeAgent,
+      id: 'no-clock',
+      name: '无时间',
+      createdAt: undefined,
+    } as unknown as Agent;
+    client.setQueryData(['agents'], [missing]);
+    vi.mocked(api.agents).mockResolvedValue([missing]);
+    await mount();
+    await click(await waitFor(() => button('查看 无时间 工牌')));
+    const panel = dialog('无时间 的工牌');
+    expect(panel.textContent).toContain('未记录');
+    expect(panel.querySelector('time')).toBeNull();
+  });
+
+  it('keeps the badge available for a disabled digital twin', async () => {
+    const twin: Agent = {
+      ...badgeAgent,
+      id: 'twin-badge',
+      slug: 'twin-badge',
+      name: '我的分身',
+      role: '数字分身',
+      enabled: false,
+    };
+    client.setQueryData(['agents'], [twin]);
+    vi.mocked(api.agents).mockResolvedValue([twin]);
+    const router = await mount();
+    await act(async () => router.navigate({ to: '/agents', search: { status: 'all' } }));
+    await flush();
+    await click(await waitFor(() => button('查看 我的分身 工牌')));
+    const panel = dialog('我的分身 的工牌');
+    expect(panel.textContent).toContain('数字分身');
+    expect(panel.textContent).toContain('已停用');
+  });
+
+  it('returns focus to the badge button when closed', async () => {
+    client.setQueryData(['agents'], [badgeAgent]);
+    vi.mocked(api.agents).mockResolvedValue([badgeAgent]);
+    await mount();
+    const trigger = await waitFor(() => button('查看 工牌专家 工牌'));
+    await click(trigger);
+    const panel = dialog('工牌专家 的工牌');
+    await click(button('关闭', panel));
+    await waitFor(() => document.activeElement === trigger);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('closes without stale data when the selected expert disappears', async () => {
+    const other: Agent = { ...agent, id: 'other', slug: 'other', name: 'Other' };
+    client.setQueryData(['agents'], [badgeAgent, other]);
+    vi.mocked(api.agents).mockResolvedValue([badgeAgent, other]);
+    await mount();
+    await click(await waitFor(() => button('查看 工牌专家 工牌')));
+    expect(dialog('工牌专家 的工牌')).toBeDefined();
+    await act(async () => {
+      client.setQueryData(['agents'], [other]);
+    });
+    await flush();
+    await waitFor(() => !document.body.textContent?.includes('工牌专家 的工牌'));
+    expect(document.body.textContent).not.toContain('覆盖完整回归与发布检查。');
+  });
+});
+
 describe('expert discovery', () => {
   const disabled = { ...agent, id: 'disabled', slug: 'disabled', name: 'Disabled', enabled: false };
 
@@ -673,7 +810,7 @@ describe('expert discovery', () => {
     client.setQueryData(['agents'], [disabled]);
     vi.mocked(api.agents).mockResolvedValue([disabled]);
     const router = await mount();
-    expect(host.querySelector('[aria-label="专家列表"]')).toBeNull();
+    expect(host.querySelector('[aria-label="专家列表"]')?.textContent).not.toContain('Disabled');
     expect(host.textContent).toContain('没有匹配的专家');
 
     await act(async () =>
@@ -742,11 +879,16 @@ describe('expert discovery', () => {
     client.setQueryData(['agents'], []);
     vi.mocked(api.agents).mockResolvedValue([]);
     const router = await mount();
-    expect(host.textContent).toContain('创建第一位专家');
-    expect(host.textContent).not.toContain('创建数字分身');
-    await click(button('创建第一位专家'));
+    expect(host.textContent).not.toContain('创建第一位专家');
+    const list = host.querySelector('[aria-label="专家列表"]');
+    if (!list) throw new Error('Missing agent list');
+    await click(button('新建专家', list));
     expect(dialog('新建专家')).toBeDefined();
     await click(button('取消', dialog('新建专家')));
+    await flush();
+    await click(button('创建数字分身', list));
+    expect(dialog('创建数字分身')).toBeDefined();
+    await click(button('取消', dialog('创建数字分身')));
     await flush();
 
     client.setQueryData(['agents'], [agent]);
@@ -758,6 +900,48 @@ describe('expert discovery', () => {
     await click(button('清除筛选'));
     await flush();
     expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('Expert');
+  });
+
+  it('prefills the role filter for the empty-result creation while list cards keep their fixed roles', async () => {
+    const router = await mount();
+    await act(async () =>
+      router.navigate({ to: '/agents', search: { role: '数字分身', q: 'missing' } }),
+    );
+    await flush();
+    expect(host.textContent).toContain('没有匹配的专家');
+    const note = [...host.querySelectorAll('span')].find(
+      (item) => item.textContent?.trim() === '没有匹配的专家',
+    );
+    if (!note?.parentElement) throw new Error('Missing empty result note');
+    await click(button('新建专家', note.parentElement));
+    let setup = dialog('创建数字分身');
+    expect(setup.querySelector('#new-agent-role')?.textContent).toContain('数字分身');
+    await click(button('取消', setup));
+    await flush();
+
+    const list = host.querySelector('[aria-label="专家列表"]');
+    if (!list) throw new Error('Missing agent list');
+    await click(button('新建专家', list));
+    setup = dialog('新建专家');
+    expect(setup.querySelector('#new-agent-role')?.textContent).toContain('通用助手');
+    await click(button('取消', setup));
+    await flush();
+
+    await click(button('创建数字分身', list));
+    setup = dialog('创建数字分身');
+    expect(setup.querySelector<HTMLInputElement>('#new-agent-name')?.value).toBe('我的分身');
+  });
+
+  it('opens the digital twin creation from the list card without a role filter', async () => {
+    const router = await mount();
+    const list = host.querySelector('[aria-label="专家列表"]');
+    if (!list) throw new Error('Missing agent list');
+    await click(button('创建数字分身', list));
+    expect(dialog('创建数字分身')).toBeDefined();
+    expect(document.querySelector<HTMLInputElement>('#new-agent-name')?.value).toBe('我的分身');
+    await click(button('取消', dialog('创建数字分身')));
+    await flush();
+    expect(router.state.location.search.role).toBeUndefined();
   });
 
   it('prefills the selected role without writing the search into the working style', async () => {
@@ -850,8 +1034,7 @@ describe('expert file tool permissions', () => {
         allowedTools: ['Read'],
         disallowedTools: ['Read'],
       };
-      client.setQueryData(['agents'], [restricted]);
-      vi.mocked(api.agents).mockResolvedValue([restricted]);
+      useAgentAs(restricted);
       await mount();
       const section = await openPermissions();
       expect(toolToggle('Read').getAttribute('aria-pressed')).toBe('false');
@@ -907,6 +1090,8 @@ describe('expert file tool permissions', () => {
         return Response.json([]);
       });
       client.setQueryData(['agents'], [store.current]);
+      client.setQueryData(['agent-detail', store.current.id], store.current);
+      vi.mocked(api.agent).mockImplementation(async () => store.current);
       const update = vi.spyOn(api, 'updateAgent').mockImplementation(async (_id, input) => {
         store.current = {
           ...store.current,
@@ -948,8 +1133,10 @@ describe('expert file tool permissions', () => {
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
       await click(button('保存更改'));
       await waitFor(() => update.mock.calls.length === 2, 10);
-      // 恢复不写回裸 allow，也不移除文件路径 allow、路径 deny、未知语义规则或其它工具规则。
-      expect(update.mock.calls[1]?.[1].allowedTools).toEqual(['Bash', ...allowPathRules]);
+      // 恢复不写回裸 allow：未变的 allowedTools 不进入 PATCH，服务端合并不重写路径 allow；
+      // 只删裸 deny，路径 deny、未知语义规则或其它工具规则都保留。
+      expect(update.mock.calls[1]?.[1].allowedTools).toBeUndefined();
+      expect(store.current.allowedTools).toEqual(['Bash', ...allowPathRules]);
       expect(update.mock.calls[1]?.[1].disallowedTools).toEqual(originalRules);
 
       await remount();
@@ -969,8 +1156,7 @@ describe('expert file tool permissions', () => {
       allowedTools: ['Read', 'Bash'],
       disallowedTools: [],
     };
-    client.setQueryData(['agents'], [child]);
-    vi.mocked(api.agents).mockResolvedValue([child]);
+    useAgentAs(child);
     const update = vi.spyOn(api, 'updateAgent');
     await mount();
     const section = await openPermissions();
@@ -1252,7 +1438,7 @@ describe('expert review details', () => {
       serverIds: ['server-target'],
       allowedTools: ['Write'],
     };
-    client.setQueryData(['agents'], [current]);
+    useAgentAs(current);
     vi.spyOn(api, 'agentVersion').mockResolvedValue({
       version: 1,
       snapshot: target,
@@ -1303,7 +1489,7 @@ describe('expert review details', () => {
   it.each(fieldOnlyCases)(
     'reports a $label-only difference instead of claiming the fields are unchanged',
     async ({ label, current, target, from, to }) => {
-      client.setQueryData(['agents'], [current]);
+      useAgentAs(current);
       vi.spyOn(api, 'agentVersion').mockResolvedValue({
         version: 1,
         snapshot: target,
@@ -1531,8 +1717,7 @@ describe('expert draft previews', () => {
 
   it('renders the draft only after expansion and follows later edits', async () => {
     const prompted = { ...agent, systemPrompt: '初始提示词' };
-    vi.spyOn(api, 'agents').mockResolvedValue([prompted]);
-    client.setQueryData(['agents'], [prompted]);
+    useAgentAs(prompted);
     const render = vi.mocked(renderWorkspace);
     render.mockClear();
     await mount();

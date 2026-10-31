@@ -3,7 +3,13 @@
 ## 目标与当前有效决定（2026-10-31）
 
 用户已明确授权：以本地 WeKnora 核心知识库为完整参照，先拆缺失任务，再并行补齐 Agentport，包含管理与智能体结合。FAQ 属于本轮核心实现；无需再次询问是否进入实现。
-历史记录（2026-10-31 收口前）：当时未授权 commit/push/merge；该事实保留，不据此改写。本轮用户已明确授权 commit、push 与创建 PR，仍不授权 merge；生产部署、共享库迁移、新增独立服务与付费真实模型请求仍未授权。外部依赖只阻塞对应能力，不阻塞其余工作。
+历史记录（2026-10-31 收口前）：当时未授权 commit/push/merge；后续曾授权 commit、push 与创建 PR、暂不授权 merge。上述为历史阶段，已由本轮授权替代：2026-10-31 用户明确授权解决 PR #127 冲突、验证、commit/push 并合并 main。生产部署、共享库迁移、新增独立服务与付费真实模型请求仍未授权。外部依赖只阻塞对应能力，不阻塞其余工作。
+
+本轮整合基线：唯一工作树 `/Users/xbjt/Documents/myself/agentport/.claude/worktrees/knowledge-weknora`，HEAD `504d625ef5b0fecaa91e20b714e49391b228fdf2`，初始 clean；fetch 前 `origin/main=b2d3a9576e0a58b4c8bd80afde4626b056122c1c`，随后 fetch 并以 `git merge --no-commit origin/main` 整合，不 rebase、不 force push。保留 PR 全部新能力，并保留 main 当前 UX、businessId/权限、SDK 官方文件系统约定及共享机制；不以整块选 ours/theirs 覆盖另一侧有效功能。main 已应用的 0045 迁移保持原样；删除 PR 旧 0045—0047 及其生成元数据，基于 main 最新迁移链和合并后的 schema 用 `pnpm db:generate` 生成单一后续迁移，不手编 snapshot/journal，只对隔离随机库实测迁移。本执行代理仅负责启动 merge、DB/shared 与关键契约审查，不提交、不推送、不合入 main；API/worker/web 与依赖由其他 owner 执行。
+本轮 DB/shared 收据（2026-10-31）：fetch 后 main 仍为 `b2d3a9576e0a58b4c8bd80afde4626b056122c1c`；merge 已启动、尚未提交。DB/shared 冲突已解决：保留 main 的同步创建/认领/终态原子事务、job 对象 ID/显示名、共享 cron 校验；保留 PR 的来源快照/撤权、版本 COW、FAQ/Wiki/ASR 等全部扩展。最终 `FinishJobInput` 保持 `result?: SyncRunResult`，新增独立 `probeResult?: KnowledgeSourceProbeResult|null`，DB `knowledge_jobs.result` 只存 probe 结果；worker 消费者必须同时保留两类返回。同步统一走 `createSyncJob`，queued 取消走 `finishJob({fromStatus:'queued',status:'cancelled'})`，不恢复旧 `createSyncRun/requestCancel` 旁路。旧迁移链已删除，main 0045 SQL/快照与 `origin/main` 无差异，Drizzle 生成单一 `0046_cold_slipstream` 及 snapshot/journal。`pnpm db:generate` 的 pnpm 12 自动行为修复了冲突锁文件并同步本地依赖，锁文件需依赖 owner 最后复核。本轮未手工安装依赖。
+
+验证：首次未注入 env 的测试因 PG 配置缺失跳过 61 项，不能作为通过证据；随后通过 `node --env-file=/Users/xbjt/Documents/myself/agentport/.env node_modules/vitest/vitest.mjs run --project backend` 运行 DB `knowledge-{lifecycle,foundation,document-filter,versions,chunks,tags}`、`access`，shared `knowledge-{contract,mcp-entry,multimodal,server-schema}`，加 `--no-file-parallelism`，最终 11 文件 / 129 测试通过；globalSetup 真实创建并迁移随机 PG 库/临时 Redis，结束清理，未迁开发库。shared/core/db `build` 最终通过；上述五个本轮源码/测试文件 `biome check --write` 通过。新增 probe 结果+对象名+CAS+不推进同步游标行为测试；合并使用既有生命周期故障注入测试及新迁移实测作为主证据，不人为制造冲突标记的红测试。此前两条旧 DB 测试调用实测失败后已迁为统一入口并绿。API/worker/web 全范围与独立终审交主会话，未在此宣称全仓完成。
+
 本文件是当前执行契约；项目待办仅在 `docs/REMAINING-TODOS.md` 登记入口。任务 ID 是验收索引，不要求每项启动一个代理。
 
 ## 基线、证据与写入范围
@@ -224,7 +230,17 @@ owner F 独占 API `features/knowledge/wiki-routes.ts`、worker `knowledge/wiki.
 
 ## 当前状态（2026-10-31 收口盘点）
 
-> 本节只记录当前可读状态与真实阶段证据；上方实时契约仍是有效范围与验收标准。计数均来自 `/tmp` 报告，覆盖范围有重叠，**不相加**为产品总量。收口盘点时全部成果尚未提交、推送或合并（历史事实）；本轮随后按用户授权提交、推送并创建 PR（不合并），未迁移共享库、未改用户登录、未调用付费真实服务。
+### PR #127 整合收尾当前有效状态（未提交，合并进行中）
+
+- 状态：merge 已启动、未提交；HEAD `504d625ef5b0fecaa91e20b714e49391b228fdf2`，`MERGE_HEAD=b2d3a9576e0a58b4c8bd80afde4626b056122c1c`，`git ls-files -u` 为 0（无未解决冲突）。尚未 commit/push/merge，不得称已合。
+- 上游：`origin/main` 实为 `624dc3bd523e6b675cc27127b0ea609c9834351f`（PR #146，包含 PR #145 的 `d0900c8`）；当前整合基线只到 `b2d3a95`，落后 6 个提交。
+- 最终验证（均 0 skip）：后端 55 文件 883/883（`.tmp/pr127-backend-latest2-results.json`）；web 16 文件 302/302；DB/shared 10 文件 127/127；core 2 文件 94/94；Wiki P1 6 文件 125/125；并发失败收尾 5 文件 118/118。全包 `pnpm typecheck`、`pnpm build`、focus/contract、diff-check 通过。
+- 独立 Opus 定点复审：后端 Wiki 两项 P1 与并发失败收尾 P1 均已修复并 PASS；前端 3 项 P2 与批次发布 P2 均已修复并 PASS；Wiki 内部文档测试夹具按真实发布链修正后全范围绿。
+- 迁移：基于 main 0045 生成单一 `0046_cold_slipstream`，隔离随机库迁移 PASS；main 0045 未改。
+- 真实浏览器与外部边界：临时账号与单 embedding 测试 profile（`127.0.0.1:9`，不调用模型）下完成建库、FAQ 草稿、Notion 表单、Wiki 手写草稿→显式发布；未启动 worker。真实 Docling/ASR/视觉/语义、企业账号与 GraphRAG 仍未验收。
+- 下一步：同步 `origin/main` `624dc3b`，复核交集改动并重跑受影响验证；完成后再 commit/push/merge main。未迁移共享库、未改用户登录、未调用付费真实服务。
+
+> 本节只记录当前可读状态与真实阶段证据；上方实时契约仍是有效范围与验收标准。计数覆盖范围有重叠，**不相加**为产品总量。截至本次记录仍未提交、推送或合并；合入状态以真实 PR/合并结果为准。
 
 ### 已实现能力与独立 PASS 域
 
@@ -313,6 +329,7 @@ owner F 独占 API `features/knowledge/wiki-routes.ts`、worker `knowledge/wiki.
 
 ## 交付状态与保留资源
 
-- 2026-10-31 收口盘点时成果仅在 worktree `feat/knowledge-weknora`，未提交、未推送、未合并且无 Git 授权（历史事实）。随后用户明确授权 commit、push 与创建 PR（仍不授权 merge）；本轮改动已提交到 `feat/knowledge-weknora`、推送 origin 并创建 PR，未合并；未生产发布、未迁移共享库、未改用户登录、未调用付费真实服务。PR 链接以本轮发布结果为准，不在文档中预填编号。
+- PR #127（`feat/knowledge-weknora`）已创建并推送，分支 HEAD 仍为 `504d625`；当前为未提交 merge（`MERGE_HEAD=b2d3a95`，冲突 0），尚未 commit/push/merge。`origin/main` 已到 `624dc3b`（PR #146，含 PR #145 `d0900c8`），合入状态以真实 PR/合并结果为准，完成前不称已合。
+- 最终证据：后端 55 文件 883/883（0 skip，`.tmp/pr127-backend-latest2-results.json`）、web 16 文件 302/302、DB/shared 10 文件 127/127、core 2 文件 94/94、全来源 194/194、Wiki P1 6 文件 125/125 与并发失败收尾 5 文件 118/118；`pnpm typecheck`、`pnpm build`、focus/contract、diff-check 通过；独立 Opus 定点复审的后端 Wiki/并发 P1 与前端 3 项 P2、批次发布 P2 均修复并 PASS。未生产发布、未迁移共享库、未改用户登录、未调用付费真实服务。
 - 自动化 Vitest 报告已备份到 `/tmp/knowledge-weknora-report-backup-unique`；仅清理仓库内纯自动产物，未提交 worktree 不得删除。
-- 本地实现、独立复核、最终类型/构建、后端970项、前端333项、全来源194项、机械检查与浏览器八组及mini三组均已取得真实结果，本轮隔离资源已清理。GraphRAG与真实服务质量/账号验收仍按外部依赖表保留，不能称完全追齐WeKnora全部能力；本次按用户授权以已验证的提交、推送与 PR（不合并）交付。
+- 真实 Docling/ASR/视觉/语义、企业账号与 GraphRAG 仍未验收，不能称完全追齐 WeKnora；下一步同步 `624dc3b` 上游并重跑交集验证，完成后再提交/合并。

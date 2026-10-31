@@ -45,6 +45,13 @@
 | `pnpm` | antfu/skills | pnpm workspace 与依赖管理 |
 | `drizzle-orm-patterns` | giuseppe-trisciuoglio/developer-kit | Drizzle ORM schema、查询与迁移模式 |
 | `react-hook-form` | pproenca/dot-skills | React Hook Form 表单状态与校验 |
+| `docker-build-strategies` | docker/skills | Dockerfile 多阶段、缓存、非 root 与镜像瘦身；对应根 `Dockerfile` 与沙盒镜像 |
+| `docker-compose-patterns` | docker/skills | Compose 服务编排、健康检查、卷与网络；对应现有 `docker-compose.yml` |
+| `mcp-builder` | anthropics/skills | MCP server 工具设计与契约；对应现有 Fastify `/mcp/:serverId` |
+| `vercel-composition-patterns` | vercel-labs/agent-skills | React 组合模式；对应 web 的 shadcn/Base UI 组件边界 |
+| `zustand-5` | prowler-cloud/prowler | Zustand 5 共享客户端交互状态；对应现有 `chat-store` 的流式展示与草稿 |
+| `effect-ts` | effect-ts/skills | Effect 4 任务内副作用、取消/超时/资源释放与类型化错误 |
+| `getting-started` | tanstack/table | TanStack Table v9 React 入口；包内配套 table-state、feature 与迁移技能 |
 | `ub-mode` | unclebob/ub-mode | 默认日常工程纪律：First Make it Work → Then Make it Right → Follow Practice；编排与并行仍归 pstack |
 
 ## 范围
@@ -66,9 +73,9 @@
 
 - 先跑原生 `npx --yes skills@latest update --project --yes`（CLI 1.7.4 实测，后续按当次核对）：只比较上游 hash 与 lock，非交互不删技能；输出 up to date 不代表本地与上游一致，必须再核验完整目录。
 - 无新版且本地无文件变化时不重装。
-- 需与上游对齐时定向重装：`npx --yes skills@latest add <repo> --skill <name> --agent claude-code --agent universal -y`。两个 agent 缺一不可（只给 `claude-code` 会退化成 copy 模式，canonical 不更新、入口变成真实目录）。整目录替换，只排除 `metadata.json`、`.git`、`__pycache__`、`__pypackages__`；重装前保留差异证据，装后逐项补回项目适配。
+- 需与上游对齐时定向重装：`npx --yes skills@latest add <repo> --skill <name> --agent claude-code --agent universal -y`。两个 agent 缺一不可（只给 `claude-code` 会退化成 copy 模式，canonical 不更新、入口变成真实目录）。整目录替换；`.git`、`__pycache__`、`__pypackages__` 不复制，`metadata.json` 是否复制按当次 CLI 实物核对（CLI 1.7.4 本次 `vercel-composition-patterns` 已实际复制）；重装前保留差异证据，装后逐项补回项目适配。
 - 确凿的上游整技能删除才执行 `npx --yes skills@latest remove <name> -y`，并清理 lock、链接与文档；网络或鉴权失败不等于删除。上游只删单文件时，同步删除本地对应文件。
-- lock 存的是上游 hash，不是带项目适配的本地内容 hash；不要为了“匹配”改 lock。CLI 1.7.4 实测：上游目录 hash 包含 `metadata.json`，但安装时不复制该文件，因此含该文件的上游技能 lock 与本地的目录 hash 本就不同，核验时按“排除 `metadata.json` 后内容一致”判断。
+- lock 存的是上游 hash，不是带项目适配的本地内容 hash；不要为了“匹配”改 lock。CLI 1.7.4 实测：上游目录 hash 包含 `metadata.json`，安装时是否复制该文件按当次实物（本次 `vercel-composition-patterns` 已复制，docker 两项与 `mcp-builder` 未复制），因此核验以当次安装出的目录为准：有该文件时连同比对，没有时排除后比对，不按固定假设判断。
 
 ## 项目适配（必须保留）
 
@@ -98,6 +105,31 @@
 - **Vitest**：技能文本可能来自高于 lock 的版本，使用前核对已安装版本，不为示例升级依赖；测试仍走根 `vitest.config.ts` 的 `backend`/`web` projects。
 
 安装依据与许可：`better-auth-best-practices` 按上游 <https://www.better-auth.com/docs/ai-resources/skills> 发布的安装命令装入；上游仓库未提供 LICENSE 文件，此处只登记本地安装与来源事实。
+
+### Docker / MCP / React 组合（首批 4 个）
+
+`docker-build-strategies`、`docker-compose-patterns`、`mcp-builder`、`vercel-composition-patterns` 只在 `SKILL.md` 顶部各加一段中文 `Project convention`，`references/`、`scripts/` 等其余文件保持上游原样；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。约定只写项目关键边界与上游明确冲突，按任务实际需求做最小完整改动，不把当前文件细节固化为不可变架构。
+
+- **Docker**：沿用 pnpm 与既有构建层/沙盒边界；`docker-compose.yml` 文件名和现有服务沿用；多 worktree 共享基础设施；按需增改服务/网络，不无故新增，也不禁止有明确需求的功能；技能脚本可按内容与当次授权使用。
+- **MCP**：沿用现有 Fastify `/mcp/:serverId`、`@modelcontextprotocol/node` 2.1.2、`@modelcontextprotocol/server` 2.4.0、shared/core 契约、鉴权、错误形状与返回格式，不另起部署、鉴权或校验层。
+- **React 组合**：沿用 React 19 + Vite SPA 的既定设计栈、各类状态职责与真实复杂度门槛，不按上游重写现有封装或视觉。
+- **许可**：docker 两项补了上游根 `LICENSE`（Apache-2.0）；`mcp-builder` 随技能目录带 `LICENSE.txt`（Apache-2.0）；`vercel-composition-patterns` 上游无 LICENSE 文件，`SKILL.md` 声明 MIT，只登记来源事实。
+- 升级或重装后补回上述 `Project convention`；`metadata.json` 等文件是否由 CLI 复制按当次实物核对，`computedHash` 不改。
+
+### Zustand / Effect / TanStack Table（2026-10-31）
+
+三个技能均由固定 commit 的原始 URL 直接安装（CLI 1.7.4，参数 `--agent claude-code --agent universal -y`），canonical 目录在 `.agents/skills/`、`.claude/skills/` 为同相对链接；`skills-lock.json` 的 `computedHash` 保留 CLI 上游值。
+
+| 技能 | 上游 | 固定 commit | 许可 |
+|---|---|---|---|
+| `zustand-5` | `prowler-cloud/prowler` | `67aa9410127c7228fed304f3333b271808ba0c8d` | Apache-2.0（上游根 `LICENSE`，已补入技能目录） |
+| `effect-ts` | `effect-ts/skills` | `155c50c911f9c99c294ef8a4461981c5bbe6453e` | MIT（上游根 `LICENSE`，已补入技能目录） |
+| `getting-started` | `tanstack/table` | `c14e0221b1e656c7bb35e7b3d4cdf188719a3599` | MIT（上游根 `LICENSE`，已补入技能目录） |
+
+- **Zustand**：`SKILL.md` 顶部加一段 `Project convention`；因技能只作只读指导，移除上游 frontmatter 的 `allowed-tools` 预授权行，避免激活时预授权写文件、执行命令与派子代理，其余 frontmatter、正文与其余文件保持上游原样。约定：只用于跨组件、非服务端的共享客户端交互状态，按业务域复用 `packages/web/src/lib/chat-store.ts`（流式展示投影、未发送草稿生命周期），不按页面并排新建 store；原子 selector、组合对象/数组用 `useShallow` 保持引用稳定、不整 store 订阅、更新保持不可变；服务端状态用 Query，可导航状态用 Router，平台资源编辑表单用 RHF/`useZodForm`，生成式表单走 OpenUI 官方运行时，组件私有临时状态留本地。上游直连 `fetch` 示例只作 store 写法参考，不另造服务端 cache；不引入 Immer、SSR 或新持久化层。版本以 lock 与已安装 `zustand@5.0.16` 为准。
+- **Effect**：同样只加 `Project convention` 与上游根 `LICENSE`。约定：已锁 `effect@4.1.1`，`packages/api`、`packages/core`、`packages/worker` 已有依赖，跳过上游 Step 1，不安装 latest、不加根开发依赖；写 Effect 前完整读 `packages/core/node_modules/effect/AGENTS.md`（root `node_modules/effect` 不存在），按需查同目录 `src`；Effect 只负责任务内取消、超时、资源释放、并发与类型化错误，共用 Promise 边界与错误分类走 `packages/core/src/effect-runtime.ts`；Fastify 管 HTTP、BullMQ 管分发重试、SessionSandboxes 管沙盒，Claude Agent SDK 是唯一 AI 底座；不新增服务层适配器或第二套编排。
+- **TanStack Table**：`description` 收窄为 TanStack Table v9 React（创建、状态、feature 排障、v8→v9 迁移），避免泛化触发；`SKILL.md` 加 `Project convention` 并补上游根 `LICENSE`。只安装 React 入口 `getting-started`，其余官方技能直接读已安装 npm 包，不安装 `intent`、不新增依赖。包内映射：React 技能根 `packages/web/node_modules/@tanstack/react-table/skills/`（`getting-started`、`table-state`、`migrate-v8-to-v9`）；core 技能为解析该路径真实目录后同层 `../table-core`（不假定 web `node_modules` 直接可达，不硬编码 `.pnpm` 版本），含 `core`、`table-state`、`table-features`、`custom-features`、`migrate-v8-to-v9`。路径适配仅限：所有 `intent load` 改为直接读包内文件；`SKILL.md` 的 `../table-state`、`../migrate-v8-to-v9` 与 `references/{create-table-hook,with-tanstack-query,with-tanstack-virtual}.md` 的 `../../table-state` 改为 React 包内真实路径；其余正文与 references 保持上游原样。约定还要求复用现有 `data-table.tsx`、shadcn/Base UI 与设计系统，Query/Router/Table own state/Zustand 按单一 owner 分工，`@tanstack/react-store` 是 Table 内部订阅机制，不引入 Virtual 或其他依赖。
+- 升级或重装后按上述范围补回；`computedHash` 不改。
 
 ### emilkowalski/skills（桌面 Web 动效与设计工程）
 
@@ -142,7 +174,7 @@ mutator / uml-viewer 配套工具本次未安装。上游仓库无 LICENSE 文�
 ## 完成核验
 
 - 文件集合：lock 条目 = 技能目录 = 有效相对链接（指向当前 worktree）；`skills list` 与 lock、本文清单一致，无残留。
-- 内容：逐文件与上游来源对比；只允许列明的项目适配与官方排除项不同（`metadata.json` 是否排除按当次 CLI 确认），无多余或缺失文件。`openui` 只应有 `SKILL.md` 的两处适配。
+- 内容：逐文件与上游来源对比；只允许列明的项目适配与官方排除项不同（`metadata.json` 是否复制按当次安装实物确认），无多余或缺失文件。`openui` 只应有 `SKILL.md` 的两处适配。
 - 适配：`pnpm dlx shadcn@latest info --json -c packages/web` 退出 0 且路径在当次 worktree；`openui` 的 `description` 与 Project convention 与本文一致。
 - 插件：当次全部生效插件 `outcome: ok`、无失败；缓存与发布来源一致，无缺失的活动组件。
 - 未解决差异与范围外问题如实列出。

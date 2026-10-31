@@ -1,6 +1,7 @@
 import type { MemoryChange } from '@agentport/shared';
 import {
   memoryChangeSchema,
+  PERSONAL_MEMORY_FILENAME,
   personalMemorySchema,
   writePersonalMemoryInputSchema,
 } from '@agentport/shared';
@@ -8,12 +9,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
-import {
-  listPersonalMemoryVersions,
-  PERSONAL_MEMORY_FILENAME,
-  readPersonalMemory,
-  writePersonalMemory,
-} from './personal.js';
+import { userPrincipal } from '../access.js';
+import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } from './personal.js';
 
 const versionsQuery = z.object({
   before: z.iso.datetime().optional(),
@@ -26,18 +23,20 @@ const versionsResponseSchema = z.object({ items: z.array(memoryChangeSchema) });
 
 export function registerPersonalMemoryRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   app.get(
     '/api/me/memory',
-    { ...auth, schema: { response: { 200: personalMemorySchema } } },
-    async () => readPersonalMemory(app.db),
+    {
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.read' } },
+      schema: { response: { 200: personalMemorySchema } },
+    },
+    async (request) => readPersonalMemory(app.db, userPrincipal(request).businessId),
   );
 
   app.put(
     '/api/me/memory',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.write' } },
       schema: { body: writePersonalMemoryInputSchema, response: { 200: writeResponseSchema } },
     },
     async (request, reply) => {
@@ -45,6 +44,7 @@ export function registerPersonalMemoryRoutes(rawApp: FastifyInstance): void {
         db: app.db,
         pool: app.pool,
         workspacesDir: app.config.WORKSPACES_DIR,
+        businessId: userPrincipal(request).businessId,
         content: request.body.content,
         expectedRevision: request.body.expectedRevision,
         logger: request.log,
@@ -56,24 +56,35 @@ export function registerPersonalMemoryRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/me/memory/download', { ...auth }, async (_request, reply) => {
-    const { content } = await readPersonalMemory(app.db);
-    return reply
-      .header('content-disposition', `attachment; filename="${PERSONAL_MEMORY_FILENAME}"`)
-      .header('cache-control', 'no-store')
-      .type('text/markdown; charset=utf-8')
-      .send(content);
-  });
+  app.get(
+    '/api/me/memory/download',
+    { config: { access: { kind: 'permission', permissionId: 'personal_memory.read' } } },
+    async (request, reply) => {
+      const { content } = await readPersonalMemory(app.db, userPrincipal(request).businessId);
+      return reply
+        .header('content-disposition', `attachment; filename="${PERSONAL_MEMORY_FILENAME}"`)
+        .header('cache-control', 'no-store')
+        .type('text/markdown; charset=utf-8')
+        .send(content);
+    },
+  );
 
   app.get(
     '/api/me/memory/versions',
-    { ...auth, schema: { querystring: versionsQuery, response: { 200: versionsResponseSchema } } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.read' } },
+      schema: { querystring: versionsQuery, response: { 200: versionsResponseSchema } },
+    },
     async (request) => {
       const { before, limit } = request.query;
-      const items: MemoryChange[] = await listPersonalMemoryVersions(app.db, {
-        ...(before === undefined ? {} : { before }),
-        limit,
-      });
+      const items: MemoryChange[] = await listPersonalMemoryVersions(
+        app.db,
+        userPrincipal(request).businessId,
+        {
+          ...(before === undefined ? {} : { before }),
+          limit,
+        },
+      );
       return { items };
     },
   );

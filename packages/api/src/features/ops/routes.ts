@@ -10,12 +10,13 @@ import {
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { accessFilter, actorOf, authorizeObject, userPrincipal } from '../access.js';
 import {
   getScheduleQueue,
-  isSchedulableCron,
   removeScheduler,
   schedulerNextRun,
   upsertScheduler,
@@ -23,17 +24,15 @@ import {
 
 const opsRepo = repo.ops;
 
-const INVALID_CRON = 'cron 表达式无法解析或不产生触发时间';
-
 /** 5 段之外还要真的能算出下一次触发；校验放在 schema 里，handler 不做业务 safeParse。 */
 const scheduleBodySchema = scheduleInputSchema.refine((value) => isSchedulableCron(value.cron), {
-  message: INVALID_CRON,
+  message: INVALID_CRON_MESSAGE,
   path: ['cron'],
 });
 
 const schedulePatchBodySchema = schedulePatchSchema.refine(
   (value) => value.cron === undefined || isSchedulableCron(value.cron),
-  { message: INVALID_CRON, path: ['cron'] },
+  { message: INVALID_CRON_MESSAGE, path: ['cron'] },
 );
 
 function iso(value: Date | string | null): string | null {
@@ -66,12 +65,14 @@ const daysQuery = z.object({ days: z.coerce.number().int().min(1).max(365).defau
 /** 运营层：待办队列、任务看板汇总、定时任务与智能体统计。不进入智能体定义文件。 */
 export function registerOpsRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   // 需要人处理：待批工具调用 + 近期失败运行。
   app.get(
     '/api/attention',
-    { ...auth, schema: { response: { 200: attentionSchema } } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'operations.read' } },
+      schema: { response: { 200: attentionSchema } },
+    },
     async () => {
       const [approvals, failed] = await Promise.all([
         opsRepo.listPendingApprovals(app.db),
@@ -105,9 +106,12 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/schedules',
-    { ...auth, schema: { response: { 200: z.array(scheduleSchema) } } },
-    async () => {
-      const rows = await opsRepo.listSchedules(app.db);
+    {
+      config: { access: { kind: 'permission', permissionId: 'schedules.read' } },
+      schema: { response: { 200: z.array(scheduleSchema) } },
+    },
+    async (request) => {
+      const rows = await opsRepo.listSchedules(app.db, accessFilter(request, 'schedules.read'));
       const queue = getScheduleQueue(app.config.REDIS_URL);
       return Promise.all(
         rows.map(async (row) => toSchedule(row, await schedulerNextRun(queue, row.id))),
@@ -117,7 +121,10 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/schedules',
-    { ...auth, schema: { body: scheduleBodySchema, response: { 201: scheduleSchema } } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'schedules.manage' } },
+      schema: { body: scheduleBodySchema, response: { 201: scheduleSchema } },
+    },
     async (request, reply) => {
       const [agent] = await app.db
         .select({ id: schema.agents.id, name: schema.agents.name })
@@ -125,9 +132,29 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         .where(eq(schema.agents.id, request.body.agentId))
         .limit(1);
       if (!agent) return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，无法创建定时任务');
-      const row = await opsRepo.createSchedule(app.db, request.body);
+      // 管理依赖读取；执行主体固定为创建人，普通编辑不能改。
+      await authorizeObject(
+        app,
+        request,
+        'schedules.read',
+        { agentId: agent.id },
+        '智能体不存在，无法创建定时任务',
+      );
+      await authorizeObject(
+        app,
+        request,
+        'schedules.manage',
+        { agentId: agent.id },
+        '智能体不存在，无法创建定时任务',
+      );
+      const businessId = userPrincipal(request).businessId;
+      const row = await opsRepo.createSchedule(app.db, {
+        ...request.body,
+        createdBy: businessId,
+        executeAsBusinessId: businessId,
+      });
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'schedule.created',
         target: row.id,
         input: { agentId: row.agentId, cron: row.cron },
@@ -144,7 +171,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         } catch (err) {
           request.log.warn({ err, scheduleId: row.id }, 'schedule sync failed');
           await writeAudit(app.db, request.log, {
-            actor: 'admin',
+            actor: actorOf(request),
             action: 'schedule.sync_failed',
             target: row.id,
             status: 'error',
@@ -160,7 +187,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
   app.patch(
     '/api/schedules/:id',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'schedules.manage' } },
       schema: {
         params: z.object({ id: z.string().min(1) }),
         body: schedulePatchBodySchema,
@@ -170,6 +197,20 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
     async (request, reply) => {
       const existing = await opsRepo.getSchedule(app.db, request.params.id);
       if (!existing) return reject(reply, 'NOT_FOUND', '定时任务不存在');
+      await authorizeObject(
+        app,
+        request,
+        'schedules.read',
+        { agentId: existing.agentId },
+        '定时任务不存在',
+      );
+      await authorizeObject(
+        app,
+        request,
+        'schedules.manage',
+        { agentId: existing.agentId },
+        '定时任务不存在',
+      );
       const patch = {
         ...(request.body.name === undefined ? {} : { name: request.body.name }),
         ...(request.body.cron === undefined ? {} : { cron: request.body.cron }),
@@ -184,7 +225,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
       );
       if (!row) return reject(reply, 'CONFLICT_STALE', '该定时任务已被修改，请刷新后重试');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'schedule.updated',
         target: row.id,
         input: Object.keys(request.body),
@@ -206,7 +247,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
       } catch (err) {
         request.log.warn({ err, scheduleId: row.id }, 'schedule sync failed');
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'schedule.sync_failed',
           target: row.id,
           status: 'error',
@@ -219,12 +260,31 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/schedules/:id',
-    { ...auth, schema: { params: z.object({ id: z.string().min(1) }) } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'schedules.manage' } },
+      schema: { params: z.object({ id: z.string().min(1) }) },
+    },
     async (request, reply) => {
+      const existing = await opsRepo.getSchedule(app.db, request.params.id);
+      if (!existing) return reject(reply, 'NOT_FOUND', '定时任务不存在');
+      await authorizeObject(
+        app,
+        request,
+        'schedules.read',
+        { agentId: existing.agentId },
+        '定时任务不存在',
+      );
+      await authorizeObject(
+        app,
+        request,
+        'schedules.manage',
+        { agentId: existing.agentId },
+        '定时任务不存在',
+      );
       const removed = await opsRepo.deleteSchedule(app.db, request.params.id);
       if (!removed) return reject(reply, 'NOT_FOUND', '定时任务不存在');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'schedule.deleted',
         target: request.params.id,
         status: 'ok',
@@ -235,7 +295,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
       } catch (err) {
         request.log.warn({ err, scheduleId: request.params.id }, 'schedule sync failed');
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'schedule.sync_failed',
           target: request.params.id,
           status: 'error',
@@ -249,7 +309,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/agents/:id/stats',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'agents.read' } },
       schema: {
         params: z.object({ id: z.string().min(1) }),
         querystring: daysQuery,
@@ -263,6 +323,13 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         .where(eq(schema.agents.id, request.params.id))
         .limit(1);
       if (!agent) return reject(reply, 'NOT_FOUND', '智能体不存在');
+      await authorizeObject(
+        app,
+        request,
+        'agents.read',
+        { agentId: agent.id },
+        '智能体不存在',
+      );
       const since = utcWindowStart(request.query.days);
       const { agg, daily } = await opsRepo.agentStats(app.db, request.params.id, since);
       return {

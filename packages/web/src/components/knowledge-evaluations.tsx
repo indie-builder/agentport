@@ -13,7 +13,13 @@ import { Textarea } from './ui/textarea.js';
 const targetsSchema = z.array(knowledgeTargetSchema).min(1).max(50);
 const chunkIdsSchema = z.array(z.string().min(1)).max(100);
 
-export function KnowledgeEvaluations({ baseId }: { baseId: string }) {
+export function KnowledgeEvaluations({
+  baseId,
+  canExecute,
+}: {
+  baseId: string;
+  canExecute: boolean;
+}) {
   const evaluation = useEvaluateKnowledgeRetrieval(baseId);
   const [query, setQuery] = useState('');
   const [targets, setTargets] = useState('');
@@ -31,6 +37,7 @@ export function KnowledgeEvaluations({ baseId }: { baseId: string }) {
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
+          if (!canExecute) return;
           const expectedTargets = targetsSchema.safeParse(
             targets
               .split(/[\n,]/)
@@ -158,9 +165,11 @@ export function KnowledgeEvaluations({ baseId }: { baseId: string }) {
           >
             下载结果
           </Button>
-          <Button type="submit" disabled={pending} aria-busy={pending}>
-            {pending ? '评估中…' : '运行评估'}
-          </Button>
+          {canExecute ? (
+            <Button type="submit" disabled={pending} aria-busy={pending}>
+              {pending ? '评估中…' : '运行评估'}
+            </Button>
+          ) : null}
         </div>
       </form>
       {report ? (

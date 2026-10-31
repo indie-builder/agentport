@@ -18,9 +18,6 @@ export function isSafeOpenUrl(url: string): boolean {
   }
 }
 
-/** 允许的动作类型；自定义动作必须由组件库注册，未注册一律忽略。 */
-export const OPENUI_BUILTIN_ACTIONS = ['continue_conversation', 'open_url'] as const;
-
 /** 动作共有的载荷；前后端与 API 共用这一份，避免字段名再次漂移。 */
 const actionPayload = {
   params: z.record(z.string(), z.unknown()).default({}),
@@ -63,14 +60,12 @@ export const openUiActionPartSchema = z.object({
   formState: z.record(z.string(), z.unknown()).optional(),
   formName: z.string().optional(),
 });
-export type OpenUiActionPart = z.infer<typeof openUiActionPartSchema>;
 
 /** 单个 UI 段的表单/绑定快照；键是 blockKey（messageId:segmentIndex）。 */
 export const openUiStateEnvelopeSchema = z.object({
   version: z.literal(1),
   blocks: z.record(z.string(), z.unknown()),
 });
-export type OpenUiStateEnvelope = z.infer<typeof openUiStateEnvelopeSchema>;
 
 /** 单个 block 的状态上限；超出返回 413，不静默截断。 */
 export const OPENUI_STATE_MAX_BYTES = 64 * 1024;

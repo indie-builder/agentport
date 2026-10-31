@@ -1,4 +1,9 @@
 import { type OpenUiToolDescriptor, SANDBOX_RUNTIME_ENV } from '@agentport/shared';
+import {
+  escapeGeneratedBoundaryLines,
+  GENERATED_SUFFIX_END,
+  GENERATED_SUFFIX_START,
+} from './official-files.js';
 import { openuiSystemPrompt } from './openui-prompt.js';
 import type { SkillProvenance } from './skill-md.js';
 import type { McpJsonEntry } from './tools.js';
@@ -48,7 +53,7 @@ export interface WorkspaceAgent {
   serverNames?: string[];
   /** 子智能体的技能；父智能体只声明自己的，子技能仅供子智能体原生加载。 */
   skills?: WorkspaceSkill[];
-  /** 子智能体超时；调用方会一直等到它返回或超时。 */
+  /** 独立运行超时；作为子智能体被委派时由主运行总超时约束。 */
   timeoutMs?: number;
 }
 
@@ -216,6 +221,12 @@ function yamlList(values: string[]): string {
   return `[${values.map(yamlString).join(', ')}]`;
 }
 
+/** 根会话绑定的 server；undefined 保持单视角默认（全部），显式 [] 表示根无绑定。 */
+function rootServers(input: WorkspaceInput): WorkspaceInput['servers'] {
+  const bound = input.agent.serverNames;
+  return bound === undefined ? input.servers : input.servers.filter((s) => bound.includes(s.name));
+}
+
 /**
  * 智能体间沟通的等待语义。
  *
@@ -241,11 +252,11 @@ export function delegationWaitSection(input: WorkspaceInput): string[] {
       '后台执行已被运行时禁用，`Agent` 调用会一直等到子智能体返回；',
       '如果你提前结束本轮，调用方（用户或其他智能体）拿不到结果。',
       '- 子智能体只返回最终文本。中间的 `tool_start` / `tool_result` 由平台记录，你不需要转述。',
-      `- 子智能体受它自己的 \`maxTurns\` 与智能体超时约束；超时后本次委派失败，不会无限等待。`,
+      '- 子智能体受自身 `maxTurns` 限制；整轮委派计入主运行的总超时，主运行超时会中止本轮。',
     );
   }
 
-  if (input.servers.length > 0) {
+  if (rootServers(input).length > 0) {
     lines.push(
       '',
       '### 工具调用中的等待',
@@ -260,7 +271,8 @@ export function delegationWaitSection(input: WorkspaceInput): string[] {
 }
 
 function renderClaudeMd(input: WorkspaceInput): string {
-  const { agent, servers, skills = [] } = input;
+  const { agent, skills = [] } = input;
+  const servers = rootServers(input);
   const toolsDeny = input.toolsDeny ?? [];
   const bashDenied = toolsDeny.includes('Bash');
   // 命令级 deny（如 `Bash(rm:*)`）只限制具体命令，Bash 本身仍可用。
@@ -282,6 +294,8 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '本工作区通过 `.mcp.json` 绑定以下 MCP Server：',
           '',
           ...servers.map((s) => `- \`${s.name}\` → 工具名形如 \`mcp__${s.name}__<tool>\``),
+          '',
+          '以上是主会话绑定的 MCP Server；子智能体只使用各自定义文件中声明的 MCP Server。',
         ];
 
   const skillLines =
@@ -306,21 +320,17 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '',
           '用 `Agent` 工具把任务委派给以下子智能体。它们不能再向下委派。',
           '',
-          '| slug | 适用场景 | 超时 |',
+          '| slug | 适用场景 | 最大轮次 |',
           '|---|---|---|',
           ...subAgents.map(
-            (s) =>
-              `| \`${s.slug}\` | ${inlineText(s.description || s.name)} | ${s.timeoutMs ? `${Math.round(s.timeoutMs / 1000)}s` : '默认'} |`,
+            (s) => `| \`${s.slug}\` | ${inlineText(s.description || s.name)} | ${s.maxTurns} |`,
           ),
           '',
           '委派前先读上面的「等待规则」。',
         ];
 
-  return [
-    `# ${agent.name}`,
-    '',
-    agent.systemPrompt.trim(),
-    '',
+  // 生成区只能由渲染器自己的边界行界定；外来多行文本里的同名行统一在这里消除。
+  const generatedBody = [
     '## 工具使用',
     '',
     ...toolLines,
@@ -353,6 +363,17 @@ function renderClaudeMd(input: WorkspaceInput): string {
     ...(agent.uiFormat === 'openui'
       ? ['', '## 生成式 UI', '', openuiSystemPrompt(input.openuiTools)]
       : []),
+    '',
+  ].join('\n');
+
+  return [
+    `# ${agent.name}`,
+    '',
+    agent.systemPrompt.trim(),
+    '',
+    GENERATED_SUFFIX_START,
+    escapeGeneratedBoundaryLines(generatedBody),
+    GENERATED_SUFFIX_END,
     '',
   ].join('\n');
 }
@@ -441,13 +462,12 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
       ? [
           agent.systemPrompt.trim(),
           '',
-          // 子智能体没有自己的 CLAUDE.md，等待语义只能写在它自己的 md 里。
+          // 子智能体没有自己的 CLAUDE.md；固定等待语义属于生成后缀，不能混进用户正文。
+          GENERATED_SUFFIX_START,
           '你是被父智能体同步调用的：直接执行任务并返回最终文本。',
           '不要再委派给其他智能体（`Agent`/`TaskStop` 已禁用）。',
           '不能向用户提问（`AskUserQuestion` 仅主会话可用）；缺少关键信息时在最终文本里说明，由父智能体决定是否向用户确认。',
-          ...(agent.timeoutMs
-            ? [`父智能体最多等你 ${Math.round(agent.timeoutMs / 1000)} 秒，超时本次委派即失败。`]
-            : []),
+          GENERATED_SUFFIX_END,
           '',
         ]
       : [

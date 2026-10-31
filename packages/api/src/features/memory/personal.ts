@@ -1,22 +1,16 @@
-import { randomBytes } from 'node:crypto';
-import { chmod, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fail, WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from '@agentport/core';
-import { ADMIN_USER_ID, type Database, type DbPool, repo } from '@agentport/db';
-import type { MemoryChange } from '@agentport/shared';
+import { fail, writePersonalMemoryProjection } from '@agentport/core';
+import { type Database, type DbPool, repo } from '@agentport/db';
+import {
+  type MemoryChange,
+  PERSONAL_MEMORY_MAX_BYTES,
+  PERSONAL_MEMORY_MAX_CHARS,
+} from '@agentport/shared';
 
 /**
- * 个人偏好正文上限：9000 个 Unicode 字符（按码点计，不是 UTF-8 字节）。
+ * 个人偏好正文上限由 shared 统一维护：9000 个 Unicode 字符（按码点计，不是 UTF-8 字节）。
  * 官方 UserPromptSubmit additionalContext 单次上限为 10,000 字符，这里留出余量。
  * 平台不是依赖官方用户级 CLAUDE.md 自动发现，而是把本文件只读挂载进沙盒后每轮经官方 hook 注入。
  */
-export const PERSONAL_MEMORY_MAX_CHARS = 9000;
-
-/** 异常内容护栏：9000 个字符最坏约 36 KB，超过说明文件异常，读写都拒绝。 */
-const PERSONAL_MEMORY_MAX_BYTES = 36 * 1024;
-
-export const PERSONAL_MEMORY_FILENAME = 'CLAUDE.md';
-
 const PERSONAL_MEMORY_LIMIT_MESSAGE = '个人偏好最多 9000 个字符，请精简后保存';
 
 /** 入口与审核采纳共用：超限直接拒绝，不静默截断。 */
@@ -27,17 +21,6 @@ function assertPersonalMemoryLimit(content: string): void {
   ) {
     fail('PAYLOAD_TOO_LARGE', PERSONAL_MEMORY_LIMIT_MESSAGE);
   }
-}
-
-const PERSONAL_DIR = '_user';
-
-/** 宿主投影目录：WORKSPACES_DIR/_user，只读挂载到沙盒 /mnt/user。 */
-export function personalMemoryDir(workspacesDir: string): string {
-  return join(workspacesDir, PERSONAL_DIR);
-}
-
-export function personalMemoryPath(workspacesDir: string): string {
-  return join(personalMemoryDir(workspacesDir), PERSONAL_MEMORY_FILENAME);
 }
 
 export interface PersonalMemory {
@@ -56,8 +39,11 @@ export interface MemoryWriteLogger {
 }
 
 /** 行不存在等价于空白记忆；updatedAt 只表示真实写入过的时刻。 */
-export async function readPersonalMemory(db: Database): Promise<PersonalMemory> {
-  const row = await repo.userPreferences.get(db, ADMIN_USER_ID);
+export async function readPersonalMemory(
+  db: Database,
+  businessId: string,
+): Promise<PersonalMemory> {
+  const row = await repo.userPreferences.get(db, businessId);
   return row === null
     ? { content: '', revision: 0, updatedAt: null }
     : {
@@ -65,43 +51,6 @@ export async function readPersonalMemory(db: Database): Promise<PersonalMemory> 
         revision: row.revision,
         updatedAt: row.updatedAt.toISOString(),
       };
-}
-
-async function ensurePersonalDir(dir: string): Promise<void> {
-  await mkdir(dir, { recursive: true, mode: WORKSPACE_DIR_MODE });
-  const info = await lstat(dir);
-  if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new Error(`Personal memory path must be a real directory: ${dir}`);
-  }
-  await chmod(dir, WORKSPACE_DIR_MODE);
-}
-
-/** 目标文件可以是缺失（首次保存），但不能是链接或目录。 */
-async function assertReplaceableFile(file: string): Promise<void> {
-  try {
-    const info = await lstat(file);
-    if (info.isSymbolicLink() || !info.isFile() || info.nlink !== 1) {
-      throw new Error(`Personal memory file must be a regular file without links: ${file}`);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-}
-
-/** 原子投影：0700/0600，拒绝链接，temp + rename。 */
-async function projectPersonalFile(workspacesDir: string, content: string): Promise<void> {
-  const dir = personalMemoryDir(workspacesDir);
-  await ensurePersonalDir(dir);
-  const file = personalMemoryPath(workspacesDir);
-  await assertReplaceableFile(file);
-  const temp = join(dir, `.${PERSONAL_MEMORY_FILENAME}.${randomBytes(8).toString('hex')}.tmp`);
-  try {
-    await writeFile(temp, content, { mode: WORKSPACE_FILE_MODE, flag: 'wx' });
-    await chmod(temp, WORKSPACE_FILE_MODE);
-    await rename(temp, file);
-  } finally {
-    await rm(temp, { force: true }).catch(() => undefined);
-  }
 }
 
 /**
@@ -112,6 +61,7 @@ async function projectPersonalFile(workspacesDir: string, content: string): Prom
 export async function writePersonalMemoryLocked(input: {
   db: Database;
   workspacesDir: string;
+  businessId: string;
   content: string;
   expectedRevision: number;
   /** 采纳/回滚要求目标仍是审核时的内容；手工保存不传。 */
@@ -123,7 +73,7 @@ export async function writePersonalMemoryLocked(input: {
   logger?: MemoryWriteLogger;
 }): Promise<PersonalMemoryWriteResult | null> {
   assertPersonalMemoryLimit(input.content);
-  const before = await repo.userPreferences.get(input.db, ADMIN_USER_ID);
+  const before = await repo.userPreferences.get(input.db, input.businessId);
   if (input.expectedContent !== undefined && (before?.content ?? '') !== input.expectedContent) {
     fail('CONFLICT', '目标内容在审核后已被修改，请刷新后重试');
   }
@@ -133,16 +83,16 @@ export async function writePersonalMemoryLocked(input: {
     const db = tx as unknown as Database;
     const row = await repo.userPreferences.upsertWithRevision(
       db,
-      ADMIN_USER_ID,
+      input.businessId,
       input.content,
       input.expectedRevision,
     );
     if (row === null) return null;
     const change = await repo.memoryChanges.insert(db, {
-      userId: ADMIN_USER_ID,
+      businessId: input.businessId,
       target: { kind: 'personal' },
-      before: { content: before?.content ?? '', globs: null },
-      after: { content: input.content, globs: null },
+      before: { content: before?.content ?? '', globs: null, index: null },
+      after: { content: input.content, globs: null, index: null },
       sourceReviewRunId: input.sourceReviewRunId ?? null,
       reversesChangeId: input.reversesChangeId ?? null,
     });
@@ -166,7 +116,7 @@ export async function writePersonalMemoryLocked(input: {
   if (saved === null) return null;
 
   try {
-    await projectPersonalFile(input.workspacesDir, input.content);
+    await writePersonalMemoryProjection(input.workspacesDir, input.businessId, input.content);
   } catch (error) {
     input.logger?.warn(
       { err: error },
@@ -187,38 +137,27 @@ export async function writePersonalMemory(input: {
   db: Database;
   pool: DbPool;
   workspacesDir: string;
+  businessId: string;
   content: string;
   expectedRevision: number;
   logger?: MemoryWriteLogger;
 }): Promise<PersonalMemoryWriteResult | null> {
   return repo.locks.withAdvisoryLock(
     input.pool,
-    repo.locks.memoryTargetLockKey({ kind: 'personal' }, ADMIN_USER_ID),
+    repo.locks.memoryTargetLockKey({ kind: 'personal' }, input.businessId),
     () => writePersonalMemoryLocked(input),
   );
-}
-
-function toMemoryChange(row: Awaited<ReturnType<typeof repo.memoryChanges.listByUser>>[number]) {
-  return {
-    id: row.id,
-    target: row.target,
-    before: row.before,
-    after: row.after,
-    sourceReviewRunId: row.sourceReviewRunId,
-    reversesChangeId: row.reversesChangeId,
-    state: row.state,
-    createdAt: row.createdAt.toISOString(),
-  } satisfies MemoryChange;
 }
 
 /** 版本列表只读，不做任何补偿或投影写入。 */
 export async function listPersonalMemoryVersions(
   db: Database,
+  businessId: string,
   options: { before?: string; limit: number },
 ): Promise<MemoryChange[]> {
-  const rows = await repo.memoryChanges.listByUser(db, ADMIN_USER_ID, options.limit);
-  // shortcut: before 只在已取页内过滤；个人记忆变更量很小，需要跨页精确游标时给 repo.listByUser 加 before。
-  if (options.before === undefined) return rows.map(toMemoryChange);
-  const cutoff = new Date(options.before);
-  return rows.filter((row) => row.createdAt < cutoff).map(toMemoryChange);
+  const rows = await repo.memoryChanges.listPersonalByUser(db, businessId, {
+    ...(options.before === undefined ? {} : { before: new Date(options.before) }),
+    limit: options.limit,
+  });
+  return rows.map((row) => repo.memoryChanges.toMemoryChange(row));
 }

@@ -14,7 +14,15 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMaintenance } from '../../worker/src/maintenance.js';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
-import { createAgent, infraReady, inject, loginCookie, startApp } from './helpers.js';
+import {
+  ADMIN_BUSINESS_ID,
+  createAgent,
+  infraReady,
+  inject,
+  loginCookie,
+  startApp,
+} from './helpers.js';
+import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 // 维护会删除全库旧记录，必须与其它 API 套件分库。
 const isolated = (await infraReady)
@@ -25,16 +33,19 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
   let app: FastifyInstance;
   let cookie: string;
   let root: string;
+  let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
 
   beforeAll(async () => {
     if (!isolated) throw new Error('isolated database missing');
     root = await mkdtemp(join(tmpdir(), 'output-retention-'));
     app = await startApp({ DATABASE_URL: isolated.url, WORKSPACES_DIR: root });
     cookie = await loginCookie(app);
+    sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
   });
 
   afterAll(async () => {
     try {
+      await sessions?.close();
       await app?.close();
     } finally {
       await isolated?.close();
@@ -55,8 +66,14 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       id: conversationId,
       agentId: agent.id,
       title: '成果保留',
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
-    await repo.chat.createRun(app.db, { id: runId, conversationId, agentId: agent.id });
+    await repo.chat.createRun(app.db, {
+      id: runId,
+      conversationId,
+      agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
     await repo.chat.updateRun(app.db, runId, { status: 'succeeded', startedAt: old, endedAt: old });
     const attachments = await writeConversationAttachments({
       root,

@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf, authorizeObject } from '../access.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 import { createJob, documentWire, enqueueKnowledgeJob } from './service.js';
 
@@ -164,7 +165,6 @@ async function fetchSource(rawUrl: string): Promise<{
 
 export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   const enqueue = async (
     documentId: string,
@@ -217,6 +217,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
     data: Buffer;
     tags: string[];
     requestId: string;
+    actor: string;
     log: FastifyInstance['log'];
     publish?: 'draft' | 'automatic';
   }) => {
@@ -254,7 +255,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         input.publish,
       );
       await writeAudit(app.db, input.log, {
-        actor: 'admin',
+        actor: input.actor,
         action: `knowledge.document.${input.sourceType}_imported`,
         target: document.id,
         input: {
@@ -275,10 +276,21 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/documents/manual',
-    { ...auth, bodyLimit: MANUAL_BODY_LIMIT, schema: { params: baseParams, body: manualSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      bodyLimit: MANUAL_BODY_LIMIT,
+      schema: { params: baseParams, body: manualSchema },
+    },
     async (request, reply) => {
       const base = await loadActiveBase(request.params.id, reply);
       if (!base) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       if (await folderIssue(base.id, request.body.folderId)) {
         return reject(reply, 'INVALID_INPUT', '文件夹不存在或属于其他知识库');
       }
@@ -293,6 +305,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         data: Buffer.from(request.body.content, 'utf8'),
         tags: request.body.tags,
         requestId: request.id,
+        actor: actorOf(request),
         log: request.log,
         publish: 'draft',
       });
@@ -335,7 +348,10 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/documents/:documentId/manual',
-    { ...auth, schema: { params: documentParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: documentParams },
+    },
     async (request, reply) => {
       const found = await manualDocument(request.params.documentId);
       if (found.error === 'NOT_FOUND')
@@ -344,6 +360,13 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         return reject(reply, 'INVALID_INPUT', '只有手写文档可以编辑正文');
       }
       const { document } = found;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: document.id },
+        '对象不存在',
+      );
       // 最新草稿优先；已发布为当前版本的旧草稿不再算草稿。
       const versions = await repo.knowledge.listDocumentVersions(app.db, document.id, {
         limit: 200,
@@ -366,7 +389,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
   app.put(
     '/api/knowledge/documents/:documentId/manual',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
       bodyLimit: MANUAL_BODY_LIMIT,
       schema: { params: documentParams, body: manualDraftSchema },
     },
@@ -378,8 +401,22 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         return reject(reply, 'INVALID_INPUT', '只有手写文档可以编辑正文');
       }
       const { document } = found;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: document.id },
+        '对象不存在',
+      );
       const base = await loadActiveBase(document.baseId, reply);
       if (!base) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
 
       const versions = await repo.knowledge.listDocumentVersions(app.db, document.id, {
         limit: 200,
@@ -420,7 +457,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
       try {
         await enqueueKnowledgeJob(job);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'knowledge.document.manual_draft_saved',
           target: document.id,
           input: { versionId: request.body.expectedVersionId },
@@ -441,7 +478,10 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/documents/:documentId/publish',
-    { ...auth, schema: { params: documentParams, body: manualPublishSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.publish' } },
+      schema: { params: documentParams, body: manualPublishSchema },
+    },
     async (request, reply) => {
       const found = await manualDocument(request.params.documentId);
       if (found.error === 'NOT_FOUND')
@@ -450,6 +490,13 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         return reject(reply, 'INVALID_INPUT', '只有手写文档可以发布正文');
       }
       const { document } = found;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.publish',
+        { objectId: document.id },
+        '对象不存在',
+      );
       const version = await repo.knowledge.getVersion(app.db, request.body.versionId);
       if (!version || version.documentId !== document.id) {
         return reject(reply, 'NOT_FOUND', '版本不存在或不属于该文档');
@@ -478,10 +525,20 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/documents/url',
-    { ...auth, schema: { params: baseParams, body: urlSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: baseParams, body: urlSchema },
+    },
     async (request, reply) => {
       const base = await loadActiveBase(request.params.id, reply);
       if (!base) return;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       if (await folderIssue(base.id, request.body.folderId)) {
         return reject(reply, 'INVALID_INPUT', '文件夹不存在或属于其他知识库');
       }
@@ -500,6 +557,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         data: fetched.data,
         tags: [],
         requestId: request.id,
+        actor: actorOf(request),
         log: request.log,
       });
       return reply.status(202).send(result);

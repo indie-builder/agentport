@@ -1,16 +1,19 @@
+import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Cable, LibraryBig, Puzzle, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { canAny } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
+import { meQuery } from '../lib/queries.js';
 import { FilterSelect } from './filter-select.js';
 import { Page, PageHeader, PageToolbar } from './page.js';
 import { SearchInput } from './search-input.js';
 
 const sections = [
-  { id: 'skills', to: '/skills', label: '技能', icon: Sparkles },
-  { id: 'servers', to: '/servers', label: '连接器', icon: Cable },
-  { id: 'plugins', to: '/plugins', label: '插件', icon: Puzzle },
-  { id: 'knowledge', to: '/knowledge', label: '知识库', icon: LibraryBig },
+  { id: 'skills', to: '/skills', label: '技能', icon: Sparkles, permission: 'skills.read' },
+  { id: 'servers', to: '/servers', label: '连接器', icon: Cable, permission: 'servers.read' },
+  { id: 'plugins', to: '/plugins', label: '插件', icon: Puzzle, permission: 'plugins.read' },
+  { id: 'knowledge', to: '/knowledge', label: '知识库', icon: LibraryBig, permission: 'knowledge.read' },
 ] as const;
 
 const sortOptions = [
@@ -52,13 +55,17 @@ export function ResourcePage({
     plugins: '插件',
     knowledge: '知识库',
   }[section];
+  const me = useQuery(meQuery);
+  const visibleSections = sections.filter((item) =>
+    canAny(me.data, [item.permission]),
+  );
   return (
     <Page>
       <PageHeader title={label} className="sr-only" />
       <div className="flex min-h-14 flex-wrap items-center gap-4">
         <nav aria-label="资源类型">
           <ul className="inline-flex min-h-8 w-fit max-w-full flex-wrap items-center justify-start gap-x-4 gap-y-2 text-muted-foreground">
-            {sections.map(({ id, to, label: title, icon: Icon }) => (
+            {visibleSections.map(({ id, to, label: title, icon: Icon }) => (
               <li key={id} className="flex-none">
                 <Link
                   to={to}

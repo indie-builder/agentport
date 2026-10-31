@@ -227,27 +227,25 @@ async function makeSource(
   return { sourceId: source.id };
 }
 
-async function startSync(
-  fixtureBase: Fixture,
-  sourceId: string,
-): Promise<{ jobId: string; syncRunId: string }> {
-  const run = await repo.knowledge.createSyncRun(db, sourceId, {});
-  const job = await repo.knowledge.createJob(db, {
-    type: 'sync',
-    baseId: fixtureBase.baseId,
-    documentId: null,
-    sourceId,
-    payload: { type: 'sync', sourceId, syncRunId: run.id },
-  });
-  await repo.knowledge.claimJob(db, job.id);
-  return { jobId: job.id, syncRunId: run.id };
+async function startSync(sourceId: string): Promise<{ jobId: string; syncRunId: string }> {
+  const created = await repo.knowledge.createSyncJob(db, sourceId);
+  if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
+  const claimed = await repo.knowledge.claimJob(db, created.job.id);
+  if (!claimed) throw new Error('sync job not claimed');
+  return { jobId: claimed.id, syncRunId: created.run.id };
 }
 
 async function runSyncJob(fixtureBase: Fixture, sourceId: string): Promise<{ syncRunId: string }> {
-  const { jobId, syncRunId } = await startSync(fixtureBase, sourceId);
+  const { jobId, syncRunId } = await startSync(sourceId);
   const job = await repo.knowledge.getJob(db, jobId);
   if (!job) throw new Error('sync job missing');
-  await runSync(fixtureBase.deps, job, new AbortController().signal);
+  try {
+    const result = await runSync(fixtureBase.deps, job, new AbortController().signal);
+    await repo.knowledge.finishJob(db, jobId, { status: 'succeeded', result });
+  } catch (err) {
+    await repo.knowledge.finishJob(db, jobId, { status: 'failed', error: String(err) });
+    throw err;
+  }
   return { syncRunId };
 }
 
@@ -841,8 +839,10 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     await repo.knowledge.finishJob(db, seeded.jobId, { status: 'succeeded' });
     const published = await repo.knowledge.setCurrentVersion(db, documentId, versionId);
     expect(published?.currentVersionId).toBe(versionId);
+    const publishedChunks = (await repo.knowledge.listChunks(db, versionId)).items;
 
     await runReindexJob(fixtureBase, { documentIds: [documentId] });
+    expect((await repo.knowledge.listChunks(db, versionId)).items).toEqual(publishedChunks);
 
     const rebuiltDocument = await repo.knowledge.getDocument(db, documentId);
     expect(rebuiltDocument?.status).toBe('ready');
@@ -905,49 +905,102 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     expect((await repo.knowledge.listVersions(db, draftOnly.documentId)).items).toHaveLength(1);
   });
 
-  it('W7: an abort during FAQ chunk replacement cannot return success', async () => {
+  it('W3: cancelling FAQ reindex at publication preserves the published snapshot', async () => {
     const fixtureBase = await makeBase();
-    const faq = {
+    const seeded = await seedFaqDocument(fixtureBase, {
       question: '如何认证？',
       similarQuestions: [],
-      negativeQuestions: ['如何退款？'],
+      negativeQuestions: [],
       answers: ['使用 token'],
-      answerStrategy: 'all' as const,
-      isRecommended: true,
-    };
-    const seeded = await seedFaqDocument(fixtureBase, faq);
-    const { documentId, versionId } = seeded;
-    await repo.knowledge.claimJob(db, seeded.jobId);
-    const claimed = await repo.knowledge.getJob(db, seeded.jobId);
-    if (!claimed) throw new Error('ingest job missing');
-
-    // 取消落在 replaceChunks 事务提交之后、摄取返回之前：必须抛取消而不是正常返回。
-    type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+      answerStrategy: 'all',
+      isRecommended: false,
+    });
+    await indexSeededFaq(fixtureBase, seeded);
+    await repo.knowledge.finishJob(db, seeded.jobId, { status: 'succeeded' });
+    await repo.knowledge.setCurrentVersion(db, seeded.documentId, seeded.versionId);
+    const originalChunks = (await repo.knowledge.listChunks(db, seeded.versionId)).items;
+    const job = await repo.knowledge.createJob(db, {
+      type: 'reindex',
+      baseId: fixtureBase.baseId,
+      documentId: null,
+      sourceId: null,
+      payload: { type: 'reindex', baseId: fixtureBase.baseId, documentIds: [seeded.documentId] },
+    });
+    const claimed = await repo.knowledge.claimJob(db, job.id);
+    if (!claimed) throw new Error('reindex job missing');
     const controller = new AbortController();
-    const depsForCall: KnowledgeDeps = {
+    type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+    const deps: KnowledgeDeps = {
       ...fixtureBase.deps,
-      db: new Proxy(fixtureBase.deps.db, {
+      db: new Proxy(db, {
         get(target, prop) {
           if (prop !== 'transaction') return Reflect.get(target, prop, target);
           return (fn: (tx: Tx) => Promise<unknown>) =>
             target.transaction(async (tx) => {
-              const result = await fn(tx);
               controller.abort();
-              return result;
+              return fn(tx);
             });
         },
-      }) as KnowledgeDeps['db'],
+      }),
     };
-
-    await expect(runIngest(depsForCall, claimed, controller.signal)).rejects.toBeInstanceOf(
+    await expect(runReindex(deps, claimed, controller.signal)).rejects.toBeInstanceOf(
       KnowledgeCancelled,
     );
-    expect(controller.signal.aborted).toBe(true);
-    const document = await repo.knowledge.getDocument(db, documentId);
-    expect(document?.currentVersionId).toBeNull();
-    expect(document?.status).toBe('pending');
-    expect((await repo.knowledge.listChunks(db, versionId)).items.length).toBeGreaterThan(0);
+    expect((await repo.knowledge.getDocument(db, seeded.documentId))?.currentVersionId).toBe(
+      seeded.versionId,
+    );
+    expect((await repo.knowledge.listChunks(db, seeded.versionId)).items).toEqual(originalChunks);
   });
+
+  it.each(['before', 'after'] as const)(
+    'W7: an abort %s FAQ chunk replacement cannot return success',
+    async (abortAt) => {
+      const fixtureBase = await makeBase();
+      const faq = {
+        question: '如何认证？',
+        similarQuestions: [],
+        negativeQuestions: ['如何退款？'],
+        answers: ['使用 token'],
+        answerStrategy: 'all' as const,
+        isRecommended: true,
+      };
+      const seeded = await seedFaqDocument(fixtureBase, faq);
+      const { documentId, versionId } = seeded;
+      await repo.knowledge.claimJob(db, seeded.jobId);
+      const claimed = await repo.knowledge.getJob(db, seeded.jobId);
+      if (!claimed) throw new Error('ingest job missing');
+
+      // 覆盖 DB 守卫观察到取消并回滚，以及提交前最后检查之后收到取消的窗口。
+      type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+      const controller = new AbortController();
+      const depsForCall: KnowledgeDeps = {
+        ...fixtureBase.deps,
+        db: new Proxy(fixtureBase.deps.db, {
+          get(target, prop) {
+            if (prop !== 'transaction') return Reflect.get(target, prop, target);
+            return (fn: (tx: Tx) => Promise<unknown>) =>
+              target.transaction(async (tx) => {
+                if (abortAt === 'before') controller.abort();
+                const result = await fn(tx);
+                if (abortAt === 'after') controller.abort();
+                return result;
+              });
+          },
+        }) as KnowledgeDeps['db'],
+      };
+
+      await expect(runIngest(depsForCall, claimed, controller.signal)).rejects.toBeInstanceOf(
+        KnowledgeCancelled,
+      );
+      expect(controller.signal.aborted).toBe(true);
+      const document = await repo.knowledge.getDocument(db, documentId);
+      expect(document?.currentVersionId).toBeNull();
+      expect(document?.status).toBe('pending');
+      const chunks = (await repo.knowledge.listChunks(db, versionId)).items;
+      if (abortAt === 'before') expect(chunks).toHaveLength(0);
+      else expect(chunks.length).toBeGreaterThan(0);
+    },
+  );
 
   it('J: structural chunks keep a real locator and multiple leaves share one parent', async () => {
     const fixtureBase = await makeBase();
@@ -1089,10 +1142,31 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       contentKind: 'faq',
       metadata: {},
     });
-    const versionOf = (question: string) =>
-      repo.knowledge.createVersion(db, {
+    const versionOf = async (question: string) => {
+      const versionId = newId('knowledgeVersion');
+      const blobSha256 = await writeBlob(Buffer.from(JSON.stringify({ question }), 'utf8'));
+      const job = await repo.knowledge.createJob(db, {
+        type: 'ingest',
+        baseId: fixtureBase.baseId,
         documentId: document.id,
-        blobSha256: `blob-${question}`,
+        sourceId: null,
+        payload: {
+          type: 'ingest',
+          documentId: document.id,
+          publish: 'draft',
+          versionId,
+          input: {
+            blobSha256,
+            filename: 'faq.json',
+            mimeType: 'application/json',
+            expectedCurrentVersionId: null,
+          },
+        },
+      });
+      const version = await repo.knowledge.createVersion(db, {
+        id: versionId,
+        documentId: document.id,
+        blobSha256,
         markdownSha256: `markdown-${question}`,
         originalFilename: 'faq.json',
         mimeType: 'application/json',
@@ -1100,7 +1174,7 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
         sourceRevision: null,
         origin: 'faq',
         parentVersionId: null,
-        metadata: { publication: 'draft' },
+        metadata: { publication: 'draft', indexingJobId: job.id },
         faq: {
           question,
           similarQuestions: [],
@@ -1112,15 +1186,29 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
         images: [],
         embeddingProfileId: fixtureBase.profileId,
       });
+      return { ...version, jobId: job.id };
+    };
     const first = await versionOf('第一问');
     const second = await versionOf('第二问');
 
-    await runIngestJob(fixtureBase, document.id, { publish: 'draft', versionId: first.id });
+    const jobId = first.jobId;
+    await indexSeededFaq(fixtureBase, first);
 
     const firstChunks = (await repo.knowledge.listChunks(db, first.id)).items;
     expect(firstChunks.map((chunk) => chunk.content)).toContain('第一问');
     expect(firstChunks.some((chunk) => chunk.content.includes('第二问'))).toBe(false);
     expect((await repo.knowledge.listChunks(db, second.id)).items).toHaveLength(0);
+
+    // BullMQ 基础设施重试复用相同任务与版本，替换索引必须幂等且不能发布草稿。
+    const job = await repo.knowledge.getJob(db, jobId);
+    if (!job) throw new Error('faq retry job missing');
+    await runIngest(fixtureBase.deps, job, new AbortController().signal);
+    const retriedChunks = (await repo.knowledge.listChunks(db, first.id)).items;
+    expect(retriedChunks.map((chunk) => chunk.content)).toEqual(
+      firstChunks.map((chunk) => chunk.content),
+    );
+    expect((await repo.knowledge.listChunks(db, second.id)).items).toHaveLength(0);
+    expect((await repo.knowledge.getDocument(db, document.id))?.currentVersionId).toBeNull();
   });
 
   it('M: a manual draft stays off the published pointer until an explicit publish', async () => {

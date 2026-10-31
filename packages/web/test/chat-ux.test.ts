@@ -1,4 +1,4 @@
-import { agentInputSchema, type PublicRunQuestion } from '@agentport/shared';
+import { DEFAULT_ROLES, agentInputSchema, type PublicRunQuestion } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -27,6 +27,13 @@ import { toastError } from '../src/lib/toast.js';
 import { ChatPage } from '../src/pages/chat.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+
+const adminMe = {
+  authenticated: true as const,
+  user: { businessId: 'admin', username: 'admin', name: '管理员' },
+  roles: [],
+  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+};
 
 const agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
@@ -190,6 +197,7 @@ beforeEach(() => {
   }));
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(['me'], adminMe);
   client.setQueryData(['agents'], [agent]);
   vi.spyOn(api, 'agents').mockResolvedValue([agent]);
   vi.spyOn(api, 'conversations').mockResolvedValue([]);
@@ -711,7 +719,8 @@ describe('live terminal outcomes across a follow-up send', () => {
     // 发送会清空最新读数，旧轮原因与链接必须仍从会话详情缓存读到，且不串到新轮。
     expect(useChatStore.getState().lastRun).toBeNull();
     expect(host.textContent).toContain(error);
-    expect(host.textContent).toContain('等待回复');
+    // 已接受但事件流尚未 onopen：沿用 reconnecting 文案，等连接打开才进入「等待回复」。
+    expect(host.textContent).toContain('连接已中断，正在重连');
     const oldLink = host.querySelector('a[href="/runs/run-a"]');
     const oldTurn = oldLink?.closest('[data-message-id]');
     expect(oldTurn?.textContent).toContain('first prompt');

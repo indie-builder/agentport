@@ -12,6 +12,7 @@ import {
 import { Queue, Worker } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import { checkUserAgentAccess } from './run-access.js';
 
 /** 每 5 分钟与库对账一次：补缺失的 scheduler、删孤儿，不动已存在且未变的。 */
 const RECONCILE_MS = 5 * 60_000;
@@ -120,6 +121,20 @@ export async function processScheduleTrigger(
     await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
       reason: 'agent_disabled',
       agentId: schedule.agentId,
+    });
+    return 'skipped';
+  }
+  // 触发时按 DB 实时身份与授权重查：创建后撤权/停用不再启动，也不降级成管理员。
+  const denial = await checkUserAgentAccess(input.db, {
+    businessId: schedule.executeAsBusinessId,
+    agentId: schedule.agentId,
+    permissions: ['agents.use', 'schedules.manage'],
+  });
+  if (denial !== null) {
+    await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
+      reason: denial.reason,
+      agentId: schedule.agentId,
+      businessId: schedule.executeAsBusinessId,
     });
     return 'skipped';
   }

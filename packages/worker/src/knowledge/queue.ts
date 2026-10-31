@@ -1,10 +1,8 @@
 import { repo, schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOBS_QUEUE,
-  type KnowledgeSourceProbeResult,
   knowledgeCancelKey,
   knowledgeEnqueueOptions,
-  knowledgeJobPayloadSchema,
 } from '@agentport/shared';
 import { DelayedError, type Job, Queue, Worker } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
@@ -17,6 +15,7 @@ import {
   isRetryableKnowledgeError,
   KnowledgeCancelled,
   type KnowledgeDeps,
+  type KnowledgeJobResult,
   runKnowledgeJob,
 } from './ingestion.js';
 import { createParsingAdapter } from './parsing-adapter.js';
@@ -52,14 +51,14 @@ export interface DispatchDeps extends KnowledgeDeps {
 
 /**
  * 按任务类型分派：wiki_generate 走 SDK 生成器，其余走摄取链。
- * 两者都只负责执行与保存；终态统一由队列写入。
+ * 两者都只负责执行并返回 sync 结果；终态统一由 DB 仓库的 finishJob 原子提交。
  */
 export async function dispatchKnowledgeJob(
   job: KnowledgeJobRow,
   deps: DispatchDeps,
-): Promise<KnowledgeSourceProbeResult | null> {
+): Promise<KnowledgeJobResult | void> {
   if (job.type === 'wiki_generate') {
-    await runWikiGenerate(job, {
+    return runWikiGenerate(job, {
       db: deps.db,
       config: {
         KNOWLEDGE_DIR: deps.knowledgeDir,
@@ -68,7 +67,6 @@ export async function dispatchKnowledgeJob(
       signal: deps.signal,
       ...(deps.queryFn === undefined ? {} : { queryFn: deps.queryFn }),
     });
-    return null;
   }
   return runKnowledgeJob(deps, job, deps.signal);
 }
@@ -191,7 +189,7 @@ export async function startKnowledgeWorker(
         }
         await finish(config.db, row, {
           status: 'succeeded',
-          ...(result ? { result } : {}),
+          ...result,
         });
       } catch (err) {
         if (closing) {
@@ -252,36 +250,13 @@ async function resetToQueued(db: KnowledgeDeps['db'], jobId: string, error: stri
 }
 
 /**
- * 队列是终态的唯一写入方。同步任务在摄取链路中途抛错（来源已删、范围为空等）时
- * sync run 仍停在 queued/running，这里一并收尾，避免前端一直显示进行中。
+ * 所有业务终态都经过 DB 仓库的 finishJob：job CAS、sync run、source 摘要与游标
+ * 由同一事务提交；这里不再分别写 job/run/source。
  */
 async function finish(
   db: KnowledgeDeps['db'],
   job: KnowledgeJobRow,
-  input: {
-    status: 'succeeded' | 'failed' | 'cancelled';
-    error?: string;
-    result?: KnowledgeSourceProbeResult;
-  },
+  input: repo.knowledge.FinishJobInput,
 ): Promise<void> {
-  const finished = await repo.knowledge.finishJob(db, job.id, input);
-  if (!finished || job.type !== 'sync') return;
-  const payload = knowledgeJobPayloadSchema.safeParse(job.payload);
-  if (!payload.success || payload.data.type !== 'sync') return;
-  // 摄取链路已正常收尾（成功/失败/取消）时 run 已是终态，这里不重复写。
-  const [run] = await db
-    .select({ status: schema.knowledgeSyncRuns.status })
-    .from(schema.knowledgeSyncRuns)
-    .where(eq(schema.knowledgeSyncRuns.id, payload.data.syncRunId))
-    .limit(1);
-  if (!run || (run.status !== 'queued' && run.status !== 'running')) return;
-  await repo.knowledge.finishSyncRun(db, payload.data.syncRunId, {
-    status: input.status,
-    error: input.error ?? null,
-  });
-  await repo.knowledge.updateSource(db, payload.data.sourceId, {
-    lastSyncAt: new Date(),
-    lastSyncStatus: input.status,
-    lastError: input.error ?? null,
-  });
+  await repo.knowledge.finishJob(db, job.id, input);
 }

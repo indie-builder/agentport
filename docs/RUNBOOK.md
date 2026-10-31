@@ -13,7 +13,7 @@
 ```bash
 curl -sS -w '\nHTTP %{http_code}\n' http://localhost:3000/health/live
 curl -sS -w '\nHTTP %{http_code}\n' http://localhost:3000/health/ready
-curl -sS -b "agentport_token=<登录后的 JWT>" http://localhost:3000/health/metrics | jq .
+curl -sS -b "agentport_token=<登录后的会话 Cookie>" http://localhost:3000/health/metrics | jq .
 ```
 
 2. 看容器与最近日志：
@@ -32,7 +32,7 @@ set -a; . ./.env; set +a; pnpm backup
 `/health/live`、`/health/ready` **没有鉴权**，`/health/metrics` 需要登录（`requireAuth`），不要直接暴露到公网；只经由反向代理的内网路径或本机访问。后文所有 `/health/metrics` 命令都假定先设置登录 Cookie：
 
 ```bash
-AUTH='-b agentport_token=<登录后的 JWT>'
+AUTH='-b agentport_token=<登录后的会话 Cookie>'
 ```
 
 ---
@@ -433,7 +433,7 @@ docker compose exec -T postgres psql -U agentport -d agentport -c \
 
 ## 6. Redis 内存告警
 
-**症状**：Redis 内存持续上涨；日志出现 `OOM command not allowed`、`maxmemory` 相关错误；会话/队列开始报错。
+**症状**：Redis 内存持续上涨；日志出现 `OOM command not allowed`、`maxmemory` 相关错误；队列开始报错。
 
 ### 判断
 
@@ -442,7 +442,6 @@ set -a; . ./.env; set +a
 docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning INFO memory | grep -E "used_memory_human|maxmemory_human|maxmemory_policy"'
 docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning DBSIZE'
 docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "run:*:events" | wc -l'
-docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "session:*" | wc -l'
 docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "bull:agent-runs:*" | wc -l'
 ```
 
@@ -586,45 +585,41 @@ docker compose exec -T redis sh -c 'for k in $(redis-cli -a "$REDIS_PASSWORD" --
 
 **验证**：等 1 分钟后重新登录，返回 200；`/api/auth/me` 返回 `{"authenticated":true}`。
 
-### 8.2 会话丢失（Redis）
+### 8.2 会话丢失（PostgreSQL）
 
 **判断**
 
 ```bash
-docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "session:*" | wc -l'
+docker compose exec -T postgres psql -U agentport -d agentport -c 'select count(*) from "session";'
 docker compose logs api | grep -i 'session' | tail -20
-docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning INFO persistence | grep -E "aof_enabled|rdb_last_bgsave_status"'
 ```
 
-会话存在 Redis（`session:<sid>`，TTL 24 小时）；Redis 不可用时会拒绝所有已登录请求，Redis 数据丢失则需要重新登录。
+会话存在 PostgreSQL 的 `session` 表（有效期 24 小时），由 better-auth 的 Drizzle adapter 管理；Redis 不参与会话校验，Redis 故障不会让已登录请求失效。数据库被恢复、清空，或会话行被删除时，已登录用户需要重新登录。
 
 **处置**
 
 ```bash
-docker compose up -d redis
-# 密码不一致时按 §2.2 重建
+docker compose up -d postgres
+# 数据库不可用或数据损坏时按 OPERATIONS.md 的备份策略恢复
 ```
 
-**验证**：重新登录后刷新页面，仍保持登录；`session:*` 计数增加。
+**验证**：重新登录后刷新页面仍保持登录；`session` 表行数增加。
 
-### 8.3 密码改过但没生效
+### 8.3 改了 `.env` 的 `ADMIN_PASSWORD` 但账号密码没变
 
-**判断**：`.env` 里的 `ADMIN_PASSWORD` 已改，但旧密码仍能登录——配置只在 api 启动时读取。
+**判断**：这是首次初始化后的预期行为。`ADMIN_PASSWORD` 只在 `platform_bootstrap` marker 不存在时用于创建首个管理员；marker 已存在后，重启 api 或改 env 都不会覆盖现有账户密码。
 
-**处置**
+**处置**：用该账户登录后调用本人改密接口（需要当前密码）：
 
 ```bash
-grep '^ADMIN_PASSWORD=' .env   # 确认值已保存（至少 12 字符）
-docker compose up -d --force-recreate api
+curl -sS -b "agentport_token=<当前会话 Cookie>" -X POST http://localhost:3000/api/auth/change-password \
+  -H 'content-type: application/json' -H "origin: <SELF_URL>" \
+  -d '{"currentPassword":"<当前密码>","newPassword":"<新密码>"}'
 ```
 
-**验证**
+改密成功后服务端删除该账户全部会话并清 Cookie。当前没有离线重置管理员密码的工具，不要执行不存在的「管理员恢复」脚本；有其他具备 `accounts.manage` 权限的管理员时，可在账户页重置该账户密码（同时撤销其会话）。已无法登录时按 OPERATIONS.md 的备份/重建流程处理，并先备份。
 
-```bash
-curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/api/auth/login \
-  -H 'content-type: application/json' \
-  -d '{"username":"admin","password":"<新密码>"}'
-```
+**验证**：旧密码或旧 Cookie 返回 401；新密码登录 200。
 
 另外两类容易误判：生产 Cookie 带 `Secure`，用 HTTP + 非 localhost 访问会导致「登录成功但刷新退出」；`CORS_ORIGINS` 与浏览器实际 Origin 不一致会被 CORS 拦截。
 
@@ -660,9 +655,11 @@ pnpm run up --rebuild
 docker compose ps
 curl -sS -w '\nHTTP %{http_code}\n' http://localhost:3000/health/ready
 curl -sS $AUTH http://localhost:3000/health/metrics | jq '{process, queue, db, redis}'
-BASE_URL=http://localhost:3000 ADMIN_USER=admin ADMIN_PASSWORD="$(sed -n 's/^ADMIN_PASSWORD=//p' .env | tail -1)" \
+BASE_URL=http://localhost:3000 ADMIN_USER=admin ADMIN_PASSWORD='<当前管理员密码>' \
   bash scripts/smoke.sh
 ```
+
+首次初始化后 `.env` 的 `ADMIN_PASSWORD` 不保证等于当前密码，冒烟请填账号当前密码。
 
 页面 `/status` 应全绿；在页面发起一次真实 run 确认沙盒与凭证正常。
 
@@ -744,22 +741,36 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://localhost:3000/mcp \
 # 新 token 200
 ```
 
-### 10.2 管理员密码泄露
+### 10.2 账户密码泄露（含管理员）
 
 **处置**
 
-```bash
-# 编辑 .env: ADMIN_PASSWORD=<新的强密码>
-docker compose up -d --force-recreate api
+仍能登录时，优先用该账户调用本人改密接口；成功后服务端会删除该账户全部会话并清 Cookie：
 
-# 已签发的会话仍然有效：清空全部会话（单管理员场景可接受）
-set -a; . ./.env; set +a
-docker compose exec -T redis sh -c 'for k in $(redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "session:*"); do redis-cli -a "$REDIS_PASSWORD" --no-auth-warning DEL "$k" >/dev/null; done'
+```bash
+curl -sS -b "agentport_token=<当前会话 Cookie>" -X POST http://localhost:3000/api/auth/change-password \
+  -H 'content-type: application/json' -H "origin: <SELF_URL>" \
+  -d '{"currentPassword":"<当前密码>","newPassword":"<新密码>"}'
 ```
 
-**验证**：旧密码 401、新密码 200；浏览器里旧会话刷新后跳登录。
+需要立即断开全部登录，或账户已无法登录时，直接删除 PostgreSQL 的会话行：
 
-### 10.3 JWT 密钥泄露（`JWT_SECRET`）
+```bash
+# 指定业务 ID 的全部会话
+docker compose exec -T postgres psql -U agentport -d agentport -c \
+  'delete from "session" using "user" where "session".user_id = "user".id and "user".business_id = '\''<businessId>'\'';'
+
+# 或清空全部会话（单管理员场景可接受）
+docker compose exec -T postgres psql -U agentport -d agentport -c 'delete from "session";'
+```
+
+首次初始化后，改 `.env` 的 `ADMIN_PASSWORD` 并重启 api 不会改变现有账户密码；当前没有离线重置管理员密码的工具，不要执行不存在的「管理员恢复」脚本。有其他具备 `accounts.manage` 权限的管理员时，可在账户页重置该账户密码，重置会撤销其全部会话。
+
+**验证**：改密后旧密码 401；旧 Cookie 访问任意需要鉴权的 `/api/*` 返回 401；新密码登录 200。
+
+### 10.3 会话签名密钥泄露（`JWT_SECRET`）
+
+`JWT_SECRET` 是 better-auth 的会话签名密钥（历史命名，不是应用 JWT）。轮换后已签发的 Cookie 无法通过签名校验；PostgreSQL `session` 表中的行仍在，会在 24 小时内自然过期，也可按 10.2 删除。
 
 **处置**
 
@@ -768,8 +779,6 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 # 编辑 .env: JWT_SECRET=<新值>
 docker compose up -d --force-recreate api worker
 ```
-
-轮换后所有已签发 JWT 立即失效（Redis 里残留的 `session:*` 会在 24h 内自然过期，也可按 10.2 清空）。
 
 **验证**：未重新登录的浏览器访问任意 `/api/*` 返回 401。
 

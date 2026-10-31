@@ -383,6 +383,191 @@ async function waitForBlockedBackends(
   }
 }
 
+describe.skipIf(!ready)('replaceChunks draft indexing', () => {
+  async function seedReplacement(batch = false) {
+    const baseId = await seedBase();
+    const published = await seedDocument(baseId, { contentKind: 'faq' });
+    const versionId = newId('knowledgeVersion');
+    const job = await knowledge.createJob(db, {
+      type: 'ingest',
+      baseId,
+      documentId: published.document.id,
+      sourceId: null,
+      payload: {
+        type: 'ingest',
+        documentId: published.document.id,
+        publish: 'draft',
+        versionId,
+      },
+    });
+    await knowledge.claimJob(db, job.id);
+    await knowledge.createVersion(
+      db,
+      versionInput(published.document.id, {
+        id: versionId,
+        parentVersionId: published.version.id,
+        origin: 'faq',
+        metadata: batch
+          ? { publication: 'draft', faqImport: { batchId: 'test' }, faqImportJobId: job.id }
+          : { publication: 'draft', indexingJobId: job.id },
+      }),
+    );
+    const chunk: knowledge.NewChunk = {
+      ordinal: 0,
+      kind: 'text',
+      heading: null,
+      content: 'old draft',
+      searchText: 'old draft',
+      embedding: null,
+      pageFrom: null,
+      pageTo: null,
+      tokenCount: 1,
+    };
+    const input = {
+      baseId,
+      documentId: published.document.id,
+      versionId,
+      folderId: null,
+      jobId: job.id,
+      isAborted: () => false,
+      chunks: [chunk],
+    };
+    const old = await knowledge.insertChunks(db, input);
+    return { input, chunk, old, published };
+  }
+
+  it.each([false, true])('实际替换%s批次草稿，重复执行及清空不改已发布版本', async (batch) => {
+    const { input, chunk, old, published } = await seedReplacement(batch);
+    const chunks = [{ ...chunk, content: 'new draft' }];
+    const inserted = await knowledge.replaceChunks(db, { ...input, chunks });
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]?.content).toBe('new draft');
+    expect(inserted[0]?.id).not.toBe(old[0]?.id);
+    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(inserted);
+    await knowledge.replaceChunks(db, { ...input, chunks });
+    expect((await knowledge.listChunks(db, input.versionId)).items).toHaveLength(1);
+    await knowledge.replaceChunks(db, { ...input, chunks: [] });
+    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual([]);
+    expect((await knowledge.listChunks(db, published.version.id)).items).toEqual(published.chunks);
+    expect((await knowledge.getDocument(db, input.documentId))?.currentVersionId).toBe(
+      published.version.id,
+    );
+  });
+
+  it('第二批 INSERT 唯一键失败时回滚删除和已插入的第一批', async () => {
+    const { input, chunk, old, published } = await seedReplacement();
+    const chunks = Array.from({ length: 501 }, (_, ordinal) => ({
+      ...chunk,
+      ordinal: ordinal === 500 ? 0 : ordinal,
+      content: `new ${ordinal}`,
+    }));
+    await expect(knowledge.replaceChunks(db, { ...input, chunks })).rejects.toSatisfy(
+      (error: unknown) => pgCode(error) === '23505',
+    );
+    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
+    expect((await knowledge.listChunks(db, published.version.id)).items).toEqual(published.chunks);
+  });
+
+  it('当前版、已发布历史版和无草稿标记的历史版均不可覆盖', async () => {
+    const { input, published } = await seedReplacement();
+    await db
+      .update(schema.knowledgeJobs)
+      .set({
+        payload: {
+          type: 'ingest',
+          documentId: input.documentId,
+          publish: 'draft',
+          versionId: published.version.id,
+        },
+      })
+      .where(eq(schema.knowledgeJobs.id, input.jobId));
+    await db
+      .update(schema.knowledgeDocumentVersions)
+      .set({ metadata: { publication: 'draft', indexingJobId: input.jobId } })
+      .where(eq(schema.knowledgeDocumentVersions.id, published.version.id));
+    await expect(
+      knowledge.replaceChunks(db, { ...input, versionId: published.version.id }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    await knowledge.updateDocument(db, input.documentId, { currentVersionId: null });
+    for (const metadata of [{}, { publication: 'published' }]) {
+      await db
+        .update(schema.knowledgeDocumentVersions)
+        .set({ metadata })
+        .where(eq(schema.knowledgeDocumentVersions.id, published.version.id));
+      await expect(
+        knowledge.replaceChunks(db, { ...input, versionId: published.version.id }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' });
+    }
+    expect((await knowledge.listChunks(db, published.version.id)).items).toEqual(published.chunks);
+  });
+
+  it('库/文档/任务错配、任务已取消或草稿已改绑均零写拒绝', async () => {
+    const { input, old } = await seedReplacement();
+    for (const patch of [
+      { baseId: newId('knowledgeBase') },
+      { documentId: newId('knowledgeDocument') },
+      { jobId: newId('knowledgeJob') },
+    ]) {
+      await expect(knowledge.replaceChunks(db, { ...input, ...patch })).rejects.toMatchObject({
+        code: 'CONFLICT',
+      });
+    }
+    await db
+      .update(schema.knowledgeDocumentVersions)
+      .set({ metadata: { publication: 'draft', indexingJobId: newId('knowledgeJob') } })
+      .where(eq(schema.knowledgeDocumentVersions.id, input.versionId));
+    await expect(knowledge.replaceChunks(db, input)).rejects.toMatchObject({ code: 'CONFLICT' });
+    await db
+      .update(schema.knowledgeDocumentVersions)
+      .set({ metadata: { publication: 'draft', indexingJobId: input.jobId } })
+      .where(eq(schema.knowledgeDocumentVersions.id, input.versionId));
+    await knowledge.finishJob(db, input.jobId, { status: 'cancelled' });
+    await expect(knowledge.replaceChunks(db, input)).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
+  });
+
+  it('事务等待文档锁期间取消获胜，恢复后不能替换草稿', async () => {
+    const { input, old } = await seedReplacement();
+    const blocker = await pool.connect();
+    let replacement: Promise<unknown> | undefined;
+    try {
+      await blocker.query('begin');
+      await blocker.query('select id from knowledge_documents where id = $1 for update', [
+        input.documentId,
+      ]);
+      const {
+        rows: [backend],
+      } = await blocker.query<{ pid: number }>('select pg_backend_pid() as pid');
+      if (!backend) throw new Error('blocker backend missing');
+      replacement = knowledge.replaceChunks(db, input);
+      const rejected = expect(replacement).rejects.toMatchObject({ code: 'CONFLICT' });
+      await waitForBlockedBackends(backend.pid, 1);
+      await knowledge.finishJob(db, input.jobId, { status: 'cancelled' });
+      await blocker.query('commit');
+      await rejected;
+      expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
+    } finally {
+      await blocker.query('rollback');
+      blocker.release();
+      await replacement?.catch(() => {});
+    }
+  });
+
+  it.each([1, 2])('第%s次检查观察到 abort 时整笔回滚', async (abortAt) => {
+    const { input, chunk, old } = await seedReplacement();
+    let checks = 0;
+    await expect(
+      knowledge.replaceChunks(db, {
+        ...input,
+        chunks: [{ ...chunk, content: 'cancelled draft' }],
+        isAborted: () => ++checks >= abortAt,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(checks).toBe(abortAt);
+    expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
+  });
+});
+
 describe.skipIf(!ready)('knowledge foundation contract A', () => {
   it('replaceSourceScope 立即撤权、重叠范围保留、人工停用原因不被覆盖', async () => {
     const baseId = await seedBase();
@@ -989,7 +1174,9 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(ordinary.items.map((document) => document.id)).not.toContain(wikiIndex.document.id);
 
     const { source } = await seedSource(baseId, [{ kind: 'gitlab_project', externalId: 'sync' }]);
-    const run = await knowledge.createSyncRun(db, source.id, {});
+    const sync = await knowledge.createSyncJob(db, source.id);
+    if (sync.status !== 'created') throw new Error(`sync pair not created: ${sync.status}`);
+    const run = sync.run;
     const item = await knowledge.recordSyncItem(db, {
       syncRunId: run.id,
       sourceId: source.id,
@@ -1585,7 +1772,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     const cancelledJobId = nextSaved.items[0]?.jobId;
     if (!cancelledJobId) throw new Error('job missing');
-    await knowledge.requestCancel(db, cancelledJobId);
+    await knowledge.finishJob(db, cancelledJobId, { fromStatus: 'queued', status: 'cancelled' });
     await knowledge.insertChunks(db, {
       baseId,
       documentId,

@@ -110,15 +110,16 @@ export function RuntimeEnvironmentDetailPage() {
     if (!data) return;
     const saved = { id: data.id, name: data.name, dockerfile: data.dockerfile };
     const previous = savedRef.current;
-    const edited =
+    // 同实体仍有草稿时，后台刷新不能推进基线：否则服务器值偶合草稿后会被误判为无草稿，后续刷新覆盖草稿。
+    const editing =
       previous !== null &&
+      previous.id === saved.id &&
       (draftRef.current.name !== previous.name ||
         draftRef.current.dockerfile !== previous.dockerfile);
-    if (!edited || previous.id !== saved.id) {
-      setName(saved.name);
-      setDockerfile(saved.dockerfile);
-      setNameError(null);
-    }
+    if (editing) return;
+    setName(saved.name);
+    setDockerfile(saved.dockerfile);
+    setNameError(null);
     savedRef.current = saved;
   }, [environment.data]);
 
@@ -163,7 +164,7 @@ export function RuntimeEnvironmentDetailPage() {
     );
   }
 
-  if (environment.isError || !environment.data) {
+  if (environment.data === undefined) {
     return (
       <Page>
         <PageHeader title="运行环境" />
@@ -257,6 +258,10 @@ export function RuntimeEnvironmentDetailPage() {
           </>
         }
       />
+
+      {environment.isError ? (
+        <ErrorState error={environment.error} onRetry={() => void environment.refetch()} />
+      ) : null}
 
       <PageSection title="配置">
         <form

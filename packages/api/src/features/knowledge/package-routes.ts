@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf } from '../access.js';
 import {
   exportKnowledgePackage,
   importKnowledgePackage,
@@ -13,7 +14,6 @@ const baseParams = z.object({ id: z.string().min(1) });
 
 export function registerKnowledgePackageRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   // 知识包是二进制 ZIP；专家包导入可能已注册同一 content-type，此时复用它
   // （路由级 bodyLimit 优先于 parser 默认值）。
@@ -27,7 +27,7 @@ export function registerKnowledgePackageRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/export',
-    { ...auth, schema: { params: baseParams } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.export' } }, schema: { params: baseParams } },
     async (request, reply) => {
       const pkg = await exportKnowledgePackage(app.db, app.config.KNOWLEDGE_DIR, request.params.id);
       if (!pkg) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除；请刷新后重试');
@@ -43,14 +43,14 @@ export function registerKnowledgePackageRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/knowledge/bases/import',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'knowledge.import' } },
       bodyLimit: KNOWLEDGE_PACKAGE_MAX_BYTES,
       schema: { body: z.instanceof(Buffer) },
     },
     async (request, reply) => {
       const result = await importKnowledgePackage(app.db, app.config.KNOWLEDGE_DIR, request.body);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'knowledge.base.imported',
         target: result.baseId,
         input: result.counts,

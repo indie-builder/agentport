@@ -9,7 +9,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/fiel
 import { Input } from '../components/ui/input.js';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { resolveReturnTo } from '../lib/auth-redirect.js';
-import { meQuery, queryClient } from '../lib/queries.js';
+import { clearSessionQueries, meQuery, queryClient } from '../lib/queries.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
 const loginSchema = z.object({
@@ -50,14 +50,28 @@ export function LoginPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useZodForm(loginSchema, { defaultValues: { username: 'admin', password: '' } });
+  } = useZodForm(loginSchema, { defaultValues: { username: '', password: '' } });
 
   const login = useMutation({
     mutationFn: ({ username, password }: z.infer<typeof loginSchema>) =>
       api.login(username, password),
     onSuccess: async () => {
-      // 必须等 /me 刷新完成，否则 AppShell 会拿着旧的未登录缓存把人弹回登录页。
-      await queryClient.refetchQueries({ queryKey: ['me'] });
+      // 换账户后不能复用前一个人的列表与正文；先清空再取当前身份。
+      clearSessionQueries();
+      // refetchQueries 只刷新缓存里已有的查询，清空后不会发请求；必须显式 fetch 并等它完成，
+      // 否则会带着空的 /me 缓存导航，AppShell 再把新会话弹回登录页。
+      let identity: Awaited<ReturnType<typeof api.me>>;
+      try {
+        identity = await queryClient.fetchQuery({ ...meQuery, staleTime: 0 });
+      } catch (cause) {
+        // 登录已成功但身份没取到：留在表单让用户重试，不带着空缓存导航。
+        setError(errorMessage(cause));
+        return;
+      }
+      if (!identity.authenticated) {
+        setError('登录状态确认失败，请重试。');
+        return;
+      }
       await navigate({ href: target, replace: true });
     },
     onError: (cause) =>

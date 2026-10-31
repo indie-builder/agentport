@@ -1,9 +1,10 @@
 import { AppError } from '@agentport/core';
-import type { Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import type { AccessFilter, Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
+import { and, asc, eq, inArray, isNotNull, ne, or, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
+  agentMembers,
   agentOutputStyles,
   agentPlugins,
   agentRules,
@@ -11,10 +12,12 @@ import {
   agentServers,
   agentSkills,
   agents,
+  conversations,
   servers,
   skills,
 } from '../schema.js';
 import { insertAgentVersion, retryOnVersionConflict, type Tx } from './agent-versions.js';
+import type { ConversationSandboxTarget } from './chat.js';
 import { notStale } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
 
@@ -37,6 +40,10 @@ export interface AgentWrite {
   /** numeric 列以字符串写入，避免浮点误差。 */
   maxBudgetUsd: string;
   timeoutMs: number;
+  /** 当前业务身份；创建后不随转交改变。 */
+  createdBy: string;
+  /** 当前负责人；新建时等于 createdBy。 */
+  ownerBusinessId: string;
   parentId?: string | null;
   /** 绑定的运行环境；null 表示平台默认环境。 */
   runtimeEnvironmentId?: string | null;
@@ -56,6 +63,8 @@ export function toAgent(
     name: row.name,
     role: row.role,
     description: row.description,
+    createdBy: row.createdBy,
+    ownerBusinessId: row.ownerBusinessId,
     model: row.model,
     systemPrompt: row.systemPromptMd,
     serverIds,
@@ -78,8 +87,50 @@ export function toAgent(
   };
 }
 
-export async function listAgents(db: Database): Promise<AgentRow[]> {
-  return db.select().from(agents).orderBy(asc(agents.createdAt), asc(agents.id));
+/** agents.read 的列表与删除重核共用同一范围谓词；范围不够时返回空结果。 */
+function agentReadScopeWhere(access: AccessFilter): SQL | undefined {
+  const scopes = new Set(access.scopes);
+  if (scopes.has('platform')) return undefined;
+  const visible: SQL[] = [];
+  if (scopes.has('owned_agents')) {
+    visible.push(eq(agents.ownerBusinessId, access.businessId));
+  }
+  if (scopes.has('authorized_agents')) {
+    visible.push(
+      sql`(${agents.ownerBusinessId} = ${access.businessId} or exists (select 1 from ${agentMembers} m where m.agent_id = ${agents.id} and m.business_id = ${access.businessId} and m.can_use))`,
+    );
+  }
+  if (scopes.has('maintained_agents')) {
+    visible.push(
+      sql`(${agents.ownerBusinessId} = ${access.businessId} or exists (select 1 from ${agentMembers} m where m.agent_id = ${agents.id} and m.business_id = ${access.businessId} and m.can_maintain))`,
+    );
+  }
+  if (visible.length === 0) return sql`false`;
+  return or(...visible);
+}
+
+/** agents.delete 只接受 owned_agents / platform，不因 can_use/can_maintain 扩大删除范围。 */
+function agentDeleteScopeWhere(access: AccessFilter): SQL | undefined {
+  const scopes = new Set(access.scopes);
+  if (scopes.has('platform')) return undefined;
+  if (scopes.has('owned_agents')) return eq(agents.ownerBusinessId, access.businessId);
+  return sql`false`;
+}
+
+function agentDeletionWhere(input: AgentDeletionInput): SQL | undefined {
+  return and(
+    eq(agents.id, input.id),
+    agentDeleteScopeWhere(input.access),
+    agentReadScopeWhere(input.readAccess),
+  );
+}
+
+export async function listAgents(db: Database, access: AccessFilter): Promise<AgentRow[]> {
+  return db
+    .select()
+    .from(agents)
+    .where(agentReadScopeWhere(access))
+    .orderBy(asc(agents.createdAt), asc(agents.id));
 }
 
 export async function getAgent(db: Database | Tx, id: string): Promise<AgentRow | null> {
@@ -252,6 +303,7 @@ export async function duplicateAgent(
   db: Database,
   sourceId: string,
   input: AgentDuplicateInput,
+  ownerBusinessId: string,
 ): Promise<Agent | null> {
   try {
     return await retryOnVersionConflict(() =>
@@ -301,6 +353,8 @@ export async function duplicateAgent(
               maxTurns: source.maxTurns,
               maxBudgetUsd: source.maxBudgetUsd,
               timeoutMs: source.timeoutMs,
+              createdBy: ownerBusinessId,
+              ownerBusinessId,
               parentId: null,
               // 复制的是环境绑定（不是构建版本）；源环境的版本历史不跟着复制。
               runtimeEnvironmentId: source.runtimeEnvironmentId,
@@ -361,10 +415,13 @@ export async function duplicateAgent(
   }
 }
 
+/** 普通编辑不能改归属；转交只走 access.transferAgent。 */
+export type AgentPatch = Partial<Omit<AgentWrite, 'createdBy' | 'ownerBusinessId'>>;
+
 export async function updateAgent(
   db: Database,
   id: string,
-  patch: Partial<AgentWrite>,
+  patch: AgentPatch,
   serverIds?: string[],
   skillIds?: string[],
   note: string | null = null,
@@ -521,20 +578,150 @@ async function writeAgentPluginBindings(
   );
 }
 
-/** 删除会断开子智能体的 parent_id；活动集合变化前必须先确认没有真实运行。 */
-export async function deleteAgent(db: Database, id: string): Promise<boolean> {
+export interface AgentDeletionInput {
+  id: string;
+  /** agents.delete 的范围；只接受 owned_agents / platform。 */
+  access: AccessFilter;
+  /** agents.delete 依赖的 agents.read 范围，保留同一请求内授权快照。 */
+  readAccess: AccessFilter;
+}
+
+export interface AgentDeletionSnapshot {
+  id: string;
+  slug: string;
+  ownerBusinessId: string;
+  parentId: string | null;
+  enabled: boolean;
+  /** 全部直接子级；影响解绑与活动集合。 */
+  childIds: string[];
+  affectedAgentIds: string[];
+  /** 只含目标专家自身的会话，不包含子级会话。 */
+  targets: ConversationSandboxTarget[];
+}
+
+/**
+ * 短 tx A：按删除/读取范围重查主体，返回确定快照后立即提交。
+ * 不在事务内等待任何网络关闭确认；目标集合由调用方在事务外精确核对。
+ */
+export async function prepareAgentDeletion(
+  db: Database,
+  input: AgentDeletionInput,
+): Promise<AgentDeletionSnapshot | null> {
+  return db.transaction((tx) => readAgentDeletionSnapshot(tx, input));
+}
+
+/** 短 tx B：重读完整快照并与 A 精确比较，匹配才删除；任何变化回滚。 */
+export async function deleteAgent(
+  db: Database,
+  input: AgentDeletionInput & { expected: AgentDeletionSnapshot },
+): Promise<boolean> {
   return db.transaction(async (tx) => {
-    await lockAgentBindings(tx);
-    const self = await getAgent(tx, id);
-    if (!self) return false;
-    const children = await getAgentSubAgentIds(tx, id);
-    const affected = [id, ...children];
-    // 删除一个 enabled 子级也会改变父专家的活动集合。
-    if (self.enabled && self.parentId !== null) affected.push(self.parentId);
-    await assertAgentsIdle(tx, affected);
-    const rows = await tx.delete(agents).where(eq(agents.id, id)).returning({ id: agents.id });
+    const actual = await readAgentDeletionSnapshot(tx, input, true);
+    if (actual === null) return false;
+    if (!sameAgentSnapshot(input.expected, actual)) {
+      throw new AppError('CONFLICT', '智能体或其会话在删除期间发生变化，请重试', {
+        retryable: true,
+      });
+    }
+    const rows = await tx
+      .delete(agents)
+      .where(agentDeletionWhere(input))
+      .returning({ id: agents.id });
     return rows.length > 0;
   });
+}
+
+async function readAgentDeletionSnapshot(
+  tx: Tx,
+  input: AgentDeletionInput,
+  lockSelf = false,
+): Promise<AgentDeletionSnapshot | null> {
+  await lockAgentBindings(tx);
+  const query = tx.select().from(agents).where(agentDeletionWhere(input)).limit(1);
+  const [self] = lockSelf ? await query.for('update') : await query;
+  if (!self) return null;
+  const childIds = await getAgentSubAgentIds(tx, self.id);
+  // 删除一个 enabled 子级也会改变父专家的活动集合。
+  const affected = [...new Set([self.id, ...childIds])];
+  if (self.enabled && self.parentId !== null) affected.push(self.parentId);
+  affected.sort();
+  await assertAgentsIdle(tx, affected);
+  const targets = await sandboxTargetsForAgent(tx, self.id);
+  return {
+    id: self.id,
+    slug: self.slug,
+    ownerBusinessId: self.ownerBusinessId,
+    parentId: self.parentId,
+    enabled: self.enabled,
+    childIds,
+    affectedAgentIds: affected,
+    targets,
+  };
+}
+
+function sameAgentSnapshot(
+  expected: AgentDeletionSnapshot,
+  actual: AgentDeletionSnapshot,
+): boolean {
+  return (
+    expected.id === actual.id &&
+    expected.slug === actual.slug &&
+    expected.ownerBusinessId === actual.ownerBusinessId &&
+    expected.parentId === actual.parentId &&
+    expected.enabled === actual.enabled &&
+    sameIdSet(expected.childIds, actual.childIds) &&
+    sameIdSet(expected.affectedAgentIds, actual.affectedAgentIds) &&
+    sameTargets(expected.targets, actual.targets)
+  );
+}
+
+function sameTargets(
+  left: ConversationSandboxTarget[],
+  right: ConversationSandboxTarget[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((target, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        target.conversationId === other.conversationId &&
+        target.sandboxIds.length === other.sandboxIds.length &&
+        target.sandboxIds.every((id, sandboxIndex) => id === other.sandboxIds[sandboxIndex])
+      );
+    })
+  );
+}
+
+/** 目标会话与各会话已落库的容器名；锁内查询，供事务外精确关闭。 */
+async function sandboxTargetsForAgent(
+  tx: Tx,
+  agentId: string,
+): Promise<ConversationSandboxTarget[]> {
+  const conversationRows = await tx
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.agentId, agentId))
+    .orderBy(asc(conversations.id));
+  const conversationIds = conversationRows.map((row) => row.id);
+  const byConversation = new Map<string, Set<string>>(
+    conversationIds.map((conversationId) => [conversationId, new Set<string>()]),
+  );
+  if (conversationIds.length > 0) {
+    const runRows = await tx
+      .select({ conversationId: agentRuns.conversationId, sandboxId: agentRuns.sandboxId })
+      .from(agentRuns)
+      .where(
+        and(inArray(agentRuns.conversationId, conversationIds), isNotNull(agentRuns.sandboxId)),
+      );
+    for (const row of runRows) {
+      if (row.sandboxId !== null) byConversation.get(row.conversationId)?.add(row.sandboxId);
+    }
+  }
+  return conversationIds.map((conversationId) => ({
+    conversationId,
+    sandboxIds: [...(byConversation.get(conversationId) ?? [])].sort(),
+  }));
 }
 
 export async function getAgentServerIds(db: Database | Tx, agentId: string): Promise<string[]> {
@@ -546,26 +733,6 @@ export async function getAgentServerIds(db: Database | Tx, agentId: string): Pro
   return rows.map((row) => row.serverId);
 }
 
-/** 一次取回多个 agent 的绑定关系，列表接口避免 N+1。 */
-export async function listAgentServerIds(
-  db: Database,
-  agentIds: string[],
-): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>();
-  if (agentIds.length === 0) return out;
-  const rows = await db
-    .select({ agentId: agentServers.agentId, serverId: agentServers.serverId })
-    .from(agentServers)
-    .where(inArray(agentServers.agentId, agentIds))
-    .orderBy(asc(agentServers.agentId), asc(agentServers.serverId));
-  for (const row of rows) {
-    const list = out.get(row.agentId);
-    if (list) list.push(row.serverId);
-    else out.set(row.agentId, [row.serverId]);
-  }
-  return out;
-}
-
 export async function getAgentSkillIds(db: Database | Tx, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ skillId: agentSkills.skillId })
@@ -573,25 +740,6 @@ export async function getAgentSkillIds(db: Database | Tx, agentId: string): Prom
     .where(eq(agentSkills.agentId, agentId))
     .orderBy(asc(agentSkills.skillId));
   return rows.map((row) => row.skillId);
-}
-
-export async function listAgentSkillIds(
-  db: Database,
-  agentIds: string[],
-): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>();
-  if (agentIds.length === 0) return out;
-  const rows = await db
-    .select({ agentId: agentSkills.agentId, skillId: agentSkills.skillId })
-    .from(agentSkills)
-    .where(inArray(agentSkills.agentId, agentIds))
-    .orderBy(asc(agentSkills.agentId), asc(agentSkills.skillId));
-  for (const row of rows) {
-    const list = out.get(row.agentId);
-    if (list) list.push(row.skillId);
-    else out.set(row.agentId, [row.skillId]);
-  }
-  return out;
 }
 
 /** 某 agent 的直接子智能体（含已停用的，供预览/管理）。 */

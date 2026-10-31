@@ -17,6 +17,7 @@ import {
   recordOutputSandboxSettlement,
   selectedOutput,
 } from '../src/outputs.js';
+import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
 
 const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
 const dbReady = await pool.query('select 1').then(
@@ -451,9 +452,20 @@ describe('run message boundary', () => {
         slug: `outputs-${agentId.slice(4)}`,
         name: 'outputs',
         model: 'test',
+        ...agentOwnership,
       });
-      await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'outputs' });
-      await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+      await repo.chat.createConversation(db, {
+        id: conversationId,
+        agentId,
+        title: 'outputs',
+        subject: userSubject,
+      });
+      await repo.chat.createRun(db, {
+        id: runId,
+        conversationId,
+        agentId,
+        subject: userSubject,
+      });
       const userMessageId = newId('message');
       await repo.chat.appendMessage(db, {
         id: userMessageId,
@@ -461,6 +473,7 @@ describe('run message boundary', () => {
         role: 'user',
         content: { type: 'text', text: '生成报告' },
         runId,
+        senderBusinessId: TEST_BUSINESS_ID,
       });
       const toolMessageId = newId('message');
       await repo.chat.appendMessage(db, {

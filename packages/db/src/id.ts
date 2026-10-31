@@ -44,6 +44,7 @@ export const idPrefixes = {
   knowledgeModelProfile: 'kmp',
   outputShare: 'osh',
   memoryChange: 'mch',
+  role: 'role',
 } as const;
 
 type Entity = keyof typeof idPrefixes;

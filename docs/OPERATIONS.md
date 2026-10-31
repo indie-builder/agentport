@@ -16,10 +16,10 @@
 | `DATABASE_URL` | 是 | — | api、worker、db 迁移、备份 | PostgreSQL 连接串 |
 | `REDIS_URL` | 否 | `redis://localhost:6379` | api、worker | 队列、事件流、取消、限流共用；用 compose 的 Redis 时连接串需带 `REDIS_PASSWORD` |
 | `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥32 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
-| `ADMIN_USER` | 否 | `admin` | api | 唯一管理员用户名 |
-| `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，默认要求 ≥12 字符且不能是 `admin-change-me` / `changeme` / `password`；每次登录用 scrypt 比对 |
+| `ADMIN_USER` | 否 | `admin` | api | 首次初始化创建的管理员用户名；已初始化后不再代表唯一账户，也不覆盖已有账户 |
+| `ADMIN_PASSWORD` | 是 | — | api | 首次初始化的管理员密码，默认要求 ≥12 字符且不能是 `admin-change-me` / `changeme` / `password`；密码哈希与比对由 better-auth 管理。只在 `platform_bootstrap` marker 不存在时使用，之后启动/登录都不覆盖已有密码；改密走显式账户操作 |
 | `ALLOW_WEAK_ADMIN_PASSWORD` | 否 | 未设置（等同 `false`） | api | 只接受字面量 `true` / `false`。默认关闭，保持上面的密码规则；个人本地开发要用 admin/admin 时显式设为 `true`，此时仅保留 1–128 字符的基础限制。生产部署不要开启 |
-| `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥，≥32 字符 |
+| `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥（历史命名，不是 JWT），≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读）；只限制同时执行的 run，热空闲的会话容器不计入该并发 |
@@ -37,6 +37,18 @@
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | 未设置 | worker | 仅 `SANDBOX_EGRESS=proxy` 时透传给沙盒，loopback 自动改写 |
 | `REDIS_PASSWORD` | `agentport-dev` | compose | redis 服务密码，同时拼进 api/worker 的 `REDIS_URL`；不是应用变量 |
 | `DOCKER_GID` | `0` | compose | worker 容器加入的组 GID，用于访问宿主 Docker socket |
+
+#### 账户与权限（已实现并合入 main）
+
+> 以下为已实现并合入 main 的能力；技术字段与接口以配套契约文件为准。迁移新增 NOT NULL 字段且不回填，只在全新空库验证，不声称旧库可无损升级；部署到既有库需用户明确决定重建数据，不能自动清库。
+
+- **业务身份**：认证技术 ID 保持随机、只承载登录，可删除并重建；稳定 `businessId` 由管理员录入、不可修改、不可回收给其他自然人。业务创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权与个人记忆都直接记录 `businessId`。
+- **账户重建**：用同一 `businessId` 重建认证账户后，业务归属、角色、成员授权与个人记忆恢复；旧会话不恢复，重建前签发的 Cookie 失效。运维不得靠重建认证账户绕过授权或恢复旧会话。账户可停用；停用撤销全部会话，重新启用不恢复旧 Cookie。最后一名活跃管理员不能被删除、停用或降权，矩阵保存同样校验。
+- **bootstrap**：只在首次初始化创建管理员，不覆盖已有密码；需要重置密码时走显式账户操作，不靠重启服务或改启动配置。
+- **隔离**：私有会话、消息、运行与个人记忆按 `businessId` 隔离；平台管理员跨用户运维可审计，负责人/维护人员不获得其他用户正文。既有专家共享 auto-memory 的读写语义保持不变。
+- **授权配置**：角色与功能授权存 DB，按功能树 × 角色矩阵配置，叶动作单独授权；评估与定时任务分立。修改后即时生效并留审计。
+- **凭据边界**：`/mcp` 平台 token、`/mcp/:serverId` Bearer token 与公开分享 token 继续独立校验；登录用户权限不扩展到这些凭据。
+- **范围外**：第三方登录、飞书/钉钉同步、用量/套餐/计费、组织多租户均不在本期。
 
 ### 1.2 智能体与模型（worker schema）
 
@@ -81,11 +93,15 @@
 
 ### 原生记忆存储（native memory storage）
 
-`WORKSPACES_DIR/<slug>/agent-memory/` 是原生 `MEMORY.md` 与主题 Markdown 的持久存储，独立于 `run_*` 工作区，run 结束与过期清理均保留。Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 和 worker；两者镜像及沙盒均使用 node（uid 1000），命名卷 init 保持 1000:1000。worker 创建目录为 0700 并收紧已有目录权限；创建目录或 chmod 失败会使 run 明确失败，不再吞错或改为 0777。
+`WORKSPACES_DIR/<slug>/agent-memory/` 是原生 `MEMORY.md` 与主题 Markdown 的持久存储，独立于 `run_*` 工作区，run 结束与过期清理均保留。它是专家共享记忆：同一专家的所有使用者看到同一份内容，不是用户私有数据。个人偏好另存于 `user_preferences` 与按 `businessId` 隔离的投影文件，worker 在每轮挂载前按 DB 重建投影，不写入本目录。Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 和 worker；两者镜像及沙盒均使用 node（uid 1000），命名卷 init 保持 1000:1000。worker 创建目录为 0700 并收紧已有目录权限；创建目录或 chmod 失败会使 run 明确失败，不再吞错或改为 0777。
 
 沙盒及 API/worker 都以 uid 1000 运行时，才能对 0700 记忆目录读写一致：请用 Compose 启动 API/worker。本地 `pnpm dev` 以宿主 uid 运行时仍可正常跑智能体，但原生记忆跨宿主 uid 与容器内 uid 1000 的 0700 目录可能不可写，记忆功能不保证；需要持久记忆时用 Compose。不要递归 chown 未核对的宿主目录，也不要以 0777 绕过错误。已有外部数据卷应先备份并确认属主后再启用。
 
-runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`，通过 Read/Edit 的绝对路径许可与 SDK PreToolUse 双重约束，仅主会话可读写目录内普通 `.md` 文件。子智能体、软链接、硬链接、非普通文件、相对路径及越界请求均在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。专项测试不调用付费模型，真实跨 run 的自动写入、主题读取仍需模型验收。
+runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`。主会话的 `Read`/`Write`/`Edit` 通过绝对路径许可与 SDK PreToolUse 双重约束，只放行目录内普通 `.md` 文件；子智能体使用官方 `memory: project`，宿主按 slug 把它自己的 `.claude/agent-memory/<slug>/` 挂进工作区，已登记子智能体只允许读写自己的子目录，兄弟、父级与未登记调用方拒绝。这是原生文件工具边界，不是 OS 级秘密隔离：Bash 不经过该路径 hook，同一容器内的 Bash 仍可按挂载权限访问这些目录；软链接、硬链接、非普通文件、相对路径及工具越界请求在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。
+
+官方启动只自动加载 `MEMORY.md` 的前 200 行或 25KB（先到者为准），主题文件不预载，由模型按需用标准文件工具读取。平台只在自己控制的写入口拒绝超限：手工保存 `PUT /api/agents/:id/memory/:name`、回顾采纳与版本回滚会对 `MEMORY.md` 执行 200 行 / 25KB 校验，主题单文件沿用 200000 UTF-8 字节上限。平台入口的校验与补链已实现，shared/web/worker 与 API、跨端独立 review 均 PASS；验证及独立评审通过，随本任务 PR 交付。SDK 原生文件工具直接写 `MEMORY.md` 不受平台拦截，超限内容仍会写成功并提示模型精简，下次启动仍只加载前 200 行 / 25KB；这些原生写入也不进入 `memory_changes`，不能宣称覆盖全部记忆历史。专项测试不调用付费模型，真实跨 run 的自动写入、主题读取仍需模型验收。
+
+本工作树已实现（本任务 PR 交付，合并状态以 GitHub 为准）：主题文件的手工创建/保存/删除纳入同一变更账本，记忆面板可按所选文件查看版本并回滚；`GET /api/agents/:id/memory/download` 提供原生记忆目录 ZIP。shared/worker/web 与 API、跨端独立 review 均 PASS，完整浏览器主路径（受控提案采用、双文件回滚、ZIP 下载、公开 PUT 回导正文一致、无需变更）已通过；验证及独立评审通过，不能宣称已上线。ZIP 根只含实际 `MEMORY.md` 与平铺主题 `.md`，不含专家 ID JSON、版本账本、回顾来源、journal、个人偏好或其它专家内容，可解压到任意官方 `autoMemoryDirectory`，也可经现有 `PUT /api/agents/:id/memory/:name` 写回；因此这份独立记忆 ZIP 确实包含已沉淀的记忆与主题学习正文，可作为记忆备份或迁移。专家定义包只携带定义文件、不携带运行期记忆内容，不能把定义包宣称成包含学习内容的包。
 
 ### 会话成果存储
 
@@ -133,7 +149,7 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 
 ### 2.1 前置
 
-- Node.js 24（要求 24 的最新补丁版本；`engines` 为 `>=24`）、pnpm 12.15.0
+- Node.js 24 LTS（要求 24 的最新补丁版本，当前 24.22.2；`engines` 为 `>=24.22.2 <25`）、pnpm 12.16.1
 - pnpm 12 默认不跑依赖的安装脚本，决定写在根 `pnpm-workspace.yaml` 的 `allowBuilds`：放行 `esbuild`、`msgpackr-extract`，拒绝 `@openuidev/lang-core`（其 postinstall 只上报匿名安装遥测）。新增带安装脚本的依赖时在这里补决定，否则 `pnpm install` / `deploy` 以 `ERR_PNPM_IGNORED_BUILDS` 失败。
 - Docker Engine + Compose
 - 宿主有 `pg_dump` / `psql`（备份与恢复）
@@ -259,6 +275,7 @@ worker 挂载 `/var/run/docker.sock`，**等价于把宿主 root 权限交给 wo
 
 **当前决定（2026-10-20）**：单机自用场景保持直接挂载 socket，不做 proxy。
 开始处理不受信内容、引入多用户、或与其他服务共用机器时，按 D-16 列出的触发条件升级到 B/C/D。
+2026-10-31：账户/RBAC 目标（D-74）使「引入多用户」条件成立；本任务不实现沙盒隔离升级，多账户上线前仍需按 D-16 评估，不能把登录层权限当成 socket 风险已解决。
 
 ### 2.3 本地开发
 
@@ -303,7 +320,7 @@ pnpm install
 pnpm run up --rebuild
 ```
 
-`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。知识库本轮迁移为 `0045_real_nightmare`（三类内容、来源范围归属与同步逐项记录）、`0046_many_wildside`（ASR profile 与库绑定）和 `0047_outstanding_orphan`（九种来源类型与 range kind）；应用前先在隔离随机库验证，不迁共享库。
+`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。知识库本轮迁移为 `0046_cold_slipstream`，接在 main 已应用的 `0045_married_expediter` 之后（三类内容、来源范围归属与逐项同步记录、ASR profile 与库绑定、九种来源类型与 range kind）；PR 旧 `0045_real_nightmare` / `0046_many_wildside` / `0047_outstanding_orphan` 已删除。应用前先在隔离随机库验证 `0045→0046` 升级，不迁共享库。
 
 **关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 收到 SIGTERM 先 abort 沙盒关停信号：不再新建容器或拉取镜像，进行中的拉取/创建按取消语义收尾，活跃聊天 run 也随同一信号取消；随后并发关闭主与 eval run worker，并最多等待 10s 让已取消的任务收尾（超时不再等），再清理容器（容器 stop 本身不受这 10s 限制，必须等它完成）；其余队列与其他步骤从关停开始就并发关闭、各有界，最后按序执行收尾步骤。单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 
@@ -378,7 +395,7 @@ docker compose start api worker
 ### 3.3 其他数据约束
 
 - 集成测试使用固定APP_SECRET_KEY，测试默认不再读写开发数据库：backend 的 globalSetup 每轮以 `DATABASE_URL` 为管理连接创建随机库并完成迁移，`setupFiles` 在测试模块导入前把连接串写入 `process.env.DATABASE_URL`，退出时只删除本轮创建的库。PostgreSQL 连不上时发布不可连地址，依赖数据库的套件跳过；管理账号需有 `CREATEDB` 权限，连接成功但建库或迁移失败（含无建库权限）属配置错误，直接报错而不跳过。
-- 测试 Redis 同样每轮独享：globalSetup 复用已缓存的 Redis 镜像（tag 以 `packages/worker/test/global-setup.ts` 的 `REDIS_IMAGE` 为准）启动临时容器（仅 loopback 随机端口、关闭持久化，实例内部仍用 db 9），退出时按本轮唯一容器名删除。本地需预先缓存该镜像（首次可显式 `docker pull redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b`，须与 `REDIS_IMAGE` 完整一致），镜像缺失属配置错误直接失败；只有 Docker 不可用时依赖 Redis 的套件才跳过。开发与各 worktree 的 worker 留在共享 Redis db 0，因此「队列里没有消费者」类断言不会被别人的 worker 干扰；禁止回落到共享 Redis，也不要为此停开发 worker。
+- 测试 Redis 同样每轮独享：globalSetup 复用已缓存的 Redis 镜像（tag 以 `packages/worker/test/global-setup.ts` 的 `REDIS_IMAGE` 为准）启动临时容器（仅 loopback 随机端口、关闭持久化，实例内部仍用 db 9），退出时按本轮唯一容器名删除。本地需预先缓存该镜像（首次可显式 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`，须与 `REDIS_IMAGE` 完整一致），镜像缺失属配置错误直接失败；只有 Docker 不可用时依赖 Redis 的套件才跳过。开发与各 worktree 的 worker 留在共享 Redis db 0，因此「队列里没有消费者」类断言不会被别人的 worker 干扰；禁止回落到共享 Redis，也不要为此停开发 worker。
 - URL中不能写username/password；新建、编辑和两类导入均拒绝。旧记录在列表/导出/预览显示掩码，测试连接会在传输前返回固定错误；数据库不自动改写。需改为无内嵌凭证的URL并在加密headers中配置认证后保存，详见D-33。
 - 连接器页「导入 .mcp.json」接受≤1MiB、1–100条HTTP/stdio配置；env/headers加密保存，响应只给密钥键名。任一重名整批409不覆盖；未知字段、未支持transport、`${VAR}`占位符及URL内嵌凭证明确拒绝。HTTP仍校验SSRF；导入不测试连接或执行命令，详见D-32。
 - 专家页「导入」同时接受专家JSON与≤128KiB的agent.md。Markdown只导入name/description/model/maxTurns/effort及完整正文（含H1），创建独立专家与初始版本；重名409不覆盖，不自动运行。权限和绑定使用平台默认值并提示，inherit及未支持的权限/Hook字段明确拒绝，详见D-30。
@@ -604,7 +621,7 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 
 1. **先改读接口的查询形态**（收益最大、无配置风险）：`/api/overview` 的 counts（servers/agents/running/runs）合并成一条 SQL，其余两条重查询与它并行；`packages/api/src/features/agents/routes.ts` 的 4 条查询已是 1+3 并行，可只把首条列表查询与关联查询合并。预期 200 并发下 p95 从约 100 ms 降到 40–50 ms，吞吐约翻倍。
 2. **连接池可配置（已实现）**：`packages/db/src/client.ts` 读取 `DB_POOL_MAX`（默认 10）。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍池只是把压力更早推给 Postgres。worker 另有独立连接池，扩容时一并计入。
-3. **读接口补限流**：当前 `global: false`，只有显式配置的路由计数（登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 各 60/min、连接测试 20/min、评估发起 10/min），读接口完全不计流（压测中 2000 次读请求无 429）。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数。
+3. **读接口补限流**：当前 `global: false`，只有显式配置的路由计数（登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 各 60/min、连接测试 20/min、评估发起 10/min），读接口完全不计流（压测中 2000 次读请求无 429）。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数（多账户/RBAC 落地后按用户/角色重新评估）。
 4. **worker 并发按资源定**：每个沙盒受 `SANDBOX_MEMORY=1g` 上限约束，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是活跃沙盒按该上限占用的内存与更多宿主 CPU。以上是一次性容器压测数据；会话复用后，正常完成或成功取消的容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内热空闲并继续占用资源，实际容器总数可能高于活跃 run 数。本机未实测热空闲容器的内存，也不据此给出新的并发上限；扩容前按容器数（含热空闲）观察资源水位。同会话复用减少容器创建/启动，但不跳过每轮 SDK query 启动，不算 SDK 冷启动优化。
 5. **观测告警线**：`/health/metrics` 的 `db.waiting > 5` 持续 10 s，或队列 `waiting > 10`，即可认为已进入本次测出的瓶颈区。
 
@@ -640,13 +657,37 @@ pnpm --filter @agentport/web build
 
 ### 9.2 后端集成测试与 E2E
 
-根 `pnpm test` 的 `backend` 项目（`vitest.config.ts`）会用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：globalSetup 每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；两者通过 `inject('backendInfra')` + `setupFiles` 在测试模块导入前写入 `process.env`，后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次可 `docker pull redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b`）以及建库或迁移失败都属配置错误，直接报错。`pnpm test:web` 不走这条路径（见 §9.1）。watch 会话开始时 globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理；热重跑不会重建资源。
+根 `pnpm test` 的 `backend` 项目（`vitest.config.ts`）会用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：globalSetup 每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；两者通过 `inject('backendInfra')` + `setupFiles` 在测试模块导入前写入 `process.env`，后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次可 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`）以及建库或迁移失败都属配置错误，直接报错。`pnpm test:web` 不走这条路径（见 §9.1）。watch 会话开始时 globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理；热重跑不会重建资源。
 
 集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。这类断言怕的是**同一个 Redis 实例上有 worker 在消费 `agent-runs`**。测试使用每轮独享的临时 Redis 容器（内部 db 9），开发 worker 留在共享实例的 db 0，默认互不可见，**不需要停 worker**；不要为了让测试通过把 `REDIS_URL` 指回共享实例。
 
 E2E（`pnpm test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `pnpm --filter @agentport/web exec vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。多数用例直写数据库：先 `pnpm build` 产出 `packages/db/dist`，并显式导出与 API 同库的 `DATABASE_URL`。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `pnpm test:e2e` 要停 worker。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
 
 知识库本轮的正式整组检查点 `backend knowledge` 45 文件 624/624、`web knowledge/BlobPdf/chatOutputs/publicShare` 13 文件 293/293（0 跳过）产生于 ASR 与九种新增来源落地**之前**，只证明该核心检查点；报告分别是 `/tmp/knowledge-weknora-backend-consolidated.json` 与 `/tmp/knowledge-weknora-web-consolidated.json`。之后的 ASR、来源扩展与 FAQ 恢复改动各有定向证据，不能把 624/293 挪作新增功能后的最终验收，也不能与各定向结果相加冒充完整通过。
+
+E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，填入前后模型、pixel 工具与留存 artifact 拿到的都是同样的截图；截图仍只遮罩 secure 字段，secret 值仍从所有文本中脱敏。模型只有在引擎能确认所有 secure 字段已遮罩时才收到截图；`toHaveScreenshot()` 在无法证明全部 secure 字段已遮罩时不会被保留。由于截图只遮罩 secure 字段，页面其他位置的普通文本、通用 secret 填入普通输入框的值、或页面在 secure 字段之外显示的值（例如 show-password 切换后）仍会进入图片并可能到达模型提供方，截图、断言与数据一律使用专用测试凭据和独立测试数据，不要使用真实用户密码、真实密钥或生产数据；需要登录或密钥时按 `e2e.config.ts` 的 `credentials` / `secrets` 注入。
+
+### 9.3 持久开发数据集（`dev:data`）
+
+`pnpm dev:data` 通过真实业务 UI 补齐本地开发数据集，`pnpm dev:data:verify` 只读验收；两者都要求先用 `E2E_APP_URL` 指向已起好的隔离实例（命令不自动启动 vite/API），并复用 `tests/support/auth.e2e.ts` 的管理员 session。专用配置 `e2e.dev-data.config.ts` 只收集 auth setup 与 `tests/dev-data/**/*.e2e.ts`，普通 `e2e.config.ts` 已排除该目录。
+
+- 两套命令由 Node 注入 `E2E_DEV_DATA=1`；专用用例的第一行据此跳过，直接运行 `e2e run --config e2e.dev-data.config.ts` 不会写数据。
+- `dev:data` 运行构建用例并排除只读验收；`dev:data:verify` 只运行标题含 `verify` 的验收用例（构建用例标题不要含该词）。只读验收不触发模型、embedding、环境构建或定时任务同步。
+- 数据事实以业务 API 为准，manifest 只记录归属与 ID，不当作断言来源；每个领域一个文件：`data/dev-dataset/devdata-qinghe-v1/{assets,knowledge,runtime,business}.json`（`data/` 不入库），由对应测试独占写入。实际路径由 `datasetPath(section)` 决定，不要按早先报告里的 `qinghe-v1` 简写硬编码。
+- 重复执行复用已有 ID 并补缺项；同名资产不在 manifest 中、或已归属资产的内容/状态与定义不一致时立即停止，不覆盖、不自动重试。创建成功即写入 ID。
+- 资产组固定使用 `devdata-qinghe-v1` 标记：2 个连接器（jsonplaceholder generated 只读工具 / 故意失效的远程 MCP）、3 个工具（普通 GET、需批准 GET、停用 GET）、2 个技能（其中一个带参考文件）、1 个经 UI 导入的本地 ZIP 插件、2 个演示账户（一个停用）。上游只用公开只读 API，不向外部写入。
+
+已生成的 v1 数据集（「青禾商贸｜采购与售后协作」）包含：5 个专家（主/子/OpenUI/停用/故障）、1 个专用运行环境（成功版本已发布，另有 2 条失败版本历史）、7 个对话场景（3 成功、2 取消、1 超时、1 失败）、2 个底层成功的评估运行（批次 1 过 1 不过）、2 个真实触发后暂停的定时任务、1 个已应用的记忆审核，以及规则、风格和记忆文件；共 12 个运行、11 个对话，分享 2 个（有效/已撤销各 1）。取消、超时、失败、停用、失败版本与撤销分享是刻意保留的负面状态，属于数据集内容，不是缺陷。重跑只复用，不新增专家、评估批次、分享或计费运行。
+
+当前仍无真实 embedding 配置（knowledge profiles 为 0），知识库 manifest 为 `blocked` 且没有实体。`pnpm dev:data:verify` 的登录、资产、运行环境和业务 UI 验收可通过，business/knowledge 仅因知识链路缺口失败；因此在补齐真实 embedding 前不能宣称数据集或验收全绿。同名资产接管立即停止、已有对象不覆盖等既有规则不变。
+
+隔离运行配置持久化在本 worktree 未跟踪的 `.env`：`DATABASE_URL` 指向独立持久库 `agentport_business_e2e_dataset`，`REDIS_URL` 使用 db 12，工作区与知识库目录为本树 `data/` 的绝对路径，沙盒镜像为 `agentport/sandbox:business-e2e-68241ba`，模型网关与端口沿用已实测值。主 checkout `.env` 未修改，原开发库未迁移/清理；首次环境准备曾因旧结构不匹配造成两条旧队列任务失败，现服务已隔离到专用库和 Redis 12。复用前先停掉本任务此前启动的 API/worker，再从本树根目录用标准 `pnpm dev` 启动，避免新旧进程争用 3000/3426 或连错库；`E2E_APP_URL=https://worktree-business-e2e-dataset.agentport.localhost`。本任务未提交/未合并，附件、成果与记忆投影在本树 `data/`，PG 库独立持久；不要删除 worktree 或 `data/`。
+
+`e2e.dev-data.config.ts` 的管理员凭据优先取 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`，未设置时使用专用配置回退值，未必匹配当前 bootstrap；运行前从本树 `.env` 的进程环境安全注入 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`（不要把真实密码写进文档、提交文件或命令历史，也不需要新增 helper）；不要用 `.env` 的 `ADMIN_PASSWORD` 去猜已有库的当前密码，当前隔离库用 bootstrap 凭据可正常登录。
+
+数据生成过程还修复了专家摘要缺少的 6 个既有元数据字段（`parentId`/`slug`/`role`/`model`/`uiFormat`/`createdAt`，不下发敏感配置）；相关后端测试 40/40、API build 通过，子专家 UI 解绑/重绑与文件核对、看板 table/cards 均已用真实 UI 验证，且没有新增运行。
+
+日常开发直接使用已生成的持久库与 `data/`：从本树根目录用标准 `pnpm dev` 启动即可，不需要运行 `pnpm dev:data`。现有数据不要重建，只有缺项首次生成或需要恢复时才运行 `dev:data`，`dev:data:verify` 始终只读。
 
 
 ## 本地模型网关

@@ -13,7 +13,7 @@ import {
   startApp,
   unique,
   waitFor,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID,} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -56,6 +56,7 @@ describe.skipIf(!ready)('chat admission', () => {
         id: unique('admit-conv'),
         agentId,
         title: 'admission',
+        subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
       })
     ).id;
 
@@ -102,6 +103,7 @@ describe.skipIf(!ready)('chat admission', () => {
       id: unique('admit-run'),
       conversationId,
       agentId,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     runIds.push(run.id);
     if (status !== 'queued') {
@@ -283,7 +285,11 @@ describe.skipIf(!ready)('chat admission', () => {
       pendingPost = postNewConversation('disabled while waiting');
       // 共享准入的直接入口没有外层预检，用它证明检查发生在准入锁内。
       pendingAdmission = repo.chat
-        .admitChatRun(app.db, { agentId: agent.id, message: 'disabled while waiting (repo)' })
+        .admitChatRun(app.db, {
+          agentId: agent.id,
+          message: 'disabled while waiting (repo)',
+          subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+        })
         .then(
           (value) => value,
           (error: unknown) => error,
@@ -346,7 +352,12 @@ describe.skipIf(!ready)('chat admission', () => {
       await locker.query('select id from agents where id = $1 for update', [agent.id]);
 
       pending = repo.chat
-        .admitChatRun(app.db, { agentId: agent.id, message: 'racing delete', conversationId })
+        .admitChatRun(app.db, {
+          agentId: agent.id,
+          message: 'racing delete',
+          conversationId,
+          subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+        })
         .then(
           (value) => value,
           (error: unknown) => error,

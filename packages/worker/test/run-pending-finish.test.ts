@@ -12,7 +12,14 @@ import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { expectProblem, inject, loginCookie, startApp } from '../../api/test/helpers.js';
+import {
+  createTestAccount,
+  expectProblem,
+  inject,
+  loginCookie,
+  startApp,
+} from '../../api/test/helpers.js';
+import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
 
 interface SupervisorChild extends EventEmitter {
   stdin: PassThrough;
@@ -49,6 +56,11 @@ vi.mock('@agentport/db', async (importOriginal) => {
       return handle;
     },
   };
+});
+
+vi.mock('../src/run-access.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/run-access.js')>();
+  return { ...actual, checkUserAgentAccess: async () => null };
 });
 
 // 进程级守卫会把测试里任何未处理异常变成 process.exit；这里只验证 run 流程。
@@ -276,25 +288,38 @@ async function createFixture(label: string) {
   cleanupIds.conversations.push(conversationId);
   cleanupIds.runs.push(runId);
   await db.insert(schema.agents).values([
-    { id: agentId, slug: `pending-${agentId.slice(4)}`, name: label, model: 'test' },
+    {
+      id: agentId,
+      slug: `pending-${agentId.slice(4)}`,
+      name: label,
+      model: 'test',
+      ...agentOwnership,
+    },
     {
       id: childId,
       slug: `pending-child-${childId.slice(4)}`,
       name: `${label} child`,
       model: 'test',
+      ...agentOwnership,
     },
   ]);
   // 运行占用 = 发起专家 + enabled 直接子级；用真实 API 建立这条关系。
   const bound = await patchAgent(agentId, { subAgentIds: [childId] });
   expect(bound.statusCode, bound.body).toBe(200);
-  await repo.chat.createConversation(db, { id: conversationId, agentId, title: label });
-  await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+  await repo.chat.createConversation(db, {
+    id: conversationId,
+    agentId,
+    title: label,
+    subject: userSubject,
+  });
+  await repo.chat.createRun(db, { id: runId, conversationId, agentId, subject: userSubject });
   await repo.chat.appendMessage(db, {
     id: newId('message'),
     conversationId,
     role: 'user',
     content: { type: 'text', text: 'ask' },
     runId,
+    senderBusinessId: TEST_BUSINESS_ID,
   });
   return {
     runId,
@@ -358,6 +383,11 @@ describe('unconfirmed stop handoff', () => {
     }
     app = await startApp({ WORKSPACES_DIR: workdir });
     cookie = await loginCookie(app);
+    // 排队 run 启动前按 DB 复核账户与 agents.use；用真实账户 API 建立测试主体。
+    await createTestAccount(app, cookie, {
+      businessId: TEST_BUSINESS_ID,
+      systemKeys: ['user'],
+    });
   });
 
   afterAll(async () => {
@@ -376,6 +406,8 @@ describe('unconfirmed stop handoff', () => {
       await db.delete(schema.auditLog).where(eq(schema.auditLog.target, id));
       await db.delete(schema.agents).where(eq(schema.agents.id, id));
     }
+    await db.delete(schema.userRoles).where(eq(schema.userRoles.businessId, TEST_BUSINESS_ID));
+    await db.delete(schema.authUsers).where(eq(schema.authUsers.businessId, TEST_BUSINESS_ID));
     if (app) await app.close();
     await rm(workdir, { recursive: true, force: true });
     // app.close 与 helper 的临时探测也会结束各自 pool；这里只兜底收尾剩余连接。
