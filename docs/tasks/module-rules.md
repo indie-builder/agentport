@@ -40,7 +40,7 @@
   - `shared`、`db`、`web` 候选与代码一致，无需改边界。
 - ID 例外（关联表、认证载体、幂等派生标识、外部资源、UI 行标识）沿用 `docs/PROJECT-BRIEF.md#162-id-约定`，不是本轮新发现或新行为。
 - 模块规则只作上下文，不换成 hook 或阻塞门禁；纯文档改动不加业务测试。
-- 未授权 commit / push / merge。
+- 用户已授权 commit / push / PR 合并收尾；PR #136 已合入 `main`。
 
 ## 旧根规则归属映射（已实现）
 
@@ -52,7 +52,7 @@
 | 能力选型 | 根 | 全部保留；新增「复用与职责边界」 |
 | 协作方式 | 根 | 全部保留；ub、模型/effort、主会话不写、Opus 终审、worktree 授权、流程指针 |
 | 智能体运行底座 | 根 | SDK 唯一底座、先官方文档与本地 `sdk.d.ts`、文件工作区、单一 Harness、换栈清理 |
-| 前端详细段 | `web` | 根仅留桌面端范围与 `DESIGN-SYSTEM` / `web` 指针；色值与实现细节进 `packages/web/CLAUDE.md` |
+| 前端详细段 | `web` | 根不再单列前端段，仅留「UI 基准优先」与模块表；具体前端规则、色值与实现细节单源在 `packages/web/CLAUDE.md` 与 `docs/DESIGN-SYSTEM.md` |
 | 后端路由 schema、`plugins/errors.ts`、`requireAuth`、typed app | `api` | 根改为 `api` 规则与 `docs/VALIDATION.md` 指针 |
 | `pnpm db:generate` + `db:migrate`、`newId(entity)` 生成位置 | `db` | 根保留 TypeID 通用规则与规范入口 |
 | 测试 | 根 | 全部保留，后端基础设施细节指向 `docs/OPERATIONS.md` |
@@ -75,13 +75,13 @@
 
 - 链接：改动文档全量相对链接 119 个均存在，0 missing；主会话对 12 个文档入口链接检查 0 fail；根无 `@import`。
 - 行数：8 个规则文件 22–120 行（根 120 行、各包 22–41 行），均低于 200。
-- `git diff --check` 通过；改动仅约定的 Markdown 文件，七个包 `CLAUDE.md` 为未跟踪新文件。
+- `git diff --check` 通过；改动仅约定的 Markdown 文件，七个包 `CLAUDE.md` 已随 PR #136 提交并合入 `main`。
 - 无业务源码或配置改动，不运行业务测试。
 - 独立 Opus 首审 4 个问题已修复，定向 review 最终通过（Opus）。
 
 ## 改动文件
 
-- `docs/tasks/module-rules.md`（本记录，不提交）
+- `docs/tasks/module-rules.md`（本记录，已随 PR #136 交付）
 - `docs/ARCHITECTURE.md`（运行时约定残留句）
 - `CLAUDE.md`
 - `docs/DEV-WORKFLOW.md`
@@ -91,4 +91,4 @@
 
 ## 下一步
 
-- 无剩余实施；未提交、未合入，以未提交差异交付，不再要求用户额外审批。
+- 无剩余实施；PR #136 已合入 `main`（merge `addf0fa`），本次仅同步合并事实，剩余工作区清理由主会话按 [DEV-WORKFLOW](../DEV-WORKFLOW.md) §2-7 执行。
