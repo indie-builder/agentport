@@ -29,21 +29,9 @@ export interface KnowledgeQueueLike {
   ) => Promise<unknown>;
 }
 
-type JobRow = typeof schema.knowledgeJobs.$inferSelect;
-
 async function queueState(queue: KnowledgeQueueLike, id: string): Promise<string | null> {
   const job = await queue.getJob(id);
   return job ? job.getState() : null;
-}
-
-/** 同步任务被收掉时，run 不能停在 queued/running；失败原因与 job 一致。 */
-async function failSyncRun(db: ReturnType<typeof createDb>['db'], job: JobRow, error: string) {
-  if (job.type !== 'sync' || !job.payload || typeof job.payload !== 'object') return;
-  if (!('syncRunId' in job.payload)) return;
-  await repo.knowledge.finishSyncRun(db, String(job.payload.syncRunId), {
-    status: 'failed',
-    error,
-  });
 }
 
 /**
@@ -96,17 +84,19 @@ export async function reconcileKnowledgeJobs(
         continue;
       }
       const error = timedOut ? '任务超时' : KNOWLEDGE_LOST_ERROR;
-      const finished = await db
-        .update(schema.knowledgeJobs)
-        .set({ status: 'failed', error, endedAt: new Date() })
-        .where(and(eq(schema.knowledgeJobs.id, row.id), eq(schema.knowledgeJobs.status, 'running')))
-        .returning({ id: schema.knowledgeJobs.id });
-      if (finished.length > 0) {
-        failed += 1;
-        await failSyncRun(db, row, error).catch((err: unknown) => {
-          logger.warn({ err, jobId: row.id }, 'knowledge sync run reconcile failed');
+      try {
+        const finished = await repo.knowledge.finishJob(db, row.id, {
+          fromStatus: 'running',
+          status: 'failed',
+          error,
         });
-        logger.warn({ jobId: row.id, error }, 'knowledge job reconciled as failed');
+        if (finished) {
+          failed += 1;
+          logger.warn({ jobId: row.id, error }, 'knowledge job reconciled as failed');
+        }
+      } catch (err) {
+        // 关联行缺失/错配时事务整体回滚；保留 running 交下一轮或人工处理。
+        logger.warn({ err, jobId: row.id }, 'knowledge job reconcile finish failed');
       }
       continue;
     }

@@ -16,6 +16,7 @@ import {
   testConfig,
   unique,
 } from './helpers.js';
+import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 // 有 worker 消费时 queued run 会被真实执行，准入/清理断言失去意义。
 const ready = (await infraReady) && (await queueIdle);
@@ -33,15 +34,18 @@ const filesIn = async (dir: string): Promise<string[]> => readdir(dir).catch(() 
 describe.skipIf(!ready)('chat attachments', () => {
   let app: FastifyInstance;
   let cookie: string;
+  let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const agentSlugs: string[] = [];
   const runIds: string[] = [];
 
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
+    sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
   });
 
   afterAll(async () => {
+    await sessions.close();
     for (const runId of runIds) {
       await getQueue()
         .getJob(runId)

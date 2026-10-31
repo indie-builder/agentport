@@ -10,13 +10,13 @@ import {
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { accessFilter, actorOf, authorizeObject, userPrincipal } from '../access.js';
 import {
   getScheduleQueue,
-  isSchedulableCron,
   removeScheduler,
   schedulerNextRun,
   upsertScheduler,
@@ -24,17 +24,15 @@ import {
 
 const opsRepo = repo.ops;
 
-const INVALID_CRON = 'cron 表达式无法解析或不产生触发时间';
-
 /** 5 段之外还要真的能算出下一次触发；校验放在 schema 里，handler 不做业务 safeParse。 */
 const scheduleBodySchema = scheduleInputSchema.refine((value) => isSchedulableCron(value.cron), {
-  message: INVALID_CRON,
+  message: INVALID_CRON_MESSAGE,
   path: ['cron'],
 });
 
 const schedulePatchBodySchema = schedulePatchSchema.refine(
   (value) => value.cron === undefined || isSchedulableCron(value.cron),
-  { message: INVALID_CRON, path: ['cron'] },
+  { message: INVALID_CRON_MESSAGE, path: ['cron'] },
 );
 
 function iso(value: Date | string | null): string | null {

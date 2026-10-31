@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parseChildAgentMd, parseClaudeMd } from '@agentport/core';
 import type { Agent, Server, Skill } from '@agentport/shared';
 import { AGENT_PACKAGE_MAX_BYTES, AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -1246,7 +1247,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
 
     const files = await exportFiles(sourceAgent.id);
     const exportedClaude = files.get('CLAUDE.md') ?? '';
-    // 生成段只出现一次；正文边界仍是渲染器的 `## 工具使用`。
+    // 生成段只出现一次，并由专属标记包住；普通标题不再是边界。
     expect(exportedClaude.split('## 生成式 UI')).toHaveLength(2);
     expect(exportedClaude.split('## 工具使用')).toHaveLength(2);
     expect(exportedClaude).toContain(prompt);
@@ -1271,6 +1272,125 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const reexported = await exportFiles(result.agent.id);
     expect(reexported.get('CLAUDE.md')?.split('## 生成式 UI')).toHaveLength(2);
     expect(sidecarOf(reexported).agent.uiFormat).toBe('openui');
+  });
+
+  it('round-trips root and child prompts containing boundary lookalikes', async () => {
+    const START = '<!-- agentport:generated:start -->';
+    const END = '<!-- agentport:generated:end -->';
+    const note = '你是被父智能体同步调用的：直接执行任务并返回最终文本。';
+    const rootPrompt = [
+      '你是看板助手。',
+      '',
+      '## 工具使用',
+      '',
+      '用户自己的同名标题。',
+      '',
+      START,
+      '完整标记示例。',
+      END,
+      '',
+      note,
+      '',
+      '## 工具使用',
+      '',
+      '重复标题也属于正文。',
+    ].join('\n');
+    const childPrompt = [
+      '子智能体正文。',
+      '',
+      '## 工具使用',
+      '',
+      note,
+      '',
+      START,
+      '示例',
+      END,
+    ].join('\n');
+
+    const sourceSlug = unique('pkg-prompt-src');
+    const childSlug = unique('pkg-prompt-child');
+    const targetSlug = unique('pkg-prompt-dst');
+    createdAgents.push(sourceSlug, childSlug, targetSlug);
+
+    const childAgent = (
+      await createAgent(app, cookie, { slug: childSlug, track: createdAgents })
+    ).json<Agent>();
+    const childPatched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${childAgent.id}`,
+      headers: { cookie },
+      payload: { systemPrompt: childPrompt, timeoutMs: 123_000 },
+    });
+    expect(childPatched.statusCode, childPatched.body).toBe(200);
+
+    const sourceAgent = (
+      await createAgent(app, cookie, {
+        slug: sourceSlug,
+        track: createdAgents,
+        subAgentIds: [childAgent.id],
+      })
+    ).json<Agent>();
+    const rootPatched = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${sourceAgent.id}`,
+      headers: { cookie },
+      payload: { systemPrompt: rootPrompt, timeoutMs: 456_000 },
+    });
+    expect(rootPatched.statusCode, rootPatched.body).toBe(200);
+
+    const files = await exportFiles(sourceAgent.id);
+    const exportedClaude = files.get('CLAUDE.md') ?? '';
+    expect(parseClaudeMd(exportedClaude).systemPrompt).toBe(rootPrompt);
+    expect(exportedClaude.trimEnd().endsWith(END)).toBe(true);
+    const exportedChildMd = files.get(`.claude/agents/${childSlug}.md`) ?? '';
+    expect(parseChildAgentMd(exportedChildMd, `/child/${childSlug}`).systemPrompt).toBe(
+      childPrompt,
+    );
+
+    // 只改根 slug；子级同名冲突会改名，所以不逐字比较整份文件，而是核对正文与生成段次数。
+    const copy = new Map(files);
+    const exported = sidecarOf(copy);
+    exported.agent.slug = targetSlug;
+    copy.set(AGENT_PACKAGE_SIDECAR, `${JSON.stringify(exported, null, 2)}\n`);
+    const imported = await importZip(
+      rawZip([...copy].map(([name, content]) => ({ name, content }))),
+    );
+    expect(imported.statusCode, imported.body).toBe(201);
+    const result = imported.json<AgentImportResult>();
+    createdAgents.push(...result.createdSubAgents);
+    expect(result.agent.systemPrompt).toBe(rootPrompt);
+    // 独立运行超时是实体配置：父子不同值经包往返仍各自保留。
+    expect(result.agent.timeoutMs).toBe(456_000);
+
+    const importedChildSlug = result.createdSubAgents[0] ?? '';
+    // 列表只返回摘要，正文要按实体 id 读取。
+    const childRow = await app.pool.query<{ id: string }>('select id from agents where slug = $1', [
+      importedChildSlug,
+    ]);
+    const importedChildId = childRow.rows[0]?.id ?? '';
+    const importedChildGet = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${importedChildId}`,
+      headers: { cookie },
+    });
+    expect(importedChildGet.statusCode, importedChildGet.body).toBe(200);
+    expect(importedChildGet.json<Agent>().systemPrompt).toBe(childPrompt);
+    expect(importedChildGet.json<Agent>().timeoutMs).toBe(123_000);
+
+    const reexported = await exportFiles(result.agent.id);
+    const reexportedClaude = reexported.get('CLAUDE.md') ?? '';
+    // 没有回流、没有重复生成段：正文仍是原提示，生成段仍只追加一次。
+    expect(reexportedClaude).not.toBe('');
+    expect(reexportedClaude.split(START)).toHaveLength(3);
+    expect(reexportedClaude.split(END)).toHaveLength(3);
+    expect(reexportedClaude.split('## 任务清单')).toHaveLength(2);
+    expect(reexportedClaude.trimEnd().endsWith(END)).toBe(true);
+    const reexportedChildMd = reexported.get(`.claude/agents/${importedChildSlug}.md`) ?? '';
+    expect(reexportedChildMd.split(START)).toHaveLength(3);
+    expect(reexportedChildMd.split(END)).toHaveLength(3);
+    expect(parseChildAgentMd(reexportedChildMd, `/child/${importedChildSlug}`).systemPrompt).toBe(
+      childPrompt,
+    );
   });
 
   it('keeps uiFormat through clone and version rollback', async () => {

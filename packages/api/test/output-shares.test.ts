@@ -6,9 +6,11 @@ import { newId, repo } from '@agentport/db';
 import { type OutputShare, outputShareSchema, problemSchema } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { buildApp } from '../src/app.js';
 import { registerOutputShareRoutes } from '../src/features/output-shares/routes.js';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -17,29 +19,36 @@ import {
   loginCookie,
   testConfig,
   unique,
-  ADMIN_BUSINESS_ID, } from './helpers.js';
+} from './helpers.js';
+import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 const ready = await infraReady;
+// 删除会持有共享库的绑定锁；独享库避免与同轮其它删除套件的长等待互相超时。
+const isolated = ready ? await createIsolatedDatabase('output_shares') : null;
 
 const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
 
-describe.skipIf(!ready)('output shares', () => {
+describe.skipIf(!ready || isolated === null)('output shares', () => {
   let app: FastifyInstance;
   let cookie: string;
+  let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const agentSlugs: string[] = [];
   const conversationIds: string[] = [];
 
   beforeAll(async () => {
-    app = await buildApp(testConfig());
+    if (!isolated) throw new Error('isolated database missing');
+    app = await buildApp(testConfig({ DATABASE_URL: isolated.url }));
     // 路由并入 registerRoutes 之前由测试显式挂载；集成后 hasRoute 命中，不会重复注册。
     if (!app.hasRoute({ method: 'GET', url: '/api/public/output-shares/:id' })) {
       registerOutputShareRoutes(app);
     }
     await app.ready();
+    sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
     cookie = await loginCookie(app);
   });
 
   afterAll(async () => {
+    await sessions.close();
     await cleanup(app, { agentSlugs });
     await app.pool.query('delete from conversations where id = any($1::text[])', [conversationIds]);
     for (const slug of agentSlugs) {
@@ -49,6 +58,7 @@ describe.skipIf(!ready)('output shares', () => {
       });
     }
     await app.close();
+    await isolated?.close();
   });
 
   const auth = () => ({ cookie });

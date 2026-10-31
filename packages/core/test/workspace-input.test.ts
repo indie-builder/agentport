@@ -130,7 +130,7 @@ describe('toWorkspaceInput', () => {
     );
     // 后台执行由运行时 env 禁用，不再要求模型逐次传 run_in_background。
     expect(files.claudeMd).toContain('后台执行已被运行时禁用');
-    expect(files.claudeMd).toContain('| `researcher` | 查资料 | 120s |');
+    expect(files.claudeMd).toContain('| `researcher` | 查资料 | 20 |');
     // 章节顺序：规则在前，清单在后，否则「读上面的规则」是错的。
     expect(files.claudeMd.indexOf('## 等待规则')).toBeLessThan(
       files.claudeMd.indexOf('## 可用子智能体'),
@@ -190,7 +190,8 @@ describe('toWorkspaceInput', () => {
     );
     const child = files.subAgents[0]?.content ?? '';
     expect(child).toContain('同步调用');
-    expect(child).toContain('最多等你 120 秒');
+    // 被委派时只有主运行总超时；子配置的独立运行超时不写进子定义。
+    expect(child).not.toContain('最多等你');
   });
 
   it('unions root and child skills into workspace files, deduped by slug', () => {

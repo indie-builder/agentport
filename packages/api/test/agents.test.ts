@@ -13,6 +13,7 @@ import {
   startApp,
   unique,
 } from './helpers.js';
+import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 const ready = await infraReady;
 
@@ -30,6 +31,7 @@ interface WorkspaceFiles {
 describe.skipIf(!ready)('agents', () => {
   let app: FastifyInstance;
   let cookie: string;
+  let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const createdAgents: string[] = [];
   const createdServers: string[] = [];
   const createdEnvironments: string[] = [];
@@ -59,9 +61,12 @@ describe.skipIf(!ready)('agents', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
+    // 删除路由在事务内等待 worker 关闭确认；测试进程注册真实信道处理器。
+    sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
   });
 
   afterAll(async () => {
+    await sessions.close();
     await cleanup(app, { agentSlugs: createdAgents, serverNames: createdServers });
     for (const id of createdEnvironments) {
       // 先断开线上指针，复合外键才允许删除版本。

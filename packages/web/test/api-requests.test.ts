@@ -54,9 +54,13 @@ describe('agent package transfer', () => {
   it('sends an expired session back to login on a ZIP download', async () => {
     const assign = vi.fn();
     vi.stubGlobal('location', { pathname: '/', search: '', hash: '', assign });
+    sessionStorage.setItem('pace.chat.drafts', JSON.stringify({ '': 'unsent' }));
     mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     expect(assign).toHaveBeenCalledWith('/login?returnTo=%2F&reason=expired');
+    // 401 只负责跳转；草稿要等同账户重新登录后继续可用。
+    expect(sessionStorage.getItem('pace.chat.drafts')).toBe(JSON.stringify({ '': 'unsent' }));
+    sessionStorage.removeItem('pace.chat.drafts');
   });
 
   it('keeps the current deep link and marks the session as expired on a 401', async () => {

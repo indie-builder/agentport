@@ -31,12 +31,14 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { AppError, isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { accessFilter } from '../access.js';
 import { encodePackage } from '../agent-package-zip.js';
 import {
   readMemoryTarget,
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
+import { deleteAgentWithSandboxes } from '../runtime-deletion.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import { allowedToolsSchema, unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
@@ -739,16 +741,32 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
       await authorizeAgent(app, request, current, 'agents.delete');
-      // 目录名依赖 slug，删除后无法再定位；先取出 slug 再删行。
-      const slug = current.slug;
-      const ok = await repo.deleteAgent(app.db, current.id);
-      if (!ok) return notFound(reply);
+      // tx A/B 内按当前请求的 delete/read 范围重核主体；旧对象值不当作最终授权结果。
+      const deleted = await deleteAgentWithSandboxes({
+        pool: app.pool,
+        redisUrl: app.config.REDIS_URL,
+        deletion: {
+          id: current.id,
+          access: accessFilter(request, 'agents.delete'),
+          readAccess: accessFilter(request, 'agents.read'),
+        },
+      });
+      if (deleted === null) return notFound(reply);
+      // 目录名依赖 slug，删除后无法再定位；用 A/B 已核对成功的快照，不再查已不存在的行。
+      const slug = deleted.slug;
       // 会话 transcript 是每次分支/续聊的运行时数据，删专家后不再需要；记忆按约定保留为持久资产。
       await rm(join(app.config.WORKSPACES_DIR, slug, 'sdk-sessions'), {
         recursive: true,
         force: true,
       }).catch((err: unknown) => {
         request.log.warn({ err, agentId: current.id }, 'sdk session cleanup failed');
+      });
+      // 会话沙盒目录同样按 agent 派生；容器已确认关闭，DB 行删除后不再有入口。
+      await rm(join(app.config.WORKSPACES_DIR, slug, 'session-sandboxes'), {
+        recursive: true,
+        force: true,
+      }).catch((err: unknown) => {
+        request.log.warn({ err, agentId: current.id }, 'session sandbox cleanup failed');
       });
       // 会话行已级联删除，成果目录失去所有索引；整个专家目录一起回收。
       await rm(join(app.config.WORKSPACES_DIR, slug, 'conversation-outputs'), {

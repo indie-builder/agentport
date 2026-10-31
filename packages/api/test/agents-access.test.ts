@@ -7,6 +7,7 @@ import type { PermissionGrant } from '@agentport/shared';
 import { hashPassword } from 'better-auth/crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { AUTH_COOKIE } from '../src/features/auth/types.js';
 import {
   cleanup,
@@ -17,8 +18,11 @@ import {
   startApp,
   unique,
 } from './helpers.js';
+import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 const ready = await infraReady;
+// 删除会持有共享库的绑定锁；独享库避免与同轮其它删除套件的长等待互相超时。
+const isolated = ready ? await createIsolatedDatabase('agents_access') : null;
 const PASSWORD = 'agent-pass-123';
 
 type SeededAccount = {
@@ -31,7 +35,7 @@ async function hash(password: string): Promise<string> {
   return hashPassword(password);
 }
 
-describe.skipIf(!ready)('agents access control', () => {
+describe.skipIf(!ready || isolated === null)('agents access control', () => {
   let app: FastifyInstance;
   let adminCookie: string;
   let adminBusinessId: string;
@@ -40,6 +44,7 @@ describe.skipIf(!ready)('agents access control', () => {
   const customRoles: string[] = [];
   const agentSlugs: string[] = [];
   let workspaces: string;
+  let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
 
   const seedAccount = async (input: {
     label: string;
@@ -127,9 +132,11 @@ describe.skipIf(!ready)('agents access control', () => {
   let maintainer: SeededAccount;
 
   beforeAll(async () => {
+    if (!isolated) throw new Error('isolated database missing');
     // macOS 的 tmpdir 是符号链接；记忆文件写入会拒绝符号链接路径。
     workspaces = await mkdtemp(join(await realpath(tmpdir()), 'agents-access-'));
-    app = await startApp({ WORKSPACES_DIR: workspaces });
+    app = await startApp({ WORKSPACES_DIR: workspaces, DATABASE_URL: isolated.url });
+    sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
     // 首次登录触发 bootstrap，播种四个默认角色。
     adminCookie = await loginCookie(app);
     adminBusinessId = (
@@ -159,6 +166,7 @@ describe.skipIf(!ready)('agents access control', () => {
   });
 
   afterAll(async () => {
+    await sessions.close();
     await cleanup(app, { agentSlugs });
     for (const businessId of seeded) {
       await app.pool.query('delete from user_roles where business_id = $1', [businessId]);
@@ -169,6 +177,7 @@ describe.skipIf(!ready)('agents access control', () => {
     }
     await app.pool.query('delete from audit_log where actor = any($1::text[])', [seeded]);
     await app.close();
+    await isolated?.close();
     await rm(workspaces, { recursive: true, force: true });
   });
 

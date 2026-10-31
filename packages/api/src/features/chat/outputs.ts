@@ -4,11 +4,14 @@ import {
   type ErrorCode,
   type OpenUiAction,
   type OutputRef,
+  outputContentSchema,
+  outputFileSchema,
+  outputListSchema,
   outputOwnerIdSchema,
   outputPathSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError, isAppError, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
@@ -42,10 +45,6 @@ export function decodeUtf8(data: Buffer): string | null {
   } catch {
     return null;
   }
-}
-
-function conversationNotFound(reply: FastifyReply) {
-  return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请从会话列表重新打开');
 }
 
 /** 成果与附件同属会话私有正文：只对本人 O 或对应叶 P 开放。 */
@@ -177,7 +176,14 @@ export function registerOutputRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/conversations/:id/outputs',
-    { ...auth, schema: { params: ownerParams, querystring: listQuery } },
+    {
+      ...auth,
+      schema: {
+        params: ownerParams,
+        querystring: listQuery,
+        response: { 200: outputListSchema },
+      },
+    },
     async (request, reply) => {
       const conversation = await loadConversation(app, request, request.params.id);
       const slug = await agentSlug(app, conversation.agentId);
@@ -205,7 +211,14 @@ export function registerOutputRoutes(rawApp: FastifyInstance): void {
   // 列表只返回每版变化的文件；按版本精确读取元数据，供分页外的图片等预览使用。
   app.get(
     '/api/conversations/:id/outputs/:runId',
-    { ...auth, schema: { params: fileParams, querystring: fileQuery } },
+    {
+      ...auth,
+      schema: {
+        params: fileParams,
+        querystring: fileQuery,
+        response: { 200: z.object({ file: outputFileSchema }) },
+      },
+    },
     async (request, reply) => {
       const conversation = await loadConversation(app, request, request.params.id);
       const slug = await agentSlug(app, conversation.agentId);
@@ -229,7 +242,14 @@ export function registerOutputRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/conversations/:id/outputs/:runId/content',
-    { ...auth, schema: { params: fileParams, querystring: fileQuery } },
+    {
+      ...auth,
+      schema: {
+        params: fileParams,
+        querystring: fileQuery,
+        response: { 200: outputContentSchema },
+      },
+    },
     async (request, reply) => {
       const conversation = await loadConversation(app, request, request.params.id);
       const slug = await agentSlug(app, conversation.agentId);

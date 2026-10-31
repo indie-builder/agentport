@@ -231,6 +231,16 @@ export function useChatStream({
     closeSource();
   }, [closeSource]);
 
+  // 账户级 reset 发生时聊天页可能还挂着：同步关流并作废旧 generation，
+  // 晚到的发送/恢复/事件回调就不能再写回新账户的状态。
+  useEffect(
+    () =>
+      useChatStore.subscribe((state, previous) => {
+        if (state.accountEpoch !== previous.accountEpoch) closeStream();
+      }),
+    [closeStream],
+  );
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: changing agents revokes ownership of pending HTTP and SSE work.
   useEffect(() => {
     mountedRef.current = true;
@@ -326,6 +336,10 @@ export function useChatStream({
         }
         if (event.type === 'error') {
           errored = true;
+          // 协议 error 立即失去健康资格，回读轮询接替；连接清理仍交给 onerror。
+          store.setRun((current) =>
+            current?.runId === accepted.runId ? { ...current, status: 'detached' } : current,
+          );
           return;
         }
         if (event.type === 'run_unavailable') {
@@ -662,7 +676,8 @@ export function useChatStream({
         store.setPendingAttachments([]);
       }
       hydratedRef.current = accepted.conversationId;
-      store.setRun({ ...accepted, status: 'streaming', startedAt: startedAtRef.current });
+      // 事件流尚未 onopen；先按重连状态继续回读，onopen 才标记健康。
+      store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
       onAccepted(accepted, body);
       void client.invalidateQueries({ queryKey: ['conversations', agentId] });
       openStream(accepted, generation);

@@ -719,7 +719,8 @@ describe('live terminal outcomes across a follow-up send', () => {
     // 发送会清空最新读数，旧轮原因与链接必须仍从会话详情缓存读到，且不串到新轮。
     expect(useChatStore.getState().lastRun).toBeNull();
     expect(host.textContent).toContain(error);
-    expect(host.textContent).toContain('等待回复');
+    // 已接受但事件流尚未 onopen：沿用 reconnecting 文案，等连接打开才进入「等待回复」。
+    expect(host.textContent).toContain('连接已中断，正在重连');
     const oldLink = host.querySelector('a[href="/runs/run-a"]');
     const oldTurn = oldLink?.closest('[data-message-id]');
     expect(oldTurn?.textContent).toContain('first prompt');

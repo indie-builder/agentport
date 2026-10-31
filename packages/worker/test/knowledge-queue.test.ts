@@ -4,11 +4,17 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
-import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
+import {
+  KNOWLEDGE_JOBS_QUEUE,
+  knowledgeCancelKey,
+  knowledgeEnqueueOptions,
+} from '@agentport/shared';
 import { Queue, QueueEvents } from 'bullmq';
 import { eq } from 'drizzle-orm';
+import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { startKnowledgeWorker } from '../src/knowledge/queue.js';
+import { KnowledgeCancelled, type KnowledgeConnector } from '../src/knowledge/ingestion.js';
+import { KNOWLEDGE_TIMEOUT_MS, startKnowledgeWorker } from '../src/knowledge/queue.js';
 import { type KnowledgeQueueLike, reconcileKnowledgeJobs } from '../src/knowledge/reconcile.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
@@ -89,6 +95,65 @@ async function seedJob(): Promise<{ jobId: string; documentId: string; baseId: s
   return { jobId: job.id, documentId, baseId: base.id };
 }
 
+/** 同步三表终态测试：真实来源 + 启用范围 + createSyncJob 的 queued pair。 */
+async function seedSyncPair() {
+  const { baseId } = await seedJob();
+  const source = await repo.knowledge.createSource(db, {
+    baseId,
+    type: 'feed',
+    name: `sync-terminal-${randomUUID().slice(0, 8)}`,
+    config: { syncDeletions: false },
+    secretsEncrypted: null,
+    syncCron: null,
+  });
+  await repo.knowledge.replaceRanges(db, source.id, [
+    { kind: 'feed', externalId: 'https://example.com/feed', ref: null, paths: [], enabled: true },
+  ]);
+  const created = await repo.knowledge.createSyncJob(db, source.id);
+  if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
+  return { sourceId: source.id, job: created.job, run: created.run };
+}
+
+/** 只替换 connector 与队列前缀不同；认领、取消、超时与收尾全部走真实 worker。 */
+function startKnowledgeSyncWorker(connector: KnowledgeConnector) {
+  return startKnowledgeWorker({
+    db,
+    logger: quiet,
+    redisUrl,
+    prefix,
+    knowledgeDir,
+    decrypt: () => ({}),
+    connectors: { feed: connector },
+  });
+}
+
+function rejectOnAbort(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) {
+      reject(new KnowledgeCancelled());
+      return;
+    }
+    signal.addEventListener('abort', () => reject(new KnowledgeCancelled()), { once: true });
+  });
+}
+
+async function waitForJobStatus(id: string, statuses: string[], timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let row = await repo.knowledge.getJob(db, id);
+  while (!statuses.includes(row?.status ?? '') && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    row = await repo.knowledge.getJob(db, id);
+  }
+  return row;
+}
+
+async function syncRowsOf(sourceId: string, jobId: string) {
+  const job = await repo.knowledge.getJob(db, jobId);
+  const runs = await repo.knowledge.listSyncRuns(db, sourceId);
+  const source = await repo.knowledge.getSource(db, sourceId);
+  return { job, run: runs.items[0] ?? null, source };
+}
+
 describe('knowledge job claim', () => {
   it('lets exactly one of concurrent claims win', async () => {
     const { jobId } = await seedJob();
@@ -105,7 +170,7 @@ describe('knowledge job claim', () => {
 
   it('does not let claimJob resurrect a cancelled job', async () => {
     const { jobId } = await seedJob();
-    await repo.knowledge.requestCancel(db, jobId);
+    await repo.knowledge.finishJob(db, jobId, { fromStatus: 'queued', status: 'cancelled' });
     expect(await repo.knowledge.claimJob(db, jobId)).toBeNull();
   });
 });
@@ -418,14 +483,9 @@ describe('knowledge worker queue', () => {
     await repo.knowledge.replaceRanges(db, source.id, [
       { kind: 'feed', externalId: 'https://example.com/feed', ref: null, paths: [], enabled: true },
     ]);
-    const run = await repo.knowledge.createSyncRun(db, source.id, {});
-    const job = await repo.knowledge.createJob(db, {
-      type: 'sync',
-      baseId,
-      documentId: null,
-      sourceId: source.id,
-      payload: { type: 'sync', sourceId: source.id, syncRunId: run.id },
-    });
+    const created = await repo.knowledge.createSyncJob(db, source.id);
+    if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
+    const { job } = created;
 
     const connector = {
       async *sync({
@@ -490,7 +550,7 @@ describe('knowledge worker queue', () => {
 
       // 重试等待期间：sync run 仍 running、未结束，来源游标还没有推进。
       const during = (await repo.knowledge.listSyncRuns(db, source.id)).items.find(
-        (item) => item.id === run.id,
+        (item) => item.id === created.run.id,
       );
       expect(during?.status).toBe('running');
       expect(during?.endedAt).toBeNull();
@@ -508,7 +568,7 @@ describe('knowledge worker queue', () => {
       expect(embeddingCalls).toBe(2);
 
       const finished = (await repo.knowledge.listSyncRuns(db, source.id)).items.find(
-        (item) => item.id === run.id,
+        (item) => item.id === created.run.id,
       );
       expect(finished?.status).toBe('succeeded');
       expect(finished?.endedAt).toBeInstanceOf(Date);
@@ -529,6 +589,119 @@ describe('knowledge worker queue', () => {
       await events.close();
       await worker.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 30_000);
+
+  it('cancels a running sync through the Redis cancel key and settles all three tables', async () => {
+    const { sourceId, job } = await seedSyncPair();
+    let checkpointed!: () => void;
+    const checkpointedPromise = new Promise<void>((resolve) => {
+      checkpointed = resolve;
+    });
+    const connector: KnowledgeConnector = {
+      // biome-ignore lint/correctness/useYield: 连接器在取消前不产出条目
+      async *sync(input) {
+        await input.onCheckpoint({ page: 1 }, { complete: false });
+        checkpointed();
+        await rejectOnAbort(input.signal);
+      },
+    };
+    const worker = await startKnowledgeSyncWorker(connector);
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const redis = new Redis(redisUrl);
+    try {
+      await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+      // 检查点落库后才发 cancel 键：确认取消发生在真实执行中，不是队列前。
+      await checkpointedPromise;
+      await redis.set(knowledgeCancelKey(job.id), '1', 'EX', 60);
+
+      const finished = await waitForJobStatus(job.id, ['cancelled', 'failed']);
+      expect(finished).toMatchObject({ status: 'cancelled', error: 'cancelled' });
+      const rows = await syncRowsOf(sourceId, job.id);
+      expect(rows.run).toMatchObject({
+        status: 'cancelled',
+        error: 'cancelled',
+        cursorAfter: { page: 1 },
+      });
+      expect(rows.run?.endedAt).toBeInstanceOf(Date);
+      expect(rows.source).toMatchObject({
+        cursor: {},
+        lastSyncStatus: 'cancelled',
+        lastError: 'cancelled',
+      });
+      expect(await redis.get(knowledgeCancelKey(job.id))).toBeNull();
+    } finally {
+      await queue.close();
+      await worker.close();
+      redis.disconnect();
+    }
+  }, 30_000);
+
+  it('fails a timed-out sync without advancing the source cursor', async () => {
+    const { sourceId, job } = await seedSyncPair();
+    const connector: KnowledgeConnector = {
+      // biome-ignore lint/correctness/useYield: 连接器在超时中止前不产出条目
+      async *sync(input) {
+        await rejectOnAbort(input.signal);
+      },
+    };
+    const previousTimeout = KNOWLEDGE_TIMEOUT_MS.sync;
+    KNOWLEDGE_TIMEOUT_MS.sync = 200;
+    let worker: Awaited<ReturnType<typeof startKnowledgeWorker>> | undefined;
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    try {
+      worker = await startKnowledgeSyncWorker(connector);
+      await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+
+      const finished = await waitForJobStatus(job.id, ['failed', 'cancelled']);
+      expect(finished).toMatchObject({ status: 'failed', error: '任务超时' });
+      const rows = await syncRowsOf(sourceId, job.id);
+      expect(rows.run).toMatchObject({ status: 'failed', error: '任务超时', cursorAfter: null });
+      expect(rows.run?.endedAt).toBeInstanceOf(Date);
+      expect(rows.source).toMatchObject({
+        cursor: {},
+        lastSyncStatus: 'failed',
+        lastError: '任务超时',
+      });
+    } finally {
+      KNOWLEDGE_TIMEOUT_MS.sync = previousTimeout;
+      await queue.close();
+      await worker?.close();
+    }
+  }, 30_000);
+
+  it('cancels a sync whose source was disabled before the worker ran', async () => {
+    const { sourceId, job } = await seedSyncPair();
+    await repo.knowledge.updateSource(db, sourceId, { status: 'paused' });
+    let connectorCalled = false;
+    const connector: KnowledgeConnector = {
+      sync() {
+        connectorCalled = true;
+        throw new Error('connector must not run for a paused source');
+      },
+    };
+    const worker = await startKnowledgeSyncWorker(connector);
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    try {
+      await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+
+      const finished = await waitForJobStatus(job.id, ['cancelled', 'failed']);
+      expect(finished).toMatchObject({ status: 'cancelled', error: 'cancelled' });
+      expect(connectorCalled).toBe(false);
+      const rows = await syncRowsOf(sourceId, job.id);
+      expect(rows.run).toMatchObject({
+        status: 'cancelled',
+        error: 'cancelled',
+        cursorAfter: null,
+      });
+      expect(rows.source).toMatchObject({
+        cursor: {},
+        lastSyncStatus: 'cancelled',
+        lastError: 'cancelled',
+      });
+    } finally {
+      await queue.close();
+      await worker.close();
     }
   }, 30_000);
 
@@ -990,7 +1163,10 @@ describe('knowledge redelivery after a stalled job', () => {
       sourceId: null,
       payload: { type: 'cleanup' },
     });
-    await repo.knowledge.requestCancel(db, cancelled.id);
+    await repo.knowledge.finishJob(db, cancelled.id, {
+      fromStatus: 'queued',
+      status: 'cancelled',
+    });
     const missing = newId('knowledgeJob');
 
     worker = await startWorker();

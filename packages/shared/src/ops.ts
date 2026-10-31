@@ -4,7 +4,7 @@ import { z } from 'zod';
 export const runTriggerSchema = z.enum(['chat', 'mcp', 'schedule', 'event', 'review']);
 export type RunTrigger = z.infer<typeof runTriggerSchema>;
 
-/** 极简 5 段 cron 校验（分 时 日 月 周，UTC）。完整解析在 core/worker 侧。 */
+/** 5 段 cron 结构校验（分 时 日 月 周，UTC）；实际可调度性由 API schema 用 BullMQ 解析。 */
 export const cronSchema = z
   .string()
   .trim()

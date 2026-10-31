@@ -249,6 +249,12 @@
 - **原因**：测试模块在 import 时捕获 `DATABASE_URL`、擅自改 `process.env`，或把地址重写回固定历史库；复用的旧迁移账本不含后来合入的表，迁移异常又被吞成 infra 不可用。
 - **规避**：默认入口由 backend globalSetup 每轮创建随机库并迁移，经 `provide`/`inject` + `setupFiles` 在导入测试前写入 `process.env`；套件确需独立库时调用 `createIsolatedDatabase(prefix, adminUrl)`，显式使用返回的 `url`（不再隐式改 env），关闭连接后只删自己创建的库。建库/迁移失败必须抛错；只有 PG/Docker 不可用才发布不可连地址并跳过，不能回落开发库或共享 Redis。核验清理时只认本次函数返回的库名及唯一容器名/句柄：同一 worktree 可能有并行代理在跑测试，不要按 `backend_test_*` 前缀或镜像名批量删库/删容器。
 
+## 测试：用行锁编排 claim/取消竞争时，等锁对象不一定是同一个
+
+- **现象**：测试事务 `SELECT ... FOR UPDATE` 锁住 `knowledge_jobs` 行后，希望 worker claim 先于 API 排队取消获胜；实际 claim 的 UPDATE 等待 `transactionid`，取消的 UPDATE 等待 `tuple`，两者不在同一等待队列，释放锁后次序不保证。
+- **原因**：被 `FOR UPDATE` 锁住的行会让后续 UPDATE 等待持有者事务 ID；更晚的 UPDATE 可能转而等待 tuple 锁。跨不同锁对象没有单一 FIFO 语义，按“先发起就先赢”的直觉写测试会偶发反序。
+- **规避**：让必须获胜的一方先持有目标行、再阻塞在一个**下游行**上（例如 claim 先锁 job、再等 sync run）。另一方对目标行的 CAS 只能等获胜事务提交，释放下游锁后 CAS 必然看到已提交的新状态而落空；用 `pg_locks` 未授予锁事件确认两个等待已建立，不用 sleep。参考 `packages/api/test/knowledge-jobs.test.ts` 的 `queued cancel loses to a claimed sync job`。
+
 ## 测试：依赖真实文件系统的 spawn 就绪要用明确信号，不能数 `setImmediate` 轮数
 
 - **现象**：`runtime-environment-build` 单跑或全量时，固定 20 次 `setImmediate` 后 buildx 仍可能未 spawn（`buildIndex === -1`）。

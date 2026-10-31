@@ -4,9 +4,12 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type Me } from '../src/lib/api.js';
-import { queryClient } from '../src/lib/queries.js';
+import { useChatStore } from '../src/lib/chat-store.js';
+import { meQuery, queryClient } from '../src/lib/queries.js';
 import { routeTree } from '../src/routeTree.gen.js';
 import { allAccessMe } from './me-fixture.js';
+
+const DRAFTS_KEY = 'pace.chat.drafts';
 
 vi.mock('../src/lib/api.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/api.js')>();
@@ -73,6 +76,8 @@ async function submit(password: string) {
 
 beforeEach(() => {
   queryClient.clear();
+  useChatStore.getState().reset();
+  sessionStorage.clear();
   // 用真实共享客户端跑，但关掉重试，请求次数才能精确断言。
   queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
   vi.mocked(api.me).mockReset();
@@ -89,6 +94,8 @@ afterEach(async () => {
   history = undefined;
   document.body.replaceChildren();
   queryClient.clear();
+  useChatStore.getState().reset();
+  sessionStorage.clear();
 });
 
 describe('login route session check', () => {
@@ -155,6 +162,54 @@ describe('login route session check', () => {
     expect(api.me).toHaveBeenCalledTimes(2);
     expect(queryClient.getQueryData(['me'])).toEqual(nextMe);
     expect(router.state.location.pathname).toBe(TARGET);
+  });
+
+  it('clears the previous account chat drafts after the new identity is confirmed', async () => {
+    const oldMe = {
+      ...allAccessMe,
+      user: { businessId: 'business-old', username: 'old', name: '旧账户' },
+    };
+    vi.mocked(api.me).mockResolvedValue(oldMe);
+    await queryClient.fetchQuery({ ...meQuery, staleTime: 0 });
+    useChatStore.getState().setInput('draft from the old account');
+    sessionStorage.setItem('unrelated', 'keep');
+
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    const router = await mount();
+
+    const nextMe = {
+      ...allAccessMe,
+      user: { businessId: 'business-new', username: 'new', name: '新账户' },
+    };
+    vi.mocked(api.login).mockResolvedValue({ ok: true });
+    vi.mocked(api.me).mockResolvedValue(nextMe);
+    vi.mocked(api.agents).mockResolvedValue([]);
+    await submit('secret');
+
+    expect(router.state.location.pathname).toBe(TARGET);
+    expect(sessionStorage.getItem(DRAFTS_KEY)).toBeNull();
+    expect(useChatStore.getState().input).toBe('');
+    expect(sessionStorage.getItem('unrelated')).toBe('keep');
+  });
+
+  it('keeps the same account draft through an expired session and re-login', async () => {
+    vi.mocked(api.me).mockResolvedValue(allAccessMe);
+    await queryClient.fetchQuery({ ...meQuery, staleTime: 0 });
+    useChatStore.getState().setInput('draft from this account');
+
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    const router = await mount();
+
+    vi.mocked(api.login).mockResolvedValue({ ok: true });
+    vi.mocked(api.me).mockResolvedValue(allAccessMe);
+    vi.mocked(api.agents).mockResolvedValue([]);
+    await submit('secret');
+
+    expect(router.state.location.pathname).toBe(TARGET);
+    expect(JSON.parse(sessionStorage.getItem(DRAFTS_KEY) ?? '{}')).toEqual({
+      '': 'draft from this account',
+    });
+    expect(useChatStore.getState().input).toBe('draft from this account');
   });
 
   it('does not navigate before the fresh identity request settles', async () => {

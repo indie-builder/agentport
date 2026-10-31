@@ -2364,6 +2364,7 @@ export function AgentEditor({
     { value: 'markdown', label: 'Markdown' },
     { value: 'openui', label: '生成式 UI' },
   ];
+  const timeoutHintId = agent.parentId !== null ? 'agent-timeout-hint' : undefined;
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -3556,7 +3557,12 @@ export function AgentEditor({
                         data-invalid={Boolean(errors.timeoutMs)}
                       >
                         <FieldContent>
-                          <FieldLabel htmlFor="agent-timeout">超时 (毫秒)</FieldLabel>
+                          <FieldLabel htmlFor="agent-timeout">独立运行超时 (毫秒)</FieldLabel>
+                          {timeoutHintId ? (
+                            <FieldDescription id={timeoutHintId}>
+                              被委派时使用主运行总超时。
+                            </FieldDescription>
+                          ) : null}
                           <FieldError id="agent-timeout-error">
                             {errors.timeoutMs?.message}
                           </FieldError>
@@ -3570,7 +3576,11 @@ export function AgentEditor({
                           step={1000}
                           inputMode="numeric"
                           aria-invalid={Boolean(errors.timeoutMs)}
-                          aria-describedby={errors.timeoutMs ? 'agent-timeout-error' : undefined}
+                          aria-describedby={
+                            [errors.timeoutMs ? 'agent-timeout-error' : null, timeoutHintId]
+                              .filter(Boolean)
+                              .join(' ') || undefined
+                          }
                           className="w-40"
                         />
                       </Field>
@@ -4192,7 +4202,7 @@ const diffFields: ReadonlyArray<readonly [keyof Agent, string]> = [
   ['permissionMode', '权限模式'],
   ['maxTurns', '最大轮次'],
   ['maxBudgetUsd', '预算上限'],
-  ['timeoutMs', '超时'],
+  ['timeoutMs', '独立运行超时'],
   ['runtimeEnvironmentId', '运行环境'],
   ['effort', '推理强度'],
   ['enabled', '启用状态'],

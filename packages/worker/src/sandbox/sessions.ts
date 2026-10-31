@@ -248,6 +248,61 @@ export class SessionSandboxes {
     await this.provider.destroyById(sandboxId);
   }
 
+  /**
+   * 删除实体前的显式关闭：只关闭目标会话的空闲容器。活跃 lease / acquire 中的
+   * entry 一律拒绝（迟到的旧请求不能杀新 run）；重启后没有 entry 时才按已落库的
+   * 容器名逐个删除，provider 把「已不存在」视为成功。失败聚合上报，事务方回滚。
+   */
+  async closeIdle(conversationId: string, sandboxIds: readonly string[]): Promise<void> {
+    const ids = [...new Set(sandboxIds)];
+    const attempted = new Set<string>();
+    const failures: unknown[] = [];
+    const entry = this.entries.get(conversationId);
+
+    if (entry !== undefined) {
+      if (entry.active !== null || entry.acquirePending) {
+        throw new Error(`session sandbox busy: ${conversationId}`);
+      }
+      if (entry.destroying !== null) {
+        // 空闲回收已在自己收口：合并同一轮销毁，不重复删除。
+        const inFlight = entry.destroying;
+        const id = entry.sandbox?.id;
+        if (id !== undefined) attempted.add(id);
+        try {
+          await inFlight;
+        } catch (err) {
+          failures.push(err);
+        }
+      } else if (entry.leaseHeld && entry.broken === null) {
+        throw new Error(`session sandbox busy: ${conversationId}`);
+      } else if (entry.sandbox !== null) {
+        const sandbox = entry.sandbox;
+        // 请求带精确容器身份时只关闭同一个容器；没有落库身份时才按会话关闭。
+        if (ids.length === 0 || ids.includes(sandbox.id)) {
+          attempted.add(sandbox.id);
+          try {
+            await this.destroyEntry(entry);
+          } catch (err) {
+            failures.push(err);
+          }
+        }
+      }
+    }
+
+    for (const id of ids) {
+      if (attempted.has(id)) continue;
+      attempted.add(id);
+      try {
+        await this.provider.destroyById(id);
+      } catch (err) {
+        failures.push(err);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, `session sandbox close failed: ${conversationId}`);
+    }
+  }
+
   private async doAcquire(
     spec: SessionSandboxSpec,
     signal: AbortSignal,

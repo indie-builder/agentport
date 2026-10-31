@@ -992,19 +992,30 @@ test('run_unavailable 后可以继续发送，旧流迟到的事件不污染新�
   ).toEqual(['partial', 'next']);
 });
 
-test('error 事件仍只是通知：断流后标记 detached，不结束本轮', async () => {
+test('协议 error 立即失去健康资格但保留本轮，onerror 只负责连接清理', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const hook = render('a1');
   await startRun(hook);
 
   const opened = source();
   opened.onmessage?.(message({ type: 'error', message: '工具失败' }));
-  expect(useChatStore.getState().run?.status).toBe('streaming');
+  // 服务端明确报错后不再视为健康流，回读轮询立即接替，不必等浏览器 onerror。
+  expect(useChatStore.getState().run?.status).toBe('detached');
 
   opened.onerror?.();
   expect(useChatStore.getState().run?.status).toBe('detached');
   expect(events.FakeEventSource.instances).toHaveLength(1);
   expect(useChatStore.getState().lastRun).toBeNull();
+});
+
+test('已接受但事件流尚未打开时用 reconnecting，onopen 后才算健康', async () => {
+  apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
+  const hook = render('a1');
+  await startRun(hook);
+
+  expect(useChatStore.getState().run?.status).toBe('reconnecting');
+  source().onopen?.();
+  expect(useChatStore.getState().run?.status).toBe('streaming');
 });
 
 test('离开后请求失败：不恢复旧输入、不追加错误通知', async () => {

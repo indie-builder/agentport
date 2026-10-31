@@ -246,6 +246,83 @@ describe('sub-agent native memory', () => {
   });
 });
 
+describe('root MCP manifest follows root bindings', () => {
+  const entry = (name: string) => ({
+    name,
+    entry: { type: 'http' as const, url: 'https://example.com', headers: {} },
+  });
+  const child = { slug: 'kid', name: 'Kid', model: 'm', systemPrompt: 'p', maxTurns: 3 };
+
+  it('lists only root servers while .mcp.json keeps the parent/child union', () => {
+    const files = renderWorkspace({
+      agent: { ...agent, serverNames: ['a'] },
+      servers: [entry('a'), entry('b')],
+      subAgents: [{ ...child, serverNames: ['b'] }],
+    });
+
+    expect(files.claudeMd).toContain('`a`');
+    expect(files.claudeMd).not.toContain('`b`');
+    expect(files.claudeMd).toContain('以上是主会话绑定的 MCP Server');
+    expect(Object.keys(JSON.parse(files.mcpJson).mcpServers)).toEqual(['a', 'b']);
+    expect(files.subAgents[0]?.content).toContain('mcpServers:\n  - "b"');
+  });
+
+  it('treats an explicit empty root binding as no MCP', () => {
+    const files = renderWorkspace({
+      agent: { ...agent, serverNames: [] },
+      servers: [entry('a'), entry('b')],
+      subAgents: [{ ...child, serverNames: ['b'] }],
+    });
+
+    expect(files.claudeMd).toContain('当前没有绑定 MCP Server');
+    expect(files.claudeMd).not.toContain('### 工具调用中的等待');
+    expect(files.claudeMd).not.toContain('`a`');
+    expect(Object.keys(JSON.parse(files.mcpJson).mcpServers)).toEqual(['a', 'b']);
+    expect(files.subAgents[0]?.content).toContain('mcpServers:\n  - "b"');
+  });
+
+  it('keeps the single-view default when serverNames is undefined', () => {
+    const files = renderWorkspace({
+      agent,
+      servers: [entry('a'), entry('b')],
+    });
+
+    expect(files.claudeMd).toContain('`a`');
+    expect(files.claudeMd).toContain('`b`');
+  });
+});
+
+describe('timeout semantics', () => {
+  const child = {
+    slug: 'kid',
+    name: 'Kid',
+    model: 'm',
+    systemPrompt: 'p',
+    maxTurns: 7,
+    timeoutMs: 120_000,
+  };
+
+  it('does not advertise a per-child delegated timeout', () => {
+    const files = renderWorkspace({ agent, servers: [], subAgents: [child] });
+
+    expect(files.claudeMd).toContain('| slug | 适用场景 | 最大轮次 |');
+    expect(files.claudeMd).toContain('| `kid` | Kid | 7 |');
+    expect(files.claudeMd).not.toContain('| 超时 |');
+    expect(files.claudeMd).not.toContain('120s');
+    expect(files.claudeMd).not.toContain('智能体超时约束');
+    expect(files.claudeMd).toContain('整轮委派计入主运行的总超时');
+  });
+
+  it('does not turn the child definition timeout into delegated seconds', () => {
+    const files = renderWorkspace({ agent, servers: [], subAgents: [child] });
+    const content = files.subAgents[0]?.content ?? '';
+
+    expect(content).toContain('同步调用');
+    expect(content).not.toContain('最多等你');
+    expect(content).not.toContain('120 秒');
+  });
+});
+
 describe('parent agent md tool whitelist', () => {
   it('lists Bash by default', () => {
     const { agentMd } = renderWorkspace({ agent, servers: [] });

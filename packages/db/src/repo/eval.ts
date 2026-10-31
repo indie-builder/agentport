@@ -163,6 +163,19 @@ export async function cancelEvalRun(db: Database, id: string): Promise<boolean> 
   return rows.length > 0;
 }
 
+/**
+ * 中断/执行失败收口：只允许 running → failed，且不写 passed。
+ * 已成功、已取消或已被收口的批次保持原状；重复投递的 processor 与 failed 事件可先后调用。
+ */
+export async function failEvalRun(db: Database, id: string, error: string): Promise<boolean> {
+  const rows = await db
+    .update(evalRuns)
+    .set({ status: 'failed', error, finishedAt: new Date() })
+    .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running')))
+    .returning({ id: evalRuns.id });
+  return rows.length > 0;
+}
+
 export async function updateProgress(db: Database, id: string, passed: number): Promise<void> {
   await db
     .update(evalRuns)

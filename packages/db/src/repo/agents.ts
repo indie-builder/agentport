@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { AccessFilter, Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
-import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, ne, or, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -12,10 +12,12 @@ import {
   agentServers,
   agentSkills,
   agents,
+  conversations,
   servers,
   skills,
 } from '../schema.js';
 import { insertAgentVersion, retryOnVersionConflict, type Tx } from './agent-versions.js';
+import type { ConversationSandboxTarget } from './chat.js';
 import { notStale } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
 
@@ -85,12 +87,11 @@ export function toAgent(
   };
 }
 
-export async function listAgents(db: Database, access: AccessFilter): Promise<AgentRow[]> {
+/** agents.read 的列表与删除重核共用同一范围谓词；范围不够时返回空结果。 */
+function agentReadScopeWhere(access: AccessFilter): SQL | undefined {
   const scopes = new Set(access.scopes);
-  if (scopes.has('platform')) {
-    return db.select().from(agents).orderBy(asc(agents.createdAt), asc(agents.id));
-  }
-  const visible = [];
+  if (scopes.has('platform')) return undefined;
+  const visible: SQL[] = [];
   if (scopes.has('owned_agents')) {
     visible.push(eq(agents.ownerBusinessId, access.businessId));
   }
@@ -104,11 +105,31 @@ export async function listAgents(db: Database, access: AccessFilter): Promise<Ag
       sql`(${agents.ownerBusinessId} = ${access.businessId} or exists (select 1 from ${agentMembers} m where m.agent_id = ${agents.id} and m.business_id = ${access.businessId} and m.can_maintain))`,
     );
   }
-  if (visible.length === 0) return [];
+  if (visible.length === 0) return sql`false`;
+  return or(...visible);
+}
+
+/** agents.delete 只接受 owned_agents / platform，不因 can_use/can_maintain 扩大删除范围。 */
+function agentDeleteScopeWhere(access: AccessFilter): SQL | undefined {
+  const scopes = new Set(access.scopes);
+  if (scopes.has('platform')) return undefined;
+  if (scopes.has('owned_agents')) return eq(agents.ownerBusinessId, access.businessId);
+  return sql`false`;
+}
+
+function agentDeletionWhere(input: AgentDeletionInput): SQL | undefined {
+  return and(
+    eq(agents.id, input.id),
+    agentDeleteScopeWhere(input.access),
+    agentReadScopeWhere(input.readAccess),
+  );
+}
+
+export async function listAgents(db: Database, access: AccessFilter): Promise<AgentRow[]> {
   return db
     .select()
     .from(agents)
-    .where(or(...visible))
+    .where(agentReadScopeWhere(access))
     .orderBy(asc(agents.createdAt), asc(agents.id));
 }
 
@@ -557,20 +578,150 @@ async function writeAgentPluginBindings(
   );
 }
 
-/** 删除会断开子智能体的 parent_id；活动集合变化前必须先确认没有真实运行。 */
-export async function deleteAgent(db: Database, id: string): Promise<boolean> {
+export interface AgentDeletionInput {
+  id: string;
+  /** agents.delete 的范围；只接受 owned_agents / platform。 */
+  access: AccessFilter;
+  /** agents.delete 依赖的 agents.read 范围，保留同一请求内授权快照。 */
+  readAccess: AccessFilter;
+}
+
+export interface AgentDeletionSnapshot {
+  id: string;
+  slug: string;
+  ownerBusinessId: string;
+  parentId: string | null;
+  enabled: boolean;
+  /** 全部直接子级；影响解绑与活动集合。 */
+  childIds: string[];
+  affectedAgentIds: string[];
+  /** 只含目标专家自身的会话，不包含子级会话。 */
+  targets: ConversationSandboxTarget[];
+}
+
+/**
+ * 短 tx A：按删除/读取范围重查主体，返回确定快照后立即提交。
+ * 不在事务内等待任何网络关闭确认；目标集合由调用方在事务外精确核对。
+ */
+export async function prepareAgentDeletion(
+  db: Database,
+  input: AgentDeletionInput,
+): Promise<AgentDeletionSnapshot | null> {
+  return db.transaction((tx) => readAgentDeletionSnapshot(tx, input));
+}
+
+/** 短 tx B：重读完整快照并与 A 精确比较，匹配才删除；任何变化回滚。 */
+export async function deleteAgent(
+  db: Database,
+  input: AgentDeletionInput & { expected: AgentDeletionSnapshot },
+): Promise<boolean> {
   return db.transaction(async (tx) => {
-    await lockAgentBindings(tx);
-    const self = await getAgent(tx, id);
-    if (!self) return false;
-    const children = await getAgentSubAgentIds(tx, id);
-    const affected = [id, ...children];
-    // 删除一个 enabled 子级也会改变父专家的活动集合。
-    if (self.enabled && self.parentId !== null) affected.push(self.parentId);
-    await assertAgentsIdle(tx, affected);
-    const rows = await tx.delete(agents).where(eq(agents.id, id)).returning({ id: agents.id });
+    const actual = await readAgentDeletionSnapshot(tx, input, true);
+    if (actual === null) return false;
+    if (!sameAgentSnapshot(input.expected, actual)) {
+      throw new AppError('CONFLICT', '智能体或其会话在删除期间发生变化，请重试', {
+        retryable: true,
+      });
+    }
+    const rows = await tx
+      .delete(agents)
+      .where(agentDeletionWhere(input))
+      .returning({ id: agents.id });
     return rows.length > 0;
   });
+}
+
+async function readAgentDeletionSnapshot(
+  tx: Tx,
+  input: AgentDeletionInput,
+  lockSelf = false,
+): Promise<AgentDeletionSnapshot | null> {
+  await lockAgentBindings(tx);
+  const query = tx.select().from(agents).where(agentDeletionWhere(input)).limit(1);
+  const [self] = lockSelf ? await query.for('update') : await query;
+  if (!self) return null;
+  const childIds = await getAgentSubAgentIds(tx, self.id);
+  // 删除一个 enabled 子级也会改变父专家的活动集合。
+  const affected = [...new Set([self.id, ...childIds])];
+  if (self.enabled && self.parentId !== null) affected.push(self.parentId);
+  affected.sort();
+  await assertAgentsIdle(tx, affected);
+  const targets = await sandboxTargetsForAgent(tx, self.id);
+  return {
+    id: self.id,
+    slug: self.slug,
+    ownerBusinessId: self.ownerBusinessId,
+    parentId: self.parentId,
+    enabled: self.enabled,
+    childIds,
+    affectedAgentIds: affected,
+    targets,
+  };
+}
+
+function sameAgentSnapshot(
+  expected: AgentDeletionSnapshot,
+  actual: AgentDeletionSnapshot,
+): boolean {
+  return (
+    expected.id === actual.id &&
+    expected.slug === actual.slug &&
+    expected.ownerBusinessId === actual.ownerBusinessId &&
+    expected.parentId === actual.parentId &&
+    expected.enabled === actual.enabled &&
+    sameIdSet(expected.childIds, actual.childIds) &&
+    sameIdSet(expected.affectedAgentIds, actual.affectedAgentIds) &&
+    sameTargets(expected.targets, actual.targets)
+  );
+}
+
+function sameTargets(
+  left: ConversationSandboxTarget[],
+  right: ConversationSandboxTarget[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((target, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        target.conversationId === other.conversationId &&
+        target.sandboxIds.length === other.sandboxIds.length &&
+        target.sandboxIds.every((id, sandboxIndex) => id === other.sandboxIds[sandboxIndex])
+      );
+    })
+  );
+}
+
+/** 目标会话与各会话已落库的容器名；锁内查询，供事务外精确关闭。 */
+async function sandboxTargetsForAgent(
+  tx: Tx,
+  agentId: string,
+): Promise<ConversationSandboxTarget[]> {
+  const conversationRows = await tx
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.agentId, agentId))
+    .orderBy(asc(conversations.id));
+  const conversationIds = conversationRows.map((row) => row.id);
+  const byConversation = new Map<string, Set<string>>(
+    conversationIds.map((conversationId) => [conversationId, new Set<string>()]),
+  );
+  if (conversationIds.length > 0) {
+    const runRows = await tx
+      .select({ conversationId: agentRuns.conversationId, sandboxId: agentRuns.sandboxId })
+      .from(agentRuns)
+      .where(
+        and(inArray(agentRuns.conversationId, conversationIds), isNotNull(agentRuns.sandboxId)),
+      );
+    for (const row of runRows) {
+      if (row.sandboxId !== null) byConversation.get(row.conversationId)?.add(row.sandboxId);
+    }
+  }
+  return conversationIds.map((conversationId) => ({
+    conversationId,
+    sandboxIds: [...(byConversation.get(conversationId) ?? [])].sort(),
+  }));
 }
 
 export async function getAgentServerIds(db: Database | Tx, agentId: string): Promise<string[]> {

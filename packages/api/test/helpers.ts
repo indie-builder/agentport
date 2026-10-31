@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -55,8 +56,8 @@ export function unique(prefix: string): string {
   return `${prefix}-${SUFFIX}-${counter.toString(36)}`;
 }
 
-/** 工作区写到系统临时目录，避免污染仓库 data/。 */
-process.env.WORKSPACES_DIR = join(tmpdir(), 'agentport-test-workspaces');
+/** 工作区写到系统临时目录，避免污染仓库 data/；macOS 的 tmpdir 是符号链接，记忆写入拒绝符号链接路径。 */
+process.env.WORKSPACES_DIR = join(realpathSync(tmpdir()), 'agentport-test-workspaces');
 
 export function testConfig(overrides: Partial<Record<string, string>> = {}): Config {
   return loadConfig({ ...process.env, ...overrides });
@@ -195,7 +196,9 @@ export async function createTestAccount(
   const username = options.username ?? unique('user');
   const password = options.password ?? 'test-password-123';
   const roleIdsForAccount =
-    options.systemKeys === undefined ? undefined : await roleIds(app, adminCookie, options.systemKeys);
+    options.systemKeys === undefined
+      ? undefined
+      : await roleIds(app, adminCookie, options.systemKeys);
   const res = await inject(app, {
     method: 'POST',
     url: '/api/accounts',

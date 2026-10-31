@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { closeSessionRuntime } from '../src/sandbox/session-cleanup.js';
 import { runShutdown, type ShutdownOptions, type ShutdownStep } from '../src/shutdown.js';
 
 interface Harness {
@@ -219,5 +220,143 @@ describe('runShutdown', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
+  });
+});
+
+describe('closeSessionRuntime', () => {
+  it('closes the channel, sessions, and provider in order and lets shutdown exit 0', async () => {
+    const calls: string[] = [];
+    const h = harness();
+    const code = await runShutdown(
+      options(h, {
+        provider: h.step('sandbox provider', () =>
+          closeSessionRuntime({
+            channel: {
+              close: async () => {
+                calls.push('channel');
+              },
+            },
+            sessions: {
+              close: async () => {
+                calls.push('sessions');
+              },
+            },
+            provider: {
+              destroyAll: async () => {
+                calls.push('destroyAll');
+              },
+            },
+            timeoutMs: 50,
+          }),
+        ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(calls).toEqual(['channel', 'sessions', 'destroyAll']);
+    expect(h.errors).toEqual([]);
+  });
+
+  it('turns a drain timeout into provider failure while still closing sessions and provider', async () => {
+    const calls: string[] = [];
+    const h = harness();
+    const code = await runShutdown(
+      options(h, {
+        provider: h.step('sandbox provider', () =>
+          closeSessionRuntime({
+            channel: { close: () => new Promise<void>(() => {}) },
+            sessions: {
+              close: async () => {
+                calls.push('sessions');
+              },
+            },
+            provider: {
+              destroyAll: async () => {
+                calls.push('destroyAll');
+              },
+            },
+            timeoutMs: 20,
+          }),
+        ),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(calls).toEqual(['sessions', 'destroyAll']);
+    expect(h.errors).toHaveLength(1);
+    expect(h.errors[0]?.label).toBe('sandbox provider');
+    expect(String(h.errors[0]?.err)).toContain('did not drain');
+  });
+
+  it('records a channel rejection but still closes sessions and provider before exiting 1', async () => {
+    const calls: string[] = [];
+    const failure = new Error('channel close failed');
+    const h = harness();
+    const code = await runShutdown(
+      options(h, {
+        provider: h.step('sandbox provider', () =>
+          closeSessionRuntime({
+            channel: {
+              close: async () => {
+                throw failure;
+              },
+            },
+            sessions: {
+              close: async () => {
+                calls.push('sessions');
+              },
+            },
+            provider: {
+              destroyAll: async () => {
+                calls.push('destroyAll');
+              },
+            },
+            timeoutMs: 50,
+          }),
+        ),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(calls).toEqual(['sessions', 'destroyAll']);
+    expect(h.errors).toEqual([{ label: 'sandbox provider', err: failure }]);
+  });
+
+  it('keeps every cleanup running even when sessions.close also rejects', async () => {
+    const calls: string[] = [];
+    const channelFailure = new Error('channel close failed');
+    const sessionsFailure = new Error('sessions close failed');
+    const h = harness();
+    const code = await runShutdown(
+      options(h, {
+        provider: h.step('sandbox provider', () =>
+          closeSessionRuntime({
+            channel: {
+              close: async () => {
+                throw channelFailure;
+              },
+            },
+            sessions: {
+              close: async () => {
+                calls.push('sessions');
+                throw sessionsFailure;
+              },
+            },
+            provider: {
+              destroyAll: async () => {
+                calls.push('destroyAll');
+              },
+            },
+            timeoutMs: 50,
+          }),
+        ),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(calls).toEqual(['sessions', 'destroyAll']);
+    const error = h.errors[0]?.err;
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toEqual([channelFailure, sessionsFailure]);
   });
 });
