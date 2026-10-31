@@ -8,6 +8,7 @@ import {
   SourceAuthError,
   validateSourceUrl,
 } from './source-http.js';
+import { uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -452,18 +453,6 @@ function sanitizeSegment(value: string, fallback: string): string {
     .slice(0, 120)
     .trim();
   return cleaned === '' ? fallback : cleaned;
-}
-
-function uniquePath(path: string, used: Set<string>, token: string): string {
-  if (!used.has(path)) {
-    used.add(path);
-    return path;
-  }
-  const dot = path.lastIndexOf('.');
-  const disambiguated =
-    dot > 0 ? `${path.slice(0, dot)} [${token}]${path.slice(dot)}` : `${path} [${token}]`;
-  used.add(disambiguated);
-  return disambiguated;
 }
 
 function humanUrl(webui: string | undefined, site: URL): string {
