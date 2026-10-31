@@ -67,11 +67,30 @@
       "skillPath": "skills/cli-interface-design/SKILL.md",
       "computedHash": "981c21912a7071b704a2811e95e2feb636c050a1a6ddbc0664fe7d0a30ad12bc"
     },
+    "docker-build-strategies": {
+      "source": "docker/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-build-strategies/SKILL.md",
+      "computedHash": "e6a297d613873cf74b030655ee8405ca4434980cfb0dfd412ac5aa4e213d3d5c"
+    },
+    "docker-compose-patterns": {
+      "source": "docker/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-compose-patterns/SKILL.md",
+      "computedHash": "391f366bb0e60f5c7c48ecc814b917e7dae797edbb58625d228cb951d7a538ee"
+    },
     "drizzle-orm-patterns": {
       "source": "giuseppe-trisciuoglio/developer-kit",
       "sourceType": "github",
       "skillPath": "plugins/developer-kit-typescript/skills/drizzle-orm-patterns/SKILL.md",
       "computedHash": "d63e6d73a9f579b505a5694af2f3b3200c2b5eeea147e88b9b6d1e5fce23bcbb"
+    },
+    "effect-ts": {
+      "source": "effect-ts/skills",
+      "ref": "155c50c911f9c99c294ef8a4461981c5bbe6453e",
+      "sourceType": "github",
+      "skillPath": "skills/effect-ts/SKILL.md",
+      "computedHash": "cb225ba5dda169883dfee680fba6c570c89245ba19242a9bc5c3f2ac8218a55f"
     },
     "emil-design-eng": {
       "source": "emilkowalski/skills",
@@ -97,11 +116,24 @@
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "89496d5dd00f4810205f351759594fc2742bf8eea85a2f2b2d1de59f4bd91576"
     },
+    "getting-started": {
+      "source": "tanstack/table",
+      "ref": "c14e0221b1e656c7bb35e7b3d4cdf188719a3599",
+      "sourceType": "github",
+      "skillPath": "packages/react-table/skills/getting-started/SKILL.md",
+      "computedHash": "a1aa99de9668e82dd2eaa77f7f7d4cabb1996a6aae3adc06e9eff98a52dde3a2"
+    },
     "improve-animations": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
       "skillPath": "skills/improve-animations/SKILL.md",
       "computedHash": "524ea241e41d58bbdd8e288700fe24f5725e2a2f3ae7186ad7cebf9055058356"
+    },
+    "mcp-builder": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mcp-builder/SKILL.md",
+      "computedHash": "863dfe94bc38b62389884e78fee7f0a9c31bd74a6032f602eb84a66f4b8315c9"
     },
     "migrate-radix-to-base": {
       "source": "shadcn-ui/ui",
@@ -211,6 +243,12 @@
       "skillPath": "SKILL.md",
       "computedHash": "e2e28ad6f12ce3bc1e5be6676b0dcd88c217957c79c512b418c241fa2e5825a0"
     },
+    "vercel-composition-patterns": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/composition-patterns/SKILL.md",
+      "computedHash": "575757e3e25761c8c562d6e395d29f0b76c98b1273c0bd72d88e6ab1bc9c7d42"
+    },
     "vercel-react-best-practices": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
@@ -234,6 +272,13 @@
       "sourceType": "github",
       "skillPath": "skills/vitest/SKILL.md",
       "computedHash": "90f1cee9326269c91b46a601b3a575491505d8e771009dacff01329381d45291"
+    },
+    "zustand-5": {
+      "source": "prowler-cloud/prowler",
+      "ref": "67aa9410127c7228fed304f3333b271808ba0c8d",
+      "sourceType": "github",
+      "skillPath": "skills/zustand-5/SKILL.md",
+      "computedHash": "08871c0f38a9d3366fdb4aada1b9b10f29744d8ae15ecba7972f3c10dde1ac34"
     }
   }
 }

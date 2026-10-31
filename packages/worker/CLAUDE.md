@@ -23,6 +23,12 @@
 - run 临时目录结束即删；稳定工作区、outputs、sdk-sessions、agent-memory 不随 run 或关停删除。
 - 关停先 abort 新容器，再有界排空 run、关闭沙盒与队列，最后关 Redis/PG；清理失败如实记录并以非零码退出。
 
+## Effect 边界
+
+- `runner-client.ts`、`eval-runner.ts`、`reconcile.ts` 用 Effect 管单任务内的取消、超时、资源作用域、类型化错误与有界并发（`raceAll`、`forEach`、`retry` 等）；普通 Promise 流程不机械改写。
+- 容器生命周期仍归 `SessionSandboxes`，任务分发与重试仍归 BullMQ，AI 执行仍只有 Claude Agent SDK 一套；Effect 不接管这些框架职责，也不另造执行循环或服务层。
+- 失败分类统一用 core 的 `RunFailure` / `isRetryableFailure`；Effect 类型不进入队列 payload 或对外签名。
+
 ## 验证
 
 `pnpm --filter @agentport/worker typecheck` 与 `packages/worker/test` 对应套件；Docker/Redis 相关用例按其前置跳过，不回落共享库。隔离库与临时 Redis 的细节见根规则和 [OPERATIONS](../../docs/OPERATIONS.md)。
