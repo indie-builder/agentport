@@ -693,4 +693,39 @@ describe('runInSandbox question flow', () => {
     });
     expect(outcome.error).toMatch(/问题记录失败/);
   });
+
+  it('counts question snapshots toward the persisted budget and fails after settle overflow', async () => {
+    const runId = `run-question-${randomUUID()}`;
+    const store = questionStore(runId);
+    const requestId = 'req-budget';
+
+    const { outcome } = await run(
+      runId,
+      (sandbox) => {
+        for (let index = 0; index < 1_999; index += 1) {
+          sandbox.stdout.write(
+            `${JSON.stringify({ type: 'assistant_text', text: 'x', blockIndex: 0 })}\n`,
+          );
+        }
+        sandbox.stdout.write(questionRequestLine(requestId));
+        sandbox.stdout.write(`${JSON.stringify({ type: 'run_finished', status: 'succeeded' })}\n`);
+        sandbox.emit('close', 0, null);
+      },
+      { store },
+    );
+
+    // 1999 条文本 + 1 条 pending 快照占满额度；settle 追加的关闭快照触发溢出，
+    // 成功转失败必须在 settle 之后完成，不能先按成功收尾。
+    expect(outcome.status).toBe('failed');
+    expect(outcome.error).toMatch(/保存上限/);
+    expect(outcome.failure).toMatchObject({ reason: 'agent' });
+    expect(isRetryable(outcome)).toBe(false);
+    expect(outcome.events).toHaveLength(2_001);
+    expect(outcome.events.at(-1)).toMatchObject({
+      type: 'error',
+      message: expect.stringMatching(/保存上限/),
+    });
+    // 额度内的 pending 快照留下，settle 的关闭快照被裁掉：问题快照与文本共用同一预算。
+    expect(outcome.events.filter((event) => event.type === 'question_updated')).toHaveLength(1);
+  });
 });

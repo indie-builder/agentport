@@ -6,6 +6,7 @@ import { createDb, repo } from '@agentport/db';
 import {
   limitToolCatalog,
   type ResolvedRuntimeEnvironment,
+  redactSecrets,
   SANDBOX_PROBE_STARTUP_TIMEOUT_MS,
   SANDBOX_PROBE_STDERR_MAX_BYTES,
   SANDBOX_PROBES_QUEUE,
@@ -19,7 +20,6 @@ import {
 import { Worker } from 'bullmq';
 import pino, { type Logger } from 'pino';
 import type { Config } from './config.js';
-import { redactSecrets } from './redact.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions } from './sandbox/provider.js';

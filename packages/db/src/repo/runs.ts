@@ -250,15 +250,6 @@ export async function isRunBoundToServer(
   return row !== undefined;
 }
 
-export async function getRunAgentId(db: Database, runId: string): Promise<string | null> {
-  const [row] = await db
-    .select({ agentId: agentRuns.agentId })
-    .from(agentRuns)
-    .where(eq(agentRuns.id, runId))
-    .limit(1);
-  return row?.agentId ?? null;
-}
-
 /** 写入本次 run 的短期 MCP token hash 与过期时间（明文只进工作区文件）。 */
 export async function setRunMcpToken(
   db: Database,

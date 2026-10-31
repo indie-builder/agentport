@@ -12,6 +12,7 @@ import {
   type Agent,
   type AgentInput,
   type AgentPatch,
+  type AgentSummary,
   agentDuplicateInputSchema,
   agentInputSchema,
   BUILTIN_TOOLS,
@@ -39,6 +40,7 @@ import {
   FileCode,
   FileText,
   History,
+  IdCard,
   LibraryBig,
   Plug,
   Plus,
@@ -185,6 +187,24 @@ import { MemoryPanel, OutputStylesPanel, RulesPanel } from './memory-panel.js';
 const models = ['group/flash', 'auto/deepseek-v4.1-flash', 'workbuddy/kimi-k3-2'];
 
 const roleOptions = AGENT_ROLES.map((role) => ({ value: role, label: role }));
+
+const badgeTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZoneName: 'short',
+});
+
+/** 工牌只展示真实的创建时间；缺失或无法解析时明确写「未记录」。 */
+function badgeCreatedAt(value: string | undefined): { label: string; iso: string | null } {
+  if (!value) return { label: '未记录', iso: null };
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? { label: '未记录', iso: null }
+    : { label: badgeTimeFormatter.format(date), iso: value };
+}
 
 const emptyInput: AgentInput = {
   slug: '',
@@ -348,6 +368,8 @@ export function AgentsPage() {
   const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<File | null>(null);
+  const [badgeId, setBadgeId] = useState<string | null>(null);
+  const badgeTriggerRef = useRef<HTMLButtonElement | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -414,6 +436,11 @@ export function AgentsPage() {
     void navigate({ to: '/agents/$agentId', params: { agentId: id } });
   };
 
+  // 工牌从当前列表缓存派生，切换专家后不会停留在旧资料上。
+  const badgeAgent = badgeId
+    ? ((agents.data ?? []).find((agent) => agent.id === badgeId) ?? null)
+    : null;
+
   return (
     <Page>
       <PageHeader
@@ -465,6 +492,7 @@ export function AgentsPage() {
       <PageToolbar>
         <SearchInput
           label="搜索专家"
+          inputId="agents-search"
           placeholder="搜索专家…"
           value={query}
           onChange={(next) =>
@@ -604,7 +632,7 @@ export function AgentsPage() {
                     setCreateRole('通用助手');
                     setCreating(true);
                   }}
-                  className="agent-create-fan h-full min-h-52 w-full disabled:pointer-events-none disabled:opacity-60"
+                  className="agent-create-fan h-52 w-full disabled:pointer-events-none disabled:opacity-60"
                 >
                   <span className="agent-create-fan__art" aria-hidden="true">
                     {createShowcaseAvatars.map((src) => (
@@ -620,7 +648,7 @@ export function AgentsPage() {
                 </button>
               </li>
               <li className="min-w-0">
-                <Card className="h-full">
+                <Card className="h-52">
                   <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
                     <img
                       src={digitalTwinPortrait}
@@ -650,30 +678,35 @@ export function AgentsPage() {
               (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
             return (
               <li key={agent.id} className="min-w-0">
-                <Card>
+                <Card className="h-52">
                   <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
                     <AgentAvatar agent={agent} className="row-span-2 self-center" />
-                    <CardTitle className="col-start-2 min-w-0">
-                      <h2 className="flex min-w-0 items-center gap-2">
+                    <CardTitle className="col-start-2 row-start-1 min-w-0">
+                      <h2 className="min-w-0">
                         <Link
                           to="/agents/$agentId"
                           params={{ agentId: agent.id }}
                           title={agent.name}
                           disabled={importing}
-                          className="min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           {agent.name}
                         </Link>
-                        {agentRole ? (
-                          <StatusBadge className="max-w-28 min-w-0 shrink">
-                            <span className="truncate" title={agentRole}>
-                              {agentRole}
-                            </span>
-                          </StatusBadge>
-                        ) : null}
                       </h2>
                     </CardTitle>
-                    <CardAction className="col-start-3">
+                    <CardAction className="col-start-3 row-span-1 row-start-1 flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`查看 ${agent.name} 工牌`}
+                        title="数字员工工牌"
+                        onClick={(event) => {
+                          badgeTriggerRef.current = event.currentTarget;
+                          setBadgeId(agent.id);
+                        }}
+                      >
+                        <IdCard />
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger
                           render={
@@ -709,10 +742,19 @@ export function AgentsPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </CardAction>
-                    <div className="col-start-2 row-start-2 flex min-w-0 flex-col gap-2">
-                      <CardDescription className="line-clamp-2 break-words">
-                        {agent.description}
-                      </CardDescription>
+                    <div className="col-start-2 row-start-2 min-w-0">
+                      <StatusBadge className="max-w-full min-w-0">
+                        <span className="block truncate" title={agentRole}>
+                          {agentRole}
+                        </span>
+                      </StatusBadge>
+                    </div>
+                    <div className="col-span-2 col-start-2 row-start-3 flex min-w-0 flex-col gap-2">
+                      {agent.description.trim() ? (
+                        <CardDescription className="line-clamp-2 break-words">
+                          {agent.description}
+                        </CardDescription>
+                      ) : null}
                       <div className="flex flex-wrap items-center gap-2">
                         {agent.enabled && canUse ? (
                           <Link
@@ -761,6 +803,24 @@ export function AgentsPage() {
           })}
         </ul>
       ) : null}
+
+      <Dialog
+        open={badgeAgent !== null}
+        onOpenChange={(open) => {
+          if (!open) setBadgeId(null);
+        }}
+      >
+        <DialogShell
+          title={badgeAgent ? `${badgeAgent.name} 的工牌` : '数字员工工牌'}
+          finalFocus={() =>
+            badgeTriggerRef.current?.isConnected
+              ? badgeTriggerRef.current
+              : document.getElementById('agents-search')
+          }
+        >
+          {badgeAgent ? <AgentEmployeeBadge agent={badgeAgent} /> : null}
+        </DialogShell>
+      </Dialog>
 
       <ConfirmDialog
         open={deleting !== null}
@@ -890,6 +950,54 @@ function ImportAgentDialog({
         </div>
       </DialogShell>
     </Dialog>
+  );
+}
+
+/** 工牌只读取列表摘要里已授权的字段，不拉详情、提示词或成员资料。 */
+function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
+  const role = agent.role?.trim() || '通用助手';
+  const createdAt = badgeCreatedAt(agent.createdAt);
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <AgentAvatar
+          agent={{
+            name: agent.name,
+            description: agent.description,
+            role: agent.role ?? null,
+            slug: agent.slug ?? null,
+          }}
+        />
+        <div className="min-w-0">
+          <div className="text-base font-medium break-words [overflow-wrap:anywhere]">
+            {agent.name}
+          </div>
+          <div className="text-sm text-muted-foreground">数字员工</div>
+        </div>
+      </div>
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
+        <dt className="text-muted-foreground">角色</dt>
+        <dd className="break-words [overflow-wrap:anywhere]">{role}</dd>
+        <dt className="text-muted-foreground">状态</dt>
+        <dd>{agent.enabled ? '已启用' : '已停用'}</dd>
+        <dt className="text-muted-foreground">介绍</dt>
+        <dd className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+          {agent.description.trim() ? agent.description : '未填写介绍'}
+        </dd>
+        <dt className="text-muted-foreground">员工编号</dt>
+        <dd className="font-mono text-xs break-all">{agent.id}</dd>
+        <dt className="text-muted-foreground">上岗时间（创建时间）</dt>
+        <dd>
+          {createdAt.iso ? (
+            <time dateTime={createdAt.iso} title={createdAt.iso}>
+              {createdAt.label}
+            </time>
+          ) : (
+            createdAt.label
+          )}
+        </dd>
+      </dl>
+    </div>
   );
 }
 

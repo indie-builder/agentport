@@ -27,7 +27,6 @@ export const sandboxProbeTaskSchema = z.object({
   args: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).default({}),
 });
-export type SandboxProbeTask = z.infer<typeof sandboxProbeTaskSchema>;
 
 export const sandboxProbeToolSchema = z.object({
   name: z.string(),

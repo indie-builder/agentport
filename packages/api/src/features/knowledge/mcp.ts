@@ -13,13 +13,6 @@ import { z } from 'zod';
 import { KnowledgeReadImageError, readKnowledgeImage } from './read-image.js';
 import { searchKnowledge } from './retrieval.js';
 
-export const KNOWLEDGE_TOOL_NAMES = [
-  'knowledge_search',
-  'knowledge_read',
-  'knowledge_list',
-  'knowledge_read_image',
-] as const;
-
 /** read 只读当前版本正文；超出部分截断并标记，避免一次塞满模型上下文。 */
 const READ_LIMIT = 20_000;
 

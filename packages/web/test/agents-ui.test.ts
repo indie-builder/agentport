@@ -104,7 +104,6 @@ vi.mock('../src/lib/queries.js', () => ({
     queryFn: async () => null,
     enabled: false,
   }),
-  useAgent: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
   useAgentSummary: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
   useAgentDetail: () => ({ data: state.agents[0] ?? null, isPending: false, isError: false }),
   useAgentAccess: () => ({

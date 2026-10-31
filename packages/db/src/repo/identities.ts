@@ -92,8 +92,3 @@ export async function listIdentities(
   ]);
   return { items: page.rows as IdentitySummary[], total: total.rows[0]?.total ?? 0 };
 }
-
-/** 账户列表的姓名回退：有当前账户用账户名，否则显示 businessId。 */
-export function displayName(businessId: string, name: string | null): string {
-  return name ?? businessId;
-}

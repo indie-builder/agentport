@@ -158,19 +158,6 @@ export async function createAccount(
   return { res, statusCode: res.statusCode, body: res.body, account: res.json() };
 }
 
-export async function roleIdBySystemKey(
-  app: FastifyInstance,
-  cookie: string,
-  systemKey: NonNullable<Role['systemKey']>,
-): Promise<string> {
-  const res = await inject(app, { method: 'GET', url: '/api/roles', headers: { cookie } });
-  expect(res.statusCode, res.body).toBe(200);
-  const matrix = res.json<{ roles: Role[] }>();
-  const role = matrix.roles.find((entry) => entry.systemKey === systemKey);
-  if (!role) throw new Error(`role ${systemKey} not found`);
-  return role.id;
-}
-
 type Matrix = { revision: number; roles: Role[] };
 
 /** 角色矩阵是全局 revision；并行测试按 409 重读后重试，不放松服务端原子性。 */

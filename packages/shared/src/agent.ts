@@ -20,8 +20,6 @@ export const BUILTIN_TOOLS = [
   'TaskStop',
 ] as const;
 
-export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
-
 export const AGENT_ROLES = [
   '通用助手',
   '前端工程师',
@@ -48,11 +46,9 @@ export const agentRoleSchema = z
 
 /** 推理强度；不填则用 SDK 默认。DB 存 text，写入运行配置前用它收窄。 */
 export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
-export type Effort = z.infer<typeof effortSchema>;
 
 /** 助手回复的渲染格式：Markdown（默认）或生成式 UI（围栏内的 OpenUI Lang）。 */
 export const uiFormatSchema = z.enum(['markdown', 'openui']);
-export type UiFormat = z.infer<typeof uiFormatSchema>;
 
 export const agentInputSchema = z.object({
   slug: slugSchema,
@@ -228,8 +224,6 @@ export const skillFileInputSchema = z.object({
   content: z.string().max(200_000).default(''),
 });
 
-export type SkillFileInput = z.infer<typeof skillFileInputSchema>;
-
 export const skillFileSchema = skillFileInputSchema.and(
   z.object({ id: z.string(), createdAt: z.string() }),
 );
@@ -242,8 +236,6 @@ export const ruleInputSchema = z.object({
   content: z.string().max(100_000).default(''),
   globs: z.string().max(1000).default(''),
 });
-
-export type RuleInput = z.infer<typeof ruleInputSchema>;
 
 export const ruleSchema = ruleInputSchema.and(
   z.object({
@@ -263,8 +255,6 @@ export const outputStyleInputSchema = z.object({
   keepCodingInstructions: z.boolean().default(false),
   body: z.string().max(50_000).default(''),
 });
-
-export type OutputStyleInput = z.infer<typeof outputStyleInputSchema>;
 
 export const outputStyleSchema = outputStyleInputSchema.and(
   z.object({

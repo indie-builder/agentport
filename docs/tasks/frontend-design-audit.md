@@ -171,3 +171,12 @@
 ## 交付状态
 
 本任务修复与验证已完成；用户已明确授权提交 PR、合并与收尾，当前正在同步 `origin/main` 并发布，合并完成前不声称已合入 `main`。上文验收事实保持原记录，不随发布改写。
+
+## 同步 origin/main（b2d3a95，已复验）
+
+- 2026-10-31 以 `merge --no-commit --no-ff origin/main` 同步 `b2d3a95`（含 #141 技术栈升级、#142 流式恢复、#143 全仓清理、#144 专家卡与数字员工工牌）。
+- 冲突仅 `packages/web/DESIGN.md` 的 Cards / Tables / Lists 小节；解决方式：保留本任务真实卡片与表格快照（Card 根 `py-4` 纵向 flex 结构、不透明行/页脚 hover、真实浏览器测量值），采用 main #144 的专家卡 208px 固定高与数字员工工牌描述并补充「创建数字分身」80px 头像；#143 未改动 DESIGN.md 的设计事实，其余章节与焦点内容无冲突保留。
+- 合并后验证：首轮 `pnpm test:web` 139 pass + 1 fail / 1660 tests、web build 失败，均为旧 `shared/dist` 缺少 `PERSONAL_MEMORY_MAX_CHARS` 所致；重建 `shared`/`core` 后 `pnpm test:web` 140 files / 1660 tests 全部通过（`/tmp/frontend-design-audit-merge-tests.log`），web build exit 0 仅 bundle 提示（`merge-build.log`），web typecheck exit 0（`merge-types.log`），`pnpm lint:focus`、`pnpm lint:contract` 与 `ruby /tmp/design-docs-check-frontend-design-audit/check.rb` 通过。
+- 合并后实页复测：专家卡 5 个均为 208px 高，1492px 宽无横向溢出且单 h1，工牌打开显示完整字段。本次未复验 Esc 回焦，不作通过记录。
+- 冲突标记已清除，`git diff --check` 与文档结构检查通过；9 个自动合并文件 Biome 检查通过。
+- 独立 Opus 合并终审通过，确认 main 的专家卡/工牌、流式恢复与本次权限、缓存、可访问性修复均保留；补充定向 2 文件 / 24 项通过。当前准备推送、创建 PR 并合并；真实发布结果以 GitHub PR 状态为准，上文验收事实保持原记录。

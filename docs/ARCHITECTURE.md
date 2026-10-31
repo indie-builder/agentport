@@ -30,7 +30,7 @@
 | 包 | 职责 | 不做什么 |
 |---|---|---|
 | `shared` | `agentInputSchema`、`serverInputSchema`、`chatEventSchema`、`agentRunJobSchema` 等 | 不 import 其他包（zod 除外） |
-| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`toMcpJsonEntry()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()` | 不碰数据库、不启动进程；纯函数模块不做 I/O，`outputs.ts` / `attachments.ts` 只在调用方传入的根内读写宿主文件；`knowledge-models.ts` 只发 HTTP |
+| `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`parseMcpJson()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()`、`writePersonalMemoryProjection()` | 不碰数据库、不启动进程；纯函数模块不做 I/O，`outputs.ts` / `attachments.ts` / `personal-memory.ts` 只在调用方传入的根内读写宿主文件；`knowledge-models.ts` 只发 HTTP |
 | `db` | 表定义、repo、TypeID 生成、迁移 | 不含 HTTP 或业务编排 |
 | `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不渲染每轮定义；宿主文件只经既有记忆/附件/成果入口读写投影 |
 | `worker` | 消费队列、每轮渲染定义到会话工作区、管理会话沙盒（复用/空闲回收）、回传事件、维护任务 | 不承业务 REST；唯一 HTTP 监听是模型凭证代理 |
@@ -143,10 +143,14 @@
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 把官方定义刷新写入 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/workspace/`；该会话目录只读挂载，每轮覆盖定义内容，根目录不按 run 重命名或删除。
 5. worker 通过会话沙盒管理器 `SessionSandboxes.acquire(conversationId)` 取得该会话的容器：首次创建时按智能体绑定环境（`null` 为平台默认环境）解析当时线上版本，用版本记录的本地不可变 image ID 创建并启动常驻 supervisor，之后复用空闲容器；已存活容器保持创建时的旧版本，发布/回退只影响之后新建的容器。线上版本缺失或本地镜像不存在时明确失败，不隐式 pull、不回落其他环境。取得容器后先把 sandbox id（容器名）写入运行行，再启动本轮 runner，供 worker 重启后按 id 清理。supervisor 轻量驻留，每轮由 worker 经 stdin 投递任务，并在容器内启动新的 runner query，不复用上一轮的 query 或进程环境。会话容器与试连、native plugin 的一次性容器共用同一个 `DockerSandboxProvider.create/destroy` 底层接口；一次性容器不走会话复用。create 请求已经发出后取消会等待创建结果并删除，绝不继续启动。
 6. 会话容器准确挂载 `sdk-sessions/<conversationId>`（→ `/home/node/.claude`）、`agent-memory`、`conversation-inputs`（首轮无附件也预建并挂载）与只读 `/workspace`；`/mnt/outputs` 指向稳定的 session outputs 目录，读写。每轮凭证只经新 runner 的进程环境与当轮 `.mcp.json` 注入。容器内 runner 读取一行任务，在 `/workspace` 上运行 Agent SDK；stdout 每行一个事件（`assistant_block_start`/`assistant_block_stop`、带 `blockIndex` 的 `text_delta`、`tool_start`、`tool_input`、`tool_result`（可选带 `todos` 快照，见 §3.1）、按块完成的 `assistant_text`、`run_finished`），日志写 stderr。块边界与 `sdkUuid`/`parentToolUseId` 让前端按内容块重建，单块超过 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）时截断并标 `truncated`，不再静默丢尾部。
-7. worker 逐行解析并按事件写入 Redis Stream（每次 `XADD` 与 TTL 续期合并为一次 pipeline）；supervisor 的业务事件保持原 `ChatEvent` 契约，`ready`/`started`/`settled`/`rejected` 等 control 事件只用于宿主握手，不写 SSE。工具调用经 `.mcp.json` 中的地址访问 api。
+7. worker 逐行解析并按事件写入 Redis Stream：`XADD` 不做 MAXLEN 裁剪，每次写入把 TTL 续到 1 小时（同一 pipeline）；写入量只受 worker 的展示/落库预算约束，不再由 Redis 按条数裁掉流头，无新事件满 1 小时后整条流过期。supervisor 的业务事件保持原 `ChatEvent` 契约，`ready`/`started`/`settled`/`rejected` 等 control 事件只用于宿主握手，不写 SSE。工具调用经 `.mcp.json` 中的地址访问 api。
 8. 取消：api 写 `run:<runId>:cancel` 键并 publish；worker 通知 supervisor 停止本轮。supervisor 发出 `settled` 并确认所有 run 进程停稳后，正常完成或成功取消可 `release(reuse=true)` 进入空闲；超时、异常或无法确认停稳则销毁容器。创建阶段的取消信号中止拉取，已发出的 create 则等待返回后删除、不启动。试连与 native plugin 也走同一 provider，但每次一次性 `create/destroy`，不进入会话复用。
-9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度与落库额度分开：`text_delta`、块边界等瞬时事件超出展示上限只停止展示，完整 `assistant_text` 与工具事件另有落库上限，不会被增量挤出。真正超过落库上限时保留已收集结果，将成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。若本次 attempt 还会被 BullMQ 重试，失败轮次的 `outcome.sessionId` 与 fork `uuidMap` 不落库，保留会话已有的 `sdkSessionId`/fork 锚点；成功或最终失败才提交本轮 SDK 状态。
+9. 结束后 worker 把 `assistant_text`（每块一行，内容保留 `blockIndex`/`parentToolUseId`/`truncated`）与 `tool_result` 写入 `messages`，更新 run 的状态、成本、轮次、token、延迟、错误，发布唯一一条 `run_finished`，写审计。事件展示额度（`RUN_TRANSIENT_MAX_EVENTS=2000` / `RUN_TRANSIENT_MAX_BYTES=32MiB`）与落库额度（`RUN_PERSISTED_MAX_EVENTS=2000` / `RUN_PERSISTED_MAX_BYTES=32MiB`）分开，常量只在 `shared/run-stream.ts` 定义：`text_delta`、块边界等瞬时事件超出展示上限只停止展示；完整 `assistant_text`、工具事件与问题快照共用落库额度，不会被增量挤出。两类溢出都发布非终态的 `replay_truncated {reason:'budget'}`：瞬时溢出只停止展示，后续完整 `assistant_text` 仍继续补齐；落库溢出则停止继续收集，保留已收集结果，把成功改为带明确原因的不可重试失败，避免缺失尾部仍报告成功。若本次 attempt 还会被 BullMQ 重试，失败轮次的 `outcome.sessionId` 与 fork `uuidMap` 不落库，保留会话已有的 `sdkSessionId`/fork 锚点；成功或最终失败才提交本轮 SDK 状态。
 10. 只有业务执行本身的基础设施类失败（Docker 不可用、连接被拒、镜像缺失等）会触发 BullMQ 重试；业务失败不重试。清理失败不作为基础设施失败重跑；已确定的终态与取消收尾的 `sessionId`、费用 metadata 保留。停稳未确认且容器销毁失败时不写终态、不发布 `run_finished`、不触发 BullMQ 重试：运行保持 `running`、`endedAt` 为 NULL，完整终态事件暂存到 `agent_runs.pending_finish`（可空 JSONB）。下一轮 reconciler 在队列 job 仍有效时继续等待，job 已消失或已终态才按运行行保存的 sandbox id 清理；probe 后重读 run status，并用 `expectedRunId` 拒绝清理仍被其他 run 持有的容器。清理失败继续占用，成功后条件更新终态、清空 `pending_finish` 并只发布一次终态与写一次审计。跨 worker 重启仍按 id 清理，Docker 暂不可用时保持占用、恢复后下一轮再清理。销毁失败期间不发布成果并保留草稿，避免把未停稳的一轮当成已交付。
+
+事件流保留与恢复（2026-10-31）：`subscribeRun` 首次回放从 `0-0` 正序按 `XRANGE COUNT 2` 逐页读取，每页 `await` 回调完成后才读下一批，再以最后一条真实 ID 做 `XREAD BLOCK` 跟读；不再从尾部累计 8MiB，也不再在服务端截断或补 `reason:'bytes'`。前端在 `run_started` 时只清掉本轮旧 attempt 的助手输出，保留本轮 user 与更早轮次；收到终态后重新分页读取本轮完整消息并合并已加载历史 prefix，跨页补出本轮 user 锚点，避免首屏历史在 run 查询变终态后仍是旧内容；截断补读期间保留本轮 run 作为发送屏障，补读结束才释放；run 详情 404 时释放 `detached` 假运行并保留可读历史。
+
+恢复链路仍有的真实限制：Redis 流无新事件满 1 小时会过期，之后只能靠已落库消息恢复；runner 单块受 `SANDBOX_MAX_FIELD_BYTES`（默认 1MiB）约束；落库额度为 2000 条 / 32MiB，超出即失败；终态 `uiProgram` 不受 8MiB NDJSON 行预算约束，因此不承诺日志严格 64MiB 总量；单条 SSE 事件本身可以较大（如 `run_finished` 的 canonical），回放不设累计字节上限；不引入新 snapshot 或游标。
 
 会话读写边界（2026-10-31）：会话详情、搜索、列表、改名与分支都注册 shared response schema；详情只返回公开四字段（`id`/`agentId`/`title`/`createdAt`）与消息公开字段，SDK session/message UUID、fork 锚点与 `createdBy` 等内部状态不进 wire，分支额外保留 `parentId`/`branchOfMessageId`。`content`/`uiState` 仍为不裁剪的 unknown JSON，日期显式 ISO；成果列表、元数据与正文复用 shared output schema；web 的运行与概况类型由 shared schema 推导，不再维护第二份声明。授权、续聊与分支仍读 repo 整行，收窄只发生在响应投影。
 
@@ -488,7 +492,7 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 | Redis 流契约只在 `shared/run-stream.ts` 定义 | api 与 worker 分属两个进程，键名/通道/取消载荷一旦漂移就是「事件写了没人读」这类静默故障；第 1 轮发现两处独立副本后收敛 | `@agentport/shared` 因此成为沙盒镜像的运行时依赖（见下） |
 | 审计写入支持 `dedupeKey` | BullMQ 基础设施重试会重放同一件事；没有幂等键时每次重试都多写一行审计 | 有键时用 `onConflictDoNothing` 而不是覆盖，重复上报被丢弃 |
 | 内置工具默认禁用（Bash 与受路径规则约束的文件工具例外） | 用户可配置任意 stdio server，必须收紧默认权限；Bash 在容器内运行，文件边界由只读挂载约束 | 无需 MCP 即可执行命令；Bash 可访问容器可写挂载，网络按出站配置 |
-| SSE 走 Redis Stream + 阻塞读取 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接（`XREAD BLOCK`）；回调过慢导致未读事件被 MAXLEN 裁剪时不再补截断提示 |
+| SSE 走 Redis Stream + 阻塞读取 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接（`XREAD BLOCK`）；流不按条数裁剪，写入量由 worker 的展示/落库预算约束；无新事件 1 小时后过期，之后只能靠落库消息恢复 |
 | MCP容量按执行计数 | 握手、SSE、平台invoke与审批等待不占上游执行槽，避免自等待 | 每进程执行4槽、排队8项；审批等待独立4槽且满时立即需批准，invoke既有4并发入场；非全局多进程限额 |
 | 会话历史使用独占游标页 | 网页默认50条、最多100条，按(created_at,id)倒取后正序展示；before须属于当前会话 | nextBefore为空则结束；消息内容字节未单独限制，内部完整复制调用保持原语义 |
 | api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
@@ -508,14 +512,15 @@ Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 
 
 | 导出 | 作用 |
 |---|---|
-| `RUN_STREAM_MAXLEN`（1000） | `XADD` 的 `MAXLEN ~`，事件流按条数截断 |
+| `RUN_TRANSIENT_MAX_EVENTS`（2000）/ `RUN_TRANSIENT_MAX_BYTES`（32MiB） | worker 瞬时展示额度；超出只停止展示并发布 `replay_truncated {reason:'budget'}` |
+| `RUN_PERSISTED_MAX_EVENTS`（2000）/ `RUN_PERSISTED_MAX_BYTES`（32MiB） | worker 落库额度，完整消息、工具事件与问题快照共用；超出将成功改为不可重试失败 |
 | `runStreamKey(runId)` | `run:<runId>:events`，SSE 回放的事件流 |
 | `runEventsConnectionName(runId)` | `run-events:<runId>`，订阅连接的名称，用于计数观众 |
 | `runCancelKey(runId)` | `run:<runId>:cancel`，取消标记 |
 | `RUN_CANCEL_PAYLOAD` | 取消键的固定值 |
 | `runEnqueueOptions(jobId)` | BullMQ `jobId` + `attempts: 2` + 5s 指数退避 |
 
-流的 TTL（1 小时）在写入侧设置，api 与 worker 的 `XADD` 都和 `EXPIRE` 合并为一次 pipeline 并逐条检查命令错误。订阅者按有界批次 XREVRANGE 回放最近 8MiB（顺序不变，累计不超过上限），再用 `XREAD BLOCK` 从最后一条真实 ID 跟读；每个观众仍是独立连接/独立订阅，`XADD` 本身唤醒阻塞读取，不再有单独的 pub/sub 唤醒通道或轮询兜底。终态事件丢失仍由 SSE 路由每 2 秒查数据库兜底。
+流的 TTL（1 小时）在写入侧设置，api 与 worker 的 `XADD` 都不带 MAXLEN，每次写入都和 `EXPIRE 3600` 合并为一次 pipeline 并逐条检查命令错误；保留条数不再由 Redis 裁剪，写入量只受上面两个 worker 预算约束。订阅者从流头按 `XRANGE COUNT 2` 正序逐页回放，每页 `await` 回调后才读下一批，再用 `XREAD BLOCK` 从最后一条真实 ID 跟读；回放完成后服务端才补发终态，因此晚加入或重连的观众也能拿到完整流。每个观众仍是独立连接/独立订阅，`XADD` 本身唤醒阻塞读取，不再有单独的 pub/sub 唤醒通道或轮询兜底。终态事件丢失仍由 SSE 路由每 2 秒查数据库兜底。
 
 ### 7.2 审计幂等：`writeAudit(dedupeKey)`
 

@@ -376,7 +376,7 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 ### Cards / Tables / Lists
 
 - **Cards:** 纯白底、16px 圆角、1px `line` ring，默认无阴影。Card 根是带 `py-4` 的纵向 flex，子块间距 16px（`size="sm"` 为 12px），根本身没有水平 padding；Header、Content、Footer 各自承担 16px 水平内边距，Footer 独立 `p-4`，存在 Footer 时根 `pb-0`。因此不能描述成「所有裸 Card 子节点统一 p16」。CardTitle 为 14/22（`text-base`），sm 卡为 13/20（`text-sm`）；描述 13/20 `muted-foreground`。真实浏览器已测量标题行高 22px。
-- **Expert card:** 16px 内边距、40px 头像、描述最多两行；开始对话在描述后 8px、与信息列同左边线，无独立页脚底带、`mt-auto` 或固定高度；空描述不留固定占位。
+- **Expert card:** 208px（`h-52`）固定高、同列宽、16px 网格 gap 与内边距、40px 头像（「创建数字分身」入口保持 80px）；名称链接与角色分两行，描述最多两行；独立「查看 <名称> 工牌」按钮打开 DialogShell，工牌展示数字员工身份、姓名、角色、启停、完整介绍、员工编号（真实 id）与上岗时间（真实 `createdAt`，含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」），只读不请求详情。开始对话在描述后 8px、与信息列同左边线，无独立页脚底带或 `mt-auto`；空描述不留固定占位。
 - **Tables / Lists:** 纯白底、1px `line` 分隔；表头 12px `muted-foreground`，单元格 13/20；行 hover 与展开用不透明 `hover` `#F6F6F6`，选中用 `selected` `#EFEFEF`；卡片页脚同为 `hover` `#F6F6F6`。真实浏览器已测量表头 12px 辅助色与行/页脚底色。
 - **Skeleton / Progress / Separator:** Skeleton 用 `sunken`；Progress 活跃主线用 `primary`，终态走原结果语义；Separator 用 `line`。
 

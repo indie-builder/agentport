@@ -5,7 +5,7 @@ import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { and, asc, count, eq, ilike, inArray, ne, or, type SQL } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { authAccounts, authSessions, authUsers, roles, userRoles } from '../schema.js';
-import { type DbHandle, lockAdminMutation, setUserRoles, type Tx } from './access.js';
+import { type DbHandle, lockAdminMutation, type Tx } from './access.js';
 import { hasBusinessHistory, listIdentities } from './identities.js';
 
 export { hasBusinessHistory, listIdentities };
@@ -379,5 +379,3 @@ export async function deleteAccount(db: TxLike, businessId: string): Promise<boo
     return true;
   });
 }
-
-export { setUserRoles };

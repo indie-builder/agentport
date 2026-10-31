@@ -9,7 +9,7 @@
  * stdin 首行可能是裸 SandboxTask，也可能是 supervisor 包了一层的 { task }，两者都接受。
  */
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
 const SCRATCH = '/tmp/session-fixture';
 const PROGRESS = `${SCRATCH}/progress`;
@@ -23,6 +23,7 @@ const GROUP_STOP = `${SCRATCH}/group-stop.json`;
 const ORPHAN_META = `${SCRATCH}/orphan.json`;
 /** 忙碌模式：写到宿主挂载的 outputs，容器被回收后仍能观察是否还在写。 */
 const BUSY_PROGRESS = '/mnt/outputs/session-busy-progress';
+const BUSY_PROGRESS_TMP = `${BUSY_PROGRESS}.tmp`;
 const LONG = 'fixture:long';
 const ORPHAN = 'fixture:orphan';
 const BUSY = 'fixture:busy';
@@ -107,14 +108,15 @@ function beat() {
   tick += 1;
   writeFileSync(progress, JSON.stringify({ pid: process.pid, ppid: ppid(), tick, at: Date.now() }));
 }
-beat();
-setInterval(beat, 15);
+// 父进程把首次心跳当作 ready 并可能立刻 SIGTERM；监听必须先于第一次 beat 注册。
 process.once('SIGTERM', () => {
   try {
     writeFileSync(stop, JSON.stringify({ pid: process.pid, ppid: ppid(), tick, at: Date.now() }));
   } catch {}
   process.exit(0);
 });
+beat();
+setInterval(beat, 15);
 `;
 }
 
@@ -124,10 +126,12 @@ function startBusy() {
   const beat = () => {
     tick += 1;
     try {
+      // 宿主同时读该文件；先写同目录临时文件再 rename，避免读到截断的半截 JSON。
       writeFileSync(
-        BUSY_PROGRESS,
+        BUSY_PROGRESS_TMP,
         JSON.stringify({ pid: process.pid, ppid: procPpid(), tick, at: Date.now() }),
       );
+      renameSync(BUSY_PROGRESS_TMP, BUSY_PROGRESS);
     } catch (error) {
       process.stderr.write(`[fixture] busy output failed: ${error.message}\n`);
     }

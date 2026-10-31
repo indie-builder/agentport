@@ -186,6 +186,38 @@ describe('agent list empty state follows agent permissions', () => {
     expect(host.textContent).not.toContain('创建数字分身');
   });
 
+  it('lets an assigned reader open a digital employee badge without creation controls', async () => {
+    const staff: Agent = {
+      ...agent,
+      id: 'staff',
+      slug: 'staff',
+      name: '客服专家',
+      role: '群聊答疑专员',
+      description: '处理群聊答疑。',
+    };
+    client.setQueryData(['agents'], [staff]);
+    client.setQueryData(['me'], readerMe);
+    client.setQueryData(['runtime-environments'], []);
+    await mount(AgentsPage, '/agents');
+    const trigger = await waitFor(() =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="查看 客服专家 工牌"]'),
+    );
+    if (!trigger) throw new Error('Missing badge trigger');
+    // 创建入口卡不渲染；页头按钮按既有规则仅隐藏。
+    expect(host.querySelector('button[aria-label="新建专家"]')).toBeNull();
+    expect(host.textContent).not.toContain('创建数字分身');
+    await click(trigger);
+    const panel = await waitFor(() =>
+      [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
+        (item) => item.querySelector('h2')?.textContent === '客服专家 的工牌',
+      ),
+    );
+    if (!panel) throw new Error('Missing badge dialog');
+    expect(panel.textContent).toContain('数字员工');
+    expect(panel.textContent).toContain('群聊答疑专员');
+    expect(panel.textContent).toContain('处理群聊答疑。');
+  });
+
   it('keeps the no-results state actionable when filters return nothing', async () => {
     client.setQueryData(['agents'], [agent]);
     client.setQueryData(['me'], readerMe);

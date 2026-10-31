@@ -3,9 +3,15 @@ import {
   type ChatEvent,
   type ExecutionSettlement,
   type NativeQuestion,
+  publicRunQuestion,
   type QuestionResponse,
-  RUN_STREAM_MAXLEN,
+  RUN_PERSISTED_MAX_BYTES,
+  RUN_PERSISTED_MAX_EVENTS,
+  RUN_TRANSIENT_MAX_BYTES,
+  RUN_TRANSIENT_MAX_EVENTS,
   type RunQuestion,
+  redactChatEvent,
+  redactSecrets,
   runCancelKey,
   runStreamKey,
   type SandboxInputCommand,
@@ -15,7 +21,6 @@ import {
 import { Deferred, Effect, Exit, type Scope } from 'effect';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { publicRunQuestion, redactChatEvent, redactSecrets } from './redact.js';
 import { SandboxCleanupError } from './sandbox/provider.js';
 import type {
   SandboxExecution,
@@ -90,15 +95,6 @@ export interface SandboxRunOutcome {
   events: ChatEvent[];
 }
 
-/** 单 run 展示上限：瞬时增量与块边界超出后只停止展示，不占用落库额度。 */
-const MAX_TRANSIENT_EVENTS = 2_000;
-const MAX_TRANSIENT_BYTES = 32 * 1024 * 1024;
-/**
- * 单 run 落库上限：只统计需要持久化的完整消息与工具事件。
- * 与展示额度分开，避免 text_delta 把完整的 assistant_text 挤出持久化集合。
- */
-const MAX_PERSISTED_EVENTS = 2_000;
-const MAX_PERSISTED_BYTES = 32 * 1024 * 1024;
 /** 落库被截断时不能回报成功：SDK 会话完整而历史只剩部分，刷新后会对不上。 */
 const PERSIST_OVERFLOW_MESSAGE = '完整输出超过保存上限，已保存部分结果';
 /** 失败时保留的 stderr 上限：2KB 常常只剩最后一行，16KB 才能看到启动错误。 */
@@ -183,6 +179,8 @@ interface StderrTap {
 interface QuestionHandle {
   settle?: (reason: string) => Promise<void>;
   error?: () => string | undefined;
+  /** settle 追加的问题快照也占用落库额度，成功改判失败要等它结束。 */
+  persistOverflowed?: () => boolean;
 }
 
 /** 答案由 API 写入 DB；宿主每 500ms 看一次，只有自己这次 attempt 的 pending 才回写 stdin。 */
@@ -405,7 +403,7 @@ export async function publishRun(runId: string, event: ChatEvent, logger: Logger
   // XADD 与 TTL 合并为一次 pipeline；逐命令检查，避免任一失败被静默吞掉。
   const replies = await getPublisher(logger)
     .pipeline()
-    .xadd(key, 'MAXLEN', '~', RUN_STREAM_MAXLEN, '*', 'payload', JSON.stringify(event))
+    .xadd(key, '*', 'payload', JSON.stringify(event))
     .expire(key, 3600)
     .exec();
   // 无 WATCH 时不应返回 null；真出现说明命令没执行，不能当作发布成功。
@@ -567,6 +565,15 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
   if (questions.settle !== undefined) {
     // 先把未决问题按终态关闭并等落库排空，再让调用方发布 run_finished。
     await questions.settle(outcome.status === 'succeeded' ? 'finished' : outcome.status);
+    // settle 追加的问题快照也可能撑破预算；成功改判失败必须等它结束才最终成立。
+    if (outcome.status === 'succeeded' && questions.persistOverflowed?.() === true) {
+      outcome = {
+        ...outcome,
+        status: 'failed',
+        error: PERSIST_OVERFLOW_MESSAGE,
+        failure: new RunFailure('agent', PERSIST_OVERFLOW_MESSAGE),
+      };
+    }
     const failure = questions.error?.();
     if (failure !== undefined) {
       // 落库失败不能吞：运行结果里必须能看见，但不改写已经确定的终态。
@@ -639,19 +646,44 @@ function runInSandboxEffect(
       });
     };
 
+    /**
+     * 落库与问题快照共用同一额度，按最终对外事件 JSON 的 UTF-8 字节计数。
+     * 额度用尽只发非终端提示：API 把 error 当终态收尾 SSE，会让后续完整消息送不到前端。
+     */
+    const acceptPersisted = (publicEvent: ChatEvent): void => {
+      if (persistOverflowed) return;
+      const eventBytes = Buffer.byteLength(JSON.stringify(publicEvent));
+      if (
+        events.length >= RUN_PERSISTED_MAX_EVENTS ||
+        persistedBytes + eventBytes > RUN_PERSISTED_MAX_BYTES
+      ) {
+        persistOverflowed = true;
+        logger.warn(
+          { runId, events: events.length, persistedBytes },
+          'sandbox persisted event stream overflowed',
+        );
+        // 内部 error 仍然保留，供最终判失败与落库截断识别；不对外发布。
+        events.push({ type: 'error', message: PERSIST_OVERFLOW_MESSAGE });
+        publish({ type: 'replay_truncated', reason: 'budget' });
+        return;
+      }
+      persistedBytes += eventBytes;
+      events.push(publicEvent);
+      publish(publicEvent);
+    };
+
     const questionFailed = yield* Deferred.make<string>();
     const questionRuntime = createQuestionRuntime({
       runId,
       callbacks: input.questions,
       logger,
-      record: (event) => {
-        events.push(event);
-        publish(event);
-      },
+      // 问题快照不绕过落库预算，否则会挤掉同一轮里的完整消息。
+      record: acceptPersisted,
       abort: (message) => Deferred.doneUnsafe(questionFailed, Exit.succeed(message)),
     });
     questionHandle.settle = questionRuntime.settle;
     questionHandle.error = questionRuntime.error;
+    questionHandle.persistOverflowed = () => persistOverflowed;
 
     const onEvent = (parsed: ChatEvent): void => {
       const line = JSON.stringify(parsed);
@@ -684,36 +716,28 @@ function runInSandboxEffect(
       }
 
       if (isPersistable(publicEvent)) {
-        if (persistOverflowed) return;
-        if (events.length >= MAX_PERSISTED_EVENTS || persistedBytes + bytes > MAX_PERSISTED_BYTES) {
-          persistOverflowed = true;
-          logger.warn(
-            { runId, events: events.length, persistedBytes },
-            'sandbox persisted event stream overflowed',
-          );
-          events.push({ type: 'error', message: PERSIST_OVERFLOW_MESSAGE });
-          publish({ type: 'error', message: PERSIST_OVERFLOW_MESSAGE });
-          return;
-        }
-        persistedBytes += bytes;
-        events.push(publicEvent);
-        publish(publicEvent);
+        acceptPersisted(publicEvent);
         return;
       }
 
       // 瞬时展示有独立额度：截断增量不能影响上面的完整消息落库。
       if (transientOverflowed) return;
-      if (transientEvents >= MAX_TRANSIENT_EVENTS || transientBytes + bytes > MAX_TRANSIENT_BYTES) {
+      const eventBytes = Buffer.byteLength(JSON.stringify(publicEvent));
+      if (
+        transientEvents >= RUN_TRANSIENT_MAX_EVENTS ||
+        transientBytes + eventBytes > RUN_TRANSIENT_MAX_BYTES
+      ) {
         transientOverflowed = true;
         logger.warn(
           { runId, events: transientEvents, eventBytes: transientBytes },
           'sandbox event stream overflowed',
         );
-        publish({ type: 'error', message: '输出超出上限' });
+        // 非终端提示：后续完整消息仍要能送达。
+        publish({ type: 'replay_truncated', reason: 'budget' });
         return;
       }
       transientEvents += 1;
-      transientBytes += bytes;
+      transientBytes += eventBytes;
       publish(publicEvent);
     };
 

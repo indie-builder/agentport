@@ -1260,8 +1260,6 @@ export const api = {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return request(`/memory-reviews${search}`, 'GET', undefined, signal);
   },
-  memoryReview: (runId: string, signal?: AbortSignal): Promise<MemoryReview> =>
-    request(`/memory-reviews/${encodeURIComponent(runId)}`, 'GET', undefined, signal),
   /** 幂等键随请求头提交；同一键重复提交返回同一个 runId。 */
   createMemoryReview: (
     input: CreateMemoryReviewInput,

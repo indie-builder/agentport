@@ -35,18 +35,6 @@ export async function findActiveById(db: Database, id: string): Promise<OutputSh
   return row ?? null;
 }
 
-export async function findByTokenHash(
-  db: Database,
-  tokenHash: string,
-): Promise<OutputShareRow | null> {
-  const [row] = await db
-    .select()
-    .from(outputShares)
-    .where(and(eq(outputShares.tokenHash, tokenHash), active))
-    .limit(1);
-  return row ?? null;
-}
-
 /** 同一文件已有有效分享时复用，避免重复生成 token。 */
 export async function findByTriple(
   db: Database,

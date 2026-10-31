@@ -95,6 +95,38 @@ describe('testConnection tool catalog limits', () => {
     expect(mocks.close).toHaveBeenCalledTimes(1);
   });
 
+  it('redacts bearer and assignment secrets in the result and warn log', async () => {
+    mocks.connect.mockRejectedValueOnce(
+      new Error('connect failed: Authorization: Bearer abcdefghijklmnop, MCP_TOKEN=superSecretValue123'),
+    );
+    const logger = { warn: vi.fn() };
+
+    const result = await testConnection(server, 'production', undefined, logger);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Bearer abcd***');
+    expect(result.error).toContain('MCP_TOKEN=supe***');
+    expect(result.error).not.toContain('abcdefghijklmnop');
+    expect(result.error).not.toContain('superSecretValue123');
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const [fields, message] = logger.warn.mock.calls[0];
+    expect(message).toBe('mcp server test failed');
+    expect(fields.error).toBe(result.error);
+    expect(JSON.stringify(fields)).not.toContain('superSecretValue123');
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('redacts a multi-megabyte bearer token without RangeError', async () => {
+    mocks.connect.mockRejectedValueOnce(new Error(`Bearer ${'x'.repeat(7_000_000)}`));
+    const logger = { warn: vi.fn() };
+
+    const result = await testConnection(server, 'production', undefined, logger);
+
+    expect(result.error).toBe('Bearer xxxx***');
+    expect(logger.warn.mock.calls[0][0].error).toBe('Bearer xxxx***');
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps exactly 1000 tools but maps only the four contract fields', async () => {
     const inputSchema = {
       type: 'object',
