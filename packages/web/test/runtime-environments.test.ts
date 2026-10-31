@@ -42,6 +42,8 @@ const state = vi.hoisted(() => {
     updatePending: false,
     createPending: false,
     removePending: false,
+    environmentError: null as unknown,
+    environmentRefetch: vi.fn(),
     create: vi.fn(),
     realRouter: false,
     setCreatePending(value: boolean) {
@@ -108,9 +110,9 @@ vi.mock('../src/lib/queries.js', async (original) => {
     useRuntimeEnvironment: () => ({
       data: state.environment,
       isPending: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
+      isError: state.environmentError !== null,
+      error: state.environmentError,
+      refetch: state.environmentRefetch,
     }),
     useRuntimeEnvironmentVersions: () => ({
       data: state.versions,
@@ -355,9 +357,16 @@ async function click(element: HTMLElement): Promise<void> {
   await flush();
 }
 
-async function editInput(element: HTMLInputElement, value: string): Promise<void> {
+async function editInput(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+): Promise<void> {
+  const prototype =
+    element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(element, value);
+    Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
     element.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await flush();
@@ -373,6 +382,8 @@ beforeEach(() => {
   state.updatePending = false;
   state.createPending = false;
   state.removePending = false;
+  state.environmentError = null;
+  state.environmentRefetch = vi.fn();
   state.create = vi.fn();
   state.remove = vi.fn();
   state.blockerOptions = [];
@@ -757,11 +768,121 @@ describe('runtime environment detail page', () => {
     if (!draftInput) throw new Error('Missing environment name');
     await editInput(draftInput, '未保存的草稿');
     state.environment = { ...environment };
-    await act(async () => page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))));
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
     await flush();
     expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
       '未保存的草稿',
     );
+    await page.unmount();
+  });
+
+  it('shows the full error when the environment has no cached data', () => {
+    state.environment = undefined;
+    state.environmentError = new Error('环境加载失败');
+    state.versions = [];
+    state.search = {};
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentDetailPage)));
+    expect(html.match(/<h1/g)).toHaveLength(1);
+    expect(html).toContain('环境加载失败');
+    expect(html).not.toContain('保存更改');
+  });
+
+  it('keeps the config draft and inline error when the detail refresh fails, and retries', async () => {
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const name = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
+    const dockerfile = page.host.querySelector<HTMLTextAreaElement>(
+      '#runtime-environment-dockerfile',
+    );
+    if (!name || !dockerfile) throw new Error('Missing environment fields');
+    await editInput(name, '未保存名称');
+    await editInput(dockerfile, 'FROM draft');
+    name.focus();
+    expect(document.activeElement).toBe(name);
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+
+    const refetch = vi.fn(() => {
+      state.environmentError = null;
+    });
+    state.environmentRefetch = refetch;
+    state.environmentError = new Error('详情刷新失败');
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+
+    expect(page.host.textContent).toContain('详情刷新失败');
+    expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
+    expect(page.host.querySelector('#runtime-environment-dockerfile')).toBe(dockerfile);
+    expect(document.activeElement).toBe(name);
+    expect(name.value).toBe('未保存名称');
+    expect(dockerfile.value).toBe('FROM draft');
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+
+    await click(button('重试'));
+    expect(refetch).toHaveBeenCalled();
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.textContent).not.toContain('详情刷新失败');
+    expect(name.value).toBe('未保存名称');
+    expect(dockerfile.value).toBe('FROM draft');
+    await page.unmount();
+  });
+
+  it('keeps a same-entity draft and its original baseline across a failed refresh and later server changes', async () => {
+    state.environment = environment;
+    state.versions = [];
+    state.search = {};
+    const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
+    const name = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
+    const dockerfile = page.host.querySelector<HTMLTextAreaElement>(
+      '#runtime-environment-dockerfile',
+    );
+    if (!name || !dockerfile) throw new Error('Missing environment fields');
+    await editInput(name, '本地草稿');
+    await editInput(dockerfile, 'FROM local draft');
+    expect(button('保存更改').disabled).toBe(false);
+
+    state.environmentError = new Error('详情刷新失败');
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
+    expect(page.host.querySelector('#runtime-environment-dockerfile')).toBe(dockerfile);
+    expect(name.value).toBe('本地草稿');
+    expect(dockerfile.value).toBe('FROM local draft');
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+
+    // 重试成功时服务端值刚好等于草稿，基线不能被推进成草稿值。
+    state.environmentError = null;
+    state.environment = { ...environment, name: '本地草稿', dockerfile: 'FROM local draft' };
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
+    expect(name.value).toBe('本地草稿');
+    expect(dockerfile.value).toBe('FROM local draft');
+    expect(button('保存更改').disabled).toBe(false);
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
+
+    state.environment = { ...environment, name: '服务器C', dockerfile: 'FROM server C' };
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.querySelector('#runtime-environment-name')).toBe(name);
+    expect(name.value).toBe('本地草稿');
+    expect(dockerfile.value).toBe('FROM local draft');
+    expect(button('保存更改').disabled).toBe(false);
+    expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
     await page.unmount();
   });
 
@@ -785,6 +906,19 @@ describe('runtime environment detail page', () => {
     expect(button('保存更改').disabled).toBe(true);
     await click(button('构建新版本'));
     expect(state.build).toHaveBeenCalledWith('rte_1', expect.anything());
+    // 保存后已无草稿，后台刷新应正常带入新值。
+    state.environment = { ...environment, name: '服务器新名称', dockerfile: 'FROM server' };
+    await act(async () =>
+      page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
+    );
+    await flush();
+    expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
+      '服务器新名称',
+    );
+    expect(
+      page.host.querySelector<HTMLTextAreaElement>('#runtime-environment-dockerfile')?.value,
+    ).toBe('FROM server');
+    expect(button('保存更改').disabled).toBe(true);
     await page.unmount();
   });
 });
