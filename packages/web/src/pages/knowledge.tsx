@@ -32,7 +32,7 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import {
   Card,
   CardAction,
@@ -482,14 +482,13 @@ export function KnowledgePage() {
           description={`${imported.documents} 个文档、${imported.wikiPages} 个 Wiki 页面`}
           action={
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link to="/knowledge/$baseId" params={{ baseId: imported.baseId }} />}
+              <Link
+                to="/knowledge/$baseId"
+                params={{ baseId: imported.baseId }}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
               >
                 打开知识库
-              </Button>
+              </Link>
               <Button variant="ghost" size="sm" onClick={() => setImported(null)}>
                 关闭
               </Button>

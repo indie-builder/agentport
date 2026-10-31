@@ -59,7 +59,7 @@ function SheetContent({
             render={<Button variant="ghost" className="absolute top-3 right-3" size="icon-sm" />}
           >
             <XIcon />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">关闭</span>
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Popup>

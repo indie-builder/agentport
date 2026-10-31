@@ -27,7 +27,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '../components/ui/breadcrumb.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { ApiError } from '../lib/api.js';
 import { usePlugin } from '../lib/queries.js';
@@ -114,9 +114,9 @@ export function PluginDetailPage() {
             title="这个插件不在了"
             description="它可能已被删除。返回插件列表查看当前可用的插件。"
             action={
-              <Button variant="outline" nativeButton={false} render={<Link to="/plugins" />}>
+              <Link to="/plugins" className={buttonVariants({ variant: 'outline' })}>
                 返回插件列表
-              </Button>
+              </Link>
             }
           />
         </Page>
@@ -196,26 +196,24 @@ function PluginDetailContent({
       <div className="flex min-w-0 flex-col gap-2">
         <PageHeader
           leading={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              nativeButton={false}
-              render={<Link to="/plugins" aria-label="返回插件列表" />}
+            <Link
+              to="/plugins"
+              aria-label="返回插件列表"
+              className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
             >
               <ArrowLeft aria-hidden="true" />
-            </Button>
+            </Link>
           }
           title={plugin.name}
           eyebrow={plugin.version ? <Badge variant="outline">{plugin.version}</Badge> : null}
           actions={
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={<a href={`/api/plugins/${plugin.id}/export`} />}
+            <a
+              href={`/api/plugins/${plugin.id}/export`}
+              className={buttonVariants({ variant: 'outline' })}
             >
               <Download data-icon="inline-start" aria-hidden="true" />
               导出 ZIP
-            </Button>
+            </a>
           }
         />
         {plugin.description ? (
@@ -236,14 +234,9 @@ function PluginDetailContent({
           title="这个插件没有支持文件"
           description="插件目录里没有可查看的文件。"
           action={
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              render={<Link to="/plugins" />}
-            >
+            <Link to="/plugins" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
               返回插件列表
-            </Button>
+            </Link>
           }
         />
       ) : (

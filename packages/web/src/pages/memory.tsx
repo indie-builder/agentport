@@ -8,7 +8,7 @@ import { MemoryReviews } from '../components/memory-review.js';
 import { Page, PageHeader } from '../components/page.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { ErrorState, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { can } from '../lib/access.js';
@@ -205,14 +205,14 @@ function PersonalMemoryPanel({
           >
             {save.isPending ? '保存中…' : '保存'}
           </Button>
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<a href={api.personalMemoryDownloadUrl} download />}
+          <a
+            href={api.personalMemoryDownloadUrl}
+            download
+            className={buttonVariants({ variant: 'outline' })}
           >
             <Download data-icon="inline-start" aria-hidden="true" />
             下载
-          </Button>
+          </a>
           {status ? (
             <span
               aria-live="polite"

@@ -140,7 +140,7 @@ test('resource tabs preserve navigation and searchable URL state', { session: 'a
   await screen.getByRole('searchbox', '搜索技能').fill('resource-no-match');
   await expect(browser).toHaveURL(/\/skills\?q=resource-no-match$/);
   await expect(screen.getByText('没有匹配的技能', { exact: true })).toBeVisible();
-  await screen.getByRole('button', '清除搜索').tap();
+  await screen.getByRole('button', '清除：搜索技能').tap();
   await expect(browser).toHaveURL(/\/skills$/);
   await resourceNav.getByRole('link', '连接器', { exact: true }).tap();
   await expect(browser).toHaveURL(/\/servers$/);

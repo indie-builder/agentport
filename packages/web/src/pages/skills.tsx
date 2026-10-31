@@ -2,6 +2,7 @@ import {
   type MarketSkill,
   type MarketView,
   type Skill,
+  type SkillFile,
   type SkillInput,
   type SkillWithAgentCount,
   skillFileInputSchema,
@@ -50,8 +51,8 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
-import { ApiError, api } from '../lib/api.js';
 import { can } from '../lib/access.js';
+import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatTokens } from '../lib/format.js';
@@ -118,7 +119,7 @@ export function SkillsPage() {
   const canDeleteSkill = can(me.data, 'skills.delete');
   const canImportSkill = can(me.data, 'skills.import');
   const canReadSkillFiles = can(me.data, 'skills.files.read');
-  const canInstallMarket = can(me.data, 'market.install');
+  const canWriteSkillFiles = can(me.data, 'skills.files.write');
   const skills = useSkills();
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
@@ -186,22 +187,10 @@ export function SkillsPage() {
   }, [skills.data, query, sort, usage]);
 
   if (scope === 'market') {
-    return (
-      <MarketSkillsPage
-        skills={skills}
-        install={install}
-        canInstall={canInstallMarket}
-      />
-    );
+    return <MarketSkillsPage skills={skills} install={install} />;
   }
   if (!canReadSkills && canReadMarket) {
-    return (
-      <MarketSkillsPage
-        skills={skills}
-        install={install}
-        canInstall={canInstallMarket}
-      />
-    );
+    return <MarketSkillsPage skills={skills} install={install} />;
   }
 
   return (
@@ -253,26 +242,26 @@ export function SkillsPage() {
             }}
           />
           {canImportSkill ? (
-          <Button
-            variant="outline"
-            disabled={importSkill.isPending}
-            aria-busy={importSkill.isPending}
-            onClick={() => importInputRef.current?.click()}
-          >
-            <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-            {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}
-          </Button>
+            <Button
+              variant="outline"
+              disabled={importSkill.isPending}
+              aria-busy={importSkill.isPending}
+              onClick={() => importInputRef.current?.click()}
+            >
+              <Upload data-icon="inline-start" aria-hidden="true" />{' '}
+              {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}
+            </Button>
           ) : null}
           {canCreateSkill ? (
-          <Button
-            ref={createButtonRef}
-            onClick={(event) => {
-              actionTriggerRef.current = event.currentTarget;
-              setCreating(true);
-            }}
-          >
-            <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
-          </Button>
+            <Button
+              ref={createButtonRef}
+              onClick={(event) => {
+                actionTriggerRef.current = event.currentTarget;
+                setCreating(true);
+              }}
+            >
+              <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
+            </Button>
           ) : null}
         </>
       }
@@ -417,9 +406,23 @@ export function SkillsPage() {
         </ul>
       ) : null}
 
-      {creating ? <SkillDialog finalFocus={panelFocus} onClose={() => setCreating(false)} /> : null}
+      {creating ? (
+        <SkillDialog
+          canReadFiles={canReadSkillFiles}
+          canWriteFiles={canWriteSkillFiles}
+          finalFocus={panelFocus}
+          onClose={() => setCreating(false)}
+        />
+      ) : null}
       {editing ? (
-        <SkillDialog skill={editing} finalFocus={panelFocus} onClose={() => setEditing(null)} />
+        <SkillDialog
+          skill={editing}
+          readOnly={!canUpdateSkill}
+          canReadFiles={canReadSkillFiles}
+          canWriteFiles={canWriteSkillFiles}
+          finalFocus={panelFocus}
+          onClose={() => setEditing(null)}
+        />
       ) : null}
       {deleting ? (
         <DeleteSkillDialog
@@ -467,11 +470,9 @@ function SegmentedToggle<T extends string>({
 function MarketSkillsPage({
   skills,
   install,
-  canInstall,
 }: {
   skills: ReturnType<typeof useSkills>;
   install: ReturnType<typeof useInstallMarketSkill>;
-  canInstall: boolean;
 }) {
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
@@ -640,10 +641,16 @@ function MarketSkillsPage({
 
 export function SkillDialog({
   skill,
+  readOnly = false,
+  canReadFiles = true,
+  canWriteFiles = true,
   onClose,
   finalFocus,
 }: {
   skill?: Skill;
+  readOnly?: boolean;
+  canReadFiles?: boolean;
+  canWriteFiles?: boolean;
   onClose: () => void;
   finalFocus?: () => HTMLElement | null;
 }) {
@@ -670,7 +677,7 @@ export function SkillDialog({
   const dirty = rhf.formState.isDirty || filesDirty;
 
   const submit = rhf.handleSubmit((values) => {
-    if (pending) return;
+    if (readOnly || pending) return;
     const onError = (error: unknown): void => {
       // 冲突时保留当前草稿，让用户关闭后重开拿到最新版本再决定。
       if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
@@ -734,13 +741,14 @@ export function SkillDialog({
       }}
     >
       <DialogShell
-        title={skill ? '编辑技能' : '新建技能'}
+        title={skill ? (readOnly ? `查看「${skill.name}」` : '编辑技能') : '新建技能'}
         closeDisabled={pending}
         finalFocus={finalFocus}
       >
         <form
           onSubmit={(event) => {
             event.preventDefault();
+            if (readOnly) return;
             return submit();
           }}
           className="flex flex-col gap-4"
@@ -755,6 +763,7 @@ export function SkillDialog({
                 {...rhf.register('name')}
                 id="skill-name"
                 disabled={pending}
+                readOnly={readOnly}
                 aria-required="true"
                 aria-invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'skill-name-error' : undefined}
@@ -798,6 +807,7 @@ export function SkillDialog({
               {...rhf.register('description')}
               id="skill-desc"
               disabled={pending}
+              readOnly={readOnly}
               aria-required="true"
               aria-invalid={Boolean(errors.description)}
               aria-describedby={errors.description ? 'skill-desc-error' : undefined}
@@ -820,6 +830,7 @@ export function SkillDialog({
                   // label[for] 对 contenteditable 无效，可访问名称落在编辑器表面。
                   aria-label="步骤"
                   disabled={pending}
+                  readOnly={readOnly}
                   className="min-h-[16rem]"
                 />
               )}
@@ -829,18 +840,28 @@ export function SkillDialog({
           {skill ? (
             <SkillFilesEditor
               skillId={skill.id}
+              canRead={canReadFiles}
+              readOnly={!canWriteFiles}
               disabled={pending}
               onDirtyChange={setFilesDirty}
               onSavingChange={setFilesSaving}
             />
           ) : null}
           <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
-            <Button variant="outline" onClick={close} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" aria-busy={pending} disabled={pending}>
-              {pending ? '保存中…' : '保存'}
-            </Button>
+            {readOnly ? (
+              <Button variant="outline" onClick={close} disabled={pending}>
+                关闭
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={close} disabled={pending}>
+                  取消
+                </Button>
+                <Button type="submit" aria-busy={pending} disabled={pending}>
+                  {pending ? '保存中…' : '保存'}
+                </Button>
+              </>
+            )}
           </div>
         </form>
         <ConfirmDialog
@@ -873,11 +894,15 @@ export function SkillDialog({
 /** 官方 SKILL.md 目录的支持资源文件（scripts/、references/ 等），随技能铺到工作区。 */
 function SkillFilesEditor({
   skillId,
+  canRead,
+  readOnly,
   disabled,
   onDirtyChange,
   onSavingChange,
 }: {
   skillId: string;
+  canRead: boolean;
+  readOnly: boolean;
   disabled: boolean;
   onDirtyChange: (dirty: boolean) => void;
   onSavingChange: (saving: boolean) => void;
@@ -886,6 +911,7 @@ function SkillFilesEditor({
   const files = useQuery({
     queryKey: ['skill-files', skillId],
     queryFn: () => api.skillFiles(skillId),
+    enabled: canRead,
   });
   const rhf = useZodForm(skillFileFormSchema, { defaultValues: emptySkillFile });
   const error = rhf.formState.errors.path?.message ?? rhf.formState.errors.content?.message ?? '';
@@ -894,13 +920,23 @@ function SkillFilesEditor({
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
   const pending = disabled || busy;
+  // 在途保存跨越 await 后要按最新权限决定是否续读；闭包里的 canRead 停在发起时。
+  const canReadRef = useRef(canRead);
+  useEffect(() => {
+    canReadRef.current = canRead;
+  }, [canRead]);
 
   // 草稿与在途请求交回父级弹层，Esc / 点遮罩 / 取消都要先确认。
   useEffect(() => onDirtyChange(rhf.formState.isDirty), [rhf.formState.isDirty, onDirtyChange]);
   useEffect(() => onSavingChange(busy), [busy, onSavingChange]);
 
-  const invalidate = (): void =>
-    void client.invalidateQueries({ queryKey: ['skill-files', skillId] });
+  const filesKey = ['skill-files', skillId];
+  const invalidate = (refetchType: 'active' | 'none' = 'active'): void =>
+    void client.invalidateQueries({ queryKey: filesKey, refetchType });
+  // 成功事实先写回列表：撤权恢复后刷新未回来也能立即重选到保存/删除后的状态。
+  const writeToCache = (update: (current: SkillFile[]) => SkillFile[]): void => {
+    client.setQueryData<SkillFile[]>(filesKey, (current) => (current ? update(current) : current));
+  };
 
   const selectFile = (path: string, content: string): void => {
     setEditingPath(path);
@@ -914,21 +950,31 @@ function SkillFilesEditor({
 
   // 切换文件/新建会覆盖当前草稿，脏时先确认。
   const switchTo = (action: () => void): void => {
-    if (pending) return;
+    if (!canRead || pending) return;
     if (rhf.formState.isDirty) setPendingSwitch(() => action);
     else action();
   };
 
   const save = rhf.handleSubmit(async (values) => {
-    if (pending) return;
+    if (!canRead || readOnly || pending) return;
     setBusy(true);
     try {
-      await api.writeSkillFile(skillId, values.path, values.content);
-      // 等列表真正刷新后再解 busy：慢网下重选不能拿到旧内容覆盖刚保存的版本。
-      const refreshed = await files.refetch();
-      if (refreshed.isError) {
-        toastError(new Error('支持文件已保存，但列表刷新失败，请重试。'));
-        return;
+      const saved = await api.writeSkillFile(skillId, values.path, values.content);
+      writeToCache((current) =>
+        current.some((file) => file.path === saved.path)
+          ? current.map((file) => (file.path === saved.path ? saved : file))
+          : [...current, saved],
+      );
+      // 写回后标脏但不在这里读：撤权期间 enabled=false 不会发请求，恢复权限时会补一次刷新。
+      invalidate('none');
+      // 撤权后不再发起读取；恢复权限时继续用缓存与当前草稿。
+      if (canReadRef.current) {
+        // 等列表真正刷新后再解 busy：慢网下重选不能拿到旧内容覆盖刚保存的版本。
+        const refreshed = await files.refetch();
+        if (refreshed.isError) {
+          toastError(new Error('支持文件已保存，但列表刷新失败，请重试。'));
+          return;
+        }
       }
       if (editingPath) rhf.reset(values);
       else rhf.reset(emptySkillFile);
@@ -942,9 +988,11 @@ function SkillFilesEditor({
 
   // 失败交给 ConfirmDialog 统一提示并保留确认框重试；这里吞错会让它误以为完成而关闭。
   const remove = async (target: string): Promise<void> => {
+    if (!canRead || readOnly) return;
     setBusy(true);
     try {
       await api.deleteSkillFile(skillId, target);
+      writeToCache((current) => current.filter((file) => file.path !== target));
       if (editingPath === target) {
         setEditingPath(null);
         rhf.reset(emptySkillFile);
@@ -955,6 +1003,9 @@ function SkillFilesEditor({
       setBusy(false);
     }
   };
+
+  // 撤权时保持挂载（Hooks 状态树与父层 dirty/pending 连续），只隐藏正文与控件。
+  if (!canRead) return null;
 
   return (
     <Field className="gap-1.5">
@@ -971,7 +1022,7 @@ function SkillFilesEditor({
                 type="button"
                 variant="ghost"
                 size="sm"
-                aria-label={`编辑支持文件 ${f.path}`}
+                aria-label={`${readOnly ? '查看' : '编辑'}支持文件 ${f.path}`}
                 aria-pressed={editingPath === f.path}
                 title={f.path}
                 // 刷新失败时列表还是旧内容，重试成功前不能载入覆盖刚保存的版本。
@@ -981,15 +1032,17 @@ function SkillFilesEditor({
               >
                 {f.path}
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`删除支持文件 ${f.path}`}
-                disabled={pending}
-                onClick={() => setDeleteTarget(f.path)}
-              >
-                <Trash2 />
-              </Button>
+              {readOnly ? null : (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`删除支持文件 ${f.path}`}
+                  disabled={pending}
+                  onClick={() => setDeleteTarget(f.path)}
+                >
+                  <Trash2 />
+                </Button>
+              )}
             </li>
           ))}
         </ul>
@@ -999,7 +1052,7 @@ function SkillFilesEditor({
           {...rhf.register('path', { setValueAs: (value: string) => value.trim() })}
           id="skill-file-path"
           placeholder="scripts/run.sh 或 references/api.md"
-          readOnly={editingPath !== null}
+          readOnly={readOnly || editingPath !== null}
           disabled={pending}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? 'skill-file-path-error' : undefined}
@@ -1019,32 +1072,35 @@ function SkillFilesEditor({
               aria-invalid={Boolean(error)}
               aria-describedby={error ? 'skill-file-path-error' : undefined}
               disabled={pending}
+              readOnly={readOnly}
             />
           )}
         />
         {error ? <FieldError id="skill-file-path-error">{error}</FieldError> : null}
-        <div className="flex justify-end gap-2">
-          {editingPath ? (
+        {readOnly ? null : (
+          <div className="flex justify-end gap-2">
+            {editingPath ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => switchTo(startNew)}
+              >
+                新建文件
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
               size="sm"
               disabled={pending}
-              onClick={() => switchTo(startNew)}
+              onClick={() => void save()}
             >
-              新建文件
+              {busy ? '处理中…' : editingPath ? '保存文件' : '添加文件'}
             </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={pending}
-            onClick={() => void save()}
-          >
-            {busy ? '处理中…' : editingPath ? '保存文件' : '添加文件'}
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
       <ConfirmDialog
         open={pendingSwitch !== null}

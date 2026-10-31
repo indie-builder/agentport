@@ -12,6 +12,7 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { type AgentSummary, ApiError, errorMessage } from '../lib/api.js';
@@ -1188,9 +1189,10 @@ function MemoryReviewDetail({
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted-foreground">
           <span>来源</span>
           {review.sources.map((source) => (
-            <a
+            <Link
               key={source.conversationId}
-              href={`/chat?conversation=${encodeURIComponent(source.conversationId)}`}
+              to="/chat"
+              search={{ conversation: source.conversationId }}
               aria-disabled={pending || undefined}
               onClick={(event) => {
                 // 保留链接语义；在途操作结算前只阻止离开，不伪造一次导航。
@@ -1203,7 +1205,7 @@ function MemoryReviewDetail({
               }
             >
               {source.title || source.conversationId}（{source.messageCount} 条消息）
-            </a>
+            </Link>
           ))}
         </div>
       ) : null}

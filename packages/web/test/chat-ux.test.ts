@@ -1,4 +1,4 @@
-import { DEFAULT_ROLES, agentInputSchema, type PublicRunQuestion } from '@agentport/shared';
+import { agentInputSchema, DEFAULT_ROLES, type PublicRunQuestion } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -1234,7 +1234,8 @@ describe('chat shell layout', () => {
     const workspace = host.querySelector('aside[aria-label="会话成果"]');
     expect(workspace).not.toBeNull();
     expect(workspace?.querySelector('h2')?.textContent).toBe('会话成果');
-    expect(workspace?.textContent).toContain('当前会话没有成果文件');
+    expect(workspace?.textContent).toContain('开始对话或打开已有会话后查看成果');
+    expect(workspace?.textContent).not.toContain('当前会话没有成果文件');
     expect(workspace?.textContent).not.toMatch(/\.mcp\.json|CLAUDE\.md/);
     // 成果打开后头部仍属于消息列：标题、历史开关和成果开关都不进成果面板。
     const page = message().closest<HTMLElement>('[data-slot="page"]');

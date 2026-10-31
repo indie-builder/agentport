@@ -322,10 +322,10 @@ describe('CardBlock carousel', () => {
 
     const region = host.querySelector('[aria-roledescription="carousel"]');
     expect(region).not.toBeNull();
-    const previous = byText<HTMLButtonElement>('[data-slot="carousel-previous"]', 'Previous slide');
-    const next = byText<HTMLButtonElement>('[data-slot="carousel-next"]', 'Next slide');
-    expect(previous.querySelector('.sr-only')?.textContent).toBe('Previous slide');
-    expect(next.querySelector('.sr-only')?.textContent).toBe('Next slide');
+    const previous = byText<HTMLButtonElement>('[data-slot="carousel-previous"]', '上一张');
+    const next = byText<HTMLButtonElement>('[data-slot="carousel-next"]', '下一张');
+    expect(previous.querySelector('.sr-only')?.textContent).toBe('上一张');
+    expect(next.querySelector('.sr-only')?.textContent).toBe('下一张');
     expect(host.querySelectorAll('[data-slot="carousel-item"]').length).toBe(2);
 
     // jsdom 没有轨道几何，两个按钮都会是禁用态；真实可滚动性由主会话上屏核对。

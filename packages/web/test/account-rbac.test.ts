@@ -752,19 +752,13 @@ describe('角色矩阵', () => {
 describe('无权访问页面', () => {
   it('提供刷新权限入口且不再要求重新登录', async () => {
     const invalidate = vi.spyOn(client, 'invalidateQueries');
-    await act(async () => {
-      root.render(
-        createElement(
-          QueryClientProvider,
-          { client },
-          createElement(AccessDenied, {
-            home: '/agents',
-            noPermissions: false,
-            onLogout: () => {},
-          }),
-        ),
-      );
-    });
+    await mount('/denied', () =>
+      createElement(AccessDenied, {
+        home: '/agents',
+        noPermissions: false,
+        onLogout: () => {},
+      }),
+    );
     await flush();
 
     expect(document.body.textContent).toContain('刷新权限');

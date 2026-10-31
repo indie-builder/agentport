@@ -10,6 +10,7 @@
 | [DEV-WORKFLOW.md](DEV-WORKFLOW.md) | **研发流程规范**：文档体系、任务生命周期、任务记录模板、踩坑流程、门禁策略 |
 | [PITFALLS.md](PITFALLS.md) | 跨任务踩坑汇总（现象 → 原因 → 规避），开工前/报错时读 |
 | [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) | 设计系统：颜色、字号、间距、组件、焦点与边框、信息表达规约 |
+| [`../packages/web/DESIGN.md`](../packages/web/DESIGN.md) | 前端实现产物设计快照；sidecar 为 [`../packages/web/.impeccable/design.json`](../packages/web/.impeccable/design.json) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 技术栈、目录结构、数据流、官方文件能力与接入状态 |
 | [VALIDATION.md](VALIDATION.md) | Fastify × Zod 校验约定、错误返回形状 |
 | [ERRORS.md](ERRORS.md) | 异常分层设计：业务异常 / Problem JSON / RunFailure / 进程守卫 |

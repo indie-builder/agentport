@@ -17,9 +17,9 @@ import { CopyButton } from '../components/copy-button.js';
 import { Page, PageHeader, PageSection } from '../components/page.js';
 import { RunQuestionCard } from '../components/run-question.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
-import type { ApprovalRequest, RunStep } from '../lib/api.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { can } from '../lib/access.js';
+import type { ApprovalRequest, RunStep } from '../lib/api.js';
 import { questionFromContent } from '../lib/chat-state.js';
 import { cn } from '../lib/cn.js';
 import {
@@ -158,16 +158,14 @@ export function RunDetailPage() {
 
   const header = (
     <div className="flex min-w-0 items-end gap-3">
-      <Button
-        variant="outline"
-        size="icon"
-        render={<Link to="/runs" search={listSearch} />}
-        nativeButton={false}
-        role="link"
+      <Link
+        to="/runs"
+        search={listSearch}
         aria-label="返回运行列表"
+        className={buttonVariants({ variant: 'outline', size: 'icon' })}
       >
         <ArrowLeft />
-      </Button>
+      </Link>
       <PageHeader
         title={`运行 ${shortId(params.runId)}${run.data ? ` · ${runStatusLabel[run.data.run.status]}` : ''}`}
         className="min-w-0 flex-1 [&_h1]:shrink"
@@ -344,21 +342,21 @@ export function RunDetailPage() {
                         : '本次调用已结束等待'}
                     </span>
                     {canApprove ? (
-                    <Button
-                      size="sm"
-                      className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
-                      disabled={approveMutation.isPending}
-                      aria-busy={approving}
-                      onClick={() => approve(item)}
-                    >
-                      <span className="min-w-0 [overflow-wrap:anywhere]">
-                        {approving
-                          ? `批准中… ${item.serverName ?? item.serverId} / ${item.toolName}`
-                          : item.waiting
-                            ? `批准 ${item.serverName ?? item.serverId} / ${item.toolName}`
-                            : `批准后续 ${item.serverName ?? item.serverId} / ${item.toolName}`}
-                      </span>
-                    </Button>
+                      <Button
+                        size="sm"
+                        className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
+                        disabled={approveMutation.isPending}
+                        aria-busy={approving}
+                        onClick={() => approve(item)}
+                      >
+                        <span className="min-w-0 [overflow-wrap:anywhere]">
+                          {approving
+                            ? `批准中… ${item.serverName ?? item.serverId} / ${item.toolName}`
+                            : item.waiting
+                              ? `批准 ${item.serverName ?? item.serverId} / ${item.toolName}`
+                              : `批准后续 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+                        </span>
+                      </Button>
                     ) : null}
                   </div>
                 );

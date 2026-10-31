@@ -8,7 +8,7 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { Field, FieldGroup, FieldLabel } from '../components/ui/field.js';
@@ -246,14 +246,14 @@ export function MemoryPanel({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-end gap-3">
         <MemoryReviewLink agentId={agentId} />
-        <Button
-          variant="outline"
-          nativeButton={false}
-          render={<a href={api.agentMemoryDownloadUrl(agentId)} download />}
+        <a
+          href={api.agentMemoryDownloadUrl(agentId)}
+          download
+          className={buttonVariants({ variant: 'outline' })}
         >
           <Download data-icon="inline-start" aria-hidden="true" />
           下载记忆
-        </Button>
+        </a>
       </div>
       {memory.isError ? (
         <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
@@ -516,6 +516,11 @@ function MemoryFileEditor({
 
       <section aria-label={`${name} 版本`} className="flex flex-col gap-2 border-t pt-3">
         <h3 className="text-sm font-medium text-fg">版本</h3>
+        {dirty ? (
+          <p id="memory-rollback-blocked" className="text-xs text-muted-foreground">
+            先保存或放弃当前草稿再回滚。
+          </p>
+        ) : null}
         {versions.isPending ? <LoadingState rows={3} /> : null}
         {versions.isError ? (
           <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
@@ -547,6 +552,7 @@ function MemoryFileEditor({
                         variant="outline"
                         size="sm"
                         disabled={pending || dirty}
+                        aria-describedby={dirty ? 'memory-rollback-blocked' : undefined}
                         title={dirty ? '先保存或放弃当前草稿再回滚' : undefined}
                         aria-label={`回滚 ${formatDateTime(change.createdAt)} 的变更`}
                         onClick={() => {

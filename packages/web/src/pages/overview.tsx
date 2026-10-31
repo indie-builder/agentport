@@ -37,7 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table.js';
-import type { OverviewAgentRow, RecentRun } from '../lib/api.js';
+import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import {
   formatCost,
@@ -308,6 +308,8 @@ export function RunTrendCard({ days }: { days: number }) {
   const [open, setOpen] = useState(false);
   const points = data ?? [];
   const hasRuns = points.some((point) => point.runs > 0);
+  // 只有从没拿到过数据时才整块报错；后台刷新失败要保留已加载的图表与数据表。
+  const firstLoadFailed = isError && data === undefined;
 
   return (
     <Card>
@@ -315,125 +317,144 @@ export function RunTrendCard({ days }: { days: number }) {
         <CardTitle className="text-sm font-normal text-muted-foreground">运行趋势</CardTitle>
       </CardHeader>
       <CardContent>
-        {isError ? (
+        {firstLoadFailed ? (
           <ErrorState error={error} onRetry={() => void refetch()} />
         ) : isPending ? (
           <LoadingState rows={4} />
-        ) : hasRuns ? (
-          <div className="flex flex-col gap-2">
-            {/* 图表仅视觉展示，读屏改走下方同源数据表。 */}
-            <div aria-hidden="true">
-              <ChartContainer config={trendConfig} className="aspect-auto h-56 w-full">
-                {/* Recharts 3 默认开启 accessibilityLayer，会生成无名称的可聚焦 application。 */}
-                <AreaChart
-                  accessibilityLayer={false}
-                  data={points}
-                  margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
-                >
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    minTickGap={24}
-                    tickFormatter={(value: string) => value.slice(5)}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    axisLine={false}
-                    tickLine={false}
-                    tickMargin={8}
-                    width={28}
-                  />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-                  <ChartLegend content={<ChartLegendContent />} />
-                  <Area
-                    dataKey="runs"
-                    type="monotone"
-                    fill="var(--color-runs)"
-                    fillOpacity={0.08}
-                    stroke="var(--color-runs)"
-                    strokeWidth={1.5}
-                    isAnimationActive={false}
-                  />
-                  <Area
-                    dataKey="failed"
-                    type="monotone"
-                    fill="var(--color-failed)"
-                    fillOpacity={0.16}
-                    stroke="var(--color-failed)"
-                    strokeWidth={1.5}
-                    isAnimationActive={false}
-                  />
-                </AreaChart>
-              </ChartContainer>
-            </div>
-            <Collapsible open={open} onOpenChange={setOpen}>
-              <CollapsibleTrigger
-                className="self-start text-muted-foreground"
-                render={<Button variant="ghost" />}
-              >
-                {open ? '收起趋势数据' : '查看趋势数据'}
-              </CollapsibleTrigger>
-              <CollapsibleContent animated className="pt-2">
-                {/* 滚动区可聚焦，键盘用户才能浏览超出一屏的趋势行。 */}
-                <section
-                  // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
-                  tabIndex={0}
-                  aria-label="趋势数据"
-                  className="max-h-64 overflow-y-auto overscroll-contain"
-                >
-                  <Table>
-                    <caption className="sr-only">最近 {days} 天运行趋势明细</caption>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs text-muted-foreground">日期</TableHead>
-                        <TableHead className="text-right text-xs text-muted-foreground">
-                          运行
-                        </TableHead>
-                        <TableHead className="text-right text-xs text-muted-foreground">
-                          失败
-                        </TableHead>
-                        <TableHead className="text-right text-xs text-muted-foreground">
-                          成本
-                        </TableHead>
-                        <TableHead className="text-right text-xs text-muted-foreground">
-                          Tokens
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {points.map((point) => (
-                        <TableRow key={point.date}>
-                          <TableHead
-                            scope="row"
-                            className="h-auto text-xs font-normal text-muted-foreground"
-                          >
-                            {point.date}
-                          </TableHead>
-                          <TableCell className="text-right font-mono tabular-nums">
-                            {point.runs}
-                          </TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">
-                            {point.failed}
-                          </TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">
-                            {formatCost(point.costUsd)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">
-                            {formatTokens(point.tokens)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </section>
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
         ) : (
-          <EmptyState title="发起对话后生成趋势" />
+          <>
+            {isError ? (
+              <PageNote
+                tone="danger"
+                title="刷新失败，保留上次趋势"
+                description={errorMessage(error)}
+                action={
+                  <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                    重试
+                  </Button>
+                }
+              />
+            ) : null}
+            {hasRuns ? (
+              <div className="flex flex-col gap-2">
+                {/* 图表仅视觉展示，读屏改走下方同源数据表。 */}
+                <div aria-hidden="true">
+                  <ChartContainer config={trendConfig} className="aspect-auto h-56 w-full">
+                    {/* Recharts 3 默认开启 accessibilityLayer，会生成无名称的可聚焦 application。 */}
+                    <AreaChart
+                      accessibilityLayer={false}
+                      data={points}
+                      margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
+                    >
+                      <CartesianGrid vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                        minTickGap={24}
+                        tickFormatter={(value: string) => value.slice(5)}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        axisLine={false}
+                        tickLine={false}
+                        tickMargin={8}
+                        width={28}
+                      />
+                      <ChartTooltip
+                        cursor={false}
+                        content={<ChartTooltipContent indicator="line" />}
+                      />
+                      <ChartLegend content={<ChartLegendContent />} />
+                      <Area
+                        dataKey="runs"
+                        type="monotone"
+                        fill="var(--color-runs)"
+                        fillOpacity={0.08}
+                        stroke="var(--color-runs)"
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                      <Area
+                        dataKey="failed"
+                        type="monotone"
+                        fill="var(--color-failed)"
+                        fillOpacity={0.16}
+                        stroke="var(--color-failed)"
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                    </AreaChart>
+                  </ChartContainer>
+                </div>
+                <Collapsible open={open} onOpenChange={setOpen}>
+                  <CollapsibleTrigger
+                    className="self-start text-muted-foreground"
+                    render={<Button variant="ghost" />}
+                  >
+                    {open ? '收起趋势数据' : '查看趋势数据'}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent animated className="pt-2">
+                    {/* 滚动区可聚焦，键盘用户才能浏览超出一屏的趋势行。 */}
+                    <section
+                      // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
+                      tabIndex={0}
+                      aria-label="趋势数据"
+                      className="max-h-64 overflow-y-auto overscroll-contain"
+                    >
+                      <Table>
+                        <caption className="sr-only">最近 {days} 天运行趋势明细</caption>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs text-muted-foreground">日期</TableHead>
+                            <TableHead className="text-right text-xs text-muted-foreground">
+                              运行
+                            </TableHead>
+                            <TableHead className="text-right text-xs text-muted-foreground">
+                              失败
+                            </TableHead>
+                            <TableHead className="text-right text-xs text-muted-foreground">
+                              成本
+                            </TableHead>
+                            <TableHead className="text-right text-xs text-muted-foreground">
+                              Tokens
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {points.map((point) => (
+                            <TableRow key={point.date}>
+                              <TableHead
+                                scope="row"
+                                className="h-auto text-xs font-normal text-muted-foreground"
+                              >
+                                {point.date}
+                              </TableHead>
+                              <TableCell className="text-right font-mono tabular-nums">
+                                {point.runs}
+                              </TableCell>
+                              <TableCell className="text-right font-mono tabular-nums">
+                                {point.failed}
+                              </TableCell>
+                              <TableCell className="text-right font-mono tabular-nums">
+                                {formatCost(point.costUsd)}
+                              </TableCell>
+                              <TableCell className="text-right font-mono tabular-nums">
+                                {formatTokens(point.tokens)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </section>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            ) : (
+              <EmptyState title="发起对话后生成趋势" />
+            )}
+          </>
         )}
       </CardContent>
     </Card>
@@ -551,6 +572,9 @@ export function OverviewPage() {
                 rows={data.recent.slice(0, 6)}
                 columns={runColumns}
                 rowKey={(run) => run.id}
+                rowLabel={(run) =>
+                  `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
+                }
                 label="最近运行"
                 storageKey="pace.overview.run-columns"
                 onRowClick={(run) =>

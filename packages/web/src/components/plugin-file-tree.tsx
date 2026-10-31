@@ -20,7 +20,7 @@ const DEFAULT_OPEN = ['skills', 'agents'];
 const ENTRY_FILE = 'SKILL.md';
 
 const ROW_CLASS =
-  'h-auto w-full min-w-0 justify-start rounded-icon px-2 py-1.5 text-left font-normal';
+  'h-auto w-full min-w-0 justify-start rounded-[var(--radius-icon)] px-2 py-1.5 text-left font-normal';
 
 function basename(path: string): string {
   return path.split('/').at(-1) ?? path;

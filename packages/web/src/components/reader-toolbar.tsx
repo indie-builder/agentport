@@ -1,7 +1,7 @@
 import { Download } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { CopyButton } from './copy-button.js';
-import { Button } from './ui/button.js';
+import { buttonVariants } from './ui/button.js';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group.js';
 
 export type ReaderMode = 'read' | 'source';
@@ -64,17 +64,16 @@ export function ReaderToolbar({
         )}
         {copy === undefined ? null : <CopyButton value={copy.value} label={copy.label} />}
         {download === undefined ? null : (
-          <Button
-            variant="ghost"
-            size="sm"
-            nativeButton={false}
+          <a
+            href={download.href}
+            download
             aria-label={download.label}
             title={download.label}
-            render={<a href={download.href} download />}
+            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
           >
             <Download />
             {download.text ?? null}
-          </Button>
+          </a>
         )}
         {actions}
       </div>

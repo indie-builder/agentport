@@ -35,6 +35,7 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { hasAnyGrant } from '../lib/access.js';
 import {
   ApiError,
   api,
@@ -43,7 +44,6 @@ import {
   type EvalResult,
   type EvalRun,
 } from '../lib/api.js';
-import { hasAnyGrant } from '../lib/access.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
   evalComparisonStatusLabel,
@@ -169,6 +169,8 @@ export function EvalPage() {
   const effectiveAgentId = selectedAgent?.id ?? null;
   const access = useAgentAccess(effectiveAgentId);
   const permissions = access.data?.permissionIds ?? [];
+  const accessPending = effectiveAgentId !== null && access.isPending;
+  const accessFailed = effectiveAgentId !== null && access.isError && access.data === undefined;
   const canReadEval = hasAnyGrant(permissions, 'eval.read');
   const canManageEval = hasAnyGrant(permissions, 'eval.manage');
   const canExecuteEval = hasAnyGrant(permissions, 'eval.execute');
@@ -316,15 +318,19 @@ export function EvalPage() {
             ? '所选专家不存在，请清除筛选或重新选择'
             : !effectiveAgentId
               ? '先创建一个专家'
-              : !canExecuteEval
-                ? '当前账户没有执行该专家评估的权限'
-                : cases.isPending
-                ? '用例加载中，稍后再试'
-                : cases.isError
-                  ? '用例加载失败，请重试'
-                  : cases.data.length === 0
-                    ? '先新建至少一个用例'
-                    : null;
+              : accessPending
+                ? '正在检查评估权限，稍后再试'
+                : accessFailed
+                  ? '评估权限加载失败，请重试'
+                  : !canExecuteEval
+                    ? '当前账户没有执行该专家评估的权限'
+                    : cases.isPending
+                      ? '用例加载中，稍后再试'
+                      : cases.isError
+                        ? '用例加载失败，请重试'
+                        : cases.data.length === 0
+                          ? '先新建至少一个用例'
+                          : null;
 
   const agentOptions = (agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }));
 
@@ -346,15 +352,15 @@ export function EvalPage() {
               </Button>
             ) : null}
             {canExecuteEval ? (
-            <Button
-              onClick={startRun}
-              disabled={startDisabledReason !== null}
-              aria-busy={start.isPending}
-              aria-describedby={startDisabledReason ? 'eval-start-reason' : undefined}
-            >
-              <Play data-icon="inline-start" aria-hidden="true" />
-              {start.isPending ? '启动中…' : '运行评估'}
-            </Button>
+              <Button
+                onClick={startRun}
+                disabled={startDisabledReason !== null}
+                aria-busy={start.isPending}
+                aria-describedby={startDisabledReason ? 'eval-start-reason' : undefined}
+              >
+                <Play data-icon="inline-start" aria-hidden="true" />
+                {start.isPending ? '启动中…' : '运行评估'}
+              </Button>
             ) : null}
           </>
         }
@@ -379,6 +385,14 @@ export function EvalPage() {
           </span>
         ) : null}
       </PageToolbar>
+
+      {access.isError ? (
+        <ErrorState
+          error={access.error}
+          title={access.data === undefined ? '评估权限没有加载出来' : '权限刷新失败，保留上次结果'}
+          onRetry={() => void access.refetch()}
+        />
+      ) : null}
 
       <p className="text-sm text-muted-foreground">
         判定：期望非空时检查输出包含该文本（不区分大小写）；为空时只要求有文本输出。
@@ -406,39 +420,39 @@ export function EvalPage() {
                 }}
               />
               {canManageEval ? (
-              <Button
-                variant="outline"
-                disabled={!effectiveAgentId || importDataset.isPending}
-                aria-busy={importDataset.isPending}
-                onClick={() => importInputRef.current?.click()}
-              >
-                <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-                {importDataset.isPending ? '导入中…' : '导入 JSON'}
-              </Button>
+                <Button
+                  variant="outline"
+                  disabled={!effectiveAgentId || importDataset.isPending}
+                  aria-busy={importDataset.isPending}
+                  onClick={() => importInputRef.current?.click()}
+                >
+                  <Upload data-icon="inline-start" aria-hidden="true" />{' '}
+                  {importDataset.isPending ? '导入中…' : '导入 JSON'}
+                </Button>
               ) : null}
               {canReadEval ? (
-              <Button
-                variant="outline"
-                disabled={!effectiveAgentId || exporting}
-                aria-busy={exporting}
-                onClick={() => void exportJson()}
-              >
-                <Download data-icon="inline-start" aria-hidden="true" />{' '}
-                {exporting ? '导出中…' : '导出 JSON'}
-              </Button>
+                <Button
+                  variant="outline"
+                  disabled={!effectiveAgentId || exporting}
+                  aria-busy={exporting}
+                  onClick={() => void exportJson()}
+                >
+                  <Download data-icon="inline-start" aria-hidden="true" />{' '}
+                  {exporting ? '导出中…' : '导出 JSON'}
+                </Button>
               ) : null}
               {canManageEval ? (
-              <Button
-                variant="outline"
-                ref={createButtonRef}
-                disabled={!effectiveAgentId}
-                onClick={(event) => {
-                  dialogTriggerRef.current = event.currentTarget;
-                  setCreatingAgentId(effectiveAgentId);
-                }}
-              >
-                <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
-              </Button>
+                <Button
+                  variant="outline"
+                  ref={createButtonRef}
+                  disabled={!effectiveAgentId}
+                  onClick={(event) => {
+                    dialogTriggerRef.current = event.currentTarget;
+                    setCreatingAgentId(effectiveAgentId);
+                  }}
+                >
+                  <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
+                </Button>
               ) : null}
             </div>
           }
@@ -477,15 +491,17 @@ export function EvalPage() {
               icon={<FlaskConical className="size-4" aria-hidden="true" />}
               title="还没有用例"
               action={
-                <Button
-                  variant="outline"
-                  onClick={(event) => {
-                    dialogTriggerRef.current = event.currentTarget;
-                    setCreatingAgentId(effectiveAgentId);
-                  }}
-                >
-                  <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
-                </Button>
+                canManageEval ? (
+                  <Button
+                    variant="outline"
+                    onClick={(event) => {
+                      dialogTriggerRef.current = event.currentTarget;
+                      setCreatingAgentId(effectiveAgentId);
+                    }}
+                  >
+                    <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
+                  </Button>
+                ) : undefined
               }
             />
           ) : null}
@@ -510,30 +526,30 @@ export function EvalPage() {
                     </p>
                   </div>
                   {canManageEval ? (
-                  <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={(event) => {
-                        dialogTriggerRef.current = event.currentTarget;
-                        setEditing(testCase);
-                      }}
-                    >
-                      <span className="sr-only">编辑 {testCase.name}</span>
-                      <Pencil className="size-4" aria-hidden="true" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={(event) => {
-                        dialogTriggerRef.current = event.currentTarget;
-                        setDeleting(testCase);
-                      }}
-                    >
-                      <span className="sr-only">删除 {testCase.name}</span>
-                      <Trash2 className="size-4" aria-hidden="true" />
-                    </Button>
-                  </div>
+                    <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={(event) => {
+                          dialogTriggerRef.current = event.currentTarget;
+                          setEditing(testCase);
+                        }}
+                      >
+                        <span className="sr-only">编辑 {testCase.name}</span>
+                        <Pencil className="size-4" aria-hidden="true" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={(event) => {
+                          dialogTriggerRef.current = event.currentTarget;
+                          setDeleting(testCase);
+                        }}
+                      >
+                        <span className="sr-only">删除 {testCase.name}</span>
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </Button>
+                    </div>
                   ) : null}
                 </li>
               ))}
@@ -544,16 +560,21 @@ export function EvalPage() {
         <PageSection
           title="运行历史"
           actions={
-            <Button
-              variant="outline"
-              size="sm"
-              ref={compareButtonRef}
-              disabled={terminalRuns.length < 2}
-              title={terminalRuns.length < 2 ? '至少需要两次已结束的运行' : undefined}
-              onClick={openCompare}
-            >
-              <GitCompare data-icon="inline-start" aria-hidden="true" /> 比较运行
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {terminalRuns.length < 2 ? (
+                <span className="text-xs text-muted-foreground">至少需要两次已结束的运行</span>
+              ) : null}
+              <Button
+                variant="outline"
+                size="sm"
+                ref={compareButtonRef}
+                disabled={terminalRuns.length < 2}
+                title={terminalRuns.length < 2 ? '至少需要两次已结束的运行' : undefined}
+                onClick={openCompare}
+              >
+                <GitCompare data-icon="inline-start" aria-hidden="true" /> 比较运行
+              </Button>
+            </div>
           }
         >
           {agents.isPending ? <LoadingState rows={3} /> : null}
@@ -581,6 +602,7 @@ export function EvalPage() {
                 rows={runItems}
                 columns={runColumns}
                 rowKey={(run) => run.id}
+                rowLabel={(run) => `${formatDateTime(run.createdAt)} · ${shortId(run.id)}`}
                 label="评估运行"
                 storageKey="agentport.eval-runs.columns"
                 onRowClick={(run) => selectRun(run.id)}
