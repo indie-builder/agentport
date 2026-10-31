@@ -12,6 +12,7 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { can } from '../lib/access.js';
@@ -1303,9 +1304,10 @@ function MemoryReviewDetail({
           <span>来源</span>
           {review.sources.map((source) =>
             canReadConversations ? (
-              <a
+              <Link
                 key={source.conversationId}
-                href={`/chat?conversation=${encodeURIComponent(source.conversationId)}`}
+                to="/chat"
+                search={{ conversation: source.conversationId }}
                 aria-disabled={pending || undefined}
                 onClick={(event) => {
                   // 保留链接语义；在途操作结算前只阻止离开，不伪造一次导航。
@@ -1318,7 +1320,7 @@ function MemoryReviewDetail({
                 }
               >
                 {source.title || source.conversationId}（{source.messageCount} 条消息）
-              </a>
+              </Link>
             ) : (
               <span key={source.conversationId}>
                 {source.title || source.conversationId}（{source.messageCount} 条消息）

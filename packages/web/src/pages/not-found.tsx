@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { Page, PageHeader, PageNote } from '../components/page.js';
-import { Button } from '../components/ui/button.js';
+import { buttonVariants } from '../components/ui/button.js';
 
 export function NotFoundPage() {
   return (
@@ -9,9 +9,9 @@ export function NotFoundPage() {
       <PageNote
         title="请检查地址"
         action={
-          <Button variant="outline" nativeButton={false} render={<Link to="/" />}>
+          <Link to="/" className={buttonVariants({ variant: 'outline' })}>
             返回工作台
-          </Button>
+          </Link>
         }
       />
     </Page>

@@ -2,7 +2,7 @@
 
 ## 目标
 
-用户于2026-10-31明确批准研究方案并要求使用LoopX实施。完成统一个人入口、个人资料（自助姓名）、个人记忆、历史回顾、账号安全（改密与会话管理）、我的分享及本人使用记录。保留个人/专家/平台/服务边界与既有权限。未授权commit/push/merge。
+用户于2026-10-31明确批准研究方案并要求使用LoopX实施。完成统一个人入口、个人资料（自助姓名）、个人记忆、历史回顾、账号安全（改密与会话管理）、我的分享及本人使用记录。保留个人/专家/平台/服务边界与既有权限。用户后续已明确授权提交 PR、合并后收尾；本轮集成执行者不 commit/push/merge，由主会话独立复核后执行。
 
 ## 方案
 
@@ -124,7 +124,7 @@
 
 ## 已替代项及原因
 
-研究阶段“只读不实施”已被用户本轮实施授权取代；Git发布仍未授权。
+研究阶段“只读不实施”已被实施授权取代；实施初次交付时 Git 未授权的状态，已被后续提交 PR、合并后收尾授权取代。
 
 ## 步骤
 
@@ -165,6 +165,30 @@ e2e定向 `all workspaces render the shared page shell|personal module opens as 
 
 沿用goal user-center-research、agent user-center-researcher，实施todo_299de57c59ea00276af3bcaf已完成。final writeback为primary_goal_outcome，vision no_followup，settlement settled/next_step=null，终态完成continuation=no_followup；外部投递suppressed。原codebase-cleanup工作树期间已被清理，最终通过全局registry结算，四步回执均ok=true；若未来续用Goal需先更新旧工作树绑定。会话循环90e6900d已取消。
 
+## main 集成（2026-10-31）
+
+- 用户已明确授权提交 PR、合并后收尾；个人模块已审查并提交为 `69651141ed8a5ce00fc0b366999ea1a9e87a99bb`。本轮执行者只解冲突、验证与暂存，不 commit/push/merge；主会话将独立 Opus 复核集成 diff 后完成发布。
+- 复用本树 `/Users/xbjt/Documents/myself/agentport/.claude/worktrees/personal-module`，HEAD 为 `6965114`，正在合并 `origin/main` 的 `d0900c81cd548ea5b369eafb20c4044c69bf104a`（PR145 前端审计、PR144 专家工牌）。初始已暂存差异均为该 merge 自动合并产物；六处冲突归本轮整合，不处理其他任务。
+- 当前有效契约及 A/B/C 修复保留；吸收 main 的 `buttonVariants` 链接语义、SourceEditor、权限与 dirty/pending 审计成果，不恢复旧 `/memory` 路由或旧账户菜单，不改后端功能/schema。
+- 范围：六个冲突文件、整合必要的关联 web 测试、本记录；定向核查自动合并的 `memory-panel.tsx` 与 `tests/regression.e2e.ts`。预览 API PID17083 保持运行，交付后由主会话收尾。
+- 验证计划：`git diff --check`、web typecheck/build、全 web 测试；此前 1618 条结果不作为本次 main 集成证据。此轮是已有实现与测试的合并，使用现有行为测试验证双方契约，不机械重写实现制造红灯。
+- 六处取舍：两份设计文档保留个人模块入口与分区，采用 main 的历史头部 32px 新建会话和侧栏展开 9px/收起 6px 几何；外壳保留个人路由与两种折叠入口，删除合并带回的旧 UserMenu/ChangePasswordDialog，同时保留 main 的 `Link` + `buttonVariants` 和圆角修正；回顾来源保留权限分支与 pending 保护，使用 main 的结构化 TanStack Link；个人记忆保留独立 panel、revision 草稿基线与 SourceEditor，下载采用原生 a + `buttonVariants`；回顾测试保留个人 memory/reviews 路由并添加 chat 路由，保留 main 新增在途与结算后真实导航测试，将旧 `/memory` 期望改为 `/personal/reviews`。
+- 关联检查：`memory-panel.tsx` 自动合并保留 `/personal/reviews?agent=...` 与 canWrite/dirty/pending 门控，吸收下载链接语义及 dirty 回滚说明；`tests/regression.e2e.ts` 保留个人六分区回归与 `/personal/memory` 可访问名，搜索清除动作使用 main 新名称。新增关联断言：个人记忆下载没有显式 `role=button`。
+- 真实验证：`git diff --check` 通过；`pnpm --filter @agentport/web typecheck` 通过；`pnpm --filter @agentport/web build` 通过（Vite 仅提示大于 500 kB chunk）；定向 `pnpm test:web packages/web/test/memory-review-page.test.ts packages/web/test/personal-memory-page.test.ts packages/web/test/personal-module.test.ts packages/web/test/shell-route.test.ts packages/web/test/memory-editor.test.ts packages/web/test/audit-action-feedback.test.ts packages/web/test/button-link-semantics.test.ts` 为 7 文件 132/132；最后 `pnpm test:web` 为 141 文件 1673/1673，0 失败、0 跳过。测试有 jsdom `scrollTo` 未实现提示，不影响结果。
+- 补充检查：`pnpm lint:focus` 与 `pnpm lint:contract` 通过。五个改动的源码/测试文件 `pnpm exec biome check ...` 首次 RTK 摘要无诊断却显示失败，按 RTK 规则执行 `rtk bypass pnpm exec biome check ...` 后真实结果为 `Checked 5 files ... No fixes applied`、exit 0；未为此改代码。
+- 文档冲突同步：旧设计中侧栏新建 28px、统一条目 radius 7 及旧账户菜单描述已按现有实现修正，保留个人入口最新契约；本任务顶部和“已替代项”中 Git 未授权的旧状态已改为后续真实授权。历史阶段记录保留其当时状态。
+- 本轮没有编辑后端/schema、未停止 API PID17083，未执行真实模型或重新进行浏览器/E2E 验收；上述回归脚本仅定向检查源码。设计 sidecar 是 main 自动合并产物，本轮未扩展范围重新生成；文档快照与 sidecar 的更新时间提示不作为重新设计授权。
+
+## 账号入口外观纠正（2026-10-31）
+
+- 用户最新纠正：底部用户信息原有呈现方式没有问题，只是头像居中；不要改成普通侧栏菜单样式。仅纠正外观，不撤销六页/路由行为。
+- 实现：展开态恢复账号触发器独立外观，用 `Link` + `buttonVariants({ variant: 'ghost' })` 保留链接语义，覆盖 `justify-start`，保持 200×32、12px 标签、7px 圆角与 20px 头像；不再按 `personalContext` 套 `bg-selected`，`aria-current` 保留但账号入口不呈现为导航选中行。收起态保持原 32 圆形头像，点击仍直达 `/personal/profile`；不新增下拉、不改密码、不动其它导航与颜色尺寸。
+- 验证：`shell-route.test.ts` 新增账号独立外观/左对齐断言（先红后绿，42/42），`personal-module.test.ts` 9/9；未改后端与路由。
+
+## 账号入口实屏复测
+
+用户纠正后的构建已在预览实测：展开入口x=12,w=200,h=32；头像x=21,w=20，左内距9px；justify-content:flex-start、透明背景、字号12px、圆角7px，无bg-selected。保留独立账号外观与链接语义，非普通导航选中行。shell42与personal9测试、typecheck/build通过。
+
 ## 下一步
 
-无未完成实施项。交付为已验证的未提交差异，代码位于personal-module工作树，未合入main；等待用户后续Git授权。
+六处冲突已解决、集成验证通过；主会话独立 Opus 复核固定集成 diff 后提交 merge commit，再按已授权范围提交 PR、合并与收尾。本执行者只暂存明确的冲突及关联验证文件，不 commit/push/merge。

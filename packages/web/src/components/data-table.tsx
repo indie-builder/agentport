@@ -78,6 +78,8 @@ interface DataTableProps<T> {
   rows: T[];
   columns: DataColumn<T>[];
   rowKey: (row: T) => string;
+  /** 行操作按钮的业务名称；缺省用主键。主键仍负责 React key、展开状态与面板 id。 */
+  rowLabel?: (row: T) => string;
   /** 表格的无障碍名称。 */
   label: string;
   loading?: boolean;
@@ -266,6 +268,7 @@ export function DataTable<T extends RowData>({
   rows,
   columns,
   rowKey,
+  rowLabel,
   label,
   loading = false,
   empty,
@@ -540,6 +543,7 @@ export function DataTable<T extends RowData>({
           ) : (
             table.getRowModel().rows.map((row) => {
               const key = row.id;
+              const rowName = rowLabel?.(row.original) ?? key;
               const expandedContent = renderExpanded?.(row.original) ?? null;
               const isOpen = expanded === key && expandedContent !== null;
               const interactive = expandedContent !== null || Boolean(onRowClick);
@@ -594,7 +598,7 @@ export function DataTable<T extends RowData>({
                                 variant="ghost"
                                 size="icon-xs"
                                 data-row=""
-                                aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${key}`}
+                                aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${rowName}`}
                                 aria-expanded={expandedContent !== null ? isOpen : undefined}
                                 aria-controls={expandedContent !== null ? panelId : undefined}
                                 onKeyDown={onRowKeyDown}

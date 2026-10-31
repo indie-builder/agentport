@@ -63,6 +63,10 @@ async function mount(
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
   client.setQueryData(['agents'], [{ id: 'agent-a', name: 'Expert A' }]);
+  client.setQueryData(['agent-access', 'agent-a'], {
+    agentId: 'agent-a',
+    permissionIds: ['eval.read', 'eval.manage', 'eval.execute'],
+  });
 
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });

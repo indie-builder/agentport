@@ -513,6 +513,32 @@ function navLink(host: HTMLElement): HTMLAnchorElement {
 }
 
 describe('personal entry', () => {
+  it('keeps the expanded account entry independent and left-aligned', async () => {
+    const view = await inspectRoute('/agents/', 'success');
+    try {
+      const entry = view.host.querySelector<HTMLAnchorElement>('a[aria-label="个人资料"]');
+      if (!entry) throw new Error('missing expanded personal entry');
+      // 账号入口不是导航条目：头像与姓名靠左，保持 200×32 与紧凑样式。
+      expect(entry.closest('nav')).toBeNull();
+      expect(entry.classList.contains('justify-start')).toBe(true);
+      expect(entry.classList.contains('w-[200px]')).toBe(true);
+      expect(entry.classList.contains('h-8')).toBe(true);
+      expect(entry.classList.contains('text-xs')).toBe(true);
+      expect(entry.classList.contains('rounded-[var(--radius-icon)]')).toBe(true);
+      expect(entry.classList.contains('bg-selected')).toBe(false);
+      expect(entry.querySelector('span')?.classList.contains('size-5')).toBe(true);
+
+      const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
+      await act(async () => collapse?.click());
+      const collapsed = view.host.querySelector<HTMLAnchorElement>('a[aria-label="个人资料"]');
+      expect(collapsed?.classList.contains('size-8')).toBe(true);
+      expect(collapsed?.classList.contains('rounded-full')).toBe(true);
+      expect(collapsed?.classList.contains('bg-selected')).toBe(false);
+    } finally {
+      await view.close();
+    }
+  });
+
   it('sends the bottom user info to the profile in both sidebar states', async () => {
     const view = await inspectRoute('/agents/', 'success');
     try {

@@ -139,6 +139,12 @@ async function mount(editing = false, options: MountOptions = {}) {
   return router;
 }
 
+function runTrigger(id: string): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll<HTMLButtonElement>('button[data-row]')].find((element) =>
+    element.getAttribute('aria-label')?.includes(shortId(id)),
+  );
+}
+
 function button(label: string): HTMLButtonElement {
   const match = [...document.querySelectorAll('button')].findLast(
     (element) =>
@@ -381,8 +387,8 @@ describe('evaluation run URL state', () => {
       openDialog: false,
     });
 
-    await actWaitFor(() => expect(button(`打开 ${run.id}`)).not.toBeUndefined());
-    await click(`打开 ${run.id}`);
+    await actWaitFor(() => expect(runTrigger(run.id)).not.toBeUndefined());
+    await act(async () => runTrigger(run.id)?.click());
     await actWaitFor(() => expect(router.state.location.search.run).toBe(run.id));
     await actWaitFor(() => expect(container.textContent).toContain('History result'));
 
@@ -411,8 +417,8 @@ describe('evaluation run URL state', () => {
       openDialog: false,
     });
 
-    await actWaitFor(() => expect(button(`打开 ${run.id}`)).not.toBeUndefined());
-    await click(`打开 ${run.id}`);
+    await actWaitFor(() => expect(runTrigger(run.id)).not.toBeUndefined());
+    await act(async () => runTrigger(run.id)?.click());
     await actWaitFor(() => expect(router.state.location.search.run).toBe(run.id));
     await actWaitFor(() => expect(container.textContent).toContain('History result'));
 

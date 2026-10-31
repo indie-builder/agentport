@@ -45,7 +45,7 @@ export function SourceEditor({
       data-disabled={disabled || undefined}
       data-invalid={ariaInvalid || undefined}
       className={cn(
-        'flex w-full overflow-hidden rounded-lg border border-input bg-transparent font-mono text-mobile-input transition-colors md:text-sm',
+        'flex w-full overflow-hidden rounded-lg border border-input bg-transparent font-mono text-sm transition-colors',
         // 输入类控件只留一层焦点信号：边框换色，不叠光环。
         disabled
           ? 'cursor-not-allowed bg-control-boundary/50 opacity-50'

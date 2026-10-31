@@ -137,7 +137,7 @@ afterEach(async () => {
 describe('run detail navigation', () => {
   it('carries list filters into the detail and restores them on the way back', async () => {
     const router = await mount('/runs?agent=agent-a&status=failed');
-    const open = host.querySelector<HTMLButtonElement>('button[aria-label="打开 run_1"]');
+    const open = host.querySelector<HTMLButtonElement>('button[data-row]');
     if (!open) throw new Error('Missing run row action');
     await act(async () => open.click());
     await act(async () => {

@@ -326,10 +326,11 @@ describe('个人记忆页', () => {
     expect(button('保存').disabled).toBe(true);
   });
 
-  it('下载直接指向个人偏好文件', async () => {
+  it('下载保留原生链接语义并指向个人偏好文件', async () => {
     await mount();
     const download = link('下载');
     expect(download.getAttribute('href')).toBe('/api/me/memory/download');
+    expect(download.getAttribute('role')).toBeNull();
     expect(download.hasAttribute('download')).toBe(true);
   });
 

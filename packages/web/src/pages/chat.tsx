@@ -131,7 +131,13 @@ import {
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
-import { formatBytes, formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
+import {
+  formatBytes,
+  formatDateTime,
+  formatDuration,
+  formatRelative,
+  shortId,
+} from '../lib/format.js';
 import {
   meQuery,
   useAgents,
@@ -1106,7 +1112,7 @@ function ChatTopBar({
                 onKeyDown={(event) => {
                   headerTriggerRef.current = event.currentTarget;
                 }}
-                className="size-7 shrink-0 text-muted-foreground hover:text-fg"
+                className="shrink-0 text-muted-foreground hover:text-fg"
               >
                 <MoreHorizontal className="size-4" />
               </Button>
@@ -1960,6 +1966,7 @@ export function Composer({
           <InputGroupTextarea
             ref={textareaRef}
             aria-label="消息"
+            aria-describedby={canSend ? undefined : 'composer-send-denied'}
             rows={2}
             placeholder="描述你想完成的事…"
             title={run ? '本轮结束后才能发送；现在可以先把下一条写好' : undefined}
@@ -2015,6 +2022,7 @@ export function Composer({
                 size="icon-sm"
                 disabled={!agent || Boolean(run) || !hasContent || !historyReady || !canSend}
                 aria-label="发送消息"
+                aria-describedby={canSend ? undefined : 'composer-send-denied'}
                 title={
                   !canSend ? '当前账户没有新建会话的权限' : run ? '本轮结束后可发送' : undefined
                 }
@@ -2025,6 +2033,11 @@ export function Composer({
             )}
           </InputGroupAddon>
         </InputGroup>
+        {!canSend ? (
+          <p id="composer-send-denied" className="mt-2 px-1 text-xs text-muted-foreground">
+            当前账户没有新建会话的权限，不能发送消息。
+          </p>
+        ) : null}
       </div>
     </form>
   );
@@ -3109,6 +3122,7 @@ function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
         <Link
           to="/runs/$runId"
           params={{ runId: run.runId }}
+          aria-label={`查看详情：运行 ${shortId(run.runId)}`}
           className="text-fg underline decoration-line-strong underline-offset-2 hover:text-fg"
         >
           查看详情

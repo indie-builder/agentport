@@ -14,7 +14,7 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { SourceEditor } from './source-editor.js';
 import { ErrorState, LoadingState } from './states.js';
-import { Button } from './ui/button.js';
+import { Button, buttonVariants } from './ui/button.js';
 import { Field, FieldError, FieldLabel } from './ui/field.js';
 
 const PERSONAL_MEMORY_NEAR_LIMIT = 8500;
@@ -128,14 +128,14 @@ export function PersonalMemoryPanel({
           >
             {save.isPending ? '保存中…' : '保存'}
           </Button>
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<a href={api.personalMemoryDownloadUrl} download />}
+          <a
+            href={api.personalMemoryDownloadUrl}
+            download
+            className={buttonVariants({ variant: 'outline' })}
           >
             <Download data-icon="inline-start" aria-hidden="true" />
             下载
-          </Button>
+          </a>
           {status ? (
             <span
               aria-live="polite"

@@ -4,8 +4,8 @@ import {
   pluginInputSchema,
   slugSchema,
 } from '@agentport/shared';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Download,
   MoreHorizontal,
@@ -26,7 +26,7 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import {
   Card,
   CardAction,
@@ -169,16 +169,16 @@ export function PluginsPage() {
             }}
           />
           {canImport ? (
-          <Button
-            ref={importButtonRef}
-            variant="outline"
-            disabled={importPlugin.isPending}
-            aria-busy={importPlugin.isPending}
-            onClick={() => importInputRef.current?.click()}
-          >
-            <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-            {importPlugin.isPending ? '导入中…' : '导入插件 ZIP'}
-          </Button>
+            <Button
+              ref={importButtonRef}
+              variant="outline"
+              disabled={importPlugin.isPending}
+              aria-busy={importPlugin.isPending}
+              onClick={() => importInputRef.current?.click()}
+            >
+              <Upload data-icon="inline-start" aria-hidden="true" />{' '}
+              {importPlugin.isPending ? '导入中…' : '导入插件 ZIP'}
+            </Button>
           ) : null}
           {canInstall ? (
             <Button
@@ -245,16 +245,19 @@ export function PluginsPage() {
                   </span>
                   <CardTitle className="col-start-2 min-w-0">
                     <h2 className="min-w-0">
-                      <Button
-                        variant="ghost"
-                        nativeButton={false}
-                        render={<Link to="/plugins/$pluginId" params={{ pluginId: plugin.id }} />}
-                        className="h-auto w-full min-w-0 justify-start p-0 text-base leading-snug font-medium"
+                      <Link
+                        to="/plugins/$pluginId"
+                        params={{ pluginId: plugin.id }}
+                        className={buttonVariants({
+                          variant: 'ghost',
+                          className:
+                            'h-auto w-full min-w-0 justify-start p-0 text-base leading-snug font-medium',
+                        })}
                       >
                         <span className="truncate" title={plugin.name}>
                           {plugin.name}
                         </span>
-                      </Button>
+                      </Link>
                     </h2>
                   </CardTitle>
                   <CardAction className="col-start-3">
@@ -339,19 +342,19 @@ export function PluginsPage() {
                     被 {plugin.agentCount} 个专家使用
                   </span>
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      nativeButton={false}
-                      render={<Link to="/plugins/$pluginId" params={{ pluginId: plugin.id }} />}
+                    <Link
+                      to="/plugins/$pluginId"
+                      params={{ pluginId: plugin.id }}
+                      aria-label={`查看详情：${plugin.name}`}
+                      className={buttonVariants({ variant: 'outline', size: 'sm' })}
                     >
                       查看详情
-                    </Button>
+                    </Link>
                     <Button
                       variant="outline"
                       size="sm"
                       aria-label={`编辑 ${plugin.name}`}
-          className={canUpdate ? undefined : 'hidden'}
+                      className={canUpdate ? undefined : 'hidden'}
                       aria-haspopup="dialog"
                       onClick={(event) => {
                         actionTriggerRef.current = event.currentTarget;

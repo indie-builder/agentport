@@ -9,7 +9,7 @@ import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { can } from '../lib/access.js';
-import { api, type RunListItem, type RunStatus } from '../lib/api.js';
+import { api, errorMessage, type RunListItem, type RunStatus } from '../lib/api.js';
 import {
   formatCost,
   formatDateTime,
@@ -165,7 +165,8 @@ export function RunsPage() {
   };
 
   const items = runs.data?.items ?? [];
-  const empty = !runs.isPending && !runs.isError && items.length === 0;
+  const firstLoadFailed = runs.isError && runs.data === undefined;
+  const empty = !runs.isPending && !firstLoadFailed && items.length === 0;
   const filtered = Boolean(agentId || status);
 
   const agentOptions = [
@@ -232,49 +233,68 @@ export function RunsPage() {
         <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
       ) : null}
 
-      {runs.isError ? (
+      {firstLoadFailed ? (
         <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
-      ) : empty ? (
-        <PageNote
-          icon={<Activity className="size-4" aria-hidden="true" />}
-          title={filtered ? '没有匹配的运行' : '还没有运行记录'}
-          action={
-            filtered ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setFilter({ agent: undefined, status: undefined })}
-              >
-                清除筛选
-              </Button>
-            ) : (
-              <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-                新建对话
-              </Link>
-            )
-          }
-        />
       ) : (
-        <DataTable
-          rows={items}
-          columns={columns}
-          rowKey={(run) => run.id}
-          label="运行列表"
-          loading={runs.isPending}
-          storageKey="pace.runs.columns"
-          initialSorting={[{ id: 'startedAt', desc: true }]}
-          empty="没有匹配的运行"
-          onRowClick={(run) =>
-            void navigate({
-              to: '/runs/$runId',
-              params: { runId: run.id },
-              search: {
-                ...(agentId ? { fromAgent: agentId } : {}),
-                ...(status ? { fromStatus: status as RunStatus } : {}),
-              },
-            })
-          }
-        />
+        <>
+          {runs.isError ? (
+            <PageNote
+              tone="danger"
+              title="刷新失败，保留上次运行记录"
+              description={errorMessage(runs.error)}
+              action={
+                <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
+                  重试
+                </Button>
+              }
+            />
+          ) : null}
+          {empty ? (
+            <PageNote
+              icon={<Activity className="size-4" aria-hidden="true" />}
+              title={filtered ? '没有匹配的运行' : '还没有运行记录'}
+              action={
+                filtered ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFilter({ agent: undefined, status: undefined })}
+                  >
+                    清除筛选
+                  </Button>
+                ) : (
+                  <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                    新建对话
+                  </Link>
+                )
+              }
+            />
+          ) : (
+            <DataTable
+              rows={items}
+              columns={columns}
+              rowKey={(run) => run.id}
+              rowLabel={(run) =>
+                `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
+              }
+              label="运行列表"
+              loading={runs.isPending}
+              storageKey="pace.runs.columns"
+              initialSorting={[{ id: 'startedAt', desc: true }]}
+              empty="没有匹配的运行"
+              onRowClick={(run) =>
+                void navigate({
+                  to: '/runs/$runId',
+                  params: { runId: run.id },
+                  search: {
+                    ...(agentId ? { fromAgent: agentId } : {}),
+                    ...(status ? { fromStatus: status as RunStatus } : {}),
+                  },
+                })
+              }
+            />
+          )}
+        </>
       )}
     </Page>
   );

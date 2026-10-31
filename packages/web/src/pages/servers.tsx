@@ -89,8 +89,8 @@ import {
 } from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
-import { ApiError, api } from '../lib/api.js';
 import { can } from '../lib/access.js';
+import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration, shortId } from '../lib/format.js';
@@ -350,31 +350,31 @@ export function ServersPage() {
             }}
           />
           {canImport ? (
-          <Button
-            variant="outline"
-            disabled={importMcp.isPending}
-            aria-busy={importMcp.isPending}
-            onClick={() => importInputRef.current?.click()}
-          >
-            <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-            {importMcp.isPending ? '导入中…' : '导入 .mcp.json'}
-          </Button>
+            <Button
+              variant="outline"
+              disabled={importMcp.isPending}
+              aria-busy={importMcp.isPending}
+              onClick={() => importInputRef.current?.click()}
+            >
+              <Upload data-icon="inline-start" aria-hidden="true" />{' '}
+              {importMcp.isPending ? '导入中…' : '导入 .mcp.json'}
+            </Button>
           ) : null}
           {canCreate ? (
-          <>
-          <Button
-            variant="outline"
-            onClick={(event) => {
-              triggerRef.current = event.currentTarget;
-              setCatalogOpen(true);
-            }}
-          >
-            <LibraryBig data-icon="inline-start" aria-hidden="true" /> 浏览目录
-          </Button>
-          <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
-            <Plus data-icon="inline-start" /> 新建连接器
-          </Button>
-          </>
+            <>
+              <Button
+                variant="outline"
+                onClick={(event) => {
+                  triggerRef.current = event.currentTarget;
+                  setCatalogOpen(true);
+                }}
+              >
+                <LibraryBig data-icon="inline-start" aria-hidden="true" /> 浏览目录
+              </Button>
+              <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
+                <Plus data-icon="inline-start" /> 新建连接器
+              </Button>
+            </>
           ) : null}
         </>
       }
@@ -489,6 +489,7 @@ export function ServersPage() {
           getReturnFocus={focusTrigger}
           server={editing}
           initial={catalogInitial}
+          readOnly={editing !== null && !canUpdate}
           onClose={() => {
             setFormOpen(false);
             setEditing(null);
@@ -793,7 +794,9 @@ function ServerCard({
                     ) : null}
                     {canTokens ? (
                       <DropdownMenuItem
-                        onClick={() => menuTriggerRef.current && onConnection(menuTriggerRef.current)}
+                        onClick={() =>
+                          menuTriggerRef.current && onConnection(menuTriggerRef.current)
+                        }
                       >
                         <KeyRound /> 连接信息
                       </DropdownMenuItem>
@@ -2067,14 +2070,18 @@ export function ServerFormDialog({
   onClose,
   onSaved,
   getReturnFocus,
+  readOnly = false,
 }: {
   server: Server | null;
   initial?: ConnectorCatalogItem | null;
   onClose: () => void;
   onSaved: (server: Server, created: boolean) => void;
   getReturnFocus: () => HTMLElement | null;
+  readOnly?: boolean | undefined;
 }) {
   const creating = server === null;
+  // 只读只限制既有定义的修改；新建仍由 servers.create 放行。
+  const viewOnly = readOnly && !creating;
   const prefill = creating && initial ? catalogToForm(initial) : null;
   const create = useCreateServer();
   const update = useUpdateServer();
@@ -2133,7 +2140,7 @@ export function ServerFormDialog({
   };
 
   const submit = handleSubmit((values) => {
-    if (!values.kind || pending) return;
+    if (!values.kind || pending || viewOnly) return;
     const pairs = parsePairs(values.pairs, values.kind === 'stdio' ? 'env' : 'headers');
     const parsed = serverInputSchema.safeParse(buildServerInput(values, pairs));
     if (!parsed.success) return;
@@ -2181,8 +2188,12 @@ export function ServerFormDialog({
       }}
     >
       <DialogShell
-        title={creating ? '新建连接器' : `编辑「${server.name}」`}
-        {...(!creating ? { description: '来源类型不可修改。' } : {})}
+        title={
+          creating ? '新建连接器' : viewOnly ? `查看「${server.name}」` : `编辑「${server.name}」`
+        }
+        {...(!creating
+          ? { description: viewOnly ? '只读查看，不能修改或保存。' : '来源类型不可修改。' }
+          : {})}
         finalFocus={getReturnFocus}
         closeDisabled={pending}
       >
@@ -2268,6 +2279,7 @@ export function ServerFormDialog({
                   {...register('name')}
                   value={watched.name}
                   disabled={pending}
+                  readOnly={viewOnly}
                   id="server-name"
                   placeholder="filesystem"
                   aria-required
@@ -2293,6 +2305,7 @@ export function ServerFormDialog({
                   {...register('description')}
                   value={watched.description}
                   disabled={pending}
+                  readOnly={viewOnly}
                   id="server-desc"
                   aria-invalid={Boolean(errors.description)}
                   aria-describedby={errors.description ? 'server-desc-error' : undefined}
@@ -2316,6 +2329,7 @@ export function ServerFormDialog({
                       {...register('command')}
                       value={watched.command}
                       disabled={pending}
+                      readOnly={viewOnly}
                       id="server-command"
                       placeholder="npx"
                       className="font-mono"
@@ -2331,6 +2345,7 @@ export function ServerFormDialog({
                       {...register('args')}
                       value={watched.args}
                       disabled={pending}
+                      readOnly={viewOnly}
                       id="server-args"
                       rows={2}
                       // Keep configuration values compact and monospaced for literal editing.
@@ -2348,6 +2363,7 @@ export function ServerFormDialog({
                       {...register('pairs')}
                       value={watched.pairs}
                       disabled={pending}
+                      readOnly={viewOnly}
                       id="server-env"
                       aria-invalid={Boolean(errors.pairs)}
                       aria-describedby={errors.pairs ? 'server-env-error' : 'server-env-hint'}
@@ -2358,7 +2374,9 @@ export function ServerFormDialog({
                     />
                     <FieldError id="server-env-error">{errors.pairs?.message}</FieldError>
                     <FieldDescription id="server-env-hint">
-                      保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。
+                      {viewOnly
+                        ? '密钥只以 •••• 显示。'
+                        : '保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。'}
                     </FieldDescription>
                   </Field>
                 </>
@@ -2377,6 +2395,7 @@ export function ServerFormDialog({
                       {...register(kind === 'http' ? 'url' : 'baseUrl')}
                       value={kind === 'http' ? watched.url : watched.baseUrl}
                       disabled={pending}
+                      readOnly={viewOnly}
                       id="server-url"
                       placeholder={
                         kind === 'http' ? 'https://example.com/mcp' : 'https://api.example.com/v1'
@@ -2406,6 +2425,7 @@ export function ServerFormDialog({
                       {...register('pairs')}
                       value={watched.pairs}
                       disabled={pending}
+                      readOnly={viewOnly}
                       id="server-headers"
                       aria-invalid={Boolean(errors.pairs)}
                       aria-describedby={
@@ -2418,10 +2438,12 @@ export function ServerFormDialog({
                     />
                     <FieldError id="server-headers-error">{errors.pairs?.message}</FieldError>
                     <FieldDescription id="server-headers-hint">
-                      保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。
+                      {viewOnly
+                        ? '密钥只以 •••• 显示。'
+                        : '保存后密钥只以 •••• 返回；保持 •••• 不动即沿用原值。'}
                     </FieldDescription>
                   </Field>
-                  {kind === 'generated' ? (
+                  {kind === 'generated' && !viewOnly ? (
                     <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted-foreground">
                       保存后会直接打开工具编辑，把上游 HTTP API 的端点声明成 MCP 工具。
                     </p>
@@ -2433,11 +2455,18 @@ export function ServerFormDialog({
 
           <div className="flex justify-end gap-2 border-t pt-4">
             <Button type="button" variant="outline" size="sm" onClick={close} disabled={pending}>
-              取消
+              {viewOnly ? '关闭' : '取消'}
             </Button>
-            <Button type="submit" size="sm" disabled={pending || kind === null} aria-busy={pending}>
-              {pending ? '保存中…' : creating ? '创建' : '保存更改'}
-            </Button>
+            {viewOnly ? null : (
+              <Button
+                type="submit"
+                size="sm"
+                disabled={pending || kind === null}
+                aria-busy={pending}
+              >
+                {pending ? '保存中…' : creating ? '创建' : '保存更改'}
+              </Button>
+            )}
           </div>
         </form>
         <ConfirmDialog
