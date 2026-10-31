@@ -186,12 +186,18 @@ describe.skipIf(!ready)('agents access control', () => {
     const item = own.json<Array<Record<string, unknown>>>().find((entry) => entry.id === agent.id);
     expect(item).toBeTruthy();
     expect(Object.keys(item ?? {}).sort()).toEqual([
+      'createdAt',
       'createdBy',
       'description',
       'enabled',
       'id',
+      'model',
       'name',
       'ownerBusinessId',
+      'parentId',
+      'role',
+      'slug',
+      'uiFormat',
     ]);
     for (const key of [
       'systemPrompt',
@@ -202,6 +208,8 @@ describe.skipIf(!ready)('agents access control', () => {
       'allowedTools',
       'disallowedTools',
       'runtimeEnvironmentId',
+      'maxBudgetUsd',
+      'timeoutMs',
     ]) {
       expect(item).not.toHaveProperty(key);
     }

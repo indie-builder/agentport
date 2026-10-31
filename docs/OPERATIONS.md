@@ -659,6 +659,28 @@ pnpm --filter @agentport/web build
 
 E2E（`pnpm test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `pnpm --filter @agentport/web exec vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。多数用例直写数据库：先 `pnpm build` 产出 `packages/db/dist`，并显式导出与 API 同库的 `DATABASE_URL`。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `pnpm test:e2e` 要停 worker。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
 
+### 9.3 持久开发数据集（`dev:data`）
+
+`pnpm dev:data` 通过真实业务 UI 补齐本地开发数据集，`pnpm dev:data:verify` 只读验收；两者都要求先用 `E2E_APP_URL` 指向已起好的隔离实例（命令不自动启动 vite/API），并复用 `tests/support/auth.e2e.ts` 的管理员 session。专用配置 `e2e.dev-data.config.ts` 只收集 auth setup 与 `tests/dev-data/**/*.e2e.ts`，普通 `e2e.config.ts` 已排除该目录。
+
+- 两套命令由 Node 注入 `E2E_DEV_DATA=1`；专用用例的第一行据此跳过，直接运行 `e2e run --config e2e.dev-data.config.ts` 不会写数据。
+- `dev:data` 运行构建用例并排除只读验收；`dev:data:verify` 只运行标题含 `verify` 的验收用例（构建用例标题不要含该词）。只读验收不触发模型、embedding、环境构建或定时任务同步。
+- 数据事实以业务 API 为准，manifest 只记录归属与 ID，不当作断言来源；每个领域一个文件：`data/dev-dataset/devdata-qinghe-v1/{assets,knowledge,runtime,business}.json`（`data/` 不入库），由对应测试独占写入。实际路径由 `datasetPath(section)` 决定，不要按早先报告里的 `qinghe-v1` 简写硬编码。
+- 重复执行复用已有 ID 并补缺项；同名资产不在 manifest 中、或已归属资产的内容/状态与定义不一致时立即停止，不覆盖、不自动重试。创建成功即写入 ID。
+- 资产组固定使用 `devdata-qinghe-v1` 标记：2 个连接器（jsonplaceholder generated 只读工具 / 故意失效的远程 MCP）、3 个工具（普通 GET、需批准 GET、停用 GET）、2 个技能（其中一个带参考文件）、1 个经 UI 导入的本地 ZIP 插件、2 个演示账户（一个停用）。上游只用公开只读 API，不向外部写入。
+
+已生成的 v1 数据集（「青禾商贸｜采购与售后协作」）包含：5 个专家（主/子/OpenUI/停用/故障）、1 个专用运行环境（成功版本已发布，另有 2 条失败版本历史）、7 个对话场景（3 成功、2 取消、1 超时、1 失败）、2 个底层成功的评估运行（批次 1 过 1 不过）、2 个真实触发后暂停的定时任务、1 个已应用的记忆审核，以及规则、风格和记忆文件；共 12 个运行、11 个对话，分享 2 个（有效/已撤销各 1）。取消、超时、失败、停用、失败版本与撤销分享是刻意保留的负面状态，属于数据集内容，不是缺陷。重跑只复用，不新增专家、评估批次、分享或计费运行。
+
+当前仍无真实 embedding 配置（knowledge profiles 为 0），知识库 manifest 为 `blocked` 且没有实体。`pnpm dev:data:verify` 的登录、资产、运行环境和业务 UI 验收可通过，business/knowledge 仅因知识链路缺口失败；因此在补齐真实 embedding 前不能宣称数据集或验收全绿。同名资产接管立即停止、已有对象不覆盖等既有规则不变。
+
+隔离运行配置持久化在本 worktree 未跟踪的 `.env`：`DATABASE_URL` 指向独立持久库 `agentport_business_e2e_dataset`，`REDIS_URL` 使用 db 12，工作区与知识库目录为本树 `data/` 的绝对路径，沙盒镜像为 `agentport/sandbox:business-e2e-68241ba`，模型网关与端口沿用已实测值。主 checkout `.env` 未修改，原开发库未迁移/清理；首次环境准备曾因旧结构不匹配造成两条旧队列任务失败，现服务已隔离到专用库和 Redis 12。复用前先停掉本任务此前启动的 API/worker，再从本树根目录用标准 `pnpm dev` 启动，避免新旧进程争用 3000/3426 或连错库；`E2E_APP_URL=https://worktree-business-e2e-dataset.agentport.localhost`。本任务未提交/未合并，附件、成果与记忆投影在本树 `data/`，PG 库独立持久；不要删除 worktree 或 `data/`。
+
+`e2e.dev-data.config.ts` 的管理员凭据优先取 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`，未设置时使用专用配置回退值，未必匹配当前 bootstrap；运行前从本树 `.env` 的进程环境安全注入 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`（不要把真实密码写进文档、提交文件或命令历史，也不需要新增 helper）；不要用 `.env` 的 `ADMIN_PASSWORD` 去猜已有库的当前密码，当前隔离库用 bootstrap 凭据可正常登录。
+
+数据生成过程还修复了专家摘要缺少的 6 个既有元数据字段（`parentId`/`slug`/`role`/`model`/`uiFormat`/`createdAt`，不下发敏感配置）；相关后端测试 40/40、API build 通过，子专家 UI 解绑/重绑与文件核对、看板 table/cards 均已用真实 UI 验证，且没有新增运行。
+
+日常开发直接使用已生成的持久库与 `data/`：从本树根目录用标准 `pnpm dev` 启动即可，不需要运行 `pnpm dev:data`。现有数据不要重建，只有缺项首次生成或需要恢复时才运行 `dev:data`，`dev:data:verify` 始终只读。
+
 
 ## 本地模型网关
 

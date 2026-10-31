@@ -17,7 +17,8 @@ const anthropic = createOpenAICompatible({
 const externalAppUrl = process.env.E2E_APP_URL;
 
 export default {
-  tests: 'tests/**/*.e2e.ts',
+  // 持久开发数据集只在 e2e.dev-data.config.ts 里收集，普通回归不跑。
+  tests: ['tests/**/*.e2e.ts', '!tests/dev-data/**'],
   targets: [
     {
       name: 'web',
