@@ -6,6 +6,7 @@
 
 | 文档 | 用途 |
 |---|---|
+| [`../CLAUDE.md`](../CLAUDE.md) | 根规则与模块规则入口（各包专属规则见其「模块规则」表） |
 | [DEV-WORKFLOW.md](DEV-WORKFLOW.md) | **研发流程规范**：文档体系、任务生命周期、任务记录模板、踩坑流程、门禁策略 |
 | [PITFALLS.md](PITFALLS.md) | 跨任务踩坑汇总（现象 → 原因 → 规避），开工前/报错时读 |
 | [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) | 设计系统：颜色、字号、间距、组件、焦点与边框、信息表达规约 |
