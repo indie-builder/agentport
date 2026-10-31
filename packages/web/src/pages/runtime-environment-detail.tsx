@@ -19,7 +19,7 @@ import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
@@ -235,13 +235,9 @@ export function RuntimeEnvironmentDetailPage() {
         eyebrow={current.isDefault ? <Badge variant="secondary">默认</Badge> : null}
         actions={
           <>
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={<Link to="/runtime-environments" />}
-            >
+            <Link to="/runtime-environments" className={buttonVariants({ variant: 'outline' })}>
               返回列表
-            </Button>
+            </Link>
             <Button onClick={startBuild} disabled={build.isPending}>
               <Hammer data-icon="inline-start" />
               {build.isPending ? '提交中…' : '构建新版本'}
@@ -408,6 +404,7 @@ export function RuntimeEnvironmentDetailPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          aria-label={`查看版本 ${shortId(version.id)} 的构建日志`}
                           onClick={(event) => {
                             logTriggerRef.current = event.currentTarget;
                             updateSearch({ version: version.id });

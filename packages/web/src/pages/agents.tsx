@@ -730,6 +730,9 @@ export function AgentsPage() {
                               variant="outline"
                               disabled
                               aria-label={`与 ${agent.name} 开始对话`}
+                              aria-describedby={
+                                agent.enabled ? `agent-use-denied-${agent.id}` : undefined
+                              }
                               title={
                                 agent.enabled
                                   ? '当前账户没有使用该专家的权限'
@@ -739,6 +742,14 @@ export function AgentsPage() {
                               开始对话
                             </Button>
                             {!agent.enabled ? <StatusBadge>已停用</StatusBadge> : null}
+                            {agent.enabled && !canUse ? (
+                              <p
+                                id={`agent-use-denied-${agent.id}`}
+                                className="basis-full text-xs text-muted-foreground"
+                              >
+                                当前账户没有使用该专家的权限，无法开始对话。
+                              </p>
+                            ) : null}
                           </>
                         )}
                       </div>
@@ -1088,6 +1099,7 @@ export function AgentDetailPage() {
                 <Button
                   variant="outline"
                   disabled
+                  aria-describedby={current.enabled ? 'agent-use-denied' : undefined}
                   title={
                     current.enabled
                       ? '当前账户没有使用该专家的权限'
@@ -1100,6 +1112,11 @@ export function AgentDetailPage() {
             </>
           }
         />
+        {current.enabled && !canUse ? (
+          <p id="agent-use-denied" className="text-xs text-muted-foreground">
+            当前账户没有使用该专家的权限，无法开始对话。
+          </p>
+        ) : null}
         {current.description ? (
           <p className="max-w-[70ch] break-words text-sm text-muted-foreground">
             {current.description}
@@ -3033,14 +3050,12 @@ export function AgentEditor({
                             onRetry={() => void pluginsState.refetch()}
                           />
                         ) : pluginOptions.length === 0 ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            nativeButton={false}
-                            render={<Link to="/plugins" />}
+                          <Link
+                            to="/plugins"
+                            className={buttonVariants({ variant: 'outline', size: 'sm' })}
                           >
                             导入插件
-                          </Button>
+                          </Link>
                         ) : (
                           <>
                             <Combobox
@@ -3186,14 +3201,12 @@ export function AgentEditor({
                           agents.data?.length === 0 ? (
                             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                               <span>还没有可委派的专家。</span>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                nativeButton={false}
-                                render={<Link to="/agents" />}
+                              <Link
+                                to="/agents"
+                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
                               >
                                 新建专家
-                              </Button>
+                              </Link>
                             </div>
                           ) : (
                             <p className="text-xs text-muted-foreground">
@@ -3265,18 +3278,14 @@ export function AgentEditor({
                           </h3>
                           <div className="flex flex-wrap gap-2">
                             {savedSubAgents.map((child) => (
-                              <Button
+                              <a
                                 key={child.id}
-                                variant="outline"
-                                size="sm"
-                                nativeButton={false}
-                                render={
-                                  <a href={`/api/agents/${agent.id}/subagents/${child.id}/file`} />
-                                }
+                                href={`/api/agents/${agent.id}/subagents/${child.id}/file`}
+                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
                               >
                                 <Download />
                                 {child.slug}.md
-                              </Button>
+                              </a>
                             ))}
                           </div>
                           <p className="text-xs text-muted-foreground">

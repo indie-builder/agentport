@@ -18,6 +18,7 @@ import {
   type EvalRunDetail,
   type EvalRunPage,
 } from '../src/lib/api.js';
+import { shortId } from '../src/lib/format.js';
 import { EvalPage } from '../src/pages/eval.js';
 import { evalSearchSchema } from '../src/routes/-search.js';
 
@@ -138,7 +139,9 @@ async function click(label: string) {
 }
 
 async function openRun(id: string) {
-  const trigger = document.querySelector<HTMLButtonElement>(`[aria-label="打开 ${id}"]`);
+  const trigger = [...document.querySelectorAll<HTMLButtonElement>('button[data-row]')].find(
+    (element) => element.getAttribute('aria-label')?.includes(shortId(id)),
+  );
   if (!trigger) throw new Error(`Missing run: ${id}`);
   await act(async () => trigger.click());
 }

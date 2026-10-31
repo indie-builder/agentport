@@ -43,7 +43,7 @@ import { toastSuccess } from '../lib/toast.js';
 import { animateBrand, Brand, BrandMark } from './brand.js';
 import { DialogShell } from './dialog-shell.js';
 import { Page, PageHeader, PageNote } from './page.js';
-import { Button } from './ui/button.js';
+import { Button, buttonVariants } from './ui/button.js';
 import { Dialog } from './ui/dialog.js';
 import {
   DropdownMenu,
@@ -161,7 +161,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
           aria-expanded={!collapsed}
           onClick={onToggle}
           // Keep 7px corners and the translucent hover; ghost defaults to 9px and opaque muted.
-          className="absolute left-0 top-0 size-8 rounded-icon p-0 opacity-0 transition-opacity duration-[140ms] ease-out-soft hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
+          className="absolute left-0 top-0 size-8 rounded-[var(--radius-icon)] p-0 opacity-0 transition-opacity duration-[140ms] ease-out-soft hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
         >
           <PanelLeftOpen className="size-4" />
         </Button>
@@ -176,7 +176,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
         variant="plain"
         aria-label="切换 PACE Logo"
         onClick={animateBrand}
-        className="h-8 min-w-0 flex-1 justify-start rounded-icon p-0"
+        className="h-8 min-w-0 flex-1 justify-start rounded-[var(--radius-icon)] p-0"
       >
         <Brand className="h-8 self-center" />
       </Button>
@@ -186,7 +186,7 @@ function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
         aria-expanded={!collapsed}
         onClick={onToggle}
         // Keep 7px corners and the translucent hover instead of the regular ghost defaults.
-        className="size-8 rounded-icon p-0 hover:bg-hover"
+        className="size-8 rounded-[var(--radius-icon)] p-0 hover:bg-hover"
       >
         <PanelLeftClose className="size-4" />
       </Button>
@@ -288,7 +288,7 @@ function UserMenu({ me, onChangePassword }: { me: AuthenticatedMe; onChangePassw
             variant="ghost"
             aria-label={`账户 ${label}`}
             // Keep the compact 12px account label, 7px corners, and opaque open-state surface.
-            className="gap-2 rounded-icon px-2 text-xs data-[popup-open]:bg-sunken"
+            className="gap-2 rounded-[var(--radius-icon)] px-2 text-xs data-[popup-open]:bg-sunken"
           >
             <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
               <User className="size-3" />
@@ -465,9 +465,12 @@ export function AccessDenied({
         action={
           <div className="flex flex-wrap items-center gap-2">
             {home ? (
-              <a href={home} className="text-sm text-primary underline underline-offset-4">
+              <Link
+                to={home}
+                className={cn(buttonVariants({ variant: 'link', size: 'sm' }), 'underline')}
+              >
                 返回可用页面
-              </a>
+              </Link>
             ) : null}
             <Button variant="outline" size="sm" onClick={refresh}>
               刷新权限
@@ -783,7 +786,7 @@ export function AppShell() {
               aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(true)}
               // Keep the 7px icon corners and translucent hover instead of the regular ghost defaults.
-              className="-ml-1 rounded-icon p-1.5 hover:bg-hover"
+              className="-ml-1 rounded-[var(--radius-icon)] p-1.5 hover:bg-hover"
             >
               <Menu aria-hidden="true" />
             </Button>

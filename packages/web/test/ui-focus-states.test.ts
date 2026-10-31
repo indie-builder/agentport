@@ -35,10 +35,11 @@ const THEME = `@import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 ${productionTheme}`;
 
+type Specificity = [number, number, number];
 type Rule = {
   selector: string;
   declarations: Map<string, string>;
-  specificity: number;
+  specificity: Specificity;
   order: number;
 };
 
@@ -49,7 +50,13 @@ function classList(markup: string, probe: string): string[] {
     .map((entry) => entry[1])
     .find((value) => value.split(/\s+/).includes(probe));
   if (!match) throw new Error(`missing ${probe}`);
-  return match.split(/\s+/);
+  // renderToStaticMarkup 会把选择器里的 > 转义成 &gt;，还原后再当真实 class 用。
+  return match
+    .replaceAll('&gt;', '>')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&')
+    .split(/\s+/);
 }
 
 function probeClasses(name: string): string[] {
@@ -62,11 +69,144 @@ function probe(name: string, element: Parameters<typeof renderToStaticMarkup>[0]
   classes.set(name, classList(renderToStaticMarkup(element), `probe-${name}`));
 }
 
-function specificity(selector: string): number {
-  const attrs = selector.match(/\[[^\]]*\]/g) ?? [];
-  const core = selector.replace(/\[[^\]]*\]/g, '').replace(/\\./g, '');
-  // 只统计类、属性与伪类；本组断言不涉及 id/标签选择器。
-  return (core.match(/\./g) ?? []).length + attrs.length + (core.match(/:(?!:)/g) ?? []).length;
+const IDENT_END = /[\s>+~,.#:[\]()]/;
+
+function maxSpecificity(a: Specificity, b: Specificity): Specificity {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i] ? a : b;
+  return a;
+}
+
+function compareSpecificity(a: Specificity, b: Specificity): number {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
+}
+
+function splitSelectorList(selector: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (let i = 0; i < selector.length; i++) {
+    const char = selector[i];
+    if (char === '\\') {
+      current += char + (selector[i + 1] ?? '');
+      i++;
+      continue;
+    }
+    if (char === '(' || char === '[') depth++;
+    else if (char === ')' || char === ']') depth--;
+    if (char === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  parts.push(current);
+  return parts;
+}
+
+function partSpecificity(selector: string): Specificity {
+  let ids = 0;
+  let classes = 0;
+  let types = 0;
+  let i = 0;
+  const skipIdentifier = () => {
+    while (i < selector.length && !IDENT_END.test(selector[i])) {
+      if (selector[i] === '\\') i += 2;
+      else i++;
+    }
+  };
+  while (i < selector.length) {
+    const char = selector[i];
+    if (char === '\\') {
+      i += 2;
+      continue;
+    }
+    if (char === '#') {
+      ids++;
+      i++;
+      skipIdentifier();
+      continue;
+    }
+    if (char === '.') {
+      classes++;
+      i++;
+      skipIdentifier();
+      continue;
+    }
+    if (char === '[') {
+      classes++;
+      let depth = 1;
+      i++;
+      while (i < selector.length && depth > 0) {
+        if (selector[i] === '\\') i += 2;
+        else {
+          if (selector[i] === '[') depth++;
+          else if (selector[i] === ']') depth--;
+          i++;
+        }
+      }
+      continue;
+    }
+    if (char === ':') {
+      if (selector[i + 1] === ':') {
+        types++;
+        i += 2;
+        skipIdentifier();
+        continue;
+      }
+      let end = i + 1;
+      while (end < selector.length && /[\w-]/.test(selector[end])) end++;
+      const name = selector.slice(i + 1, end);
+      if (selector[end] === '(') {
+        let depth = 1;
+        let close = end + 1;
+        while (close < selector.length && depth > 0) {
+          if (selector[close] === '\\') close += 2;
+          else {
+            if (selector[close] === '(') depth++;
+            else if (selector[close] === ')') depth--;
+            close++;
+          }
+        }
+        const inner = selector.slice(end + 1, close - 1);
+        if (name === 'is' || name === 'not' || name === 'has') {
+          const value = splitSelectorList(inner)
+            .map(partSpecificity)
+            .reduce(maxSpecificity, [0, 0, 0] as Specificity);
+          ids += value[0];
+          classes += value[1];
+          types += value[2];
+        } else if (name !== 'where') {
+          classes++;
+        }
+        i = close;
+        continue;
+      }
+      classes++;
+      i = end;
+      continue;
+    }
+    if (char === '*') {
+      i++;
+      continue;
+    }
+    if (/[a-zA-Z_]/.test(char)) {
+      types++;
+      i++;
+      skipIdentifier();
+      continue;
+    }
+    i++;
+  }
+  return [ids, classes, types];
+}
+
+// CSS 层叠按 (id, class/pseudo/attr, type) 比较；:is/:not/:has 取参数最大值，:where 不计。
+function specificity(selector: string): Specificity {
+  return splitSelectorList(selector)
+    .map(partSpecificity)
+    .reduce(maxSpecificity, [0, 0, 0] as Specificity);
 }
 
 function parseRules(css: string): Rule[] {
@@ -74,7 +214,7 @@ function parseRules(css: string): Rule[] {
   let order = 0;
   for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selector = match[1].trim();
-    if (!selector.startsWith('.') || /:is\(|:where\(|:has\(|,/.test(selector)) continue;
+    if (!selector.startsWith('.')) continue;
     const declarations = new Map<string, string>();
     for (const entry of match[2].split(';')) {
       const colon = entry.indexOf(':');
@@ -85,19 +225,42 @@ function parseRules(css: string): Rule[] {
   return rules;
 }
 
-function matches(rule: Rule, classNames: string[], attrs: Record<string, string>, focus: boolean) {
-  let selector = rule.selector;
-  if (/(?<!\\):focus-visible/.test(selector)) {
-    if (!focus) return false;
-    selector = selector.replace(/(?<!\\):focus-visible/g, '');
-  }
-  const element = dom.window.document.createElement('div');
+function matches(
+  rule: Rule,
+  classNames: string[],
+  attrs: Record<string, string>,
+  focus: boolean,
+  card: boolean,
+) {
+  // 用属性模拟 :focus-visible：既命中控件自身，也让祖先的 :has(:focus-visible) 生效。
+  const selector = rule.selector.replace(/(?<!\\):focus-visible/g, '[data-focus-visible]');
+  const document = dom.window.document;
+  const element = document.createElement('div');
   element.className = classNames.join(' ');
   for (const [name, value] of Object.entries(attrs)) element.setAttribute(name, value);
+  if (focus) element.setAttribute('data-focus-visible', '');
+
+  const container = document.createElement('div');
+  if (card) {
+    // 卡片式字段标签：label.group/field-label > [data-slot=field] > 控件。
+    const label = document.createElement('label');
+    label.className = 'group/field-label';
+    label.setAttribute('data-slot', 'field-label');
+    const field = document.createElement('div');
+    field.setAttribute('data-slot', 'field');
+    field.append(element);
+    label.append(field);
+    container.append(label);
+  } else {
+    container.append(element);
+  }
+  document.body.append(container);
   try {
     return element.matches(selector);
   } catch {
     return false;
+  } finally {
+    container.remove();
   }
 }
 
@@ -107,16 +270,14 @@ function winning(
   attrs: Record<string, string>,
   focus: boolean,
   property: string,
+  card = false,
 ): string | undefined {
-  let best: { value: string; specificity: number; order: number } | undefined;
+  let best: { value: string; specificity: Specificity; order: number } | undefined;
   for (const rule of rules) {
     const value = rule.declarations.get(property);
-    if (value === undefined || !matches(rule, classNames, attrs, focus)) continue;
-    if (
-      !best ||
-      rule.specificity > best.specificity ||
-      (rule.specificity === best.specificity && rule.order > best.order)
-    ) {
+    if (value === undefined || !matches(rule, classNames, attrs, focus, card)) continue;
+    const compared = best ? compareSpecificity(rule.specificity, best.specificity) : 1;
+    if (!best || compared > 0 || (compared === 0 && rule.order > best.order)) {
       best = { value, specificity: rule.specificity, order: rule.order };
     }
   }
@@ -128,10 +289,11 @@ function ringVisible(
   classNames: string[],
   attrs: Record<string, string>,
   focus: boolean,
+  card = false,
 ) {
-  const shadow = winning(rules, classNames, attrs, focus, '--tw-ring-shadow');
+  const shadow = winning(rules, classNames, attrs, focus, '--tw-ring-shadow', card);
   if (!shadow || shadow.includes('calc(0px')) return false;
-  return winning(rules, classNames, attrs, focus, '--tw-ring-color') !== 'transparent';
+  return winning(rules, classNames, attrs, focus, '--tw-ring-color', card) !== 'transparent';
 }
 
 function outlineStyle(
@@ -139,13 +301,14 @@ function outlineStyle(
   classNames: string[],
   attrs: Record<string, string>,
   focus: boolean,
+  card = false,
 ): string | undefined {
-  const value = winning(rules, classNames, attrs, focus, 'outline-style');
+  const value = winning(rules, classNames, attrs, focus, 'outline-style', card);
   // Tailwind 的 outline-2 只写 outline-style: var(--tw-outline-style)，
   // 真正是否可见取决于 outline-none/outline-solid 设置的变量；不解析变量会把
   // 被 outline-none 关掉的轮廓误判为可见。
   return value === 'var(--tw-outline-style)'
-    ? (winning(rules, classNames, attrs, focus, '--tw-outline-style') ?? 'solid')
+    ? (winning(rules, classNames, attrs, focus, '--tw-outline-style', card) ?? 'solid')
     : value;
 }
 
@@ -154,11 +317,12 @@ function outlineVisible(
   classNames: string[],
   attrs: Record<string, string>,
   focus: boolean,
+  card = false,
 ) {
-  const width = winning(rules, classNames, attrs, focus, 'outline-width');
+  const width = winning(rules, classNames, attrs, focus, 'outline-width', card);
   if (!width || width === '0px') return false;
   // 本组契约只把实线轮廓当作焦点信号，避免变量残留被当成可见。
-  return outlineStyle(rules, classNames, attrs, focus) === 'solid';
+  return outlineStyle(rules, classNames, attrs, focus, card) === 'solid';
 }
 
 const checked = { 'aria-checked': 'true', 'data-checked': '' };
@@ -382,6 +546,31 @@ describe('error and focus states stay distinguishable', () => {
     }
   });
 
+  it('moves checked checkbox and switch focus from the fill-hugging ring to an offset outline', () => {
+    for (const name of ['checkbox', 'switch']) {
+      const classNames = probeClasses(name);
+      // 未选中：仍用单层 ring 表达焦点，且不叠外轮廓。
+      expect(ringVisible(rules, classNames, {}, true), name).toBe(true);
+      expect(outlineVisible(rules, classNames, {}, true), name).toBe(false);
+      // 选中：深色填充上不再贴 ring，改为 2px ring 色外轮廓 + 2px 背景间隔。
+      expect(ringVisible(rules, classNames, checked, true), name).toBe(false);
+      expect(outlineVisible(rules, classNames, checked, true), name).toBe(true);
+      expect(outlineStyle(rules, classNames, checked, true), name).toBe('solid');
+      expect(winning(rules, classNames, checked, true, 'outline-width'), name).toBe('2px');
+      expect(winning(rules, classNames, checked, true, 'outline-color'), name).toBe(
+        'var(--color-ring)',
+      );
+      expect(winning(rules, classNames, checked, true, 'outline-offset'), name).toBe('2px');
+      // 选中 + 错误：危险边框保留，焦点仍由外轮廓表达，两者共存。
+      expect(
+        winning(rules, classNames, { ...checked, ...invalid }, true, 'border-color'),
+        name,
+      ).toBe('var(--color-destructive)');
+      expect(outlineVisible(rules, classNames, { ...checked, ...invalid }, true), name).toBe(true);
+      expect(ringVisible(rules, classNames, { ...checked, ...invalid }, true), name).toBe(false);
+    }
+  });
+
   it('keeps destructive border on checked + invalid radio and checkbox', () => {
     for (const name of ['radio', 'checkbox']) {
       const classNames = probeClasses(name);
@@ -390,6 +579,42 @@ describe('error and focus states stay distinguishable', () => {
       );
       expect(winning(rules, classNames, { ...checked, ...invalid }, true, 'border-color')).toBe(
         'var(--color-destructive)',
+      );
+    }
+  });
+
+  it('keeps the invalid border ahead of card FieldLabel focus resets', () => {
+    // 卡片式字段标签聚焦时，控件自身让出焦点视觉（外层标签画单层 ring），
+    // 但普通态/选中态的边线复位不能覆盖错误的危险边线。
+    const cardBorders = {
+      checkbox: { unchecked: 'var(--color-control-boundary)', checked: 'var(--color-primary)' },
+      radio: { unchecked: 'var(--color-control-boundary)', checked: 'var(--color-primary)' },
+      switch: { unchecked: 'transparent', checked: 'transparent' },
+    } as const;
+
+    for (const [name, borders] of Object.entries(cardBorders)) {
+      const classNames = probeClasses(name);
+      expect(winning(rules, classNames, {}, true, 'border-color', true), `${name} card`).toBe(
+        borders.unchecked,
+      );
+      expect(
+        winning(rules, classNames, checked, true, 'border-color', true),
+        `${name} card checked`,
+      ).toBe(borders.checked);
+      expect(
+        winning(rules, classNames, invalid, true, 'border-color', true),
+        `${name} card invalid`,
+      ).toBe('var(--color-destructive)');
+      expect(
+        winning(rules, classNames, { ...checked, ...invalid }, true, 'border-color', true),
+        `${name} card checked invalid`,
+      ).toBe('var(--color-destructive)');
+      // 卡片标签仍由外层单层 ring 表达焦点，错误态只加危险边框，不再叠内层环/轮廓。
+      expect(ringVisible(rules, classNames, invalid, true, true), `${name} card invalid`).toBe(
+        false,
+      );
+      expect(outlineVisible(rules, classNames, invalid, true, true), `${name} card invalid`).toBe(
+        false,
       );
     }
   });

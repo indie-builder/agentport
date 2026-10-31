@@ -9,6 +9,7 @@ colors:
   surface: "#FFFFFF"
   panel: "#FFFFFF"
   sunken: "#F6F6F6"
+  chip: "#F6F6F6"
   hover: "#F6F6F6"
   selected: "#EFEFEF"
   accent: "#EFEFEF"
@@ -17,7 +18,9 @@ colors:
   secondary: "#F6F6F6"
   secondary-foreground: "#141414"
   line: "#E6E6E6"
+  shell-line: "#E6E6E6"
   line-strong: "#767676"
+  control-boundary: "#767676"
   input: "#E6E6E6"
   input-focus: "#BDBDBD"
   composer-focus: "#DDDDDD"
@@ -41,55 +44,61 @@ colors:
   scrim: "rgb(0 0 0 / 0.4)"
 typography:
   display:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
     fontSize: "20px"
     fontWeight: 500
     lineHeight: "28px"
     letterSpacing: "-0.02em"
   title:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
     fontSize: "16px"
     fontWeight: 500
     lineHeight: "24px"
     letterSpacing: "-0.01em"
   subheading:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
     fontSize: "14px"
     fontWeight: 500
     lineHeight: "22px"
     letterSpacing: "0em"
   body:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
     fontSize: "14px"
     fontWeight: 400
     lineHeight: "22px"
     letterSpacing: "0em"
+  md:
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
+    fontSize: "15px"
+    fontWeight: 400
+    lineHeight: "26px"
+    letterSpacing: "0em"
   label:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
     fontSize: "13px"
     fontWeight: 400
     lineHeight: "20px"
     letterSpacing: "0em"
   label-strong:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
     fontSize: "13px"
     fontWeight: 500
     lineHeight: "20px"
     letterSpacing: "0em"
   meta:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
     fontSize: "12px"
     fontWeight: 400
     lineHeight: "16px"
     letterSpacing: "0em"
   meta-strong:
-    fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
+    fontFamily: '"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif'
     fontSize: "12px"
     fontWeight: 500
     lineHeight: "16px"
     letterSpacing: "0em"
   mono:
-    fontFamily: "JetBrains Mono Variable, JetBrains Mono, ui-monospace, monospace"
+    fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Geist Mono", monospace'
     fontSize: "12px"
     fontWeight: 400
     lineHeight: "20px"
@@ -140,7 +149,7 @@ components:
     backgroundColor: "transparent"
     textColor: "{colors.fg}"
     typography: "{typography.label-strong}"
-    rounded: "{rounded.item}"
+    rounded: "{rounded.icon}"
     height: "32px"
   input:
     backgroundColor: "{colors.surface}"
@@ -175,11 +184,17 @@ components:
   menu-item-highlight:
     backgroundColor: "{colors.accent}"
     textColor: "{colors.accent-foreground}"
+  sidebar-item:
+    backgroundColor: "{colors.selected}"
+    textColor: "{colors.selected-foreground}"
+    typography: "{typography.label-strong}"
+    rounded: "{rounded.item}"
+    height: "32px"
   card:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.fg}"
     rounded: "{rounded.card}"
-    padding: "16px"
+    padding: "16px 0"
   dialog:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.fg}"
@@ -198,13 +213,13 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Quiet Workbench"（静默工作台）**
+**Creative North Star: "The Quiet Workbench（静默工作台）"**
 
 PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖黄到蓝灰环境光，工作区本身是纯白纸面；工具、标题与正文都是墨色，状态只在需要时以小块浅灰或语义色出现。没有品牌色在页面上争抢注意力，彩色只留给真正是数据的地方。
 
 这套系统把「可点击」从颜色职责里拿掉：普通主操作与发送、登录共用中性深色实底，链接、按钮/全局焦点环与选中态也落在同一墨色系（输入聚焦另用浅中性 `input-focus` / `composer-focus`）；唯一的蓝色是运行图表首系列的数据蓝。这样层级由留白、分组、字重与实底/浅底关系表达，而不是由强调色表达。
 
-主题阶段是换肤记录：颜色、边线、阴影与外壳呈现来自 Qoder CN 桌面浅色界面的真实截图，输入默认/聚焦边线、composer 聚焦与焦点方案是 PACE 近似或可辨适配，不声称来自 Qoder；三种输入浅边线对白低于 3:1 的已接受限制见 Known Gaps。2026-10-30 用户批准的布局阶段在此之上更新了侧栏、页面内容边、聊天顶栏/输入/成果宽度、专家卡与资源工具行的几何；圆角、图标、动效与配色/焦点成果不变。2026-10-31 用户批准的字体收紧是 PACE 适配，未采样 Qoder 字体：会话标题、默认正文与输入用 14/22，欢迎标题 20/28；全局 15/26 令牌保留给运行详情等原有用途。本文按当前规范记录；此前的浏览器几何验收覆盖旧外顶栏结构；2026-10-31 已实页验收恢复后的三栏顶部对齐、历史开合、成果与窄桌面抽屉，见 [本任务记录](../../docs/tasks/chat-history-agent-picker.md)。
+本文是当前实现的快照，机器可读 token 以 frontmatter 为准；规范与用户已批准目标见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色与控件外观来自 Qoder CN 桌面浅色界面，输入默认/聚焦边线、composer 聚焦与焦点方案是 PACE 近似或可辨适配，不声称来自 Qoder。2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现；本文只记录实现值，不把未覆盖的浏览器证据写成已验收，未覆盖项与规范差异见 Known Gaps 和对应任务记录。
 
 **Key Characteristics:**
 - 纯白内容面，渐变只存在于应用外壳的三个外部根容器。
@@ -224,7 +239,7 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ### Secondary
 
-- **浅中性层（Quiet Neutral）** (#F6F6F6)：`secondary` 按钮、ghost 的 hover/展开、分段页签容器、代码块、Skeleton 与 chip 底。它表达「可交互或下沉」，不是文字色。
+- **浅中性层（Quiet Neutral）** (#F6F6F6)：`secondary` 按钮、ghost 的 hover/展开、分段页签容器、`chip`、代码块 `code`、Skeleton 与 chip 底。它表达「可交互或下沉」，不是文字色。
 - **选中灰（Selected Gray）** (#EFEFEF)：当前导航项、选中页签、菜单键盘高亮、用户消息气泡。它与浅中性层只差一档，靠上下文而不是色相区分。
 
 ### Tertiary
@@ -234,11 +249,11 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 ### Neutral
 
 - **纸白（Paper White）** (#FFFFFF)：`canvas`、`surface`、`panel`、卡片、弹层与输入基底。内容区不得染灰或铺渐变。
-- **分隔线（Hairline）** (#E6E6E6)：卡片与弹层的 1px ring、表格与分组分隔、页签当前项边框、外壳 outline。只做分组；输入默认边线借用同值 `input`，但分隔本身不表达可编辑。
+- **分隔线（Hairline）** (#E6E6E6)：卡片与弹层的 1px ring、表格与分组分隔、页签当前项边框、外壳 outline `shell-line`。只做分组；输入默认边线借用同值 `input`，但分隔本身不表达可编辑。
 - **输入默认边线（Input Boundary）** (#E6E6E6)：Input、Textarea、Select 触发器、Combobox、InputGroup、CodeMirror 搜索输入的默认 1px 边线，等同 `line`；不新增 hover 加深。对白约 1.25:1，是已接受的已知限制。
 - **输入聚焦（Input Focus）** (#BDBDBD)：普通输入真实 `:focus-visible` 时替换默认边线，是 PACE 中性近似映射，不是 Qoder 源码 token；对白约 1.88:1，低于 3:1。
 - **Composer 聚焦（Composer Focus）** (#DDDDDD)：仅对话 composer 文本控制器聚焦时由 InputGroup 外框使用，来自 Qoder 焦点分离实测；对白约 1.36:1，低于 3:1。
-- **强边界（Strong Boundary）** (#767676)：未选中 checkbox/radio 与 off 开关轨道、需要可辨边界的场景；它在白、选中灰与渐变最暗端都保持至少 3:1。
+- **强边界（Strong Boundary）** (#767676)：`line-strong` 与 `control-boundary` 同值，用于未选中 checkbox/radio 与 off 开关轨道、需要可辨边界的场景；它在白、选中灰与渐变最暗端都保持至少 3:1。
 - **正文墨（Text Ink）** (#141414)：正文、标题、选中项前景与普通图标。
 - **辅助灰（Helper Gray）** (#5F5F5F)：placeholder、描述、元信息、注释、表头次要信息；承载可读文字。
 - **装饰灰（Decorative Gray）** (#828282)：只用于装饰图标与禁用例外，不承载需要阅读的信息。
@@ -255,9 +270,9 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ## Typography
 
-**Display Font:** Inter（Inter Variable、Inter、system-ui、PingFang SC、sans-serif）
+**Display Font:** Inter（`"Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif`）
 **Body Font:** Inter（同上）
-**Label/Mono Font:** JetBrains Mono（JetBrains Mono Variable、JetBrains Mono、ui-monospace、Geist Mono、monospace）
+**Label/Mono Font:** JetBrains Mono（`"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Geist Mono", monospace`）
 
 **Character:** 一套人文无衬线承担全部界面与阅读，等宽只服务代码、标识与数值。字号克制，层级靠字重、间距与对齐，不靠新增字号档。
 
@@ -267,11 +282,12 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 - **Title** (500, 16px/24px, -0.01em)：普通页面 h1 与无效分享页标题。
 - **Subheading** (500, 14px/22px)：列表标题、卡片标题、对话标题与对话内的区块标题。
 - **Body** (400, 14px/22px)：对话、Markdown、OpenUI 默认正文与对话输入；用户气泡共用同一档与行高。
+- **Reading** (400, 15px/26px)：运行详情、评估、记忆与插件详情等保留的原有正文/标题用途；不是第二套对话正文。
 - **Label** (400/500, 13px/20px)：导航、按钮、输入、表格单元格与说明文字。这是界面默认档。
 - **Meta** (400, 12px/16px)：徽章、时间戳、ID、表头与密集只读元信息。
 - **Mono** (400, 12px/20px)：代码块、行内代码、标识与数值读数。
 
-全局 `md` 15/26 令牌保留给运行详情、评估、记忆与插件详情等原有正文/标题用途；OpenUI TextContent 显式 `small` 13/20 与 `large` 16/24 保留，默认跟随 14/22。
+`body` 的起点是 15px/1.5，只作未显式覆盖时的兜底；主要界面与对话分别显式使用 13/20 与 14/22，不能把兜底当作阅读规范。OpenUI TextContent 显式 `small` 13/20 与 `large` 16/24 保留，默认跟随 14/22。
 
 ### Named Rules
 
@@ -281,29 +297,48 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ## Layout
 
-桌面端布局，不做移动端适配，也不为触摸新增尺寸。应用外壳由三部分组成：透明的侧栏（展开 224px / 收起 64px）、纯白主壳、以及主壳外只露出 4px 的外壳边距。主壳有 16px 圆角与 1px `shell-line` outline，没有 border 与阴影；侧栏在外，透出 `bg-shell` 渐变。
+桌面端布局，窗口窄于 `lg` 时侧栏改为抽屉，仍按桌面密度，不为触摸新增尺寸。应用外壳由三部分组成：透明的侧栏（展开 224px / 收起 64px）、纯白主壳，以及主壳外上、右、下各 4px 的外壳边距（`mt-1 mr-1 mb-1`），左侧紧贴侧栏。主壳有 16px 圆角与 1px `shell-line` outline，没有 border 与阴影；侧栏在外，透出 `bg-shell` 渐变。上、右、下各 4px 是 2026-10-31 冻结布局的已批准值（[qoder-visual-redesign](../../docs/tasks/qoder-visual-redesign.md)「保持上下右4px外边距」）。
 
-主区普通页面水平内边距 24px、底部 24px，页面使用 `Page` / `PageHeader` / `PageToolbar` / `PageSection` 骨架：Page 默认区块间距 24px，页头单行最小高 56px、不另加顶部或横向 padding，区块内部间距 16px。对话阅读轴线 832px，含左右 24px 的外容器最大 880px；聊天没有横跨三栏的外顶栏，历史、消息列与成果栏从工作区顶部并排开始。消息列自带 56px 头部（左右 24px）：历史收起时显示历史开关、搜索、唯一专家选择、标题操作与成果开关；历史展开时只留历史开关、标题操作与成果开关，专家选择与新建移入历史头部，搜索在其下。窄桌面 Sheet 同理，Sheet 关闭后回到消息头部。成果面板 400px 从顶部开始；Composer 在消息列之后距底 24px、始终同一位置。会话历史默认收起 0，首次展开 240px，可在 200–360px 间调整并记忆。资源中心工具区固定两行：首行类型导航与管理操作，次行来源/搜索/筛选/排序/数量；专家卡无独立页脚底带。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。
+非 chat 内容区水平、底部各 24px（`px-6 pb-6`）；`Page` 默认区块间距 24px，`PageHeader` 单行最小高 56px、不另加顶部或横向 padding，`PageSection` 内部间距 16px、默认顶部 20px。`PageToolbar` 自身 `gap-3`（12px），控件内部 8px 由组内组合决定；搜索桌面 224px 且可收缩，筛选 144px，排序 128px。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。
+
+对话阅读轴线 832px，含左右 24px 的外容器最大 880px；聊天没有横跨三栏的外顶栏，历史、消息列与成果栏从工作区顶部并排开始。消息列自带 56px 头部（`px-6`，左右 24px）：历史收起时显示历史开关、搜索、唯一专家选择、标题操作与成果开关；历史展开时只留历史开关、标题操作与成果开关，专家选择与搜索、新建移入历史头部。历史头部同为 56px（`px-3`、`gap-1`）：左侧专家选择，右侧 32px ghost「新建会话」；侧栏不再有新建会话入口。成果面板 400px 从顶部开始；Composer 在消息列之后距底 24px、始终同一位置。会话历史默认收起 0，首次展开 240px，可在 200–360px 间调整并记忆。窄桌面历史 Sheet 同理，Sheet 关闭后回到消息头部。
 
 间距节奏取 4 / 8 / 12 / 16 / 20 / 24px。所有尺寸、宽高、图标 16px / `strokeWidth 1.75`、边框 1px、页签指示线与焦点 2px 以当前实现值为准；几何调整只按已批准布局契约进入，不通过新增 border 或页面级 padding 临时改变。
 
+### Schedules（定时任务）
+
+- **Dialog:** 新建与编辑共用 `DialogShell`，最大宽 1024px，沿用 20px 水平内容边；表单容器 ≥800px 时两栏：左栏自适应、右栏总宽固定 320px（含 1px `line` 竖分隔与 24px 左内边距，不额外累加），两栏 gap 24，右栏 `self-start` 自然高；更窄的桌面窗口顺序堆叠。不改现有全局 token、主题与 shadcn/Base UI 控件尺寸。
+- **Editing surface:** 左侧是开放编辑面，不包分区卡。名称常态无边框（透明 border）、14/22 medium，占位「任务名称」，关联标签 sr-only；下方 16px 是可见「任务内容」标签与 Textarea。Textarea 常态透明边框、最小高 160px（约 8 行）、随内容自然增高；聚焦与错误态仍用共享输入边线与焦点规格。
+- **Expert:** 紧接正文下 12px 的轻工具行：标签「执行专家」在左，内容宽 Select 在右（最大 240px）；不设大分区、不 `mt-auto` 贴底。编辑已有任务时专家只读。
+- **Right:** 顶部「执行计划」标题，频率与时间（UTC）同行；weekly 七个 Toggle 多选星期、至少一天，custom 直接编辑五段表达式并原样回填，五段 cron 是后端唯一存储值。启用开关在执行计划后 20px，不贴底。
+- **Footer:** 取消（outline）在前，创建任务 / 创建中… 或保存更改 / 保存中…（常规主操作）在后，右对齐；短视口页脚 sticky、始终可达；保存中禁用关闭与提交，dirty 的取消、Esc 与外部点击沿用共享放弃确认。
+- **Out of scope:** 不提供位置或时区选择，也不出现模型、附件、授权、到期、输出方式等后端不支持的项。
+- 实现与验收记录见 [schedule-ui-redesign](../../docs/tasks/schedule-ui-redesign.md)；用户尚未认可外观，技术与视觉评审不构成用户的设计批准。
+
+### Knowledge（知识库）
+
+- **创建**：默认只显示名称、描述；Slug、模型、分块与 Wiki 自动刷新在「高级设置」。唯一可用向量模型默认选中，中文名称可自动生成有效 slug；多个模型需明确选择。高级字段报错自动展开并聚焦。成功后直接进入该库文档工作面。
+- **详情**：标准 56px 页头，左侧返回、库名和状态，右侧 32px「使用此库的专家」「设置」；任务按文档、来源、检索测试、Wiki、处理记录排序。文档栏为 220px 文件夹 + 20px 间距 + 自适应内容，标签管理邻近标签筛选，上传为主操作。权限按既有动作叶分别呈现。
+- **恢复与关系**：首次失败文档进入按文档过滤的处理记录；记录含对象、错误与分页。处理表最小 1024px，对象最小 224px、步骤最小 240px，窄桌面只在表格容器内横滚。专家关系只显示有权确认的配置，无法确认时明确提示；空关系提供现有专家列表入口，不另造绑定编辑。
+- **设置**：模型选择读取安全候选投影，端点管理仍用独立权限；切换模型立即影响检索，已有文档需重建恢复向量检索。未保存设置不能执行重建；重建逐文档切换新版本，失败文档保留原版，成功文档不回滚。空白 Wiki 可直接写作，已有版本未加载时不会误当首版。
+- 布局与动线记录见 [knowledge-ux-review](../../docs/tasks/knowledge-ux-review.md)。该验收使用真实组件与固定数据隔离夹具，不覆盖真实登录、外部来源、模型调用与写链路，外壳侧栏为等价几何占位；测量数字见任务记录。已发布 Wiki 尚未进入专家检索，单独跟踪。
+
 ## Elevation & Depth
 
-系统默认是平的。外壳、卡片、表格、列表都没有投影：卡片用 1px `line` ring 划分边界，外壳用 1px outline。深度只出现在浮层与一个输入胶囊上：所有菜单、Select、Popover、Dialog、Sheet、Toast 共用同一个 overlay 阴影；对话输入胶囊保留一个极轻的 composer 阴影。外壳渐变是环境光，不是海拔。
+系统默认是平的。外壳、卡片、表格、列表都没有投影：卡片用 1px `line` ring 划分边界，外壳用 1px outline。深度只出现在浮层：所有菜单、Select、Popover、Dialog、Sheet、Toast 共用同一个 overlay 阴影。Composer 当前没有阴影。
 
 ### Shadow Vocabulary
 
 - **Overlay** (`0 8px 24px -8px rgb(0 0 0 / 0.12)`)：菜单、Select、Combobox、Popover、Dialog、AlertDialog、Sheet、Toast。`shadow-md` 与 `shadow-lg` 都映射到这一值。
-- **Composer** (`0 1px 4px 0 rgb(0 0 0 / 0.04)`)：仅对话输入胶囊；真实 1px input 边框仍在，不再用半个像素的 spread 模拟描边。
 - **Modal Scrim** (`rgb(0 0 0 / 0.4)`)：模态遮罩，不是阴影。
 
 ### Named Rules
 
-**The One-Shadow Rule.** 浮层只有一种阴影值，内容默认无阴影。不得新增彩色光晕、第二套浮层阴影，或在外壳与卡片上叠阴影。
+**The One-Shadow Rule.** 浮层只有一种阴影值，内容默认无阴影。不得新增彩色光晕、第二套浮层阴影，或在外壳与卡片上叠阴影。Composer 当前无阴影。
 
 ## Shapes
 
-形态是克制的圆角矩形：外壳、卡片、对话输入区与 Dialog 为 16px；常规按钮、输入、页签容器与菜单为 9px；图标按钮、小控件与页签项为 7px；徽章、标签与侧栏图标底为 6px；头像、胶囊按钮与用户消息为 9999px。Checkbox 保持 4px。
+形态是克制的圆角矩形：外壳、卡片、对话输入区与 Dialog 为 16px；常规按钮、输入、页签容器、菜单与侧栏展开条目为 9px。共享 `Button` 的 `size="icon"` 32px / `icon-lg` 36px、紧凑 28/24px 图标按钮、小控件、页签项与侧栏折叠按钮实例均为 7px。徽章、标签与侧栏收起态 32×32 图标块为 6px；头像、胶囊按钮与用户消息为 9999px。Checkbox 保持 4px。
 
 边线宽度全部沿用既有值：1px border/outline、2px 页签指示线与焦点轮廓。只换颜色，不通过新增边框改变控件尺寸。容器用圆角裁切图片与内容，不使用斜切、硬投影或装饰性几何。
 
@@ -313,11 +348,11 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 中性的墨色工具，次要动作保持轻。
 
-- **Shape:** 常规高 32px、9px 圆角、13/20 500；紧凑 28px / 7px；大号 36px。保留 1px 透明边框占位，尺寸不因换色变化。
+- **Shape:** 常规高 32px、9px 圆角、13/20 500；紧凑 28px / 7px；大号 36px。图标按钮用 `size="icon"` 32px / `icon-lg` 36px，与 `icon-sm`（28px）、`icon-xs`（24px）同为 7px；侧栏折叠按钮实例也显式 7px。保留 1px 透明边框占位，尺寸不因换色变化。
 - **Primary:** `default` 用 `button-primary` 实底、白字，hover `#262626`、active `#404040`；disabled 仅降透明度并禁止交互。
 - **Solid:** 发送、登录等显式动作与 `default` 共用同一三态实底；不存在单独的蓝色实底。
 - **Outline / Secondary / Ghost / Plain:** outline 白底、1px `line` 边线、`fg` 字，hover 与展开 `#F6F6F6`；secondary 用 `#F6F6F6` 底；ghost 透明，hover 与展开 `#F6F6F6`；plain 保持透明且不加 hover 底。取消、筛选与菜单触发器不因主色改成深色实底。
-- **Link:** `#0D0D0D` 文字，保留下划线 hover 与可访问名，不靠蓝色表明可点击。
+- **Link:** `#0D0D0D` 文字，保留下划线 hover 与可访问名，不靠蓝色表明可点击。导航与下载入口用原生 `Link` / `<a>` 配 `buttonVariants`，保持链接语义与既有外观，不用 `Button` 强制 `role=button`。
 - **Focus:** 实底按钮用单层 2px `ring`，并在实底外留 2px 背景色间隔；invalid 时危险边框与焦点环共存，实底 offset 不消失。不要同时出现边框与光环两层普通态焦点信号。
 
 ### Tabs
@@ -328,21 +363,21 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ### Inputs / Fields
 
-- **Style:** 白底、1px `input` `#E6E6E6` 边框、9px 圆角、高 32px、13/20；placeholder `#5F5F5F`。Input、Textarea、Select 可编辑触发器、Combobox、InputGroup 与 CodeMirror 搜索输入共用同一默认边线与尺寸；不新增 hover 加深。共享 Input / Textarea 保持 13/20；对话 composer 文本区例外使用 14/22（`base`）。
+- **Style:** 白底、1px `input` `#E6E6E6` 边框、9px 圆角、高 32px、13/20；placeholder `#5F5F5F`。Input、Textarea、SourceEditor、Select 可编辑触发器、Combobox、InputGroup 与 CodeMirror 搜索输入共用同一默认边线与尺寸；不新增 hover 加深。共享 Input / Textarea 保持 13/20；对话 composer 文本区例外使用 14/22（`base`）。桌面窗口收窄（含 767px）时仍固定 13/20，不再切换 16px 移动端字号。
 - **Focus:** 普通输入把既有 1px 边框换成 `input-focus` `#BDBDBD`（PACE 中性近似，不是 Qoder 源码 token），composer 文本控制器聚焦时外框换 `composer-focus` `#DDDDDD`，均不叠加光环；InputGroup 由外框承担焦点，内部输入不再画第二层。Select 关闭键盘态同样使用 `input-focus`。
-- **Invalid / Disabled:** invalid 用 `danger` 边框优先，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点；错误边框不能代替焦点。只有真实禁用的输入才使用独立于输入边线的禁用背景与透明度（`control-boundary/50`），空内容只禁用发送按钮。未选中 checkbox/radio 用 `control-boundary`，checked/on 用 `primary` + 白色勾/点/thumb；off 开关轨道用 `control-boundary` 与白 thumb；Toggle 选中态是 `selected` + `fg`，不是深色实底。
+- **Invalid / Disabled:** invalid 用 `danger` 边框优先，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点；错误边框不能代替焦点。只有真实禁用的输入才使用独立于输入边线的禁用背景与透明度（`control-boundary/50`），空内容只禁用发送按钮。未选中 checkbox/radio 用 `control-boundary`，checked/on 用 `primary` + 白色勾/点/thumb；off 开关轨道用 `control-boundary` 与白 thumb；Toggle 选中态是 `selected` + `fg`，不是深色实底。选中的 checkbox / radio / switch 聚焦时用单层 2px `outline` + 2px offset，不叠加 ring；未选中沿用各原语既有的单层焦点信号；普通字段标签由控件自身表达焦点，卡片式字段标签统一用外圈。真实浏览器已实测选中 Checkbox/Switch/Radio（`outline solid 2px`、`offset 2px`，无可见 ring）、普通标签、卡片标签、独立 invalid 控件，以及卡片 invalid 组合（3 个控件 border `rgb(180,35,24)`，内部 outline none / ring 0，外层 label 单层 2px ring）；forced-colors 系统轮廓保留。
 
 ### Menus / Popovers / Overlays
 
-- **Menu / Select / Combobox / Popover:** 白浮层、1px `line` ring、overlay 阴影；菜单与浮层 9px 圆角。普通文字 `fg`、描述 `muted-foreground`；hover 与键盘高亮用 `accent` `#EFEFEF` + `accent-foreground` `#141414`；危险项用 `danger`，不被普通 hover 覆盖。
-- **Dialog / AlertDialog / Sheet:** 白表面、16px 圆角、1px `line` ring、overlay 阴影；Modal 遮罩 `scrim`。标题 14/22 500，描述 13/20 `muted-foreground`。确认的主操作为深色实底，取消为 outline，危险确认保持 destructive。
+- **Menu / Select / Combobox / Popover:** 白浮层、1px `line` ring、overlay 阴影；菜单与浮层 9px 圆角，菜单项 7px 圆角、`4px 6px` 内边距。普通文字 `fg`、描述 `muted-foreground`；hover 与键盘高亮用 `accent` `#EFEFEF` + `accent-foreground` `#141414`；危险项用 `danger`，不被普通 hover 覆盖。
+- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角、1px `line` ring、overlay 阴影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。确认的主操作为深色实底，取消为 outline，危险确认保持 destructive。
 - **Tooltip / Toast:** Tooltip 保留既有反色（`fg` 底、白字），不做成白浮层；Toast 白底、1px `line`、overlay 阴影，操作按钮用显式 outline，关闭按钮白底中性 hover。Toast、操作按钮与关闭按钮的焦点都用单层 2px `ring` outline、offset 2；操作按钮只用该 outline，不叠加按钮基类 ring 与焦点阴影，视觉上不出现第二圈光环。
 
 ### Cards / Tables / Lists
 
-- **Cards:** 纯白底、16px 圆角、1px `line` ring、16px 内边距，默认无阴影；标题 14/22 500，描述 13/20 `muted-foreground`。
+- **Cards:** 纯白底、16px 圆角、1px `line` ring，默认无阴影。Card 根是带 `py-4` 的纵向 flex，子块间距 16px（`size="sm"` 为 12px），根本身没有水平 padding；Header、Content、Footer 各自承担 16px 水平内边距，Footer 独立 `p-4`，存在 Footer 时根 `pb-0`。因此不能描述成「所有裸 Card 子节点统一 p16」。CardTitle 为 14/22（`text-base`），sm 卡为 13/20（`text-sm`）；描述 13/20 `muted-foreground`。真实浏览器已测量标题行高 22px。
 - **Expert card:** 16px 内边距、40px 头像、描述最多两行；开始对话在描述后 8px、与信息列同左边线，无独立页脚底带、`mt-auto` 或固定高度；空描述不留固定占位。
-- **Tables / Lists:** 纯白底、1px `line` 分隔；选中行用 `selected`。当前实现的表格行 hover/展开使用 `muted` 的 50% 浅层，卡片页脚也使用同一半透明层；这与契约期望的不透明 `hover` 存在差异，本文件按构建记录，不把它升格为规则。
+- **Tables / Lists:** 纯白底、1px `line` 分隔；表头 12px `muted-foreground`，单元格 13/20；行 hover 与展开用不透明 `hover` `#F6F6F6`，选中用 `selected` `#EFEFEF`；卡片页脚同为 `hover` `#F6F6F6`。真实浏览器已测量表头 12px 辅助色与行/页脚底色。
 - **Skeleton / Progress / Separator:** Skeleton 用 `sunken`；Progress 活跃主线用 `primary`，终态走原结果语义；Separator 用 `line`。
 
 ### Messages / Code / Charts
@@ -354,26 +389,9 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 
 ### Navigation
 
-- **Sidebar:** 透明底，透出 `bg-shell` 渐变；宽 224px / 收起 64px。条目高 32px、9px 圆角；普通文字 `fg`，分组与账号元信息 `muted-foreground`；hover `#F6F6F6`；当前项 `selected` `#EFEFEF` + `selected-foreground` `#141414`，保留 `aria-current`，不加彩色竖条。收起态状态只落在 32×32 图标块上。
+- **Sidebar:** 透明底，透出 `bg-shell` 渐变；宽 224px / 收起 64px。条目高 32px；展开态 9px 圆角（`rounded-item`），收起态为 32×32 图标块、6px 圆角（`rounded-tag`）。普通文字 `fg`，分组与账号元信息 `muted-foreground`；hover `#F6F6F6`；当前项 `selected` `#EFEFEF` + `selected-foreground` `#141414`，保留 `aria-current`，不加彩色竖条。收起态状态只落在图标块上。
+- **New conversation:** 只在会话历史头部出现，32px ghost 图标按钮；侧栏不设新建会话条目。
 - **Account / menus:** 账号触发器保留紧凑 12px 标签与 7px 圆角；下拉项 hover/键盘高亮统一用 `accent` `#EFEFEF`，不再为单个菜单保留另一套 hover 底色。
-
-### Schedules（定时任务）
-
-- **Dialog:** 新建与编辑共用 `DialogShell`，最大宽 1024px，沿用 20px 水平内容边；表单容器 ≥800px 时两栏：左栏自适应、右栏总宽固定 320px（含 1px `line` 竖分隔与 24px 左内边距，不额外累加），两栏 gap 24，右栏 `self-start` 自然高；更窄的桌面窗口顺序堆叠。不改现有全局 token、主题与 shadcn/Base UI 控件尺寸。
-- **Editing surface:** 左侧是开放编辑面，不包分区卡。名称常态无边框（透明 border）、14/22 medium，占位「任务名称」，关联标签 sr-only；下方 16px 是可见「任务内容」标签与 Textarea。Textarea 常态透明边框、最小高 160px（约 8 行）、随内容自然增高；聚焦与错误态仍用共享输入边线与焦点规格。
-- **Expert:** 紧接正文下 12px 的轻工具行：标签「执行专家」在左，内容宽 Select 在右（最大 240px）；不设大分区、不 `mt-auto` 贴底。编辑已有任务时专家只读。
-- **Right:** 顶部「执行计划」标题，频率与时间（UTC）同行；weekly 七个 Toggle 多选星期、至少一天，custom 直接编辑五段表达式并原样回填，五段 cron 是后端唯一存储值。启用开关在执行计划后 20px，不贴底。
-- **Footer:** 取消（outline）在前，创建任务 / 创建中… 或保存更改 / 保存中…（常规主操作）在后，右对齐；短视口页脚 sticky、始终可达；保存中禁用关闭与提交，dirty 的取消、Esc 与外部点击沿用共享放弃确认。
-- **Out of scope:** 不提供位置或时区选择，也不出现模型、附件、授权、到期、输出方式等后端不支持的项。
-- **Acceptance:** 第二版已在真实页面验收（2026-10-31）：1440×900 新建弹窗实测 1024×429.875，正文 640×160；1024 桌面弹窗宽 992；800 宽窗口顺序堆叠、内容可滚动且页脚可达；50 行正文自然增高至 1018px 时页脚仍可达，页面无横向溢出。真实浏览器已新建禁用每周任务并回开编辑，频率与专家只读状态正确。独立发布树剥离账号权限依赖后三个关联测试文件 41 个用例通过（原实施树 64 个用例历史数字见 `docs/tasks/schedule-ui-redesign.md`）、web typecheck/build、focus/contract 与 Biome 通过，独立代码评审及视觉完工评审通过（disposition: ship）；用户尚未认可外观，技术与视觉评审不构成用户的设计批准。本段记录实现快照，不代表用户已接受或已发布。
-
-### Knowledge（知识库）
-
-- **创建**：默认只显示名称、描述；Slug、模型、分块与 Wiki 自动刷新在「高级设置」。唯一可用向量模型默认选中，中文名称可自动生成有效 slug；多个模型需明确选择。高级字段报错自动展开并聚焦。成功后直接进入该库文档工作面。
-- **详情**：标准 56px 页头，左侧返回、库名和状态，右侧 32px「使用此库的专家」「设置」；任务按文档、来源、检索测试、Wiki、处理记录排序。文档栏为 220px 文件夹 + 20px 间距 + 自适应内容，标签管理邻近标签筛选，上传为主操作。权限按既有动作叶分别呈现。
-- **恢复与关系**：首次失败文档进入按文档过滤的处理记录；记录含对象、错误与分页。处理表最小 1024px，对象最小 224px、步骤最小 240px，窄桌面只在表格容器内横滚。专家关系只显示有权确认的配置，无法确认时明确提示；空关系提供现有专家列表入口，不另造绑定编辑。
-- **设置**：模型选择读取安全候选投影，端点管理仍用独立权限；切换模型立即影响检索，已有文档需重建恢复向量检索。未保存设置不能执行重建；重建逐文档切换新版本，失败文档保留原版，成功文档不回滚。空白 Wiki 可直接写作，已有版本未加载时不会误当首版。
-- **验收边界**：2026-10-31 在真实组件 + 固定数据的隔离夹具中实测：1480×840 文档页头 56px、文件夹 220px、栏间距 20px；1024×768 处理表 1024px / 容器 748px，对象 224px、步骤 240px；两处页头按钮 32px，两档均无页面横向溢出。该证据不覆盖真实登录、外部来源、模型或写链路；应用外壳侧栏用等价几何占位。已发布 Wiki 尚未进入专家检索，单独跟踪。
 
 ## Do's and Don'ts
 

@@ -163,10 +163,9 @@ export function AuditPage() {
               variant="outline"
               onClick={() => void exportAudit()}
               disabled={exporting || searchPending}
-              title={searchPending ? '等待筛选生效后再导出' : undefined}
             >
               <Download data-icon="inline-start" aria-hidden="true" />
-              {exporting ? '导出中…' : '导出审计'}
+              {exporting ? '导出中…' : searchPending ? '等待筛选…' : '导出审计'}
             </Button>
             <Button
               variant="outline"
@@ -259,6 +258,9 @@ export function AuditPage() {
               rows={rows}
               columns={columns}
               rowKey={(row) => row.id}
+              rowLabel={(row) =>
+                `${row.action}${row.target ? ` ${row.target}` : ''} · ${formatDateTime(row.createdAt)}`
+              }
               label="审计事件"
               loading={audit.isPending || searchPending}
               empty="登录或修改配置后会自动记录对应事件。"

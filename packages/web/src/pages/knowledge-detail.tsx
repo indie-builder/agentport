@@ -45,7 +45,7 @@ import { SearchInput } from '../components/search-input.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
@@ -370,15 +370,13 @@ export function KnowledgeDetailPage() {
       <PageHeader
         title={base.data?.name ?? '知识库'}
         leading={
-          <Button
-            variant="outline"
-            size="icon"
-            nativeButton={false}
-            render={<Link to="/knowledge" />}
+          <Link
+            to="/knowledge"
             aria-label="返回知识库列表"
+            className={buttonVariants({ variant: 'outline', size: 'icon' })}
           >
             <ArrowLeft />
-          </Button>
+          </Link>
         }
         eyebrow={
           base.data ? (
@@ -2524,42 +2522,53 @@ function SearchTab({ baseId, canExecute }: { baseId: string; canExecute: boolean
       ) : null}
       {results.data && results.data.hits.length > 0 ? (
         <ul className="flex flex-col">
-          {results.data.hits.map((hit) => (
-            <li key={hit.chunkId} className="flex flex-col gap-1 border-b py-3 last:border-b-0">
-              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="min-w-0 truncate text-sm font-medium text-fg" title={hit.title}>
-                  {hit.title}
-                </span>
-                {hit.heading ? (
-                  <span className="truncate text-xs text-muted-foreground">{hit.heading}</span>
-                ) : null}
-                <span className="ml-auto shrink-0 text-2xs text-muted-foreground">
-                  {hit.pageFrom === null
-                    ? null
-                    : `第 ${hit.pageFrom}${hit.pageTo && hit.pageTo !== hit.pageFrom ? `–${hit.pageTo}` : ''} 页 · `}
-                  {hit.score.toFixed(3)}
-                </span>
-              </div>
-              <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-                {hit.quote}
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button variant="link" size="xs" onClick={() => setCited(hit)}>
-                  查看原文
-                </Button>
-                {hit.sourceUrl ? (
-                  <a
-                    href={hit.sourceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-fit text-2xs text-muted-foreground underline underline-offset-2"
+          {results.data.hits.map((hit, index) => {
+            const pageRange =
+              hit.pageFrom === null
+                ? null
+                : `第 ${hit.pageFrom}${hit.pageTo && hit.pageTo !== hit.pageFrom ? `–${hit.pageTo}` : ''} 页`;
+            const location = [pageRange, hit.heading].filter(Boolean).join(' · ');
+            const quoteExcerpt = hit.quote.length > 40 ? `${hit.quote.slice(0, 40)}…` : hit.quote;
+            return (
+              <li key={hit.chunkId} className="flex flex-col gap-1 border-b py-3 last:border-b-0">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="min-w-0 truncate text-sm font-medium text-fg" title={hit.title}>
+                    {hit.title}
+                  </span>
+                  {hit.heading ? (
+                    <span className="truncate text-xs text-muted-foreground">{hit.heading}</span>
+                  ) : null}
+                  <span className="ml-auto shrink-0 text-2xs text-muted-foreground">
+                    {pageRange ? `${pageRange} · ` : null}
+                    {hit.score.toFixed(3)}
+                  </span>
+                </div>
+                <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                  {hit.quote}
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="link"
+                    size="xs"
+                    aria-label={`查看原文：${hit.title}${location ? `（${location}）` : ''}${quoteExcerpt ? `：${quoteExcerpt}` : ''}，命中 ${index + 1}`}
+                    onClick={() => setCited(hit)}
                   >
-                    查看来源
-                  </a>
-                ) : null}
-              </div>
-            </li>
-          ))}
+                    查看原文
+                  </Button>
+                  {hit.sourceUrl ? (
+                    <a
+                      href={hit.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-fit text-2xs text-muted-foreground underline underline-offset-2"
+                    >
+                      查看来源
+                    </a>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
       {cited ? (

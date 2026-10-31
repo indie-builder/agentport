@@ -41,7 +41,11 @@ export function SearchInput({
       </InputGroupAddon>
       {value ? (
         <InputGroupAddon align="inline-end">
-          <InputGroupButton size="icon-xs" aria-label="清除搜索" onClick={() => onChange('')}>
+          <InputGroupButton
+            size="icon-xs"
+            aria-label={`清除：${label}`}
+            onClick={() => onChange('')}
+          >
             <X aria-hidden="true" />
           </InputGroupButton>
         </InputGroupAddon>

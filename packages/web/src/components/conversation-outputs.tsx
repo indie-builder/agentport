@@ -139,7 +139,7 @@ export function ConversationOutputs({
       </div>
       <div className="@container min-h-0 flex-1 overflow-y-auto p-3">
         {conversationId === null ? (
-          <EmptyState title="当前会话没有成果文件" description="此处用于查看报告等会话成果。" />
+          <EmptyState title="开始对话或打开已有会话后查看成果" />
         ) : outputs.isPending ? (
           <LoadingState rows={4} />
         ) : outputs.isError ? (

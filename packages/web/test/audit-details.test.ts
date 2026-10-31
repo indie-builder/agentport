@@ -11,6 +11,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type AuditEntry, type AuditList, api } from '../src/lib/api.js';
+import { formatDateTime } from '../src/lib/format.js';
 import { AuditPage } from '../src/pages/audit.js';
 import { auditSearchSchema } from '../src/routes/-search.js';
 
@@ -78,13 +79,17 @@ async function mount(search = ''): Promise<void> {
   await flush();
 }
 
-/** 展开按钮的名称随状态在「展开/收起 <id>」间切换，按 id 取当前按钮。 */
+/** 展开按钮的名称随状态在「展开/收起 <业务名>」间切换，按主键关联的面板取当前按钮。 */
 function toggle(id: string): HTMLButtonElement {
   const found = [...container.querySelectorAll<HTMLButtonElement>('button[data-row]')].find(
-    (button) => button.getAttribute('aria-label')?.endsWith(` ${id}`),
+    (button) => button.getAttribute('aria-controls')?.endsWith(`-row-panel-${id}`),
   );
   if (!found) throw new Error(`missing row toggle for ${id}`);
   return found;
+}
+
+function rowActionLabel(prefix: '展开' | '收起', row: AuditEntry): string {
+  return `${prefix} ${row.action}${row.target ? ` ${row.target}` : ''} · ${formatDateTime(row.createdAt)}`;
 }
 
 async function toggleRow(id: string): Promise<void> {
@@ -156,14 +161,16 @@ describe('audit row details', () => {
 
     // 原生 button + aria-expanded/aria-controls 是键盘可操作的基础，不在此断言读屏。
     const trigger = toggle('audit_aaa');
-    expect(trigger.getAttribute('aria-label')).toBe('展开 audit_aaa');
+    expect(trigger.getAttribute('aria-label')).toBe(rowActionLabel('展开', entry('audit_aaa')));
     expect(trigger.tagName).toBe('BUTTON');
     expect(trigger.type).toBe('button');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
 
     await toggleRow('audit_aaa');
     const opened = panelOf('audit_aaa');
-    expect(toggle('audit_aaa').getAttribute('aria-label')).toBe('收起 audit_aaa');
+    expect(toggle('audit_aaa').getAttribute('aria-label')).toBe(
+      rowActionLabel('收起', entry('audit_aaa')),
+    );
     expect(toggle('audit_aaa').getAttribute('aria-expanded')).toBe('true');
     expect(detailValue(opened, '操作者')).toBe('admin');
     expect(detailValue(opened, '事件 ID')).toBe('audit_aaa');
@@ -172,7 +179,9 @@ describe('audit row details', () => {
     expect(panelOf('audit_bbb')).not.toBe(opened);
 
     await toggleRow('audit_aaa');
-    expect(toggle('audit_aaa').getAttribute('aria-label')).toBe('展开 audit_aaa');
+    expect(toggle('audit_aaa').getAttribute('aria-label')).toBe(
+      rowActionLabel('展开', entry('audit_aaa')),
+    );
     expect(toggle('audit_aaa').getAttribute('aria-expanded')).toBe('false');
     expect(panelOf('audit_aaa').textContent).not.toContain(DIGEST);
   });

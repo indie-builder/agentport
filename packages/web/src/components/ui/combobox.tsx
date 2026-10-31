@@ -245,7 +245,7 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
     <ComboboxPrimitive.Input
       data-slot="combobox-chip-input"
       aria-description="从输入开头按左方向键可选择已选项，再按 Backspace 或 Delete 移除"
-      className={cn('min-w-16 flex-1 text-mobile-input outline-none md:text-sm', className)}
+      className={cn('min-w-16 flex-1 text-sm outline-none', className)}
       {...props}
     />
   );

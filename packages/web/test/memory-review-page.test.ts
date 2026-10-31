@@ -14,7 +14,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
 import { MemoryPage } from '../src/pages/memory.js';
-import { memorySearchSchema } from '../src/routes/-search.js';
+import { chatSearchSchema, memorySearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 
 const agentA: Agent = {
@@ -99,6 +99,12 @@ async function mount(
     validateSearch: memorySearchSchema,
     component: MemoryPage,
   });
+  const chatRoute = createRoute({
+    getParentRoute: () => shell,
+    path: '/chat',
+    validateSearch: chatSearchSchema,
+    component: () => null,
+  });
   const history = options.browser
     ? createBrowserHistory()
     : createMemoryHistory({ initialEntries: [url] });
@@ -112,7 +118,7 @@ async function mount(
     browserHistory = history as ReturnType<typeof createBrowserHistory>;
   }
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([memoryRoute])]),
+    routeTree: rootRoute.addChildren([shell.addChildren([memoryRoute, chatRoute])]),
     history,
   });
   await act(async () => {
@@ -766,6 +772,36 @@ describe('历史回顾', () => {
 
     await act(async () => resolve(change));
     await flush();
+  });
+
+  it('在途操作时来源会话链接不离开，结算后正常导航到结构化会话地址', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [makeReview({ runId: 'run-pending' })],
+    });
+    let resolve!: (value: MemoryChange) => void;
+    vi.mocked(api.applyMemoryReview).mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const router = await mount();
+    await openFirstDetail();
+    await click(dialogButton('采用'));
+
+    const sourceLink = () =>
+      document.querySelector<HTMLAnchorElement>('[role="dialog"] a[href*="conversation=conv-1"]');
+    expect(sourceLink()?.getAttribute('aria-disabled')).toBe('true');
+    await act(async () => sourceLink()?.click());
+    await flush();
+    expect(router.state.location.pathname).toBe('/memory');
+
+    await act(async () => resolve(change));
+    await flush();
+    await vi.waitFor(() => expect(sourceLink()?.getAttribute('aria-disabled')).toBeNull());
+    await act(async () => sourceLink()?.click());
+    await flush();
+    expect(router.state.location.pathname).toBe('/chat');
+    expect(router.state.location.search).toEqual({ conversation: 'conv-1' });
   });
 
   it('详情操作失败原因在关闭并重新打开后仍保留', async () => {

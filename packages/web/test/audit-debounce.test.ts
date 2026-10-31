@@ -81,7 +81,7 @@ async function type(label: string, value: string): Promise<void> {
 
 function exportButton(): HTMLButtonElement {
   const found = [...document.querySelectorAll('button')].find((button) =>
-    button.textContent?.includes('导出审计'),
+    ['导出审计', '等待筛选…', '导出中…'].some((label) => button.textContent?.includes(label)),
   );
   if (!found) throw new Error('missing export button');
   return found;
@@ -144,14 +144,17 @@ describe('audit filter debounce', () => {
     await flush();
     expect(exportButton().disabled).toBe(false);
 
-    const clear = document.querySelector<HTMLButtonElement>('button[aria-label="清除搜索"]');
+    const clear = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="清除：按动作前缀过滤"]',
+    );
     if (!clear) throw new Error('missing clear button');
     await act(async () => clear.click());
 
-    // URL 与输入框立即清空，但查询还要等防抖落定。
+    // URL 与输入框立即清空，但查询还要等防抖落定；导出入口用可见文字说明为什么不可点。
     expect(input('按动作前缀过滤').value).toBe('');
     expect(router.search.action).toBeUndefined();
     expect(exportButton().disabled).toBe(true);
+    expect(exportButton().textContent).toBe('等待筛选…');
     expect(mocks.audit).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -159,6 +162,7 @@ describe('audit filter debounce', () => {
     });
     await flush();
     expect(exportButton().disabled).toBe(false);
+    expect(exportButton().textContent).toContain('导出审计');
     expect(mocks.audit).toHaveBeenLastCalledWith({ limit: 100 }, expect.anything());
   });
 

@@ -81,6 +81,21 @@ describe('DataTable accessibility', () => {
     expect(inert).not.toContain('data-row');
   });
 
+  it('names row actions by the business label while keeping the primary key in state', () => {
+    const html = renderTable({
+      renderExpanded: () => 'Details',
+      rowLabel: (row) => `专家：${row.name}`,
+    });
+    expect(html).toContain('aria-label="展开 专家：A long expert name that must stay readable"');
+    expect(html).toMatch(/aria-controls="[^"]*-row-panel-run-1"/);
+    expect(html).toMatch(/id="[^"]*-row-panel-run-1"/);
+  });
+
+  it('falls back to the primary key when a row has no business label', () => {
+    const html = renderTable({ renderExpanded: () => 'Details' });
+    expect(html).toContain('aria-label="展开 run-1"');
+  });
+
   it.each([{ loading: true }, { empty: 'Nothing here' }])(
     'keeps loading and empty states inside table cells %j',
     (props) => {
