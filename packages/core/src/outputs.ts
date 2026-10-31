@@ -9,6 +9,7 @@ import {
   outputManifestSchema,
   outputOwnerIdSchema,
   outputPathSchema,
+  slugSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { fail } from './errors.js';
@@ -72,8 +73,6 @@ function mediaTypeOf(path: string): string {
   return mediaTypes.get(extension) ?? 'application/octet-stream';
 }
 
-const slugPattern = /^[a-z0-9][a-z0-9_-]*$/;
-
 function ownerId(value: string, field: string): string {
   if (!outputOwnerIdSchema.safeParse(value).success) {
     fail('INVALID_INPUT', `${field} 不能用作产出目录名`, { path: `/${field}` });
@@ -82,7 +81,9 @@ function ownerId(value: string, field: string): string {
 }
 
 function conversationSegments(input: { slug: string; conversationId: string }): string[] {
-  if (!slugPattern.test(input.slug)) fail('INVALID_INPUT', '智能体目录名非法', { path: '/slug' });
+  if (!slugSchema.safeParse(input.slug).success) {
+    fail('INVALID_INPUT', '智能体目录名非法', { path: '/slug' });
+  }
   ownerId(input.conversationId, 'conversationId');
   return [input.slug, CONVERSATION_OUTPUTS, input.conversationId];
 }

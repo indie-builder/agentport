@@ -6,6 +6,8 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
+  rename,
   rm,
   stat,
   symlink,
@@ -452,5 +454,99 @@ describe('removeConversationInputs', () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
+  });
+});
+
+describe('slug validation', () => {
+  const longSlug = 'a'.repeat(65);
+  const slugError = {
+    code: 'INVALID_INPUT',
+    status: 400,
+    retryable: false,
+    path: '/slug',
+    message: '智能体目录名非法',
+  };
+
+  it('accepts 64-character and mixed separator slugs for write and read', async () => {
+    for (const validSlug of ['a'.repeat(64), 'a-b_c0']) {
+      const [meta] = await writeConversationAttachments({
+        root,
+        slug: validSlug,
+        conversationId,
+        inputs: [input('note.txt', 'x')],
+      });
+      if (meta === undefined) throw new Error('missing metadata');
+      const read = await readConversationAttachment({
+        root,
+        slug: validSlug,
+        conversationId,
+        attachment: meta,
+      });
+      expect(read.data.toString()).toBe('x');
+    }
+  });
+
+  it('rejects a 65-character slug when writing and creates nothing', async () => {
+    await expect(
+      writeConversationAttachments({
+        root,
+        slug: longSlug,
+        conversationId,
+        inputs: [input('note.txt', 'x')],
+      }),
+    ).rejects.toMatchObject(slugError);
+    await expect(access(join(root, longSlug))).rejects.toThrow();
+  });
+
+  it('rejects a 65-character slug when reading existing attachments', async () => {
+    const [meta] = await writeConversationAttachments({
+      root,
+      slug,
+      conversationId,
+      inputs: [input('note.txt', 'x')],
+    });
+    if (meta === undefined) throw new Error('missing metadata');
+    await mkdir(join(root, longSlug), { recursive: true });
+    await rename(
+      join(root, slug, 'conversation-inputs'),
+      join(root, longSlug, 'conversation-inputs'),
+    );
+    await expect(
+      readConversationAttachment({ root, slug: longSlug, conversationId, attachment: meta }),
+    ).rejects.toMatchObject(slugError);
+  });
+
+  it('keeps the directory when removing with a 65-character slug', async () => {
+    const dir = conversationInputsDir({ root, slug: longSlug, conversationId });
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'sentinel.txt'), 'keep');
+    await expect(
+      removeConversationInputs({ root, slug: longSlug, conversationId }),
+    ).resolves.toBeUndefined();
+    expect(await readFile(join(dir, 'sentinel.txt'), 'utf8')).toBe('keep');
+  });
+
+  it('rejects invalid slug characters with the exact error fields', async () => {
+    for (const invalid of ['', 'Agent-A', '中文', 'a b', 'a.b', '-agent', '_agent', 'a/b', '..']) {
+      await expect(
+        writeConversationAttachments({
+          root,
+          slug: invalid,
+          conversationId,
+          inputs: [input('note.txt', 'x')],
+        }),
+      ).rejects.toMatchObject(slugError);
+    }
+  });
+
+  it('removes a valid slug directory', async () => {
+    await writeConversationAttachments({
+      root,
+      slug,
+      conversationId,
+      inputs: [input('note.txt', 'x')],
+    });
+    await removeConversationInputs({ root, slug, conversationId });
+    await expect(access(conversationInputsDir({ root, slug, conversationId }))).rejects.toThrow();
   });
 });
