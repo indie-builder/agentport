@@ -123,7 +123,7 @@ export function MemoryPanel({
       </div>
     );
   }
-  if (memory.isError) {
+  if (memory.data === undefined) {
     return (
       <div className="flex flex-col gap-4">
         <MemoryReviewLink agentId={agentId} />
@@ -131,22 +131,27 @@ export function MemoryPanel({
       </div>
     );
   }
-  if (!memory.data.initialized) {
+  if (!memory.data.initialized && (canWrite || files.length === 0)) {
     return (
       <div className="flex flex-col gap-4">
         <MemoryReviewLink agentId={agentId} />
+        {memory.isError ? (
+          <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
+        ) : null}
         <EmptyState
           icon={<FilePlus2 className="size-5" />}
           title="初始化记忆"
           description="MEMORY.md 作为索引，跨会话保留这位专家的长期记忆。"
           action={
-            <Button
-              disabled={create.isPending}
-              aria-busy={create.isPending}
-              onClick={() => create.mutate('MEMORY.md')}
-            >
-              <Plus data-icon="inline-start" aria-hidden="true" /> 初始化 MEMORY.md
-            </Button>
+            canWrite ? (
+              <Button
+                disabled={create.isPending}
+                aria-busy={create.isPending}
+                onClick={() => create.mutate('MEMORY.md')}
+              >
+                <Plus data-icon="inline-start" aria-hidden="true" /> 初始化 MEMORY.md
+              </Button>
+            ) : undefined
           }
         />
       </div>
@@ -156,6 +161,9 @@ export function MemoryPanel({
   return (
     <div className="flex flex-col gap-4">
       <MemoryReviewLink agentId={agentId} />
+      {memory.isError ? (
+        <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
+      ) : null}
       <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
         <div className="min-w-0">
           <ul className="hidden flex-col gap-0.5 md:flex">
@@ -339,12 +347,13 @@ function MemoryFileEditor({
   useEffect(() => () => onPendingChange(false), [onPendingChange]);
 
   if (file.isPending) return <LoadingState rows={4} />;
-  if (file.isError) {
+  if (file.data === undefined) {
     return <ErrorState error={file.error} onRetry={() => void file.refetch()} />;
   }
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
+      {file.isError ? <ErrorState error={file.error} onRetry={() => void file.refetch()} /> : null}
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="min-w-0 truncate font-mono text-md font-semibold text-fg">{name}</h2>
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -458,17 +467,23 @@ export function RulesPanel({
     },
   });
 
-  const pending = save.isPending || remove.isPending || !canWrite;
+  const pending = save.isPending || remove.isPending;
 
   const apply = (action: RuleAction): void => {
     if (pending) return;
-    if (action.type === 'open') open(action.rule);
-    else if (action.type === 'create') startCreate();
+    if (action.type === 'open') {
+      open(action.rule);
+      return;
+    }
+    if (!canWrite) return;
+    if (action.type === 'create') startCreate();
     else remove.mutate(action.slug);
   };
 
   const guard = (action: RuleAction): void => {
     if (pending) return;
+    // 只读仍可浏览规则，但不能新建或删除。
+    if (action.type !== 'open' && !canWrite) return;
     // 删除始终二次确认；其余动作只有当前草稿会丢时才确认。
     if (dirty || action.type === 'delete') setConfirming(action);
     else apply(action);
@@ -480,19 +495,25 @@ export function RulesPanel({
   useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
 
   const submit = (): void => {
-    if (pending) return;
+    if (pending || !canWrite) return;
     const target = creating ? slug.trim() : selected;
     if (!target) return;
     save.mutate({ slug: target, content: draft, globs });
   };
 
   if (rules.isPending) return <LoadingState rows={2} />;
-  if (rules.isError) return <ErrorState error={rules.error} onRetry={() => void rules.refetch()} />;
+  if (rules.data === undefined) {
+    return <ErrorState error={rules.error} onRetry={() => void rules.refetch()} />;
+  }
 
   return (
     <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
       <div className="flex min-w-0 flex-col gap-2">
-        <Button variant="outline" disabled={pending} onClick={() => guard({ type: 'create' })}>
+        <Button
+          variant="outline"
+          disabled={pending || !canWrite}
+          onClick={() => guard({ type: 'create' })}
+        >
           <Plus data-icon="inline-start" /> 新建规则
         </Button>
         <ul className="hidden flex-col gap-0.5 md:flex">
@@ -538,6 +559,9 @@ export function RulesPanel({
         </Select>
       </div>
       <div className="flex min-w-0 flex-col gap-3">
+        {rules.isError ? (
+          <ErrorState error={rules.error} onRetry={() => void rules.refetch()} />
+        ) : null}
         {creating || current ? (
           <>
             <div className="flex flex-wrap items-center gap-2">
@@ -551,7 +575,7 @@ export function RulesPanel({
                     size="icon"
                     aria-label={`删除规则 ${current.slug}`}
                     title={`删除规则 ${current.slug}`}
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                     onClick={() => guard({ type: 'delete', slug: current.slug })}
                   >
                     <Trash2 aria-hidden="true" />
@@ -559,7 +583,7 @@ export function RulesPanel({
                 ) : null}
                 <Button
                   onClick={submit}
-                  disabled={save.isPending || !dirty || (creating && !slug.trim())}
+                  disabled={save.isPending || !canWrite || !dirty || (creating && !slug.trim())}
                   aria-busy={save.isPending}
                 >
                   {save.isPending ? '保存中…' : '保存规则'}
@@ -568,37 +592,37 @@ export function RulesPanel({
             </div>
             <FieldGroup>
               {creating ? (
-                <Field className="gap-1.5" data-disabled={pending}>
+                <Field className="gap-1.5" data-disabled={pending || !canWrite}>
                   <FieldLabel htmlFor="rule-slug">规则 slug</FieldLabel>
                   <Input
                     id="rule-slug"
                     value={slug}
                     placeholder="no-console"
                     className="font-mono"
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                     onChange={(e) => setSlug(e.target.value)}
                   />
                 </Field>
               ) : null}
-              <Field className="gap-1.5" data-disabled={pending}>
+              <Field className="gap-1.5" data-disabled={pending || !canWrite}>
                 <FieldLabel htmlFor="rule-globs">路径作用域（可选）</FieldLabel>
                 <Input
                   id="rule-globs"
                   value={globs}
                   placeholder="src/**/*.ts, docs/**"
                   className="font-mono"
-                  disabled={pending}
+                  disabled={pending || !canWrite}
                   onChange={(e) => setGlobs(e.target.value)}
                 />
               </Field>
-              <Field className="gap-1.5" data-disabled={pending}>
+              <Field className="gap-1.5" data-disabled={pending || !canWrite}>
                 <FieldLabel htmlFor="rule-content">规则内容（Markdown）</FieldLabel>
                 <SourceEditor
                   id="rule-content"
                   value={draft}
                   language="markdown"
                   aria-label="规则内容（Markdown）"
-                  disabled={pending}
+                  disabled={pending || !canWrite}
                   onChange={setDraft}
                   className="min-h-[16rem]"
                 />
@@ -637,8 +661,9 @@ export function RulesPanel({
               ? '放弃并删除'
               : '放弃并继续'
         }
-        confirmDisabled={pending}
+        confirmDisabled={pending || !canWrite}
         onConfirm={async () => {
+          if (!canWrite) return;
           const action = confirming;
           if (action?.type === 'delete') {
             // 删除成功后再关确认框；失败保留草稿，错误由 ConfirmDialog 统一提示。
@@ -763,17 +788,23 @@ export function OutputStylesPanel({
     },
   });
 
-  const pending = save.isPending || unselect.isPending || remove.isPending || !canWrite;
+  const pending = save.isPending || unselect.isPending || remove.isPending;
 
   const apply = (action: StyleAction): void => {
     if (pending) return;
-    if (action.type === 'open') open(action.style);
-    else if (action.type === 'create') startCreate();
+    if (action.type === 'open') {
+      open(action.style);
+      return;
+    }
+    if (!canWrite) return;
+    if (action.type === 'create') startCreate();
     else setDeleting(action.slug);
   };
 
   const guard = (action: StyleAction): void => {
     if (pending) return;
+    // 只读仍可浏览风格，但不能新建、删除或取消启用。
+    if (action.type !== 'open' && !canWrite) return;
     if (dirty) setConfirming(action);
     else apply(action);
   };
@@ -784,20 +815,25 @@ export function OutputStylesPanel({
   useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
 
   const submit = (): void => {
-    if (pending) return;
+    if (pending || !canWrite) return;
     const target = creating ? slug.trim() : selected;
     if (!target) return;
     save.mutate({ slug: target, description, keepCodingInstructions, body });
   };
 
   if (styles.isPending) return <LoadingState rows={2} />;
-  if (styles.isError)
+  if (styles.data === undefined) {
     return <ErrorState error={styles.error} onRetry={() => void styles.refetch()} />;
+  }
 
   return (
     <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
       <div className="flex min-w-0 flex-col gap-2">
-        <Button variant="outline" disabled={pending} onClick={() => guard({ type: 'create' })}>
+        <Button
+          variant="outline"
+          disabled={pending || !canWrite}
+          onClick={() => guard({ type: 'create' })}
+        >
           <Plus data-icon="inline-start" /> 新建风格
         </Button>
         <ul className="hidden flex-col gap-0.5 md:flex">
@@ -846,6 +882,9 @@ export function OutputStylesPanel({
         </Select>
       </div>
       <div className="flex min-w-0 flex-col gap-3">
+        {styles.isError ? (
+          <ErrorState error={styles.error} onRetry={() => void styles.refetch()} />
+        ) : null}
         {creating || current ? (
           <>
             <div className="flex flex-wrap items-center gap-2">
@@ -857,7 +896,7 @@ export function OutputStylesPanel({
                   <Button
                     variant="outline"
                     onClick={() => unselect.mutate(current.slug)}
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                   >
                     取消启用
                   </Button>
@@ -868,7 +907,7 @@ export function OutputStylesPanel({
                     size="icon"
                     aria-label={`删除风格 ${current.slug}`}
                     title={`删除风格 ${current.slug}`}
-                    disabled={pending}
+                    disabled={pending || !canWrite}
                     onClick={() => guard({ type: 'delete', slug: current.slug })}
                   >
                     <Trash2 aria-hidden="true" />
@@ -876,7 +915,7 @@ export function OutputStylesPanel({
                 ) : null}
                 <Button
                   onClick={submit}
-                  disabled={save.isPending || !dirty || (creating && !slug.trim())}
+                  disabled={save.isPending || !canWrite || !dirty || (creating && !slug.trim())}
                   aria-busy={save.isPending}
                 >
                   {save.isPending ? '保存中…' : '风格保存'}
@@ -884,44 +923,44 @@ export function OutputStylesPanel({
               </div>
             </div>
             <FieldGroup>
-              <Field className="gap-1.5" data-disabled={pending}>
+              <Field className="gap-1.5" data-disabled={pending || !canWrite}>
                 <FieldLabel htmlFor="output-style-slug">风格 slug</FieldLabel>
                 <Input
                   id="output-style-slug"
                   value={creating ? slug : (current?.slug ?? '')}
                   placeholder="风格 slug，如 concise"
                   className="font-mono"
-                  disabled={!creating || pending}
+                  disabled={!creating || pending || !canWrite}
                   onChange={(e) => setSlug(e.target.value)}
                 />
               </Field>
-              <Field className="gap-1.5" data-disabled={pending}>
+              <Field className="gap-1.5" data-disabled={pending || !canWrite}>
                 <FieldLabel htmlFor="output-style-description">风格描述</FieldLabel>
                 <Input
                   id="output-style-description"
                   value={description}
                   placeholder="描述"
-                  disabled={pending}
+                  disabled={pending || !canWrite}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </Field>
-              <Field orientation="horizontal" data-disabled={pending}>
+              <Field orientation="horizontal" data-disabled={pending || !canWrite}>
                 <Checkbox
                   id="output-style-keep-coding"
                   checked={keepCodingInstructions}
-                  disabled={pending}
+                  disabled={pending || !canWrite}
                   onCheckedChange={setKeepCodingInstructions}
                 />
                 <FieldLabel htmlFor="output-style-keep-coding">保留编码指令</FieldLabel>
               </Field>
-              <Field className="gap-1.5" data-disabled={pending}>
+              <Field className="gap-1.5" data-disabled={pending || !canWrite}>
                 <FieldLabel htmlFor="output-style-body">风格内容</FieldLabel>
                 <SourceEditor
                   id="output-style-body"
                   value={body}
                   language="markdown"
                   aria-label="风格内容"
-                  disabled={pending}
+                  disabled={pending || !canWrite}
                   onChange={setBody}
                   className="min-h-[16rem]"
                 />
@@ -946,8 +985,9 @@ export function OutputStylesPanel({
             : `「${current?.slug ?? '新建风格'}」还有未保存的内容，继续后会丢失。`
         }
         confirmLabel="放弃并继续"
-        confirmDisabled={pending}
+        confirmDisabled={pending || !canWrite}
         onConfirm={async () => {
+          if (!canWrite) return;
           const action = confirming;
           setConfirming(null);
           if (action) apply(action);
@@ -962,8 +1002,9 @@ export function OutputStylesPanel({
         }}
         title="删除输出风格"
         description={`将删除「${deleting ?? ''}」，此操作不可撤销。`}
-        confirmDisabled={pending}
+        confirmDisabled={pending || !canWrite}
         onConfirm={async () => {
+          if (!canWrite) return;
           if (deleting) await remove.mutateAsync(deleting);
         }}
       />

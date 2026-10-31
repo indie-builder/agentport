@@ -54,6 +54,7 @@ import {
   type ComponentProps,
   Fragment,
   type ReactNode,
+  type RefObject,
   useEffect,
   useMemo,
   useRef,
@@ -131,13 +132,12 @@ import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { Toggle } from '../components/ui/toggle.js';
 import { can, hasAnyGrant } from '../lib/access.js';
-import type { AgentAccess, AgentFiles, AgentVersionSummary } from '../lib/api.js';
+import type { AgentFiles, AgentVersionSummary } from '../lib/api.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatDateTime } from '../lib/format.js';
 import {
-  agentAccessQuery,
   agentDetailQuery,
   meQuery,
   toolsQuery,
@@ -146,8 +146,8 @@ import {
   useAgentFiles,
   useAgentMembers,
   useAgentOptions,
-  useAgents,
   useAgentSummary,
+  useAgents,
   useAgentVersion,
   useAgentVersions,
   useCreateAgent,
@@ -389,9 +389,7 @@ export function AgentsPage() {
       .filter(
         (agent) =>
           (status === 'all' || agent.enabled === (status === 'enabled')) &&
-          (!hasRoleData ||
-            !role ||
-            (agent.role?.trim() || '通用助手') === role) &&
+          (!hasRoleData || !role || (agent.role?.trim() || '通用助手') === role) &&
           [agent.name, agent.slug, agent.description, agent.role?.trim() || '通用助手']
             .join(' ')
             .toLowerCase()
@@ -533,23 +531,30 @@ export function AgentsPage() {
         <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
       ) : null}
       {agents.data && agents.data.length === 0 ? (
-        <PageNote
-          icon={<Bot />}
-          title="还没有专家"
-          action={
-            canCreate ? (
-              <Button
-                disabled={importing}
-                onClick={(event) => {
-                  editorTriggerRef.current = event.currentTarget;
-                  setCreating(true);
-                }}
-              >
-                创建第一位专家
-              </Button>
-            ) : undefined
-          }
-        />
+        me.isPending ? (
+          <LoadingState rows={4} layout="cards" />
+        ) : me.isError ? (
+          <ErrorState error={me.error} onRetry={() => void me.refetch()} />
+        ) : (
+          <PageNote
+            icon={<Bot />}
+            title={canCreate ? '还没有专家' : '暂无可用专家'}
+            description={canCreate ? undefined : '当前账户尚未分配可用专家，请联系管理员。'}
+            action={
+              canCreate ? (
+                <Button
+                  disabled={importing}
+                  onClick={(event) => {
+                    editorTriggerRef.current = event.currentTarget;
+                    setCreating(true);
+                  }}
+                >
+                  创建第一位专家
+                </Button>
+              ) : undefined
+            }
+          />
+        )
       ) : null}
       {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
         <PageNote
@@ -594,8 +599,7 @@ export function AgentsPage() {
             const agentRole = agent.role?.trim() || '通用助手';
             const canDelete =
               canDeleteAny &&
-              (agent.ownerBusinessId === currentBusinessId ||
-                can(me.data, 'agents.transfer'));
+              (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
             return (
               <li key={agent.id} className="min-w-0">
                 <Card>
@@ -668,7 +672,7 @@ export function AgentsPage() {
                             search={{ agent: agent.id }}
                             disabled={importing}
                             aria-label={`与 ${agent.name} 开始对话`}
-                            className={buttonVariants({ size: 'sm' })}
+                            className={buttonVariants()}
                           >
                             开始对话
                           </Link>
@@ -676,7 +680,6 @@ export function AgentsPage() {
                           <>
                             <Button
                               variant="outline"
-                              size="sm"
                               disabled
                               aria-label={`与 ${agent.name} 开始对话`}
                               title={
@@ -843,6 +846,8 @@ export function AgentDetailPage() {
   const location = useLocation();
   const [editorPending, setEditorPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // 删除成功会卸载受限页签；父层保存子层最新 blocker reset，先结算被拦下的离开再返回列表。
+  const settleBlockedNavigation = useRef<(() => void) | null>(null);
   const [membersOpen, setMembersOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   // 删除请求在途时编辑、离开与刷新都要先等它结束；失败则保留草稿供重试。
@@ -863,10 +868,12 @@ export function AgentDetailPage() {
   const loading = summary.isPending || access.isPending || (canReadConfig && detail.isPending);
   const failed = summary.isError || access.isError || (canReadConfig && detail.isError);
 
-  // 删除成功后先卸载编辑器与确认框，草稿 blocker 随之释放；随后再返回列表，
-  // 否则导航会早于卸载而被 blocker 拦下。
+  // 删除成功后先结算删除期间被拦下的离开，再卸载编辑器与确认框并返回列表；
+  // 否则子层卸载后旧 blocker 的导航 Promise 永久挂起。
   useEffect(() => {
-    if (remove.isSuccess) void navigate({ to: '/agents' });
+    if (!remove.isSuccess) return;
+    settleBlockedNavigation.current?.();
+    void navigate({ to: '/agents' });
   }, [remove.isSuccess, navigate]);
 
   if (remove.isSuccess) {
@@ -929,9 +936,7 @@ export function AgentDetailPage() {
   const canViewRuns = can(me.data, 'runs.read');
   const roleLabel = current.role?.trim() || '通用助手';
   const readableTabs = new Set(
-    tabItems
-      .map((item) => item.id)
-      .filter((id) => hasAnyGrant(permissions, TAB_PERMISSIONS[id])),
+    tabItems.map((item) => item.id).filter((id) => hasAnyGrant(permissions, TAB_PERMISSIONS[id])),
   );
   const hasReadableTab = readableTabs.size > 0;
 
@@ -989,10 +994,7 @@ export function AgentDetailPage() {
                         </DropdownMenuItem>
                       ) : null}
                       {canDelete ? (
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => setDeleting(true)}
-                        >
+                        <DropdownMenuItem variant="destructive" onClick={() => setDeleting(true)}>
                           <Trash2 className="size-4" /> 删除专家
                         </DropdownMenuItem>
                       ) : null}
@@ -1069,7 +1071,14 @@ export function AgentDetailPage() {
           onDeleteRequest={() => setDeleting(true)}
         />
       ) : (
-        <RestrictedAgentTabs agentId={agentId} permissions={permissions} />
+        <RestrictedAgentTabs
+          key={agentId}
+          agentId={agentId}
+          permissions={permissions}
+          onPendingChange={setEditorPending}
+          externalPending={remove.isPending || toggleEnable.isPending}
+          settleNavigationRef={settleBlockedNavigation}
+        />
       )}
       <ConfirmDialog
         open={deleting}
@@ -1123,19 +1132,76 @@ type TabId = 'config' | 'memory' | 'rules' | 'styles' | 'files';
 function RestrictedAgentTabs({
   agentId,
   permissions,
+  onPendingChange,
+  externalPending = false,
+  settleNavigationRef,
 }: {
   agentId: string;
   permissions: readonly PermissionId[];
+  onPendingChange: (pending: boolean) => void;
+  externalPending?: boolean;
+  settleNavigationRef: RefObject<(() => void) | null>;
 }) {
   const available = tabItems.filter(
     (item) => item.id !== 'config' && hasAnyGrant(permissions, TAB_PERMISSIONS[item.id]),
   );
-  const [tab, setTab] = useState<TabId>(available[0]?.id ?? 'memory');
+  const navigate = useNavigate({ from: '/agents/$agentId' });
+  const search = useSearch({ from: '/_shell/agents/$agentId' });
+  const [childDirty, setChildDirty] = useState(false);
+  const [childPending, setChildPending] = useState(false);
+  const pending = childPending || externalPending;
+  // 只把子面板的真实在途状态回报给页头；父级操作锁不会回传，避免自锁。
+  useEffect(() => {
+    onPendingChange(childPending);
+    return () => onPendingChange(false);
+  }, [childPending, onPendingChange]);
+
+  const permittedTab = (value: unknown): TabId =>
+    available.some((item) => item.id === value) ? (value as TabId) : (available[0]?.id ?? 'memory');
+  const tab = permittedTab(search.tab);
+
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => {
+      if (current.pathname === next.pathname) {
+        const currentTab = permittedTab('tab' in current.search ? current.search.tab : undefined);
+        const nextTab = permittedTab('tab' in next.search ? next.search.tab : undefined);
+        // 文件选择不卸载子面板；任务切换与跨页才可能丢草稿或打断请求。
+        if (currentTab === nextTab) return false;
+        return childDirty || pending;
+      }
+      return childDirty || pending;
+    },
+    withResolver: true,
+    enableBeforeUnload: childDirty || pending,
+  });
+  // 父层拥有卸载权：登记最新 reset，卸载后仍能结算被拦下的导航，不依赖卸载清理。
+  useEffect(() => {
+    settleNavigationRef.current = () => blocker.reset?.();
+  }, [blocker, settleNavigationRef]);
+
   if (available.length === 0) return null;
-  const current = available.some((item) => item.id === tab) ? tab : available[0]!.id;
+
+  const navigateSearch = (next: { tab?: TabId; file?: string }): void => {
+    void navigate({
+      to: '/agents/$agentId',
+      params: { agentId },
+      search: (current) => ({ ...current, ...next }),
+      replace: true,
+    });
+  };
+  const changeTab = (next: TabId): void => {
+    if (next === tab || pending) return;
+    navigateSearch({ tab: next });
+  };
+  const proceedLeave = (): void => {
+    if (!pending) blocker.proceed?.();
+  };
+  const blockedTabSwitch =
+    blocker.status === 'blocked' && blocker.current?.pathname === blocker.next?.pathname;
+
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <Tabs value={current} onValueChange={(next) => setTab(next as TabId)}>
+      <Tabs value={tab} onValueChange={(next) => changeTab(next as TabId)}>
         <TabsList variant="line" aria-label="专家任务">
           {available.map((item) => (
             <TabsTrigger key={item.id} value={item.id}>
@@ -1144,40 +1210,86 @@ function RestrictedAgentTabs({
           ))}
         </TabsList>
       </Tabs>
-      {current === 'memory' ? (
+      {tab === 'memory' ? (
         <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
           <MemoryPanel
             agentId={agentId}
             canWrite={hasAnyGrant(permissions, 'agents.memory.write')}
+            onDirtyChange={setChildDirty}
+            onPendingChange={setChildPending}
           />
         </div>
       ) : null}
-      {current === 'rules' ? (
+      {tab === 'rules' ? (
         <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
           <RulesPanel
             agentId={agentId}
             canWrite={hasAnyGrant(permissions, 'agents.rules.write')}
+            onDirtyChange={setChildDirty}
+            onPendingChange={setChildPending}
           />
         </div>
       ) : null}
-      {current === 'styles' ? (
+      {tab === 'styles' ? (
         <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
           <OutputStylesPanel
             agentId={agentId}
             canWrite={hasAnyGrant(permissions, 'agents.styles.write')}
+            onDirtyChange={setChildDirty}
+            onPendingChange={setChildPending}
           />
         </div>
       ) : null}
-      {current === 'files' ? <ReadonlyAgentFiles agentId={agentId} /> : null}
+      {tab === 'files' ? (
+        <ReadonlyAgentFiles
+          agentId={agentId}
+          file={search.file}
+          onFileChange={(file) => navigateSearch({ file })}
+        />
+      ) : null}
+      <ConfirmDialog
+        open={blocker.status === 'blocked'}
+        onClose={() => blocker.reset?.()}
+        title={
+          pending
+            ? '当前操作尚未完成'
+            : blockedTabSwitch
+              ? childDirty
+                ? '放弃未保存的修改并切换？'
+                : '当前操作尚未完成'
+              : '放弃未保存的更改？'
+        }
+        description={
+          pending
+            ? blockedTabSwitch
+              ? '当前请求还在进行，请等待完成后再切换任务。'
+              : '当前请求还在进行，请等待完成后再离开。'
+            : blockedTabSwitch
+              ? '当前记忆、规则或输出风格还有未保存的内容，切换任务后会丢失。'
+              : '当前专家的记忆、规则或输出风格还有未保存的修改，离开后会丢失。'
+        }
+        confirmLabel={blockedTabSwitch && childDirty ? '放弃并切换' : '放弃并离开'}
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          proceedLeave();
+        }}
+      />
     </div>
   );
 }
 
-function ReadonlyAgentFiles({ agentId }: { agentId: string }) {
+function ReadonlyAgentFiles({
+  agentId,
+  file,
+  onFileChange,
+}: {
+  agentId: string;
+  file?: string | undefined;
+  onFileChange: (file: string) => void;
+}) {
   const files = useAgentFiles(agentId, true);
   const entries = files.data ? listWorkspaceFiles(files.data) : baseFileEntries;
-  const [selected, setSelected] = useState<string>('CLAUDE.md');
-  const current = entries.find((entry) => entry.id === selected) ?? entries[0];
+  const current = entries.find((entry) => entry.id === file) ?? entries[0];
   if (files.isPending) return <LoadingState rows={4} />;
   if (files.isError) {
     return <ErrorState error={files.error} onRetry={() => void files.refetch()} />;
@@ -1195,7 +1307,7 @@ function ReadonlyAgentFiles({ agentId }: { agentId: string }) {
                   key={entry.id}
                   type="button"
                   aria-current={entry.id === current?.id ? 'true' : undefined}
-                  onClick={() => setSelected(entry.id)}
+                  onClick={() => onFileChange(entry.id)}
                   className={cn(
                     'flex h-8 items-center truncate rounded-item px-2 text-left text-sm transition-colors',
                     entry.id === current?.id
@@ -1266,8 +1378,12 @@ function AgentMembersDialog({
                     {member.accountActive ? '' : ' · 离线'}
                   </div>
                 </div>
-                <label className="flex items-center gap-1.5">
+                <label
+                  htmlFor={`agent-member-${member.businessId}-use`}
+                  className="flex items-center gap-1.5"
+                >
                   <Checkbox
+                    id={`agent-member-${member.businessId}-use`}
                     checked={member.canUse}
                     disabled={setMember.isPending}
                     onCheckedChange={(checked) =>
@@ -1284,8 +1400,12 @@ function AgentMembersDialog({
                   />
                   可使用
                 </label>
-                <label className="flex items-center gap-1.5">
+                <label
+                  htmlFor={`agent-member-${member.businessId}-maintain`}
+                  className="flex items-center gap-1.5"
+                >
                   <Checkbox
+                    id={`agent-member-${member.businessId}-maintain`}
                     checked={member.canMaintain}
                     disabled={setMember.isPending}
                     onCheckedChange={(checked) =>
@@ -1415,8 +1535,13 @@ function TransferAgentDialog({
             <ErrorState error={identities.error} onRetry={() => void identities.refetch()} />
           ) : null}
           {(identities.data?.items ?? []).map((candidate) => (
-            <label key={candidate.businessId} className="flex items-center gap-2 border-y py-2 text-sm">
+            <label
+              key={candidate.businessId}
+              htmlFor={`agent-transfer-target-${candidate.businessId}`}
+              className="flex items-center gap-2 border-y py-2 text-sm"
+            >
               <Checkbox
+                id={`agent-transfer-target-${candidate.businessId}`}
                 checked={target === candidate.businessId}
                 onCheckedChange={() => setTarget(candidate.businessId)}
               />
@@ -1458,8 +1583,6 @@ function TransferAgentDialog({
     </Dialog>
   );
 }
-
-
 
 const sectionItems: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'identity', label: '身份' },
@@ -2496,7 +2619,11 @@ export function AgentEditor({
                 {activeSection === 'behavior' ? (
                   <Section id="behavior" title="行为">
                     <FieldGroup className="gap-5">
-                      <Field data-disabled={configDisabled} orientation="horizontal" className="gap-3">
+                      <Field
+                        data-disabled={configDisabled}
+                        orientation="horizontal"
+                        className="gap-3"
+                      >
                         <FieldLabel htmlFor="agent-model">模型</FieldLabel>
                         <Input
                           {...rhf.register('model')}
@@ -2512,7 +2639,11 @@ export function AgentEditor({
                           ))}
                         </datalist>
                       </Field>
-                      <Field data-disabled={configDisabled} orientation="horizontal" className="gap-3">
+                      <Field
+                        data-disabled={configDisabled}
+                        orientation="horizontal"
+                        className="gap-3"
+                      >
                         <FieldLabel htmlFor="agent-effort">推理强度</FieldLabel>
                         <Select
                           disabled={configDisabled}
@@ -3134,7 +3265,11 @@ export function AgentEditor({
                       </p>
                     </div>
                     <FieldGroup className="gap-5">
-                      <Field data-disabled={configDisabled} orientation="horizontal" className="gap-3">
+                      <Field
+                        data-disabled={configDisabled}
+                        orientation="horizontal"
+                        className="gap-3"
+                      >
                         <FieldContent>
                           <FieldLabel htmlFor="agent-perm">权限模式</FieldLabel>
                           <FieldDescription id="agent-perm-hint">
@@ -3388,7 +3523,11 @@ export function AgentEditor({
                           className="w-40"
                         />
                       </Field>
-                      <Field data-disabled={configDisabled} orientation="horizontal" className="gap-3">
+                      <Field
+                        data-disabled={configDisabled}
+                        orientation="horizontal"
+                        className="gap-3"
+                      >
                         <FieldLabel htmlFor="agent-ui-format">回复格式</FieldLabel>
                         <Select
                           disabled={configDisabled}

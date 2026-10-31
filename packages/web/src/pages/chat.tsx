@@ -114,8 +114,8 @@ import {
   TraceLine,
   TraceTitle,
 } from '../components/ui/trace.js';
-import { type ApprovalRequest, api } from '../lib/api.js';
 import { can } from '../lib/access.js';
+import { type ApprovalRequest, api } from '../lib/api.js';
 import {
   type ChatItem,
   latestTopLevelTodos,
@@ -154,6 +154,9 @@ export function ChatPage() {
   const search = useSearch({ from: '/_shell/chat' });
   const navigate = useNavigate();
   const agents = useAgents();
+  const me = useQuery(meQuery);
+  const canCreate = can(me.data, 'agents.create');
+  const canReadAgents = can(me.data, 'agents.read');
   const conversationId = search.conversation ?? null;
   const detail = useConversation(conversationId);
 
@@ -186,7 +189,11 @@ export function ChatPage() {
           <LoadingState rows={3} />
         ) : agents.isError ? (
           <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-        ) : (
+        ) : me.isPending ? (
+          <LoadingState rows={3} />
+        ) : me.isError ? (
+          <ErrorState error={me.error} onRetry={() => void me.refetch()} />
+        ) : canCreate ? (
           <EmptyState
             icon={<Bot className="size-5" />}
             title="先创建一位专家"
@@ -195,6 +202,19 @@ export function ChatPage() {
               <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
                 前往专家
               </Link>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<Bot className="size-5" />}
+            title="暂无可用专家"
+            description="当前账户尚未分配可用专家，请联系管理员。"
+            action={
+              canReadAgents ? (
+                <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
+                  前往专家
+                </Link>
+              ) : undefined
             }
           />
         )}
@@ -1975,34 +1995,28 @@ export function Composer({
             {run?.runId && onCancel ? (
               // 运行中发送位换成停止：动作在用户正在打字的地方，不用到消息流里找。
               canCancelRun ? (
-              <InputGroupButton
-                variant="outline"
-                size="icon-sm"
-                onClick={onCancel}
-                disabled={cancelling}
-                aria-busy={cancelling}
-                aria-label="停止运行"
-                title="停止本轮运行"
-                className="ml-auto size-11 sm:size-8"
-              >
-                {cancelling ? <LoaderCircle className="animate-spin" /> : <CircleStop />}
-              </InputGroupButton>
+                <InputGroupButton
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={onCancel}
+                  disabled={cancelling}
+                  aria-busy={cancelling}
+                  aria-label="停止运行"
+                  title="停止本轮运行"
+                  className="ml-auto size-11 sm:size-8"
+                >
+                  {cancelling ? <LoaderCircle className="animate-spin" /> : <CircleStop />}
+                </InputGroupButton>
               ) : null
             ) : (
               <InputGroupButton
                 type="submit"
                 variant="solid"
                 size="icon-sm"
-                disabled={
-                  !agent || Boolean(run) || !hasContent || !historyReady || !canSend
-                }
+                disabled={!agent || Boolean(run) || !hasContent || !historyReady || !canSend}
                 aria-label="发送消息"
                 title={
-                  !canSend
-                    ? '当前账户没有新建会话的权限'
-                    : run
-                      ? '本轮结束后可发送'
-                      : undefined
+                  !canSend ? '当前账户没有新建会话的权限' : run ? '本轮结束后可发送' : undefined
                 }
                 className="ml-auto size-11 sm:size-8"
               >

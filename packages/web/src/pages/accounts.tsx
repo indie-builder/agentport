@@ -1,7 +1,7 @@
 import { isValidBusinessId } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, SearchX, ShieldCheck } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
@@ -24,6 +24,7 @@ import {
 } from '../components/ui/table.js';
 import { can } from '../lib/access.js';
 import { type Account, ApiError, errorMessage } from '../lib/api.js';
+import { useFormBlocker } from '../lib/form.js';
 import {
   meQuery,
   useAccounts,
@@ -58,6 +59,13 @@ export function AccountsPage() {
   const canManage = can(me.data, 'accounts.manage');
   const canManageRoles = can(me.data, 'roles.manage');
   const roles = useRoleMatrix(canManageRoles);
+  // 角色目录的加载与失败要原样交给弹窗处理，不能在这里抹成空数组。
+  const roleDirectory: RoleDirectory = {
+    roles: roles.data?.roles,
+    loading: roles.isPending,
+    error: roles.error,
+    refetch: () => void roles.refetch(),
+  };
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
   const [resetting, setResetting] = useState<Account | null>(null);
@@ -222,7 +230,7 @@ export function AccountsPage() {
       {creating ? (
         <CreateAccountDialog
           canAssignRoles={canManageRoles}
-          roles={roles.data?.roles ?? []}
+          roleDirectory={roleDirectory}
           onClose={() => setCreating(false)}
         />
       ) : null}
@@ -236,7 +244,7 @@ export function AccountsPage() {
       {assigningRoles ? (
         <AssignRolesDialog
           account={assigningRoles}
-          roles={roles.data?.roles ?? []}
+          roleDirectory={roleDirectory}
           onClose={() => setAssigningRoles(null)}
         />
       ) : null}
@@ -282,48 +290,122 @@ export function AccountsPage() {
   );
 }
 
+type RoleDirectory = {
+  roles: Array<{ id: string; name: string }> | undefined;
+  loading: boolean;
+  error: unknown;
+  refetch: () => void;
+};
+
+/** 关闭弹层与路由离开共用同一份放弃确认；请求中先取消关闭，成功关闭前结算被拦下的导航。 */
+function useDiscardGuard(dirty: boolean, pending: boolean, onClose: () => void) {
+  const blocker = useFormBlocker(dirty, pending);
+  const blockerRef = useRef(blocker);
+  useEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const finish = (): void => {
+    blockerRef.current.reset?.();
+    onClose();
+  };
+  const close = (): void => {
+    if (pending) return;
+    if (dirty) setConfirmDiscard(true);
+    else finish();
+  };
+  return { blocker, confirmDiscard, setConfirmDiscard, finish, close };
+}
+
+function DiscardGuards({
+  guard,
+  pending,
+}: {
+  guard: ReturnType<typeof useDiscardGuard>;
+  pending: boolean;
+}) {
+  return (
+    <>
+      <ConfirmDialog
+        open={guard.confirmDiscard}
+        onClose={() => guard.setConfirmDiscard(false)}
+        title="放弃未保存的更改？"
+        description="关闭后填写的内容会丢失。"
+        confirmLabel="放弃并关闭"
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          if (!pending) guard.finish();
+        }}
+      />
+      <ConfirmDialog
+        open={guard.blocker.status === 'blocked'}
+        onClose={() => guard.blocker.reset?.()}
+        title="放弃未保存的更改？"
+        description={pending ? '正在保存，请等待请求完成。' : '离开后填写的内容会丢失。'}
+        confirmLabel="放弃并离开"
+        confirmDisabled={pending}
+        onConfirm={async () => guard.blocker.proceed()}
+      />
+    </>
+  );
+}
+
 function RoleChecks({
-  roles,
+  directory,
   selected,
   onToggle,
   disabled = false,
 }: {
-  roles: Array<{ id: string; name: string }>;
+  directory: RoleDirectory;
   selected: readonly string[];
   onToggle: (id: string) => void;
   disabled?: boolean;
 }) {
-  if (roles.length === 0) {
-    return <p className="text-sm text-muted-foreground">没有可分配的角色。</p>;
-  }
+  const roles = directory.roles;
   return (
-    <div className="flex flex-wrap gap-x-5 gap-y-2">
-      {roles.map((role) => (
-        <label
-          key={role.id}
-          htmlFor={`role-${role.id}`}
-          className="flex items-center gap-2 text-sm"
-        >
-          <Checkbox
-            id={`role-${role.id}`}
-            checked={selected.includes(role.id)}
-            disabled={disabled}
-            onCheckedChange={() => onToggle(role.id)}
-          />
-          {role.name}
-        </label>
-      ))}
+    <div className="flex flex-col gap-3">
+      {directory.error ? (
+        <ErrorState
+          error={directory.error}
+          title="角色目录没有加载出来"
+          onRetry={directory.refetch}
+        />
+      ) : null}
+      {directory.loading && !roles ? <LoadingState rows={2} /> : null}
+      {roles ? (
+        roles.length === 0 ? (
+          <p className="text-sm text-muted-foreground">没有可分配的角色。</p>
+        ) : (
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            {roles.map((role) => (
+              <label
+                key={role.id}
+                htmlFor={`role-${role.id}`}
+                className="flex items-center gap-2 text-sm"
+              >
+                <Checkbox
+                  id={`role-${role.id}`}
+                  checked={selected.includes(role.id)}
+                  disabled={disabled}
+                  onCheckedChange={() => onToggle(role.id)}
+                />
+                {role.name}
+              </label>
+            ))}
+          </div>
+        )
+      ) : null}
     </div>
   );
 }
 
 function CreateAccountDialog({
   canAssignRoles,
-  roles,
+  roleDirectory,
   onClose,
 }: {
   canAssignRoles: boolean;
-  roles: Array<{ id: string; name: string }>;
+  roleDirectory: RoleDirectory;
   onClose: () => void;
 }) {
   const create = useCreateAccount();
@@ -336,13 +418,20 @@ function CreateAccountDialog({
   const [restorePrompt, setRestorePrompt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const pending = create.isPending && !saved;
+  const dirty =
+    !saved &&
+    (businessId !== '' || username !== '' || name !== '' || password !== '' || roleIds.length > 0);
+  const guard = useDiscardGuard(dirty, pending, onClose);
+  const rolesUnavailable = canAssignRoles && roleDirectory.roles === undefined;
   const businessError = submitted ? validateBusinessId(businessId) : null;
   const usernameError = submitted && username.length === 0 ? '请填写用户名。' : null;
   const nameError = submitted && name.trim().length === 0 ? '请填写姓名。' : null;
   const passwordError = submitted && password.length < 8 ? '密码至少 8 个字符。' : null;
 
   const submit = async (asRestore: boolean): Promise<void> => {
-    if (create.isPending) return;
+    if (pending) return;
     setSubmitted(true);
     setError(null);
     if (
@@ -351,6 +440,11 @@ function CreateAccountDialog({
       name.trim().length === 0 ||
       password.length < 8
     ) {
+      return;
+    }
+    // 角色目录没有结果时不能创建，也不允许走恢复流程兜底。
+    if (rolesUnavailable) {
+      setError('角色目录没有加载出来，请重试后再创建。');
       return;
     }
     try {
@@ -362,8 +456,9 @@ function CreateAccountDialog({
         restore: asRestore,
         ...(canAssignRoles && roleIds.length > 0 ? { roleIds } : {}),
       });
+      setSaved(true);
       toastSuccess(`已创建账户 ${name}`);
-      onClose();
+      guard.finish();
     } catch (cause) {
       if (!asRestore && cause instanceof ApiError && cause.status === 409) {
         setRestorePrompt(cause.message || '该业务 ID 存在历史记录。');
@@ -374,12 +469,21 @@ function CreateAccountDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open
+      onOpenChange={(next, details) => {
+        if (pending) {
+          details.cancel();
+          return;
+        }
+        if (!next) guard.close();
+      }}
+    >
       <DialogShell
         title="新建账户"
         description="业务 ID 创建后不可修改，也不会回收给其他人。"
         className="max-w-lg sm:max-w-lg"
-        closeDisabled={create.isPending}
+        closeDisabled={pending}
       >
         <form
           aria-label="新建账户"
@@ -390,51 +494,54 @@ function CreateAccountDialog({
           }}
         >
           <FieldGroup className="gap-5">
-            <Field data-invalid={Boolean(businessError)} data-disabled={create.isPending}>
+            <Field data-invalid={Boolean(businessError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-business-id">
                 业务 ID <RequiredMark />
               </FieldLabel>
               <Input
                 id="account-business-id"
                 autoComplete="off"
-                disabled={create.isPending}
+                disabled={pending}
                 aria-invalid={Boolean(businessError)}
+                aria-describedby={businessError ? 'account-business-id-error' : undefined}
                 value={businessId}
                 onChange={(event) => setBusinessId(event.target.value)}
               />
-              <FieldError>{businessError ?? undefined}</FieldError>
+              <FieldError id="account-business-id-error">{businessError ?? undefined}</FieldError>
             </Field>
             <div className="grid gap-5 sm:grid-cols-2">
-              <Field data-invalid={Boolean(usernameError)} data-disabled={create.isPending}>
+              <Field data-invalid={Boolean(usernameError)} data-disabled={pending}>
                 <FieldLabel htmlFor="account-username">
                   用户名 <RequiredMark />
                 </FieldLabel>
                 <Input
                   id="account-username"
                   autoComplete="off"
-                  disabled={create.isPending}
+                  disabled={pending}
                   aria-invalid={Boolean(usernameError)}
+                  aria-describedby={usernameError ? 'account-username-error' : undefined}
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                 />
-                <FieldError>{usernameError ?? undefined}</FieldError>
+                <FieldError id="account-username-error">{usernameError ?? undefined}</FieldError>
               </Field>
-              <Field data-invalid={Boolean(nameError)} data-disabled={create.isPending}>
+              <Field data-invalid={Boolean(nameError)} data-disabled={pending}>
                 <FieldLabel htmlFor="account-name">
                   姓名 <RequiredMark />
                 </FieldLabel>
                 <Input
                   id="account-name"
                   autoComplete="off"
-                  disabled={create.isPending}
+                  disabled={pending}
                   aria-invalid={Boolean(nameError)}
+                  aria-describedby={nameError ? 'account-name-error' : undefined}
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                 />
-                <FieldError>{nameError ?? undefined}</FieldError>
+                <FieldError id="account-name-error">{nameError ?? undefined}</FieldError>
               </Field>
             </div>
-            <Field data-invalid={Boolean(passwordError)} data-disabled={create.isPending}>
+            <Field data-invalid={Boolean(passwordError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-password">
                 初始密码 <RequiredMark />
               </FieldLabel>
@@ -442,20 +549,21 @@ function CreateAccountDialog({
                 id="account-password"
                 type="password"
                 autoComplete="new-password"
-                disabled={create.isPending}
+                disabled={pending}
                 aria-invalid={Boolean(passwordError)}
+                aria-describedby={passwordError ? 'account-password-error' : undefined}
                 value={password}
                 onChange={(event) => setpassword(event.target.value)}
               />
-              <FieldError>{passwordError ?? undefined}</FieldError>
+              <FieldError id="account-password-error">{passwordError ?? undefined}</FieldError>
             </Field>
             {canAssignRoles ? (
-              <Field data-disabled={create.isPending}>
+              <Field data-disabled={pending}>
                 <FieldLabel>角色</FieldLabel>
                 <RoleChecks
-                  roles={roles}
+                  directory={roleDirectory}
                   selected={roleIds}
-                  disabled={create.isPending}
+                  disabled={pending}
                   onToggle={(id) =>
                     setRoleIds((current) =>
                       current.includes(id)
@@ -476,12 +584,17 @@ function CreateAccountDialog({
                   恢复只使用当前填写的业务 ID，不需要其他技术 ID。
                 </p>
                 <div className="flex items-center justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setRestorePrompt(null)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() => setRestorePrompt(null)}
+                  >
                     取消恢复
                   </Button>
                   <Button
                     type="button"
-                    disabled={create.isPending}
+                    disabled={pending || rolesUnavailable}
                     onClick={() => {
                       setRestore(true);
                       void submit(true);
@@ -494,15 +607,16 @@ function CreateAccountDialog({
             ) : null}
             <FieldError>{error ?? undefined}</FieldError>
             <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" disabled={create.isPending} onClick={onClose}>
+              <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
                 取消
               </Button>
-              <Button type="submit" disabled={create.isPending} aria-busy={create.isPending}>
-                {create.isPending ? '正在创建…' : '创建账户'}
+              <Button type="submit" disabled={pending || rolesUnavailable} aria-busy={pending}>
+                {pending ? '正在创建…' : '创建账户'}
               </Button>
             </div>
           </FieldGroup>
         </form>
+        <DiscardGuards guard={guard} pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -513,42 +627,58 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
   const [username, setUsername] = useState(account.username);
   const [name, setName] = useState(account.name);
   const [error, setError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const pending = update.isPending && !saved;
+  const dirty = !saved && (username !== account.username || name !== account.name);
+  const guard = useDiscardGuard(dirty, pending, onClose);
+  const usernameError = submitted && username.length === 0 ? '请填写用户名。' : null;
+  const nameError = submitted && name.trim().length === 0 ? '请填写姓名。' : null;
+
+  const submit = async (): Promise<void> => {
+    if (pending) return;
+    setSubmitted(true);
+    setError(null);
+    if (username.length === 0 || name.trim().length === 0) return;
+    try {
+      await update.mutateAsync({
+        businessId: account.businessId,
+        input: {
+          ...(username === account.username ? {} : { username }),
+          ...(name === account.name ? {} : { name }),
+        },
+      });
+      setSaved(true);
+      toastSuccess('账户资料已更新');
+      guard.finish();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  };
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open
+      onOpenChange={(next, details) => {
+        if (pending) {
+          details.cancel();
+          return;
+        }
+        if (!next) guard.close();
+      }}
+    >
       <DialogShell
         title={`编辑账户「${account.name}」`}
         description={`业务 ID ${account.businessId} 创建后不可修改。`}
         className="max-w-lg sm:max-w-lg"
-        closeDisabled={update.isPending}
+        closeDisabled={pending}
       >
         <form
           aria-label="编辑账户"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (update.isPending) return;
-            setError(null);
-            if (username.length === 0 || name.trim().length === 0) {
-              setError('用户名和姓名都不能为空。');
-              return;
-            }
-            update.mutate(
-              {
-                businessId: account.businessId,
-                input: {
-                  ...(username === account.username ? {} : { username }),
-                  ...(name === account.name ? {} : { name }),
-                },
-              },
-              {
-                onSuccess: () => {
-                  toastSuccess('账户资料已更新');
-                  onClose();
-                },
-                onError: (cause) => setError(errorMessage(cause)),
-              },
-            );
+            void submit();
           }}
         >
           <FieldGroup className="gap-5">
@@ -556,37 +686,44 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
               <FieldLabel htmlFor="account-edit-business-id">业务 ID</FieldLabel>
               <Input id="account-edit-business-id" readOnly value={account.businessId} />
             </Field>
-            <Field data-disabled={update.isPending}>
+            <Field data-invalid={Boolean(usernameError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-edit-username">用户名</FieldLabel>
               <Input
                 id="account-edit-username"
                 autoComplete="off"
-                disabled={update.isPending}
+                disabled={pending}
+                aria-invalid={Boolean(usernameError)}
+                aria-describedby={usernameError ? 'account-edit-username-error' : undefined}
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
               />
+              <FieldError id="account-edit-username-error">{usernameError ?? undefined}</FieldError>
             </Field>
-            <Field data-disabled={update.isPending}>
+            <Field data-invalid={Boolean(nameError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-edit-name">姓名</FieldLabel>
               <Input
                 id="account-edit-name"
                 autoComplete="off"
-                disabled={update.isPending}
+                disabled={pending}
+                aria-invalid={Boolean(nameError)}
+                aria-describedby={nameError ? 'account-edit-name-error' : undefined}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
+              <FieldError id="account-edit-name-error">{nameError ?? undefined}</FieldError>
             </Field>
             <FieldError>{error ?? undefined}</FieldError>
             <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" disabled={update.isPending} onClick={onClose}>
+              <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
                 取消
               </Button>
-              <Button type="submit" disabled={update.isPending} aria-busy={update.isPending}>
-                {update.isPending ? '正在保存…' : '保存'}
+              <Button type="submit" disabled={pending} aria-busy={pending}>
+                {pending ? '正在保存…' : '保存'}
               </Button>
             </div>
           </FieldGroup>
         </form>
+        <DiscardGuards guard={guard} pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -597,76 +734,97 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
   const [password, setpassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const pending = reset.isPending && !saved;
+  const dirty = !saved && (password !== '' || confirm !== '');
+  const guard = useDiscardGuard(dirty, pending, onClose);
+  const passwordError = submitted && password.length < 8 ? '密码至少 8 个字符。' : null;
+  const confirmError = submitted && confirm !== password ? '两次输入的密码不一致。' : null;
+
+  const submit = async (): Promise<void> => {
+    if (pending) return;
+    setSubmitted(true);
+    setError(null);
+    if (password.length < 8 || password !== confirm) return;
+    try {
+      await reset.mutateAsync({ businessId: account.businessId, password });
+      setSaved(true);
+      toastSuccess('密码已重置');
+      guard.finish();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  };
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open
+      onOpenChange={(next, details) => {
+        if (pending) {
+          details.cancel();
+          return;
+        }
+        if (!next) guard.close();
+      }}
+    >
       <DialogShell
         title={`重置「${account.name}」的密码`}
         description="重置会立即撤销该账户的全部旧会话。"
         className="max-w-md sm:max-w-md"
-        closeDisabled={reset.isPending}
+        closeDisabled={pending}
       >
         <form
           aria-label="重置密码"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (reset.isPending) return;
-            setError(null);
-            if (password.length < 8) {
-              setError('密码至少 8 个字符。');
-              return;
-            }
-            if (password !== confirm) {
-              setError('两次输入的密码不一致。');
-              return;
-            }
-            reset.mutate(
-              { businessId: account.businessId, password },
-              {
-                onSuccess: () => {
-                  toastSuccess('密码已重置');
-                  onClose();
-                },
-                onError: (cause) => setError(errorMessage(cause)),
-              },
-            );
+            void submit();
           }}
         >
           <FieldGroup className="gap-5">
-            <Field data-disabled={reset.isPending}>
+            <Field data-invalid={Boolean(passwordError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-reset-password">新密码</FieldLabel>
               <Input
                 id="account-reset-password"
                 type="password"
                 autoComplete="new-password"
-                disabled={reset.isPending}
+                disabled={pending}
+                aria-invalid={Boolean(passwordError)}
+                aria-describedby={passwordError ? 'account-reset-password-error' : undefined}
                 value={password}
                 onChange={(event) => setpassword(event.target.value)}
               />
+              <FieldError id="account-reset-password-error">
+                {passwordError ?? undefined}
+              </FieldError>
             </Field>
-            <Field data-disabled={reset.isPending}>
+            <Field data-invalid={Boolean(confirmError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-reset-confirm">确认新密码</FieldLabel>
               <Input
                 id="account-reset-confirm"
                 type="password"
                 autoComplete="new-password"
-                disabled={reset.isPending}
+                disabled={pending}
+                aria-invalid={Boolean(confirmError)}
+                aria-describedby={confirmError ? 'account-reset-confirm-error' : undefined}
                 value={confirm}
                 onChange={(event) => setConfirm(event.target.value)}
               />
+              <FieldError id="account-reset-confirm-error">{confirmError ?? undefined}</FieldError>
             </Field>
             <FieldError>{error ?? undefined}</FieldError>
             <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" disabled={reset.isPending} onClick={onClose}>
+              <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
                 取消
               </Button>
-              <Button type="submit" disabled={reset.isPending} aria-busy={reset.isPending}>
-                {reset.isPending ? '正在重置…' : '重置密码'}
+              <Button type="submit" disabled={pending} aria-busy={pending}>
+                {pending ? '正在重置…' : '重置密码'}
               </Button>
             </div>
           </FieldGroup>
         </form>
+        <DiscardGuards guard={guard} pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -674,51 +832,73 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
 
 function AssignRolesDialog({
   account,
-  roles,
+  roleDirectory,
   onClose,
 }: {
   account: Account;
-  roles: Array<{ id: string; name: string }>;
+  roleDirectory: RoleDirectory;
   onClose: () => void;
 }) {
   const save = useSetAccountRoles();
-  const [selected, setSelected] = useState<string[]>(account.roles.map((role) => role.id));
+  const initialRoleIds = account.roles.map((role) => role.id);
+  const [selected, setSelected] = useState<string[]>(initialRoleIds);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const pending = save.isPending && !saved;
+  const dirty =
+    !saved && [...selected].sort().join('\u0000') !== [...initialRoleIds].sort().join('\u0000');
+  const guard = useDiscardGuard(dirty, pending, onClose);
+  const rolesUnavailable = roleDirectory.roles === undefined;
+
+  const submit = async (): Promise<void> => {
+    if (pending) return;
+    setError(null);
+    if (rolesUnavailable) {
+      setError('角色目录没有加载出来，请重试后再保存。');
+      return;
+    }
+    try {
+      await save.mutateAsync({ businessId: account.businessId, roleIds: selected });
+      setSaved(true);
+      toastSuccess('角色已更新');
+      guard.finish();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  };
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open
+      onOpenChange={(next, details) => {
+        if (pending) {
+          details.cancel();
+          return;
+        }
+        if (!next) guard.close();
+      }}
+    >
       <DialogShell
         title={`分配「${account.name}」的角色`}
         description="角色决定该账户的页面与操作权限。"
         className="max-w-lg sm:max-w-lg"
-        closeDisabled={save.isPending}
+        closeDisabled={pending}
       >
         <form
           aria-label="分配角色"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (save.isPending) return;
-            setError(null);
-            save.mutate(
-              { businessId: account.businessId, roleIds: selected },
-              {
-                onSuccess: () => {
-                  toastSuccess('角色已更新');
-                  onClose();
-                },
-                onError: (cause) => setError(errorMessage(cause)),
-              },
-            );
+            void submit();
           }}
         >
           <FieldGroup className="gap-5">
-            <Field data-disabled={save.isPending}>
+            <Field data-disabled={pending}>
               <FieldLabel>角色</FieldLabel>
               <RoleChecks
-                roles={roles}
+                directory={roleDirectory}
                 selected={selected}
-                disabled={save.isPending}
+                disabled={pending}
                 onToggle={(id) =>
                   setSelected((current) =>
                     current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
@@ -728,15 +908,16 @@ function AssignRolesDialog({
             </Field>
             <FieldError>{error ?? undefined}</FieldError>
             <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" disabled={save.isPending} onClick={onClose}>
+              <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
                 取消
               </Button>
-              <Button type="submit" disabled={save.isPending} aria-busy={save.isPending}>
-                {save.isPending ? '正在保存…' : '保存'}
+              <Button type="submit" disabled={pending || rolesUnavailable} aria-busy={pending}>
+                {pending ? '正在保存…' : '保存'}
               </Button>
             </div>
           </FieldGroup>
         </form>
+        <DiscardGuards guard={guard} pending={pending} />
       </DialogShell>
     </Dialog>
   );
