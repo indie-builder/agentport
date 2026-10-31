@@ -4,18 +4,22 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import {
   Activity,
   ArrowLeft,
+  Brain,
   Cable,
   CalendarClock,
   Container,
   FlaskConical,
   HeartPulse,
+  History,
   KeyRound,
   LayoutDashboard,
+  LogOut,
   Menu,
   MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
+  Share2,
   User,
   Users,
   Wrench,
@@ -31,6 +35,7 @@ import {
   homePath,
   isPersonalPath,
   OPERATIONS_MENU,
+  PERSONAL_NAV_GROUPS,
   PLATFORM_MENU,
   RESOURCE_MENU,
   requiredPermissions,
@@ -66,6 +71,12 @@ const iconFor: Record<string, typeof Cable> = {
   '/audit': ScrollText,
   '/accounts': KeyRound,
   '/roles': Users,
+  '/personal/profile': User,
+  '/personal/memory': Brain,
+  '/personal/reviews': History,
+  '/personal/security': KeyRound,
+  '/personal/shares': Share2,
+  '/personal/usage': Activity,
 };
 
 function menuItems(
@@ -78,6 +89,10 @@ const workItems = menuItems(WORK_MENU);
 const resourceItems = menuItems(RESOURCE_MENU);
 const operationsItems = menuItems(OPERATIONS_MENU);
 const platformItems = menuItems(PLATFORM_MENU);
+const personalGroups = PERSONAL_NAV_GROUPS.map((group) => ({
+  label: group.label,
+  items: menuItems(group.items),
+}));
 
 /** 资源入口落到第一个可读资源分类，避免只有连接器权限的人被带到技能页 403。 */
 function resourceHome(me: AuthenticatedMe): string | null {
@@ -98,8 +113,8 @@ const routeMeta: Record<string, { nav: string; title: string }> = {
   '/_shell/personal/': { nav: '/personal/profile', title: '个人资料' },
   '/_shell/personal/profile': { nav: '/personal/profile', title: '个人资料' },
   '/_shell/personal/memory': { nav: '/personal/memory', title: '个人记忆' },
-  '/_shell/personal/reviews': { nav: '/personal/reviews', title: '历史回顾' },
-  '/_shell/personal/security': { nav: '/personal/security', title: '安全与会话' },
+  '/_shell/personal/reviews': { nav: '/personal/reviews', title: '记忆提案' },
+  '/_shell/personal/security': { nav: '/personal/security', title: '账号安全' },
   '/_shell/personal/shares': { nav: '/personal/shares', title: '我的分享' },
   '/_shell/personal/usage': { nav: '/personal/usage', title: '使用记录' },
   '/_shell/schedules': { nav: '/schedules', title: '定时任务' },
@@ -334,6 +349,14 @@ export function AppShell() {
   const visibleWork = workItems.filter((item) => canAny(me.data, item.permissionIds));
   const visibleOperations = operationsItems.filter((item) => canAny(me.data, item.permissionIds));
   const visiblePlatform = platformItems.filter((item) => canAny(me.data, item.permissionIds));
+  const visiblePersonalGroups = personalGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => item.permissionIds.length === 0 || canAny(me.data, item.permissionIds),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
   const resourceTarget = user ? resourceHome(user) : null;
   const buildItems: NavItem[] = [];
   if (resourceTarget) {
@@ -353,24 +376,30 @@ export function AppShell() {
       permissionIds: ['eval.read'] as readonly PermissionId[],
     });
   }
-  const navGroups = isOperationsContext
-    ? [
-        ...(visibleOperations.length > 0 ? [{ label: '运维', items: visibleOperations }] : []),
-        ...(visiblePlatform.length > 0 ? [{ label: '平台', items: visiblePlatform }] : []),
-      ]
-    : [
-        ...(visibleWork.length > 0 ? [{ label: '工作', items: visibleWork }] : []),
-        ...(buildItems.length > 0 ? [{ label: '构建', items: buildItems }] : []),
-      ];
-  const bottomEntry = isOperationsContext
-    ? home !== null &&
-      !operationsNavTargets.has(home) &&
-      !platformItems.some((item) => item.to === home)
+  const navGroups = personalContext
+    ? visiblePersonalGroups
+    : isOperationsContext
+      ? [
+          ...(visibleOperations.length > 0 ? [{ label: '运维', items: visibleOperations }] : []),
+          ...(visiblePlatform.length > 0 ? [{ label: '平台', items: visiblePlatform }] : []),
+        ]
+      : [
+          ...(visibleWork.length > 0 ? [{ label: '工作', items: visibleWork }] : []),
+          ...(buildItems.length > 0 ? [{ label: '构建', items: buildItems }] : []),
+        ];
+  const bottomEntry = personalContext
+    ? home !== null
       ? { to: home, label: '返回工作区', icon: ArrowLeft }
       : null
-    : firstOperations
-      ? { to: firstOperations.to, label: '运维', icon: Wrench }
-      : null;
+    : isOperationsContext
+      ? home !== null &&
+        !operationsNavTargets.has(home) &&
+        !platformItems.some((item) => item.to === home)
+        ? { to: home, label: '返回工作区', icon: ArrowLeft }
+        : null
+      : firstOperations
+        ? { to: firstOperations.to, label: '运维', icon: Wrench }
+        : null;
   const required = requiredPermissions(matchedRoute);
   const allowed = required === null || canAny(me.data, required);
   const [collapsed, setCollapsed] = useCollapsed();
@@ -529,6 +558,34 @@ export function AppShell() {
             onNavigate={drawer ? () => setMobileOpen(false) : undefined}
           />
         ) : null}
+        {personalContext ? (
+          drawer || !collapsed ? (
+            <Button
+              variant="ghost"
+              onClick={() => void logout()}
+              className="h-8 justify-start gap-2.5 rounded-item px-2.5 text-sm text-fg hover:bg-hover"
+            >
+              <LogOut aria-hidden="true" />
+              退出登录
+            </Button>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    aria-label="退出登录"
+                    onClick={() => void logout()}
+                    className="size-8 rounded-tag p-0 text-fg hover:bg-hover"
+                  >
+                    <LogOut />
+                  </Button>
+                }
+              />
+              <TooltipContent side="right">退出登录</TooltipContent>
+            </Tooltip>
+          )
+        ) : null}
         {drawer || !collapsed ? (
           <Link
             to="/personal/profile"
@@ -641,6 +698,7 @@ export function AppShell() {
             className={cn(
               'min-h-0 flex-1',
               pathname.startsWith('/chat') ? 'overflow-hidden' : 'overflow-y-auto',
+              personalContext && '[scrollbar-gutter:stable]',
             )}
           >
             {pathname.startsWith('/chat') ? (

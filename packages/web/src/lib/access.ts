@@ -60,14 +60,35 @@ export const WORK_MENU: readonly MenuItem[] = [
   { to: '/schedules', label: '定时任务', permissionIds: ['schedules.read'] },
 ];
 
-/** 个人模块：资料与安全对所有已登录用户开放，其余沿用原能力叶且数据固定本人。 */
-export const PERSONAL_MENU: readonly MenuItem[] = [
-  { to: '/personal/profile', label: '个人资料', permissionIds: [] },
-  { to: '/personal/memory', label: '个人记忆', permissionIds: ['personal_memory.read'] },
-  { to: '/personal/reviews', label: '历史回顾', permissionIds: ['personal_memory.read'] },
-  { to: '/personal/security', label: '安全与会话', permissionIds: [] },
-  { to: '/personal/shares', label: '我的分享', permissionIds: ['conversations.share'] },
-  { to: '/personal/usage', label: '使用记录', permissionIds: ['overview.read', 'runs.read'] },
+/**
+ * 个人模块：资料与安全对所有已登录用户开放，其余沿用原能力叶且数据固定本人。
+ * 分组只表达目的地之间的任务关系，不新增概况页或数据。
+ */
+export const PERSONAL_NAV_GROUPS: readonly {
+  label: string;
+  items: readonly MenuItem[];
+}[] = [
+  {
+    label: '与专家协作',
+    items: [
+      { to: '/personal/memory', label: '个人记忆', permissionIds: ['personal_memory.read'] },
+      { to: '/personal/reviews', label: '记忆提案', permissionIds: ['personal_memory.read'] },
+    ],
+  },
+  {
+    label: '工作记录',
+    items: [
+      { to: '/personal/shares', label: '我的分享', permissionIds: ['conversations.share'] },
+      { to: '/personal/usage', label: '使用记录', permissionIds: ['overview.read', 'runs.read'] },
+    ],
+  },
+  {
+    label: '账号',
+    items: [
+      { to: '/personal/profile', label: '个人资料', permissionIds: [] },
+      { to: '/personal/security', label: '账号安全', permissionIds: [] },
+    ],
+  },
 ];
 
 export function isPersonalPath(pathname: string): boolean {

@@ -10,6 +10,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router';
 import { act, createElement } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
@@ -120,6 +121,11 @@ async function mount(
     validateSearch: chatSearchSchema,
     component: () => null,
   });
+  const agentDetailRoute = createRoute({
+    getParentRoute: () => shell,
+    path: '/agents/$agentId',
+    component: () => null,
+  });
   const history = options.browser
     ? createBrowserHistory()
     : createMemoryHistory({ initialEntries: [url] });
@@ -133,7 +139,9 @@ async function mount(
     browserHistory = history as ReturnType<typeof createBrowserHistory>;
   }
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([memoryRoute, reviewsRoute, chatRoute])]),
+    routeTree: rootRoute.addChildren([
+      shell.addChildren([memoryRoute, reviewsRoute, chatRoute, agentDetailRoute]),
+    ]),
     history,
   });
   await act(async () => {
@@ -163,6 +171,18 @@ async function click(element: HTMLElement) {
   await flush();
 }
 
+/**
+ * 模拟浏览器真实点击：React 在事件派发内同步刷新 DOM 后，浏览器才执行默认激活。
+ * `.click()` 在 act 中可能错过这个时序，这里在 document 冒泡末尾强制同步刷新。
+ */
+async function clickNative(element: HTMLElement) {
+  await act(async () => {
+    document.addEventListener('click', () => flushSync(() => {}), { once: true });
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  });
+  await flush();
+}
+
 async function openFirstDetail() {
   const view = [...host.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
     item.getAttribute('aria-label')?.startsWith('查看'),
@@ -184,7 +204,7 @@ function allDialogs(): HTMLElement[] {
 }
 
 function discardDialog(): HTMLElement | null {
-  return allDialogs().find((item) => item.textContent?.includes('放弃新建的回顾？')) ?? null;
+  return allDialogs().find((item) => item.textContent?.includes('放弃新建的提案？')) ?? null;
 }
 
 async function pressEscape() {
@@ -240,6 +260,28 @@ async function chooseOption(selectLabel: string, optionLabel: string, scope: Par
     return element as HTMLElement;
   });
   await click(option);
+}
+
+async function openCreate() {
+  await click(button('生成记忆提案'));
+  await vi.waitFor(() =>
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('第 1 / 3 步'),
+  );
+  return document.querySelector('[role="dialog"]') as HTMLElement;
+}
+
+function firstConversationCheckbox(): HTMLElement {
+  const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
+  if (!checkbox) throw new Error('Missing conversation checkbox');
+  return checkbox;
+}
+
+/** 第 1 步选一段来源后进入第 2 步，返回仍在同一弹层内的表单。 */
+async function openCreateOnTargetStep() {
+  const dialog = await openCreate();
+  await click(firstConversationCheckbox());
+  await click(button('下一步', dialog));
+  return dialog;
 }
 
 beforeEach(() => {
@@ -302,8 +344,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('历史回顾', () => {
-  it('把个人偏好/专家记忆/专家规则与真实状态显示在列表', async () => {
+describe('记忆提案', () => {
+  it('把个人记忆/专家记忆/专家规则与真实状态显示在列表', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [
         makeReview({ runId: 'run-q', status: 'queued' }),
@@ -325,7 +367,7 @@ describe('历史回顾', () => {
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('专家甲 / no-console'));
     for (const text of [
-      '个人偏好',
+      '个人记忆',
       '专家记忆',
       '专家规则',
       '排队中',
@@ -351,6 +393,74 @@ describe('历史回顾', () => {
     );
   });
 
+  it('列表优先待审核，并按当前已加载记录提供处理状态筛选', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-done',
+          decision: 'applied',
+          appliedChangeId: 'chg-done',
+          proposal: { summary: '已处理摘要', proposedContent: 'x', evidence: [] },
+        }),
+        makeReview({
+          runId: 'run-active',
+          status: 'running',
+          proposal: null,
+          sources: [{ conversationId: 'conv-running', title: '生成中会话', messageCount: 1 }],
+        }),
+        makeReview({
+          runId: 'run-pending',
+          proposal: { summary: '待审核摘要', proposedContent: 'x', evidence: [] },
+        }),
+        makeReview({
+          runId: 'run-nochange',
+          proposal: { summary: '无需变更摘要', proposedContent: null, evidence: [] },
+          before: { content: '同内容', globs: null, index: null },
+        }),
+      ],
+    });
+    const router = await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('当前已加载 4 条'));
+    expect(host.textContent).toContain('待审核 1');
+    expect(host.textContent).toContain('生成中 1');
+    expect(host.textContent).toContain('已处理 2');
+    // 默认顺序把待审核放在已处理之前，不静默改变用户需要先处理的对象。
+    expect(host.textContent.indexOf('待审核摘要')).toBeLessThan(
+      host.textContent.indexOf('已处理摘要'),
+    );
+
+    await chooseOption('按处理状态筛选', '待审核', host);
+    expect(host.textContent).toContain('待审核摘要');
+    expect(host.textContent).not.toContain('已处理摘要');
+    expect(host.textContent).not.toContain('无需变更摘要');
+    expect(
+      [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="查看"]')].some((item) =>
+        item.getAttribute('aria-label')?.includes('生成中会话'),
+      ),
+    ).toBe(false);
+    await vi.waitFor(() => expect(router.state.location.search).toMatchObject({ view: 'pending' }));
+    expect(router.state.location.search).not.toHaveProperty('create');
+
+    await chooseOption('按处理状态筛选', '生成中', host);
+    expect(
+      [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="查看"]')].some((item) =>
+        item.getAttribute('aria-label')?.includes('生成中会话'),
+      ),
+    ).toBe(true);
+    expect(host.textContent).not.toContain('待审核摘要');
+  });
+
+  it('create=true 自动打开新建流程，关闭后从 URL 移除', async () => {
+    const router = await mount('/personal/reviews?create=true');
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('新建记忆提案'),
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await click(button('取消', dialog));
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    await vi.waitFor(() => expect(router.state.location.search).not.toHaveProperty('create'));
+  });
+
   it('轮询配置在排队/运行时为 3 秒，终态停止', async () => {
     await mount();
     const query = client
@@ -371,26 +481,34 @@ describe('历史回顾', () => {
     ).toBe(false);
   });
 
-  it('创建回顾提交幂等键并在提交前显示预算与超时', async () => {
+  it('创建按来源、目标、摘要三步展开，提交幂等键并在生成前确认预算与超时', async () => {
     await mount();
-    await vi.waitFor(() => expect(host.textContent).toContain('新建回顾'));
-    const createButton = button('新建回顾');
-    await click(createButton);
-    await vi.waitFor(() =>
-      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('新建记忆回顾'),
-    );
-    const dialog = document.querySelector('[role="dialog"]');
-    if (!dialog) throw new Error('Missing create dialog');
+    await vi.waitFor(() => expect(host.textContent).toContain('生成记忆提案'));
+    const dialog = await openCreate();
     await vi.waitFor(() => expect(dialog.textContent).toContain('会话一'));
+    expect(dialog.textContent).toContain('来源专家');
 
+    const checkbox = firstConversationCheckbox();
+    await click(checkbox);
+    await click(button('下一步', dialog));
+
+    // 第 2 步才出现目标与执行专家，执行者与来源专家分开展示。
+    expect(dialog.textContent).toContain('写入目标');
+    expect(dialog.textContent).toContain('执行专家');
+    await fill('memory-review-instruction', '只整理长期偏好');
     expect(dialog.textContent).toContain('单次预算上限 $2');
     expect(dialog.textContent).toContain('超时 10 分钟');
+    await click(button('下一步', dialog));
 
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
-    await fill('memory-review-instruction', '只整理长期偏好');
-    await click(dialogButton('开始回顾'));
+    // 摘要确认列出三类角色与可选要求。
+    expect(dialog.textContent).toContain('确认生成');
+    expect(dialog.textContent).toContain('来源专家');
+    expect(dialog.textContent).toContain('专家甲');
+    expect(dialog.textContent).toContain('个人记忆');
+    expect(dialog.textContent).toContain('执行专家');
+    expect(dialog.textContent).toContain('只整理长期偏好');
+
+    await click(button('生成提案', dialog));
 
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
     const [input, key] = vi.mocked(api.createMemoryReview).mock.calls[0] ?? [];
@@ -402,6 +520,68 @@ describe('历史回顾', () => {
     });
     expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  });
+
+  it('第 2 步按真实默认激活点下一步只进入确认页，不发起生成，最后一步才提交一次', async () => {
+    await mount();
+    const dialog = await openCreate();
+    await vi.waitFor(() => expect(dialog.textContent).toContain('会话一'));
+    await click(firstConversationCheckbox());
+
+    // 第 1 步的隐式提交（Enter）也只推进，不生成。
+    await act(async () => {
+      dialog
+        .querySelector('form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(dialog.textContent).toContain('写入目标');
+    expect(api.createMemoryReview).not.toHaveBeenCalled();
+
+    // 第 2 步的推进按钮会和第 3 步提交按钮落在同一位置；浏览器默认激活必须被拦住。
+    await clickNative(button('下一步', dialog));
+    expect(dialog.textContent).toContain('确认生成');
+    expect(dialog.textContent).toContain('来源专家');
+    expect(dialog.textContent).toContain('写入目标');
+    expect(api.createMemoryReview).not.toHaveBeenCalled();
+
+    await click(button('生成提案', dialog));
+    await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
+  });
+
+  it('直接打开新建弹层先等专家数据，来源专家选中值与下方会话一致', async () => {
+    let releaseAgents: (() => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        if (String(input) === '/api/agents') {
+          return new Promise<Response>((resolve) => {
+            releaseAgents = () =>
+              resolve(
+                new Response(JSON.stringify([agentA, agentB]), {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                }),
+              );
+          });
+        }
+        return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+      }),
+    );
+    // agentsQuery 直接引用模块加载时的 api.agents，这里用挂起的 fetch 模拟目录尚未返回。
+    client.removeQueries({ queryKey: ['agents'] });
+    await mount('/personal/reviews?create=true');
+    // 专家目录未就绪时不挂载弹层，避免用空数组把来源专家初始化成空值。
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await vi.waitFor(() => expect(releaseAgents).toBeDefined());
+
+    await act(async () => releaseAgents?.());
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy());
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await vi.waitFor(() => expect(dialog.textContent).toContain('会话一'));
+
+    const sourceSelect = dialog.querySelector('[data-slot="select-trigger"]');
+    expect(sourceSelect?.textContent).toContain('专家甲');
   });
 
   it('createMemoryReview 把 Idempotency-Key 放进请求头并声明本人来源', async () => {
@@ -432,6 +612,50 @@ describe('历史回顾', () => {
     );
   });
 
+  it('详情先展示写入目标与完整变化，再展示理由、证据与来源', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-order',
+          target: { kind: 'agent_memory', agentId: 'agent-a', name: 'topic.md' },
+          before: { content: '旧正文', globs: null, index: { content: '# 旧索引\n' } },
+          proposal: {
+            summary: '补充主题经验',
+            proposedContent: '新正文',
+            evidence: [{ messageId: 'msg-1', quote: '以后都用中文回答', kind: 'user_fact' }],
+          },
+        }),
+      ],
+    });
+    await mount();
+    const dialog = await openFirstDetail();
+    expect(dialog.textContent).toContain('记忆提案');
+    const order = ['写入目标', '修改前内容', '提案内容', '索引', '理由', '证据', '来源'].map(
+      (label) => dialog.textContent?.indexOf(label) ?? -1,
+    );
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((left, right) => left - right));
+  });
+
+  it('采纳专家目标后提供目标专家现有详情入口', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-target-link',
+          target: { kind: 'agent_memory', agentId: 'agent-a', name: 'topic.md' },
+          decision: 'applied',
+          appliedChangeId: 'chg_1',
+        }),
+      ],
+    });
+    await mount();
+    const dialog = await openFirstDetail();
+    await vi.waitFor(() => expect(dialog.textContent).toContain('提案已采用'));
+    const targetLink = dialog.querySelector<HTMLAnchorElement>('a[href^="/agents/agent-a"]');
+    expect(targetLink?.textContent).toContain('查看专家记忆');
+    expect(targetLink?.getAttribute('href')).toContain('tab=memory');
+  });
+
   it('采用成功后显示已采用与回滚入口', async () => {
     let applied = false;
     vi.mocked(api.memoryReviews).mockImplementation(async () => ({
@@ -452,7 +676,7 @@ describe('历史回顾', () => {
     await mount();
     const dialog = await openFirstDetail();
     expect(dialog.textContent).toContain('以后都用中文回答');
-    expect(dialog.textContent).toContain('回顾前内容');
+    expect(dialog.textContent).toContain('修改前内容');
     expect(dialog.textContent).toContain('旧内容');
     expect(dialog.textContent).toContain('新内容');
 
@@ -462,6 +686,8 @@ describe('历史回顾', () => {
     expect(dialog.textContent).toContain('采用前内容');
     expect(dialog.textContent).not.toContain('当前内容');
     expect(dialog.textContent).toContain('回滚');
+    const targetLink = dialog.querySelector<HTMLAnchorElement>('a[href="/personal/memory"]');
+    expect(targetLink?.textContent).toContain('查看个人记忆');
   });
 
   it('采用冲突显示目标已被修改并保留重新生成', async () => {
@@ -495,7 +721,11 @@ describe('历史回顾', () => {
     const dialog = await openFirstDetail();
     await click(dialogButton('不采用'));
     expect(api.rejectMemoryReview).toHaveBeenCalledWith('run-reject');
-    await vi.waitFor(() => expect(dialog.textContent).toContain('提案已拒绝。'));
+    await vi.waitFor(() => expect(dialog.textContent).toContain('提案已拒绝'));
+    expect(dialog.textContent).toContain('目标内容未更改');
+    // 拒绝没有写入目标，链接文案说明看的是当前内容而不是本次提案。
+    expect(dialog.textContent).toContain('查看当前个人记忆');
+    expect(dialog.textContent).not.toContain('查看个人记忆');
   });
 
   it('重新生成不直接提交，打开预填的新建表单并显示预算与超时', async () => {
@@ -509,23 +739,25 @@ describe('历史回顾', () => {
     });
     await mount();
     const dialog = await openFirstDetail();
-    expect(dialog.textContent).toContain('未形成改进候选');
+    expect(dialog.textContent).toContain('当前内容');
     await click(dialogButton('重新生成'));
 
     expect(api.createMemoryReview).not.toHaveBeenCalled();
     await vi.waitFor(() =>
-      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('新建记忆回顾'),
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('新建记忆提案'),
     );
     const createDialog = document.querySelector('[role="dialog"]') as HTMLElement;
-    expect(createDialog.textContent).toContain('会话一');
-    expect(createDialog.textContent).toContain('单次预算上限 $2');
-    expect(createDialog.textContent).toContain('超时 10 分钟');
+    await vi.waitFor(() => expect(createDialog.textContent).toContain('会话一'));
+    await click(button('下一步', createDialog));
     const instruction = document.getElementById('memory-review-instruction');
     expect(instruction).toBeInstanceOf(HTMLTextAreaElement);
     expect((instruction as HTMLTextAreaElement).value).toBe('');
 
     await fill('memory-review-instruction', '只保留长期结论');
-    await click(button('开始回顾', createDialog));
+    await click(button('下一步', createDialog));
+    expect(createDialog.textContent).toContain('单次预算上限 $2');
+    expect(createDialog.textContent).toContain('超时 10 分钟');
+    await click(button('生成提案', createDialog));
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.createMemoryReview).mock.calls[0]?.[0]).toEqual({
       modelAgentId: 'agent-a',
@@ -544,53 +776,46 @@ describe('历史回顾', () => {
       .mockRejectedValueOnce(new Error('连不上 API 服务'))
       .mockResolvedValue({ runId: 'run-new' });
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const dialog = await openCreate();
     await vi.waitFor(() => expect(dialog.textContent).toContain('会话一'));
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
+    await click(firstConversationCheckbox());
+    await click(button('下一步', dialog));
     await fill('memory-review-instruction', '保留长期偏好');
+    await click(button('下一步', dialog));
 
-    await click(button('开始回顾', dialog));
+    await click(button('生成提案', dialog));
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
-    await click(button('开始回顾', dialog));
+    await click(button('生成提案', dialog));
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(2));
     const firstKey = vi.mocked(api.createMemoryReview).mock.calls[0]?.[1];
     const retryKey = vi.mocked(api.createMemoryReview).mock.calls[1]?.[1];
     expect(firstKey).toBeTruthy();
     expect(retryKey).toBe(firstKey);
 
+    await click(button('上一步', dialog));
     await fill('memory-review-instruction', '保留长期偏好和格式');
-    await click(button('开始回顾', dialog));
+    await click(button('下一步', dialog));
+    await click(button('生成提案', dialog));
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(3));
     expect(vi.mocked(api.createMemoryReview).mock.calls[2]?.[1]).not.toBe(firstKey);
   });
 
-  it('新建回顾的取消、Esc、外部点击与关闭按钮共用放弃确认', async () => {
+  it('生成记忆提案的取消、Esc、外部点击与关闭按钮共用放弃确认', async () => {
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
+    const createDialog = await openCreate();
+    await click(firstConversationCheckbox());
 
-    const createDialog = () =>
-      allDialogs().find((item) => item.textContent?.includes('新建记忆回顾')) ?? null;
+    const findCreateDialog = () =>
+      allDialogs().find((item) => item.textContent?.includes('新建记忆提案')) ?? null;
 
     // 取消按钮
-    await click(button('取消', createDialog() as HTMLElement));
+    await click(button('取消', createDialog));
     expect(discardDialog()).toBeTruthy();
     await click(button('取消', discardDialog() as HTMLElement));
-    expect(createDialog()).toBeTruthy();
+    expect(findCreateDialog()).toBeTruthy();
 
     // 关闭按钮
-    await click(button('关闭', createDialog() as HTMLElement));
+    await click(button('关闭', findCreateDialog() as HTMLElement));
     expect(discardDialog()).toBeTruthy();
     await click(button('取消', discardDialog() as HTMLElement));
 
@@ -605,24 +830,26 @@ describe('历史回顾', () => {
 
     await click(button('放弃并关闭', discardDialog() as HTMLElement));
     await flush();
-    expect(createDialog()).toBeNull();
+    expect(findCreateDialog()).toBeNull();
+    expect(new URLSearchParams(window.location.search).get('create')).toBeNull();
   });
 
-  it('浏览器返回时确认放弃回顾草稿，取消保留、确认继续原导航', async () => {
+  it('新建入口写入 URL，浏览器返回时确认放弃草稿，取消保留草稿', async () => {
     await mount('/personal/reviews', { browser: true, stack: ['/personal/memory'] });
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
+    const dialog = await openCreate();
+    await click(firstConversationCheckbox());
+    await click(button('下一步', dialog));
     await fill('memory-review-instruction', '只整理长期偏好');
-    expect(window.location.search).toBe('');
+    expect(new URLSearchParams(window.location.search).get('create')).toBe('true');
 
     await browserBack();
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     expect(document.body.textContent).not.toContain('放弃未保存的个人记忆？');
 
     await click(button('取消', discardDialog() as HTMLElement));
-    await vi.waitFor(() => expect(window.location.search).toBe(''));
+    await vi.waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('create')).toBe('true'),
+    );
     const kept = document.getElementById('memory-review-instruction');
     expect(kept).toBeInstanceOf(HTMLTextAreaElement);
     expect((kept as HTMLTextAreaElement).value).toBe('只整理长期偏好');
@@ -630,20 +857,24 @@ describe('历史回顾', () => {
     await browserBack();
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('放弃并离开', discardDialog() as HTMLElement));
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    await vi.waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('create')).toBeNull(),
+    );
+
+    await browserBack();
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
-    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆内容（Markdown）'));
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await vi.waitFor(() => expect(host.textContent).toContain('每轮对话会带入这些长期信息。'));
   });
 
-  it('新建回顾草稿阻止切回个人记忆，确认后仅继续该次导航', async () => {
+  it('生成记忆提案草稿阻止切回个人记忆，确认后仅继续该次导航', async () => {
     const router = await mount('/personal/reviews', {
       browser: true,
       stack: ['/personal/memory'],
     });
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
+    const dialog = await openCreate();
+    await click(firstConversationCheckbox());
+    await click(button('下一步', dialog));
     await fill('memory-review-instruction', '草稿');
 
     await act(async () => {
@@ -652,7 +883,7 @@ describe('历史回顾', () => {
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('取消', discardDialog() as HTMLElement));
     await flush();
-    expect(window.location.search).toBe('');
+    expect(new URLSearchParams(window.location.search).get('create')).toBe('true');
     expect(document.getElementById('memory-review-instruction')).toBeTruthy();
 
     await act(async () => {
@@ -661,11 +892,11 @@ describe('历史回顾', () => {
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('放弃并离开', discardDialog() as HTMLElement));
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
-    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆内容（Markdown）'));
+    await vi.waitFor(() => expect(host.textContent).toContain('每轮对话会带入这些长期信息。'));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('新建回顾提交中禁止离开，刷新前有离开保护', async () => {
+  it('生成记忆提案提交中禁止离开，刷新前有离开保护', async () => {
     let resolve!: (value: { runId: string }) => void;
     vi.mocked(api.createMemoryReview).mockReturnValue(
       new Promise((done) => {
@@ -673,16 +904,12 @@ describe('历史回顾', () => {
       }),
     );
     await mount('/personal/reviews', { browser: true, stack: ['/personal/memory'] });
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
+    const createDialog = await openCreate();
+    await click(firstConversationCheckbox());
+    await click(button('下一步', createDialog));
     await fill('memory-review-instruction', '草稿');
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-    await click(button('开始回顾', dialog));
+    await click(button('下一步', createDialog));
+    await click(button('生成提案', createDialog));
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
 
     const unload = new Event('beforeunload', { cancelable: true });
@@ -693,8 +920,10 @@ describe('历史回顾', () => {
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     expect(button('放弃并离开', discardDialog() as HTMLElement).disabled).toBe(true);
     await click(button('取消', discardDialog() as HTMLElement));
-    await vi.waitFor(() => expect(window.location.search).toBe(''));
-    expect(document.getElementById('memory-review-instruction')).toBeTruthy();
+    await vi.waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('create')).toBe('true'),
+    );
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('第 3 / 3 步');
 
     await act(async () => resolve({ runId: 'run-new' }));
     await flush();
@@ -708,20 +937,17 @@ describe('历史回顾', () => {
       }),
     );
     const router = await mount('/personal/reviews', { browser: true, stack: ['/personal/memory'] });
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
-    const createDialog = document.querySelector('[role="dialog"]') as HTMLElement;
-    await click(button('开始回顾', createDialog));
+    const createDialog = await openCreate();
+    await click(firstConversationCheckbox());
+    await click(button('下一步', createDialog));
+    await click(button('下一步', createDialog));
+    await click(button('生成提案', createDialog));
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
 
     await browserBack();
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
-    expect(window.location.search).toBe('');
+    // 浏览器已回退地址栏，但路由仍停在被拦下的 create=true；成功关闭时两者要对齐。
+    expect(router.state.location.search).toMatchObject({ create: true });
 
     // 不操作放弃确认而请求成功时，关闭表单不能把地址栏留在被拦下的上一页。
     await act(async () => resolve({ runId: 'run-new' }));
@@ -734,7 +960,7 @@ describe('历史回顾', () => {
     expect(host.textContent).not.toContain('个人记忆内容（Markdown）');
   });
 
-  it('新建回顾提交中禁止关闭', async () => {
+  it('生成记忆提案提交中禁止关闭', async () => {
     let resolve!: (value: { runId: string }) => void;
     vi.mocked(api.createMemoryReview).mockReturnValue(
       new Promise((done) => {
@@ -742,19 +968,15 @@ describe('历史回顾', () => {
       }),
     );
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-    await click(button('开始回顾', dialog));
+    const dialog = await openCreate();
+    await click(firstConversationCheckbox());
+    await click(button('下一步', dialog));
+    await click(button('下一步', dialog));
+    await click(button('生成提案', dialog));
 
     await pressEscape();
     await pressOutside();
-    expect(allDialogs().find((item) => item.textContent?.includes('新建记忆回顾'))).toBeTruthy();
+    expect(allDialogs().find((item) => item.textContent?.includes('新建记忆提案'))).toBeTruthy();
     expect(discardDialog()).toBeNull();
     expect(
       document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label="关闭"]'),
@@ -928,25 +1150,14 @@ describe('历史回顾', () => {
     );
     expect(names).toHaveLength(4);
     expect(new Set(names).size).toBe(4);
-    expect(names.every((name) => name?.includes('回顾'))).toBe(true);
+    expect(names.every((name) => name?.includes('提案'))).toBe(true);
   });
 
   it('新规则 slug 复用规则格式校验并关联字段错误', async () => {
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-    await click(button('目标', dialog));
-    const ruleOption = await vi.waitFor(() => {
-      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-        (item) => item.textContent?.trim() === '专家规则',
-      );
-      expect(option).toBeTruthy();
-      return option as HTMLElement;
-    });
-    await click(ruleOption);
+    const dialog = await openCreateOnTargetStep();
+    await chooseOption('目标', '专家规则', dialog);
+    await vi.waitFor(() => expect(document.getElementById('memory-review-rule-slug')).toBeTruthy());
 
     await fill('memory-review-rule-slug', 'Bad Slug');
     await vi.waitFor(() => expect(dialog.textContent).toContain('规则 slug 仅允许小写字母'));
@@ -960,13 +1171,9 @@ describe('历史回顾', () => {
 
   it('目标被修改后的表单错误关联到字段', async () => {
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const dialog = await openCreate();
 
-    await click(button('开始回顾', dialog));
+    await click(button('下一步', dialog));
     await vi.waitFor(() => expect(dialog.textContent).toContain('至少选择一段来源会话。'));
     const sourceBox = dialog.querySelector<HTMLElement>(
       '[aria-describedby="memory-review-sources-error"]',
@@ -974,6 +1181,8 @@ describe('历史回顾', () => {
     expect(sourceBox?.getAttribute('aria-invalid')).toBe('true');
     await vi.waitFor(() => expect(document.activeElement).toBe(sourceBox));
 
+    await click(firstConversationCheckbox());
+    await click(button('下一步', dialog));
     await fill('memory-review-instruction', 'a'.repeat(4001));
     expect(dialog.textContent).toContain('4001 / 4000');
     expect(dialog.textContent).toContain('最多 4000 个字符');
@@ -1010,17 +1219,11 @@ describe('历史回顾', () => {
 
   it('专家记忆可选 MEMORY.md、已有主题或新主题，并把文件名提交为 target.name', async () => {
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const dialog = await openCreateOnTargetStep();
     await chooseOption('目标', '专家记忆', dialog);
     await chooseOption('记忆文件', 'topic.md', dialog);
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
-    await click(button('开始回顾', dialog));
+    await click(button('下一步', dialog));
+    await click(button('生成提案', dialog));
 
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.createMemoryReview).mock.calls[0]?.[0].target).toEqual({
@@ -1032,16 +1235,12 @@ describe('历史回顾', () => {
 
   it('新主题文件名复用 shared 校验并自动补 .md', async () => {
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const dialog = await openCreateOnTargetStep();
     await chooseOption('目标', '专家记忆', dialog);
     await chooseOption('记忆文件', '新主题…', dialog);
 
     await fill('memory-review-new-file', 'Bad Name');
-    await click(button('开始回顾', dialog));
+    await click(button('下一步', dialog));
     await vi.waitFor(() => expect(dialog.textContent).toContain('记忆文件名非法'));
     expect(document.getElementById('memory-review-new-file')?.getAttribute('aria-invalid')).toBe(
       'true',
@@ -1050,10 +1249,8 @@ describe('历史回顾', () => {
 
     await fill('memory-review-new-file', 'deploy-notes');
     expect(dialog.textContent).not.toContain('记忆文件名非法');
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
-    await click(button('开始回顾', dialog));
+    await click(button('下一步', dialog));
+    await click(button('生成提案', dialog));
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.createMemoryReview).mock.calls[0]?.[0].target).toEqual({
       kind: 'agent_memory',
@@ -1062,29 +1259,33 @@ describe('历史回顾', () => {
     });
   });
 
-  it('切换目标专家会清空不再有效的文件名和来源', async () => {
+  it('来源专家、目标专家与执行专家互不耦合，摘要让用户确认', async () => {
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const dialog = await openCreateOnTargetStep();
     await chooseOption('目标', '专家记忆', dialog);
-    await chooseOption('记忆文件', 'topic.md', dialog);
-    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]');
-    if (!checkbox) throw new Error('Missing conversation checkbox');
-    await click(checkbox);
-    await vi.waitFor(() =>
-      expect(dialog.querySelector('[aria-label="已选来源会话"]')).toBeTruthy(),
-    );
-
     await chooseOption('目标专家', '专家乙', dialog);
     await vi.waitFor(() =>
       expect(document.getElementById('memory-review-memory-file')?.textContent).toContain(
         'MEMORY.md',
       ),
     );
-    expect(dialog.querySelector('[aria-label="已选来源会话"]')).toBeNull();
+    await click(button('下一步', dialog));
+
+    // 切换目标专家不会静默丢掉来源；三类角色在摘要里分别展示。
+    expect(dialog.textContent).toContain('来源专家');
+    expect(dialog.textContent).toContain('会话一');
+    expect(dialog.textContent).toContain('写入目标');
+    expect(dialog.textContent).toContain('专家乙 / MEMORY.md');
+    expect(dialog.textContent).toContain('执行专家');
+    expect(dialog.textContent).toContain('专家甲');
+
+    await click(button('生成提案', dialog));
+    await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createMemoryReview).mock.calls[0]?.[0]).toMatchObject({
+      modelAgentId: 'agent-a',
+      target: { kind: 'agent_memory', agentId: 'agent-b', name: 'MEMORY.md' },
+      sources: [{ conversationId: 'conv-1' }],
+    });
   });
 
   it('重新生成保留原目标文件名', async () => {
@@ -1100,16 +1301,18 @@ describe('历史回顾', () => {
     const detail = await openFirstDetail();
     await click(dialogButton('重新生成'));
     await vi.waitFor(() =>
-      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('新建记忆回顾'),
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('新建记忆提案'),
     );
     const createDialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await vi.waitFor(() => expect(createDialog.textContent).toContain('会话一'));
+    await click(button('下一步', createDialog));
     await vi.waitFor(() =>
       expect(document.getElementById('memory-review-memory-file')?.textContent).toContain(
         'topic.md',
       ),
     );
-    await vi.waitFor(() => expect(createDialog.textContent).toContain('会话一'));
-    await click(button('开始回顾', createDialog));
+    await click(button('下一步', createDialog));
+    await click(button('生成提案', createDialog));
     await vi.waitFor(() => expect(api.createMemoryReview).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.createMemoryReview).mock.calls[0]?.[0].target).toEqual({
       kind: 'agent_memory',
@@ -1167,6 +1370,12 @@ describe('历史回顾', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('无需变更'));
     const dialog = await openFirstDetail();
     expect(dialog.textContent).toContain('无需变更');
+    // 无变化时只展示一次当前内容，不渲染左右对比或空代码框。
+    expect(dialog.textContent).toContain('当前内容');
+    expect(dialog.textContent).not.toContain('修改前内容');
+    expect(dialog.textContent).not.toContain('提案内容');
+    expect(dialog.querySelector('section[aria-label="内容对比"]')).toBeNull();
+    expect(dialog.querySelectorAll('[aria-label="代码内容"]')).toHaveLength(1);
     expect(buttonOrNull('采用', dialog)).toBeUndefined();
     expect(buttonOrNull('不采用', dialog)).toBeUndefined();
     expect(buttonOrNull('重新生成', dialog)).toBeTruthy();
@@ -1254,11 +1463,7 @@ describe('历史回顾', () => {
         initialized: true,
       });
     await mount();
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const dialog = await openCreateOnTargetStep();
     await chooseOption('目标', '专家记忆', dialog);
     await vi.waitFor(() => expect(dialog.textContent).toContain('记忆文件加载失败'));
 
@@ -1300,24 +1505,27 @@ describe('历史回顾', () => {
     expect(api.agentMemoryVersions).not.toHaveBeenCalled();
     expect(api.agentRuleVersions).not.toHaveBeenCalled();
 
-    await click(button('新建回顾'));
-    await vi.waitFor(() =>
-      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
-    );
-    const createDialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await click(button('生成记忆提案'));
+    const createDialog = await vi.waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+      return document.querySelector('[role="dialog"]') as HTMLElement;
+    });
+    await click(firstConversationCheckbox());
+    await click(button('下一步', createDialog));
     await click(button('目标', createDialog));
     const targetOptions = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(
       (option) => option.textContent?.trim(),
     );
-    expect(targetOptions).toContain('个人偏好');
+    expect(targetOptions).toContain('个人记忆');
     expect(targetOptions).not.toContain('专家记忆');
     expect(targetOptions).not.toContain('专家规则');
     const personalOption = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-      (option) => option.textContent?.trim() === '个人偏好',
+      (option) => option.textContent?.trim() === '个人记忆',
     );
     if (!personalOption) throw new Error('Missing personal target option');
     await click(personalOption);
     await click(button('取消', createDialog));
+    await click(button('放弃并关闭', discardDialog() as HTMLElement));
     await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
     expect(api.agentMemory).not.toHaveBeenCalled();
     expect(api.agentRules).not.toHaveBeenCalled();
@@ -1339,7 +1547,7 @@ describe('历史回顾', () => {
     expect(buttonOrNull('回滚', ruleDialog)).toBeUndefined();
   });
 
-  it('缺少专家使用权限时不提供新建回顾', async () => {
+  it('缺少专家使用权限时不提供生成记忆提案', async () => {
     const me = meWith([
       'personal_memory.read',
       'personal_memory.review',
@@ -1349,8 +1557,8 @@ describe('历史回顾', () => {
     client.setQueryData(['me'], me);
     vi.mocked(api.me).mockResolvedValue(me);
     await mount();
-    await vi.waitFor(() => expect(host.textContent).toContain('新建回顾'));
-    const create = button('新建回顾');
+    await vi.waitFor(() => expect(host.textContent).toContain('生成记忆提案'));
+    const create = button('生成记忆提案');
     expect(create.disabled).toBe(true);
     expect(create.title).toContain('专家使用权限');
   });

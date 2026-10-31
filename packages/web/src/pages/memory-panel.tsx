@@ -111,7 +111,7 @@ function rollbackImpact(change: MemoryChange): string {
   return `恢复「${name}」此前的正文${indexText}。`;
 }
 
-/** 从专家记忆进入按该专家筛选的个人历史回顾。 */
+/** 从专家记忆进入按该专家筛选的个人记忆提案。 */
 function MemoryReviewLink({ agentId }: { agentId: string }) {
   const query = new URLSearchParams({ agent: agentId });
   return (
@@ -120,7 +120,7 @@ function MemoryReviewLink({ agentId }: { agentId: string }) {
         href={`/personal/reviews?${query.toString()}`}
         className="text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
       >
-        历史回顾
+        记忆提案
       </a>
     </div>
   );

@@ -442,7 +442,7 @@ export async function executeMemoryReview(
       (termination === null && (controller.signal.aborted || err instanceof MemoryReviewCancelled));
     const error =
       termination === 'timeout'
-        ? '历史回顾超时'
+        ? '记忆提案生成超时'
         : termination === 'shutdown'
           ? 'worker 关停'
           : termination === 'cancel' || cancelled

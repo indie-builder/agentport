@@ -64,6 +64,8 @@ export interface DataColumn<T> {
   cell?: (row: T) => ReactNode;
   /** 数字列：右对齐、等宽。 */
   numeric?: boolean;
+  /** 整列按右缘对齐，用于右缘动作列，不套用数字列的等宽样式。 */
+  align?: 'end';
   /** 参与排序时提供取值；不提供则该列不可排序。 */
   sortValue?: (row: T) => string | number | null;
   /** 列宽，例如 '180px' 或 '1fr'。用于 grid 模板。 */
@@ -354,6 +356,7 @@ export function DataTable<T extends RowData>({
     .flatMap((column) => sourceById.get(column.id) ?? []);
   const draggable = orderedColumns.filter((c) => !c.locked);
   const visible = table.getVisibleLeafColumns();
+  const hasRowInteraction = Boolean(renderExpanded ?? onRowClick);
   const hiddenSet = new Set(
     Object.entries(prefs.visibility)
       .filter(([, isVisible]) => !isVisible)
@@ -476,7 +479,7 @@ export function DataTable<T extends RowData>({
             className="grid items-center gap-3 px-3 pb-2 hover:bg-transparent"
             style={{ gridTemplateColumns: template }}
           >
-            {visible.map((column) => {
+            {visible.map((column, index) => {
               const source = sourceById.get(column.id);
               const dir = column.getIsSorted();
               return (
@@ -490,6 +493,8 @@ export function DataTable<T extends RowData>({
                   className={cn(
                     'h-auto min-w-0 p-0 text-xs font-normal whitespace-normal text-muted-foreground',
                     source?.numeric && 'text-right',
+                    source?.align === 'end' && 'text-right',
+                    index === 0 && hasRowInteraction && 'pl-7',
                   )}
                 >
                   {column.getCanSort() ? (
@@ -571,7 +576,7 @@ export function DataTable<T extends RowData>({
                         : undefined
                     }
                     className={cn(
-                      'grid min-h-14 w-full items-center gap-3 rounded-item px-3 text-left text-base duration-150 hover:bg-hover has-aria-expanded:bg-transparent',
+                      'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left text-base duration-150 hover:bg-hover has-aria-expanded:bg-transparent',
                       interactive ? 'cursor-pointer' : 'cursor-default',
                       isOpen && 'bg-hover has-aria-expanded:bg-hover',
                     )}
@@ -587,6 +592,7 @@ export function DataTable<T extends RowData>({
                             'min-w-0 px-0 py-2 whitespace-normal wrap-anywhere [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal [&_.truncate]:text-clip',
                             source?.numeric &&
                               'text-right font-mono tabular-nums text-muted-foreground',
+                            source?.align === 'end' && 'text-right',
                           )}
                         >
                           <div
@@ -638,7 +644,9 @@ export function DataTable<T extends RowData>({
                         {/* 收起时 Panel 不挂载内容，展开详情仍保持首次打开的懒查询。 */}
                         <Collapsible open={isOpen}>
                           <CollapsibleContent animated>
-                            <div className="px-3 py-4">{expandedContent}</div>
+                            <div className={hasRowInteraction ? 'py-4 pl-10 pr-3' : 'px-3 py-4'}>
+                              {expandedContent}
+                            </div>
                           </CollapsibleContent>
                         </Collapsible>
                       </TableCell>

@@ -1174,7 +1174,7 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
     expect(aborted).toBe(true);
     expect(await runOf(seeded.runId)).toMatchObject({
       status: 'failed',
-      error: '历史回顾超时',
+      error: '记忆提案生成超时',
     });
     expect((await repo.memoryReviews.find(db, seeded.runId))?.proposal).toBeNull();
     expect(await messagesOf(seeded.runId)).toHaveLength(0);
