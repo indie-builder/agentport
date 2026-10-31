@@ -26,7 +26,7 @@
 
 - **普通业务的服务端状态用 TanStack Query；JSON query/mutation 经 `src/lib/api.ts` 与 `src/lib/queries.ts`。** 页面和组件复用 `api`/Query，新增 query/mutation 与常规缓存写回/失效集中在 `queries.ts`，不建第二套 JSON 请求或缓存层。非 JSON 或事件驱动的通道各留其职责：鉴权图片 Blob 需要可取消请求与 object URL 释放（`knowledge-citations.tsx`），SSE 事件直接写回 Query 缓存（`use-chat-stream.ts`），OpenUI 的 Query/Mutation 走官方运行时与执行桥；这些通道不并入 `queries.ts` 的 JSON 请求层。
 - **URL 状态用 TanStack Router。** 筛选、分页、选中的 tab/分区/文件走 `validateSearch`，不塞进组件 state；新增或删除路由后让 Vite 重新生成 `src/routeTree.gen.ts`，不手改生成文件。
-- **本地状态按作用域取最小方案。** 服务端数据用 Query；只有跨组件、非服务端的交互状态才用 Zustand（如 `src/lib/chat-store.ts`），其余用组件本地 state。类名合并只用 `src/lib/cn.ts`。
+- **共享客户端交互状态统一用 Zustand。** 跨组件、非服务端的交互状态放 Zustand，按业务域复用现有 store（当前 `src/lib/chat-store.ts`），不按页面并排新建同类 store。读取用原子 selector；组合对象/数组时保持稳定引用，按需使用 `useShallow`，不整 store 订阅。服务端状态仍用 Query，可导航状态用 Router，平台表单用 RHF/`useZodForm`，生成式表单用 OpenUI 官方运行时；组件私有、只影响自身的临时状态留本地。类名合并只用 `src/lib/cn.ts`。
 - **先复用现有层。** 交互优先 `src/components/ui/` 原语，应用组合放 `src/components/`；不并排再造同职责的表单、查询、路由或样式封装。
 - **实体列表用实体主键作为行标识。** 关联表、认证、幂等派生标识、外部资源及其他 UI 行标识按 [ID 约定](../../docs/PROJECT-BRIEF.md#162-id-约定) 处理。
 

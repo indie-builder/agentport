@@ -19,6 +19,12 @@
 - `outputs.ts` / `attachments.ts` 的路径校验必须保留：只接受安全相对路径，拒绝绝对路径、`..`、符号链接逃逸、硬链接和非普通文件；校验以调用方传入的物理根为信任起点。
 - 写入先落到临时目录再原子改名；失败时只回收自己创建的内容，不删除可能由别处创建的数据。
 
+## Effect 运行时
+
+- `src/effect-runtime.ts` 是 api/worker 共用的 Effect 契约：`DbError`、`RunFailure`、`isRetryableFailure` 与 `runProgram`；错误分类只在这里定义，调用方不复制。
+- 资源释放直接用 Effect 原生 `acquireRelease` / `scoped`，不新增服务层适配器或超时包装；对外业务 API 保持 Promise 签名，仅 `src/effect-runtime.ts` 的显式桥接契约（`runProgram`）在 core 公开暴露 Effect；调用方可经此入口，也可按各自语义直接使用 `Effect.runPromise` / `Effect.runPromiseExit`，仍不让 Effect 泛型进入其他公开业务接口。
+- Effect 只用于任务内真实需要的类型化错误、取消/超时与资源释放，普通 Promise 流程不机械改写。跨包边界见 [ARCHITECTURE §1.2](../../docs/ARCHITECTURE.md#12-状态与副作用库的职责边界)。
+
 ## 浏览器子路径
 
 - 根入口包含 `node:crypto` / `node:fs` 等模块，web 不得 import `@agentport/core` 根入口；web 实际只使用 `workspace`、`tools`、`plugin-display` 三个子路径。

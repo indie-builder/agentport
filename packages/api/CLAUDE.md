@@ -27,6 +27,12 @@
 - 宿主文件读写沿用现有 core/feature 存储入口（inputs、outputs、记忆文件），不新增平行目录布局。
 - DB 访问走 `@agentport/db` 的 repo 与 schema；数据库 schema 变更按 [db 规则](../db/CLAUDE.md) 执行。
 
+## Effect 边界
+
+- 请求内确有类型化错误、超时或成对资源（连接/清理）时用 Effect，退出用 `Effect.runPromiseExit`，Effect 类型留在 feature 内部、不进入路由签名；参考 `features/servers/test-connection.ts` 的 `acquireRelease` / `scoped`。
+- Fastify 负责请求生命周期、鉴权、校验与错误渲染，不在路由层重组 Effect 程序；不用 `effect/http` 或 Effect Schema 替代 Fastify/zod。
+- 队列分发与重试归 BullMQ，业务重试不写进 API 的 Effect 流程。公共错误分类用 core 的 `RunFailure` / `isRetryableFailure`，不另建一套。
+
 ## 验证
 
 `pnpm --filter @agentport/api typecheck`；涉及权限、错误或路由时跑 `packages/api/test` 对应套件。后端测试使用隔离库与临时 Redis，细节见 [OPERATIONS](../../docs/OPERATIONS.md)。
