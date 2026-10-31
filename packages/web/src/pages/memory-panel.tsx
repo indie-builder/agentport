@@ -1,8 +1,9 @@
 import type { MemoryChange, OutputStyle } from '@agentport/shared';
 import { memoryFileNameSchema, validateMemoryContent } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, FilePlus2, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Download, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -223,7 +224,7 @@ export function MemoryPanel({
           <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
         ) : null}
         <EmptyState
-          icon={<FilePlus2 className="size-5" />}
+          illustration={<BusinessIllustration name="memory" />}
           title={canWrite ? '初始化记忆' : '尚未初始化记忆'}
           description="MEMORY.md 作为索引，跨会话保留这位专家的长期记忆。"
           action={

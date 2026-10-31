@@ -1,10 +1,12 @@
-# 剩余待办清单（2026-10-30）
+# 剩余待办清单（2026-10-31）
 
 > 来源：原 LoopX `agentport-goal` 的 68 条 open todo，经代码与文档逐条核对后收敛。
 > LoopX 已不再使用；本文件是唯一待办来源，后续由 `/loop` 或人工按序执行。
 > 已核对 50 条为已完成/过时（见文末），不再跟踪。
 
 ## P0
+
+- **WeKnora 核心知识库能力补齐（2026-10-31，本地功能已合入，剩余外部验收与旧默认库阻塞）**：以本地 WeKnora 为参照补齐管理与智能体能力。已落管理/版本 COW、FAQ、Wiki、统一检索/MCP、来源撤权、ZIP、离线评估、ASR 与 9 种新增来源；官方 SDK 文件 first、共享源与完整快照契约不变。实现已由 [PR #127](https://github.com/indie-builder/agentport/pull/127) 合入 main（`f93c276`），独立前后端问题均已修复并 PASS；整合验证覆盖 backend/web/DB/shared/core 全范围、零 skip，typecheck/build/focus/contract 通过，最终文件与用例数字见 [任务记录](tasks/knowledge-weknora.md)，本文不重复易过期的计数。用户后续已授权本地迁移：`agentport_business_e2e_dataset` 已应用 `0046`（账本 47 条），迁移前后数据不变；主 `.env` 指向的旧 `agentport` 库存在历史漂移（`0043` 失败），保持原样，默认库重建仍未授权。剩余只有外部验收与旧默认库阻塞：真实 Docling/ASR/视觉/语义质量、企业账号与 GraphRAG（需 Neo4j/模型费用）未验收；生产发布、清库重建与付费真实模型仍未授权。
 
 0. **智能体能力补齐（首轮与产出查看已完成，2026-10-28）**
    - 范围：以使用智能体完成工作的完整用户故事核对能力，从目标、上下文、执行、必要确认、产出查看到反馈修改定位真实断点。明确保留当前任务的产出查看/预览与必要下载；排除云盘、项目空间、多端协同、分享发布等服务。过程与证据见 [任务记录](tasks/platform-capability-gaps.md) 与 [产出查看记录](tasks/agent-output-viewing.md)，验收统一见 [用户故事](USER-STORIES.md)。
@@ -32,8 +34,6 @@
    - 验证：typecheck 全过、web 254/254、全量 965/965、build 通过、biome 0 error、lint:focus 通过；浏览器 320px 六页无溢出且各 1 个 h1。详见 docs/UI-UX-REVIEW.md。
    - 未覆盖：真实读屏/iOS/原生 200% 缩放；`index.html` favicon 仍为 brand.gif 待另换。
 ## P1
-
-- **知识 Wiki 的专家消费链路（2026-10-31 审查确认）**：Wiki 发布与版本维护已有实现，但知识检索 SQL 和专家 MCP 的搜索、读取、列文档仍只覆盖 `knowledge_documents` / `knowledge_chunks`；发布 Wiki 不会使专家可检索该正文。需按既有知识接入契约确定发布 Wiki 的可检索表达与来源引用，再实现并单独验收；本轮知识库 UX 调整只补空白页写作与入口，不新增索引管道。证据见 [任务记录](tasks/knowledge-ux-review.md)。
 
 4. ✅ **真实部署验证安全项 + 收敛沙盒出站（2026-10-24 完成）**
    - 出站：`SANDBOX_EGRESS` 默认改 `open`（不隔离出站，明确写入文档）；`proxy` 未配 `HTTPS_PROXY`/`HTTP_PROXY` 时 `loadConfig` 直接抛错，worker 启动退出（fail-closed），删除原先静默降级 `open`。`none` 含义与启动警告不变。未实现出站代理本身。

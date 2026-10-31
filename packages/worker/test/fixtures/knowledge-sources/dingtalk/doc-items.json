@@ -1,0 +1,21 @@
+{
+  "https://example.dingtalk.com/doc/1": {
+    "dentry": {
+      "docKey": "doc-key-1",
+      "dentryUuid": "uuid-1",
+      "spaceId": "111",
+      "dentryId": "222"
+    }
+  },
+  "https://example.dingtalk.com/file/2": {
+    "dentry": {
+      "dentryUuid": "uuid-2"
+    }
+  },
+  "https://example.dingtalk.com/doc/4": {
+    "dentry": {
+      "docKey": "doc-key-4",
+      "dentryUuid": "uuid-4"
+    }
+  }
+}

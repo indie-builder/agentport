@@ -1,0 +1,24 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "first\n\nMIDDLE\n\nlast",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "text",
+          "text": "first",
+          "prov": [{ "page_no": 1, "bbox": { "l": 1, "t": 2, "r": 3, "b": 4 } }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "last",
+          "prov": [{ "page_no": 3, "bbox": { "l": 5, "t": 6, "r": 7, "b": 8 } }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

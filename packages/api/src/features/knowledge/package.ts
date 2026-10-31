@@ -1,26 +1,32 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fail, isAppError, segmentForSearch } from '@agentport/core';
+import { fail, inspectKnowledgeAudio, isAppError, segmentForSearch } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
+  knowledgeAudioMetadataSchema,
   knowledgeBaseSettingsSchema,
   knowledgeChunkKindSchema,
+  knowledgeContentKindSchema,
   knowledgeDocumentStatusSchema,
+  knowledgeFaqSchema,
   knowledgeImageChunkMetadataSchema,
+  knowledgeLocatorSchema,
   knowledgeSourceTypeSchema,
+  knowledgeVersionOriginSchema,
   knowledgeWikiPageStatusSchema,
   slugSchema,
 } from '@agentport/shared';
 import { and, eq, inArray } from 'drizzle-orm';
-import { unzipSync, zipSync } from 'fflate';
+import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { isPgCode } from '../../plugins/errors.js';
+import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../agent-package-zip.js';
 
 /**
  * 知识库数据包（`pace/knowledge@1`）：ZIP 根 manifest.json 记录库元数据、文件夹、标签、
- * 文档版本、人工 chunk、Wiki 版本与引用，以及每个文件的 sha256。不含向量、密钥、
- * 同步游标与任务记录；导入只读文件与 JSON，不执行包内任何内容。
+ * 文档版本、无版本的待处理原件、人工 chunk、Wiki 版本与引用，以及每个文件的 sha256。
+ * 不含向量、密钥、同步游标与任务记录；导入只读文件与 JSON，不执行包内任何内容。
  */
 
 type Db = Database;
@@ -34,8 +40,19 @@ const MAX_VERSION_IMAGE_BYTES = 64 * 1024 * 1024;
 const MAX_ENTRIES = 5_000;
 const MAX_PATH_LENGTH = 512;
 const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
+const MAX_FOLDERS = 2_000;
+const MAX_TAGS = 2_000;
+const MAX_DOCUMENTS = 2_000;
+const MAX_WIKI_PAGES = 1_000;
 const INSERT_BATCH = 500;
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+/** 导入与导出共用同一组 ZIP 结构/容量上限。 */
+const ZIP_READ_LIMITS: ZipReadLimits = {
+  maxEntries: MAX_ENTRIES,
+  maxUncompressedBytes: MAX_EXPANDED_BYTES,
+  maxEntryBytes: MAX_MANIFEST_BYTES,
+};
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -48,6 +65,8 @@ const pageMapEntrySchema = z.object({
 const chunkSchema = z.object({
   id: z.string().min(1),
   ordinal: z.number().int().nonnegative(),
+  parentOrdinal: z.number().int().nonnegative().nullable().default(null),
+  indexRole: z.enum(['leaf', 'parent']).default('leaf'),
   kind: knowledgeChunkKindSchema,
   heading: z.string().max(300).nullable(),
   content: z.string(),
@@ -55,6 +74,7 @@ const chunkSchema = z.object({
   editedByUser: z.boolean(),
   pageFrom: z.number().int().nullable(),
   pageTo: z.number().int().nullable(),
+  locator: knowledgeLocatorSchema.nullable().default(null),
   tokenCount: z.number().int().nonnegative(),
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
@@ -62,6 +82,10 @@ const chunkSchema = z.object({
 const versionSchema = z.object({
   id: z.string().min(1),
   version: z.number().int().positive(),
+  origin: knowledgeVersionOriginSchema.default('source'),
+  parentVersionId: z.string().min(1).nullable().default(null),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  faq: knowledgeFaqSchema.nullable().default(null),
   originalPath: z.string(),
   markdownPath: z.string().nullable(),
   originalFilename: z.string().min(1).max(255),
@@ -87,6 +111,18 @@ const versionSchema = z.object({
   chunks: z.array(chunkSchema),
 });
 
+/**
+ * 还没有版本的用户输入（manual 任务排队/失败）：只保存原件与待处理状态，
+ * 不伪造解析正文、chunk 或 ready 版本。
+ */
+const pendingInputSchema = z.object({
+  originalPath: z.string(),
+  originalFilename: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(255),
+  sizeBytes: z.number().int().nonnegative().max(MAX_ORIGINAL_BYTES),
+  blobSha256: sha256Schema,
+});
+
 const documentSchema = z.object({
   id: z.string().min(1),
   folderId: z.string().min(1).nullable(),
@@ -98,17 +134,21 @@ const documentSchema = z.object({
   mimeType: z.string().min(1).max(255),
   sizeBytes: z.number().int().nonnegative(),
   status: knowledgeDocumentStatusSchema,
+  contentKind: knowledgeContentKindSchema.default('document'),
   currentVersionId: z.string().min(1).nullable(),
   tags: z.array(z.string().min(1).max(64)),
   metadata: z.record(z.string(), z.unknown()).default({}),
   lastSyncedAt: z.string().nullable().default(null),
-  versions: z.array(versionSchema).min(1),
+  versions: z.array(versionSchema).default([]),
+  pending: pendingInputSchema.nullable().default(null),
 });
 
 const wikiPageSchema = z.object({
   id: z.string().min(1),
   slug: slugSchema,
   title: z.string().min(1).max(300),
+  parentId: z.string().min(1).nullable().default(null),
+  position: z.number().int().default(0),
   status: knowledgeWikiPageStatusSchema,
   currentVersionId: z.string().min(1).nullable(),
   versions: z.array(
@@ -137,21 +177,37 @@ const manifestSchema = z.object({
   format: z.literal(KNOWLEDGE_PACKAGE_FORMAT),
   version: z.literal(1),
   exportedAt: z.string(),
-  base: z.object({
-    slug: slugSchema,
-    name: z.string().min(1).max(120),
-    description: z.string().max(500),
-    status: z.enum(['active', 'disabled']),
-    settings: knowledgeBaseSettingsSchema,
-    embeddingProfileName: z.string().min(1).max(120),
-    rerankProfileName: z.string().min(1).max(120).nullable(),
-    /** 导入端据此判断本机 profile 是否具备导出时的图片能力。 */
-    embeddingProfile: z.object({
-      model: z.string().min(1).max(200),
-      embeddingProtocol: z.enum(['openai', 'cohere_v2']),
-      imageInputEnabled: z.boolean(),
-    }),
-  }),
+  base: z
+    .object({
+      slug: slugSchema,
+      name: z.string().min(1).max(120),
+      description: z.string().max(500),
+      status: z.enum(['active', 'disabled']),
+      settings: knowledgeBaseSettingsSchema,
+      embeddingProfileName: z.string().min(1).max(120),
+      rerankProfileName: z.string().min(1).max(120).nullable(),
+      /** 导入端据此判断本机 profile 是否具备导出时的图片能力。 */
+      embeddingProfile: z.object({
+        model: z.string().min(1).max(200),
+        embeddingProtocol: z.enum(['openai', 'cohere_v2']),
+        imageInputEnabled: z.boolean(),
+      }),
+      /** 音频转录绑定只含可移植身份；endpoint/key/profileId 一律不出包。 */
+      asrProfileName: z.string().min(1).max(120).nullable().default(null),
+      asrProfile: z
+        .object({
+          protocol: z.literal('openai_transcriptions'),
+          model: z.string().min(1).max(200),
+        })
+        .nullable()
+        .default(null),
+    })
+    .refine(
+      (value) =>
+        (value.asrProfileName === null && value.asrProfile === null) ||
+        (value.asrProfileName !== null && value.asrProfile !== null),
+      { message: 'ASR profile 名称与协议必须同时存在或同时缺省', path: ['asrProfile'] },
+    ),
   folders: z
     .array(
       z.object({
@@ -161,10 +217,10 @@ const manifestSchema = z.object({
         path: z.string(),
       }),
     )
-    .max(2_000),
-  tags: z.array(z.object({ id: z.string().min(1), name: z.string().min(1).max(64) })).max(2_000),
-  documents: z.array(documentSchema).max(2_000),
-  wikiPages: z.array(wikiPageSchema).max(1_000),
+    .max(MAX_FOLDERS),
+  tags: z.array(z.object({ id: z.string().min(1), name: z.string().min(1).max(64) })).max(MAX_TAGS),
+  documents: z.array(documentSchema).max(MAX_DOCUMENTS),
+  wikiPages: z.array(wikiPageSchema).max(MAX_WIKI_PAGES),
   files: z
     .array(
       z.object({ path: z.string(), sha256: sha256Schema, size: z.number().int().nonnegative() }),
@@ -178,6 +234,12 @@ type DocumentPackage = z.infer<typeof documentSchema>;
 
 function hash(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
+}
+
+/** faqImport/faqImportJobId 是运行态批次身份；导出与导入都不带它，避免冒充新库的进行中批次。 */
+function withoutRuntimeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const { faqImport: _batch, faqImportJobId: _job, ...rest } = metadata;
+  return rest;
 }
 
 function invalid(message: string, path?: string): never {
@@ -199,42 +261,53 @@ function assertEntryPath(path: string): void {
   }
 }
 
+/** 原件按内容寻址存放在知识库目录下。 */
+function blobPathFor(knowledgeDir: string, sha256: string): string {
+  return join(knowledgeDir, 'blobs', sha256.slice(0, 2), sha256);
+}
+
 /**
- * 先逐条检查再解压：fflate 的 filter 在解压前拿到声明大小，拒绝的条目不分配内存，
- * 避免用声明体积绕过上限。目录标记条目跳过；同名条目直接拒绝（fflate 会静默覆盖）。
+ * 用专家包同一套中央目录/EOCD 校验和 Node 原生 inflate 上限解压：
+ * 声明大小低报时会抛错，而不是返回被截断的内容。
  */
 function readZip(data: Buffer): Map<string, Buffer> {
   if (data.length === 0) invalid('知识包是空的');
   if (data.length > KNOWLEDGE_PACKAGE_MAX_BYTES) {
     fail('PAYLOAD_TOO_LARGE', `知识包超过 ${KNOWLEDGE_PACKAGE_MAX_BYTES} 字节`);
   }
-  const seen = new Set<string>();
-  let total = 0;
-  let files: Record<string, Uint8Array>;
   try {
-    files = unzipSync(new Uint8Array(data), {
-      filter: (file) => {
-        const name = file.name.replace(/\/$/, '');
-        assertEntryPath(name);
-        if (file.name.endsWith('/')) return false;
-        if (seen.has(file.name)) invalid(`ZIP 包内条目「${file.name}」重复`, file.name);
-        seen.add(file.name);
-        if (seen.size > MAX_ENTRIES) invalid(`知识包内文件数超过 ${MAX_ENTRIES} 个`);
-        total += Math.max(file.originalSize, file.size);
-        if (total > MAX_EXPANDED_BYTES) {
-          invalid(`知识包解压后总大小超过 ${MAX_EXPANDED_BYTES} 字节`);
-        }
-        if (file.originalSize > MAX_MANIFEST_BYTES) {
-          invalid(`知识包条目「${file.name}」超过 ${MAX_MANIFEST_BYTES} 字节`, file.name);
-        }
-        return true;
-      },
-    });
+    return new Map(
+      [...decodeZipEntries(data, ZIP_READ_LIMITS)].map(([path, entry]) => [path, entry.data]),
+    );
   } catch (err) {
     if (isAppError(err)) throw err;
     invalid('ZIP 内容损坏，无法解压');
   }
-  return new Map(Object.entries(files).map(([path, bytes]) => [path, Buffer.from(bytes)] as const));
+}
+
+/** 导出前用与导入相同的条目数/单条/总量限制预检，不产出自身无法导入的包。 */
+export function assertPackageCapacity(
+  entries: Record<string, Uint8Array>,
+  limits: ZipReadLimits = ZIP_READ_LIMITS,
+): void {
+  const paths = Object.keys(entries);
+  if (paths.length > limits.maxEntries) {
+    fail('CONFLICT', `知识包条目数超过 ${limits.maxEntries} 个，无法导出`);
+  }
+  let total = 0;
+  for (const path of paths) {
+    const size = entries[path]?.length ?? 0;
+    if (limits.maxEntryBytes !== undefined && size > limits.maxEntryBytes) {
+      fail('CONFLICT', `知识包条目「${path}」超过 ${limits.maxEntryBytes} 字节，无法导出`);
+    }
+    total += size;
+    if (total > limits.maxUncompressedBytes) {
+      fail(
+        'CONFLICT',
+        `知识包解压后总大小超过 ${limits.maxUncompressedBytes} 字节，请拆分知识库后重试`,
+      );
+    }
+  }
 }
 
 /** 校验 manifest 的 sha256 清单，返回只有清单登记且哈希一致的条目。 */
@@ -259,8 +332,99 @@ function verifiedFiles(files: Map<string, Buffer>, manifest: Manifest): Map<stri
   return new Map([...listed.keys()].map((path) => [path, files.get(path)!] as const));
 }
 
-/** 图片名要能直接作为 `images/` 下的单段文件名；导出与导入共用。 */
-function imageNameProblem(name: string): string | null {
+/**
+ * 音频原件只能按真实字节判定：不信任 manifest 的扩展名/MIME/size。
+ * 导入失败是输入问题；导出失败是既有数据无法保证可导回，统一 409。
+ */
+async function validateAudioPackage(
+  manifest: Manifest,
+  contents: Map<string, Buffer>,
+  mode: 'export' | 'import',
+): Promise<void> {
+  const problem = (message: string, path: string): never => {
+    if (mode === 'export') fail('CONFLICT', `知识包音频校验失败：${message}（${path}）`);
+    invalid(message, path);
+  };
+  const checkOriginal = async (
+    data: Buffer,
+    filename: string,
+    mimeType: string,
+    path: string,
+  ): Promise<void> => {
+    let audio: Awaited<ReturnType<typeof inspectKnowledgeAudio>>;
+    try {
+      audio = await inspectKnowledgeAudio({ data, filename, mimeType });
+    } catch (err) {
+      if (!isAppError(err)) throw err;
+      const message = `「${path}」${err.message}`;
+      if (mode === 'export') fail('CONFLICT', `知识包音频校验失败：${message}`);
+      fail(err.code, message, { path });
+    }
+    if (audio && audio.mimeType !== mimeType) {
+      problem(`「${path}」实际音频格式与 MIME ${mimeType} 不一致`, path);
+    }
+  };
+
+  for (const document of manifest.documents) {
+    for (const version of document.versions) {
+      const original = contents.get(version.originalPath);
+      if (!original) continue;
+      await checkOriginal(
+        original,
+        version.originalFilename,
+        version.mimeType,
+        version.originalPath,
+      );
+      if (!('audio' in version.metadata)) continue;
+      const parsed = knowledgeAudioMetadataSchema.safeParse(version.metadata.audio);
+      if (!parsed.success) {
+        return problem(
+          `版本「${version.id}」的 metadata.audio 不合法：${parsed.error.issues[0]?.message ?? ''}`,
+          version.originalPath,
+        );
+      }
+      if (parsed.data.segments.length === 0) continue;
+      const markdown =
+        version.markdownPath === null
+          ? null
+          : (contents.get(version.markdownPath)?.toString('utf8') ?? null);
+      if (markdown === null) {
+        return problem(`版本「${version.id}」有时码段但缺少解析正文`, version.originalPath);
+      }
+      let previousEnd = 0;
+      for (const segment of parsed.data.segments) {
+        if (segment.endOffset > markdown.length) {
+          return problem(
+            `版本「${version.id}」的音频段偏移超出解析正文长度 ${markdown.length}`,
+            version.originalPath,
+          );
+        }
+        if (segment.startOffset < previousEnd) {
+          return problem(
+            `版本「${version.id}」的音频段偏移未按顺序或互相重叠`,
+            version.originalPath,
+          );
+        }
+        previousEnd = segment.endOffset;
+      }
+    }
+    if (document.pending !== null) {
+      const original = contents.get(document.pending.originalPath);
+      if (original) {
+        await checkOriginal(
+          original,
+          document.pending.originalFilename,
+          document.pending.mimeType,
+          document.pending.originalPath,
+        );
+      }
+    }
+  }
+}
+
+/** 图片名要能直接作为 `images/` 下的单段文件名；导出与导入共用。 */ function imageNameProblem(
+  name: string,
+): string | null {
   if (name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
     return '图片名不能包含路径分隔符';
   }
@@ -348,6 +512,12 @@ export async function exportKnowledgePackage(
     : null;
   if (base.rerankProfileId && !rerank)
     fail('CONFLICT', '知识库引用的 rerank profile 不存在，无法导出');
+  const asr = base.asrProfileId
+    ? await repo.knowledge.getModelProfileWithSecret(db, base.asrProfileId)
+    : null;
+  if (base.asrProfileId && (!asr || asr.kind !== 'asr')) {
+    fail('CONFLICT', '知识库引用的 ASR profile 不存在或类型不符，无法导出');
+  }
 
   const folders = await collectPages((options) => repo.knowledge.listFolders(db, baseId, options));
   const tags = await repo.knowledge.listTags(db, baseId);
@@ -374,7 +544,21 @@ export async function exportKnowledgePackage(
             ),
           );
 
-  const entries: Record<string, Uint8Array> = {};
+  // 与 manifestSchema/readZip 同一组上限：超限直接 409，不生成截断或无法导回的包。
+  if (folders.length > MAX_FOLDERS) {
+    fail('CONFLICT', `文件夹数量超过 ${MAX_FOLDERS} 个，请拆分知识库后重试`);
+  }
+  if (tags.length > MAX_TAGS) {
+    fail('CONFLICT', `标签数量超过 ${MAX_TAGS} 个，请拆分知识库后重试`);
+  }
+  if (documents.length > MAX_DOCUMENTS) {
+    fail('CONFLICT', `文档数量超过 ${MAX_DOCUMENTS} 个，请拆分知识库后重试`);
+  }
+  if (wikiPages.length > MAX_WIKI_PAGES) {
+    fail('CONFLICT', `Wiki 页面数量超过 ${MAX_WIKI_PAGES} 个，请拆分知识库后重试`);
+  }
+
+  const entries: Record<string, Buffer> = {};
   const files: Manifest['files'] = [];
   const addFile = (path: string, data: Buffer) => {
     entries[path] = data;
@@ -387,12 +571,74 @@ export async function exportKnowledgePackage(
     const versions = await collectPages((options) =>
       repo.knowledge.listVersions(db, document.id, options),
     );
-    if (versions.length === 0) fail('CONFLICT', `文档「${document.title}」没有可导出的版本`);
+    // 来源归属（knowledgeSourceId）属于本机同步状态，不随包迁移。
+    const { knowledgeSourceId: _source, ...documentMetadata } = document.metadata;
+    if (versions.length === 0) {
+      // Wiki 内部索引是派生态：索引任务尚未产出时没有版本，跳过它不丢 Wiki 页本身。
+      if (document.contentKind === 'wiki') continue;
+      // 用户输入已写入 blob、但摄取任务还在排队或失败：保存原件与待处理状态，不伪造版本。
+      if (document.currentVersionId !== null) {
+        fail('CONFLICT', `文档「${document.title}」的当前版本缺失，无法导出`);
+      }
+      const blobSha256 = document.contentHash;
+      if (!blobSha256) {
+        fail('CONFLICT', `文档「${document.title}」没有待处理的原件，无法导出`);
+      }
+      const original = await readFile(blobPathFor(knowledgeDir, blobSha256)).catch(() => null);
+      if (!original) {
+        fail('CONFLICT', `文档「${document.title}」的待处理原件缺失，无法导出`);
+      }
+      if (hash(original) !== blobSha256) {
+        fail('CONFLICT', `文档「${document.title}」的待处理原件与记录的 sha256 不符，无法导出`);
+      }
+      if (original.length > MAX_ORIGINAL_BYTES) {
+        fail(
+          'CONFLICT',
+          `文档「${document.title}」的原件超过 ${MAX_ORIGINAL_BYTES} 字节，无法导出`,
+        );
+      }
+      if (document.sizeBytes !== original.length) {
+        fail('CONFLICT', `文档「${document.title}」的声明大小与待处理原件不符，无法导出`);
+      }
+      const storedName =
+        typeof documentMetadata.originalFilename === 'string' &&
+        documentMetadata.originalFilename.length > 0
+          ? documentMetadata.originalFilename
+          : `${document.title}.md`;
+      const originalPath = `documents/${document.id}/pending/original`;
+      addFile(originalPath, original);
+      documentPackages.push({
+        id: document.id,
+        folderId: document.folderId,
+        title: document.title,
+        sourceType: document.sourceType,
+        sourceId: document.sourceId,
+        sourceUrl: document.sourceUrl,
+        sourcePath: document.sourcePath,
+        mimeType: document.mimeType,
+        sizeBytes: document.sizeBytes,
+        status: document.status,
+        contentKind: document.contentKind,
+        currentVersionId: null,
+        tags: tagNames.get(document.id) ?? [],
+        metadata: documentMetadata,
+        lastSyncedAt: document.lastSyncedAt?.toISOString() ?? null,
+        versions: [],
+        pending: {
+          originalPath,
+          originalFilename: storedName.slice(0, 255),
+          mimeType: document.mimeType,
+          sizeBytes: original.length,
+          blobSha256,
+        },
+      });
+      continue;
+    }
     const versionPackages: DocumentPackage['versions'] = [];
     for (const version of versions) {
-      const original = await readFile(
-        join(knowledgeDir, 'blobs', version.blobSha256.slice(0, 2), version.blobSha256),
-      ).catch(() => null);
+      const original = await readFile(blobPathFor(knowledgeDir, version.blobSha256)).catch(
+        () => null,
+      );
       if (!original) {
         fail(
           'CONFLICT',
@@ -401,6 +647,12 @@ export async function exportKnowledgePackage(
       }
       if (hash(original) !== version.blobSha256) {
         fail('CONFLICT', `文档「${document.title}」的原件与记录的 sha256 不符，无法导出`);
+      }
+      if (original.length > MAX_ORIGINAL_BYTES) {
+        fail(
+          'CONFLICT',
+          `文档「${document.title}」的原件超过 ${MAX_ORIGINAL_BYTES} 字节（版本 ${version.version}），无法导出`,
+        );
       }
       const markdown = await readFile(
         join(knowledgeDir, 'docs', document.id, version.id, 'markdown.md'),
@@ -416,6 +668,7 @@ export async function exportKnowledgePackage(
       if (markdown !== null) addFile(`${dir}/markdown.md`, Buffer.from(markdown, 'utf8'));
       const images: DocumentPackage['versions'][number]['images'] = [];
       const imageNames = new Set<string>();
+      let imageBytes = 0;
       for (const image of version.images) {
         const problem = imageNameProblem(image.name);
         if (problem !== null) {
@@ -443,6 +696,19 @@ export async function exportKnowledgePackage(
             `文档「${document.title}」的图片「${image.name}」与记录的 sha256 不符，无法导出`,
           );
         }
+        if (data.length > MAX_IMAGE_BYTES) {
+          fail(
+            'CONFLICT',
+            `文档「${document.title}」的图片「${image.name}」超过 ${MAX_IMAGE_BYTES} 字节，无法导出`,
+          );
+        }
+        imageBytes += data.length;
+        if (imageBytes > MAX_VERSION_IMAGE_BYTES) {
+          fail(
+            'CONFLICT',
+            `文档「${document.title}」的图片总大小超过 ${MAX_VERSION_IMAGE_BYTES} 字节（版本 ${version.version}），无法导出`,
+          );
+        }
         const path = imagePathFor(dir, image.name);
         addFile(path, data);
         images.push({ ...image, path });
@@ -450,6 +716,10 @@ export async function exportKnowledgePackage(
       versionPackages.push({
         id: version.id,
         version: version.version,
+        origin: version.origin,
+        parentVersionId: version.parentVersionId,
+        metadata: withoutRuntimeMetadata(version.metadata),
+        faq: version.faq,
         originalPath: `${dir}/original`,
         markdownPath: markdown === null ? null : `${dir}/markdown.md`,
         originalFilename: version.originalFilename,
@@ -464,6 +734,8 @@ export async function exportKnowledgePackage(
         chunks: chunks.map((chunk) => ({
           id: chunk.id,
           ordinal: chunk.ordinal,
+          parentOrdinal: chunk.parentOrdinal,
+          indexRole: chunk.indexRole,
           kind: chunk.kind,
           heading: chunk.heading,
           content: chunk.content,
@@ -471,13 +743,13 @@ export async function exportKnowledgePackage(
           editedByUser: chunk.editedByUser,
           pageFrom: chunk.pageFrom,
           pageTo: chunk.pageTo,
+          locator: chunk.locator,
           tokenCount: chunk.tokenCount,
           metadata: chunk.metadata,
         })),
       });
     }
     // 来源归属（knowledgeSourceId）属于本机同步状态，不随包迁移。
-    const { knowledgeSourceId: _source, ...metadata } = document.metadata;
     documentPackages.push({
       id: document.id,
       folderId: document.folderId,
@@ -489,11 +761,13 @@ export async function exportKnowledgePackage(
       mimeType: document.mimeType,
       sizeBytes: document.sizeBytes,
       status: document.status,
+      contentKind: document.contentKind,
       currentVersionId: document.currentVersionId,
       tags: tagNames.get(document.id) ?? [],
-      metadata,
+      metadata: documentMetadata,
       lastSyncedAt: document.lastSyncedAt?.toISOString() ?? null,
       versions: versionPackages,
+      pending: null,
     });
   }
 
@@ -506,6 +780,8 @@ export async function exportKnowledgePackage(
       id: page.id,
       slug: page.slug,
       title: page.title,
+      parentId: page.parentId,
+      position: page.position,
       status: page.status,
       currentVersionId: page.currentVersionId,
       versions: versions.map((version) => ({
@@ -546,6 +822,8 @@ export async function exportKnowledgePackage(
         embeddingProtocol: embedding.embeddingProtocol,
         imageInputEnabled: embedding.imageInputEnabled,
       },
+      asrProfileName: asr?.name ?? null,
+      asrProfile: asr ? { protocol: 'openai_transcriptions' as const, model: asr.model } : null,
     },
     folders: folders.map((folder) => ({
       id: folder.id,
@@ -558,13 +836,30 @@ export async function exportKnowledgePackage(
     wikiPages: wikiPagePackages,
     files,
   };
-  entries['manifest.json'] = new TextEncoder().encode(JSON.stringify(manifest));
+  // 用导入端的 schema 与引用校验预检：导出成功即代表同一份文件能被导入。
+  const checked = manifestSchema.safeParse(manifest);
+  if (!checked.success) {
+    const first = checked.error.issues[0];
+    fail(
+      'CONFLICT',
+      `知识库内容不符合导入格式：${first?.path.join('.') ?? ''} ${first?.message ?? ''}`.trim(),
+    );
+  }
+  const contents = new Map(Object.entries(entries));
+  validateReferences(checked.data, contents);
+  await validateAudioPackage(checked.data, contents, 'export');
+  entries['manifest.json'] = Buffer.from(JSON.stringify(checked.data), 'utf8');
+  assertPackageCapacity(entries);
   const body = Buffer.from(zipSync(entries, { level: 6 }));
   if (body.length > KNOWLEDGE_PACKAGE_MAX_BYTES) {
-    fail(
-      'PAYLOAD_TOO_LARGE',
-      `知识包压缩后超过 ${KNOWLEDGE_PACKAGE_MAX_BYTES} 字节，请拆分知识库后重试`,
-    );
+    fail('CONFLICT', `知识包压缩后超过 ${KNOWLEDGE_PACKAGE_MAX_BYTES} 字节，请拆分知识库后重试`);
+  }
+  try {
+    // 用导入端同一解析器复核产物的条目数/单条/总量与路径，保证导出成功即可导回。
+    inspectZipEntries(body, ZIP_READ_LIMITS);
+  } catch (err) {
+    if (isAppError(err)) fail('CONFLICT', `导出的知识包不符合导入约束：${err.message}`);
+    throw err;
   }
   return { filename: `${base.slug}.knowledge.zip`, body };
 }
@@ -599,6 +894,7 @@ export async function importKnowledgePackage(
   const manifest = parseManifest(files);
   const contents = verifiedFiles(files, manifest);
   validateReferences(manifest, contents);
+  await validateAudioPackage(manifest, contents, 'import');
 
   const [embedding] = await db
     .select({
@@ -670,6 +966,34 @@ export async function importKnowledgePackage(
     }
     rerankId = rerank.id;
   }
+  let asrId: string | null = null;
+  if (manifest.base.asrProfileName !== null) {
+    const expectedModel = manifest.base.asrProfile?.model;
+    if (expectedModel === undefined) {
+      fail('INVALID_INPUT', '包内 ASR profile 名称缺少协议与模型，无法匹配本机配置');
+    }
+    const [asr] = await db
+      .select({
+        id: schema.knowledgeModelProfiles.id,
+        model: schema.knowledgeModelProfiles.model,
+        enabled: schema.knowledgeModelProfiles.enabled,
+      })
+      .from(schema.knowledgeModelProfiles)
+      .where(
+        and(
+          eq(schema.knowledgeModelProfiles.kind, 'asr'),
+          eq(schema.knowledgeModelProfiles.name, manifest.base.asrProfileName),
+        ),
+      )
+      .limit(1);
+    if (!asr || !asr.enabled || asr.model !== expectedModel) {
+      fail(
+        'CONFLICT',
+        `缺少匹配的 ASR 模型 profile「${manifest.base.asrProfileName}」（需启用且 model=${expectedModel}）；请先创建同名 profile 再导入`,
+      );
+    }
+    asrId = asr.id;
+  }
 
   const existing = await repo.knowledge.getBase(db, manifest.base.slug);
   if (existing) {
@@ -694,11 +1018,37 @@ export async function importKnowledgePackage(
     manifest.wikiPages.map((page) => [page.id, newId('knowledgeWikiPage')]),
   );
   const wikiVersionId = new Map<string, string>();
+  const wikiVersionIdByOldId = new Map<string, string>();
   for (const page of manifest.wikiPages) {
     for (const version of page.versions) {
-      wikiVersionId.set(`${page.id}/${version.id}`, newId('knowledgeWikiVersion'));
+      const next = newId('knowledgeWikiVersion');
+      wikiVersionId.set(`${page.id}/${version.id}`, next);
+      wikiVersionIdByOldId.set(version.id, next);
     }
   }
+
+  /** 包内 ID 只在包内有效；内部 Wiki 索引的引用必须指向本次导入的新页/新版本。 */
+  const remapMetadata = (
+    metadata: Record<string, unknown>,
+    maps: Record<string, Map<string, string>>,
+  ): Record<string, unknown> => {
+    const next = { ...metadata };
+    for (const [key, map] of Object.entries(maps)) {
+      const value = next[key];
+      if (typeof value !== 'string') continue;
+      const mapped = map.get(value);
+      if (mapped === undefined) delete next[key];
+      else next[key] = mapped;
+    }
+    return next;
+  };
+
+  /** 批次是运行态：job 与旧集合快照不随包迁移，导回后不能再冒充进行中的批次。 */
+  const importedVersionMetadata = (metadata: Record<string, unknown>): Record<string, unknown> =>
+    remapMetadata(withoutRuntimeMetadata(metadata), {
+      wikiPageId,
+      wikiVersionId: wikiVersionIdByOldId,
+    });
 
   const baseId = newId('knowledgeBase');
   const serverId = newId('server');
@@ -724,6 +1074,14 @@ export async function importKnowledgePackage(
           }
         }
       }
+      if (document.pending !== null) {
+        await storeBlob(
+          knowledgeDir,
+          document.pending.blobSha256,
+          contents.get(document.pending.originalPath)!,
+          createdBlobs,
+        );
+      }
     }
 
     await db.transaction(async (tx) => {
@@ -743,6 +1101,7 @@ export async function importKnowledgePackage(
         serverId,
         embeddingProfileId: embedding.id,
         rerankProfileId: rerankId,
+        asrProfileId: asrId,
         settings: manifest.base.settings,
       });
       await tx
@@ -795,9 +1154,17 @@ export async function importKnowledgePackage(
           mimeType: document.mimeType,
           sizeBytes: document.sizeBytes,
           status,
+          contentKind: document.contentKind,
+          disabledReason: null,
+          sourceConnectionId: null,
           currentVersionId: null,
-          contentHash: currentPackage?.blobSha256 ?? null,
-          metadata: document.metadata,
+          contentHash: document.pending?.blobSha256 ?? currentPackage?.blobSha256 ?? null,
+          metadata: remapMetadata(
+            document.pending === null
+              ? document.metadata
+              : { ...document.metadata, originalFilename: document.pending.originalFilename },
+            { wikiPageId },
+          ),
           lastSyncedAt: document.lastSyncedAt === null ? null : new Date(document.lastSyncedAt),
         });
         for (const version of document.versions) {
@@ -806,6 +1173,11 @@ export async function importKnowledgePackage(
             id: newVersionId,
             documentId: newDocumentId,
             version: version.version,
+            origin: version.origin,
+            // 父版本可能晚于子版本出现，先全部插入再回填指针。
+            parentVersionId: null,
+            metadata: importedVersionMetadata(version.metadata),
+            faq: version.faq,
             blobSha256: version.blobSha256,
             // 没有解析正文时写入空文件的哈希，不冒充原件摘要。
             markdownSha256: version.markdownSha256 ?? EMPTY_SHA256,
@@ -829,6 +1201,8 @@ export async function importKnowledgePackage(
                 versionId: newVersionId,
                 folderId: document.folderId === null ? null : folderId.get(document.folderId)!,
                 ordinal: chunk.ordinal,
+                parentOrdinal: chunk.parentOrdinal,
+                indexRole: chunk.indexRole,
                 kind: chunk.kind,
                 heading: chunk.heading,
                 content: chunk.content,
@@ -840,11 +1214,19 @@ export async function importKnowledgePackage(
                 editedByUser: chunk.editedByUser,
                 pageFrom: chunk.pageFrom,
                 pageTo: chunk.pageTo,
+                locator: chunk.locator,
                 tokenCount: chunk.tokenCount,
                 metadata: chunk.metadata,
               })),
             );
           }
+        }
+        for (const version of document.versions) {
+          if (version.parentVersionId === null) continue;
+          await tx
+            .update(schema.knowledgeDocumentVersions)
+            .set({ parentVersionId: versionId.get(version.parentVersionId)! })
+            .where(eq(schema.knowledgeDocumentVersions.id, versionId.get(version.id)!));
         }
         if (currentPackage) {
           await tx
@@ -871,6 +1253,8 @@ export async function importKnowledgePackage(
           baseId,
           slug: page.slug,
           title: page.title,
+          parentId: null,
+          position: page.position,
           status: page.status,
           currentVersionId: null,
         });
@@ -908,6 +1292,14 @@ export async function importKnowledgePackage(
             })),
           );
         }
+      }
+      // 父页可能晚于子页出现，先全部建行再回填目录关系。
+      for (const page of manifest.wikiPages) {
+        if (page.parentId === null) continue;
+        await tx
+          .update(schema.knowledgeWikiPages)
+          .set({ parentId: wikiPageId.get(page.parentId)! })
+          .where(eq(schema.knowledgeWikiPages.id, wikiPageId.get(page.id)!));
       }
     });
   } catch (err) {
@@ -1004,13 +1396,40 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
     for (const name of document.tags) {
       if (!tagNames.has(name)) invalid(`文档「${document.title}」引用了未声明的标签「${name}」`);
     }
-    if (document.versions.length === 0) invalid(`文档「${document.title}」没有版本`);
+    if (document.versions.length === 0) {
+      if (document.pending === null) invalid(`文档「${document.title}」没有版本或待处理原件`);
+      if (document.currentVersionId !== null) {
+        invalid(`文档「${document.title}」没有版本却声明了当前版本`);
+      }
+      if (document.contentKind === 'wiki') {
+        invalid(`Wiki 索引文档「${document.title}」不能只有待处理原件`);
+      }
+      const pending = document.pending;
+      assertEntryPath(pending.originalPath);
+      const original = contents.get(pending.originalPath);
+      if (!original) {
+        invalid(`文档「${document.title}」的待处理原件缺失`, pending.originalPath);
+      }
+      if (document.sizeBytes !== original.length || pending.sizeBytes !== original.length) {
+        invalid(`文档「${document.title}」的声明大小与待处理原件不符`, pending.originalPath);
+      }
+      if (hash(original) !== pending.blobSha256) {
+        invalid(`文档「${document.title}」的待处理原件与 sha256 不符`, pending.originalPath);
+      }
+    } else if (document.pending !== null) {
+      invalid(`文档「${document.title}」同时包含版本与待处理原件`);
+    }
     const numbers = new Set<number>();
     for (const version of document.versions) {
       if (versionIds.has(version.id)) invalid(`版本「${version.id}」ID 重复`);
       versionIds.add(version.id);
       if (numbers.has(version.version)) invalid(`文档「${document.title}」版本号重复`);
       numbers.add(version.version);
+      if (version.parentVersionId !== null) {
+        if (!document.versions.some((entry) => entry.id === version.parentVersionId)) {
+          invalid(`版本「${version.id}」的父版本不在同一文档内`);
+        }
+      }
       const original = contents.get(version.originalPath);
       if (!original) invalid(`版本「${version.id}」缺少原件`, version.originalPath);
       if (version.sizeBytes !== original.length) {
@@ -1095,6 +1514,14 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
       const current = document.versions.find((version) => version.id === document.currentVersionId);
       if (!current) invalid(`文档「${document.title}」的当前版本不在包内`);
     }
+    // FAQ 的问答数据挂在版本上；没有 faq 的 faq 文档无法重建可检索内容。
+    if (
+      document.contentKind === 'faq' &&
+      document.pending === null &&
+      !document.versions.some((version) => version.faq !== null)
+    ) {
+      invalid(`FAQ 文档「${document.title}」缺少问答数据`);
+    }
   }
 
   const wikiPageIds = new Set<string>();
@@ -1138,6 +1565,21 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
         }
         sourceChunks.add(source.chunkId);
       }
+    }
+  }
+
+  // 目录关系必须同包且无环；导入后再由页面行外键兜底。
+  const parentById = new Map(manifest.wikiPages.map((page) => [page.id, page.parentId]));
+  for (const page of manifest.wikiPages) {
+    if (page.parentId !== null && !wikiPageIds.has(page.parentId)) {
+      invalid(`Wiki 页面「${page.slug}」的父页面不在包内`);
+    }
+    const seen = new Set<string>();
+    let current: string | null = page.id;
+    while (current !== null) {
+      if (seen.has(current)) invalid(`Wiki 页面「${page.slug}」的目录关系存在循环`);
+      seen.add(current);
+      current = parentById.get(current) ?? null;
     }
   }
 }

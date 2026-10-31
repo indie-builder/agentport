@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -272,7 +273,7 @@ export function SkillsPage() {
       ) : null}
       {skills.data && skills.data.length === 0 ? (
         <PageNote
-          icon={<Sparkles aria-hidden="true" />}
+          icon={<BusinessIllustration name="tools" size="compact" />}
           title="技能库为空"
           action={
             <Button variant="outline" size="sm" onClick={openMarket}>
@@ -283,7 +284,7 @@ export function SkillsPage() {
       ) : null}
       {skills.data && skills.data.length > 0 && visibleSkills.length === 0 ? (
         <PageNote
-          icon={<Sparkles aria-hidden="true" />}
+          icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的技能"
           description="试试其他关键词或使用情况。"
           action={
@@ -574,7 +575,7 @@ function MarketSkillsPage({
       market.data &&
       market.data.length === 0 ? (
         <PageNote
-          icon={<Sparkles aria-hidden="true" />}
+          icon={<BusinessIllustration name={term ? 'search' : 'tools'} size="compact" />}
           title={term ? '没有匹配的技能' : '榜单为空'}
           description={term ? '试试其他关键词。' : 'skills.sh 暂时没有返回榜单数据。'}
           action={

@@ -20,11 +20,26 @@ import type {
   EvalRunExport,
   KnowledgeBase,
   KnowledgeBaseSettings,
+  KnowledgeChunk,
   KnowledgeDocument,
+  KnowledgeDocumentVersion,
+  KnowledgeFaq,
+  KnowledgeFaqImportInput,
+  KnowledgeFaqImportResponse,
   KnowledgeJob,
+  KnowledgeLocator,
   KnowledgeModelProfileSelection,
+  KnowledgeSearchDiagnostics,
+  KnowledgeSearchDirectAnswer,
   KnowledgeSearchHit,
+  KnowledgeSearchResult,
+  KnowledgeSearchScores,
+  KnowledgeSearchWarning,
   KnowledgeSourceInput,
+  KnowledgeSyncItem,
+  KnowledgeTarget,
+  KnowledgeWikiLinksResult,
+  KnowledgeWikiVersionDiff,
   MarketInstallInput,
   MarketSkill,
   MarketView,
@@ -405,6 +420,8 @@ export interface KnowledgeBaseInput {
   description: string;
   embeddingProfileId: string;
   rerankProfileId: string | null;
+  /** 音频转录模型；null 表示不启用 ASR。 */
+  asrProfileId: string | null;
   /** 建库时后端补默认值；设置弹层保存时以完整 settings 提交。 */
   settings: Omit<KnowledgeBaseSettings, 'imageProcessing'> & {
     imageProcessing?: KnowledgeBaseSettings['imageProcessing'];
@@ -417,6 +434,7 @@ export interface KnowledgeBasePatch {
   status?: 'active' | 'disabled';
   embeddingProfileId?: string;
   rerankProfileId?: string | null;
+  asrProfileId?: string | null;
   settings?: KnowledgeBaseInput['settings'];
 }
 
@@ -430,20 +448,12 @@ export interface KnowledgeFolder {
 }
 
 /** 后端只回 content/heading/enabled 可写；正文改动会清空向量并标记人工编辑。 */
-export interface KnowledgeChunk {
-  id: string;
-  documentId: string;
-  versionId: string;
-  ordinal: number;
-  kind: 'text' | 'table' | 'image';
-  heading: string | null;
-  content: string;
-  enabled: boolean;
-  editedByUser: boolean;
-  pageFrom: number | null;
-  pageTo: number | null;
-  /** 图片 chunk 的定位/角色；普通 chunk 为空对象。 */
-  metadata: Record<string, unknown>;
+export type { KnowledgeChunk };
+
+export interface KnowledgeChunkWriteResult {
+  document: KnowledgeDocument;
+  chunk: KnowledgeChunk | null;
+  jobId: string | null;
 }
 
 export interface KnowledgeTag {
@@ -453,15 +463,160 @@ export interface KnowledgeTag {
   createdAt: string;
 }
 
-export interface KnowledgeSearchResponse {
-  hits: KnowledgeSearchHit[];
-  /** 向量不可用、只能走关键词时 true。 */
-  degraded: boolean;
+export type KnowledgeContentKind = KnowledgeTarget['kind'];
+export type KnowledgeVersionOrigin = KnowledgeDocumentVersion['origin'];
+
+export interface KnowledgeSearchOptions {
+  q: string;
+  folders?: string[];
+  tags?: string[];
+  kinds?: KnowledgeContentKind[];
+  limit?: number;
+  rerank?: boolean;
+  minVectorScore?: number;
+  diagnostics?: boolean;
+  /** 只筛 FAQ；文档与 Wiki 不受影响。 */
+  onlyRecommended?: boolean;
+  /** FAQ 组排到普通结果前。 */
+  faqPriority?: boolean;
+  /** directAnswer 的原始问题 cosine 门槛。 */
+  faqDirectAnswerThreshold?: number;
 }
+
+/** FAQ wire 是文档投影：列表只回 title/status/tags，详情另带两个版本。 */
+export type KnowledgeFaqDocument = Pick<
+  KnowledgeDocument,
+  | 'id'
+  | 'baseId'
+  | 'folderId'
+  | 'title'
+  | 'contentKind'
+  | 'status'
+  | 'disabledReason'
+  | 'currentVersionId'
+  | 'tags'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
+export type KnowledgeFaqVersion = Pick<
+  KnowledgeDocumentVersion,
+  | 'id'
+  | 'documentId'
+  | 'version'
+  | 'origin'
+  | 'parentVersionId'
+  | 'metadata'
+  | 'faq'
+  | 'isCurrent'
+  | 'createdAt'
+>;
+
+export interface KnowledgeFaqDetail {
+  document: KnowledgeFaqDocument;
+  draftVersion: KnowledgeFaqVersion | null;
+  publishedVersion: KnowledgeFaqVersion | null;
+  faq: KnowledgeFaq | null;
+}
+
+export type KnowledgeFaqSummary = KnowledgeFaqDocument & { faq: KnowledgeFaq | null };
+
+export interface KnowledgeBatchResult {
+  documentId: string;
+  status: 'succeeded' | 'failed';
+  newDocumentId?: string;
+  jobId?: string;
+  code?: string;
+  message?: string;
+}
+
+export interface KnowledgeFaqBatchResult {
+  results: Array<{
+    documentId: string;
+    status: 'succeeded' | 'failed';
+    code?: string;
+    message?: string;
+  }>;
+}
+
+export type KnowledgeFaqBatchInput =
+  | {
+      action: 'publish';
+      importBatchId?: string;
+      items: Array<{ documentId: string; versionId: string; expectedVersionId: string | null }>;
+    }
+  | {
+      action: 'enable' | 'disable' | 'delete';
+      importBatchId?: never;
+      items: Array<{ documentId: string }>;
+    };
+
+export interface KnowledgeBatchInput {
+  documentIds: string[];
+  action: 'move' | 'copy' | 'tag' | 'delete' | 'reprocess';
+  folderId?: string | null;
+  tags?: string[];
+  tagMode?: 'add' | 'remove' | 'replace';
+  confirmOverwriteManualChunks?: boolean;
+}
+
+export interface KnowledgeRetrievalEvaluationInput {
+  cases: Array<{ q: string; expectedTargets: KnowledgeTarget[]; expectedChunkIds?: string[] }>;
+  limit?: number;
+  rerank?: boolean;
+  minVectorScore?: number;
+}
+
+export interface KnowledgeRetrievalEvaluationReport {
+  recallAtK: number;
+  mrr: number;
+  chunkRecallAtK: number | null;
+  results: Array<{
+    q: string;
+    hit: boolean;
+    recallAtK: number;
+    reciprocalRank: number;
+    chunkRecallAtK: number | null;
+    elapsedMs: number;
+    degraded: boolean;
+    warnings: KnowledgeSearchWarning[];
+  }>;
+}
+
+export interface KnowledgeManualDraft {
+  content: string;
+  versionId: string | null;
+  status: 'draft' | 'published';
+}
+
+export type KnowledgeSearchResponse = KnowledgeSearchResult;
+export type KnowledgeWikiLinks = KnowledgeWikiLinksResult;
+export type KnowledgeWikiDiff = KnowledgeWikiVersionDiff;
+export type {
+  KnowledgeDocumentVersion,
+  KnowledgeFaq,
+  KnowledgeFaqImportInput,
+  KnowledgeFaqImportResponse,
+  KnowledgeJob,
+  KnowledgeLocator,
+  KnowledgeSearchDiagnostics,
+  KnowledgeSearchDirectAnswer,
+  KnowledgeSearchHit,
+  KnowledgeSearchScores,
+  KnowledgeSearchWarning,
+  KnowledgeSyncItem,
+};
+
+/** 连接来源类型直接从 shared 输入契约派生，新增 provider 不再手改 wire 枚举。 */
+export type KnowledgeSourceType = Exclude<
+  KnowledgeSourceInput['type'],
+  'upload' | 'url' | 'manual'
+>;
+export type KnowledgeSourceRangeKind = KnowledgeSourceInput['ranges'][number]['kind'];
 
 export interface KnowledgeSourceRange {
   id: string;
-  kind: 'wiki_space' | 'wiki_node' | 'drive_folder' | 'gitlab_project' | 'github_repo' | 'feed';
+  kind: KnowledgeSourceRangeKind;
   externalId: string;
   ref: string | null;
   paths: string[];
@@ -471,7 +626,7 @@ export interface KnowledgeSourceRange {
 export interface KnowledgeSource {
   id: string;
   baseId: string;
-  type: 'feishu_wiki' | 'feishu_drive' | 'gitlab' | 'github' | 'feed';
+  type: KnowledgeSourceType;
   name: string;
   config: Record<string, unknown>;
   hasSecret: boolean;
@@ -507,6 +662,7 @@ export interface KnowledgeWikiVersion {
   model: string;
   generatedBy: 'sdk' | 'manual';
   createdAt: string;
+  title?: string;
 }
 
 export interface KnowledgeVersionImage {
@@ -538,6 +694,8 @@ export interface KnowledgeWikiPageDetail {
   title: string;
   status: 'draft' | 'published' | 'stale' | 'failed';
   currentVersionId: string | null;
+  parentId?: string | null;
+  position?: number;
   createdAt: string;
   updatedAt: string;
   versions: KnowledgeWikiVersion[];
@@ -546,7 +704,7 @@ export interface KnowledgeWikiPageDetail {
 
 export interface KnowledgeModelProfile {
   id: string;
-  kind: 'embedding' | 'rerank';
+  kind: 'embedding' | 'rerank' | 'asr';
   name: string;
   endpointUrl: string;
   model: string;
@@ -1437,6 +1595,8 @@ export const api = {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return request(`/knowledge/bases/${baseId}/documents${search}`, 'GET', undefined, signal);
   },
+  knowledgeDocument: (documentId: string, signal?: AbortSignal): Promise<KnowledgeDocument> =>
+    request(`/knowledge/documents/${encodeURIComponent(documentId)}`, 'GET', undefined, signal),
   uploadKnowledgeDocument: (
     baseId: string,
     input: {
@@ -1444,8 +1604,8 @@ export const api = {
       mimeType: string;
       dataBase64: string;
       folderId: string | null;
-      /** 目录上传时把相对路径放进标题，列表里能看出原目录。 */
-      title?: string;
+      /** 目录上传时保留浏览器提供的相对路径；后端按真实目录建树。 */
+      relativePath?: string;
     },
   ): Promise<{ documentId: string; jobId: string }> =>
     request(`/knowledge/bases/${baseId}/documents/upload`, 'PUT', input),
@@ -1477,6 +1637,45 @@ export const api = {
     request(`/knowledge/documents/${documentId}/reprocess`, 'POST', {
       confirmOverwriteManualChunks,
     }),
+  batchKnowledgeDocuments: (
+    baseId: string,
+    input: KnowledgeBatchInput,
+  ): Promise<{ results: KnowledgeBatchResult[] }> =>
+    request(`/knowledge/bases/${baseId}/documents/batch`, 'POST', input),
+
+  knowledgeDocumentVersions: (
+    documentId: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgePage<KnowledgeDocumentVersion>> => {
+    const search = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    return request(
+      `/knowledge/documents/${documentId}/versions${search}`,
+      'GET',
+      undefined,
+      signal,
+    );
+  },
+  rollbackKnowledgeDocument: (
+    documentId: string,
+    input: { versionId: string; expectedVersionId: string | null },
+  ): Promise<KnowledgeDocument> =>
+    request(`/knowledge/documents/${documentId}/rollback`, 'POST', input),
+  knowledgeDocumentManual: (
+    documentId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeManualDraft> =>
+    request(`/knowledge/documents/${documentId}/manual`, 'GET', undefined, signal),
+  saveKnowledgeDocumentManual: (
+    documentId: string,
+    input: { content: string; expectedVersionId: string | null },
+  ): Promise<{ documentId: string; jobId: string }> =>
+    request(`/knowledge/documents/${documentId}/manual`, 'PUT', input),
+  publishKnowledgeDocumentVersion: (
+    documentId: string,
+    input: { versionId: string; expectedVersionId: string | null },
+  ): Promise<KnowledgeDocument> =>
+    request(`/knowledge/documents/${documentId}/publish`, 'POST', input),
 
   knowledgeChunks: (
     documentId: string,
@@ -1492,15 +1691,30 @@ export const api = {
   },
   updateKnowledgeChunk: (
     chunkId: string,
-    patch: { content?: string; heading?: string | null; enabled?: boolean },
-  ): Promise<KnowledgeChunk> => request(`/knowledge/chunks/${chunkId}`, 'PATCH', patch),
-  deleteKnowledgeChunk: (chunkId: string): Promise<void> =>
-    request(`/knowledge/chunks/${chunkId}`, 'DELETE'),
+    patch: {
+      content?: string;
+      heading?: string | null;
+      enabled?: boolean;
+      expectedVersionId: string;
+    },
+  ): Promise<KnowledgeChunkWriteResult> => request(`/knowledge/chunks/${chunkId}`, 'PATCH', patch),
+  createKnowledgeChunk: (
+    documentId: string,
+    input: { content: string; heading?: string | null; expectedVersionId: string },
+  ): Promise<KnowledgeChunkWriteResult> =>
+    request(`/knowledge/documents/${documentId}/chunks`, 'POST', input),
+  deleteKnowledgeChunk: (
+    chunkId: string,
+    expectedVersionId: string,
+  ): Promise<KnowledgeChunkWriteResult> =>
+    request(`/knowledge/chunks/${chunkId}`, 'DELETE', { expectedVersionId }),
   /** 解析正文是 text/markdown，不是 JSON；原件走 content 端点直接下载。 */
   knowledgeMarkdown: (versionId: string, signal?: AbortSignal): Promise<string> =>
     request(`/knowledge/versions/${versionId}/markdown`, 'GET', undefined, signal, 'text'),
   knowledgeOriginalUrl: (versionId: string): string =>
     `/api/knowledge/versions/${versionId}/content`,
+  knowledgeOriginalBlob: (versionId: string, signal?: AbortSignal): Promise<Blob> =>
+    request(`/knowledge/versions/${versionId}/content`, 'GET', undefined, signal, 'blob'),
   knowledgeVersionDetails: (
     versionId: string,
     signal?: AbortSignal,
@@ -1512,11 +1726,22 @@ export const api = {
 
   knowledgeSearch: (
     baseId: string,
-    q: string,
-    limit = 10,
+    options: KnowledgeSearchOptions,
     signal?: AbortSignal,
   ): Promise<KnowledgeSearchResponse> => {
-    const params = new URLSearchParams({ q, limit: String(limit) });
+    const params = new URLSearchParams({ q: options.q });
+    params.set('limit', String(options.limit ?? 10));
+    for (const folder of options.folders ?? []) params.append('folders', folder);
+    for (const tag of options.tags ?? []) params.append('tags', tag);
+    for (const kind of options.kinds ?? []) params.append('kinds', kind);
+    if (options.rerank !== undefined) params.set('rerank', String(options.rerank));
+    if (options.minVectorScore !== undefined)
+      params.set('minVectorScore', String(options.minVectorScore));
+    if (options.onlyRecommended === true) params.set('onlyRecommended', 'true');
+    if (options.faqPriority === true) params.set('faqPriority', 'true');
+    if (options.faqDirectAnswerThreshold !== undefined)
+      params.set('faqDirectAnswerThreshold', String(options.faqDirectAnswerThreshold));
+    if (options.diagnostics === true) params.set('diagnostics', 'true');
     return request(
       `/knowledge/bases/${baseId}/search?${params.toString()}`,
       'GET',
@@ -1524,6 +1749,12 @@ export const api = {
       signal,
     );
   },
+
+  evaluateKnowledgeRetrieval: (
+    baseId: string,
+    input: KnowledgeRetrievalEvaluationInput,
+  ): Promise<KnowledgeRetrievalEvaluationReport> =>
+    request(`/knowledge/bases/${encodeURIComponent(baseId)}/retrieval-evaluations`, 'POST', input),
 
   knowledgeJobs: (
     baseId: string,
@@ -1559,15 +1790,118 @@ export const api = {
       syncCron?: string | null;
       ranges?: Array<Omit<KnowledgeSourceRange, 'id'>>;
     },
-  ): Promise<KnowledgeSource> => request(`/knowledge/sources/${sourceId}`, 'PATCH', patch),
+  ): Promise<KnowledgeSource & { disabledDocumentIds?: string[] }> =>
+    request(`/knowledge/sources/${sourceId}`, 'PATCH', patch),
   deleteKnowledgeSource: (sourceId: string, documents: 'keep' | 'delete' = 'keep'): Promise<void> =>
     request(`/knowledge/sources/${sourceId}?documents=${documents}`, 'DELETE'),
-  testKnowledgeSource: (sourceId: string): Promise<{ ok: boolean; issues: string[] }> =>
+  /** 只读远程 probe：202 返回 jobId，结果从 GET jobs/:id 的 result 读取。 */
+  testKnowledgeSource: (sourceId: string): Promise<{ jobId: string }> =>
     request(`/knowledge/sources/${sourceId}/test`, 'POST'),
   syncKnowledgeSource: (sourceId: string): Promise<{ jobId: string; syncRunId: string }> =>
     request(`/knowledge/sources/${sourceId}/sync`, 'POST'),
   knowledgeSourceRuns: (sourceId: string): Promise<KnowledgePage<KnowledgeSyncRun>> =>
     request(`/knowledge/sources/${sourceId}/runs`),
+  knowledgeSyncItems: (
+    sourceId: string,
+    syncRunId: string,
+    query: { cursor?: string; status?: 'failed' | 'skipped' } = {},
+  ): Promise<KnowledgePage<KnowledgeSyncItem>> => {
+    const params = new URLSearchParams();
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (query.status) params.set('status', query.status);
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/knowledge/sources/${sourceId}/runs/${syncRunId}/items${search}`, 'GET');
+  },
+
+  // FAQ：与文档共用版本/发布/启停，不新增执行引擎。
+  knowledgeFaqs: (
+    baseId: string,
+    query: {
+      cursor?: string;
+      limit?: number;
+      q?: string;
+      status?: string;
+      folderId?: string;
+      isRecommended?: boolean;
+    } = {},
+    signal?: AbortSignal,
+  ): Promise<KnowledgePage<KnowledgeFaqSummary>> => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/knowledge/bases/${baseId}/faqs${search}`, 'GET', undefined, signal);
+  },
+  knowledgeFaq: (documentId: string, signal?: AbortSignal): Promise<KnowledgeFaqDetail> =>
+    request(`/knowledge/faqs/${documentId}`, 'GET', undefined, signal),
+  createKnowledgeFaq: (
+    baseId: string,
+    input: {
+      title?: string;
+      faq: KnowledgeFaq;
+      folderId?: string | null;
+      tags?: string[];
+      expectedVersionId?: string | null;
+    },
+  ): Promise<{ documentId: string; jobId: string }> =>
+    request(`/knowledge/bases/${baseId}/faqs`, 'POST', input),
+  updateKnowledgeFaq: (
+    documentId: string,
+    input: {
+      title?: string;
+      faq: KnowledgeFaq;
+      folderId?: string | null;
+      tags?: string[];
+      expectedVersionId: string | null;
+    },
+  ): Promise<{ documentId: string; jobId: string }> =>
+    request(`/knowledge/faqs/${documentId}`, 'PUT', input),
+  publishKnowledgeFaq: (
+    documentId: string,
+    input: { versionId: string; expectedVersionId: string | null },
+  ): Promise<KnowledgeFaqDocument> =>
+    request(`/knowledge/faqs/${documentId}/publish`, 'POST', input),
+  setKnowledgeFaqStatus: (documentId: string, enabled: boolean): Promise<KnowledgeFaqDocument> =>
+    request(`/knowledge/faqs/${documentId}/status`, 'PATCH', { enabled }),
+  deleteKnowledgeFaq: (documentId: string): Promise<void> =>
+    request(`/knowledge/faqs/${documentId}`, 'DELETE'),
+  importKnowledgeFaqs: (
+    baseId: string,
+    input: KnowledgeFaqImportInput,
+  ): Promise<KnowledgeFaqImportResponse> =>
+    request(`/knowledge/bases/${baseId}/faqs/import`, 'POST', input),
+  batchKnowledgeFaqs: (
+    baseId: string,
+    input: KnowledgeFaqBatchInput,
+  ): Promise<KnowledgeFaqBatchResult> =>
+    request(`/knowledge/bases/${baseId}/faqs/batch`, 'POST', input),
+  exportKnowledgeFaqs: (
+    baseId: string,
+    format: 'json' | 'csv',
+    version: 'published' | 'draft' = 'published',
+  ): Promise<Blob> =>
+    request(
+      `/knowledge/bases/${baseId}/faqs/export?format=${format}&version=${version}`,
+      'GET',
+      undefined,
+      undefined,
+      'blob',
+    ),
+  testKnowledgeFaqs: (
+    baseId: string,
+    input: {
+      q: string;
+      limit?: number;
+      rerank?: boolean;
+      minVectorScore?: number;
+      onlyRecommended?: boolean;
+      faqPriority?: boolean;
+      faqDirectAnswerThreshold?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<KnowledgeSearchResponse> =>
+    request(`/knowledge/bases/${baseId}/faqs/test`, 'POST', input, signal),
 
   knowledgeWikiPages: (
     baseId: string,
@@ -1590,14 +1924,30 @@ export const api = {
   },
   createKnowledgeWikiPage: (
     baseId: string,
-    input: { slug: string; title: string },
+    input: { slug: string; title: string; parentId?: string | null; position?: number },
   ): Promise<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>> =>
     request(`/knowledge/bases/${baseId}/wiki-pages`, 'POST', input),
   updateKnowledgeWikiPage: (
     pageId: string,
-    patch: { title?: string; markdown?: string; expectedVersion?: string | null },
+    patch: {
+      title?: string;
+      markdown?: string;
+      expectedVersion?: string | null;
+      parentId?: string | null;
+      position?: number;
+    },
   ): Promise<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>> =>
     request(`/knowledge/wiki-pages/${pageId}`, 'PATCH', patch),
+  knowledgeWikiLinks: (pageId: string): Promise<KnowledgeWikiLinks> =>
+    request(`/knowledge/wiki-pages/${pageId}/links`),
+  knowledgeWikiDiff: (
+    pageId: string,
+    fromVersionId: string,
+    toVersionId: string,
+  ): Promise<KnowledgeWikiDiff> =>
+    request(
+      `/knowledge/wiki-pages/${pageId}/diff?fromVersionId=${encodeURIComponent(fromVersionId)}&toVersionId=${encodeURIComponent(toVersionId)}`,
+    ),
   generateKnowledgeWikiPage: (
     pageId: string,
     input: { instruction?: string } = {},
@@ -1642,11 +1992,12 @@ export const api = {
     input: { documentIds?: string[]; chunksOnly?: boolean } = {},
   ): Promise<{ jobId: string }> => request(`/knowledge/bases/${id}/rebuild`, 'POST', input),
   createKnowledgeModelProfile: (input: {
-    kind: 'embedding' | 'rerank';
+    kind: 'embedding' | 'rerank' | 'asr';
     name: string;
     endpointUrl: string;
     model: string;
     apiKey?: string;
+    enabled?: boolean;
     embeddingProtocol?: 'openai' | 'cohere_v2';
     imageInputEnabled?: boolean;
   }): Promise<KnowledgeModelProfile> => request('/knowledge/model-profiles', 'POST', input),

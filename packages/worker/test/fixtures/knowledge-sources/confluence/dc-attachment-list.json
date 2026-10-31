@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "id": "55",
+      "type": "attachment",
+      "status": "current",
+      "title": "spec.pdf",
+      "metadata": { "mediaType": "application/pdf" },
+      "version": { "number": 4 },
+      "_links": { "download": "/rest/api/content/100/child/attachment/55/download" }
+    }
+  ],
+  "start": 0,
+  "limit": 100,
+  "size": 1,
+  "_links": {}
+}

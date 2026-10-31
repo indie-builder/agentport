@@ -1,0 +1,15 @@
+{
+  "id": "folder-7",
+  "type": "folder",
+  "status": "current",
+  "title": "Folder",
+  "parentId": "1",
+  "parentType": "page",
+  "position": 0,
+  "authorId": "author-1",
+  "ownerId": "owner-1",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "version": { "number": 1 },
+  "spaceId": "123",
+  "_links": { "webui": "/wiki/spaces/DOC/folder/folder-7" }
+}

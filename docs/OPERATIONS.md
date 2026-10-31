@@ -141,6 +141,10 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 
 可选图片向量需要新建 Cohere v2 的 `embed-v4.0` embedding profile（Endpoint URL 为含 `/v2` 的根地址），启用该 profile 的图片输入，再在库设置开启图片向量。固定1024维，必须使用同一模型的文本/图片编码；普通 OpenAI embedding profile 不支持此选项。更换已引用模型需新建 profile 后完整重建，不能仅补缺失向量混用空间。图片描述失败/向量降级可查看任务错误与版本图片 warnings；真实服务质量/费用不由本地协议测试保证。
 
+音频转录不新增环境变量：在知识库「模型配置」新建 `kind=ASR` 的 profile（类型、名称、完整最终 Endpoint URL（例如 `https://api.openai.com/v1/audio/transcriptions`，不自动补 `/v1`）、模型 ID、可选 API Key、启用状态），密钥沿用 `APP_SECRET_KEY` 加密，入库后只能轮换凭证、不能原地换模型。上传仅接受 mp3/wav/m4a/flac/ogg，单文件上限 25,000,000 字节；上传会调用已配置模型并可能计费，失败/自动重试可能重复计费。ASR 的 `/model-profiles/:id/test` 在出站前返回 409，不提供静音探针；关闭或切换 ASR 只影响后续摄取，历史音频版本与原件仍可读。真实端点、时间戳覆盖、转录质量与费用需另行验收。
+
+九种新增来源（Lark wiki/drive、Notion、Confluence、语雀、钉钉、IMA、Seafile、Nextcloud）同样不新增环境变量，凭证走既有加密列。Lark/Notion/钉钉/IMA/语雀使用固定 SaaS origin，用户不能改 baseUrl 或任意 headers；自建 Confluence/Seafile/Nextcloud 站点仍需用 `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 精确放行 host:port，来源表单不能自行开启私网。新增来源按完整快照重读、内容哈希增量入库，不是远端 changed-only；真实账号与配额未提供前只验证本地 fixture。
+
 ## 2. 部署
 
 ### 2.1 前置
@@ -316,7 +320,7 @@ pnpm install
 pnpm run up --rebuild
 ```
 
-`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。
+`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。代码中的迁移链以 `packages/db/migrations/meta/_journal.json` 为准（当前末条 `0046_cold_slipstream`，接在 `0045_married_expediter` 之后）；**实际数据库是否已应用同一链必须单独核对**，不能从代码、其他环境或历史文档推断。应用前先比对 `__drizzle_migrations` 与 journal，并在隔离随机库验证升级。已有库账本或结构与当前链不一致时，不要手改账本、不要给迁移加 `IF NOT EXISTS` 兼容层；个人项目默认按当前 schema 重建干净库，但清理/重建共享库必须先取得用户明确授权，未授权时保持现场、停止迁移并报告缺口。2026-10-31 本机实测记录：共享本机 business 库 `agentport_business_e2e_dataset` 成功应用 `0046`；默认 `agentport` 库因历史账本/结构漂移失败，未清库、未手改账本，重建仍待用户授权。此记录只覆盖两个明确本机配置对应的库，不代表其他环境已迁移。具体行数与差异计数见 [tasks/knowledge-weknora.md](tasks/knowledge-weknora.md) 的迁移实测记录。
 
 **关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 收到 SIGTERM 先 abort 沙盒关停信号：不再新建容器或拉取镜像，进行中的拉取/创建按取消语义收尾，活跃聊天 run 也随同一信号取消；随后并发关闭主与 eval run worker，并最多等待 10s 让已取消的任务收尾（超时不再等），再清理容器（容器 stop 本身不受这 10s 限制，必须等它完成）；其余队列与其他步骤从关停开始就并发关闭、各有界，最后按序执行收尾步骤。单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 
@@ -522,7 +526,7 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 |---|---|---|
 | `GET /health/live` | 进程存活 | 无 |
 | `GET /health/ready` | DB 查询 + Redis ping；任一失败返回 503 与 `status: degraded` | 无 |
-| `GET /health/metrics` | 进程（uptime、RSS、Node 版本）、队列计数、连接池、Redis ping 延迟；单项失败返回 `null`，整体仍 200 | 登录（`requireAuth`） |
+| `GET /health/metrics` | 进程（uptime、RSS、Node 版本）、队列计数、连接池、Redis ping 延迟；`knowledgeQueue` 为知识队列五态 `waiting/active/completed/failed/delayed`（单项失败返回 `null`），整体仍 200 | 登录（`requireAuth`） |
 | `/api/overview` | 统计卡、智能体聚合（运行数、成本、错误率、P50/P99、tokens）、最近 20 条运行；`days` 限制 1–3650、默认 7，统计最近 N 个 UTC 自然日（含今天）；连接器计数排除内部知识连接 | 登录 |
 | `/api/overview/timeseries` | 与概况相同自然日窗口，默认 7；恰好 N 个 UTC 日期点，包含无运行日期的零值 | 登录 |
 | `/api/runs`、`/api/runs/:id` | 运行列表与 trace 步骤 | 登录 |
@@ -658,6 +662,8 @@ pnpm --filter @agentport/web build
 集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。这类断言怕的是**同一个 Redis 实例上有 worker 在消费 `agent-runs`**。测试使用每轮独享的临时 Redis 容器（内部 db 9），开发 worker 留在共享实例的 db 0，默认互不可见，**不需要停 worker**；不要为了让测试通过把 `REDIS_URL` 指回共享实例。
 
 E2E（`pnpm test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `pnpm --filter @agentport/web exec vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。多数用例直写数据库：先 `pnpm build` 产出 `packages/db/dist`，并显式导出与 API 同库的 `DATABASE_URL`。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `pnpm test:e2e` 要停 worker。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
+
+知识库本轮的正式整组检查点 `backend knowledge` 45 文件 624/624、`web knowledge/BlobPdf/chatOutputs/publicShare` 13 文件 293/293（0 跳过）产生于 ASR 与九种新增来源落地**之前**，只证明该核心检查点；报告分别是 `/tmp/knowledge-weknora-backend-consolidated.json` 与 `/tmp/knowledge-weknora-web-consolidated.json`。之后的 ASR、来源扩展与 FAQ 恢复改动各有定向证据，不能把 624/293 挪作新增功能后的最终验收，也不能与各定向结果相加冒充完整通过。
 
 E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，填入前后模型、pixel 工具与留存 artifact 拿到的都是同样的截图；截图仍只遮罩 secure 字段，secret 值仍从所有文本中脱敏。模型只有在引擎能确认所有 secure 字段已遮罩时才收到截图；`toHaveScreenshot()` 在无法证明全部 secure 字段已遮罩时不会被保留。由于截图只遮罩 secure 字段，页面其他位置的普通文本、通用 secret 填入普通输入框的值、或页面在 secure 字段之外显示的值（例如 show-password 切换后）仍会进入图片并可能到达模型提供方，截图、断言与数据一律使用专用测试凭据和独立测试数据，不要使用真实用户密码、真实密钥或生产数据；需要登录或密钥时按 `e2e.config.ts` 的 `credentials` / `secrets` 注入。
 

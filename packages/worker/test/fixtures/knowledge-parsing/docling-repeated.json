@@ -1,0 +1,30 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "same\r\nsame\r\ntail",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "text",
+          "text": "same",
+          "prov": [{ "page_no": 1, "bbox": { "l": 0, "t": 0, "r": 1, "b": 1 } }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "same",
+          "prov": [{ "page_no": 2, "bbox": { "l": 2, "t": 2, "r": 3, "b": 3 } }]
+        },
+        {
+          "self_ref": "#/texts/2",
+          "label": "text",
+          "text": "tail",
+          "prov": [{ "page_no": 3, "bbox": { "l": 4, "t": 4, "r": 5, "b": 5 } }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

@@ -1,9 +1,10 @@
 import { readPluginMarkdown } from '@agentport/core/plugin-display';
 import type { Plugin, PluginFileInput } from '@agentport/shared';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, Download, FileText, FolderOpen, PanelLeftDashed } from 'lucide-react';
+import { ArrowLeft, Download, FolderOpen, PanelLeftDashed } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlockCopyAllowed } from '../components/code-block.js';
 import {
   Collapsible,
@@ -230,7 +231,7 @@ function PluginDetailContent({
 
       {plugin.files.length === 0 ? (
         <EmptyState
-          icon={<FileText aria-hidden="true" />}
+          illustration={<BusinessIllustration name="documents" />}
           title="这个插件没有支持文件"
           description="插件目录里没有可查看的文件。"
           action={

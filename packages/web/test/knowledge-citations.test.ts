@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,27 +13,64 @@ const hits = [
     chunkId: 'kchk_1',
     documentId: 'kdoc_1',
     versionId: 'kdv_1',
+    target: { kind: 'document' as const, id: 'kdoc_1' },
+    targetVersionId: 'kdv_1',
     title: '上线流程',
     heading: '发布前检查',
     quote: '发布前需要产品与研发双方确认。',
     pageFrom: 2,
     pageTo: 2,
+    locator: null,
+    parentContent: null,
     sourceUrl: 'https://gitlab.example.com/doc/1',
     score: 0.91,
+    scoreKind: 'rrf' as const,
+    scores: { keyword: 0.8, vector: 0.9, rrf: 0.03, rerank: null },
     image: null,
+    faq: null,
   },
 ];
 
-const wire = JSON.stringify({ hits });
+const wire = JSON.stringify({ hits, degraded: false, warnings: [] });
+
+const readWire = JSON.stringify({
+  target: { kind: 'document', id: 'kdoc_1' },
+  versionId: 'kdv_1',
+  title: '上线流程',
+  sourceUrl: null,
+  markdown: '正文',
+  offset: 0,
+  nextOffset: null,
+  totalCharacters: 2,
+  citations: hits,
+});
+
+function detailsResponse(): Response {
+  return Response.json({
+    id: 'kdv_1',
+    documentId: 'kdoc_1',
+    version: 1,
+    originalFilename: 'note.md',
+    mimeType: 'text/markdown',
+    sizeBytes: 10,
+    sourceRevision: null,
+    parseStatus: 'parsed',
+    pageMap: [],
+    images: [],
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+}
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
+let client: QueryClient | undefined;
 
 function mount(element: ReturnType<typeof createElement>) {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
-  act(() => root?.render(element));
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  act(() => root?.render(createElement(QueryClientProvider, { client }, element)));
 }
 
 function flush() {
@@ -55,6 +93,8 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root?.unmount());
   root = undefined;
+  client?.clear();
+  client = undefined;
   host?.remove();
   host = undefined;
   vi.restoreAllMocks();
@@ -73,8 +113,9 @@ describe('stripImageReferences', () => {
 });
 
 describe('knowledge citations', () => {
-  it('only treats a knowledge_search JSON result as citations', () => {
+  it('reads citations from search/read results and rejects unrelated tool output', () => {
     expect(knowledgeHitsFromTool('mcp__kb-handbook__knowledge_search', wire)).toEqual(hits);
+    expect(knowledgeHitsFromTool('mcp__kb-handbook__knowledge_read', readWire)).toEqual(hits);
     expect(knowledgeHitsFromTool('mcp__kb-handbook__knowledge_read', wire)).toBeNull();
     expect(
       knowledgeHitsFromTool('mcp__kb-handbook__knowledge_search', 'DOCUMENT_NOT_FOUND: 无'),
@@ -96,10 +137,12 @@ describe('knowledge citations', () => {
   });
 
   it('lists hits and opens the parsed text from the saved tool result', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('# 上线流程\n\n发布前需要产品与研发双方确认。', {
-        headers: { 'content-type': 'text/markdown; charset=utf-8' },
-      }),
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input).includes('/details')
+        ? detailsResponse()
+        : new Response('# 上线流程\n\n发布前需要产品与研发双方确认。', {
+            headers: { 'content-type': 'text/markdown; charset=utf-8' },
+          }),
     );
     mount(
       createElement(KnowledgeCitations, {
@@ -129,7 +172,9 @@ describe('knowledge citations', () => {
   });
 
   it('never turns a non-http source into a clickable link', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('正文'));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input).includes('/details') ? detailsResponse() : new Response('正文'),
+    );
     mount(
       createElement(KnowledgeCitations, {
         name: 'mcp__kb-handbook__knowledge_search',
@@ -236,5 +281,248 @@ describe('knowledge citations', () => {
     await act(async () => reopened?.click());
     await flush();
     expect(document.body.textContent).toContain('图片已删除或不存在，请重新解析该版本。');
+  });
+});
+
+describe('knowledge citation tools', () => {
+  it('parses list and read_image results as citation entries', () => {
+    const listWire = JSON.stringify({
+      items: [
+        {
+          target: { kind: 'wiki', id: 'kwp_1' },
+          versionId: 'kwv_1',
+          title: '备份指南',
+          folderId: null,
+          tags: [],
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+      nextCursor: null,
+    });
+    expect(knowledgeHitsFromTool('mcp__kb-handbook__knowledge_list', listWire)).toHaveLength(1);
+
+    const image = { name: '图 1.png', mimeType: 'image/png', page: 3 };
+    const imageWire = JSON.stringify({
+      hit: { ...hits[0], image },
+      description: '图片描述',
+    });
+    const imageHits = knowledgeHitsFromTool('mcp__kb-handbook__knowledge_read_image', imageWire);
+    expect(imageHits).toHaveLength(1);
+    expect(imageHits?.[0]?.image).toEqual(image);
+  });
+
+  it('renders list results as openable objects', () => {
+    const listWire = JSON.stringify({
+      items: [
+        {
+          target: { kind: 'wiki', id: 'kwp_1' },
+          versionId: 'kwv_1',
+          title: '备份指南',
+          folderId: null,
+          tags: [],
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+      nextCursor: null,
+    });
+    mount(
+      createElement(KnowledgeCitations, {
+        name: 'mcp__kb-handbook__knowledge_list',
+        result: listWire,
+      }),
+    );
+    expect(host?.textContent).toContain('对象 · 1');
+    expect(host?.textContent).toContain('备份指南');
+    expect(host?.textContent).toContain('Wiki');
+  });
+
+  it('previews a PDF citation through BlobPdf and keeps the download link', async () => {
+    Object.defineProperty(navigator, 'pdfViewerEnabled', {
+      configurable: true,
+      value: true,
+    });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/details')) {
+        return Response.json({
+          id: 'kdv_1',
+          documentId: 'kdoc_1',
+          version: 1,
+          originalFilename: 'release.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 8,
+          sourceRevision: null,
+          parseStatus: 'parsed',
+          pageMap: [],
+          images: [],
+          createdAt: '2026-01-01T00:00:00Z',
+        });
+      }
+      return new Response('%PDF-1.4', { headers: { 'content-type': 'application/pdf' } });
+    });
+    mount(
+      createElement(KnowledgeCitations, {
+        name: 'mcp__kb-handbook__knowledge_search',
+        result: wire,
+      }),
+    );
+    const trigger = [...(host?.querySelectorAll('button') ?? [])].find((button) =>
+      button.textContent?.includes('上线流程'),
+    );
+    await act(async () => trigger?.click());
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await flush();
+      if (document.querySelector('[role="dialog"] iframe')) break;
+    }
+    const iframe = document.querySelector<HTMLIFrameElement>('[role="dialog"] iframe');
+    expect(iframe?.getAttribute('src')).toBe('blob:pdf#page=2');
+    expect(
+      document.querySelector<HTMLAnchorElement>(
+        '[role="dialog"] a[href="/api/knowledge/versions/kdv_1/content"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(([url]) =>
+        String(url).includes('/content'),
+      ),
+    ).toBe(true);
+  });
+
+  it('uses the locator page and leaves the fragment off when no page is known', async () => {
+    Object.defineProperty(navigator, 'pdfViewerEnabled', {
+      configurable: true,
+      value: true,
+    });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/details')) {
+        return Response.json({
+          id: 'kdv_1',
+          documentId: 'kdoc_1',
+          version: 1,
+          originalFilename: 'release.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 8,
+          sourceRevision: null,
+          parseStatus: 'parsed',
+          pageMap: [],
+          images: [],
+          createdAt: '2026-01-01T00:00:00Z',
+        });
+      }
+      return new Response('%PDF-1.4', { headers: { 'content-type': 'application/pdf' } });
+    });
+    const openPdf = async (result: string): Promise<HTMLIFrameElement | null> => {
+      if (root) await act(async () => root?.unmount());
+      host?.remove();
+      mount(
+        createElement(KnowledgeCitations, {
+          name: 'mcp__kb-handbook__knowledge_search',
+          result,
+        }),
+      );
+      const trigger = [...(host?.querySelectorAll('button') ?? [])].find((button) =>
+        button.textContent?.includes('上线流程'),
+      );
+      await act(async () => trigger?.click());
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await flush();
+        if (document.querySelector('[role="dialog"] iframe')) break;
+      }
+      return document.querySelector<HTMLIFrameElement>('[role="dialog"] iframe');
+    };
+
+    const locatorWire = JSON.stringify({
+      hits: [{ ...hits[0], pageFrom: null, locator: { pageFrom: 3 } }],
+      degraded: false,
+      warnings: [],
+    });
+    expect((await openPdf(locatorWire))?.getAttribute('src')).toBe('blob:pdf#page=3');
+
+    const noPageWire = JSON.stringify({
+      hits: [{ ...hits[0], pageFrom: null, pageTo: null, locator: null }],
+      degraded: false,
+      warnings: [],
+    });
+    expect((await openPdf(noPageWire))?.getAttribute('src')).toBe('blob:pdf');
+  });
+
+  it('shows the cited FAQ version in full and ignores a newer unrelated draft', async () => {
+    const publishedFaq = {
+      question: '如何备份？',
+      similarQuestions: ['备份怎么做'],
+      negativeQuestions: [],
+      answers: ['每日自动备份。', '异机保存副本。'],
+      answerStrategy: 'all',
+      isRecommended: true,
+    };
+    const draftFaq = { ...publishedFaq, answers: ['未发布的草稿答案。'] };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        document: {
+          id: 'kdoc_faq',
+          baseId: 'kb_1',
+          folderId: null,
+          title: '如何备份',
+          contentKind: 'faq',
+          status: 'ready',
+          disabledReason: null,
+          currentVersionId: 'kdv_faq_pub',
+          tags: [],
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+        draftVersion: {
+          id: 'kdv_faq_draft',
+          documentId: 'kdoc_faq',
+          version: 2,
+          origin: 'faq',
+          parentVersionId: 'kdv_faq_pub',
+          metadata: { publication: 'draft' },
+          faq: draftFaq,
+          isCurrent: false,
+          createdAt: '2026-01-02T00:00:00Z',
+        },
+        publishedVersion: {
+          id: 'kdv_faq_pub',
+          documentId: 'kdoc_faq',
+          version: 1,
+          origin: 'faq',
+          parentVersionId: null,
+          metadata: {},
+          faq: publishedFaq,
+          isCurrent: true,
+          createdAt: '2026-01-01T00:00:00Z',
+        },
+        faq: draftFaq,
+      }),
+    );
+    const faqHit = {
+      ...hits[0],
+      target: { kind: 'faq', id: 'kdoc_faq' },
+      targetVersionId: 'kdv_faq_pub',
+      title: '如何备份？',
+      image: null,
+    };
+    const faqWire = JSON.stringify({ hits: [faqHit], degraded: false, warnings: [] });
+    mount(
+      createElement(KnowledgeCitations, {
+        name: 'mcp__kb-handbook__knowledge_search',
+        result: faqWire,
+      }),
+    );
+    const trigger = [...(host?.querySelectorAll('button') ?? [])].find((button) =>
+      button.textContent?.includes('如何备份？'),
+    );
+    await act(async () => trigger?.click());
+    await flush();
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('每日自动备份。');
+    expect(dialog?.textContent).toContain('异机保存副本。');
+    expect(dialog?.textContent).not.toContain('未发布的草稿答案。');
   });
 });

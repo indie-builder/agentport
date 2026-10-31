@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BlobImage } from '../components/blob-image.js';
 import { BlobPdf } from '../components/blob-pdf.js';
 import { BrandMark } from '../components/brand.js';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { Markdown } from '../components/markdown.js';
 import { ErrorState, LoadingState } from '../components/states.js';
@@ -111,6 +112,7 @@ export function ShareView({ shareId, token }: { shareId: string; token: string |
           </>
         ) : state.status === 'invalid' ? (
           <>
+            <BusinessIllustration name="not-found" size="error" />
             <h1 className="text-lg font-medium tracking-[-0.01em] text-fg">链接无效或已撤销</h1>
             <p className="text-sm text-muted-foreground">请向分享者确认链接是否仍然有效。</p>
           </>

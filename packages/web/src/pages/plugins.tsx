@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { z } from 'zod';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { PageNote } from '../components/page.js';
@@ -200,7 +201,7 @@ export function PluginsPage() {
       ) : null}
       {plugins.data && plugins.data.length > 0 && visiblePlugins.length === 0 ? (
         <PageNote
-          icon={<Puzzle aria-hidden="true" />}
+          icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的插件"
           description="试试其他关键词。"
           action={
@@ -221,7 +222,7 @@ export function PluginsPage() {
       ) : null}
       {plugins.data && plugins.data.length === 0 ? (
         <PageNote
-          icon={<Puzzle aria-hidden="true" />}
+          icon={<BusinessIllustration name="tools" size="compact" />}
           title="还没有插件"
           description="导入一个符合 Claude Code 官方目录结构的插件 ZIP。"
           action={
@@ -580,7 +581,7 @@ function InstallPluginDialog({
               ) : null}
               {native.data?.installed.length === 0 ? (
                 <EmptyState
-                  icon={<PackagePlus aria-hidden="true" />}
+                  illustration={<BusinessIllustration name="tools" size="compact" />}
                   title="没有已安装的插件"
                   action={
                     <Button variant="outline" size="sm" onClick={() => setTab('market')}>

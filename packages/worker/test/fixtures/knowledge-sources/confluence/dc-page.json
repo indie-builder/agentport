@@ -1,0 +1,19 @@
+{
+  "id": "100",
+  "type": "page",
+  "status": "current",
+  "title": "DC Page",
+  "space": { "id": 42, "key": "DOC", "name": "Documentation" },
+  "version": { "number": 2 },
+  "body": {
+    "view": {
+      "representation": "view",
+      "value": "<p>dc body</p>"
+    }
+  },
+  "_links": {
+    "webui": "/display/DOC/DC+Page",
+    "base": "http://127.0.0.1:9",
+    "context": ""
+  }
+}

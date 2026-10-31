@@ -1,0 +1,13 @@
+{
+  "data": {
+    "id": 103,
+    "type": "Doc",
+    "format": "markdown",
+    "slug": "renamed",
+    "title": "Doc 103",
+    "status": 1,
+    "body": "# Doc 103\n\nRenamed body",
+    "content_updated_at": "2026-10-03T08:00:00.000Z",
+    "book": { "namespace": "team/manual" }
+  }
+}

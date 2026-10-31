@@ -10,6 +10,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   createAgent,
   infraReady,
   inject,
@@ -17,7 +18,6 @@ import {
   seedRun,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 const ready = await infraReady;
@@ -110,6 +110,31 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'markdown.md'), markdown);
     return { documentId, versionId };
+  }
+
+  /** 直接落发布/草稿 Wiki 页面：读路径只认 published + 当前线上版本。 */
+  async function seedWikiPage(input: { published: boolean; markdown?: string }) {
+    const pageId = `kwp_${randomBytes(6).toString('hex')}`;
+    const versionId = `kwv_${pageId.slice(4)}`;
+    const markdown = input.markdown ?? '线上 Wiki 正文';
+    await app.pool.query(
+      `insert into knowledge_wiki_pages (id, base_id, slug, title, status, current_version_id)
+       values ($1, $2, $3, 'Wiki 页面', $4, $5)`,
+      [
+        pageId,
+        baseId,
+        `wiki-${pageId.slice(4)}`,
+        input.published ? 'published' : 'draft',
+        versionId,
+      ],
+    );
+    await app.pool.query(
+      `insert into knowledge_wiki_versions
+         (id, page_id, version, markdown, source_chunk_ids, model, generated_by)
+       values ($1, $2, 1, $3, '[]', 'manual', 'manual')`,
+      [versionId, pageId, markdown],
+    );
+    return { pageId, versionId };
   }
 
   async function toolCall(
@@ -358,22 +383,338 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
 
     const hit = await toolCall('knowledge_search', { q: '令牌' });
     expect(hit.isError).toBeFalsy();
-    const parsed = JSON.parse(hit.text) as { hits: Array<{ title: string; quote: string }> };
+    const parsed = JSON.parse(hit.text) as {
+      hits: Array<{ title: string; quote: string; target: { kind: string } }>;
+      degraded: boolean;
+      warnings: Array<{ code: string }>;
+      diagnostics?: unknown;
+    };
     expect(parsed.hits.length).toBeGreaterThan(0);
     expect(parsed.hits[0]?.quote).toContain('令牌');
+    expect(parsed.hits[0]?.target.kind).toBe('document');
+    // embedding 上游固定失败：降级与 warnings 必须完整返回。
+    expect(parsed.degraded).toBe(true);
+    expect(parsed.warnings.map((warning) => warning.code)).toContain('embedding_unavailable');
+    expect(parsed.diagnostics).toBeUndefined();
+
+    // diagnostics 只属于管理 REST：即使模型显式传 true 也不返回候选。
+    const diagnosed = await toolCall('knowledge_search', { q: '令牌', diagnostics: true });
+    expect(JSON.parse(diagnosed.text).diagnostics).toBeUndefined();
 
     const listed = await toolCall('knowledge_list', {});
     expect(listed.isError).toBeFalsy();
-    expect(JSON.parse(listed.text)).toMatchObject({ items: [{ title: 'mcp 文档' }] });
+    expect(JSON.parse(listed.text)).toMatchObject({
+      items: [{ title: 'mcp 文档', target: { kind: 'document' } }],
+    });
   });
 
-  it('reads the current version and truncates long markdown', async () => {
-    const { documentId } = await seedDocument(baseId, embeddingId, '正文', LONG);
-    const read = await toolCall('knowledge_read', { documentId });
+  it('reads the current version with code-point pagination', async () => {
+    const { documentId } = await seedDocument(baseId, embeddingId, LONG, LONG);
+    const read = await toolCall('knowledge_read', {
+      target: { kind: 'document', id: documentId },
+    });
     expect(read.isError).toBeFalsy();
-    const body = JSON.parse(read.text) as { markdown: string; truncated: boolean };
-    expect(body.truncated).toBe(true);
-    expect(body.markdown).toHaveLength(20_000);
+    const body = JSON.parse(read.text) as {
+      markdown: string;
+      offset: number;
+      nextOffset: number | null;
+      totalCharacters: number;
+      citations: Array<{ target: { kind: string; id: string }; chunkId: string }>;
+    };
+    expect(body.offset).toBe(0);
+    expect(body.markdown).toHaveLength(10_000);
+    expect(body.nextOffset).toBe(10_000);
+    expect(body.totalCharacters).toBe(20_050);
+    expect(body.citations[0]?.target).toEqual({ kind: 'document', id: documentId });
+  });
+
+  it('reassembles long content across pages without splitting emoji code points', async () => {
+    const emoji = '😀'.repeat(25_001);
+    const { documentId } = await seedDocument(baseId, embeddingId, emoji, emoji);
+    const pages: string[] = [];
+    let offset = 0;
+    for (;;) {
+      const read = await toolCall('knowledge_read', {
+        target: { kind: 'document', id: documentId },
+        offset,
+        limit: 10_000,
+      });
+      expect(read.isError).toBeFalsy();
+      const body = JSON.parse(read.text) as {
+        markdown: string;
+        offset: number;
+        nextOffset: number | null;
+        totalCharacters: number;
+      };
+      expect(body.offset).toBe(offset);
+      expect(body.totalCharacters).toBe(25_001);
+      expect(body.markdown).not.toContain('�');
+      pages.push(body.markdown);
+      if (body.nextOffset === null) break;
+      offset = body.nextOffset;
+    }
+    expect(pages.join('')).toBe(emoji);
+  });
+
+  it('lists only readable targets, filters by kind and pages with a stable cursor', async () => {
+    const doc = await seedDocument(baseId, embeddingId, '列表明细');
+    const faq = await seedDocument(baseId, embeddingId, 'FAQ 明细');
+    await app.pool.query("update knowledge_documents set content_kind = 'faq' where id = $1", [
+      faq.documentId,
+    ]);
+    const disabled = await seedDocument(baseId, embeddingId, '已停用');
+    await app.pool.query(
+      "update knowledge_documents set status = 'disabled', disabled_reason = 'manual' where id = $1",
+      [disabled.documentId],
+    );
+    const published = await seedWikiPage({ published: true });
+    const draft = await seedWikiPage({ published: false });
+
+    const docs = JSON.parse((await toolCall('knowledge_list', { kinds: ['document'] })).text) as {
+      items: Array<{ target: { kind: string; id: string } }>;
+    };
+    expect(docs.items.some((item) => item.target.id === doc.documentId)).toBe(true);
+    expect(docs.items.some((item) => item.target.id === faq.documentId)).toBe(false);
+    expect(docs.items.some((item) => item.target.kind === 'wiki')).toBe(false);
+    expect(docs.items.some((item) => item.target.id === disabled.documentId)).toBe(false);
+
+    const faqs = JSON.parse((await toolCall('knowledge_list', { kinds: ['faq'] })).text) as {
+      items: Array<{ target: { kind: string; id: string } }>;
+    };
+    expect(faqs.items.some((item) => item.target.id === faq.documentId)).toBe(true);
+    expect(faqs.items.every((item) => item.target.kind === 'faq')).toBe(true);
+
+    const wiki = JSON.parse((await toolCall('knowledge_list', { kinds: ['wiki'] })).text) as {
+      items: Array<{ target: { id: string } }>;
+    };
+    expect(wiki.items.some((item) => item.target.id === published.pageId)).toBe(true);
+    expect(wiki.items.some((item) => item.target.id === draft.pageId)).toBe(false);
+
+    const first = JSON.parse((await toolCall('knowledge_list', { limit: 1 })).text) as {
+      items: Array<{ target: { id: string; kind: string } }>;
+      nextCursor: string | null;
+    };
+    expect(first.items).toHaveLength(1);
+    expect(first.nextCursor).not.toBeNull();
+    const second = JSON.parse(
+      (await toolCall('knowledge_list', { limit: 1, cursor: first.nextCursor })).text,
+    ) as { items: Array<{ target: { id: string; kind: string } }> };
+    expect(second.items[0]?.target).not.toEqual(first.items[0]?.target);
+  });
+
+  it('reads all FAQ answers from the published version', async () => {
+    const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
+    const versionId = `kdv_${documentId.slice(5)}`;
+    await app.pool.query(
+      `insert into knowledge_documents
+         (id, base_id, title, source_type, mime_type, status, current_version_id, content_kind)
+       values ($1, $2, 'FAQ 文档', 'manual', 'text/markdown', 'ready', $3, 'faq')`,
+      [documentId, baseId, versionId],
+    );
+    await app.pool.query(
+      `insert into knowledge_document_versions
+         (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
+          size_bytes, parse_status, page_map, images, embedding_profile_id, origin, faq)
+       values ($1, $2, 1, $3, $3, 'faq.md', 'text/markdown', 1, 'parsed', '[]', '[]', $4,
+         'faq', $5)`,
+      [
+        versionId,
+        documentId,
+        'a'.repeat(64),
+        embeddingId,
+        JSON.stringify({
+          question: '如何重置密码',
+          similarQuestions: ['忘记密码'],
+          negativeQuestions: ['如何注销账号'],
+          answers: ['打开设置重置。', '联系管理员重置。'],
+        }),
+      ],
+    );
+    const read = await toolCall('knowledge_read', {
+      target: { kind: 'faq', id: documentId },
+    });
+    expect(read.isError).toBeFalsy();
+    const body = JSON.parse(read.text) as {
+      markdown: string;
+      target: { kind: string; id: string };
+      citations: Array<{ target: { kind: string }; quote: string }>;
+    };
+    expect(body.target).toEqual({ kind: 'faq', id: documentId });
+    expect(body.markdown).toContain('打开设置重置。');
+    expect(body.markdown).toContain('联系管理员重置。');
+    expect(body.citations[0]?.target.kind).toBe('faq');
+  });
+
+  it('accepts FAQ policy args and returns faq/directAnswer on the search wire', async () => {
+    const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
+    const versionId = `kdv_${documentId.slice(5)}`;
+    await app.pool.query(
+      `insert into knowledge_documents
+         (id, base_id, title, source_type, mime_type, status, current_version_id, content_kind)
+       values ($1, $2, 'FAQ 检索文档', 'manual', 'text/markdown', 'ready', $3, 'faq')`,
+      [documentId, baseId, versionId],
+    );
+    await app.pool.query(
+      `insert into knowledge_document_versions
+         (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
+          size_bytes, parse_status, page_map, images, embedding_profile_id, origin, faq)
+       values ($1, $2, 1, $3, $3, 'faq.md', 'text/markdown', 1, 'parsed', '[]', '[]', $4,
+         'faq', $5)`,
+      [
+        versionId,
+        documentId,
+        'a'.repeat(64),
+        embeddingId,
+        JSON.stringify({
+          question: '重置密码',
+          similarQuestions: [],
+          negativeQuestions: [],
+          answers: ['打开设置重置。', '联系管理员重置。'],
+          answerStrategy: 'all',
+          isRecommended: false,
+        }),
+      ],
+    );
+    await app.pool.query(
+      `insert into knowledge_chunks
+         (id, base_id, document_id, version_id, ordinal, kind, content, search_text, metadata)
+       values ($1, $2, $3, $4, 0, 'text', '重置密码', '重置 密码', $5)`,
+      [
+        `kchk_${documentId.slice(5)}`,
+        baseId,
+        documentId,
+        versionId,
+        JSON.stringify({
+          questionKind: 'standard',
+          matchedQuestion: '重置密码',
+          answerOrdinal: 0,
+        }),
+      ],
+    );
+
+    const args = {
+      q: '密码',
+      kinds: ['faq'],
+      onlyRecommended: false,
+      faqPriority: true,
+      faqDirectAnswerThreshold: 0.9,
+    };
+    const found = await toolCall('knowledge_search', args);
+    expect(found.isError).toBeFalsy();
+    const body = JSON.parse(found.text) as {
+      hits: Array<{
+        target: { kind: string; id: string };
+        faq?: Record<string, unknown>;
+      }>;
+      degraded: boolean;
+      directAnswer: unknown;
+    };
+    const hit = body.hits.find((entry) => entry.target.id === documentId);
+    expect(hit?.faq).toEqual({
+      answers: ['打开设置重置。', '联系管理员重置。'],
+      answerStrategy: 'all',
+      isRecommended: false,
+      matchedQuestion: '重置密码',
+      questionKind: 'standard',
+    });
+    // embedding fixture 固定失败：关键词命中不产生 cosine，directAnswer 必须为 null。
+    expect(body.degraded).toBe(true);
+    expect(body.directAnswer).toBeNull();
+
+    const filtered = await toolCall('knowledge_search', { ...args, onlyRecommended: true });
+    const filteredBody = JSON.parse(filtered.text) as {
+      hits: Array<{ target: { id: string } }>;
+    };
+    expect(filteredBody.hits.some((entry) => entry.target.id === documentId)).toBe(false);
+  });
+
+  it('reads every FAQ answer across code-point pages without splitting emoji', async () => {
+    const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
+    const versionId = `kdv_${documentId.slice(5)}`;
+    const question = '表情问答';
+    const answers = [`${'😀'.repeat(6_000)}甲`, `${'😀'.repeat(6_000)}乙`];
+    await app.pool.query(
+      `insert into knowledge_documents
+         (id, base_id, title, source_type, mime_type, status, current_version_id, content_kind)
+       values ($1, $2, 'FAQ 分页文档', 'manual', 'text/markdown', 'ready', $3, 'faq')`,
+      [documentId, baseId, versionId],
+    );
+    await app.pool.query(
+      `insert into knowledge_document_versions
+         (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
+          size_bytes, parse_status, page_map, images, embedding_profile_id, origin, faq)
+       values ($1, $2, 1, $3, $3, 'faq.md', 'text/markdown', 1, 'parsed', '[]', '[]', $4,
+         'faq', $5)`,
+      [
+        versionId,
+        documentId,
+        'a'.repeat(64),
+        embeddingId,
+        JSON.stringify({
+          question,
+          similarQuestions: [],
+          negativeQuestions: [],
+          answers,
+          answerStrategy: 'random',
+          isRecommended: true,
+        }),
+      ],
+    );
+    const expected = `${question}\n\n${answers.join('\n\n')}`;
+    const pages: string[] = [];
+    let offset = 0;
+    for (;;) {
+      const read = await toolCall('knowledge_read', {
+        target: { kind: 'faq', id: documentId },
+        offset,
+        limit: 7_000,
+      });
+      expect(read.isError).toBeFalsy();
+      const body = JSON.parse(read.text) as {
+        markdown: string;
+        offset: number;
+        nextOffset: number | null;
+        totalCharacters: number;
+      };
+      expect(body.offset).toBe(offset);
+      expect(body.totalCharacters).toBe(Array.from(expected).length);
+      expect(body.markdown).not.toContain('�');
+      pages.push(body.markdown);
+      if (body.nextOffset === null) break;
+      offset = body.nextOffset;
+    }
+    // read 永远返回完整答案，不做 random 抽样。
+    expect(pages.join('')).toBe(expected);
+  });
+
+  it('rejects a stale explicit version and only reads published wiki pages', async () => {
+    const { documentId, versionId } = await seedDocument(baseId, embeddingId, '版本文档');
+    const stale = await toolCall('knowledge_read', {
+      target: { kind: 'document', id: documentId },
+      versionId: 'kdv_outdated',
+    });
+    expect(stale.isError).toBe(true);
+    expect(stale.text).toContain('VERSION_NOT_CURRENT');
+
+    const draft = await seedWikiPage({ published: false });
+    const draftRead = await toolCall('knowledge_read', {
+      target: { kind: 'wiki', id: draft.pageId },
+    });
+    expect(draftRead.isError).toBe(true);
+    expect(draftRead.text).toContain('WIKI_NOT_FOUND');
+
+    const published = await seedWikiPage({ published: true });
+    const wikiRead = await toolCall('knowledge_read', {
+      target: { kind: 'wiki', id: published.pageId },
+    });
+    expect(wikiRead.isError).toBeFalsy();
+    expect(JSON.parse(wikiRead.text)).toMatchObject({
+      target: { kind: 'wiki', id: published.pageId },
+      versionId: published.versionId,
+      markdown: '线上 Wiki 正文',
+      totalCharacters: 10,
+    });
+    expect(versionId).toBeTruthy();
   });
 
   it('rejects a foreign baseId and documents from another base', async () => {
@@ -384,7 +725,9 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     expect(search.isError).toBe(true);
     expect(search.text).toContain('BASE_MISMATCH');
 
-    const read = await toolCall('knowledge_read', { documentId });
+    const read = await toolCall('knowledge_read', {
+      target: { kind: 'document', id: documentId },
+    });
     expect(read.isError).toBe(true);
     expect(read.text).toContain('DOCUMENT_NOT_FOUND');
   });
@@ -394,7 +737,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     try {
       for (const [name, args] of [
         ['knowledge_search', { q: '令牌' }],
-        ['knowledge_read', { documentId: 'kdoc_missing' }],
+        ['knowledge_read', { target: { kind: 'document', id: 'kdoc_missing' } }],
         ['knowledge_list', {}],
       ] as const) {
         const res = await toolCall(name, args);
@@ -505,5 +848,79 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     await app.pool.query('delete from knowledge_documents where id = $1', [documentId]);
     const after = await toolCall('knowledge_search', { q: '召回' });
     expect(JSON.parse(after.text).hits).toHaveLength(0);
+  });
+
+  it('pages targets sharing one microsecond timestamp without skipping any', async () => {
+    // 同一事务创建的 document/faq/wiki 共享微秒时间；cursor 不能丢精度。
+    await app.pool.query('delete from knowledge_documents where base_id = $1', [baseId]);
+    await app.pool.query('delete from knowledge_wiki_pages where base_id = $1', [baseId]);
+    const stamp = '2026-01-01T12:00:00.123456Z';
+    for (const [id, versionId, kind] of [
+      ['kdoc_a', 'kdv_a', 'document'],
+      ['kdoc_b', 'kdv_b', 'faq'],
+    ] as const) {
+      await app.pool.query(
+        `insert into knowledge_documents
+           (id, base_id, title, source_type, mime_type, status, current_version_id, content_kind)
+         values ($1, $2, $3, 'manual', 'text/markdown', 'ready', $4, $5)`,
+        [id, baseId, id, versionId, kind],
+      );
+      await app.pool.query(
+        `insert into knowledge_document_versions
+           (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
+            size_bytes, parse_status, page_map, images, embedding_profile_id, origin, faq)
+         values ($1, $2, 1, $3, $3, 'a.md', 'text/markdown', 1, 'parsed', '[]', '[]', $4,
+           'faq', $5)`,
+        [
+          versionId,
+          id,
+          'a'.repeat(64),
+          embeddingId,
+          kind === 'faq'
+            ? JSON.stringify({
+                question: '同微秒问题',
+                similarQuestions: [],
+                negativeQuestions: [],
+                answers: ['同微秒答案'],
+              })
+            : null,
+        ],
+      );
+    }
+    await app.pool.query(
+      `insert into knowledge_wiki_pages (id, base_id, slug, title, status, current_version_id)
+       values ('kwp_c', $1, 'wiki-kwp-c', 'Wiki 同微秒', 'published', 'kwv_c')`,
+      [baseId],
+    );
+    await app.pool.query('update knowledge_documents set updated_at = $2 where base_id = $1', [
+      baseId,
+      stamp,
+    ]);
+    await app.pool.query('update knowledge_wiki_pages set updated_at = $2 where base_id = $1', [
+      baseId,
+      stamp,
+    ]);
+
+    const listed: Array<{ target: { kind: string; id: string }; updatedAt: string }> = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page += 1) {
+      const body = JSON.parse(
+        (await toolCall('knowledge_list', { limit: 1, ...(cursor ? { cursor } : {}) })).text,
+      ) as {
+        items: Array<{ target: { kind: string; id: string }; updatedAt: string }>;
+        nextCursor: string | null;
+      };
+      listed.push(...body.items);
+      if (body.nextCursor === null) break;
+      cursor = body.nextCursor;
+    }
+    // 时间相同则按 id 倒序：kwp_c、kdoc_b、kdoc_a 全部出现且不重复。
+    expect(listed.map((item) => item.target)).toEqual([
+      { kind: 'wiki', id: 'kwp_c' },
+      { kind: 'faq', id: 'kdoc_b' },
+      { kind: 'document', id: 'kdoc_a' },
+    ]);
+    // 展示仍用 ISO，分页键的微秒精度不外泄。
+    expect(listed[0]?.updatedAt).toBe('2026-01-01T12:00:00.123Z');
   });
 });

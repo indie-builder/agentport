@@ -1,0 +1,22 @@
+{
+  "code": 0,
+  "data": {
+    "items": [
+      {
+        "node_token": "nod1",
+        "obj_token": "doc1",
+        "obj_type": "docx",
+        "title": "Guide",
+        "has_child": true
+      },
+      {
+        "node_token": "nod2",
+        "obj_token": "doc2",
+        "obj_type": "doc",
+        "title": "Legacy"
+      }
+    ],
+    "has_more": true,
+    "page_token": "np2"
+  }
+}

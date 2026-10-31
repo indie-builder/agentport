@@ -67,6 +67,7 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -103,7 +104,7 @@ import {
   ComboboxValue,
   useComboboxAnchor,
 } from '../components/ui/combobox.js';
-import { Dialog } from '../components/ui/dialog.js';
+import { Dialog, DialogClose, DialogContent, DialogTitle } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -574,7 +575,7 @@ export function AgentsPage() {
           <ErrorState error={me.error} onRetry={() => void me.refetch()} />
         ) : canCreate ? null : (
           <PageNote
-            icon={<Bot />}
+            icon={<BusinessIllustration name="agents" size="compact" />}
             title="暂无可用专家"
             description="当前账户尚未分配可用专家，请联系管理员。"
           />
@@ -582,6 +583,7 @@ export function AgentsPage() {
       ) : null}
       {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
         <PageNote
+          icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的专家"
           action={
             <div className="flex flex-wrap items-center gap-2">
@@ -678,9 +680,9 @@ export function AgentsPage() {
               (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
             return (
               <li key={agent.id} className="min-w-0">
-                <Card className="h-52">
-                  <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
-                    <AgentAvatar agent={agent} className="row-span-2 self-center" />
+                <Card className="h-52 gap-3">
+                  <CardHeader className="grid h-12 grid-cols-[auto_minmax(0,1fr)_auto]! grid-rows-2 items-center">
+                    <AgentAvatar agent={agent} className="row-span-2 mr-2 self-center" />
                     <CardTitle className="col-start-2 row-start-1 min-w-0">
                       <h2 className="min-w-0">
                         <Link
@@ -694,19 +696,7 @@ export function AgentsPage() {
                         </Link>
                       </h2>
                     </CardTitle>
-                    <CardAction className="col-start-3 row-span-1 row-start-1 flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`查看 ${agent.name} 工牌`}
-                        title="数字员工工牌"
-                        onClick={(event) => {
-                          badgeTriggerRef.current = event.currentTarget;
-                          setBadgeId(agent.id);
-                        }}
-                      >
-                        <IdCard />
-                      </Button>
+                    <CardAction className="col-start-3 row-start-1 self-start">
                       <DropdownMenu>
                         <DropdownMenuTrigger
                           render={
@@ -742,61 +732,73 @@ export function AgentsPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </CardAction>
-                    <div className="col-start-2 row-start-2 min-w-0">
+                    <div className="col-start-2 row-start-2 flex min-w-0 items-center gap-2">
                       <StatusBadge className="max-w-full min-w-0">
                         <span className="block truncate" title={agentRole}>
                           {agentRole}
                         </span>
                       </StatusBadge>
-                    </div>
-                    <div className="col-span-2 col-start-2 row-start-3 flex min-w-0 flex-col gap-2">
-                      {agent.description.trim() ? (
-                        <CardDescription className="line-clamp-2 break-words">
-                          {agent.description}
-                        </CardDescription>
+                      {!agent.enabled ? (
+                        <StatusBadge className="shrink-0">已停用</StatusBadge>
                       ) : null}
-                      <div className="flex flex-wrap items-center gap-2">
-                        {agent.enabled && canUse ? (
-                          <Link
-                            to="/chat"
-                            search={{ agent: agent.id }}
-                            disabled={importing}
-                            aria-label={`与 ${agent.name} 开始对话`}
-                            className={buttonVariants()}
-                          >
-                            开始对话
-                          </Link>
-                        ) : (
-                          <>
-                            <Button
-                              variant="outline"
-                              disabled
-                              aria-label={`与 ${agent.name} 开始对话`}
-                              aria-describedby={
-                                agent.enabled ? `agent-use-denied-${agent.id}` : undefined
-                              }
-                              title={
-                                agent.enabled
-                                  ? '当前账户没有使用该专家的权限'
-                                  : '专家已停用，启用后才能开始对话'
-                              }
-                            >
-                              开始对话
-                            </Button>
-                            {!agent.enabled ? <StatusBadge>已停用</StatusBadge> : null}
-                            {agent.enabled && !canUse ? (
-                              <p
-                                id={`agent-use-denied-${agent.id}`}
-                                className="basis-full text-xs text-muted-foreground"
-                              >
-                                当前账户没有使用该专家的权限，无法开始对话。
-                              </p>
-                            ) : null}
-                          </>
-                        )}
-                      </div>
                     </div>
                   </CardHeader>
+                  <CardContent className="flex h-18 flex-col">
+                    {agent.description.trim() ? (
+                      <CardDescription className="line-clamp-2 break-words">
+                        {agent.description}
+                      </CardDescription>
+                    ) : null}
+                    {agent.enabled && !canUse ? (
+                      <p
+                        id={`agent-use-denied-${agent.id}`}
+                        className="mt-auto line-clamp-2 text-xs text-muted-foreground"
+                      >
+                        当前账户没有使用该专家的权限，无法开始对话。
+                      </p>
+                    ) : null}
+                  </CardContent>
+                  <CardContent className="flex h-8 items-center justify-between gap-2">
+                    {agent.enabled && canUse ? (
+                      <Link
+                        to="/chat"
+                        search={{ agent: agent.id }}
+                        disabled={importing}
+                        aria-label={`与 ${agent.name} 开始对话`}
+                        className={buttonVariants()}
+                      >
+                        开始对话
+                      </Link>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        disabled
+                        aria-label={`与 ${agent.name} 开始对话`}
+                        aria-describedby={
+                          agent.enabled ? `agent-use-denied-${agent.id}` : undefined
+                        }
+                        title={
+                          agent.enabled
+                            ? '当前账户没有使用该专家的权限'
+                            : '专家已停用，启用后才能开始对话'
+                        }
+                      >
+                        开始对话
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      aria-label={`查看 ${agent.name} 工牌`}
+                      title="数字员工工牌"
+                      onClick={(event) => {
+                        badgeTriggerRef.current = event.currentTarget;
+                        setBadgeId(agent.id);
+                      }}
+                    >
+                      <IdCard data-icon="inline-start" />
+                      工牌
+                    </Button>
+                  </CardContent>
                 </Card>
               </li>
             );
@@ -810,16 +812,32 @@ export function AgentsPage() {
           if (!open) setBadgeId(null);
         }}
       >
-        <DialogShell
-          title={badgeAgent ? `${badgeAgent.name} 的工牌` : '数字员工工牌'}
+        <DialogContent
+          showCloseButton={false}
           finalFocus={() =>
             badgeTriggerRef.current?.isConnected
               ? badgeTriggerRef.current
               : document.getElementById('agents-search')
           }
+          className="flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[392px] flex-col gap-0 overflow-hidden rounded-none bg-transparent p-0 text-fg shadow-none! ring-0 sm:max-w-[392px]"
         >
-          {badgeAgent ? <AgentEmployeeBadge agent={badgeAgent} /> : null}
-        </DialogShell>
+          <DialogTitle className="sr-only">
+            {badgeAgent ? `${badgeAgent.name} 的工牌` : '数字员工工牌'}
+          </DialogTitle>
+          {/* 关闭固定在滚动区外，长介绍也不会把它带出视口。 */}
+          <div className="flex shrink-0 justify-end px-3 pt-3">
+            <DialogClose render={<Button variant="outline" size="sm" />}>关闭</DialogClose>
+          </div>
+          {/* 滚动区可聚焦，键盘用户才能滚动超出一屏的工牌。 */}
+          <section
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
+            tabIndex={0}
+            aria-label="工牌内容"
+            className="min-h-0 overflow-y-auto overscroll-contain pb-4"
+          >
+            {badgeAgent ? <AgentEmployeeBadge agent={badgeAgent} /> : null}
+          </section>
+        </DialogContent>
       </Dialog>
 
       <ConfirmDialog
@@ -958,8 +976,52 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
   const role = agent.role?.trim() || '通用助手';
   const createdAt = badgeCreatedAt(agent.createdAt);
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
+    <div className="mx-auto flex w-full max-w-[360px] flex-col items-center">
+      {/* 挂绳与扣环是纯装饰插画，信息全部由下方 DOM 文本承担。 */}
+      <svg
+        aria-hidden="true"
+        focusable="false"
+        viewBox="0 0 360 96"
+        fill="none"
+        className="pointer-events-none relative z-10 block h-24 w-full text-line-strong"
+      >
+        <path d="M104 -8 L170 62" stroke="currentColor" strokeWidth="10" strokeLinecap="round" />
+        <path d="M256 -8 L190 62" stroke="currentColor" strokeWidth="10" strokeLinecap="round" />
+        <path
+          d="M104 -8 L170 62"
+          stroke="var(--color-line)"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M256 -8 L190 62"
+          stroke="var(--color-line)"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <circle cx="180" cy="68" r="10" stroke="currentColor" strokeWidth="5" />
+        <rect
+          x="164"
+          y="76"
+          width="32"
+          height="20"
+          rx="6"
+          fill="var(--color-surface)"
+          stroke="currentColor"
+          strokeWidth="3"
+        />
+        <path d="M172 84 H188" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+      <div className="relative z-0 -mt-1 flex min-h-[480px] w-full flex-col gap-5 rounded-card border border-line bg-surface p-6">
+        {/* 卡套插槽，与上方金属夹相接。 */}
+        <div
+          aria-hidden="true"
+          className="absolute -top-1.5 left-1/2 h-3 w-24 -translate-x-1/2 rounded-full border border-line bg-sunken"
+        />
+        <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
+          <span className="font-mono text-xs font-semibold tracking-[0.18em] text-fg">PACE</span>
+          <span className="text-xs text-muted-foreground">数字员工</span>
+        </div>
         <AgentAvatar
           agent={{
             name: agent.name,
@@ -967,36 +1029,56 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
             role: agent.role ?? null,
             slug: agent.slug ?? null,
           }}
+          className="size-24 self-center rounded-xl bg-sunken object-cover ring-1 ring-line"
         />
-        <div className="min-w-0">
-          <div className="text-base font-medium break-words [overflow-wrap:anywhere]">
+        <div className="flex flex-col items-center gap-1.5 text-center">
+          <div className="text-2xl font-medium break-words text-fg [overflow-wrap:anywhere]">
             {agent.name}
           </div>
-          <div className="text-sm text-muted-foreground">数字员工</div>
+          <p className="text-sm">
+            <span className="sr-only">角色：</span>
+            <span className="text-muted-foreground">{role}</span>
+            <span aria-hidden="true" className="mx-2 text-line-strong">
+              /
+            </span>
+            <span className="sr-only">状态：</span>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5',
+                agent.enabled ? 'text-success' : 'text-muted-foreground',
+              )}
+            >
+              <span
+                aria-hidden="true"
+                className={cn('size-1.5 rounded-full', agent.enabled ? 'bg-success' : 'bg-subtle')}
+              />
+              {agent.enabled ? '已启用' : '已停用'}
+            </span>
+          </p>
         </div>
-      </div>
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
-        <dt className="text-muted-foreground">角色</dt>
-        <dd className="break-words [overflow-wrap:anywhere]">{role}</dd>
-        <dt className="text-muted-foreground">状态</dt>
-        <dd>{agent.enabled ? '已启用' : '已停用'}</dd>
-        <dt className="text-muted-foreground">介绍</dt>
-        <dd className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+        <p className="text-sm break-words whitespace-pre-wrap text-fg [overflow-wrap:anywhere]">
+          <span className="sr-only">介绍：</span>
           {agent.description.trim() ? agent.description : '未填写介绍'}
-        </dd>
-        <dt className="text-muted-foreground">员工编号</dt>
-        <dd className="font-mono text-xs break-all">{agent.id}</dd>
-        <dt className="text-muted-foreground">上岗时间（创建时间）</dt>
-        <dd>
-          {createdAt.iso ? (
-            <time dateTime={createdAt.iso} title={createdAt.iso}>
-              {createdAt.label}
-            </time>
-          ) : (
-            createdAt.label
-          )}
-        </dd>
-      </dl>
+        </p>
+        <dl className="mt-auto flex flex-col gap-3 rounded-lg bg-sunken p-4 text-xs">
+          <div className="flex flex-col gap-1">
+            <dt className="text-muted-foreground">员工编号</dt>
+            <dd className="font-mono break-all text-fg">{agent.id}</dd>
+          </div>
+          <div className="flex flex-col gap-1">
+            <dt className="text-muted-foreground">上岗时间（创建时间）</dt>
+            <dd className="text-fg">
+              {createdAt.iso ? (
+                <time dateTime={createdAt.iso} title={createdAt.iso}>
+                  {createdAt.label}
+                </time>
+              ) : (
+                createdAt.label
+              )}
+            </dd>
+          </div>
+        </dl>
+      </div>
     </div>
   );
 }

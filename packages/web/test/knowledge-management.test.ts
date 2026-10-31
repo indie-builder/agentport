@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { useKnowledgeSearch } from '../src/lib/queries.js';
-import { toastError } from '../src/lib/toast.js';
+import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { KnowledgePage } from '../src/pages/knowledge.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
 import { allAccessMe } from './me-fixture.js';
@@ -263,6 +263,17 @@ async function mount(path: string, search: Record<string, string> = {}) {
       page: z.string().optional(),
       folder: z.string().optional(),
       document: z.string().optional(),
+      source: z.string().optional(),
+      q: z.string().optional(),
+      folders: z.array(z.string()).optional(),
+      tags: z.array(z.string()).optional(),
+      kinds: z.array(z.enum(['document', 'faq', 'wiki'])).optional(),
+      rerank: z.boolean().optional(),
+      minVectorScore: z.number().optional(),
+      onlyRecommended: z.boolean().optional(),
+      faqPriority: z.boolean().optional(),
+      faqDirectAnswerThreshold: z.number().optional(),
+      diagnostics: z.boolean().optional(),
     }),
     component: KnowledgeDetailPage,
   });
@@ -440,6 +451,27 @@ function baseHandlers() {
     ),
     http.get('/api/knowledge/jobs', () => HttpResponse.json({ items: [], nextCursor: null })),
     http.get('/api/knowledge/model-profiles', () => HttpResponse.json([])),
+    http.get('/api/knowledge/documents/:documentId/versions', () =>
+      HttpResponse.json({ items: [], nextCursor: null }),
+    ),
+    http.get('/api/knowledge/versions/:versionId/details', ({ params }) =>
+      HttpResponse.json({
+        id: params.versionId,
+        documentId: 'kdoc_1',
+        version: 1,
+        originalFilename: 'note.md',
+        mimeType: 'text/markdown',
+        sizeBytes: 10,
+        sourceRevision: null,
+        parseStatus: 'parsed',
+        pageMap: [],
+        images: [],
+        createdAt: '2026-01-01T00:00:00Z',
+      }),
+    ),
+    http.get('/api/knowledge/wiki-pages/:pageId/links', () =>
+      HttpResponse.json({ outgoing: [], incoming: [] }),
+    ),
     http.get('/api/agents', () => HttpResponse.json([])),
   );
 }
@@ -792,7 +824,10 @@ describe('knowledge document inspection', () => {
     await flush();
     expect(viewer.textContent).toContain('发布前需要产品与研发双方确认。');
     await click(button('停用分块 1', viewer));
-    expect(patchBody('/api/knowledge/chunks/kchk_1')).toEqual({ enabled: false });
+    expect(patchBody('/api/knowledge/chunks/kchk_1')).toEqual({
+      enabled: false,
+      expectedVersionId: 'kdv_1',
+    });
   });
 
   it('reads loaded documents in one toolbar and keeps the selection while copying, switching modes and files', async () => {
@@ -902,7 +937,11 @@ describe('knowledge document inspection', () => {
     const editor = dialog('编辑分块');
     await fill('knowledge-chunk-content', '修改后的内容');
     await click(button('保存', editor));
-    expect(patchBody('/api/knowledge/chunks/kchk_1')).toEqual({ content: '修改后的内容' });
+    expect(patchBody('/api/knowledge/chunks/kchk_1')).toEqual({
+      content: '修改后的内容',
+      heading: '发布前检查',
+      expectedVersionId: 'kdv_1',
+    });
     expect(editor.textContent).toContain('分块已被其他修改更新');
     expect(button('重新加载', editor)).toBeDefined();
     expect(document.querySelector<HTMLTextAreaElement>('#knowledge-chunk-content')?.value).toBe(
@@ -1055,6 +1094,60 @@ describe('knowledge document inspection', () => {
     const editor = dialog('编辑分块');
     expect(editor.textContent).toContain('图片向量分块只能启停');
     expect(editor.querySelector('#knowledge-chunk-content')).toBeNull();
+  });
+});
+
+describe('knowledge source skipped-only runs', () => {
+  it('always offers the per-item expander when every recorded item was skipped', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/sources/ksrc_1/runs', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'ksyn_1',
+              sourceId: 'ksrc_1',
+              status: 'succeeded',
+              startedAt: '2026-01-01T00:00:00Z',
+              endedAt: '2026-01-01T00:01:00Z',
+              cursorBefore: null,
+              cursorAfter: null,
+              stats: { listed: 1, created: 0, updated: 0, disabled: 0, failed: 0 },
+              error: null,
+              createdAt: '2026-01-01T00:00:00Z',
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/knowledge/sources/ksrc_1/runs/ksyn_1/items', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'ksync_item_1',
+              syncRunId: 'ksyn_1',
+              sourceId: 'ksrc_1',
+              rangeId: 'krng_1',
+              documentId: null,
+              externalId: 'unsupported.bin',
+              status: 'skipped',
+              code: 'UNSUPPORTED',
+              message: '暂不支持该类型',
+              retryable: false,
+              createdAt: '2026-01-01T00:00:00Z',
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'sources' });
+    await click(button('产品仓库'));
+    await waitFor(() => document.body.textContent?.includes('逐项结果') === true);
+    expect(document.body.textContent).toContain('逐项结果');
+    expect(document.body.textContent).toContain('unsupported.bin');
+    expect(document.body.textContent).toContain('跳过');
+    expect(document.body.textContent).toContain('UNSUPPORTED');
   });
 });
 
@@ -1950,22 +2043,39 @@ describe('knowledge package export and import', () => {
 });
 
 describe('knowledge source configuration check', () => {
-  it('labels the local check as a configuration check, not a connection test', async () => {
+  it('submits a read-only remote probe instead of claiming the local check tested connectivity', async () => {
     baseHandlers();
     server.use(
       http.post('/api/knowledge/sources/ksrc_1/test', () =>
-        HttpResponse.json({ ok: true, issues: [] }),
+        HttpResponse.json({ jobId: 'kjob_probe' }),
+      ),
+      http.get('/api/knowledge/jobs/kjob_probe', () =>
+        HttpResponse.json({
+          id: 'kjob_probe',
+          type: 'source_probe',
+          status: 'succeeded',
+          step: null,
+          progress: 100,
+          attempts: 1,
+          error: null,
+          result: { ok: true, checks: [{ rangeId: 'krng_1', ok: true }] },
+          createdAt: '2026-01-01T00:00:00Z',
+          startedAt: '2026-01-01T00:00:00Z',
+          endedAt: '2026-01-01T00:00:00Z',
+        }),
       ),
     );
     await mount('/knowledge/kb_1', { panel: 'sources' });
     const check = button('检查配置');
-    expect(check.title).toContain('仅校验本地配置');
+    expect(check.title).toContain('只读远程连接测试');
     await click(check);
     expect(
       calls.some(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/sources/ksrc_1/test',
       ),
     ).toBe(true);
+    await waitFor(() => document.body.textContent?.includes('连接测试通过') === true);
+    expect(document.body.textContent).toContain('krng_1 · 可读');
   });
 });
 
@@ -2083,7 +2193,7 @@ describe('knowledge search cache keys', () => {
       ),
     );
     function Probe({ limit }: { limit: number }) {
-      useKnowledgeSearch('kb_1', '发布', limit);
+      useKnowledgeSearch('kb_1', { q: '发布', limit });
       return null;
     }
     client = new QueryClient({
@@ -2600,10 +2710,11 @@ describe('knowledge document upload', () => {
     await flush();
     const body = calls.find(
       (item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
-    )?.body as { filename: string; title?: string } | undefined;
-    // 相对路径保留为文件名，并写进标题；后端不会按路径自动建目录树。
+    )?.body as { filename: string; relativePath?: string; title?: string } | undefined;
+    // 相对路径交给后端建真实目录；不再把路径写进标题。
     expect(body?.filename).toBe('docs/spec.txt');
-    expect(body?.title).toBe('docs/spec');
+    expect(body?.relativePath).toBe('docs/spec.txt');
+    expect(body?.title).toBeUndefined();
   });
 });
 
@@ -2629,7 +2740,7 @@ describe('knowledge wiki versions', () => {
     ).toEqual({ versionId: 'kwv_1' });
   });
 
-  it('keeps editing disabled until the published version loads from the next version page', async () => {
+  it('loads the published version from the next version page before editing', async () => {
     baseHandlers();
     const older = {
       id: 'kwv_old',
@@ -2660,26 +2771,22 @@ describe('knowledge wiki versions', () => {
     );
     await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
 
-    expect(document.body.textContent).toContain('当前发布版本还没有加载出来');
-    // 有 currentVersionId 时生成按钮按真实状态说「重新生成」。
+    // 当前发布版本不在第一页时自动取更早的版本页，读到正文后才允许编辑。
+    await waitFor(() => document.body.textContent?.includes('第二页正文。') === true);
     expect(findButton('重新生成')).toBeDefined();
     expect(findButton('生成草稿')).toBeUndefined();
-    expect(button('编辑正文').disabled).toBe(true);
-    await click(button('编辑正文'));
-    expect(dialogShown('编辑 Wiki 正文')).toBe(false);
-
-    await click(button('加载更早版本'));
     expect(button('编辑正文').disabled).toBe(false);
     await click(button('编辑正文'));
     const editor = dialog('编辑 Wiki 正文');
+    // 草稿从最新版本续写；当前发布版本只用于展示。
     expect(editor.querySelector<HTMLTextAreaElement>('#knowledge-wiki-markdown')?.value).toBe(
-      older.markdown,
+      '## 当前\n\n第二步。',
     );
     await fill('knowledge-wiki-markdown', '## 修改后');
-    await click(button('保存', editor));
+    await click(button('保存草稿', editor));
     expect(patchBody('/api/knowledge/wiki-pages/kwp_1')).toEqual({
       markdown: '## 修改后',
-      expectedVersion: 'kwv_old',
+      expectedVersion: 'kwv_2',
     });
   });
 
@@ -2755,7 +2862,7 @@ describe('knowledge wiki versions', () => {
       '## 我的草稿',
     );
 
-    await click(button('保存', editor));
+    await click(button('保存草稿', editor));
     expect(patchBody('/api/knowledge/wiki-pages/kwp_1')).toEqual({
       markdown: '## 我的草稿',
       expectedVersion: 'kwv_2',
@@ -4021,6 +4128,801 @@ describe('knowledge job failure reasons', () => {
   });
 });
 
+// ---- K-U1..U3：批量、版本/草稿、FAQ、Wiki 组织与检索诊断 -----------------
+
+const faqDocument = {
+  ...doc,
+  id: 'kdoc_faq',
+  title: '如何备份',
+  sourceType: 'manual' as const,
+  contentKind: 'faq' as const,
+  currentVersionId: 'kdv_faq_pub',
+  tags: ['FAQ'],
+  sizeBytes: 128,
+  mimeType: 'text/markdown',
+};
+
+const faq = {
+  question: '如何备份？',
+  similarQuestions: ['备份怎么做'],
+  negativeQuestions: ['不用备份'],
+  answers: ['每日自动备份。', '异机保存副本。'],
+  answerStrategy: 'all' as const,
+  isRecommended: true,
+};
+
+const faqSummary = { ...faqDocument, faq };
+
+const faqPublishedVersion = {
+  id: 'kdv_faq_pub',
+  documentId: 'kdoc_faq',
+  version: 1,
+  origin: 'faq' as const,
+  parentVersionId: null,
+  metadata: {},
+  faq,
+  isCurrent: true,
+  createdAt: '2026-01-01T00:00:00Z',
+};
+
+const faqDraftVersion = {
+  ...faqPublishedVersion,
+  id: 'kdv_faq_draft',
+  version: 2,
+  origin: 'manual' as const,
+  parentVersionId: 'kdv_faq_pub',
+  metadata: { publication: 'draft' },
+  isCurrent: false,
+  createdAt: '2026-01-02T00:00:00Z',
+};
+
+const faqDetail = {
+  document: faqDocument,
+  draftVersion: faqDraftVersion,
+  publishedVersion: faqPublishedVersion,
+  faq,
+};
+
+function wikiSummary(override: Record<string, unknown>) {
+  return { ...wikiPageSummary, ...override };
+}
+
+function hitWire(override: Record<string, unknown> = {}) {
+  return {
+    chunkId: 'kchk_faq',
+    documentId: 'kdoc_faq',
+    versionId: 'kdv_faq_pub',
+    target: { kind: 'faq', id: 'kdoc_faq' },
+    targetVersionId: 'kdv_faq_pub',
+    title: '如何备份？',
+    heading: null,
+    quote: '每日自动备份。',
+    pageFrom: null,
+    pageTo: null,
+    locator: null,
+    parentContent: null,
+    sourceUrl: null,
+    score: 0.42,
+    scoreKind: 'rrf' as const,
+    scores: { keyword: 0.7, vector: 0.8, rrf: 0.03, rerank: 0.91 },
+    image: null,
+    faq: null,
+    ...override,
+  };
+}
+
+describe('knowledge batch actions', () => {
+  it('submits selected documents once and shows every per-item result', async () => {
+    baseHandlers();
+    const second = { ...doc, id: 'kdoc_2', title: '部署流程', currentVersionId: 'kdv_2' };
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [doc, second], nextCursor: null }),
+      ),
+      http.post('/api/knowledge/bases/kb_1/documents/batch', () =>
+        HttpResponse.json({
+          results: [
+            { documentId: 'kdoc_1', status: 'succeeded' },
+            {
+              documentId: 'kdoc_2',
+              status: 'failed',
+              code: 'INVALID_INPUT',
+              message: '文档不属于该知识库',
+            },
+          ],
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    const selectRow = (label: string): HTMLElement => {
+      const item = document.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+      if (!item) throw new Error(`Missing selection: ${label}`);
+      return item;
+    };
+    await click(selectRow('选择 上线流程'));
+    await click(selectRow('选择 部署流程'));
+    expect(document.body.textContent).toContain('已选 2 个');
+    await click(button('标签'));
+    const batch = dialog('批量标签');
+    await fill('knowledge-batch-tags', '重要');
+    await click(button('标签', batch));
+    expect(
+      calls.find((item) => item.path === '/api/knowledge/bases/kb_1/documents/batch')?.body,
+    ).toEqual({
+      documentIds: ['kdoc_1', 'kdoc_2'],
+      action: 'tag',
+      tags: ['重要'],
+      tagMode: 'add',
+    });
+    expect(batch.textContent).toContain('成功 1 项 · 失败 1 项');
+    expect(batch.textContent).toContain('文档不属于该知识库');
+  });
+});
+
+describe('knowledge document versions and manual drafts', () => {
+  const versionHandlers = (override: { currentVersionId: string; versions: unknown[] }) =>
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({
+          items: [{ ...doc, currentVersionId: override.currentVersionId }],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/versions', () =>
+        HttpResponse.json({ items: override.versions, nextCursor: null }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/versions/kdv_old/markdown', () => markdownResponse('旧版本正文')),
+      http.get('/api/knowledge/versions/kdv_2/markdown', () => markdownResponse('当前正文')),
+      detailsHandler(),
+    );
+
+  it('switches to an old version and rolls the current pointer back explicitly', async () => {
+    baseHandlers();
+    versionHandlers({
+      currentVersionId: 'kdv_2',
+      versions: [
+        {
+          id: 'kdv_2',
+          documentId: 'kdoc_1',
+          version: 2,
+          isCurrent: true,
+          origin: 'source',
+          parentVersionId: null,
+          metadata: {},
+          createdAt: '2026-01-02T00:00:00Z',
+        },
+        {
+          id: 'kdv_old',
+          documentId: 'kdoc_1',
+          version: 1,
+          isCurrent: false,
+          origin: 'manual',
+          parentVersionId: null,
+          metadata: {},
+          createdAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+    server.use(
+      http.post('/api/knowledge/documents/kdoc_1/rollback', () =>
+        HttpResponse.json({ ...doc, currentVersionId: 'kdv_old' }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    await click(button('上线流程'));
+    const viewer = dialog('上线流程');
+    await flush();
+    expect(viewer.textContent).toContain('当前正文');
+    const versionTrigger = document.querySelector<HTMLElement>('[aria-label="选择文档版本"]');
+    if (!versionTrigger) throw new Error('Missing version picker');
+    await click(versionTrigger);
+    const oldOption = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (item) => item.textContent?.trim() === 'v1 · 人工编辑',
+    );
+    if (!oldOption) throw new Error('Missing old version option');
+    await click(oldOption);
+    await flush();
+    expect(
+      calls.some((item) => item.path.startsWith('/api/knowledge/versions/kdv_old/markdown')),
+    ).toBe(true);
+    await click(button('设为当前版本', viewer));
+    await click(button('切换', dialog('设为当前版本')));
+    expect(
+      calls.find(
+        (item) =>
+          item.method === 'POST' && item.path === '/api/knowledge/documents/kdoc_1/rollback',
+      )?.body,
+    ).toEqual({ versionId: 'kdv_old', expectedVersionId: 'kdv_2' });
+  });
+
+  it('saves a manual draft without publishing and keeps the draft on failure', async () => {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({
+          items: [
+            {
+              ...doc,
+              contentKind: 'document',
+              sourceType: 'manual',
+              status: 'ready',
+              currentVersionId: 'kdv_1',
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1/manual', () =>
+        HttpResponse.json({ content: '已发布正文', versionId: 'kdv_1', status: 'published' }),
+      ),
+      http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('已发布正文')),
+      http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+      detailsHandler(),
+      http.put('/api/knowledge/documents/kdoc_1/manual', () =>
+        HttpResponse.json({ code: 'CONFLICT_STALE', message: '正文已被修改' }, { status: 409 }),
+      ),
+    );
+    await mount('/knowledge/kb_1');
+    await click(button('上线流程'));
+    await click(button('编辑正文', dialog('上线流程')));
+    await waitFor(() => document.getElementById('knowledge-manual-draft') !== null);
+    await fill('knowledge-manual-draft', '新的草稿正文');
+    await click(button('保存草稿', dialog('编辑正文 · 上线流程')));
+    expect(
+      calls.find(
+        (item) => item.method === 'PUT' && item.path === '/api/knowledge/documents/kdoc_1/manual',
+      )?.body,
+    ).toEqual({ content: '新的草稿正文', expectedVersionId: 'kdv_1' });
+    await waitFor(() => document.body.textContent?.includes('数据已被其他操作修改') === true);
+    expect(document.getElementById('knowledge-manual-draft')).not.toBeNull();
+  });
+});
+
+describe('knowledge FAQ management', () => {
+  const importCounts = {
+    total: 2,
+    success: 1,
+    failed: 0,
+    partialFailed: 1,
+    skipped: 0,
+    added: 1,
+    merged: 1,
+  };
+
+  const importedDetail = {
+    document: {
+      ...faqDocument,
+      id: 'kdoc_new',
+      title: '新的备份',
+      currentVersionId: null,
+      tags: [],
+    },
+    draftVersion: {
+      ...faqDraftVersion,
+      id: 'kdv_new',
+      documentId: 'kdoc_new',
+      version: 1,
+      parentVersionId: null,
+      metadata: {
+        publication: 'draft',
+        faqImport: { batchId: 'imp_1', mode: 'append', expectedVersionId: null },
+      },
+    },
+    publishedVersion: null,
+    faq,
+  };
+
+  function faqHandlers() {
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/faqs', () =>
+        HttpResponse.json({ items: [faqSummary], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/faqs/kdoc_faq', () => HttpResponse.json(faqDetail)),
+      http.get('/api/knowledge/faqs/kdoc_new', () => HttpResponse.json(importedDetail)),
+      http.put('/api/knowledge/faqs/kdoc_faq', () =>
+        HttpResponse.json({ documentId: 'kdoc_faq', jobId: 'kjob_faq' }),
+      ),
+      http.post('/api/knowledge/faqs/kdoc_faq/publish', () => HttpResponse.json(faqDocument)),
+      http.post('/api/knowledge/bases/kb_1/faqs/import', async ({ request }) => {
+        const body = (await request.json()) as { dryRun: boolean; mode: 'append' | 'replace' };
+        if (body.dryRun) {
+          return HttpResponse.json({
+            dryRun: true,
+            mode: body.mode,
+            committed: false,
+            importBatchId: null,
+            counts: importCounts,
+            results: [
+              {
+                row: 1,
+                status: 'success',
+                operation: 'add',
+                issues: [],
+              },
+              {
+                row: 2,
+                status: 'partial_failed',
+                operation: 'merge',
+                issues: [
+                  { field: 'similarQuestions', code: 'DUPLICATE', message: '重复问题已去掉' },
+                ],
+              },
+            ],
+          });
+        }
+        return HttpResponse.json(
+          {
+            dryRun: false,
+            mode: body.mode,
+            committed: true,
+            importBatchId: 'imp_1',
+            counts: { ...importCounts, skipped: 1, total: 1, success: 1 },
+            results: [
+              {
+                row: 1,
+                status: 'success',
+                operation: 'add',
+                documentId: 'kdoc_new',
+                expectedVersionId: null,
+                jobId: 'kjob_import',
+                issues: [],
+              },
+            ],
+          },
+          { status: 202 },
+        );
+      }),
+      http.post('/api/knowledge/bases/kb_1/faqs/batch', () =>
+        HttpResponse.json({ results: [{ documentId: 'kdoc_new', status: 'succeeded' }] }),
+      ),
+      http.get('/api/knowledge/jobs/kjob_import', () =>
+        HttpResponse.json({
+          id: 'kjob_import',
+          type: 'ingest',
+          status: 'succeeded',
+          step: null,
+          progress: 100,
+          attempts: 1,
+          error: null,
+          createdAt: '2026-01-01T00:00:00Z',
+          startedAt: '2026-01-01T00:00:00Z',
+          endedAt: '2026-01-01T00:01:00Z',
+        }),
+      ),
+      http.get(
+        '/api/knowledge/bases/kb_1/faqs/export',
+        () => new HttpResponse('[]', { headers: { 'content-type': 'application/json' } }),
+      ),
+      http.post('/api/knowledge/bases/kb_1/faqs/test', () =>
+        HttpResponse.json({ hits: [hitWire()], degraded: false, warnings: [] }),
+      ),
+    );
+  }
+
+  it('filters the FAQ list by recommendation without changing status', async () => {
+    faqHandlers();
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await chooseFilter('按推荐筛选', '推荐');
+    const call = calls.find(
+      (item) =>
+        item.method === 'GET' &&
+        item.path.startsWith('/api/knowledge/bases/kb_1/faqs?') &&
+        item.path.includes('isRecommended=true'),
+    );
+    expect(call).toBeDefined();
+    const params = new URL(call?.path ?? '', 'http://localhost').searchParams;
+    expect(params.get('isRecommended')).toBe('true');
+    expect(params.get('limit')).toBe('50');
+  });
+
+  it('saves the answer strategy and recommendation flag without changing published answers', async () => {
+    faqHandlers();
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:faq');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    expect(document.body.textContent).toContain('如何备份？');
+    expect(document.body.textContent).toContain('2 个答案');
+
+    await click(button('编辑'));
+    const editor = dialog('编辑 FAQ');
+    await waitFor(() => document.querySelectorAll('textarea[aria-label^="答案"]').length === 2);
+    expect(
+      [...document.querySelectorAll<HTMLTextAreaElement>('textarea[aria-label^="答案"]')].map(
+        (item) => item.value,
+      ),
+    ).toEqual(['每日自动备份。', '异机保存副本。']);
+    await fill('faq-question', '如何做备份？');
+    await chooseOption('faq-answer-strategy', '随机一条');
+    await click(document.getElementById('faq-recommended') as HTMLElement);
+    await click(button('保存草稿', editor));
+    expect(
+      calls.find((item) => item.method === 'PUT' && item.path === '/api/knowledge/faqs/kdoc_faq')
+        ?.body,
+    ).toEqual(
+      expect.objectContaining({
+        faq: expect.objectContaining({
+          question: '如何做备份？',
+          answers: faq.answers,
+          answerStrategy: 'random',
+          isRecommended: false,
+        }),
+        expectedVersionId: 'kdv_faq_draft',
+      }),
+    );
+    expect(toastSuccess).toHaveBeenCalledWith('FAQ 草稿已保存，发布后可召回');
+
+    await click(button('发布草稿'));
+    const publish = dialog('发布 FAQ');
+    await waitFor(() => publish.textContent?.includes('将 v2') === true);
+    await click(button('发布', publish));
+    expect(
+      calls.find(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/faqs/kdoc_faq/publish',
+      )?.body,
+    ).toEqual({ versionId: 'kdv_faq_draft', expectedVersionId: 'kdv_faq_pub' });
+  });
+
+  it('previews without writing, then polls the imported job and publishes the whole batch', async () => {
+    faqHandlers();
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await click(button('导入'));
+    const importer = dialog('导入 FAQ');
+    await fill('faq-import-content', '{"items":[]}');
+    await click(button('预览', importer));
+    expect(
+      calls.find(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/import',
+      )?.body,
+    ).toEqual({ format: 'json', content: '{"items":[]}', mode: 'append', dryRun: true });
+    expect(importer.textContent).toContain('预览 · 未写入');
+    expect(importer.textContent).toContain('共 2');
+
+    await click(button('确认导入', importer));
+    expect(
+      calls
+        .filter(
+          (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/import',
+        )
+        .at(-1)?.body,
+    ).toEqual({ format: 'json', content: '{"items":[]}', mode: 'append', dryRun: false });
+
+    await waitFor(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')].some((item) =>
+        item.textContent?.includes('发布本批 1 条 FAQ'),
+      ),
+    );
+    const publishButton = button('发布本批 1 条 FAQ', importer);
+    await click(publishButton);
+    expect(
+      calls.find(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/batch',
+      )?.body,
+    ).toEqual({
+      action: 'publish',
+      importBatchId: 'imp_1',
+      items: [{ documentId: 'kdoc_new', versionId: 'kdv_new', expectedVersionId: null }],
+    });
+    expect(importer.textContent).toContain('本批已发布');
+    expect(toastSuccess).toHaveBeenCalledWith('本批 FAQ 已发布');
+  });
+
+  it('shows the old FAQ count in the replace confirmation and keeps the dialog open', async () => {
+    faqHandlers();
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await click(button('导入'));
+    const importer = dialog('导入 FAQ');
+    await fill('faq-import-content', '{"items":[]}');
+    await chooseOption('faq-import-mode', '替换全部');
+    await click(button('预览', importer));
+    await click(button('确认导入', importer));
+    const confirm = dialog('替换全部 FAQ');
+    expect(confirm.textContent).toContain('1 条 FAQ');
+    expect(dialogShown('导入 FAQ')).toBe(true);
+    await click(button('确认导入', confirm));
+    await flush();
+    expect(
+      calls
+        .filter(
+          (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/import',
+        )
+        .at(-1)?.body,
+    ).toEqual({ format: 'json', content: '{"items":[]}', mode: 'replace', dryRun: false });
+    expect(dialogShown('导入 FAQ')).toBe(true);
+  });
+
+  it('sends xlsx content as the selected import format', async () => {
+    faqHandlers();
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await click(button('导入'));
+    const importer = dialog('导入 FAQ');
+    await chooseOption('faq-import-format', 'Excel (.xlsx)');
+    await fill('faq-import-content', 'UEsDBAo=');
+    await click(button('预览', importer));
+    expect(
+      calls.find(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/import',
+      )?.body,
+    ).toEqual({ format: 'xlsx', content: 'UEsDBAo=', mode: 'append', dryRun: true });
+  });
+
+  it('keeps the import dialog and its input open while the commit request is in flight', async () => {
+    faqHandlers();
+    const response = deferred<void>();
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/faqs/import', async ({ request }) => {
+        const body = (await request.json()) as { dryRun: boolean; mode: 'append' | 'replace' };
+        if (body.dryRun) {
+          return HttpResponse.json({
+            dryRun: true,
+            mode: body.mode,
+            committed: false,
+            importBatchId: null,
+            counts: importCounts,
+            results: [],
+          });
+        }
+        await response.promise;
+        return HttpResponse.json(
+          {
+            dryRun: false,
+            mode: body.mode,
+            committed: true,
+            importBatchId: 'imp_1',
+            counts: { ...importCounts, skipped: 1, total: 1, success: 1 },
+            results: [],
+          },
+          { status: 202 },
+        );
+      }),
+    );
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await click(button('导入'));
+    const importer = dialog('导入 FAQ');
+    await fill('faq-import-content', '{"items":[]}');
+    await click(button('预览', importer));
+    await click(button('确认导入', importer));
+    expect((document.getElementById('faq-import-content') as HTMLTextAreaElement).value).toBe(
+      '{"items":[]}',
+    );
+    await click(button('关闭', importer));
+    expect(dialogShown('导入 FAQ')).toBe(true);
+    await act(async () => response.resolve());
+    await flush();
+    expect(dialogShown('导入 FAQ')).toBe(true);
+  });
+
+  it('runs the shared FAQ hit test with recommendation and direct-answer options', async () => {
+    faqHandlers();
+    server.use(
+      http.post('/api/knowledge/bases/kb_1/faqs/test', () =>
+        HttpResponse.json({
+          hits: [
+            hitWire({
+              faq: {
+                answers: ['每日自动备份。'],
+                answerStrategy: 'random',
+                isRecommended: true,
+                matchedQuestion: '如何备份？',
+                questionKind: 'standard',
+              },
+            }),
+          ],
+          degraded: false,
+          warnings: [],
+          directAnswer: {
+            target: { kind: 'faq', id: 'kdoc_faq' },
+            versionId: 'kdv_faq_pub',
+            answers: ['每日自动备份。'],
+            vectorScore: 0.96,
+          },
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="FAQ 命中测试"]');
+    if (!input) throw new Error('Missing FAQ test input');
+    const testForm = input.closest('form');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        '怎么备份',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(document.querySelector('[aria-label="只返回推荐 FAQ"]') as HTMLElement);
+    await click(document.querySelector('[aria-label="FAQ 优先"]') as HTMLElement);
+    await fill('faq-test-direct-threshold', '0.8');
+    await act(async () => {
+      testForm?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(
+      calls.find(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/test',
+      )?.body,
+    ).toEqual(
+      expect.objectContaining({
+        q: '怎么备份',
+        onlyRecommended: true,
+        faqPriority: true,
+        faqDirectAnswerThreshold: 0.8,
+      }),
+    );
+    const section = [...document.querySelectorAll('section')].find(
+      (item) => item.querySelector('h2')?.textContent === '命中测试',
+    );
+    expect(section?.textContent).toContain('直接答案');
+    expect(section?.textContent).toContain('cosine 0.960');
+    expect(section?.textContent).toContain('随机答案 · 本次 1 条');
+    expect(section?.textContent).not.toContain('异机保存副本。');
+  });
+});
+
+describe('knowledge wiki organization and contributions', () => {
+  it('shows directory links, diffs versions and saves drafts without publishing', async () => {
+    baseHandlers();
+    const third = {
+      id: 'kwv_3',
+      pageId: 'kwp_1',
+      version: 3,
+      markdown: '## 当前\n\n第三步。',
+      sourceChunkIds: ['kchk_2'],
+      model: 'manual',
+      generatedBy: 'manual' as const,
+      createdAt: '2026-01-03T00:00:00Z',
+    };
+    const page = {
+      ...wikiPage,
+      currentVersionId: 'kwv_2',
+      parentId: null,
+      position: 0,
+      versions: [third, ...wikiPage.versions],
+    };
+    const sibling = wikiSummary({
+      id: 'kwp_2',
+      slug: 'backup',
+      title: '备份指南',
+      status: 'published',
+      currentVersionId: null,
+    });
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/wiki-pages', () =>
+        HttpResponse.json({ items: [wikiPageSummary, sibling], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/wiki-pages/kwp_1', () => HttpResponse.json(page)),
+      http.get('/api/knowledge/wiki-pages/kwp_1/links', () =>
+        HttpResponse.json({
+          outgoing: [{ targetPageId: 'kwp_2', anchor: '备份' }],
+          incoming: [{ sourcePageId: 'kwp_2', anchor: null }],
+        }),
+      ),
+      http.get('/api/knowledge/wiki-pages/kwp_1/diff', () =>
+        HttpResponse.json({
+          fromVersionId: 'kwv_2',
+          toVersionId: 'kwv_3',
+          addedLines: ['第三步。'],
+          removedLines: ['第二步。'],
+          addedSourceChunkIds: ['kchk_2'],
+          removedSourceChunkIds: ['kchk_1'],
+        }),
+      ),
+      http.patch('/api/knowledge/wiki-pages/kwp_1', () => HttpResponse.json(wikiPageSummary)),
+      http.post('/api/knowledge/wiki-pages/kwp_1/publish', () =>
+        HttpResponse.json(wikiPageSummary),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
+    await waitFor(() => document.body.textContent?.includes('链接') === true);
+    expect(document.body.textContent).toContain('备份指南');
+    expect(document.body.textContent).toContain('链接');
+    // 回退后的历史版本不等于草稿；没有 publication 标记时只说明未设为当前。
+    expect(document.body.textContent).toContain('未设为当前版本');
+    expect(document.body.textContent).not.toContain('有未发布草稿');
+
+    await click(button('对比上一版'));
+    const diff = dialog('版本贡献差异');
+    await waitFor(() => diff.textContent?.includes('第三步。') === true);
+    expect(diff.textContent).toContain('第二步。');
+    expect(diff.textContent).toContain('kchk_2');
+    await click(button('关闭', diff));
+
+    await click(button('组织'));
+    const organize = dialog('组织 Wiki 页面');
+    await chooseOption('wiki-parent', '备份指南');
+    await fill('wiki-position', '2');
+    await click(button('保存', organize));
+    expect(
+      calls.find(
+        (item) => item.method === 'PATCH' && item.path === '/api/knowledge/wiki-pages/kwp_1',
+      )?.body,
+    ).toEqual({ parentId: 'kwp_2', position: 2, expectedVersion: 'kwv_3' });
+
+    await click(button('编辑正文'));
+    const editor = dialog('编辑 Wiki 正文');
+    await fill('knowledge-wiki-markdown', '## 新草稿');
+    await click(button('保存草稿', editor));
+    expect(
+      calls
+        .filter(
+          (item) => item.method === 'PATCH' && item.path === '/api/knowledge/wiki-pages/kwp_1',
+        )
+        .at(-1)?.body,
+    ).toEqual({ markdown: '## 新草稿', expectedVersion: 'kwv_3' });
+    expect(toastSuccess).toHaveBeenCalledWith('Wiki 草稿已保存，发布后才会上线');
+
+    await click(button('发布此版本', document.body));
+    const publish = dialog('发布 Wiki 版本');
+    await click(button('发布', publish));
+    expect(
+      calls.find(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/wiki-pages/kwp_1/publish',
+      )?.body,
+    ).toEqual({ versionId: 'kwv_3' });
+  });
+});
+
+describe('knowledge search URL state and diagnostics', () => {
+  it('restores filters from the URL and renders warnings, scores and candidate diagnostics', async () => {
+    baseHandlers();
+    let searchUrl = '';
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/search', ({ request }) => {
+        searchUrl = request.url;
+        return HttpResponse.json({
+          hits: [hitWire()],
+          degraded: true,
+          warnings: [{ code: 'embedding_unavailable', message: '向量模型不可用，仅关键词结果' }],
+          diagnostics: {
+            paths: { keyword: 3, vector: 0, imageVector: 0 },
+            fused: 3,
+            returned: 1,
+            rerank: 'unavailable',
+            elapsedMs: 12,
+            candidates: [{ chunkId: 'kchk_faq', scores: hitWire().scores }],
+          },
+        });
+      }),
+    );
+    await mount('/knowledge/kb_1', {
+      panel: 'search',
+      q: '备份',
+      folders: JSON.stringify(['kf_1']),
+      tags: JSON.stringify(['流程']),
+      kinds: JSON.stringify(['faq']),
+      rerank: 'false',
+      minVectorScore: '0.5',
+      onlyRecommended: 'true',
+      faqPriority: 'true',
+      faqDirectAnswerThreshold: '0.85',
+      diagnostics: 'true',
+    });
+    await flush();
+    const params = new URL(searchUrl, 'http://localhost').searchParams;
+    expect(params.getAll('folders')).toEqual(['kf_1']);
+    expect(params.getAll('tags')).toEqual(['流程']);
+    expect(params.getAll('kinds')).toEqual(['faq']);
+    expect(params.get('rerank')).toBe('false');
+    expect(params.get('minVectorScore')).toBe('0.5');
+    expect(params.get('onlyRecommended')).toBe('true');
+    expect(params.get('faqPriority')).toBe('true');
+    expect(params.get('faqDirectAnswerThreshold')).toBe('0.85');
+    expect(params.get('diagnostics')).toBe('true');
+
+    expect(document.body.textContent).toContain('向量模型不可用，仅关键词结果');
+    expect(document.body.textContent).toContain('FAQ');
+    expect(document.body.textContent).toContain('关键词');
+    expect(document.body.textContent).toContain('RRF 分数');
+    expect(document.body.textContent).toContain('诊断 · 12 ms');
+    expect(document.body.textContent).toContain('kchk_faq');
+  });
+});
+
 type KnowledgeJobFixture = KnowledgeJob & {
   documentId: string | null;
   sourceId: string | null;
@@ -4088,7 +4990,7 @@ describe('knowledge detail business line', () => {
     const labels = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].map((item) =>
       item.textContent?.trim(),
     );
-    expect(labels).toEqual(['文档', '来源', '检索测试', 'Wiki', '处理记录']);
+    expect(labels).toEqual(['文档', '来源', '检索测试', '离线评估', 'FAQ', 'Wiki', '处理记录']);
     expect(document.querySelector('[data-slot="page-header"]')?.textContent).toContain('启用');
     expect(findButton('使用此库的专家')).toBeDefined();
     expect(findButton('设置')).toBeDefined();
@@ -4265,7 +5167,7 @@ describe('knowledge detail business line', () => {
     await click(button('编辑正文'));
     const editor = dialog('编辑 Wiki 正文');
     await fill('knowledge-wiki-markdown', '# 新正文');
-    await click(button('保存', editor));
+    await click(button('保存草稿', editor));
     const patch = calls.find(
       (item) => item.method === 'PATCH' && item.path === '/api/knowledge/wiki-pages/kwp_blank',
     );
@@ -4428,6 +5330,37 @@ describe('knowledge document to jobs recovery', () => {
     await click(button('查看全部处理记录'));
     await waitFor(() => router.state.location.search.document === undefined);
     expect(document.body.textContent).not.toContain('只显示该文档的处理记录');
+  });
+
+  it('keeps the FAQ tab usable after jumping from a document to its filtered jobs', async () => {
+    const failedDocument = {
+      ...doc,
+      id: 'kdoc_failed',
+      title: '导入失败',
+      status: 'failed',
+      currentVersionId: null,
+    };
+    baseHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [failedDocument], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/bases/kb_1/faqs', () =>
+        HttpResponse.json({ items: [faqSummary], nextCursor: null }),
+      ),
+    );
+    const router = await mount('/knowledge/kb_1');
+
+    await openMenu('操作 导入失败');
+    await chooseMenuItem('查看处理记录');
+    await waitFor(() => router.state.location.search.document === 'kdoc_failed');
+
+    await click(button('FAQ'));
+    await waitFor(() => router.state.location.search.panel === 'faqs');
+    // 离开处理记录时清掉文档过滤，FAQ 分区按自己的列表工作。
+    expect(router.state.location.search.document).toBeUndefined();
+    expect(findButton('新建 FAQ')).toBeDefined();
+    expect(document.body.textContent).toContain('如何备份？');
   });
 });
 

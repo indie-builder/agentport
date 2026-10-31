@@ -697,6 +697,9 @@ describe('expert employee badges', () => {
     expect(time?.getAttribute('datetime')).toBe('2026-01-01T08:30:00Z');
     expect(time?.getAttribute('title')).toBe('2026-01-01T08:30:00Z');
     expect(time?.textContent).toContain('2026');
+    const badgeContent = panel.querySelector<HTMLElement>('[aria-label="工牌内容"]');
+    expect(badgeContent?.tagName).toBe('SECTION');
+    expect(badgeContent?.tabIndex).toBe(0);
     expect(api.agent).not.toHaveBeenCalled();
   });
 

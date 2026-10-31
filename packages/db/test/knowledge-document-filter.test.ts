@@ -82,8 +82,8 @@ async function seedDocument(
   input: {
     sourceType?: 'gitlab' | 'manual' | 'upload';
     sourceId?: string | null;
+    sourceConnectionId?: string | null;
     status?: 'pending' | 'processing' | 'ready' | 'failed' | 'disabled';
-    metadata?: Record<string, unknown>;
   } = {},
 ): Promise<string> {
   documentSeq += 1;
@@ -95,9 +95,9 @@ async function seedDocument(
     sourceId: input.sourceId ?? null,
     sourceUrl: null,
     sourcePath: null,
+    sourceConnectionId: input.sourceConnectionId ?? null,
     mimeType: 'text/markdown',
     sizeBytes: 0,
-    metadata: input.metadata ?? {},
   });
   const status = input.status ?? 'ready';
   if (status !== 'pending') {
@@ -135,67 +135,53 @@ const documentQueries = (queries: CapturedQuery[]): CapturedQuery[] =>
   queries.filter((query) => query.text.includes('from "knowledge_documents"'));
 
 describe.skipIf(!ready)('listDocuments 来源过滤', () => {
-  it('把 metadata.knowledgeSourceId 下推为 SQL 过滤，并保留 base/status 与无过滤全量', async () => {
+  it('把 sourceConnectionId 下推为 SQL 过滤，并保留 base/status 与无过滤全量', async () => {
     const baseId = await seedBase();
     const otherBaseId = await seedBase();
-    const sourceA = `gitlab:source-a-${randomBytes(3).toString('hex')}`;
-    const sourceB = `gitlab:source-b-${randomBytes(3).toString('hex')}`;
+    const sourceA = `ksrc_${randomBytes(6).toString('hex')}`;
+    const sourceB = `ksrc_${randomBytes(6).toString('hex')}`;
 
     const aReady1 = await seedDocument(baseId, {
       sourceId: 'a:1',
-      metadata: { knowledgeSourceId: sourceA },
+      sourceConnectionId: sourceA,
     });
     const aReady2 = await seedDocument(baseId, {
       sourceId: 'a:2',
-      metadata: { knowledgeSourceId: sourceA },
+      sourceConnectionId: sourceA,
     });
     const aPending = await seedDocument(baseId, {
       sourceId: 'a:3',
       status: 'pending',
-      metadata: { knowledgeSourceId: sourceA },
+      sourceConnectionId: sourceA,
     });
     const bReady = await seedDocument(baseId, {
       sourceId: 'b:1',
-      metadata: { knowledgeSourceId: sourceB },
+      sourceConnectionId: sourceB,
     });
     const manual = await seedDocument(baseId, { sourceType: 'manual' });
-    const missing = await seedDocument(baseId, {
-      sourceId: 'missing:1',
-      metadata: { originalFilename: 'missing.md' },
-    });
-    const nullValue = await seedDocument(baseId, {
-      sourceId: 'null:1',
-      metadata: { knowledgeSourceId: null },
-    });
-    const jsonNull = await seedDocument(baseId, { sourceId: 'json-null:1' });
-    await pool.query("update knowledge_documents set metadata = 'null'::jsonb where id = $1", [
-      jsonNull,
-    ]);
+    const missing = await seedDocument(baseId, { sourceId: 'missing:1' });
     // 同一来源 ID 在另一个库：baseId 仍必须限定范围。
     const foreign = await seedDocument(otherBaseId, {
       sourceId: 'a:foreign',
-      metadata: { knowledgeSourceId: sourceA },
+      sourceConnectionId: sourceA,
     });
 
     const { value: filtered, queries } = await captureQueries(() =>
-      knowledge.listDocuments(db, { baseId, knowledgeSourceId: sourceA }),
+      knowledge.listDocuments(db, { baseId, sourceConnectionId: sourceA }),
     );
     const filteredIds = filtered.items.map((document) => document.id).sort();
     expect(filteredIds).toEqual([aReady1, aReady2, aPending].sort());
-    expect(
-      filtered.items.every((document) => document.metadata.knowledgeSourceId === sourceA),
-    ).toBe(true);
+    expect(filtered.items.every((document) => document.sourceConnectionId === sourceA)).toBe(true);
 
     const sql = documentQueries(queries);
     expect(sql).toHaveLength(1);
-    expect(sql[0]?.text).toContain('metadata');
-    expect(sql[0]?.text).toContain("->>'knowledgeSourceId'");
+    expect(sql[0]?.text).toContain('source_connection_id');
     expect(sql[0]?.values).toContain(sourceA);
     expect(filteredIds).not.toContain(foreign);
 
     const readyOnly = await knowledge.listDocuments(db, {
       baseId,
-      knowledgeSourceId: sourceA,
+      sourceConnectionId: sourceA,
       status: 'ready',
     });
     expect(readyOnly.items.map((document) => document.id).sort()).toEqual(
@@ -204,20 +190,20 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
 
     const all = await knowledge.listDocuments(db, { baseId, limit: 50 });
     expect(all.items.map((document) => document.id).sort()).toEqual(
-      [aReady1, aReady2, aPending, bReady, manual, missing, nullValue, jsonNull].sort(),
+      [aReady1, aReady2, aPending, bReady, manual, missing].sort(),
     );
     expect(all.items.map((document) => document.id)).not.toContain(foreign);
   });
 
   it('过滤后的分页顺序与游标和一次性读取完全一致', async () => {
     const baseId = await seedBase();
-    const source = `gitlab:paged-${randomBytes(3).toString('hex')}`;
+    const source = `ksrc_${randomBytes(6).toString('hex')}`;
     const ownIds: string[] = [];
     for (let index = 0; index < 7; index += 1) {
       ownIds.push(
         await seedDocument(baseId, {
           sourceId: `own:${index}`,
-          metadata: { knowledgeSourceId: source },
+          sourceConnectionId: source,
         }),
       );
     }
@@ -225,12 +211,12 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
     for (let index = 0; index < 5; index += 1) {
       await seedDocument(baseId, {
         sourceId: `other:${index}`,
-        metadata: { knowledgeSourceId: 'gitlab:other' },
+        sourceConnectionId: 'ksrc_other',
       });
     }
 
     const { value: oneShot } = await captureQueries(() =>
-      knowledge.listDocuments(db, { baseId, knowledgeSourceId: source, limit: 50 }),
+      knowledge.listDocuments(db, { baseId, sourceConnectionId: source, limit: 50 }),
     );
 
     const { value: pagedIds, queries } = await captureQueries(async () => {
@@ -240,7 +226,7 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
       do {
         const page = await knowledge.listDocuments(db, {
           baseId,
-          knowledgeSourceId: source,
+          sourceConnectionId: source,
           limit: 2,
           cursor,
         });
@@ -260,7 +246,7 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
     const sql = documentQueries(queries);
     expect(sql).toHaveLength(4);
     for (const query of sql) {
-      expect(query.text).toContain("->>'knowledgeSourceId'");
+      expect(query.text).toContain('source_connection_id');
       expect(query.values).toContain(source);
     }
   });

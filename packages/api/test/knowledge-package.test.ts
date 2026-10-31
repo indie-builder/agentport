@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { repo } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { infraReady, inject, injectZip, loginCookie, testConfig, unique } from './helpers.js';
 
@@ -48,7 +48,14 @@ interface Manifest {
       blobSha256: string;
       markdownSha256: string | null;
       sizeBytes: number;
-      images: Array<{ name: string; sha256: string; mimeType: string; page: number; path: string }>;
+      images: Array<{
+        name: string;
+        sha256: string;
+        mimeType: string;
+        page: number;
+        warnings?: string[];
+        path: string;
+      }>;
       chunks: Array<Record<string, unknown>>;
     }>;
   }>;
@@ -275,14 +282,20 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     });
     expect(edited.statusCode, edited.body).toBe(200);
     await app.pool.query(
-      `insert into knowledge_wiki_sources (page_id, document_id, version_id, chunk_id, stale)
-       values ($1, $2, $3, $4, false)`,
-      [wikiPageId, documentId, versionId, chunkId],
-    );
-    await app.pool.query(
       `update knowledge_wiki_versions set source_chunk_ids = $2::jsonb where page_id = $1`,
       [wikiPageId, JSON.stringify([chunkId])],
     );
+    const draft = await app.pool.query<{ id: string }>(
+      'select id from knowledge_wiki_versions where page_id = $1 order by version desc limit 1',
+      [wikiPageId],
+    );
+    const published = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/wiki-pages/${wikiPageId}/publish`,
+      headers: { cookie },
+      payload: { versionId: draft.rows[0]!.id },
+    });
+    expect(published.statusCode, published.body).toBe(200);
   }
 
   it('未登录不能导出或导入', async () => {
@@ -324,6 +337,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
         sha256: sha256(TINY_PNG),
         mimeType: 'image/png',
         page: IMAGE_PAGE,
+        warnings: [],
         path: imagePath,
       },
     ]);
@@ -464,7 +478,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       method: 'POST',
       url: `/api/knowledge/bases/${result.baseId}/rebuild`,
       headers: { cookie },
-      payload: {},
+      payload: { chunksOnly: true },
     });
     expect(rebuild.statusCode, rebuild.body).toBe(202);
 
@@ -784,6 +798,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       generatedBy: 'manual',
     });
     expect(version).not.toBeNull();
+    await repo.knowledge.publishWikiVersion(app.db, newPageId, version!.id);
     expect((await repo.knowledge.getWikiPage(app.db, newPageId))?.status).toBe('published');
     return {
       baseId: newBaseId,
@@ -845,26 +860,49 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     ).toMatchObject({ rows: [] });
   }
 
-  it('删除被 Wiki 引用的 chunk 后导出再导入：历史引用显式失效仍可恢复', async () => {
+  it('删除被 Wiki 引用的 chunk 后导出：旧版留存，Wiki 标 stale 且引用仍可追溯到历史版本', async () => {
     const seeded = await seedReferencedWiki();
     const removed = await inject(app, {
       method: 'DELETE',
       url: `/api/knowledge/chunks/${seeded.chunkId}`,
       headers: { cookie },
+      payload: { expectedVersionId: seeded.versionId },
     });
-    expect(removed.statusCode, removed.body).toBe(204);
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json()).toMatchObject({ chunk: null, jobId: null });
 
     const archive = await exportBase(seeded.baseId);
     const wiki = readManifest(archive).wikiPages[0]!;
     expect(wiki.status).toBe('stale');
-    expect(wiki.versions[0]!.sourceChunkIds).toEqual([]);
-    expect(wiki.versions[0]!.unresolvedSourceChunkIds).toEqual([seeded.chunkId]);
+    // 删除产生新版本而非原地改写；旧版本 chunk 仍在包内，引用可继续解析。
+    expect(wiki.versions[0]!.sourceChunkIds).toEqual([seeded.chunkId]);
+    expect(wiki.versions[0]!.unresolvedSourceChunkIds).toEqual([]);
     expect(wiki.sources).toEqual([
-      { documentId: seeded.documentId, versionId: seeded.versionId, chunkId: null, stale: true },
+      {
+        documentId: seeded.documentId,
+        versionId: seeded.versionId,
+        chunkId: seeded.chunkId,
+        stale: true,
+      },
     ]);
 
     await deleteBase(seeded.baseId);
-    await expectStaleReferenceRoundtrip(archive, seeded.chunkId);
+    const importRes = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
+    expect(importRes.statusCode, importRes.body).toBe(201);
+    const imported = importRes.json<{ baseId: string }>();
+    baseIds.push(imported.baseId);
+    const versions = await app.pool.query<{ source_chunk_ids: string[] }>(
+      `select v.source_chunk_ids from knowledge_wiki_versions v
+       join knowledge_wiki_pages p on p.id = v.page_id
+       where p.base_id = $1 order by v.version desc limit 1`,
+      [imported.baseId],
+    );
+    expect(versions.rows[0]!.source_chunk_ids).toHaveLength(1);
+    expect(versions.rows[0]!.source_chunk_ids[0]).not.toBe(seeded.chunkId);
+    const importedChunk = await app.pool.query('select 1 from knowledge_chunks where id = $1', [
+      versions.rows[0]!.source_chunk_ids[0],
+    ]);
+    expect(importedChunk.rowCount).toBe(1);
   });
 
   it('删除被 Wiki 引用的整篇文档后导出再导入：历史引用显式失效仍可恢复', async () => {
@@ -891,12 +929,13 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
 
   it('未声明的失效引用仍被拒绝：sourceChunkIds 指向包外 chunk 时导入失败', async () => {
     const seeded = await seedReferencedWiki();
+    // 删除整篇文档才会让所有版本与 chunk 一起消失，产生真正的失效引用。
     const removed = await inject(app, {
       method: 'DELETE',
-      url: `/api/knowledge/chunks/${seeded.chunkId}`,
+      url: `/api/knowledge/documents/${seeded.documentId}`,
       headers: { cookie },
     });
-    expect(removed.statusCode, removed.body).toBe(204);
+    expect(removed.statusCode, removed.body).toBe(200);
     const archive = await exportBase(seeded.baseId);
 
     // 把失效 id 挪回有效列表：导入端必须拒绝，不能接受「无声丢失」的伪造引用。

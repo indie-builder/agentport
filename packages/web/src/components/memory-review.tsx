@@ -35,6 +35,7 @@ import {
   useRollbackMemoryChange,
 } from '../lib/queries.js';
 import { toastSuccess } from '../lib/toast.js';
+import { BusinessIllustration } from './business-illustration.js';
 import { CodeBlock } from './code-block.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
@@ -356,7 +357,7 @@ export function MemoryReviews({
       {reviews.data ? (
         items.length === 0 ? (
           <EmptyState
-            icon={<Search className="size-5" />}
+            illustration={<BusinessIllustration name="review" />}
             title="让模型整理值得保存的记忆"
             description="选择执行专家和来源会话，生成可采纳的记忆或规则提案。"
             action={

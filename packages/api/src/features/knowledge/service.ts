@@ -4,13 +4,41 @@ import { knowledgeEnqueueOptions } from '@agentport/shared';
 import { getKnowledgeQueue } from '../../queue/producer.js';
 
 type Db = Database;
+/** 任务行可以与业务写入同事务落库；仓储接口本身已接受事务连接。 */
+type JobDb = Parameters<typeof repo.knowledge.createJob>[0];
+
+export type KnowledgeDocumentRow = typeof schema.knowledgeDocuments.$inferSelect;
+
+/** 文档 wire 的唯一投影：管理列表、详情与发布响应共用，避免字段漂移。 */
+export function documentWire(row: KnowledgeDocumentRow, tags: string[]) {
+  return {
+    id: row.id,
+    baseId: row.baseId,
+    folderId: row.folderId,
+    title: row.title,
+    sourceType: row.sourceType,
+    sourceUrl: row.sourceUrl,
+    sourcePath: row.sourcePath,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    status: row.status,
+    contentKind: row.contentKind,
+    disabledReason: row.disabledReason,
+    sourceConnectionId: row.sourceConnectionId,
+    currentVersionId: row.currentVersionId,
+    tags,
+    lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
 
 export async function enqueueKnowledgeJob(job: { id: string }): Promise<void> {
   await getKnowledgeQueue().add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
 }
 
 export function createJob(
-  db: Db,
+  db: JobDb,
   input: {
     baseId: string | null;
     documentId: string | null;

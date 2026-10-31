@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    {
+      "nodeId": "node-child",
+      "workspaceId": "ws1",
+      "name": "Child",
+      "type": "FILE",
+      "category": "ALIDOC",
+      "extension": "adoc",
+      "url": "https://example.dingtalk.com/doc/4"
+    }
+  ],
+  "nextToken": ""
+}

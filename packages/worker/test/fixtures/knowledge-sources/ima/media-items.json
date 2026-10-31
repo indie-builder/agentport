@@ -1,0 +1,41 @@
+{
+  "m-pdf": {
+    "code": 0,
+    "msg": "success",
+    "data": {
+      "media_type": 1,
+      "url_info": {
+        "url": "__MEDIA_BASE__/pdf",
+        "headers": { "Authorization": "Bearer media-token" }
+      }
+    }
+  },
+  "m-dup": {
+    "code": 0,
+    "msg": "success",
+    "data": {
+      "media_type": 1,
+      "url_info": {
+        "url": "__MEDIA_BASE__/dup"
+      }
+    }
+  },
+  "m-md": {
+    "code": 0,
+    "msg": "success",
+    "data": {
+      "media_type": 7,
+      "url_info": {
+        "url": "__MEDIA_BASE__/md"
+      }
+    }
+  },
+  "m-note": {
+    "code": 0,
+    "msg": "success",
+    "data": {
+      "media_type": 11,
+      "notebook_ext_info": { "notebook_id": "nb1" }
+    }
+  }
+}

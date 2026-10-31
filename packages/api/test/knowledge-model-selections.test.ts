@@ -18,7 +18,7 @@ const SELECTION_KEYS = ['enabled', 'id', 'kind', 'name', 'supportsImageVectors']
 interface Selection {
   id: string;
   name: string;
-  kind: 'embedding' | 'rerank';
+  kind: 'embedding' | 'rerank' | 'asr';
   enabled: boolean;
   supportsImageVectors: boolean;
 }
@@ -40,7 +40,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
   const profileIds: string[] = [];
   const baseIds: string[] = [];
   const profiles = {} as Record<
-    'capable' | 'disabledCapable' | 'nonCohere' | 'imageOff' | 'rerank',
+    'capable' | 'disabledCapable' | 'nonCohere' | 'imageOff' | 'rerank' | 'asr',
     Profile
   >;
   let baseId = '';
@@ -146,6 +146,8 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
       model: 'bge-reranker-v2',
     });
 
+    profiles.asr = await createProfile({ kind: 'asr', name: 'asr', model: 'whisper-1' });
+
     const res = await inject(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
@@ -224,6 +226,52 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
     expect(capable).toHaveProperty('hasSecret');
   });
 
+  it('keeps new FAQ, version, draft and evaluation routes behind their leaves', async () => {
+    for (const url of [
+      `/api/knowledge/bases/${baseId}/faqs`,
+      '/api/knowledge/documents/missing/versions',
+      '/api/knowledge/documents/missing/manual',
+      '/api/knowledge/wiki-pages/missing/links',
+      '/api/knowledge/wiki-pages/missing/diff?fromVersionId=a&toVersionId=b',
+      '/api/knowledge/sources/missing/runs/missing/items',
+    ]) {
+      const response = await inject(app, { method: 'GET', url, headers: { cookie: reader } });
+      expect([200, 404]).toContain(response.statusCode);
+      expectProblem(await inject(app, { method: 'GET', url }), 'UNAUTHORIZED');
+    }
+    expectProblem(
+      await inject(app, {
+        method: 'GET',
+        url: `/api/knowledge/bases/${baseId}/faqs/export`,
+        headers: { cookie: reader },
+      }),
+      'FORBIDDEN',
+    );
+    for (const [url, payload] of [
+      [`/api/knowledge/bases/${baseId}/faqs/test`, { q: '查询' }],
+      [
+        `/api/knowledge/bases/${baseId}/retrieval-evaluations`,
+        { cases: [{ q: '查询', expectedTargets: [{ kind: 'document', id: 'missing' }] }] },
+      ],
+      [
+        '/api/knowledge/documents/missing/publish',
+        { versionId: 'missing', expectedVersionId: null },
+      ],
+      ['/api/knowledge/faqs/missing/publish', { versionId: 'missing', expectedVersionId: null }],
+      ['/api/knowledge/sources/missing/test', undefined],
+    ] as const) {
+      expectProblem(
+        await inject(app, {
+          method: 'POST',
+          url,
+          headers: { cookie: reader },
+          ...(payload === undefined ? {} : { payload }),
+        }),
+        'FORBIDDEN',
+      );
+    }
+  });
+
   it('keeps create and update writes on their original permissions', async () => {
     const created = await inject(app, {
       method: 'POST',
@@ -296,6 +344,12 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
     expect(byId.get(profiles.imageOff.id)?.supportsImageVectors).toBe(false);
     expect(byId.get(profiles.rerank.id)).toMatchObject({
       kind: 'rerank',
+      supportsImageVectors: false,
+    });
+
+    expect(byId.get(profiles.asr.id)).toMatchObject({
+      kind: 'asr',
+      enabled: true,
       supportsImageVectors: false,
     });
 

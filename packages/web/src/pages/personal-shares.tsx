@@ -1,8 +1,9 @@
 import type { PersonalOutputShare } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { LockKeyhole, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { CopyButton } from '../components/copy-button.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -171,7 +172,7 @@ export function PersonalSharesPage() {
         <ErrorState error={shares.error} onRetry={() => void shares.refetch()} />
       ) : shares.data && shares.data.items.length === 0 ? (
         <EmptyState
-          icon={<LockKeyhole className="size-5" />}
+          illustration={<BusinessIllustration name="sharing" />}
           title="还没有分享"
           description="在会话成果里分享文件后，链接会出现在这里。"
           action={

@@ -1,0 +1,59 @@
+{
+  "space": { "id": "123", "key": "DOC", "name": "Documentation" },
+  "pagesFirst": {
+    "results": [
+      { "id": "1", "title": "Root Page", "spaceId": "123" },
+      { "id": "2", "title": "Child Page", "spaceId": "123" }
+    ],
+    "_links": {
+      "next": "/wiki/api/v2/spaces/123/pages?status=current&depth=all&limit=250&cursor=p2"
+    }
+  },
+  "pagesSecond": {
+    "results": [{ "id": "3", "title": "Nested Page", "spaceId": "123" }]
+  },
+  "pages": {
+    "1": {
+      "id": "1",
+      "title": "Root Page",
+      "status": "current",
+      "spaceId": "123",
+      "version": { "number": 3 },
+      "body": {
+        "view": {
+          "value": "<h1>Root</h1><table><tr><td>A</td></tr></table><pre><code>x</code></pre>"
+        }
+      },
+      "_links": { "webui": "/wiki/spaces/DOC/pages/1/Root" }
+    },
+    "2": {
+      "id": "2",
+      "title": "Child Page",
+      "status": "current",
+      "spaceId": "123",
+      "version": { "number": 2 },
+      "body": { "view": { "value": "<p>child</p>" } },
+      "_links": { "webui": "/wiki/spaces/DOC/pages/2/Child" }
+    },
+    "3": {
+      "id": "3",
+      "title": "Nested Page",
+      "status": "current",
+      "spaceId": "123",
+      "version": { "number": 1 },
+      "body": { "view": { "value": "<p>nested</p>" } }
+    }
+  },
+  "attachments": {
+    "results": [
+      {
+        "id": "att-1",
+        "title": "diagram.png",
+        "mediaType": "image/png",
+        "fileId": "file-999",
+        "version": { "number": 2 },
+        "_links": { "download": "http://127.0.0.1:9/untrusted-download" }
+      }
+    ]
+  }
+}

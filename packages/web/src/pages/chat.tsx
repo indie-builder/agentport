@@ -54,6 +54,7 @@ import {
 } from 'react';
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 import { AgentAvatar } from '../components/agent-avatar.js';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CollapsibleText, JsonBlock, LARGE_CONTENT_CHARS } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { ConversationOutputs, type OutputSelection } from '../components/conversation-outputs.js';
@@ -201,7 +202,7 @@ export function ChatPage() {
           <ErrorState error={me.error} onRetry={() => void me.refetch()} />
         ) : canCreate ? (
           <EmptyState
-            icon={<Bot className="size-5" />}
+            illustration={<BusinessIllustration name="agents" />}
             title="先创建一位专家"
             description="创建后即可在这里开始对话。"
             action={
@@ -212,7 +213,7 @@ export function ChatPage() {
           />
         ) : (
           <EmptyState
-            icon={<Bot className="size-5" />}
+            illustration={<BusinessIllustration name="agents" />}
             title="暂无可用专家"
             description="当前账户尚未分配可用专家，请联系管理员。"
             action={

@@ -521,12 +521,17 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       await repo.knowledge.setCurrentVersion(app.db, document.id, version.id);
 
+      // 版本清单声明了原图，磁盘上就必须真实存在；否则编辑正文时复制图片会失败。
+      const imagesDir = join(knowledgeDir, 'docs', document.id, version.id, 'images');
+      await mkdir(imagesDir, { recursive: true });
+      await writeFile(join(imagesDir, 'fig-1.png'), PNG);
+
       for (const payload of [{ content: '把描述改掉' }, { heading: '新标题' }]) {
         const res = await inject(app, {
           method: 'PATCH',
           url: `/api/knowledge/chunks/${chunk!.id}`,
           headers: { cookie },
-          payload,
+          payload: { ...payload, expectedVersionId: version.id },
         });
         expect(res.statusCode, `${JSON.stringify(payload)} ${res.body}`).toBe(409);
       }
@@ -537,6 +542,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         url: `/api/knowledge/chunks/${chunk!.id}`,
         headers: { cookie },
         payload: {
+          expectedVersionId: version.id,
           metadata: {
             image: { name: 'other.png', mimeType: 'image/png', page: 2 },
             imageRole: 'caption',
@@ -544,21 +550,29 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         },
       });
       expect(located.statusCode, located.body).toBe(200);
-      expect(located.json<{ metadata: unknown }>().metadata).toMatchObject({
+      const locatedBody = located.json<{
+        document: { currentVersionId: string };
+        chunk: { id: string; metadata: unknown };
+      }>();
+      expect(locatedBody.chunk.metadata).toMatchObject({
         image: { name: 'fig-1.png' },
         imageRole: 'vector',
       });
 
       const toggled = await inject(app, {
         method: 'PATCH',
-        url: `/api/knowledge/chunks/${chunk!.id}`,
+        url: `/api/knowledge/chunks/${locatedBody.chunk.id}`,
         headers: { cookie },
-        payload: { enabled: false },
+        payload: {
+          expectedVersionId: locatedBody.document.currentVersionId,
+          enabled: false,
+        },
       });
       expect(toggled.statusCode, toggled.body).toBe(200);
-      expect(toggled.json<{ enabled: boolean }>().enabled).toBe(false);
+      const toggledBody = toggled.json<{ chunk: { id: string; enabled: boolean } }>();
+      expect(toggledBody.chunk.enabled).toBe(false);
 
-      const row = await repo.knowledge.getChunk(app.db, chunk!.id);
+      const row = await repo.knowledge.getChunk(app.db, toggledBody.chunk.id);
       expect(row?.content).toBe('图中显示令牌轮换');
       expect(row?.metadata).toMatchObject({ image: { name: 'fig-1.png' }, imageRole: 'vector' });
     });

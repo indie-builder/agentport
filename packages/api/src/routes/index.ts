@@ -8,8 +8,10 @@ import { registerEvalRoutes } from '../features/eval/routes.js';
 import { registerExportRoutes } from '../features/export/routes.js';
 import { registerImportRoutes } from '../features/import/routes.js';
 import { registerKnowledgeContentRoutes } from '../features/knowledge/content-routes.js';
+import { registerFaqRoutes } from '../features/knowledge/faq-routes.js';
 import { registerKnowledgeImageRoutes } from '../features/knowledge/image-routes.js';
 import { registerKnowledgePackageRoutes } from '../features/knowledge/package-routes.js';
+import { registerRetrievalEvaluationRoutes } from '../features/knowledge/retrieval-evaluation.js';
 import { registerKnowledgeRoutes } from '../features/knowledge/routes.js';
 import { registerSourceRoutes } from '../features/knowledge/source-routes.js';
 import { registerWikiRoutes } from '../features/knowledge/wiki-routes.js';
@@ -55,6 +57,8 @@ export async function registerRoutes(app: FastifyInstance) {
   registerKnowledgeImageRoutes(app);
   registerSourceRoutes(app);
   registerWikiRoutes(app);
+  registerFaqRoutes(app);
+  registerRetrievalEvaluationRoutes(app);
   // 插件 ZIP 复用 import 路由注册的 application/zip 解析器，必须在其后注册。
   await registerPluginRoutes(app);
   await registerAuditRoutes(app);

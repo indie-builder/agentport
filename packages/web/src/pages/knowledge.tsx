@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import {
@@ -102,6 +103,7 @@ const baseFormSchema = z.object({
   description: z.string().max(500, '最多 500 个字符'),
   embeddingProfileId: z.string().min(1, '请选择 embedding profile'),
   rerankProfileId: z.string(),
+  asrProfileId: z.string(),
   chunkTokens: z.string(),
   chunkOverlap: z.string(),
   wikiAutoUpdate: z.boolean(),
@@ -514,7 +516,7 @@ export function KnowledgePage() {
       ) : null}
       {!bases.isPending && !bases.isError && baseItems.length === 0 ? (
         <EmptyState
-          icon={<LibraryBig className="size-5" />}
+          illustration={<BusinessIllustration name="knowledge" />}
           title="还没有知识库"
           action={
             canCreate ? (
@@ -582,6 +584,7 @@ export function KnowledgePage() {
       ) : null}
       {filteredEmpty ? (
         <EmptyState
+          illustration={<BusinessIllustration name="search" />}
           title="没有匹配的知识库"
           action={
             <Button variant="outline" size="sm" onClick={() => setQuery('')}>
@@ -743,6 +746,7 @@ function CreateBaseDialog({
   const rerank = (profiles.data ?? []).filter(
     (profile) => profile.kind === 'rerank' && profile.enabled,
   );
+  const asr = (profiles.data ?? []).filter((profile) => profile.kind === 'asr' && profile.enabled);
   const form = useZodForm(baseFormSchema, {
     defaultValues: {
       slug: '',
@@ -750,6 +754,7 @@ function CreateBaseDialog({
       description: '',
       embeddingProfileId: '',
       rerankProfileId: 'none',
+      asrProfileId: 'none',
       chunkTokens: '800',
       chunkOverlap: '120',
       wikiAutoUpdate: false,
@@ -829,6 +834,7 @@ function CreateBaseDialog({
         description: values.description,
         embeddingProfileId: values.embeddingProfileId,
         rerankProfileId: values.rerankProfileId === 'none' ? null : values.rerankProfileId,
+        asrProfileId: values.asrProfileId === 'none' ? null : values.asrProfileId,
         settings: { chunkTokens, chunkOverlap, wikiAutoUpdate: values.wikiAutoUpdate },
       },
       {
@@ -1035,6 +1041,35 @@ function CreateBaseDialog({
                         <SelectGroup>
                           <SelectItem value="none">不启用</SelectItem>
                           {rerank.map((profile) => (
+                            <SelectItem key={profile.id} value={profile.id}>
+                              {profile.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field className="gap-1.5">
+                    <FieldLabel htmlFor="knowledge-asr">音频转录</FieldLabel>
+                    <Select
+                      value={form.watch('asrProfileId')}
+                      disabled={pending}
+                      onValueChange={(next) => {
+                        if (next !== null)
+                          form.setValue('asrProfileId', next, { shouldDirty: true });
+                      }}
+                      items={[
+                        { value: 'none', label: '不启用' },
+                        ...asr.map((profile) => ({ value: profile.id, label: profile.name })),
+                      ]}
+                    >
+                      <SelectTrigger id="knowledge-asr" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">不启用</SelectItem>
+                          {asr.map((profile) => (
                             <SelectItem key={profile.id} value={profile.id}>
                               {profile.name}
                             </SelectItem>
