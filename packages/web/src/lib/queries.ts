@@ -45,6 +45,7 @@ import {
   queryOptions,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
@@ -70,6 +71,10 @@ import {
   type HealthProbe,
   type HealthReady,
   type KnowledgeBaseInput,
+  type KnowledgeBatchInput,
+  type KnowledgeJob,
+  type KnowledgeRetrievalEvaluationInput,
+  type KnowledgeSearchOptions,
   type KnowledgeSearchResponse,
   type Me,
   type NativePlugins,
@@ -1395,6 +1400,10 @@ type PollableJob = {
   startedAt?: string | null;
 };
 
+export function isTerminalKnowledgeJob(status: string | undefined): boolean {
+  return status === 'succeeded' || status === 'failed' || status === 'cancelled';
+}
+
 /** 活跃且仍未超过该类型的超时窗口；页面用同一函数决定「已停止自动刷新」提示。 */
 export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): boolean {
   const now = Date.now();
@@ -1414,20 +1423,29 @@ export const knowledgeKeys = {
   bases: ['knowledge', 'bases'] as const,
   base: (id: string) => ['knowledge', 'base', id] as const,
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
+  documentVersions: (documentId: string) => ['knowledge', 'document-versions', documentId] as const,
+  manual: (documentId: string) => ['knowledge', 'manual', documentId] as const,
+  faqs: (baseId: string) => ['knowledge', 'faqs', baseId] as const,
+  faq: (documentId: string) => ['knowledge', 'faq', documentId] as const,
   chunks: (documentId: string, versionId: string) =>
     ['knowledge', 'chunks', documentId, versionId] as const,
   markdown: (versionId: string) => ['knowledge', 'markdown', versionId] as const,
   versionDetails: (versionId: string) => ['knowledge', 'version-details', versionId] as const,
-  search: (baseId: string, q: string, limit: number) =>
-    ['knowledge', 'search', baseId, q, limit] as const,
+  search: (baseId: string, options: KnowledgeSearchOptions) =>
+    ['knowledge', 'search', baseId, options] as const,
   jobs: (baseId: string) => ['knowledge', 'jobs', baseId] as const,
   job: (jobId: string) => ['knowledge', 'job', jobId] as const,
   folders: (baseId: string) => ['knowledge', 'folders', baseId] as const,
   tags: (baseId: string) => ['knowledge', 'tags', baseId] as const,
   sources: (baseId: string) => ['knowledge', 'sources', baseId] as const,
   sourceRuns: (sourceId: string) => ['knowledge', 'source-runs', sourceId] as const,
+  syncItems: (sourceId: string, syncRunId: string, status?: string) =>
+    ['knowledge', 'sync-items', sourceId, syncRunId, status ?? 'all'] as const,
   wikiPages: (baseId: string) => ['knowledge', 'wiki-pages', baseId] as const,
   wikiPage: (pageId: string) => ['knowledge', 'wiki-page', pageId] as const,
+  wikiLinks: (pageId: string) => ['knowledge', 'wiki-links', pageId] as const,
+  wikiDiff: (pageId: string, fromVersionId: string, toVersionId: string) =>
+    ['knowledge', 'wiki-diff', pageId, fromVersionId, toVersionId] as const,
   profiles: ['knowledge', 'model-profiles'] as const,
 };
 
@@ -1575,6 +1593,17 @@ export function useKnowledgeDocuments(
   });
 }
 
+export function useKnowledgeDocument(documentId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ['knowledge', 'document', documentId],
+    queryFn: ({ signal }) => api.knowledgeDocument(documentId ?? '', signal),
+    enabled: documentId !== null && enabled,
+    staleTime: 0,
+    refetchInterval: (query) =>
+      knowledgeShouldPoll(query.state.data ? [query.state.data] : []) ? 3_000 : false,
+  });
+}
+
 export function useUploadKnowledgeDocument(baseId: string) {
   const client = useQueryClient();
   return useMutation({
@@ -1582,6 +1611,8 @@ export function useUploadKnowledgeDocument(baseId: string) {
       api.uploadKnowledgeDocument(baseId, input),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+      // 目录上传会按 relativePath 创建或复用真实文件夹。
+      void client.invalidateQueries({ queryKey: knowledgeKeys.folders(baseId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
       // 列表用游标分页，拉取过的页数要保持不变才能看到新文档。
       void client.invalidateQueries({ queryKey: knowledgeKeys.bases });
@@ -1689,27 +1720,69 @@ export function useKnowledgeMarkdown(versionId: string | null) {
   });
 }
 
-export function useUpdateKnowledgeChunk(baseId: string, documentId: string) {
+export function useUpdateKnowledgeChunk(
+  baseId: string,
+  documentId: string,
+  versionId: string | null,
+) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: {
       chunkId: string;
-      patch: Parameters<typeof api.updateKnowledgeChunk>[1];
-    }) => api.updateKnowledgeChunk(vars.chunkId, vars.patch),
+      patch: {
+        content?: string;
+        heading?: string | null;
+        enabled?: boolean;
+      };
+    }) =>
+      api.updateKnowledgeChunk(vars.chunkId, {
+        ...vars.patch,
+        expectedVersionId: versionId ?? '',
+      }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', documentId] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
       // 改正文会清空向量并补建，任务列表需要刷新。
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
     },
   });
 }
 
-export function useDeleteKnowledgeChunk(documentId: string) {
+export function useCreateKnowledgeChunk(
+  baseId: string,
+  documentId: string,
+  versionId: string | null,
+) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (chunkId: string) => api.deleteKnowledgeChunk(chunkId),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', documentId] }),
+    mutationFn: (input: { content: string; heading?: string | null }) =>
+      api.createKnowledgeChunk(documentId, {
+        ...input,
+        expectedVersionId: versionId ?? '',
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', documentId] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+    },
+  });
+}
+
+export function useDeleteKnowledgeChunk(
+  baseId: string,
+  documentId: string,
+  versionId: string | null,
+) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (chunkId: string) => api.deleteKnowledgeChunk(chunkId, versionId ?? ''),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', documentId] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+    },
   });
 }
 
@@ -1725,11 +1798,335 @@ export function useReprocessKnowledgeDocument(baseId: string) {
   });
 }
 
-export function useKnowledgeSearch(baseId: string, q: string, limit = 10) {
-  const term = q.trim();
+/** 小型集合（来源/Wiki/版本）自动取完剩余游标页；失败后停下，交给调用方的显式重试。 */
+export function useDrainPages(query: {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
+  fetchNextPage: () => Promise<unknown>;
+}): void {
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+}
+
+/** 文档版本是完整历史：对话框内一次取完，切版与回退都读同一列表。 */
+export function useKnowledgeDocumentVersions(documentId: string | null) {
+  const query = useInfiniteQuery({
+    queryKey: knowledgeKeys.documentVersions(documentId ?? ''),
+    queryFn: ({ pageParam, signal }) =>
+      api.knowledgeDocumentVersions(
+        documentId ?? '',
+        pageParam === null ? undefined : pageParam,
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: documentId !== null,
+  });
+  useDrainPages(query);
+  return {
+    ...query,
+    versions: query.data?.pages.flatMap((page) => page.items) ?? [],
+  };
+}
+
+function useDocumentVersionInvalidate(baseId: string) {
+  const client = useQueryClient();
+  return (documentId: string): void => {
+    void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.manual(documentId) });
+    void client.invalidateQueries({ queryKey: ['knowledge', 'document', documentId] });
+  };
+}
+
+export function useRollbackKnowledgeDocument(baseId: string) {
+  const client = useQueryClient();
+  const invalidate = useDocumentVersionInvalidate(baseId);
+  return useMutation({
+    mutationFn: (vars: {
+      documentId: string;
+      versionId: string;
+      expectedVersionId: string | null;
+    }) =>
+      api.rollbackKnowledgeDocument(vars.documentId, {
+        versionId: vars.versionId,
+        expectedVersionId: vars.expectedVersionId,
+      }),
+    onSuccess: (_data, vars) => {
+      invalidate(vars.documentId);
+      void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', vars.documentId] });
+    },
+  });
+}
+
+export function useKnowledgeDocumentManual(documentId: string | null) {
+  return useQuery({
+    queryKey: knowledgeKeys.manual(documentId ?? ''),
+    queryFn: ({ signal }) => api.knowledgeDocumentManual(documentId ?? '', signal),
+    enabled: documentId !== null,
+    staleTime: 0,
+  });
+}
+
+export function useSaveKnowledgeDocumentManual(baseId: string) {
+  const client = useQueryClient();
+  const invalidate = useDocumentVersionInvalidate(baseId);
+  return useMutation({
+    mutationFn: (vars: { documentId: string; content: string; expectedVersionId: string | null }) =>
+      api.saveKnowledgeDocumentManual(vars.documentId, {
+        content: vars.content,
+        expectedVersionId: vars.expectedVersionId,
+      }),
+    onSuccess: (_data, vars) => {
+      invalidate(vars.documentId);
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+    },
+  });
+}
+
+export function usePublishKnowledgeDocumentVersion(baseId: string) {
+  const invalidate = useDocumentVersionInvalidate(baseId);
+  return useMutation({
+    mutationFn: (vars: {
+      documentId: string;
+      versionId: string;
+      expectedVersionId: string | null;
+    }) =>
+      api.publishKnowledgeDocumentVersion(vars.documentId, {
+        versionId: vars.versionId,
+        expectedVersionId: vars.expectedVersionId,
+      }),
+    onSuccess: (_data, vars) => invalidate(vars.documentId),
+  });
+}
+
+export function useBatchKnowledgeDocuments(baseId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: KnowledgeBatchInput) => api.batchKnowledgeDocuments(baseId, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.folders(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.tags(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
+    },
+  });
+}
+
+// ---- FAQ -----------------------------------------------------------------
+
+export function useKnowledgeFaqs(
+  baseId: string,
+  filter: { q?: string; status?: string; folderId?: string; isRecommended?: boolean },
+) {
+  return useInfiniteQuery({
+    queryKey: [...knowledgeKeys.faqs(baseId), filter],
+    queryFn: ({ pageParam, signal }) =>
+      api.knowledgeFaqs(
+        baseId,
+        {
+          ...filter,
+          limit: KNOWLEDGE_PAGE_SIZE,
+          ...(pageParam === null ? {} : { cursor: pageParam }),
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+export function useKnowledgeFaq(documentId: string | null) {
+  return useQuery({
+    queryKey: knowledgeKeys.faq(documentId ?? ''),
+    queryFn: ({ signal }) => api.knowledgeFaq(documentId ?? '', signal),
+    enabled: documentId !== null,
+    staleTime: 0,
+  });
+}
+
+function useKnowledgeFaqInvalidate(baseId: string) {
+  const client = useQueryClient();
+  return (documentId: string): void => {
+    void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.faq(documentId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+  };
+}
+
+export function useCreateKnowledgeFaq(baseId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof api.createKnowledgeFaq>[1]) =>
+      api.createKnowledgeFaq(baseId, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+    },
+  });
+}
+
+export function useUpdateKnowledgeFaq(baseId: string) {
+  const client = useQueryClient();
+  const invalidate = useKnowledgeFaqInvalidate(baseId);
+  return useMutation({
+    mutationFn: (vars: { documentId: string } & Parameters<typeof api.updateKnowledgeFaq>[1]) =>
+      api.updateKnowledgeFaq(vars.documentId, vars),
+    onSuccess: (_data, vars) => {
+      invalidate(vars.documentId);
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+    },
+  });
+}
+
+export function usePublishKnowledgeFaq(baseId: string) {
+  const invalidate = useKnowledgeFaqInvalidate(baseId);
+  return useMutation({
+    mutationFn: (vars: {
+      documentId: string;
+      versionId: string;
+      expectedVersionId: string | null;
+    }) =>
+      api.publishKnowledgeFaq(vars.documentId, {
+        versionId: vars.versionId,
+        expectedVersionId: vars.expectedVersionId,
+      }),
+    onSuccess: (_data, vars) => invalidate(vars.documentId),
+  });
+}
+
+export function useSetKnowledgeFaqStatus(baseId: string) {
+  const invalidate = useKnowledgeFaqInvalidate(baseId);
+  return useMutation({
+    mutationFn: (vars: { documentId: string; enabled: boolean }) =>
+      api.setKnowledgeFaqStatus(vars.documentId, vars.enabled),
+    onSuccess: (_data, vars) => invalidate(vars.documentId),
+  });
+}
+
+export function useDeleteKnowledgeFaq(baseId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (documentId: string) => api.deleteKnowledgeFaq(documentId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) }),
+  });
+}
+
+export function useImportKnowledgeFaqs(baseId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof api.importKnowledgeFaqs>[1]) =>
+      api.importKnowledgeFaqs(baseId, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+    },
+  });
+}
+
+export function usePublishKnowledgeFaqBatch(baseId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof api.batchKnowledgeFaqs>[1]) =>
+      api.batchKnowledgeFaqs(baseId, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+      void client.invalidateQueries({ queryKey: ['knowledge', 'faq'] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+    },
+  });
+}
+
+/** 导入批次逐任务轮询；全部终态后停止，供 UI 判断能否显式整批发布。 */
+export function useKnowledgeFaqImportJobs(jobIds: string[]) {
+  return useQueries({
+    queries: jobIds.map((jobId) => ({
+      queryKey: knowledgeKeys.job(jobId),
+      queryFn: () => api.knowledgeJob(jobId),
+      refetchInterval: (query: { state: { data?: KnowledgeJob | undefined } }) =>
+        isTerminalKnowledgeJob(query.state.data?.status) ? false : 1_500,
+    })),
+  });
+}
+
+/** 导入草稿版本在任务完成后才生成；按文档取详情，不凭列表猜版本。 */
+export function useKnowledgeFaqDraftVersions(documentIds: string[], enabled: boolean) {
+  return useQueries({
+    queries: documentIds.map((documentId) => ({
+      queryKey: knowledgeKeys.faq(documentId),
+      queryFn: () => api.knowledgeFaq(documentId),
+      enabled,
+      staleTime: 0,
+    })),
+  });
+}
+
+export function useExportKnowledgeFaqs() {
+  return useMutation({
+    mutationFn: (vars: {
+      baseId: string;
+      format: 'json' | 'csv';
+      version: 'published' | 'draft';
+    }) => api.exportKnowledgeFaqs(vars.baseId, vars.format, vars.version),
+  });
+}
+
+export function useKnowledgeFaqTest(
+  baseId: string,
+  options: {
+    q: string;
+    limit?: number | undefined;
+    rerank?: boolean | undefined;
+    minVectorScore?: number | undefined;
+    onlyRecommended?: boolean | undefined;
+    faqPriority?: boolean | undefined;
+    faqDirectAnswerThreshold?: number | undefined;
+  },
+) {
+  const term = options.q.trim();
   return useQuery<KnowledgeSearchResponse>({
-    queryKey: knowledgeKeys.search(baseId, term, limit),
-    queryFn: ({ signal }) => api.knowledgeSearch(baseId, term, limit, signal),
+    queryKey: [
+      ...knowledgeKeys.faqs(baseId),
+      'test',
+      term,
+      options.limit ?? 10,
+      options.rerank ?? true,
+      options.minVectorScore ?? 0.3,
+      options.onlyRecommended ?? false,
+      options.faqPriority ?? false,
+      options.faqDirectAnswerThreshold ?? 0.9,
+    ],
+    queryFn: ({ signal }) =>
+      api.testKnowledgeFaqs(
+        baseId,
+        {
+          q: term,
+          ...(options.limit === undefined ? {} : { limit: options.limit }),
+          ...(options.rerank === undefined ? {} : { rerank: options.rerank }),
+          ...(options.minVectorScore === undefined
+            ? {}
+            : { minVectorScore: options.minVectorScore }),
+          onlyRecommended: options.onlyRecommended ?? false,
+          faqPriority: options.faqPriority ?? false,
+          faqDirectAnswerThreshold: options.faqDirectAnswerThreshold ?? 0.9,
+        },
+        signal,
+      ),
+    enabled: term.length > 0,
+    staleTime: 10_000,
+  });
+}
+
+export function useKnowledgeSearch(baseId: string, options: KnowledgeSearchOptions) {
+  const term = options.q.trim();
+  return useQuery<KnowledgeSearchResponse>({
+    queryKey: knowledgeKeys.search(baseId, { ...options, q: term }),
+    queryFn: ({ signal }) => api.knowledgeSearch(baseId, { ...options, q: term }, signal),
     enabled: term.length > 0,
     staleTime: 10_000,
   });
@@ -1802,13 +2199,70 @@ export function useUpdateKnowledgeSource(baseId: string) {
       sourceId: string;
       patch: Parameters<typeof api.updateKnowledgeSource>[1];
     }) => api.updateKnowledgeSource(vars.sourceId, vars.patch),
-    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.sources(baseId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.sources(baseId) });
+      // 收缩范围会在响应前撤权，文档与 Wiki 派生内容必须立刻刷新。
+      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPages(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
+    },
   });
 }
 
 export function useTestKnowledgeSource() {
   return useMutation({
     mutationFn: (sourceId: string) => api.testKnowledgeSource(sourceId),
+  });
+}
+
+/** probe 结果落在 job.result；只轮询本次提交的任务，终态后停止。 */
+export function useKnowledgeJobDetail(jobId: string | null) {
+  return useQuery({
+    queryKey: knowledgeKeys.job(jobId ?? ''),
+    queryFn: () => api.knowledgeJob(jobId ?? ''),
+    enabled: jobId !== null,
+    refetchInterval: (query) => (isTerminalKnowledgeJob(query.state.data?.status) ? false : 2_000),
+  });
+}
+
+export function useKnowledgeDocumentJob(baseId: string, documentId: string, jobId: string | null) {
+  const job = useKnowledgeJobDetail(jobId);
+  const client = useQueryClient();
+  const settled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!jobId || !isTerminalKnowledgeJob(job.data?.status) || settled.current === jobId) return;
+    settled.current = jobId;
+    void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.manual(documentId) });
+    void client.invalidateQueries({ queryKey: ['knowledge', 'document', documentId] });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+  }, [jobId, job.data?.status, client, documentId, baseId]);
+  return job;
+}
+
+export function useEvaluateKnowledgeRetrieval(baseId: string) {
+  return useMutation({
+    mutationFn: (input: KnowledgeRetrievalEvaluationInput) =>
+      api.evaluateKnowledgeRetrieval(baseId, input),
+  });
+}
+
+export function useKnowledgeSyncItems(
+  sourceId: string | null,
+  syncRunId: string | null,
+  status: 'failed' | 'skipped' | undefined = undefined,
+) {
+  return useInfiniteQuery({
+    queryKey: knowledgeKeys.syncItems(sourceId ?? '', syncRunId ?? '', status),
+    queryFn: ({ pageParam }) =>
+      api.knowledgeSyncItems(sourceId ?? '', syncRunId ?? '', {
+        ...(status === undefined ? {} : { status }),
+        ...(pageParam === null ? {} : { cursor: pageParam }),
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: sourceId !== null && syncRunId !== null,
   });
 }
 
@@ -1825,14 +2279,23 @@ export function useSyncKnowledgeSource(baseId: string) {
 }
 
 export function useKnowledgeSourceRuns(sourceId: string | null) {
-  return useQuery({
+  const client = useQueryClient();
+  const settled = useRef(new Set<string>());
+  const query = useQuery({
     queryKey: knowledgeKeys.sourceRuns(sourceId ?? ''),
     queryFn: () => api.knowledgeSourceRuns(sourceId ?? ''),
     enabled: sourceId !== null,
     select: (page) => page.items,
-    // 同步进行中才轮询；终态或超过窗口后停止。
     refetchInterval: (query) => (knowledgeShouldPoll(query.state.data?.items) ? 2_000 : false),
   });
+  useEffect(() => {
+    for (const run of query.data ?? []) {
+      if (!isTerminalKnowledgeJob(run.status) || settled.current.has(run.id)) continue;
+      settled.current.add(run.id);
+      void client.invalidateQueries({ queryKey: ['knowledge', 'sync-items', sourceId, run.id] });
+    }
+  }, [client, sourceId, query.data]);
+  return query;
 }
 
 /** Wiki 页面同样是小型集合：一次取完全部元数据页，避免旧页面永久不可选。 */
@@ -1866,8 +2329,12 @@ export function useLoadOlderKnowledgeWikiVersions() {
 export function useCreateKnowledgeWikiPage(baseId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { slug: string; title: string }) =>
-      api.createKnowledgeWikiPage(baseId, input),
+    mutationFn: (input: {
+      slug: string;
+      title: string;
+      parentId?: string | null;
+      position?: number;
+    }) => api.createKnowledgeWikiPage(baseId, input),
     onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPages(baseId) }),
   });
 }
@@ -1886,9 +2353,37 @@ export function useSaveKnowledgeWikiPage(baseId: string) {
   return useMutation({
     mutationFn: (vars: {
       pageId: string;
-      patch: { title?: string; markdown?: string; expectedVersion?: string | null };
+      patch: {
+        title?: string;
+        markdown?: string;
+        expectedVersion?: string | null;
+        parentId?: string | null;
+        position?: number;
+      };
     }) => api.updateKnowledgeWikiPage(vars.pageId, vars.patch),
     onSuccess: (_data, vars) => invalidate(vars.pageId),
+  });
+}
+
+export function useKnowledgeWikiLinks(pageId: string | null) {
+  return useQuery({
+    queryKey: knowledgeKeys.wikiLinks(pageId ?? ''),
+    queryFn: () => api.knowledgeWikiLinks(pageId ?? ''),
+    enabled: pageId !== null,
+    staleTime: 5_000,
+  });
+}
+
+export function useKnowledgeWikiDiff(
+  pageId: string | null,
+  fromVersionId: string | null,
+  toVersionId: string | null,
+) {
+  return useQuery({
+    queryKey: knowledgeKeys.wikiDiff(pageId ?? '', fromVersionId ?? '', toVersionId ?? ''),
+    queryFn: () => api.knowledgeWikiDiff(pageId ?? '', fromVersionId ?? '', toVersionId ?? ''),
+    enabled: pageId !== null && fromVersionId !== null && toVersionId !== null,
+    staleTime: 60_000,
   });
 }
 

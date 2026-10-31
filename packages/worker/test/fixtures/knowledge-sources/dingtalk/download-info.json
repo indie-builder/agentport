@@ -1,0 +1,14 @@
+{
+  "protocol": "https",
+  "headerSignatureInfo": {
+    "resourceUrls": ["__SIGNED_URL__"],
+    "headers": {
+      "Authorization": "signed-token",
+      "x-amz-signature": "signature-1",
+      "Host": "evil.example",
+      "Content-Length": "999",
+      "Connection": "close"
+    },
+    "expirationSeconds": 600
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": 42,
+  "key": "DOC",
+  "name": "Documentation",
+  "type": "global",
+  "status": "current",
+  "_links": {
+    "webui": "/display/DOC",
+    "self": "http://127.0.0.1:9/rest/api/space/DOC",
+    "base": "http://127.0.0.1:9",
+    "context": ""
+  }
+}

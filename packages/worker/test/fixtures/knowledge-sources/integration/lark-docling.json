@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "# Lark Export\n\nlark-export-marker-2048\n",
+    "json_content": {
+      "body": { "children": [] },
+      "texts": [],
+      "tables": [],
+      "pictures": []
+    }
+  }
+}

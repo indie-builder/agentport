@@ -291,6 +291,11 @@ describe('knowledge worker queue', () => {
       let delayed = 0;
       let failed = 0;
       let completed = 0;
+      // DB 终态先写，processor finally 删 key 后 BullMQ 才发 completed；入队前就等这个事件。
+      let resolveCompleted!: () => void;
+      const completedEvent = new Promise<void>((resolve) => {
+        resolveCompleted = resolve;
+      });
       events.on('active', ({ jobId }) => {
         if (jobId === reindex.id) active += 1;
       });
@@ -302,7 +307,10 @@ describe('knowledge worker queue', () => {
         if (jobId === reindex.id) failed += 1;
       });
       events.on('completed', ({ jobId }) => {
-        if (jobId === reindex.id) completed += 1;
+        if (jobId === reindex.id) {
+          completed += 1;
+          resolveCompleted();
+        }
       });
 
       failNextEmbedding = true;
@@ -332,6 +340,8 @@ describe('knowledge worker queue', () => {
         row = await repo.knowledge.getJob(db, reindex.id);
       }
       if (row && row.status !== last) statuses.push(row.status);
+      // DB 已是 succeeded 时事件可能还没到；等它落地再断言原计数。
+      if (row?.status === 'succeeded') await completedEvent;
 
       // BullMQ 真实重投：两次 active、一次推迟重试、一次完成，DB 认领两次并最终成功。
       expect(row?.status).toBe('succeeded');
@@ -662,13 +672,50 @@ describe('knowledge worker queue', () => {
   });
 
   it('owns the wiki job terminal state and requires a saved draft', async () => {
-    const { baseId } = await seedJob();
+    const { baseId, documentId } = await seedJob();
+    const base = await repo.knowledge.getBase(db, baseId);
+    if (!base?.embeddingProfileId) throw new Error('base missing');
+    const version = await repo.knowledge.createVersion(db, {
+      documentId,
+      blobSha256: 'a'.repeat(64),
+      markdownSha256: 'b'.repeat(64),
+      originalFilename: 'doc.md',
+      mimeType: 'text/markdown',
+      sizeBytes: 16,
+      sourceRevision: null,
+      parseStatus: 'parsed',
+      pageMap: [],
+      images: [],
+      embeddingProfileId: base.embeddingProfileId,
+    });
+    await repo.knowledge.setCurrentVersion(db, documentId, version.id);
+    const [sourceChunk] = await repo.knowledge.insertChunks(db, {
+      baseId,
+      documentId,
+      versionId: version.id,
+      folderId: null,
+      chunks: [
+        {
+          ordinal: 0,
+          kind: 'text',
+          heading: null,
+          content: '# 来源',
+          searchText: '# 来源',
+          embedding: null,
+          pageFrom: null,
+          pageTo: null,
+          tokenCount: 2,
+        },
+      ],
+    });
+    if (!sourceChunk) throw new Error('chunk missing');
     const page = await repo.knowledge.createWikiPage(db, {
       baseId,
       slug: 'auth',
       title: '认证',
     });
     const ids = await Promise.all([createWikiJob(baseId, page.id), createWikiJob(baseId, page.id)]);
+    let saveResult: { isError?: boolean; content?: Array<{ text: string }> } | undefined;
 
     const worker = await startKnowledgeWorker({
       db,
@@ -694,10 +741,10 @@ describe('knowledge worker queue', () => {
               };
             };
             if (index === 0) {
-              await server.instance._registeredTools.wiki_save_draft?.handler(
-                { markdown: '# 草稿', sourceChunkIds: [] },
+              saveResult = (await server.instance._registeredTools.wiki_save_draft?.handler(
+                { markdown: '# 草稿', sourceChunkIds: [sourceChunk.id] },
                 {},
-              );
+              )) as typeof saveResult;
             }
             yield {
               type: 'result',
@@ -726,6 +773,9 @@ describe('knowledge worker queue', () => {
         rows = await Promise.all(ids.map((id) => repo.knowledge.getJob(db, id)));
       }
       expect(rows.map((row) => row?.status).sort()).toEqual(['failed', 'succeeded']);
+      // 成功分支必须真的通过 save tool 落库，空来源的旧写法现在会被拒绝。
+      expect(saveResult?.isError).toBeFalsy();
+      expect(saveResult?.content?.[0]?.text).toContain('"saved":true');
       const failed = rows.find((row) => row?.status === 'failed');
       expect(failed?.error).toContain('模型没有保存任何草稿');
       const versions = await repo.knowledge.listWikiVersions(db, page.id);

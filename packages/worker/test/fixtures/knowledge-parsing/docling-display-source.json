@@ -1,0 +1,26 @@
+{
+  "status": "success",
+  "document": {
+    "md_content": "😀 **bold** after.\r\nTail\r\n\r\nPrefix [link](https://example.com) &amp; `code` tail.\r\nNext\r\n\r\nEscaped \\*star\\* text.",
+    "json_content": {
+      "body": {
+        "children": [
+          { "$ref": "#/texts/0" },
+          { "$ref": "#/texts/1" },
+          { "$ref": "#/texts/2" },
+          { "$ref": "#/texts/3" },
+          { "$ref": "#/texts/4" },
+          { "$ref": "#/texts/5" }
+        ]
+      },
+      "texts": [
+        { "self_ref": "#/texts/0", "text": "😀 bold", "prov": [{ "page_no": 1 }] },
+        { "self_ref": "#/texts/1", "text": "after.", "prov": [{ "page_no": 2 }] },
+        { "self_ref": "#/texts/2", "text": "Tail", "prov": [{ "page_no": 3 }] },
+        { "self_ref": "#/texts/3", "text": "Prefix link & code tail.", "prov": [{ "page_no": 4 }] },
+        { "self_ref": "#/texts/4", "text": "Next", "prov": [{ "page_no": 5 }] },
+        { "self_ref": "#/texts/5", "text": "Escaped *star* text.", "prov": [{ "page_no": 6 }] }
+      ]
+    }
+  }
+}

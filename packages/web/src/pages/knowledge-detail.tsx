@@ -1,22 +1,29 @@
-import type {
-  KnowledgeDocument,
-  KnowledgeJob,
-  KnowledgeSearchHit,
-  KnowledgeSourceInput,
+import {
+  type KnowledgeDocument,
+  type KnowledgeJob,
+  type KnowledgeSourceInput,
+  knowledgeAudioMetadataSchema,
 } from '@agentport/shared';
 import { type Query, useQueries, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
+  BookMarked,
   BookOpen,
   ChevronDown,
+  CircleHelp,
   Cloud,
   Code,
+  Feather,
   FileText,
   Folder,
+  FolderArchive,
   FolderOpen,
   GitFork,
+  LibraryBig,
+  MessageSquare,
   MoreHorizontal,
+  NotebookText,
   PanelLeftDashed,
   Pencil,
   Plus,
@@ -29,11 +36,39 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import type { z } from 'zod';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { KnowledgeImage, stripImageReferences } from '../components/knowledge-citations.js';
+import {
+  BatchActionDialog,
+  DocumentVersionPicker,
+  ManualDraftDialog,
+} from '../components/knowledge-documents.js';
+import { KnowledgeEvaluations } from '../components/knowledge-evaluations.js';
+import { FaqTab } from '../components/knowledge-faq.js';
+import { SearchTab } from '../components/knowledge-search.js';
+import {
+  AUDIO_MAX_BYTES,
+  DraftGuardDialogs,
+  documentStatusLabel,
+  documentStatusTone,
+  isAudioMimeType,
+  isAudioUpload,
+  isMissingJob,
+  isTerminalJobStatus,
+  jobStatusLabel,
+  jobStatusTone,
+  jobTypeLabel,
+  locatorLabel,
+  sourceStatusLabel,
+  treeFolders,
+  useDraftGuard,
+  versionLabel,
+} from '../components/knowledge-shared.js';
+import { WikiTab } from '../components/knowledge-wiki.js';
 import { Markdown } from '../components/markdown.js';
 import { Collapsible, CollapsibleContent } from '../components/motion-collapsible.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
@@ -81,7 +116,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Textarea } from '../components/ui/textarea.js';
 import {
-  ApiError,
   api,
   errorMessage,
   type KnowledgeChunk,
@@ -89,7 +123,6 @@ import {
   type KnowledgeSource,
   type KnowledgeTag,
   type KnowledgeVersionImage,
-  type KnowledgeWikiVersion,
 } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
@@ -99,37 +132,36 @@ import {
   knowledgeKeys,
   knowledgeShouldPoll,
   useCancelKnowledgeJob,
+  useCreateKnowledgeChunk,
   useCreateKnowledgeFolder,
   useCreateKnowledgeManualDocument,
   useCreateKnowledgeSource,
   useCreateKnowledgeTag,
-  useCreateKnowledgeWikiPage,
   useDeleteKnowledgeChunk,
   useDeleteKnowledgeDocument,
   useDeleteKnowledgeFolder,
   useDeleteKnowledgeSource,
   useDeleteKnowledgeTag,
-  useGenerateKnowledgeWikiPage,
+  useDrainPages,
   useImportKnowledgeUrl,
   useKnowledgeBase,
+  useKnowledgeDocument,
   useKnowledgeDocumentChunks,
   useKnowledgeDocuments,
+  useKnowledgeDocumentVersions,
   useKnowledgeFolders,
+  useKnowledgeJobDetail,
   useKnowledgeJobs,
   useKnowledgeMarkdown,
-  useKnowledgeSearch,
   useKnowledgeSourceRuns,
   useKnowledgeSources,
+  useKnowledgeSyncItems,
   useKnowledgeTags,
   useKnowledgeVersionDetails,
-  useKnowledgeWikiPage,
-  useKnowledgeWikiPages,
-  useLoadOlderKnowledgeWikiVersions,
-  usePublishKnowledgeWikiVersion,
+  usePublishKnowledgeDocumentVersion,
   useReprocessKnowledgeDocument,
   useRetryKnowledgeJob,
-  useRollbackKnowledgeWikiPage,
-  useSaveKnowledgeWikiPage,
+  useRollbackKnowledgeDocument,
   useSyncKnowledgeSource,
   useTestKnowledgeSource,
   useUpdateKnowledgeChunk,
@@ -140,72 +172,20 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
+import type { knowledgeDetailSearchSchema } from '../routes/-search.js';
 
 const tabs = [
   { id: 'documents', label: '文档' },
   { id: 'search', label: '检索' },
+  { id: 'evaluations', label: '离线评估' },
+  { id: 'faqs', label: 'FAQ' },
   { id: 'wiki', label: 'Wiki' },
   { id: 'sources', label: '来源' },
   { id: 'jobs', label: '任务' },
 ] as const;
 
 type TabId = (typeof tabs)[number]['id'];
-
-const documentStatusLabel = {
-  pending: '排队',
-  processing: '解析中',
-  ready: '可检索',
-  failed: '失败',
-  disabled: '已停用',
-} as const;
-
-const documentStatusTone = {
-  pending: 'default',
-  processing: 'warn',
-  ready: 'success',
-  failed: 'danger',
-  disabled: 'outline',
-} as const;
-
-const jobStatusLabel = {
-  queued: '排队中',
-  running: '运行中',
-  succeeded: '成功',
-  failed: '失败',
-  cancelled: '已取消',
-} as const;
-
-function isTerminalJobStatus(status: string | undefined): boolean {
-  return status === 'succeeded' || status === 'failed' || status === 'cancelled';
-}
-
-/** 删除来源会级联删除它的任务：详情 404 表示任务已不存在，不是暂时故障。 */
-function isMissingJob(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 404;
-}
-
-const jobStatusTone = {
-  queued: 'default',
-  running: 'warn',
-  succeeded: 'success',
-  failed: 'danger',
-  cancelled: 'outline',
-} as const;
-
-const jobTypeLabel = {
-  ingest: '文档摄取',
-  reindex: '重建索引',
-  sync: '来源同步',
-  wiki_generate: 'Wiki 生成',
-  cleanup: '清理',
-} as const;
-
-const sourceStatusLabel = {
-  active: '启用',
-  paused: '已暂停',
-  auth_error: '凭证失效',
-  disabled: '已停用',
-} as const;
+type DetailSearch = z.infer<typeof knowledgeDetailSearchSchema>;
 
 /** 来源类型以 shared 的输入契约为准，与 api.ts 的 wire 类型保持一致。 */
 type SourceType = KnowledgeSourceInput['type'];
@@ -240,75 +220,52 @@ const sourceProviders: Array<{
     description: '同步云盘目录中的文件',
     icon: Cloud,
   },
+  {
+    type: 'lark_wiki',
+    label: 'Lark 知识库',
+    description: '使用 Lark 应用同步知识空间或知识节点',
+    icon: BookOpen,
+  },
+  {
+    type: 'lark_drive',
+    label: 'Lark 云盘',
+    description: '使用 Lark 应用同步云盘目录中的文件',
+    icon: Cloud,
+  },
+  { type: 'notion', label: 'Notion', description: '同步页面、数据库与数据源', icon: NotebookText },
+  {
+    type: 'confluence',
+    label: 'Confluence',
+    description: '同步空间或页面及附件',
+    icon: BookMarked,
+  },
+  { type: 'yuque', label: '语雀', description: '同步知识库文档', icon: Feather },
+  {
+    type: 'dingtalk',
+    label: '钉钉',
+    description: '同步知识空间或节点文档',
+    icon: MessageSquare,
+  },
+  { type: 'ima', label: 'IMA', description: '同步指定知识库的媒体与笔记', icon: LibraryBig },
+  {
+    type: 'seafile',
+    label: 'Seafile',
+    description: '同步 Seafile 11+ 库内目录文件',
+    icon: FolderArchive,
+  },
+  { type: 'nextcloud', label: 'Nextcloud', description: '同步账号目录文件', icon: Cloud },
   { type: 'feed', label: 'RSS', description: '抓取 Feed 最近窗口内的条目', icon: Rss },
 ];
 
+/** 未知类型显式标注，不回落到某个具体 provider 误导用户。 */
 function sourceProvider(type: SourceType): (typeof sourceProviders)[number] {
-  const fallback = sourceProviders[0] as (typeof sourceProviders)[number];
-  return sourceProviders.find((provider) => provider.type === type) ?? fallback;
-}
-
-const pageStatusLabel = {
-  draft: '草稿',
-  published: '已发布',
-  stale: '待刷新',
-  failed: '生成失败',
-} as const;
-
-/** 弹层草稿保护：dirty 关闭先确认，pending 期间禁止关闭与路由离开。 */
-function useDraftGuard(dirty: boolean, pending: boolean, onClose: () => void) {
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const blocker = useFormBlocker(dirty, pending);
-  const blockerRef = useRef(blocker);
-  useEffect(() => {
-    blockerRef.current = blocker;
-  }, [blocker]);
-  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则其 resolver 永远挂着。
-  const finish = (): void => {
-    blockerRef.current.reset?.();
-    onClose();
-  };
-  const close = (): void => {
-    if (pending) return;
-    if (dirty) setConfirmDiscard(true);
-    else finish();
-  };
-  return { blocker, confirmDiscard, setConfirmDiscard, finish, close };
-}
-
-/** 弹层内统一的放弃草稿与路由离开确认。 */
-function DraftGuardDialogs({
-  guard,
-  draft,
-  pending,
-}: {
-  guard: ReturnType<typeof useDraftGuard>;
-  draft: string;
-  pending: boolean;
-}) {
   return (
-    <>
-      <ConfirmDialog
-        open={guard.confirmDiscard}
-        onClose={() => guard.setConfirmDiscard(false)}
-        title="放弃未保存的更改？"
-        description={`关闭后${draft}`}
-        confirmLabel="放弃并关闭"
-        confirmDisabled={pending}
-        onConfirm={async () => {
-          if (!pending) guard.finish();
-        }}
-      />
-      <ConfirmDialog
-        open={guard.blocker.status === 'blocked'}
-        onClose={() => guard.blocker.reset?.()}
-        title="放弃未保存的更改？"
-        description={pending ? '正在保存，请等待请求完成。' : `离开后${draft}`}
-        confirmLabel="放弃并离开"
-        confirmDisabled={pending}
-        onConfirm={async () => guard.blocker.proceed()}
-      />
-    </>
+    sourceProviders.find((provider) => provider.type === type) ?? {
+      type,
+      label: '未知来源',
+      description: '当前界面不支持这个来源类型',
+      icon: CircleHelp,
+    }
   );
 }
 
@@ -319,12 +276,14 @@ export function KnowledgeDetailPage() {
   const base = useKnowledgeBase(baseId);
   const tab: TabId = search.panel ?? 'documents';
 
-  const go = (patch: Record<string, string | undefined>, replace = false): void => {
-    const next = { folder: search.folder, page: search.page, panel: search.panel, ...patch };
+  const go = (patch: Partial<DetailSearch>, replace = false): void => {
+    const next = Object.fromEntries(
+      Object.entries({ ...search, ...patch }).filter(([, value]) => value !== undefined),
+    ) as DetailSearch;
     void navigate({
       to: '/knowledge/$baseId',
       params: { baseId },
-      search: Object.fromEntries(Object.entries(next).filter(([, value]) => value !== undefined)),
+      search: next,
       replace,
     });
   };
@@ -371,18 +330,38 @@ export function KnowledgeDetailPage() {
             <TabsContent value="documents">
               <DocumentsTab
                 baseId={baseId}
+                asrEnabled={base.data?.asrProfileId != null}
                 folderId={search.folder}
                 onFolderChange={(folderId) => go({ folder: folderId }, true)}
+                documentId={search.document}
+                onDocumentChange={(document) => go({ document }, true)}
               />
             </TabsContent>
             <TabsContent value="search">
-              <SearchTab baseId={baseId} />
+              <SearchTab
+                baseId={baseId}
+                state={search}
+                onChange={(patch, replace) => go(patch, replace)}
+              />
+            </TabsContent>
+            <TabsContent value="evaluations">
+              <KnowledgeEvaluations baseId={baseId} />
+            </TabsContent>
+            <TabsContent value="faqs">
+              <FaqTab baseId={baseId} />
             </TabsContent>
             <TabsContent value="wiki">
               <WikiTab baseId={baseId} pageId={search.page} onSelect={(page) => go({ page })} />
             </TabsContent>
             <TabsContent value="sources">
-              <SourcesTab baseId={baseId} />
+              <SourcesTab
+                baseId={baseId}
+                sourceId={search.source}
+                onSelectSource={(source) => go({ source })}
+                onOpenDocument={(document) =>
+                  go({ panel: 'documents', source: undefined, folder: undefined, document })
+                }
+              />
             </TabsContent>
             <TabsContent value="jobs">
               <JobsTab baseId={baseId} />
@@ -398,12 +377,18 @@ export function KnowledgeDetailPage() {
 
 function DocumentsTab({
   baseId,
+  asrEnabled,
   folderId,
   onFolderChange,
+  documentId,
+  onDocumentChange,
 }: {
   baseId: string;
+  asrEnabled: boolean;
   folderId: string | undefined;
   onFolderChange: (folderId: string | undefined) => void;
+  documentId: string | undefined;
+  onDocumentChange: (documentId: string | undefined) => void;
 }) {
   const [query, setQuery] = useState('');
   // 每个字符都换无限查询键会把列表打爆：输入即时回显，停 300ms 再订阅。
@@ -429,11 +414,15 @@ function DocumentsTab({
   const [confirmReprocess, setConfirmReprocess] = useState<KnowledgeDocument | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
   const [editing, setEditing] = useState<KnowledgeDocument | null>(null);
-  // 只记 ID 与打开时快照：列表轮询到新版本时查看器要跟着更新，列表暂时不含该文档时保留快照不关闭。
-  const [viewing, setViewing] = useState<{
-    id: string;
-    snapshot: KnowledgeDocument;
-  } | null>(null);
+  const [viewingSnapshot, setViewingSnapshot] = useState<KnowledgeDocument | null>(null);
+  const listedDocument = documentItems.find((item) => item.id === documentId);
+  const knownDocument =
+    listedDocument ?? (viewingSnapshot?.id === documentId ? viewingSnapshot : undefined);
+  const selectedDocument = useKnowledgeDocument(documentId ?? null, knownDocument === undefined);
+  const resolvedDocument = knownDocument ?? selectedDocument.data;
+  useEffect(() => {
+    if (listedDocument && listedDocument !== viewingSnapshot) setViewingSnapshot(listedDocument);
+  }, [listedDocument, viewingSnapshot]);
   const [folderDialog, setFolderDialog] = useState<
     { mode: 'create'; parentId: string | null } | { mode: 'rename'; folder: KnowledgeFolder } | null
   >(null);
@@ -449,6 +438,10 @@ function DocumentsTab({
   const [folderTrigger, setFolderTrigger] = useState<HTMLElement | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [urlOpen, setUrlOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [batchAction, setBatchAction] = useState<
+    'move' | 'copy' | 'tag' | 'delete' | 'reprocess' | null
+  >(null);
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
   // 上传批次结束前不卸载这个面板：切页签、换文件夹或离开路由都会丢失批次状态。
   const uploadBlocker = useFormBlocker(false, uploading !== null);
@@ -456,14 +449,28 @@ function DocumentsTab({
     if (uploading === null && uploadBlocker.status === 'blocked') uploadBlocker.proceed();
   }, [uploading, uploadBlocker]);
 
-  // 列表查到更新的对象时刷新快照：之后列表暂时不含该文档，也能显示最近一次看到的内容。
-  const viewingMatch = viewing ? documentItems.find((item) => item.id === viewing.id) : undefined;
+  const candidateDocument = resolvedDocument ?? knownDocument;
+  const viewingDocument =
+    documentId !== undefined && candidateDocument?.baseId === baseId ? candidateDocument : null;
+  // 选中集合随筛选/轮询收缩：已不在当前列表的文档不能继续参与批量操作。
   useEffect(() => {
-    if (viewing && viewingMatch && viewingMatch !== viewing.snapshot) {
-      setViewing({ id: viewing.id, snapshot: viewingMatch });
-    }
-  }, [viewing, viewingMatch]);
-  const viewingDocument = viewingMatch ?? viewing?.snapshot ?? null;
+    const visibleIds = new Set(documentItems.map((item) => item.id));
+    setSelectedIds((previous) => {
+      const next = new Set([...previous].filter((id) => visibleIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [documentItems]);
+  const selectedDocuments = documentItems.filter((item) => selectedIds.has(item.id));
+  const allSelected =
+    documentItems.length > 0 && documentItems.every((item) => selectedIds.has(item.id));
+  const toggleSelected = (id: string): void => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   // 目录补上当前快照：筛选或轮询暂时不含它时仍能标出当前位置，也不改动已挂载的查看器。
   const viewerDocuments =
     viewingDocument !== null && !documentItems.some((item) => item.id === viewingDocument.id)
@@ -491,6 +498,10 @@ function DocumentsTab({
     setUploading({ done: 0, total: files.length });
     for (const [index, file] of files.entries()) {
       setUploading({ done: index, total: files.length });
+      if (isAudioUpload(file) && file.size > AUDIO_MAX_BYTES) {
+        failed.push(`${file.name}（音频超过 25 MB）`);
+        continue;
+      }
       if (file.size > 32 * 1024 * 1024) {
         failed.push(`${file.name}（超过 32 MB）`);
         continue;
@@ -503,8 +514,8 @@ function DocumentsTab({
           mimeType: file.type || 'application/octet-stream',
           dataBase64,
           folderId: targetFolderId,
-          // 后端不按相对路径建目录树：把路径写进标题，至少列表里能看出原目录。
-          ...(file.webkitRelativePath ? { title: path.replace(/\.[^.]+$/, '').slice(0, 300) } : {}),
+          // 后端按相对路径创建或复用真实目录；标题取 basename。
+          ...(file.webkitRelativePath ? { relativePath: path } : {}),
         });
       } catch {
         failed.push(file.name);
@@ -727,6 +738,46 @@ function DocumentsTab({
           </div>
         </PageToolbar>
 
+        <p className="text-xs text-muted-foreground">
+          音频支持 mp3、wav、m4a、flac、ogg，单个不超过 25 MB。
+          {asrEnabled
+            ? '上传后会调用已配置的转录模型，可能计费；失败重试可能再次计费。'
+            : '先在知识库设置里绑定音频转录模型。'}
+        </p>
+
+        {selectedDocuments.length > 0 ? (
+          <div
+            role="toolbar"
+            aria-label="批量操作"
+            className="flex min-w-0 flex-wrap items-center gap-2 rounded-item bg-sunken px-3 py-2"
+          >
+            <span className="text-xs text-fg">已选 {selectedDocuments.length} 个</span>
+            <Button variant="outline" size="sm" onClick={() => setBatchAction('move')}>
+              移动
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setBatchAction('copy')}>
+              复制
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setBatchAction('tag')}>
+              标签
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setBatchAction('reprocess')}>
+              重新解析
+            </Button>
+            <Button variant="destructive" size="sm" onClick={() => setBatchAction('delete')}>
+              删除
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              取消选择
+            </Button>
+          </div>
+        ) : null}
+
         {documentItems.some((doc) => doc.status === 'pending' || doc.status === 'processing') &&
         !knowledgeShouldPoll(documentItems) ? (
           <PageNote
@@ -764,6 +815,17 @@ function DocumentsTab({
           <Table aria-label="文档列表">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={(checked) =>
+                      setSelectedIds(
+                        checked ? new Set(documentItems.map((item) => item.id)) : new Set(),
+                      )
+                    }
+                    aria-label="选择全部文档"
+                  />
+                </TableHead>
                 <TableHead>标题</TableHead>
                 <TableHead className="w-24">状态</TableHead>
                 <TableHead className="w-40">更新</TableHead>
@@ -774,7 +836,17 @@ function DocumentsTab({
             </TableHeader>
             <TableBody>
               {documentItems.map((document) => (
-                <TableRow key={document.id}>
+                <TableRow
+                  key={document.id}
+                  data-selected={selectedIds.has(document.id) || undefined}
+                >
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedIds.has(document.id)}
+                      onCheckedChange={() => toggleSelected(document.id)}
+                      aria-label={`选择 ${document.title}`}
+                    />
+                  </TableCell>
                   <TableCell className="max-w-0">
                     <button
                       type="button"
@@ -782,7 +854,7 @@ function DocumentsTab({
                       title={document.title}
                       onClick={() => {
                         setActionTrigger(null);
-                        setViewing({ id: document.id, snapshot: document });
+                        onDocumentChange(document.id);
                       }}
                     >
                       {document.title}
@@ -898,15 +970,42 @@ function DocumentsTab({
             onClose={() => setEditing(null)}
           />
         ) : null}
+        {documentId && selectedDocument.isPending && !viewingDocument ? (
+          <LoadingState rows={2} />
+        ) : null}
+        {documentId && selectedDocument.isError ? (
+          <ErrorState
+            error={selectedDocument.error}
+            onRetry={() => void selectedDocument.refetch()}
+          />
+        ) : null}
         {viewingDocument ? (
           <DocumentViewer
             document={viewingDocument}
             documents={viewerDocuments}
-            onSelect={(document) => setViewing({ id: document.id, snapshot: document })}
-            onClose={() => setViewing(null)}
+            key={viewingDocument.id}
+            onSelect={(document) => {
+              onDocumentChange(document.id);
+            }}
+            onClose={() => {
+              onDocumentChange(undefined);
+            }}
             onEdit={() => {
               setEditing(viewingDocument);
-              setViewing(null);
+              onDocumentChange(undefined);
+            }}
+          />
+        ) : null}
+        {batchAction ? (
+          <BatchActionDialog
+            baseId={baseId}
+            action={batchAction}
+            documentIds={selectedDocuments.map((item) => item.id)}
+            titles={Object.fromEntries(selectedDocuments.map((item) => [item.id, item.title]))}
+            folders={folders.data ?? []}
+            onClose={() => {
+              setBatchAction(null);
+              setSelectedIds(new Set());
             }}
           />
         ) : null}
@@ -1163,26 +1262,6 @@ function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void })
   );
 }
 
-function treeFolders(
-  folders: KnowledgeFolder[],
-): Array<{ id: string; label: string; depth: number }> {
-  const byParent = new Map<string | null, KnowledgeFolder[]>();
-  for (const folder of folders) {
-    const siblings = byParent.get(folder.parentId) ?? [];
-    siblings.push(folder);
-    byParent.set(folder.parentId, siblings);
-  }
-  const rows: Array<{ id: string; label: string; depth: number }> = [];
-  const walk = (parentId: string | null, depth: number): void => {
-    for (const folder of byParent.get(parentId) ?? []) {
-      rows.push({ id: folder.id, label: folder.name, depth });
-      walk(folder.id, depth + 1);
-    }
-  };
-  walk(null, 0);
-  return rows;
-}
-
 function DocumentDialog({
   baseId,
   document,
@@ -1398,6 +1477,15 @@ function imageRoleLabel(chunk: KnowledgeChunk): string | null {
   return null;
 }
 
+/** 分块定位优先用解析器 locator（含音视频时码）；旧数据没有 locator 时退回页码。 */
+function chunkLocatorLabel(chunk: KnowledgeChunk): string | null {
+  const locator = locatorLabel(chunk.locator);
+  if (locator !== null) return locator;
+  if (chunk.pageFrom === null) return null;
+  const range = chunk.pageTo !== null && chunk.pageTo !== chunk.pageFrom ? `–${chunk.pageTo}` : '';
+  return `第 ${chunk.pageFrom}${range} 页`;
+}
+
 /** 版本图片与引用图共用同一套鉴权加载与 401/403/404 错误说明。 */
 function VersionImage({ versionId, image }: { versionId: string; image: KnowledgeVersionImage }) {
   return (
@@ -1423,19 +1511,50 @@ function DocumentViewer({
   onClose: () => void;
   onEdit: () => void;
 }) {
-  const versionId = document.currentVersionId;
+  const versionQuery = useKnowledgeDocumentVersions(document.id);
+  const versions = versionQuery.versions;
+  const currentVersionId =
+    versions.find((version) => version.isCurrent)?.id ?? document.currentVersionId;
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const versionId = selectedVersionId ?? currentVersionId;
+  const selectedVersion = versions.find((version) => version.id === versionId);
+  const isCurrent = versionId !== null && versionId === currentVersionId;
+  useEffect(() => {
+    if (
+      selectedVersionId !== null &&
+      versions.length > 0 &&
+      !versions.some((version) => version.id === selectedVersionId)
+    ) {
+      setSelectedVersionId(null);
+    }
+  }, [selectedVersionId, versions]);
   const markdown = useKnowledgeMarkdown(versionId);
   const details = useKnowledgeVersionDetails(versionId);
   const versionImages = details.data?.images ?? [];
   const chunks = useKnowledgeDocumentChunks(document.id, versionId);
-  const toggle = useUpdateKnowledgeChunk(document.baseId, document.id);
-  const remove = useDeleteKnowledgeChunk(document.id);
+  const rollback = useRollbackKnowledgeDocument(document.baseId);
+  const publish = usePublishKnowledgeDocumentVersion(document.baseId);
+  const toggle = useUpdateKnowledgeChunk(document.baseId, document.id, versionId);
+  const remove = useDeleteKnowledgeChunk(document.baseId, document.id, versionId);
   const [mode, setMode] = useState<'read' | 'source'>('read');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [editing, setEditing] = useState<KnowledgeChunk | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeChunk | null>(null);
+  const [addingChunk, setAddingChunk] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [confirmRollback, setConfirmRollback] = useState(false);
   const chunkItems = chunks.data?.pages.flatMap((page) => page.items) ?? [];
   const identity = document.sourcePath ?? details.data?.originalFilename ?? document.title;
+  const isDraft = selectedVersion?.metadata.publication === 'draft';
+  const manual = document.contentKind === 'document' && document.sourceType === 'manual';
+  const audio = isAudioMimeType(document.mimeType);
+  const audioMetadata = selectedVersion
+    ? knowledgeAudioMetadataSchema.safeParse(selectedVersion.metadata.audio)
+    : null;
+  const audioWithoutTime =
+    audio &&
+    selectedVersion !== undefined &&
+    (audioMetadata?.success !== true || audioMetadata.data.segments.length === 0);
 
   return (
     <>
@@ -1509,6 +1628,8 @@ function DocumentViewer({
                         <StatusBadge tone={documentStatusTone[document.status]}>
                           {documentStatusLabel[document.status]}
                         </StatusBadge>
+                        {selectedVersion ? <span>{versionLabel(selectedVersion)}</span> : null}
+                        {audioWithoutTime ? <span>无时码</span> : null}
                         <span>{document.mimeType}</span>
                         <span>{formatRelative(document.updatedAt)}</span>
                       </>
@@ -1523,15 +1644,63 @@ function DocumentViewer({
                       ? {
                           download: {
                             href: api.knowledgeOriginalUrl(versionId),
-                            label: '下载原件',
+                            label: audio ? '下载音频原件' : '下载原件',
                             text: '下载原件',
                           },
                         }
                       : {})}
                     actions={
-                      <Button variant="outline" size="sm" onClick={onEdit}>
-                        编辑属性
-                      </Button>
+                      <>
+                        <DocumentVersionPicker
+                          versions={versions}
+                          selectedVersionId={versionId}
+                          onSelect={setSelectedVersionId}
+                        />
+                        {manual ? (
+                          <Button variant="outline" size="sm" onClick={() => setManualOpen(true)}>
+                            编辑正文
+                          </Button>
+                        ) : null}
+                        {selectedVersion !== undefined && !isCurrent ? (
+                          isDraft ? (
+                            <Button
+                              size="sm"
+                              disabled={publish.isPending}
+                              aria-busy={publish.isPending}
+                              onClick={() =>
+                                publish.mutate(
+                                  {
+                                    documentId: document.id,
+                                    versionId: selectedVersion.id,
+                                    expectedVersionId: currentVersionId,
+                                  },
+                                  {
+                                    onSuccess: () => {
+                                      toastSuccess('草稿已发布');
+                                      setSelectedVersionId(null);
+                                    },
+                                    onError: toastError,
+                                  },
+                                )
+                              }
+                            >
+                              发布草稿
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={rollback.isPending}
+                              onClick={() => setConfirmRollback(true)}
+                            >
+                              设为当前版本
+                            </Button>
+                          )
+                        ) : null}
+                        <Button variant="outline" size="sm" onClick={onEdit}>
+                          编辑属性
+                        </Button>
+                      </>
                     }
                   />
                 </div>
@@ -1589,6 +1758,21 @@ function DocumentViewer({
 
               <PageSection title="分块">
                 {!versionId ? <InlineEmpty>还没有分块</InlineEmpty> : null}
+                {versionId && !isCurrent ? (
+                  <p className="text-xs text-muted-foreground">
+                    历史版本只读；切回当前版本后可编辑分块。
+                  </p>
+                ) : null}
+                {versionId && isCurrent ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => setAddingChunk(true)}
+                  >
+                    <Plus data-icon="inline-start" aria-hidden="true" /> 新增分块
+                  </Button>
+                ) : null}
                 {versionId && chunks.isPending ? <LoadingState rows={3} /> : null}
                 {versionId && chunks.isError ? (
                   <ErrorState error={chunks.error} onRetry={() => void chunks.refetch()} />
@@ -1598,77 +1782,79 @@ function DocumentViewer({
                 ) : null}
                 {chunkItems.length > 0 ? (
                   <ul className="flex flex-col">
-                    {chunkItems.map((chunk, index) => (
-                      <li
-                        key={chunk.id}
-                        className="flex min-w-0 items-start gap-3 border-b py-3 last:border-b-0"
-                      >
-                        <span className="w-6 shrink-0 pt-0.5 text-right font-mono text-2xs text-muted-foreground">
-                          {index + 1}
-                        </span>
-                        <div className="flex min-w-0 flex-1 flex-col gap-1">
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            {chunk.heading ? (
-                              <span className="min-w-0 truncate text-xs font-medium text-fg">
-                                {chunk.heading}
+                    {chunkItems.map((chunk, index) => {
+                      const locator = chunkLocatorLabel(chunk);
+                      const label = imageRoleLabel(chunk) ?? chunk.kind;
+                      return (
+                        <li
+                          key={chunk.id}
+                          className="flex min-w-0 items-start gap-3 border-b py-3 last:border-b-0"
+                        >
+                          <span className="w-6 shrink-0 pt-0.5 text-right font-mono text-2xs text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          <div className="flex min-w-0 flex-1 flex-col gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              {chunk.heading ? (
+                                <span className="min-w-0 truncate text-xs font-medium text-fg">
+                                  {chunk.heading}
+                                </span>
+                              ) : null}
+                              {chunk.editedByUser ? (
+                                <StatusBadge tone="warn">人工编辑</StatusBadge>
+                              ) : null}
+                              {!chunk.enabled ? (
+                                <StatusBadge tone="outline">已停用</StatusBadge>
+                              ) : null}
+                              <span className="text-2xs text-muted-foreground">
+                                {locator === null ? label : `${label} · ${locator}`}
                               </span>
-                            ) : null}
-                            {chunk.editedByUser ? (
-                              <StatusBadge tone="warn">人工编辑</StatusBadge>
-                            ) : null}
-                            {!chunk.enabled ? (
-                              <StatusBadge tone="outline">已停用</StatusBadge>
-                            ) : null}
-                            <span className="text-2xs text-muted-foreground">
-                              {imageRoleLabel(chunk) ?? chunk.kind}
-                              {chunk.pageFrom === null
-                                ? ''
-                                : ` · 第 ${chunk.pageFrom}${chunk.pageTo && chunk.pageTo !== chunk.pageFrom ? `–${chunk.pageTo}` : ''} 页`}
-                            </span>
+                            </div>
+                            <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                              {chunk.content}
+                            </p>
                           </div>
-                          <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-                            {chunk.content}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label={`${chunk.enabled ? '停用' : '启用'}分块 ${index + 1}`}
-                            disabled={toggle.isPending}
-                            onClick={() =>
-                              toggle.mutate(
-                                { chunkId: chunk.id, patch: { enabled: !chunk.enabled } },
-                                {
-                                  onSuccess: () =>
-                                    toastSuccess(chunk.enabled ? '分块已停用' : '分块已启用'),
-                                  onError: toastError,
-                                },
-                              )
-                            }
-                          >
-                            {chunk.enabled ? '停用' : '启用'}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`编辑分块 ${index + 1}`}
-                            onClick={() => setEditing(chunk)}
-                          >
-                            <Pencil />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`删除分块 ${index + 1}`}
-                            disabled={remove.isPending}
-                            onClick={() => setDeleting(chunk)}
-                          >
-                            <Trash2 />
-                          </Button>
-                        </div>
-                      </li>
-                    ))}
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`${chunk.enabled ? '停用' : '启用'}分块 ${index + 1}`}
+                              disabled={toggle.isPending || !isCurrent}
+                              onClick={() =>
+                                toggle.mutate(
+                                  { chunkId: chunk.id, patch: { enabled: !chunk.enabled } },
+                                  {
+                                    onSuccess: () =>
+                                      toastSuccess(chunk.enabled ? '分块已停用' : '分块已启用'),
+                                    onError: toastError,
+                                  },
+                                )
+                              }
+                            >
+                              {chunk.enabled ? '停用' : '启用'}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`编辑分块 ${index + 1}`}
+                              disabled={!isCurrent}
+                              onClick={() => setEditing(chunk)}
+                            >
+                              <Pencil />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`删除分块 ${index + 1}`}
+                              disabled={remove.isPending || !isCurrent}
+                              onClick={() => setDeleting(chunk)}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : null}
                 {chunks.hasNextPage ? (
@@ -1692,6 +1878,7 @@ function DocumentViewer({
         <ChunkDialog
           baseId={document.baseId}
           documentId={document.id}
+          versionId={versionId}
           chunk={editing}
           onClose={() => setEditing(null)}
           onReload={async () => {
@@ -1700,15 +1887,59 @@ function DocumentViewer({
           }}
         />
       ) : null}
+      {addingChunk ? (
+        <ChunkDialog
+          baseId={document.baseId}
+          documentId={document.id}
+          versionId={versionId}
+          onClose={() => setAddingChunk(false)}
+          onReload={async () => {
+            await chunks.refetch();
+            setAddingChunk(false);
+          }}
+        />
+      ) : null}
+      {manualOpen ? (
+        <ManualDraftDialog
+          baseId={document.baseId}
+          documentId={document.id}
+          title={document.title}
+          onClose={() => setManualOpen(false)}
+        />
+      ) : null}
+      <ConfirmDialog
+        open={confirmRollback}
+        title="设为当前版本"
+        description={
+          selectedVersion
+            ? `将 v${selectedVersion.version} 设为当前版本；线上读取会切到该版，历史版本继续保留。`
+            : ''
+        }
+        confirmLabel="切换"
+        confirmDisabled={rollback.isPending}
+        onClose={() => setConfirmRollback(false)}
+        onConfirm={async () => {
+          if (!selectedVersion) return;
+          await rollback.mutateAsync({
+            documentId: document.id,
+            versionId: selectedVersion.id,
+            expectedVersionId: currentVersionId,
+          });
+          toastSuccess('已切换当前版本');
+          setSelectedVersionId(null);
+          setConfirmRollback(false);
+        }}
+      />
       {deleting ? (
         <ConfirmDialog
           open
           title="删除分块"
-          description="删除后该段不再参与检索；重新解析不会恢复人工删除的分块。"
+          description="删除后会生成新版本；重新解析不会恢复人工删除的分块。"
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
             await remove.mutateAsync(deleting.id);
             toastSuccess('分块已删除');
+            setDeleting(null);
           }}
         />
       ) : null}
@@ -1719,27 +1950,34 @@ function DocumentViewer({
 function ChunkDialog({
   baseId,
   documentId,
+  versionId,
   chunk,
   onClose,
   onReload,
 }: {
   baseId: string;
   documentId: string;
-  chunk: KnowledgeChunk;
+  versionId: string | null;
+  /** 缺省为新增分块；只能操作当前版本。 */
+  chunk?: KnowledgeChunk;
   onClose: () => void;
   /** 冲突后由调用方重新拉取分块并关闭，草稿只在这里明确放弃。 */
   onReload: () => Promise<void>;
 }) {
-  const update = useUpdateKnowledgeChunk(baseId, documentId);
+  const update = useUpdateKnowledgeChunk(baseId, documentId, versionId);
+  const create = useCreateKnowledgeChunk(baseId, documentId, versionId);
+  const creating = chunk === undefined;
   // 基线取打开时的正文：父级分块查询刷新不能覆盖用户正在改的草稿。
-  const [initial] = useState(chunk.content);
+  const [initial] = useState(chunk?.content ?? '');
+  const [initialHeading] = useState(chunk?.heading ?? '');
   const [content, setContent] = useState(initial);
+  const [heading, setHeading] = useState(initialHeading);
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
-  const pending = update.isPending;
+  const pending = update.isPending || create.isPending;
   const trimmed = content.trim();
-  const dirty = content !== initial;
+  const dirty = content !== initial || heading !== initialHeading;
   const blocker = useFormBlocker(dirty, pending);
   // 保存/重载回调在拦截发生前创建，不能读当时的 blocker 快照。
   const blockerRef = useRef(blocker);
@@ -1752,7 +1990,7 @@ function ChunkDialog({
     onClose();
   };
   // 图片向量是真实图 embedding；改正文会让它和图片脱节，只允许在列表里启停。
-  const vectorChunk = chunk.metadata?.imageRole === 'vector';
+  const vectorChunk = chunk?.metadata?.imageRole === 'vector';
 
   if (vectorChunk) {
     return (
@@ -1790,27 +2028,39 @@ function ChunkDialog({
         if (!next) close();
       }}
     >
-      <DialogShell title="编辑分块" closeDisabled={pending}>
+      <DialogShell title={creating ? '新增分块' : '编辑分块'} closeDisabled={pending}>
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
             setError(null);
-            update.mutate(
-              { chunkId: chunk.id, patch: { content: trimmed } },
-              {
-                onSuccess: () => {
-                  toastSuccess('分块已保存，正在补建向量');
-                  finish();
-                },
-                onError: (reason) => {
-                  // 保留草稿；服务端拒绝时给出明确的重载入口，不静默丢弃修改。
-                  setError(errorMessage(reason));
-                },
+            const patch = {
+              content: trimmed,
+              heading: heading.trim() === '' ? null : heading.trim(),
+            };
+            const handlers = {
+              onSuccess: () => {
+                toastSuccess(creating ? '分块已新增，正在补建向量' : '分块已保存，正在补建向量');
+                finish();
               },
-            );
+              onError: (reason: unknown) => {
+                // 保留草稿；服务端拒绝时给出明确的重载入口，不静默丢弃修改。
+                setError(errorMessage(reason));
+              },
+            };
+            if (chunk) update.mutate({ chunkId: chunk.id, patch }, handlers);
+            else create.mutate(patch, handlers);
           }}
         >
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor="knowledge-chunk-heading">标题</FieldLabel>
+            <Input
+              id="knowledge-chunk-heading"
+              value={heading}
+              disabled={pending}
+              onChange={(event) => setHeading(event.target.value)}
+            />
+          </Field>
           <Field className="gap-1.5" data-invalid={error !== null}>
             <FieldLabel htmlFor="knowledge-chunk-content">正文</FieldLabel>
             <Textarea
@@ -1832,7 +2082,8 @@ function ChunkDialog({
                 onClick={() => {
                   if (dirty) setConfirmReload(true);
                   else {
-                    update.reset();
+                    if (creating) create.reset();
+                    else update.reset();
                     void onReload();
                   }
                 }}
@@ -1868,7 +2119,8 @@ function ChunkDialog({
           confirmDisabled={pending}
           onConfirm={async () => {
             if (pending) return;
-            await update.reset();
+            if (creating) create.reset();
+            else await update.reset();
             await onReload();
           }}
         />
@@ -1887,72 +2139,6 @@ function ChunkDialog({
 }
 
 /** 引用/文档共用的解析正文查看：顶部是命中片段，下面是完整解析文本。 */
-function ParsedTextDialog({
-  versionId,
-  title,
-  quote,
-  sourceUrl,
-  image,
-  onClose,
-}: {
-  versionId: string;
-  title: string;
-  quote?: string;
-  sourceUrl?: string | null;
-  /** 图片命中在这里显示原图；普通命中不传。 */
-  image?: KnowledgeSearchHit['image'];
-  onClose: () => void;
-}) {
-  const markdown = useKnowledgeMarkdown(versionId);
-  return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogShell title={title} className="max-w-[860px] sm:max-w-[860px]">
-        <div className="flex min-w-0 flex-col gap-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <a
-              href={api.knowledgeOriginalUrl(versionId)}
-              className="text-xs underline underline-offset-2"
-              download
-            >
-              下载原件
-            </a>
-            {sourceUrl ? (
-              <a
-                href={sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs underline underline-offset-2"
-              >
-                查看来源
-              </a>
-            ) : null}
-            {image?.page ? (
-              <span className="text-xs text-muted-foreground">第 {image.page} 页</span>
-            ) : null}
-          </div>
-          {image ? (
-            <KnowledgeImage
-              versionId={versionId}
-              name={image.name}
-              alt={quote || image.name}
-              className="max-h-96 w-full rounded-card border border-line object-contain"
-            />
-          ) : null}
-          {quote ? (
-            <p className="border-l-2 border-line-strong pl-3 text-sm leading-relaxed text-fg">
-              <mark className="bg-warning-soft text-fg">{quote}</mark>
-            </p>
-          ) : null}
-          {markdown.isPending ? <LoadingState rows={3} /> : null}
-          {markdown.isError ? (
-            <ErrorState error={markdown.error} onRetry={() => void markdown.refetch()} />
-          ) : null}
-          {markdown.data ? <Markdown text={stripImageReferences(markdown.data)} /> : null}
-        </div>
-      </DialogShell>
-    </Dialog>
-  );
-}
 
 // ---- 文档导入 -------------------------------------------------------------
 
@@ -2241,692 +2427,19 @@ function UrlImportDialog({
   );
 }
 
-// ---- 检索 -----------------------------------------------------------------
-
-function SearchTab({ baseId }: { baseId: string }) {
-  const [draft, setDraft] = useState('');
-  const [term, setTerm] = useState('');
-  const [cited, setCited] = useState<KnowledgeSearchHit | null>(null);
-  const results = useKnowledgeSearch(baseId, term);
-
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <form
-        className="flex min-w-0 flex-wrap items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setTerm(draft.trim());
-        }}
-      >
-        <SearchInput
-          label="检索知识库"
-          placeholder="输入问题或关键词…"
-          value={draft}
-          onChange={setDraft}
-          className="min-w-48 flex-1 sm:max-w-md"
-          inputId="knowledge-search"
-        />
-        <Button type="submit" disabled={draft.trim() === ''}>
-          <Search data-icon="inline-start" aria-hidden="true" /> 检索
-        </Button>
-      </form>
-      {term === '' ? (
-        <EmptyState icon={<Search className="size-5" />} title="输入关键词后开始检索" />
-      ) : null}
-      {term !== '' && results.isPending ? <LoadingState rows={3} /> : null}
-      {term !== '' && results.isError ? (
-        <ErrorState error={results.error} onRetry={() => void results.refetch()} />
-      ) : null}
-      {results.data?.degraded ? (
-        <PageNote
-          title="向量检索不可用"
-          description="当前结果只来自关键词匹配；请检查 embedding 模型配置。"
-        />
-      ) : null}
-      {results.data && results.data.hits.length === 0 ? (
-        <EmptyState title="没有匹配的分块" description="换一个关键词或扩大检索范围。" />
-      ) : null}
-      {results.data && results.data.hits.length > 0 ? (
-        <ul className="flex flex-col">
-          {results.data.hits.map((hit) => (
-            <li key={hit.chunkId} className="flex flex-col gap-1 border-b py-3 last:border-b-0">
-              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="min-w-0 truncate text-sm font-medium text-fg" title={hit.title}>
-                  {hit.title}
-                </span>
-                {hit.heading ? (
-                  <span className="truncate text-xs text-muted-foreground">{hit.heading}</span>
-                ) : null}
-                <span className="ml-auto shrink-0 text-2xs text-muted-foreground">
-                  {hit.pageFrom === null
-                    ? null
-                    : `第 ${hit.pageFrom}${hit.pageTo && hit.pageTo !== hit.pageFrom ? `–${hit.pageTo}` : ''} 页 · `}
-                  {hit.score.toFixed(3)}
-                </span>
-              </div>
-              <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-                {hit.quote}
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button variant="link" size="xs" onClick={() => setCited(hit)}>
-                  查看原文
-                </Button>
-                {hit.sourceUrl ? (
-                  <a
-                    href={hit.sourceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-fit text-2xs text-muted-foreground underline underline-offset-2"
-                  >
-                    查看来源
-                  </a>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {cited ? (
-        <ParsedTextDialog
-          versionId={cited.versionId}
-          title="引用原文"
-          quote={cited.quote}
-          sourceUrl={cited.sourceUrl}
-          image={cited.image}
-          onClose={() => setCited(null)}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-// ---- Wiki -----------------------------------------------------------------
-
-/** 小型集合（来源/Wiki 页面）自动取完剩余游标页；失败后停下，交给调用方的显式重试。 */
-function useDrainPages(query: {
-  hasNextPage: boolean;
-  isFetchingNextPage: boolean;
-  isFetchNextPageError: boolean;
-  fetchNextPage: () => Promise<unknown>;
-}): void {
-  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query;
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
-}
-
-function WikiTab({
-  baseId,
-  pageId,
-  onSelect,
-}: {
-  baseId: string;
-  pageId: string | undefined;
-  onSelect: (pageId: string) => void;
-}) {
-  const pages = useKnowledgeWikiPages(baseId);
-  useDrainPages(pages);
-  const [creating, setCreating] = useState(false);
-  // 等弹层卸载、blocker 注销后再选中新页面，避免导航被创建弹层的旧 dirty/pending 拦下。
-  const [createdPage, setCreatedPage] = useState<string | null>(null);
-  useEffect(() => {
-    if (creating || createdPage === null) return;
-    onSelect(createdPage);
-    setCreatedPage(null);
-  }, [createdPage, creating, onSelect]);
-
-  return (
-    <div className="grid min-w-0 gap-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
-      <div className="flex min-w-0 flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-fg">页面</h2>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="新建 Wiki 页面"
-            onClick={() => setCreating(true)}
-          >
-            <Plus />
-          </Button>
-        </div>
-        {pages.isPending ? <LoadingState rows={3} /> : null}
-        {pages.isError ? (
-          <ErrorState error={pages.error} onRetry={() => void pages.refetch()} />
-        ) : null}
-        {pages.isFetchNextPageError ? (
-          <Button variant="outline" size="sm" onClick={() => void pages.fetchNextPage()}>
-            重试加载其余页面
-          </Button>
-        ) : null}
-        {pages.data && pages.data.length === 0 ? <InlineEmpty>还没有 Wiki 页面</InlineEmpty> : null}
-        {pages.data && pages.data.length > 0 ? (
-          <ul className="flex flex-col">
-            {pages.data.map((page) => (
-              <li key={page.id}>
-                <button
-                  type="button"
-                  aria-current={page.id === pageId ? 'true' : undefined}
-                  onClick={() => onSelect(page.id)}
-                  className={cn(
-                    'flex w-full flex-col gap-0.5 rounded-item px-2 py-1.5 text-left text-sm transition-colors',
-                    page.id === pageId
-                      ? 'bg-selected font-medium text-selected-foreground'
-                      : 'text-muted-foreground hover:bg-hover hover:text-fg',
-                  )}
-                >
-                  <span className="truncate">{page.title}</span>
-                  <span className="truncate text-2xs">{pageStatusLabel[page.status]}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-col gap-4">
-        {pageId ? (
-          <WikiPageEditor key={pageId} baseId={baseId} pageId={pageId} />
-        ) : (
-          <EmptyState
-            icon={<BookOpen className="size-5" />}
-            title="选择一个页面开始编辑"
-            action={
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                新建页面
-              </Button>
-            }
-          />
-        )}
-      </div>
-      {creating ? (
-        <CreateWikiPageDialog
-          baseId={baseId}
-          onClose={() => setCreating(false)}
-          onCreated={(page) => {
-            setCreating(false);
-            setCreatedPage(page.id);
-          }}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function WikiPageEditor({ baseId, pageId }: { baseId: string; pageId: string }) {
-  const detail = useKnowledgeWikiPage(pageId);
-  const generate = useGenerateKnowledgeWikiPage();
-  const rollback = useRollbackKnowledgeWikiPage(baseId);
-  const publish = usePublishKnowledgeWikiVersion(baseId);
-  const loadOlder = useLoadOlderKnowledgeWikiVersions();
-  const jobs = useKnowledgeJobs(baseId);
-  const client = useQueryClient();
-  const [instruction, setInstruction] = useState('');
-  const [mode, setMode] = useState<'read' | 'source'>('read');
-  const [generateJobId, setGenerateJobId] = useState<string | null>(null);
-  const settledJobRef = useRef<string | null>(null);
-  const [rollbackTarget, setRollbackTarget] = useState<string | null>(null);
-  const [publishTarget, setPublishTarget] = useState<KnowledgeWikiVersion | null>(null);
-  const [previewing, setPreviewing] = useState<KnowledgeWikiVersion | null>(null);
-  const [editing, setEditing] = useState<KnowledgeWikiVersion | null>(null);
-  const [olderVersions, setOlderVersions] = useState<KnowledgeWikiVersion[]>([]);
-  const [olderCursor, setOlderCursor] = useState<string | null | undefined>(undefined);
-  const pending = generate.isPending || rollback.isPending || publish.isPending;
-  const page = detail.data;
-  const versions = [...(page?.versions ?? []), ...olderVersions];
-  const current = versions.find((version) => version.id === page?.currentVersionId);
-  // 首屏游标只在还没请求过更早版本时用；之后由 olderVersions 自己的游标接管。
-  const nextCursor = olderCursor === undefined ? page?.nextCursor : olderCursor;
-  // 只跟本次提交返回的任务，其他页面的生成任务不会显示在这里。
-  const generateJob = generateJobId
-    ? jobs.data?.find((job) => job.id === generateJobId)
-    : undefined;
-
-  // 任务跨过终态时失效当前页面与列表，只做一次；轮询本身不触发失效。
-  useEffect(() => {
-    if (!generateJob || !generateJobId || settledJobRef.current === generateJobId) return;
-    if (
-      generateJob.status !== 'succeeded' &&
-      generateJob.status !== 'failed' &&
-      generateJob.status !== 'cancelled'
-    ) {
-      return;
-    }
-    settledJobRef.current = generateJobId;
-    void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPage(pageId) });
-    void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPages(baseId) });
-  }, [baseId, client, generateJob, generateJobId, pageId]);
-
-  if (detail.isPending) return <LoadingState rows={4} />;
-  // 已有页面数据时，刷新失败不能整块替换编辑器，否则会丢掉正在编辑的草稿。
-  if (!page) {
-    if (detail.isError) {
-      return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
-    }
-    return null;
-  }
-
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      {detail.isError ? (
-        <ErrorState
-          title="Wiki 页面没有刷新成功"
-          error={detail.error}
-          onRetry={() => void detail.refetch()}
-        />
-      ) : null}
-      <ReaderToolbar
-        identity={
-          <span className="block truncate" title={page.title}>
-            {page.title}
-          </span>
-        }
-        meta={
-          <>
-            <StatusBadge
-              tone={
-                page.status === 'published'
-                  ? 'success'
-                  : page.status === 'failed'
-                    ? 'danger'
-                    : 'outline'
-              }
-            >
-              {pageStatusLabel[page.status]}
-            </StatusBadge>
-            <span>{formatRelative(page.updatedAt)}</span>
-          </>
-        }
-        {...(current ? { mode, onModeChange: setMode } : {})}
-        {...(current ? { copy: { value: current.markdown, label: `复制 ${page.title}` } } : {})}
-        actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending || current === undefined}
-              onClick={() => setEditing(current ?? null)}
-            >
-              编辑正文
-            </Button>
-            <Button
-              size="sm"
-              disabled={pending}
-              aria-busy={generate.isPending}
-              onClick={() =>
-                generate.mutate(
-                  { pageId, ...(instruction.trim() ? { instruction: instruction.trim() } : {}) },
-                  {
-                    onSuccess: (result) => {
-                      setGenerateJobId(result.jobId);
-                      // Pick up the new job once so its polling starts; terminal handling comes from the job status.
-                      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
-                      toastSuccess('已提交生成任务');
-                    },
-                    onError: toastError,
-                  },
-                )
-              }
-            >
-              重新生成
-            </Button>
-          </>
-        }
-      />
-      {generateJob ? (
-        <PageNote
-          title={`生成任务 ${jobStatusLabel[generateJob.status]}`}
-          description={generateJob.step ?? `进度 ${generateJob.progress}%`}
-        />
-      ) : null}
-      <Field className="gap-1.5">
-        <FieldLabel htmlFor="wiki-instruction">生成指令</FieldLabel>
-        <Input
-          id="wiki-instruction"
-          value={instruction}
-          disabled={pending}
-          onChange={(event) => setInstruction(event.target.value)}
-          placeholder="可选，说明这次生成要补充什么"
-        />
-      </Field>
-      {current ? (
-        mode === 'read' ? (
-          <Markdown text={current.markdown} />
-        ) : (
-          <CodeBlock code={current.markdown} lineNumbers maxHeight="60vh" copyable={false} />
-        )
-      ) : (
-        <InlineEmpty>还没有正文</InlineEmpty>
-      )}
-      <PageSection title="版本" divided>
-        {versions.length === 0 ? <InlineEmpty>还没有版本</InlineEmpty> : null}
-        <ul className="flex flex-col">
-          {versions.map((version) => (
-            <li
-              key={version.id}
-              className="flex flex-wrap items-center gap-2 border-b py-2 text-xs last:border-b-0"
-            >
-              <span className="font-mono text-fg">v{version.version}</span>
-              <span className="text-muted-foreground">
-                {version.generatedBy === 'sdk' ? version.model : '人工编辑'}
-              </span>
-              <span className="text-muted-foreground">{formatDateTime(version.createdAt)}</span>
-              {version.id === page.currentVersionId ? (
-                <StatusBadge tone="success">当前发布</StatusBadge>
-              ) : (
-                <div className="ml-auto flex items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => setPreviewing(version)}>
-                    预览
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => setPublishTarget(version)}
-                  >
-                    发布此版本
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => setRollbackTarget(version.id)}
-                  >
-                    回退到此版本
-                  </Button>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-        {nextCursor ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="self-start"
-            disabled={loadOlder.isPending}
-            aria-busy={loadOlder.isPending}
-            onClick={() =>
-              loadOlder.mutate(
-                { pageId, cursor: nextCursor },
-                {
-                  onSuccess: (result) => {
-                    setOlderVersions((previous) => [...previous, ...result.items]);
-                    setOlderCursor(result.nextCursor);
-                  },
-                  onError: toastError,
-                },
-              )
-            }
-          >
-            {loadOlder.isPending ? '加载中…' : '加载更早版本'}
-          </Button>
-        ) : null}
-      </PageSection>
-      <ConfirmDialog
-        open={rollbackTarget !== null}
-        title="回退 Wiki 版本"
-        description="回退会把该版本内容写成新的当前版本，历史版本保留。"
-        confirmLabel="回退"
-        confirmDisabled={pending}
-        onClose={() => setRollbackTarget(null)}
-        onConfirm={async () => {
-          if (!rollbackTarget) return;
-          await rollback.mutateAsync({ pageId, versionId: rollbackTarget });
-          toastSuccess('已回退');
-        }}
-      />
-      <ConfirmDialog
-        open={publishTarget !== null}
-        title="发布 Wiki 版本"
-        description={
-          publishTarget
-            ? `将 v${publishTarget.version} 设为当前发布版本；当前版本与历史版本都保留。`
-            : ''
-        }
-        confirmLabel="发布"
-        confirmDisabled={pending}
-        onClose={() => setPublishTarget(null)}
-        onConfirm={async () => {
-          if (!publishTarget) return;
-          await publish.mutateAsync({ pageId, versionId: publishTarget.id });
-          toastSuccess('已发布');
-        }}
-      />
-      {previewing ? (
-        <Dialog open onOpenChange={(next) => (next ? undefined : setPreviewing(null))}>
-          <DialogShell
-            title={`预览 v${previewing.version}`}
-            description="尚未发布的版本；发布前先对照正文。"
-            className="max-w-[860px] sm:max-w-[860px]"
-          >
-            <Markdown text={previewing.markdown} />
-          </DialogShell>
-        </Dialog>
-      ) : null}
-      {editing ? (
-        <WikiMarkdownDialog
-          baseId={baseId}
-          pageId={pageId}
-          versionId={editing.id}
-          markdown={editing.markdown}
-          onClose={() => setEditing(null)}
-          onReload={async () => {
-            await detail.refetch();
-            setEditing(null);
-          }}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-/** 人工改动会写成新版本；不覆盖历史，也不与 SDK 草稿混写。 */
-function WikiMarkdownDialog({
-  baseId,
-  pageId,
-  versionId,
-  markdown,
-  onClose,
-  onReload,
-}: {
-  baseId: string;
-  pageId: string;
-  /** 打开编辑器时锁定的 currentVersionId：保存期间不受后台刷新影响。 */
-  versionId: string;
-  markdown: string;
-  onClose: () => void;
-  onReload: () => Promise<void>;
-}) {
-  const save = useSaveKnowledgeWikiPage(baseId);
-  const [value, setValue] = useState(markdown);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmReload, setConfirmReload] = useState(false);
-  const pending = save.isPending;
-  const guard = useDraftGuard(value !== markdown, pending, onClose);
-
-  return (
-    <>
-      <Dialog
-        open
-        onOpenChange={(next, details) => {
-          if (pending) {
-            details.cancel();
-            return;
-          }
-          if (!next) guard.close();
-        }}
-      >
-        <DialogShell title="编辑 Wiki 正文" closeDisabled={pending}>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setError(null);
-              save.mutate(
-                { pageId, patch: { markdown: value, expectedVersion: versionId } },
-                {
-                  onSuccess: () => {
-                    toastSuccess('Wiki 已发布为新版本');
-                    guard.finish();
-                  },
-                  onError: (reason) => {
-                    // 保留草稿；别人已发布新版本时由用户确认后再重新加载。
-                    setError(errorMessage(reason));
-                  },
-                },
-              );
-            }}
-          >
-            <Field className="gap-1.5" data-invalid={error !== null}>
-              <FieldLabel htmlFor="knowledge-wiki-markdown">Markdown</FieldLabel>
-              <Textarea
-                id="knowledge-wiki-markdown"
-                value={value}
-                rows={14}
-                disabled={pending}
-                aria-invalid={error !== null}
-                onChange={(event) => setValue(event.target.value)}
-                className="font-mono"
-              />
-              <FieldError>{error}</FieldError>
-            </Field>
-            <div className="flex justify-end gap-2">
-              {error ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={pending}
-                  onClick={() => setConfirmReload(true)}
-                >
-                  重新加载
-                </Button>
-              ) : null}
-              <Button type="button" variant="outline" onClick={guard.close} disabled={pending}>
-                取消
-              </Button>
-              <Button
-                type="submit"
-                disabled={pending || value.trim() === '' || value === markdown}
-                aria-busy={pending}
-              >
-                {pending ? '保存中…' : '保存'}
-              </Button>
-            </div>
-          </form>
-          <DraftGuardDialogs guard={guard} draft="Wiki 正文草稿会丢失。" pending={pending} />
-        </DialogShell>
-      </Dialog>
-      <ConfirmDialog
-        open={confirmReload}
-        title="重新加载 Wiki 正文"
-        description="当前草稿会被放弃，编辑器改为显示最新已发布版本。"
-        confirmLabel="重新加载"
-        onClose={() => setConfirmReload(false)}
-        onConfirm={async () => {
-          await onReload();
-          setConfirmReload(false);
-        }}
-      />
-    </>
-  );
-}
-
-function CreateWikiPageDialog({
-  baseId,
-  onClose,
-  onCreated,
-}: {
-  baseId: string;
-  onClose: () => void;
-  onCreated: (page: { id: string }) => void;
-}) {
-  const create = useCreateKnowledgeWikiPage(baseId);
-  const [slug, setSlug] = useState('');
-  const [title, setTitle] = useState('');
-  const slugValid = /^[a-z0-9][a-z0-9-_]*$/.test(slug);
-  const pending = create.isPending;
-  const guard = useDraftGuard(slug !== '' || title !== '', pending, onClose);
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
-      <DialogShell title="新建 Wiki 页面" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create.mutate(
-              { slug, title: title.trim() },
-              {
-                onSuccess: (page) => {
-                  toastSuccess('Wiki 页面已创建');
-                  guard.finish();
-                  onCreated(page);
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
-          <FieldGroup>
-            <Field className="gap-1.5" data-invalid={slug !== '' && !slugValid}>
-              <FieldLabel htmlFor="wiki-title">
-                标题 <RequiredMark />
-              </FieldLabel>
-              <Input
-                id="wiki-title"
-                value={title}
-                disabled={pending}
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </Field>
-            <Field className="gap-1.5" data-invalid={slug !== '' && !slugValid}>
-              <FieldLabel htmlFor="wiki-slug">
-                Slug <RequiredMark />
-              </FieldLabel>
-              <Input
-                id="wiki-slug"
-                value={slug}
-                disabled={pending}
-                aria-invalid={slug !== '' && !slugValid}
-                aria-describedby={slug !== '' && !slugValid ? 'wiki-slug-error' : undefined}
-                onChange={(event) => setSlug(event.target.value)}
-                className="font-mono"
-              />
-              {slug !== '' && !slugValid ? (
-                <FieldError id="wiki-slug-error">仅允许小写字母、数字、- 和 _</FieldError>
-              ) : null}
-            </Field>
-          </FieldGroup>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button
-              type="submit"
-              disabled={pending || title.trim() === '' || !slugValid}
-              aria-busy={pending}
-            >
-              {pending ? '创建中…' : '创建'}
-            </Button>
-          </div>
-        </form>
-        <DraftGuardDialogs guard={guard} draft="Wiki 页面草稿会丢失。" pending={pending} />
-      </DialogShell>
-    </Dialog>
-  );
-}
-
 // ---- 来源 -----------------------------------------------------------------
 
-function SourcesTab({ baseId }: { baseId: string }) {
+function SourcesTab({
+  baseId,
+  sourceId,
+  onSelectSource,
+  onOpenDocument,
+}: {
+  baseId: string;
+  sourceId: string | undefined;
+  onSelectSource: (sourceId: string | undefined) => void;
+  onOpenDocument: (documentId: string) => void;
+}) {
   const sources = useKnowledgeSources(baseId);
   useDrainPages(sources);
   const remove = useDeleteKnowledgeSource(baseId);
@@ -2935,11 +2448,17 @@ function SourcesTab({ baseId }: { baseId: string }) {
   const jobs = useKnowledgeJobs(baseId);
   const client = useQueryClient();
   const [creating, setCreating] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(sourceId ?? null);
+  useEffect(() => setSelected(sourceId ?? null), [sourceId]);
+  const selectSource = (id: string | null): void => {
+    setSelected(id);
+    onSelectSource(id ?? undefined);
+  };
   const [deleting, setDeleting] = useState<KnowledgeSource | null>(null);
   const [deleteDocuments, setDeleteDocuments] = useState(false);
   const [editing, setEditing] = useState<KnowledgeSource | null>(null);
   const [syncJobs, setSyncJobs] = useState<Array<{ id: string; sourceId: string }>>([]);
+  const [probeJobs, setProbeJobs] = useState<Record<string, string>>({});
   const settledJobs = useRef(new Set<string>());
   // 自动 Wiki、批量上传等任务会把刚提交的同步任务挤出任务列表前 50 条，只看列表会永远等不到终态。
   // 列表里缺失的任务改用 GET jobs/:id 定向轮询，终态后与列表中的任务走同一套失效。
@@ -3067,7 +2586,7 @@ function SourcesTab({ baseId }: { baseId: string }) {
                     <button
                       type="button"
                       className="min-w-0 truncate text-sm font-medium text-fg hover:underline"
-                      onClick={() => setSelected(selected === source.id ? null : source.id)}
+                      onClick={() => selectSource(selected === source.id ? null : source.id)}
                       aria-expanded={selected === source.id}
                     >
                       {source.name}
@@ -3093,13 +2612,16 @@ function SourcesTab({ baseId }: { baseId: string }) {
                         variant="ghost"
                         size="sm"
                         disabled={test.isPending}
-                        title="仅校验本地配置与已存凭证，不访问远端"
+                        title="提交一次只读远程连接测试，结果写入任务"
                         onClick={() =>
                           test.mutate(source.id, {
-                            onSuccess: (result) =>
-                              result.ok
-                                ? toastSuccess('本地配置与已存凭证检查通过')
-                                : toast.error(result.issues.join('；'), { duration: Infinity }),
+                            onSuccess: (result) => {
+                              setProbeJobs((previous) => ({
+                                ...previous,
+                                [source.id]: result.jobId,
+                              }));
+                              toastSuccess('已提交连接测试，结果见下方');
+                            },
                             onError: toastError,
                           })
                         }
@@ -3120,7 +2642,7 @@ function SourcesTab({ baseId }: { baseId: string }) {
                         onClick={() =>
                           sync.mutate(source.id, {
                             onSuccess: (result) => {
-                              setSelected(source.id);
+                              selectSource(source.id);
                               setSyncJobs((previous) => [
                                 ...previous,
                                 { id: result.jobId, sourceId: source.id },
@@ -3160,8 +2682,11 @@ function SourcesTab({ baseId }: { baseId: string }) {
                   {source.lastError ? (
                     <span className="text-2xs text-danger">{source.lastError}</span>
                   ) : null}
+                  {probeJobs[source.id] ? (
+                    <SourceProbeStatus jobId={probeJobs[source.id] ?? ''} />
+                  ) : null}
                   <CollapsibleContent animated>
-                    <SourceRuns sourceId={source.id} />
+                    <SourceRuns sourceId={source.id} onOpenDocument={onOpenDocument} />
                   </CollapsibleContent>
                 </Collapsible>
               </li>
@@ -3188,7 +2713,7 @@ function SourcesTab({ baseId }: { baseId: string }) {
               sourceId: deleting.id,
               documents: deleteDocuments ? 'delete' : 'keep',
             });
-            if (selected === deleting.id) setSelected(null);
+            if (selected === deleting.id) selectSource(null);
             toastSuccess('来源已删除');
           }}
         >
@@ -3208,11 +2733,174 @@ function SourcesTab({ baseId }: { baseId: string }) {
   );
 }
 
+type AuthMode = 'cloud_basic' | 'cloud_scoped' | 'dc_pat';
+
+const authModeOptions: Array<{ value: AuthMode; label: string }> = [
+  { value: 'cloud_basic', label: 'Cloud Basic' },
+  { value: 'cloud_scoped', label: 'Cloud Scoped' },
+  { value: 'dc_pat', label: 'Data Center PAT' },
+];
+
+function isAuthMode(value: unknown): value is AuthMode {
+  return value === 'cloud_basic' || value === 'cloud_scoped' || value === 'dc_pat';
+}
+
+type CredentialKey =
+  | 'token'
+  | 'appSecret'
+  | 'apiKey'
+  | 'apiToken'
+  | 'pat'
+  | 'clientSecret'
+  | 'appPassword';
+
 /** 凭证只写不读：留空提交不发 secrets，避免把已存密钥覆盖成空串。 */
-function credentialField(type: SourceType): { key: 'token' | 'appSecret'; label: string } | null {
-  if (type === 'github' || type === 'gitlab') return { key: 'token', label: 'Access Token' };
-  if (type === 'feishu_wiki' || type === 'feishu_drive') {
-    return { key: 'appSecret', label: 'App Secret' };
+function credentialField(
+  type: SourceType,
+  authMode: AuthMode,
+): { key: CredentialKey; label: string; description?: string } | null {
+  switch (type) {
+    case 'github':
+    case 'gitlab':
+      return { key: 'token', label: 'Access Token' };
+    case 'feishu_wiki':
+    case 'feishu_drive':
+    case 'lark_wiki':
+    case 'lark_drive':
+      return { key: 'appSecret', label: 'App Secret' };
+    case 'notion':
+      return { key: 'apiKey', label: 'Integration Token' };
+    case 'confluence':
+      return authMode === 'dc_pat'
+        ? { key: 'pat', label: 'Personal Access Token' }
+        : { key: 'apiToken', label: 'API Token' };
+    case 'yuque':
+      return { key: 'apiToken', label: 'Token', description: 'Token 权益以语雀账号为准。' };
+    case 'dingtalk':
+      return { key: 'clientSecret', label: 'Client Secret' };
+    case 'ima':
+      return { key: 'apiKey', label: 'API Key' };
+    case 'seafile':
+      return { key: 'apiToken', label: 'API Token' };
+    case 'nextcloud':
+      return { key: 'appPassword', label: 'App 密码' };
+    default:
+      return null;
+  }
+}
+
+type SourceFieldKey =
+  | 'appId'
+  | 'baseUrl'
+  | 'email'
+  | 'cloudId'
+  | 'username'
+  | 'operatorUnionId'
+  | 'clientId';
+type SourceFieldState = Record<SourceFieldKey, string>;
+
+const emptySourceFields: SourceFieldState = {
+  appId: '',
+  baseUrl: '',
+  email: '',
+  cloudId: '',
+  username: '',
+  operatorUnionId: '',
+  clientId: '',
+};
+
+type SourceFieldSpec = {
+  key: SourceFieldKey;
+  label: string;
+  /** 连接身份字段：创建后不可改，编辑时只读，避免旧凭证被带到新站点。 */
+  identity?: boolean;
+  required?: boolean | ((authMode: AuthMode) => boolean);
+  /** 仅在该认证模式显示（Confluence 条件字段）。 */
+  visible?: (authMode: AuthMode) => boolean;
+  placeholder?: string;
+};
+
+/** 新增来源的连接字段集中在这里，按类型渲染，不为每个 provider 复制一套表单。 */
+const sourceFieldSpecs: Partial<Record<SourceType, SourceFieldSpec[]>> = {
+  lark_wiki: [{ key: 'appId', label: 'App ID', identity: true }],
+  lark_drive: [{ key: 'appId', label: 'App ID', identity: true }],
+  confluence: [
+    {
+      key: 'baseUrl',
+      label: '站点 URL',
+      identity: true,
+      placeholder: 'https://example.atlassian.net',
+    },
+    {
+      key: 'email',
+      label: 'Email',
+      identity: true,
+      required: (mode) => mode !== 'dc_pat',
+      visible: (mode) => mode !== 'dc_pat',
+    },
+    {
+      key: 'cloudId',
+      label: 'Cloud ID',
+      identity: true,
+      required: (mode) => mode === 'cloud_scoped',
+      visible: (mode) => mode === 'cloud_scoped',
+    },
+  ],
+  dingtalk: [
+    { key: 'clientId', label: 'Client ID', identity: true },
+    { key: 'operatorUnionId', label: '操作者 Union ID', identity: true },
+  ],
+  ima: [{ key: 'clientId', label: 'Client ID', identity: true }],
+  seafile: [
+    {
+      key: 'baseUrl',
+      label: '实例 URL',
+      identity: true,
+      placeholder: 'https://seafile.example.com',
+    },
+  ],
+  nextcloud: [
+    {
+      key: 'baseUrl',
+      label: '实例 URL',
+      identity: true,
+      placeholder: 'https://cloud.example.com',
+    },
+    { key: 'username', label: '用户名', identity: true },
+  ],
+};
+
+function sourceFieldRequired(spec: SourceFieldSpec, authMode: AuthMode): boolean {
+  return typeof spec.required === 'function' ? spec.required(authMode) : (spec.required ?? true);
+}
+
+function sourceFieldId(key: SourceFieldKey): string {
+  return `source-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+}
+
+/** Seafile 只有精确的 / 表示全库；其余输入按库内相对目录保存。 */
+function normalizeSeafilePaths(paths: string[]): string[] {
+  if (paths.some((path) => path.trim() === '/')) return [];
+  return paths.map((path) => path.trim().replace(/^\/+|\/+$/g, ''));
+}
+
+function seafilePathInvalid(paths: string[]): boolean {
+  return paths.some(
+    (path) => /[\\\0]/.test(path) || path.split('/').some((segment) => segment === '..'),
+  );
+}
+
+/**
+ * //、/// 或空串 normalize 后为空；它们不是全库，必须按字段错误拦下，
+ * 否则过滤成空数组会被后端当成全库而静默放大同步范围。
+ */
+function seafilePathIssue(paths: string[]): string | null {
+  if (paths.some((path) => path.trim() === '/')) return null;
+  if (paths.length === 0 || paths.some((path) => path.trim().replace(/^\/+|\/+$/g, '') === '')) {
+    return '每个 Seafile 范围都需要目录根；全库请填 /';
+  }
+  if (paths.some((path) => seafilePathInvalid([path]))) {
+    return 'Seafile 路径不能包含反斜杠或 ..';
   }
   return null;
 }
@@ -3226,13 +2914,26 @@ type RangeDraft = Omit<KnowledgeSourceInput['ranges'][number], 'kind'> & {
 
 /** 提交前去掉 clientId，不把本地 key 混进来源 config。 */
 function toRangeInput({ clientId: _clientId, ...range }: RangeDraft) {
-  return { ...range, externalId: range.externalId.trim() };
+  return {
+    ...range,
+    externalId: range.externalId.trim(),
+    paths: range.kind === 'seafile_repo' ? normalizeSeafilePaths(range.paths) : range.paths,
+  };
 }
 
 const rangeKinds: Record<SourceType, RangeKind[]> = {
   github: ['github_repo'],
   feishu_wiki: ['wiki_space', 'wiki_node'],
   feishu_drive: ['drive_folder'],
+  lark_wiki: ['wiki_space', 'wiki_node'],
+  lark_drive: ['drive_folder'],
+  notion: ['notion_page', 'notion_database', 'notion_data_source'],
+  confluence: ['confluence_space', 'confluence_page'],
+  yuque: ['yuque_repo'],
+  dingtalk: ['dingtalk_workspace', 'dingtalk_node'],
+  ima: ['ima_kb'],
+  seafile: ['seafile_repo'],
+  nextcloud: ['nextcloud_path'],
   gitlab: ['gitlab_project'],
   feed: ['feed'],
 };
@@ -3244,6 +2945,17 @@ const rangeKindLabel: Record<RangeKind, string> = {
   gitlab_project: 'GitLab 项目',
   github_repo: '仓库',
   feed: 'Feed',
+  notion_page: '页面',
+  notion_database: '数据库',
+  notion_data_source: '数据源',
+  confluence_space: '空间',
+  confluence_page: '页面',
+  yuque_repo: '知识库',
+  dingtalk_workspace: '知识空间',
+  dingtalk_node: '节点',
+  ima_kb: '知识库',
+  seafile_repo: '知识库',
+  nextcloud_path: '目录',
 };
 
 function rangeExternalLabel(kind: RangeKind): string {
@@ -3254,6 +2966,17 @@ function rangeExternalLabel(kind: RangeKind): string {
     gitlab_project: 'Project ID',
     github_repo: '仓库',
     feed: 'Feed 地址',
+    notion_page: '页面 UUID',
+    notion_database: '数据库 UUID',
+    notion_data_source: '数据源 UUID',
+    confluence_space: '空间 ID',
+    confluence_page: '页面 ID',
+    yuque_repo: '知识库 ID',
+    dingtalk_workspace: '知识空间 ID',
+    dingtalk_node: '节点 ID',
+    ima_kb: '知识库 ID',
+    seafile_repo: '库 ID',
+    nextcloud_path: '目录路径',
   }[kind];
 }
 
@@ -3264,7 +2987,8 @@ function newRangeDraft(kind: RangeKind): RangeDraft {
     kind,
     externalId: '',
     ref: null,
-    paths: [],
+    // Seafile 新行显式以 / 表示全库；清空输入不被当成全库。
+    paths: kind === 'seafile_repo' ? ['/'] : [],
     enabled: true,
   };
 }
@@ -3277,6 +3001,18 @@ function rangeIssue(type: SourceType, ranges: RangeDraft[]): string | null {
   if (type === 'gitlab' && ranges.some((range) => !range.ref?.trim())) {
     return '每个 GitLab 范围都需要 Ref';
   }
+  if (type === 'yuque' && ranges.some((range) => !/^[1-9]\d*$/.test(range.externalId.trim()))) {
+    return '语雀知识库 ID 需为正整数';
+  }
+  if (type === 'nextcloud' && ranges.some((range) => !range.externalId.trim().startsWith('/'))) {
+    return 'Nextcloud 目录路径需以 / 开头';
+  }
+  if (type === 'seafile') {
+    const pathIssue = ranges
+      .map((range) => seafilePathIssue(range.paths))
+      .find((value) => value !== null);
+    if (pathIssue) return pathIssue;
+  }
   if (!ranges.some((range) => range.enabled)) return '至少需要一个启用的范围';
   return null;
 }
@@ -3286,8 +3022,8 @@ function sourceDraftSignature(input: {
   type: SourceType;
   name: string;
   secret: string;
-  appId: string;
-  baseUrl: string;
+  fields: SourceFieldState;
+  authMode: AuthMode;
   cron: string;
   syncDeletions: boolean;
   status: KnowledgeSource['status'];
@@ -3296,7 +3032,7 @@ function sourceDraftSignature(input: {
   return JSON.stringify(input);
 }
 
-/** 列表行的目标摘要：仓库@ref / 飞书范围 / Feed，并带上 cron。 */
+/** 列表行的目标摘要：仓库@ref / 来源范围 / Feed，并带上 cron。 */
 function sourceTargetSummary(source: KnowledgeSource): string {
   const summary = source.ranges
     .map((range) => {
@@ -3305,7 +3041,9 @@ function sourceTargetSummary(source: KnowledgeSource): string {
       if (kind === 'gitlab_project') {
         return range.ref ? `${range.externalId}@${range.ref}` : range.externalId;
       }
-      if (kind === 'feed') return range.externalId;
+      if (kind === 'seafile_repo') {
+        return `${range.externalId}:${range.paths.join(', ') || '/'}`;
+      }
       return `${rangeKindLabel[kind]} ${range.externalId}`;
     })
     .join(' · ');
@@ -3328,8 +3066,8 @@ function RangeRows({
   type: SourceType;
   ranges: RangeDraft[];
   disabled: boolean;
-  /** 提交后按行显示缺外部 ID / Ref；未提交时不制造噪音。 */
-  errors: Array<{ externalId: string | null; ref: string | null }>;
+  /** 提交后按行显示缺外部 ID / Ref / Seafile 目录根；未提交时不制造噪音。 */
+  errors: Array<{ externalId: string | null; ref: string | null; paths: string | null }>;
   onChange: (ranges: RangeDraft[]) => void;
 }) {
   const kinds = rangeKinds[type];
@@ -3410,7 +3148,13 @@ function RangeRows({
                     : undefined
                 }
                 onChange={(event) => patch(index, { externalId: event.target.value })}
-                placeholder={range.kind === 'github_repo' ? 'owner/repo' : undefined}
+                placeholder={
+                  range.kind === 'github_repo'
+                    ? 'owner/repo'
+                    : range.kind === 'nextcloud_path'
+                      ? '/培训资料'
+                      : undefined
+                }
                 className="font-mono"
               />
               <FieldError id={`source-range-${index}-external-error`}>
@@ -3467,6 +3211,33 @@ function RangeRows({
                 </Field>
               </>
             ) : null}
+            {type === 'seafile' ? (
+              <Field className="gap-1.5 sm:col-span-2" data-invalid={errors[index]?.paths !== null}>
+                <FieldLabel htmlFor={`source-range-${index}-paths`}>目录根</FieldLabel>
+                <Input
+                  id={`source-range-${index}-paths`}
+                  value={range.paths.join(', ')}
+                  disabled={disabled}
+                  aria-invalid={errors[index]?.paths !== null}
+                  aria-describedby={
+                    errors[index]?.paths !== null ? `source-range-${index}-paths-error` : undefined
+                  }
+                  onChange={(event) =>
+                    patch(index, {
+                      paths: event.target.value.split(',').map((path) => path.trim()),
+                    })
+                  }
+                  placeholder="/ 表示整个库，或用逗号分隔多个库内相对目录"
+                  className="font-mono"
+                />
+                <FieldDescription>
+                  / 表示整个库；子目录按库内相对路径填写，例如 /Documents。
+                </FieldDescription>
+                <FieldError id={`source-range-${index}-paths-error`}>
+                  {errors[index]?.paths}
+                </FieldError>
+              </Field>
+            ) : null}
           </div>
         </div>
       ))}
@@ -3502,15 +3273,31 @@ function SourceDialog({
   const [type, setType] = useState<SourceType>(source ? source.type : 'feishu_wiki');
   const [name, setName] = useState(source?.name ?? '');
   const [secret, setSecret] = useState('');
-  const [appId, setAppId] = useState(() => configString(source, 'appId'));
-  const [baseUrl, setBaseUrl] = useState(() => configString(source, 'baseUrl'));
+  const [fields, setFields] = useState<SourceFieldState>(() => ({
+    ...emptySourceFields,
+    appId: configString(source, 'appId'),
+    baseUrl: configString(source, 'baseUrl'),
+    email: configString(source, 'email'),
+    cloudId: configString(source, 'cloudId'),
+    username: configString(source, 'username'),
+    operatorUnionId: configString(source, 'operatorUnionId'),
+    clientId: configString(source, 'clientId'),
+  }));
+  const [authMode, setAuthMode] = useState<AuthMode>(() =>
+    isAuthMode(source?.config.authMode) ? source.config.authMode : 'cloud_basic',
+  );
   const [cron, setCron] = useState(source?.syncCron ?? '');
   const [syncDeletions, setSyncDeletions] = useState(source?.config.syncDeletions === true);
   // auth_error 不在可写枚举里：保持原值，只有用户主动改状态才提交。
   const [status, setStatus] = useState<KnowledgeSource['status']>(source?.status ?? 'active');
   const [ranges, setRanges] = useState<RangeDraft[]>(() =>
     source
-      ? source.ranges.map(({ id, ...range }) => ({ ...range, clientId: id }))
+      ? source.ranges.map(({ id, ...range }) => ({
+          ...range,
+          clientId: id,
+          // 后端空 paths 表示全库；草稿显式写 /，清空后才是真正的空。
+          paths: range.kind === 'seafile_repo' && range.paths.length === 0 ? ['/'] : range.paths,
+        }))
       : [newRangeDraft(rangeKinds.feishu_wiki[0] as RangeKind)],
   );
   const [submitted, setSubmitted] = useState(false);
@@ -3520,8 +3307,8 @@ function SourceDialog({
       type: source ? source.type : 'feishu_wiki',
       name: source?.name ?? '',
       secret: '',
-      appId: configString(source, 'appId'),
-      baseUrl: configString(source, 'baseUrl'),
+      fields,
+      authMode,
       cron: source?.syncCron ?? '',
       syncDeletions: source?.config.syncDeletions === true,
       status: source?.status ?? 'active',
@@ -3530,7 +3317,7 @@ function SourceDialog({
   );
   const provider = sourceProvider(type);
   const ProviderIcon = provider.icon;
-  const credential = credentialField(type);
+  const credential = credentialField(type, authMode);
   const secretRequired = credential !== null && !(editing && source.hasSecret);
   const issue = rangeIssue(type, ranges);
   const normalized = ranges.map(toRangeInput);
@@ -3541,32 +3328,45 @@ function SourceDialog({
       type,
       name,
       secret,
-      appId,
-      baseUrl,
+      fields,
+      authMode,
       cron,
       syncDeletions,
       status,
       ranges,
     }) !== baseline;
   const guard = useDraftGuard(dirty, pending, onClose);
-  const fieldIssues = {
-    name: name.trim() === '' ? '请填写来源名称' : null,
-    appId:
-      type === 'feishu_wiki' || type === 'feishu_drive'
-        ? appId.trim() === ''
-          ? '请填写 App ID'
-          : null
+  const specs = (sourceFieldSpecs[type] ?? []).filter(
+    (spec) => spec.visible === undefined || spec.visible(authMode),
+  );
+  const fieldIssues = Object.fromEntries(
+    specs.map((spec) => [
+      spec.key,
+      sourceFieldRequired(spec, authMode) && fields[spec.key].trim() === ''
+        ? `请填写 ${spec.label}`
         : null,
-    baseUrl: type === 'gitlab' && baseUrl.trim() === '' ? '请填写实例 URL' : null,
-    secret: secretRequired && secret === '' ? `请填写 ${credential.label}` : null,
+    ]),
+  ) as Partial<Record<SourceFieldKey, string | null>>;
+  const nameIssue = name.trim() === '' ? '请填写来源名称' : null;
+  const secretIssue = secretRequired && secret === '' ? `请填写 ${credential.label}` : null;
+  const legacyIssues = {
+    appId:
+      (type === 'feishu_wiki' || type === 'feishu_drive') && fields.appId.trim() === ''
+        ? '请填写 App ID'
+        : null,
+    baseUrl: type === 'gitlab' && fields.baseUrl.trim() === '' ? '请填写实例 URL' : null,
   };
   const rowIssues = ranges.map((range) => ({
     externalId: range.externalId.trim() === '' ? `请填写${rangeExternalLabel(range.kind)}` : null,
     ref: type === 'gitlab' && !range.ref?.trim() ? '请填写 Ref' : null,
+    paths: type === 'seafile' ? seafilePathIssue(range.paths) : null,
   }));
   const hasSubmitIssue =
+    nameIssue !== null ||
+    secretIssue !== null ||
     Object.values(fieldIssues).some(Boolean) ||
-    rowIssues.some((row) => row.externalId !== null || row.ref !== null) ||
+    Object.values(legacyIssues).some(Boolean) ||
+    rowIssues.some((row) => row.externalId !== null || row.ref !== null || row.paths !== null) ||
     issue !== null;
 
   // 各类型的范围 kind 与外键含义不同，切换类型时整套重建，不能把旧行带过去；
@@ -3575,8 +3375,8 @@ function SourceDialog({
     const nextRanges = [newRangeDraft(rangeKinds[next][0] as RangeKind)];
     setType(next);
     setSecret('');
-    setBaseUrl('');
-    setAppId('');
+    setFields({ ...emptySourceFields });
+    setAuthMode('cloud_basic');
     setRanges(nextRanges);
     setStep('configure');
     setSubmitted(false);
@@ -3586,8 +3386,8 @@ function SourceDialog({
         type: next,
         name,
         secret: '',
-        appId: '',
-        baseUrl: '',
+        fields: { ...emptySourceFields },
+        authMode: 'cloud_basic',
         cron,
         syncDeletions,
         status,
@@ -3603,72 +3403,64 @@ function SourceDialog({
   };
 
   const buildConfig = (): Record<string, unknown> => {
-    if (type === 'feishu_wiki' || type === 'feishu_drive') {
-      return {
-        appId: appId.trim(),
-        ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-        syncDeletions,
-      };
+    switch (type) {
+      case 'feishu_wiki':
+      case 'feishu_drive':
+        return {
+          appId: fields.appId.trim(),
+          ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
+          syncDeletions,
+        };
+      case 'lark_wiki':
+      case 'lark_drive':
+        return { appId: fields.appId.trim(), syncDeletions };
+      case 'github':
+        // ref 属于每个 range，多仓库时不能把第一条写进公共 config。
+        return {
+          ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
+          projectId: normalized[0]?.externalId ?? '',
+          syncDeletions,
+        };
+      case 'gitlab':
+        return {
+          ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
+          projectId: normalized[0]?.externalId ?? '',
+          ref: ranges.find((range) => range.ref)?.ref?.trim() ?? '',
+          syncDeletions,
+        };
+      case 'notion':
+      case 'yuque':
+        return { syncDeletions };
+      case 'confluence':
+        return {
+          authMode,
+          baseUrl: fields.baseUrl.trim(),
+          ...(authMode === 'dc_pat' ? {} : { email: fields.email.trim() }),
+          ...(authMode === 'cloud_scoped' ? { cloudId: fields.cloudId.trim() } : {}),
+          syncDeletions,
+        };
+      case 'dingtalk':
+        return {
+          clientId: fields.clientId.trim(),
+          operatorUnionId: fields.operatorUnionId.trim(),
+          syncDeletions,
+        };
+      case 'ima':
+        return { clientId: fields.clientId.trim(), syncDeletions };
+      case 'seafile':
+        return { baseUrl: fields.baseUrl.trim(), syncDeletions };
+      case 'nextcloud':
+        return { baseUrl: fields.baseUrl.trim(), username: fields.username.trim(), syncDeletions };
+      default:
+        return {};
     }
-    if (type === 'github') {
-      // ref 属于每个 range，多仓库时不能把第一条写进公共 config。
-      return {
-        ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-        projectId: normalized[0]?.externalId ?? '',
-        syncDeletions,
-      };
-    }
-    if (type === 'gitlab') {
-      return {
-        ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-        projectId: normalized[0]?.externalId ?? '',
-        ref: ranges.find((range) => range.ref)?.ref?.trim() ?? '',
-        syncDeletions,
-      };
-    }
-    return {};
   };
 
   const buildInput = (): KnowledgeSourceInput => {
     const common = { name: name.trim(), syncCron, ranges: normalized };
-    if (type === 'feishu_wiki' || type === 'feishu_drive') {
-      return {
-        ...common,
-        type,
-        config: {
-          appId: appId.trim(),
-          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-          syncDeletions,
-        },
-        secrets: { appSecret: secret },
-      };
-    }
-    if (type === 'github') {
-      return {
-        ...common,
-        type,
-        config: {
-          ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-          projectId: normalized[0]?.externalId ?? '',
-          syncDeletions,
-        },
-        secrets: { token: secret },
-      };
-    }
-    if (type === 'gitlab') {
-      return {
-        ...common,
-        type,
-        config: {
-          baseUrl: baseUrl.trim(),
-          projectId: normalized[0]?.externalId ?? '',
-          ref: ranges.find((range) => range.ref)?.ref?.trim() ?? '',
-          syncDeletions,
-        },
-        secrets: { token: secret },
-      };
-    }
-    return { ...common, type: 'feed', config: { syncDeletions: false }, secrets: {} };
+    const secrets = credential ? { [credential.key]: secret } : {};
+    // 服务端 Zod 才是信任边界；这里只按所选 type 组装对应 wire 形状。
+    return { ...common, type, config: buildConfig(), secrets } as KnowledgeSourceInput;
   };
 
   const buildPatch = (target: KnowledgeSource) => {
@@ -3694,7 +3486,7 @@ function SourceDialog({
 
   const secretInput =
     credential === null ? null : (
-      <Field className="gap-1.5" data-invalid={submitted && fieldIssues.secret !== null}>
+      <Field className="gap-1.5" data-invalid={submitted && secretIssue !== null}>
         <FieldLabel htmlFor="knowledge-source-secret">
           {credential.label} {secretRequired ? <RequiredMark /> : null}
         </FieldLabel>
@@ -3704,18 +3496,16 @@ function SourceDialog({
           value={secret}
           autoComplete="off"
           disabled={pending}
-          aria-invalid={submitted && fieldIssues.secret !== null}
-          aria-describedby={
-            submitted && fieldIssues.secret ? 'knowledge-source-secret-error' : undefined
-          }
+          aria-invalid={submitted && secretIssue !== null}
+          aria-describedby={submitted && secretIssue ? 'knowledge-source-secret-error' : undefined}
           onChange={(event) => setSecret(event.target.value)}
           placeholder={editing ? (source.hasSecret ? '留空保持原凭证' : '填写凭证') : '填写凭据'}
         />
-        <FieldError id="knowledge-source-secret-error">
-          {submitted ? fieldIssues.secret : null}
-        </FieldError>
+        <FieldError id="knowledge-source-secret-error">{submitted ? secretIssue : null}</FieldError>
         {type === 'github' ? (
           <FieldDescription>需要 Contents 只读权限；私有仓库还需 Metadata 只读。</FieldDescription>
+        ) : credential.description ? (
+          <FieldDescription>{credential.description}</FieldDescription>
         ) : null}
       </Field>
     );
@@ -3748,8 +3538,11 @@ function SourceDialog({
               update.mutate(
                 { sourceId: source.id, patch: buildPatch(source) },
                 {
-                  onSuccess: () => {
-                    toastSuccess('来源已更新');
+                  onSuccess: (result) => {
+                    const revoked = result.disabledDocumentIds?.length ?? 0;
+                    toastSuccess(
+                      revoked > 0 ? `来源已更新，${revoked} 个文档立即撤权` : '来源已更新',
+                    );
                     guard.finish();
                   },
                   onError: toastError,
@@ -3816,7 +3609,7 @@ function SourceDialog({
                 <FieldGroup className="grid gap-3 sm:grid-cols-2">
                   <Field
                     className={cn('gap-1.5', !editing && 'sm:col-span-2')}
-                    data-invalid={submitted && fieldIssues.name !== null}
+                    data-invalid={submitted && nameIssue !== null}
                   >
                     <FieldLabel htmlFor="source-name">
                       名称 <RequiredMark />
@@ -3826,15 +3619,11 @@ function SourceDialog({
                       value={name}
                       maxLength={120}
                       disabled={pending}
-                      aria-invalid={submitted && fieldIssues.name !== null}
-                      aria-describedby={
-                        submitted && fieldIssues.name ? 'source-name-error' : undefined
-                      }
+                      aria-invalid={submitted && nameIssue !== null}
+                      aria-describedby={submitted && nameIssue ? 'source-name-error' : undefined}
                       onChange={(event) => setName(event.target.value)}
                     />
-                    <FieldError id="source-name-error">
-                      {submitted ? fieldIssues.name : null}
-                    </FieldError>
+                    <FieldError id="source-name-error">{submitted ? nameIssue : null}</FieldError>
                   </Field>
                   {editing ? (
                     <Field className="gap-1.5">
@@ -3876,24 +3665,26 @@ function SourceDialog({
                     <>
                       <Field
                         className="gap-1.5"
-                        data-invalid={submitted && fieldIssues.appId !== null}
+                        data-invalid={submitted && legacyIssues.appId !== null}
                       >
                         <FieldLabel htmlFor="source-app-id">
                           App ID <RequiredMark />
                         </FieldLabel>
                         <Input
                           id="source-app-id"
-                          value={appId}
+                          value={fields.appId}
                           disabled={pending}
-                          aria-invalid={submitted && fieldIssues.appId !== null}
+                          aria-invalid={submitted && legacyIssues.appId !== null}
                           aria-describedby={
-                            submitted && fieldIssues.appId ? 'source-app-id-error' : undefined
+                            submitted && legacyIssues.appId ? 'source-app-id-error' : undefined
                           }
-                          onChange={(event) => setAppId(event.target.value)}
+                          onChange={(event) =>
+                            setFields((previous) => ({ ...previous, appId: event.target.value }))
+                          }
                           className="font-mono"
                         />
                         <FieldError id="source-app-id-error">
-                          {submitted ? fieldIssues.appId : null}
+                          {submitted ? legacyIssues.appId : null}
                         </FieldError>
                       </Field>
                       {secretInput}
@@ -3901,9 +3692,11 @@ function SourceDialog({
                         <FieldLabel htmlFor="source-base-url">Base URL</FieldLabel>
                         <Input
                           id="source-base-url"
-                          value={baseUrl}
+                          value={fields.baseUrl}
                           disabled={pending}
-                          onChange={(event) => setBaseUrl(event.target.value)}
+                          onChange={(event) =>
+                            setFields((previous) => ({ ...previous, baseUrl: event.target.value }))
+                          }
                           placeholder="留空使用官方地址"
                           className="font-mono"
                         />
@@ -3915,9 +3708,11 @@ function SourceDialog({
                         <FieldLabel htmlFor="source-github-api">API 地址</FieldLabel>
                         <Input
                           id="source-github-api"
-                          value={baseUrl}
+                          value={fields.baseUrl}
                           disabled={pending}
-                          onChange={(event) => setBaseUrl(event.target.value)}
+                          onChange={(event) =>
+                            setFields((previous) => ({ ...previous, baseUrl: event.target.value }))
+                          }
                           placeholder="https://api.github.com"
                           className="font-mono"
                         />
@@ -3928,30 +3723,129 @@ function SourceDialog({
                     <>
                       <Field
                         className="gap-1.5"
-                        data-invalid={submitted && fieldIssues.baseUrl !== null}
+                        data-invalid={submitted && legacyIssues.baseUrl !== null}
                       >
                         <FieldLabel htmlFor="source-gitlab-url">
                           实例 URL <RequiredMark />
                         </FieldLabel>
                         <Input
                           id="source-gitlab-url"
-                          value={baseUrl}
+                          value={fields.baseUrl}
                           disabled={pending}
-                          aria-invalid={submitted && fieldIssues.baseUrl !== null}
+                          aria-invalid={submitted && legacyIssues.baseUrl !== null}
                           aria-describedby={
-                            submitted && fieldIssues.baseUrl ? 'source-gitlab-url-error' : undefined
+                            submitted && legacyIssues.baseUrl
+                              ? 'source-gitlab-url-error'
+                              : undefined
                           }
-                          onChange={(event) => setBaseUrl(event.target.value)}
+                          onChange={(event) =>
+                            setFields((previous) => ({ ...previous, baseUrl: event.target.value }))
+                          }
                           placeholder="https://gitlab.example.com"
                           className="font-mono"
                         />
                         <FieldError id="source-gitlab-url-error">
-                          {submitted ? fieldIssues.baseUrl : null}
+                          {submitted ? legacyIssues.baseUrl : null}
                         </FieldError>
                       </Field>
                       {secretInput}
                     </>
-                  ) : null}
+                  ) : (
+                    <>
+                      {type === 'confluence' ? (
+                        <Field className="gap-1.5 sm:col-span-2">
+                          <FieldLabel htmlFor="source-confluence-auth">认证模式</FieldLabel>
+                          <Select
+                            value={authMode}
+                            disabled={pending || editing}
+                            onValueChange={(next) => {
+                              if (!next || !isAuthMode(next)) return;
+                              setAuthMode(next);
+                              // 模式切换会换凭证类型，旧值不能带到新模式。
+                              setSecret('');
+                            }}
+                            items={authModeOptions}
+                          >
+                            <SelectTrigger id="source-confluence-auth" className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {authModeOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      ) : null}
+                      {specs.map((spec) => {
+                        const error = fieldIssues[spec.key] ?? null;
+                        const id = sourceFieldId(spec.key);
+                        return (
+                          <Field
+                            key={spec.key}
+                            className="gap-1.5"
+                            data-invalid={submitted && error !== null}
+                          >
+                            <FieldLabel htmlFor={id}>
+                              {spec.label}{' '}
+                              {sourceFieldRequired(spec, authMode) ? <RequiredMark /> : null}
+                            </FieldLabel>
+                            <Input
+                              id={id}
+                              value={fields[spec.key]}
+                              disabled={pending || (editing && spec.identity === true)}
+                              aria-invalid={submitted && error !== null}
+                              aria-describedby={submitted && error ? `${id}-error` : undefined}
+                              onChange={(event) =>
+                                setFields((previous) => ({
+                                  ...previous,
+                                  [spec.key]: event.target.value,
+                                }))
+                              }
+                              placeholder={spec.placeholder}
+                              className="font-mono"
+                            />
+                            <FieldError id={`${id}-error`}>{submitted ? error : null}</FieldError>
+                          </Field>
+                        );
+                      })}
+                      {secretInput}
+                      {type === 'lark_wiki' || type === 'lark_drive' ? (
+                        <FieldDescription className="sm:col-span-2">
+                          使用 Lark 应用（open.larksuite.com），与飞书应用不互通。
+                        </FieldDescription>
+                      ) : type === 'notion' ? (
+                        <FieldDescription className="sm:col-span-2">
+                          连接需有读取权限，目标页面或数据库已共享给该连接。
+                        </FieldDescription>
+                      ) : type === 'confluence' ? (
+                        <FieldDescription className="sm:col-span-2">
+                          Cloud 使用 Email + API Token；Data Center 使用
+                          PAT。认证模式与站点在创建后不可修改。
+                        </FieldDescription>
+                      ) : type === 'yuque' ? (
+                        <FieldDescription className="sm:col-span-2">
+                          知识库 ID 为语雀的数字 ID，不是 namespace 或 slug。
+                        </FieldDescription>
+                      ) : type === 'ima' ? (
+                        <FieldDescription className="sm:col-span-2">
+                          笔记仅作者可读；部分媒体不提供原文下载。
+                        </FieldDescription>
+                      ) : type === 'seafile' ? (
+                        <FieldDescription className="sm:col-span-2">
+                          适用于 Seafile 11+，使用 Bearer API Token。
+                        </FieldDescription>
+                      ) : type === 'nextcloud' ? (
+                        <FieldDescription className="sm:col-span-2">
+                          使用账号的应用密码，不读取网页登录 Cookie。
+                        </FieldDescription>
+                      ) : null}
+                    </>
+                  )}
                 </FieldGroup>
               </div>
               <div className="flex flex-col gap-2">
@@ -3962,8 +3856,8 @@ function SourceDialog({
                   disabled={pending}
                   errors={ranges.map((_, index) =>
                     submitted
-                      ? (rowIssues[index] ?? { externalId: null, ref: null })
-                      : { externalId: null, ref: null },
+                      ? (rowIssues[index] ?? { externalId: null, ref: null, paths: null })
+                      : { externalId: null, ref: null, paths: null },
                   )}
                   onChange={setRanges}
                 />
@@ -4034,7 +3928,109 @@ function SourceDialog({
 }
 
 /** 每个展开的来源各自取同步记录；收起动画期间仍显示自己的数据。 */
-function SourceRuns({ sourceId }: { sourceId: string }) {
+function SourceProbeStatus({ jobId }: { jobId: string }) {
+  const job = useKnowledgeJobDetail(jobId);
+  if (job.isPending) {
+    return <span className="text-2xs text-muted-foreground">连接测试进行中…</span>;
+  }
+  if (job.isError) {
+    return <span className="text-2xs text-danger">连接测试结果没有加载出来。</span>;
+  }
+  const result = job.data?.result;
+  if (!result) {
+    return (
+      <span className="text-2xs text-muted-foreground">
+        连接测试{job.data?.status === 'failed' ? '失败' : '进行中'}
+        {job.data?.error ? ` · ${knowledgeJobErrorText(job.data.error)}` : ''}
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-0.5 rounded-item border border-line px-2 py-1">
+      <span className={`text-2xs ${result.ok ? 'text-success' : 'text-danger'}`}>
+        连接测试{result.ok ? '通过' : '失败'}
+      </span>
+      {result.checks.map((check) => (
+        <span key={check.rangeId} className="text-2xs text-muted-foreground">
+          {check.rangeId} · {check.ok ? '可读' : (check.code ?? '不可读')}
+          {check.message ? ` · ${check.message}` : ''}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function SyncRunItems({
+  sourceId,
+  syncRunId,
+  onOpenDocument,
+}: {
+  sourceId: string;
+  syncRunId: string;
+  onOpenDocument: (documentId: string) => void;
+}) {
+  const items = useKnowledgeSyncItems(sourceId, syncRunId);
+  if (items.isPending) return <span className="text-2xs text-muted-foreground">加载中…</span>;
+  if (items.isError && items.data === undefined) {
+    return (
+      <Button variant="link" size="xs" onClick={() => void items.refetch()}>
+        逐项结果没有加载出来，重试
+      </Button>
+    );
+  }
+  const itemRows = items.data?.pages.flatMap((page) => page.items) ?? [];
+  if (itemRows.length === 0) {
+    return <span className="text-2xs text-muted-foreground">没有失败或跳过项</span>;
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-1">
+        {itemRows.map((item) => (
+          <li key={item.id} className="flex flex-wrap items-center gap-2 text-2xs">
+            <StatusBadge tone={item.status === 'failed' ? 'danger' : 'outline'}>
+              {item.status === 'failed' ? '失败' : '跳过'}
+            </StatusBadge>
+            <span className="font-mono text-muted-foreground">{item.externalId}</span>
+            <span className="text-danger">
+              {item.code}
+              {item.message ? `: ${item.message}` : ''}
+            </span>
+            {item.documentId ? (
+              <Button
+                variant="link"
+                size="xs"
+                onClick={() => onOpenDocument(item.documentId ?? '')}
+              >
+                打开文档
+              </Button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {items.hasNextPage ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={items.isFetchingNextPage}
+          onClick={() => void items.fetchNextPage()}
+        >
+          {items.isFetchingNextPage ? '加载中…' : '加载更多逐项结果'}
+        </Button>
+      ) : null}
+      {items.isFetchNextPageError ? (
+        <ErrorState error={items.error} onRetry={() => void items.fetchNextPage()} />
+      ) : null}
+    </div>
+  );
+}
+
+function SourceRuns({
+  sourceId,
+  onOpenDocument,
+}: {
+  sourceId: string;
+  onOpenDocument: (documentId: string) => void;
+}) {
   const runs = useKnowledgeSourceRuns(sourceId);
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-item bg-sunken/40 p-2">
@@ -4051,17 +4047,33 @@ function SourceRuns({ sourceId }: { sourceId: string }) {
       {runs.data && runs.data.length > 0 ? (
         <ul className="flex flex-col gap-1">
           {runs.data.map((run) => (
-            <li key={run.id} className="flex flex-wrap items-center gap-2 text-2xs">
-              <StatusBadge tone={jobStatusTone[run.status]}>
-                {jobStatusLabel[run.status]}
-              </StatusBadge>
-              <span className="text-muted-foreground">
-                新增 {run.stats.created} · 更新 {run.stats.updated} · 失败 {run.stats.failed}
-              </span>
-              <span className="text-muted-foreground">
-                {formatDateTime(run.startedAt ?? run.createdAt)}
-              </span>
-              {run.error ? <span className="text-danger">{run.error}</span> : null}
+            <li key={run.id} className="flex flex-col gap-1 text-2xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone={jobStatusTone[run.status]}>
+                  {jobStatusLabel[run.status]}
+                </StatusBadge>
+                <span className="text-muted-foreground">
+                  新增 {run.stats.created} · 更新 {run.stats.updated} · 失败 {run.stats.failed}
+                </span>
+                <span className="text-muted-foreground">
+                  {formatDateTime(run.startedAt ?? run.createdAt)}
+                </span>
+                {run.error ? <span className="text-danger">{run.error}</span> : null}
+              </div>
+              {/* 统计没有 skipped 字段，也始终给出逐项入口：仅有跳过项时同样能展开。 */}
+              <details className="pl-2">
+                <summary className="cursor-pointer text-muted-foreground">
+                  逐项结果
+                  {run.stats.failed > 0 ? ` · 失败 ${run.stats.failed}` : ''}
+                </summary>
+                <div className="mt-1">
+                  <SyncRunItems
+                    sourceId={sourceId}
+                    syncRunId={run.id}
+                    onOpenDocument={onOpenDocument}
+                  />
+                </div>
+              </details>
             </li>
           ))}
         </ul>

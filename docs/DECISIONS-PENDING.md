@@ -80,9 +80,13 @@
 
 ---
 
-## D-9 ✅ 知识库 / RAG 建设范围（2026-10-25 更新）
+## D-9 ✅ 知识库 / RAG 建设范围（2026-10-31 更新）
 
-**当前决定**：建设 PACE 内置知识库，管理资料后绑定指定专家使用；参考 WeKnora 已有能力和处理逻辑，不完整照搬其独立产品，不额外建设外部智能体平台授权接入。包含文档处理、检索引用、Wiki、Feeds、外部同步和文件删除；同步来源包括 GitHub、GitLab、飞书。多模态按 WeKnora 现有图片 OCR/描述、索引检索、专家取图与引用链路适配，不自创方案。分阶段只用于依赖管理与验收，不将已确认目标擅自降为可选项。
+**本轮最新有效范围**：用户已明确授权以本地 WeKnora 核心知识库完整参照，先列缺失任务，再并行补齐管理与智能体结合；无需再次确认进入实现。FAQ（标准问、相似问、反例、多答案、启停、导入导出、命中测试）属于本轮核心；手写/分块版本不可变、草稿与发布、范围撤权、检索诊断、已发布 Wiki 消费与组织、批量管理、完整引用及离线检索评估一并补齐。音频 ASR、GraphRAG、其余九种来源及真实服务验收仍在本轮范围，实际账号、模型配置/费用、新增独立服务等只阻塞对应项，不阻塞无外部依赖的核心实现。当前执行权威见 [WeKnora 补齐任务契约](tasks/knowledge-weknora.md)。未授权 commit/push/merge、生产部署、共享库迁移、新增独立服务或付费真实请求；任务 worktree 内实现与随机 PG/临时 Redis 验证可继续。下文 2026-10-25 实施状态为历史快照，不代表本轮已验收。
+
+**2026-10-31 能力决定**：音频 ASR 固定单一 OpenAI Transcriptions multipart + `verbose_json` 段级时间协议，profile 保存完整最终 Endpoint URL、model 与可选加密 key，不新增协议/供应商选择、转码器或独立服务；知识入口只接受 mp3/wav/m4a/flac/ogg，单文件上限 25,000,000 字节，无 segments 时只索引文本、不编造时码。关闭/切换 ASR 只影响后续摄取，历史音频版本与引用仍可读；profile 测试入口返回 409，验证只能通过显式上传并可能计费。来源连接扩为 14 种（原五种加 Lark wiki/drive、Notion、Confluence、语雀、钉钉、IMA、Seafile、Nextcloud；WeKnora 的 13 种不含 GitHub），新增类型使用完整快照重读 + 内容哈希增量，不搬 changed-only、不以“未再出现”直接推导删除；连接身份字段创建后不可 PATCH 更换，换站点/账号需新建来源。以上 ASR 与九种来源的本地实现已落，真实转录质量/费用、真实账号/配额、Docling/Cohere 与 GraphRAG 仍未验收或待依赖，不标整体完成。
+
+**当前决定**：建设 PACE 内置知识库，管理资料后绑定指定专家使用；参考 WeKnora 已有能力和处理逻辑，不完整照搬其独立产品，不额外建设外部智能体平台授权接入。包含文档处理、检索引用、Wiki、Feeds、外部同步和文件删除；同步来源包括 GitHub、GitLab、飞书（2026-10-31 已扩至 14 种，见上）。多模态按 WeKnora 现有图片 OCR/描述、索引检索、专家取图与引用链路适配，不自创方案。分阶段只用于依赖管理与验收，不将已确认目标擅自降为可选项。
 
 智能体执行继续统一使用 Claude Agent SDK；知识接入定义通过官方 `.mcp.json`、技能及支持资源表达，知识语料与索引作为平台内容独立管理，不自创智能体定义格式。复用现有专家/聊天/认证/队列，组件选型、外部系统凭证和部署验证随具体阶段完成。
 
@@ -92,7 +96,7 @@
 - 知识库连接器使用独立 `servers.kind='knowledge'`，只接受 run 短期 token；不出现在普通连接器列表，不能经 `/api/servers` 修改或删除。
 - `serverInputSchema` 刻意不含 `knowledge`（读/写类型分离），防止用户伪造内置连接。
 - 检索为关键词（应用侧 `Intl.Segmenter` 分词 + `plainto_tsquery`）与 pgvector 向量两路 RRF 融合，embedding 不可用时降级并标 `degraded`。
-- 外部来源归属记在 `metadata.knowledgeSourceId`；`source_id` 存外部条目 ID。
+- 外部来源归属以 `source_connection_id` 与 `knowledge_document_source_ranges` 的实际关联为准；`source_id` 存含来源连接前缀的外部条目 ID。早期 `metadata.knowledgeSourceId` 投影已被本轮明确关系替代，不能承担来源授权。
 - 原“不做内置 RAG，文档检索仅交给外部服务”已被替代。
 
 ---

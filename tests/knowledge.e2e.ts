@@ -5,19 +5,19 @@ import { expect } from 'e2e';
 /**
  * 知识库端到端验收：真实页面 + 真实 API，不调用付费模型、不伪造索引。
  *
- * 依赖知识库联调实例（API 3305、库 pace_knowledge_browser、embedding 夹具 3356）：
+ * 依赖知识库联调实例（用 E2E_APP_URL 指向；本地夹具地址可由 E2E_KNOWLEDGE_FEED_URL 覆盖）：
  * 仅该实例的 KNOWLEDGE_PRIVATE_HOST_ALLOWLIST 放行本地夹具。检索与文档检查器读
  * 已由 worker 处理为 ready 的种子文档；写路径只验证"入队"，不假装完成 ingest。
  */
 const skipUnlessKnowledgeRuntime =
   process.env.E2E_KNOWLEDGE_SEED === '1'
     ? false
-    : '需要知识库联调实例：E2E_APP_URL 指向 3305 且设置 E2E_KNOWLEDGE_SEED=1';
+    : '需要知识库联调实例：把 E2E_APP_URL 指向该实例并设置 E2E_KNOWLEDGE_SEED=1';
 
 const SEEDED_BASE_NAME = '知识库浏览器联调';
 const SEEDED_DOCUMENT_TITLE = 'browser-note';
 /** 本地 RSS 协议夹具：只证明来源抓取链路，不接真实订阅。 */
-const FIXTURE_FEED_URL = 'http://127.0.0.1:3356/feed.xml';
+const FIXTURE_FEED_URL = process.env.E2E_KNOWLEDGE_FEED_URL ?? 'http://127.0.0.1:3356/feed.xml';
 
 interface KnowledgeBase {
   id: string;
@@ -36,8 +36,8 @@ interface Workspace {
 
 const knowledgeTest = test.extend<{ workspace: Workspace }>({
   workspace: async ({ app, browser }, use) => {
-    const baseUrl = app.baseUrl;
-    if (!baseUrl) throw new Error('E2E app URL is required for knowledge fixtures');
+    const baseUrl = process.env.E2E_APP_URL ?? app.baseUrl;
+    if (!baseUrl) throw new Error('E2E_APP_URL is required for knowledge fixtures');
     // 会话先于 fixture 恢复；这里用页面 cookie 直接打真实 API。
     const cookie = (await browser.cookies()).map((item) => `${item.name}=${item.value}`).join('; ');
     const api = async (path: string, init: RequestInit = {}): Promise<Response> => {
@@ -215,30 +215,47 @@ knowledgeTest(
   async ({ app, screen, workspace }) => {
     const suffix = workspace.suffix;
     const base = await workspace.createBase(`e2e-wiki-${suffix}`, `E2E Wiki 知识库 ${suffix}`);
+    // 只建页面，不写正文：无版本页的首稿必须从 UI 编辑器创建。
     const page = (await (
       await workspace.api(`/api/knowledge/bases/${base.id}/wiki-pages`, {
         method: 'POST',
         body: JSON.stringify({ slug: 'release-notes', title: `发布说明 ${suffix}` }),
       })
     ).json()) as { id: string };
-    // 页面没有新建正文入口；用 API 写入首个人工版本（manual 即发布），只把编辑留在 UI。
-    await workspace.api(`/api/knowledge/wiki-pages/${page.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ markdown: `# 发布说明 ${suffix}\n\n初始正文 ${suffix}。` }),
-    });
 
     await app.open(`/knowledge/${base.id}?panel=wiki&page=${page.id}`);
     await expect(screen.getByRole('heading', { level: 1, name: base.name })).toBeVisible();
-    await expect(screen.getByRole('heading', { name: `发布说明 ${suffix}` }).first()).toBeVisible();
-    await expect(screen.getByText(`初始正文 ${suffix}`, { exact: false })).toBeVisible();
+    await expect(screen.getByText('还没有正文', { exact: true })).toBeVisible();
 
+    // 首稿：打开空编辑器，输入正文后保存草稿（expectedVersion 为 null）。
     await screen.getByRole('button', '编辑正文', { exact: true }).tap();
     const editor = screen.getByRole('dialog');
-    await editor.getByLabel('Markdown').fill(`# 发布说明 ${suffix}\n\nUI 修订 ${suffix}。`);
-    await screen.getByRole('button', '保存', { exact: true }).tap();
-    await expect(screen.getByText('Wiki 已发布为新版本')).toBeVisible();
+    await editor.getByLabel('Markdown').fill(`# 发布说明 ${suffix}\n\n初始正文 ${suffix}。`);
+    await screen.getByRole('button', '保存草稿', { exact: true }).tap();
+    await expect(screen.getByText('Wiki 草稿已保存，发布后才会上线')).toBeVisible();
     await expect(editor).not.toBeVisible();
+    await expect(screen.getByText('草稿预览', { exact: true })).toBeVisible();
+    await expect(screen.getByText(`初始正文 ${suffix}`, { exact: false })).toBeVisible();
 
+    // 版本列表里显式发布首稿后才上线。
+    await screen.getByRole('button', '发布此版本', { exact: true }).first().tap();
+    await screen.getByRole('button', '发布', { exact: true }).tap();
+    await expect(screen.getByText('当前发布', { exact: true })).toBeVisible();
+    await expect(screen.getByText(`初始正文 ${suffix}`, { exact: false })).toBeVisible();
+
+    // 第二稿只追加草稿，线上仍是首稿。
+    await screen.getByRole('button', '编辑正文', { exact: true }).tap();
+    const secondEditor = screen.getByRole('dialog');
+    await secondEditor.getByLabel('Markdown').fill(`# 发布说明 ${suffix}\n\nUI 修订 ${suffix}。`);
+    await screen.getByRole('button', '保存草稿', { exact: true }).tap();
+    await expect(screen.getByText('Wiki 草稿已保存，发布后才会上线')).toBeVisible();
+    await expect(secondEditor).not.toBeVisible();
+    await expect(screen.getByText(`初始正文 ${suffix}`, { exact: false })).toBeVisible();
+    await expect(screen.getByText(`UI 修订 ${suffix}`, { exact: false })).toHaveCount(0);
+
+    // 显式发布第二稿后才改变线上正文。
+    await screen.getByRole('button', '发布此版本', { exact: true }).first().tap();
+    await screen.getByRole('button', '发布', { exact: true }).tap();
     await expect(screen.getByText(`UI 修订 ${suffix}`, { exact: false }).first()).toBeVisible();
     await expect(screen.getByText('当前发布', { exact: true })).toBeVisible();
     await expect(screen.getByText('人工编辑', { exact: true }).first()).toBeVisible();

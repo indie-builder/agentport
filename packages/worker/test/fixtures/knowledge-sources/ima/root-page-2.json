@@ -1,0 +1,15 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "knowledge_list": [
+      {
+        "media_id": "m-dup",
+        "title": "Manual",
+        "parent_folder_id": ""
+      }
+    ],
+    "is_end": true,
+    "next_cursor": ""
+  }
+}

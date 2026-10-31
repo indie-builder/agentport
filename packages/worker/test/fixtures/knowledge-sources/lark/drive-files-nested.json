@@ -1,0 +1,15 @@
+{
+  "code": 0,
+  "data": {
+    "files": [
+      {
+        "token": "raw2",
+        "name": "nested.bin",
+        "type": "file",
+        "url": "https://larksuite.com/file/raw2"
+      }
+    ],
+    "has_more": false,
+    "next_page_token": ""
+  }
+}

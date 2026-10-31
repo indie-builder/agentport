@@ -1,0 +1,14 @@
+{
+  "object": "block",
+  "id": "99999999-9999-4999-8999-999999999999",
+  "type": "file",
+  "has_children": false,
+  "file": {
+    "type": "file",
+    "name": "uploaded.docx",
+    "file": {
+      "url": "http://127.0.0.1:4444/files/upload.pdf",
+      "expiry_time": "2099-01-01T00:00:00.000Z"
+    }
+  }
+}

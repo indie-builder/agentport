@@ -1,0 +1,11 @@
+{
+  "data": {
+    "id": 999,
+    "type": "Doc",
+    "slug": "mismatch",
+    "title": "Wrong doc",
+    "status": 1,
+    "body": "wrong body",
+    "content_updated_at": "2026-10-06T08:00:00.000Z"
+  }
+}

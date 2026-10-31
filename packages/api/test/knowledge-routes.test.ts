@@ -271,6 +271,7 @@ describe('knowledge routes', () => {
           'progress',
           'attempts',
           'error',
+          'result',
           'createdAt',
           'startedAt',
           'endedAt',
@@ -550,27 +551,30 @@ describe('knowledge routes', () => {
     }
   });
 
-  it('新增分块拒绝其他文档的版本，序号取整版最大值', async () => {
+  it('新增分块要求当前版本指针，拒绝伪造旧版本，序号取整版最大值', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
     const target = await seedReadyDocument(base.id, embedding, '目标 文档');
     const other = await seedReadyDocument(base.id, embedding, '其他 文档');
 
+    // 不传 expectedVersionId 是入口校验失败。
+    const missing = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/documents/${target.documentId}/chunks`,
+      headers: { cookie },
+      payload: { content: '越权写入' },
+    });
+    expect(missing.statusCode, missing.body).toBe(400);
+
+    // 传别的文档版本指针不能覆盖当前指针。
     const foreign = await inject(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${target.documentId}/chunks`,
       headers: { cookie },
-      payload: { versionId: other.versionId, content: '越权写入' },
+      payload: { expectedVersionId: other.versionId, content: '越权写入' },
     });
-    expect(foreign.statusCode, foreign.body).toBe(400);
-
-    // 读路径同样不能借 documentId 读别人的版本。
-    const foreignRead = await inject(app, {
-      method: 'GET',
-      url: `/api/knowledge/documents/${target.documentId}/chunks?versionId=${other.versionId}`,
-      headers: { cookie },
-    });
-    expect(foreignRead.statusCode, foreignRead.body).toBe(400);
+    expect(foreign.statusCode, foreign.body).toBe(409);
+    expect(foreign.json()).toMatchObject({ code: 'CONFLICT_STALE' });
 
     // 超过单页 200 条后，序号仍必须接在整版最大值之后。
     await app.pool.query(
@@ -583,11 +587,11 @@ describe('knowledge routes', () => {
       method: 'POST',
       url: `/api/knowledge/documents/${target.documentId}/chunks`,
       headers: { cookie },
-      payload: { content: '人工补充' },
+      payload: { expectedVersionId: target.versionId, content: '人工补充' },
     });
     expect(created.statusCode, created.body).toBe(201);
-    // 种子行是 0，批量插入 1..250；首页只覆盖前 200 条，页尾最大值才决定下一个序号。
-    expect(created.json<{ ordinal: number }>().ordinal).toBe(251);
+    // 种子行是 0，批量插入 1..250；新版按原顺序克隆后追加，序号接在尾部。
+    expect(created.json<{ chunk: { ordinal: number } }>().chunk.ordinal).toBe(251);
   });
 
   it('重建拒绝其他知识库的文档', async () => {
@@ -642,6 +646,7 @@ describe('knowledge routes', () => {
       baseId: base.id,
       documentIds,
       chunksOnly: true,
+      confirmOverwriteManualChunks: false,
     });
   });
 
@@ -706,6 +711,7 @@ describe('knowledge routes', () => {
       baseId: base.id,
       documentIds: [documentId, documentId],
       chunksOnly: false,
+      confirmOverwriteManualChunks: false,
     });
   });
 
@@ -727,6 +733,7 @@ describe('knowledge routes', () => {
       baseId: base.id,
       documentIds: [],
       chunksOnly: false,
+      confirmOverwriteManualChunks: false,
     });
   });
 
@@ -747,6 +754,7 @@ describe('knowledge routes', () => {
       type: 'reindex',
       baseId: base.id,
       chunksOnly: true,
+      confirmOverwriteManualChunks: false,
     });
   });
 
@@ -944,11 +952,14 @@ describe('knowledge routes', () => {
         'enabled',
         'heading',
         'id',
+        'indexRole',
         'kind',
+        'locator',
         'metadata',
         'ordinal',
         'pageFrom',
         'pageTo',
+        'parentOrdinal',
         'versionId',
       ].sort(),
     );

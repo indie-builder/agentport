@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "id": 201,
+      "type": "Doc",
+      "slug": "draft",
+      "title": "Draft",
+      "status": 0,
+      "content_updated_at": "2026-10-05T08:00:00.000Z"
+    },
+    {
+      "id": 202,
+      "type": "Sheet",
+      "slug": "sheet",
+      "title": "Sheet",
+      "status": 1,
+      "content_updated_at": "2026-10-05T09:00:00.000Z"
+    }
+  ],
+  "meta": { "total": 2 }
+}

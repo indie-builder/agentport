@@ -1,16 +1,45 @@
 import { createHash } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
-import { BlockList, isIP } from 'node:net';
 import { parseFeed, parseJsonFeed } from 'feedsmith';
 import TurndownService from 'turndown';
 import { z } from 'zod';
+import { probeConfluence, readConfluence } from './source-confluence.js';
+import { probeDingtalk, readDingtalk } from './source-dingtalk.js';
+import {
+  type FetchOptions,
+  fetchBytes,
+  fetchChecked,
+  fetchJson,
+  readBytesCapped,
+  SourceAuthError,
+  type SourceUrlOptions,
+  validateSourceUrl,
+} from './source-http.js';
+import { probeIma, readIma } from './source-ima.js';
+import { probeNextcloud, readNextcloud } from './source-nextcloud.js';
+import { probeNotion, readNotion } from './source-notion.js';
+import { probeSeafile, readSeafile } from './source-seafile.js';
+import { probeYuque, readYuque } from './source-yuque.js';
+
+export { SourceAuthError, validateSourceUrl } from './source-http.js';
+export type { FetchOptions, SourceUrlOptions };
 
 /**
  * External knowledge sources for the worker. This leaf has no DB/shared imports so
  * the ingestion jobs can adopt it without a schema change.
  */
 export type SourceConfig = {
-  type: 'rss' | 'gitlab' | 'github' | 'feishu';
+  type:
+    | 'rss'
+    | 'gitlab'
+    | 'github'
+    | 'feishu'
+    | 'notion'
+    | 'confluence'
+    | 'yuque'
+    | 'dingtalk'
+    | 'ima'
+    | 'seafile'
+    | 'nextcloud';
   url: string;
   credentials: Record<string, string>;
   settings: Record<string, unknown>;
@@ -26,18 +55,30 @@ export type SourceItem = {
   path: string;
   sourceUrl: string;
   content: string;
+  /** 二进制原件；解析器按字节与 MIME 处理，文本来源不使用。 */
+  bytes?: Uint8Array;
   mimeType: string;
+  /** provider 的真实版本标识（如 last_edited_time）；没有可靠版本时留空，由字节哈希判断变化。 */
+  revision?: string;
   deleted?: boolean;
+  /** feed 是滚动窗口：全文抓取失败时只剩摘要，摄取层据此不许把已有全文降级。 */
+  completeness?: 'full' | 'summary';
 };
 
-/**
- * Credentials or permissions were revoked (HTTP 401/403, documented Feishu tenant-token codes).
- * Distinct from network/timeout/rate-limit failures, which must never disable a source.
- */
-export class SourceAuthError extends Error {
+/** 单个外部条目的持久失败：不阻断其它条目，但本轮不能据此推导删除。 */
+export type SourceFailure = {
+  externalId: string;
+  title: string;
+  code: string;
+  message: string;
+  retryable: boolean;
+};
+
+/** 分页上限/空页仍未证明终页：单项失败，不能把截断内容当完整文档发布。 */
+class SourceTruncatedError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'SourceAuthError';
+    this.name = 'SourceTruncatedError';
   }
 }
 
@@ -46,21 +87,12 @@ const FEISHU_AUTH_CODES = new Set([99991661, 99991663, 99991668]);
 
 export type SourceSnapshot = {
   items: SourceItem[];
+  /** 单项失败/不支持：继续读其它条目，但整轮不能算完整枚举。 */
+  failures?: SourceFailure[];
   cursor: Record<string, unknown>;
   /** False when the source cannot prove it listed everything (feeds roll items off). */
   complete: boolean;
 };
-
-export type SourceUrlOptions = {
-  allowedOrigins?: string[];
-  allowLoopback?: boolean;
-  /** Exactly-matched `host` / `host:port` entries that may resolve to private addresses. */
-  trustedHosts?: readonly string[];
-};
-
-function hostKey(url: URL): string {
-  return url.port ? `${url.hostname}:${url.port}` : url.hostname;
-}
 
 /** SourceConfig carries the deployment allowlist; each reader forwards it to every hop. */
 function urlOptions(config: SourceConfig): SourceUrlOptions {
@@ -70,256 +102,30 @@ function urlOptions(config: SourceConfig): SourceUrlOptions {
   };
 }
 
-const TIMEOUT_MS = 20_000;
-const MAX_REDIRECTS = 5;
-const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_FEISHU_BLOCKS = 50_000;
-/** An error body only classifies the failure; never let a stalled one hold the request. */
-const ERROR_BODY_TIMEOUT_MS = 2_000;
-
-const PRIVATE_V4: Array<[string, number]> = [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.168.0.0', 16],
-  ['100.64.0.0', 10],
-  ['192.0.0.0', 24],
-  ['192.88.99.0', 24],
-  ['224.0.0.0', 4],
-  ['240.0.0.0', 4],
-  ['255.255.255.255', 32],
-];
-const PRIVATE_V6: Array<[string, number]> = [
-  ['::', 128],
-  ['::1', 128],
-  ['::ffff:0:0', 96],
-  ['fc00::', 7],
-  ['fe80::', 10],
-  ['ff00::', 8],
-  ['2001:db8::', 32],
-];
-
-const privateV4 = new BlockList();
-for (const [network, prefix] of PRIVATE_V4) privateV4.addSubnet(network, prefix, 'ipv4');
-const privateV6 = new BlockList();
-for (const [network, prefix] of PRIVATE_V6) privateV6.addSubnet(network, prefix, 'ipv6');
-
-function stripBrackets(host: string): string {
-  return host.replace(/^\[|\]$/g, '');
-}
-
-function isLoopbackAddress(ip: string): boolean {
-  const bare = stripBrackets(ip).toLowerCase();
-  const embedded = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(bare)?.[1];
-  if (embedded) return embedded.startsWith('127.');
-  if (isIP(bare) === 4) return bare.startsWith('127.');
-  if (isIP(bare) === 6) return bare === '::1';
-  return bare === 'localhost';
-}
-
-function isPrivateAddress(ip: string): boolean {
-  const bare = stripBrackets(ip);
-  const embedded = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(bare)?.[1];
-  if (embedded) return privateV4.check(embedded, 'ipv4');
-  if (isIP(bare) === 4) return privateV4.check(bare, 'ipv4');
-  if (isIP(bare) === 6) return privateV6.check(bare, 'ipv6');
-  return true;
-}
-
-/**
- * http(s) only, no URL credentials, and (unless allowLoopback) never a private address.
- * allowedOrigins must be exact origins; `https://host/path` is rejected instead of
- * silently allowing a whole host. trustedHosts is deployment config (env), never user
- * config: an exact `host`/`host:port` match lets a private host through. DNS rebinding
- * between check and fetch needs a network-level egress allowlist; this is the
- * app-level guard.
- */
-export async function validateSourceUrl(raw: string, options: SourceUrlOptions = {}): Promise<URL> {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error(`invalid source URL: ${raw}`);
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error(`source URL must use http or https: ${raw}`);
-  }
-  if (url.username || url.password) {
-    throw new Error('source URL must not contain credentials; put them in credentials');
-  }
-
-  if (options.allowedOrigins) {
-    const origins = options.allowedOrigins.map((origin) => {
-      let parsed: URL;
-      try {
-        parsed = new URL(origin);
-      } catch {
-        throw new Error(`allowedOrigins entry is not a URL: ${origin}`);
-      }
-      if (parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username) {
-        throw new Error(`allowedOrigins entries must be exact origins: ${origin}`);
-      }
-      return parsed.origin;
-    });
-    if (!origins.includes(url.origin)) {
-      throw new Error(`source URL origin is not allowed: ${url.origin}`);
-    }
-  }
-
-  const host = stripBrackets(url.hostname);
-  // Explicit opt-in for local fixtures; production never accepts loopback.
-  if (options.allowLoopback && process.env.NODE_ENV !== 'production' && isLoopbackAddress(host)) {
-    return url;
-  }
-  if (options.trustedHosts?.includes(hostKey(url))) return url;
-
-  let addresses: string[];
-  if (isIP(host)) {
-    addresses = [host];
-  } else {
-    try {
-      addresses = (await lookup(host, { all: true })).map((entry) => entry.address);
-    } catch {
-      throw new Error(`cannot resolve source host: ${host}`);
-    }
-  }
-  if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
-    throw new Error(`source host resolves to a private address: ${host}`);
-  }
-  return url;
-}
-
-function requestSignal(signal?: AbortSignal): AbortSignal {
-  return signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)])
-    : AbortSignal.timeout(TIMEOUT_MS);
-}
-
-type FetchOptions = {
-  method?: 'GET' | 'POST';
-  body?: string;
-  headers?: Record<string, string>;
-  /** Headers are only sent to this origin, never across a redirect to another host. */
-  authOrigin?: string;
-  allowLoopback?: boolean;
-  trustedHosts?: readonly string[];
-  signal?: AbortSignal;
-};
-
-async function fetchChecked(raw: string, options: FetchOptions): Promise<Response> {
-  let current = new URL(raw);
-  const timeout = requestSignal(options.signal);
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    await validateSourceUrl(current.href, {
-      ...(options.allowLoopback === undefined ? {} : { allowLoopback: options.allowLoopback }),
-      ...(options.trustedHosts?.length ? { trustedHosts: options.trustedHosts } : {}),
-    });
-    const sendAuth = options.authOrigin !== undefined && current.origin === options.authOrigin;
-    // A redirected POST drops its body along with the credentials it carries.
-    const method = sendAuth ? (options.method ?? 'GET') : 'GET';
-    // 403 的 error body 需要单独读取，给它一条可提前取消的通道。
-    const bodyAbort = new AbortController();
-    const signal = AbortSignal.any([timeout, bodyAbort.signal]);
-    const response = await fetch(current.href, {
-      method,
-      redirect: 'manual',
-      signal,
-      ...(method === 'POST' ? { body: options.body ?? '' } : {}),
-      headers: {
-        'user-agent': 'agentport-source/1.0',
-        ...(sendAuth ? options.headers : {}),
-      },
-    });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('location');
-      await response.body?.cancel();
-      if (!location) throw new Error(`redirect without location from ${current.href}`);
-      current = new URL(location, current);
-      continue;
-    }
-    if (!response.ok) {
-      let body = '';
-      // 403 的 body 读不完就不能判定为撤权：既可能藏着次级限流说明，也可能是网络问题。
-      let bodyUnavailable = false;
-      if (response.status === 403) {
-        const stop = setTimeout(() => bodyAbort.abort(), ERROR_BODY_TIMEOUT_MS);
-        try {
-          body = await readCapped(response, 'error response');
-        } catch (error) {
-          // 调用方取消必须保留取消语义，不能被当成来源失败。
-          if (options.signal?.aborted) throw options.signal.reason ?? error;
-          bodyUnavailable = true;
-        } finally {
-          clearTimeout(stop);
-        }
-      } else {
-        await response.body?.cancel();
-      }
-      const retryAfter = response.headers.get('retry-after');
-      // GitHub 限流与权限不足同为 403：只有限流信号存在时才算可重试的普通错误。
-      // 次级限流不带 retry-after、配额也没耗尽，只能在 body 里识别。
-      const rateLimited =
-        response.status === 403 &&
-        (response.headers.get('x-ratelimit-remaining') === '0' ||
-          retryAfter !== null ||
-          /secondary rate limit|abuse detection/i.test(body));
-      const retry = rateLimited && retryAfter ? ` (retry after ${retryAfter}s)` : '';
-      const message = `HTTP ${response.status} from ${current.origin}${current.pathname}${retry}`;
-      if (response.status === 401 || (response.status === 403 && !rateLimited && !bodyUnavailable)) {
-        throw new SourceAuthError(message);
-      }
-      throw new Error(message);
-    }
-    return response;
-  }
-  throw new Error(`too many redirects from ${raw}`);
-}
 
 async function readCapped(response: Response, label: string): Promise<string> {
-  const declared = Number(response.headers.get('content-length') ?? '0');
-  if (declared > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel();
-    throw new Error(`${label} response exceeds ${MAX_RESPONSE_BYTES} bytes`);
-  }
-  if (!response.body) return '';
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for await (const chunk of response.body) {
-    total += chunk.byteLength;
-    if (total > MAX_RESPONSE_BYTES) {
-      // Break first: cancelling a stream that for-await still holds throws.
-      response.body.cancel().catch(() => undefined);
-      throw new Error(`${label} response exceeds ${MAX_RESPONSE_BYTES} bytes`);
-    }
-    chunks.push(chunk);
-  }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return new TextDecoder().decode(await readBytesCapped(response, label));
 }
 
 async function fetchText(url: string, options: FetchOptions, label: string): Promise<string> {
   return readCapped(await fetchChecked(url, options), label);
 }
 
-async function fetchJson<T>(
-  url: string,
-  schema: z.ZodType<T>,
-  options: FetchOptions,
-  label: string,
-): Promise<T> {
-  const text = await fetchText(url, options, label);
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw new Error(`${label} returned invalid JSON`);
-  }
-  const parsed = schema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error(`${label} response does not match the expected schema`);
-  }
-  return parsed.data;
+function failureOf(
+  externalId: string,
+  title: string,
+  err: unknown,
+  retryable: boolean,
+): SourceFailure {
+  const truncated = err instanceof SourceTruncatedError;
+  return {
+    externalId,
+    title,
+    code: truncated ? 'truncated' : retryable ? 'fetch_failed' : 'unsupported_type',
+    message: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+    retryable: truncated ? false : retryable,
+  };
 }
 
 function textContentType(value: string | null): boolean {
@@ -512,6 +318,7 @@ async function readRss(
     const externalId = `${feedUrl.href}:${entry.id}`;
 
     let body = '';
+    let completeness: 'full' | 'summary' = 'summary';
     if (entry.link) {
       try {
         // fetchChecked re-validates, including every redirect hop.
@@ -520,6 +327,7 @@ async function readRss(
         // Binary pages are skipped before decoding: UTF-8 would corrupt them.
         if (pageType === null || textContentType(pageType)) {
           body = articleBody(await readCapped(page, 'article'));
+          completeness = 'full';
         } else {
           await page.body?.cancel();
         }
@@ -543,6 +351,7 @@ async function readRss(
       sourceUrl: entry.link || feedUrl.href,
       content: body,
       mimeType: 'text/markdown',
+      completeness,
     });
   }
 
@@ -562,22 +371,6 @@ async function readRss(
 // GitLab / GitHub repository files
 // ---------------------------------------------------------------------------
 
-const TEXT_EXTENSIONS = new Set([
-  '.md',
-  '.markdown',
-  '.mdx',
-  '.txt',
-  '.html',
-  '.htm',
-  '.csv',
-  '.json',
-  '.xml',
-  '.yaml',
-  '.yml',
-  '.rst',
-  '.adoc',
-]);
-
 const MIME_BY_EXTENSION: Record<string, string> = {
   '.md': 'text/markdown',
   '.markdown': 'text/markdown',
@@ -593,6 +386,36 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   '.rst': 'text/plain',
   '.adoc': 'text/plain',
 };
+
+/** 解析器（Docling/图片）支持的原字节格式；仓库与网盘按 MIME 交给 parser，不在 source 层解码。 */
+const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.odt': 'application/vnd.oasis.opendocument.text',
+  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+  '.odp': 'application/vnd.oasis.opendocument.presentation',
+  '.rtf': 'application/rtf',
+  '.epub': 'application/epub+zip',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+
+/** 响应 Content-Type 反查后缀；只认上面两张表里的格式，octet-stream 不是格式证据。 */
+const EXTENSION_BY_MIME: Record<string, string> = {};
+for (const [extension, mime] of Object.entries({
+  ...MIME_BY_EXTENSION,
+  ...BINARY_MIME_BY_EXTENSION,
+})) {
+  EXTENSION_BY_MIME[mime] ??= extension.slice(1);
+}
 
 const gitlabProjectSchema = z.object({
   id: z.union([z.string(), z.number()]),
@@ -614,6 +437,18 @@ const gitlabConfigSchema = z.object({
 function extensionOf(path: string): string {
   const dot = path.lastIndexOf('.');
   return dot < 0 ? '' : path.slice(dot).toLowerCase();
+}
+
+/**
+ * 下载响应头可能缺失或误报文本；扩展名指向的格式优先，未知原件保持字节交给 parser。
+ */
+function driveFileMime(fileName: string, contentType: string | null): string {
+  const extension = extensionOf(fileName);
+  const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? MIME_BY_EXTENSION[extension];
+  if (byExtension) return byExtension;
+  const declared = contentType?.split(';')[0]?.trim().toLowerCase();
+  if (declared && declared !== 'application/octet-stream') return declared;
+  return 'application/octet-stream';
 }
 
 function inScope(file: string, roots: string[]): boolean {
@@ -687,31 +522,58 @@ async function readGitlab(
 
   const usedPaths = new Set<string>();
   const items: SourceItem[] = [];
+  const failures: SourceFailure[] = [];
   for (const entry of treeEntries) {
     if (entry.type !== 'blob') continue;
     const extension = extensionOf(entry.path);
-    if (!TEXT_EXTENSIONS.has(extension)) continue;
+    const textMime = MIME_BY_EXTENSION[extension];
+    const binaryMime = BINARY_MIME_BY_EXTENSION[extension];
     if (!inScope(entry.path, paths)) continue;
-    const fileUrl = `${apiBase}/projects/${encodeURIComponent(projectId)}/repository/files/${encodeURIComponent(entry.path)}/raw?ref=${encodeURIComponent(ref)}`;
-    let content = await fetchText(fileUrl, fetchOptions(), 'gitlab file');
-    // An emptied file must replace the stored body instead of silently keeping it.
-    if (content === '') content = `# ${entry.path}\n`;
+    const externalId = `gitlab:${base.href.replace(/\/$/, '')}:${projectId}:${ref}:${entry.path}`;
     const title = entry.path.slice(entry.path.lastIndexOf('/') + 1);
-    items.push({
-      externalId: `gitlab:${base.href.replace(/\/$/, '')}:${projectId}:${ref}:${entry.path}`,
-      title,
-      path: uniquePath(entry.path, usedPaths, entry.path),
-      sourceUrl: `${webUrl}/-/blob/${ref}/${entry.path}`,
-      content,
-      mimeType: MIME_BY_EXTENSION[extension] ?? 'text/plain',
-    });
+    if (!textMime && !binaryMime) {
+      failures.push(
+        failureOf(
+          externalId,
+          title,
+          new Error(`unsupported file type ${extension || '(none)'}`),
+          false,
+        ),
+      );
+      continue;
+    }
+    const fileUrl = `${apiBase}/projects/${encodeURIComponent(projectId)}/repository/files/${encodeURIComponent(entry.path)}/raw?ref=${encodeURIComponent(ref)}`;
+    try {
+      let content = '';
+      let bytes: Uint8Array | undefined;
+      if (textMime) {
+        content = await fetchText(fileUrl, fetchOptions(), 'gitlab file');
+        // An emptied file must replace the stored body instead of silently keeping it.
+        if (content === '') content = `# ${entry.path}\n`;
+      } else {
+        bytes = await fetchBytes(fileUrl, fetchOptions(), 'gitlab file');
+      }
+      items.push({
+        externalId,
+        title,
+        path: uniquePath(entry.path, usedPaths, entry.path),
+        sourceUrl: `${webUrl}/-/blob/${ref}/${entry.path}`,
+        content,
+        ...(bytes ? { bytes } : {}),
+        mimeType: textMime ?? (binaryMime as string),
+      });
+    } catch (err) {
+      if (err instanceof SourceAuthError) throw err;
+      failures.push(failureOf(externalId, title, err, true));
+    }
   }
 
   return {
     items,
+    ...(failures.length > 0 ? { failures } : {}),
     cursor: { version: 1, initial: previous === undefined },
     // The tree was read completely above; any HTTP/pagination failure threw.
-    complete: true,
+    complete: failures.length === 0,
   };
 }
 
@@ -746,17 +608,9 @@ const githubConfigSchema = z.object({
   paths: z.array(z.string()).optional(),
 });
 
-async function readGithub(
-  config: SourceConfig,
-  cursor: Record<string, unknown> | undefined,
-  signal: AbortSignal | undefined,
-): Promise<SourceSnapshot> {
-  const previous = parseCursor('github', sourceCursorSchema, cursor);
-  const settings = githubConfigSchema.parse(config.settings);
-  const token = config.credentials.token?.trim();
-  if (!token) throw new Error('github credentials.token is required');
+function parseGithubProject(value: string): string {
   // project 直接拼进 API 路径：只接受 GitHub 合法的 owner/repo 字符，避免 `..`、`?`、`#` 改写路径。
-  const project = settings.project.trim();
+  const project = value.trim();
   const [owner, repoName, ...rest] = project.split('/');
   if (
     rest.length > 0 ||
@@ -767,6 +621,19 @@ async function readGithub(
   ) {
     throw new Error(`github project must be owner/repo: ${project}`);
   }
+  return project;
+}
+
+async function readGithub(
+  config: SourceConfig,
+  cursor: Record<string, unknown> | undefined,
+  signal: AbortSignal | undefined,
+): Promise<SourceSnapshot> {
+  const previous = parseCursor('github', sourceCursorSchema, cursor);
+  const settings = githubConfigSchema.parse(config.settings);
+  const token = config.credentials.token?.trim();
+  if (!token) throw new Error('github credentials.token is required');
+  const project = parseGithubProject(settings.project);
   const paths = settings.paths ?? [];
   for (const selected of paths) {
     if (selected.startsWith('/') || selected.includes('..')) {
@@ -812,34 +679,65 @@ async function readGithub(
 
   const usedPaths = new Set<string>();
   const items: SourceItem[] = [];
+  const failures: SourceFailure[] = [];
   for (const entry of tree.tree) {
     if (entry.type !== 'blob' || entry.mode === '120000') continue;
     const extension = extensionOf(entry.path);
-    if (!TEXT_EXTENSIONS.has(extension)) continue;
-    if (!inScope(entry.path, paths)) continue;
-    let content = await fetchText(
-      `${apiBase}/repos/${project}/git/blobs/${encodeURIComponent(entry.sha)}`,
-      fetchOptions('application/vnd.github.raw+json'),
-      'github file',
-    );
-    // An emptied file must replace the stored body instead of silently keeping it.
-    if (content === '') content = `# ${entry.path}\n`;
+    const textMime = MIME_BY_EXTENSION[extension];
+    const binaryMime = BINARY_MIME_BY_EXTENSION[extension];
+    const externalId = `github:${apiBase}:${repoId}:${ref}:${entry.path}`;
     const title = entry.path.slice(entry.path.lastIndexOf('/') + 1);
-    items.push({
-      externalId: `github:${apiBase}:${repoId}:${ref}:${entry.path}`,
-      title,
-      path: uniquePath(entry.path, usedPaths, entry.path),
-      sourceUrl: `${htmlUrl}/blob/${encodePathSegments(ref)}/${encodePathSegments(entry.path)}`,
-      content,
-      mimeType: MIME_BY_EXTENSION[extension] ?? 'text/plain',
-    });
+    if (!inScope(entry.path, paths)) continue;
+    if (!textMime && !binaryMime) {
+      failures.push(
+        failureOf(
+          externalId,
+          title,
+          new Error(`unsupported file type ${extension || '(none)'}`),
+          false,
+        ),
+      );
+      continue;
+    }
+    try {
+      let content = '';
+      let bytes: Uint8Array | undefined;
+      if (textMime) {
+        content = await fetchText(
+          `${apiBase}/repos/${project}/git/blobs/${encodeURIComponent(entry.sha)}`,
+          fetchOptions('application/vnd.github.raw+json'),
+          'github file',
+        );
+        // An emptied file must replace the stored body instead of silently keeping it.
+        if (content === '') content = `# ${entry.path}\n`;
+      } else {
+        bytes = await fetchBytes(
+          `${apiBase}/repos/${project}/git/blobs/${encodeURIComponent(entry.sha)}`,
+          fetchOptions('application/vnd.github.raw+json'),
+          'github file',
+        );
+      }
+      items.push({
+        externalId,
+        title,
+        path: uniquePath(entry.path, usedPaths, entry.path),
+        sourceUrl: `${htmlUrl}/blob/${encodePathSegments(ref)}/${encodePathSegments(entry.path)}`,
+        content,
+        ...(bytes ? { bytes } : {}),
+        mimeType: textMime ?? (binaryMime as string),
+      });
+    } catch (err) {
+      if (err instanceof SourceAuthError) throw err;
+      failures.push(failureOf(externalId, title, err, true));
+    }
   }
 
   return {
     items,
+    ...(failures.length > 0 ? { failures } : {}),
     cursor: { version: 1, initial: previous === undefined },
     // truncated 已在上面明确抛错；能走到这里说明树是完整的。
-    complete: true,
+    complete: failures.length === 0,
   };
 }
 
@@ -923,7 +821,8 @@ const wikiNodesSchema = z.object({
   msg: z.string().optional(),
   data: z.object({
     items: z.array(wikiNodeSchema),
-    has_more: z.boolean().optional(),
+    // 缺少终页证据不能当最后一页；字段缺失直接判响应不合契约。
+    has_more: z.boolean(),
     page_token: z.string().optional(),
   }),
 });
@@ -961,7 +860,8 @@ const driveFilesSchema = z.object({
   msg: z.string().optional(),
   data: z.object({
     files: z.array(driveFileSchema),
-    has_more: z.boolean().optional(),
+    // 与 wiki 一致：has_more 必须在响应里明确给出。
+    has_more: z.boolean(),
     next_page_token: z.string().optional(),
   }),
 });
@@ -977,6 +877,10 @@ const feishuSettingsSchema = z.object({
   spaceId: z.string().optional(),
   nodeToken: z.string().optional(),
   folderToken: z.string().optional(),
+  /** 由 bridge 固定：Lark 应用与飞书应用互相独立，不能换域名混用 token。 */
+  region: z.enum(['feishu', 'lark']).optional(),
+  /** Lark 默认把在线文档导出为 docx/xlsx 原件；飞书保持既有 blocks 渲染。 */
+  exportFiles: z.boolean().optional(),
 });
 
 type FeishuSettings = z.infer<typeof feishuSettingsSchema>;
@@ -1165,15 +1069,211 @@ function assertFeishuCode(value: { code: number; msg?: string | undefined }, lab
   throw FEISHU_AUTH_CODES.has(value.code) ? new SourceAuthError(message) : new Error(message);
 }
 
+const feishuEnvelopeSchema = z.object({
+  code: z.number(),
+  msg: z.string().optional(),
+  data: z.unknown().optional(),
+});
+
+/**
+ * 先按公共 code/msg 判错，再校验 data：凭证错误不能因为 data 形状不符被降级成可重试的单项失败。
+ */
+async function fetchFeishuData<T>(
+  url: string,
+  dataSchema: z.ZodType<T>,
+  options: FetchOptions,
+  label: string,
+): Promise<T> {
+  const envelope = await fetchJson(url, feishuEnvelopeSchema, options, label);
+  assertFeishuCode(envelope, label);
+  const parsed = dataSchema.safeParse(envelope.data);
+  if (!parsed.success) throw new Error(`${label} response does not match the expected schema`);
+  return parsed.data;
+}
+
+const EXPORT_POLL_INTERVAL_MS = 1_000;
+const EXPORT_MAX_POLLS = 60;
+
+/** 在线文档的导出格式；其它类型本契约没有读取链，明确 unsupported。 */
+const EXPORT_KINDS: Record<string, { extension: 'docx' | 'xlsx'; mimeType: string }> = {
+  doc: {
+    extension: 'docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  },
+  docx: {
+    extension: 'docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  },
+  sheet: {
+    extension: 'xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  },
+  bitable: {
+    extension: 'xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  },
+};
+
+const exportTaskCreatedDataSchema = z.object({ ticket: z.string().min(1) });
+
+const exportTaskStatusDataSchema = z.object({
+  result: z.object({
+    job_status: z.number(),
+    job_error_msg: z.string().optional(),
+    file_token: z.string().optional(),
+  }),
+});
+
+/** 固定有界轮询；导出任务是异步的，但取消必须能立刻打断等待。 */
+function waitForExportPoll(signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error('aborted'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error('aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, EXPORT_POLL_INTERVAL_MS);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function withExtension(title: string, extension: string): string {
+  return title.toLowerCase().endsWith(`.${extension}`) ? title : `${title}.${extension}`;
+}
+
+/** 下载响应里的真实文件名；`filename*=`（RFC 5987）优先于普通 `filename=`。 */
+function dispositionFilename(disposition: string | null): string | undefined {
+  if (!disposition) return undefined;
+  const extended = /filename\*\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(disposition);
+  const encoded = extended?.[1] ?? extended?.[2]?.trim();
+  if (encoded) {
+    const value = encoded.split("''").at(-1) ?? encoded;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+  const plain = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(disposition);
+  return (plain?.[1] ?? plain?.[2])?.trim() || undefined;
+}
+
+type DownloadFormat = { mimeType: string; extension: string };
+
+function downloadFormat(extension: string): DownloadFormat | null {
+  const mimeType = BINARY_MIME_BY_EXTENSION[extension] ?? MIME_BY_EXTENSION[extension];
+  return mimeType ? { extension: extension.slice(1), mimeType } : null;
+}
+
+/** 真实下载名优先，其次可信响应类型；同类格式选下载名，非文本与文本冲突时取能确认的一方。 */
+function wikiDownloadFormat(
+  downloadedName: string | undefined,
+  contentType: string | null,
+): DownloadFormat | 'conflict' | null {
+  const named = downloadedName ? downloadFormat(extensionOf(downloadedName)) : null;
+  const mime = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
+  const declaredExtension = EXTENSION_BY_MIME[mime];
+  const declared = declaredExtension ? { extension: declaredExtension, mimeType: mime } : null;
+  if (!named) return declared;
+  if (!declared || named.mimeType === declared.mimeType) return named;
+  const namedText = textContentType(named.mimeType);
+  const declaredText = textContentType(declared.mimeType);
+  if (namedText === declaredText) return namedText ? named : 'conflict';
+  // 文本响应头常是误报，非文本响应才更接近真实原件。
+  return declaredText ? named : declared;
+}
+
+/** 标题只提供展示名；没有任何下载元数据时，明确的二进制后缀才可作为格式线索。 */
+function titleBinaryFormat(title: string): DownloadFormat | null {
+  const extension = extensionOf(title);
+  return BINARY_MIME_BY_EXTENSION[extension] ? downloadFormat(extension) : null;
+}
+
+function withFormatExtension(title: string, extension: string): string {
+  const current = extensionOf(title);
+  return `${current ? title.slice(0, -current.length) : title}.${extension}`;
+}
+
+/**
+ * Lark 在线文档导出：POST 建任务拿 ticket，轮询 ticket 拿 file_token，再按 file_token 下载。
+ * ticket 与 file_token 是不同标识，不能拿其中一个当另一个。
+ */
+async function exportFeishuFile(
+  auth: FeishuAuth,
+  objToken: string,
+  objType: string,
+  signal: AbortSignal | undefined,
+  label: string,
+): Promise<{ bytes: Buffer; mimeType: string; extension: string }> {
+  const kind = EXPORT_KINDS[objType];
+  if (!kind) throw new Error(`unsupported export type ${objType}`);
+
+  const created = await fetchFeishuData(
+    `${auth.base}/open-apis/drive/v1/export_tasks`,
+    exportTaskCreatedDataSchema,
+    {
+      ...feishuFetchOptions(auth),
+      method: 'POST',
+      body: JSON.stringify({
+        token: objToken,
+        type: objType,
+        file_extension: kind.extension,
+      }),
+      headers: {
+        ...auth.headers,
+        'content-type': 'application/json; charset=utf-8',
+      },
+    },
+    `${label} export task`,
+  );
+  const ticket = created.ticket;
+
+  for (let poll = 0; poll < EXPORT_MAX_POLLS; poll += 1) {
+    const status = await fetchFeishuData(
+      `${auth.base}/open-apis/drive/v1/export_tasks/${encodeURIComponent(ticket)}?token=${encodeURIComponent(objToken)}`,
+      exportTaskStatusDataSchema,
+      feishuFetchOptions(auth),
+      `${label} export status`,
+    );
+    const result = status.result;
+    // 0 成功；1 新建、2 处理中；其它状态都是失败。
+    if (result.job_status !== 0) {
+      if (result.job_status === 1 || result.job_status === 2) {
+        await waitForExportPoll(signal);
+        continue;
+      }
+      throw new Error(
+        `${label} export failed: ${result.job_error_msg ?? `job_status=${result.job_status}`}`,
+      );
+    }
+    if (!result.file_token) throw new Error(`${label} export finished without a file_token`);
+    const bytes = await fetchBytes(
+      `${auth.base}/open-apis/drive/v1/export_tasks/file/${encodeURIComponent(result.file_token)}/download`,
+      { ...feishuFetchOptions(auth), authFailure: 'item' },
+      `${label} export download`,
+    );
+    return { bytes, mimeType: kind.mimeType, extension: kind.extension };
+  }
+  throw new Error(`${label} export did not finish after ${EXPORT_MAX_POLLS} polls`);
+}
+
 async function listWikiNodes(
   auth: FeishuAuth,
   spaceId: string,
   parentToken: string | undefined,
+  maxPages = 1000,
+  firstPageOnly = false,
 ): Promise<WikiNode[]> {
   const nodes: WikiNode[] = [];
   const seen = new Set<string>();
   let pageToken = '';
-  for (let page = 0; page < 1000; page += 1) {
+  for (let page = 0; page < maxPages; page += 1) {
     const params = new URLSearchParams({ page_size: '50' });
     if (parentToken) params.set('parent_node_token', parentToken);
     if (pageToken) params.set('page_token', pageToken);
@@ -1184,7 +1284,14 @@ async function listWikiNodes(
       'feishu wiki nodes',
     );
     assertFeishuCode(response, 'wiki nodes');
-    nodes.push(...response.data.items);
+    const pageItems = response.data.items;
+    // 空页仍声称有下一页：没有终页证据，也不能把这份列表当完整枚举。
+    if (pageItems.length === 0 && response.data.has_more) {
+      throw new Error('feishu wiki pagination returned an empty page with has_more');
+    }
+    nodes.push(...pageItems);
+    // 探测只验证首屏；正常同步仍要求枚举到终页。
+    if (firstPageOnly) return nodes;
     if (!response.data.has_more) return nodes;
     const next = response.data.page_token ?? '';
     if (!next) throw new Error('feishu wiki pagination set has_more without a page_token');
@@ -1220,24 +1327,39 @@ async function readDocxBlocks(auth: FeishuAuth, documentId: string): Promise<Doc
       'feishu docx blocks',
     );
     assertFeishuCode(response, 'docx blocks');
-    if (response.data.items.length === 0) break;
+    if (response.data.items.length === 0) {
+      // 空页仍声称有下一页：没有终页证据，不能把已读内容当完整文档。
+      if (response.data.has_more) {
+        throw new SourceTruncatedError('feishu docx blocks returned an empty page with has_more');
+      }
+      return blocks;
+    }
     blocks.push(...response.data.items);
-    if (blocks.length >= MAX_FEISHU_BLOCKS) break;
     if (!response.data.has_more) return blocks;
+    if (blocks.length >= MAX_FEISHU_BLOCKS) {
+      throw new SourceTruncatedError(
+        `feishu docx blocks truncated at the ${MAX_FEISHU_BLOCKS} block limit`,
+      );
+    }
     const next = response.data.page_token ?? '';
     if (!next) throw new Error('feishu docx pagination set has_more without a page_token');
     if (seen.has(next)) throw new Error(`feishu docx pagination repeated page token ${next}`);
     seen.add(next);
     pageToken = next;
   }
-  return blocks;
+  throw new SourceTruncatedError('feishu docx pagination exceeded 1000 pages');
 }
 
-async function listDriveFiles(auth: FeishuAuth, folderToken: string): Promise<DriveFile[]> {
+async function listDriveFiles(
+  auth: FeishuAuth,
+  folderToken: string,
+  maxPages = 1000,
+  firstPageOnly = false,
+): Promise<DriveFile[]> {
   const files: DriveFile[] = [];
   const seen = new Set<string>();
   let pageToken = '';
-  for (let page = 0; page < 1000; page += 1) {
+  for (let page = 0; page < maxPages; page += 1) {
     const params = new URLSearchParams({
       folder_token: folderToken,
       page_size: '200',
@@ -1252,7 +1374,14 @@ async function listDriveFiles(auth: FeishuAuth, folderToken: string): Promise<Dr
       'feishu drive files',
     );
     assertFeishuCode(response, 'drive files');
-    files.push(...response.data.files);
+    const pageFiles = response.data.files;
+    // 与 wiki 一致：空页 + has_more 没有终页证据，立即失败而不是当完整列表。
+    if (pageFiles.length === 0 && response.data.has_more) {
+      throw new Error('feishu drive pagination returned an empty page with has_more');
+    }
+    files.push(...pageFiles);
+    // 探测只验证首屏；正常同步仍要求枚举到终页。
+    if (firstPageOnly) return files;
     if (!response.data.has_more) return files;
     const next = response.data.next_page_token ?? '';
     if (!next) throw new Error('feishu drive pagination set has_more without a next_page_token');
@@ -1271,15 +1400,22 @@ function wikiWebBase(apiBase: string): { wiki: string; docx: string } {
     : { wiki: 'https://feishu.cn/wiki', docx: 'https://feishu.cn/docx' };
 }
 
-async function readFeishu(
+const FEISHU_API_BASE = 'https://open.feishu.cn';
+const LARK_API_BASE = 'https://open.larksuite.com';
+
+/** Lark 应用与飞书应用互相独立：region 只由 bridge 固定，配置不能改接口域名。 */
+function feishuApiBase(config: SourceConfig, settings: FeishuSettings): string {
+  const base = settings.region === 'lark' ? LARK_API_BASE : config.url || FEISHU_API_BASE;
+  return base.replace(/\/$/, '');
+}
+
+async function feishuAuthFor(
   config: SourceConfig,
-  cursor: Record<string, unknown> | undefined,
+  settings: FeishuSettings,
   signal: AbortSignal | undefined,
-): Promise<SourceSnapshot> {
-  const previous = parseCursor('feishu', sourceCursorSchema, cursor);
-  const settings: FeishuSettings = feishuSettingsSchema.parse(config.settings);
+): Promise<{ auth: FeishuAuth; base: string }> {
   const origins = urlOptions(config);
-  const base = config.url.replace(/\/$/, '');
+  const base = feishuApiBase(config, settings);
   await validateSourceUrl(base, origins);
 
   const accessToken = config.credentials.accessToken?.trim();
@@ -1310,14 +1446,31 @@ async function readFeishu(
     token = exchanged;
   }
 
-  const auth: FeishuAuth = {
+  return {
     base,
-    headers: { authorization: `Bearer ${token}` },
-    origins,
-    ...(signal === undefined ? {} : { signal }),
+    auth: {
+      base,
+      headers: { authorization: `Bearer ${token}` },
+      origins,
+      ...(signal === undefined ? {} : { signal }),
+    },
   };
+}
+
+async function readFeishu(
+  config: SourceConfig,
+  cursor: Record<string, unknown> | undefined,
+  signal: AbortSignal | undefined,
+): Promise<SourceSnapshot> {
+  const previous = parseCursor('feishu', sourceCursorSchema, cursor);
+  const settings: FeishuSettings = feishuSettingsSchema.parse(config.settings);
+  const { auth, base } = await feishuAuthFor(config, settings, signal);
+  // Lark 与飞书的条目身份必须隔离：同名 token 不能跨云互认。
+  const namespace = settings.region === 'lark' ? 'lark' : 'feishu';
+  const exportFiles = settings.exportFiles === true;
   const usedPaths = new Set<string>();
   const items: SourceItem[] = [];
+  const failures: SourceFailure[] = [];
 
   if (settings.folderToken) {
     if (settings.spaceId || settings.nodeToken) {
@@ -1330,15 +1483,27 @@ async function readFeishu(
       const files = await listDriveFiles(auth, folderToken);
       for (const file of files) {
         if (file.type === 'folder') {
-          const name = sanitizeSegment(file.name, file.token);
-          await walk(file.token, [...prefix, name]);
+          await walk(file.token, [...prefix, sanitizeSegment(file.name, file.token)]);
           continue;
         }
         if (file.type === 'shortcut') {
           const target = file.shortcut_info?.target_token;
           const targetType = file.shortcut_info?.target_type;
-          if (!target || !targetType || targetType === 'folder') {
-            throw new Error(`feishu drive shortcut ${file.token} has no readable target`);
+          if (!target || !targetType) {
+            failures.push(
+              failureOf(
+                `${namespace}:drive:${file.token}`,
+                sanitizeSegment(file.name, file.token),
+                new Error(`shortcut ${file.token} has no readable target`),
+                false,
+              ),
+            );
+            continue;
+          }
+          // 目录快捷方式按真实目标递归；visited 负责断开环。
+          if (targetType === 'folder') {
+            await walk(target, prefix);
+            continue;
           }
           await emitDriveItem({ ...file, token: target, type: targetType }, prefix);
           continue;
@@ -1348,47 +1513,78 @@ async function readFeishu(
     };
 
     const emitDriveItem = async (file: DriveFile, prefix: string[]): Promise<void> => {
-      const title = sanitizeSegment(file.name, file.token);
-      if (file.type === 'docx') {
-        const blocks = await readDocxBlocks(auth, file.token);
-        items.push({
-          externalId: `feishu:drive:${file.token}`,
-          title,
-          path: uniquePath(
-            [...prefix, `${sanitizeSegment(file.name, file.token)}.md`].join('/'),
-            usedPaths,
+      const baseTitle = sanitizeSegment(file.name, file.token);
+      const externalId = `${namespace}:drive:${file.token}`;
+      const sourceUrl = file.url ?? `${wikiWebBase(base).docx}/${file.token}`;
+      const exportKind = EXPORT_KINDS[file.type];
+      if (exportFiles && exportKind) {
+        try {
+          const exported = await exportFeishuFile(
+            auth,
             file.token,
-          ),
-          sourceUrl: file.url ?? `${wikiWebBase(base).docx}/${file.token}`,
-          content: docxToMarkdown(blocks),
-          mimeType: 'text/markdown',
-        });
+            file.type,
+            signal,
+            `feishu drive ${file.token}`,
+          );
+          const title = withExtension(baseTitle, exported.extension);
+          items.push({
+            externalId,
+            title,
+            path: uniquePath([...prefix, title].join('/'), usedPaths, file.token),
+            sourceUrl,
+            content: '',
+            bytes: exported.bytes,
+            mimeType: exported.mimeType,
+          });
+        } catch (err) {
+          if (err instanceof SourceAuthError || signal?.aborted) throw err;
+          failures.push(failureOf(externalId, baseTitle, err, true));
+        }
+        return;
+      }
+      if (file.type === 'docx') {
+        // 既有飞书默认：docx blocks → markdown；Lark 走 exportFiles 分支。
+        try {
+          const blocks = await readDocxBlocks(auth, file.token);
+          items.push({
+            externalId,
+            title: baseTitle,
+            path: uniquePath([...prefix, `${baseTitle}.md`].join('/'), usedPaths, file.token),
+            sourceUrl,
+            content: docxToMarkdown(blocks),
+            mimeType: 'text/markdown',
+          });
+        } catch (err) {
+          if (err instanceof SourceAuthError || signal?.aborted) throw err;
+          failures.push(failureOf(externalId, baseTitle, err, true));
+        }
         return;
       }
       if (file.type === 'file') {
-        const response = await fetchChecked(
-          `${base}/open-apis/drive/v1/files/${encodeURIComponent(file.token)}/download`,
-          feishuFetchOptions(auth),
-        );
-        const contentType = response.headers.get('content-type');
-        if (!textContentType(contentType)) {
-          await response.body?.cancel();
-          throw new Error(
-            `feishu drive file ${file.name} (${file.token}) has unsupported type ${contentType ?? 'unknown'}`,
+        try {
+          const response = await fetchChecked(
+            `${base}/open-apis/drive/v1/files/${encodeURIComponent(file.token)}/download`,
+            { ...feishuFetchOptions(auth), authFailure: 'item' },
           );
+          // 原件必须按字节保留：缺 MIME 或误报文本时也不能 UTF-8 解码。
+          const contentType = response.headers.get('content-type');
+          items.push({
+            externalId,
+            title: baseTitle,
+            path: uniquePath([...prefix, baseTitle].join('/'), usedPaths, file.token),
+            sourceUrl,
+            content: '',
+            bytes: await readBytesCapped(response, `feishu drive file ${file.name}`),
+            mimeType: driveFileMime(file.name, contentType),
+          });
+        } catch (err) {
+          if (err instanceof SourceAuthError || signal?.aborted) throw err;
+          failures.push(failureOf(externalId, baseTitle, err, true));
         }
-        items.push({
-          externalId: `feishu:drive:${file.token}`,
-          title,
-          path: uniquePath([...prefix, title].join('/'), usedPaths, file.token),
-          sourceUrl: file.url ?? `${base}/open-apis/drive/v1/files/${file.token}`,
-          content: await readCapped(response, `feishu drive file ${file.name}`),
-          mimeType: contentType?.split(';')[0]?.trim() ?? 'text/plain',
-        });
         return;
       }
-      throw new Error(
-        `feishu drive item ${file.name} (${file.token}) has unsupported type ${file.type}`,
+      failures.push(
+        failureOf(externalId, baseTitle, new Error(`unsupported drive type ${file.type}`), false),
       );
     };
 
@@ -1397,24 +1593,105 @@ async function readFeishu(
     const nodeLinks = (node: WikiNode): string =>
       `${wikiWebBase(base).wiki}/${encodeURIComponent(node.node_token)}`;
     const walk = async (node: WikiNode, prefix: string[], spaceId: string): Promise<void> => {
-      const title = sanitizeSegment(node.title ?? '', node.node_token);
-      if (node.obj_type !== 'docx') {
-        throw new Error(
-          `feishu wiki node ${node.node_token} "${title}" has unsupported obj_type ${node.obj_type}`,
+      const baseTitle = sanitizeSegment(node.title ?? '', node.node_token);
+      const externalId = `${namespace}:wiki:${node.node_token}`;
+      const exportKind = EXPORT_KINDS[node.obj_type];
+      if (exportFiles && exportKind) {
+        try {
+          const exported = await exportFeishuFile(
+            auth,
+            node.obj_token,
+            node.obj_type,
+            signal,
+            `feishu wiki ${node.node_token}`,
+          );
+          const title = withExtension(baseTitle, exported.extension);
+          items.push({
+            externalId,
+            title,
+            path: uniquePath([...prefix, title].join('/'), usedPaths, node.node_token),
+            sourceUrl: nodeLinks(node),
+            content: '',
+            bytes: exported.bytes,
+            mimeType: exported.mimeType,
+          });
+        } catch (err) {
+          if (err instanceof SourceAuthError || signal?.aborted) throw err;
+          failures.push(failureOf(externalId, baseTitle, err, true));
+        }
+      } else if (exportFiles && node.obj_type === 'file') {
+        try {
+          const response = await fetchChecked(
+            `${base}/open-apis/drive/v1/files/${encodeURIComponent(node.obj_token)}/download`,
+            { ...feishuFetchOptions(auth), authFailure: 'item' },
+          );
+          const downloadedName = dispositionFilename(response.headers.get('content-disposition'));
+          const metadata = wikiDownloadFormat(downloadedName, response.headers.get('content-type'));
+          if (metadata === 'conflict') {
+            failures.push(
+              failureOf(
+                externalId,
+                baseTitle,
+                new Error(`feishu wiki file ${node.node_token} download name and type disagree`),
+                false,
+              ),
+            );
+            return;
+          }
+          const format = metadata ?? titleBinaryFormat(baseTitle);
+          if (!format) {
+            failures.push(
+              failureOf(
+                externalId,
+                baseTitle,
+                new Error(`feishu wiki file ${node.node_token} has no trustworthy download format`),
+                false,
+              ),
+            );
+            return;
+          }
+          const title = withFormatExtension(baseTitle, format.extension);
+          items.push({
+            externalId,
+            title,
+            path: uniquePath([...prefix, title].join('/'), usedPaths, node.node_token),
+            sourceUrl: nodeLinks(node),
+            content: '',
+            bytes: await readBytesCapped(response, `feishu wiki file ${node.node_token}`),
+            mimeType: format.mimeType,
+          });
+        } catch (err) {
+          if (err instanceof SourceAuthError || signal?.aborted) throw err;
+          failures.push(failureOf(externalId, baseTitle, err, true));
+        }
+      } else if (!exportFiles && node.obj_type === 'docx') {
+        try {
+          const blocks = await readDocxBlocks(auth, node.obj_token);
+          items.push({
+            externalId,
+            title: baseTitle,
+            path: uniquePath([...prefix, `${baseTitle}.md`].join('/'), usedPaths, node.node_token),
+            sourceUrl: nodeLinks(node),
+            content: docxToMarkdown(blocks),
+            mimeType: 'text/markdown',
+          });
+        } catch (err) {
+          if (err instanceof SourceAuthError || signal?.aborted) throw err;
+          failures.push(failureOf(externalId, baseTitle, err, true));
+        }
+      } else {
+        failures.push(
+          failureOf(
+            externalId,
+            baseTitle,
+            new Error(`unsupported obj_type ${node.obj_type}`),
+            false,
+          ),
         );
       }
-      const blocks = await readDocxBlocks(auth, node.obj_token);
-      items.push({
-        externalId: `feishu:wiki:${node.node_token}`,
-        title,
-        path: uniquePath([...prefix, `${title}.md`].join('/'), usedPaths, node.node_token),
-        sourceUrl: nodeLinks(node),
-        content: docxToMarkdown(blocks),
-        mimeType: 'text/markdown',
-      });
       if (node.has_child) {
         for (const childNode of await listWikiNodes(auth, spaceId, node.node_token)) {
-          await walk(childNode, [...prefix, title], spaceId);
+          await walk(childNode, [...prefix, baseTitle], spaceId);
         }
       }
     };
@@ -1436,13 +1713,137 @@ async function readFeishu(
 
   return {
     items,
+    ...(failures.length > 0 ? { failures } : {}),
     cursor: { version: 1, initial: previous === undefined },
-    // Wiki/Drive listings were walked completely; any failure threw above.
-    complete: true,
+    // 任何单项失败都不能证明完整枚举，删除推导据此关闭。
+    complete: failures.length === 0,
   };
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * 远程连通性探测：只核凭证与范围首项，不导入条目、不推进游标。
+ * 任何一步失败都抛错，由调用方记入该 range 的检查结果。
+ */
+export async function probeSource(config: SourceConfig, signal?: AbortSignal): Promise<void> {
+  const signalOptions = signal === undefined ? {} : { signal };
+  switch (config.type) {
+    case 'rss': {
+      const origins = urlOptions(config);
+      const feedUrl = await validateSourceUrl(config.url, origins);
+      const headers = Object.fromEntries(
+        Object.entries(config.credentials).filter(([name]) => name.trim() !== ''),
+      );
+      const response = await fetchChecked(feedUrl.href, {
+        headers,
+        authOrigin: feedUrl.origin,
+        ...origins,
+        ...signalOptions,
+      });
+      feedEntries(await readCapped(response, 'feed'));
+      return;
+    }
+    case 'gitlab': {
+      const settings = gitlabConfigSchema.parse(config.settings);
+      const token = config.credentials.token?.trim();
+      if (!token) throw new Error('gitlab credentials.token is required');
+      const origins = urlOptions(config);
+      const base = new URL(await validateSourceUrl(config.url, origins));
+      const apiBase = /\/api\/v4\/?$/.test(base.pathname)
+        ? base.href.replace(/\/$/, '')
+        : `${base.href.replace(/\/$/, '')}/api/v4`;
+      const options: FetchOptions = {
+        headers: { 'private-token': token },
+        authOrigin: base.origin,
+        ...origins,
+        ...signalOptions,
+      };
+      const project = await fetchJson(
+        `${apiBase}/projects/${encodeURIComponent(settings.project)}`,
+        gitlabProjectSchema,
+        options,
+        'gitlab project',
+      );
+      const ref = settings.ref?.trim() || project.default_branch;
+      if (!ref) throw new Error('gitlab project has no default branch; set settings.ref');
+      await fetchChecked(
+        `${apiBase}/projects/${encodeURIComponent(String(project.id))}/repository/tree?ref=${encodeURIComponent(ref)}&recursive=true&per_page=1&page=1`,
+        options,
+      );
+      return;
+    }
+    case 'github': {
+      const settings = githubConfigSchema.parse(config.settings);
+      const token = config.credentials.token?.trim();
+      if (!token) throw new Error('github credentials.token is required');
+      const project = parseGithubProject(settings.project);
+      const origins = urlOptions(config);
+      const base = new URL(
+        await validateSourceUrl(config.url.trim() || GITHUB_DEFAULT_API_BASE, origins),
+      );
+      const apiBase = base.href.replace(/\/$/, '');
+      const options: FetchOptions = {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+        authOrigin: base.origin,
+        ...origins,
+        ...signalOptions,
+      };
+      const repo = await fetchJson(
+        `${apiBase}/repos/${project}`,
+        githubRepoSchema,
+        options,
+        'github repository',
+      );
+      const ref = settings.ref?.trim() || repo.default_branch;
+      if (!ref) throw new Error('github repository has no default branch; set settings.ref');
+      const tree = await fetchJson(
+        `${apiBase}/repos/${project}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+        githubTreeSchema,
+        options,
+        'github tree',
+      );
+      if (tree.truncated === true) throw new Error('仓库树超过 100,000 条，无法完整枚举');
+      return;
+    }
+    case 'feishu': {
+      const settings: FeishuSettings = feishuSettingsSchema.parse(config.settings);
+      const { auth } = await feishuAuthFor(config, settings, signal);
+      if (settings.folderToken) {
+        if (settings.spaceId || settings.nodeToken) {
+          throw new Error('feishu settings must select either a wiki space/node or a drive folder');
+        }
+        await listDriveFiles(auth, settings.folderToken, 1, true);
+        return;
+      }
+      if (settings.nodeToken) {
+        await getWikiNode(auth, settings.nodeToken);
+        return;
+      }
+      if (settings.spaceId) {
+        await listWikiNodes(auth, settings.spaceId, undefined, 1, true);
+        return;
+      }
+      throw new Error('feishu settings need spaceId or folderToken');
+    }
+    case 'notion':
+      return probeNotion(config, signal);
+    case 'confluence':
+      return probeConfluence(config, signal);
+    case 'yuque':
+      return probeYuque(config, signal);
+    case 'dingtalk':
+      return probeDingtalk(config, signal);
+    case 'ima':
+      return probeIma(config, signal);
+    case 'seafile':
+      return probeSeafile(config, signal);
+    case 'nextcloud':
+      return probeNextcloud(config, signal);
+    default:
+      throw new Error(`unsupported source type: ${String((config as { type: unknown }).type)}`);
+  }
+}
 
 export async function readSource(
   config: SourceConfig,
@@ -1458,6 +1859,20 @@ export async function readSource(
       return readGithub(config, cursor, signal);
     case 'feishu':
       return readFeishu(config, cursor, signal);
+    case 'notion':
+      return readNotion(config, cursor, signal);
+    case 'confluence':
+      return readConfluence(config, cursor, signal);
+    case 'yuque':
+      return readYuque(config, cursor, signal);
+    case 'dingtalk':
+      return readDingtalk(config, cursor, signal);
+    case 'ima':
+      return readIma(config, cursor, signal);
+    case 'seafile':
+      return readSeafile(config, cursor, signal);
+    case 'nextcloud':
+      return readNextcloud(config, cursor, signal);
     default:
       throw new Error(`unsupported source type: ${String((config as { type: unknown }).type)}`);
   }

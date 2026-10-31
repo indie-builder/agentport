@@ -37,6 +37,7 @@ export const idPrefixes = {
   knowledgeSource: 'ksrc',
   knowledgeSourceRange: 'krng',
   knowledgeSyncRun: 'ksyn',
+  knowledgeSyncItem: 'ksit',
   knowledgeWikiPage: 'kwp',
   knowledgeWikiVersion: 'kwv',
   knowledgeWikiSource: 'kws',
