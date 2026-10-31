@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { KnowledgeImageProcessing } from '@agentport/shared';
+import { KNOWLEDGE_IMAGE_MAX_BYTES, type KnowledgeImageProcessing } from '@agentport/shared';
 import {
   type Options,
   query,
@@ -12,8 +12,6 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { modelProxyUpstream } from '../upstream.js';
 
-export type { KnowledgeImageProcessing };
-
 export type ImageDescription = {
   ocr: string | null;
   caption: string | null;
@@ -21,9 +19,6 @@ export type ImageDescription = {
 };
 
 const SDK_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
-
-/** 官方视觉输入单图上限 5MB；按二进制字节计，base64 膨胀不算在内。 */
-export const IMAGE_LIMIT_BYTES = 5 * 1024 * 1024;
 
 /** IEND 块固定为 12 字节：长度 0（前 4 字节）+ 名称 + 固定 CRC；只看尾部 8 字节。 */
 const PNG_IEND_TAIL = 'IEND\xaeB\x60\x82';
@@ -40,7 +35,7 @@ export async function assertUsableImage(input: {
   if (!SDK_IMAGE_MIME.has(input.mimeType)) {
     throw new Error(`不支持的图片 MIME: ${input.mimeType}`);
   }
-  if (input.data.length > IMAGE_LIMIT_BYTES) {
+  if (input.data.length > KNOWLEDGE_IMAGE_MAX_BYTES) {
     throw new Error('图片超过 5MiB，不能供视觉模型直接读取');
   }
   try {

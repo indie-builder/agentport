@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
 import {
+  KNOWLEDGE_IMAGE_MAX_BYTES,
   type KnowledgeReadImageInput,
   type KnowledgeReadImageResult,
   knowledgeImageChunkMetadataSchema,
@@ -10,7 +11,6 @@ import type { KnowledgeServerInput } from './mcp.js';
 
 /** SDK 原生视觉输入只接受这四种 MIME；其他格式提示走 description。 */
 const VISUAL_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-const IMAGE_LIMIT_BYTES = 5 * 1024 * 1024;
 const QUOTE_LIMIT = 1200;
 
 export class KnowledgeReadImageError extends Error {
@@ -111,7 +111,7 @@ export async function readKnowledgeImage(
     join(input.knowledgeDir, 'docs', document.id, version.id, 'images', image.name),
   ).catch(() => null);
   if (!data) throw new KnowledgeReadImageError('IMAGE_NOT_FOUND', '图片文件缺失，请重新解析该版本');
-  if (data.length > IMAGE_LIMIT_BYTES) {
+  if (data.length > KNOWLEDGE_IMAGE_MAX_BYTES) {
     throw new KnowledgeReadImageError(
       'PAYLOAD_TOO_LARGE',
       `图片超过 5MiB，不能直接供视觉模型读取，请使用 format=description`,
