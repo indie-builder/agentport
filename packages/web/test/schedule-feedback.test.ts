@@ -147,6 +147,43 @@ async function selectOption(id: string, label: string) {
   await clickElement(option);
 }
 
+function frequencyText(): string {
+  return (
+    document.querySelector('#schedule-frequency [data-slot="select-value"]')?.textContent?.trim() ??
+    ''
+  );
+}
+
+function timeValue(): string {
+  return (document.getElementById('schedule-time') as HTMLInputElement | null)?.value ?? '';
+}
+
+function cronValue(): string {
+  return (document.getElementById('schedule-cron') as HTMLInputElement | null)?.value ?? '';
+}
+
+function weekdayButton(label: string): HTMLButtonElement {
+  const match = document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  if (!match) throw new Error(`Missing weekday: ${label}`);
+  return match;
+}
+
+function selectedDays(): string[] {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[aria-labelledby="schedule-weekdays-label"] button',
+    ),
+  ]
+    .filter((element) => element.getAttribute('aria-pressed') === 'true')
+    .map((element) => element.textContent?.trim() ?? '');
+}
+
+function weekdayGroup(): HTMLElement {
+  const group = document.querySelector<HTMLElement>('[aria-labelledby="schedule-weekdays-label"]');
+  if (!group) throw new Error('Missing weekday group');
+  return group;
+}
+
 function dialogByTitle(title: string): HTMLElement | null {
   return (
     [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
@@ -269,7 +306,8 @@ describe('schedule draft navigation', () => {
     const router = await mount();
     await click('编辑 Morning report');
     await fill('schedule-name', 'Saved name');
-    await click('保存');
+    expect(button('保存更改').disabled).toBe(false);
+    await click('保存更改');
     await act(async () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
@@ -308,24 +346,26 @@ describe('schedule draft navigation', () => {
 });
 
 describe('schedule dialog fields and payload', () => {
-  it('places the main editor fields before the execution conditions and states the UTC cron rule', async () => {
+  it('places the editor fields on the left and the frequency controls on the right', async () => {
     await mount();
     await click('新建定时任务');
 
     const name = document.getElementById('schedule-name');
     const prompt = document.getElementById('schedule-prompt');
     const agentField = document.getElementById('schedule-agent');
-    const cron = document.getElementById('schedule-cron');
+    const frequency = document.getElementById('schedule-frequency');
+    const time = document.getElementById('schedule-time');
     const enabled = document.getElementById('schedule-enabled');
-    expect(name && prompt && agentField && cron && enabled).toBeTruthy();
+    expect(name && prompt && agentField && frequency && time && enabled).toBeTruthy();
 
     const groupOf = (element: Element | null) =>
       element?.closest('[data-slot="field-group"]') ?? null;
     expect(groupOf(name)).not.toBeNull();
     expect(groupOf(prompt)).toBe(groupOf(name));
-    expect(groupOf(agentField)).not.toBe(groupOf(name));
-    expect(groupOf(cron)).toBe(groupOf(agentField));
-    expect(groupOf(enabled)).toBe(groupOf(agentField));
+    expect(groupOf(agentField)).toBe(groupOf(name));
+    expect(groupOf(frequency)).not.toBe(groupOf(name));
+    expect(groupOf(time)).toBe(groupOf(frequency));
+    expect(groupOf(enabled)).toBe(groupOf(frequency));
 
     // 主编辑区先于执行条件，键盘与读屏顺序和视觉左右一致。
     const order = [...document.querySelectorAll('[data-slot="field"]')]
@@ -335,35 +375,91 @@ describe('schedule dialog fields and payload', () => {
       'schedule-name',
       'schedule-prompt',
       'schedule-agent',
-      'schedule-cron',
+      'schedule-frequency',
+      'schedule-time',
       'schedule-enabled',
     ]);
 
     const labelOf = (id: string) => document.querySelector(`label[for="${id}"]`)?.textContent ?? '';
     for (const [id, text] of [
       ['schedule-name', '名称'],
-      ['schedule-prompt', '提示词'],
+      ['schedule-prompt', '任务内容'],
       ['schedule-agent', '专家'],
-      ['schedule-cron', 'cron'],
+      ['schedule-time', '时间（UTC）'],
     ]) {
       expect(labelOf(id)).toContain(text);
       expect(labelOf(id)).toContain('必填');
     }
     expect(labelOf('schedule-enabled')).toContain('启用');
     expect(labelOf('schedule-enabled')).not.toContain('必填');
+    expect(document.getElementById('schedule-prompt')?.getAttribute('placeholder')).toBe(
+      '希望专家定期完成什么？',
+    );
+    expect(document.getElementById('schedule-cron')).toBeNull();
 
-    expect(cron?.getAttribute('aria-describedby')).toContain('schedule-cron-hint');
-    expect(document.getElementById('schedule-cron-hint')?.textContent).toContain('UTC');
+    await selectOption('schedule-frequency', '自定义 cron');
+    expect(labelOf('schedule-cron')).toContain('cron');
+    expect(labelOf('schedule-cron')).toContain('必填');
+    expect(document.getElementById('schedule-cron')?.getAttribute('aria-describedby')).toContain(
+      'schedule-cron-hint',
+    );
+    const hint = document.getElementById('schedule-cron-hint')?.textContent ?? '';
+    expect(hint).toContain('五段：分 时 日 月 周');
+    expect(hint).toContain('UTC');
+    expect(hint).toContain('切换频率会替换此表达式');
+  });
+
+  it('opens a pristine daily 09:00 draft without an unsaved-change guard', async () => {
+    await mount();
+    await click('新建定时任务');
+
+    expect(frequencyText()).toBe('每天');
+    expect(timeValue()).toBe('09:00');
+    expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe('');
+    expect((document.getElementById('schedule-prompt') as HTMLTextAreaElement).value).toBe('');
+    expect((document.getElementById('schedule-enabled') as HTMLInputElement).checked).toBe(true);
+    expect(unloadPrevented()).toBe(false);
   });
 
   it('submits the full create payload from both regions', async () => {
+    let finish!: () => void;
+    msw.server.use(
+      http.post('/api/schedules', async ({ request }) => {
+        const input = (await request.json()) as ScheduleInput;
+        const next: Schedule = {
+          ...schedule,
+          ...input,
+          id: 'sch_2',
+          agentName: agent.name,
+          lastRunAt: null,
+          createdAt: '2026-10-02T00:00:00.000Z',
+          updatedAt: '2026-10-02T00:00:00.000Z',
+        };
+        return new Promise<Response>((resolve) => {
+          finish = () => {
+            schedules = [...schedules, next];
+            resolve(HttpResponse.json(next));
+          };
+        });
+      }),
+    );
     await mount();
     await click('新建定时任务');
     await selectOption('schedule-agent', 'Expert A');
     await fill('schedule-name', 'Nightly digest');
+    await selectOption('schedule-frequency', '自定义 cron');
     await fill('schedule-cron', '30 1 * * *');
     await fill('schedule-prompt', 'Summarize the day');
-    await click('保存');
+    expect(button('创建任务').disabled).toBe(false);
+    await click('创建任务');
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(button('创建中…').disabled).toBe(true);
+    await act(async () => {
+      finish();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
     await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
     await msw.waitForRequests();
     const call = msw.calls.find(
@@ -382,10 +478,11 @@ describe('schedule dialog fields and payload', () => {
     await mount();
     await click('编辑 Morning report');
     await fill('schedule-name', 'Evening report');
+    await selectOption('schedule-frequency', '自定义 cron');
     await fill('schedule-cron', '0 18 * * *');
     await fill('schedule-prompt', 'Summarize the evening');
     await clickElement(document.getElementById('schedule-enabled') as HTMLElement);
-    await click('保存');
+    await click('保存更改');
     await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
     await msw.waitForRequests();
     const call = msw.calls.find(
@@ -400,18 +497,287 @@ describe('schedule dialog fields and payload', () => {
     });
   });
 
-  it('reports missing fields in place, focuses the first invalid one, and keeps the dialog open', async () => {
+  it('serializes a daily schedule as minute and hour in UTC', async () => {
     await mount();
     await click('新建定时任务');
-    await click('保存');
+    await selectOption('schedule-agent', 'Expert A');
+    await fill('schedule-name', 'Nightly digest');
+    await fill('schedule-prompt', 'Summarize the day');
+    await fill('schedule-time', '18:30');
+    await click('创建任务');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    const call = msw.calls.find(
+      (entry) => entry.method === 'POST' && entry.path === '/api/schedules',
+    );
+    expect(call?.body).toEqual({
+      agentId: 'agent-1',
+      name: 'Nightly digest',
+      cron: '30 18 * * *',
+      prompt: 'Summarize the day',
+      enabled: true,
+    });
+  });
+
+  it('submits weekly days in ascending numeric order with Sunday as 0', async () => {
+    await mount();
+    await click('新建定时任务');
+    await selectOption('schedule-agent', 'Expert A');
+    await fill('schedule-name', 'Weekday digest');
+    await fill('schedule-prompt', 'Summarize the weekdays');
+    await selectOption('schedule-frequency', '每周');
+    expect(selectedDays()).toEqual(['一', '二', '三', '四', '五']);
+    await clickElement(weekdayButton('周日'));
+    await fill('schedule-time', '07:05');
+    await click('创建任务');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    const call = msw.calls.find(
+      (entry) => entry.method === 'POST' && entry.path === '/api/schedules',
+    );
+    expect(call?.body).toMatchObject({ cron: '5 7 * * 0,1,2,3,4,5' });
+  });
+
+  it('keeps a cleared time empty and blocks saving instead of restoring 09:00', async () => {
+    await mount();
+    await click('新建定时任务');
+    await selectOption('schedule-agent', 'Expert A');
+    await fill('schedule-name', 'Nightly digest');
+    await fill('schedule-prompt', 'Summarize the day');
+    await fill('schedule-time', '');
+    await click('创建任务');
 
     await vi.waitFor(() =>
-      expect(document.getElementById('schedule-cron-error')?.textContent).toContain(
-        'cron 需要 5 段',
+      expect(document.getElementById('schedule-time-error')?.textContent).toContain('请选择时间'),
+    );
+    expect(timeValue()).toBe('');
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(document.getElementById('schedule-time')),
+    );
+    expect(msw.calls.some((entry) => entry.method === 'POST')).toBe(false);
+  });
+
+  it('blocks an emptied weekday selection without refilling it later', async () => {
+    await mount();
+    await click('新建定时任务');
+    await selectOption('schedule-agent', 'Expert A');
+    await fill('schedule-name', 'Weekday digest');
+    await fill('schedule-prompt', 'Summarize the weekdays');
+    await selectOption('schedule-frequency', '每周');
+    for (const day of ['周一', '周二', '周三', '周四', '周五']) {
+      await clickElement(weekdayButton(day));
+    }
+    expect(selectedDays()).toEqual([]);
+
+    await click('创建任务');
+    await vi.waitFor(() =>
+      expect(document.getElementById('schedule-weekdays-error')?.textContent).toContain(
+        '至少选择一天',
       ),
     );
-    expect(document.getElementById('schedule-name-error')?.textContent).toContain('不能为空');
+    await vi.waitFor(() => expect(document.activeElement).toBe(weekdayGroup()));
+    expect(msw.calls.some((entry) => entry.method === 'POST')).toBe(false);
+
+    await selectOption('schedule-frequency', '每天');
+    await selectOption('schedule-frequency', '每周');
+    expect(selectedDays()).toEqual([]);
+  });
+
+  it('keeps time across daily and weekly and projects the current schedule into custom', async () => {
+    await mount();
+    await click('新建定时任务');
+    await fill('schedule-time', '18:30');
+    await selectOption('schedule-frequency', '每周');
+    expect(timeValue()).toBe('18:30');
+    expect(selectedDays()).toEqual(['一', '二', '三', '四', '五']);
+
+    await selectOption('schedule-frequency', '自定义 cron');
+    expect(cronValue()).toBe('30 18 * * 1,2,3,4,5');
+    await fill('schedule-cron', '*/15 2-5 1 * 1-5');
+    expect(frequencyText()).toBe('自定义 cron');
+
+    await selectOption('schedule-frequency', '每天');
+    expect(frequencyText()).toBe('每天');
+    expect(timeValue()).toBe('09:00');
+    await selectOption('schedule-frequency', '每周');
+    expect(selectedDays()).toEqual(['一', '二', '三', '四', '五']);
+  });
+
+  it('restores only canonical custom expressions into time', async () => {
+    await mount();
+    await click('新建定时任务');
+    await selectOption('schedule-frequency', '自定义 cron');
+    await fill('schedule-cron', '15 2 * * *');
+    await selectOption('schedule-frequency', '每天');
+    expect(timeValue()).toBe('02:15');
+
+    await selectOption('schedule-frequency', '自定义 cron');
+    expect(cronValue()).toBe('15 2 * * *');
+    await fill('schedule-cron', '05 09 1 * 1-5');
+    await selectOption('schedule-frequency', '每天');
+    expect(timeValue()).toBe('09:00');
+  });
+
+  it('closes an unchanged daily round trip through custom without a discard confirmation', async () => {
+    await mount();
+    await click('编辑 Morning report');
+    await selectOption('schedule-frequency', '自定义 cron');
+
+    // 还没回到原来的模式，仍是未保存改动。
+    await click('取消');
+    const confirm = dialogByTitle('放弃未保存的更改？');
+    if (!confirm) throw new Error('Missing discard confirm');
+    const keepEditing = [...confirm.querySelectorAll('button')].find(
+      (element) => element.textContent?.trim() === '取消',
+    );
+    if (!keepEditing) throw new Error('Missing confirm cancel');
+    await clickElement(keepEditing);
+    await vi.waitFor(() => expect(dialogByTitle('放弃未保存的更改？')).toBeNull());
+
+    await selectOption('schedule-frequency', '每天');
+    await click('取消');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    expect(dialogByTitle('放弃未保存的更改？')).toBeNull();
+    expect(unloadPrevented()).toBe(false);
+  });
+
+  it('fills default weekdays when a canonical daily custom expression enters weekly', async () => {
+    schedules = [{ ...schedule, cron: '30 18 * * *' }, { ...other }];
+    await mount();
+    await click('编辑 Morning report');
+    expect(frequencyText()).toBe('每天');
+    expect(timeValue()).toBe('18:30');
+    await selectOption('schedule-frequency', '自定义 cron');
+    expect(cronValue()).toBe('30 18 * * *');
+
+    await selectOption('schedule-frequency', '每周');
+    expect(timeValue()).toBe('18:30');
+    expect(selectedDays()).toEqual(['一', '二', '三', '四', '五']);
+  });
+
+  it('does not restore default weekdays after the user clears them and passes through custom', async () => {
+    await mount();
+    await click('新建定时任务');
+    await selectOption('schedule-frequency', '每周');
+    for (const day of ['周一', '周二', '周三', '周四', '周五']) {
+      await clickElement(weekdayButton(day));
+    }
+    expect(selectedDays()).toEqual([]);
+
+    await selectOption('schedule-frequency', '每天');
+    await selectOption('schedule-frequency', '自定义 cron');
+    await selectOption('schedule-frequency', '每周');
+    expect(selectedDays()).toEqual([]);
+  });
+
+  it('keeps a complex cron as raw text and leaves it untouched when only the name changes', async () => {
+    schedules = [{ ...schedule, cron: '*/15 09 1 * 1-5' }, { ...other }];
+    await mount();
+    await click('编辑 Morning report');
+    expect(frequencyText()).toBe('自定义 cron');
+    expect(cronValue()).toBe('*/15 09 1 * 1-5');
+
+    await fill('schedule-name', 'Renamed report');
+    await click('保存更改');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    const call = msw.calls.find(
+      (entry) => entry.method === 'PATCH' && entry.path === '/api/schedules/sch_1',
+    );
+    expect(call?.body).toMatchObject({
+      name: 'Renamed report',
+      cron: '*/15 09 1 * 1-5',
+    });
+  });
+
+  it('round-trips a canonical daily cron when only the name changes', async () => {
+    await mount();
+    await click('编辑 Morning report');
+    expect(frequencyText()).toBe('每天');
+    expect(timeValue()).toBe('09:00');
+    await fill('schedule-name', 'Renamed report');
+    await click('保存更改');
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+    await msw.waitForRequests();
+    const call = msw.calls.find(
+      (entry) => entry.method === 'PATCH' && entry.path === '/api/schedules/sch_1',
+    );
+    expect(call?.body).toMatchObject({ cron: '0 9 * * *' });
+  });
+
+  it('binds custom cron errors to the visible field instead of a hidden input', async () => {
+    await mount();
+    await click('新建定时任务');
+    await selectOption('schedule-agent', 'Expert A');
+    await fill('schedule-name', 'Nightly digest');
+    await fill('schedule-prompt', 'Summarize the day');
+    await selectOption('schedule-frequency', '自定义 cron');
+    await fill('schedule-cron', '0 9 * *');
+    await click('创建任务');
+
+    await vi.waitFor(() =>
+      expect(document.getElementById('schedule-cron-error')?.textContent).toContain('5 段'),
+    );
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(document.getElementById('schedule-cron')),
+    );
+    expect(msw.calls.some((entry) => entry.method === 'POST')).toBe(false);
+  });
+
+  it('disables every new frequency control while saving', async () => {
+    schedules = [{ ...schedule, cron: '30 18 * * 1,2,3,4,5' }, { ...other }];
+    let finish!: () => void;
+    msw.server.use(
+      http.patch(
+        '/api/schedules/sch_1',
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = () => {
+              schedules = [{ ...schedules[0], name: 'Saving name' }];
+              resolve(HttpResponse.json(schedules[0]));
+            };
+          }),
+      ),
+    );
+    await mount();
+    await click('编辑 Morning report');
+    await fill('schedule-name', 'Saving name');
+    await click('保存更改');
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect((document.getElementById('schedule-frequency') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((document.getElementById('schedule-time') as HTMLInputElement).disabled).toBe(true);
+    for (const day of ['周一', '周二', '周三', '周四', '周五']) {
+      expect(weekdayButton(day).disabled).toBe(true);
+    }
+    expect((document.getElementById('schedule-enabled') as HTMLInputElement).disabled).toBe(true);
+    expect(
+      document.querySelector('[role="dialog"] [role="switch"]')?.hasAttribute('data-disabled'),
+    ).toBe(true);
+
+    await act(async () => {
+      finish();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
+  });
+
+  it('reports missing fields in place, focuses the first visible invalid one, and keeps the dialog open', async () => {
+    await mount();
+    await click('新建定时任务');
+    await click('创建任务');
+
+    await vi.waitFor(() =>
+      expect(document.getElementById('schedule-name-error')?.textContent).toContain('不能为空'),
+    );
     expect(document.getElementById('schedule-prompt-error')?.textContent).toContain('不能为空');
+    expect(document.getElementById('schedule-agent-error')?.textContent).toContain('不能为空');
+    // 默认每天 09:00 已满足频率条件；未显示的自定义 cron 不参与本次校验。
+    expect(document.getElementById('schedule-cron')).toBeNull();
     const firstInvalid = document.querySelector<HTMLElement>('[aria-invalid="true"]');
     expect(firstInvalid).not.toBeNull();
     await vi.waitFor(() => expect(document.activeElement).toBe(firstInvalid));
@@ -588,7 +954,7 @@ describe('schedule stale conflict recovery', () => {
     await mount();
     await click('编辑 Morning report');
     await fill('schedule-name', 'Local draft');
-    await click('保存');
+    await click('保存更改');
 
     await vi.waitFor(() => expect(document.body.textContent).toContain('当前草稿已保留'));
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
@@ -614,13 +980,13 @@ describe('schedule stale conflict recovery', () => {
     await mount();
     await click('编辑 Morning report');
     await fill('schedule-name', 'Local draft');
-    await click('保存');
+    await click('保存更改');
     await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
 
     const remote: Schedule = {
       ...schedule,
       name: 'Remote name',
-      cron: '15 2 * * *',
+      cron: '30 18 * * 1,3,5',
       prompt: 'Remote prompt',
       enabled: false,
       updatedAt: '2026-10-05T00:00:00.000Z',
@@ -635,15 +1001,19 @@ describe('schedule stale conflict recovery', () => {
         'Remote name',
       ),
     );
-    expect((document.getElementById('schedule-cron') as HTMLInputElement).value).toBe('15 2 * * *');
+    expect(frequencyText()).toBe('每周');
+    expect(timeValue()).toBe('18:30');
+    expect(selectedDays()).toEqual(['一', '三', '五']);
+    expect(document.getElementById('schedule-cron')).toBeNull();
     expect((document.getElementById('schedule-prompt') as HTMLTextAreaElement).value).toBe(
       'Remote prompt',
     );
     expect((document.getElementById('schedule-enabled') as HTMLInputElement).checked).toBe(false);
     expect(document.body.textContent).not.toContain('当前草稿已保留');
+    expect(unloadPrevented()).toBe(false);
 
     await fill('schedule-name', 'After reload');
-    await click('保存');
+    await click('保存更改');
     await vi.waitFor(() => expect(document.getElementById('schedule-name')).toBeNull());
     await msw.waitForRequests();
     const saves = msw.calls.filter(
@@ -652,6 +1022,7 @@ describe('schedule stale conflict recovery', () => {
     expect(saves).toHaveLength(2);
     expect(saves[1].body).toMatchObject({
       name: 'After reload',
+      cron: '30 18 * * 1,3,5',
       expectedUpdatedAt: remote.updatedAt,
     });
   });
@@ -661,7 +1032,7 @@ describe('schedule stale conflict recovery', () => {
     await mount();
     await click('编辑 Morning report');
     await fill('schedule-name', 'Local draft');
-    await click('保存');
+    await click('保存更改');
     await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
 
     await click('重新加载');
@@ -678,7 +1049,7 @@ describe('schedule stale conflict recovery', () => {
     await mount();
     await click('编辑 Morning report');
     await fill('schedule-name', 'Local draft');
-    await click('保存');
+    await click('保存更改');
     await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
 
     msw.server.use(
@@ -702,7 +1073,7 @@ describe('schedule stale conflict recovery', () => {
     await mount();
     await click('编辑 Morning report');
     await fill('schedule-name', 'Local draft');
-    await click('保存');
+    await click('保存更改');
     await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
 
     msw.server.use(http.get('/api/schedules', () => HttpResponse.json([])));
@@ -743,7 +1114,7 @@ describe('schedule stale conflict recovery', () => {
     await mount();
     await click('编辑 Morning report');
     await fill('schedule-name', 'Local draft');
-    await click('保存');
+    await click('保存更改');
 
     await vi.waitFor(() => expect(button('另存为新建')).toBeTruthy());
     const lastCall = vi.mocked(toastError).mock.calls.at(-1);
