@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import {
   AGENT_PACKAGE_MAX_ENTRIES,
   AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
+  errorText,
   type NativeInstalledPlugin,
   type NativePluginAction,
   type NativePluginOutput,
@@ -50,10 +51,6 @@ function sanitize(message: string): string {
 
 function fail(phase: string, message: string): never {
   throw new ActionFailure(phase, message);
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -151,7 +148,7 @@ async function runCli(
       (err: unknown) => {
         const shape = err as { code?: unknown; stdout?: unknown; stderr?: unknown };
         if (typeof shape.stdout !== 'string' || typeof shape.stderr !== 'string') {
-          fail('执行 CLI', messageOf(err));
+          fail('执行 CLI', errorText(err));
         }
         return {
           code: typeof shape.code === 'number' ? shape.code : 1,
@@ -389,7 +386,7 @@ async function guard(run: () => Promise<NativePluginOutput>): Promise<NativePlug
     if (err instanceof ActionFailure) {
       return { ok: false, error: `${err.phase}失败：${err.message}` };
     }
-    return { ok: false, error: `执行失败：${sanitize(messageOf(err))}` };
+    return { ok: false, error: `执行失败：${sanitize(errorText(err))}` };
   }
 }
 
@@ -429,7 +426,7 @@ async function main(): Promise<void> {
     if (!parsed.success) throw new Error('原生插件任务格式无效');
     output = await runNativePluginAction(parsed.data);
   } catch (err) {
-    output = { ok: false, error: `任务失败：${sanitize(messageOf(err))}` };
+    output = { ok: false, error: `任务失败：${sanitize(errorText(err))}` };
   }
   // 父进程只看 stdout；进程退出码不携带原因。
   process.stdout.write(`${JSON.stringify(output)}\n`);

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AppError } from '@agentport/core';
 import {
+  errorText,
   SESSION_CLEANUP_REQUEST_CHANNEL,
   SESSION_CLEANUP_TIMEOUT_MS,
   type SessionCleanupAck,
@@ -35,10 +36,6 @@ function normalizeTargets(targets: readonly SessionCleanupTarget[]): SessionClea
 
 function unavailable(message: string, cause?: unknown): AppError {
   return new AppError('SERVICE_UNAVAILABLE', message, { cause });
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /**

@@ -2,6 +2,7 @@ import { isRetryableFailure, RunFailure } from '@agentport/core';
 import {
   type ChatEvent,
   type ExecutionSettlement,
+  errorText,
   type NativeQuestion,
   publicRunQuestion,
   type QuestionResponse,
@@ -220,7 +221,7 @@ function createQuestionRuntime(input: {
     input.record({ type: 'question_updated', question: publicRunQuestion(question) });
   };
   const fail = (err: unknown, message: string): string => {
-    const detail = err instanceof Error ? err.message : String(err);
+    const detail = errorText(err);
     failure ??= detail;
     input.logger.error({ err, runId: input.runId }, message);
     return detail;
@@ -420,10 +421,6 @@ export async function closeRunnerClient(): Promise<void> {
   await Promise.allSettled([closing[0]?.quit(), closing[1]?.quit()]);
 }
 
-function toError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 /** acquire 的总预算；超时后仍要等 provider 清理完，不能先返回留下未知容器。 */
 const ACQUIRE_BUDGET_MS = 30_000;
 
@@ -478,7 +475,7 @@ export async function acquireSessionSandbox(input: {
               remainingMs: Math.max(0, deadline - Date.now()),
             }),
           catch: (err) =>
-            err instanceof RunFailure ? err : new RunFailure('infra', toError(err), err),
+            err instanceof RunFailure ? err : new RunFailure('infra', errorText(err), err),
         });
       }),
     ),
@@ -516,7 +513,7 @@ async function acquireLease(input: {
           ? `sandbox acquire timed out after ${ACQUIRE_BUDGET_MS}ms`
           : cancelled
             ? 'cancelled during sandbox acquire'
-            : toError(err),
+            : errorText(err),
         err,
       );
     }
@@ -596,7 +593,7 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
         settlement: { state: 'stopped', code: null, signal: null },
       };
     } catch (err) {
-      const error = toError(err);
+      const error = errorText(err);
       input.logger.warn(
         { err, runId: input.runId, sandbox: input.lease.sandboxId },
         'sandbox cleanup failed',
@@ -780,7 +777,7 @@ function runInSandboxEffect(
                 },
               });
             },
-            catch: (err) => new RunFailure('infra', toError(err)),
+            catch: (err) => new RunFailure('infra', errorText(err)),
           }).pipe(Effect.map((execution) => ({ kind: 'started' as const, execution })));
         }),
         Deferred.await(cancelled).pipe(Effect.map(() => ({ kind: 'cancelled' as const }))),
@@ -821,7 +818,7 @@ function runInSandboxEffect(
     const result = yield* Effect.raceAll([
       Effect.promise(() =>
         activeExecution.done.catch(
-          (err: unknown): ExecutionSettlement => ({ state: 'unconfirmed', error: toError(err) }),
+          (err: unknown): ExecutionSettlement => ({ state: 'unconfirmed', error: errorText(err) }),
         ),
       ).pipe(Effect.map((settlement) => ({ kind: 'done' as const, settlement }))),
       Deferred.await(cancelled).pipe(Effect.map(() => ({ kind: 'cancelled' as const }))),
@@ -840,7 +837,7 @@ function runInSandboxEffect(
           if (cancelled.state !== 'stopped') return cancelled;
           return await activeExecution.done;
         } catch (err) {
-          return { state: 'unconfirmed', error: toError(err) } as const;
+          return { state: 'unconfirmed', error: errorText(err) } as const;
         }
       });
     }
@@ -969,12 +966,12 @@ function subscribeCancel(
     );
     yield* Effect.tryPromise({
       try: () => redis.subscribe(channel),
-      catch: (err) => new RunFailure('infra', toError(err)),
+      catch: (err) => new RunFailure('infra', errorText(err)),
     });
     // 订阅连接不能执行 EXISTS；独立 effect 保证中断后不再发补查。
     const exists = yield* Effect.tryPromise({
       try: () => getPublisher(logger).exists(channel),
-      catch: (err) => new RunFailure('infra', toError(err)),
+      catch: (err) => new RunFailure('infra', errorText(err)),
     });
     if (exists === 1) onCancel();
   });

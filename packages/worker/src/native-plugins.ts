@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  errorText,
   NATIVE_PLUGIN_TIMEOUT_MS,
   NATIVE_PLUGINS_QUEUE,
   type NativePluginAction,
@@ -70,10 +71,6 @@ function parseResultLine(line: string): NativePluginOutput | null {
   }
   const parsed = nativePluginOutputSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /**

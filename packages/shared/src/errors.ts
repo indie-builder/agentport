@@ -11,6 +11,11 @@ import { z } from 'zod';
  * - 不进 wire：堆栈、SQL、上游响应体、内部标识。500 一律换成固定文案。
  */
 
+/** 跨端统一的错误文本：Error 取 message，其余走 String()。 */
+export function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * 稳定错误码。加新码是兼容变更；改语义或删除是破坏性变更——
  * 前端与外部 MCP 客户端都可能依赖它。

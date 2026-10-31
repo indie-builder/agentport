@@ -1,4 +1,5 @@
 import {
+  errorText,
   redactSecrets,
   SESSION_CLEANUP_REQUEST_CHANNEL,
   SESSION_CLEANUP_TIMEOUT_MS,
@@ -28,10 +29,6 @@ export interface SessionCleanupChannelOptions {
 export interface SessionCleanupChannel {
   /** 停止接收新请求并有界等待在途关闭；超时则 reject，连接始终释放。 */
   close(timeoutMs?: number): Promise<void>;
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 export async function startSessionCleanupChannel(
