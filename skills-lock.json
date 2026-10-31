@@ -243,6 +243,12 @@
       "skillPath": "SKILL.md",
       "computedHash": "e2e28ad6f12ce3bc1e5be6676b0dcd88c217957c79c512b418c241fa2e5825a0"
     },
+    "unslop": {
+      "source": "heydamir/unslop",
+      "sourceType": "github",
+      "skillPath": "skills/unslop/SKILL.md",
+      "computedHash": "83dcbc854b05c73ccea32a96a25112cce278ce1c647f75824ae8bc6ab5311dbc"
+    },
     "vercel-composition-patterns": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",

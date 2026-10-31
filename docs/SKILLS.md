@@ -53,6 +53,7 @@
 | `effect-ts` | effect-ts/skills | Effect 4 任务内副作用、取消/超时/资源释放与类型化错误 |
 | `getting-started` | tanstack/table | TanStack Table v9 React 入口；包内配套 table-state、feature 与迁移技能 |
 | `ub-mode` | unclebob/ub-mode | 默认日常工程纪律：First Make it Work → Then Make it Right → Follow Practice；编排与并行仍归 pstack |
+| `unslop` | heydamir/unslop | AI 生成感 UI 的诊断与九轮打磨（React/Tailwind，桌面浅色）；接在 DESIGN-SYSTEM 与 shadcn/Base UI 之上 |
 
 ## 范围
 
@@ -159,6 +160,11 @@ mutator / uml-viewer 配套工具本次未安装。上游仓库无 LICENSE 文�
 - `pstack`：模型选择、任务编排、并行拆分与独立 review；不承担工程纪律本身。
 - `test-driven-development`：按需参考红绿步骤，不是硬性门禁。
 - `verification-before-completion`：交付前跑验证、看真实输出再声明完成。
+
+### unslop（2026-11-01）
+
+上游 `heydamir/unslop` 许可 CC-BY-4.0，`SKILL.md` 顶部原有署名段落保留。本地只在 `SKILL.md` frontmatter 之后补一段中文 `Project convention`（桌面浅色、shadcn/Base UI + Tailwind 4 `@theme`、以 `docs/DESIGN-SYSTEM.md` 为准；只诊断与打磨，不换栈、不改布局契约），`references/`、`scripts/` 保持上游原样；CLI 不带上游根 `LICENSE`，已从上游补入技能目录。
+`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。升级或重装后需补回 Project convention 与 `LICENSE`，再跑「完成核验」。
 
 ## 插件更新
 
