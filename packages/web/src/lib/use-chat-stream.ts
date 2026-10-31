@@ -10,6 +10,7 @@ import type { InfiniteData, QueryClient, UseQueryResult } from '@tanstack/react-
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ApiError,
   api,
   type ChatAccepted,
   type ChatAttachmentInput,
@@ -63,13 +64,14 @@ function readBase64(file: File): Promise<string> {
 /**
  * 按 `runId` 翻到本 run 的第一条消息。消息按时间正序、同一 run 连续，
  * 所以遇到别的 run（或没有更早页）就说明本 run 已完整。
+ * 同时带回更早页里本 run 之前的消息，用于重建已加载旧轮。
  */
 async function loadRunMessages(
   conversationId: string,
   runId: string,
-): Promise<ConversationMessage[]> {
+): Promise<{ messages: ConversationMessage[]; prefix: ConversationMessage[] }> {
   let before: string | undefined;
-  let messages: ConversationMessage[] = [];
+  let all: ConversationMessage[] = [];
   for (let page = 0; page < RECOVERY_MAX_PAGES; page += 1) {
     const detail = await api.conversation(conversationId, {
       limit: RECOVERY_PAGE_SIZE,
@@ -78,14 +80,31 @@ async function loadRunMessages(
     if (detail.conversation.id !== conversationId) {
       throw new Error('会话历史不匹配，请重新打开会话');
     }
-    messages = [...detail.messages.filter((message) => message.runId === runId), ...messages];
+    all = [...detail.messages, ...all];
     const oldest = detail.messages[0];
     // 本 run 从它自己的用户消息开始；遇到别的 run 或用户消息即已完整。
     const complete = oldest === undefined || oldest.runId !== runId || oldest.role === 'user';
-    if (complete || detail.nextBefore == null) return messages;
-    before = detail.nextBefore;
+    if (!complete && detail.nextBefore != null) {
+      before = detail.nextBefore;
+      continue;
+    }
+    const start = all.findIndex((message) => message.runId === runId);
+    return {
+      messages: start < 0 ? [] : all.slice(start).filter((message) => message.runId === runId),
+      prefix: start < 0 ? all : all.slice(0, start),
+    };
   }
   throw new Error('本轮输出超出可恢复范围，请刷新后查看会话历史');
+}
+
+/** 多页来源可能重叠；按消息 id 去重并保持时间顺序。 */
+function uniqueMessages(messages: ConversationMessage[]): ConversationMessage[] {
+  const seen = new Set<string>();
+  return messages.filter((message) => {
+    if (seen.has(message.id)) return false;
+    seen.add(message.id);
+    return true;
+  });
 }
 
 /**
@@ -250,54 +269,72 @@ export function useChatStream({
     };
   }, [agentId, closeStream]);
 
-  /** 截断后的异步补全：只在本轮仍是当前会话、没有新运行、也没切走时才落地。 */
-  const recoverPersisted = useCallback(async (accepted: ChatAccepted): Promise<void> => {
-    // closeStream 已在 run_finished 时递增 generation，晚到的响应自然作废。
-    const generation = generationRef.current;
-    try {
-      // 用真实会话消息取 id 与 canonical：运行详情的步骤是合成 id，也没有块与 UI 快照。
-      const messages = await loadRunMessages(accepted.conversationId, accepted.runId);
-      if (generation !== generationRef.current) return;
-      const store = useChatStore.getState();
-      if (store.conversationId !== accepted.conversationId) return;
-      if (store.run !== null || store.lastRunId !== accepted.runId) return;
-      // 已加载的历史（含分页）保持不动；base 的最后一项永远是本轮用户气泡。
-      const prompt = baseItemsRef.current.at(-1);
-      if (!prompt) return;
-      const promptIndex = store.items.indexOf(prompt);
-      if (promptIndex < 0) return;
-      if (!messages.some((message) => message.role !== 'user')) {
-        store.setItems((previous) => [
-          ...previous,
-          {
-            kind: 'notice',
-            tone: 'muted',
-            text: '运行已结束，未找到已保存结果，请查看运行详情。',
-          },
-        ]);
-        return;
+  /**
+   * 截断后的异步补全：只在本轮仍是当前会话、没有新运行、也没切走时才落地。
+   * 补全期间保留本轮 run 作为发送屏障，成功或明确失败后才释放。
+   */
+  const recoverPersisted = useCallback(
+    async (accepted: ChatAccepted, generation: number): Promise<void> => {
+      const ownsRecovery = () => {
+        if (!mountedRef.current || generationRef.current !== generation) return false;
+        const current = useChatStore.getState();
+        return (
+          current.conversationId === accepted.conversationId &&
+          (current.run === null || current.run.runId === accepted.runId) &&
+          current.lastRunId === accepted.runId
+        );
+      };
+      try {
+        // 用真实会话消息取 id 与 canonical：运行详情的步骤是合成 id，也没有块与 UI 快照。
+        const { messages } = await loadRunMessages(accepted.conversationId, accepted.runId);
+        if (!ownsRecovery()) return;
+        const store = useChatStore.getState();
+        if (!messages.some((message) => message.role !== 'user')) {
+          store.setItems((previous) => [
+            ...previous,
+            {
+              kind: 'notice',
+              tone: 'muted',
+              text: '运行已结束，未找到已保存结果，请查看运行详情。',
+            },
+          ]);
+        } else {
+          const tail = historyToItems(messages);
+          // base 的最后一项是共享的用户气泡；分页补出的用户项可能不在 store 里，按 run 兜底。
+          const prompt = baseItemsRef.current.at(-1);
+          const shared = prompt === undefined ? -1 : store.items.indexOf(prompt);
+          const promptIndex =
+            shared >= 0
+              ? shared
+              : store.items.findLastIndex(
+                  (item) => item.kind === 'user' && item.runId === accepted.runId,
+                );
+          store.setItems(promptIndex < 0 ? tail : [...store.items.slice(0, promptIndex), ...tail]);
+        }
+      } catch {
+        if (!ownsRecovery()) return;
+        // 保留已经收到的部分输出，只追加一条明确的失败说明。
+        useChatStore
+          .getState()
+          .setItems((previous) => [
+            ...previous,
+            { kind: 'notice', tone: 'error', text: '无法读取已保存结果，请刷新后重试。' },
+          ]);
       }
-      const tail = historyToItems(messages);
-      store.setItems([...store.items.slice(0, promptIndex), ...tail]);
-    } catch {
-      if (generation !== generationRef.current) return;
-      const store = useChatStore.getState();
-      if (store.conversationId !== accepted.conversationId) return;
-      if (store.run !== null || store.lastRunId !== accepted.runId) return;
-      // 保留已经收到的部分输出，只追加一条明确的失败说明。
-      store.setItems((previous) => [
-        ...previous,
-        { kind: 'notice', tone: 'error', text: '无法读取已保存结果，请刷新后重试。' },
-      ]);
-    }
-  }, []);
+      if (!ownsRecovery()) return;
+      useChatStore.getState().setRun(null);
+      recoveryRef.current = null;
+    },
+    [],
+  );
 
   const openStream = useCallback(
     (accepted: ChatAccepted, generation: number, attempt = 0): void => {
       if (!mountedRef.current || generationRef.current !== generation) return;
       const store = useChatStore.getState();
       closeSource();
-      if (attempt > 0) store.setItems(baseItemsRef.current);
+      // 从头回放时等第一条事件再替换本轮尾部：建立事件流期间已加载的历史仍可见。
+      let replayPending = attempt > 0;
       const source = new EventSource(`/api/chat/${accepted.runId}/events`);
       sourceRef.current = source;
       const ownsStream = () =>
@@ -324,6 +361,10 @@ export function useChatStream({
         const parsed = chatEventSchema.safeParse(raw);
         if (!parsed.success) return;
         const event = parsed.data;
+        if (replayPending) {
+          replayPending = false;
+          store.setItems(baseItemsRef.current);
+        }
         if (event.type === 'replay_truncated') replayTruncatedRef.current = true;
         store.setItems((previous) => applyEvent(previous, event));
         if (event.type === 'question_updated') {
@@ -360,7 +401,17 @@ export function useChatStream({
         if (event.type === 'run_finished') {
           finished = true;
           closeStream();
-          store.setRun(null);
+          const recoveryGeneration = generationRef.current;
+          const needsRecovery = replayTruncatedRef.current;
+          if (needsRecovery) {
+            // 补全结束前保留本轮 run 屏障：下一轮不能抢在 canonical 落地前开始。
+            recoveryRef.current = recoveryGeneration;
+            store.setRun((current) =>
+              current?.runId === accepted.runId ? { ...current, status: 'detached' } : current,
+            );
+          } else {
+            store.setRun(null);
+          }
           // 本轮回复落库后都带同一个 run_id；补到流式项上，下一轮开始后它也能按 id 取读数。
           // 按稳定块身份回填消息 id 与 canonical 快照：表单状态与 Query/Mutation 都要用它定位消息。
           store.setItems((previous) => {
@@ -433,8 +484,8 @@ export function useChatStream({
           });
           void client.invalidateQueries({ queryKey: ['conversations'] });
           // 截断后流里只有部分事件：用落库的完整步骤替换本轮尾部。
-          if (replayTruncatedRef.current) {
-            void recoverPersisted(accepted);
+          if (needsRecovery) {
+            void recoverPersisted(accepted, recoveryGeneration);
           }
         }
         // error 只是事件流里的一条通知：服务端 run 可能仍在运行，不在这里收尾。
@@ -492,12 +543,10 @@ export function useChatStream({
     void (async () => {
       const store = useChatStore.getState();
       const latestRunId = data.messages.findLast((message) => message.runId !== null)?.runId;
-      if (latestRunId) {
-        // SSE 从头回放；保留本轮用户消息，将已有助手内容交给回放替换。
-        const first = data.messages.findIndex((message) => message.runId === latestRunId);
-        const beforeReply = first + (data.messages[first]?.role === 'user' ? 1 : 0);
-        baseItemsRef.current = historyToItems(data.messages.slice(0, beforeReply));
-      }
+      const runStart = latestRunId
+        ? data.messages.findIndex((message) => message.runId === latestRunId)
+        : -1;
+      const loadedItems = historyToItems(data.messages);
       try {
         // 与 useRun 共用 ['run', id] 缓存；恢复时必须读最新状态，不能拿旧缓存判定运行已结束。
         const detail = latestRunId
@@ -510,46 +559,93 @@ export function useChatStream({
         ) {
           throw new Error('运行记录与会话不匹配，请重新打开会话');
         }
+        if (detail && (detail.run.status === 'queued' || detail.run.status === 'running')) {
+          // 最新页可能只截到本轮助手尾部：翻页补齐本轮用户消息与已加载旧轮。
+          // 小历史已包含用户消息时不额外请求。
+          const userLoaded = runStart >= 0 && data.messages[runStart]?.role === 'user';
+          const paged = userLoaded
+            ? { messages: [] as ConversationMessage[], prefix: [] as ConversationMessage[] }
+            : await loadRunMessages(conversationId, latestRunId as string);
+          if (!ownsHistory()) return;
+
+          const prefixMessages = userLoaded ? data.messages.slice(0, runStart) : paged.prefix;
+          const prefixItems = historyToItems(prefixMessages);
+          const promptMessage = userLoaded
+            ? data.messages[runStart]
+            : paged.messages.find((message) => message.role === 'user');
+          let promptItem: ChatItem | undefined;
+          if (promptMessage) {
+            const promptId = `${promptMessage.id}:0`;
+            // base 必须与 store 共用同一个用户项：重连替换本轮时按引用定位起点。
+            promptItem =
+              loadedItems.find((item) => item.id === promptId) ??
+              historyToItems([promptMessage])[0];
+          }
+          const items = userLoaded
+            ? loadedItems
+            : [...prefixItems, ...(promptItem ? [promptItem] : []), ...loadedItems];
+          const base = [...prefixItems, ...(promptItem ? [promptItem] : [])];
+          baseItemsRef.current = base;
+          // 快照只覆盖稳定历史（旧轮 + 本轮用户）：已保存的助手尾部会先被回放替换，
+          // 不能算进 count；本轮用户消息落在更早页时同样只取到这条用户消息。
+          const baseMessages =
+            promptMessage === undefined ? prefixMessages : [...prefixMessages, promptMessage];
+
+          hydratedRef.current = conversationId;
+          store.setLastRunId(latestRunId ?? null);
+          setHistoryPrefix(snapshotHistory({ ...data, messages: baseMessages }, base));
+          store.setItems(items);
+          startedAtRef.current = detail.run.startedAt
+            ? Date.parse(detail.run.startedAt)
+            : Date.now();
+          const accepted = { runId: detail.run.id, conversationId };
+          store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
+          replayTruncatedRef.current = false;
+          openStream(accepted, generation, 1);
+          return;
+        }
+
+        // 终态运行要在终态之后重新读取本轮 canonical，不能沿用历史首次返回的旧内容。
+        let canonicalMessages = data.messages;
+        if (detail) {
+          try {
+            const paged = await loadRunMessages(conversationId, latestRunId as string);
+            if (!ownsHistory()) return;
+            const dataPrefix = runStart < 0 ? data.messages : data.messages.slice(0, runStart);
+            // 运行从最新页开头开始时，旧轮只能来自翻页；否则已加载旧轮就在 history 里。
+            const prefix = runStart === 0 ? paged.prefix : dataPrefix;
+            canonicalMessages = uniqueMessages([...prefix, ...paged.messages]);
+          } catch (error) {
+            if (!ownsHistory()) return;
+            toastError(error);
+          }
+        }
         hydratedRef.current = conversationId;
         store.setLastRunId(latestRunId ?? null);
-        const items = historyToItems(data.messages);
-        setHistoryPrefix(snapshotHistory(data, items));
+        const items = historyToItems(canonicalMessages);
+        setHistoryPrefix(snapshotHistory({ ...data, messages: canonicalMessages }, items));
         store.setItems(items);
-        if (detail) {
-          if (detail.run.status === 'queued' || detail.run.status === 'running') {
-            startedAtRef.current = detail.run.startedAt
-              ? Date.parse(detail.run.startedAt)
-              : Date.now();
-            const accepted = { runId: detail.run.id, conversationId };
-            store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
-            const first = data.messages.findIndex((message) => message.runId === latestRunId);
-            const beforeReply = first + (data.messages[first]?.role === 'user' ? 1 : 0);
-            const messages = data.messages.slice(0, beforeReply);
-            setHistoryPrefix(snapshotHistory({ ...data, messages }, baseItemsRef.current));
-            replayTruncatedRef.current = false;
-            openStream(accepted, generation, 1);
-          } else {
-            store.setLastRun({
-              runId: detail.run.id,
-              status: detail.run.status,
-              ...(detail.run.latencyMs === null ? {} : { durationMs: detail.run.latencyMs }),
-              ...(detail.run.turns === null ? {} : { turns: detail.run.turns }),
-              ...(detail.run.inputTokens === null && detail.run.outputTokens === null
-                ? {}
-                : { tokens: (detail.run.inputTokens ?? 0) + (detail.run.outputTokens ?? 0) }),
-              ...(detail.run.costUsd === null ? {} : { costUsd: Number(detail.run.costUsd) }),
-              ...(detail.run.error === null ? {} : { error: detail.run.error }),
-            });
-          }
+        if (detail && detail.run.status !== 'queued' && detail.run.status !== 'running') {
+          store.setLastRun({
+            runId: detail.run.id,
+            status: detail.run.status,
+            ...(detail.run.latencyMs === null ? {} : { durationMs: detail.run.latencyMs }),
+            ...(detail.run.turns === null ? {} : { turns: detail.run.turns }),
+            ...(detail.run.inputTokens === null && detail.run.outputTokens === null
+              ? {}
+              : { tokens: (detail.run.inputTokens ?? 0) + (detail.run.outputTokens ?? 0) }),
+            ...(detail.run.costUsd === null ? {} : { costUsd: Number(detail.run.costUsd) }),
+            ...(detail.run.error === null ? {} : { error: detail.run.error }),
+          });
         }
       } catch (error) {
         if (!ownsHistory()) return;
-        toastError(error);
         hydratedRef.current = conversationId;
         const items = historyToItems(data.messages);
         setHistoryPrefix(snapshotHistory(data, items));
         store.setItems(items);
-        if (latestRunId) {
+        if (latestRunId && !(error instanceof ApiError && error.status === 404)) {
+          toastError(error);
           startedAtRef.current = Date.now();
           store.setLastRunId(latestRunId);
           store.setRun({
@@ -558,6 +654,15 @@ export function useChatStream({
             status: 'detached',
             startedAt: startedAtRef.current,
           });
+          // 手动重连会从头回放；base 保留旧轮与本轮用户气泡。
+          if (runStart >= 0) {
+            const beforeReply = runStart + (data.messages[runStart]?.role === 'user' ? 1 : 0);
+            baseItemsRef.current = historyToItems(data.messages.slice(0, beforeReply));
+          }
+        } else if (latestRunId) {
+          // 运行记录已被清理：已保存历史照常显示，不能留下永远 detached 的假运行。
+          store.setLastRunId(null);
+          store.setRun(null);
         }
       } finally {
         if (ownsHistory()) historyRequestRef.current = null;
@@ -712,14 +817,38 @@ export function useChatStream({
         useChatStore.getState().conversationId === current.conversationId &&
         useChatStore.getState().run?.runId === current.runId;
       try {
-        const history = await api.conversation(current.conversationId);
+        // 完整读取本轮，不能拿最新一页覆盖已经加载的更早历史。
+        const { messages } = await loadRunMessages(current.conversationId, current.runId);
         if (!ownsRecovery()) return;
-        if (history.conversation.id !== current.conversationId) {
-          throw new Error('会话历史不匹配，请重新打开会话');
-        }
-        const items = historyToItems(history.messages);
-        setHistoryPrefix(snapshotHistory(history, items));
-        store.setItems(items);
+        const loaded = useChatStore.getState().items;
+        const promptIndex = loaded.findLastIndex(
+          (item) => item.kind === 'user' && item.runId === current.runId,
+        );
+        const prefix = promptIndex < 0 ? [] : loaded.slice(0, promptIndex);
+        const items = [...prefix, ...historyToItems(messages)];
+        useChatStore.getState().setItems(items);
+        setHistoryPrefix((previous) => {
+          if (previous !== null && previous.conversationId !== current.conversationId)
+            return previous;
+          // 稳定前缀之外可能已有只有 items、没有原始消息的轮次（普通 SSE 完成）。
+          // 只有原始消息覆盖整段尾部时才推进边界与 count，否则保留前缀快照，
+          // 尾部继续由 items 独立保留，补旧时不能把缺 raw 的轮次挤掉。
+          const covered =
+            previous === null
+              ? promptIndex === 0
+              : promptIndex === previous.count - 1 || promptIndex === previous.count;
+          if (!covered) return previous;
+          const merged = uniqueMessages([
+            ...(previous?.messages.filter((message) => message.runId !== current.runId) ?? []),
+            ...messages,
+          ]);
+          return {
+            conversationId: current.conversationId,
+            boundaryId: merged.at(-1)?.id ?? null,
+            messages: merged,
+            count: items.length,
+          };
+        });
       } catch (error) {
         if (!ownsRecovery()) return;
         toastError(new Error(`未能恢复完整会话，请重新打开会话重试：${errorMessage(error)}`));
@@ -773,9 +902,10 @@ export function useChatStream({
       recoveryRef.current !== null
     )
       return;
+    // 手动重连先清掉上次中断留下的通知；自动重连则等回放首条事件再替换。
     useChatStore.getState().setItems(baseItemsRef.current);
     useChatStore.getState().setRun({ ...run, status: 'reconnecting' });
-    openStream(run, generationRef.current);
+    openStream(run, generationRef.current, 1);
   };
 
   return {

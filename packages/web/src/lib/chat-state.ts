@@ -113,6 +113,27 @@ function runStart(items: ChatItem[]): number {
   return items.findLastIndex((item) => item.kind === 'user') + 1;
 }
 
+/* 回放截断提示同一轮只保留一条：重连或多种截断原因不能叠加。 */
+const REPLAY_TERMINAL_NOTICE = '结束事件未收到，正在读取已保存结果。';
+const REPLAY_TRUNCATED_NOTICE = '较早事件已截断，运行结束后将读取已保存结果。';
+const REPLAY_BUDGET_NOTICE = '增量事件超出回放预算，已跳过部分增量；完整块仍会继续显示。';
+const REPLAY_NOTICE_TEXTS = new Set([
+  REPLAY_TERMINAL_NOTICE,
+  REPLAY_TRUNCATED_NOTICE,
+  REPLAY_BUDGET_NOTICE,
+]);
+
+/** shared 后续可能增加 reason；未知原因按常规截断提示。 */
+function replayNoticeText(reason: string): string {
+  if (reason === 'terminal_missing') return REPLAY_TERMINAL_NOTICE;
+  if (reason === 'budget') return REPLAY_BUDGET_NOTICE;
+  return REPLAY_TRUNCATED_NOTICE;
+}
+
+function isReplayNotice(item: ChatItem): boolean {
+  return item.kind === 'notice' && REPLAY_NOTICE_TEXTS.has(item.text);
+}
+
 /** 按稳定块身份找本轮已有的文本段；interleaved 的父子文本也会命中中间的段。 */
 function findStreamBlock(
   items: ChatItem[],
@@ -273,19 +294,11 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
           : item,
       );
     }
-    case 'replay_truncated':
-      // 只是说明回放不完整；run_finished 后再用服务端已保存的步骤补全。
-      return [
-        ...items,
-        {
-          kind: 'notice',
-          tone: 'muted',
-          text:
-            event.reason === 'terminal_missing'
-              ? '结束事件未收到，正在读取已保存结果。'
-              : '较早事件已截断，运行结束后将读取已保存结果。',
-        },
-      ];
+    case 'replay_truncated': {
+      // 只是一条说明，不是终态；同轮已提示过就不再叠加。
+      if (items.slice(runStart(items)).some(isReplayNotice)) return items;
+      return [...items, { kind: 'notice', tone: 'muted', text: replayNoticeText(event.reason) }];
+    }
     case 'run_finished':
       return items.map((item) =>
         item.kind === 'tool' && item.result === undefined && item.endedAt === undefined
@@ -298,8 +311,16 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
     case 'run_unavailable':
       // 记录已被清理，服务端不会再补事件；已收到的部分输出比一句空话更有用。
       return [...items, { kind: 'notice', tone: 'error', text: event.message }];
-    case 'run_started':
-      return items;
+    case 'run_started': {
+      // 同一 run 的基础设施重试会复用 Redis 日志并让 blockId 从 b0 重新发号：
+      // 新 attempt 开始时清掉本轮旧的助手输出，整段重放最终只留最后一次 attempt。
+      const start = runStart(items);
+      // 没有本轮用户消息就没有可信的归属边界，不能把整段历史当成旧 attempt 清掉。
+      if (start === 0) return items;
+      // 截断提示通常先于 run_started 到达；保留一条，其余旧输出交给本次重放覆盖。
+      const notice = items.slice(start).findLast(isReplayNotice);
+      return notice === undefined ? items.slice(0, start) : [...items.slice(0, start), notice];
+    }
     default:
       return items;
   }

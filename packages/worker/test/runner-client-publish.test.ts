@@ -58,6 +58,22 @@ describe.skipIf(!ready)('publishRun', () => {
     }
   });
 
+  it('keeps every accepted event beyond the old 1000-entry cap', async () => {
+    configureRunnerClient(redisUrl);
+    const runId = `run-publish-${randomUUID()}`;
+    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    try {
+      for (let index = 0; index < 1_200; index += 1) {
+        await publishRun(runId, { type: 'text_delta', text: String(index) }, logger);
+      }
+      // 展示额度由 worker 自己控制；发布端不能再按 MAXLEN 裁掉已接受的事件。
+      expect(await redis.xlen(runStreamKey(runId))).toBe(1_200);
+    } finally {
+      await redis.del(runStreamKey(runId));
+      redis.disconnect();
+    }
+  });
+
   it('rejects when a pipelined command fails instead of dropping the error', async () => {
     configureRunnerClient(redisUrl);
     const runId = `run-publish-${randomUUID()}`;

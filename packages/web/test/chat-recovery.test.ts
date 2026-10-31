@@ -68,6 +68,40 @@ beforeEach(() => {
   useChatStore.getState().reset();
 });
 
+function detail(
+  messages: ConversationDetail['messages'],
+  options: { nextBefore?: string | null } = {},
+): ConversationDetail {
+  return {
+    conversation: { id: 'conversation-a', agentId: 'agent-a', title: '', createdAt: '' },
+    messages,
+    runMetrics: [],
+    nextBefore: options.nextBefore ?? null,
+  };
+}
+
+function userMessage(id: string): ConversationDetail['messages'][number] {
+  return {
+    id,
+    conversationId: 'conversation-a',
+    role: 'user',
+    content: 'prompt',
+    runId: 'run-a',
+    createdAt: id,
+  };
+}
+
+function assistantMessage(id: string, text: string): ConversationDetail['messages'][number] {
+  return {
+    id,
+    conversationId: 'conversation-a',
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    runId: 'run-a',
+    createdAt: id,
+  };
+}
+
 function disconnected() {
   const stream = mountStream();
   const store = useChatStore.getState();
@@ -156,7 +190,7 @@ describe('authoritative disconnected recovery', () => {
     useChatStore.getState().setInput('next prompt');
     await stream.send();
     expect(send).not.toHaveBeenCalled();
-    expect(fetchHistory).toHaveBeenCalledExactlyOnceWith('conversation-a');
+    expect(fetchHistory).toHaveBeenCalledExactlyOnceWith('conversation-a', { limit: 100 });
     pending.resolve(history);
     await recovery;
     expect(useChatStore.getState().input).toBe('next prompt');
@@ -185,6 +219,40 @@ describe('authoritative disconnected recovery', () => {
       text: 'authoritative reply',
       runId: 'run-a',
     });
+  });
+
+  it('loads the complete run and keeps the already loaded older prefix', async () => {
+    const stream = mountStream();
+    const store = useChatStore.getState();
+    store.resetConversation('conversation-a');
+    store.setItems([
+      { id: 'old:0', kind: 'text', text: 'older reply' },
+      { kind: 'user', text: 'prompt', runId: 'run-a' },
+      { kind: 'text', text: 'partial' },
+    ]);
+    store.setRun({
+      runId: 'run-a',
+      conversationId: 'conversation-a',
+      status: 'detached',
+      startedAt: 0,
+    });
+    stream.hydratedRef.current = 'conversation-a';
+    // 最新页只剩本轮助手消息；本 run 的第一条用户消息在前一页。
+    vi.spyOn(api, 'conversation')
+      .mockResolvedValueOnce(detail([assistantMessage('m3', 'later')], { nextBefore: 'm3' }))
+      .mockResolvedValueOnce(
+        detail([userMessage('u1'), assistantMessage('m2', 'earlier')], { nextBefore: 'u1' }),
+      );
+
+    await stream.reconcileRun({ ...terminal, status: 'succeeded' });
+
+    expect(useChatStore.getState().items.map((item) => ('text' in item ? item.text : ''))).toEqual([
+      'older reply',
+      'prompt',
+      'earlier',
+      'later',
+    ]);
+    expect(useChatStore.getState().run).toBeNull();
   });
 
   it('keeps a healthy stream in control of buffered messages', async () => {
