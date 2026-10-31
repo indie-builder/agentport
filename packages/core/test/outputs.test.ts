@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import {
+  access,
   link,
   lstat,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -888,5 +890,90 @@ describe('fork copy and removal', () => {
     await removeConversationOutputs({ root, slug, conversationId });
     await removeConversationOutputs({ root, slug, conversationId });
     expect((await listOutputFiles({ root, slug, conversationId, limit: 50 })).items).toEqual([]);
+  });
+});
+
+describe('slug validation', () => {
+  const longSlug = 'a'.repeat(65);
+  const slugError = {
+    code: 'INVALID_INPUT',
+    status: 400,
+    retryable: false,
+    path: '/slug',
+    message: '智能体目录名非法',
+  };
+
+  it('accepts 64-character and mixed separator slugs for write and read', async () => {
+    for (const validSlug of ['a'.repeat(64), 'a-b_c0']) {
+      const draft = await prepareOutputDraft({
+        root,
+        slug: validSlug,
+        conversationId,
+        runId: 'run_1',
+      });
+      await writeFiles(draft, { 'a.md': validSlug });
+      await publishOutputSnapshot({
+        root,
+        slug: validSlug,
+        conversationId,
+        runId: 'run_1',
+        status: 'succeeded',
+        userMessageId: 'msg-u1',
+        afterMessageId: 'msg-a1',
+      });
+      const read = await readOutputFile({
+        root,
+        slug: validSlug,
+        conversationId,
+        runId: 'run_1',
+        path: 'a.md',
+      });
+      expect(read.data.toString()).toBe(validSlug);
+    }
+  });
+
+  it('rejects a 65-character slug when preparing a draft and creates nothing', async () => {
+    await expect(
+      prepareOutputDraft({ root, slug: longSlug, conversationId, runId: 'run_1' }),
+    ).rejects.toMatchObject(slugError);
+    await expect(access(join(root, longSlug))).rejects.toThrow();
+  });
+
+  it('rejects a 65-character slug when reading an existing snapshot', async () => {
+    await publish('run_1', { 'a.md': 'a' });
+    await mkdir(join(root, longSlug), { recursive: true });
+    await rename(
+      join(root, slug, 'conversation-outputs'),
+      join(root, longSlug, 'conversation-outputs'),
+    );
+    await expect(
+      readOutputFile({ root, slug: longSlug, conversationId, runId: 'run_1', path: 'a.md' }),
+    ).rejects.toMatchObject(slugError);
+  });
+
+  it('rejects a 65-character slug when removing and keeps the directory', async () => {
+    const conversationDir = join(root, longSlug, 'conversation-outputs', conversationId);
+    await mkdir(conversationDir, { recursive: true });
+    await writeFile(join(conversationDir, 'sentinel.txt'), 'keep');
+    await expect(
+      removeConversationOutputs({ root, slug: longSlug, conversationId }),
+    ).rejects.toMatchObject(slugError);
+    expect(await readFile(join(conversationDir, 'sentinel.txt'), 'utf8')).toBe('keep');
+  });
+
+  it('rejects invalid slug characters with the exact error fields', async () => {
+    for (const invalid of ['', 'Agent-A', '中文', 'a b', 'a.b', '-agent', '_agent', 'a/b', '..']) {
+      await expect(
+        prepareOutputDraft({ root, slug: invalid, conversationId, runId: 'run_1' }),
+      ).rejects.toMatchObject(slugError);
+    }
+  });
+
+  it('removes a valid slug directory', async () => {
+    await publish('run_1', { 'a.md': 'a' });
+    await removeConversationOutputs({ root, slug, conversationId });
+    await expect(
+      access(join(root, slug, 'conversation-outputs', conversationId)),
+    ).rejects.toThrow();
   });
 });

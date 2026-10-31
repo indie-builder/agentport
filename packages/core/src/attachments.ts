@@ -19,6 +19,7 @@ import {
   type ChatAttachmentInput,
   type MessageAttachment,
   messageAttachmentSchema,
+  slugSchema,
 } from '@agentport/shared';
 import { fail } from './errors.js';
 
@@ -32,7 +33,6 @@ import { fail } from './errors.js';
  */
 
 const INPUTS_DIR = 'conversation-inputs';
-const slugPattern = /^[a-z0-9][a-z0-9_-]*$/;
 const segmentPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -64,7 +64,7 @@ function hasCode(error: unknown, code: string): boolean {
 }
 
 function conversationSegments(input: ConversationInputsIdentity): string[] {
-  if (!slugPattern.test(input.slug)) {
+  if (!slugSchema.safeParse(input.slug).success) {
     fail('INVALID_INPUT', '智能体目录名非法', { path: '/slug' });
   }
   if (!segmentPattern.test(input.conversationId)) {
@@ -451,7 +451,8 @@ export async function copyConversationInputs(input: CopyConversationInputsInput)
 
 /** 删除且只删除该会话的输入目录；重复调用或目录不存在都无副作用。 */
 export async function removeConversationInputs(input: ConversationInputsIdentity): Promise<void> {
-  if (!slugPattern.test(input.slug) || !segmentPattern.test(input.conversationId)) return;
+  if (!slugSchema.safeParse(input.slug).success || !segmentPattern.test(input.conversationId))
+    return;
   const dir = await existingDirectory(input, [input.slug, INPUTS_DIR, input.conversationId]);
   if (dir === null) return;
   await rm(dir, { recursive: true, force: true });
