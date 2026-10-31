@@ -61,9 +61,14 @@ function stubUrls() {
   return { create, revoke };
 }
 
-async function mount(blob: Blob, title = 'report.pdf', className = 'h-[50vh] w-full') {
+async function mount(
+  blob: Blob,
+  title = 'report.pdf',
+  className = 'h-[50vh] w-full',
+  page?: number,
+) {
   await act(async () => {
-    root.render(createElement(BlobPdf, { blob, title, className }));
+    root.render(createElement(BlobPdf, { blob, title, className, page }));
   });
   await flush();
 }
@@ -194,6 +199,37 @@ describe('BlobPdf', () => {
     expect(create).toHaveBeenCalledTimes(1);
     expect(iframe()?.getAttribute('src')).toBe('blob:pdf-1');
   });
+
+  it('appends the page fragment and reuses the same object URL when the page changes', async () => {
+    setViewer(true);
+    const { create, revoke } = stubUrls();
+    const doc = pdf(['%PDF-1.4 body']);
+    await mount(doc, 'report.pdf', 'h-[50vh] w-full', 3);
+
+    expect(iframe()?.getAttribute('src')).toBe('blob:pdf-1#page=3');
+    expect(create).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.render(createElement(BlobPdf, { blob: doc, title: 'report.pdf', page: 7 }));
+    });
+    await flush();
+
+    expect(iframe()?.getAttribute('src')).toBe('blob:pdf-1#page=7');
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -2, 1.5, Number.NaN])(
+    'ignores a page that is not a positive integer: %s',
+    async (page) => {
+      setViewer(true);
+      const { create } = stubUrls();
+      await mount(pdf(['%PDF-1.4 body']), 'report.pdf', 'h-[50vh] w-full', page);
+
+      expect(iframe()?.getAttribute('src')).toBe('blob:pdf-1');
+      expect(create).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('revokes its URL on unmount and under StrictMode re-runs', async () => {
     setViewer(true);

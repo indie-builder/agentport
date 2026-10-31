@@ -1,0 +1,23 @@
+{
+  "status": "success",
+  "document": {
+    "md_content": "",
+    "json_content": {
+      "texts": [
+        { "self_ref": "#/texts/0", "label": "title", "text": "Report", "prov": [{ "page_no": 1 }] },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "# literal body",
+          "prov": [{ "page_no": 2 }]
+        },
+        {
+          "self_ref": "#/texts/2",
+          "label": "text",
+          "text": "**literal tail**",
+          "prov": [{ "page_no": 3 }]
+        }
+      ]
+    }
+  }
+}

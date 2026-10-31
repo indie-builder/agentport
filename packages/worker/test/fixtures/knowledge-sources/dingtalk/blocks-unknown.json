@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "result": {
+    "data": [
+      {
+        "blockType": "card",
+        "id": "u1",
+        "unknown": { "rawType": "card", "text": "card content" }
+      }
+    ]
+  }
+}

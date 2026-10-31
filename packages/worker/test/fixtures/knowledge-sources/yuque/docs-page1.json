@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "id": 101,
+      "type": "Doc",
+      "slug": "original",
+      "title": "Doc 101",
+      "status": 1,
+      "content_updated_at": "2026-10-01T08:00:00.000Z"
+    },
+    {
+      "id": 102,
+      "type": "Doc",
+      "slug": "html-doc",
+      "title": "Doc 102",
+      "status": "1",
+      "content_updated_at": "2026-10-02T08:00:00.000Z"
+    }
+  ],
+  "meta": { "total": 3 }
+}

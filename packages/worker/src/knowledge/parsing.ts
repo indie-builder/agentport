@@ -1,4 +1,6 @@
+import type { KnowledgeAudioMetadata } from '@agentport/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import TurndownService from 'turndown';
 import { z } from 'zod';
 import { assertUsableImage } from './image-processing.js';
@@ -23,6 +25,8 @@ export type ParsedDocument = {
   blocks: ParsedBlock[];
   images: ParsedImage[];
   pageMap: PageRange[];
+  /** 仅音频转录取值；段级偏移与真实时码存放在版本 metadata。 */
+  audio?: KnowledgeAudioMetadata;
 };
 
 export type ParseErrorCode =
@@ -174,6 +178,18 @@ function splitLines(markdown: string): { lines: string[]; offsets: number[] } {
     }
   }
   return { lines, offsets };
+}
+
+/** 二分查找偏移所在行号；行首表来自 splitLines，CRLF 的 CR 不会多算一行。 */
+function lineAtOffset(lineStarts: number[], offset: number): number {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if ((lineStarts[middle] ?? 0) <= offset) low = middle;
+    else high = middle - 1;
+  }
+  return low + 1;
 }
 
 /**
@@ -333,11 +349,27 @@ export function markdownBlocks(
 }
 
 function textBlocks(text: string): ParsedBlock[] {
+  const lineStarts = splitLines(text).offsets;
+  let cursor = 0;
   return text
     .split(/\n\s*\n/)
     .map((part) => part.trim())
     .filter((part) => part !== '')
-    .map((part) => ({ content: part, heading: '', locator: { page: 'unknown' } }));
+    .map((content) => {
+      const startOffset = text.indexOf(content, cursor);
+      const endOffset = startOffset + content.length;
+      cursor = endOffset;
+      return {
+        content,
+        heading: '',
+        locator: {
+          page: 'unknown',
+          startOffset,
+          endOffset,
+          line: lineAtOffset(lineStarts, startOffset),
+        },
+      };
+    });
 }
 
 function parseCsvRows(text: string): string[][] {
@@ -393,7 +425,14 @@ function csvDocument(text: string): ParsedDocument {
       {
         content: markdown,
         heading: '',
-        locator: { page: 'unknown', kind: 'csv', rows: rows.length - 1 },
+        locator: {
+          page: 'unknown',
+          kind: 'csv',
+          rows: rows.length - 1,
+          startOffset: 0,
+          endOffset: markdown.length,
+          line: 1,
+        },
       },
     ],
   };
@@ -414,7 +453,19 @@ function jsonDocument(text: string): ParsedDocument {
     markdown,
     images: [],
     pageMap: [],
-    blocks: [{ content: markdown, heading: '', locator: { page: 'unknown', kind: 'json' } }],
+    blocks: [
+      {
+        content: markdown,
+        heading: '',
+        locator: {
+          page: 'unknown',
+          kind: 'json',
+          startOffset: 0,
+          endOffset: markdown.length,
+          line: 1,
+        },
+      },
+    ],
   };
 }
 
@@ -606,13 +657,17 @@ function normalizeText(value: string): string {
 /** Tables/code can be rendered differently by md vs json; compare their cells/content instead. */
 function fingerprint(content: string): string {
   if (isTableBlock(content)) {
-    return normalizeText(
+    return JSON.stringify(
       content
         .split('\n')
         .filter((line) => !isTableDelimiterLine(line))
-        .flatMap((line) => line.split(/(?<!\\)\|/))
-        .map((cell) => cell.replace(/\\\|/g, '|'))
-        .join(' '),
+        .map((line) =>
+          line
+            .trim()
+            .replace(/^\||(?<!\\)\|$/g, '')
+            .split(/(?<!\\)\|/)
+            .map((cell) => normalizeText(markdownDisplaySource(cell).text)),
+        ),
     );
   }
   const lines = content.split('\n');
@@ -626,7 +681,7 @@ function fingerprint(content: string): string {
 }
 
 /** Walks body refs (descending into groups) so blocks keep the document's reading order. */
-function orderedRefs(json: DoclingJson): string[] {
+function orderedRefs(json: DoclingJson, includeUnreferenced = true): string[] {
   const refs: string[] = [];
   const visit = (children: Array<{ $ref: string }>, depth = 0) => {
     if (depth > 100) return;
@@ -642,6 +697,7 @@ function orderedRefs(json: DoclingJson): string[] {
     }
   };
   if (json.body) visit(json.body.children);
+  if (!includeUnreferenced) return refs;
   const seen = new Set(refs);
   json.texts.forEach((_text, index) => {
     const ref = `#/texts/${index}`;
@@ -654,18 +710,13 @@ function orderedRefs(json: DoclingJson): string[] {
   return refs;
 }
 
-function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
+function doclingBlocks(json: DoclingJson): ParsedBlock[] {
   const blocks: ParsedBlock[] = [];
   const headings: string[] = [];
-  const seenTexts = new Set<string>();
-  const seenBlocks = new Set<string>();
   let pending: Array<{ level: number; block: ParsedBlock }> = [];
   const flushPending = (level: number) => {
     if (!pending.some((entry) => entry.level >= level)) return;
-    for (const { block } of pending) {
-      blocks.push(block);
-      seenTexts.add(normalizeText(block.content));
-    }
+    for (const { block } of pending) blocks.push(block);
     pending = [];
   };
 
@@ -689,13 +740,10 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
         continue;
       }
       pending = [];
-      seenTexts.add(normalizeText(value));
       const content =
         label === 'code'
           ? `\`\`\`${item.code_language && item.code_language !== 'unknown' ? item.code_language : ''}\n${value}\n\`\`\``
           : value;
-      // 代码在 md 里可能用不同长度的 fence；按内容而非 fence 比较。
-      if (label === 'code') seenBlocks.add(fingerprint(content));
       blocks.push({
         content,
         heading: emptyHeading(headings),
@@ -710,8 +758,6 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
       const content = tableMarkdownFromCells(table);
       if (content === '') continue;
       pending = [];
-      for (const cell of table.data?.table_cells ?? []) seenTexts.add(normalizeText(cell.text));
-      seenBlocks.add(fingerprint(content));
       blocks.push({
         content,
         heading: emptyHeading(headings),
@@ -722,13 +768,6 @@ function doclingBlocks(json: DoclingJson, markdown: string): ParsedBlock[] {
 
   flushPending(1);
 
-  // Items the JSON body never referenced still belong in the output; nothing is dropped silently.
-  // JSON wins over the md rendering of the same table/code (it carries page provenance).
-  for (const block of markdownBlocks(markdown, () => ({ page: 'unknown' }))) {
-    if (seenTexts.has(normalizeText(block.content))) continue;
-    if (seenBlocks.has(fingerprint(block.content))) continue;
-    blocks.push({ ...block, heading: block.heading || emptyHeading(headings) });
-  }
   return blocks;
 }
 
@@ -771,151 +810,264 @@ function normalizeEmbeddedImages(
   });
 }
 
-type MarkdownRegion = {
+type SourceRange = { start: number; end: number };
+
+type DisplayRange = { start: number | null; end: number | null };
+type DisplaySource = { text: string; ranges: DisplayRange[] };
+
+type MarkdownRegion = SourceRange & {
   content: string;
+  heading: string;
   kind: 'text' | 'table' | 'code' | 'image';
-  startOffset: number;
-  endOffset: number;
-  /** 已认领的原文区间；块级认领就是整块范围。 */
-  claimed: Array<{ start: number; end: number }>;
+  display: DisplaySource;
+  claims: Array<SourceRange & { locator: ParsedBlock['locator'] }>;
 };
 
-/** 短 OCR 文本（如 "1"）只能匹配独立单词，不能在 "1234" 中间造出伪区间。 */
+/** 短 OCR 文本只能匹配独立单词，不能把 "1" 定位到 "1234" 里。 */
 function hasWordBoundary(text: string, start: number, end: number, needle: string): boolean {
-  const isWord = (char: string | undefined) => char !== undefined && /[A-Za-z0-9_]/.test(char);
-  if (isWord(needle[0]) && isWord(text[start - 1])) return false;
-  // 原文里的换行可能比 needle 长（CRLF），边界要按真实结束位置算。
-  if (isWord(needle.at(-1)) && isWord(text[end])) return false;
-  return true;
+  const isWord = (char: string | undefined) => char !== undefined && /[\p{L}\p{N}_]/u.test(char);
+  return (
+    !(isWord(needle[0]) && isWord(text[start - 1])) && !(isWord(needle.at(-1)) && isWord(text[end]))
+  );
+}
+
+/** 显示字符与 UTF-16 原文区间一起生成；格式边界归属其首尾字符，正文始终取原文。 */
+function markdownDisplaySource(content: string, sourceStart = 0): DisplaySource {
+  const tree = fromMarkdown(content);
+  const display: DisplaySource = { text: '', ranges: [] };
+  const append = (value: string, ranges: DisplayRange[]) => {
+    for (let index = 0; index < value.length; index += 1) {
+      const char = /\s/.test(value[index] ?? '') ? ' ' : (value[index] ?? '');
+      const range = ranges[index] ?? { start: null, end: null };
+      if (char === ' ' && display.text.endsWith(' ')) {
+        const previous = display.ranges.at(-1);
+        if (previous && range) previous.end = range.end;
+        continue;
+      }
+      display.text += char;
+      display.ranges.push(range);
+    }
+  };
+  const visit = (node: (typeof tree.children)[number]) => {
+    if (node.type === 'image' || node.type === 'imageReference') return;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    const before = display.text.length;
+    if ('children' in node) {
+      for (const child of node.children) visit(child);
+    } else if ('value' in node) {
+      const value = node.value.replace(/\r\n?/g, '\n');
+      let at = start ?? 0;
+      const ranges: DisplayRange[] = [];
+      for (let index = 0; index < value.length; ) {
+        const from = at;
+        let decoded = content[at] ?? '';
+        if (content[at] === '\r') {
+          decoded = '\n';
+          at += content[at + 1] === '\n' ? 2 : 1;
+        } else if (content[at] === '\\' && /[!-/:-@[-`{-~]/.test(content[at + 1] ?? '')) {
+          decoded = content[at + 1] ?? '';
+          at += 2;
+        } else {
+          const entity =
+            content[at] === '&' ? /^&(?:#\d+|#x[\da-f]+|[a-z]+);/i.exec(content.slice(at)) : null;
+          const paragraph = entity ? fromMarkdown(entity[0]).children[0] : undefined;
+          const text = paragraph?.type === 'paragraph' ? paragraph.children[0] : undefined;
+          if (entity && text?.type === 'text') {
+            decoded = text.value;
+            at += entity[0].length;
+          } else at += 1;
+        }
+        if (
+          start === undefined ||
+          end === undefined ||
+          at > end ||
+          !value.startsWith(decoded, index) ||
+          decoded === ''
+        ) {
+          for (let rest = index; rest < value.length; rest += 1)
+            ranges.push({ start: null, end: null });
+          break;
+        }
+        for (let part = 0; part < decoded.length; part += 1)
+          ranges.push({
+            start: part === 0 ? sourceStart + from : null,
+            end: part === decoded.length - 1 ? sourceStart + at : null,
+          });
+        index += decoded.length;
+      }
+      // inlineCode 的显示值不含反引号；整个节点位置可靠，内部不冒充逐字源码。
+      if (node.type === 'inlineCode') {
+        append(value, []);
+      } else append(value, ranges);
+    } else if (node.type === 'break') {
+      append('\n', [
+        {
+          start: start === undefined ? null : sourceStart + start,
+          end: end === undefined ? null : sourceStart + end,
+        },
+      ]);
+    }
+    const first = display.ranges[before];
+    const last = display.ranges.at(-1);
+    if (display.text.length > before && start !== undefined && end !== undefined) {
+      if (first) first.start = sourceStart + start;
+      if (last) last.end = sourceStart + end;
+    }
+  };
+  for (const [index, node] of tree.children.entries()) {
+    if (index > 0) append('\n', []);
+    visit(node);
+  }
+  const leading = display.text.length - display.text.trimStart().length;
+  const trailing = display.text.trimEnd().length;
+  return {
+    text: display.text.slice(leading, trailing),
+    ranges: display.ranges.slice(leading, trailing),
+  };
 }
 
 function markdownRegions(markdown: string): MarkdownRegion[] {
-  return markdownBlocks(markdown, (_line, startOffset = 0, endOffset = startOffset) => ({
-    startOffset,
-    endOffset,
-  })).map((block) => {
-    const { startOffset, endOffset } = block.locator as {
-      startOffset: number;
-      endOffset: number;
-    };
-    const kind = isTableBlock(block.content)
-      ? 'table'
-      : isFenceStart(block.content)
-        ? 'code'
-        : /^!\[[^\]]*\]\([^)]*\)$/.test(block.content)
-          ? 'image'
-          : 'text';
-    return {
-      content: block.content,
-      kind,
-      startOffset,
-      endOffset,
-      claimed: [],
-    };
-  });
+  return markdownBlocks(markdown, (_line, start = 0, end = start) => ({ start, end })).map(
+    (block) => {
+      const { start, end } = block.locator as SourceRange;
+      const kind = isTableBlock(block.content)
+        ? 'table'
+        : isFenceStart(block.content)
+          ? 'code'
+          : /^!\[[^\]]*\]\([^)]*\)$/.test(block.content)
+            ? 'image'
+            : 'text';
+      return {
+        content: block.content,
+        heading: block.heading,
+        kind,
+        start,
+        end,
+        display:
+          kind === 'text'
+            ? markdownDisplaySource(markdown.slice(start, end), start)
+            : { text: '', ranges: [] },
+        claims: [],
+      };
+    },
+  );
 }
 
-/**
- * 在段落原文里定位块文本：JSON 用 LF 拼行，原文可能是 CRLF，直接 indexOf LF 子串会错。
- * 比较时换行按 CRLF/CR/LF 等价，返回真实原文区间；已被其它页占用的候选跳到下一处。
- */
-function locateBlock(
-  text: string,
-  region: MarkdownRegion,
-  needle: string,
-  claimed: Array<{ start: number; end: number }>,
-): { start: number; end: number } | null {
-  const first = needle[0];
-  if (first === undefined) return null;
-  for (
-    let base = text.indexOf(first, region.startOffset);
-    base !== -1 && base < region.endOffset;
-  ) {
-    let at = base;
-    let matched = true;
-    for (let index = 0; index < needle.length; index += 1) {
-      const want = needle[index];
-      if (want === '\n') {
-        if (text[at] === '\r' && text[at + 1] === '\n') at += 2;
-        else if (text[at] === '\r' || text[at] === '\n') at += 1;
-        else {
-          matched = false;
-          break;
-        }
-        continue;
-      }
-      if (text[at] !== want) {
-        matched = false;
-        break;
-      }
-      at += 1;
-    }
-    const start = base;
-    const end = at;
-    const free =
-      matched &&
-      end <= region.endOffset &&
-      hasWordBoundary(text, start, end, needle) &&
-      !claimed.some((span) => start < span.end && span.start < end);
-    if (free) return { start, end };
-    base = text.indexOf(first, start + 1);
+/** 整段和段内只搜索同一份显示文本，认领范围只从对应的源码映射取得。 */
+function locateBlock(region: MarkdownRegion, content: string): SourceRange | null {
+  const needle = normalizeText(content);
+  if (needle === '') return null;
+  const { text, ranges } = region.display;
+  for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) {
+    const end = at + needle.length;
+    const first = ranges[at];
+    const last = ranges[end - 1];
+    if (first?.start == null || last?.end == null || !hasWordBoundary(text, at, end, needle))
+      continue;
+    const range = { start: first.start, end: last.end };
+    if (!region.claims.some((claim) => range.start < claim.end && claim.start < range.end))
+      return range;
   }
   return null;
 }
 
-/**
- * 页码只从原文 Markdown 里真实存在的块认领：JSON 表格/代码按 fingerprint 配同类块，
- * 普通文本先整块后段内子串；位置全局一次性使用，找不到就不给区间而不是编造偏移。
- */
-function pageMapFrom(blocks: ParsedBlock[], markdown: string): PageRange[] {
+/** 每个 JSON 项只映射一次 occurrence；正文、行号与 pageMap 都消费这一份映射。 */
+function anchorParsedBlocks(
+  blocks: ParsedBlock[],
+  markdown: string,
+  readingOrder: string[],
+): { blocks: ParsedBlock[]; pageMap: PageRange[] } {
   const regions = markdownRegions(markdown);
-  const ranges: PageRange[] = [];
-
+  const lineStarts = splitLines(markdown).offsets;
+  const unlocated: ParsedBlock[] = [];
+  const matches = new Map<string, SourceRange>();
   for (const block of blocks) {
-    const page = block.locator.page;
-    if (typeof page !== 'number') continue;
     const kind = isTableBlock(block.content)
       ? 'table'
       : isFenceStart(block.content)
         ? 'code'
         : 'text';
-
-    if (kind === 'text') {
-      const whole = regions.find(
-        (region) =>
-          region.kind === 'text' && region.claimed.length === 0 && region.content === block.content,
-      );
-      if (whole) {
-        whole.claimed.push({ start: whole.startOffset, end: whole.endOffset });
-        ranges.push({ page, startOffset: whole.startOffset, endOffset: whole.endOffset });
-        continue;
-      }
-      // 多个 JSON 项可能组成同一个 Markdown 段落，允许在段落内做带边界的子串匹配；
-      // 已认领的区间（整段或子串）由 overlaps 避开，段落仍可继续认领未占用的部分。
-      for (const region of regions) {
-        if (region.kind !== 'text') continue;
-        const located = locateBlock(markdown, region, block.content, region.claimed);
-        if (!located) continue;
-        region.claimed.push(located);
-        ranges.push({ page, startOffset: located.start, endOffset: located.end });
-        break;
-      }
-      continue;
+    let matched = false;
+    for (const region of regions) {
+      if (region.kind !== kind) continue;
+      const range =
+        kind === 'text'
+          ? locateBlock(region, block.content)
+          : region.claims.length === 0 && fingerprint(region.content) === fingerprint(block.content)
+            ? { start: region.start, end: region.end }
+            : null;
+      if (!range) continue;
+      region.claims.push({ ...range, locator: block.locator });
+      if (typeof block.locator.ref === 'string') matches.set(block.locator.ref, range);
+      matched = true;
+      break;
     }
-
-    const wanted = fingerprint(block.content);
-    const target = regions.find(
-      (region) =>
-        region.kind === kind &&
-        region.claimed.length === 0 &&
-        fingerprint(region.content) === wanted,
-    );
-    if (!target) continue;
-    target.claimed.push({ start: target.startOffset, end: target.endOffset });
-    ranges.push({ page, startOffset: target.startOffset, endOffset: target.endOffset });
+    // JSON 独有的 OCR/代码仍可检索，但没有证据把它安放进某个原文字符区间。
+    if (!matched) unlocated.push(block);
   }
 
-  return ranges.sort((left, right) => left.startOffset - right.startOffset);
+  const anchored: ParsedBlock[] = [];
+  const pageMap: PageRange[] = [];
+  const emit = (
+    region: MarkdownRegion,
+    start: number,
+    end: number,
+    metadata: ParsedBlock['locator'] = { page: 'unknown' },
+  ) => {
+    const raw = markdown.slice(start, end);
+    const from = start + raw.length - raw.trimStart().length;
+    const to = start + raw.trimEnd().length;
+    if (from >= to) return;
+    const locator = {
+      ...metadata,
+      startOffset: from,
+      endOffset: to,
+      line: lineAtOffset(lineStarts, from),
+    };
+    anchored.push({
+      content: markdown.slice(from, to).replace(/\r\n?/g, '\n'),
+      heading: region.heading,
+      locator,
+    });
+    if (typeof metadata.page === 'number')
+      pageMap.push({ page: metadata.page, startOffset: from, endOffset: to });
+  };
+  for (const region of regions) {
+    let cursor = region.start;
+    for (const claim of region.claims.sort((left, right) => left.start - right.start)) {
+      if (cursor < claim.start) emit(region, cursor, claim.start);
+      emit(region, claim.start, claim.end, claim.locator);
+      cursor = claim.end;
+    }
+    if (cursor < region.end) emit(region, cursor, region.end);
+  }
+  const between = new Map<string, ParsedBlock[]>();
+  const trailing: ParsedBlock[] = [];
+  for (const block of unlocated) {
+    const order =
+      typeof block.locator.ref === 'string' ? readingOrder.indexOf(block.locator.ref) : -1;
+    const before = readingOrder.slice(0, Math.max(0, order)).findLast((ref) => matches.has(ref));
+    const after =
+      order < 0 ? undefined : readingOrder.slice(order + 1).find((ref) => matches.has(ref));
+    const left = before ? matches.get(before) : undefined;
+    const right = after ? matches.get(after) : undefined;
+    if (after && left && right && left.end <= right.start) {
+      const entries = between.get(after) ?? [];
+      entries.push(block);
+      between.set(after, entries);
+    } else trailing.push(block);
+  }
+  return {
+    blocks: [
+      ...anchored.flatMap((block) => [
+        ...(typeof block.locator.ref === 'string' ? (between.get(block.locator.ref) ?? []) : []),
+        block,
+      ]),
+      ...trailing,
+    ],
+    pageMap,
+  };
 }
 
 function doclingErrorMessage(errors: Array<{ error_message: string }>): string {
@@ -1024,18 +1176,46 @@ async function parseWithDocling(input: {
   const json = document.json_content;
   const embedded = doclingImages(json);
   const markdown = normalizeEmbeddedImages(document.md_content ?? '', embedded);
-  const blocks = doclingBlocks(json, markdown);
-  if (blocks.length === 0) {
+  const blocks = doclingBlocks(json);
+  if (blocks.length === 0 && markdown.trim() === '') {
     throw new KnowledgeParseError('invalid_response', 'Docling 响应没有任何可索引内容');
   }
   const finalMarkdown =
     markdown !== '' ? markdown : blocks.map((block) => block.content).join('\n\n');
-  // md_content 为空时 markdown 是拿 blocks 拼出来的，偏移必须针对最终文本计算。
+  // 没有官方 Markdown 时，拼接位置本来就已知；不再把 JSON 正文当成 Markdown 语法重解析。
+  if (markdown === '') {
+    let cursor = 0;
+    const pageMap: PageRange[] = [];
+    const lineStarts = splitLines(finalMarkdown).offsets;
+    const located = blocks.map((block) => {
+      const startOffset = cursor;
+      const endOffset = startOffset + block.content.length;
+      cursor = endOffset + 2;
+      const page = block.locator.page;
+      if (typeof page === 'number') pageMap.push({ page, startOffset, endOffset });
+      return {
+        ...block,
+        locator: {
+          ...block.locator,
+          startOffset,
+          endOffset,
+          line: lineAtOffset(lineStarts, startOffset),
+        },
+      };
+    });
+    return {
+      markdown: finalMarkdown,
+      blocks: located,
+      images: embedded.map(({ image }) => image),
+      pageMap,
+    };
+  }
+  const anchored = anchorParsedBlocks(blocks, finalMarkdown, orderedRefs(json, false));
   return {
     markdown: finalMarkdown,
-    blocks,
+    blocks: anchored.blocks,
     images: embedded.map(({ image }) => image),
-    pageMap: pageMapFrom(blocks, finalMarkdown),
+    pageMap: anchored.pageMap,
   };
 }
 
@@ -1102,11 +1282,21 @@ export async function parseDocument(input: {
       markdown: text,
       images: [],
       pageMap: [],
-      blocks: markdownBlocks(text, (line) => ({ page: 'unknown', line })),
+      blocks: markdownBlocks(text, (line, offset = 0, endOffset = offset) => ({
+        page: 'unknown',
+        line,
+        startOffset: offset,
+        endOffset,
+      })),
     };
   }
   if (format === 'txt')
-    return { markdown: text, images: [], pageMap: [], blocks: textBlocks(text) };
+    return {
+      markdown: text,
+      images: [],
+      pageMap: [],
+      blocks: textBlocks(text),
+    };
   if (format === 'csv') return csvDocument(text);
   if (format === 'json') return jsonDocument(text);
   const markdown = htmlToMarkdown(text);
@@ -1114,7 +1304,13 @@ export async function parseDocument(input: {
     markdown,
     images: [],
     pageMap: [],
-    blocks: markdownBlocks(markdown, () => ({ page: 'unknown', kind: 'html' })),
+    blocks: markdownBlocks(markdown, (line, offset = 0, endOffset = offset) => ({
+      page: 'unknown',
+      kind: 'html',
+      line,
+      startOffset: offset,
+      endOffset,
+    })),
   };
 }
 
@@ -1122,10 +1318,98 @@ function mergeLocators(blocks: ParsedBlock[]): Record<string, unknown> {
   const pages = blocks
     .map((block) => block.locator.page)
     .filter((page): page is number => typeof page === 'number');
-  if (pages.length === 0) return { page: 'unknown' };
-  const page = Math.min(...pages);
-  const pageTo = Math.max(...pages);
-  return pageTo > page ? { page, pageTo } : { page };
+  const locator: Record<string, unknown> = {};
+  if (pages.length > 0) {
+    const page = Math.min(...pages);
+    const pageTo = Math.max(...pages);
+    locator.page = page;
+    if (pageTo > page) locator.pageTo = pageTo;
+  }
+  // 混入无原文位置的 JSON 内容后，首尾偏移不能代表整个 chunk。
+  const located = blocks.every(
+    (block) =>
+      typeof block.locator.startOffset === 'number' && typeof block.locator.endOffset === 'number',
+  );
+  const lines = located
+    ? blocks
+        .map((block) => block.locator.line)
+        .filter((line): line is number => typeof line === 'number')
+    : [];
+  if (lines.length > 0) locator.line = Math.min(...lines);
+  const starts = blocks
+    .map((block) => block.locator.startOffset)
+    .filter((offset): offset is number => typeof offset === 'number');
+  const ends = blocks
+    .map((block) => block.locator.endOffset)
+    .filter((offset): offset is number => typeof offset === 'number');
+  if (located && starts.length > 0) locator.startOffset = Math.min(...starts);
+  if (located && ends.length > 0) locator.endOffset = Math.max(...ends);
+  // 只有组成块全都有时码才能给整块时间；部分时间会冒充全块来源。
+  const timed = blocks.every(
+    (block) =>
+      typeof block.locator.timeFromMs === 'number' && typeof block.locator.timeToMs === 'number',
+  );
+  if (timed) {
+    locator.timeFromMs = Math.min(...blocks.map((block) => block.locator.timeFromMs as number));
+    locator.timeToMs = Math.max(...blocks.map((block) => block.locator.timeToMs as number));
+  }
+  // 解析器引用/坐标只对单个块无歧义；合并块不能编造一个共同坐标。
+  const only = blocks.length === 1 ? blocks[0]?.locator : undefined;
+  if (typeof only?.ref === 'string') locator.ref = only.ref;
+  if (only?.bbox !== undefined) locator.bbox = only.bbox;
+  if (Object.keys(locator).length === 0) return { page: 'unknown' };
+  return locator;
+}
+
+/**
+ * 把规范化块内容的下标映射回原文 UTF-16 下标：块内容用 LF 拼行，原文可能是 CRLF。
+ * 无法逐字对齐时返回 null，调用方就不能把整块区间冒充成分片区间。
+ */
+function mapContentOffsets(
+  markdown: string,
+  start: number,
+  end: number,
+  content: string,
+): { starts: number[]; ends: number[] } | null {
+  if (start < 0 || end > markdown.length || end < start) return null;
+  const starts = new Array<number>(content.length);
+  const ends = new Array<number>(content.length);
+  let at = start;
+  for (let index = 0; index < content.length; index += 1) {
+    const before = at;
+    if (content[index] === '\n') {
+      if (markdown[at] === '\r' && markdown[at + 1] === '\n') at += 2;
+      else if (markdown[at] === '\r' || markdown[at] === '\n') at += 1;
+      else return null;
+    } else {
+      if (markdown[at] !== content[index]) return null;
+      at += 1;
+    }
+    if (at > end) return null;
+    starts[index] = before;
+    ends[index] = at;
+  }
+  return { starts, ends };
+}
+
+const isHighSurrogate = (code: number): boolean => code >= 0xd800 && code <= 0xdbff;
+const isLowSurrogate = (code: number): boolean => code >= 0xdc00 && code <= 0xdfff;
+
+/** 落在代理对中间的下标退到高代理项：end 不切开 emoji，重叠起点也从完整字符开始。 */
+function codePointBoundary(text: string, index: number): number {
+  return index > 0 &&
+    index < text.length &&
+    isLowSurrogate(text.charCodeAt(index)) &&
+    isHighSurrogate(text.charCodeAt(index - 1))
+    ? index - 1
+    : index;
+}
+
+/** 已对齐界的下标取完整 code point 宽度；预算小到装不下时靠它保证切块继续前进。 */
+function codePointLength(text: string, index: number): number {
+  return isHighSurrogate(text.charCodeAt(index)) && isLowSurrogate(text.charCodeAt(index + 1))
+    ? 2
+    : 1;
 }
 
 export function chunkDocument(
@@ -1161,19 +1445,36 @@ export function chunkDocument(
 
   const splitLong = (block: ParsedBlock) => {
     const { content, heading, locator } = block;
+    const sourceStart = locator.startOffset;
+    const sourceEnd = locator.endOffset;
+    const mapped =
+      typeof sourceStart === 'number' && typeof sourceEnd === 'number'
+        ? mapContentOffsets(parsed.markdown, sourceStart, sourceEnd, content)
+        : null;
+    const lineStarts = mapped ? splitLines(parsed.markdown).offsets : [];
     let start = 0;
     while (start < content.length) {
       let end = Math.min(start + chunkSize, content.length);
-      // Never cut a surrogate pair in half.
-      const code = content.charCodeAt(end - 1);
-      if (end < content.length && code >= 0xd800 && code <= 0xdbff) end -= 1;
-      chunks.push({
-        content: content.slice(start, end),
-        heading,
-        locator: { ...locator, charStart: start, charEnd: end },
-      });
+      end = codePointBoundary(content, end);
+      // 预算装不下开头的整个 code point 时整取，避免 end <= start 卡住。
+      if (end <= start) end = start + codePointLength(content, start);
+      const chunkLocator: Record<string, unknown> = { ...locator, charStart: start, charEnd: end };
+      if (mapped) {
+        const chunkStart = mapped.starts[start] ?? (sourceStart as number);
+        chunkLocator.startOffset = chunkStart;
+        chunkLocator.endOffset = mapped.ends[end - 1] ?? chunkStart;
+        chunkLocator.line = lineAtOffset(lineStarts, chunkStart);
+      } else if (typeof sourceStart === 'number' || typeof sourceEnd === 'number') {
+        // 内容无法逐字映射到原文时不保留块级区间，避免分片继续指向整段。
+        delete chunkLocator.startOffset;
+        delete chunkLocator.endOffset;
+        delete chunkLocator.line;
+      }
+      chunks.push({ content: content.slice(start, end), heading, locator: chunkLocator });
       if (end === content.length) break;
-      start = end - chunkOverlap;
+      const next = codePointBoundary(content, end - chunkOverlap);
+      // 对齐边界可能退回到上一片起点；此时直接取下一个完整字符，始终向前。
+      start = next > start ? next : start + codePointLength(content, start);
     }
   };
 

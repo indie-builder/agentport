@@ -1,0 +1,24 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "same\n\nsame\n\nsame",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "text",
+          "text": "same",
+          "prov": [{ "page_no": 1 }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "same",
+          "prov": [{ "page_no": 2 }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

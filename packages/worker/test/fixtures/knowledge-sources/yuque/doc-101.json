@@ -1,0 +1,14 @@
+{
+  "data": {
+    "id": 101,
+    "type": "Doc",
+    "format": "lake",
+    "slug": "original",
+    "title": "Doc 101",
+    "status": 1,
+    "body": "# Doc 101\n\nMarkdown body",
+    "body_lake": "<lake><text>internal lake xml</text></lake>",
+    "content_updated_at": "2026-10-01T08:00:00.000Z",
+    "book": { "namespace": "team/manual", "slug": "manual" }
+  }
+}

@@ -58,6 +58,13 @@ describe.skipIf(!ready)('health', () => {
     expect(res.json()).toMatchObject({
       process: { uptimeSeconds: expect.any(Number), memoryRssBytes: expect.any(Number) },
       queue: { waiting: expect.any(Number), active: expect.any(Number) },
+      knowledgeQueue: {
+        waiting: expect.any(Number),
+        active: expect.any(Number),
+        completed: expect.any(Number),
+        failed: expect.any(Number),
+        delayed: expect.any(Number),
+      },
       db: { total: expect.any(Number), idle: expect.any(Number), waiting: expect.any(Number) },
       redis: { pingMs: expect.any(Number) },
     });

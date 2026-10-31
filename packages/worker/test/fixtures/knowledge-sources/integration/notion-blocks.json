@@ -1,0 +1,41 @@
+{
+  "childOnly": {
+    "object": "list",
+    "results": [
+      {
+        "object": "block",
+        "id": "22222222-2222-4222-8222-222222222222",
+        "type": "child_page",
+        "has_children": false,
+        "child_page": { "title": "Child" }
+      }
+    ],
+    "has_more": false,
+    "next_cursor": null,
+    "request_status": { "type": "complete" }
+  },
+  "partialPage1": {
+    "object": "list",
+    "results": [
+      {
+        "object": "block",
+        "id": "aaaaaaaa-0000-4000-8000-000000000001",
+        "type": "paragraph",
+        "has_children": false
+      }
+    ],
+    "has_more": true,
+    "next_cursor": "p2",
+    "request_status": { "type": "complete" }
+  },
+  "incompletePage2": {
+    "object": "list",
+    "results": [],
+    "has_more": false,
+    "next_cursor": null,
+    "request_status": {
+      "type": "incomplete",
+      "incomplete_reason": "unknown"
+    }
+  }
+}

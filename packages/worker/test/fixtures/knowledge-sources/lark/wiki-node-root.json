@@ -1,0 +1,13 @@
+{
+  "code": 0,
+  "data": {
+    "node": {
+      "node_token": "nod1",
+      "obj_token": "doc1",
+      "obj_type": "docx",
+      "title": "Guide",
+      "has_child": true,
+      "space_id": "spc1"
+    }
+  }
+}

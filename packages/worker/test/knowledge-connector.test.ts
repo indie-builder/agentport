@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import type {
   ConnectorNetwork,
@@ -162,6 +162,63 @@ beforeAll(async () => {
       response.end('# doc');
       return;
     }
+    if (path === '/api/v3/repos/octo/docs') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ id: 88, default_branch: 'main' }));
+      return;
+    }
+    if (path === '/api/v3/repos/octo/docs/git/trees/main') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          tree: [
+            { path: 'docs/a.md', type: 'blob', sha: 'shaMd' },
+            { path: 'docs/manual.pdf', type: 'blob', sha: 'shaPdf' },
+            { path: 'docs/archive.zip', type: 'blob', sha: 'shaZip' },
+          ],
+          truncated: false,
+        }),
+      );
+      return;
+    }
+    if (path === '/api/v3/repos/octo/docs/git/blobs/shaMd') {
+      response.writeHead(200, { 'content-type': 'application/vnd.github.raw' });
+      response.end('# doc');
+      return;
+    }
+    if (path === '/api/v3/repos/octo/docs/git/blobs/shaPdf') {
+      response.writeHead(200, { 'content-type': 'application/pdf' });
+      response.end(Buffer.from('%PDF-1.4\nbinary pdf body'));
+      return;
+    }
+    if (path === '/open-apis/drive/v1/files') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          code: 0,
+          data: {
+            files: [
+              { token: 'bin1', name: 'manual.pdf', type: 'file' },
+              { token: 'raw1', name: 'report.pdf', type: 'file' },
+              { token: 'sheet1', name: 'Budget', type: 'sheet' },
+            ],
+            has_more: false,
+          },
+        }),
+      );
+      return;
+    }
+    if (path === '/open-apis/drive/v1/files/bin1/download') {
+      response.writeHead(200, { 'content-type': 'application/pdf' });
+      response.end(Buffer.from('%PDF-1.4\nfeishu pdf body'));
+      return;
+    }
+    if (path === '/open-apis/drive/v1/files/raw1/download') {
+      // 无 Content-Type 时按原始字节交给解析器，不能做 UTF-8 解码。
+      response.writeHead(200);
+      response.end(Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff, 0xfe, 0x00, 0x80]));
+      return;
+    }
     response.writeHead(404).end('missing');
   });
   fixtureUrl = fixture.url;
@@ -169,6 +226,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await fixture.close();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 interface Collected {
@@ -334,11 +395,20 @@ describe('knowledgeConnectors range mapping', () => {
     ]);
 
     expect(Object.keys(knowledgeConnectors).sort()).toEqual([
+      'confluence',
+      'dingtalk',
       'feed',
       'feishu_drive',
       'feishu_wiki',
       'github',
       'gitlab',
+      'ima',
+      'lark_drive',
+      'lark_wiki',
+      'nextcloud',
+      'notion',
+      'seafile',
+      'yuque',
     ]);
   });
 
@@ -383,5 +453,256 @@ describe('knowledgeConnectors range mapping', () => {
     await expect(
       run('feed', { allowLoopback: true }, [range(`${fixtureUrl}/feed-a`)], {}, {}),
     ).rejects.toThrow(/private address/);
+  });
+});
+
+describe('source probe', () => {
+  const probe = (
+    type: keyof typeof knowledgeConnectors,
+    config: Record<string, unknown>,
+    target: { kind: string; externalId: string; ref: string | null; paths: string[] },
+    secrets: Record<string, string> = {},
+  ) =>
+    knowledgeConnectors[type].probe?.({
+      config,
+      secrets,
+      range: target,
+      signal: new AbortController().signal,
+      network,
+    });
+
+  it('checks credentials and the first range item without reading articles or advancing cursors', async () => {
+    state.requests = [];
+    await probe('feed', {}, range(`${fixtureUrl}/feed-a`));
+    // 只读订阅本身；不会为了探测去抓每篇文章。
+    expect(state.requests.map((entry) => entry.path)).toEqual(['/feed-a']);
+
+    await probe(
+      'feishu_wiki',
+      { baseUrl: fixtureUrl, appId: 'cli_app' },
+      { kind: 'wiki_node', externalId: 'nod1', ref: null, paths: [] },
+      { appSecret: 'cli_secret' },
+    );
+    expect(state.requests.map((entry) => entry.path)).toContain(
+      '/open-apis/wiki/v2/spaces/get_node',
+    );
+  });
+
+  it('surfaces a failing probe instead of pretending local config is connectivity', async () => {
+    await expect(probe('feed', {}, range(`${fixtureUrl}/broken`))).rejects.toThrow(/500/);
+  });
+});
+
+describe('binary source bytes and per-item failures', () => {
+  it('passes repository PDF bytes with their MIME to the parser path', async () => {
+    const result = await run(
+      'github',
+      { baseUrl: `${fixtureUrl}/api/v3` },
+      [{ kind: 'github_repo', externalId: 'octo/docs', ref: null, paths: [] }],
+      {},
+      network,
+      { token: 'ghp_example' },
+    );
+    const pdf = result.items.find((item) => item.sourceId.endsWith('manual.pdf'));
+    if (!pdf) throw new Error('pdf item missing');
+    expect(pdf.mimeType).toBe('application/pdf');
+    expect(Buffer.isBuffer(pdf.content)).toBe(true);
+    expect(
+      Buffer.from(pdf.content as Buffer)
+        .subarray(0, 5)
+        .toString(),
+    ).toBe('%PDF-');
+  });
+
+  it('records an unsupported item and keeps the rest of the enumeration', async () => {
+    const result = await run(
+      'github',
+      { baseUrl: `${fixtureUrl}/api/v3` },
+      [{ kind: 'github_repo', externalId: 'octo/docs', ref: null, paths: [] }],
+      {},
+      network,
+      { token: 'ghp_example' },
+    );
+    const markdown = result.items.find((item) => item.sourceId.endsWith('a.md'));
+    expect(markdown?.content).toEqual({ markdown: '# doc' });
+    const failed = result.items.find((item) => item.failure);
+    expect(failed?.sourceId).toMatch(/archive\.zip$/);
+    expect(failed?.failure).toMatchObject({ code: 'unsupported_type', retryable: false });
+    // 单项失败后不能声称完整枚举，删除推导必须关闭。
+    expect(result.checkpoints.at(-1)?.status.complete).toBe(false);
+  });
+
+  it('keeps Feishu drive bytes exact when the download omits Content-Type', async () => {
+    const result = await run(
+      'feishu_drive',
+      { baseUrl: fixtureUrl, appId: 'cli_app' },
+      [{ kind: 'drive_folder', externalId: 'fld', ref: null, paths: [] }],
+      {},
+      network,
+      { appSecret: 'cli_secret' },
+    );
+    const raw = result.items.find((item) => item.sourceId === withConnection('feishu:drive:raw1'));
+    if (!raw) throw new Error('feishu raw item missing');
+    expect(raw.mimeType).toBe('application/pdf');
+    expect(Buffer.isBuffer(raw.content)).toBe(true);
+    expect(
+      Buffer.from(raw.content as Buffer).equals(
+        Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff, 0xfe, 0x00, 0x80]),
+      ),
+    ).toBe(true);
+  });
+
+  it('downloads binary Feishu drive files and reports unsupported drive types', async () => {
+    const result = await run(
+      'feishu_drive',
+      { baseUrl: fixtureUrl, appId: 'cli_app' },
+      [{ kind: 'drive_folder', externalId: 'fld', ref: null, paths: [] }],
+      {},
+      network,
+      { appSecret: 'cli_secret' },
+    );
+    const pdf = result.items.find((item) => item.sourceId === withConnection('feishu:drive:bin1'));
+    if (!pdf) throw new Error('feishu pdf item missing');
+    expect(pdf.mimeType).toBe('application/pdf');
+    expect(Buffer.isBuffer(pdf.content)).toBe(true);
+    const unsupported = result.items.find(
+      (item) => item.sourceId === withConnection('feishu:drive:sheet1'),
+    );
+    expect(unsupported?.failure).toMatchObject({ code: 'unsupported_type' });
+  });
+});
+
+describe('connector item sourceId limit', () => {
+  const imaRange = (externalId: string) => ({
+    kind: 'ima_kb',
+    externalId,
+    ref: null,
+    paths: [],
+  });
+  const imaConfig = { clientId: 'client-id' };
+  const imaSecrets = { apiKey: 'api-key' };
+
+  function installImaFetch(lists: Record<string, string[]>): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        );
+        if (url.origin === 'https://ima.qq.com') {
+          const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+          if (url.pathname === '/openapi/wiki/v1/get_knowledge_list') {
+            const ids = lists[String(body.knowledge_base_id ?? '')] ?? [];
+            return new Response(
+              JSON.stringify({
+                code: 0,
+                data: {
+                  knowledge_list: ids.map((id) => ({
+                    media_id: id,
+                    media_type: 7,
+                    title: `doc-${id.length}`,
+                  })),
+                  is_end: true,
+                },
+              }),
+              { headers: { 'content-type': 'application/json' } },
+            );
+          }
+          if (url.pathname === '/openapi/wiki/v1/get_media_info') {
+            return new Response(
+              JSON.stringify({
+                code: 0,
+                data: {
+                  media_type: 7,
+                  url_info: { url: `${fixtureUrl}/ima-media`, headers: {} },
+                },
+              }),
+              { headers: { 'content-type': 'application/json' } },
+            );
+          }
+        }
+        if (url.href === `${fixtureUrl}/ima-media`) {
+          return new Response('# doc', { headers: { 'content-type': 'text/markdown' } });
+        }
+        return new Response('unexpected request', { status: 599 });
+      }),
+    );
+  }
+
+  it('keeps one cursor per healthy IMA range and only claims completeness at the end', async () => {
+    installImaFetch({ 'kb-a': ['m-a'], 'kb-b': ['m-b'] });
+    const result = await run(
+      'ima',
+      imaConfig,
+      [imaRange('kb-a'), imaRange('kb-b')],
+      {},
+      network,
+      imaSecrets,
+    );
+
+    expect(result.items.map((item) => item.sourceId)).toEqual([
+      withConnection('ima:media:kb-a:m-a'),
+      withConnection('ima:media:kb-b:m-b'),
+    ]);
+    expect(result.checkpoints).toHaveLength(3);
+    expect(result.checkpoints[0]?.status.complete).toBe(false);
+    expect(Object.keys(result.checkpoints.at(-1)?.cursor ?? {})).toHaveLength(2);
+    expect(result.checkpoints.at(-1)?.status.complete).toBe(true);
+  });
+
+  it('turns an over-limit IMA media identity into one item failure instead of a content item', async () => {
+    const prefix = withConnection('ima:media:kb-1:');
+    const overlong = 'm'.repeat(501 - prefix.length);
+    installImaFetch({ 'kb-1': [overlong] });
+    const result = await run('ima', imaConfig, [imaRange('kb-1')], {}, network, imaSecrets);
+
+    // 不 yield 内容条目，也不截断/改写 ID：只留一条可重试信息不泄凭证的失败项。
+    expect(result.items.filter((item) => !item.failure)).toEqual([]);
+    expect(result.items).toHaveLength(1);
+    const failed = result.items[0];
+    expect(failed?.sourceId).toBe(`${prefix}${overlong}`);
+    expect(failed?.sourceId).toHaveLength(501);
+    expect(failed?.failure).toEqual({
+      code: 'invalid_response',
+      message: expect.stringContaining('500'),
+      retryable: false,
+    });
+    expect(failed?.failure?.message).not.toContain('api-key');
+    expect(result.checkpoints.at(-1)?.status.complete).toBe(false);
+    expect(Object.keys(result.checkpoints.at(-1)?.cursor ?? {})).toHaveLength(1);
+  });
+
+  it('keeps other IMA items when one identity exceeds the limit', async () => {
+    const prefix = withConnection('ima:media:kb-1:');
+    const overlong = 'm'.repeat(501 - prefix.length);
+    installImaFetch({ 'kb-1': ['m-ok', overlong] });
+    const result = await run('ima', imaConfig, [imaRange('kb-1')], {}, network, imaSecrets);
+
+    expect(result.items.filter((item) => !item.failure).map((item) => item.sourceId)).toEqual([
+      withConnection('ima:media:kb-1:m-ok'),
+    ]);
+    expect(result.items.filter((item) => item.failure)).toHaveLength(1);
+    expect(result.checkpoints.at(-1)?.status.complete).toBe(false);
+  });
+
+  it('accepts a 500-character sourceId and rejects 501 at the ZIP contract boundary', async () => {
+    const prefix = withConnection('ima:media:kb-1:');
+    const exact = 'm'.repeat(500 - prefix.length);
+    installImaFetch({ 'kb-1': [exact] });
+    const accepted = await run('ima', imaConfig, [imaRange('kb-1')], {}, network, imaSecrets);
+
+    expect(accepted.items).toHaveLength(1);
+    expect(accepted.items[0]?.failure).toBeUndefined();
+    expect(accepted.items[0]?.sourceId).toHaveLength(500);
+    expect(accepted.checkpoints.at(-1)?.status.complete).toBe(true);
+
+    const over = 'm'.repeat(501 - prefix.length);
+    installImaFetch({ 'kb-1': [over] });
+    const rejected = await run('ima', imaConfig, [imaRange('kb-1')], {}, network, imaSecrets);
+
+    expect(rejected.items).toHaveLength(1);
+    expect(rejected.items[0]?.failure?.code).toBe('invalid_response');
+    expect(rejected.items[0]?.sourceId).toHaveLength(501);
+    expect(rejected.checkpoints.at(-1)?.status.complete).toBe(false);
   });
 });

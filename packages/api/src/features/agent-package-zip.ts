@@ -77,6 +77,106 @@ interface CentralDirectory {
   centralOffset: number;
 }
 
+interface LocalEntryLayout {
+  dataStart: number;
+  dataEnd: number;
+}
+
+/**
+ * 中央目录决定限额，解压器却可能按本地头取名字和压缩数据；两侧必须指向同一条目。
+ * 只比较影响归属与数据的字段，extra/comment 允许不同。
+ */
+function assertLocalEntry(
+  data: Buffer,
+  entry: {
+    name: string;
+    nameBytes: Buffer;
+    flags: number;
+    compression: number;
+    compressedSize: number;
+    originalSize: number;
+    localOffset: number;
+  },
+  centralOffset: number,
+): LocalEntryLayout {
+  const { name, localOffset } = entry;
+  if (localOffset + 30 > centralOffset || u32(data, localOffset) !== SIGNATURE_LOCAL) {
+    invalid(`ZIP 条目「${name}」的本地文件头损坏`, name);
+  }
+  const nameStart = localOffset + 30;
+  const nameEnd = nameStart + u16(data, localOffset + 26);
+  const dataStart = nameEnd + u16(data, localOffset + 28);
+  if (nameEnd > centralOffset || dataStart > centralOffset) {
+    invalid(`ZIP 条目「${name}」的本地文件头损坏`, name);
+  }
+  if (!entry.nameBytes.equals(data.subarray(nameStart, nameEnd))) {
+    invalid(`ZIP 条目「${name}」的本地文件名与中央目录不一致`, name);
+  }
+  if (u16(data, localOffset + 6) !== entry.flags) {
+    invalid(`ZIP 条目「${name}」的本地文件头标志与中央目录不一致`, name);
+  }
+  if (u16(data, localOffset + 8) !== entry.compression) {
+    invalid(`ZIP 条目「${name}」的本地文件头压缩方式与中央目录不一致`, name);
+  }
+  // bit 3 表示大小写在数据描述符里，本地头的 0 是合法值；其余必须与中央目录一致。
+  const usesDescriptor = (entry.flags & 0x8) !== 0;
+  const localCompressedSize = u32(data, localOffset + 18);
+  const localOriginalSize = u32(data, localOffset + 22);
+  if (
+    (localCompressedSize !== entry.compressedSize &&
+      !(usesDescriptor && localCompressedSize === 0)) ||
+    (localOriginalSize !== entry.originalSize && !(usesDescriptor && localOriginalSize === 0))
+  ) {
+    invalid(`ZIP 条目「${name}」的本地文件头大小与中央目录不一致`, name);
+  }
+  const dataEnd = dataStart + entry.compressedSize;
+  if (dataEnd > centralOffset) {
+    invalid(`ZIP 条目「${name}」的压缩数据越界`, name);
+  }
+  return { dataStart, dataEnd };
+}
+
+/** 目录条目不能藏文件数据：原大小必须为 0，deflate 的压缩流也必须解出空内容。 */
+function assertEmptyDirectory(
+  data: Buffer,
+  entry: { name: string; originalSize: number; compressedSize: number; compression: number },
+  layout: LocalEntryLayout,
+): void {
+  if (entry.originalSize !== 0) {
+    invalid(`ZIP 目录「${entry.name}」不能包含文件数据`, entry.name);
+  }
+  if (entry.compression === 0) {
+    if (entry.compressedSize !== 0) {
+      invalid(`ZIP 目录「${entry.name}」不能包含文件数据`, entry.name);
+    }
+    return;
+  }
+  let empty = false;
+  try {
+    // 上限 1 字节：真实空目录（fflate 会写 2 字节的 deflate 空流）解出 0 字节，带内容则失败。
+    empty =
+      inflateRawSync(data.subarray(layout.dataStart, layout.dataEnd), {
+        maxOutputLength: 1,
+      }).length === 0;
+  } catch {
+    // 解压失败或输出超过 0 字节，都说明目录里带了文件数据。
+  }
+  if (!empty) invalid(`ZIP 目录「${entry.name}」不能包含文件数据`, entry.name);
+}
+
+/** 中央目录校验上限；调用方按自己的包类型传入同一组约束。 */
+export interface ZipReadLimits {
+  maxEntries: number;
+  maxUncompressedBytes: number;
+  /** 单条 max(original, compressed) 上限；缺省不额外限制。 */
+  maxEntryBytes?: number;
+}
+
+const AGENT_PACKAGE_LIMITS: ZipReadLimits = {
+  maxEntries: AGENT_PACKAGE_MAX_ENTRIES,
+  maxUncompressedBytes: AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
+};
+
 /**
  * 候选 EOCD 必须与中央目录严丝合缝：条目从 offset 连续排到 offset+size，终点正好是本记录。
  * 注释里的伪记录（空记录或伪造条目数/偏移）因此被跳过，结构错误仍由后面的正式校验报出。
@@ -96,7 +196,10 @@ function isEocdCandidate(data: Buffer, offset: number): boolean {
 }
 
 /** 读取中央目录；只返回文件条目，不做任何解压。 */
-function readCentralDirectory(data: Buffer): CentralDirectory {
+function readCentralDirectory(
+  data: Buffer,
+  limits: ZipReadLimits = AGENT_PACKAGE_LIMITS,
+): CentralDirectory {
   if (data.length < 22) invalid('不是有效的 ZIP 包');
 
   let eocd = -1;
@@ -146,13 +249,23 @@ function readCentralDirectory(data: Buffer): CentralDirectory {
     invalid('ZIP 条目数不一致，包可能被截断或损坏');
   }
   if (entries === 0) invalid('ZIP 包是空的');
-  if (entries > AGENT_PACKAGE_MAX_ENTRIES) {
-    invalid(`ZIP 包内文件数超过 ${AGENT_PACKAGE_MAX_ENTRIES} 个`);
+  if (entries > limits.maxEntries) {
+    invalid(`ZIP 包内文件数超过 ${limits.maxEntries} 个`);
   }
   const directoryEnd = offset + size;
   if (directoryEnd > eocd) invalid('ZIP 中央目录越界，包可能被截断');
 
   const result: CentralEntry[] = [];
+  const parsed: Array<{
+    name: string;
+    nameBytes: Buffer;
+    flags: number;
+    compression: number;
+    compressedSize: number;
+    originalSize: number;
+    localOffset: number;
+    directory: boolean;
+  }> = [];
   let cursor = offset;
   for (let index = 0; index < entries; index += 1) {
     if (cursor + 46 > directoryEnd || u32(data, cursor) !== SIGNATURE_CENTRAL) {
@@ -194,7 +307,18 @@ function readCentralDirectory(data: Buffer): CentralDirectory {
     if ((unixMode & 0o170000) === UNIX_SYMLINK) {
       invalid('ZIP 包不能包含符号链接', name);
     }
-    if (name.endsWith('/')) continue;
+    const directory = name.endsWith('/');
+    parsed.push({
+      name,
+      nameBytes,
+      flags,
+      compression,
+      compressedSize,
+      originalSize,
+      localOffset,
+      directory,
+    });
+    if (directory) continue;
     result.push({
       name,
       originalSize,
@@ -212,9 +336,29 @@ function readCentralDirectory(data: Buffer): CentralDirectory {
     if (names.has(entry.name)) invalid(`ZIP 包内文件「${entry.name}」重复`, entry.name);
     names.add(entry.name);
     // 声明为 0 但实际有压缩数据时按压缩后大小估算，避免用 0 绕过上限。
-    total += Math.max(entry.originalSize, entry.compressedSize);
-    if (total > AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES) {
-      invalid(`ZIP 解压后总大小超过 ${AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES} 字节`);
+    const declared = Math.max(entry.originalSize, entry.compressedSize);
+    if (limits.maxEntryBytes !== undefined && declared > limits.maxEntryBytes) {
+      invalid(`ZIP 条目「${entry.name}」超过 ${limits.maxEntryBytes} 字节`, entry.name);
+    }
+    total += declared;
+    if (total > limits.maxUncompressedBytes) {
+      invalid(`ZIP 解压后总大小超过 ${limits.maxUncompressedBytes} 字节`);
+    }
+  }
+
+  // 中央目录限额通过后才校验本地头：声明超限时保留容量错误，避免被本地字段抢先。
+  const ranges: Array<{ start: number; end: number; name: string }> = [];
+  for (const entry of parsed) {
+    const layout = assertLocalEntry(data, entry, offset);
+    ranges.push({ start: entry.localOffset, end: layout.dataEnd, name: entry.name });
+    if (entry.directory) assertEmptyDirectory(data, entry, layout);
+  }
+  ranges.sort((left, right) => left.start - right.start);
+  for (let index = 1; index < ranges.length; index += 1) {
+    const previous = ranges[index - 1];
+    const current = ranges[index];
+    if (previous !== undefined && current !== undefined && current.start < previous.end) {
+      invalid(`ZIP 条目「${current.name}」与「${previous.name}」的数据区域重叠`, current.name);
     }
   }
   return { entries: result, centralOffset: offset };
@@ -280,10 +424,41 @@ export function encodePackage(files: Record<string, string>): Buffer {
   );
 }
 
-/** 先按中央目录校验，再解压；内容必须能按严格 UTF-8 解码。 */
-export function decodePackageEntries(data: Buffer): Map<string, PackageEntry> {
-  const { entries, centralOffset } = readCentralDirectory(data);
-  const files = new Map<string, PackageEntry>();
+/** 只读中央目录得到的条目信息，不分配解压后的内容。 */
+export interface ZipEntryInfo {
+  name: string;
+  originalSize: number;
+  compressedSize: number;
+  executable: boolean;
+}
+
+/** 不写死包类型：知识包等调用方传入自己的条目数/容量上限。 */
+export function inspectZipEntries(
+  data: Buffer,
+  limits: ZipReadLimits = AGENT_PACKAGE_LIMITS,
+): ZipEntryInfo[] {
+  return readCentralDirectory(data, limits).entries.map(
+    ({ name, originalSize, compressedSize, executable }) => ({
+      name,
+      originalSize,
+      compressedSize,
+      executable,
+    }),
+  );
+}
+
+export interface ZipFileEntry {
+  data: Buffer;
+  executable: boolean;
+}
+
+/** 先按中央目录校验，再解压；返回原始字节，文本调用方自行解码。 */
+export function decodeZipEntries(
+  data: Buffer,
+  limits: ZipReadLimits = AGENT_PACKAGE_LIMITS,
+): Map<string, ZipFileEntry> {
+  const { entries, centralOffset } = readCentralDirectory(data, limits);
+  const files = new Map<string, ZipFileEntry>();
   let total = 0;
   for (const entry of entries) {
     const bytes = readEntryData(data, entry, centralOffset);
@@ -291,16 +466,22 @@ export function decodePackageEntries(data: Buffer): Map<string, PackageEntry> {
       invalid(`ZIP 条目「${entry.name}」实际大小与中央目录不符`, entry.name);
     }
     total += bytes.length;
-    if (total > AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES) {
-      invalid(`ZIP 解压后总大小超过 ${AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES} 字节`);
+    if (total > limits.maxUncompressedBytes) {
+      invalid(`ZIP 解压后总大小超过 ${limits.maxUncompressedBytes} 字节`);
     }
+    files.set(entry.name, { data: Buffer.from(bytes), executable: entry.executable });
+  }
+  return files;
+}
+
+/** 先按中央目录校验，再解压；内容必须能按严格 UTF-8 解码。 */
+export function decodePackageEntries(data: Buffer): Map<string, PackageEntry> {
+  const files = new Map<string, PackageEntry>();
+  for (const [path, entry] of decodeZipEntries(data)) {
     try {
-      files.set(entry.name, {
-        content: strictUtf8.decode(bytes),
-        executable: entry.executable,
-      });
+      files.set(path, { content: strictUtf8.decode(entry.data), executable: entry.executable });
     } catch {
-      invalid(`「${entry.name}」不是 UTF-8 文本；包内只支持文本资源`, entry.name);
+      invalid(`「${path}」不是 UTF-8 文本；包内只支持文本资源`, path);
     }
   }
   return files;

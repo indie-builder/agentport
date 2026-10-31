@@ -124,8 +124,9 @@ async function searchBase(
     join knowledge_documents d on d.id = c.document_id
     where c.base_id = ${baseId}
       and c.enabled
-      and d.status = 'ready'
       and d.current_version_id = c.version_id
+      and ${repo.knowledge.readableDocumentSql('d')}
+      and d.content_kind <> 'wiki'
       and c.search_vector @@ plainto_tsquery('simple', ${segmented})
       ${documentFilter}
     order by rank desc, c.id
@@ -151,15 +152,9 @@ async function readDocument(
   baseId: string,
   documentId: string,
 ) {
-  const document = await repo.knowledge.getDocument(db, documentId);
-  if (
-    !document ||
-    document.baseId !== baseId ||
-    document.status !== 'ready' ||
-    !document.currentVersionId
-  ) {
-    return null;
-  }
+  // 与检索/读取共用来源授权判定：撤权、范围失效或人工停用后不能再被 Wiki 消费。
+  const document = await repo.knowledge.getReadableDocument(db, baseId, documentId);
+  if (!document?.currentVersionId) return null;
   const markdown = await readFile(
     join(knowledgeDir, 'docs', document.id, document.currentVersionId, 'markdown.md'),
     'utf8',
@@ -176,7 +171,10 @@ async function readDocument(
   };
 }
 
-/** 引用必须落在此库当前版本、启用且 ready 的 chunk 上；范围外的 id 直接拒绝。 */
+/**
+ * 引用必须落在此库当前版本、启用且 ready 的 chunk 上；范围外的 id 直接拒绝。
+ * Wiki 内部索引不是授权来源：引用它会让撤权后的派生内容再被当证据。
+ */
 async function validateSourceChunks(
   db: Database,
   baseId: string,
@@ -200,8 +198,9 @@ async function validateSourceChunks(
         inArray(schema.knowledgeChunks.id, sourceChunkIds),
         eq(schema.knowledgeChunks.baseId, baseId),
         eq(schema.knowledgeChunks.enabled, true),
-        eq(schema.knowledgeDocuments.status, 'ready'),
         sql`${schema.knowledgeChunks.versionId} = ${schema.knowledgeDocuments.currentVersionId}`,
+        sql`${schema.knowledgeDocuments.contentKind} <> 'wiki'`,
+        repo.knowledge.readableDocumentSql('knowledge_documents'),
         ...(allowedDocumentIds.length > 0
           ? [inArray(schema.knowledgeChunks.documentId, allowedDocumentIds)]
           : []),
@@ -224,7 +223,7 @@ function buildPrompt(input: {
   const lines = [
     `你是知识库《${input.baseName}》的 Wiki 编辑。请为页面「${input.pageTitle}」撰写 Markdown 草稿。`,
     '步骤：先用 wiki_search 检索证据，必要时用 wiki_read 阅读原文，最后用 wiki_save_draft 提交完整草稿。',
-    '草稿必须基于检索到的内容，不得编造；在 sourceChunkIds 中列出引用到的 chunkId。',
+    '草稿必须基于检索到的内容，不得编造；sourceChunkIds 必须列出至少一个实际引用到的 chunkId。',
     '只提交一次草稿，提交后不要再修改。',
   ];
   if (input.instruction) lines.push(`补充要求：${input.instruction}`);
@@ -303,6 +302,10 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
     const savedVersions: string[] = [];
     const save = async (input: { markdown: string; sourceChunkIds: string[] }) => {
       if (signal.aborted) throw new KnowledgeCancelled();
+      // 模型草稿必须带可撤权来源：空来源一旦发布就再也追不回授权。
+      if (input.sourceChunkIds.length === 0) {
+        throw new Error('MODEL_SOURCE_REQUIRED: 模型草稿必须引用至少一个来源 chunk');
+      }
       // 取消后 API 可能已把行改成终态；不再写入草稿。
       const current = await repo.knowledge.getJob(db, job.id);
       if (current?.status !== 'running') throw new Error('任务已结束，拒绝写入草稿');
@@ -312,16 +315,11 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
         input.sourceChunkIds,
         allowedDocumentIds,
       );
-      const version = await repo.knowledge.saveWikiVersion(db, page.id, {
+      const version = await repo.knowledge.saveWikiDraft(db, page.id, {
         markdown: input.markdown,
         sourceChunkIds: chunks.map((chunk) => chunk.id),
         model,
         generatedBy: 'sdk',
-        sources: chunks.map((chunk) => ({
-          documentId: chunk.documentId,
-          versionId: chunk.versionId,
-          chunkId: chunk.id,
-        })),
       });
       if (!version) throw new Error('Wiki 页面不存在，可能已被删除');
       savedVersions.push(version.id);
@@ -364,7 +362,7 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
           'Save the full markdown draft for the bound page. Does not publish it.',
           {
             markdown: z.string().min(1),
-            sourceChunkIds: z.array(z.string()).optional(),
+            sourceChunkIds: z.array(z.string().min(1)).min(1),
           },
           async (args) => {
             try {

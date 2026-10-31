@@ -243,6 +243,67 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(count.rows[0]!.n).toBe('2');
   });
 
+  it('re-parses PATCH config by source type so defaults and booleans reach the DB', async () => {
+    const baseId = await createBase();
+    const created = await inject(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/sources`,
+      headers: { cookie },
+      payload: {
+        type: 'notion',
+        name: 'notion-config',
+        config: { syncDeletions: true },
+        secrets: { apiKey: 'n' },
+        ranges: [{ kind: 'notion_page', externalId: '01234567-89ab-cdef-0123-456789abcdef' }],
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const sourceId = created.json<{ id: string }>().id;
+
+    const invalid = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${sourceId}`,
+      headers: { cookie },
+      payload: { config: { syncDeletions: 'true' } },
+    });
+    expect(invalid.statusCode, invalid.body).toBe(400);
+    expect(invalid.json()).toMatchObject({
+      code: 'INVALID_INPUT',
+      path: 'config.syncDeletions',
+    });
+    expect(invalid.json<{ requestId: string }>().requestId).toBeTruthy();
+
+    // 非法类型不能落库，worker 读到的仍是创建时的布尔值。
+    const untouched = await app.pool.query<{ config: Record<string, unknown> }>(
+      'select config from knowledge_sources where id = $1',
+      [sourceId],
+    );
+    expect(untouched.rows[0]!.config).toEqual({ syncDeletions: true });
+
+    const replaced = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${sourceId}`,
+      headers: { cookie },
+      payload: { config: {} },
+    });
+    expect(replaced.statusCode, replaced.body).toBe(200);
+    expect(replaced.json()).toMatchObject({ config: { syncDeletions: false } });
+    const stored = await app.pool.query<{ config: Record<string, unknown> }>(
+      'select config from knowledge_sources where id = $1',
+      [sourceId],
+    );
+    expect(stored.rows[0]!.config).toEqual({ syncDeletions: false });
+
+    const enabled = await inject(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/sources/${sourceId}`,
+      headers: { cookie },
+      payload: { config: { syncDeletions: true } },
+    });
+    expect(enabled.statusCode, enabled.body).toBe(200);
+    expect(enabled.json()).toMatchObject({ config: { syncDeletions: true } });
+  });
+
   function githubPayload(overrides: Record<string, unknown> = {}) {
     return {
       type: 'github',
@@ -346,16 +407,14 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       url: `/api/knowledge/sources/${source.id}/test`,
       headers: { cookie },
     });
-    expect(tested.statusCode, tested.body).toBe(200);
-    const { ok, issues } = tested.json<{ ok: boolean; issues: string[] }>();
-    expect(ok).toBe(false);
+    expect(tested.statusCode, tested.body).toBe(400);
+    expect(tested.json()).toMatchObject({ code: 'INVALID_INPUT' });
+    const message = tested.json<{ message: string }>().message;
     // 停用的范围不参与校验；其余每个启用的非法范围各给一条明确文案。
-    expect(issues).toEqual([
-      '范围 octo/.. 需为 owner/repo（owner 仅字母、数字、连字符，repo 不能是 . 或 ..）',
-      '范围 bad repo/proj 需为 owner/repo（owner 仅字母、数字、连字符，repo 不能是 . 或 ..）',
-      '范围 nested/proj/extra 需为 owner/repo（owner 仅字母、数字、连字符，repo 不能是 . 或 ..）',
-      '范围 octo/wrong-kind 的类型必须是仓库（github_repo）',
-    ]);
+    expect(message).toContain('范围 octo/.. 需为 owner/repo');
+    expect(message).toContain('范围 bad repo/proj 需为 owner/repo');
+    expect(message).toContain('范围 nested/proj/extra 需为 owner/repo');
+    expect(message).toContain('范围 octo/wrong-kind 的类型必须是仓库（github_repo）');
 
     // 只改 name 时不被历史非法范围阻断。
     const renamed = await inject(app, {
@@ -386,7 +445,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(count.rows[0]!.n).toBe('0');
   });
 
-  it('tests configuration only and reports issues', async () => {
+  it('rejects local configuration issues at the boundary and queues a read-only probe', async () => {
     const baseId = await createBase();
     const source = await createSource(baseId);
     const ok = await inject(app, {
@@ -394,10 +453,19 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       url: `/api/knowledge/sources/${source.id}/test`,
       headers: { cookie },
     });
-    expect(ok.statusCode, ok.body).toBe(200);
-    expect(ok.json()).toEqual({ ok: true, issues: [] });
+    expect(ok.statusCode, ok.body).toBe(202);
+    const jobId = ok.json<{ jobId: string }>().jobId;
+    const job = await app.pool.query<{ type: string; status: string; payload: unknown }>(
+      'select type, status, payload from knowledge_jobs where id = $1',
+      [jobId],
+    );
+    expect(job.rows[0]).toMatchObject({
+      type: 'source_probe',
+      status: 'queued',
+      payload: { type: 'source_probe', sourceId: source.id },
+    });
 
-    // 清空 config/凭证后 test 必须报出缺失项，而不是假装通过。
+    // 清空 config/凭证后 test 必须报出缺失项，而不是入队一个必然失败的探针。
     const broken = await inject(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
@@ -420,8 +488,9 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       url: `/api/knowledge/sources/${brokenId}/test`,
       headers: { cookie },
     });
-    expect(bad.statusCode, bad.body).toBe(200);
-    expect(bad.json()).toEqual({ ok: false, issues: ['缺少凭证 token'] });
+    expect(bad.statusCode, bad.body).toBe(400);
+    expect(bad.json()).toMatchObject({ code: 'INVALID_INPUT' });
+    expect(bad.json<{ message: string }>().message).toContain('缺少凭证 token');
   });
 
   it('enqueues a sync run and job, then lists runs', async () => {
@@ -564,15 +633,20 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     const documentId = `kdoc_src${Math.random().toString(36).slice(2, 10)}`;
     await app.pool.query(
       `insert into knowledge_documents
-         (id, base_id, title, source_type, source_id, mime_type, status, metadata)
-       values ($1, $2, 'doc', 'feed', $3, 'text/markdown', 'ready', $4::jsonb)`,
-      [
-        documentId,
-        baseId,
-        `feed-item-${documentId}`,
-        JSON.stringify({ knowledgeSourceId: sourceId }),
-      ],
+         (id, base_id, title, source_type, source_id, source_connection_id, mime_type, status)
+       values ($1, $2, 'doc', 'feed', $3, $4, 'text/markdown', 'ready')`,
+      [documentId, baseId, `feed-item-${documentId}`, sourceId],
     );
+    const range = await app.pool.query<{ id: string }>(
+      'select id from knowledge_source_ranges where source_id = $1 order by id limit 1',
+      [sourceId],
+    );
+    if (range.rows[0]) {
+      await app.pool.query(
+        'insert into knowledge_document_source_ranges (document_id, range_id) values ($1, $2)',
+        [documentId, range.rows[0].id],
+      );
+    }
     return documentId;
   }
 

@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "document": {
+    "md_content": "first\n\nlast",
+    "json_content": {
+      "body": {
+        "children": [{ "$ref": "#/texts/0" }, { "$ref": "#/texts/1" }, { "$ref": "#/texts/2" }]
+      },
+      "texts": [
+        { "self_ref": "#/texts/0", "text": "first", "prov": [{ "page_no": 1 }] },
+        { "self_ref": "#/texts/1", "text": "MIDDLE OCR", "prov": [{ "page_no": 2 }] },
+        { "self_ref": "#/texts/2", "text": "last", "prov": [{ "page_no": 3 }] }
+      ]
+    }
+  }
+}

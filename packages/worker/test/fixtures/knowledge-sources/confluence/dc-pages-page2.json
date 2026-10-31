@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "id": "101",
+      "type": "page",
+      "status": "current",
+      "title": "DC Page Two",
+      "space": { "id": 42, "key": "DOC", "name": "Documentation" },
+      "version": { "number": 1 },
+      "_links": { "webui": "/display/DOC/DC+Page+Two" }
+    }
+  ],
+  "start": 1,
+  "limit": 100,
+  "size": 1,
+  "_links": {}
+}

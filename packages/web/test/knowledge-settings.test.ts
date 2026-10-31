@@ -282,6 +282,7 @@ describe('knowledge base settings', () => {
         ?.body,
     ).toEqual({
       rerankProfileId: 'profile_rerank',
+      asrProfileId: null,
       settings: {
         chunkTokens: 1000,
         chunkOverlap: 150,

@@ -1,0 +1,14 @@
+{
+  "data": {
+    "id": 102,
+    "type": "Doc",
+    "format": "html",
+    "slug": "html-doc",
+    "title": "Doc 102",
+    "status": 1,
+    "body": null,
+    "body_html": "<h1>Doc 102</h1><p>HTML body</p>",
+    "content_updated_at": "2026-10-02T08:00:00.000Z",
+    "book": { "namespace": "team/manual" }
+  }
+}

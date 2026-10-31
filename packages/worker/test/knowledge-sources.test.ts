@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  probeSource,
   readSource,
   SourceAuthError,
   type SourceConfig,
@@ -121,6 +122,9 @@ const state = {
   feishuNodesStatus: 200,
   feishuUnsupported: false,
   feishuDriveUnsupported: false,
+  feishuDriveMissingMime: false,
+  feishuDriveMultiPage: false,
+  feishuDocxTruncated: false,
 };
 
 function resetState(): void {
@@ -143,6 +147,9 @@ function resetState(): void {
   state.feishuNodesStatus = 200;
   state.feishuUnsupported = false;
   state.feishuDriveUnsupported = false;
+  state.feishuDriveMissingMime = false;
+  state.feishuDriveMultiPage = false;
+  state.feishuDocxTruncated = false;
 }
 
 let mainUrl = '';
@@ -280,6 +287,19 @@ function docxBlocks(docToken: string, pageToken: string | undefined): unknown {
   });
   const text = (content: string) => ({ elements: [{ text_run: { content } }] });
 
+  if (docToken === 'long1') {
+    const page = Number(pageToken?.replace('lp', '') ?? '0');
+    return {
+      items: Array.from({ length: 500 }, (_, index) => ({
+        block_id: `long-${page}-${index}`,
+        block_type: 2,
+        text: { elements: [{ text_run: { content: `PAGE-${page + 1}-ITEM-${index}` } }] },
+      })),
+      has_more: true,
+      page_token: `lp${page + 1}`,
+    };
+  }
+
   if (docToken === 'doc1') {
     if (!pageToken) {
       return {
@@ -373,6 +393,23 @@ function driveFilesPage(query: URLSearchParams): Record<string, unknown> {
       next_page_token: '',
     };
   }
+  if (state.feishuDriveMultiPage && !query.get('page_token')) {
+    return {
+      files: [{ token: 'docD', name: 'Doc D', type: 'docx', url: `${mainUrl}/doc/d` }],
+      has_more: true,
+      next_page_token: 'dp2',
+    };
+  }
+  if (state.feishuDriveMultiPage && query.get('page_token') === 'dp2') {
+    return { files: [], has_more: false, next_page_token: '' };
+  }
+  if (state.feishuDocxTruncated && !query.get('page_token')) {
+    return {
+      files: [{ token: 'long1', name: 'Long document', type: 'docx' }],
+      has_more: false,
+      next_page_token: '',
+    };
+  }
   const files: Record<string, unknown>[] = [
     { token: 'fldA', name: 'Projects', type: 'folder' },
     { token: 'docD', name: 'Doc D', type: 'docx', url: `${mainUrl}/doc/d` },
@@ -385,6 +422,9 @@ function driveFilesPage(query: URLSearchParams): Record<string, unknown> {
   ];
   if (state.feishuDriveUnsupported) {
     files.push({ token: 'pdf1', name: 'manual.pdf', type: 'file', url: `${mainUrl}/file/pdf1` });
+  }
+  if (state.feishuDriveMissingMime) {
+    files.push({ token: 'raw1', name: 'report.pdf', type: 'file', url: `${mainUrl}/file/raw1` });
   }
   return { files, has_more: false, next_page_token: '' };
 }
@@ -566,6 +606,11 @@ async function handleMain(request: IncomingMessage, response: ServerResponse): P
     }
     const blob = /^\/github\/api\/v3\/repos\/octo\/proj\/git\/blobs\/([^/]+)$/.exec(path);
     if (blob?.[1]) {
+      if (blob[1] === 'shaPng') {
+        response.writeHead(200, { 'content-type': 'image/png' });
+        response.end(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+        return;
+      }
       const bodies: Record<string, string> = {
         shaA: '# GitHub doc\n',
         shaFaq: '# FAQ setup\n',
@@ -630,6 +675,14 @@ async function handleMain(request: IncomingMessage, response: ServerResponse): P
     if (path === '/feishu/open-apis/drive/v1/files/pdf1/download') {
       response.writeHead(200, { 'content-type': 'application/pdf' });
       response.end('%PDF-1.7');
+      return;
+    }
+    if (path === '/feishu/open-apis/drive/v1/files/raw1/download') {
+      // 故意不带 Content-Type，且 PDF 头之后有非 UTF-8 字节。
+      response.writeHead(200);
+      response.end(
+        Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0xff, 0xfe, 0x00, 0x80]),
+      );
       return;
     }
   }
@@ -1044,7 +1097,7 @@ describe('GitLab source', () => {
 });
 
 describe('GitHub source', () => {
-  it('reads text blobs from the default branch tree and filters range, type and binaries', async () => {
+  it('reads text and binary blobs from the default branch tree and filters by range', async () => {
     const snapshot = await readSource(githubConfig());
 
     expect(snapshot.complete).toBe(true);
@@ -1052,6 +1105,7 @@ describe('GitHub source', () => {
       'docs/FAQ#setup.md',
       'docs/a.md',
       'docs/empty.txt',
+      'docs/image.png',
       'src/b.txt',
     ]);
     const file = snapshot.items.find((item) => item.path === 'docs/a.md');
@@ -1070,8 +1124,10 @@ describe('GitHub source', () => {
     // 空文件也要覆盖旧正文，而不是保留上一次内容。
     const empty = snapshot.items.find((item) => item.path === 'docs/empty.txt');
     expect(empty?.content).toBe('# docs/empty.txt\n');
-    // 二进制扩展名与范围外路径都不进入快照。
-    expect(snapshot.items.some((item) => item.path === 'docs/image.png')).toBe(false);
+    // 二进制原件以字节形式进入解析链路，不在来源层解码。
+    const image = snapshot.items.find((item) => item.path === 'docs/image.png');
+    expect(image?.mimeType).toBe('image/png');
+    expect(image?.bytes).toBeDefined();
     // mode 120000 是符号链接，即使扩展名是 .md 也不能当普通文件读。
     expect(snapshot.items.some((item) => item.path === 'docs/link.md')).toBe(false);
     expect(state.mainRequests.some((request) => request.path.endsWith('/git/blobs/shaLink'))).toBe(
@@ -1243,7 +1299,10 @@ describe('Feishu source', () => {
       'notes.md',
     ]);
     const notes = snapshot.items.find((item) => item.path === 'notes.md');
-    expect(notes?.content).toContain('hello from txt');
+    // 文本文件也保留原件字节，由本地解析器按 MIME/扩展名分派，不在来源层直接当 Markdown。
+    expect(notes?.content).toBe('');
+    expect(Buffer.from(notes?.bytes ?? []).toString('utf8')).toContain('hello from txt');
+    expect(notes?.mimeType).toBe('text/markdown');
     const docD = snapshot.items.find((item) => item.path === 'Doc D.md');
     expect(docD?.sourceUrl).toBe(`${mainUrl}/doc/d`);
     expect(docD?.content).toContain('Content for docD');
@@ -1279,11 +1338,63 @@ describe('Feishu source', () => {
 
     resetState();
     state.feishuUnsupported = true;
-    await expect(readSource(feishuConfig())).rejects.toThrow(/sheet/);
+    // 不支持的单项记失败继续读其它条目，不再让整轮枚举抛错。
+    const unsupported = await readSource(feishuConfig());
+    expect(unsupported.complete).toBe(false);
+    expect(unsupported.items.some((item) => item.externalId === 'feishu:wiki:nod1')).toBe(true);
+    expect(unsupported.failures).toEqual([
+      expect.objectContaining({ code: 'unsupported_type', retryable: false }),
+    ]);
+    expect(unsupported.failures?.[0]?.message).toMatch(/sheet/);
 
     resetState();
     state.feishuDriveUnsupported = true;
-    await expect(readSource(feishuDriveConfig())).rejects.toThrow(/pdf/);
+    const drive = await readSource(feishuDriveConfig());
+    const pdf = drive.items.find((item) => item.externalId === 'feishu:drive:pdf1');
+    expect(pdf?.mimeType).toBe('application/pdf');
+    expect(pdf?.bytes).toBeDefined();
+    expect(drive.complete).toBe(true);
+  });
+
+  it('keeps a download without Content-Type as original bytes and routes it by extension', async () => {
+    state.feishuDriveMissingMime = true;
+    const snapshot = await readSource(feishuDriveConfig());
+    const raw = snapshot.items.find((item) => item.externalId === 'feishu:drive:raw1');
+    if (!raw) throw new Error('raw drive item missing');
+    expect(raw.mimeType).toBe('application/pdf');
+    expect(raw.content).toBe('');
+    expect(Buffer.from(raw.bytes ?? [])).toEqual(
+      Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0xff, 0xfe, 0x00, 0x80]),
+    );
+  });
+
+  it('probes only the first page when a Drive folder or wiki space has more pages', async () => {
+    state.feishuDriveMultiPage = true;
+    await expect(probeSource(feishuDriveConfig())).resolves.toBeUndefined();
+
+    resetState();
+    // wiki fixture 的首屏固定 has_more=true 且带 next page token。
+    await expect(probeSource(feishuConfig())).resolves.toBeUndefined();
+  });
+
+  it('fails the docx item instead of publishing a truncated body at the block limit', async () => {
+    state.feishuDocxTruncated = true;
+    const snapshot = await readSource(feishuDriveConfig());
+
+    expect(snapshot.complete).toBe(false);
+    expect(snapshot.items.some((item) => item.externalId === 'feishu:drive:long1')).toBe(false);
+    expect(snapshot.failures).toEqual([
+      expect.objectContaining({
+        externalId: 'feishu:drive:long1',
+        code: 'truncated',
+        retryable: false,
+      }),
+    ]);
+    expect(snapshot.failures?.[0]?.message).toMatch(/50,000|上限|truncat/i);
+    const blockRequests = state.mainRequests.filter((request) =>
+      request.path.endsWith('/documents/long1/blocks'),
+    );
+    expect(blockRequests).toHaveLength(100);
   });
 
   it('classifies revoked credentials as SourceAuthError and keeps other failures generic', async () => {
@@ -1309,6 +1420,7 @@ describe('Feishu source', () => {
 
     resetState();
     state.feishuUnsupported = true;
-    await expect(readSource(feishuConfig())).rejects.not.toBeInstanceOf(SourceAuthError);
+    const unsupported = await readSource(feishuConfig());
+    expect(unsupported.failures?.[0]?.code).toBe('unsupported_type');
   });
 });

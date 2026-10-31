@@ -1,0 +1,18 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "Before **bold** after.",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "text",
+          "text": "Before bold after.",
+          "prov": [{ "page_no": 2, "bbox": { "l": 1, "t": 2, "r": 3, "b": 4 } }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

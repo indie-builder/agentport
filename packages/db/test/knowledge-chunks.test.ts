@@ -171,8 +171,9 @@ describe.skipIf(!ready)('knowledge chunk summaries', () => {
     const readerPassword = 'test-reader-password';
     await pool.query(`create role ${role} login password '${readerPassword}'`);
     await pool.query(
-      `grant select (id, document_id, version_id, ordinal, kind, heading, content, enabled,
-         edited_by_user, page_from, page_to, token_count, metadata)
+      `grant select (id, document_id, version_id, ordinal, parent_ordinal, index_role, kind,
+         heading, content, enabled, edited_by_user, page_from, page_to, locator, token_count,
+         metadata)
        on knowledge_chunks to ${role}`,
     );
     const url = new URL(process.env.DATABASE_URL ?? '');
@@ -187,6 +188,8 @@ describe.skipIf(!ready)('knowledge chunk summaries', () => {
         documentId: chunk.documentId,
         versionId,
         ordinal: 0,
+        parentOrdinal: null,
+        indexRole: 'leaf',
         kind: 'text',
         heading: '标题',
         content: '令牌 轮换',
@@ -194,6 +197,7 @@ describe.skipIf(!ready)('knowledge chunk summaries', () => {
         editedByUser: false,
         pageFrom: 1,
         pageTo: 1,
+        locator: null,
         tokenCount: 3,
         metadata: {},
       });

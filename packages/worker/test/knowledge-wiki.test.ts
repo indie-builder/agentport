@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { KnowledgeCancelled } from '../src/knowledge/ingestion.js';
 import {
@@ -120,7 +119,15 @@ function fakeQuery(
   };
 }
 
-async function seedChunk(baseId: string, markdown: string, enabled = true) {
+async function seedChunk(
+  baseId: string,
+  markdown: string,
+  enabled = true,
+  extra: {
+    contentKind?: 'document' | 'wiki';
+    metadata?: Record<string, unknown>;
+  } = {},
+) {
   const documentId = newId('knowledgeDocument');
   await db.insert(schema.knowledgeDocuments).values({
     id: documentId,
@@ -129,6 +136,8 @@ async function seedChunk(baseId: string, markdown: string, enabled = true) {
     sourceType: 'upload',
     mimeType: 'text/markdown',
     status: 'ready',
+    ...(extra.contentKind === undefined ? {} : { contentKind: extra.contentKind }),
+    ...(extra.metadata === undefined ? {} : { metadata: extra.metadata }),
   });
   const version = await repo.knowledge.createVersion(db, {
     documentId,
@@ -169,6 +178,46 @@ async function seedChunk(baseId: string, markdown: string, enabled = true) {
   return { documentId, versionId: version.id, chunkId: chunk.id };
 }
 
+/** 给同一文档追加新版本并切换 current；旧版本 chunk 留在库里用于验证失效判定。 */
+async function addDocumentVersion(baseId: string, documentId: string, markdown: string) {
+  const version = await repo.knowledge.createVersion(db, {
+    documentId,
+    blobSha256: 'c'.repeat(64),
+    markdownSha256: 'd'.repeat(64),
+    originalFilename: 'doc.md',
+    mimeType: 'text/markdown',
+    sizeBytes: markdown.length,
+    sourceRevision: null,
+    parseStatus: 'parsed',
+    pageMap: [],
+    images: [],
+    embeddingProfileId: (await repo.knowledge.getBase(db, baseId))?.embeddingProfileId ?? '',
+  });
+  await repo.knowledge.setCurrentVersion(db, documentId, version.id);
+  const chunks = await repo.knowledge.insertChunks(db, {
+    baseId,
+    documentId,
+    versionId: version.id,
+    folderId: null,
+    chunks: [
+      {
+        ordinal: 0,
+        kind: 'text',
+        heading: null,
+        content: markdown,
+        searchText: markdown,
+        embedding: null,
+        pageFrom: null,
+        pageTo: null,
+        tokenCount: 10,
+      },
+    ],
+  });
+  const chunk = chunks[0];
+  if (!chunk) throw new Error('chunk missing');
+  return { versionId: version.id, chunkId: chunk.id };
+}
+
 beforeAll(async () => {
   knowledgeDir = await mkdtemp(join(tmpdir(), 'wiki-worker-'));
 });
@@ -198,6 +247,7 @@ describe('runWikiGenerate', () => {
 
   it('registers the three tools and isolates the SDK session from host config', async () => {
     const { baseId } = await fixture();
+    const source = await seedChunk(baseId, '认证 使用 会话');
     const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
     const jobId = await makeJob(baseId, { pageId: page.id });
 
@@ -206,7 +256,13 @@ describe('runWikiGenerate', () => {
       seen = params.options;
       async function* run(): AsyncGenerator<SDKMessage> {
         const tools = toolsOf(params.options);
-        await mustTool(tools, 'wiki_save_draft')({ markdown: '# 草稿', sourceChunkIds: [] });
+        await mustTool(
+          tools,
+          'wiki_save_draft',
+        )({
+          markdown: '# 草稿',
+          sourceChunkIds: [source.chunkId],
+        });
         yield { type: 'result', subtype: 'success', is_error: false } as SDKMessage;
       }
       return run();
@@ -247,7 +303,8 @@ describe('runWikiGenerate', () => {
     expect(job.status).toBe('running');
     const after = await repo.knowledge.getWikiPage(db, page.id);
     expect(after?.status).toBe('draft');
-    expect(after?.currentVersionId).not.toBeNull();
+    // 生成只追加草稿，线上指针保持为空，发布由管理端显式触发。
+    expect(after?.currentVersionId).toBeNull();
     // 会话目录按 job 隔离且不残留。
     const cwd = seen?.cwd ?? '';
     expect(await stat(cwd).catch(() => null)).toBeNull();
@@ -255,6 +312,7 @@ describe('runWikiGenerate', () => {
 
   it('adds a draft version without replacing a published page', async () => {
     const { baseId } = await fixture();
+    const source = await seedChunk(baseId, '认证 当前内容');
     const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
     const published = await repo.knowledge.saveWikiVersion(db, page.id, {
       markdown: '# 已发布',
@@ -262,6 +320,7 @@ describe('runWikiGenerate', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
+    await repo.knowledge.publishWikiVersion(db, page.id, published?.id ?? '');
     const before = await repo.knowledge.getWikiPage(db, page.id);
     expect(before?.status).toBe('published');
 
@@ -270,7 +329,13 @@ describe('runWikiGenerate', () => {
       await mustGetJob(jobId),
       deps({
         queryFn: fakeQuery(async (tools) => {
-          await mustTool(tools, 'wiki_save_draft')({ markdown: '# 草稿', sourceChunkIds: [] });
+          await mustTool(
+            tools,
+            'wiki_save_draft',
+          )({
+            markdown: '# 草稿',
+            sourceChunkIds: [source.chunkId],
+          });
         }),
       }),
     );
@@ -350,13 +415,101 @@ describe('runWikiGenerate', () => {
     ]);
     const versions = await repo.knowledge.listWikiVersions(db, page.id);
     expect(versions.items).toHaveLength(1);
+    // 草稿只保存经过校验的来源快照；来源账本在显式发布时才写入。
     expect(versions.items[0]?.sourceChunkIds).toEqual([inScope.chunkId]);
-    const sources = await db
-      .select()
-      .from(schema.knowledgeWikiSources)
-      .where(eq(schema.knowledgeWikiSources.pageId, page.id));
-    expect(sources).toHaveLength(1);
-    expect(sources[0]?.chunkId).toBe(inScope.chunkId);
+  });
+
+  it('rejects an sdk draft without any source chunk', async () => {
+    const { baseId } = await fixture();
+    const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
+    const jobId = await makeJob(baseId, { pageId: page.id });
+
+    let empty: Awaited<ReturnType<ToolHandler>> | undefined;
+    let missing: Awaited<ReturnType<ToolHandler>> | undefined;
+    await expect(
+      runWikiGenerate(
+        await mustGetJob(jobId),
+        deps({
+          queryFn: fakeQuery(async (tools) => {
+            const save = mustTool(tools, 'wiki_save_draft');
+            empty = await save({ markdown: '# 空来源', sourceChunkIds: [] });
+            missing = await save({ markdown: '# 缺字段' });
+          }),
+        }),
+      ),
+    ).rejects.toThrow('模型没有保存任何草稿');
+
+    // 工具边界直接拒绝空来源，不能报 saved:true 再留给发布时才发现。
+    expect(empty?.isError).toBe(true);
+    expect(missing?.isError).toBe(true);
+    expect((await repo.knowledge.listWikiVersions(db, page.id)).items).toHaveLength(0);
+  });
+
+  it('rejects old-version and unknown source chunk ids', async () => {
+    const { baseId } = await fixture();
+    const old = await seedChunk(baseId, '认证 旧版本');
+    const next = await addDocumentVersion(baseId, old.documentId, '认证 当前版本');
+    const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
+    const jobId = await makeJob(baseId, { pageId: page.id });
+
+    let stale: Awaited<ReturnType<ToolHandler>> | undefined;
+    let unknown: Awaited<ReturnType<ToolHandler>> | undefined;
+    await runWikiGenerate(
+      await mustGetJob(jobId),
+      deps({
+        queryFn: fakeQuery(async (tools) => {
+          const save = mustTool(tools, 'wiki_save_draft');
+          stale = await save({ markdown: '# 旧版本引用', sourceChunkIds: [old.chunkId] });
+          unknown = await save({
+            markdown: '# 伪造引用',
+            sourceChunkIds: [`kchk_missing${Math.random().toString(36).slice(2, 8)}`],
+          });
+          const ok = await save({ markdown: '# 当前版本引用', sourceChunkIds: [next.chunkId] });
+          expect(ok.isError).toBeUndefined();
+        }),
+      }),
+    );
+
+    expect(stale?.isError).toBe(true);
+    expect(unknown?.isError).toBe(true);
+    const versions = await repo.knowledge.listWikiVersions(db, page.id);
+    expect(versions.items).toHaveLength(1);
+    expect(versions.items[0]?.sourceChunkIds).toEqual([next.chunkId]);
+  });
+
+  it('never uses the internal wiki index as search, read or source', async () => {
+    const { baseId } = await fixture();
+    const internal = await seedChunk(baseId, '认证 内部索引内容', true, {
+      contentKind: 'wiki',
+      metadata: { wikiPageId: 'kwp_internal', wikiVersionId: 'kwv_internal' },
+    });
+    const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
+    const jobId = await makeJob(baseId, { pageId: page.id });
+
+    let searchHits: unknown[] = [];
+    let readResult: Awaited<ReturnType<ToolHandler>> | undefined;
+    let saveResult: Awaited<ReturnType<ToolHandler>> | undefined;
+    await expect(
+      runWikiGenerate(
+        await mustGetJob(jobId),
+        deps({
+          queryFn: fakeQuery(async (tools) => {
+            const search = await mustTool(tools, 'wiki_search')({ q: '认证' });
+            searchHits = JSON.parse(search.content?.[0]?.text ?? '{}').hits;
+            readResult = await mustTool(tools, 'wiki_read')({ documentId: internal.documentId });
+            saveResult = await mustTool(
+              tools,
+              'wiki_save_draft',
+            )({ markdown: '# 索引引用', sourceChunkIds: [internal.chunkId] });
+          }),
+        }),
+      ),
+    ).rejects.toThrow('模型没有保存任何草稿');
+
+    // D -> A 撤权后，A 的内部索引不能经 search/read/来源引用再绕回生成输入。
+    expect(searchHits).toEqual([]);
+    expect(readResult?.isError).toBe(true);
+    expect(saveResult?.isError).toBe(true);
   });
 
   it('throws instead of reporting success when the model never saves a draft', async () => {
@@ -386,6 +539,7 @@ describe('runWikiGenerate', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
+    await repo.knowledge.publishWikiVersion(db, page.id, published?.id ?? '');
     const jobId = await makeJob(baseId, { pageId: page.id });
     const controller = new AbortController();
     let cwd = '';
@@ -443,6 +597,7 @@ describe('runWikiGenerate', () => {
 
   it('rejects a save once the job is no longer running', async () => {
     const { baseId } = await fixture();
+    const source = await seedChunk(baseId, '认证 当前内容');
     const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
     const published = await repo.knowledge.saveWikiVersion(db, page.id, {
       markdown: '# 已发布',
@@ -450,6 +605,7 @@ describe('runWikiGenerate', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
+    await repo.knowledge.publishWikiVersion(db, page.id, published?.id ?? '');
     const jobId = await makeJob(baseId, { pageId: page.id });
 
     await expect(
@@ -463,9 +619,10 @@ describe('runWikiGenerate', () => {
               'wiki_save_draft',
             )({
               markdown: '# 迟到草稿',
-              sourceChunkIds: [],
+              sourceChunkIds: [source.chunkId],
             });
             expect(result.isError).toBe(true);
+            expect(result.content?.[0]?.text).toContain('任务已结束');
           }),
         }),
       ),
@@ -485,6 +642,7 @@ describe('runWikiGenerate', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
+    await repo.knowledge.publishWikiVersion(db, page.id, published?.id ?? '');
     const jobId = await makeJob(baseId, { pageId: page.id });
 
     let cwd = '';

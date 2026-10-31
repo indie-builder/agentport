@@ -1,16 +1,17 @@
 import { createHash } from 'node:crypto';
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { fail, isAppError } from '@agentport/core';
-import { repo } from '@agentport/db';
+import { repo, schema } from '@agentport/db';
 import { httpUrlSchema } from '@agentport/shared';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
-import { createJob, enqueueKnowledgeJob } from './service.js';
+import { createJob, documentWire, enqueueKnowledgeJob } from './service.js';
 
 /** 手写正文上限与参考实现一致；再大应走文件上传。 */
 const MAX_MANUAL_CHARS = 200_000;
@@ -31,6 +32,7 @@ const ACCEPTED_TYPES: Record<string, string> = {
 };
 
 const baseParams = z.object({ id: z.string().min(1) });
+const documentParams = z.object({ documentId: z.string().min(1) });
 const folderIdSchema = z.string().min(1).nullable().default(null);
 
 const manualSchema = z.object({
@@ -41,6 +43,20 @@ const manualSchema = z.object({
     .refine((value) => value.trim().length > 0, '正文不能为空'),
   folderId: folderIdSchema,
   tags: z.array(z.string().trim().min(1).max(64)).max(50).default([]),
+});
+
+const manualDraftSchema = z.object({
+  content: z
+    .string()
+    .max(MAX_MANUAL_CHARS)
+    .refine((value) => value.trim().length > 0, '正文不能为空'),
+  /** 编辑时 GET 读到的可编辑版本；有新草稿时只能基于该草稿保存。 */
+  expectedVersionId: z.string().min(1),
+});
+
+const manualPublishSchema = z.object({
+  versionId: z.string().min(1),
+  expectedVersionId: z.string().nullable(),
 });
 
 const urlSchema = z.object({
@@ -150,11 +166,21 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const auth = { preHandler: [rawApp.requireAuth] };
 
-  const enqueue = async (documentId: string, baseId: string) => {
+  const enqueue = async (
+    documentId: string,
+    baseId: string,
+    input: { blobSha256: string; filename: string; mimeType: string },
+    publish: 'draft' | 'automatic' = 'automatic',
+  ) => {
     const job = await createJob(app.db, {
       baseId,
       documentId,
-      payload: { type: 'ingest', documentId },
+      payload: {
+        type: 'ingest',
+        documentId,
+        publish,
+        input: { ...input, expectedCurrentVersionId: null },
+      },
     });
     await enqueueKnowledgeJob(job);
     return job;
@@ -192,6 +218,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
     tags: string[];
     requestId: string;
     log: FastifyInstance['log'];
+    publish?: 'draft' | 'automatic';
   }) => {
     const sha = await storeBlob(app.config.KNOWLEDGE_DIR, input.data);
     const document = await repo.knowledge.createDocument(app.db, {
@@ -216,7 +243,16 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
           rows.map((tag) => tag.id),
         );
       }
-      const job = await enqueue(document.id, input.baseId);
+      const job = await enqueue(
+        document.id,
+        input.baseId,
+        {
+          blobSha256: sha,
+          filename: input.originalFilename,
+          mimeType: input.mimeType,
+        },
+        input.publish,
+      );
       await writeAudit(app.db, input.log, {
         actor: 'admin',
         action: `knowledge.document.${input.sourceType}_imported`,
@@ -258,8 +294,185 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         tags: request.body.tags,
         requestId: request.id,
         log: request.log,
+        publish: 'draft',
       });
       return reply.status(202).send(result);
+    },
+  );
+
+  // ---- 手写正文草稿 -------------------------------------------------------
+
+  const manualDocument = async (documentId: string) => {
+    const document = await repo.knowledge.getDocument(app.db, documentId);
+    if (!document) return { error: 'NOT_FOUND' as const };
+    // 只有真正的手写文档可走普通 manual 入口；FAQ/Wiki 由各自面板与版本接口维护。
+    if (document.sourceType !== 'manual' || document.contentKind !== 'document') {
+      return { error: 'NOT_MANUAL' as const };
+    }
+    return { document };
+  };
+
+  const readVersionContent = async (
+    documentId: string,
+    versionId: string,
+  ): Promise<string | null> =>
+    readFile(
+      join(app.config.KNOWLEDGE_DIR, 'docs', documentId, versionId, 'markdown.md'),
+      'utf8',
+    ).catch(() => null);
+
+  const tagNames = async (documentId: string): Promise<string[]> =>
+    (await repo.knowledge.getDocumentTagNames(app.db, [documentId])).get(documentId) ?? [];
+
+  /** 发布/回退在切指针事务内写持久 publication 标记，这里只认尚未发布的草稿版本。 */
+  const pendingDraftVersion = (
+    document: NonNullable<Awaited<ReturnType<typeof repo.knowledge.getDocument>>>,
+    versions: Awaited<ReturnType<typeof repo.knowledge.listDocumentVersions>>['items'],
+  ) =>
+    versions.find(
+      (row) => row.metadata.publication === 'draft' && row.id !== document.currentVersionId,
+    ) ?? null;
+
+  app.get(
+    '/api/knowledge/documents/:documentId/manual',
+    { ...auth, schema: { params: documentParams } },
+    async (request, reply) => {
+      const found = await manualDocument(request.params.documentId);
+      if (found.error === 'NOT_FOUND')
+        return reject(reply, 'NOT_FOUND', '文档不存在，可能已被删除');
+      if (found.error === 'NOT_MANUAL') {
+        return reject(reply, 'INVALID_INPUT', '只有手写文档可以编辑正文');
+      }
+      const { document } = found;
+      // 最新草稿优先；已发布为当前版本的旧草稿不再算草稿。
+      const versions = await repo.knowledge.listDocumentVersions(app.db, document.id, {
+        limit: 200,
+      });
+      const draft = pendingDraftVersion(document, versions.items);
+      if (draft) {
+        const content = await readVersionContent(document.id, draft.id);
+        if (content === null) return reject(reply, 'NOT_FOUND', '草稿正文缺失，请重新保存');
+        return { content, versionId: draft.id, status: 'draft' as const };
+      }
+      if (!document.currentVersionId) {
+        return reject(reply, 'CONFLICT', '文档还没有可编辑的正文');
+      }
+      const content = await readVersionContent(document.id, document.currentVersionId);
+      if (content === null) return reject(reply, 'NOT_FOUND', '正文文件缺失，请重新解析该版本');
+      return { content, versionId: document.currentVersionId, status: 'published' as const };
+    },
+  );
+
+  app.put(
+    '/api/knowledge/documents/:documentId/manual',
+    {
+      ...auth,
+      bodyLimit: MANUAL_BODY_LIMIT,
+      schema: { params: documentParams, body: manualDraftSchema },
+    },
+    async (request, reply) => {
+      const found = await manualDocument(request.params.documentId);
+      if (found.error === 'NOT_FOUND')
+        return reject(reply, 'NOT_FOUND', '文档不存在，可能已被删除');
+      if (found.error === 'NOT_MANUAL') {
+        return reject(reply, 'INVALID_INPUT', '只有手写文档可以编辑正文');
+      }
+      const { document } = found;
+      const base = await loadActiveBase(document.baseId, reply);
+      if (!base) return;
+
+      const versions = await repo.knowledge.listDocumentVersions(app.db, document.id, {
+        limit: 200,
+      });
+      const draft = pendingDraftVersion(document, versions.items);
+      // GET 返回的唯一可编辑版本；草稿存在时线上版本已被取代，不能作为保存基准。
+      const editableVersionId = draft?.id ?? document.currentVersionId;
+      if (!editableVersionId || request.body.expectedVersionId !== editableVersionId) {
+        return reject(reply, 'CONFLICT_STALE', '正文已被修改，请刷新后重试');
+      }
+
+      const sha = await storeBlob(
+        app.config.KNOWLEDGE_DIR,
+        Buffer.from(request.body.content, 'utf8'),
+      );
+      const filename =
+        typeof document.metadata.originalFilename === 'string'
+          ? document.metadata.originalFilename
+          : `${document.title}.md`;
+      // 草稿输入按 job 快照保存：线上 contentHash 是已发布指纹，不能被尚未发布的草稿覆盖。
+      const job = await app.db.transaction((tx) =>
+        createJob(tx, {
+          baseId: base.id,
+          documentId: document.id,
+          payload: {
+            type: 'ingest',
+            documentId: document.id,
+            publish: 'draft',
+            input: {
+              blobSha256: sha,
+              filename,
+              mimeType: document.mimeType,
+              expectedCurrentVersionId: document.currentVersionId,
+            },
+          },
+        }),
+      );
+      try {
+        await enqueueKnowledgeJob(job);
+        await writeAudit(app.db, request.log, {
+          actor: 'admin',
+          action: 'knowledge.document.manual_draft_saved',
+          target: document.id,
+          input: { versionId: request.body.expectedVersionId },
+          status: 'ok',
+          requestId: request.id,
+        });
+        return reply.status(202).send({ documentId: document.id, jobId: job.id });
+      } catch (err) {
+        await app.db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.id, job.id));
+        if (isAppError(err)) throw err;
+        fail('SERVICE_UNAVAILABLE', '草案任务未能提交，请稍后重试', {
+          cause: err,
+          retryable: true,
+        });
+      }
+    },
+  );
+
+  app.post(
+    '/api/knowledge/documents/:documentId/publish',
+    { ...auth, schema: { params: documentParams, body: manualPublishSchema } },
+    async (request, reply) => {
+      const found = await manualDocument(request.params.documentId);
+      if (found.error === 'NOT_FOUND')
+        return reject(reply, 'NOT_FOUND', '文档不存在，可能已被删除');
+      if (found.error === 'NOT_MANUAL') {
+        return reject(reply, 'INVALID_INPUT', '只有手写文档可以发布正文');
+      }
+      const { document } = found;
+      const version = await repo.knowledge.getVersion(app.db, request.body.versionId);
+      if (!version || version.documentId !== document.id) {
+        return reject(reply, 'NOT_FOUND', '版本不存在或不属于该文档');
+      }
+      try {
+        const row = await repo.knowledge.activateDocumentVersion(app.db, {
+          documentId: document.id,
+          versionId: version.id,
+          expectedVersionId: request.body.expectedVersionId,
+        });
+        // 发布是显式启用：人工停用只阻止默认流程，不阻止用户主动发布。
+        const published =
+          row.status === 'ready' && row.disabledReason === null
+            ? row
+            : await repo.knowledge.updateDocument(app.db, row.id, {
+                status: 'ready',
+                disabledReason: null,
+              });
+        return documentWire(published ?? row, await tagNames(published?.id ?? row.id));
+      } catch (err) {
+        if (isAppError(err)) return reject(reply, err.code, err.message);
+        throw err;
+      }
     },
   );
 

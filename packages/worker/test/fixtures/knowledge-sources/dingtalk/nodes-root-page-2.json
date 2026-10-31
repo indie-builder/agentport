@@ -1,0 +1,25 @@
+{
+  "nodes": [
+    {
+      "nodeId": "node-online",
+      "workspaceId": "ws1",
+      "name": "Intro",
+      "type": "FILE",
+      "category": "ALIDOC",
+      "extension": "adoc",
+      "url": "https://example.dingtalk.com/doc/1",
+      "modifiedTimestamp": 1700000000000
+    },
+    {
+      "nodeId": "node-upload",
+      "workspaceId": "ws1",
+      "name": "spec",
+      "type": "FILE",
+      "category": "DOCUMENT",
+      "extension": "docx",
+      "url": "https://example.dingtalk.com/file/2",
+      "modifiedTimestamp": 1700000001000
+    }
+  ],
+  "nextToken": ""
+}

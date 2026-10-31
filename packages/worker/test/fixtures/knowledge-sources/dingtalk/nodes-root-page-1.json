@@ -1,0 +1,12 @@
+{
+  "nodes": [
+    {
+      "nodeId": "folder-1",
+      "workspaceId": "ws1",
+      "name": "Folder A",
+      "type": "FOLDER",
+      "hasChildren": true
+    }
+  ],
+  "nextToken": "page-2"
+}

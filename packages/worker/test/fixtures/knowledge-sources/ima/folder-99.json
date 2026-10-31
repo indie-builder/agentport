@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "knowledge_list": [
+      {
+        "media_id": "m-note",
+        "title": "Note",
+        "parent_folder_id": "folder_99",
+        "media_type": 11
+      }
+    ],
+    "is_end": true,
+    "next_cursor": ""
+  }
+}

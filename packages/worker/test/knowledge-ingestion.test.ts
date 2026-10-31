@@ -61,6 +61,7 @@ let fixtureUrl = '';
 let embeddingBehaviour: { status: number; body?: unknown; delayMs?: number } = { status: 200 };
 let embeddingCalls = 0;
 let cohereCalls: Array<Record<string, unknown>> = [];
+let asrCalls: Array<{ raw: string; headers: Record<string, string | string[] | undefined> }> = [];
 
 beforeAll(async () => {
   if (isolated) {
@@ -77,6 +78,20 @@ beforeAll(async () => {
         res.writeHead(status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(body));
       };
+      if (req.url === '/transcribe') {
+        asrCalls.push({ raw, headers: req.headers });
+        respond(200, {
+          text: '上游全文不应重复',
+          duration: 6.5,
+          segments: [
+            { start: 0, end: 0.5, text: '会议开始。' },
+            { start: 0.5, end: 1.25, text: '重复句' },
+            { start: 1.25, end: 1.5, text: '   ' },
+            { start: 1.5, end: 3.5, text: '重复句 😀' },
+          ],
+        });
+        return;
+      }
       if (req.url === '/embeddings') {
         embeddingCalls += 1;
         const parsed = JSON.parse(raw) as { input: string[] };
@@ -143,12 +158,48 @@ beforeEach(async () => {
   embeddingBehaviour = { status: 200 };
   embeddingCalls = 0;
   cohereCalls = [];
+  asrCalls = [];
 });
 afterEach(async () => {
   await rm(knowledgeDir, { recursive: true, force: true });
 });
 
 const suffix = (): string => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** 44 字节 WAV 头足以通过入口容器识别；转录由本地假 HTTP 端点返回固定时码。 */
+function wavBytes(): Buffer {
+  const buffer = Buffer.alloc(44);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(8000, 24);
+  buffer.writeUInt32LE(16000, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(0, 40);
+  return buffer;
+}
+
+async function makeAsrProfile(): Promise<{ id: string; name: string }> {
+  const id = newId('knowledgeModelProfile');
+  const name = `asr-${suffix()}`;
+  await db.insert(schema.knowledgeModelProfiles).values({
+    id,
+    kind: 'asr',
+    name,
+    endpointUrl: `${fixtureUrl}/transcribe`,
+    model: 'whisper-test',
+    dimensions: null,
+    secretsEncrypted: 'encrypted-placeholder',
+    enabled: true,
+  });
+  return { id, name };
+}
 
 interface Fixture {
   baseId: string;
@@ -228,24 +279,26 @@ async function makeBase(
 
 async function makeUploadedDocument(
   fixtureBase: Fixture,
-  body = '# 标题\n\n第一段内容。\n\n第二段内容。',
+  body: string | Buffer = '# 标题\n\n第一段内容。\n\n第二段内容。',
+  payload: Record<string, unknown> = {},
+  meta: { title?: string; mimeType?: string; originalFilename?: string } = {},
 ): Promise<{ documentId: string; jobId: string }> {
-  const data = Buffer.from(body, 'utf8');
+  const data = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8');
   const sha = createHash('sha256').update(data).digest('hex');
   const documentId = newId('knowledgeDocument');
   await db.insert(schema.knowledgeDocuments).values({
     id: documentId,
     baseId: fixtureBase.baseId,
-    title: 'doc.md',
+    title: meta.title ?? 'doc.md',
     sourceType: 'upload',
     sourceId: null,
     sourceUrl: null,
     sourcePath: null,
-    mimeType: 'text/markdown',
+    mimeType: meta.mimeType ?? 'text/markdown',
     sizeBytes: data.length,
     status: 'pending',
     contentHash: sha,
-    metadata: { originalFilename: 'doc.md' },
+    metadata: { originalFilename: meta.originalFilename ?? 'doc.md' },
   });
   const { mkdir, writeFile } = await import('node:fs/promises');
   await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
@@ -255,7 +308,7 @@ async function makeUploadedDocument(
     baseId: fixtureBase.baseId,
     documentId,
     sourceId: null,
-    payload: { type: 'ingest', documentId },
+    payload: { type: 'ingest', documentId, ...payload },
   });
   await repo.knowledge.claimJob(db, job.id);
   return { documentId, jobId: job.id };
@@ -446,6 +499,51 @@ describe.skipIf(!ready)('runIngest', () => {
     const after = await repo.knowledge.getDocument(db, first.documentId);
     expect(after?.currentVersionId).toBe(oldVersionId);
     expect(after?.status).toBe('ready');
+  });
+
+  it('fails a draft ingest when abort lands during chunk insertion and links its job', async () => {
+    const fixtureBase = await makeBase();
+    const { documentId, jobId } = await makeUploadedDocument(fixtureBase, '# 标题\n\n草稿正文。', {
+      publish: 'draft',
+    });
+    const job = await repo.knowledge.getJob(db, jobId);
+    if (!job) throw new Error('job missing');
+
+    let inserted = false;
+    const controller = new AbortController();
+    const depsForCall: KnowledgeDeps = {
+      ...fixtureBase.deps,
+      db: new Proxy(fixtureBase.deps.db, {
+        get(target, prop) {
+          if (prop === 'insert') {
+            return (table: Parameters<typeof target.insert>[0]) => {
+              if (table === schema.knowledgeChunks) {
+                inserted = true;
+                controller.abort();
+              }
+              return target.insert(table);
+            };
+          }
+          return Reflect.get(target, prop, target);
+        },
+      }),
+    };
+
+    await expect(runIngest(depsForCall, job, controller.signal)).rejects.toBeInstanceOf(
+      KnowledgeCancelled,
+    );
+    expect(inserted).toBe(true);
+    // 草稿不能因为落块完成就正常返回让队列标记 succeeded。
+    const document = await repo.knowledge.getDocument(db, documentId);
+    expect(document?.currentVersionId).toBeNull();
+    expect(document?.status).toBe('failed');
+    const versions = await repo.knowledge.listVersions(db, documentId);
+    expect(versions.items).toHaveLength(1);
+    // 发布侧据此只接受成功任务；worker 只负责把草稿与本次 job 绑定。
+    expect(versions.items[0]?.metadata).toMatchObject({
+      publication: 'draft',
+      indexingJobId: jobId,
+    });
   });
 
   it('does not publish when cancellation lands while the publish guard reads job/base', async () => {
@@ -1076,6 +1174,253 @@ describe.skipIf(!ready)('runReindex', () => {
   });
 });
 
+describe.skipIf(!ready)('knowledge audio ingestion', () => {
+  const audioMeta = {
+    title: 'talk.wav',
+    mimeType: 'audio/wav',
+    originalFilename: 'talk.wav',
+  };
+
+  async function bindAsr(fixtureBase: Fixture): Promise<{ id: string; name: string }> {
+    const profile = await makeAsrProfile();
+    await repo.knowledge.updateBase(db, fixtureBase.baseId, { asrProfileId: profile.id });
+    return profile;
+  }
+
+  function useAudioAdapter(fixtureBase: Fixture): void {
+    const adapter = createParsingAdapter();
+    fixtureBase.deps.parse = adapter.parse;
+    fixtureBase.deps.chunkMarkdown = adapter.chunkMarkdown;
+  }
+
+  function makeAudioDocument(fixtureBase: Fixture) {
+    return makeUploadedDocument(fixtureBase, wavBytes(), {}, audioMeta);
+  }
+
+  async function ingest(fixtureBase: Fixture, jobId: string): Promise<void> {
+    const job = await repo.knowledge.getJob(db, jobId);
+    if (!job) throw new Error('job missing');
+    await runIngest(fixtureBase.deps, job, new AbortController().signal);
+  }
+
+  it('injects the bound ASR profile and persists transcript facts into the version', async () => {
+    const fixtureBase = await makeBase();
+    const profile = await bindAsr(fixtureBase);
+    useAudioAdapter(fixtureBase);
+    const inner = fixtureBase.deps.parse;
+    let parseInput: Parameters<KnowledgeDeps['parse']>[0] | undefined;
+    fixtureBase.deps.parse = (input) => {
+      parseInput = input;
+      return inner(input);
+    };
+    const { documentId, jobId } = await makeUploadedDocument(
+      fixtureBase,
+      wavBytes(),
+      {
+        // 外来 versionMetadata 不能覆盖 worker 生成的转录事实。
+        versionMetadata: {
+          audio: {
+            protocol: 'openai_transcriptions',
+            profileName: '伪造来源',
+            model: 'fake',
+            durationMs: 0,
+            segments: [],
+          },
+        },
+      },
+      audioMeta,
+    );
+
+    await ingest(fixtureBase, jobId);
+
+    expect(parseInput?.asr).toEqual({
+      endpointUrl: `${fixtureUrl}/transcribe`,
+      model: 'whisper-test',
+      apiKey: 'test-key',
+    });
+    expect(parseInput?.asrProfileName).toBe(profile.name);
+    const document = await repo.knowledge.getDocument(db, documentId);
+    expect(document?.status).toBe('ready');
+    const versionId = document?.currentVersionId ?? '';
+    const version = await repo.knowledge.getVersion(db, versionId);
+    expect(version?.metadata.audio).toEqual({
+      protocol: 'openai_transcriptions',
+      profileName: profile.name,
+      model: 'whisper-test',
+      durationMs: 6500,
+      segments: [
+        { startOffset: 0, endOffset: 5, timeFromMs: 0, timeToMs: 500 },
+        { startOffset: 7, endOffset: 10, timeFromMs: 500, timeToMs: 1250 },
+        { startOffset: 12, endOffset: 18, timeFromMs: 1500, timeToMs: 3500 },
+      ],
+    });
+
+    const chunks = await repo.knowledge.listChunks(db, versionId);
+    expect(chunks.items).toHaveLength(1);
+    // 三个段合并成一个 chunk：时间取全段 min/max，合并块不冒充单段 ref。
+    expect(chunks.items[0]?.locator).toEqual({
+      startOffset: 0,
+      endOffset: 18,
+      timeFromMs: 0,
+      timeToMs: 3500,
+    });
+    expect(chunks.items[0]?.embedding?.length).toBe(1024);
+    expect(embeddingCalls).toBe(1);
+    expect(asrCalls).toHaveLength(1);
+    expect(asrCalls[0]?.headers.authorization).toBe('Bearer test-key');
+    expect(asrCalls[0]?.raw).toContain('name="model"\r\n\r\nwhisper-test');
+    expect(asrCalls[0]?.raw).toContain('name="response_format"\r\n\r\nverbose_json');
+  });
+
+  it('fails an audio ingest clearly when the base has no usable ASR profile', async () => {
+    const fixtureBase = await makeBase();
+    useAudioAdapter(fixtureBase);
+    const { documentId, jobId } = await makeAudioDocument(fixtureBase);
+
+    await expect(ingest(fixtureBase, jobId)).rejects.toMatchObject({
+      name: 'KnowledgeParseError',
+      code: 'invalid_input',
+      message: '知识库没有可用的音频转录模型',
+    });
+    const document = await repo.knowledge.getDocument(db, documentId);
+    expect(document?.status).toBe('failed');
+    expect(document?.currentVersionId).toBeNull();
+    expect((await repo.knowledge.listVersions(db, documentId)).items).toHaveLength(0);
+    expect(embeddingCalls).toBe(0);
+    expect(asrCalls).toHaveLength(0);
+  });
+
+  it('keeps ordinary documents independent of ASR availability', async () => {
+    const fixtureBase = await makeBase();
+    const profile = await bindAsr(fixtureBase);
+    // 绑定存在但 profile 被停用：普通文档照常摄取，不读取/依赖 ASR。
+    await db
+      .update(schema.knowledgeModelProfiles)
+      .set({ enabled: false })
+      .where(eq(schema.knowledgeModelProfiles.id, profile.id));
+    const inner = fixtureBase.deps.parse;
+    let parseInput: Parameters<KnowledgeDeps['parse']>[0] | undefined;
+    fixtureBase.deps.parse = (input) => {
+      parseInput = input;
+      return inner(input);
+    };
+    const { documentId, jobId } = await makeUploadedDocument(fixtureBase);
+
+    await ingest(fixtureBase, jobId);
+
+    expect(parseInput?.asr).toBeUndefined();
+    expect(parseInput?.asrProfileName).toBeUndefined();
+    const document = await repo.knowledge.getDocument(db, documentId);
+    expect(document?.status).toBe('ready');
+    const version = await repo.knowledge.getVersion(db, document?.currentVersionId ?? '');
+    expect(version?.metadata).not.toHaveProperty('audio');
+  });
+
+  it('does not publish when the ASR binding changes while transcription runs', async () => {
+    const fixtureBase = await makeBase();
+    await bindAsr(fixtureBase);
+    useAudioAdapter(fixtureBase);
+    const { documentId, jobId } = await makeAudioDocument(fixtureBase);
+    await ingest(fixtureBase, jobId);
+    const before = await repo.knowledge.getDocument(db, documentId);
+    const versionCount = (await repo.knowledge.listVersions(db, documentId)).items.length;
+
+    // 转录返回后、发布前管理员切换了绑定：旧任务结果不能上线。
+    const replacement = await makeAsrProfile();
+    const inner = fixtureBase.deps.parse;
+    fixtureBase.deps.parse = async (input) => {
+      const parsed = await inner(input);
+      await repo.knowledge.updateBase(db, fixtureBase.baseId, {
+        asrProfileId: replacement.id,
+      });
+      return parsed;
+    };
+    const reingest = await repo.knowledge.createJob(db, {
+      type: 'ingest',
+      baseId: fixtureBase.baseId,
+      documentId,
+      sourceId: null,
+      payload: { type: 'ingest', documentId },
+    });
+    await repo.knowledge.claimJob(db, reingest.id);
+
+    await expect(ingest(fixtureBase, reingest.id)).rejects.toThrow(/音频转录配置已变化/);
+    const after = await repo.knowledge.getDocument(db, documentId);
+    expect(after?.currentVersionId).toBe(before?.currentVersionId);
+    expect((await repo.knowledge.listVersions(db, documentId)).items).toHaveLength(versionCount);
+  });
+
+  it('never re-transcribes on chunksOnly and only backfills embeddings', async () => {
+    const fixtureBase = await makeBase();
+    await bindAsr(fixtureBase);
+    useAudioAdapter(fixtureBase);
+    const { documentId, jobId } = await makeAudioDocument(fixtureBase);
+    await ingest(fixtureBase, jobId);
+    const document = await repo.knowledge.getDocument(db, documentId);
+    const versionId = document?.currentVersionId ?? '';
+    for (const chunk of (await repo.knowledge.listChunks(db, versionId)).items) {
+      await repo.knowledge.patchChunk(db, chunk.id, { embedding: null });
+    }
+    const asrBefore = asrCalls.length;
+    let parsed = false;
+    fixtureBase.deps.parse = async () => {
+      parsed = true;
+      throw new Error('chunksOnly must not parse audio again');
+    };
+
+    const job = await repo.knowledge.createJob(db, {
+      type: 'reindex',
+      baseId: fixtureBase.baseId,
+      documentId: null,
+      sourceId: null,
+      payload: { type: 'reindex', baseId: fixtureBase.baseId, chunksOnly: true },
+    });
+    await repo.knowledge.claimJob(db, job.id);
+    const claimed = await repo.knowledge.getJob(db, job.id);
+    if (!claimed) throw new Error('job missing');
+    await runReindex(fixtureBase.deps, claimed, new AbortController().signal);
+
+    expect(parsed).toBe(false);
+    expect(asrCalls).toHaveLength(asrBefore);
+    const chunks = await repo.knowledge.listChunks(db, versionId);
+    expect(chunks.items.every((chunk) => chunk.embedding?.length === 1024)).toBe(true);
+  });
+
+  it('creates a new version on a full reprocess and keeps the old version and transcript facts', async () => {
+    const fixtureBase = await makeBase();
+    await bindAsr(fixtureBase);
+    useAudioAdapter(fixtureBase);
+    const { documentId, jobId } = await makeAudioDocument(fixtureBase);
+    await ingest(fixtureBase, jobId);
+    const before = await repo.knowledge.getDocument(db, documentId);
+    const asrBefore = asrCalls.length;
+
+    const job = await repo.knowledge.createJob(db, {
+      type: 'reindex',
+      baseId: fixtureBase.baseId,
+      documentId,
+      sourceId: null,
+      payload: { type: 'reindex', baseId: fixtureBase.baseId, documentIds: [documentId] },
+    });
+    await repo.knowledge.claimJob(db, job.id);
+    const claimed = await repo.knowledge.getJob(db, job.id);
+    if (!claimed) throw new Error('job missing');
+    await runReindex(fixtureBase.deps, claimed, new AbortController().signal);
+
+    const after = await repo.knowledge.getDocument(db, documentId);
+    expect(after?.currentVersionId).not.toBe(before?.currentVersionId);
+    expect(asrCalls).toHaveLength(asrBefore + 1);
+    const versions = await repo.knowledge.listVersions(db, documentId);
+    expect(versions.items.map((version) => version.id)).toContain(before?.currentVersionId);
+    const reprocessed = await repo.knowledge.getVersion(db, after?.currentVersionId ?? '');
+    expect(reprocessed?.metadata.audio).toMatchObject({
+      protocol: 'openai_transcriptions',
+      model: 'whisper-test',
+      durationMs: 6500,
+    });
+  });
+});
+
 /** 仓库列表接口单页上限 200；用例必须超过一页才能证明后端会翻页。 */
 const OVER_PAGE = 250;
 
@@ -1101,6 +1446,8 @@ async function seedDocuments(
   values: {
     sourceType?: DocumentSourceType;
     sourceId?: (index: number) => string | null;
+    /** 来源归属以该列（而不是 metadata）为准。 */
+    sourceConnectionId?: string | null;
     metadata?: Record<string, unknown> | ((index: number) => Record<string, unknown>);
     contentHash?: string;
     status?: DocumentStatus | ((index: number) => DocumentStatus);
@@ -1119,6 +1466,7 @@ async function seedDocuments(
       title: `doc-${index}.md`,
       sourceType: values.sourceType ?? ('upload' as const),
       sourceId: values.sourceId?.(index) ?? null,
+      sourceConnectionId: values.sourceConnectionId ?? null,
       mimeType: 'text/markdown',
       sizeBytes: 0,
       status: statusOf(index),
@@ -1335,6 +1683,7 @@ describe.skipIf(!ready)('runSync', () => {
     await repo.knowledge.updateDocument(db, documentId, {
       metadata: { knowledgeSourceId: sourceId, originalFilename: 'doc.md' },
       sourceId: 'feishu:gone',
+      sourceConnectionId: sourceId,
     });
     const syncJob = await repo.knowledge.getJob(db, syncJobId);
     if (!syncJob) throw new Error('job missing');
@@ -1378,6 +1727,7 @@ describe.skipIf(!ready)('runSync', () => {
       status: 'ready',
       sourceType: 'upload',
       sourceId: (index) => `gitlab:gone-${index}`,
+      sourceConnectionId: source.id,
       metadata: { knowledgeSourceId: source.id },
     });
     const run = await repo.knowledge.createSyncRun(db, source.id, {});
@@ -1441,6 +1791,7 @@ describe.skipIf(!ready)('runSync', () => {
       status: 'ready',
       sourceType: 'gitlab',
       sourceId: (index) => (index < 2 ? `keep-${index}` : `gone-${index}`),
+      sourceConnectionId: sourceId,
       metadata: (index) => ({ knowledgeSourceId: sourceId, originalFilename: `doc-${index}.md` }),
       createdAt: (index) => new Date(createdAtBase - index * 1000),
     });
@@ -1449,6 +1800,7 @@ describe.skipIf(!ready)('runSync', () => {
       status: 'ready',
       sourceType: 'gitlab',
       sourceId: (index) => `other-${index}`,
+      sourceConnectionId: otherSource,
       metadata: { knowledgeSourceId: otherSource },
     });
     const [manualId] = await seedDocuments(fixtureBase, 1, {
@@ -1480,6 +1832,7 @@ describe.skipIf(!ready)('runSync', () => {
       status: (index) => nonReadyStatuses[index] ?? 'pending',
       sourceType: 'gitlab',
       sourceId: (index) => `non-ready-${index}`,
+      sourceConnectionId: sourceId,
       metadata: { knowledgeSourceId: sourceId },
     });
 
@@ -1501,6 +1854,11 @@ describe.skipIf(!ready)('runSync', () => {
       documentId: wikiDocumentId,
       stale: false,
     });
+    // 只有已发布页会转 stale；这里先进入发布态再验证来源撤权联动。
+    await db
+      .update(schema.knowledgeWikiPages)
+      .set({ status: 'published' })
+      .where(eq(schema.knowledgeWikiPages.id, wikiPage.id));
 
     const spy = vi.spyOn(pool, 'query');
     let documentCalls: Array<{
@@ -1530,8 +1888,7 @@ describe.skipIf(!ready)('runSync', () => {
     // 而不是整库 244 个 ready 文档。旧实现这里会是 201 + 43。
     expect(documentCalls).toHaveLength(2);
     for (const call of documentCalls) {
-      expect(call.text).toContain('metadata');
-      expect(call.text).toContain("->>'knowledgeSourceId'");
+      expect(call.text).toContain('source_connection_id');
       expect(call.values).toContain(sourceId);
     }
     const fetchedRows = await Promise.all(
@@ -1843,6 +2200,11 @@ describe.skipIf(!ready)('runSync', () => {
       documentId: document.id,
       stale: false,
     });
+    // saveWikiVersion 只追加草稿；撤权联动只对已发布页生效。
+    await db
+      .update(schema.knowledgeWikiPages)
+      .set({ status: 'published' })
+      .where(eq(schema.knowledgeWikiPages.id, page.id));
 
     // 临时故障（超时/限流）不撤权，来源继续 active、文档继续可读。
     failure = new Error('network timeout');

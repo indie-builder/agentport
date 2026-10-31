@@ -1,0 +1,19 @@
+{
+  "object": "list",
+  "results": [
+    {
+      "object": "page",
+      "id": "55555555-5555-4555-8555-555555555555",
+      "url": "https://www.notion.so/Record-B-55555555555555558555555555555555",
+      "last_edited_time": "2026-10-04T12:00:00.000Z",
+      "archived": false,
+      "in_trash": false,
+      "properties": {
+        "Name": { "id": "title", "type": "title", "title": [{ "plain_text": "Record B" }] }
+      }
+    }
+  ],
+  "has_more": false,
+  "next_cursor": null,
+  "request_status": { "type": "complete" }
+}

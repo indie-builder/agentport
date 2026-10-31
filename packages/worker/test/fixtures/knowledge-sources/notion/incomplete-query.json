@@ -1,0 +1,22 @@
+{
+  "object": "list",
+  "results": [
+    {
+      "object": "page",
+      "id": "44444444-4444-4444-8444-444444444444",
+      "url": "https://www.notion.so/Record-A-44444444444444448444444444444444",
+      "last_edited_time": "2026-10-03T12:00:00.000Z",
+      "archived": false,
+      "in_trash": false,
+      "properties": {
+        "Name": { "id": "title", "type": "title", "title": [{ "plain_text": "Record A" }] }
+      }
+    }
+  ],
+  "has_more": false,
+  "next_cursor": null,
+  "request_status": {
+    "type": "incomplete",
+    "incomplete_reason": "query_result_limit_reached"
+  }
+}
