@@ -11,6 +11,7 @@ import {
   loginCookie,
   startApp,
   unique,
+  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 // 直接落库构造已收口的跑批：不入队，就不需要 worker 空闲。
@@ -71,6 +72,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
       name,
       prompt,
       expectation,
+      createdBy: ADMIN_BUSINESS_ID,
     });
     return { id: row.id, name, prompt, expectation };
   }
@@ -85,6 +87,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
       id: newId('evalRun'),
       agentId,
       total: cases.length,
+      createdBy: ADMIN_BUSINESS_ID,
       caseSnapshot: cases,
     });
     const status = options.status ?? 'succeeded';

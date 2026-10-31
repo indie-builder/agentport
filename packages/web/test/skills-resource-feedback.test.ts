@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +7,7 @@ import { ResourcePage } from '../src/components/resource-page.js';
 import { ErrorState, LoadingState } from '../src/components/states.js';
 import { Button } from '../src/components/ui/button.js';
 import { SkillsPage } from '../src/pages/skills.js';
+import { allAccessMe } from './me-fixture.js';
 
 /** 技能列表的空态、市场就绪门槛与搜索防抖反馈，按页面真实渲染的组件树验证。 */
 
@@ -34,6 +36,10 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('../src/lib/queries.js', () => {
   const mutation = () => ({ isPending: false, mutate: vi.fn() });
   return {
+    meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
     useSkills: () => state.skills,
     useMarketSkills: () => state.market,
     useInstallMarketSkill: () => state.install,
@@ -58,6 +64,11 @@ function elements(node: ReactNode): Element[] {
   ];
 }
 
+const client = new QueryClient({
+  defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } },
+});
+client.setQueryData(['me'], allAccessMe);
+
 async function inspect(render: () => ReactNode, visit: (tree: Element[]) => void) {
   const container = document.createElement('div');
   const root = createRoot(container);
@@ -65,7 +76,9 @@ async function inspect(render: () => ReactNode, visit: (tree: Element[]) => void
     visit(elements(render()));
     return null;
   }
-  await act(async () => root.render(createElement(Probe)));
+  await act(async () =>
+    root.render(createElement(QueryClientProvider, { client }, createElement(Probe))),
+  );
   await act(async () => root.unmount());
   container.remove();
 }

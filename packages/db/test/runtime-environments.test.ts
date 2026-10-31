@@ -53,6 +53,8 @@ describe.skipIf(!ready)('runtime environment repo', () => {
       maxTurns: 20,
       maxBudgetUsd: '2',
       timeoutMs: 600_000,
+      createdBy: 'test-owner',
+      ownerBusinessId: 'test-owner',
       runtimeEnvironmentId,
     };
   }
@@ -335,7 +337,12 @@ describe.skipIf(!ready)('runtime environment repo', () => {
     const agent = await createAgent(db, agentWrite(slug, environment.id), [], [], [], []);
     agentIds.push(agent.id);
 
-    const clone = await duplicateAgent(db, agent.id, { slug: `${slug}-copy`, name: 'copy' });
+    const clone = await duplicateAgent(
+      db,
+      agent.id,
+      { slug: `${slug}-copy`, name: 'copy' },
+      'test-owner',
+    );
     if (!clone) throw new Error('duplicate returned null');
     agentIds.push(clone.id);
     expect(clone.runtimeEnvironmentId).toBe(environment.id);

@@ -34,8 +34,15 @@ describe.skipIf(!ready)('branch copies OpenUI snapshots', () => {
       slug: `ui-branch-${agentId.slice(4)}`,
       name: 'ui-branch',
       model: 'test',
+      createdBy: 'openui-owner',
+      ownerBusinessId: 'openui-owner',
     });
-    await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'source' });
+    await repo.chat.createConversation(db, {
+      id: conversationId,
+      agentId,
+      title: 'source',
+      subject: { kind: 'user', businessId: 'openui-owner' },
+    });
     await db
       .update(schema.conversations)
       .set({ sdkSessionId: '66666666-7777-4888-8999-000000000000' })
@@ -59,6 +66,7 @@ describe.skipIf(!ready)('branch copies OpenUI snapshots', () => {
       id: branchId,
       conversationId,
       fromMessageId: sourceId,
+      subject: { kind: 'user', businessId: 'openui-owner' },
     });
     expect(branched?.copied).toBe(1);
 

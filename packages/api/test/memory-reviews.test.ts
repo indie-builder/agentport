@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ADMIN_USER_ID, repo } from '@agentport/db';
+import { repo } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -25,7 +25,7 @@ import {
   loginCookie,
   testConfig,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID,} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -121,9 +121,9 @@ describe.skipIf(!ready)('memory reviews', () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await app.pool.query('delete from memory_changes where user_id = $1', [ADMIN_USER_ID]);
-    await app.pool.query('delete from user_preferences where user_id = $1', [ADMIN_USER_ID]);
-    await rm(personalMemoryDir(root), { recursive: true, force: true });
+    await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await app.pool.query('delete from user_preferences where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await rm(personalMemoryDir(root, ADMIN_BUSINESS_ID), { recursive: true, force: true });
     jobs.length = 0;
     fsFaults.failRename = false;
     fsFaults.failRenameAt = 0;
@@ -135,9 +135,9 @@ describe.skipIf(!ready)('memory reviews', () => {
   afterAll(async () => {
     try {
       addSpy.mockRestore();
-      await app.pool.query('delete from memory_reviews where user_id = $1', [ADMIN_USER_ID]);
-      await app.pool.query('delete from memory_changes where user_id = $1', [ADMIN_USER_ID]);
-      await app.pool.query('delete from user_preferences where user_id = $1', [ADMIN_USER_ID]);
+      await app.pool.query('delete from memory_reviews where business_id = $1', [ADMIN_BUSINESS_ID]);
+      await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
+      await app.pool.query('delete from user_preferences where business_id = $1', [ADMIN_BUSINESS_ID]);
       await cleanup(app, { agentSlugs });
     } finally {
       await releaseLock?.();
@@ -162,7 +162,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       id: unique('review-conv'),
       agentId,
       title,
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     return conversation.id;
   }
 
@@ -642,7 +643,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       after: { content: '回答先给结论。' },
     });
     expect(personalChange.id).toMatch(/^mch_/);
-    expect(await readFile(personalMemoryPath(root), 'utf8')).toBe('回答先给结论。');
+    expect(await readFile(personalMemoryPath(root, ADMIN_BUSINESS_ID), 'utf8')).toBe('回答先给结论。');
     const personal = await inject(app, { method: 'GET', url: '/api/me/memory', headers: auth() });
     expect(personal.json()).toMatchObject({ content: '回答先给结论。', revision: 1 });
     const personalDetail = await getReview(personalRunId);
@@ -667,11 +668,11 @@ describe.skipIf(!ready)('memory reviews', () => {
       messageId: memoryMessage,
       quote: '记住这个约定',
     });
-    const stored = await app.pool.query<{ user_id: string; run_id: string }>(
-      'select user_id, run_id from memory_reviews where run_id = $1',
+    const stored = await app.pool.query<{ business_id: string; run_id: string }>(
+      'select business_id, run_id from memory_reviews where run_id = $1',
       [memoryRunId],
     );
-    expect(stored.rows[0]).toEqual({ user_id: ADMIN_USER_ID, run_id: memoryRunId });
+    expect(stored.rows[0]).toEqual({ business_id: ADMIN_BUSINESS_ID, run_id: memoryRunId });
     const memoryApply = await applyReview(memoryRunId);
     expect(memoryApply.statusCode, memoryApply.body).toBe(200);
     expect(memoryApply.json()).toMatchObject({
@@ -869,7 +870,7 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     const activeRunId = unique('active-run');
     await app.pool.query(
-      "insert into agent_runs (id, conversation_id, agent_id, status) values ($1, $2, $3, 'queued')",
+      "insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by) values ($1, $2, $3, 'queued', 'user', 'bootstrap-admin')",
       [activeRunId, conversationId, target.id],
     );
     expectProblem(await applyReview(runId), 'CONFLICT');
@@ -1048,7 +1049,8 @@ describe.skipIf(!ready)('memory reviews', () => {
     const admission = repo.chat.admitChatRun(app.db, {
       agentId: target.id,
       message: 'lock probe',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     expect(
       await Promise.race([admission.then(() => 'done'), sleep(150).then(() => 'waiting')]),
     ).toBe('waiting');
@@ -1402,7 +1404,7 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     // 同目标的回滚同样被未完成日志挡住。
     const change = await repo.memoryChanges.insert(app.db, {
-      userId: ADMIN_USER_ID,
+      businessId: ADMIN_BUSINESS_ID,
       agentId: agent.id,
       target: { kind: 'agent_memory', agentId: agent.id },
       before: { content: null, globs: null },
@@ -1493,7 +1495,8 @@ describe.skipIf(!ready)('memory reviews', () => {
       const admission = repo.chat.admitChatRun(app.db, {
         agentId: agent.id,
         message: 'lock probe',
-      });
+        subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
       expect(
         await Promise.race([admission.then(() => 'done'), sleep(150).then(() => 'waiting')]),
       ).toBe('waiting');

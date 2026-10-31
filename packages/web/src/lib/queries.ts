@@ -1,6 +1,7 @@
 import type {
   Agent,
   AgentInput,
+  AgentOptions,
   AgentPatch,
   ApiTool,
   ApiToolInput,
@@ -51,7 +52,13 @@ import {
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
+  type Account,
+  type AccountPage,
+  type AgentAccess,
   type AgentFiles,
+  type AgentMember,
+  type AgentMemberList,
+  type AgentSummary,
   type AgentVersionDetail,
   type AgentVersionSummary,
   ApiError,
@@ -61,6 +68,7 @@ import {
   type Conversation,
   type ConversationDetail,
   type ConversationSearchOptions,
+  type CreateAccountInput,
   type EvalCase,
   type EvalCaseInput,
   type EvalComparison,
@@ -69,17 +77,22 @@ import {
   type HealthMetrics,
   type HealthProbe,
   type HealthReady,
+  type IdentityPage,
   type KnowledgeBaseInput,
   type KnowledgeSearchResponse,
-  type Me,
   type NativePlugins,
   type OutputShareList,
   type Overview,
   type OverviewTimeseriesPoint,
+  type PermissionCatalog,
+  type Role,
+  type RoleMatrix,
+  type RoleMatrixInput,
   type RunDetail,
   type RunList,
   type RunQuery,
 } from './api.js';
+import type { AuthMe } from '@agentport/shared';
 import { toastError, toastSuccess } from './toast.js';
 import { useDebouncedValue } from './use-debounced-value.js';
 
@@ -89,11 +102,16 @@ export const queryClient = new QueryClient({
   },
 });
 
-export const meQuery = queryOptions<Me>({
+export const meQuery = queryOptions<AuthMe>({
   queryKey: ['me'],
   queryFn: api.me,
   staleTime: 30_000,
 });
+
+/** 登录、登出、账户切换后必须清空所有用户私有数据，不能复用前一个人的列表与正文。 */
+export function clearSessionQueries(client = queryClient): void {
+  client.clear();
+}
 
 export const serversQuery = queryOptions<Server[]>({
   queryKey: ['servers'],
@@ -118,10 +136,65 @@ export const connectorCatalogQuery = queryOptions<ConnectorCatalogItem[]>({
   queryFn: api.connectorCatalog,
   staleTime: 5 * 60_000,
 });
-export const agentsQuery = queryOptions<Agent[]>({
+export const agentsQuery = queryOptions<AgentSummary[]>({
   queryKey: ['agents'],
   queryFn: api.agents,
 });
+
+export const agentDetailQuery = (id: string, enabled = true) =>
+  queryOptions<Agent>({
+    queryKey: ['agent-detail', id],
+    queryFn: ({ signal }) => api.agent(id, signal),
+    enabled,
+    staleTime: 0,
+  });
+
+export const agentAccessQuery = (id: string | null) =>
+  queryOptions<AgentAccess>({
+    queryKey: ['agent-access', id],
+    queryFn: () => api.agentAccess(id ?? ''),
+    enabled: id !== null,
+    staleTime: 0,
+  });
+
+export const agentMembersQuery = (id: string | null) =>
+  queryOptions<AgentMemberList>({
+    queryKey: ['agent-members', id],
+    queryFn: () => api.agentMembers(id ?? ''),
+    enabled: id !== null,
+    staleTime: 0,
+  });
+
+export const accountQuery = (query: { q: string; limit: number; offset: number }) =>
+  queryOptions<AccountPage>({
+    queryKey: ['accounts', query],
+    queryFn: ({ signal }) => api.accounts(query, signal),
+    staleTime: 0,
+  });
+
+export const permissionCatalogQuery = queryOptions<PermissionCatalog>({
+  queryKey: ['permission-catalog'],
+  queryFn: ({ signal }) => api.permissions(signal),
+  staleTime: 5 * 60_000,
+});
+
+export const roleMatrixQuery = queryOptions<RoleMatrix>({
+  queryKey: ['role-matrix'],
+  queryFn: ({ signal }) => api.roles(signal),
+  staleTime: 0,
+});
+
+export const identitiesQuery = (
+  agentId: string | null,
+  query: { q?: string; limit?: number; offset?: number } = {},
+) =>
+  queryOptions<IdentityPage>({
+    queryKey: ['identities', agentId, query],
+    queryFn: ({ signal }) =>
+      api.identities({ ...query, agentId: agentId ?? '' }, signal),
+    enabled: agentId !== null,
+    staleTime: 10_000,
+  });
 
 export const skillsQuery = queryOptions<SkillWithAgentCount[]>({
   queryKey: ['skills'],
@@ -315,12 +388,23 @@ export function useCancelMemoryReview() {
   });
 }
 
-export function useServers() {
-  return useQuery(serversQuery);
+export const agentOptionsQuery = queryOptions<AgentOptions>({
+  queryKey: ['agent-options'],
+  queryFn: api.agentOptions,
+  staleTime: 60_000,
+});
+
+/** 绑定选择器摘要；只有具备 agents.bindings.manage 的调用方才发请求。 */
+export function useAgentOptions(enabled = true) {
+  return useQuery({ ...agentOptionsQuery, enabled });
 }
 
-export function usePlugins() {
-  return useQuery(pluginsQuery);
+export function useServers(enabled = true) {
+  return useQuery({ ...serversQuery, enabled });
+}
+
+export function usePlugins(enabled = true) {
+  return useQuery({ ...pluginsQuery, enabled });
 }
 
 export function usePlugin(id: string) {
@@ -336,11 +420,163 @@ export function useAgents() {
   return useQuery(agentsQuery);
 }
 
-/** 单个专家从列表缓存里取；配置页用它，slug 不存在时返回 null。 */
-export function useAgent(id: string) {
+/** 列表摘要：只用于选择器和卡片，不包含配置正文。 */
+export function useAgentSummary(id: string | null) {
   return useQuery({
     ...agentsQuery,
-    select: (agents) => agents.find((agent) => agent.id === id) ?? null,
+    select: (agents: AgentSummary[]) => agents.find((agent) => agent.id === id) ?? null,
+  });
+}
+
+/** 完整配置：调用前必须已有 agents.config.read；禁用的查询不会发请求。 */
+export function useAgentDetail(id: string | null, enabled = true) {
+  return useQuery({ ...agentDetailQuery(id ?? '', enabled && id !== null) });
+}
+
+/** 兼容旧调用：仅按列表摘要取单个专家；配置正文用 useAgentDetail。 */
+export function useAgent(id: string) {
+  return useAgentSummary(id);
+}
+
+export function useAgentAccess(id: string | null) {
+  return useQuery(agentAccessQuery(id));
+}
+
+export function useAgentMembers(id: string | null) {
+  return useQuery(agentMembersQuery(id));
+}
+
+export function useIdentities(
+  agentId: string | null,
+  query: { q?: string; limit?: number; offset?: number } = {},
+) {
+  return useQuery(identitiesQuery(agentId, query));
+}
+
+export function useAccounts(query: { q: string; limit: number; offset: number }) {
+  return useQuery(accountQuery(query));
+}
+
+export function usePermissionCatalog() {
+  return useQuery(permissionCatalogQuery);
+}
+
+export function useRoleMatrix(enabled = true) {
+  return useQuery({ ...roleMatrixQuery, enabled });
+}
+
+export function useCreateAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateAccountInput) => api.createAccount(input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useUpdateAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { businessId: string; input: { username?: string; name?: string } }) =>
+      api.updateAccount(vars.businessId, vars.input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useSetAccountStatus() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { businessId: string; status: Account['status'] }) =>
+      api.setAccountStatus(vars.businessId, vars.status),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useResetAccountPassword() {
+  return useMutation({
+    mutationFn: (vars: { businessId: string; password: string }) =>
+      api.resetAccountPassword(vars.businessId, vars.password),
+  });
+}
+
+export function useDeleteAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (businessId: string) => api.deleteAccount(businessId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useSetAccountRoles() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { businessId: string; roleIds: string[] }) =>
+      api.setAccountRoles(vars.businessId, vars.roleIds),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+  });
+}
+
+export function useSaveRoleMatrix() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RoleMatrixInput) => api.saveRoles(input),
+    onSuccess: (matrix) => {
+      client.setQueryData(roleMatrixQuery.queryKey, matrix);
+      // 角色改变会影响当前用户的 grants 与所有按权限过滤的列表。
+      void client.invalidateQueries({ queryKey: ['me'] });
+      void client.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useSetAgentMember() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      agentId: string;
+      businessId: string;
+      canUse: boolean;
+      canMaintain: boolean;
+    }) =>
+      api.setAgentMember(vars.agentId, vars.businessId, {
+        canUse: vars.canUse,
+        canMaintain: vars.canMaintain,
+      }),
+    onSuccess: (_member, vars) => {
+      void client.invalidateQueries({ queryKey: ['agent-members', vars.agentId] });
+      void client.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useDeleteAgentMember() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; businessId: string }) =>
+      api.deleteAgentMember(vars.agentId, vars.businessId),
+    onSuccess: (_ok, vars) => {
+      void client.invalidateQueries({ queryKey: ['agent-members', vars.agentId] });
+      void client.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useTransferAgent() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; ownerBusinessId: string }) =>
+      api.transferAgent(vars.agentId, vars.ownerBusinessId),
+    onSuccess: (agent) => {
+      client.setQueryData(['agent-detail', agent.id], agent);
+      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['agent-access', agent.id] });
+    },
+  });
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (vars: { currentPassword: string; newPassword: string }) =>
+      api.changePassword(vars.currentPassword, vars.newPassword),
   });
 }
 
@@ -920,8 +1156,8 @@ export function runtimeEnvironmentVersionQuery(id: string, versionId: string) {
   });
 }
 
-export function useRuntimeEnvironments() {
-  return useQuery(runtimeEnvironmentsQuery);
+export function useRuntimeEnvironments(enabled = true) {
+  return useQuery({ ...runtimeEnvironmentsQuery, enabled });
 }
 
 export function useRuntimeEnvironment(id: string) {
@@ -1130,6 +1366,8 @@ export function useDeleteAgent() {
     // 删除成功才移除缓存：失败时要保留详情与草稿，等用户重试或取消。
     onSuccess: (_data, id) => {
       client.setQueryData<Agent[]>(['agents'], (old) => old?.filter((agent) => agent.id !== id));
+      client.removeQueries({ queryKey: ['agent-detail', id], exact: true });
+      client.removeQueries({ queryKey: ['agent-access', id], exact: true });
       void client.invalidateQueries({ queryKey: ['overview'] });
     },
     onSettled: () => {
@@ -1138,8 +1376,8 @@ export function useDeleteAgent() {
   });
 }
 
-export function useSkills() {
-  return useQuery(skillsQuery);
+export function useSkills(enabled = true) {
+  return useQuery({ ...skillsQuery, enabled });
 }
 
 export function useCreateSkill() {
@@ -1431,13 +1669,14 @@ export const knowledgeKeys = {
   profiles: ['knowledge', 'model-profiles'] as const,
 };
 
-export function useKnowledgeBases() {
+export function useKnowledgeBases(enabled = true) {
   return useInfiniteQuery({
     queryKey: knowledgeKeys.bases,
     queryFn: ({ pageParam, signal }) =>
       api.knowledgeBases(pageParam === null ? {} : { cursor: pageParam }, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled,
     // 调用方（专家绑定等）只关心已加载的库；分页方法仍保留在结果上。
     select: (data) => data.pages.flatMap((page) => page.items),
   });

@@ -1,7 +1,9 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { ResourcePage } from '../src/components/resource-page.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/components/search-input.js', () => ({ SearchInput: () => null }));
 
@@ -10,13 +12,22 @@ vi.mock('@tanstack/react-router', () => ({
     createElement('a', { href: to, ...props }, children),
 }));
 
+const client = new QueryClient({
+  defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } },
+});
+client.setQueryData(['me'], allAccessMe);
+
+function render(element: ReactNode) {
+  return renderToStaticMarkup(createElement(QueryClientProvider, { client }, element));
+}
+
 describe('resource result count', () => {
   it.each([
     ['pending', '加载中…'],
     ['error', '数量不可用'],
     ['success', '共 0 个技能'],
   ] as const)('distinguishes %s from an empty result', (status, expected) => {
-    const html = renderToStaticMarkup(
+    const html = render(
       createElement(ResourcePage, {
         section: 'skills',
         query: '',
@@ -37,7 +48,7 @@ describe('resource result count', () => {
     ['pending', '加载中…'],
     ['error', '数量不可用'],
   ] as const)('keeps the %s status when no count is provided', (status, expected) => {
-    const html = renderToStaticMarkup(
+    const html = render(
       createElement(ResourcePage, {
         section: 'skills',
         query: 'p',
@@ -53,7 +64,7 @@ describe('resource result count', () => {
   });
 
   it('omits the count span on success when count is not provided', () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       createElement(ResourcePage, {
         section: 'skills',
         query: 'p',

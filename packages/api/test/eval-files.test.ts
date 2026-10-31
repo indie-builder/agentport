@@ -1,9 +1,12 @@
+import { newId } from '@agentport/db';
 import type { Agent, EvalDataset, EvalDatasetImportResult } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
+  createTestAccount,
   expectProblem,
   infraReady,
   inject,
@@ -68,6 +71,14 @@ describe.skipIf(!ready)('eval dataset files', () => {
       payload: { agentId, dataset: file },
     });
 
+  const startRun = (agentId: string, withCookie = true) =>
+    inject(app, {
+      method: 'POST',
+      url: '/api/eval/runs',
+      headers: withCookie ? { cookie } : {},
+      payload: { agentId },
+    });
+
   const listCases = async (agentId: string): Promise<EvalCaseRow[]> =>
     (
       await inject(app, {
@@ -99,10 +110,10 @@ describe.skipIf(!ready)('eval dataset files', () => {
   /** 直接落库超过上限的用例，避免为造数据跑 500 次请求。 */
   const seedCases = (agentId: string, count: number, prompt?: string) =>
     app.pool.query(
-      `insert into eval_cases (id, agent_id, name, prompt, expectation)
-       select $1 || '-seed-' || g, $1, 'seeded-' || g, coalesce($3, 'p' || g), ''
+      `insert into eval_cases (id, agent_id, name, prompt, expectation, created_by)
+       select $1 || '-seed-' || g, $1, 'seeded-' || g, coalesce($3, 'p' || g), '', $4
        from generate_series(1, $2) g`,
-      [agentId, count, prompt ?? null],
+      [agentId, count, prompt ?? null, ADMIN_BUSINESS_ID],
     );
 
   it('requires auth on export and import', async () => {
@@ -117,9 +128,58 @@ describe.skipIf(!ready)('eval dataset files', () => {
     );
   });
 
-  it('returns AGENT_NOT_FOUND for an unknown agent on both endpoints', async () => {
-    expectProblem(await exportCases('agt_missing'), 'AGENT_NOT_FOUND');
-    expectProblem(await importCases('agt_missing', dataset([])), 'AGENT_NOT_FOUND');
+  it('returns NOT_FOUND for an unknown agent on every endpoint', async () => {
+    // 用合法 TypeID 形态的不存在 agent，确保走到对象授权而不是 ID 解析。
+    const missing = newId('agent');
+    expectProblem(await exportCases(missing), 'NOT_FOUND');
+    expectProblem(await importCases(missing, dataset([])), 'NOT_FOUND');
+    expectProblem(await startRun(missing), 'NOT_FOUND');
+    expectProblem(
+      await createCase(missing, { name: 'missing', prompt: 'p', expectation: '' }),
+      'NOT_FOUND',
+    );
+  });
+
+  it('does not distinguish a hidden agent from a missing one', async () => {
+    const hidden = await newAgent();
+    const missing = newId('agent');
+    // maintainer 有 eval 范围权限，但不是该智能体的负责人或成员。
+    const maintainer = await createTestAccount(app, cookie, { systemKeys: ['maintainer'] });
+
+    const requestsFor = (agentId: string) => [
+      inject(app, {
+        method: 'GET',
+        url: `/api/eval/cases/export?agentId=${encodeURIComponent(agentId)}`,
+        headers: { cookie: maintainer.cookie },
+      }),
+      inject(app, {
+        method: 'POST',
+        url: '/api/eval/cases',
+        headers: { cookie: maintainer.cookie },
+        payload: { agentId, name: 'hidden', prompt: 'p', expectation: '' },
+      }),
+      inject(app, {
+        method: 'POST',
+        url: '/api/eval/cases/import',
+        headers: { cookie: maintainer.cookie },
+        payload: { agentId, dataset: dataset([]) },
+      }),
+      inject(app, {
+        method: 'POST',
+        url: '/api/eval/runs',
+        headers: { cookie: maintainer.cookie },
+        payload: { agentId },
+      }),
+    ];
+
+    const hiddenCodes = (await Promise.all(requestsFor(hidden.id))).map(
+      (res) => expectProblem(res, 'NOT_FOUND').code,
+    );
+    const missingCodes = (await Promise.all(requestsFor(missing))).map(
+      (res) => expectProblem(res, 'NOT_FOUND').code,
+    );
+    expect(hiddenCodes).toEqual(['NOT_FOUND', 'NOT_FOUND', 'NOT_FOUND', 'NOT_FOUND']);
+    expect(hiddenCodes).toEqual(missingCodes);
   });
 
   it('accepts an empty dataset', async () => {

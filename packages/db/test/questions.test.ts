@@ -21,6 +21,7 @@ const ready = await pool.query('select 1').then(
 );
 
 const agentIds: string[] = [];
+const businessId = 'questions-owner';
 
 const questionSet = (text = '你希望用什么语言？') => [
   {
@@ -42,16 +43,20 @@ async function seedRun(status: 'queued' | 'running' | 'succeeded' = 'running'): 
     slug: `question-${agentId.slice(4)}`,
     name: 'question',
     model: 'test',
+    createdBy: businessId,
+    ownerBusinessId: businessId,
   });
   const conversation = await chat.createConversation(db, {
     id: newId('conversation'),
     agentId,
     title: 'question',
+    subject: { kind: 'user', businessId },
   });
   const run = await chat.createRun(db, {
     id: newId('run'),
     conversationId: conversation.id,
     agentId,
+    subject: { kind: 'user', businessId },
   });
   await chat.updateRun(db, run.id, { status });
   return run.id;

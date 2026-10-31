@@ -1,0 +1,805 @@
+import type { AuthMe, PermissionDefinition } from '@agentport/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createBrowserHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toastError, toastSuccess } from '../src/lib/toast.js';
+import { AccessDenied } from '../src/components/app-shell.js';
+import { AccountsPage } from '../src/pages/accounts.js';
+import { AgentDetailPage } from '../src/pages/agents.js';
+import { RolesPage } from '../src/pages/roles.js';
+
+vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+
+const CATALOG: PermissionDefinition[] = [
+  {
+    id: 'agents.read',
+    label: '查看专家',
+    treePath: ['专家', '发现'],
+    scopes: ['authorized_agents', 'platform'],
+  },
+  {
+    id: 'agents.use',
+    label: '使用专家',
+    treePath: ['专家', '发现'],
+    scopes: ['authorized_agents', 'platform'],
+  },
+  {
+    id: 'agents.config.read',
+    label: '查看配置',
+    treePath: ['专家', '配置'],
+    scopes: ['maintained_agents', 'owned_agents', 'platform'],
+  },
+  {
+    id: 'roles.manage',
+    label: '管理角色',
+    treePath: ['平台', '角色'],
+    scopes: ['platform'],
+  },
+  {
+    id: 'accounts.read',
+    label: '查看账户',
+    treePath: ['平台', '账户'],
+    scopes: ['platform'],
+  },
+  {
+    id: 'accounts.manage',
+    label: '管理账户',
+    treePath: ['平台', '账户'],
+    scopes: ['platform'],
+  },
+] as PermissionDefinition[];
+
+const ALL = CATALOG.map((item) => item.id);
+
+function me(permissionIds: readonly string[] = ALL): AuthMe {
+  return {
+    authenticated: true,
+    user: { businessId: 'admin', username: 'admin', name: '管理员' },
+    roles: [],
+    grants: permissionIds.map((permissionId) => ({
+      permissionId: permissionId as never,
+      scope: (CATALOG.find((item) => item.id === permissionId)?.scopes[0] ??
+        'platform') as never,
+    })),
+  };
+}
+
+const summary = {
+  id: 'agt_1',
+  name: '专家一',
+  description: '',
+  enabled: true,
+  createdBy: 'admin',
+  ownerBusinessId: 'admin',
+};
+const fullAgent = {
+  ...summary,
+  slug: 'expert-one',
+  role: '通用助手',
+  model: 'claude-sonnet-5-5',
+  systemPrompt: '',
+  serverIds: [],
+  skillIds: [],
+  pluginBindings: [],
+  subAgentIds: [],
+  allowedTools: [],
+  disallowedTools: [],
+  permissionMode: 'default',
+  uiFormat: 'markdown',
+  maxTurns: 20,
+  maxBudgetUsd: 2,
+  timeoutMs: 600_000,
+  parentId: null,
+  runtimeEnvironmentId: null,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+};
+
+type Call = { method: string; path: string; body?: unknown };
+type Handler = (call: Call) => Response | Promise<Response>;
+const calls: Call[] = [];
+let handlers: Array<{ method: string; match: RegExp; handler: Handler }> = [];
+
+function route(method: string, match: RegExp, handler: Handler): void {
+  handlers.push({ method, match, handler });
+}
+function json(value: unknown, status = 200): Response {
+  return Response.json(value, { status });
+}
+function problem(status: number, message: string, code = 'ERROR'): Response {
+  return Response.json({ code, message }, { status });
+}
+function corpus(): Call[] {
+  return calls.filter((call) => call.path !== '/api/auth/me');
+}
+function bodyOf(path: string, method = 'PUT'): unknown {
+  return calls.find((call) => call.method === method && call.path === path)?.body;
+}
+
+let client: QueryClient;
+let host: HTMLDivElement;
+let root: Root;
+let history: ReturnType<typeof createBrowserHistory>;
+
+async function flush(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+}
+async function waitFor<T>(probe: () => T, tries = 50): Promise<T> {
+  for (let index = 0; index < tries; index += 1) {
+    try {
+      const value = probe();
+      if (value) return value;
+    } catch {
+      // 页面切换过程中继续等。
+    }
+    await flush();
+  }
+  return probe();
+}
+function button(text: string, scope: ParentNode = document): HTMLButtonElement {
+  const element = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
+    (item) => item.textContent?.trim() === text || item.getAttribute('aria-label') === text,
+  );
+  if (!element) throw new Error(`Missing button: ${text}`);
+  return element;
+}
+function maybeButton(text: string, scope: ParentNode = document): HTMLButtonElement | null {
+  return (
+    [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent?.trim() === text || item.getAttribute('aria-label') === text,
+    ) ?? null
+  );
+}
+function checkbox(label: string, scope: ParentNode = document): HTMLElement {
+  const element = scope.querySelector<HTMLElement>(`[role="checkbox"][aria-label="${label}"]`);
+  if (!element) throw new Error(`Missing checkbox: ${label}`);
+  return element;
+}
+async function click(element: HTMLElement): Promise<void> {
+  await act(async () => element.click());
+  await flush();
+}
+async function type(input: HTMLInputElement | HTMLTextAreaElement, value: string): Promise<void> {
+  await act(async () => {
+    const prototype =
+      input instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await flush();
+}
+function field(id: string, scope: ParentNode = document): HTMLInputElement {
+  const element = scope.querySelector<HTMLInputElement>(`#${id}`);
+  if (!element) throw new Error(`Missing field: ${id}`);
+  return element;
+}
+function menuItem(text: string): HTMLElement {
+  const element = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent?.trim() === text,
+  );
+  if (!element) throw new Error(`Missing menu item: ${text}`);
+  return element;
+}
+function dialog(titlePrefix: string): HTMLElement {
+  const element = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((item) =>
+    item.querySelector('h2')?.textContent?.startsWith(titlePrefix),
+  );
+  if (!element) throw new Error(`Missing dialog: ${titlePrefix}`);
+  return element;
+}
+
+async function mount(path: string, component: () => React.ReactNode): Promise<void> {
+  const rootRoute = createRootRoute({ component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
+  const page = createRoute({
+    getParentRoute: () => shell,
+    path: path.replace(/\$[^/]+/g, (_match) => '$agentId') as never,
+    component,
+  });
+  const away = createRoute({
+    getParentRoute: () => shell,
+    path: '/away',
+    component: () => createElement('h1', null, 'Away'),
+  });
+  window.history.replaceState(null, '', path.replace('$agentId', 'agt_1'));
+  history = createBrowserHistory();
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([shell.addChildren([page, away])]),
+    history,
+  });
+  await act(async () => {
+    await router.load();
+    root.render(
+      createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+    );
+  });
+  await flush();
+}
+
+function prepare(): void {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: () => {},
+  });
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  handlers = [];
+  calls.length = 0;
+  route('GET', /^\/api\/auth\/me$/, () => json(me()));
+  route('GET', /^\/api\/permissions$/, () =>
+    json({ permissions: CATALOG, scopes: [{ id: 'platform', label: '全平台' }] }),
+  );
+  route('GET', /^\/api\/servers$/, () => json([]));
+  route('GET', /^\/api\/skills$/, () => json([]));
+  route('GET', /^\/api\/plugins$/, () => json([]));
+  route('GET', /^\/api\/runtime-environments$/, () => json([]));
+  route('GET', /^\/api\/knowledge\/bases/, () => json({ items: [], nextCursor: null }));
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://localhost');
+      const call: Call = {
+        method: init?.method ?? 'GET',
+        path: url.pathname,
+        ...(init?.body === undefined ? {} : { body: JSON.parse(String(init.body)) }),
+      };
+      calls.push(call);
+      const match = handlers.find(
+        (item) => item.method === call.method && item.match.test(call.path),
+      );
+      if (!match) return problem(404, `未模拟 ${call.method} ${call.path}`, 'NOT_FOUND');
+      return match.handler(call);
+    }),
+  );
+}
+
+beforeEach(prepare);
+afterEach(async () => {
+  await act(async () => root.unmount());
+  history?.destroy();
+  client.clear();
+  host.remove();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
+
+describe('专家详情只认完整配置', () => {
+  it('从摘要进入详情会请求完整配置并渲染配置表单', async () => {
+    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
+    route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
+      json({ agentId: 'agt_1', permissionIds: ALL }),
+    );
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => document.querySelector('#agent-name'));
+
+    expect(document.querySelector<HTMLInputElement>('#agent-name')?.value).toBe('专家一');
+    expect(calls.some((call) => call.method === 'GET' && call.path === '/api/agents/agt_1')).toBe(
+      true,
+    );
+  });
+
+  it('没有配置读取权限时只提供对话，不请求也不渲染配置', async () => {
+    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
+      json({ agentId: 'agt_1', permissionIds: ['agents.read', 'agents.use'] }),
+    );
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => maybeButton('开始对话') ?? document.querySelector('a[href*="agent=agt_1"]'));
+
+    expect(document.querySelector('#agent-name')).toBeNull();
+    expect(maybeButton('保存更改')).toBeNull();
+    expect(calls.some((call) => call.path === '/api/agents/agt_1')).toBe(false);
+  });
+
+  it('成员授权与转交负责人成功后提示并携带正确请求体', async () => {
+    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
+      json({
+        agentId: 'agt_1',
+        permissionIds: ['agents.read', 'agents.use', 'agents.members.manage', 'agents.transfer'],
+      }),
+    );
+    route('GET', /^\/api\/agents\/agt_1\/members$/, () =>
+      json({ ownerBusinessId: 'admin', members: [] }),
+    );
+    route('GET', /^\/api\/identities/, () =>
+      json({ items: [{ businessId: 'bob', name: '鲍勃', accountActive: true }], total: 1 }),
+    );
+    route('PUT', /^\/api\/agents\/agt_1\/members\/bob$/, () =>
+      json({ businessId: 'bob', name: '鲍勃', accountActive: true, canUse: true, canMaintain: false }),
+    );
+    route('POST', /^\/api\/agents\/agt_1\/transfer$/, () => json(fullAgent));
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => maybeButton('专家管理操作'));
+
+    await click(button('专家管理操作'));
+    await click(menuItem('管理成员'));
+    await waitFor(() => maybeButton('添加'));
+    await click(button('添加'));
+    expect(bodyOf('/api/agents/agt_1/members/bob', 'PUT')).toEqual({
+      canUse: true,
+      canMaintain: false,
+    });
+    expect(toastSuccess).toHaveBeenCalledWith('已添加 鲍勃');
+
+    await click(button('关闭'));
+    await click(button('专家管理操作'));
+    await click(menuItem('转交负责人'));
+    await waitFor(() => document.querySelector('[role="checkbox"]'));
+    await click(document.querySelector<HTMLElement>('[role="checkbox"]')!);
+    await click(button('转交'));
+    expect(bodyOf('/api/agents/agt_1/transfer', 'POST')).toEqual({ ownerBusinessId: 'bob' });
+    expect(toastSuccess).toHaveBeenCalledWith('负责人已转交');
+  });
+
+  it('成员授权被拒绝时保留提示并显示服务端原因', async () => {
+    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
+      json({
+        agentId: 'agt_1',
+        permissionIds: ['agents.read', 'agents.use', 'agents.members.manage'],
+      }),
+    );
+    route('GET', /^\/api\/agents\/agt_1\/members$/, () =>
+      json({ ownerBusinessId: 'admin', members: [] }),
+    );
+    route('GET', /^\/api\/identities/, () =>
+      json({ items: [{ businessId: 'bob', name: '鲍勃', accountActive: true }], total: 1 }),
+    );
+    route('PUT', /^\/api\/agents\/agt_1\/members\/bob$/, () =>
+      problem(403, '只有负责人可以管理成员', 'FORBIDDEN'),
+    );
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => maybeButton('专家管理操作'));
+    await click(button('专家管理操作'));
+    await click(menuItem('管理成员'));
+    await waitFor(() => maybeButton('添加'));
+    await click(button('添加'));
+
+    expect(toastError).toHaveBeenCalled();
+    expect(dialog('管理「专家一」的成员')).toBeTruthy();
+  });
+});
+
+describe('专家配置权限拆分', () => {
+  function editorAccess(permissionIds: string[]): void {
+    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
+      json({ agentId: 'agt_1', permissionIds }),
+    );
+    route('GET', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
+  }
+
+  it('绑定维护人只读 options 摘要，不发需要全局读取的资源请求', async () => {
+    editorAccess(['agents.read', 'agents.config.read', 'agents.bindings.manage']);
+    route('GET', /^\/api\/agents\/options$/, () =>
+      json({
+        servers: [
+          { id: 'srv_1', name: '连接器', kind: 'http' },
+          { id: 'kb_server', name: '知识库', kind: 'knowledge' },
+        ],
+        skills: [{ id: 'skl_1', slug: 'skill', name: '技能', description: '说明' }],
+        plugins: [{ id: 'plg_1', slug: 'plugin', name: '插件' }],
+        runtimeEnvironments: [{ id: 'env_1', name: '环境', hasOnlineVersion: true }],
+      }),
+    );
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => document.querySelector('#agent-name'));
+    await waitFor(() => calls.some((call) => call.path === '/api/agents/options'));
+
+    expect(calls.some((call) => call.path === '/api/agents/options')).toBe(true);
+    for (const path of [
+      '/api/servers',
+      '/api/skills',
+      '/api/plugins',
+      '/api/runtime-environments',
+      '/api/knowledge/bases',
+    ]) {
+      expect(calls.some((call) => call.path.startsWith(path))).toBe(false);
+    }
+  });
+
+  it('只有配置读取权时字段只读，不产生无法保存的草稿', async () => {
+    editorAccess(['agents.read', 'agents.config.read']);
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => document.querySelector('#agent-name'));
+
+    expect(field('agent-name').disabled).toBe(true);
+    await click(button('行为'));
+    expect(
+      document.querySelector<HTMLTextAreaElement>('#agent-prompt')?.disabled,
+    ).toBe(true);
+    await click(button('权限'));
+    const bash = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="toggle"]')].find(
+      (item) => item.textContent?.startsWith('Bash'),
+    );
+    expect(bash?.disabled).toBe(true);
+    if (bash) await click(bash);
+    expect(maybeButton('保存更改')).toBeNull();
+  });
+
+  it('只有启停权时开关可保存，提交体只含 enabled', async () => {
+    editorAccess(['agents.read', 'agents.config.read', 'agents.enable']);
+    route('PATCH', /^\/api\/agents\/agt_1$/, () => json({ ...fullAgent, enabled: false }));
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => document.querySelector('#agent-name'));
+    expect(field('agent-name').disabled).toBe(true);
+
+    const toggle = document.querySelector<HTMLElement>('[role="switch"]');
+    if (!toggle) throw new Error('Missing enable switch');
+    await click(toggle);
+    await waitFor(() => maybeButton('保存更改'));
+    await click(button('保存更改'));
+    const body = await waitFor(() => bodyOf('/api/agents/agt_1', 'PATCH') as object);
+    expect(body).toEqual({
+      enabled: false,
+      expectedUpdatedAt: '2026-01-01T00:00:00Z',
+    });
+  });
+
+  it('配置保存不夹带启停或资源绑定字段', async () => {
+    editorAccess(['agents.read', 'agents.config.read', 'agents.config.update']);
+    route('PATCH', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => document.querySelector('#agent-name'));
+    await type(field('agent-name'), '新名字');
+    await click(button('保存更改'));
+
+    const body = (await waitFor(() => bodyOf('/api/agents/agt_1', 'PATCH'))) as Record<
+      string,
+      unknown
+    >;
+    // 未变化的配置、绑定与启停字段不随改名提交。
+    expect(body).toEqual({ name: '新名字', expectedUpdatedAt: '2026-01-01T00:00:00Z' });
+  });
+
+  it('有全部专家权限时改名也只提交 name', async () => {
+    editorAccess([
+      'agents.read',
+      'agents.config.read',
+      'agents.config.update',
+      'agents.bindings.manage',
+      'agents.enable',
+    ]);
+    route('GET', /^\/api\/agents\/options$/, () =>
+      json({ servers: [], skills: [], plugins: [], runtimeEnvironments: [] }),
+    );
+    route('PATCH', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => document.querySelector('#agent-name'));
+    await type(field('agent-name'), '新名字');
+    await click(button('保存更改'));
+
+    expect(bodyOf('/api/agents/agt_1', 'PATCH')).toEqual({
+      name: '新名字',
+      expectedUpdatedAt: '2026-01-01T00:00:00Z',
+    });
+  });
+
+  it('没有配置读取权但有启停权时，详情页提供独立启停入口', async () => {
+    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
+      json({ agentId: 'agt_1', permissionIds: ['agents.read', 'agents.enable'] }),
+    );
+    route('PATCH', /^\/api\/agents\/agt_1$/, () => json({ ...summary, enabled: false }));
+
+    await mount('/agents/$agentId', AgentDetailPage);
+    await waitFor(() => maybeButton('停用专家'));
+    await click(button('停用专家'));
+
+    expect(bodyOf('/api/agents/agt_1', 'PATCH')).toEqual({ enabled: false });
+    expect(calls.some((call) => call.method === 'GET' && call.path === '/api/agents/agt_1')).toBe(
+      false,
+    );
+    expect(toastSuccess).toHaveBeenCalledWith('专家已停用');
+  });
+});
+
+describe('角色矩阵', () => {
+  const matrix = {
+    revision: 3,
+    roles: [
+      {
+        id: 'role_admin',
+        name: '管理员',
+        systemKey: 'admin' as const,
+        grants: [{ permissionId: 'agents.read', scope: 'platform' as const }],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'role_member',
+        name: '成员',
+        systemKey: null,
+        grants: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ],
+  };
+  let current = matrix;
+
+  beforeEach(() => {
+    current = structuredClone(matrix);
+    route('GET', /^\/api\/roles$/, () => json(current));
+  });
+
+  async function openRoles(): Promise<void> {
+    await mount('/roles', RolesPage);
+    await waitFor(() => document.querySelector('table[aria-label="角色权限矩阵"]'));
+  }
+
+  it('行角色列、父级半选与整棵子树勾选使用同一份草稿', async () => {
+    await openRoles();
+    expect(document.querySelector('input[aria-label="角色名称：管理员"]')).toBeTruthy();
+    expect(document.querySelector('input[aria-label="角色名称：成员"]')).toBeTruthy();
+
+    await click(checkbox('成员：专家'));
+    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('true');
+    expect(checkbox('成员：查看配置').getAttribute('aria-checked')).toBe('true');
+
+    await click(checkbox('成员：使用专家'));
+    expect(checkbox('成员：专家').getAttribute('aria-checked')).toBe('mixed');
+  });
+
+  it('搜索与折叠不会丢掉已勾选的权限', async () => {
+    await openRoles();
+    await click(checkbox('成员：查看专家'));
+    const search = document.querySelector<HTMLInputElement>('input[aria-label="搜索权限"]');
+    if (!search) throw new Error('Missing role search');
+    await type(search, '使用专家');
+    expect(document.querySelector('[data-permission="agents.read"]')).toBeNull();
+    expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('false');
+
+    await type(search, '');
+    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('保存提交 expectedRevision 与完整草稿', async () => {
+    route('PUT', /^\/api\/roles$/, (call) => json({ ...current, ...(call.body as object) }));
+    await openRoles();
+    await click(checkbox('成员：查看专家'));
+    await click(button('保存更改'));
+
+    const body = bodyOf('/api/roles', 'PUT') as {
+      expectedRevision: number;
+      roles: Array<{ id?: string; name: string; grants: unknown[] }>;
+    };
+    expect(body.expectedRevision).toBe(3);
+    expect(body.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
+      { permissionId: 'agents.read', scope: 'authorized_agents' },
+    ]);
+    expect(toastSuccess).toHaveBeenCalledWith('角色矩阵已保存');
+  });
+
+  it('409 冲突保留草稿并给出重新加载入口', async () => {
+    route('PUT', /^\/api\/roles$/, () => problem(409, '矩阵已被其他操作修改', 'CONFLICT'));
+    await openRoles();
+    await click(checkbox('成员：查看专家'));
+    await click(button('保存更改'));
+
+    expect(document.body.textContent).toContain('矩阵已被其他操作修改');
+    expect(maybeButton('重新加载')).toBeTruthy();
+    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('搜索时点击父级仍勾选完整子树', async () => {
+    await openRoles();
+    const search = document.querySelector<HTMLInputElement>('input[aria-label="搜索权限"]');
+    if (!search) throw new Error('Missing role search');
+    await type(search, '查看专家');
+    await click(checkbox('成员：专家'));
+    await type(search, '');
+
+    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(checkbox('成员：使用专家').getAttribute('aria-checked')).toBe('true');
+    expect(checkbox('成员：查看配置').getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('父级全选保留已有授权的范围，不回落到默认 scope', async () => {
+    current.roles[1]!.grants = [{ permissionId: 'agents.use', scope: 'platform' }];
+    route('PUT', /^\/api\/roles$/, (call) => json({ ...current, ...(call.body as object) }));
+    await openRoles();
+
+    await click(checkbox('成员：专家'));
+    await click(button('保存更改'));
+
+    const body = bodyOf('/api/roles', 'PUT') as {
+      roles: Array<{ id?: string; grants: Array<{ permissionId: string; scope: string }> }>;
+    };
+    expect(body.roles.find((role) => role.id === 'role_member')?.grants).toContainEqual({
+      permissionId: 'agents.use',
+      scope: 'platform',
+    });
+  });
+
+  it('点击重新加载并确认后，用服务端最新矩阵替换草稿', async () => {
+    route('PUT', /^\/api\/roles$/, () => problem(409, '矩阵已被其他操作修改', 'CONFLICT'));
+    await openRoles();
+    await click(checkbox('成员：查看专家'));
+    await click(button('保存更改'));
+    expect(document.body.textContent).toContain('矩阵已被其他操作修改');
+
+    current = { ...structuredClone(matrix), revision: 4 };
+    await click(button('重新加载'));
+    const confirmation = dialog('放弃当前草稿并重新加载？');
+    await click(button('重新加载', confirmation));
+    await waitFor(() => !document.body.textContent?.includes('矩阵已被其他操作修改'));
+
+    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('后台刷新到新版本时不覆盖未保存草稿', async () => {
+    await openRoles();
+    await click(checkbox('成员：查看专家'));
+    current = { ...structuredClone(matrix), revision: 4 };
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['role-matrix'] });
+    });
+    await flush();
+
+    expect(checkbox('成员：查看专家').getAttribute('aria-checked')).toBe('true');
+    expect(document.body.textContent).toContain('当前草稿已保留');
+  });
+
+  it('有草稿离开页面时先确认', async () => {
+    await openRoles();
+    await click(checkbox('成员：查看专家'));
+    await act(async () => {
+      await history.push('/away');
+    });
+    await flush();
+    expect(dialog('放弃未保存的角色矩阵？')).toBeTruthy();
+  });
+});
+
+describe('无权访问页面', () => {
+  it('提供刷新权限入口且不再要求重新登录', async () => {
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    await act(async () => {
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client },
+          createElement(AccessDenied, {
+            home: '/agents',
+            noPermissions: false,
+            onLogout: () => {},
+          }),
+        ),
+      );
+    });
+    await flush();
+
+    expect(document.body.textContent).toContain('刷新权限');
+    expect(document.body.textContent).not.toContain('重新登录');
+    await click(button('刷新权限'));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['me'] });
+  });
+});
+
+describe('账户管理', () => {
+  const account = {
+    businessId: 'alice',
+    username: 'alice',
+    name: '爱丽丝',
+    status: 'active' as const,
+    roles: [],
+    createdAt: '2026-01-01T00:00:00Z',
+  };
+  let status: 'active' | 'disabled' = 'active';
+
+  beforeEach(() => {
+    status = 'active';
+    route('GET', /^\/api\/accounts$/, () =>
+      json({ items: [{ ...account, status }], total: 1 }),
+    );
+    route('GET', /^\/api\/roles$/, () =>
+      json({ revision: 1, roles: [{ ...matrixRole, id: 'role_member', name: '成员' }] }),
+    );
+    route('PATCH', /^\/api\/accounts\/alice\/status$/, (call) => {
+      status = (call.body as { status: 'active' | 'disabled' }).status;
+      return json({ ...account, status });
+    });
+    route('DELETE', /^\/api\/accounts\/alice$/, () => json({ ok: true }));
+  });
+  const matrixRole = {
+    systemKey: null,
+    grants: [],
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  };
+
+  async function openAccounts(): Promise<void> {
+    await mount('/accounts', AccountsPage);
+    await waitFor(() => maybeButton('新建账户'));
+  }
+
+  it('同业务 ID 冲突后必须显式确认才以 restore:true 重建', async () => {
+    const posts: unknown[] = [];
+    route('POST', /^\/api\/accounts$/, (call) => {
+      posts.push(call.body);
+      return posts.length === 1
+        ? problem(409, '该业务 ID 已有历史记录', 'CONFLICT')
+        : json({ ...account, name: '爱丽丝' });
+    });
+    await openAccounts();
+    await click(button('新建账户'));
+    await type(field('account-business-id'), 'alice');
+    await type(field('account-username'), 'alice');
+    await type(field('account-name'), '爱丽丝');
+    await type(field('account-password'), 'password123');
+    await click(button('创建账户'));
+
+    expect(document.body.textContent).toContain('该业务 ID 已有历史记录');
+    expect(document.body.textContent).toContain('不需要其他技术 ID');
+    expect(posts).toHaveLength(1);
+    await click(button('恢复原身份和授权'));
+    expect(posts[1]).toMatchObject({ businessId: 'alice', restore: true });
+  });
+
+  it('停用需要确认，启用可直接撤销停用状态', async () => {
+    await openAccounts();
+    await waitFor(() => maybeButton('停用'));
+    await click(button('停用'));
+    expect(dialog('停用账户「爱丽丝」')).toBeTruthy();
+    await click(button('停用', dialog('停用账户「爱丽丝」')));
+    expect(bodyOf('/api/accounts/alice/status', 'PATCH')).toEqual({ status: 'disabled' });
+
+    await waitFor(() => maybeButton('启用'));
+    await click(button('启用'));
+    expect(
+      calls.filter((call) => call.path === '/api/accounts/alice/status').at(-1)?.body,
+    ).toEqual({ status: 'active' });
+  });
+
+  it('删除认证只发 DELETE，并说明业务授权保留', async () => {
+    await openAccounts();
+    await click(button('删除认证'));
+    const confirmation = dialog('删除「爱丽丝」的登录认证');
+    expect(confirmation.textContent).toContain('业务内容、角色、专家归属与个人记忆都会保留');
+    await click(button('删除', confirmation));
+    expect(calls.some((call) => call.method === 'DELETE' && call.path === '/api/accounts/alice')).toBe(
+      true,
+    );
+    expect(toastSuccess).toHaveBeenCalledWith('已删除登录认证，业务授权仍保留');
+  });
+});

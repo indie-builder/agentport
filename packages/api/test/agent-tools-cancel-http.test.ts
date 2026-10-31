@@ -60,11 +60,13 @@ function stubInvoker(app: FastifyInstance, agentId: string) {
         id: newId('conversation'),
         agentId,
         title: `stub: ${prompt}`,
+        subject: { kind: 'service', serviceId: 'mcp' },
       });
       const run = await repo.chat.createRun(app.db, {
         id: newId('run'),
         conversationId: conversation.id,
         agentId,
+        subject: { kind: 'service', serviceId: 'mcp' },
       });
       await getQueue().add(
         'run',

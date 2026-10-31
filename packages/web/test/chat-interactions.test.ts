@@ -18,6 +18,22 @@ vi.mock('../src/lib/chat-store.js', async (original) => {
 
 vi.mock('@/components/ui/button', async () => import('../src/components/ui/button.js'));
 
+// Composer 直接作为函数调用，没有 QueryClientProvider；这里固定返回管理员 grants。
+vi.mock('@tanstack/react-query', async (original) => {
+  const { DEFAULT_ROLES } = await import('@agentport/shared');
+  return {
+    ...(await original<typeof import('@tanstack/react-query')>()),
+    useQuery: () => ({
+      data: {
+        authenticated: true,
+        user: { businessId: 'admin', username: 'admin', name: '管理员' },
+        roles: [],
+        grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+      },
+    }),
+  };
+});
+
 vi.mock('react', async (original) => ({
   ...(await original<typeof import('react')>()),
   useCallback: (callback: unknown) => callback,

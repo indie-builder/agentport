@@ -16,34 +16,6 @@ import {
 
 const ready = await infraReady;
 
-/**
- * 统计路由 UPDATE 前对 agents 主键的整行 SELECT（repo.getAgent）。
- * 事务内语句走 pool client，不经过 pool.query，因此 409 的 fallback 读不计入。
- */
-function countAgentRowSelects(app: FastifyInstance) {
-  const original = app.pool.query as unknown as (...args: unknown[]) => unknown;
-  const selects: string[] = [];
-  app.pool.query = function (this: unknown, ...args: unknown[]) {
-    const first = args[0];
-    const text =
-      typeof first === 'string' ? first : ((first as { text?: string } | undefined)?.text ?? '');
-    if (
-      /^select\b/i.test(text) &&
-      /from\s+"agents"/i.test(text) &&
-      /where\s+"agents"\."id"\s*=\s*\$\d+/i.test(text)
-    ) {
-      selects.push(text);
-    }
-    return original.apply(this, args);
-  } as typeof app.pool.query;
-  return {
-    selects,
-    restore: () => {
-      app.pool.query = original as typeof app.pool.query;
-    },
-  };
-}
-
 interface WorkspaceFiles {
   mcpJson: string;
   claudeMd: string;
@@ -51,6 +23,10 @@ interface WorkspaceFiles {
   subAgents: Array<{ slug: string; content: string }>;
 }
 
+/**
+ * RBAC 下每次 PATCH 必须先读目标对象做对象范围判定，这属于必需的授权读取；
+ * 这里只验证行为，不再把「普通字段不预读」当作契约。
+ */
 describe.skipIf(!ready)('agents', () => {
   let app: FastifyInstance;
   let cookie: string;
@@ -137,9 +113,16 @@ describe.skipIf(!ready)('agents', () => {
     const agent = created.json<Agent>();
     expect(agent.role).toBe('前端工程师');
 
+    // 列表摘要只含业务字段；岗位等配置必须在详情里读。
     const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
-    expect(list.json<Agent[]>().find((item) => item.id === agent.id)?.role).toBe('前端工程师');
+    const summary = list
+      .json<Array<Record<string, unknown>>>()
+      .find((item) => item.id === agent.id);
+    expect(summary).toMatchObject({ id: agent.id, name: 'Role agent', enabled: true });
+    for (const hidden of ['role', 'slug', 'model', 'systemPrompt']) {
+      expect(summary).not.toHaveProperty(hidden);
+    }
 
     const changed = await inject(app, {
       method: 'PATCH',
@@ -317,13 +300,16 @@ describe.skipIf(!ready)('agents', () => {
     expect(detail.json<Agent>().runtimeEnvironmentId).toBeNull();
   });
 
-  it('preserves a legacy freeform role on get, list and name-only PATCH', async () => {
+  it('preserves a legacy freeform role on get and name-only PATCH', async () => {
     const slug = unique('legacy-role');
     const id = unique('agt-legacy');
     const role = '  历史自由岗位：研究 / 交付  ';
     createdAgents.push(slug);
     await app.pool.query(
-      'insert into agents (id, slug, name, model, role) values ($1, $2, $3, $4, $5)',
+      `insert into agents (id, slug, name, model, role, created_by, owner_business_id)
+       values ($1, $2, $3, $4, $5,
+         (select business_id from "user" where username = 'admin'),
+         (select business_id from "user" where username = 'admin'))`,
       [id, slug, 'Legacy role agent', 'claude-sonnet-5-5', role],
     );
 
@@ -337,7 +323,10 @@ describe.skipIf(!ready)('agents', () => {
 
     const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
-    expect(list.json<Agent[]>().find((item) => item.id === id)?.role).toBe(role);
+    // 摘要不包含岗位文本；详情仍保留历史值。
+    const summary = list.json<Array<Record<string, unknown>>>().find((item) => item.id === id);
+    expect(summary).toMatchObject({ id, name: 'Legacy role agent' });
+    expect(summary).not.toHaveProperty('role');
 
     const renamed = await inject(app, {
       method: 'PATCH',
@@ -468,45 +457,37 @@ describe.skipIf(!ready)('agents', () => {
     expect(created.statusCode, created.body).toBe(201);
     const agent = created.json<Agent>();
 
-    const counter = countAgentRowSelects(app);
-    try {
-      const changed = await inject(app, {
-        method: 'PATCH',
-        url: `/api/agents/${agent.id}`,
-        headers: auth(),
-        payload: { name: 'Renamed plain', description: 'plain description', enabled: false },
-      });
-      expect(changed.statusCode, changed.body).toBe(200);
-      expect(changed.json<Agent>()).toMatchObject({
-        name: 'Renamed plain',
-        description: 'plain description',
-        enabled: false,
-      });
-      expect(counter.selects).toHaveLength(0);
+    const changed = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { name: 'Renamed plain', description: 'plain description', enabled: false },
+    });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(changed.json<Agent>()).toMatchObject({
+      name: 'Renamed plain',
+      description: 'plain description',
+      enabled: false,
+    });
 
-      const empty = await inject(app, {
-        method: 'PATCH',
-        url: `/api/agents/${agent.id}`,
-        headers: auth(),
-        payload: {},
-      });
-      expect(empty.statusCode, empty.body).toBe(200);
-      expect(empty.json<Agent>().name).toBe('Renamed plain');
-      expect(counter.selects).toHaveLength(0);
+    const empty = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: {},
+    });
+    expect(empty.statusCode, empty.body).toBe(200);
+    expect(empty.json<Agent>().name).toBe('Renamed plain');
 
-      // null 是合法的「清除回未配置」，与 undefined（不动）语义不同。
-      const cleared = await inject(app, {
-        method: 'PATCH',
-        url: `/api/agents/${agent.id}`,
-        headers: auth(),
-        payload: { effort: null },
-      });
-      expect(cleared.statusCode, cleared.body).toBe(200);
-      expect(cleared.json<Agent>().effort).toBeUndefined();
-      expect(counter.selects).toHaveLength(0);
-    } finally {
-      counter.restore();
-    }
+    // null 是合法的「清除回未配置」，与 undefined（不动）语义不同。
+    const cleared = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { effort: null },
+    });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    expect(cleared.json<Agent>().effort).toBeUndefined();
 
     const stored = await app.pool.query<{ effort: string | null }>(
       'select effort from agents where id = $1',
@@ -516,72 +497,56 @@ describe.skipIf(!ready)('agents', () => {
   });
 
   it('PATCH returns 404 for a missing agent even with a stale expectedUpdatedAt', async () => {
-    const counter = countAgentRowSelects(app);
-    try {
-      const res = await inject(app, {
-        method: 'PATCH',
-        url: '/api/agents/agt_missing_stale_patch',
-        headers: auth(),
-        payload: { name: 'x', expectedUpdatedAt: '2020-01-01T00:00:00.000Z' },
-      });
-      expectProblem(res, 'AGENT_NOT_FOUND');
-      // 普通字段不预读；事务内的 fallback 读不经过 pool.query。
-      expect(counter.selects).toHaveLength(0);
-    } finally {
-      counter.restore();
-    }
+    const res = await inject(app, {
+      method: 'PATCH',
+      url: '/api/agents/agt_missing_stale_patch',
+      headers: auth(),
+      payload: { name: 'x', expectedUpdatedAt: '2020-01-01T00:00:00.000Z' },
+    });
+    expectProblem(res, 'AGENT_NOT_FOUND');
   });
 
-  it('PATCH reads the old row for slug and binding fields, including empty arrays', async () => {
+  it('PATCH validates slug and binding fields, including empty arrays', async () => {
     const agent = (await newAgent(unique('patch-special'))).json<Agent>();
     const missingId = 'agt_missing_special_patch';
-    const counter = countAgentRowSelects(app);
-    try {
-      const subAgents = await inject(app, {
-        method: 'PATCH',
-        url: `/api/agents/${agent.id}`,
-        headers: auth(),
-        payload: { subAgentIds: [] },
-      });
-      expect(subAgents.statusCode, subAgents.body).toBe(200);
-      expect(counter.selects).toHaveLength(1);
 
-      const plugins = await inject(app, {
-        method: 'PATCH',
-        url: `/api/agents/${agent.id}`,
-        headers: auth(),
-        payload: { pluginBindings: [] },
-      });
-      expect(plugins.statusCode, plugins.body).toBe(200);
-      expect(counter.selects).toHaveLength(2);
+    const subAgents = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { subAgentIds: [] },
+    });
+    expect(subAgents.statusCode, subAgents.body).toBe(200);
 
-      const slugChange = await inject(app, {
-        method: 'PATCH',
-        url: `/api/agents/${agent.id}`,
-        headers: auth(),
-        payload: { slug: unique('other') },
-      });
-      expectProblem(slugChange, 'INVALID_INPUT');
-      expect(counter.selects).toHaveLength(3);
+    const plugins = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { pluginBindings: [] },
+    });
+    expect(plugins.statusCode, plugins.body).toBe(200);
 
-      // 旧行不存在时特殊字段也先预读并直接 404；slug 冲突校验不能抢先。
-      for (const payload of [
-        { slug: unique('missing-slug') },
-        { subAgentIds: [] },
-        { pluginBindings: [] },
-      ]) {
-        const before = counter.selects.length;
-        const missing = await inject(app, {
-          method: 'PATCH',
-          url: `/api/agents/${missingId}`,
-          headers: auth(),
-          payload,
-        });
-        expectProblem(missing, 'AGENT_NOT_FOUND');
-        expect(counter.selects).toHaveLength(before + 1);
-      }
-    } finally {
-      counter.restore();
+    const slugChange = await inject(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+      payload: { slug: unique('other') },
+    });
+    expectProblem(slugChange, 'INVALID_INPUT');
+
+    // 旧行不存在时特殊字段也直接 404；slug 冲突校验不能抢先。
+    for (const payload of [
+      { slug: unique('missing-slug') },
+      { subAgentIds: [] },
+      { pluginBindings: [] },
+    ]) {
+      const missing = await inject(app, {
+        method: 'PATCH',
+        url: `/api/agents/${missingId}`,
+        headers: auth(),
+        payload,
+      });
+      expectProblem(missing, 'AGENT_NOT_FOUND');
     }
   });
 

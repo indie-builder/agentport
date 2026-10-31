@@ -17,6 +17,7 @@ import {
   seedRun,
   startApp,
   unique,
+  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 const ready = await infraReady;
@@ -157,7 +158,14 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     createdAgents.push(slug);
     await app.db
       .insert(schema.agents)
-      .values({ id: agentId, slug, name: slug, model: 'test-model' });
+      .values({
+        id: agentId,
+        slug,
+        name: slug,
+        model: 'test-model',
+        createdBy: ADMIN_BUSINESS_ID,
+        ownerBusinessId: ADMIN_BUSINESS_ID,
+      });
     if (bind === 'self') {
       await app.db.insert(schema.agentServers).values({ agentId, serverId });
     } else if (bind === 'disabled-child') {
@@ -169,6 +177,8 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         slug: childSlug,
         name: childSlug,
         model: 'test-model',
+        createdBy: ADMIN_BUSINESS_ID,
+        ownerBusinessId: ADMIN_BUSINESS_ID,
         parentId: agentId,
         enabled: false,
       });

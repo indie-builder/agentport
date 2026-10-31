@@ -4,6 +4,7 @@ import { type PublicRunQuestion, publicRunQuestion } from '@agentport/shared';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import * as messages from '../src/messages.js';
+import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
 
 /**
  * persistRunMessages 必须在 run 仍为 running 时才能写：取消抢先、终态已写、
@@ -33,8 +34,14 @@ async function newFixture(): Promise<Fixture> {
     slug: `persist-${agentId.slice(4)}`,
     name: 'persist',
     model: 'test',
+    ...agentOwnership,
   });
-  await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'persist' });
+  await repo.chat.createConversation(db, {
+    id: conversationId,
+    agentId,
+    title: 'persist',
+    subject: userSubject,
+  });
   return { agentId, conversationId };
 }
 
@@ -44,6 +51,7 @@ async function seedRun(input: Fixture, status?: (typeof TERMINAL)[number]): Prom
     id: runId,
     conversationId: input.conversationId,
     agentId: input.agentId,
+    subject: userSubject,
   });
   // 不传 status 即进入 running：这是 persistRunMessages 唯一允许写入的状态。
   await db
@@ -60,6 +68,7 @@ async function seedRun(input: Fixture, status?: (typeof TERMINAL)[number]): Prom
     role: 'user',
     content: { type: 'text', text: 'ask' },
     runId,
+    senderBusinessId: TEST_BUSINESS_ID,
   });
   return runId;
 }
@@ -524,6 +533,7 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
       id: otherConversation,
       agentId: fixture.agentId,
       title: 'other',
+      subject: userSubject,
     });
     const runId = await seedRun(fixture);
 

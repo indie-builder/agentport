@@ -1,5 +1,4 @@
 import {
-  ADMIN_USER_ID,
   authAccounts,
   authSessions,
   authUsers,
@@ -8,16 +7,10 @@ import {
 } from '@agentport/db';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { hashPassword } from 'better-auth/crypto';
 import { username } from 'better-auth/plugins/username';
-import { eq } from 'drizzle-orm';
 import type { Config } from '../../config.js';
 import { getTrustedOrigins } from '../../config.js';
-import { isPgCode } from '../../plugins/errors.js';
 import { AUTH_COOKIE, AUTH_MAX_AGE_SECONDS } from './types.js';
-
-const ADMIN_ACCOUNT_ID = 'agentport-admin-account';
-const ADMIN_EMAIL = 'admin@agentport.invalid';
 
 export function createAuth(config: Config, db: Database) {
   return betterAuth({
@@ -35,6 +28,13 @@ export function createAuth(config: Config, db: Database) {
     }),
     emailAndPassword: { enabled: true, disableSignUp: true },
     session: { expiresIn: AUTH_MAX_AGE_SECONDS },
+    user: {
+      // 业务身份与停用状态由应用写入；客户端不能通过注册/更新接口改动。
+      additionalFields: {
+        businessId: { type: 'string', required: true, input: false },
+        disabled: { type: 'boolean', required: false, defaultValue: false, input: false },
+      },
+    },
     plugins: [
       username({
         minUsernameLength: 1,
@@ -64,48 +64,3 @@ export function createAuth(config: Config, db: Database) {
 }
 
 export type Auth = ReturnType<typeof createAuth>;
-
-/**
- * 幂等播种唯一管理员。onConflictDoUpdate 处理同 ID 并发；若其它唯一列（username/email）
- * 已被旧行占用，唯一冲突后按固定 ID 覆盖，避免启动失败。
- */
-export async function ensureAdmin(db: Database, config: Config): Promise<void> {
-  const now = new Date();
-  const password = await hashPassword(config.ADMIN_PASSWORD);
-  const user = {
-    id: ADMIN_USER_ID,
-    name: config.ADMIN_USER,
-    email: ADMIN_EMAIL,
-    emailVerified: true,
-    username: config.ADMIN_USER,
-    updatedAt: now,
-  };
-
-  try {
-    await db
-      .insert(authUsers)
-      .values({ ...user, createdAt: now })
-      .onConflictDoUpdate({ target: authUsers.id, set: user });
-  } catch (error) {
-    if (!isPgCode(error, '23505')) throw error;
-    await db.update(authUsers).set(user).where(eq(authUsers.id, ADMIN_USER_ID));
-  }
-
-  const account = {
-    id: ADMIN_ACCOUNT_ID,
-    accountId: ADMIN_USER_ID,
-    providerId: 'credential',
-    userId: ADMIN_USER_ID,
-    password,
-    updatedAt: now,
-  };
-  try {
-    await db
-      .insert(authAccounts)
-      .values({ ...account, createdAt: now })
-      .onConflictDoUpdate({ target: authAccounts.id, set: account });
-  } catch (error) {
-    if (!isPgCode(error, '23505')) throw error;
-    await db.update(authAccounts).set(account).where(eq(authAccounts.id, ADMIN_ACCOUNT_ID));
-  }
-}

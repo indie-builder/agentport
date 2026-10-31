@@ -1,4 +1,4 @@
-import { agentInputSchema } from '@agentport/shared';
+import { DEFAULT_ROLES, agentInputSchema } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createMemoryHistory,
@@ -17,6 +17,13 @@ import { useChatStore } from '../src/lib/chat-store.js';
 import { ChatPage } from '../src/pages/chat.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+
+const adminMe = {
+  authenticated: true as const,
+  user: { businessId: 'admin', username: 'admin', name: '管理员' },
+  roles: [],
+  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+};
 
 const agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
@@ -177,6 +184,7 @@ beforeEach(() => {
   }));
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(['me'], adminMe);
   client.setQueryData(['agents'], [agent, other]);
   vi.spyOn(api, 'agents').mockResolvedValue([agent, other]);
   vi.spyOn(api, 'conversations').mockResolvedValue([]);

@@ -10,6 +10,7 @@ import {
   loginCookie,
   startApp,
   unique,
+  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 const ready = await infraReady;
@@ -44,6 +45,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
       name: 'hello',
       prompt: 'say hello',
       expectation: 'hello',
+      createdBy: ADMIN_BUSINESS_ID,
     });
     const caseSnapshot = [
       { id: evalCase.id, name: 'hello', prompt: 'say hello', expectation: 'hello' },
@@ -52,6 +54,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
       id: newId('evalRun'),
       agentId: agent.id,
       total: 1,
+      createdBy: ADMIN_BUSINESS_ID,
       caseSnapshot,
     });
     evalRunIds.push(run.id);
@@ -98,7 +101,8 @@ describe.skipIf(!ready)('eval run cancellation', () => {
       })
       .filter((text) => /^select .* from "eval_runs"/i.test(text));
     expect(evalRunSelects).toHaveLength(1);
-    expect(evalRunSelects[0]).toMatch(/^select "id" from "eval_runs"/i);
+    // 存在性 + 授权只需要主键与 agentId；大字段 case_snapshot 不读。
+    expect(evalRunSelects[0]).toMatch(/^select "id", "agent_id" from "eval_runs"/i);
     expect(evalRunSelects[0]).not.toMatch(/case_snapshot/i);
   });
 

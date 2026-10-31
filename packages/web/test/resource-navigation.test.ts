@@ -1,4 +1,4 @@
-import { type Agent, agentInputSchema, type Server } from '@agentport/shared';
+import { type Agent, agentInputSchema, PERMISSIONS, type Server } from '@agentport/shared';
 import {
   act,
   createElement,
@@ -33,11 +33,32 @@ vi.mock('@tanstack/react-router', () => ({
     return { status: 'idle' };
   },
 }));
-vi.mock('@tanstack/react-query', () => ({ useQueries: () => [], useQueryClient: () => ({}) }));
+vi.mock('@tanstack/react-query', async (original) => {
+  const actual = await original<typeof import('@tanstack/react-query')>();
+  const { allAccessMe } = await import('./me-fixture.js');
+  return {
+    ...actual,
+    // 页面用 useQuery 读取 /me 做权限判断；其余数据 hook 来自下面的 queries mock。
+    useQuery: () => ({ data: allAccessMe, isSuccess: true, isPending: false, status: 'success' }),
+    useQueries: () => [],
+    useQueryClient: () => ({}),
+  };
+});
 vi.mock('../src/lib/queries.js', () => {
   const mutation = () => ({ isPending: state.pending, mutate: state.mutate });
   return {
+    meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
     useAgents: () => ({ data: [] }),
+    useAgentOptions: () => ({
+      data: undefined,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: () => {},
+    }),
     useAgentFiles: () => ({
       data: undefined,
       isPending: true,
@@ -167,6 +188,7 @@ const server: Server = {
   createdAt: 'v1',
   updatedAt: 'v1',
 };
+const allPermissions = PERMISSIONS.map((permission) => permission.id);
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'expert',
@@ -445,7 +467,7 @@ describe('resource draft navigation', () => {
 
 describe('conflict recovery', () => {
   it('retains agent draft and requires confirmation before fetching a replacement', async () => {
-    const reload = vi.spyOn(api, 'agents').mockResolvedValue([]);
+    const reload = vi.spyOn(api, 'agent').mockResolvedValue(agent);
     let request: (() => Promise<void>) | undefined;
     state.mutate.mockImplementationOnce((_input, callbacks) =>
       callbacks.onError(new ApiError(409, 'Changed')),
@@ -453,6 +475,7 @@ describe('conflict recovery', () => {
     const render = () =>
       AgentEditor({
         agent,
+        permissions: allPermissions,
         onDirtyChange() {},
         onPendingChange() {},
         onDeleteRequest() {},

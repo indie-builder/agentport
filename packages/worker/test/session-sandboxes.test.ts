@@ -316,6 +316,36 @@ describe('session sandboxes', () => {
     await sessions.close();
   });
 
+  it('keeps two business users of the same agent in separate containers and mounts', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+
+    const first = await acquire(
+      sessions,
+      spec({ conversationId: 'conv-user-a', personalDir: '/host/users/a' }),
+    );
+    const second = await acquire(
+      sessions,
+      spec({ conversationId: 'conv-user-b', personalDir: '/host/users/b' }),
+    );
+
+    expect(first.sandboxId).not.toBe(second.sandboxId);
+    expect(provider.creates[0]?.extraMounts).toContainEqual({
+      hostPath: '/host/users/a',
+      containerPath: '/mnt/user',
+      readonly: true,
+    });
+    expect(provider.creates[1]?.extraMounts).toContainEqual({
+      hostPath: '/host/users/b',
+      containerPath: '/mnt/user',
+      readonly: true,
+    });
+
+    await first.release({ reuse: false });
+    await second.release({ reuse: false });
+    await sessions.close();
+  });
+
   it('mounts every child memory directory rw under the project memory root', async () => {
     const provider = new FakeProvider();
     const sessions = await createManager(provider);

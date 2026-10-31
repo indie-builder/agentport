@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { executeMemoryReview, type MemoryReviewQueryFn } from '../src/memory-review.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -17,6 +18,11 @@ const mocks = vi.hoisted(() => ({
   processors: new Map<string, (job: unknown) => Promise<void>>(),
   dbHandles: [] as Array<{ pool: { end(): Promise<void> } }>,
 }));
+
+vi.mock('../src/run-access.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/run-access.js')>();
+  return { ...actual, checkUserAgentAccess: async () => null };
+});
 
 vi.mock('@agentport/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentport/db')>();
@@ -132,7 +138,10 @@ vi.mock('../src/model-proxy.js', () => ({
   startModelProxy: async () => null,
 }));
 
-const dbHandle = createDb(process.env.DATABASE_URL ?? '');
+// 本套件要往全局角色矩阵写测试身份；独享库避免与 roles/agents 套件并行时互相删除角色。
+const isolated = await createIsolatedDatabase('worker_memory_review');
+if (isolated !== null) process.env.DATABASE_URL = isolated.url;
+const dbHandle = createDb(isolated?.url ?? '');
 const { db } = dbHandle;
 
 async function probeDatabase(): Promise<boolean> {
@@ -168,6 +177,8 @@ const ready = dbReady && redisReady;
 const redisUrl = process.env.REDIS_URL ?? '';
 
 const userId = newId('user');
+const businessId = 'memory-review-user';
+const roleId = newId('role');
 const agentId = newId('agent');
 const agentSlug = `review-${agentId.slice(4, 12)}`;
 
@@ -188,7 +199,12 @@ async function seed(
 ): Promise<Seeded> {
   const conversationId = newId('conversation');
   const runId = newId('run');
-  await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'review source' });
+  await repo.chat.createConversation(db, {
+    id: conversationId,
+    agentId,
+    title: 'review source',
+    subject: { kind: 'user', businessId },
+  });
   const messageIds: string[] = [];
   for (const message of input.messages) {
     const id = newId('message');
@@ -198,6 +214,7 @@ async function seed(
       conversationId,
       role: message.role,
       content: { type: 'text', text: message.text },
+      ...(message.role === 'user' ? { senderBusinessId: businessId } : {}),
     });
   }
   // repo.chat.createRun 的 trigger 类型暂未包含 review，这里按真实行形状落库。
@@ -207,11 +224,13 @@ async function seed(
     agentId,
     trigger: 'review',
     status: options.status ?? 'running',
+    subjectKind: 'user',
+    initiatedBy: businessId,
     ...(options.status === 'queued' ? {} : { startedAt: new Date() }),
   });
   await repo.memoryReviews.insert(db, {
     runId,
-    userId,
+    businessId,
     modelAgentId: agentId,
     requestKey: runId,
     requestHash: `hash-${runId}`,
@@ -270,9 +289,18 @@ beforeAll(async () => {
   if (!ready) return;
   await db.insert(schema.authUsers).values({
     id: userId,
+    businessId,
     name: 'memory review',
     email: `memory-review-${userId.slice(4)}@test.local`,
   });
+  // 排队 run 启动前会按 DB 复核 agents.use / personal_memory.review，身份必须带真实授权。
+  await db.insert(schema.roles).values({ id: roleId, name: 'memory review' });
+  await db.insert(schema.rolePermissions).values([
+    { roleId, permissionId: 'agents.use', scope: 'authorized_agents' },
+    { roleId, permissionId: 'conversations.create', scope: 'own_data' },
+    { roleId, permissionId: 'personal_memory.review', scope: 'own_data' },
+  ]);
+  await db.insert(schema.userRoles).values({ businessId, roleId });
   await db.insert(schema.agents).values({
     id: agentId,
     slug: agentSlug,
@@ -280,15 +308,23 @@ beforeAll(async () => {
     model: 'review-model',
     maxTurns: 3,
     maxBudgetUsd: '0.5',
+    createdBy: businessId,
+    ownerBusinessId: businessId,
   });
 });
 
 afterAll(async () => {
   if (ready) {
     await db.delete(schema.authUsers).where(eq(schema.authUsers.id, userId));
+    // model_agent_id 是 RESTRICT：先删审核行再删专家。
+    await db.delete(schema.memoryReviews).where(eq(schema.memoryReviews.modelAgentId, agentId));
     await db.delete(schema.agents).where(eq(schema.agents.id, agentId));
+    await db.delete(schema.userRoles).where(eq(schema.userRoles.businessId, businessId));
+    await db.delete(schema.roles).where(eq(schema.roles.id, roleId));
   }
-  for (const handle of mocks.dbHandles) await handle.pool.end();
+  // isolated-db 已在建库/迁移后结束自己的连接，重复 end 只忽略这一次收尾错误。
+  for (const handle of mocks.dbHandles) await handle.pool.end().catch(() => undefined);
+  await isolated?.close();
 });
 
 describe.skipIf(!ready)('executeMemoryReview', () => {
@@ -649,8 +685,18 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
   it('refuses a run that is not a memory review', async () => {
     const conversationId = newId('conversation');
     const runId = newId('run');
-    await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'chat' });
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createConversation(db, {
+      id: conversationId,
+      agentId,
+      title: 'chat',
+      subject: { kind: 'user', businessId },
+    });
+    await repo.chat.createRun(db, {
+      id: runId,
+      conversationId,
+      agentId,
+      subject: { kind: 'user', businessId },
+    });
     const queryFn = vi.fn<MemoryReviewQueryFn>();
 
     await expect(
@@ -734,8 +780,18 @@ describe.skipIf(!ready)('worker trigger routing', () => {
     mocks.query.mockReset();
     const conversationId = newId('conversation');
     const runId = newId('run');
-    await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'chat' });
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createConversation(db, {
+      id: conversationId,
+      agentId,
+      title: 'chat',
+      subject: { kind: 'user', businessId },
+    });
+    await repo.chat.createRun(db, {
+      id: runId,
+      conversationId,
+      agentId,
+      subject: { kind: 'user', businessId },
+    });
     mocks.acquire.mockRejectedValue(new Error('stop after routing'));
 
     const processor = mocks.processors.get(RUNS_QUEUE);

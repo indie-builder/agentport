@@ -7,7 +7,7 @@ import { memoryChanges } from '../schema.js';
 export type MemoryChangeRow = typeof memoryChanges.$inferSelect;
 
 export interface InsertMemoryChangeInput {
-  userId: string;
+  businessId: string;
   agentId?: string | null;
   target: MemoryReviewTarget;
   before: MemoryContentSnapshot;
@@ -56,13 +56,13 @@ export async function findByReverses(
 
 export async function listByUser(
   db: Database,
-  userId: string,
+  businessId: string,
   limit = 50,
 ): Promise<MemoryChangeRow[]> {
   return db
     .select()
     .from(memoryChanges)
-    .where(eq(memoryChanges.userId, userId))
+    .where(eq(memoryChanges.businessId, businessId))
     .orderBy(desc(memoryChanges.createdAt), desc(memoryChanges.id))
     .limit(limit);
 }

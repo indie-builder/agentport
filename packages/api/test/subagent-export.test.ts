@@ -376,8 +376,8 @@ describe.skipIf(!ready)('subagent export', () => {
     const slugPrefix = unique('exp-child-bulk');
     for (let index = 1; index <= 21; index += 1) agentSlugs.push(`${slugPrefix}-${index}`);
     await app.pool.query(
-      `insert into agents (id, slug, name, model, system_prompt_md, parent_id)
-       select $1 || g, $2 || '-' || g, 'Bulk child ' || g, 'claude-sonnet-5-5', 'bulk', $3
+      `insert into agents (id, slug, name, model, system_prompt_md, parent_id, created_by, owner_business_id)
+       select $1 || g, $2 || '-' || g, 'Bulk child ' || g, 'claude-sonnet-5-5', 'bulk', $3, 'bootstrap-admin', 'bootstrap-admin'
        from generate_series(1, 21) g`,
       [idPrefix, slugPrefix, root.id],
     );

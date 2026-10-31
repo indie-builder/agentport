@@ -12,12 +12,23 @@ const { db, pool } = createDb(
 );
 const agentId = newId('agent');
 const conversationId = newId('conversation');
+const testSubject = { kind: 'user' as const, businessId: 'integrity-owner' };
 
 beforeAll(async () => {
-  await db
-    .insert(agents)
-    .values({ id: agentId, slug: `integrity-${agentId}`, name: 'integrity', model: 'test' });
-  await chat.createConversation(db, { id: conversationId, agentId, title: 'source' });
+  await db.insert(agents).values({
+    id: agentId,
+    slug: `integrity-${agentId}`,
+    name: 'integrity',
+    model: 'test',
+    createdBy: testSubject.businessId,
+    ownerBusinessId: testSubject.businessId,
+  });
+  await chat.createConversation(db, {
+    id: conversationId,
+    agentId,
+    title: 'source',
+    subject: testSubject,
+  });
 });
 
 afterAll(async () => {
@@ -31,7 +42,7 @@ describe('history integrity', () => {
     const messageId = newId('message');
     const branchId = newId('conversation');
     const at = new Date(Date.now() - 36_501 * 86_400_000);
-    await chat.createRun(db, { id: runId, conversationId, agentId });
+    await chat.createRun(db, { id: runId, conversationId, agentId, subject: testSubject });
     await chat.updateRun(db, runId, { status: 'succeeded', startedAt: at, endedAt: at });
     await chat.insertMessages(db, [
       {
@@ -39,6 +50,7 @@ describe('history integrity', () => {
         conversationId,
         runId,
         role: 'user',
+        senderBusinessId: testSubject.businessId,
         content: { text: 'keep this' },
         sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
         createdAt: at,
@@ -48,7 +60,12 @@ describe('history integrity', () => {
       .update(conversations)
       .set({ sdkSessionId: '66666666-7777-4888-8999-000000000000' })
       .where(eq(conversations.id, conversationId));
-    await chat.branchConversation(db, { id: branchId, conversationId, fromMessageId: messageId });
+    await chat.branchConversation(db, {
+      id: branchId,
+      conversationId,
+      fromMessageId: messageId,
+      subject: testSubject,
+    });
     const [copy] = await chat.listMessages(db, branchId);
     expect(copy?.createdAt).toEqual(at);
     expect(copy?.runId).toBeNull();
@@ -70,7 +87,12 @@ describe('history integrity', () => {
   it('returns the source → branch message id map for output snapshot copying', async () => {
     const conv = newId('conversation');
     const branchId = newId('conversation');
-    await chat.createConversation(db, { id: conv, agentId, title: 'map source' });
+    await chat.createConversation(db, {
+      id: conv,
+      agentId,
+      title: 'map source',
+      subject: testSubject,
+    });
     await db
       .update(conversations)
       .set({ sdkSessionId: '77777777-8888-4999-8aaa-bbbbbbbbbbbb' })
@@ -80,6 +102,7 @@ describe('history integrity', () => {
         id: newId('message'),
         conversationId: conv,
         role: 'user',
+        senderBusinessId: testSubject.businessId,
         content: { text: 'first' },
         sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
       },
@@ -93,7 +116,11 @@ describe('history integrity', () => {
     ]);
     const source = await chat.listMessages(db, conv);
 
-    const branched = await chat.branchConversation(db, { id: branchId, conversationId: conv });
+    const branched = await chat.branchConversation(db, {
+      id: branchId,
+      conversationId: conv,
+      subject: testSubject,
+    });
     if (!branched) throw new Error('branchConversation returned null');
     // 映射只含被复制的历史消息，且新 id 全部指向分支里的真实行。
     expect(Object.keys(branched.messageIds).sort()).toEqual(source.map((row) => row.id).sort());
@@ -105,8 +132,13 @@ describe('history integrity', () => {
   it('keeps SDK session state consistent through the run finish path', async () => {
     const conv = newId('conversation');
     const runId = newId('run');
-    await chat.createConversation(db, { id: conv, agentId, title: 'sdk state' });
-    await chat.createRun(db, { id: runId, conversationId: conv, agentId });
+    await chat.createConversation(db, {
+      id: conv,
+      agentId,
+      title: 'sdk state',
+      subject: testSubject,
+    });
+    await chat.createRun(db, { id: runId, conversationId: conv, agentId, subject: testSubject });
     await db
       .update(agentRuns)
       .set({ status: 'running', startedAt: new Date() })
@@ -116,6 +148,7 @@ describe('history integrity', () => {
       id: newId('message'),
       conversationId: conv,
       role: 'user',
+      senderBusinessId: testSubject.businessId,
       content: { text: 'hi' },
       runId,
       sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
@@ -149,15 +182,25 @@ describe('history integrity', () => {
 
   it('rejects branching when no SDK session exists yet', async () => {
     const conv = newId('conversation');
-    await chat.createConversation(db, { id: conv, agentId, title: 'no session' });
+    await chat.createConversation(db, {
+      id: conv,
+      agentId,
+      title: 'no session',
+      subject: testSubject,
+    });
     await chat.appendMessage(db, {
       id: newId('message'),
       conversationId: conv,
       role: 'user',
+      senderBusinessId: testSubject.businessId,
       content: { text: 'hi' },
     });
     await expect(
-      chat.branchConversation(db, { id: newId('conversation'), conversationId: conv }),
+      chat.branchConversation(db, {
+        id: newId('conversation'),
+        conversationId: conv,
+        subject: testSubject,
+      }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 
@@ -166,7 +209,12 @@ describe('history integrity', () => {
     const branchId = newId('conversation');
     const marker = 'injected branch rollback marker';
     const total = 501;
-    await chat.createConversation(db, { id: conv, agentId, title: 'rollback source' });
+    await chat.createConversation(db, {
+      id: conv,
+      agentId,
+      title: 'rollback source',
+      subject: testSubject,
+    });
     await db
       .update(conversations)
       .set({ sdkSessionId: '66666666-7777-4888-8999-000000000000' })
@@ -175,6 +223,7 @@ describe('history integrity', () => {
       id: newId('message'),
       conversationId: conv,
       role: 'user' as const,
+      senderBusinessId: testSubject.businessId,
       content: { text: index === 500 ? marker : `m${index}` },
       sdkMessageUuid: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
       createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
@@ -200,7 +249,7 @@ describe('history integrity', () => {
 
     try {
       await expect(
-        chat.branchConversation(db, { id: branchId, conversationId: conv }),
+        chat.branchConversation(db, { id: branchId, conversationId: conv, subject: testSubject }),
       ).rejects.toMatchObject({
         cause: { message: expect.stringMatching(/injected branch rollback failure/) },
       });
@@ -231,15 +280,21 @@ describe('history integrity', () => {
     const runId = newId('run');
     const evalRunId = newId('evalRun');
     const caseId = newId('evalCase');
-    await chat.createConversation(db, { id: conv, agentId, title: 'eval' });
-    await chat.createRun(db, { id: runId, conversationId: conv, agentId });
+    await chat.createConversation(db, { id: conv, agentId, title: 'eval', subject: testSubject });
+    await chat.createRun(db, { id: runId, conversationId: conv, agentId, subject: testSubject });
     await evalRepo.createCase(db, caseId, {
       agentId,
       name: 'original case',
       prompt: 'p',
       expectation: 'e',
+      createdBy: testSubject.businessId,
     });
-    await evalRepo.createEvalRun(db, { id: evalRunId, agentId, total: 1 });
+    await evalRepo.createEvalRun(db, {
+      id: evalRunId,
+      agentId,
+      total: 1,
+      createdBy: testSubject.businessId,
+    });
     await evalRepo.addResult(db, {
       id: newId('evalResult'),
       evalRunId,
@@ -273,17 +328,17 @@ describe('database trust boundaries', () => {
     ],
     [
       'agent_runs',
-      `insert into agent_runs (id, conversation_id, agent_id, status) values ($1, $2, '${agentId}', 'unknown')`,
+      `insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by) values ($1, $2, '${agentId}', 'unknown', 'user', '${testSubject.businessId}')`,
       conversationId,
     ],
     [
       'agents permission',
-      "insert into agents (id, slug, name, model, permission_mode) values ($1, $1, 'bad', 'test', 'auto')",
+      `insert into agents (id, slug, name, model, permission_mode, created_by, owner_business_id) values ($1, $1, 'bad', 'test', 'auto', '${testSubject.businessId}', '${testSubject.businessId}')`,
       null,
     ],
     [
       'agents tools',
-      "insert into agents (id, slug, name, model, allowed_tools) values ($1, $1, 'bad', 'test', '[1]')",
+      `insert into agents (id, slug, name, model, allowed_tools, created_by, owner_business_id) values ($1, $1, 'bad', 'test', '[1]', '${testSubject.businessId}', '${testSubject.businessId}')`,
       null,
     ],
     [
@@ -293,7 +348,7 @@ describe('database trust boundaries', () => {
     ],
     [
       'eval_runs',
-      "insert into eval_runs (id, agent_id, status) values ($1, $2, 'unknown')",
+      `insert into eval_runs (id, agent_id, status, created_by) values ($1, $2, 'unknown', '${testSubject.businessId}')`,
       agentId,
     ],
   ])('rejects unsupported %s values', async (_name, query, parentId) => {

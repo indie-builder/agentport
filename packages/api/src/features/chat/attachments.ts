@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { isAppError, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { authorizeObject } from '../access.js';
 import { contentDisposition } from './outputs.js';
 
 const attachmentParams = z.object({
@@ -19,7 +20,10 @@ export function registerAttachmentRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/conversations/:id/attachments/:attachmentId/download',
-    { preHandler: [rawApp.requireAuth], schema: { params: attachmentParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'conversations.read' } },
+      schema: { params: attachmentParams },
+    },
     async (request, reply) => {
       const conversation = await repo.chat.getConversation(app.db, request.params.id);
       if (!conversation) {
@@ -29,6 +33,13 @@ export function registerAttachmentRoutes(rawApp: FastifyInstance): void {
           '会话不存在，可能已被删除；请从会话列表重新打开',
         );
       }
+      await authorizeObject(
+        app,
+        request,
+        'conversations.read',
+        { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+        '会话不存在，可能已被删除；请从会话列表重新打开',
+      );
       // 只接受本会话消息实际引用的附件；跨会话或伪造 id 与不存在同义。
       const attachment = await repo.chat.findConversationAttachment(
         app.db,

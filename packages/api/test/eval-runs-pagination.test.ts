@@ -11,6 +11,7 @@ import {
   loginCookie,
   startApp,
   unique,
+  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 const ready = await infraReady;
@@ -56,11 +57,12 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     const id = newId('evalRun');
     await app.pool.query(
       `insert into eval_runs
-         (id, agent_id, status, total, passed, error, created_at, claimed_at, case_snapshot)
-       values ($1, $2, 'succeeded', $3, 0, $4, $5, now(), $6)`,
+         (id, agent_id, created_by, status, total, passed, error, created_at, claimed_at, case_snapshot)
+       values ($1, $2, $3, 'succeeded', $4, 0, $5, $6, now(), $7)`,
       [
         id,
         agentId,
+        ADMIN_BUSINESS_ID,
         total,
         error ?? null,
         createdAt,

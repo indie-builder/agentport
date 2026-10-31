@@ -1,4 +1,4 @@
-import type { PublicRunQuestion } from '@agentport/shared';
+import { DEFAULT_ROLES, type PublicRunQuestion } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createMemoryHistory,
@@ -19,6 +19,12 @@ import { runDetailSearchSchema } from '../src/routes/-search.js';
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
 const at = '2026-10-28T00:00:00Z';
+const adminMe = {
+  authenticated: true as const,
+  user: { businessId: 'admin', username: 'admin', name: '管理员' },
+  roles: [],
+  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+};
 
 const question: PublicRunQuestion = {
   requestId: 'qreq_1',
@@ -135,6 +141,7 @@ beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
+  client.setQueryData(['me'], adminMe);
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -251,6 +258,7 @@ describe('run detail answers a live question', () => {
     client = new QueryClient({
       defaultOptions: { queries: { retry: false, refetchOnMount: 'always' } },
     });
+    client.setQueryData(['me'], adminMe);
     client
       .getQueryCache()
       .build(client, { queryKey: runQuestionsQueryKey('run-1') })

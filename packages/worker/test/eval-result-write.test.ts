@@ -14,7 +14,16 @@ const mocks = vi.hoisted(() => ({
   queueAdd: vi.fn(),
   waitUntilReady: vi.fn(async () => undefined),
   waitUntilFinished: vi.fn(async () => undefined),
+  checkAccess: vi.fn(async () => ({
+    denial: null,
+    grants: [{ permissionId: 'eval.read' as const, scope: 'owned_agents' as const }],
+  })),
 }));
+
+vi.mock('../src/run-access.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/run-access.js')>();
+  return { ...actual, loadUserAgentAccess: mocks.checkAccess };
+});
 
 vi.mock('bullmq', () => ({
   Queue: class {
@@ -42,6 +51,7 @@ const logger = {
 } as unknown as Logger;
 
 type CaseInput = { name: string; prompt: string; expectation: string };
+const evalBusinessId = 'eval-write-owner';
 
 async function seed(cases: CaseInput[]) {
   const agentId = newId('agent');
@@ -50,9 +60,13 @@ async function seed(cases: CaseInput[]) {
     slug: `eval-write-${randomUUID().slice(0, 8)}`,
     name: 'eval-write',
     model: 'test',
+    createdBy: evalBusinessId,
+    ownerBusinessId: evalBusinessId,
   });
   const snapshot = cases.map((testCase) => ({ id: newId('evalCase'), ...testCase }));
-  await db.insert(schema.evalCases).values(snapshot.map((testCase) => ({ ...testCase, agentId })));
+  await db
+    .insert(schema.evalCases)
+    .values(snapshot.map((testCase) => ({ ...testCase, agentId, createdBy: evalBusinessId })));
   const evalRunId = newId('evalRun');
   await db.insert(schema.evalRuns).values({
     id: evalRunId,
@@ -60,6 +74,7 @@ async function seed(cases: CaseInput[]) {
     status: 'running',
     total: snapshot.length,
     caseSnapshot: snapshot,
+    createdBy: evalBusinessId,
   });
   return { agentId, evalRunId, snapshot };
 }
@@ -176,6 +191,8 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       name: 'eval-child',
       model: 'test',
       parentId: agentId,
+      createdBy: evalBusinessId,
+      ownerBusinessId: evalBusinessId,
     });
 
     const client = await dbHandle.pool.connect();

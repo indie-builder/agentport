@@ -18,6 +18,7 @@ import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { serverTestRateLimit } from '../../plugins/security.js';
 import { typed } from '../../types.js';
+import { actorOf } from '../access.js';
 import { connectorCatalog } from './connector-catalog-data.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
@@ -111,19 +112,18 @@ function rethrowConflict(err: unknown): never {
 /** schema 声明即校验与类型来源；handler 里不再 safeParse。 */
 export function registerServerRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [app.requireAuth] };
   const key = (): string => app.config.APP_SECRET_KEY;
 
-  app.get('/api/servers', auth, async () => repo.listServers(app.db, key()));
+  app.get('/api/servers', { config: { access: { kind: 'permission', permissionId: 'servers.read' } } }, async () => repo.listServers(app.db, key()));
 
   // 连接器目录（策划清单）：只读，用于浏览并预填创建表单，绝不执行任何命令。
-  app.get('/api/connector-catalog', auth, async () =>
+  app.get('/api/connector-catalog', { config: { access: { kind: 'permission', permissionId: 'servers.read' } } }, async () =>
     connectorCatalogSchema.parse(connectorCatalog),
   );
 
   app.post(
     '/api/servers',
-    { ...auth, schema: { body: serverInputSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'servers.create' } }, schema: { body: serverInputSchema } },
     async (request, reply) => {
       const input = request.body;
       try {
@@ -135,7 +135,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
         }
         const created = await repo.createServer(app.db, input, key());
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'server.created',
           target: created.id,
           input,
@@ -156,7 +156,11 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
    */
   app.post(
     '/api/servers/import-file',
-    { ...auth, bodyLimit: 8 * 1024 * 1024, schema: { body: importFileSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.import' } },
+      bodyLimit: 8 * 1024 * 1024,
+      schema: { body: importFileSchema },
+    },
     async (request, reply) => {
       const inputs = request.body;
       // http 地址在写库前逐条检查；stdio 不执行、不联网。
@@ -166,7 +170,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       try {
         const servers = await repo.createServers(app.db, inputs, key());
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'server.imported',
           // 批次没有单一目标；审计只存摘要，配置与密钥原文都不入库。
           input: { count: servers.length, names: servers.map((server) => server.name) },
@@ -180,7 +184,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/servers/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
+  app.get('/api/servers/:id', { config: { access: { kind: 'permission', permissionId: 'servers.read' } }, schema: { params: idParams } }, async (request, reply) => {
     const server = await repo.getServer(app.db, request.params.id, key());
     return server ?? notFound(reply, 'server');
   });
@@ -188,7 +192,10 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
   /** 只返回掩码与端点；明文只由 rotate 返回一次。 */
   app.get(
     '/api/servers/:id/token',
-    { ...auth, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.tokens.read' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
@@ -210,7 +217,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/servers/:id/rotate-token',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'servers.tokens.rotate' } }, schema: { params: idParams } },
     async (request, reply) => {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
@@ -224,7 +231,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const token = await repo.rotateMcpToken(app.db, row.id);
       if (!token) return notFound(reply, 'server');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'server.token.rotated',
         target: row.id,
         status: 'ok',
@@ -236,7 +243,10 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/servers/:id',
-    { ...auth, schema: { params: idParams, body: serverPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.update' } },
+      schema: { params: idParams, body: serverPatchSchema },
+    },
     async (request, reply) => {
       const { id } = request.params;
       const body = request.body;
@@ -256,7 +266,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
         const updated = await repo.updateServer(app.db, id, body, key(), body.expectedUpdatedAt);
         if (!updated) return notFound(reply, 'server');
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'server.updated',
           target: updated.id,
           input: body,
@@ -272,7 +282,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/servers/:id',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'servers.delete' } }, schema: { params: idParams } },
     async (request, reply) => {
       // 知识库连接随知识库删除，不能从这里单独删掉。
       const row = await repo.getServerRow(app.db, request.params.id);
@@ -282,7 +292,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       const ok = await repo.deleteServer(app.db, request.params.id);
       if (!ok) return notFound(reply, 'server');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'server.deleted',
         target: request.params.id,
         status: 'ok',
@@ -294,7 +304,14 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/servers/:id/test',
-    { ...auth, ...serverTestRateLimit, schema: { params: idParams, body: serverTestBodySchema } },
+    {
+      ...serverTestRateLimit,
+      config: {
+        ...serverTestRateLimit.config,
+        access: { kind: 'permission', permissionId: 'servers.test' },
+      },
+      schema: { params: idParams, body: serverTestBodySchema },
+    },
     async (request, reply) => {
       const server = await getServerWithSecrets(app.db, request.params.id, key());
       if (!server) return notFound(reply, 'server');
@@ -326,7 +343,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
               request.log,
             );
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'mcp.server.tested',
         target: server.id,
         // 失败原因（含脱敏后的 stderr 摘要）进 digest：审计表没有 detail 列，
@@ -364,7 +381,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/servers/:id/tools',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'servers.read' } }, schema: { params: idParams } },
     async (request, reply) => {
       if (!(await dbRepo.servers.serverExists(app.db, request.params.id))) {
         return notFound(reply, 'server');
@@ -375,7 +392,10 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/servers/:id/tools',
-    { ...auth, schema: { params: idParams, body: apiToolInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.tools.manage' } },
+      schema: { params: idParams, body: apiToolInputSchema },
+    },
     async (request, reply) => {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
@@ -389,7 +409,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       try {
         const tool = await repo.createTool(app.db, request.params.id, request.body);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'server.tool.created',
           target: request.params.id,
           input: { name: request.body.name, method: request.body.method },
@@ -405,7 +425,10 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/servers/:id/tools/:toolId',
-    { ...auth, schema: { params: toolParams, body: toolPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.tools.manage' } },
+      schema: { params: toolParams, body: toolPatchSchema },
+    },
     async (request, reply) => {
       const { id, toolId } = request.params;
       const body = request.body;
@@ -429,7 +452,7 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
       }
       if (!tool) return notFound(reply, 'tool');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'server.tool.updated',
         target: id,
         input: { toolId, name: tool.name, ...patch },
@@ -442,13 +465,16 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/servers/:id/tools/:toolId',
-    { ...auth, schema: { params: toolParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.tools.manage' } },
+      schema: { params: toolParams },
+    },
     async (request, reply) => {
       const { id, toolId } = request.params;
       const ok = await repo.deleteTool(app.db, id, toolId);
       if (!ok) return notFound(reply, 'tool');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'server.tool.deleted',
         target: id,
         input: { toolId },

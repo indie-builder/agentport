@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
 import { MemoryPage } from '../src/pages/memory.js';
 import { memorySearchSchema } from '../src/routes/-search.js';
+import { allAccessMe } from './me-fixture.js';
 
 const agentA: Agent = {
   id: 'agent-a',
@@ -209,7 +210,7 @@ async function fill(id: string, value: string) {
 }
 
 beforeEach(() => {
-  vi.spyOn(api, 'me').mockResolvedValue({ authenticated: true, username: 'admin' });
+  vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
   vi.spyOn(api, 'agents').mockResolvedValue([agentA, agentB]);
   vi.spyOn(api, 'personalMemory').mockResolvedValue({
     content: '',
@@ -244,6 +245,7 @@ beforeEach(() => {
     },
   });
   client.setQueryData(['agents'], [agentA, agentB]);
+  client.setQueryData(['me'], allAccessMe);
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

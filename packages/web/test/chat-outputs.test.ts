@@ -1,4 +1,5 @@
 import {
+  DEFAULT_ROLES,
   agentInputSchema,
   type OutputContent,
   type OutputFile,
@@ -26,6 +27,12 @@ import { chatSearchSchema } from '../src/routes/-search.js';
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
 const sha = 'a'.repeat(64);
+const adminMe = {
+  authenticated: true as const,
+  user: { businessId: 'admin', username: 'admin', name: '管理员' },
+  roles: [],
+  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+};
 const agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'agent-a',
@@ -281,6 +288,7 @@ beforeEach(() => {
   }));
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(['me'], adminMe);
   client.setQueryData(['agents'], [agent]);
   objectUrlSeed = 0;
   vi.spyOn(api, 'agents').mockResolvedValue([agent]);
@@ -2305,8 +2313,10 @@ describe('output refresh and conversation isolation', () => {
         search: { agent: 'agent-a', conversation: 'conversation-b' },
       });
     });
-    await flush();
-    expect(workspace().textContent).toContain('other.md');
+    // 整包并行时固定 tick 可能早于会话成果查询落库，等真实渲染再断言。
+    await act(async () => {
+      await vi.waitFor(() => expect(workspace().textContent).toContain('other.md'));
+    });
 
     await act(async () => resolveFirst(list));
     await flush();

@@ -1,7 +1,7 @@
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ADMIN_USER_ID, repo } from '@agentport/db';
+import { repo } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -17,7 +17,7 @@ import {
   loginCookie,
   testConfig,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID,} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -60,15 +60,15 @@ describe.skipIf(!ready)('memory changes', () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await app.pool.query('delete from memory_changes where user_id = $1', [ADMIN_USER_ID]);
-    await app.pool.query('delete from user_preferences where user_id = $1', [ADMIN_USER_ID]);
-    await rm(personalMemoryDir(root), { recursive: true, force: true });
+    await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await app.pool.query('delete from user_preferences where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await rm(personalMemoryDir(root, ADMIN_BUSINESS_ID), { recursive: true, force: true });
   });
 
   afterAll(async () => {
     try {
-      await app.pool.query('delete from memory_changes where user_id = $1', [ADMIN_USER_ID]);
-      await app.pool.query('delete from user_preferences where user_id = $1', [ADMIN_USER_ID]);
+      await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
+      await app.pool.query('delete from user_preferences where business_id = $1', [ADMIN_BUSINESS_ID]);
       await cleanup(app, { agentSlugs });
     } finally {
       await releaseLock?.();
@@ -105,7 +105,7 @@ describe.skipIf(!ready)('memory changes', () => {
     after: { content: string | null; globs: string | null };
   }): Promise<string> {
     const row = await repo.memoryChanges.insert(app.db, {
-      userId: ADMIN_USER_ID,
+      businessId: ADMIN_BUSINESS_ID,
       agentId: input.agentId ?? null,
       target: input.target,
       before: input.before,
@@ -291,10 +291,11 @@ describe.skipIf(!ready)('memory changes', () => {
       id: unique('change-conv'),
       agentId: agent.id,
       title: 'active',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     const runId = unique('change-run');
     await app.pool.query(
-      "insert into agent_runs (id, conversation_id, agent_id, status) values ($1, $2, $3, 'queued')",
+      "insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by) values ($1, $2, $3, 'queued', 'user', 'bootstrap-admin')",
       [runId, conversation.id, agent.id],
     );
 
@@ -312,7 +313,7 @@ describe.skipIf(!ready)('memory changes', () => {
         url: `/api/agents/${unique('missing')}/memory/MEMORY.md/versions`,
         headers: auth(),
       }),
-      'AGENT_NOT_FOUND',
+      'NOT_FOUND',
     );
   });
 

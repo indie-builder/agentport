@@ -8,10 +8,11 @@ import {
   outputPathSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { isAppError, reject } from '../../plugins/errors.js';
+import { AppError, isAppError, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { authorizeObject } from '../access.js';
 import { openUiActionContent } from './openui-actions.js';
 
 /** 正文预览上限：超过只提供原件下载，绝不截断后冒充完整文本。 */
@@ -45,6 +46,22 @@ export function decodeUtf8(data: Buffer): string | null {
 
 function conversationNotFound(reply: FastifyReply) {
   return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请从会话列表重新打开');
+}
+
+/** 成果与附件同属会话私有正文：只对本人 O 或对应叶 P 开放。 */
+async function loadConversation(app: FastifyInstance, request: FastifyRequest, id: string) {
+  const conversation = await repo.chat.getConversation(app.db, id);
+  if (!conversation) {
+    throw new AppError('CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请从会话列表重新打开');
+  }
+  await authorizeObject(
+    app,
+    request,
+    'conversations.read',
+    { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+    '会话不存在，可能已被删除；请从会话列表重新打开',
+  );
+  return conversation;
 }
 
 /** 会话所属智能体的工作区目录名；会话行存在时一定找得到（外键级联删除）。 */
@@ -154,14 +171,15 @@ export function safeMediaType(mediaType: string): string {
 
 export function registerOutputRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
+  const auth = {
+    config: { access: { kind: 'permission', permissionId: 'conversations.read' } as const },
+  };
 
   app.get(
     '/api/conversations/:id/outputs',
     { ...auth, schema: { params: ownerParams, querystring: listQuery } },
     async (request, reply) => {
-      const conversation = await repo.chat.getConversation(app.db, request.params.id);
-      if (!conversation) return conversationNotFound(reply);
+      const conversation = await loadConversation(app, request, request.params.id);
       const slug = await agentSlug(app, conversation.agentId);
       if (slug === null) return { items: [], nextBefore: null };
       const { limit, before } = request.query;
@@ -189,8 +207,7 @@ export function registerOutputRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id/outputs/:runId',
     { ...auth, schema: { params: fileParams, querystring: fileQuery } },
     async (request, reply) => {
-      const conversation = await repo.chat.getConversation(app.db, request.params.id);
-      if (!conversation) return conversationNotFound(reply);
+      const conversation = await loadConversation(app, request, request.params.id);
       const slug = await agentSlug(app, conversation.agentId);
       if (slug === null) return reject(reply, 'NOT_FOUND', '成果文件不存在，可能已被清理');
       try {
@@ -214,8 +231,7 @@ export function registerOutputRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id/outputs/:runId/content',
     { ...auth, schema: { params: fileParams, querystring: fileQuery } },
     async (request, reply) => {
-      const conversation = await repo.chat.getConversation(app.db, request.params.id);
-      if (!conversation) return conversationNotFound(reply);
+      const conversation = await loadConversation(app, request, request.params.id);
       const slug = await agentSlug(app, conversation.agentId);
       if (slug === null) return reject(reply, 'NOT_FOUND', '成果文件不存在，可能已被清理');
       const { file, data } = await readOutputFile({
@@ -243,8 +259,7 @@ export function registerOutputRoutes(rawApp: FastifyInstance): void {
     '/api/conversations/:id/outputs/:runId/download',
     { ...auth, schema: { params: fileParams, querystring: fileQuery } },
     async (request, reply) => {
-      const conversation = await repo.chat.getConversation(app.db, request.params.id);
-      if (!conversation) return conversationNotFound(reply);
+      const conversation = await loadConversation(app, request, request.params.id);
       const slug = await agentSlug(app, conversation.agentId);
       if (slug === null) return reject(reply, 'NOT_FOUND', '成果文件不存在，可能已被清理');
       const { file, data } = await readOutputFile({

@@ -90,11 +90,13 @@ import {
 import { Textarea } from '../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { ApiError, api } from '../lib/api.js';
+import { can } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration, shortId } from '../lib/format.js';
 import {
   connectorCatalogQuery,
+  meQuery,
   useAgents,
   useCreateServer,
   useCreateTool,
@@ -168,6 +170,14 @@ function detailOf(server: Server): string {
 }
 
 export function ServersPage() {
+  const me = useQuery(meQuery);
+  const canCreate = can(me.data, 'servers.create');
+  const canImport = can(me.data, 'servers.import');
+  const canUpdate = can(me.data, 'servers.update');
+  const canDelete = can(me.data, 'servers.delete');
+  const canTest = can(me.data, 'servers.test');
+  const canTools = can(me.data, 'servers.tools.manage');
+  const canTokens = can(me.data, 'servers.tokens.read');
   const servers = useServers();
   const agents = useAgents();
   const environments = useRuntimeEnvironments();
@@ -233,7 +243,7 @@ export function ServersPage() {
   const agentCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const agent of agents.data ?? []) {
-      for (const serverId of agent.serverIds) {
+      for (const serverId of agent.serverIds ?? []) {
         counts.set(serverId, (counts.get(serverId) ?? 0) + 1);
       }
     }
@@ -339,6 +349,7 @@ export function ServersPage() {
               if (file) void importFile(file);
             }}
           />
+          {canImport ? (
           <Button
             variant="outline"
             disabled={importMcp.isPending}
@@ -348,6 +359,9 @@ export function ServersPage() {
             <Upload data-icon="inline-start" aria-hidden="true" />{' '}
             {importMcp.isPending ? '导入中…' : '导入 .mcp.json'}
           </Button>
+          ) : null}
+          {canCreate ? (
+          <>
           <Button
             variant="outline"
             onClick={(event) => {
@@ -360,6 +374,8 @@ export function ServersPage() {
           <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
             <Plus data-icon="inline-start" /> 新建连接器
           </Button>
+          </>
+          ) : null}
         </>
       }
     >
@@ -377,9 +393,11 @@ export function ServersPage() {
           title="把外部服务接成专家可用的工具"
           description="本地命令、远程 MCP 或 HTTP API 都可以。"
           action={
-            <Button onClick={(event) => openCreate(event.currentTarget)}>
-              <Plus data-icon="inline-start" /> 新建连接器
-            </Button>
+            canCreate ? (
+              <Button onClick={(event) => openCreate(event.currentTarget)}>
+                <Plus data-icon="inline-start" /> 新建连接器
+              </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -441,6 +459,11 @@ export function ServersPage() {
                   triggerRef.current = trigger;
                   setDeleting(server);
                 }}
+                canTest={canTest}
+                canTools={canTools}
+                canTokens={canTokens}
+                canUpdate={canUpdate}
+                canDelete={canDelete}
               />
             </li>
           ))}
@@ -683,6 +706,11 @@ function ServerCard({
   onCatalog,
   onEdit,
   onDelete,
+  canTest,
+  canTools,
+  canTokens,
+  canUpdate,
+  canDelete,
 }: {
   server: Server;
   agentCount: number | '未知' | '加载中…';
@@ -695,6 +723,11 @@ function ServerCard({
   onCatalog: (trigger: HTMLElement) => void;
   onEdit: (trigger: HTMLElement) => void;
   onDelete: (trigger: HTMLElement) => void;
+  canTest: boolean;
+  canTools: boolean;
+  canTokens: boolean;
+  canUpdate: boolean;
+  canDelete: boolean;
 }) {
   const generated = server.kind === 'generated';
   const toolCount = lastTest?.result.ok
@@ -741,40 +774,50 @@ function ServerCard({
             />
             <DropdownMenuContent align="end" sideOffset={4} className="w-40">
               <DropdownMenuGroup>
-                <DropdownMenuItem
-                  disabled={testPending}
-                  onClick={() => menuTriggerRef.current && onTest(menuTriggerRef.current)}
-                >
-                  <Plug /> {testing ? '测试中…' : '测试连接'}
-                </DropdownMenuItem>
-                {generated ? (
+                {canTest ? (
+                  <DropdownMenuItem
+                    disabled={testPending}
+                    onClick={() => menuTriggerRef.current && onTest(menuTriggerRef.current)}
+                  >
+                    <Plug /> {testing ? '测试中…' : '测试连接'}
+                  </DropdownMenuItem>
+                ) : null}
+                {generated && (canTools || canTokens) ? (
                   <>
-                    <DropdownMenuItem
-                      onClick={() => menuTriggerRef.current && onTools(menuTriggerRef.current)}
-                    >
-                      <Wrench /> 工具定义
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => menuTriggerRef.current && onConnection(menuTriggerRef.current)}
-                    >
-                      <KeyRound /> 连接信息
-                    </DropdownMenuItem>
+                    {canTools ? (
+                      <DropdownMenuItem
+                        onClick={() => menuTriggerRef.current && onTools(menuTriggerRef.current)}
+                      >
+                        <Wrench /> 工具定义
+                      </DropdownMenuItem>
+                    ) : null}
+                    {canTokens ? (
+                      <DropdownMenuItem
+                        onClick={() => menuTriggerRef.current && onConnection(menuTriggerRef.current)}
+                      >
+                        <KeyRound /> 连接信息
+                      </DropdownMenuItem>
+                    ) : null}
                   </>
                 ) : null}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem
-                  onClick={() => menuTriggerRef.current && onEdit(menuTriggerRef.current)}
-                >
-                  <Pencil /> 编辑
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => menuTriggerRef.current && onDelete(menuTriggerRef.current)}
-                >
-                  <Trash2 /> 删除
-                </DropdownMenuItem>
+                {canUpdate ? (
+                  <DropdownMenuItem
+                    onClick={() => menuTriggerRef.current && onEdit(menuTriggerRef.current)}
+                  >
+                    <Pencil /> 编辑
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete ? (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => menuTriggerRef.current && onDelete(menuTriggerRef.current)}
+                  >
+                    <Trash2 /> 删除
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -818,6 +861,7 @@ function ServerCard({
           variant="outline"
           size="sm"
           aria-label={`编辑 ${server.name}`}
+          className={canUpdate ? undefined : 'hidden'}
           onClick={(event) => onEdit(event.currentTarget)}
         >
           <Pencil data-icon="inline-start" /> 编辑
@@ -1118,7 +1162,7 @@ function DeleteServerDialog({
   const tools = useTools(server.kind === 'generated' ? server.id : null);
   const [typed, setTyped] = useState('');
 
-  const bound = (agents.data ?? []).filter((agent) => agent.serverIds.includes(server.id));
+  const bound = (agents.data ?? []).filter((agent) => (agent.serverIds ?? []).includes(server.id));
   const toolCount = tools.data?.length ?? 0;
   const loading = agents.isPending || (server.kind === 'generated' && tools.isPending);
   const unknown = agents.isError || (server.kind === 'generated' && tools.isError);

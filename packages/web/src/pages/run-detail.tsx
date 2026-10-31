@@ -1,4 +1,5 @@
 import type { PublicRunQuestion } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -18,6 +19,7 @@ import { RunQuestionCard } from '../components/run-question.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import type { ApprovalRequest, RunStep } from '../lib/api.js';
+import { can } from '../lib/access.js';
 import { questionFromContent } from '../lib/chat-state.js';
 import { cn } from '../lib/cn.js';
 import {
@@ -29,6 +31,7 @@ import {
   shortId,
 } from '../lib/format.js';
 import {
+  meQuery,
   useApproveRun,
   useCancelRun,
   useRerun,
@@ -57,6 +60,11 @@ export function RunDetailPage() {
   const params = useParams({ from: '/_shell/runs/$runId' });
   const search = useSearch({ from: '/_shell/runs/$runId' });
   const run = useRun(params.runId);
+  const me = useQuery(meQuery);
+  const canCancel = can(me.data, 'runs.cancel');
+  const canApprove = can(me.data, 'runs.approve');
+  const canAnswer = can(me.data, 'runs.questions.answer');
+  const canRerun = can(me.data, 'conversations.create');
   const navigate = useNavigate();
   // 状态尚未读取或仍在排队时也轮询，终态转换负责最后刷新。
   const status = run.data?.run.status;
@@ -166,7 +174,7 @@ export function RunDetailPage() {
         actions={
           run.data ? (
             <>
-              {cancellable ? (
+              {cancellable && canCancel ? (
                 <Button
                   variant="outline"
                   disabled={cancelMutation.isPending}
@@ -178,7 +186,7 @@ export function RunDetailPage() {
                   {cancelMutation.isPending ? '取消中…' : '取消'}
                 </Button>
               ) : null}
-              {terminal && hasPrompt ? (
+              {terminal && hasPrompt && canRerun ? (
                 <Button
                   disabled={rerunMutation.isPending}
                   aria-busy={rerunMutation.isPending}
@@ -188,7 +196,7 @@ export function RunDetailPage() {
                   {rerunMutation.isPending ? '提交中…' : '重跑'}
                 </Button>
               ) : null}
-              {terminal && hasPrompt ? (
+              {terminal && hasPrompt && canRerun ? (
                 <Button
                   variant="outline"
                   disabled={draftMutation.isPending}
@@ -335,6 +343,7 @@ export function RunDetailPage() {
                         ? `等待至 ${formatDateTime(item.expiresAt)}`
                         : '本次调用已结束等待'}
                     </span>
+                    {canApprove ? (
                     <Button
                       size="sm"
                       className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
@@ -350,6 +359,7 @@ export function RunDetailPage() {
                             : `批准后续 ${item.serverName ?? item.serverId} / ${item.toolName}`}
                       </span>
                     </Button>
+                    ) : null}
                   </div>
                 );
               })}
@@ -361,7 +371,11 @@ export function RunDetailPage() {
       {orphanQuestions.length > 0 ? (
         <div className="flex flex-col gap-3">
           {orphanQuestions.map((question) => (
-            <RunQuestionCard key={question.requestId} question={question} live={cancellable} />
+            <RunQuestionCard
+              key={question.requestId}
+              question={question}
+              live={cancellable && canAnswer}
+            />
           ))}
         </div>
       ) : null}
@@ -435,7 +449,7 @@ export function RunDetailPage() {
               step={activeStep}
               index={activeIndex}
               question={questionForStep(activeStep, liveQuestions, cancellable)}
-              live={cancellable}
+              live={cancellable && canAnswer}
             />
           ) : null}
         </section>

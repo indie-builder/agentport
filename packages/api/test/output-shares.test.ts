@@ -17,7 +17,7 @@ import {
   loginCookie,
   testConfig,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID, } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -61,7 +61,12 @@ describe.skipIf(!ready)('output shares', () => {
 
   const newConversation = async (agentId: string): Promise<string> => {
     const id = newId('conversation');
-    await repo.chat.createConversation(app.db, { id, agentId, title: '分享' });
+    await repo.chat.createConversation(app.db, {
+      id,
+      agentId,
+      title: '分享',
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
     conversationIds.push(id);
     return id;
   };

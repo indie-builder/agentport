@@ -338,12 +338,13 @@ data/workspaces/<agent-slug>/
 
 | 对象 | 权威 | 沙盒加载 | 版本与回滚 |
 |---|---|---|---|
-| 个人偏好 | `user_preferences` 单行（`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_user/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本 |
+| 个人偏好 | `user_preferences` 单行（按 `businessId`，`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_users/<sha256(businessId)>/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮按主体读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本；按 `businessId` 隔离（本工作树实现，未合入 main） |
 | 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` + 主题文件） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制；子智能体的原生 Read/Write/Edit 默认启用但仅可读写自身记忆 Markdown，兄弟、父级与未知子智能体拒绝 | 仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes` |
 | 子智能体记忆（源码评审与最终夹具复验通过） | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes`，SDK 自主学习直接写 Markdown 不自动记账；源码整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留；运行整合 13 文件 195/195 PASS；未提交 |
 | 专家规则 | `agent_rules`（DB） | 渲染为 `.claude/rules/<slug>.md`，每次运行自动生效 | `memory_changes` 完整快照 |
 
-- **个人偏好不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_user/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。DB 写入成功即成功，文件投影失败只记日志；下一次保存会重新投影，当前没有 worker 启动前自动重建。
+- **个人偏好不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。DB 写入成功即成功，文件投影失败只记日志；下一次保存会重新投影，当前没有 worker 启动前自动重建。
+- **个人记忆按 `businessId` 隔离（本工作树实现，未合入 main）**：投影目录与锁都以 `businessId` 为键；worker 从 DB 读取运行主体，服务主体没有个人记忆，也不回退到管理员。既有专家共享 auto-memory 的读写语义保持不变。
 - **历史回顾是用户触发的运行**：`agent_runs.trigger='review'`，读已落库的会话快照，`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema` 返回提案。沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停；不建沙盒、不追加消息、不写成果。证据必须是快照消息原文的连续子串。
 - **确认制，不是自动进化**：提案写入个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。
 - **`MEMORY.md` 是索引**：采纳时限制 200 行 / 25KB（官方启动只加载这个范围）；详细内容放主题文件或规则。
@@ -419,7 +420,7 @@ OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` �
 - 凭证（飞书 appSecret、GitLab/GitHub token、模型 apiKey）沿用 `encryptSecrets` 加密入库，API 只回 `hasSecret`。
 - GitHub 连接器目前只在本地 fixture 验证；真实 GitHub 授权、限流与私有仓库内容尚未验收。
 
-知识库是单管理员部署下的共享资源：所有 REST 路由挂 `requireAuth`，不新增多租户或 RBAC。专家在编辑器里选中某个知识库、写入 `agent_servers` 后才获得该连接；没有「按用户授权」的中间层。
+知识库当前是共享资源：所有 REST 路由挂 `requireAuth`，并按 `knowledge.*` 功能叶声明动作授权；专家在编辑器里选中某个知识库、写入 `agent_servers` 后才获得该连接。仍不引入组织多租户，也不按知识库对象做跨用户范围授权。
 
 ### 6.4 任务、调度与恢复
 
@@ -513,3 +514,44 @@ runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`ag
 - 步骤见 [OPERATIONS.md §2.2.1](OPERATIONS.md#221-手动构建沙盒镜像)；`pnpm run up --rebuild` 与 `pnpm --filter @agentport/sandbox image` 都走这条路径。
 
 更细的选择理由（为什么 PostgreSQL、为什么 v2 MCP 包线、为什么不用 microsandbox 起步）见 `PROJECT-BRIEF.md` 与 `DECISIONS-PENDING.md`。
+
+## 8. 账户、业务身份与权限（2026-10-31，本工作树已实现；未合入 main）
+
+> 本节描述本工作树的最终实现，尚未合入 main、已通过最终 review、准备发布；实施契约见 [account-rbac.md](tasks/account-rbac.md) 及其配套契约文件。验收证据与剩余项见任务记录，不能据此宣称 main 已支持。
+
+### 8.1 两类身份
+
+- **认证技术 ID**：Better Auth `user`/`account` 的随机 ID，只承载登录与会话；允许删除并重建。
+- **`businessId`**：稳定业务身份，由管理员录入、不可修改、不可回收给其他自然人。
+- 业务创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权和个人记忆直接记录 `businessId`，不引用可删除的认证 ID；不以指向认证用户的外键作为业务归属依据。
+- 用同一 `businessId` 重建认证账户时，业务归属、角色、成员授权和个人记忆恢复；旧会话行不恢复，旧 Cookie 立即失效。
+- 管理员引导（bootstrap）只在首次初始化创建管理员，不覆盖已有密码。
+
+### 8.2 授权模型
+
+- 角色、功能与授权存 DB；默认四角色是初始数据，不写死角色名，也不以角色名代替权限判定。系统 admin 角色的授权固定、不可删除或改矩阵（可改显示名），其他默认与自定义角色可编辑。
+- 每条授权 = 动作（功能树叶节点）+ 对象范围（全部/本人/被指定）；判定必须同时满足 permission 与 scope。
+- 多角色合并完整授权结果：不把 A 角色的动作与 B 角色的范围拼接。
+- 服务端每个业务入口声明并执行动作授权与对象范围检查；前端菜单与动作由同一功能目录驱动。
+- 功能树纵向为功能行、横向为角色列，可展开到叶动作单独授权，父级按叶权限三态聚合；评估与定时任务分立。
+- 至少保留一名未停用的活跃管理员；删除、停用、降权或矩阵保存导致无管理员时返回 409。
+
+### 8.3 默认角色边界
+
+| 角色 | 允许 | 不允许 |
+|---|---|---|
+| 平台管理员 | 全部功能；跨用户运维与审计（读取私有内容留审计） | — |
+| 用户 | 使用被授权的专家；访问自己的私有会话、消息、运行与个人记忆 | 管理其他用户或全局资源 |
+| 负责人 | 创建并管理本人负责的专家；分配使用、指定维护人员、转交 | 管理账户、全局资源或授权；读取其他用户正文 |
+| 维护人员 | 维护被指定的专家 | 管理账户、全局资源、授权、新建/删除/转交；读取其他用户正文 |
+
+### 8.4 数据隔离与凭据边界
+
+- 私有会话、用户消息、运行与个人记忆按 `businessId` 归属；个人记忆按 `businessId` 独立目录与锁隔离，不与其他用户共享。
+- 既有专家共享 auto-memory 的读写语义不变；个人记忆与专家记忆不互相替代，也不因账户隔离把专家记忆改成只读或私有。
+- 平台管理员可跨用户运维与审计并留痕；负责人、维护人员不因角色获得其他用户正文读取权。
+- `/mcp` 平台 token、`/mcp/:serverId` Bearer token 与 `/s/<shareId>#<token>` 分享 token 保持独立边界；登录用户权限不扩展到这些凭据。
+
+### 8.5 实施状态
+
+本工作树已实现并通过定向验证（未合入 main，已通过最终 review、准备发布）：`0045_married_expediter.sql` 在全新隔离库建库迁移通过；账户/角色/成员与对象范围由 `packages/db/src/repo/accounts.ts`、`access.ts`、`identities.ts` 承接，API 入口按功能叶声明动作与范围，前端功能树复用 `@agentport/shared` 的同一目录。默认角色与验收边界见本节与 [USER-STORIES.md](USER-STORIES.md) EPIC 8；技术字段、表结构与接口以配套契约文件为准。迁移新增 NOT NULL 字段且不回填，仅验证空库；不声称旧库可无损升级，部署到既有库需用户明确决定重建数据，不能自动清库。

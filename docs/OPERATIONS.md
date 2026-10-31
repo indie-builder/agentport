@@ -16,10 +16,10 @@
 | `DATABASE_URL` | 是 | — | api、worker、db 迁移、备份 | PostgreSQL 连接串 |
 | `REDIS_URL` | 否 | `redis://localhost:6379` | api、worker | 队列、事件流、取消、限流共用；用 compose 的 Redis 时连接串需带 `REDIS_PASSWORD` |
 | `APP_SECRET_KEY` | 是 | — | api、worker | MCP 密钥加密主密钥，≥32 字符。**api 与 worker 必须一致**，否则 worker 无法解密 |
-| `ADMIN_USER` | 否 | `admin` | api | 唯一管理员用户名 |
-| `ADMIN_PASSWORD` | 是 | — | api | 管理员密码，默认要求 ≥12 字符且不能是 `admin-change-me` / `changeme` / `password`；每次登录用 scrypt 比对 |
+| `ADMIN_USER` | 否 | `admin` | api | 首次初始化创建的管理员用户名；已初始化后不再代表唯一账户，也不覆盖已有账户（本工作树实现，未合入 main） |
+| `ADMIN_PASSWORD` | 是 | — | api | 首次初始化的管理员密码，默认要求 ≥12 字符且不能是 `admin-change-me` / `changeme` / `password`；密码哈希与比对由 better-auth 管理。只在 `platform_bootstrap` marker 不存在时使用，之后启动/登录都不覆盖已有密码；改密走显式账户操作（本工作树实现，未合入 main） |
 | `ALLOW_WEAK_ADMIN_PASSWORD` | 否 | 未设置（等同 `false`） | api | 只接受字面量 `true` / `false`。默认关闭，保持上面的密码规则；个人本地开发要用 admin/admin 时显式设为 `true`，此时仅保留 1–128 字符的基础限制。生产部署不要开启 |
-| `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥，≥32 字符 |
+| `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥（历史命名，不是 JWT），≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | api、worker 均解析；worker 使用 | `agent-runs` 队列并发数（api 解析但不读）；只限制同时执行的 run，热空闲的会话容器不计入该并发 |
@@ -37,6 +37,18 @@
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | 未设置 | worker | 仅 `SANDBOX_EGRESS=proxy` 时透传给沙盒，loopback 自动改写 |
 | `REDIS_PASSWORD` | `agentport-dev` | compose | redis 服务密码，同时拼进 api/worker 的 `REDIS_URL`；不是应用变量 |
 | `DOCKER_GID` | `0` | compose | worker 容器加入的组 GID，用于访问宿主 Docker socket |
+
+#### 账户与权限（本工作树已实现；未合入 main）
+
+> 以下为最终实现，尚未合入 main、已通过最终 review、准备发布；技术字段与接口以配套契约文件为准。迁移新增 NOT NULL 字段且不回填，只在全新空库验证，不声称旧库可无损升级；部署到既有库需用户明确决定重建数据，不能自动清库。
+
+- **业务身份**：认证技术 ID 保持随机、只承载登录，可删除并重建；稳定 `businessId` 由管理员录入、不可修改、不可回收给其他自然人。业务创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权与个人记忆都直接记录 `businessId`。
+- **账户重建**：用同一 `businessId` 重建认证账户后，业务归属、角色、成员授权与个人记忆恢复；旧会话不恢复，重建前签发的 Cookie 失效。运维不得靠重建认证账户绕过授权或恢复旧会话。账户可停用；停用撤销全部会话，重新启用不恢复旧 Cookie。最后一名活跃管理员不能被删除、停用或降权，矩阵保存同样校验。
+- **bootstrap**：只在首次初始化创建管理员，不覆盖已有密码；需要重置密码时走显式账户操作，不靠重启服务或改启动配置。
+- **隔离**：私有会话、消息、运行与个人记忆按 `businessId` 隔离；平台管理员跨用户运维可审计，负责人/维护人员不获得其他用户正文。既有专家共享 auto-memory 的读写语义保持不变。
+- **授权配置**：角色与功能授权存 DB，按功能树 × 角色矩阵配置，叶动作单独授权；评估与定时任务分立。修改后即时生效并留审计。
+- **凭据边界**：`/mcp` 平台 token、`/mcp/:serverId` Bearer token 与公开分享 token 继续独立校验；登录用户权限不扩展到这些凭据。
+- **范围外**：第三方登录、飞书/钉钉同步、用量/套餐/计费、组织多租户均不在本期。
 
 ### 1.2 智能体与模型（worker schema）
 
@@ -255,6 +267,7 @@ worker 挂载 `/var/run/docker.sock`，**等价于把宿主 root 权限交给 wo
 
 **当前决定（2026-10-20）**：单机自用场景保持直接挂载 socket，不做 proxy。
 开始处理不受信内容、引入多用户、或与其他服务共用机器时，按 D-16 列出的触发条件升级到 B/C/D。
+2026-10-31：账户/RBAC 目标（D-74）使「引入多用户」条件成立；本任务不实现沙盒隔离升级，多账户上线前仍需按 D-16 评估，不能把登录层权限当成 socket 风险已解决。
 
 ### 2.3 本地开发
 
@@ -600,7 +613,7 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 
 1. **先改读接口的查询形态**（收益最大、无配置风险）：`/api/overview` 的 counts（servers/agents/running/runs）合并成一条 SQL，其余两条重查询与它并行；`packages/api/src/features/agents/routes.ts` 的 4 条查询已是 1+3 并行，可只把首条列表查询与关联查询合并。预期 200 并发下 p95 从约 100 ms 降到 40–50 ms，吞吐约翻倍。
 2. **连接池可配置（已实现）**：`packages/db/src/client.ts` 读取 `DB_POOL_MAX`（默认 10）。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍池只是把压力更早推给 Postgres。worker 另有独立连接池，扩容时一并计入。
-3. **读接口补限流**：当前 `global: false`，只有显式配置的路由计数（登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 各 60/min、连接测试 20/min、评估发起 10/min），读接口完全不计流（压测中 2000 次读请求无 429）。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数。
+3. **读接口补限流**：当前 `global: false`，只有显式配置的路由计数（登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 各 60/min、连接测试 20/min、评估发起 10/min），读接口完全不计流（压测中 2000 次读请求无 429）。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数（多账户/RBAC 落地后按用户/角色重新评估）。
 4. **worker 并发按资源定**：每个沙盒受 `SANDBOX_MEMORY=1g` 上限约束，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是活跃沙盒按该上限占用的内存与更多宿主 CPU。以上是一次性容器压测数据；会话复用后，正常完成或成功取消的容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内热空闲并继续占用资源，实际容器总数可能高于活跃 run 数。本机未实测热空闲容器的内存，也不据此给出新的并发上限；扩容前按容器数（含热空闲）观察资源水位。同会话复用减少容器创建/启动，但不跳过每轮 SDK query 启动，不算 SDK 冷启动优化。
 5. **观测告警线**：`/health/metrics` 的 `db.waiting > 5` 持续 10 s，或队列 `waiting > 10`，即可认为已进入本次测出的瓶颈区。
 

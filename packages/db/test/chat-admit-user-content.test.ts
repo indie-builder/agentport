@@ -33,6 +33,8 @@ async function newAgent(): Promise<string> {
     slug: `admit-content-${id.slice(4)}`,
     name: 'admit-content',
     model: 'test',
+    createdBy: 'test-owner',
+    ownerBusinessId: 'test-owner',
   });
   return id;
 }
@@ -51,7 +53,12 @@ async function newServer(): Promise<string> {
 
 async function newConversation(agentId: string): Promise<string> {
   const id = newId('conversation');
-  await chat.createConversation(db, { id, agentId, title: 'admission' });
+  await chat.createConversation(db, {
+    id,
+    agentId,
+    title: 'admission',
+    subject: { kind: 'user', businessId: 'test-owner' },
+  });
   return id;
 }
 
@@ -63,7 +70,12 @@ async function previousApprovedRun(
   toolName: string,
 ): Promise<{ runId: string; approvedAt: Date }> {
   const runId = newId('run');
-  await chat.createRun(db, { id: runId, conversationId, agentId });
+  await chat.createRun(db, {
+    id: runId,
+    conversationId,
+    agentId,
+    subject: { kind: 'user', businessId: 'test-owner' },
+  });
   await db
     .update(agentRuns)
     .set({ status: 'succeeded', endedAt: new Date() })
@@ -105,7 +117,12 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
       },
     ];
 
-    const admitted = await chat.admitChatRun(db, { agentId, message, userContent });
+    const admitted = await chat.admitChatRun(db, {
+      agentId,
+      message,
+      userContent,
+      subject: { kind: 'user', businessId: 'test-owner' },
+    });
     const [conversation] = await db
       .select()
       .from(conversations)
@@ -124,7 +141,11 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
 
   it('keeps text-only callers unchanged when userContent is omitted', async () => {
     const agentId = await newAgent();
-    const admitted = await chat.admitChatRun(db, { agentId, message: 'plain hello' });
+    const admitted = await chat.admitChatRun(db, {
+      agentId,
+      message: 'plain hello',
+      subject: { kind: 'user', businessId: 'test-owner' },
+    });
 
     const rows = await userMessages(admitted.conversationId);
     expect(rows).toHaveLength(1);
@@ -141,6 +162,7 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
       agentId,
       message: '继续',
       conversationId,
+      subject: { kind: 'user', businessId: 'test-owner' },
     });
 
     expect(admitted.inherited).toEqual(['create-user']);
@@ -164,6 +186,7 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
         agentId,
         message: '坏内容',
         conversationId,
+        subject: { kind: 'user', businessId: 'test-owner' },
         userContent: [
           { type: 'text', text: 'x' },
           { type: 'openui_action', context: { n: 1n } },

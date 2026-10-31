@@ -1,3 +1,5 @@
+export * as access from './access.js';
+export * as accounts from './accounts.js';
 export * as agentVersions from './agent-versions.js';
 export * as agents from './agents.js';
 export * as audit from './audit.js';

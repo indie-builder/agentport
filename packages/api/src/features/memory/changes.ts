@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import { ADMIN_USER_ID, type Database, type DbPool, repo, schema } from '@agentport/db';
+import { type Database, type DbPool, repo, schema } from '@agentport/db';
 import {
   type MemoryChange,
   type MemoryContentSnapshot,
@@ -12,6 +12,7 @@ import { and, eq, inArray, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { typed } from '../../types.js';
+import { authorizeObject, userPrincipal } from '../access.js';
 import {
   deleteMemoryFile,
   memoryFileNamePattern,
@@ -97,9 +98,10 @@ export async function readMemoryTarget(
   db: Database,
   workspacesDir: string,
   target: MemoryReviewTarget,
+  businessId: string,
 ): Promise<MemoryTargetState> {
   if (target.kind === 'personal') {
-    const memory = await readPersonalMemory(db);
+    const memory = await readPersonalMemory(db, businessId);
     return { content: memory.content, globs: null, revision: memory.revision };
   }
   const slug = await agentSlug(db, target.agentId);
@@ -133,15 +135,15 @@ function snapshotOf(state: MemoryTargetState, target: MemoryReviewTarget): Memor
 export function withMemoryTargetLock<T>(
   pool: DbPool,
   target: MemoryReviewTarget,
-  userId: string,
+  businessId: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  return repo.locks.withAdvisoryLock(pool, repo.locks.memoryTargetLockKey(target, userId), fn);
+  return repo.locks.withAdvisoryLock(pool, repo.locks.memoryTargetLockKey(target, businessId), fn);
 }
 
 export interface WriteMemoryTargetInput {
   workspacesDir: string;
-  userId: string;
+  businessId: string;
   target: MemoryReviewTarget;
   /** 审核/回滚要求目标仍是该快照；手工编辑不传，按锁内当前内容记录 before。 */
   before?: MemoryContentSnapshot;
@@ -184,7 +186,7 @@ async function insertChange(
   before: MemoryContentSnapshot,
 ): Promise<repo.memoryChanges.MemoryChangeRow> {
   const change = await repo.memoryChanges.insert(db, {
-    userId: input.userId,
+    businessId: input.businessId,
     agentId,
     target: input.target,
     before,
@@ -237,14 +239,17 @@ export async function discardReviewWriteJournal(
 export async function assertNoPendingReviewWrite(
   db: Database,
   workspacesDir: string,
-  review: { runId: string; target: MemoryReviewTarget },
+  review: { runId: string; target: MemoryReviewTarget; businessId: string },
 ): Promise<void> {
   const target = review.target;
   if (target.kind !== 'agent_memory') return;
   const slug = await agentSlug(db, target.agentId);
   const journal = await readMemoryJournal(workspacesDir, slug, review.runId, target);
   if (!journal) return;
-  const current = snapshotOf(await readMemoryTarget(db, workspacesDir, target), target);
+  const current = snapshotOf(
+    await readMemoryTarget(db, workspacesDir, target, review.businessId),
+    target,
+  );
   if (memorySha256(current.content) !== journal.beforeSha256) {
     fail('CONFLICT', '目标写入未完成，请先重试采用或重新生成');
   }
@@ -266,7 +271,7 @@ async function recordManualSameContent(
   });
   if (latest && sameSnapshot(latest.after, current)) return null;
   return repo.memoryChanges.insert(db, {
-    userId: input.userId,
+    businessId: input.businessId,
     agentId: target.agentId,
     target,
     before: current,
@@ -343,10 +348,11 @@ export async function writeMemoryTargetLocked(
 
   if (target.kind === 'personal') {
     if (input.after.content === null) fail('INVALID_INPUT', '个人记忆不能写入空内容');
-    const current = await readPersonalMemory(db);
+    const current = await readPersonalMemory(db, input.businessId);
     const saved = await writePersonalMemoryLocked({
       db,
       workspacesDir: input.workspacesDir,
+      businessId: input.businessId,
       content: input.after.content,
       expectedRevision: current.revision,
       ...(input.before === undefined ? {} : { expectedContent: input.before.content ?? '' }),
@@ -361,7 +367,10 @@ export async function writeMemoryTargetLocked(
   }
 
   await assertNoActiveRun(db, target.agentId);
-  const current = snapshotOf(await readMemoryTarget(db, input.workspacesDir, target), target);
+  const current = snapshotOf(
+    await readMemoryTarget(db, input.workspacesDir, target, input.businessId),
+    target,
+  );
 
   // 手工保存/删除/回滚：文件仍等于日志记录的基线时日志从未落盘，可安全丢弃；
   // 否则文件可能已生效，会覆盖或删掉日志正要恢复的内容。
@@ -448,7 +457,7 @@ export async function writeMemoryTarget(
   db: Database,
   input: WriteMemoryTargetInput & { pool: DbPool },
 ): Promise<repo.memoryChanges.MemoryChangeRow | null> {
-  return withMemoryTargetLock(input.pool, input.target, input.userId, () =>
+  return withMemoryTargetLock(input.pool, input.target, input.businessId, () =>
     writeMemoryTargetLocked(db, input),
   );
 }
@@ -471,12 +480,11 @@ async function listVersions(
 
 export function registerMemoryChangeRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   app.get(
     '/api/agents/:id/memory/:name/versions',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'agents.memory.read' } },
       schema: {
         params: memoryVersionParams,
         querystring: versionsQuery,
@@ -484,6 +492,13 @@ export function registerMemoryChangeRoutes(rawApp: FastifyInstance): void {
       },
     },
     async (request) => {
+      await authorizeObject(
+        app,
+        request,
+        'agents.memory.read',
+        { agentId: request.params.id },
+        '智能体不存在，可能已被删除；请刷新后重新选择',
+      );
       await agentSlug(app.db, request.params.id);
       // 只有 MEMORY.md 会经过审核/回滚写入变更账本；其他记忆文件没有版本历史。
       if (request.params.name !== 'MEMORY.md') return { items: [] };
@@ -499,7 +514,7 @@ export function registerMemoryChangeRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/agents/:id/rules/:slug/versions',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'agents.rules.read' } },
       schema: {
         params: ruleVersionParams,
         querystring: versionsQuery,
@@ -507,6 +522,13 @@ export function registerMemoryChangeRoutes(rawApp: FastifyInstance): void {
       },
     },
     async (request) => {
+      await authorizeObject(
+        app,
+        request,
+        'agents.rules.read',
+        { agentId: request.params.id },
+        '智能体不存在，可能已被删除；请刷新后重新选择',
+      );
       await agentSlug(app.db, request.params.id);
       return listVersions(app.db, {
         agentId: request.params.id,
@@ -521,27 +543,58 @@ export function registerMemoryChangeRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/memory/changes/:id/rollback',
     {
-      ...auth,
+      // 回滚个人记忆与专家记忆共用入口；路由层要求个人记忆写叶，目标为专家时再按目标叶判定。
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.write' } },
       schema: { params: changeParams, response: { 200: memoryChangeSchema } },
     },
     async (request) => {
+      const principal = userPrincipal(request);
       const [change] = await app.db
         .select()
         .from(schema.memoryChanges)
         .where(
           and(
             eq(schema.memoryChanges.id, request.params.id),
-            eq(schema.memoryChanges.userId, ADMIN_USER_ID),
+            eq(schema.memoryChanges.businessId, principal.businessId),
           ),
         )
         .limit(1);
       if (!change) fail('NOT_FOUND', '记忆版本不存在，可能已被清理');
       const target = memoryReviewTargetSchema.safeParse(change.target);
       if (!target.success) fail('INVALID_INPUT', '记忆版本的目标非法，无法回滚');
+      if (target.data.kind === 'personal') {
+        await authorizeObject(
+          app,
+          request,
+          'personal_memory.write',
+          {
+            objectId: change.id,
+            createdBy: change.businessId,
+            privateContent: true,
+          },
+          '记忆版本不存在，可能已被清理',
+        );
+      } else if (target.data.kind === 'agent_memory') {
+        await authorizeObject(
+          app,
+          request,
+          'agents.memory.write',
+          { agentId: target.data.agentId },
+          '智能体不存在，可能已被删除；请刷新后重新选择',
+        );
+      } else {
+        await authorizeObject(
+          app,
+          request,
+          'agents.rules.write',
+          { agentId: target.data.agentId },
+          '智能体不存在，可能已被删除；请刷新后重新选择',
+        );
+      }
       const reverse = await writeMemoryTarget(app.db, {
         pool: app.pool,
         workspacesDir: app.config.WORKSPACES_DIR,
-        userId: change.userId,
+        businessId: change.businessId,
         target: target.data,
         before: change.after,
         after: change.before,

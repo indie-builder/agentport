@@ -31,7 +31,7 @@ import {
 } from '@agentport/shared';
 import { Worker } from 'bullmq';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import pino from 'pino';
+import pino, { type Logger } from 'pino';
 import { conversationInputsMount, promptWithAttachments } from './attachments.js';
 import { loadConfig } from './config.js';
 import { closeEvalRunQueue, executeEvalRun } from './eval-runner.js';
@@ -55,6 +55,7 @@ import {
 } from './outputs.js';
 import { projectPersonalMemory } from './personal-memory.js';
 import { startReconciler } from './reconcile.js';
+import { checkQueuedRunAccess, type RunAccessDenial, runExecutionSubject } from './run-access.js';
 import { finalizeRun, handOffPendingFinish, type RunFinishedEvent } from './run-finish.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
@@ -106,6 +107,7 @@ if (config.SANDBOX_EGRESS === 'none') {
 }
 
 const { db, pool } = createDb(config.DATABASE_URL);
+type Db = typeof db;
 /**
  * 惰性解析：只在真实创建容器时读线上版本。
  * 存活容器不因发布/回退替换，也不会为它重新解析。
@@ -489,6 +491,32 @@ function cleanupSandboxIdOf(err: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * 排队期间账户被停用或权限被撤销：在启动前明确失败，不建容器、不降级成服务身份。
+ * 只改 queued，已被别的 worker 认领的运行交给现有取消/收尾路径。
+ */
+async function denyQueuedRun(
+  db: Db,
+  logger: Logger,
+  runId: string,
+  denial: RunAccessDenial,
+): Promise<void> {
+  const won = await finalizeRun({
+    db,
+    logger,
+    runId,
+    fromStatus: 'queued',
+    event: { type: 'run_finished', status: 'failed', error: denial.message },
+    values: { error: denial.message, errorKind: 'agent' },
+    audit: {
+      action: 'agent.run.denied',
+      status: 'error',
+      dedupeKey: `aud_denied_${runId.slice(4)}`,
+    },
+  });
+  if (!won) logger.info({ runId }, 'run no longer queued, access denial skipped');
+}
+
 const worker = new Worker(
   RUNS_QUEUE,
   async (job) => {
@@ -496,13 +524,18 @@ const worker = new Worker(
     if (!parsed.success) {
       throw new Error(`invalid job payload: ${parsed.error.message}`);
     }
-    const { runId, agentId, conversationId, prompt } = parsed.data;
+    const { runId, prompt } = parsed.data;
 
     const [run] = await db
       .select({
         status: schema.agentRuns.status,
         agentVersion: schema.agentRuns.agentVersion,
         trigger: schema.agentRuns.trigger,
+        agentId: schema.agentRuns.agentId,
+        conversationId: schema.agentRuns.conversationId,
+        subjectKind: schema.agentRuns.subjectKind,
+        initiatedBy: schema.agentRuns.initiatedBy,
+        serviceId: schema.agentRuns.serviceId,
       })
       .from(schema.agentRuns)
       .where(eq(schema.agentRuns.id, runId))
@@ -512,6 +545,36 @@ const worker = new Worker(
       logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
       return;
     }
+    // 主体只从 run 行读取；job/client 里的任何用户或管理员字段都不参与判定。
+    const subject = runExecutionSubject(run);
+    if (run.status === 'queued') {
+      if (subject === null) {
+        await denyQueuedRun(db, logger, runId, {
+          reason: 'invalid_subject',
+          message: '运行缺少有效执行主体，未启动',
+        });
+        return;
+      }
+      if (subject.kind === 'user') {
+        const denial = await checkQueuedRunAccess(db, {
+          runId,
+          trigger: run.trigger,
+          agentId: run.agentId,
+          conversationId: run.conversationId,
+          businessId: subject.businessId,
+        });
+        if (denial !== null) {
+          logger.warn({ runId, reason: denial.reason }, 'run denied before sandbox start');
+          await denyQueuedRun(db, logger, runId, denial);
+          return;
+        }
+      }
+    }
+    // running 行的重投只会在认领时被拒绝；主体损坏时不继续使用它挂载任何目录。
+    if (subject === null) return;
+    // 后续会话/专家归属以 run 行为准，不能用 job 里的 ID 改写挂载来源。
+    const agentId = run.agentId;
+    const conversationId = run.conversationId;
     // 只认领 queued：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
     // 若这里也接受 running，同一 run 会被两个 worker 各跑一遍（重复计费、消息互相覆盖）。
     const claimed = await db
@@ -586,12 +649,15 @@ const worker = new Worker(
           .orderBy(asc(schema.agents.id));
         const enabledChildren = subAgentRows.filter((row) => row.enabled);
         const subAgentSlugs = enabledChildren.map((row) => row.slug).sort();
-        // 个人记忆先按 DB 重写再挂载，崩溃后不会把旧投影带进本轮。
-        await projectPersonalMemory(db, pool, workspacesDir);
+        // 个人记忆先按 DB 重写再挂载，崩溃后不会把旧投影带进本轮；服务主体没有个人记忆。
+        if (subject.kind === 'user') {
+          await projectPersonalMemory(db, pool, workspacesDir, subject.businessId);
+        }
         const sessionPaths = await ensureSessionWorkspace({
           workspacesDir,
           slug: agent.slug,
           conversationId,
+          ...(subject.kind === 'user' ? { businessId: subject.businessId } : {}),
           subAgentSlugs,
         });
         const inputsMount = await conversationInputsMount({
@@ -615,7 +681,9 @@ const worker = new Worker(
             inputsDir: inputsMount.hostPath,
             memoryDir: toHostWorkspacePath(sessionPaths.memoryDir),
             sessionsDir: toHostWorkspacePath(sessionPaths.sessionsDir),
-            personalDir: toHostWorkspacePath(sessionPaths.personalDir),
+            ...(sessionPaths.personalDir === undefined
+              ? {}
+              : { personalDir: toHostWorkspacePath(sessionPaths.personalDir) }),
             subAgentMemoryDirs: sessionPaths.subAgentMemoryDirs.map((dir) => ({
               slug: dir.slug,
               memoryDir: toHostWorkspacePath(dir.memoryDir),

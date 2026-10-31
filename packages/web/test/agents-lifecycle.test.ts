@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
 import { useAgent } from '../src/lib/queries.js';
+import { allAccessMe } from './me-fixture.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
 
 vi.mock('@agentport/core/workspace', async (importOriginal) => {
@@ -176,6 +177,13 @@ async function mount() {
   await flush();
   return router;
 }
+/** 详情页的完整配置来自独立详情查询；摘要与详情都指向同一个 fixture。 */
+function useAgentAs(current: Agent): void {
+  vi.mocked(api.agents).mockResolvedValue([current]);
+  vi.mocked(api.agent).mockResolvedValue(current);
+  client.setQueryData(['agents'], [current]);
+  client.setQueryData(['agent-detail', current.id], current);
+}
 async function mountAgentProbe(id: string) {
   // 与真实详情页一样只读取 data；提交计数放在 effect 里，只统计 React 真正提交的渲染。
   const snapshot: { commits: number; data: Agent | null | undefined } = {
@@ -252,6 +260,12 @@ beforeEach(() => {
     },
   );
   vi.spyOn(api, 'agents').mockResolvedValue([agent]);
+  vi.spyOn(api, 'agent').mockResolvedValue(agent);
+  vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
+  vi.spyOn(api, 'agentAccess').mockResolvedValue({
+    agentId: agent.id,
+    permissionIds: allAccessMe.grants.map((grant) => grant.permissionId),
+  });
   vi.spyOn(api, 'servers').mockResolvedValue([]);
   vi.spyOn(api, 'skills').mockResolvedValue([]);
   vi.spyOn(api, 'runtimeEnvironments').mockResolvedValue([defaultEnvironment, namedEnvironment]);
@@ -265,6 +279,12 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
   });
   client.setQueryData(['agents'], [agent]);
+  client.setQueryData(['me'], allAccessMe);
+  client.setQueryData(['agent-detail', agent.id], agent);
+  client.setQueryData(['agent-access', agent.id], {
+    agentId: agent.id,
+    permissionIds: allAccessMe.grants.map((grant) => grant.permissionId),
+  });
   client.setQueryData(['servers'], []);
   client.setQueryData(['skills'], []);
   client.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
@@ -464,6 +484,9 @@ describe('expert creation lifecycle', () => {
     };
     const create = vi.spyOn(api, 'createAgent').mockResolvedValue(created);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([agent, created]));
+    vi.mocked(api.agent).mockImplementation(async (id) => (id === created.id ? created : agent));
+    client.setQueryData(['agents'], [agent, created]);
+    client.setQueryData(['agent-detail', created.id], created);
     const router = await mount();
     await click(button('新建专家'));
     await editInput('new-agent-slug', 'new-expert');
@@ -850,8 +873,7 @@ describe('expert file tool permissions', () => {
         allowedTools: ['Read'],
         disallowedTools: ['Read'],
       };
-      client.setQueryData(['agents'], [restricted]);
-      vi.mocked(api.agents).mockResolvedValue([restricted]);
+      useAgentAs(restricted);
       await mount();
       const section = await openPermissions();
       expect(toolToggle('Read').getAttribute('aria-pressed')).toBe('false');
@@ -907,6 +929,8 @@ describe('expert file tool permissions', () => {
         return Response.json([]);
       });
       client.setQueryData(['agents'], [store.current]);
+      client.setQueryData(['agent-detail', store.current.id], store.current);
+      vi.mocked(api.agent).mockImplementation(async () => store.current);
       const update = vi.spyOn(api, 'updateAgent').mockImplementation(async (_id, input) => {
         store.current = {
           ...store.current,
@@ -948,8 +972,10 @@ describe('expert file tool permissions', () => {
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
       await click(button('保存更改'));
       await waitFor(() => update.mock.calls.length === 2, 10);
-      // 恢复不写回裸 allow，也不移除文件路径 allow、路径 deny、未知语义规则或其它工具规则。
-      expect(update.mock.calls[1]?.[1].allowedTools).toEqual(['Bash', ...allowPathRules]);
+      // 恢复不写回裸 allow：未变的 allowedTools 不进入 PATCH，服务端合并不重写路径 allow；
+      // 只删裸 deny，路径 deny、未知语义规则或其它工具规则都保留。
+      expect(update.mock.calls[1]?.[1].allowedTools).toBeUndefined();
+      expect(store.current.allowedTools).toEqual(['Bash', ...allowPathRules]);
       expect(update.mock.calls[1]?.[1].disallowedTools).toEqual(originalRules);
 
       await remount();
@@ -969,8 +995,7 @@ describe('expert file tool permissions', () => {
       allowedTools: ['Read', 'Bash'],
       disallowedTools: [],
     };
-    client.setQueryData(['agents'], [child]);
-    vi.mocked(api.agents).mockResolvedValue([child]);
+    useAgentAs(child);
     const update = vi.spyOn(api, 'updateAgent');
     await mount();
     const section = await openPermissions();
@@ -1252,7 +1277,7 @@ describe('expert review details', () => {
       serverIds: ['server-target'],
       allowedTools: ['Write'],
     };
-    client.setQueryData(['agents'], [current]);
+    useAgentAs(current);
     vi.spyOn(api, 'agentVersion').mockResolvedValue({
       version: 1,
       snapshot: target,
@@ -1303,7 +1328,7 @@ describe('expert review details', () => {
   it.each(fieldOnlyCases)(
     'reports a $label-only difference instead of claiming the fields are unchanged',
     async ({ label, current, target, from, to }) => {
-      client.setQueryData(['agents'], [current]);
+      useAgentAs(current);
       vi.spyOn(api, 'agentVersion').mockResolvedValue({
         version: 1,
         snapshot: target,
@@ -1531,8 +1556,7 @@ describe('expert draft previews', () => {
 
   it('renders the draft only after expansion and follows later edits', async () => {
     const prompted = { ...agent, systemPrompt: '初始提示词' };
-    vi.spyOn(api, 'agents').mockResolvedValue([prompted]);
-    client.setQueryData(['agents'], [prompted]);
+    useAgentAs(prompted);
     const render = vi.mocked(renderWorkspace);
     render.mockClear();
     await mount();

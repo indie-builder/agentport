@@ -96,8 +96,12 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     const id = newId('schedule');
     scheduleIds.push(id);
     await app.pool.query(
-      `insert into agent_schedules (id, agent_id, name, cron, prompt, enabled)
-       values ($1, $2, $3, '* * * * *', 'tick', true)`,
+      `insert into agent_schedules
+         (id, agent_id, name, created_by, execute_as_business_id, cron, prompt, enabled)
+       values ($1, $2, $3,
+         (select business_id from "user" where username = 'admin'),
+         (select business_id from "user" where username = 'admin'),
+         '* * * * *', 'tick', true)`,
       [id, agentId, `schedule-${id}`],
     );
     return id;

@@ -172,7 +172,6 @@ function pageOptions(query: { cursor?: string | undefined; limit?: number | unde
 
 export function registerSourceRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
   const secretKey = (): string => app.config.APP_SECRET_KEY;
 
   const encryptIfAny = (secrets: Record<string, string> | undefined): string | null | undefined => {
@@ -188,7 +187,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/sources',
-    { ...auth, schema: { params: baseParams, querystring: pageQuery } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: baseParams, querystring: pageQuery } },
     async (request, reply) => {
       if (!(await repo.knowledge.getBase(app.db, request.params.id))) {
         return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
@@ -209,7 +208,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/sources',
-    { ...auth, schema: { params: baseParams, body: knowledgeSourceInputSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: baseParams, body: knowledgeSourceInputSchema } },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
@@ -239,7 +238,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/sources/:sourceId',
-    { ...auth, schema: { params: sourceParams, body: sourcePatchSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: sourceParams, body: sourcePatchSchema } },
     async (request, reply) => {
       const found = await loadSource(request.params.sourceId);
       if (!found) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
@@ -294,7 +293,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/sources/:sourceId',
-    { ...auth, schema: { params: sourceParams, querystring: deleteQuery } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: sourceParams, querystring: deleteQuery } },
     async (request, reply) => {
       const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
       if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
@@ -341,7 +340,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
   // 只查本地配置与凭证；真实连通性由 sync run 的结果体现。
   app.post(
     '/api/knowledge/sources/:sourceId/test',
-    { ...auth, schema: { params: sourceParams } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: sourceParams } },
     async (request, reply) => {
       const found = await loadSource(request.params.sourceId);
       if (!found) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
@@ -362,7 +361,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/sources/:sourceId/sync',
-    { ...auth, schema: { params: sourceParams } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } }, schema: { params: sourceParams } },
     async (request, reply) => {
       const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
       if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
@@ -405,7 +404,7 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/sources/:sourceId/runs',
-    { ...auth, schema: { params: sourceParams, querystring: pageQuery } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: sourceParams, querystring: pageQuery } },
     async (request, reply) => {
       if (!(await repo.knowledge.getSource(app.db, request.params.sourceId))) {
         return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');

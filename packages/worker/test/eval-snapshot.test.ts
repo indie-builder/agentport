@@ -25,8 +25,15 @@ const mocks = vi.hoisted(() => {
       listMessages: vi.fn(),
       messageText: (content: { text?: string } | null | undefined) => content?.text ?? null,
     },
+    checkAccess: vi.fn(),
+    auditWrite: vi.fn(async () => undefined),
     logger: { info: noop, warn: noop, error: noop, debug: noop, child: noop },
   };
+});
+
+vi.mock('../src/run-access.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/run-access.js')>();
+  return { ...actual, loadUserAgentAccess: mocks.checkAccess };
 });
 
 vi.mock('@agentport/db', async (importOriginal) => {
@@ -41,6 +48,7 @@ vi.mock('@agentport/db', async (importOriginal) => {
       },
       evalRepo: mocks.evalRepo,
       chat: mocks.chat,
+      audit: { ...actual.repo.audit, writeAudit: mocks.auditWrite },
     },
   };
 });
@@ -71,10 +79,20 @@ const db = {
 const logger = mocks.logger as unknown as Parameters<typeof executeEvalRun>[0]['logger'];
 const agentId = 'agent-1';
 const evalRunId = 'evalRun-1';
+const evalBusinessId = 'eval-owner';
 const outputsByConversation = new Map<string, string>();
 
 function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, string>): void {
-  mocks.evalRepo.getEvalRun.mockResolvedValue({ status: 'running', agentId, caseSnapshot });
+  mocks.evalRepo.getEvalRun.mockResolvedValue({
+    status: 'running',
+    agentId,
+    createdBy: evalBusinessId,
+    caseSnapshot,
+  });
+  mocks.checkAccess.mockResolvedValue({
+    denial: null,
+    grants: [{ permissionId: 'eval.read', scope: 'owned_agents' }],
+  });
   mocks.evalRepo.claimEvalRun.mockResolvedValue(true);
   mocks.evalRepo.listCases.mockImplementation(() => {
     throw new Error('listCases must not run when a snapshot exists');
@@ -98,6 +116,8 @@ function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, st
   ]);
   mocks.queueAdd.mockResolvedValue({ waitUntilFinished: mocks.waitUntilFinished });
   mocks.evalRepo.addResult.mockResolvedValue(undefined);
+  mocks.evalRepo.finishEvalRun.mockResolvedValue(undefined);
+  mocks.auditWrite.mockResolvedValue(undefined);
 }
 
 beforeEach(() => {
@@ -142,6 +162,13 @@ describe('executeEvalRun case snapshot', () => {
     });
     // 超时仍取当前 agent 配置，不随快照冻结。
     expect(mocks.waitUntilFinished).toHaveBeenCalledWith(expect.anything(), 5_000);
+    // 执行主体只取 evalRuns.createdBy，不来自 job。
+    expect(mocks.chat.admitChatRun).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        subject: { kind: 'user', businessId: evalBusinessId },
+      }),
+    );
   });
 
   it('records a snapshot case whose live row was deleted, without a live fetch', async () => {
@@ -189,8 +216,18 @@ describe('executeEvalRun case snapshot', () => {
     ];
     runWith(snapshot, { alpha: 'answer alpha-ok', beta: 'answer beta-ok' });
     // 调用顺序：初次读取、认领后、alpha 前后各一次、beta 前、收口前。
-    const running = { status: 'running', agentId, caseSnapshot: snapshot };
-    const cancelled = { status: 'cancelled', agentId, caseSnapshot: snapshot };
+    const running = {
+      status: 'running',
+      agentId,
+      createdBy: evalBusinessId,
+      caseSnapshot: snapshot,
+    };
+    const cancelled = {
+      status: 'cancelled',
+      agentId,
+      createdBy: evalBusinessId,
+      caseSnapshot: snapshot,
+    };
     mocks.evalRepo.getEvalRun
       .mockResolvedValueOnce(running)
       .mockResolvedValueOnce(running)
@@ -212,8 +249,18 @@ describe('executeEvalRun case snapshot', () => {
       { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
     ];
     runWith(snapshot, { alpha: 'answer alpha-ok' });
-    const running = { status: 'running', agentId, caseSnapshot: snapshot };
-    const cancelled = { status: 'cancelled', agentId, caseSnapshot: snapshot };
+    const running = {
+      status: 'running',
+      agentId,
+      createdBy: evalBusinessId,
+      caseSnapshot: snapshot,
+    };
+    const cancelled = {
+      status: 'cancelled',
+      agentId,
+      createdBy: evalBusinessId,
+      caseSnapshot: snapshot,
+    };
     // 调用顺序：初次读取、认领后、alpha 前、alpha 跑完后、收口前。
     mocks.evalRepo.getEvalRun
       .mockResolvedValueOnce(running)
@@ -238,7 +285,11 @@ describe('executeEvalRun case snapshot', () => {
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listCases).toHaveBeenCalledWith(db, agentId);
+    expect(mocks.evalRepo.listCases).toHaveBeenCalledWith(
+      db,
+      { businessId: evalBusinessId, scopes: ['owned_agents'] },
+      agentId,
+    );
     expect(mocks.queueAdd.mock.calls.map((call) => call[1].prompt)).toEqual(['prompt-live']);
     expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
       caseId: 'evalCase-live',
@@ -407,5 +458,39 @@ describe('executeEvalRun case snapshot', () => {
     expect(mocks.queueAdd).not.toHaveBeenCalled();
     expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
     expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+  });
+
+  it('fails the batch without running cases when the executor lost access', async () => {
+    const snapshot: SnapshotCase[] = [
+      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok' });
+    mocks.checkAccess.mockResolvedValue({
+      denial: {
+        reason: 'permission_denied',
+        message: '当前账户没有该操作的专家权限，运行未启动',
+      },
+      grants: [],
+    });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
+      businessId: evalBusinessId,
+      agentId,
+      permissions: ['agents.use', 'eval.execute'],
+    });
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    expect(mocks.chat.admitChatRun).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'failed',
+      passed: 0,
+      error: '当前账户没有该操作的专家权限，运行未启动',
+    });
+    expect(mocks.auditWrite).toHaveBeenCalledWith(
+      expect.anything(),
+      logger,
+      expect.objectContaining({ action: 'eval.denied', target: evalRunId, status: 'denied' }),
+    );
   });
 });

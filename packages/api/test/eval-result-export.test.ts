@@ -11,6 +11,7 @@ import {
   loginCookie,
   startApp,
   unique,
+  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 // 直接落库构造已收口的跑批：不入队，不需要 worker 空闲。
@@ -71,6 +72,7 @@ describe.skipIf(!ready)('eval result export', () => {
       id: newId('evalRun'),
       agentId,
       total: 0,
+      createdBy: ADMIN_BUSINESS_ID,
     });
     if (status === 'cancelled') await repo.evalRepo.cancelEvalRun(app.db, run.id);
     else if (status !== 'running') {
@@ -85,6 +87,7 @@ describe.skipIf(!ready)('eval result export', () => {
       name,
       prompt: `${name} prompt`,
       expectation: `${name} expectation`,
+      createdBy: ADMIN_BUSINESS_ID,
     });
     return { id: row.id, name, prompt: row.prompt, expectation: row.expectation };
   }
@@ -203,6 +206,7 @@ describe.skipIf(!ready)('eval result export', () => {
       name,
       prompt,
       expectation,
+      createdBy: ADMIN_BUSINESS_ID,
     });
     const snapshot = { id: created.id, name, prompt, expectation };
 
@@ -279,9 +283,9 @@ describe.skipIf(!ready)('eval result export', () => {
   it('refuses more than 500 results instead of truncating', async () => {
     const agent = await newAgent();
     await app.pool.query(
-      `insert into eval_runs (id, agent_id, status, total)
-       values ($1, $2, 'succeeded', 501)`,
-      [SEEDED_RUN_ID, agent.id],
+      `insert into eval_runs (id, agent_id, created_by, status, total)
+       values ($1, $2, $3, 'succeeded', 501)`,
+      [SEEDED_RUN_ID, agent.id, ADMIN_BUSINESS_ID],
     );
     await app.pool.query(
       `insert into eval_results (id, eval_run_id, passed, output)

@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf } from '../access.js';
 import { decodePackageEntries, encodePackageEntries } from '../agent-package-zip.js';
 import { runNativePluginAction } from './native.js';
 import { type PluginImportFile, parsePluginFiles } from './parse.js';
@@ -123,7 +124,7 @@ async function adoptNativePlugin(
       parsedFiles,
     );
     await writeAudit(app.db, request.log, {
-      actor: 'admin',
+      actor: actorOf(request),
       action: params.action,
       target: row.id,
       input: { slug: row.slug, sourceId: params.pluginId, files: parsedFiles.length },
@@ -149,9 +150,8 @@ function nameOfPluginId(pluginId: string): string {
 export function registerPluginRoutes(rawApp: FastifyInstance): void {
   // ZIP 解析器由 import 路由统一注册（同一类型只能注册一次）；这里只复用。
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
-  app.get('/api/plugins', auth, async () => {
+  app.get('/api/plugins', { config: { access: { kind: 'permission', permissionId: 'plugins.read' } } }, async () => {
     const rows = await repo.listPlugins(app.db);
     return rows.map(
       (row): PluginWithAgentCount => ({
@@ -167,7 +167,7 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/plugins/import',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'plugins.import' } },
       // 解析器由 import 路由注册（上限 1 MiB），这里的 bodyLimit 决定单次请求能收多大。
       bodyLimit: 4_194_304,
       schema: {
@@ -197,7 +197,7 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
       try {
         const row = await repo.createPluginWithFiles(app.db, toPluginWrite(input), parsedFiles);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'plugin.imported',
           target: row.id,
           input: { slug: row.slug, files: parsedFiles.length },
@@ -218,7 +218,7 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
   );
 
   // 官方缓存里已安装的插件 + 是否已纳入平台库；不向浏览器暴露宿主路径。
-  app.get('/api/plugins/native', auth, async (request, reply) => {
+  app.get('/api/plugins/native', { config: { access: { kind: 'permission', permissionId: 'plugins.read' } } }, async (request, reply) => {
     const output = await runNativePluginAction(app.config.REDIS_URL, request.log, {
       action: 'list',
     });
@@ -239,7 +239,10 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
   // 从市场安装：官方 CLI 在 worker 沙盒里下载并安装，再把文本快照纳入插件库。
   app.post(
     '/api/plugins/install',
-    { ...auth, schema: { body: nativePluginInstallInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'plugins.install' } },
+      schema: { body: nativePluginInstallInputSchema },
+    },
     async (request, reply) => {
       const { marketplace, plugin, slug } = request.body;
       // 市场身份由官方 CLI 注册时决定，不能凭 owner/repo 拼；每次安装都让 CLI 解析，
@@ -265,7 +268,10 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
   // 选用已安装插件：只读缓存快照，不触发下载。
   app.post(
     '/api/plugins/native/import',
-    { ...auth, schema: { body: nativePluginImportInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'plugins.import' } },
+      schema: { body: nativePluginImportInputSchema },
+    },
     async (request, reply) => {
       const { pluginId, slug } = request.body;
       const existing = await repo.getPluginBySourceId(app.db, pluginId);
@@ -288,7 +294,7 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/plugins/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
+  app.get('/api/plugins/:id', { config: { access: { kind: 'permission', permissionId: 'plugins.read' } }, schema: { params: idParams } }, async (request, reply) => {
     const row = await repo.getPlugin(app.db, request.params.id);
     if (!row) return notFound(reply);
     const files = await repo.listPluginFiles(app.db, row.id);
@@ -304,7 +310,10 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/plugins/:id',
-    { ...auth, schema: { params: idParams, body: patchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'plugins.update' } },
+      schema: { params: idParams, body: patchSchema },
+    },
     async (request, reply) => {
       const { expectedUpdatedAt, ...patch } = request.body;
       try {
@@ -320,7 +329,7 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
         );
         if (row === null) return notFound(reply);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'plugin.updated',
           target: row.id,
           input: patch,
@@ -348,12 +357,12 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/plugins/:id',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'plugins.delete' } }, schema: { params: idParams } },
     async (request, reply) => {
       const deleted = await repo.deletePlugin(app.db, request.params.id);
       if (!deleted) return notFound(reply);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'plugin.deleted',
         target: request.params.id,
         input: {},
@@ -366,7 +375,7 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/plugins/:id/export',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'plugins.export' } }, schema: { params: idParams } },
     async (request, reply) => {
       const row = await repo.getPlugin(app.db, request.params.id);
       if (!row) return notFound(reply);

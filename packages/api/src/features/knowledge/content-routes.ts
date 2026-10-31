@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf } from '../access.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 import { createJob, enqueueKnowledgeJob } from './service.js';
 
@@ -148,7 +149,6 @@ async function fetchSource(rawUrl: string): Promise<{
 
 export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   const enqueue = async (documentId: string, baseId: string) => {
     const job = await createJob(app.db, {
@@ -191,6 +191,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
     data: Buffer;
     tags: string[];
     requestId: string;
+    actor: string;
     log: FastifyInstance['log'];
   }) => {
     const sha = await storeBlob(app.config.KNOWLEDGE_DIR, input.data);
@@ -218,7 +219,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
       }
       const job = await enqueue(document.id, input.baseId);
       await writeAudit(app.db, input.log, {
-        actor: 'admin',
+        actor: input.actor,
         action: `knowledge.document.${input.sourceType}_imported`,
         target: document.id,
         input: {
@@ -239,7 +240,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/documents/manual',
-    { ...auth, bodyLimit: MANUAL_BODY_LIMIT, schema: { params: baseParams, body: manualSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, bodyLimit: MANUAL_BODY_LIMIT, schema: { params: baseParams, body: manualSchema } },
     async (request, reply) => {
       const base = await loadActiveBase(request.params.id, reply);
       if (!base) return;
@@ -257,6 +258,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         data: Buffer.from(request.body.content, 'utf8'),
         tags: request.body.tags,
         requestId: request.id,
+        actor: actorOf(request),
         log: request.log,
       });
       return reply.status(202).send(result);
@@ -265,7 +267,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/documents/url',
-    { ...auth, schema: { params: baseParams, body: urlSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: baseParams, body: urlSchema } },
     async (request, reply) => {
       const base = await loadActiveBase(request.params.id, reply);
       if (!base) return;
@@ -287,6 +289,7 @@ export function registerKnowledgeContentRoutes(rawApp: FastifyInstance): void {
         data: fetched.data,
         tags: [],
         requestId: request.id,
+        actor: actorOf(request),
         log: request.log,
       });
       return reply.status(202).send(result);

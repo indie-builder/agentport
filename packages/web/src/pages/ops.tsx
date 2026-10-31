@@ -1,5 +1,5 @@
 import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentport/shared';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CalendarClock, CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -34,11 +34,12 @@ import {
 import { Switch } from '../components/ui/switch.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
+import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatRelative } from '../lib/format.js';
-import { useAgents, useAttention, useSchedules } from '../lib/queries.js';
+import { meQuery, useAgents, useAttention, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -201,6 +202,8 @@ type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 export function SchedulesPage() {
   const schedules = useSchedules();
   const agents = useAgents();
+  const me = useQuery(meQuery);
+  const canManage = can(me.data, 'schedules.manage');
   const client = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
@@ -229,16 +232,18 @@ export function SchedulesPage() {
 
   const items = schedules.data ?? [];
   // 启停和删除共用列表状态：任一请求在途时锁住所有行，避免用旧列表并发改同一批任务。
-  const rowBusy = toggle.isPending || remove.isPending;
+  const rowBusy = toggle.isPending || remove.isPending || !canManage;
 
   return (
     <Page>
       <PageHeader
         title="定时任务"
         actions={
-          <Button ref={createButtonRef} onClick={() => setCreating(true)}>
-            <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
-          </Button>
+          canManage ? (
+            <Button ref={createButtonRef} onClick={() => setCreating(true)}>
+              <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
+            </Button>
+          ) : null
         }
       />
 

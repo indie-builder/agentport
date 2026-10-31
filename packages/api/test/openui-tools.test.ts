@@ -11,13 +11,17 @@ import {
   cleanup,
   createAgent,
   createServer as createApiServer,
+  createTestAccount,
   expectProblem,
   infraReady,
   inject,
   loginCookie,
+  roleIds,
+  setAgentMember,
   startApp,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID, } from './helpers.js';
+import { createRole } from './access-helpers.js';
 
 const ready = await infraReady;
 
@@ -172,7 +176,8 @@ describe.skipIf(!ready)('openui tools', () => {
       id: conversationId,
       agentId: agent.id,
       title: 'tool bridge',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
     return { server, agent, conversationId, messageId };
@@ -488,7 +493,8 @@ describe.skipIf(!ready)('openui tools', () => {
       id: otherConversation,
       agentId: first.agent.id,
       title: 'other',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     conversationIds.push(otherConversation);
 
     const pending = (
@@ -520,7 +526,8 @@ describe.skipIf(!ready)('openui tools', () => {
       id: otherConversation,
       agentId: shared.agent.id,
       title: 'tool bridge other',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     conversationIds.push(otherConversation);
     const otherMessageId = await appendUiMessage(otherConversation);
 
@@ -551,6 +558,106 @@ describe.skipIf(!ready)('openui tools', () => {
       pending.approvalId,
     );
     expect(cross).toBeNull();
+  });
+
+  it('rechecks agents.use on every tool call after membership revocation', async () => {
+    const { agent, server } = await seedAgent();
+    const viewer = await createTestAccount(app, cookie, { systemKeys: ['user'] });
+    await setAgentMember(app, cookie, agent.id, viewer.businessId, {
+      canUse: true,
+      canMaintain: false,
+    });
+
+    const conversationId = newId('conversation');
+    await repo.chat.createConversation(app.db, {
+      id: conversationId,
+      agentId: agent.id,
+      title: 'revoked history',
+      subject: { kind: 'user', businessId: viewer.businessId },
+    });
+    conversationIds.push(conversationId);
+    const messageId = await appendUiMessage(conversationId);
+    const call = () =>
+      inject(app, {
+        method: 'POST',
+        url: `/api/chat/${conversationId}/openui/tools/mcp__${server.name}__get-user`,
+        headers: { cookie: viewer.cookie },
+        payload: { args: { id: 1 }, messageId, blockKey: 's0' },
+      });
+
+    const allowed = await call();
+    expect(allowed.statusCode, allowed.body).toBe(200);
+
+    const removed = await inject(app, {
+      method: 'DELETE',
+      url: `/api/agents/${agent.id}/members/${encodeURIComponent(viewer.businessId)}`,
+      headers: auth(),
+    });
+    expect(removed.statusCode, removed.body).toBe(200);
+
+    // 目录仍含该工具，但 agents.use 已失效：历史消息不能成为绕过授权的入口。
+    expectProblem(await call(), 'NOT_FOUND');
+  });
+
+  it('requires runs.approve and the owner scope for the approval entry', async () => {
+    const { agent, server } = await seedAgent();
+    const approverRole = await createRole(app, cookie, unique('openui-approver'), [
+      { permissionId: 'conversations.update', scope: 'own_data' },
+      { permissionId: 'agents.use', scope: 'authorized_agents' },
+    ]);
+    const approver = await createTestAccount(app, cookie, { systemKeys: ['user'] });
+    const assign = await inject(app, {
+      method: 'PUT',
+      url: `/api/accounts/${encodeURIComponent(approver.businessId)}/roles`,
+      headers: auth(),
+      payload: { roleIds: [approverRole.id] },
+    });
+    expect(assign.statusCode, assign.body).toBe(200);
+    await setAgentMember(app, cookie, agent.id, approver.businessId, {
+      canUse: true,
+      canMaintain: false,
+    });
+
+    const conversationId = newId('conversation');
+    await repo.chat.createConversation(app.db, {
+      id: conversationId,
+      agentId: agent.id,
+      title: 'approval permission',
+      subject: { kind: 'user', businessId: approver.businessId },
+    });
+    conversationIds.push(conversationId);
+    const messageId = await appendUiMessage(conversationId);
+    const pending = await inject(app, {
+      method: 'POST',
+      url: `/api/chat/${conversationId}/openui/tools/mcp__${server.name}__list-invoices`,
+      headers: { cookie: approver.cookie },
+      payload: { args: {}, messageId, blockKey: 's0' },
+    });
+    expect(pending.statusCode, pending.body).toBe(202);
+    const approvalId = pending.json<{ approvalId: string }>().approvalId;
+    const approveAs = (approvalCookie: string) =>
+      inject(app, {
+        method: 'POST',
+        url: `/api/chat/${conversationId}/openui/approvals/${approvalId}/approve`,
+        headers: { cookie: approvalCookie },
+      });
+
+    // 只有重命名权限不能批准工具：403 是功能级拒绝，不是会话范围问题。
+    expectProblem(await approveAs(approver.cookie), 'FORBIDDEN');
+
+    // 有 runs.approve 但不是会话本人：own_data 范围不匹配，按不存在处理。
+    const outsider = await createTestAccount(app, cookie, { systemKeys: ['user'] });
+    expectProblem(await approveAs(outsider.cookie), 'NOT_FOUND');
+
+    const restore = await inject(app, {
+      method: 'PUT',
+      url: `/api/accounts/${encodeURIComponent(approver.businessId)}/roles`,
+      headers: auth(),
+      payload: { roleIds: [approverRole.id, (await roleIds(app, cookie, ['user']))[0]] },
+    });
+    expect(restore.statusCode, restore.body).toBe(200);
+    const approved = await approveAs(approver.cookie);
+    expect(approved.statusCode, approved.body).toBe(200);
   });
 
   it('calls tools on an http MCP server using the cached catalog', async () => {
@@ -622,7 +729,8 @@ describe.skipIf(!ready)('openui tools', () => {
       id: conversationId,
       agentId: agent.id,
       title: 'http bridge',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
 
@@ -670,7 +778,8 @@ describe.skipIf(!ready)('openui tools', () => {
       id: conversationId,
       agentId: agent.id,
       title: 'mcp bridge',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
     return { server, conversationId, messageId };

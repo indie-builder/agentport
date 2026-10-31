@@ -1,4 +1,4 @@
-import { type Agent, agentInputSchema, type WorkspaceFiles } from '@agentport/shared';
+import { PERMISSIONS, type Agent, agentInputSchema, type WorkspaceFiles } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { AgentEditor } from '../src/pages/agents.js';
 import { agentDetailSearchSchema } from '../src/routes/-search.js';
+import { allAccessMe } from './me-fixture.js';
 
 const state = vi.hoisted(() => ({ agent: null as Agent | null }));
 
@@ -22,7 +23,17 @@ vi.mock('../src/lib/queries.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/queries.js')>();
   return {
     ...actual,
+    meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
     useAgents: () => ({ data: state.agent ? [state.agent] : [] }),
+    useAgentOptions: () => ({
+      data: { servers: [], skills: [], plugins: [], runtimeEnvironments: [] },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    }),
     useServers: () => ({ data: [], isPending: false, isError: false }),
     useKnowledgeBases: () => ({ data: [], isPending: false, isError: false }),
     usePlugins: () => ({ data: [], isPending: false, isError: false, status: 'success' }),
@@ -108,6 +119,7 @@ async function renderEditor(): Promise<void> {
     component: () =>
       createElement(AgentEditor, {
         agent,
+        permissions: PERMISSIONS.map((permission) => permission.id),
         onDirtyChange: () => {},
         onPendingChange: () => {},
         onDeleteRequest: () => {},
@@ -151,6 +163,7 @@ beforeEach(() => {
   });
   agentFiles = vi.spyOn(api, 'agentFiles').mockResolvedValue(files);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(['me'], allAccessMe);
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

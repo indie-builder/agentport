@@ -1,15 +1,20 @@
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fail, isAppError, parseAgentMd } from '@agentport/core';
-import { ADMIN_USER_ID, repo as allRepo, schema } from '@agentport/db';
+import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db';
 import * as repo from '@agentport/db/repo/agents.js';
-import type { Agent, AgentInput } from '@agentport/shared';
+import type { AccessScope, Agent, AgentInput, PermissionId, Principal } from '@agentport/shared';
 import {
   AGENT_ROLES,
   agentDuplicateInputSchema,
   agentInputSchema,
+  agentMemberInputSchema,
+  agentOptionsSchema,
   agentRoleSchema,
   agentSchema,
+  agentSummarySchema,
+  businessIdSchema,
+  grantDependencies,
   idParams,
   outputStyleInputSchema,
   permissionModeSchema,
@@ -17,10 +22,10 @@ import {
   uiFormatSchema,
 } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { isPgCode, reject } from '../../plugins/errors.js';
+import { AppError, isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import {
   assertNoActiveRun,
@@ -63,6 +68,17 @@ const outputStyleWriteBody = outputStyleInputSchema.pick({
   keepCodingInstructions: true,
   body: true,
 });
+const memberParams = z.object({
+  id: z.string().min(1),
+  businessId: businessIdSchema,
+});
+const transferBody = z.object({ ownerBusinessId: businessIdSchema }).strict();
+const identitiesQuery = z.object({
+  agentId: z.string().min(1),
+  q: z.string().max(128).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
 
 type OutputStyleRow = Awaited<ReturnType<typeof allRepo.outputStyles.listOutputStyles>>[number];
 
@@ -78,6 +94,22 @@ function toOutputStyle(row: OutputStyleRow) {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * 委派绑定必须同时落在调用者的管理范围内：
+ * 否则负责人可以借自己的父专家驱动别人维护的子智能体。
+ */
+async function authorizeSubAgentBindings(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  subAgentIds: string[],
+): Promise<void> {
+  for (const id of subAgentIds) {
+    const child = await repo.getAgent(app.db, id);
+    if (!child) continue; // 不存在的候选由 validateSubAgents 统一报错。
+    await authorizeAgent(app, request, child, 'agents.bindings.manage');
+  }
 }
 
 /** default/acceptEdits 直接透传 SDK；auto 依赖无法审计的模型分类器，暂不开放。 */
@@ -152,6 +184,80 @@ function notFound(reply: FastifyReply) {
   return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
 }
 
+/** 每条路由显式声明叶；onRoute 据此自动挂 requireAuth + requirePermission。 */
+function access(permissionId: PermissionId) {
+  return { access: { kind: 'permission' as const, permissionId } };
+}
+
+const authenticated = { access: { kind: 'authenticated' as const } };
+
+/** 写叶必须同时具备对应读取视图；依赖只由 shared 目录定义一次。 */
+function dependenciesOf(permissionId: PermissionId): readonly PermissionId[] {
+  return grantDependencies(permissionId);
+}
+
+function principalOf(request: FastifyRequest): Extract<Principal, { kind: 'user' }> {
+  const principal = request.principal;
+  if (!principal || principal.kind !== 'user') throw new AppError('UNAUTHORIZED', 'not logged in');
+  return principal;
+}
+
+function scopesFor(principal: Extract<Principal, { kind: 'user' }>, permissionId: PermissionId) {
+  return principal.grants
+    .filter((grant) => grant.permissionId === permissionId)
+    .map((grant): AccessScope => grant.scope);
+}
+
+/** 对象级检查：同一条 grant 必须同时匹配 permissionId 与对象 scope。 */
+async function authorizeAgent(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  row: repo.AgentRow,
+  permissionIds: PermissionId | PermissionId[],
+): Promise<void> {
+  const ids = Array.isArray(permissionIds) ? permissionIds : [permissionIds];
+  for (const permissionId of ids) {
+    await app.authorize(request, permissionId, {
+      agentId: row.id,
+      createdBy: row.createdBy,
+    });
+    for (const dependency of dependenciesOf(permissionId)) {
+      await app.authorize(request, dependency, {
+        agentId: row.id,
+        createdBy: row.createdBy,
+      });
+    }
+  }
+}
+
+/** 列表摘要：只给成员可见的业务字段，不含提示词、绑定或任何密钥。 */
+function toSummary(row: repo.AgentRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    enabled: row.enabled,
+    createdBy: row.createdBy,
+    ownerBusinessId: row.ownerBusinessId,
+  };
+}
+
+/** 专家详情（配置、绑定）只在 agents.config.read 之后返回。 */
+async function detailOf(app: FastifyInstance, row: repo.AgentRow): Promise<Agent> {
+  const [serverIds, skillIds, subAgentIds, pluginBindings] = await Promise.all([
+    repo.getAgentServerIds(app.db, row.id),
+    repo.getAgentSkillIds(app.db, row.id),
+    repo.getAgentSubAgentIds(app.db, row.id),
+    repo.listAgentPluginBindings(app.db, [row.id]),
+  ]);
+  return repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings.get(row.id) ?? []);
+}
+
+/** 成员只能指向已登记身份：当前账户（含停用，可离线保留）或历史业务记录。 */
+function registeredIdentity(app: FastifyInstance, businessId: string): Promise<boolean> {
+  return allRepo.accounts.hasBusinessHistory(app.db, businessId);
+}
+
 /** slug 有唯一索引（23505）→ 409；外键失败（23503）→ 引用了不存在的 server/skill。 */
 function rethrowConflict(err: unknown): never {
   if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他智能体占用，请换一个');
@@ -162,6 +268,7 @@ function rethrowConflict(err: unknown): never {
 
 function toWrite(
   input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds' | 'pluginBindings'>,
+  ownerBusinessId: string,
 ): repo.AgentWrite {
   return {
     slug: input.slug,
@@ -180,6 +287,9 @@ function toWrite(
     maxBudgetUsd: String(input.maxBudgetUsd),
     timeoutMs: input.timeoutMs,
     runtimeEnvironmentId: input.runtimeEnvironmentId,
+    // 业务身份只由服务端写入，客户端提交的同名字段在 schema 里被拒绝。
+    createdBy: ownerBusinessId,
+    ownerBusinessId,
   };
 }
 
@@ -251,7 +361,11 @@ async function validateRuntimeEnvironment(
 }
 
 /** 快照是共享 Agent（camelCase）；回滚时先转回 DB 写入形状，slug 保持不变。 */
-function snapshotToWrite(snapshot: Agent, slug: string, currentRole: string): repo.AgentWrite {
+function snapshotToWrite(
+  snapshot: Agent,
+  slug: string,
+  currentRole: string,
+): Partial<repo.AgentWrite> {
   return {
     slug,
     name: snapshot.name,
@@ -276,71 +390,71 @@ function snapshotToWrite(snapshot: Agent, slug: string, currentRole: string): re
 
 export function registerAgentRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
+  // 列表只返回当前 agents.read 范围可读的专家摘要；提示词、绑定与密钥都不下发。
   app.get(
     '/api/agents',
-    { ...auth, schema: { response: { 200: z.array(agentSchema) } } },
-    async () => {
-      const rows = await repo.listAgents(app.db);
-      const ids = rows.map((row) => row.id);
-      const [servers, skills, subAgents, plugins] = await Promise.all([
-        repo.listAgentServerIds(app.db, ids),
-        repo.listAgentSkillIds(app.db, ids),
-        repo.listAgentSubAgentIds(app.db, ids),
-        repo.listAgentPluginBindings(app.db, ids),
-      ]);
-      return rows.map((row) =>
-        repo.toAgent(
-          row,
-          servers.get(row.id) ?? [],
-          skills.get(row.id) ?? [],
-          subAgents.get(row.id) ?? [],
-          plugins.get(row.id) ?? [],
-        ),
-      );
+    {
+      config: access('agents.read'),
+      schema: { response: { 200: z.array(agentSummarySchema) } },
+    },
+    async (request) => {
+      const principal = principalOf(request);
+      const rows = await repo.listAgents(app.db, {
+        businessId: principal.businessId,
+        scopes: scopesFor(principal, 'agents.read'),
+      });
+      return rows.map(toSummary);
     },
   );
 
-  app.post('/api/agents', { ...auth, schema: { body: createSchema } }, async (request, reply) => {
-    const input = request.body;
-    const modeError = unsupportedPermissionMode(input.permissionMode);
-    if (modeError) return invalid(reply, modeError);
-    const { serverIds, skillIds, subAgentIds, pluginBindings, ...rest } = input;
-    const subAgentError = await validateSubAgents(app, null, subAgentIds);
-    if (subAgentError) return invalid(reply, subAgentError);
-    const envError = await validateRuntimeEnvironment(app, input.runtimeEnvironmentId);
-    if (envError) return invalid(reply, envError);
-    try {
-      const row = await repo.createAgent(
-        app.db,
-        toWrite(rest),
-        serverIds,
-        skillIds,
-        subAgentIds,
-        pluginBindings,
-      );
-      await writeAudit(app.db, request.log, {
-        actor: 'admin',
-        action: 'agent.created',
-        target: row.id,
-        input,
-        status: 'ok',
-        requestId: request.id,
-      });
-      return reply
-        .status(201)
-        .send(repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings));
-    } catch (err) {
-      rethrowConflict(err);
-    }
-  });
+  app.post(
+    '/api/agents',
+    { config: access('agents.create'), schema: { body: createSchema } },
+    async (request, reply) => {
+      const principal = principalOf(request);
+      // requirePermission 只确认叶存在；create 的对象范围由本人作为新对象 owner 满足。
+      await app.authorize(request, 'agents.create');
+      const input = request.body;
+      const modeError = unsupportedPermissionMode(input.permissionMode);
+      if (modeError) return invalid(reply, modeError);
+      const { serverIds, skillIds, subAgentIds, pluginBindings, ...rest } = input;
+      const subAgentError = await validateSubAgents(app, null, subAgentIds);
+      if (subAgentError) return invalid(reply, subAgentError);
+      await authorizeSubAgentBindings(app, request, subAgentIds);
+      const envError = await validateRuntimeEnvironment(app, input.runtimeEnvironmentId);
+      if (envError) return invalid(reply, envError);
+      try {
+        const row = await repo.createAgent(
+          app.db,
+          toWrite(rest, principal.businessId),
+          serverIds,
+          skillIds,
+          subAgentIds,
+          pluginBindings,
+        );
+        await writeAudit(app.db, request.log, {
+          actor: principal.businessId,
+          action: 'agent.created',
+          target: row.id,
+          input,
+          status: 'ok',
+          requestId: request.id,
+        });
+        return reply
+          .status(201)
+          .send(repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings));
+      } catch (err) {
+        rethrowConflict(err);
+      }
+    },
+  );
 
   // 克隆：配置、绑定、规则、输出风格一起复制；子智能体不复制，从 v1 重新计版本。
   app.post(
     '/api/agents/:id/duplicate',
     {
-      ...auth,
+      config: access('agents.clone'),
       schema: {
         params: idParams,
         body: agentDuplicateInputSchema,
@@ -348,14 +462,25 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      const principal = principalOf(request);
+      const source = await repo.getAgent(app.db, request.params.id);
+      if (!source) return notFound(reply);
+      await authorizeAgent(app, request, source, 'agents.clone');
+      await app.authorize(request, 'agents.create');
       try {
-        const row = await repo.duplicateAgent(app.db, request.params.id, request.body);
+        // 新对象归当前用户所有；源成员的授权不随克隆带出。
+        const row = await repo.duplicateAgent(
+          app.db,
+          source.id,
+          request.body,
+          principal.businessId,
+        );
         if (!row) return notFound(reply);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: principal.businessId,
           action: 'agent.duplicated',
           target: row.id,
-          input: { sourceId: request.params.id },
+          input: { sourceId: source.id },
           status: 'ok',
           requestId: request.id,
         });
@@ -369,21 +494,25 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
   // 导入只接受官方 .claude/agents/*.md；slug 即 frontmatter 的 name，冲突与手动创建一样返回 409。
   app.post(
     '/api/agents/import-file',
-    { ...auth, schema: { body: importFileSchema } },
+    { config: access('agents.import'), schema: { body: importFileSchema } },
     async (request, reply) => {
+      const principal = principalOf(request);
+      // 导入新建同样要求创建专家，且新对象归当前用户所有。
+      await app.authorize(request, 'agents.create');
       const { agent: input, warnings } = request.body;
       const { serverIds, skillIds, subAgentIds, pluginBindings, ...rest } = input;
+      await authorizeSubAgentBindings(app, request, subAgentIds);
       try {
         const row = await repo.createAgent(
           app.db,
-          toWrite(rest),
+          toWrite(rest, principal.businessId),
           serverIds,
           skillIds,
           subAgentIds,
           pluginBindings,
         );
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: principal.businessId,
           action: 'agent.imported',
           target: row.id,
           input: { slug: row.slug },
@@ -400,22 +529,93 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/agents/:id', { ...auth, schema: { params: idParams } }, async (request, reply) => {
-    const row = await repo.getAgent(app.db, request.params.id);
-    if (!row) return notFound(reply);
-    const [serverIds, skillIds, subAgentIds, pluginBindings] = await Promise.all([
-      repo.getAgentServerIds(app.db, row.id),
-      repo.getAgentSkillIds(app.db, row.id),
-      repo.getAgentSubAgentIds(app.db, row.id),
-      repo.listAgentPluginBindings(app.db, [row.id]),
+  // 配置绑定时的可选资源目录：只出摘要，不含任何资源配置或密钥。
+  app.get(
+    '/api/agents/options',
+    { config: authenticated, schema: { response: { 200: agentOptionsSchema } } },
+    async (request) => {
+    const principal = principalOf(request);
+    if (!principal.grants.some((grant) => grant.permissionId === 'agents.bindings.manage')) {
+      throw new AppError('FORBIDDEN', '没有管理专家资源绑定的权限');
+    }
+    const [servers, skills, plugins, environments] = await Promise.all([
+      app.db
+        .select({ id: schema.servers.id, name: schema.servers.name, kind: schema.servers.kind })
+        .from(schema.servers)
+        .orderBy(schema.servers.name),
+      app.db
+        .select({
+          id: schema.skills.id,
+          slug: schema.skills.slug,
+          name: schema.skills.name,
+          description: schema.skills.description,
+        })
+        .from(schema.skills)
+        .orderBy(schema.skills.name),
+      app.db
+        .select({
+          id: pluginsTable.id,
+          slug: pluginsTable.slug,
+          name: pluginsTable.name,
+        })
+        .from(pluginsTable)
+        .orderBy(pluginsTable.name),
+      app.db
+        .select({
+          id: schema.runtimeEnvironments.id,
+          name: schema.runtimeEnvironments.name,
+          onlineVersionId: schema.runtimeEnvironments.onlineVersionId,
+        })
+        .from(schema.runtimeEnvironments)
+        .orderBy(schema.runtimeEnvironments.name),
     ]);
-    return repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings.get(row.id) ?? []);
+    return {
+      servers,
+      skills,
+      plugins,
+      runtimeEnvironments: environments.map((row) => ({
+        id: row.id,
+        name: row.name,
+        hasOnlineVersion: row.onlineVersionId !== null,
+      })),
+    };
   });
 
+  // 完整配置只对 agents.config.read 开放；普通使用者只能看到列表摘要。
+  app.get(
+    '/api/agents/:id',
+    {
+      config: access('agents.config.read'),
+      schema: { params: idParams, response: { 200: agentSchema } },
+    },
+    async (request, reply) => {
+      const row = await repo.getAgent(app.db, request.params.id);
+      if (!row) return notFound(reply);
+      await authorizeAgent(app, request, row, 'agents.config.read');
+      return detailOf(app, row);
+    },
+  );
+
+  // 已求值的对象权限：前端据此显示编辑、授权、转交、删除按钮。
+  app.get(
+    '/api/agents/:id/access',
+    { config: authenticated, schema: { params: idParams } },
+    async (request, reply) => {
+      const row = await repo.getAgent(app.db, request.params.id);
+      if (!row) return notFound(reply);
+      const result = await app.agentAccess(request, row.id);
+      // 与列表一致：没有对象读权限就当作不存在，避免泄漏其他用户的专家。
+      if (!result.permissionIds.includes('agents.read')) return notFound(reply);
+      return result;
+    },
+  );
+
+  // PATCH 可同时提交配置、绑定与启停字段，任一项按叶分别授权；因此这里先只要求登录。
   app.patch(
     '/api/agents/:id',
-    { ...auth, schema: { params: idParams, body: patchSchema } },
+    { config: authenticated, schema: { params: idParams, body: patchSchema } },
     async (request, reply) => {
+      const principal = principalOf(request);
       const input = request.body;
       const modeError = unsupportedPermissionMode(input.permissionMode);
       if (modeError) return invalid(reply, modeError);
@@ -425,28 +625,60 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           : await validateRuntimeEnvironment(app, input.runtimeEnvironmentId);
       if (envError) return invalid(reply, envError);
 
-      // 只有需要旧行做校验的字段才查一次；普通字段更新直接 UPDATE。
-      if (
-        input.slug !== undefined ||
-        input.subAgentIds !== undefined ||
-        input.pluginBindings !== undefined
-      ) {
-        const current = await repo.getAgent(app.db, request.params.id);
-        if (!current) return notFound(reply);
-        const slugError = assertSlugUnchanged(current.slug, input.slug);
-        if (slugError) return invalid(reply, slugError);
-        if (input.subAgentIds !== undefined) {
-          // 自己已经是子智能体时不能再有子智能体，否则就是两层。
-          if (current.parentId !== null && input.subAgentIds.length > 0) {
-            return invalid(reply, 'a sub-agent cannot have its own sub-agents');
-          }
-          const subAgentError = await validateSubAgents(app, current.id, input.subAgentIds);
-          if (subAgentError) return invalid(reply, subAgentError);
+      const current = await repo.getAgent(app.db, request.params.id);
+      if (!current) return notFound(reply);
+      // 任何 PATCH 都需要对象级 agents.read；响应是否带完整配置另看 config.read。
+      const access = await app.agentAccess(request, current.id);
+      if (!access.permissionIds.includes('agents.read')) return notFound(reply);
+      const canReadConfig = access.permissionIds.includes('agents.config.read');
+
+      // 旧组合 PATCH 按实际提交的字段逐项授权；任一项越权就整体拒绝，不写部分字段。
+      const configFields = [
+        input.name,
+        input.role,
+        input.description,
+        input.model,
+        input.systemPrompt,
+        input.allowedTools,
+        input.disallowedTools,
+        input.permissionMode,
+        input.uiFormat,
+        input.effort,
+        input.maxTurns,
+        input.maxBudgetUsd,
+        input.timeoutMs,
+        input.runtimeEnvironmentId,
+      ];
+      const bindingFields = [
+        input.serverIds,
+        input.skillIds,
+        input.pluginBindings,
+        input.subAgentIds,
+      ];
+      if (configFields.some((field) => field !== undefined)) {
+        await authorizeAgent(app, request, current, 'agents.config.update');
+      }
+      if (bindingFields.some((field) => field !== undefined)) {
+        await authorizeAgent(app, request, current, 'agents.bindings.manage');
+      }
+      if (input.enabled !== undefined) {
+        await authorizeAgent(app, request, current, 'agents.enable');
+      }
+
+      const slugError = assertSlugUnchanged(current.slug, input.slug);
+      if (slugError) return invalid(reply, slugError);
+      if (input.subAgentIds !== undefined) {
+        // 自己已经是子智能体时不能再有子智能体，否则就是两层。
+        if (current.parentId !== null && input.subAgentIds.length > 0) {
+          return invalid(reply, 'a sub-agent cannot have its own sub-agents');
         }
-        // 插件是会话级能力：子智能体不能绑定，避免出现「配了但实际不隔离」的假能力。
-        if (current.parentId !== null && (input.pluginBindings?.length ?? 0) > 0) {
-          return invalid(reply, '子智能体不能绑定插件；插件在会话级加载');
-        }
+        const subAgentError = await validateSubAgents(app, current.id, input.subAgentIds);
+        if (subAgentError) return invalid(reply, subAgentError);
+        await authorizeSubAgentBindings(app, request, input.subAgentIds);
+      }
+      // 插件是会话级能力：子智能体不能绑定，避免出现「配了但实际不隔离」的假能力。
+      if (current.parentId !== null && (input.pluginBindings?.length ?? 0) > 0) {
+        return invalid(reply, '子智能体不能绑定插件；插件在会话级加载');
       }
 
       // 请求未提交的列必须留给数据库保留，避免并发的不同字段更新互相覆盖。
@@ -484,26 +716,15 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         // 版本不匹配时仓储抛 409，走到这里只剩「行不存在」。
         if (!row) return notFound(reply);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: principal.businessId,
           action: 'agent.updated',
           target: row.id,
           input,
           status: 'ok',
           requestId: request.id,
         });
-        const [serverIds, skillIds, subAgentIds, pluginBindings] = await Promise.all([
-          input.serverIds ?? repo.getAgentServerIds(app.db, row.id),
-          input.skillIds ?? repo.getAgentSkillIds(app.db, row.id),
-          input.subAgentIds ?? repo.getAgentSubAgentIds(app.db, row.id),
-          repo.listAgentPluginBindings(app.db, [row.id]),
-        ]);
-        return repo.toAgent(
-          row,
-          serverIds,
-          skillIds,
-          subAgentIds,
-          pluginBindings.get(row.id) ?? [],
-        );
+        // 只有具备配置读取叶的调用者才拿完整 DTO；绑定-only 角色只看摘要。
+        return canReadConfig ? detailOf(app, row) : toSummary(row);
       } catch (err) {
         rethrowConflict(err);
       }
@@ -512,43 +733,41 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/agents/:id',
-    { ...auth, schema: { params: idParams } },
+    { config: access('agents.delete'), schema: { params: idParams } },
     async (request, reply) => {
+      const principal = principalOf(request);
+      const current = await repo.getAgent(app.db, request.params.id);
+      if (!current) return notFound(reply);
+      await authorizeAgent(app, request, current, 'agents.delete');
       // 目录名依赖 slug，删除后无法再定位；先取出 slug 再删行。
-      const [row] = await app.db
-        .select({ slug: schema.agents.slug })
-        .from(schema.agents)
-        .where(eq(schema.agents.id, request.params.id))
-        .limit(1);
-      const ok = await repo.deleteAgent(app.db, request.params.id);
+      const slug = current.slug;
+      const ok = await repo.deleteAgent(app.db, current.id);
       if (!ok) return notFound(reply);
-      if (row) {
-        // 会话 transcript 是每次分支/续聊的运行时数据，删专家后不再需要；记忆按约定保留为持久资产。
-        await rm(join(app.config.WORKSPACES_DIR, row.slug, 'sdk-sessions'), {
-          recursive: true,
-          force: true,
-        }).catch((err: unknown) => {
-          request.log.warn({ err, agentId: request.params.id }, 'sdk session cleanup failed');
-        });
-        // 会话行已级联删除，成果目录失去所有索引；整个专家目录一起回收。
-        await rm(join(app.config.WORKSPACES_DIR, row.slug, 'conversation-outputs'), {
-          recursive: true,
-          force: true,
-        }).catch((err: unknown) => {
-          request.log.warn({ err, agentId: request.params.id }, 'output cleanup failed');
-        });
-        // 附件同样是会话行产生的运行数据：专家删除后没有任何索引可再引用。
-        await rm(join(app.config.WORKSPACES_DIR, row.slug, 'conversation-inputs'), {
-          recursive: true,
-          force: true,
-        }).catch((err: unknown) => {
-          request.log.warn({ err, agentId: request.params.id }, 'input cleanup failed');
-        });
-      }
+      // 会话 transcript 是每次分支/续聊的运行时数据，删专家后不再需要；记忆按约定保留为持久资产。
+      await rm(join(app.config.WORKSPACES_DIR, slug, 'sdk-sessions'), {
+        recursive: true,
+        force: true,
+      }).catch((err: unknown) => {
+        request.log.warn({ err, agentId: current.id }, 'sdk session cleanup failed');
+      });
+      // 会话行已级联删除，成果目录失去所有索引；整个专家目录一起回收。
+      await rm(join(app.config.WORKSPACES_DIR, slug, 'conversation-outputs'), {
+        recursive: true,
+        force: true,
+      }).catch((err: unknown) => {
+        request.log.warn({ err, agentId: current.id }, 'output cleanup failed');
+      });
+      // 附件同样是会话行产生的运行数据：专家删除后没有任何索引可再引用。
+      await rm(join(app.config.WORKSPACES_DIR, slug, 'conversation-inputs'), {
+        recursive: true,
+        force: true,
+      }).catch((err: unknown) => {
+        request.log.warn({ err, agentId: current.id }, 'input cleanup failed');
+      });
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: principal.businessId,
         action: 'agent.deleted',
-        target: request.params.id,
+        target: current.id,
         status: 'ok',
         requestId: request.id,
       });
@@ -561,14 +780,18 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/agents/:id/files',
     {
-      ...auth,
+      config: access('agents.files.read'),
       schema: {
         params: idParams,
         querystring: z.object({ reveal: z.enum(['0', '1']).optional() }),
       },
     },
     async (request, reply) => {
-      const files = await renderAgentWorkspace(app, request.params.id);
+      const current = await repo.getAgent(app.db, request.params.id);
+      if (!current) return notFound(reply);
+      // 完整文件包含配置、规则、样式与记忆视图；缺任一读取叶都拒绝，不静默泄漏。
+      await authorizeAgent(app, request, current, 'agents.files.read');
+      const files = await renderAgentWorkspace(app, current.id);
       if (!files) return notFound(reply);
       if (request.query.reveal === '1') reply.header('Cache-Control', 'no-store');
       return files;
@@ -578,7 +801,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
   // 下载内容必须与 worker 落盘的 .claude/agents/<slug>.md 一致：先渲染父级工作区再取文件。
   app.get(
     '/api/agents/:id/subagents/:childId/file',
-    { ...auth, schema: { params: subAgentFileParams } },
+    { config: access('agents.files.read'), schema: { params: subAgentFileParams } },
     async (request, reply) => {
       const [parent, child] = await Promise.all([
         repo.getAgent(app.db, request.params.id),
@@ -587,6 +810,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
       if (!parent || !child || child.parentId !== parent.id || child.id === parent.id) {
         return notFound(reply);
       }
+      await authorizeAgent(app, request, parent, ['agents.files.read', 'agents.config.read']);
       const files = await renderAgentWorkspace(app, parent.id);
       const rendered = files?.subAgents.find((subAgent) => subAgent.slug === child.slug);
       if (!rendered) return notFound(reply);
@@ -601,20 +825,22 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/agents/:id/versions',
-    { ...auth, schema: { params: idParams } },
+    { config: access('agents.versions.read'), schema: { params: idParams } },
     async (request, reply) => {
       const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
+      await authorizeAgent(app, request, current, 'agents.versions.read');
       return allRepo.agentVersions.listAgentVersions(app.db, current.id);
     },
   );
 
   app.get(
     '/api/agents/:id/versions/:version',
-    { ...auth, schema: { params: versionParams } },
+    { config: access('agents.versions.read'), schema: { params: versionParams } },
     async (request, reply) => {
       const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
+      await authorizeAgent(app, request, current, 'agents.versions.read');
       const row = await allRepo.agentVersions.getAgentVersion(
         app.db,
         current.id,
@@ -633,10 +859,12 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/agents/:id/rollback',
-    { ...auth, schema: { params: idParams, body: rollbackBody } },
+    { config: access('agents.versions.restore'), schema: { params: idParams, body: rollbackBody } },
     async (request, reply) => {
+      const principal = principalOf(request);
       const current = await repo.getAgent(app.db, request.params.id);
       if (!current) return notFound(reply);
+      await authorizeAgent(app, request, current, 'agents.versions.restore');
       const target = await allRepo.agentVersions.getAgentVersion(
         app.db,
         current.id,
@@ -659,6 +887,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         }
         const subAgentError = await validateSubAgents(app, current.id, snapshotSubAgentIds);
         if (subAgentError) return invalid(reply, subAgentError);
+        await authorizeSubAgentBindings(app, request, snapshotSubAgentIds);
       }
       try {
         const row = await repo.updateAgent(
@@ -675,7 +904,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         );
         if (!row) return notFound(reply);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: principal.businessId,
           action: 'agent.rolled_back',
           target: row.id,
           input: { version: target.version },
@@ -698,32 +927,38 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   // 长期记忆：Claude Code 原生 auto-memory（MEMORY.md + 主题文件），平台只浏览/编辑。
   // 目录是 WORKSPACES_DIR/<slug>/agent-memory/，worker 每次运行读写挂载进容器。
-  const memorySlug = async (agentId: string): Promise<string | null> => {
-    const [row] = await app.db
-      .select({ slug: schema.agents.slug })
-      .from(schema.agents)
-      .where(eq(schema.agents.id, agentId))
-      .limit(1);
-    return row?.slug ?? null;
+  const authorizedAgent = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    id: string,
+    permissionIds: PermissionId | PermissionId[],
+  ): Promise<repo.AgentRow | null> => {
+    const row = await repo.getAgent(app.db, id);
+    if (!row) {
+      notFound(reply);
+      return null;
+    }
+    await authorizeAgent(app, request, row, permissionIds);
+    return row;
   };
 
   app.get(
     '/api/agents/:id/memory',
-    { ...auth, schema: { params: memoryParams } },
+    { config: access('agents.memory.read'), schema: { params: memoryParams } },
     async (request, reply) => {
-      const slug = await memorySlug(request.params.id);
-      if (!slug) return notFound(reply);
-      return listMemoryFiles(app.config.WORKSPACES_DIR, slug);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.memory.read');
+      if (!row) return reply;
+      return listMemoryFiles(app.config.WORKSPACES_DIR, row.slug);
     },
   );
 
   app.get(
     '/api/agents/:id/memory/:name',
-    { ...auth, schema: { params: memoryFileParams } },
+    { config: access('agents.memory.read'), schema: { params: memoryFileParams } },
     async (request, reply) => {
-      const slug = await memorySlug(request.params.id);
-      if (!slug) return notFound(reply);
-      const file = await readMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.memory.read');
+      if (!row) return reply;
+      const file = await readMemoryFile(app.config.WORKSPACES_DIR, row.slug, request.params.name);
       if (!file) return notFound(reply);
       return file;
     },
@@ -731,14 +966,19 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.put(
     '/api/agents/:id/memory/:name',
-    { ...auth, schema: { params: memoryFileParams, body: memoryWriteBody } },
+    {
+      config: access('agents.memory.write'),
+      schema: { params: memoryFileParams, body: memoryWriteBody },
+    },
     async (request, reply) => {
-      const slug = await memorySlug(request.params.id);
-      if (!slug) return notFound(reply);
-      const target = { kind: 'agent_memory', agentId: request.params.id } as const;
-      const file = await withMemoryTargetLock(app.pool, target, ADMIN_USER_ID, async () => {
+      const principal = principalOf(request);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.memory.write');
+      if (!row) return reply;
+      const slug = row.slug;
+      const target = { kind: 'agent_memory', agentId: row.id } as const;
+      const file = await withMemoryTargetLock(app.pool, target, principal.businessId, async () => {
         if (request.params.name !== 'MEMORY.md') {
-          await assertNoActiveRun(app.db, request.params.id);
+          await assertNoActiveRun(app.db, row.id);
           return writeMemoryFile(
             app.config.WORKSPACES_DIR,
             slug,
@@ -748,7 +988,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         }
         await writeMemoryTargetLocked(app.db, {
           workspacesDir: app.config.WORKSPACES_DIR,
-          userId: ADMIN_USER_ID,
+          businessId: principal.businessId,
           target,
           after: { content: request.body.content, globs: null },
           logger: request.log,
@@ -758,9 +998,9 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         return written;
       });
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: principal.businessId,
         action: 'agent.memory.write',
-        target: request.params.id,
+        target: row.id,
         input: { name: request.params.name },
         status: 'ok',
         requestId: request.id,
@@ -771,32 +1011,43 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/agents/:id/memory/:name',
-    { ...auth, schema: { params: memoryFileParams } },
+    { config: access('agents.memory.write'), schema: { params: memoryFileParams } },
     async (request, reply) => {
-      const slug = await memorySlug(request.params.id);
-      if (!slug) return notFound(reply);
-      const target = { kind: 'agent_memory', agentId: request.params.id } as const;
-      const removed = await withMemoryTargetLock(app.pool, target, ADMIN_USER_ID, async () => {
-        if (request.params.name !== 'MEMORY.md') {
-          await assertNoActiveRun(app.db, request.params.id);
-          return deleteMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
-        }
-        const current = await readMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
-        if (!current) return false;
-        await writeMemoryTargetLocked(app.db, {
-          workspacesDir: app.config.WORKSPACES_DIR,
-          userId: ADMIN_USER_ID,
-          target,
-          after: { content: null, globs: null },
-          logger: request.log,
-        });
-        return true;
-      });
+      const principal = principalOf(request);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.memory.write');
+      if (!row) return reply;
+      const slug = row.slug;
+      const target = { kind: 'agent_memory', agentId: row.id } as const;
+      const removed = await withMemoryTargetLock(
+        app.pool,
+        target,
+        principal.businessId,
+        async () => {
+          if (request.params.name !== 'MEMORY.md') {
+            await assertNoActiveRun(app.db, row.id);
+            return deleteMemoryFile(app.config.WORKSPACES_DIR, slug, request.params.name);
+          }
+          const current = await readMemoryFile(
+            app.config.WORKSPACES_DIR,
+            slug,
+            request.params.name,
+          );
+          if (!current) return false;
+          await writeMemoryTargetLocked(app.db, {
+            workspacesDir: app.config.WORKSPACES_DIR,
+            businessId: principal.businessId,
+            target,
+            after: { content: null, globs: null },
+            logger: request.log,
+          });
+          return true;
+        },
+      );
       if (!removed) return notFound(reply);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: principal.businessId,
         action: 'agent.memory.delete',
-        target: request.params.id,
+        target: row.id,
         input: { name: request.params.name },
         status: 'ok',
         requestId: request.id,
@@ -808,11 +1059,11 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
   // 项目规则：渲染到 .claude/rules/<slug>.md（官方 project source 加载）。
   app.get(
     '/api/agents/:id/rules',
-    { ...auth, schema: { params: memoryParams } },
+    { config: access('agents.rules.read'), schema: { params: memoryParams } },
     async (request, reply) => {
-      const exists = await memorySlug(request.params.id);
-      if (!exists) return notFound(reply);
-      const rows = await allRepo.rules.listRules(app.db, request.params.id);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.rules.read');
+      if (!row) return reply;
+      const rows = await allRepo.rules.listRules(app.db, row.id);
       return rows.map((r) => ({
         id: r.id,
         agentId: r.agentId,
@@ -827,19 +1078,20 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.put(
     '/api/agents/:id/rules/:slug',
-    { ...auth, schema: { params: ruleParams, body: ruleBody } },
+    { config: access('agents.rules.write'), schema: { params: ruleParams, body: ruleBody } },
     async (request, reply) => {
-      const exists = await memorySlug(request.params.id);
-      if (!exists) return notFound(reply);
+      const principal = principalOf(request);
+      const agent = await authorizedAgent(request, reply, request.params.id, 'agents.rules.write');
+      if (!agent) return reply;
       const target = {
         kind: 'agent_rule',
-        agentId: request.params.id,
+        agentId: agent.id,
         slug: request.params.slug,
       } as const;
-      const row = await withMemoryTargetLock(app.pool, target, ADMIN_USER_ID, async () => {
+      const row = await withMemoryTargetLock(app.pool, target, principal.businessId, async () => {
         await writeMemoryTargetLocked(app.db, {
           workspacesDir: app.config.WORKSPACES_DIR,
-          userId: ADMIN_USER_ID,
+          businessId: principal.businessId,
           target,
           after: { content: request.body.content, globs: request.body.globs },
           logger: request.log,
@@ -849,7 +1101,7 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
           .from(schema.agentRules)
           .where(
             and(
-              eq(schema.agentRules.agentId, request.params.id),
+              eq(schema.agentRules.agentId, agent.id),
               eq(schema.agentRules.slug, request.params.slug),
             ),
           )
@@ -858,9 +1110,9 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
         return rule;
       });
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: principal.businessId,
         action: 'agent.rule.written',
-        target: request.params.id,
+        target: agent.id,
         input: { slug: row.slug },
         status: 'ok',
         requestId: request.id,
@@ -879,41 +1131,47 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/agents/:id/rules/:slug',
-    { ...auth, schema: { params: ruleParams } },
+    { config: access('agents.rules.write'), schema: { params: ruleParams } },
     async (request, reply) => {
-      const exists = await memorySlug(request.params.id);
-      if (!exists) return notFound(reply);
+      const principal = principalOf(request);
+      const agent = await authorizedAgent(request, reply, request.params.id, 'agents.rules.write');
+      if (!agent) return reply;
       const target = {
         kind: 'agent_rule',
-        agentId: request.params.id,
+        agentId: agent.id,
         slug: request.params.slug,
       } as const;
-      const removed = await withMemoryTargetLock(app.pool, target, ADMIN_USER_ID, async () => {
-        const [rule] = await app.db
-          .select({ id: schema.agentRules.id })
-          .from(schema.agentRules)
-          .where(
-            and(
-              eq(schema.agentRules.agentId, request.params.id),
-              eq(schema.agentRules.slug, request.params.slug),
-            ),
-          )
-          .limit(1);
-        if (!rule) return false;
-        await writeMemoryTargetLocked(app.db, {
-          workspacesDir: app.config.WORKSPACES_DIR,
-          userId: ADMIN_USER_ID,
-          target,
-          after: { content: null, globs: '' },
-          logger: request.log,
-        });
-        return true;
-      });
+      const removed = await withMemoryTargetLock(
+        app.pool,
+        target,
+        principal.businessId,
+        async () => {
+          const [rule] = await app.db
+            .select({ id: schema.agentRules.id })
+            .from(schema.agentRules)
+            .where(
+              and(
+                eq(schema.agentRules.agentId, agent.id),
+                eq(schema.agentRules.slug, request.params.slug),
+              ),
+            )
+            .limit(1);
+          if (!rule) return false;
+          await writeMemoryTargetLocked(app.db, {
+            workspacesDir: app.config.WORKSPACES_DIR,
+            businessId: principal.businessId,
+            target,
+            after: { content: null, globs: '' },
+            logger: request.log,
+          });
+          return true;
+        },
+      );
       if (!removed) return notFound(reply);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: principal.businessId,
         action: 'agent.rule.deleted',
-        target: request.params.id,
+        target: agent.id,
         input: { slug: request.params.slug },
         status: 'ok',
         requestId: request.id,
@@ -925,29 +1183,33 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
   // 输出风格：渲染到 .claude/output-styles/<slug>.md，选中者经 settings.outputStyle 激活。
   app.get(
     '/api/agents/:id/output-styles',
-    { ...auth, schema: { params: memoryParams } },
+    { config: access('agents.styles.read'), schema: { params: memoryParams } },
     async (request, reply) => {
-      const exists = await memorySlug(request.params.id);
-      if (!exists) return notFound(reply);
-      const rows = await allRepo.outputStyles.listOutputStyles(app.db, request.params.id);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.styles.read');
+      if (!row) return reply;
+      const rows = await allRepo.outputStyles.listOutputStyles(app.db, row.id);
       return rows.map(toOutputStyle);
     },
   );
 
   app.put(
     '/api/agents/:id/output-styles/:slug',
-    { ...auth, schema: { params: outputStyleParams, body: outputStyleWriteBody } },
+    {
+      config: access('agents.styles.write'),
+      schema: { params: outputStyleParams, body: outputStyleWriteBody },
+    },
     async (request, reply) => {
-      const exists = await memorySlug(request.params.id);
-      if (!exists) return notFound(reply);
-      const row = await allRepo.outputStyles.upsertOutputStyle(app.db, request.params.id, {
+      const principal = principalOf(request);
+      const agent = await authorizedAgent(request, reply, request.params.id, 'agents.styles.write');
+      if (!agent) return reply;
+      const row = await allRepo.outputStyles.upsertOutputStyle(app.db, agent.id, {
         slug: request.params.slug,
         ...request.body,
       });
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: principal.businessId,
         action: 'agent.output_style.written',
-        target: request.params.id,
+        target: agent.id,
         input: { slug: row.slug },
         status: 'ok',
         requestId: request.id,
@@ -958,20 +1220,21 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/agents/:id/output-styles/:slug/unselect',
-    { ...auth, schema: { params: outputStyleParams } },
+    { config: access('agents.styles.write'), schema: { params: outputStyleParams } },
     async (request, reply) => {
-      const exists = await memorySlug(request.params.id);
-      if (!exists) return notFound(reply);
+      const principal = principalOf(request);
+      const agent = await authorizedAgent(request, reply, request.params.id, 'agents.styles.write');
+      if (!agent) return reply;
       const ok = await allRepo.outputStyles.unselectOutputStyle(
         app.db,
-        request.params.id,
+        agent.id,
         request.params.slug,
       );
       if (!ok) return reject(reply, 'NOT_FOUND', '该输出风格不存在，可能已被删除');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: principal.businessId,
         action: 'agent.output_style.unselected',
-        target: request.params.id,
+        target: agent.id,
         input: { slug: request.params.slug },
         status: 'ok',
         requestId: request.id,
@@ -982,25 +1245,153 @@ export function registerAgentRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/agents/:id/output-styles/:slug',
-    { ...auth, schema: { params: outputStyleParams } },
+    { config: access('agents.styles.write'), schema: { params: outputStyleParams } },
     async (request, reply) => {
-      const exists = await memorySlug(request.params.id);
-      if (!exists) return notFound(reply);
+      const principal = principalOf(request);
+      const agent = await authorizedAgent(request, reply, request.params.id, 'agents.styles.write');
+      if (!agent) return reply;
       const removed = await allRepo.outputStyles.deleteOutputStyle(
         app.db,
-        request.params.id,
+        agent.id,
         request.params.slug,
       );
       if (!removed) return reject(reply, 'NOT_FOUND', '该输出风格不存在，可能已被删除');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: principal.businessId,
         action: 'agent.output_style.deleted',
-        target: request.params.id,
+        target: agent.id,
         input: { slug: request.params.slug },
         status: 'ok',
         requestId: request.id,
       });
       return reply.status(204).send();
+    },
+  );
+
+  // 成员：本人负责的专家才可授权；维护人员只能维护，不能改成员。
+  app.get(
+    '/api/agents/:id/members',
+    { config: access('agents.members.manage'), schema: { params: memoryParams } },
+    async (request, reply) => {
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.members.manage');
+      if (!row) return reply;
+      const members = await allRepo.access.listAgentMembers(app.db, row.id);
+      return { ownerBusinessId: row.ownerBusinessId, members };
+    },
+  );
+
+  app.put(
+    '/api/agents/:id/members/:businessId',
+    {
+      config: access('agents.members.manage'),
+      schema: { params: memberParams, body: agentMemberInputSchema },
+    },
+    async (request, reply) => {
+      const principal = principalOf(request);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.members.manage');
+      if (!row) return reply;
+      if (!(await registeredIdentity(app, request.params.businessId))) {
+        return invalid(reply, '该业务 ID 尚未登记为人员，无法授权；请先在账户中添加该人员');
+      }
+      const member = await allRepo.access.setAgentMember(app.db, row.id, {
+        businessId: request.params.businessId,
+        canUse: request.body.canUse,
+        canMaintain: request.body.canMaintain,
+      });
+      await writeAudit(app.db, request.log, {
+        actor: principal.businessId,
+        action: 'agent.member.updated',
+        target: row.id,
+        input: request.params.businessId,
+        status: 'ok',
+        requestId: request.id,
+      });
+      return member;
+    },
+  );
+
+  app.delete(
+    '/api/agents/:id/members/:businessId',
+    { config: access('agents.members.manage'), schema: { params: memberParams } },
+    async (request, reply) => {
+      const principal = principalOf(request);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.members.manage');
+      if (!row) return reply;
+      if (request.params.businessId === row.ownerBusinessId) {
+        return invalid(reply, '负责人不是可删除的成员行；需要变更负责人请使用转交');
+      }
+      const removed = await allRepo.access.deleteAgentMember(
+        app.db,
+        row.id,
+        request.params.businessId,
+      );
+      if (!removed) return reject(reply, 'NOT_FOUND', '该成员不存在，可能已被移除');
+      await writeAudit(app.db, request.log, {
+        actor: principal.businessId,
+        action: 'agent.member.deleted',
+        target: row.id,
+        input: request.params.businessId,
+        status: 'ok',
+        requestId: request.id,
+      });
+      return { ok: true };
+    },
+  );
+
+  // 转交：只改负责人，createdBy 保持创建人；原负责人不会自动保留成员权。
+  app.post(
+    '/api/agents/:id/transfer',
+    { config: access('agents.transfer'), schema: { params: memoryParams, body: transferBody } },
+    async (request, reply) => {
+      const principal = principalOf(request);
+      const row = await authorizedAgent(request, reply, request.params.id, 'agents.transfer');
+      if (!row) return reply;
+      const target = await allRepo.accounts.getIdentity(app.db, request.body.ownerBusinessId);
+      if (!target || !target.accountActive) {
+        return invalid(reply, '新负责人必须是已登记且未停用的账户');
+      }
+      const targetAccess = await allRepo.access.getUserAccess(app.db, request.body.ownerBusinessId);
+      const canCreate = targetAccess.grants.some(
+        (grant) =>
+          grant.permissionId === 'agents.create' &&
+          (grant.scope === 'own_data' || grant.scope === 'platform'),
+      );
+      if (!canCreate) {
+        return invalid(reply, '新负责人需要具备「创建专家」权限');
+      }
+      const transferred = await allRepo.access.transferAgent(
+        app.db,
+        row.id,
+        request.body.ownerBusinessId,
+      );
+      if (!transferred) return notFound(reply);
+      await writeAudit(app.db, request.log, {
+        actor: principal.businessId,
+        action: 'agent.transferred',
+        target: row.id,
+        input: request.body.ownerBusinessId,
+        status: 'ok',
+        requestId: request.id,
+      });
+      const updated = await repo.getAgent(app.db, row.id);
+      if (!updated) return notFound(reply);
+      return detailOf(app, updated);
+    },
+  );
+
+  // 负责人挑选成员用的身份摘要；必须绑定到本人可管理的具体专家，不授予全局账户读取权。
+  app.get(
+    '/api/identities',
+    { config: authenticated, schema: { querystring: identitiesQuery } },
+    async (request, reply) => {
+      const row = await repo.getAgent(app.db, request.query.agentId);
+      if (!row) return notFound(reply);
+      await authorizeAgent(app, request, row, 'agents.members.manage');
+      return allRepo.accounts.listIdentities(app.db, {
+        limit: request.query.limit,
+        offset: request.query.offset,
+        ...(request.query.q === undefined ? {} : { q: request.query.q }),
+      });
     },
   );
 }

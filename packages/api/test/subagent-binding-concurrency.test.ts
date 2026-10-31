@@ -289,7 +289,7 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
       const pid = await backendPid(client);
       // 未提交的同 slug 行把请求的 INSERT 挡在唯一索引上，但请求先完成校验。
       await client.query(
-        `insert into agents (id, slug, name, model, system_prompt_md) values ($1, $2, $3, $4, '')`,
+        `insert into agents (id, slug, name, model, system_prompt_md, created_by, owner_business_id) values ($1, $2, $3, $4, '', 'bootstrap-admin', 'bootstrap-admin')`,
         [unique('reservation'), slug, `Reservation ${slug}`, 'claude-sonnet-5-5'],
       );
 

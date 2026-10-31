@@ -36,6 +36,8 @@ async function newAgent(): Promise<string> {
     slug: `inherit-${id.slice(4)}`,
     name: 'inherit',
     model: 'test',
+    createdBy: 'test-owner',
+    ownerBusinessId: 'test-owner',
   });
   return id;
 }
@@ -54,7 +56,12 @@ async function newServer(): Promise<string> {
 
 async function newConversation(agentId: string): Promise<string> {
   const id = newId('conversation');
-  await chat.createConversation(db, { id, agentId, title: 'inherit approvals' });
+  await chat.createConversation(db, {
+    id,
+    agentId,
+    title: 'inherit approvals',
+    subject: { kind: 'user', businessId: 'test-owner' },
+  });
   return id;
 }
 
@@ -62,7 +69,12 @@ async function newRun(conversationId: string, agentId: string): Promise<string> 
   // TypeID 时间戳是毫秒级，同一毫秒内的 id 顺序随机；这里保证上一轮/本轮的先后稳定。
   await new Promise((resolve) => setTimeout(resolve, 2));
   const id = newId('run');
-  await chat.createRun(db, { id, conversationId, agentId });
+  await chat.createRun(db, {
+    id,
+    conversationId,
+    agentId,
+    subject: { kind: 'user', businessId: 'test-owner' },
+  });
   return id;
 }
 

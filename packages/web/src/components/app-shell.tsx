@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import type { PermissionId } from '@agentport/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
   Activity,
@@ -9,6 +10,7 @@ import {
   Container,
   FlaskConical,
   HeartPulse,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -23,12 +25,27 @@ import {
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
+import {
+  type AuthenticatedMe,
+  authenticated,
+  can,
+  canAny,
+  homePath,
+  OPERATIONS_MENU,
+  PLATFORM_MENU,
+  RESOURCE_MENU,
+  requiredPermissions,
+  WORK_MENU,
+} from '../lib/access.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { meQuery, queryClient } from '../lib/queries.js';
+import { clearSessionQueries, meQuery, useChangePassword } from '../lib/queries.js';
+import { toastSuccess } from '../lib/toast.js';
 import { animateBrand, Brand, BrandMark } from './brand.js';
-import { PageHeader } from './page.js';
+import { DialogShell } from './dialog-shell.js';
+import { Page, PageHeader, PageNote } from './page.js';
 import { Button } from './ui/button.js';
+import { Dialog } from './ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,46 +53,54 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu.js';
+import { Field, FieldError, FieldGroup, FieldLabel } from './ui/field.js';
+import { Input } from './ui/input.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip.js';
 
-type NavItem = { to: string; label: string; icon: typeof Cable };
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof Cable;
+  permissionIds: readonly PermissionId[];
+  navGroup?: 'resources';
+};
 
-/**
- * 业务导航按「工作 → 构建」排：找专家是入口，对话与定时任务是每天的高频动作，
- * 资源与评估属于构建。运维观测收在底部次级入口，不占业务主路径。
- */
-const nav: readonly { label: string; items: readonly NavItem[] }[] = [
-  {
-    label: '工作',
-    items: [
-      { to: '/agents', label: '找专家', icon: Users },
-      { to: '/chat', label: '对话', icon: MessagesSquare },
-      { to: '/memory', label: '记忆', icon: Brain },
-      { to: '/schedules', label: '定时任务', icon: CalendarClock },
-    ],
-  },
-  {
-    label: '构建',
-    items: [
-      { to: '/skills', label: '资源', icon: Cable },
-      { to: '/eval', label: '评估', icon: FlaskConical },
-    ],
-  },
-];
+const iconFor: Record<string, typeof Cable> = {
+  '/agents': Users,
+  '/chat': MessagesSquare,
+  '/memory': Brain,
+  '/schedules': CalendarClock,
+  '/skills': Cable,
+  '/eval': FlaskConical,
+  '/operations': LayoutDashboard,
+  '/runs': Activity,
+  '/runtime-environments': Container,
+  '/status': HeartPulse,
+  '/audit': ScrollText,
+  '/accounts': KeyRound,
+  '/roles': Users,
+};
 
-const operationsNav: readonly NavItem[] = [
-  { to: '/operations', label: '概况', icon: LayoutDashboard },
-  { to: '/runs', label: '运行', icon: Activity },
-  { to: '/runtime-environments', label: '运行环境', icon: Container },
-  { to: '/status', label: '健康', icon: HeartPulse },
-  { to: '/audit', label: '审计', icon: ScrollText },
-];
+function menuItems(
+  items: readonly { to: string; label: string; permissionIds: readonly PermissionId[] }[],
+): NavItem[] {
+  return items.map((item) => ({ ...item, icon: iconFor[item.to] ?? Cable }));
+}
 
-const operationsEntry: NavItem = { to: '/operations', label: '运维', icon: Wrench };
-const workspaceEntry: NavItem = { to: '/agents', label: '返回工作区', icon: ArrowLeft };
-const operationsNavTargets = new Set(operationsNav.map((item) => item.to));
+const workItems = menuItems(WORK_MENU);
+const resourceItems = menuItems(RESOURCE_MENU);
+const operationsItems = menuItems(OPERATIONS_MENU);
+const platformItems = menuItems(PLATFORM_MENU);
+
+/** 资源入口落到第一个可读资源分类，避免只有连接器权限的人被带到技能页 403。 */
+function resourceHome(me: AuthenticatedMe): string | null {
+  return resourceItems.find((item) => canAny(me, item.permissionIds))?.to ?? null;
+}
+
+const operationsNavTargets = new Set(operationsItems.map((item) => item.to));
+const resourceNavTargets = new Set(resourceItems.map((item) => item.to));
 
 /**
  * 路由归属与文档标题的唯一来源。未列出的路由（`/_shell/$`）既不选中导航，
@@ -88,11 +113,11 @@ const routeMeta: Record<string, { nav: string; title: string }> = {
   '/_shell/memory': { nav: '/memory', title: '记忆' },
   '/_shell/schedules': { nav: '/schedules', title: '定时任务' },
   '/_shell/skills': { nav: '/skills', title: '资源' },
-  '/_shell/servers': { nav: '/skills', title: '连接器' },
-  '/_shell/plugins/': { nav: '/skills', title: '插件' },
-  '/_shell/plugins/$pluginId': { nav: '/skills', title: '插件' },
-  '/_shell/knowledge/': { nav: '/skills', title: '知识库' },
-  '/_shell/knowledge/$baseId': { nav: '/skills', title: '知识库' },
+  '/_shell/servers': { nav: '/servers', title: '连接器' },
+  '/_shell/plugins/': { nav: '/plugins', title: '插件' },
+  '/_shell/plugins/$pluginId': { nav: '/plugins', title: '插件' },
+  '/_shell/knowledge/': { nav: '/knowledge', title: '知识库' },
+  '/_shell/knowledge/$baseId': { nav: '/knowledge', title: '知识库' },
   '/_shell/eval': { nav: '/eval', title: '评估' },
   '/_shell/operations': { nav: '/operations', title: '概况' },
   '/_shell/runs/': { nav: '/runs', title: '运行' },
@@ -104,6 +129,8 @@ const routeMeta: Record<string, { nav: string; title: string }> = {
   },
   '/_shell/status': { nav: '/status', title: '健康' },
   '/_shell/audit': { nav: '/audit', title: '审计' },
+  '/_shell/accounts': { nav: '/accounts', title: '账户' },
+  '/_shell/roles': { nav: '/roles', title: '角色' },
 };
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
@@ -173,16 +200,23 @@ function SidebarLink({
   label,
   icon: Icon,
   collapsed,
+  navGroup,
   onNavigate,
 }: {
   to: string;
   label: string;
   icon: typeof Cable;
   collapsed: boolean;
+  navGroup?: 'resources' | undefined;
   onNavigate?: (() => void) | undefined;
 }) {
   const activeRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
-  const active = routeMeta[activeRoute ?? '']?.nav === to;
+  const activeNav = routeMeta[activeRoute ?? '']?.nav;
+  // 资源入口指向首个可读资源，任一资源路由都算命中这一项；未知路由不命中。
+  const active =
+    navGroup === 'resources'
+      ? activeNav !== undefined && resourceNavTargets.has(activeNav)
+      : activeNav === to;
   // 收起态按参考页：整行透明，状态落在 32×32、radius 6 的图标块上。
   const link = (
     <Link
@@ -238,12 +272,13 @@ function SidebarLink({
   );
 }
 
-function UserMenu({ username }: { username: string }) {
+function UserMenu({ me, onChangePassword }: { me: AuthenticatedMe; onChangePassword: () => void }) {
   const navigate = useNavigate();
+  const label = me.user.name || me.user.username;
 
   const logout = async (): Promise<void> => {
     await api.logout().catch(() => undefined);
-    queryClient.clear();
+    clearSessionQueries();
     await navigate({ to: '/login' });
   };
 
@@ -253,14 +288,14 @@ function UserMenu({ username }: { username: string }) {
         render={
           <Button
             variant="ghost"
-            aria-label={`账户 ${username}`}
+            aria-label={`账户 ${label}`}
             // Keep the compact 12px account label, 7px corners, and opaque open-state surface.
             className="gap-2 rounded-icon px-2 text-xs data-[popup-open]:bg-sunken"
           >
             <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
               <User className="size-3" />
             </span>
-            <span className="hidden max-w-32 truncate sm:block">{username}</span>
+            <span className="hidden max-w-32 truncate sm:block">{label}</span>
           </Button>
         }
       />
@@ -268,16 +303,24 @@ function UserMenu({ username }: { username: string }) {
         align="end"
         sideOffset={8}
         // Keep the 7px menu corners, explicit border, and project overlay shadow.
-        className="w-48 rounded-icon border p-1 shadow-overlay"
+        className="w-56 rounded-icon border p-1 shadow-overlay"
       >
         <div className="border-b px-2.5 py-2">
-          <div className="truncate text-xs text-fg">{username}</div>
-          <div className="text-2xs text-muted-foreground">管理员</div>
+          <div className="truncate text-xs text-fg">{label}</div>
+          <div className="truncate text-2xs text-muted-foreground">
+            {me.user.username} · {me.roles.map((role) => role.name).join('、') || '无角色'}
+          </div>
         </div>
         <DropdownMenuGroup>
           <DropdownMenuItem
-            // Keep the smaller compact label; hover/focus inherit the shared accent surface.
             className="mt-1 flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-fg transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={onChangePassword}
+          >
+            <KeyRound className="size-3.5" />
+            修改密码
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-fg transition-colors hover:bg-accent hover:text-accent-foreground"
             onClick={() => void logout()}
           >
             <LogOut className="size-3.5" />
@@ -286,6 +329,158 @@ function UserMenu({ username }: { username: string }) {
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+  const change = useChangePassword();
+  const navigate = useNavigate();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const tooShort = newPassword.length > 0 && newPassword.length < 8;
+  const mismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
+
+  const submit = async (): Promise<void> => {
+    if (change.isPending) return;
+    setError(null);
+    if (newPassword.length < 8) {
+      setError('新密码至少 8 个字符。');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('两次输入的新密码不一致。');
+      return;
+    }
+    try {
+      await change.mutateAsync({ currentPassword, newPassword });
+      toastSuccess('密码已修改，请重新登录。');
+      clearSessionQueries();
+      await navigate({ to: '/login', search: { returnTo: '/' } });
+    } catch (cause) {
+      setError(
+        cause instanceof Error && cause.message ? cause.message : '修改密码没有完成，请重试。',
+      );
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogShell
+        title="修改密码"
+        description="修改后会撤销所有已登录会话，需要用新密码重新登录。"
+        className="max-w-md sm:max-w-md"
+      >
+        <form
+          aria-label="修改密码"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <FieldGroup className="gap-5">
+            <Field data-disabled={change.isPending}>
+              <FieldLabel htmlFor="current-password">当前密码</FieldLabel>
+              <Input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                disabled={change.isPending}
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+              />
+            </Field>
+            <Field data-disabled={change.isPending} data-invalid={tooShort}>
+              <FieldLabel htmlFor="new-password">新密码</FieldLabel>
+              <Input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                disabled={change.isPending}
+                aria-invalid={tooShort}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+              />
+              <FieldError>{tooShort ? '新密码至少 8 个字符。' : undefined}</FieldError>
+            </Field>
+            <Field data-disabled={change.isPending} data-invalid={mismatch}>
+              <FieldLabel htmlFor="confirm-password">确认新密码</FieldLabel>
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                disabled={change.isPending}
+                aria-invalid={mismatch}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+              />
+              <FieldError>{mismatch ? '两次输入的新密码不一致。' : undefined}</FieldError>
+            </Field>
+            <FieldError>{error ?? undefined}</FieldError>
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" disabled={change.isPending} onClick={onClose}>
+                取消
+              </Button>
+              <Button
+                type="submit"
+                disabled={change.isPending || currentPassword.length === 0}
+                aria-busy={change.isPending}
+              >
+                {change.isPending ? '正在保存…' : '修改密码'}
+              </Button>
+            </div>
+          </FieldGroup>
+        </form>
+      </DialogShell>
+    </Dialog>
+  );
+}
+
+export function AccessDenied({
+  home,
+  noPermissions,
+  onLogout,
+}: {
+  home: string | null;
+  noPermissions: boolean;
+  onLogout: () => void;
+}) {
+  const client = useQueryClient();
+  // 权限每次请求都从数据库重读，刷新 me 即可生效，不需要重新登录。
+  const refresh = (): void => {
+    void client.invalidateQueries({ queryKey: meQuery.queryKey });
+  };
+  return (
+    <Page className="pt-6">
+      <PageHeader title={noPermissions ? '没有可用权限' : '无权访问'} />
+      <PageNote
+        title={
+          noPermissions ? '当前账户还没有分配任何业务权限。' : '当前账户没有访问这个页面的权限。'
+        }
+        description={
+          noPermissions
+            ? '请联系管理员分配角色，然后点「刷新权限」即可生效。'
+            : '如果这是刚调整过的权限，点「刷新权限」即可生效。'
+        }
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            {home ? (
+              <a href={home} className="text-sm text-primary underline underline-offset-4">
+                返回可用页面
+              </a>
+            ) : null}
+            <Button variant="outline" size="sm" onClick={refresh}>
+              刷新权限
+            </Button>
+            <Button variant="outline" size="sm" onClick={onLogout}>
+              退出登录
+            </Button>
+          </div>
+        }
+      />
+    </Page>
   );
 }
 
@@ -299,14 +494,68 @@ export function AppShell() {
   const baseTitle = `${pageTitle} · PACE`;
   // 详情页共用同一个路由模板，固定名称无法区分实体（WCAG 2.4.2），改由页面实际 h1 命名。
   const isDetailRoute = Boolean(meta && matchedRoute?.includes('$'));
-  const isOperationsContext = meta ? operationsNavTargets.has(meta.nav) : false;
-  const navGroups = isOperationsContext ? [{ label: '运维', items: operationsNav }] : nav;
-  const bottomEntry = isOperationsContext ? workspaceEntry : operationsEntry;
+  const user = authenticated(me.data);
+  const home = homePath(me.data);
+  const firstOperations = [...operationsItems, ...platformItems].find((item) =>
+    canAny(me.data, item.permissionIds),
+  );
+  const isOperationsContext = meta
+    ? operationsNavTargets.has(meta.nav) || platformItems.some((item) => item.to === meta.nav)
+    : false;
+  const visibleWork = workItems.filter((item) => canAny(me.data, item.permissionIds));
+  const visibleOperations = operationsItems.filter((item) => canAny(me.data, item.permissionIds));
+  const visiblePlatform = platformItems.filter((item) => canAny(me.data, item.permissionIds));
+  const resourceTarget = user ? resourceHome(user) : null;
+  const buildItems: NavItem[] = [];
+  if (resourceTarget) {
+    buildItems.push({
+      to: resourceTarget,
+      label: '资源',
+      icon: Cable,
+      permissionIds: [] as readonly PermissionId[],
+      navGroup: 'resources',
+    });
+  }
+  if (can(me.data, 'eval.read')) {
+    buildItems.push({
+      to: '/eval',
+      label: '评估',
+      icon: FlaskConical,
+      permissionIds: ['eval.read'] as readonly PermissionId[],
+    });
+  }
+  const navGroups = isOperationsContext
+    ? [
+        ...(visibleOperations.length > 0 ? [{ label: '运维', items: visibleOperations }] : []),
+        ...(visiblePlatform.length > 0 ? [{ label: '平台', items: visiblePlatform }] : []),
+      ]
+    : [
+        ...(visibleWork.length > 0 ? [{ label: '工作', items: visibleWork }] : []),
+        ...(buildItems.length > 0 ? [{ label: '构建', items: buildItems }] : []),
+      ];
+  const bottomEntry = isOperationsContext
+    ? home !== null &&
+      !operationsNavTargets.has(home) &&
+      !platformItems.some((item) => item.to === home)
+      ? { to: home, label: '返回工作区', icon: ArrowLeft }
+      : null
+    : firstOperations
+      ? { to: firstOperations.to, label: '运维', icon: Wrench }
+      : null;
+  const required = requiredPermissions(matchedRoute);
+  const allowed = required === null || canAny(me.data, required);
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
   const locationHref = useRouterState({ select: (state) => state.location.href });
+
+  const logout = async (): Promise<void> => {
+    await api.logout().catch(() => undefined);
+    clearSessionQueries();
+    await navigate({ to: '/login' });
+  };
 
   useEffect(() => {
     if (!me.data || me.data.authenticated) return;
@@ -390,10 +639,11 @@ export function AppShell() {
     );
   }
 
+  if (!user) return null;
+
   const rail = collapsed
     ? { width: 'var(--sidebar-collapsed)', padding: 'var(--sidebar-pad-collapsed)' }
     : { width: 'var(--sidebar-width)', padding: 'var(--sidebar-pad)' };
-
   const sidebar = (drawer: boolean) => (
     <motion.aside
       className={cn(
@@ -432,6 +682,7 @@ export function AppShell() {
                   to={item.to}
                   label={item.label}
                   icon={item.icon}
+                  navGroup={item.navGroup}
                   collapsed={drawer ? false : collapsed}
                   onNavigate={drawer ? () => setMobileOpen(false) : undefined}
                 />
@@ -442,22 +693,24 @@ export function AppShell() {
       </nav>
       {/* 底部：次级运维入口（或返回工作区）与用户信息。 */}
       <div className={cn('flex flex-col gap-1 pt-[18px]', collapsed && !drawer && 'items-center')}>
-        <SidebarLink
-          to={bottomEntry.to}
-          label={bottomEntry.label}
-          icon={bottomEntry.icon}
-          collapsed={drawer ? false : collapsed}
-          onNavigate={drawer ? () => setMobileOpen(false) : undefined}
-        />
+        {bottomEntry ? (
+          <SidebarLink
+            to={bottomEntry.to}
+            label={bottomEntry.label}
+            icon={bottomEntry.icon}
+            collapsed={drawer ? false : collapsed}
+            onNavigate={drawer ? () => setMobileOpen(false) : undefined}
+          />
+        ) : null}
         {drawer || !collapsed ? (
-          <UserMenu username={me.data.username ?? 'admin'} />
+          <UserMenu me={user} onChangePassword={() => setChangePasswordOpen(true)} />
         ) : (
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
                   variant="ghost"
-                  aria-label={`账户 ${me.data.username ?? 'admin'}`}
+                  aria-label={`账户 ${user.user.name || user.user.username}`}
                   onClick={() => setCollapsed(false)}
                   // Keep the circular account surface and translucent hover instead of the ghost defaults.
                   className="size-8 rounded-full bg-sunken p-0 hover:bg-hover"
@@ -466,11 +719,18 @@ export function AppShell() {
                 </Button>
               }
             />
-            <TooltipContent side="right">{me.data.username ?? 'admin'}</TooltipContent>
+            <TooltipContent side="right">{user.user.name || user.user.username}</TooltipContent>
           </Tooltip>
         )}
       </div>
     </motion.aside>
+  );
+
+  const denied = home === null || !allowed;
+  const content = denied ? (
+    <AccessDenied home={home} noPermissions={home === null} onLogout={() => void logout()} />
+  ) : (
+    <Outlet />
   );
 
   return (
@@ -541,20 +801,19 @@ export function AppShell() {
             )}
           >
             {pathname.startsWith('/chat') ? (
-              <div className="h-full">
-                <Outlet />
-              </div>
+              <div className="h-full">{content}</div>
             ) : (
               // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。
               <div className="w-full px-6 pb-6">
-                <div className="w-full min-w-0">
-                  <Outlet />
-                </div>
+                <div className="w-full min-w-0">{content}</div>
               </div>
             )}
           </main>
         </div>
       </div>
+      {changePasswordOpen ? (
+        <ChangePasswordDialog onClose={() => setChangePasswordOpen(false)} />
+      ) : null}
     </TooltipProvider>
   );
 }

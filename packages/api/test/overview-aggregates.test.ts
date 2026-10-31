@@ -18,7 +18,8 @@ if (isolated) process.env.DATABASE_URL = isolated.url;
 
 // helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
-const { inject, loginCookie, startApp, unique } = helpers;
+const { createAgent, createTestAccount, inject, loginCookie, setAgentMember, startApp, unique } =
+  helpers;
 const ready = await helpers.infraReady;
 // skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
 if (!ready && isolated) await isolated.close();
@@ -42,9 +43,10 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
 
   async function seedAgent(): Promise<string> {
     const id = unique('overview-agent');
-    await app.pool.query("insert into agents (id, slug, name, model) values ($1, $1, $1, 'm')", [
-      id,
-    ]);
+    await app.pool.query(
+      "insert into agents (id, slug, name, model, created_by, owner_business_id) values ($1, $1, $1, 'm', $2, $2)",
+      [id, helpers.ADMIN_BUSINESS_ID],
+    );
     return id;
   }
 
@@ -56,14 +58,14 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     latencyMs: number | null = 100,
   ): Promise<void> {
     const conversationId = unique('overview-conv');
-    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
-      conversationId,
-      agentId,
-    ]);
+    await app.pool.query(
+      'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
+      [conversationId, agentId, helpers.ADMIN_BUSINESS_ID],
+    );
     await app.pool.query(
       `insert into agent_runs
-        (id, conversation_id, agent_id, status, started_at, ended_at, latency_ms, cost_usd, input_tokens, output_tokens)
-       values ($1, $2, $3, $4, $5, $5, $8, 0.25, $6, $7)`,
+        (id, conversation_id, agent_id, status, subject_kind, initiated_by, started_at, ended_at, latency_ms, cost_usd, input_tokens, output_tokens)
+       values ($1, $2, $3, $4, 'user', $9, $5, $5, $8, 0.25, $6, $7)`,
       [
         unique('overview-run'),
         conversationId,
@@ -73,6 +75,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
         tokens?.input ?? null,
         tokens?.output ?? null,
         latencyMs,
+        helpers.ADMIN_BUSINESS_ID,
       ],
     );
   }
@@ -333,5 +336,73 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     expect(sums.costUsd).toBeCloseTo(body.counts.costUsd as number, 6);
     // 专家行与汇总共用同一个窗口与数据源。
     expect(body.agents.reduce((total, agent) => total + agent.runCount, 0)).toBe(body.counts.runs);
+  });
+
+  it('scopes expert cost and tokens to the viewer own runs', async () => {
+    const admin = cookie;
+    const userA = await createTestAccount(app, admin, { systemKeys: ['owner'] });
+    const userB = await createTestAccount(app, admin, { systemKeys: ['user'] });
+    // A 拥有专家，B 被授权在同一个专家上运行。
+    const created = await createAgent(app, userA.cookie);
+    const agentId = created.json<{ id: string }>().id;
+    // 另一个本人专家没有任何运行：JOIN 范围过滤不能把它整行过滤掉。
+    const emptyAgentId = (await createAgent(app, userA.cookie)).json<{ id: string }>().id;
+    await setAgentMember(app, admin, agentId, userB.businessId, {
+      canUse: true,
+      canMaintain: false,
+    });
+
+    const seedOwnRun = async (
+      initiatedBy: string,
+      input: number,
+      output: number,
+      costUsd: number,
+    ): Promise<void> => {
+      const conversationId = unique('scope-conv');
+      await app.pool.query(
+        'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
+        [conversationId, agentId, initiatedBy],
+      );
+      await app.pool.query(
+        `insert into agent_runs
+          (id, conversation_id, agent_id, status, subject_kind, initiated_by, started_at, ended_at, latency_ms, cost_usd, input_tokens, output_tokens)
+         values ($1, $2, $3, 'succeeded', 'user', $4, now(), now(), 100, $5, $6, $7)`,
+        [unique('scope-run'), conversationId, agentId, initiatedBy, costUsd, input, output],
+      );
+    };
+    await seedOwnRun(userA.businessId, 10, 5, 0.25);
+    await seedOwnRun(userB.businessId, 100, 50, 2.5);
+
+    const overviewAs = async (headerCookie: string): Promise<OverviewBody> => {
+      const res = await inject(app, {
+        method: 'GET',
+        url: '/api/overview?days=1',
+        headers: { cookie: headerCookie },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json<OverviewBody>();
+    };
+
+    const aBody = await overviewAs(userA.cookie);
+    expect(aBody.counts).toMatchObject({ runs: 1, tokens: 15, costUsd: 0.25 });
+    expect(aBody.agents.find((agent) => agent.agentId === agentId)).toMatchObject({
+      runCount: 1,
+      totalTokens: 15,
+      totalCost: 0.25,
+    });
+    expect(aBody.agents.find((agent) => agent.agentId === emptyAgentId)).toMatchObject({
+      runCount: 0,
+      totalTokens: 0,
+      totalCost: 0,
+    });
+
+    const bBody = await overviewAs(userB.cookie);
+    expect(bBody.counts).toMatchObject({ runs: 1, tokens: 150, costUsd: 2.5 });
+    // B 不是专家创建者：专家列表不出现 A 的专家，统计也不串。
+    expect(bBody.agents.find((agent) => agent.agentId === agentId)).toBeUndefined();
+
+    await app.pool.query('delete from agents where id = any($1::text[])', [
+      [agentId, emptyAgentId],
+    ]);
   });
 });

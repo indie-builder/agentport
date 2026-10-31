@@ -1,9 +1,10 @@
 import { AppError } from '@agentport/core';
-import type { Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import type { AccessFilter, Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
+import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
+  agentMembers,
   agentOutputStyles,
   agentPlugins,
   agentRules,
@@ -37,6 +38,10 @@ export interface AgentWrite {
   /** numeric 列以字符串写入，避免浮点误差。 */
   maxBudgetUsd: string;
   timeoutMs: number;
+  /** 当前业务身份；创建后不随转交改变。 */
+  createdBy: string;
+  /** 当前负责人；新建时等于 createdBy。 */
+  ownerBusinessId: string;
   parentId?: string | null;
   /** 绑定的运行环境；null 表示平台默认环境。 */
   runtimeEnvironmentId?: string | null;
@@ -56,6 +61,8 @@ export function toAgent(
     name: row.name,
     role: row.role,
     description: row.description,
+    createdBy: row.createdBy,
+    ownerBusinessId: row.ownerBusinessId,
     model: row.model,
     systemPrompt: row.systemPromptMd,
     serverIds,
@@ -78,8 +85,31 @@ export function toAgent(
   };
 }
 
-export async function listAgents(db: Database): Promise<AgentRow[]> {
-  return db.select().from(agents).orderBy(asc(agents.createdAt), asc(agents.id));
+export async function listAgents(db: Database, access: AccessFilter): Promise<AgentRow[]> {
+  const scopes = new Set(access.scopes);
+  if (scopes.has('platform')) {
+    return db.select().from(agents).orderBy(asc(agents.createdAt), asc(agents.id));
+  }
+  const visible = [];
+  if (scopes.has('owned_agents')) {
+    visible.push(eq(agents.ownerBusinessId, access.businessId));
+  }
+  if (scopes.has('authorized_agents')) {
+    visible.push(
+      sql`(${agents.ownerBusinessId} = ${access.businessId} or exists (select 1 from ${agentMembers} m where m.agent_id = ${agents.id} and m.business_id = ${access.businessId} and m.can_use))`,
+    );
+  }
+  if (scopes.has('maintained_agents')) {
+    visible.push(
+      sql`(${agents.ownerBusinessId} = ${access.businessId} or exists (select 1 from ${agentMembers} m where m.agent_id = ${agents.id} and m.business_id = ${access.businessId} and m.can_maintain))`,
+    );
+  }
+  if (visible.length === 0) return [];
+  return db
+    .select()
+    .from(agents)
+    .where(or(...visible))
+    .orderBy(asc(agents.createdAt), asc(agents.id));
 }
 
 export async function getAgent(db: Database | Tx, id: string): Promise<AgentRow | null> {
@@ -252,6 +282,7 @@ export async function duplicateAgent(
   db: Database,
   sourceId: string,
   input: AgentDuplicateInput,
+  ownerBusinessId: string,
 ): Promise<Agent | null> {
   try {
     return await retryOnVersionConflict(() =>
@@ -301,6 +332,8 @@ export async function duplicateAgent(
               maxTurns: source.maxTurns,
               maxBudgetUsd: source.maxBudgetUsd,
               timeoutMs: source.timeoutMs,
+              createdBy: ownerBusinessId,
+              ownerBusinessId,
               parentId: null,
               // 复制的是环境绑定（不是构建版本）；源环境的版本历史不跟着复制。
               runtimeEnvironmentId: source.runtimeEnvironmentId,
@@ -361,10 +394,13 @@ export async function duplicateAgent(
   }
 }
 
+/** 普通编辑不能改归属；转交只走 access.transferAgent。 */
+export type AgentPatch = Partial<Omit<AgentWrite, 'createdBy' | 'ownerBusinessId'>>;
+
 export async function updateAgent(
   db: Database,
   id: string,
-  patch: Partial<AgentWrite>,
+  patch: AgentPatch,
   serverIds?: string[],
   skillIds?: string[],
   note: string | null = null,
