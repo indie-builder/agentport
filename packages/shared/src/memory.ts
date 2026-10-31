@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
 import { runStatusSchema } from './schemas.js';
+import { utf8Bytes } from './utf8.js';
 
 /**
  * 个人记忆与记忆审核的共享契约。
@@ -123,8 +124,6 @@ export const memoryReviewProposalSchema = z
 export type MemoryReviewProposal = z.infer<typeof memoryReviewProposalSchema>;
 
 const INDEX_FILE_NAME = 'MEMORY.md';
-const UTF8_BYTES_2 = 0x800;
-const UTF8_BYTES_3 = 0x10000;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -196,16 +195,6 @@ export function memoryReviewHasChanges(
     after.globs !== before.globs ||
     !sameIndex(before.index, after.index)
   );
-}
-
-/** shared 不带 Node/DOM lib；按码点手算 UTF-8 字节数，浏览器与 Node 都能用。 */
-function utf8Bytes(value: string): number {
-  let bytes = 0;
-  for (const ch of value) {
-    const cp = ch.codePointAt(0) ?? 0;
-    bytes += cp < 0x80 ? 1 : cp < UTF8_BYTES_2 ? 2 : cp < UTF8_BYTES_3 ? 3 : 4;
-  }
-  return bytes;
 }
 
 function lineCount(content: string): number {

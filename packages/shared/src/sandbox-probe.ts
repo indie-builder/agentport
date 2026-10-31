@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { utf8Bytes } from './utf8.js';
 
 /** stdio 试连独立队列：与 agent run 分开，试连不会占住运行并发。 */
 export const SANDBOX_PROBES_QUEUE = 'sandbox-probes';
@@ -47,16 +48,6 @@ export type SandboxProbeOutput = z.infer<typeof sandboxProbeOutputSchema>;
 
 const MAX_TOOLS = 1000;
 const MAX_TOOLS_BYTES = 1_048_576;
-
-/** shared 不带 Node lib；手算 UTF-8 字节数，避免为一行校验引入 Buffer/TextEncoder。 */
-function utf8Bytes(value: string): number {
-  let bytes = 0;
-  for (const ch of value) {
-    const cp = ch.codePointAt(0) ?? 0;
-    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
-  }
-  return bytes;
-}
 
 /**
  * 工具目录是唯一由上游控制的变长部分。超限时明确失败，不做静默截断，
