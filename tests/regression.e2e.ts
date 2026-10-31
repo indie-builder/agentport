@@ -158,7 +158,7 @@ test('all workspaces render the shared page shell', { session: 'admin' }, async 
 }) => {
   // 业务导航：找专家是入口，运维收在底部独立入口，进入后使用独立导航。
   await app.open('/agents');
-  for (const label of ['找专家', '对话', '记忆', '定时任务', '资源', '评估']) {
+  for (const label of ['找专家', '对话', '定时任务', '资源', '评估']) {
     await expect(screen.getByRole('link', label, { exact: true })).toBeVisible();
   }
   await screen.getByRole('link', '运维', { exact: true }).tap();
@@ -196,16 +196,25 @@ test('eval page renders cases and runs sections', { session: 'admin' }, async ({
   await expect(screen.getByText('用例', { exact: false }).first()).toBeVisible();
 });
 
-test('memory page shows personal preferences and reviews tabs', { session: 'admin' }, async ({
+test('personal module opens as profile and exposes direct subpages', { session: 'admin' }, async ({
   app,
   screen,
   browser,
 }) => {
-  await app.open('/memory');
-  await expect(screen.getByRole('heading', '记忆', { exact: true })).toHaveCount(1);
-  await expect(screen.getByRole('tab', '个人偏好', { exact: true })).toBeVisible();
-  await expect(screen.getByRole('tab', '历史回顾', { exact: true })).toBeVisible();
-  await expect(screen.getByLabel('个人偏好内容（Markdown）')).toBeVisible();
+  await app.open('/personal/profile');
+  await expect(screen.getByRole('heading', '个人资料', { exact: true })).toHaveCount(1);
+  for (const label of ['个人记忆', '历史回顾', '安全与会话', '我的分享', '使用记录']) {
+    await expect(screen.getByRole('link', label, { exact: true })).toBeVisible();
+  }
+  await expect(screen.getByRole('link', '返回工作区', { exact: true })).toBeVisible();
+
+  await app.open('/personal/memory');
+  await expect(screen.getByRole('heading', '个人记忆', { exact: true })).toHaveCount(1);
+  await expect(screen.getByLabel('个人记忆内容（Markdown）')).toBeVisible();
+
+  await app.open('/personal/reviews');
+  await expect(screen.getByRole('heading', '历史回顾', { exact: true })).toHaveCount(1);
+
   const overflows = await browser.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );

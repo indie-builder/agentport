@@ -27,6 +27,7 @@
 | [tasks/memory-upgrade.md](tasks/memory-upgrade.md) | 记忆主题升级任务记录（验证及独立评审通过，本任务 PR 交付，合并状态以 GitHub 为准） |
 | [tasks/memory-upgrade-contract.md](tasks/memory-upgrade-contract.md) | 记忆主题升级执行契约：目标、快照、账本与验收 |
 | [tasks/memory-upgrade-research.md](tasks/memory-upgrade-research.md) | 腾讯记忆能力研究与本仓现状映射（证据报告） |
+| [tasks/personal-module.md](tasks/personal-module.md) | 个人模块实施记录（本工作树已实现，未合入 main；验证与终审状态以文件为准） |
 | [tasks/runtime-environment-config.md](tasks/runtime-environment-config.md) | 运行环境能力：命名环境、构建版本、线上指针与专家绑定 |
 | [tasks/runtime-environment-contract.md](tasks/runtime-environment-contract.md) | 运行环境 DB/shared 共享契约与方法签名 |
 | [tasks/runtime-environment-probe-contract.md](tasks/runtime-environment-probe-contract.md) | stdio 试连的环境身份、jsonb 字段与读写行为 |

@@ -17,8 +17,8 @@ import { Route as ShellAccountsRouteImport } from './routes/_shell/accounts'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellChatRouteImport } from './routes/_shell/chat'
 import { Route as ShellEvalRouteImport } from './routes/_shell/eval'
-import { Route as ShellMemoryRouteImport } from './routes/_shell/memory'
 import { Route as ShellOperationsRouteImport } from './routes/_shell/operations'
+import { Route as ShellPersonalRouteImport } from './routes/_shell/personal'
 import { Route as ShellRolesRouteImport } from './routes/_shell/roles'
 import { Route as ShellSchedulesRouteImport } from './routes/_shell/schedules'
 import { Route as ShellServersRouteImport } from './routes/_shell/servers'
@@ -29,6 +29,13 @@ import { Route as ShellAgentsIndexRouteImport } from './routes/_shell/agents.ind
 import { Route as ShellAgentsAgentIdRouteImport } from './routes/_shell/agents.$agentId'
 import { Route as ShellKnowledgeIndexRouteImport } from './routes/_shell/knowledge.index'
 import { Route as ShellKnowledgeBaseIdRouteImport } from './routes/_shell/knowledge.$baseId'
+import { Route as ShellPersonalIndexRouteImport } from './routes/_shell/personal.index'
+import { Route as ShellPersonalMemoryRouteImport } from './routes/_shell/personal.memory'
+import { Route as ShellPersonalProfileRouteImport } from './routes/_shell/personal.profile'
+import { Route as ShellPersonalReviewsRouteImport } from './routes/_shell/personal.reviews'
+import { Route as ShellPersonalSecurityRouteImport } from './routes/_shell/personal.security'
+import { Route as ShellPersonalSharesRouteImport } from './routes/_shell/personal.shares'
+import { Route as ShellPersonalUsageRouteImport } from './routes/_shell/personal.usage'
 import { Route as ShellPluginsIndexRouteImport } from './routes/_shell/plugins.index'
 import { Route as ShellPluginsPluginIdRouteImport } from './routes/_shell/plugins.$pluginId'
 import { Route as ShellRunsIndexRouteImport } from './routes/_shell/runs.index'
@@ -75,14 +82,14 @@ const ShellEvalRoute = ShellEvalRouteImport.update({
   path: '/eval',
   getParentRoute: () => ShellRoute,
 } as any)
-const ShellMemoryRoute = ShellMemoryRouteImport.update({
-  id: '/memory',
-  path: '/memory',
-  getParentRoute: () => ShellRoute,
-} as any)
 const ShellOperationsRoute = ShellOperationsRouteImport.update({
   id: '/operations',
   path: '/operations',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellPersonalRoute = ShellPersonalRouteImport.update({
+  id: '/personal',
+  path: '/personal',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellRolesRoute = ShellRolesRouteImport.update({
@@ -135,6 +142,41 @@ const ShellKnowledgeBaseIdRoute = ShellKnowledgeBaseIdRouteImport.update({
   path: '/knowledge/$baseId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellPersonalIndexRoute = ShellPersonalIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ShellPersonalRoute,
+} as any)
+const ShellPersonalMemoryRoute = ShellPersonalMemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
+  getParentRoute: () => ShellPersonalRoute,
+} as any)
+const ShellPersonalProfileRoute = ShellPersonalProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => ShellPersonalRoute,
+} as any)
+const ShellPersonalReviewsRoute = ShellPersonalReviewsRouteImport.update({
+  id: '/reviews',
+  path: '/reviews',
+  getParentRoute: () => ShellPersonalRoute,
+} as any)
+const ShellPersonalSecurityRoute = ShellPersonalSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => ShellPersonalRoute,
+} as any)
+const ShellPersonalSharesRoute = ShellPersonalSharesRouteImport.update({
+  id: '/shares',
+  path: '/shares',
+  getParentRoute: () => ShellPersonalRoute,
+} as any)
+const ShellPersonalUsageRoute = ShellPersonalUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => ShellPersonalRoute,
+} as any)
 const ShellPluginsIndexRoute = ShellPluginsIndexRouteImport.update({
   id: '/plugins/',
   path: '/plugins/',
@@ -176,8 +218,8 @@ export interface FileRoutesByFullPath {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
-  '/memory': typeof ShellMemoryRoute
   '/operations': typeof ShellOperationsRoute
+  '/personal': typeof ShellPersonalRouteWithChildren
   '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
@@ -186,11 +228,18 @@ export interface FileRoutesByFullPath {
   '/s/$shareId': typeof SShareIdRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
+  '/personal/memory': typeof ShellPersonalMemoryRoute
+  '/personal/profile': typeof ShellPersonalProfileRoute
+  '/personal/reviews': typeof ShellPersonalReviewsRoute
+  '/personal/security': typeof ShellPersonalSecurityRoute
+  '/personal/shares': typeof ShellPersonalSharesRoute
+  '/personal/usage': typeof ShellPersonalUsageRoute
   '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/agents/': typeof ShellAgentsIndexRoute
   '/knowledge/': typeof ShellKnowledgeIndexRoute
+  '/personal/': typeof ShellPersonalIndexRoute
   '/plugins/': typeof ShellPluginsIndexRoute
   '/runs/': typeof ShellRunsIndexRoute
   '/runtime-environments/': typeof ShellRuntimeEnvironmentsIndexRoute
@@ -202,7 +251,6 @@ export interface FileRoutesByTo {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
-  '/memory': typeof ShellMemoryRoute
   '/operations': typeof ShellOperationsRoute
   '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
@@ -213,11 +261,18 @@ export interface FileRoutesByTo {
   '/': typeof ShellIndexRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
+  '/personal/memory': typeof ShellPersonalMemoryRoute
+  '/personal/profile': typeof ShellPersonalProfileRoute
+  '/personal/reviews': typeof ShellPersonalReviewsRoute
+  '/personal/security': typeof ShellPersonalSecurityRoute
+  '/personal/shares': typeof ShellPersonalSharesRoute
+  '/personal/usage': typeof ShellPersonalUsageRoute
   '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/agents': typeof ShellAgentsIndexRoute
   '/knowledge': typeof ShellKnowledgeIndexRoute
+  '/personal': typeof ShellPersonalIndexRoute
   '/plugins': typeof ShellPluginsIndexRoute
   '/runs': typeof ShellRunsIndexRoute
   '/runtime-environments': typeof ShellRuntimeEnvironmentsIndexRoute
@@ -231,8 +286,8 @@ export interface FileRoutesById {
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/chat': typeof ShellChatRoute
   '/_shell/eval': typeof ShellEvalRoute
-  '/_shell/memory': typeof ShellMemoryRoute
   '/_shell/operations': typeof ShellOperationsRoute
+  '/_shell/personal': typeof ShellPersonalRouteWithChildren
   '/_shell/roles': typeof ShellRolesRoute
   '/_shell/schedules': typeof ShellSchedulesRoute
   '/_shell/servers': typeof ShellServersRoute
@@ -242,11 +297,18 @@ export interface FileRoutesById {
   '/_shell/': typeof ShellIndexRoute
   '/_shell/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/_shell/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
+  '/_shell/personal/memory': typeof ShellPersonalMemoryRoute
+  '/_shell/personal/profile': typeof ShellPersonalProfileRoute
+  '/_shell/personal/reviews': typeof ShellPersonalReviewsRoute
+  '/_shell/personal/security': typeof ShellPersonalSecurityRoute
+  '/_shell/personal/shares': typeof ShellPersonalSharesRoute
+  '/_shell/personal/usage': typeof ShellPersonalUsageRoute
   '/_shell/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/_shell/runs/$runId': typeof ShellRunsRunIdRoute
   '/_shell/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/_shell/agents/': typeof ShellAgentsIndexRoute
   '/_shell/knowledge/': typeof ShellKnowledgeIndexRoute
+  '/_shell/personal/': typeof ShellPersonalIndexRoute
   '/_shell/plugins/': typeof ShellPluginsIndexRoute
   '/_shell/runs/': typeof ShellRunsIndexRoute
   '/_shell/runtime-environments/': typeof ShellRuntimeEnvironmentsIndexRoute
@@ -261,8 +323,8 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
-    | '/memory'
     | '/operations'
+    | '/personal'
     | '/roles'
     | '/schedules'
     | '/servers'
@@ -271,11 +333,18 @@ export interface FileRouteTypes {
     | '/s/$shareId'
     | '/agents/$agentId'
     | '/knowledge/$baseId'
+    | '/personal/memory'
+    | '/personal/profile'
+    | '/personal/reviews'
+    | '/personal/security'
+    | '/personal/shares'
+    | '/personal/usage'
     | '/plugins/$pluginId'
     | '/runs/$runId'
     | '/runtime-environments/$environmentId'
     | '/agents/'
     | '/knowledge/'
+    | '/personal/'
     | '/plugins/'
     | '/runs/'
     | '/runtime-environments/'
@@ -287,7 +356,6 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
-    | '/memory'
     | '/operations'
     | '/roles'
     | '/schedules'
@@ -298,11 +366,18 @@ export interface FileRouteTypes {
     | '/'
     | '/agents/$agentId'
     | '/knowledge/$baseId'
+    | '/personal/memory'
+    | '/personal/profile'
+    | '/personal/reviews'
+    | '/personal/security'
+    | '/personal/shares'
+    | '/personal/usage'
     | '/plugins/$pluginId'
     | '/runs/$runId'
     | '/runtime-environments/$environmentId'
     | '/agents'
     | '/knowledge'
+    | '/personal'
     | '/plugins'
     | '/runs'
     | '/runtime-environments'
@@ -315,8 +390,8 @@ export interface FileRouteTypes {
     | '/_shell/audit'
     | '/_shell/chat'
     | '/_shell/eval'
-    | '/_shell/memory'
     | '/_shell/operations'
+    | '/_shell/personal'
     | '/_shell/roles'
     | '/_shell/schedules'
     | '/_shell/servers'
@@ -326,11 +401,18 @@ export interface FileRouteTypes {
     | '/_shell/'
     | '/_shell/agents/$agentId'
     | '/_shell/knowledge/$baseId'
+    | '/_shell/personal/memory'
+    | '/_shell/personal/profile'
+    | '/_shell/personal/reviews'
+    | '/_shell/personal/security'
+    | '/_shell/personal/shares'
+    | '/_shell/personal/usage'
     | '/_shell/plugins/$pluginId'
     | '/_shell/runs/$runId'
     | '/_shell/runtime-environments/$environmentId'
     | '/_shell/agents/'
     | '/_shell/knowledge/'
+    | '/_shell/personal/'
     | '/_shell/plugins/'
     | '/_shell/runs/'
     | '/_shell/runtime-environments/'
@@ -400,18 +482,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellEvalRouteImport
       parentRoute: typeof ShellRoute
     }
-    '/_shell/memory': {
-      id: '/_shell/memory'
-      path: '/memory'
-      fullPath: '/memory'
-      preLoaderRoute: typeof ShellMemoryRouteImport
-      parentRoute: typeof ShellRoute
-    }
     '/_shell/operations': {
       id: '/_shell/operations'
       path: '/operations'
       fullPath: '/operations'
       preLoaderRoute: typeof ShellOperationsRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/personal': {
+      id: '/_shell/personal'
+      path: '/personal'
+      fullPath: '/personal'
+      preLoaderRoute: typeof ShellPersonalRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/roles': {
@@ -484,6 +566,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellKnowledgeBaseIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/personal/': {
+      id: '/_shell/personal/'
+      path: '/'
+      fullPath: '/personal/'
+      preLoaderRoute: typeof ShellPersonalIndexRouteImport
+      parentRoute: typeof ShellPersonalRoute
+    }
+    '/_shell/personal/memory': {
+      id: '/_shell/personal/memory'
+      path: '/memory'
+      fullPath: '/personal/memory'
+      preLoaderRoute: typeof ShellPersonalMemoryRouteImport
+      parentRoute: typeof ShellPersonalRoute
+    }
+    '/_shell/personal/profile': {
+      id: '/_shell/personal/profile'
+      path: '/profile'
+      fullPath: '/personal/profile'
+      preLoaderRoute: typeof ShellPersonalProfileRouteImport
+      parentRoute: typeof ShellPersonalRoute
+    }
+    '/_shell/personal/reviews': {
+      id: '/_shell/personal/reviews'
+      path: '/reviews'
+      fullPath: '/personal/reviews'
+      preLoaderRoute: typeof ShellPersonalReviewsRouteImport
+      parentRoute: typeof ShellPersonalRoute
+    }
+    '/_shell/personal/security': {
+      id: '/_shell/personal/security'
+      path: '/security'
+      fullPath: '/personal/security'
+      preLoaderRoute: typeof ShellPersonalSecurityRouteImport
+      parentRoute: typeof ShellPersonalRoute
+    }
+    '/_shell/personal/shares': {
+      id: '/_shell/personal/shares'
+      path: '/shares'
+      fullPath: '/personal/shares'
+      preLoaderRoute: typeof ShellPersonalSharesRouteImport
+      parentRoute: typeof ShellPersonalRoute
+    }
+    '/_shell/personal/usage': {
+      id: '/_shell/personal/usage'
+      path: '/usage'
+      fullPath: '/personal/usage'
+      preLoaderRoute: typeof ShellPersonalUsageRouteImport
+      parentRoute: typeof ShellPersonalRoute
+    }
     '/_shell/plugins/': {
       id: '/_shell/plugins/'
       path: '/plugins'
@@ -529,14 +660,38 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ShellPersonalRouteChildren {
+  ShellPersonalMemoryRoute: typeof ShellPersonalMemoryRoute
+  ShellPersonalProfileRoute: typeof ShellPersonalProfileRoute
+  ShellPersonalReviewsRoute: typeof ShellPersonalReviewsRoute
+  ShellPersonalSecurityRoute: typeof ShellPersonalSecurityRoute
+  ShellPersonalSharesRoute: typeof ShellPersonalSharesRoute
+  ShellPersonalUsageRoute: typeof ShellPersonalUsageRoute
+  ShellPersonalIndexRoute: typeof ShellPersonalIndexRoute
+}
+
+const ShellPersonalRouteChildren: ShellPersonalRouteChildren = {
+  ShellPersonalMemoryRoute: ShellPersonalMemoryRoute,
+  ShellPersonalProfileRoute: ShellPersonalProfileRoute,
+  ShellPersonalReviewsRoute: ShellPersonalReviewsRoute,
+  ShellPersonalSecurityRoute: ShellPersonalSecurityRoute,
+  ShellPersonalSharesRoute: ShellPersonalSharesRoute,
+  ShellPersonalUsageRoute: ShellPersonalUsageRoute,
+  ShellPersonalIndexRoute: ShellPersonalIndexRoute,
+}
+
+const ShellPersonalRouteWithChildren = ShellPersonalRoute._addFileChildren(
+  ShellPersonalRouteChildren,
+)
+
 interface ShellRouteChildren {
   ShellSplatRoute: typeof ShellSplatRoute
   ShellAccountsRoute: typeof ShellAccountsRoute
   ShellAuditRoute: typeof ShellAuditRoute
   ShellChatRoute: typeof ShellChatRoute
   ShellEvalRoute: typeof ShellEvalRoute
-  ShellMemoryRoute: typeof ShellMemoryRoute
   ShellOperationsRoute: typeof ShellOperationsRoute
+  ShellPersonalRoute: typeof ShellPersonalRouteWithChildren
   ShellRolesRoute: typeof ShellRolesRoute
   ShellSchedulesRoute: typeof ShellSchedulesRoute
   ShellServersRoute: typeof ShellServersRoute
@@ -561,8 +716,8 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAuditRoute: ShellAuditRoute,
   ShellChatRoute: ShellChatRoute,
   ShellEvalRoute: ShellEvalRoute,
-  ShellMemoryRoute: ShellMemoryRoute,
   ShellOperationsRoute: ShellOperationsRoute,
+  ShellPersonalRoute: ShellPersonalRouteWithChildren,
   ShellRolesRoute: ShellRolesRoute,
   ShellSchedulesRoute: ShellSchedulesRoute,
   ShellServersRoute: ShellServersRoute,

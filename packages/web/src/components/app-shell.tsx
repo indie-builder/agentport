@@ -4,7 +4,6 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import {
   Activity,
   ArrowLeft,
-  Brain,
   Cable,
   CalendarClock,
   Container,
@@ -12,7 +11,6 @@ import {
   HeartPulse,
   KeyRound,
   LayoutDashboard,
-  LogOut,
   Menu,
   MessagesSquare,
   PanelLeftClose,
@@ -31,6 +29,7 @@ import {
   can,
   canAny,
   homePath,
+  isPersonalPath,
   OPERATIONS_MENU,
   PLATFORM_MENU,
   RESOURCE_MENU,
@@ -38,22 +37,10 @@ import {
   WORK_MENU,
 } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
-import { clearSessionQueries, logoutAccount, meQuery, useChangePassword } from '../lib/queries.js';
-import { toastSuccess } from '../lib/toast.js';
+import { logoutAccount, meQuery } from '../lib/queries.js';
 import { animateBrand, Brand, BrandMark } from './brand.js';
-import { DialogShell } from './dialog-shell.js';
 import { Page, PageHeader, PageNote } from './page.js';
 import { Button, buttonVariants } from './ui/button.js';
-import { Dialog } from './ui/dialog.js';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu.js';
-import { Field, FieldError, FieldGroup, FieldLabel } from './ui/field.js';
-import { Input } from './ui/input.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip.js';
@@ -69,7 +56,6 @@ type NavItem = {
 const iconFor: Record<string, typeof Cable> = {
   '/agents': Users,
   '/chat': MessagesSquare,
-  '/memory': Brain,
   '/schedules': CalendarClock,
   '/skills': Cable,
   '/eval': FlaskConical,
@@ -109,7 +95,13 @@ const routeMeta: Record<string, { nav: string; title: string }> = {
   '/_shell/agents/': { nav: '/agents', title: '找专家' },
   '/_shell/agents/$agentId': { nav: '/agents', title: '找专家' },
   '/_shell/chat': { nav: '/chat', title: '对话' },
-  '/_shell/memory': { nav: '/memory', title: '记忆' },
+  '/_shell/personal/': { nav: '/personal/profile', title: '个人资料' },
+  '/_shell/personal/profile': { nav: '/personal/profile', title: '个人资料' },
+  '/_shell/personal/memory': { nav: '/personal/memory', title: '个人记忆' },
+  '/_shell/personal/reviews': { nav: '/personal/reviews', title: '历史回顾' },
+  '/_shell/personal/security': { nav: '/personal/security', title: '安全与会话' },
+  '/_shell/personal/shares': { nav: '/personal/shares', title: '我的分享' },
+  '/_shell/personal/usage': { nav: '/personal/usage', title: '使用记录' },
   '/_shell/schedules': { nav: '/schedules', title: '定时任务' },
   '/_shell/skills': { nav: '/skills', title: '资源' },
   '/_shell/servers': { nav: '/servers', title: '连接器' },
@@ -271,171 +263,6 @@ function SidebarLink({
   );
 }
 
-function UserMenu({ me, onChangePassword }: { me: AuthenticatedMe; onChangePassword: () => void }) {
-  const navigate = useNavigate();
-  const label = me.user.name || me.user.username;
-
-  const logout = async (): Promise<void> => {
-    await logoutAccount();
-    await navigate({ to: '/login' });
-  };
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            aria-label={`账户 ${label}`}
-            // Keep the compact 12px account label, 7px corners, and opaque open-state surface.
-            className="gap-2 rounded-[var(--radius-icon)] px-2 text-xs data-[popup-open]:bg-sunken"
-          >
-            <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
-              <User className="size-3" />
-            </span>
-            <span className="hidden max-w-32 truncate sm:block">{label}</span>
-          </Button>
-        }
-      />
-      <DropdownMenuContent
-        align="end"
-        sideOffset={8}
-        // Keep the 7px menu corners, explicit border, and project overlay shadow.
-        className="w-56 rounded-icon border p-1 shadow-overlay"
-      >
-        <div className="border-b px-2.5 py-2">
-          <div className="truncate text-xs text-fg">{label}</div>
-          <div className="truncate text-2xs text-muted-foreground">
-            {me.user.username} · {me.roles.map((role) => role.name).join('、') || '无角色'}
-          </div>
-        </div>
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            className="mt-1 flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-fg transition-colors hover:bg-accent hover:text-accent-foreground"
-            onClick={onChangePassword}
-          >
-            <KeyRound className="size-3.5" />
-            修改密码
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-fg transition-colors hover:bg-accent hover:text-accent-foreground"
-            onClick={() => void logout()}
-          >
-            <LogOut className="size-3.5" />
-            退出登录
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
-  const change = useChangePassword();
-  const navigate = useNavigate();
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const tooShort = newPassword.length > 0 && newPassword.length < 8;
-  const mismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
-
-  const submit = async (): Promise<void> => {
-    if (change.isPending) return;
-    setError(null);
-    if (newPassword.length < 8) {
-      setError('新密码至少 8 个字符。');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setError('两次输入的新密码不一致。');
-      return;
-    }
-    try {
-      await change.mutateAsync({ currentPassword, newPassword });
-      toastSuccess('密码已修改，请重新登录。');
-      clearSessionQueries();
-      await navigate({ to: '/login', search: { returnTo: '/' } });
-    } catch (cause) {
-      setError(
-        cause instanceof Error && cause.message ? cause.message : '修改密码没有完成，请重试。',
-      );
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogShell
-        title="修改密码"
-        description="修改后会撤销所有已登录会话，需要用新密码重新登录。"
-        className="max-w-md sm:max-w-md"
-      >
-        <form
-          aria-label="修改密码"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
-          <FieldGroup className="gap-5">
-            <Field data-disabled={change.isPending}>
-              <FieldLabel htmlFor="current-password">当前密码</FieldLabel>
-              <Input
-                id="current-password"
-                type="password"
-                autoComplete="current-password"
-                disabled={change.isPending}
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-              />
-            </Field>
-            <Field data-disabled={change.isPending} data-invalid={tooShort}>
-              <FieldLabel htmlFor="new-password">新密码</FieldLabel>
-              <Input
-                id="new-password"
-                type="password"
-                autoComplete="new-password"
-                disabled={change.isPending}
-                aria-invalid={tooShort}
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-              />
-              <FieldError>{tooShort ? '新密码至少 8 个字符。' : undefined}</FieldError>
-            </Field>
-            <Field data-disabled={change.isPending} data-invalid={mismatch}>
-              <FieldLabel htmlFor="confirm-password">确认新密码</FieldLabel>
-              <Input
-                id="confirm-password"
-                type="password"
-                autoComplete="new-password"
-                disabled={change.isPending}
-                aria-invalid={mismatch}
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-              />
-              <FieldError>{mismatch ? '两次输入的新密码不一致。' : undefined}</FieldError>
-            </Field>
-            <FieldError>{error ?? undefined}</FieldError>
-            <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" disabled={change.isPending} onClick={onClose}>
-                取消
-              </Button>
-              <Button
-                type="submit"
-                disabled={change.isPending || currentPassword.length === 0}
-                aria-busy={change.isPending}
-              >
-                {change.isPending ? '正在保存…' : '修改密码'}
-              </Button>
-            </div>
-          </FieldGroup>
-        </form>
-      </DialogShell>
-    </Dialog>
-  );
-}
-
 export function AccessDenied({
   home,
   noPermissions,
@@ -503,6 +330,7 @@ export function AppShell() {
   const isOperationsContext = meta
     ? operationsNavTargets.has(meta.nav) || platformItems.some((item) => item.to === meta.nav)
     : false;
+  const personalContext = isPersonalPath(pathname);
   const visibleWork = workItems.filter((item) => canAny(me.data, item.permissionIds));
   const visibleOperations = operationsItems.filter((item) => canAny(me.data, item.permissionIds));
   const visiblePlatform = platformItems.filter((item) => canAny(me.data, item.permissionIds));
@@ -547,7 +375,6 @@ export function AppShell() {
   const allowed = required === null || canAny(me.data, required);
   const [collapsed, setCollapsed] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
   const locationHref = useRouterState({ select: (state) => state.location.href });
@@ -703,20 +530,35 @@ export function AppShell() {
           />
         ) : null}
         {drawer || !collapsed ? (
-          <UserMenu me={user} onChangePassword={() => setChangePasswordOpen(true)} />
+          <Link
+            to="/personal/profile"
+            aria-label="个人资料"
+            aria-current={personalContext ? 'page' : undefined}
+            onClick={drawer ? () => setMobileOpen(false) : undefined}
+            className={cn(
+              buttonVariants({ variant: 'ghost' }),
+              // 账号入口保持独立外观：紧凑 12px 标签、7px 角、20px 头像，靠左排布。
+              'h-8 w-[200px] justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-fg',
+            )}
+          >
+            <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
+              <User className="size-3" />
+            </span>
+            <span className="max-w-32 truncate">{user.user.name || user.user.username}</span>
+          </Link>
         ) : (
           <Tooltip>
             <TooltipTrigger
               render={
-                <Button
-                  variant="ghost"
-                  aria-label={`账户 ${user.user.name || user.user.username}`}
-                  onClick={() => setCollapsed(false)}
-                  // Keep the circular account surface and translucent hover instead of the ghost defaults.
-                  className="size-8 rounded-full bg-sunken p-0 hover:bg-hover"
+                <Link
+                  to="/personal/profile"
+                  aria-label="个人资料"
+                  aria-current={personalContext ? 'page' : undefined}
+                  // Keep the circular account surface and translucent hover.
+                  className="flex size-8 items-center justify-center rounded-full bg-sunken p-0 text-muted-foreground transition-colors duration-150 hover:bg-hover"
                 >
                   <User className="size-4" />
-                </Button>
+                </Link>
               }
             />
             <TooltipContent side="right">{user.user.name || user.user.username}</TooltipContent>
@@ -726,7 +568,8 @@ export function AppShell() {
     </motion.aside>
   );
 
-  const denied = home === null || !allowed;
+  // 个人资料与安全对所有已登录用户开放，即使没有任何业务权限也不该被挡。
+  const denied = (!personalContext && home === null) || !allowed;
   const content = denied ? (
     <AccessDenied home={home} noPermissions={home === null} onLogout={() => void logout()} />
   ) : (
@@ -811,9 +654,6 @@ export function AppShell() {
           </main>
         </div>
       </div>
-      {changePasswordOpen ? (
-        <ChangePasswordDialog onClose={() => setChangePasswordOpen(false)} />
-      ) : null}
     </TooltipProvider>
   );
 }

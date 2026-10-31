@@ -1,102 +1,25 @@
 import { type MemoryChange, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { MemoryReviews } from '../components/memory-review.js';
-import { Page, PageHeader } from '../components/page.js';
-import { SourceEditor } from '../components/source-editor.js';
-import { ErrorState, LoadingState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
-import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
-import { can } from '../lib/access.js';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { useFormBlocker } from '../lib/form.js';
 import { formatDateTime } from '../lib/format.js';
 import {
-  meQuery,
   usePersonalMemory,
   usePersonalMemoryVersions,
   useRollbackMemoryChange,
   useSavePersonalMemory,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { ConfirmDialog } from './confirm-dialog.js';
+import { SourceEditor } from './source-editor.js';
+import { ErrorState, LoadingState } from './states.js';
+import { Button, buttonVariants } from './ui/button.js';
+import { Field, FieldError, FieldLabel } from './ui/field.js';
 
 const PERSONAL_MEMORY_NEAR_LIMIT = 8500;
 
-type MemoryTab = 'personal' | 'reviews';
-
-export function MemoryPage() {
-  const search = useSearch({ from: '/_shell/memory' });
-  const navigate = useNavigate();
-  const me = useQuery(meQuery);
-  const canWrite = can(me.data, 'personal_memory.write');
-  const canReview = can(me.data, 'personal_memory.review');
-  const requestedTab: MemoryTab = search.tab ?? 'personal';
-  const tab: MemoryTab = requestedTab === 'reviews' && !canReview ? 'personal' : requestedTab;
-  const [personalDirty, setPersonalDirty] = useState(false);
-  const [personalPending, setPersonalPending] = useState(false);
-  // 确认放弃后重建个人偏好面板，丢掉子组件里的草稿。
-  const [draftResetKey, setDraftResetKey] = useState(0);
-  const blocker = useFormBlocker(personalDirty, personalPending);
-
-  const switchTab = (next: MemoryTab): void => {
-    if (next === tab || personalPending) return;
-    void navigate({ to: '/memory', search: { ...search, tab: next } });
-  };
-
-  return (
-    <Page>
-      <PageHeader title="记忆" />
-
-      <Tabs value={tab} onValueChange={(next) => switchTab(next as MemoryTab)}>
-        <TabsList variant="line" aria-label="记忆任务" className="gap-4 border-b pb-3">
-          <TabsTrigger value="personal">个人偏好</TabsTrigger>
-          {canReview ? <TabsTrigger value="reviews">历史回顾</TabsTrigger> : null}
-        </TabsList>
-
-        <TabsContent value="personal">
-          <PersonalMemoryPanel
-            key={draftResetKey}
-            canWrite={canWrite}
-            onDirtyChange={setPersonalDirty}
-            onPendingChange={setPersonalPending}
-          />
-        </TabsContent>
-
-        <TabsContent value="reviews">
-          <MemoryReviews
-            agentId={search.agent ?? null}
-            onAgentChange={(next) =>
-              void navigate({
-                to: '/memory',
-                search: { ...search, tab: 'reviews', agent: next ?? undefined },
-              })
-            }
-          />
-        </TabsContent>
-      </Tabs>
-
-      <ConfirmDialog
-        open={blocker.status === 'blocked'}
-        onClose={() => blocker.reset?.()}
-        title="放弃未保存的个人偏好？"
-        description="切换页签或离开页面后，当前草稿会丢失。可以先保存再继续。"
-        confirmLabel="放弃并离开"
-        confirmDisabled={personalPending}
-        onConfirm={async () => {
-          setDraftResetKey((value) => value + 1);
-          blocker.proceed();
-        }}
-      />
-    </Page>
-  );
-}
-
-function PersonalMemoryPanel({
+export function PersonalMemoryPanel({
   canWrite,
   onDirtyChange,
   onPendingChange,
@@ -138,7 +61,7 @@ function PersonalMemoryPanel({
         onSuccess: () => {
           setDraft(null);
           setDraftBaseline(null);
-          toastSuccess('个人偏好已保存');
+          toastSuccess('个人记忆已保存');
         },
         onError: (error) => {
           if (error instanceof ApiError && error.status === 409) {
@@ -242,7 +165,7 @@ function PersonalMemoryPanel({
             role="alert"
             className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-danger-soft px-3.5 py-2.5 text-sm"
           >
-            <span className="min-w-0 text-fg">个人偏好已被其他编辑更新，当前草稿已保留。</span>
+            <span className="min-w-0 text-fg">个人记忆已被其他编辑更新，当前草稿已保留。</span>
             <Button variant="outline" size="sm" className="ml-auto" onClick={requestReload}>
               重新加载
             </Button>
@@ -254,12 +177,12 @@ function PersonalMemoryPanel({
           data-invalid={overLimit || undefined}
           className="gap-1.5"
         >
-          <FieldLabel htmlFor="personal-memory-content">个人偏好内容（Markdown）</FieldLabel>
+          <FieldLabel htmlFor="personal-memory-content">个人记忆内容（Markdown）</FieldLabel>
           <SourceEditor
             id="personal-memory-content"
             value={content}
             language="markdown"
-            aria-label="个人偏好内容（Markdown）"
+            aria-label="个人记忆内容（Markdown）"
             aria-invalid={overLimit}
             disabled={pending || !canWrite}
             onChange={(next) => {
@@ -279,7 +202,7 @@ function PersonalMemoryPanel({
         ) : null}
       </div>
 
-      <aside aria-label="个人偏好版本" className="flex min-w-0 flex-col gap-2">
+      <aside aria-label="个人记忆版本" className="flex min-w-0 flex-col gap-2">
         <h2 className="text-sm font-medium text-fg">版本</h2>
         {versions.isPending ? <LoadingState rows={3} /> : null}
         {versions.isError ? (
@@ -346,7 +269,7 @@ function PersonalMemoryPanel({
         open={reloadOpen}
         onClose={() => setReloadOpen(false)}
         title="重新加载并放弃草稿？"
-        description="服务器上的个人偏好已在别处更新。重新加载会放弃当前草稿。"
+        description="服务器上的个人记忆已在别处更新。重新加载会放弃当前草稿。"
         confirmLabel="放弃并重新加载"
         onConfirm={reload}
       />

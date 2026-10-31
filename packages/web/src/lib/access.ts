@@ -40,7 +40,10 @@ export function canAny(me: AuthMe | undefined, permissionIds: readonly Permissio
   return permissionIds.some((id) => can(me, id));
 }
 
-export function hasAnyGrant(grantIds: readonly PermissionId[], permissionId: PermissionId): boolean {
+export function hasAnyGrant(
+  grantIds: readonly PermissionId[],
+  permissionId: PermissionId,
+): boolean {
   return grantIds.includes(permissionId);
 }
 
@@ -54,9 +57,22 @@ export type MenuItem = {
 export const WORK_MENU: readonly MenuItem[] = [
   { to: '/agents', label: '找专家', permissionIds: ['agents.read'] },
   { to: '/chat', label: '对话', permissionIds: ['conversations.read'] },
-  { to: '/memory', label: '记忆', permissionIds: ['personal_memory.read'] },
   { to: '/schedules', label: '定时任务', permissionIds: ['schedules.read'] },
 ];
+
+/** 个人模块：资料与安全对所有已登录用户开放，其余沿用原能力叶且数据固定本人。 */
+export const PERSONAL_MENU: readonly MenuItem[] = [
+  { to: '/personal/profile', label: '个人资料', permissionIds: [] },
+  { to: '/personal/memory', label: '个人记忆', permissionIds: ['personal_memory.read'] },
+  { to: '/personal/reviews', label: '历史回顾', permissionIds: ['personal_memory.read'] },
+  { to: '/personal/security', label: '安全与会话', permissionIds: [] },
+  { to: '/personal/shares', label: '我的分享', permissionIds: ['conversations.share'] },
+  { to: '/personal/usage', label: '使用记录', permissionIds: ['overview.read', 'runs.read'] },
+];
+
+export function isPersonalPath(pathname: string): boolean {
+  return /^\/personal(?:\/|$)/.test(pathname);
+}
 
 export const RESOURCE_MENU: readonly MenuItem[] = [
   { to: '/skills', label: '技能', permissionIds: ['skills.read'] },
@@ -66,7 +82,11 @@ export const RESOURCE_MENU: readonly MenuItem[] = [
 ];
 
 export const BUILD_MENU: readonly MenuItem[] = [
-  { to: '/skills', label: '资源', permissionIds: RESOURCE_MENU.map((item) => item.permissionIds[0]!) },
+  {
+    to: '/skills',
+    label: '资源',
+    permissionIds: RESOURCE_MENU.flatMap((item) => item.permissionIds.slice(0, 1)),
+  },
   { to: '/eval', label: '评估', permissionIds: ['eval.read'] },
 ];
 
@@ -101,7 +121,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, readonly PermissionId[]>
   '/_shell/agents/': ['agents.read'],
   '/_shell/agents/$agentId': ['agents.read'],
   '/_shell/chat': ['conversations.read'],
-  '/_shell/memory': ['personal_memory.read'],
+  '/_shell/personal/memory': ['personal_memory.read'],
+  '/_shell/personal/reviews': ['personal_memory.read'],
+  '/_shell/personal/shares': ['conversations.share'],
+  '/_shell/personal/usage': ['overview.read', 'runs.read'],
   '/_shell/schedules': ['schedules.read'],
   '/_shell/skills': ['skills.read', 'market.read'],
   '/_shell/servers': ['servers.read'],
@@ -199,7 +222,5 @@ export function filterPermissionTree(
     if (leaves.length === 0 && children.length === 0) return null;
     return { ...group, leaves, children };
   };
-  return groups
-    .map(filterGroup)
-    .filter((group): group is PermissionTreeGroup => group !== null);
+  return groups.map(filterGroup).filter((group): group is PermissionTreeGroup => group !== null);
 }
