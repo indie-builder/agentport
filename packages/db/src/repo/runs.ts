@@ -5,7 +5,20 @@ import type {
   ResolvedRuntimeEnvironment,
   RunTrigger,
 } from '@agentport/shared';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -154,6 +167,138 @@ export async function listRuns(
     .where(and(...filters))
     .orderBy(sql`${agentRuns.startedAt} desc nulls last`, desc(agentRuns.id))
     .limit(options.limit ?? 50);
+}
+
+export interface PersonalRunRow extends RunListItem {
+  trigger: RunTrigger;
+  createdAt: Date;
+  /** 仅来源会话确属本人时返回；他人的会话不提供给个人页跳转。 */
+  conversationId: string | null;
+}
+
+export interface PersonalRunPage {
+  items: PersonalRunRow[];
+  nextCursor: string | null;
+}
+
+export interface PersonalUsageSummaryRow {
+  runCount: number;
+  succeeded: number;
+  failed: number;
+  cancelled: number;
+  timeout: number;
+  queued: number;
+  running: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: string | null;
+  costRecordedRuns: number;
+  costMissingRuns: number;
+}
+
+/** 个人数据固定本人：platform 范围也不放宽，专家创建人不参与过滤。 */
+function personalRunWhere(businessId: string, since: Date, until: Date): SQL[] {
+  return [
+    eq(agentRuns.subjectKind, 'user'),
+    eq(agentRuns.initiatedBy, businessId),
+    gte(agentRuns.createdAt, since),
+    lte(agentRuns.createdAt, until),
+  ];
+}
+
+/** 「我的运行」按 (createdAt, id) 倒序翻页；游标锚点必须落在同一本人窗口与筛选内。 */
+export async function listPersonalRuns(
+  db: Database,
+  options: {
+    businessId: string;
+    since: Date;
+    until: Date;
+    agentId?: string;
+    status?: RunStatus;
+    trigger?: RunTrigger;
+    cursor?: string;
+    limit: number;
+  },
+): Promise<PersonalRunPage | null> {
+  const filters = personalRunWhere(options.businessId, options.since, options.until);
+  if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
+  if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
+  if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
+
+  if (options.cursor !== undefined) {
+    const [anchor] = await db
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(and(eq(agentRuns.id, options.cursor), ...filters))
+      .limit(1);
+    if (!anchor) return null;
+    filters.push(sql`(${agentRuns.createdAt}, ${agentRuns.id}) < (
+      select cursor.created_at, cursor.id from ${agentRuns} cursor
+      where cursor.id = ${options.cursor}
+    )`);
+  }
+
+  const rows = await db
+    .select({
+      ...runColumns,
+      createdAt: agentRuns.createdAt,
+      // 会话归属另行判定：运行属本人，不代表来源会话也属本人。
+      conversationId: sql<string | null>`case
+        when ${conversations.createdBy} = ${options.businessId} then ${agentRuns.conversationId}
+        else null
+      end`,
+    })
+    .from(agentRuns)
+    .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .leftJoin(conversations, eq(conversations.id, agentRuns.conversationId))
+    .where(and(...filters))
+    .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
+    .limit(options.limit + 1);
+
+  const hasMore = rows.length > options.limit;
+  const items = hasMore ? rows.slice(0, options.limit) : rows;
+  return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
+}
+
+/** 个人使用汇总：窗口按 run.createdAt，tokens/cost 只统计已记录值。 */
+export async function personalUsageSummary(
+  db: Database,
+  options: { businessId: string; since: Date; until: Date },
+): Promise<PersonalUsageSummaryRow> {
+  const [row] = await db
+    .select({
+      runCount: sql<number>`count(*)::int`,
+      succeeded: sql<number>`count(*) filter (where ${agentRuns.status} = 'succeeded')::int`,
+      failed: sql<number>`count(*) filter (where ${agentRuns.status} = 'failed')::int`,
+      cancelled: sql<number>`count(*) filter (where ${agentRuns.status} = 'cancelled')::int`,
+      timeout: sql<number>`count(*) filter (where ${agentRuns.status} = 'timeout')::int`,
+      queued: sql<number>`count(*) filter (where ${agentRuns.status} = 'queued')::int`,
+      running: sql<number>`count(*) filter (where ${agentRuns.status} = 'running')::int`,
+      inputTokens: sql<number>`coalesce(sum(${agentRuns.inputTokens}), 0)::int`,
+      outputTokens: sql<number>`coalesce(sum(${agentRuns.outputTokens}), 0)::int`,
+      // numeric 在浏览器求和不精确：数据库求和后按原文返回，null 表示一条都没记录。
+      costUsd: sql<string | null>`sum(${agentRuns.costUsd})::text`,
+      costRecordedRuns: sql<number>`count(*) filter (where ${agentRuns.costUsd} is not null)::int`,
+    })
+    .from(agentRuns)
+    .where(and(...personalRunWhere(options.businessId, options.since, options.until)));
+
+  const runCount = row?.runCount ?? 0;
+  const costRecordedRuns = row?.costRecordedRuns ?? 0;
+  return {
+    runCount,
+    succeeded: row?.succeeded ?? 0,
+    failed: row?.failed ?? 0,
+    cancelled: row?.cancelled ?? 0,
+    timeout: row?.timeout ?? 0,
+    queued: row?.queued ?? 0,
+    running: row?.running ?? 0,
+    inputTokens: row?.inputTokens ?? 0,
+    outputTokens: row?.outputTokens ?? 0,
+    costUsd: row?.costUsd ?? null,
+    costRecordedRuns,
+    costMissingRuns: runCount - costRecordedRuns,
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

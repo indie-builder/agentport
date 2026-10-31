@@ -19,6 +19,7 @@ export * from './openui/index.js';
 export * from './ops.js';
 export * from './outputs.js';
 export * from './params.js';
+export * from './personal.js';
 export * from './plugin.js';
 export * from './questions.js';
 export * from './redact.js';

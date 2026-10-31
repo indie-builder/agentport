@@ -1,5 +1,5 @@
-import type { Agent, MemoryChange, MemoryReview } from '@agentport/shared';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { Agent, MemoryChange, MemoryReview, PermissionId } from '@agentport/shared';
+import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query';
 import {
   createBrowserHistory,
   createMemoryHistory,
@@ -13,8 +13,9 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
-import { MemoryPage } from '../src/pages/memory.js';
-import { memorySearchSchema } from '../src/routes/-search.js';
+import { memoryReviewQuery } from '../src/lib/queries.js';
+import { PersonalMemoryPage, PersonalReviewsPage } from '../src/pages/personal-memory.js';
+import { personalReviewsSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 
 const agentA: Agent = {
@@ -44,6 +45,15 @@ const agentA: Agent = {
 };
 
 const agentB: Agent = { ...agentA, id: 'agent-b', slug: 'agent-b', name: '专家乙' };
+
+function meWith(permissionIds: PermissionId[]) {
+  return {
+    authenticated: true as const,
+    user: { businessId: 'test-user', username: 'tester', name: '测试用户' },
+    roles: [],
+    grants: permissionIds.map((permissionId) => ({ permissionId, scope: 'own_data' as const })),
+  };
+}
 
 function makeReview(overrides: Partial<MemoryReview> & Pick<MemoryReview, 'runId'>): MemoryReview {
   return {
@@ -88,16 +98,21 @@ async function flush() {
 }
 
 async function mount(
-  url = '/memory?tab=reviews',
+  url = '/personal/reviews',
   options: { browser?: boolean; stack?: string[] } = {},
 ) {
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const memoryRoute = createRoute({
     getParentRoute: () => shell,
-    path: '/memory',
-    validateSearch: memorySearchSchema,
-    component: MemoryPage,
+    path: '/personal/memory',
+    component: PersonalMemoryPage,
+  });
+  const reviewsRoute = createRoute({
+    getParentRoute: () => shell,
+    path: '/personal/reviews',
+    validateSearch: personalReviewsSearchSchema,
+    component: PersonalReviewsPage,
   });
   const history = options.browser
     ? createBrowserHistory()
@@ -112,7 +127,7 @@ async function mount(
     browserHistory = history as ReturnType<typeof createBrowserHistory>;
   }
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([memoryRoute])]),
+    routeTree: rootRoute.addChildren([shell.addChildren([memoryRoute, reviewsRoute])]),
     history,
   });
   await act(async () => {
@@ -230,7 +245,7 @@ beforeEach(() => {
     updatedAt: null,
   });
   vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'conversations').mockResolvedValue([
+  vi.spyOn(api, 'personalConversations').mockResolvedValue([
     {
       id: 'conv-1',
       agentId: 'agent-a',
@@ -321,7 +336,7 @@ describe('历史回顾', () => {
   });
 
   it('按 URL 的专家筛选请求列表', async () => {
-    await mount('/memory?tab=reviews&agent=agent-b');
+    await mount('/personal/reviews?agent=agent-b');
     await vi.waitFor(() =>
       expect(api.memoryReviews).toHaveBeenCalledWith(
         { agentId: 'agent-b' },
@@ -383,7 +398,7 @@ describe('历史回顾', () => {
     await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
   });
 
-  it('createMemoryReview 把 Idempotency-Key 放进请求头', async () => {
+  it('createMemoryReview 把 Idempotency-Key 放进请求头并声明本人来源', async () => {
     vi.mocked(api.createMemoryReview).mockRestore();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ runId: 'run-1' }), {
@@ -399,9 +414,11 @@ describe('历史回顾', () => {
       instruction: '',
     };
     const key = '11111111-1111-4111-8111-111111111111';
-    await expect(api.createMemoryReview(input, key)).resolves.toEqual({ runId: 'run-1' });
+    await expect(api.createMemoryReview(input, key, 'own')).resolves.toEqual({
+      runId: 'run-1',
+    });
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/memory-reviews',
+      '/api/memory-reviews?scope=own',
       expect.objectContaining({
         method: 'POST',
         headers: { 'content-type': 'application/json', 'idempotency-key': key },
@@ -586,20 +603,20 @@ describe('历史回顾', () => {
   });
 
   it('浏览器返回时确认放弃回顾草稿，取消保留、确认继续原导航', async () => {
-    await mount('/memory?tab=reviews', { browser: true, stack: ['/memory'] });
+    await mount('/personal/reviews', { browser: true, stack: ['/personal/memory'] });
     await click(button('新建回顾'));
     await vi.waitFor(() =>
       expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
     );
     await fill('memory-review-instruction', '只整理长期偏好');
-    expect(window.location.search).toBe('?tab=reviews');
+    expect(window.location.search).toBe('');
 
     await browserBack();
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
-    expect(document.body.textContent).not.toContain('放弃未保存的个人偏好？');
+    expect(document.body.textContent).not.toContain('放弃未保存的个人记忆？');
 
     await click(button('取消', discardDialog() as HTMLElement));
-    await vi.waitFor(() => expect(window.location.search).toBe('?tab=reviews'));
+    await vi.waitFor(() => expect(window.location.search).toBe(''));
     const kept = document.getElementById('memory-review-instruction');
     expect(kept).toBeInstanceOf(HTMLTextAreaElement);
     expect((kept as HTMLTextAreaElement).value).toBe('只整理长期偏好');
@@ -607,15 +624,15 @@ describe('历史回顾', () => {
     await browserBack();
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('放弃并离开', discardDialog() as HTMLElement));
-    await vi.waitFor(() => expect(window.location.search).toBe(''));
-    await vi.waitFor(() => expect(host.textContent).toContain('个人偏好内容（Markdown）'));
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
+    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆内容（Markdown）'));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('新建回顾草稿阻止同路径页签切换，确认后仅继续该次导航', async () => {
-    const router = await mount('/memory?tab=reviews', {
+  it('新建回顾草稿阻止切回个人记忆，确认后仅继续该次导航', async () => {
+    const router = await mount('/personal/reviews', {
       browser: true,
-      stack: ['/memory'],
+      stack: ['/personal/memory'],
     });
     await click(button('新建回顾'));
     await vi.waitFor(() =>
@@ -624,21 +641,21 @@ describe('历史回顾', () => {
     await fill('memory-review-instruction', '草稿');
 
     await act(async () => {
-      void router.navigate({ to: '/memory', search: { tab: 'personal' } });
+      void router.navigate({ to: '/personal/memory' });
     });
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('取消', discardDialog() as HTMLElement));
     await flush();
-    expect(window.location.search).toBe('?tab=reviews');
+    expect(window.location.search).toBe('');
     expect(document.getElementById('memory-review-instruction')).toBeTruthy();
 
     await act(async () => {
-      void router.navigate({ to: '/memory', search: { tab: 'personal' } });
+      void router.navigate({ to: '/personal/memory' });
     });
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('放弃并离开', discardDialog() as HTMLElement));
-    await vi.waitFor(() => expect(window.location.search).toBe('?tab=personal'));
-    await vi.waitFor(() => expect(host.textContent).toContain('个人偏好内容（Markdown）'));
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
+    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆内容（Markdown）'));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
@@ -649,7 +666,7 @@ describe('历史回顾', () => {
         resolve = done;
       }),
     );
-    await mount('/memory?tab=reviews', { browser: true, stack: ['/memory'] });
+    await mount('/personal/reviews', { browser: true, stack: ['/personal/memory'] });
     await click(button('新建回顾'));
     await vi.waitFor(() =>
       expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
@@ -670,7 +687,7 @@ describe('历史回顾', () => {
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     expect(button('放弃并离开', discardDialog() as HTMLElement).disabled).toBe(true);
     await click(button('取消', discardDialog() as HTMLElement));
-    await vi.waitFor(() => expect(window.location.search).toBe('?tab=reviews'));
+    await vi.waitFor(() => expect(window.location.search).toBe(''));
     expect(document.getElementById('memory-review-instruction')).toBeTruthy();
 
     await act(async () => resolve({ runId: 'run-new' }));
@@ -684,7 +701,7 @@ describe('历史回顾', () => {
         resolve = done;
       }),
     );
-    const router = await mount('/memory?tab=reviews', { browser: true, stack: ['/memory'] });
+    const router = await mount('/personal/reviews', { browser: true, stack: ['/personal/memory'] });
     await click(button('新建回顾'));
     await vi.waitFor(() =>
       expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
@@ -700,17 +717,15 @@ describe('历史回顾', () => {
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     expect(window.location.search).toBe('');
 
-    // 不操作放弃确认而请求成功时，关闭表单不能把地址栏留在被拦下的 /memory。
+    // 不操作放弃确认而请求成功时，关闭表单不能把地址栏留在被拦下的上一页。
     await act(async () => resolve({ runId: 'run-new' }));
     await vi.waitFor(() => expect(discardDialog()).toBeNull());
-    await vi.waitFor(() => expect(window.location.search).toBe('?tab=reviews'));
-    expect(router.state.location.pathname).toBe('/memory');
-    expect(router.state.location.search).toEqual({ tab: 'reviews' });
-    expect(window.location.pathname + window.location.search).toBe(
-      `${router.state.location.pathname}?tab=reviews`,
-    );
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/reviews'));
+    expect(router.state.location.pathname).toBe('/personal/reviews');
+    expect(router.state.location.search).toEqual({});
+    expect(window.location.pathname + window.location.search).toBe(router.state.location.pathname);
     expect(host.textContent).toContain('让模型整理值得保存的记忆');
-    expect(host.textContent).not.toContain('个人偏好内容（Markdown）');
+    expect(host.textContent).not.toContain('个人记忆内容（Markdown）');
   });
 
   it('新建回顾提交中禁止关闭', async () => {
@@ -1164,7 +1179,7 @@ describe('历史回顾', () => {
         resolve = done;
       }),
     );
-    await mount('/memory?tab=reviews', { browser: true, stack: ['/memory'] });
+    await mount('/personal/reviews', { browser: true, stack: ['/personal/memory'] });
     const dialog = await openFirstDetail();
     const source = dialog.querySelector<HTMLAnchorElement>('a[href^="/chat?"]');
     if (!source) throw new Error('Missing source link');
@@ -1174,7 +1189,7 @@ describe('历史回顾', () => {
     const sourceClick = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     await act(async () => source.dispatchEvent(sourceClick));
     expect(sourceClick.defaultPrevented).toBe(true);
-    expect(window.location.search).toBe('?tab=reviews');
+    expect(new URLSearchParams(window.location.search).get('run')).toBe('run-hang');
 
     const unload = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(unload);
@@ -1185,7 +1200,9 @@ describe('历史回顾', () => {
 
     await act(async () => resolve(change));
     await flush();
-    await vi.waitFor(() => expect(window.location.search).toBe('?tab=reviews'));
+    await vi.waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('run')).toBe('run-hang'),
+    );
     expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     expect(source.getAttribute('aria-disabled')).toBeNull();
   });
@@ -1212,5 +1229,122 @@ describe('历史回顾', () => {
     await click(button('重试', dialog));
     await vi.waitFor(() => expect(dialog.textContent).not.toContain('记忆文件加载失败'));
     await chooseOption('记忆文件', 'topic.md', dialog);
+  });
+
+  it('个人审核权限不会读取或操作无权限的专家目标', async () => {
+    const me = meWith([
+      'personal_memory.read',
+      'personal_memory.write',
+      'personal_memory.review',
+      'agents.read',
+      'agents.use',
+      'conversations.read',
+    ]);
+    client.setQueryData(['me'], me);
+    vi.mocked(api.me).mockResolvedValue(me);
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-agent-memory',
+          target: { kind: 'agent_memory', agentId: 'agent-a', name: 'topic.md' },
+        }),
+        makeReview({
+          runId: 'run-agent-rule',
+          target: { kind: 'agent_rule', agentId: 'agent-a', slug: 'no-console' },
+          decision: 'applied',
+          appliedChangeId: 'chg_1',
+        }),
+      ],
+    });
+    await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('专家甲 / no-console'));
+
+    expect(api.agentMemory).not.toHaveBeenCalled();
+    expect(api.agentRules).not.toHaveBeenCalled();
+    expect(api.agentMemoryVersions).not.toHaveBeenCalled();
+    expect(api.agentRuleVersions).not.toHaveBeenCalled();
+
+    await click(button('新建回顾'));
+    await vi.waitFor(() =>
+      expect(document.getElementById('memory-review-instruction')).toBeTruthy(),
+    );
+    const createDialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await click(button('目标', createDialog));
+    const targetOptions = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(
+      (option) => option.textContent?.trim(),
+    );
+    expect(targetOptions).toContain('个人偏好');
+    expect(targetOptions).not.toContain('专家记忆');
+    expect(targetOptions).not.toContain('专家规则');
+    const personalOption = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (option) => option.textContent?.trim() === '个人偏好',
+    );
+    if (!personalOption) throw new Error('Missing personal target option');
+    await click(personalOption);
+    await click(button('取消', createDialog));
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    expect(api.agentMemory).not.toHaveBeenCalled();
+    expect(api.agentRules).not.toHaveBeenCalled();
+
+    const detail = await openFirstDetail();
+    expect(buttonOrNull('采用', detail)).toBeUndefined();
+    expect(buttonOrNull('不采用', detail)).toBeUndefined();
+    expect(buttonOrNull('重新生成', detail)).toBeUndefined();
+    await click(dialogButton('关闭详情'));
+
+    const views = [...host.querySelectorAll<HTMLButtonElement>('button')].filter((item) =>
+      item.getAttribute('aria-label')?.startsWith('查看'),
+    );
+    const ruleView = views[1];
+    if (!ruleView) throw new Error('Missing rule review view button');
+    await click(ruleView);
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy());
+    const ruleDialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(buttonOrNull('回滚', ruleDialog)).toBeUndefined();
+  });
+
+  it('缺少专家使用权限时不提供新建回顾', async () => {
+    const me = meWith([
+      'personal_memory.read',
+      'personal_memory.review',
+      'agents.read',
+      'conversations.read',
+    ]);
+    client.setQueryData(['me'], me);
+    vi.mocked(api.me).mockResolvedValue(me);
+    await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('新建回顾'));
+    const create = button('新建回顾');
+    expect(create.disabled).toBe(true);
+    expect(create.title).toContain('专家使用权限');
+  });
+
+  it('列表外的运行中回顾详情每 3 秒刷新，成功进入终态后停止', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    vi.spyOn(api, 'memoryReview').mockImplementation(async (runId) => {
+      calls += 1;
+      return calls === 1
+        ? makeReview({ runId, status: 'running', proposal: null })
+        : makeReview({ runId, status: 'succeeded' });
+    });
+    const local = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    const observer = new QueryObserver(local, memoryReviewQuery('run-poll'));
+    const unsubscribe = observer.subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toBe(1);
+    expect(observer.getCurrentResult().data?.status).toBe('running');
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(calls).toBe(2);
+    expect(observer.getCurrentResult().data?.status).toBe('succeeded');
+
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(calls).toBe(2);
+    unsubscribe();
+    local.clear();
+    vi.useRealTimers();
   });
 });

@@ -391,14 +391,7 @@ describe('business and operations navigation contexts', () => {
   it('shows only business items plus the secondary operations entry on business pages', async () => {
     const view = await inspectRoute('/agents/', 'success');
     try {
-      expect(navHrefs(view.host)).toEqual([
-        '/agents',
-        '/chat',
-        '/memory',
-        '/schedules',
-        '/skills',
-        '/eval',
-      ]);
+      expect(navHrefs(view.host)).toEqual(['/agents', '/chat', '/schedules', '/skills', '/eval']);
       expect(view.host.querySelector('a[aria-label="运维"]')?.getAttribute('href')).toBe(
         '/operations',
       );
@@ -425,7 +418,7 @@ describe('business and operations navigation contexts', () => {
       expect(view.host.querySelector('a[aria-label="返回工作区"]')?.getAttribute('href')).toBe(
         '/agents',
       );
-      for (const href of ['/agents', '/chat', '/memory', '/schedules', '/skills', '/eval']) {
+      for (const href of ['/agents', '/chat', '/schedules', '/skills', '/eval']) {
         expect(navHrefs(view.host)).not.toContain(href);
       }
     } finally {
@@ -454,14 +447,7 @@ describe('business and operations navigation contexts', () => {
   it('falls back to the business context for unknown routes without selecting an item', async () => {
     const view = await inspectRoute('/runs/missing/extra', 'success');
     try {
-      expect(navHrefs(view.host)).toEqual([
-        '/agents',
-        '/chat',
-        '/memory',
-        '/schedules',
-        '/skills',
-        '/eval',
-      ]);
+      expect(navHrefs(view.host)).toEqual(['/agents', '/chat', '/schedules', '/skills', '/eval']);
       expect(activeNavLinks(view.host)).toEqual([]);
     } finally {
       await view.close();
@@ -525,6 +511,23 @@ function navLink(host: HTMLElement): HTMLAnchorElement {
   if (!link) throw new Error(`Missing resource nav link named ${RESOURCE_LABEL}`);
   return link as HTMLAnchorElement;
 }
+
+describe('personal entry', () => {
+  it('sends the bottom user info to the profile in both sidebar states', async () => {
+    const view = await inspectRoute('/agents/', 'success');
+    try {
+      expect(view.host.querySelector('a[aria-label="个人资料"]')?.getAttribute('href')).toBe(
+        '/personal/profile',
+      );
+      const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
+      await act(async () => collapse?.click());
+      const collapsed = view.host.querySelector('a[aria-label="个人资料"]');
+      expect(collapsed?.getAttribute('href')).toBe('/personal/profile');
+    } finally {
+      await view.close();
+    }
+  });
+});
 
 describe('sidebar collapse', () => {
   it('keeps the same label node and accessible name through collapse and immediate expand', async () => {
