@@ -17,7 +17,8 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 | 对话 | 会话历史、分支、工具调用落库、续聊与分支走 SDK 会话续接/分支（`resumeSessionId` / `forkFromSdkMessageUuid`）、队列只带本轮输入、运行详情重跑 |
 | 观测 | 运行列表与 trace 详情、成本/轮次/token/延迟、审计日志、`/health/*`、队列与进程指标、`/status` 系统状态页 |
 | 评估 | 用例管理、`eval-runs` 队列异步回归跑批、通过率与结果详情 |
-| 治理 | 单管理员 JWT 登录（可吊销会话）、Redis 限流、UTC cron 定时任务（BullMQ Job Scheduler，运行队列积压超过 100 时跳过）、数据保留任务、数据库备份与恢复 |
+| 治理 | Better Auth 多账户登录（Drizzle 会话落库、可吊销）、Redis 限流、UTC cron 定时任务（BullMQ Job Scheduler，运行队列积压超过 100 时跳过）、数据保留任务、数据库备份与恢复 |
+| 账户与权限 | 稳定 `businessId`、认证账户可重建、默认四角色、DB 可配置的角色·功能矩阵与对象范围、专家成员、私有会话/个人记忆隔离、跨用户运维审计；实现与验收记录见 [docs/tasks/account-rbac.md](docs/tasks/account-rbac.md) |
 | 子智能体 | 单层委派、调用归属展示；已用真实模型 + 沙盒端到端验证 |
 
 ## 快速开始
@@ -37,7 +38,7 @@ pnpm run up        # 生成 .env、起依赖、迁移、构建镜像、冒烟
 # 打开 http://localhost:3000
 ```
 
-首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`，并打印管理员密码；请按需修改 `ADMIN_PASSWORD` 后重新执行 `pnpm run up`。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
+首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`，并打印管理员密码；首次部署请先按需修改 `ADMIN_PASSWORD` 再执行 `pnpm run up`。`ADMIN_PASSWORD` 只在首次初始化（`platform_bootstrap` marker 不存在）时创建管理员 `bootstrap-admin`，之后启动或登录都不再按 `.env` 覆盖已有密码；后续改密走显式账户操作。实现与验收记录见 [docs/tasks/account-rbac.md](docs/tasks/account-rbac.md)。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
 
 `pnpm run up` 依次完成：`docker compose up -d --wait` 启动 postgres/redis 并等 healthcheck 通过 → 从仓库根构建 `agentport/sandbox:dev`（已存在则跳过，`pnpm run up --rebuild` 强制重建）→ compose 一次性 `migrate` 服务执行迁移 → 构建并启动 api/worker；compose 的 `--wait --wait-timeout 120` 会等 api 的 `/health/ready` healthcheck 通过 → `pnpm smoke`。任一步失败会打印原因并以非零退出。停止服务用 `pnpm run down`（保留数据卷），`pnpm run down --clean` 会删除数据卷。
 
@@ -65,8 +66,8 @@ pnpm dev
 `.env` 至少填写：
 
 - `APP_SECRET_KEY`：MCP 密钥加密主密钥，至少 32 字符，建议 32 字节随机串
-- `JWT_SECRET`：会话签名密钥，至少 32 字符
-- `ADMIN_PASSWORD`：管理员密码，至少 12 字符，且不能是常见默认口令
+- `JWT_SECRET`：better-auth 会话签名密钥（历史命名，不是 JWT），至少 32 字符
+- `ADMIN_PASSWORD`：管理员初始密码，至少 12 字符，且不能是常见默认口令；只在首次初始化时使用，不覆盖已有密码
 - `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`：二选一，worker 用于反向代理模型请求（沙盒只拿代理地址与 run token）；未配置时回退直接注入沙盒
 
 生成随机串：
@@ -165,7 +166,8 @@ agentport/
 
 ## 安全说明
 
-- **认证**：单管理员账号，scrypt 校验（常量时间比较），JWT 存在 httpOnly、SameSite=Lax 的 Cookie 中，有效期 24 小时；JWT 带随机 `sid`，服务端在 Redis 校验 `session:<sid>`，logout 立即吊销。CORS 使用 `CORS_ORIGINS` allowlist；限流按 IP 计数（全局 600/min，登录 10/min、对话 20/min、`/mcp` 60/min、连接测试 20/min、评估发起 10/min；`RATE_LIMIT_DISABLED=1` 可整体关闭，仅用于测试与本地）。
+- **认证**：Better Auth 1.7（username + Drizzle adapter），账号密码登录；密码哈希与校验由 better-auth 管理，错误不区分用户名/密码。会话写入 PostgreSQL `session` 表，httpOnly、SameSite=Lax 的 `agentport_token` Cookie 保存会话 token，有效期 24 小时，logout 删除会话；**不使用 JWT，也不在 Redis 校验会话**，`JWT_SECRET` 只是 better-auth 的签名密钥（历史命名）。CORS 使用 `CORS_ORIGINS` allowlist；限流按 IP 计数（全局 600/min，登录 10/min、对话 20/min、`/mcp` 60/min、连接测试 20/min、评估发起 10/min；`RATE_LIMIT_DISABLED=1` 可整体关闭，仅用于测试与本地）。
+- **多账户与权限**：稳定 `businessId` 作为业务身份，认证技术 ID 只承载登录、可删除重建；业务创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权与个人记忆直接记录 `businessId`。同 `businessId` 重建后恢复业务归属、角色、成员授权与个人记忆，旧会话不复活。默认四角色（平台管理员 / 用户 / 负责人 / 维护人员）存 DB，角色与功能授权按矩阵配置；系统 admin 授权固定、最后一名活跃管理员不可删除/停用/降权，所有业务入口同时检查动作授权与对象范围。私有会话、消息与个人记忆按 `businessId` 隔离；平台管理员跨用户运维可审计，读取他人私有内容须留审计；负责人与维护人员不获得其他用户正文。独立 MCP token 与公开分享 token 保持各自边界，登录用户权限不扩展到这两类凭据。
 - **密钥**：MCP 的 env/headers 使用 AES-256-GCM 加密入库，API 返回时脱敏为 `••••`；日志对 authorization、cookie、token、secret 等字段脱敏。
 - **工作区密钥**：每次运行会把解密后的 MCP env/headers 写入按 run 隔离的 `data/workspaces/<slug>/<runId>/.mcp.json`，供沙盒内进程使用。目录 0700、文件 0600，run 结束即删除；MCP 凭据使用按 run 签发的短期 token（DB 只存 sha256）。但工作区仍含明文 MCP 密钥，不要提交或打包。模型凭证已代理（D-17）：worker 启动回环代理（默认 `MODEL_PROXY_PORT=3426`），沙盒只拿到代理地址与按 run 签发的短期 token，真实密钥只存在于 worker 进程；未配置任何凭证时才回退直接注入并在启动日志警告（见 [SECURITY.md](docs/SECURITY.md) M12a）。
 - **SSRF**：只允许 http/https；连接测试与工具运行时都会解析 DNS 并拒绝私网、回环、link-local 地址；开发模式放行 localhost。DNS 重绑定无法在应用层彻底消除，出站仍建议配合网络 allowlist。

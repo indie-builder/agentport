@@ -11,7 +11,7 @@ import {
   loginCookie,
   startApp,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID,} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -39,7 +39,12 @@ describe.skipIf(!ready)('conversation search', () => {
 
   const newConversation = async (agentId: string, title = '') => {
     const id = newId('conversation');
-    await repo.chat.createConversation(app.db, { id, agentId, title });
+    await repo.chat.createConversation(app.db, {
+      id,
+      agentId,
+      title,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
     return id;
   };
 

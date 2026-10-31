@@ -1,10 +1,13 @@
 import type { OutputFile, OutputList, OutputRef } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { History, Pencil } from 'lucide-react';
 import { useMemo } from 'react';
+import { can } from '../lib/access.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { formatBytes, formatDateTime, formatRelative } from '../lib/format.js';
 import {
+  meQuery,
   useConversationOutputs,
   useOutputBlob,
   useOutputContent,
@@ -83,6 +86,8 @@ export function ConversationOutputs({
   onSelect: (selection: OutputSelection) => void;
   onFeedback: (ref: OutputRef) => void;
 }) {
+  const me = useQuery(meQuery);
+  const canShare = can(me.data, 'conversations.share');
   const outputs = useConversationOutputs(conversationId);
   const list: OutputList | null = outputs.data ?? null;
   const files = useMemo(() => (list ? latestByPath(list) : []), [list]);
@@ -260,7 +265,7 @@ export function ConversationOutputs({
                           {formatDateTime(shown?.createdAt)}
                         </span>
                       )}
-                      {conversationId === null ? null : (
+                      {conversationId === null || !canShare ? null : (
                         <ShareDialog
                           conversationId={conversationId}
                           runId={selection.runId}

@@ -51,6 +51,8 @@ async function seedEval(
     slug: `reconcile-eval-${agentId}`,
     name: 'reconcile-eval',
     model: 'test',
+    createdBy: 'reconcile-eval-user',
+    ownerBusinessId: 'reconcile-eval-user',
   });
   await tx.insert(schema.evalRuns).values({
     id: evalRunId,
@@ -58,6 +60,7 @@ async function seedEval(
     status: options.status ?? 'running',
     createdAt: new Date(Date.now() - (options.ageMs ?? STALE_MS)),
     claimedAt: new Date(Date.now() - STALE_MS),
+    createdBy: 'reconcile-eval-user',
   });
   return { evalRunId, agentId };
 }

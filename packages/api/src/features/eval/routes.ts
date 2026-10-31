@@ -13,16 +13,16 @@ import {
   RUN_QUEUE_MAX_WAITING,
 } from '@agentport/shared';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isPgCode, reject } from '../../plugins/errors.js';
 import { evalRunRateLimit } from '../../plugins/security.js';
 import { getEvalQueue, getQueue } from '../../queue/producer.js';
 import { typed } from '../../types.js';
+import { accessFilter, actorOf, authorizeObject, userPrincipal } from '../access.js';
 
 const evalRepo = repo.evalRepo;
-const chatRepo = repo.chat;
 
 /** 库里是 Date、wire 上是 ISO 字符串；列表和详情都要走这一层，否则 response schema 会 500。 */
 function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
@@ -60,27 +60,48 @@ const EXPORT_BYTE_LIMIT = 1024 * 1024;
 
 const agentNotFound = '智能体不存在，可能已被删除；请刷新后重新选择';
 
+/** 评估资料按专家范围可见；写/执行还必须具备同对象的 read（契约要求）。 */
+async function authorizeEvalAgent(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  agentId: string,
+  permissionIds: ReadonlyArray<'eval.read' | 'eval.manage' | 'eval.execute' | 'agents.use'>,
+): Promise<void> {
+  for (const permissionId of permissionIds) {
+    await authorizeObject(app, request, permissionId, { agentId }, agentNotFound);
+  }
+}
+
 const listQuery = z.object({ agentId: z.string().min(1).optional() });
 
 export function registerEvalRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
-  app.get('/api/eval/cases', { ...auth, schema: { querystring: listQuery } }, async (request) =>
-    evalRepo.listCases(app.db, request.query.agentId),
+  app.get(
+    '/api/eval/cases',
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.read' } },
+      schema: { querystring: listQuery },
+    },
+    async (request) =>
+      evalRepo.listCases(app.db, accessFilter(request, 'eval.read'), request.query.agentId),
   );
 
   app.post(
     '/api/eval/cases',
-    { ...auth, schema: { body: createCaseSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.manage' } },
+      schema: { body: createCaseSchema },
+    },
     async (request, reply) => {
       const input = request.body;
-      if (!(await chatRepo.agentExists(app.db, input.agentId))) {
-        return reject(reply, 'AGENT_NOT_FOUND', agentNotFound);
-      }
-      const row = await evalRepo.createCase(app.db, newId('evalCase'), input);
+      await authorizeEvalAgent(app, request, input.agentId, ['eval.read', 'eval.manage']);
+      const row = await evalRepo.createCase(app.db, newId('evalCase'), {
+        ...input,
+        createdBy: userPrincipal(request).businessId,
+      });
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'eval.case.created',
         target: row.id,
         input: { agentId: input.agentId, name: input.name },
@@ -93,12 +114,18 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/eval/cases/:id',
-    { ...auth, schema: { params: idParams, body: patchCaseSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.manage' } },
+      schema: { params: idParams, body: patchCaseSchema },
+    },
     async (request, reply) => {
+      const existing = await evalRepo.getCase(app.db, request.params.id);
+      if (!existing) return reject(reply, 'NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
+      await authorizeEvalAgent(app, request, existing.agentId, ['eval.read', 'eval.manage']);
       const row = await evalRepo.updateCase(app.db, request.params.id, request.body);
       if (!row) return reject(reply, 'NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'eval.case.updated',
         target: request.params.id,
         input: { fields: Object.keys(request.body) },
@@ -111,12 +138,18 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/eval/cases/:id',
-    { ...auth, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.manage' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
+      const existing = await evalRepo.getCase(app.db, request.params.id);
+      if (!existing) return reject(reply, 'NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
+      await authorizeEvalAgent(app, request, existing.agentId, ['eval.read', 'eval.manage']);
       const deleted = await evalRepo.deleteCase(app.db, request.params.id);
       if (!deleted) return reject(reply, 'NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'eval.case.deleted',
         target: request.params.id,
         status: 'ok',
@@ -129,12 +162,13 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
   // 静态路径比 /cases/:id 优先匹配；导出不读 id/agentId/createdAt。
   app.get(
     '/api/eval/cases/export',
-    { ...auth, schema: { querystring: exportQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.read' } },
+      schema: { querystring: exportQuery },
+    },
     async (request, reply) => {
       const { agentId } = request.query;
-      if (!(await chatRepo.agentExists(app.db, agentId))) {
-        return reject(reply, 'AGENT_NOT_FOUND', agentNotFound);
-      }
+      await authorizeEvalAgent(app, request, agentId, ['eval.read']);
 
       const cases = await app.db
         .select({
@@ -174,10 +208,15 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/eval/cases/import',
-    { ...auth, schema: { body: importBodySchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.manage' } },
+      schema: { body: importBodySchema },
+    },
     async (request, reply) => {
       const { agentId, dataset } = request.body;
       const warnings: string[] = [];
+      const createdBy = userPrincipal(request).businessId;
+      await authorizeEvalAgent(app, request, agentId, ['eval.read', 'eval.manage']);
 
       const result = await app.db.transaction(async (tx): Promise<EvalDatasetImportResult> => {
         // 锁住智能体行：同一目标的并发导入串行执行，重复名称检查才不会两边都通过。
@@ -186,7 +225,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
           .from(schema.agents)
           .where(eq(schema.agents.id, agentId))
           .for('update');
-        if (!agent) fail('AGENT_NOT_FOUND', agentNotFound);
+        if (!agent) fail('NOT_FOUND', agentNotFound);
 
         const existing = await tx
           .select({ name: schema.evalCases.name })
@@ -211,7 +250,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
             continue;
           }
           taken.add(evalCase.name);
-          rows.push({ id: newId('evalCase'), agentId, ...evalCase });
+          rows.push({ id: newId('evalCase'), agentId, createdBy, ...evalCase });
         }
         if (rows.length > 0) await tx.insert(schema.evalCases).values(rows);
 
@@ -219,7 +258,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
       });
 
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'eval.cases.imported',
         target: agentId,
         input: { imported: result.imported, skipped: result.skipped },
@@ -234,21 +273,19 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/eval/runs',
     {
-      ...auth,
       ...evalRunRateLimit,
+      config: {
+        ...evalRunRateLimit.config,
+        access: { kind: 'permission', permissionId: 'eval.execute' },
+      },
       schema: { body: z.object({ agentId: z.string().min(1) }) },
     },
     async (request, reply) => {
       const { agentId } = request.body;
 
-      const [agent] = await app.db
-        .select({ id: schema.agents.id, timeoutMs: schema.agents.timeoutMs })
-        .from(schema.agents)
-        .where(eq(schema.agents.id, agentId))
-        .limit(1);
-      if (!agent) {
-        return reject(reply, 'AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
-      }
+      const createdBy = userPrincipal(request).businessId;
+      // 先按对象授权：不存在与无权访问统一按 NOT_FOUND，避免入口泄露对象存在性。
+      await authorizeEvalAgent(app, request, agentId, ['eval.read', 'eval.execute', 'agents.use']);
 
       const [waitingRuns, waitingEvals] = await Promise.all([
         getQueue().getWaitingCount(),
@@ -267,7 +304,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
             .from(schema.agents)
             .where(eq(schema.agents.id, agentId))
             .for('update');
-          if (!lockedAgent) fail('AGENT_NOT_FOUND', agentNotFound);
+          if (!lockedAgent) fail('NOT_FOUND', agentNotFound);
           const cases = await tx
             .select({
               id: schema.evalCases.id,
@@ -287,7 +324,13 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
           if (running) return undefined;
           const [created] = await tx
             .insert(schema.evalRuns)
-            .values({ id: newId('evalRun'), agentId, total: cases.length, caseSnapshot: cases })
+            .values({
+              id: newId('evalRun'),
+              agentId,
+              createdBy,
+              total: cases.length,
+              caseSnapshot: cases,
+            })
             .returning();
           return created;
         });
@@ -337,7 +380,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
       }
 
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'eval.run.requested',
         target: evalRun.id,
         input: { agentId, total: evalRun.total },
@@ -351,20 +394,24 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/eval/runs/:id/cancel',
-    { ...auth, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.manage' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const { id } = request.params;
       // 存在性校验只需要主键；不用共享 getEvalRun，避免读取 case_snapshot 等大字段。
       const [run] = await app.db
-        .select({ id: schema.evalRuns.id })
+        .select({ id: schema.evalRuns.id, agentId: schema.evalRuns.agentId })
         .from(schema.evalRuns)
         .where(eq(schema.evalRuns.id, id))
         .limit(1);
       if (!run) return reject(reply, 'NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      await authorizeEvalAgent(app, request, run.agentId, ['eval.read', 'eval.manage']);
       // 已收口的跑批重复取消是无操作；只有真正完成转换的一方写审计。
       if (await evalRepo.cancelEvalRun(app.db, id)) {
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'eval.run.cancelled',
           target: id,
           status: 'ok',
@@ -378,7 +425,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/eval/runs',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'eval.read' } },
       schema: { querystring: evalRunListQuerySchema, response: { 200: evalRunPageSchema } },
     },
     async (request, reply) => {
@@ -386,6 +433,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
         ...(request.query.agentId === undefined ? {} : { agentId: request.query.agentId }),
         ...(request.query.cursor === undefined ? {} : { cursor: request.query.cursor }),
         limit: request.query.limit,
+        access: accessFilter(request, 'eval.read'),
       });
       if (!page) return reject(reply, 'INVALID_INPUT', '分页游标不存在或不属于当前筛选条件');
       return { items: page.items.map(toEvalRun), nextCursor: page.nextCursor };
@@ -395,7 +443,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/eval/runs/:id/compare',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'eval.read' } },
       schema: {
         params: idParams,
         querystring: z.object({ head: z.string().min(1) }),
@@ -412,6 +460,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
       if (comparison.baseRun.agentId !== comparison.headRun.agentId) {
         return reject(reply, 'INVALID_INPUT', '只能对比同一智能体的评估运行');
       }
+      await authorizeEvalAgent(app, request, comparison.baseRun.agentId, ['eval.read']);
       const running = [comparison.baseRun, comparison.headRun].find(
         (run) => run.status === 'running',
       );
@@ -428,7 +477,10 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/eval/runs/:id/export',
-    { ...auth, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.read' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       // 多取一条用于判断「超过上限」，绝不把截断后的结果当完整导出发出。
       const detail = await evalRepo.getRunDetail(
@@ -437,6 +489,7 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
         EXPORT_RESULT_LIMIT + 1,
       );
       if (!detail) return reject(reply, 'NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      await authorizeEvalAgent(app, request, detail.evalRun.agentId, ['eval.read']);
       if (detail.evalRun.status === 'running') {
         return reject(reply, 'EVAL_RUN_IN_PROGRESS', '评估运行尚未结束，无法导出结果');
       }
@@ -474,10 +527,14 @@ export function registerEvalRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/eval/runs/:id',
-    { ...auth, schema: { params: idParams, response: { 200: evalRunDetailSchema } } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'eval.read' } },
+      schema: { params: idParams, response: { 200: evalRunDetailSchema } },
+    },
     async (request, reply) => {
       const detail = await evalRepo.getRunDetail(app.db, request.params.id);
       if (!detail) return reject(reply, 'NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      await authorizeEvalAgent(app, request, detail.evalRun.agentId, ['eval.read']);
       return { ...detail, evalRun: toEvalRun(detail.evalRun) };
     },
   );

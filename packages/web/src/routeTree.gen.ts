@@ -13,11 +13,13 @@ import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellSplatRouteImport } from './routes/_shell/$'
+import { Route as ShellAccountsRouteImport } from './routes/_shell/accounts'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellChatRouteImport } from './routes/_shell/chat'
 import { Route as ShellEvalRouteImport } from './routes/_shell/eval'
 import { Route as ShellMemoryRouteImport } from './routes/_shell/memory'
 import { Route as ShellOperationsRouteImport } from './routes/_shell/operations'
+import { Route as ShellRolesRouteImport } from './routes/_shell/roles'
 import { Route as ShellSchedulesRouteImport } from './routes/_shell/schedules'
 import { Route as ShellServersRouteImport } from './routes/_shell/servers'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
@@ -53,6 +55,11 @@ const ShellSplatRoute = ShellSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellAccountsRoute = ShellAccountsRouteImport.update({
+  id: '/accounts',
+  path: '/accounts',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellAuditRoute = ShellAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
@@ -76,6 +83,11 @@ const ShellMemoryRoute = ShellMemoryRouteImport.update({
 const ShellOperationsRoute = ShellOperationsRouteImport.update({
   id: '/operations',
   path: '/operations',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellRolesRoute = ShellRolesRouteImport.update({
+  id: '/roles',
+  path: '/roles',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellSchedulesRoute = ShellSchedulesRouteImport.update({
@@ -160,11 +172,13 @@ export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/login': typeof LoginRoute
   '/$': typeof ShellSplatRoute
+  '/accounts': typeof ShellAccountsRoute
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
   '/memory': typeof ShellMemoryRoute
   '/operations': typeof ShellOperationsRoute
+  '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
@@ -184,11 +198,13 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/$': typeof ShellSplatRoute
+  '/accounts': typeof ShellAccountsRoute
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
   '/memory': typeof ShellMemoryRoute
   '/operations': typeof ShellOperationsRoute
+  '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
@@ -211,11 +227,13 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/login': typeof LoginRoute
   '/_shell/$': typeof ShellSplatRoute
+  '/_shell/accounts': typeof ShellAccountsRoute
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/chat': typeof ShellChatRoute
   '/_shell/eval': typeof ShellEvalRoute
   '/_shell/memory': typeof ShellMemoryRoute
   '/_shell/operations': typeof ShellOperationsRoute
+  '/_shell/roles': typeof ShellRolesRoute
   '/_shell/schedules': typeof ShellSchedulesRoute
   '/_shell/servers': typeof ShellServersRoute
   '/_shell/skills': typeof ShellSkillsRoute
@@ -239,11 +257,13 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/$'
+    | '/accounts'
     | '/audit'
     | '/chat'
     | '/eval'
     | '/memory'
     | '/operations'
+    | '/roles'
     | '/schedules'
     | '/servers'
     | '/skills'
@@ -263,11 +283,13 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/$'
+    | '/accounts'
     | '/audit'
     | '/chat'
     | '/eval'
     | '/memory'
     | '/operations'
+    | '/roles'
     | '/schedules'
     | '/servers'
     | '/skills'
@@ -289,11 +311,13 @@ export interface FileRouteTypes {
     | '/_shell'
     | '/login'
     | '/_shell/$'
+    | '/_shell/accounts'
     | '/_shell/audit'
     | '/_shell/chat'
     | '/_shell/eval'
     | '/_shell/memory'
     | '/_shell/operations'
+    | '/_shell/roles'
     | '/_shell/schedules'
     | '/_shell/servers'
     | '/_shell/skills'
@@ -348,6 +372,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSplatRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/accounts': {
+      id: '/_shell/accounts'
+      path: '/accounts'
+      fullPath: '/accounts'
+      preLoaderRoute: typeof ShellAccountsRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/audit': {
       id: '/_shell/audit'
       path: '/audit'
@@ -381,6 +412,13 @@ declare module '@tanstack/react-router' {
       path: '/operations'
       fullPath: '/operations'
       preLoaderRoute: typeof ShellOperationsRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/roles': {
+      id: '/_shell/roles'
+      path: '/roles'
+      fullPath: '/roles'
+      preLoaderRoute: typeof ShellRolesRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/schedules': {
@@ -493,11 +531,13 @@ declare module '@tanstack/react-router' {
 
 interface ShellRouteChildren {
   ShellSplatRoute: typeof ShellSplatRoute
+  ShellAccountsRoute: typeof ShellAccountsRoute
   ShellAuditRoute: typeof ShellAuditRoute
   ShellChatRoute: typeof ShellChatRoute
   ShellEvalRoute: typeof ShellEvalRoute
   ShellMemoryRoute: typeof ShellMemoryRoute
   ShellOperationsRoute: typeof ShellOperationsRoute
+  ShellRolesRoute: typeof ShellRolesRoute
   ShellSchedulesRoute: typeof ShellSchedulesRoute
   ShellServersRoute: typeof ShellServersRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
@@ -517,11 +557,13 @@ interface ShellRouteChildren {
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellSplatRoute: ShellSplatRoute,
+  ShellAccountsRoute: ShellAccountsRoute,
   ShellAuditRoute: ShellAuditRoute,
   ShellChatRoute: ShellChatRoute,
   ShellEvalRoute: ShellEvalRoute,
   ShellMemoryRoute: ShellMemoryRoute,
   ShellOperationsRoute: ShellOperationsRoute,
+  ShellRolesRoute: ShellRolesRoute,
   ShellSchedulesRoute: ShellSchedulesRoute,
   ShellServersRoute: ShellServersRoute,
   ShellSkillsRoute: ShellSkillsRoute,

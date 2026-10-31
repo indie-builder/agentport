@@ -14,6 +14,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toastError } from '../src/lib/toast.js';
 import { SchedulesPage } from '../src/pages/ops.js';
+import { allAccessMe } from './me-fixture.js';
 import { createMsw } from './msw.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -54,6 +55,7 @@ async function mount() {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnMount: false } },
   });
+  client.setQueryData(['me'], allAccessMe);
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const schedulesRoute = createRoute({

@@ -8,6 +8,10 @@ export type AuditStatus = 'ok' | 'error' | 'denied';
 
 export interface AuditEvent {
   actor?: string;
+  /** user 的 actor 是 businessId；service/anonymous 使用明确标识。 */
+  actorKind?: 'user' | 'service' | 'anonymous';
+  /** 跨用户读取时的目标业务身份。 */
+  subjectBusinessId?: string;
   action: string;
   target?: string;
   input?: unknown;
@@ -49,6 +53,8 @@ export async function writeAudit(
     const row = {
       id: event.dedupeKey ?? newId('audit'),
       actor: event.actor ?? 'system',
+      actorKind: event.actorKind ?? (event.actor && event.actor !== 'system' ? 'user' : 'service'),
+      subjectBusinessId: event.subjectBusinessId ?? null,
       action: event.action,
       target: event.target ?? null,
       inputDigest: digest(event.input),
@@ -81,6 +87,8 @@ export interface AuditQuery {
 export interface AuditEntry {
   id: string;
   actor: string;
+  actorKind: 'user' | 'service' | 'anonymous';
+  subjectBusinessId: string | null;
   action: string;
   target: string | null;
   status: string;
@@ -94,6 +102,8 @@ export interface AuditEntry {
 const columns = {
   id: auditLog.id,
   actor: auditLog.actor,
+  actorKind: auditLog.actorKind,
+  subjectBusinessId: auditLog.subjectBusinessId,
   action: auditLog.action,
   target: auditLog.target,
   status: auditLog.status,

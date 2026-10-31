@@ -17,6 +17,7 @@ import { AppShell } from '../src/components/app-shell.js';
 import { ApiError, api } from '../src/lib/api.js';
 import { MemoryPage } from '../src/pages/memory.js';
 import { memorySearchSchema } from '../src/routes/-search.js';
+import { allAccessMe } from './me-fixture.js';
 
 const memory: PersonalMemory = {
   content: '旧偏好',
@@ -175,9 +176,9 @@ beforeEach(() => {
       queries: { retry: false, refetchOnWindowFocus: false, staleTime: Infinity },
     },
   });
-  client.setQueryData(['me'], { authenticated: true, username: 'admin' });
+  client.setQueryData(['me'], allAccessMe);
   client.setQueryData(['agents'], []);
-  vi.spyOn(api, 'me').mockResolvedValue({ authenticated: true, username: 'admin' });
+  vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
   vi.spyOn(api, 'personalMemory').mockResolvedValue(memory);
   vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [change] });
   vi.spyOn(api, 'writePersonalMemory').mockResolvedValue({

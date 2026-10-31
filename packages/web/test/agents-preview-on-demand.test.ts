@@ -1,5 +1,5 @@
 import { renderWorkspace } from '@agentport/core/workspace';
-import type { Agent } from '@agentport/shared';
+import { PERMISSIONS, type Agent } from '@agentport/shared';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -42,7 +42,22 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/lib/queries.js', () => ({
+  meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
   useAgents: () => ({ data: state.agents }),
+  agentDetailQuery: (id: string) => ({
+    queryKey: ['agent-detail', id],
+    queryFn: async () => null,
+    enabled: false,
+  }),
+  useAgentOptions: () => ({
+    data: { servers: [], skills: [], plugins: [], runtimeEnvironments: [] },
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
   useServers: () => ({ data: [], isPending: false, isError: false }),
   useKnowledgeBases: () => ({ data: [], isPending: false, isError: false }),
   useRuntimeEnvironments: () => ({ data: [], isPending: false, isError: false, refetch: vi.fn() }),
@@ -71,7 +86,14 @@ vi.mock('../src/lib/queries.js', () => ({
   }),
   toolsQuery: () => ({ queryKey: ['tools'], queryFn: async () => [] }),
 }));
-vi.mock('@tanstack/react-query', () => ({ useQueries: () => [], useQueryClient: () => ({}) }));
+vi.mock('@tanstack/react-query', async () => {
+  const { allAccessMe } = await import('./me-fixture.js');
+  return {
+    useQueries: () => [],
+    useQueryClient: () => ({}),
+    useQuery: () => ({ data: allAccessMe, isPending: false, isError: false }),
+  };
+});
 vi.mock('@tanstack/react-router', () => ({
   Link: 'a',
   useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
@@ -160,6 +182,7 @@ async function mount() {
     root.render(
       createElement(AgentEditor, {
         agent: parent,
+        permissions: PERMISSIONS.map((permission) => permission.id),
         onDirtyChange: () => {},
         onPendingChange: () => {},
         onDeleteRequest: () => {},

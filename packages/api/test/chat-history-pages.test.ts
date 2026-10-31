@@ -13,7 +13,7 @@ import {
   loginCookie,
   startApp,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID,} from './helpers.js';
 
 // fixture 直接写 repo / messages 表：不产生 queued run，不需要空闲 worker。
 const ready = await infraReady;
@@ -60,7 +60,12 @@ describe.skipIf(!ready)('chat history pagination', () => {
       await createAgent(app, cookie, { slug: unique('history-agent'), track: agentSlugs })
     ).json<Agent>();
     const id = newId('conversation');
-    await repo.chat.createConversation(app.db, { id, agentId: agent.id, title: '分页' });
+    await repo.chat.createConversation(app.db, {
+      id,
+      agentId: agent.id,
+      title: '分页',
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
     // 分支需要 SDK 会话与每条消息的 uuid；分页本身不读它们。
     await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
       id,

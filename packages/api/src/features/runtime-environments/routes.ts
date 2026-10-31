@@ -12,6 +12,7 @@ import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { getRuntimeEnvironmentBuildQueue } from '../../queue/producer.js';
 import { typed } from '../../types.js';
+import { actorOf } from '../access.js';
 
 const versionParams = z.object({
   id: z.string().min(1),
@@ -36,18 +37,17 @@ const buildJobOptions = (versionId: string) => ({
 
 export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
   const envs = repo.runtimeEnvironments;
 
-  app.get('/api/runtime-environments', auth, async () => envs.listRuntimeEnvironments(app.db));
+  app.get('/api/runtime-environments', { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } }, }, async () => envs.listRuntimeEnvironments(app.db));
 
   app.post(
     '/api/runtime-environments',
-    { ...auth, schema: { body: runtimeEnvironmentInputSchema } },
+    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.create' } }, schema: { body: runtimeEnvironmentInputSchema } },
     async (request, reply) => {
       const env = await envs.createRuntimeEnvironment(app.db, request.body);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'runtime_environment.created',
         target: env.id,
         input: { name: env.name },
@@ -60,7 +60,7 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.get(
     '/api/runtime-environments/:id',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } }, schema: { params: idParams } },
     async (request, reply) => {
       const env = await envs.getRuntimeEnvironment(app.db, request.params.id);
       return env ?? notFound(reply);
@@ -69,12 +69,15 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.patch(
     '/api/runtime-environments/:id',
-    { ...auth, schema: { params: idParams, body: runtimeEnvironmentPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runtime_environments.update' } },
+      schema: { params: idParams, body: runtimeEnvironmentPatchSchema },
+    },
     async (request, reply) => {
       const env = await envs.updateRuntimeEnvironment(app.db, request.params.id, request.body);
       if (!env) return notFound(reply);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'runtime_environment.updated',
         target: env.id,
         input: { name: env.name },
@@ -87,12 +90,12 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.delete(
     '/api/runtime-environments/:id',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.delete' } }, schema: { params: idParams } },
     async (request, reply) => {
       const ok = await envs.deleteRuntimeEnvironment(app.db, request.params.id);
       if (!ok) return notFound(reply);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'runtime_environment.deleted',
         target: request.params.id,
         status: 'ok',
@@ -104,7 +107,7 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.get(
     '/api/runtime-environments/:id/versions',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } }, schema: { params: idParams } },
     async (request, reply) => {
       if (!(await envs.getRuntimeEnvironment(app.db, request.params.id))) return notFound(reply);
       return envs.listRuntimeEnvironmentVersions(app.db, request.params.id);
@@ -117,7 +120,7 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
    */
   app.post(
     '/api/runtime-environments/:id/versions',
-    { ...auth, schema: { params: idParams } },
+    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.build' } }, schema: { params: idParams } },
     async (request, reply) => {
       const version = await envs.enqueueRuntimeEnvironmentBuild(
         app.db,
@@ -143,7 +146,7 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
         return reject(reply, 'SERVICE_UNAVAILABLE', '构建任务入队失败，请稍后重试');
       }
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'runtime_environment.build.requested',
         target: request.params.id,
         input: { versionId: version.id },
@@ -156,7 +159,7 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.get(
     '/api/runtime-environments/:id/versions/:versionId',
-    { ...auth, schema: { params: versionParams } },
+    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } }, schema: { params: versionParams } },
     async (request, reply) => {
       const version = await envs.getRuntimeEnvironmentVersion(
         app.db,
@@ -170,7 +173,10 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
   // 发布与回退同一个接口：只移动线上指针，存活容器不受影响。
   app.put(
     '/api/runtime-environments/:id/online-version',
-    { ...auth, schema: { params: idParams, body: runtimeEnvironmentOnlineVersionInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runtime_environments.publish' } },
+      schema: { params: idParams, body: runtimeEnvironmentOnlineVersionInputSchema },
+    },
     async (request, reply) => {
       const env = await envs.publishRuntimeEnvironmentVersion(
         app.db,
@@ -180,7 +186,7 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
       // 失败版本/跨环境由 repo 抛 409/404；null 只剩环境不存在。
       if (!env) return notFound(reply);
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'runtime_environment.published',
         target: env.id,
         input: { versionId: request.body.versionId },

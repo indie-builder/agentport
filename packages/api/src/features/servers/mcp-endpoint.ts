@@ -84,7 +84,11 @@ export function registerMcpEndpoint(rawApp: FastifyInstance): void {
     {
       ...mcpRateLimit,
       // 非浏览器客户端访问，CSP 无意义。
-      config: { ...mcpRateLimit.config, helmet: { contentSecurityPolicy: false } },
+      config: {
+        ...mcpRateLimit.config,
+        helmet: { contentSecurityPolicy: false },
+        access: { kind: 'service', boundary: 'mcp', reason: 'MCP endpoint uses bearer/run token' },
+      },
       schema: { params },
     },
     async (request, reply) => {

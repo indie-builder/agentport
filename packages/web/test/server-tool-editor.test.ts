@@ -12,7 +12,11 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/lib/queries.js', () => ({
-  useServers: () => ({ data: [] }),
+  meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
+    useServers: () => ({ data: [] }),
   useAgents: () => ({ data: [] }),
   useTools: () => ({ data: [] }),
   useCreateServer: () => ({ mutate: vi.fn(), isPending: false }),

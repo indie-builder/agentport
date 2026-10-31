@@ -50,9 +50,10 @@ function MemoryReviewLink({ agentId }: { agentId: string }) {
 /** 浏览/编辑 Claude Code 原生 auto-memory：MEMORY.md 索引 + 主题 Markdown。 */
 export function MemoryPanel({
   agentId,
+  canWrite = true,
   onDirtyChange,
   onPendingChange,
-}: { agentId: string } & DraftCallbacks) {
+}: { agentId: string; canWrite?: boolean } & DraftCallbacks) {
   const client = useQueryClient();
   const memory = useQuery(agentMemoryQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
@@ -236,7 +237,7 @@ export function MemoryPanel({
                 </Button>
               </div>
             </form>
-          ) : (
+          ) : canWrite ? (
             <Button
               variant="outline"
               className="mt-2 justify-start"
@@ -248,7 +249,7 @@ export function MemoryPanel({
             >
               <Plus data-icon="inline-start" aria-hidden="true" /> 新建记忆文件
             </Button>
-          )}
+          ) : null}
         </div>
 
         {active ? (
@@ -256,6 +257,7 @@ export function MemoryPanel({
             key={active}
             agentId={agentId}
             name={active}
+            canWrite={canWrite}
             onDelete={() => setDeleting(active)}
             onDirtyChange={setEditorDirty}
             onPendingChange={setEditorPending}
@@ -302,12 +304,14 @@ export function MemoryPanel({
 function MemoryFileEditor({
   agentId,
   name,
+  canWrite,
   onDelete,
   onDirtyChange,
   onPendingChange,
 }: {
   agentId: string;
   name: string;
+  canWrite: boolean;
   onDelete: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
@@ -344,23 +348,27 @@ function MemoryFileEditor({
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="min-w-0 truncate font-mono text-md font-semibold text-fg">{name}</h2>
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <Button
-            variant="destructive"
-            size="icon"
-            aria-label={`删除 ${name}`}
-            title={`删除 ${name}`}
-            disabled={save.isPending}
-            onClick={onDelete}
-          >
-            <Trash2 aria-hidden="true" />
-          </Button>
-          <Button
-            disabled={!dirty || save.isPending}
-            aria-busy={save.isPending}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? '保存中…' : '记忆保存'}
-          </Button>
+          {canWrite ? (
+            <>
+              <Button
+                variant="destructive"
+                size="icon"
+                aria-label={`删除 ${name}`}
+                title={`删除 ${name}`}
+                disabled={save.isPending}
+                onClick={onDelete}
+              >
+                <Trash2 aria-hidden="true" />
+              </Button>
+              <Button
+                disabled={!dirty || save.isPending}
+                aria-busy={save.isPending}
+                onClick={() => save.mutate()}
+              >
+                {save.isPending ? '保存中…' : '记忆保存'}
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
       <Field data-disabled={save.isPending} className="gap-1.5">
@@ -370,7 +378,7 @@ function MemoryFileEditor({
           value={content}
           language="markdown"
           aria-label={`${name} 内容`}
-          disabled={save.isPending}
+          disabled={save.isPending || !canWrite}
           onChange={setDraft}
           className="min-h-[18rem]"
         />
@@ -387,9 +395,10 @@ type RuleAction =
 /** 项目规则：编辑 `.claude/rules/<slug>.md`，可选路径作用域（globs）。 */
 export function RulesPanel({
   agentId,
+  canWrite = true,
   onDirtyChange,
   onPendingChange,
-}: { agentId: string } & DraftCallbacks) {
+}: { agentId: string; canWrite?: boolean } & DraftCallbacks) {
   const client = useQueryClient();
   const rules = useQuery(agentRulesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
@@ -449,7 +458,7 @@ export function RulesPanel({
     },
   });
 
-  const pending = save.isPending || remove.isPending;
+  const pending = save.isPending || remove.isPending || !canWrite;
 
   const apply = (action: RuleAction): void => {
     if (pending) return;
@@ -653,9 +662,10 @@ type StyleAction =
 /** 自定义输出风格：选中项经 settings.outputStyle 生效。 */
 export function OutputStylesPanel({
   agentId,
+  canWrite = true,
   onDirtyChange,
   onPendingChange,
-}: { agentId: string } & DraftCallbacks) {
+}: { agentId: string; canWrite?: boolean } & DraftCallbacks) {
   const client = useQueryClient();
   const styles = useQuery(agentOutputStylesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
@@ -753,7 +763,7 @@ export function OutputStylesPanel({
     },
   });
 
-  const pending = save.isPending || unselect.isPending || remove.isPending;
+  const pending = save.isPending || unselect.isPending || remove.isPending || !canWrite;
 
   const apply = (action: StyleAction): void => {
     if (pending) return;

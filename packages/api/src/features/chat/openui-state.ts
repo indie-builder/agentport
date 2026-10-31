@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { actorOf, authorizeObject } from '../access.js';
 
 const params = z.object({
   conversationId: z.string().min(1),
@@ -34,20 +35,27 @@ export function registerOpenUiStateRoutes(rawApp: FastifyInstance): void {
   app.put(
     '/api/conversations/:conversationId/messages/:messageId/openui-state',
     {
-      preHandler: [rawApp.requireAuth],
+      config: { access: { kind: 'permission', permissionId: 'conversations.update' } },
       schema: { params, body: stateBody },
     },
     async (request, reply) => {
       const { conversationId, messageId } = request.params;
       const { blockKey, state } = request.body;
 
+      // 状态属于会话正文；先按会话对象判定范围，再校验消息归属。
+      const conversation = await repo.chat.getConversation(app.db, conversationId);
+      if (!conversation) {
+        return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
+      }
+      await authorizeObject(
+        app,
+        request,
+        'conversations.update',
+        { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+        '会话不存在，可能已被删除；请刷新后重试',
+      );
       const message = await repo.openui.getMessageInConversation(app.db, conversationId, messageId);
       if (!message) {
-        // messages.conversation_id 外键 cascade：消息存在则所属会话必存在；未命中才需区分两种错误。
-        const conversation = await repo.chat.getConversation(app.db, conversationId);
-        if (!conversation) {
-          return reject(reply, 'CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
-        }
         return reject(reply, 'NOT_FOUND', '消息不属于该会话，可能已被删除；请刷新后重试');
       }
       // 只有生成式 UI 的助手消息挂状态；其他消息没有可恢复的界面。
@@ -86,7 +94,7 @@ export function registerOpenUiStateRoutes(rawApp: FastifyInstance): void {
       }
 
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'openui.state.saved',
         target: messageId,
         // 表单值可能含用户输入，审计只记 block 名。

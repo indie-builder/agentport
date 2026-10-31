@@ -14,7 +14,14 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMaintenance } from '../../worker/src/maintenance.js';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
-import { createAgent, infraReady, inject, loginCookie, startApp } from './helpers.js';
+import {
+  createAgent,
+  infraReady,
+  inject,
+  loginCookie,
+  startApp,
+  ADMIN_BUSINESS_ID,
+} from './helpers.js';
 
 // 维护会删除全库旧记录，必须与其它 API 套件分库。
 const isolated = (await infraReady)
@@ -55,8 +62,14 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       id: conversationId,
       agentId: agent.id,
       title: '成果保留',
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
+    await repo.chat.createRun(app.db, {
+      id: runId,
+      conversationId,
+      agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
-    await repo.chat.createRun(app.db, { id: runId, conversationId, agentId: agent.id });
     await repo.chat.updateRun(app.db, runId, { status: 'succeeded', startedAt: old, endedAt: old });
     const attachments = await writeConversationAttachments({
       root,

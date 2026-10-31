@@ -1,4 +1,5 @@
 import type { KnowledgeBase } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CirclePause,
@@ -61,10 +62,12 @@ import {
   SelectValue,
 } from '../components/ui/select.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatRelative } from '../lib/format.js';
 import {
+  meQuery,
   useAgents,
   useCreateKnowledgeBase,
   useCreateKnowledgeModelProfile,
@@ -103,8 +106,14 @@ function KnowledgeCard({
   onToggleStatus,
   onExport,
   onDelete,
+  canUpdate,
+  canExport,
+  canDelete,
 }: {
   base: KnowledgeBase;
+  canUpdate: boolean;
+  canExport: boolean;
+  canDelete: boolean;
   onRename: (trigger: HTMLElement) => void;
   onSettings: (trigger: HTMLElement) => void;
   onToggleStatus: (trigger: HTMLElement) => void;
@@ -141,25 +150,35 @@ function KnowledgeCard({
               />
               <DropdownMenuContent align="end" sideOffset={4} className="w-40">
                 <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={(event) => onRename(event.currentTarget)}>
-                    <Pencil /> 重命名
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={(event) => onSettings(event.currentTarget)}>
-                    <Settings /> 设置
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={(event) => onToggleStatus(event.currentTarget)}>
-                    {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
-                    {base.status === 'active' ? '停用' : '启用'}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={(event) => onExport(event.currentTarget)}>
-                    <Download /> 导出知识包
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={(event) => onDelete(event.currentTarget)}
-                  >
-                    <Trash2 /> 删除
-                  </DropdownMenuItem>
+                  {canUpdate ? (
+                    <DropdownMenuItem onClick={(event) => onRename(event.currentTarget)}>
+                      <Pencil /> 重命名
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canUpdate ? (
+                    <DropdownMenuItem onClick={(event) => onSettings(event.currentTarget)}>
+                      <Settings /> 设置
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canUpdate ? (
+                    <DropdownMenuItem onClick={(event) => onToggleStatus(event.currentTarget)}>
+                      {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
+                      {base.status === 'active' ? '停用' : '启用'}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canExport ? (
+                    <DropdownMenuItem onClick={(event) => onExport(event.currentTarget)}>
+                      <Download /> 导出知识包
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canDelete ? (
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={(event) => onDelete(event.currentTarget)}
+                    >
+                      <Trash2 /> 删除
+                    </DropdownMenuItem>
+                  ) : null}
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -240,6 +259,13 @@ function DraftGuardDialogs({
 }
 
 export function KnowledgePage() {
+  const me = useQuery(meQuery);
+  const canCreate = can(me.data, 'knowledge.create');
+  const canUpdate = can(me.data, 'knowledge.update');
+  const canDelete = can(me.data, 'knowledge.delete');
+  const canImport = can(me.data, 'knowledge.import');
+  const canExport = can(me.data, 'knowledge.export');
+  const canManageModels = can(me.data, 'knowledge.models.manage');
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/knowledge/' });
   const query = search.q ?? '';
@@ -275,7 +301,7 @@ export function KnowledgePage() {
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
   const boundAgents = deleting
-    ? (agents.data?.filter((agent) => agent.serverIds.includes(deleting.serverId)) ?? [])
+    ? (agents.data?.filter((agent) => (agent.serverIds ?? []).includes(deleting.serverId)) ?? [])
     : [];
 
   const download = (base: KnowledgeBase): void => {
@@ -378,18 +404,22 @@ export function KnowledgePage() {
       }
       actions={
         <>
-          <Button variant="outline" onClick={() => setProfilesOpen(true)}>
-            <Settings data-icon="inline-start" aria-hidden="true" /> 模型配置
-          </Button>
-          <Button
-            variant="outline"
-            disabled={importer.isPending}
-            aria-busy={importer.isPending}
-            onClick={() => importInput.current?.click()}
-          >
-            <Upload data-icon="inline-start" aria-hidden="true" />
-            {importer.isPending ? '导入中…' : '导入知识包'}
-          </Button>
+          {canManageModels ? (
+            <Button variant="outline" onClick={() => setProfilesOpen(true)}>
+              <Settings data-icon="inline-start" aria-hidden="true" /> 模型配置
+            </Button>
+          ) : null}
+          {canImport ? (
+            <Button
+              variant="outline"
+              disabled={importer.isPending}
+              aria-busy={importer.isPending}
+              onClick={() => importInput.current?.click()}
+            >
+              <Upload data-icon="inline-start" aria-hidden="true" />
+              {importer.isPending ? '导入中…' : '导入知识包'}
+            </Button>
+          ) : null}
           <input
             ref={importInput}
             type="file"
@@ -403,9 +433,11 @@ export function KnowledgePage() {
               if (file) onImportFile(file);
             }}
           />
-          <Button ref={createButtonRef} onClick={() => setCreating(true)}>
-            <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
-          </Button>
+          {canCreate ? (
+            <Button ref={createButtonRef} onClick={() => setCreating(true)}>
+              <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -489,9 +521,11 @@ export function KnowledgePage() {
           icon={<LibraryBig className="size-5" />}
           title="还没有知识库"
           action={
-            <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-              <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
-            </Button>
+            canCreate ? (
+              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
+              </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -527,6 +561,9 @@ export function KnowledgePage() {
                 setActionFocus(trigger);
                 download(base);
               }}
+              canUpdate={canUpdate}
+              canExport={canExport}
+              canDelete={canDelete}
               onDelete={(trigger) => {
                 setActionFocus(trigger);
                 setDeleting(base);

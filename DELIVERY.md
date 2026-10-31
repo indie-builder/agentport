@@ -1,6 +1,8 @@
 # 交付总结
 
 > 2026-10-20（2026-10-24 按代码复核）。本文按「能做什么 / 怎么验证 / 还缺什么」组织；详细交接见 [docs/HANDOFF.md](docs/HANDOFF.md)，故障处置见 [docs/RUNBOOK.md](docs/RUNBOOK.md)。
+>
+> 2026-10-31 账户与权限：多账户、稳定 `businessId`、默认四角色、DB 可配置的角色·功能矩阵与对象范围、私有会话/个人记忆隔离已在本工作树实现，未合入 main、已通过最终 review、准备发布。下文「单管理员」「多用户未实现」等描述是 2026-10-24 基线，已被该实现替代；真实结果与剩余项见 [docs/tasks/account-rbac.md](docs/tasks/account-rbac.md)。
 
 ## 一、项目是什么
 
@@ -104,7 +106,7 @@ pnpm run up          # 生成 .env、起 Postgres/Redis、迁移、构建镜像�
 14. **导入**：`agentport/agent@2` 已携带根级/子级规则、输出风格与技能支持资源；同名 Server 复用已有配置、其工具不按文件覆盖（返回 warnings），被复用 Server 的密钥需重新填写。
 15. **全局 600/min 限流桶覆盖全部路由**（按 IP，`plugins/security.ts`），另有登录 10/min 等更严的按路由桶；高并发下 Postgres 连接池仍是第一个瓶颈。
 16. **运行详情重跑**只重发第一条 user 消息；重跑新建 run，工具审批按同会话上一 run 继承，历史审批不单独回放。
-17. **深色主题、RAG、多用户、多机部署**：均未实现（当前只有亮色主题）。
+17. **深色主题、多机部署**：未实现（当前只有亮色主题）；**多用户/RBAC**：本工作树已实现、未合入 main、已通过最终 review、准备发布（见 `docs/tasks/account-rbac.md`）；知识库（RAG）已接入，但真实企业来源与真实模型闭环尚未验收，见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §6.8。
 
 ## 七、下一步建议
 

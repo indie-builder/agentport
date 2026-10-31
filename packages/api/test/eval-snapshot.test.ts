@@ -12,6 +12,7 @@ import {
   queueIdle,
   startApp,
   unique,
+  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 // 提交评估会入队；有活跃 worker 时 job 会被立刻消费，断言只能看到原始用例。
@@ -219,6 +220,7 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
       id: newId('evalRun'),
       agentId: agent.id,
       total: 1,
+      createdBy: ADMIN_BUSINESS_ID,
     });
     await repo.evalRepo.addResult(app.db, {
       id: newId('evalResult'),

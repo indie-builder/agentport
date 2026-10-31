@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunFailure } from '@agentport/core';
-import { createDb, newId, repo, schema } from '@agentport/db';
+import { createDb, newId, schema } from '@agentport/db';
 import { RUNS_QUEUE } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,9 +16,15 @@ const mocks = vi.hoisted(() => ({
   release: vi.fn(),
   publishRun: vi.fn(async () => undefined),
   isRetryable: vi.fn(() => false),
+  checkAccess: vi.fn(),
   processors: new Map<string, (job: unknown) => Promise<void>>(),
   dbHandles: [] as Array<{ pool: { end(): Promise<void> } }>,
 }));
+
+vi.mock('../src/run-access.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/run-access.js')>();
+  return { ...actual, checkQueuedRunAccess: mocks.checkAccess };
+});
 
 vi.mock('@agentport/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentport/db')>();
@@ -141,8 +148,18 @@ const { db } = dbHandle;
 const cleanupRuns: string[] = [];
 const cleanupConversations: string[] = [];
 const cleanupAgents: string[] = [];
+const TEST_BUSINESS_ID = 'worker-run-user';
 
-async function createRunFixture(label: string) {
+async function createRunFixture(
+  label: string,
+  subject:
+    | { kind: 'user'; businessId: string }
+    | { kind: 'service'; serviceId: 'system' | 'mcp' } = {
+    kind: 'user',
+    businessId: TEST_BUSINESS_ID,
+  },
+  trigger: 'chat' | 'schedule' | 'event' | 'review' = 'chat',
+) {
   const fixtureAgentId = newId('agent');
   const fixtureConversationId = newId('conversation');
   const fixtureRunId = newId('run');
@@ -154,28 +171,39 @@ async function createRunFixture(label: string) {
     slug: `retry-${fixtureAgentId.slice(4)}`,
     name: label,
     model: 'test',
+    createdBy: TEST_BUSINESS_ID,
+    ownerBusinessId: TEST_BUSINESS_ID,
   });
-  await repo.chat.createConversation(db, {
+  await db.insert(schema.conversations).values({
     id: fixtureConversationId,
     agentId: fixtureAgentId,
     title: label,
+    ...(subject.kind === 'user'
+      ? { createdBy: subject.businessId }
+      : { serviceId: subject.serviceId }),
   });
-  await repo.chat.createRun(db, {
+  await db.insert(schema.agentRuns).values({
     id: fixtureRunId,
     conversationId: fixtureConversationId,
     agentId: fixtureAgentId,
+    trigger,
+    ...(subject.kind === 'user'
+      ? { subjectKind: 'user', initiatedBy: subject.businessId }
+      : { subjectKind: 'service', serviceId: subject.serviceId }),
   });
-  await repo.chat.appendMessage(db, {
+  await db.insert(schema.messages).values({
     id: newId('message'),
     conversationId: fixtureConversationId,
     role: 'user',
     content: { type: 'text', text: 'ask' },
     runId: fixtureRunId,
+    ...(subject.kind === 'user' ? { senderBusinessId: subject.businessId } : {}),
   });
   return {
     agentId: fixtureAgentId,
     conversationId: fixtureConversationId,
     runId: fixtureRunId,
+    subject,
     job: {
       data: {
         runId: fixtureRunId,
@@ -233,6 +261,9 @@ describe('run runtime environment identity persistence', () => {
     mocks.publishRun.mockReset();
     mocks.publishRun.mockImplementation(async () => undefined);
     mocks.release.mockResolvedValue(undefined);
+    // 默认放行身份重查；具体拒绝场景在用例里覆盖返回值。
+    mocks.checkAccess.mockReset();
+    mocks.checkAccess.mockResolvedValue(null);
   });
 
   afterAll(async () => {
@@ -282,15 +313,29 @@ describe('run runtime environment identity persistence', () => {
       slug: `identity-${agentId.slice(4)}`,
       name: 'identity',
       model: 'test',
+      createdBy: TEST_BUSINESS_ID,
+      ownerBusinessId: TEST_BUSINESS_ID,
     });
-    await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'identity' });
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
-    await repo.chat.appendMessage(db, {
+    await db.insert(schema.conversations).values({
+      id: conversationId,
+      agentId,
+      title: 'identity',
+      createdBy: TEST_BUSINESS_ID,
+    });
+    await db.insert(schema.agentRuns).values({
+      id: runId,
+      conversationId,
+      agentId,
+      subjectKind: 'user',
+      initiatedBy: TEST_BUSINESS_ID,
+    });
+    await db.insert(schema.messages).values({
       id: newId('message'),
       conversationId,
       role: 'user',
       content: { type: 'text', text: 'ask' },
       runId,
+      senderBusinessId: TEST_BUSINESS_ID,
     });
 
     // 真实故障注入：只让这次 run 的身份 UPDATE 失败，其余更新照常。
@@ -643,5 +688,144 @@ describe('run runtime environment identity persistence', () => {
       );
     expect(audits).toHaveLength(0);
     expect(mocks.release).toHaveBeenCalledWith({ reuse: false });
+  });
+
+  it('fails a queued run before starting when the account is disabled or access was revoked', async () => {
+    const fixture = await createRunFixture('denied');
+    mocks.checkAccess.mockResolvedValue({
+      reason: 'account_inactive',
+      message: '账户已停用或不存在，运行未启动',
+    });
+
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+    await processor?.({
+      ...fixture.job,
+      attemptsMade: 0,
+      opts: { attempts: 1 },
+    });
+
+    // 不建容器、不执行；排队运行明确失败，由 UI 看到原因。
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
+    expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
+      runId: fixture.runId,
+      trigger: 'chat',
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      businessId: TEST_BUSINESS_ID,
+    });
+    const [run] = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId))
+      .limit(1);
+    expect(run).toMatchObject({
+      status: 'failed',
+      error: '账户已停用或不存在，运行未启动',
+      errorKind: 'agent',
+    });
+    const audits = await db
+      .select({ action: schema.auditLog.action })
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.target, fixture.runId),
+          eq(schema.auditLog.action, 'agent.run.denied'),
+        ),
+      );
+    expect(audits).toHaveLength(1);
+  });
+
+  it('mounts only the current business user personal directory', async () => {
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-user-mount'));
+    mocks.run.mockResolvedValue({
+      status: 'succeeded',
+      sandboxId: 'sandbox-user-mount',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [],
+      sessionId: 'sdk-user-mount',
+    });
+
+    const fixture = await createRunFixture('user-mount');
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+    const acquireInput = mocks.acquire.mock.calls[0]?.[0] as
+      | { spec: { personalDir?: string } }
+      | undefined;
+    const digest = createHash('sha256').update(TEST_BUSINESS_ID, 'utf8').digest('hex');
+    expect(acquireInput?.spec.personalDir).toBe(join(workdir, '_users', digest));
+  });
+
+  it('fails a queued schedule run without sandbox when schedules.manage was revoked', async () => {
+    const fixture = await createRunFixture('schedule-denied', undefined, 'schedule');
+    mocks.checkAccess.mockResolvedValue({
+      reason: 'permission_denied',
+      message: '当前账户没有该操作的权限，运行未启动',
+    });
+
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+    expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
+      runId: fixture.runId,
+      trigger: 'schedule',
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      businessId: TEST_BUSINESS_ID,
+    });
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
+    const [run] = await db
+      .select({ status: schema.agentRuns.status })
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId))
+      .limit(1);
+    expect(run?.status).toBe('failed');
+  });
+
+  it('leaves an already claimed running run untouched instead of re-checking or killing it', async () => {
+    const fixture = await createRunFixture('already-running');
+    await db
+      .update(schema.agentRuns)
+      .set({ status: 'running', startedAt: new Date() })
+      .where(eq(schema.agentRuns.id, fixture.runId));
+
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+    expect(mocks.checkAccess).not.toHaveBeenCalled();
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
+    const [run] = await db
+      .select({ status: schema.agentRuns.status, endedAt: schema.agentRuns.endedAt })
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId))
+      .limit(1);
+    expect(run).toMatchObject({ status: 'running', endedAt: null });
+  });
+
+  it('does not mount any personal memory for a service run', async () => {
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-service'));
+    mocks.run.mockResolvedValue({
+      status: 'succeeded',
+      sandboxId: 'sandbox-service',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [],
+      sessionId: 'sdk-service',
+    });
+
+    const fixture = await createRunFixture('service', { kind: 'service', serviceId: 'system' });
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+    expect(mocks.checkAccess).not.toHaveBeenCalled();
+    const acquireInput = mocks.acquire.mock.calls[0]?.[0] as
+      | { spec: { personalDir?: string } }
+      | undefined;
+    expect(acquireInput?.spec.personalDir).toBeUndefined();
   });
 });

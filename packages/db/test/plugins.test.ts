@@ -26,7 +26,14 @@ describe.skipIf(!ready)('plugin repo', () => {
   });
 
   it('creates with files and exposes them by plugin id', async () => {
-    await db.insert(agents).values({ id: agentId, slug: `p-${agentId}`, name: 'p', model: 'test' });
+    await db.insert(agents).values({
+      id: agentId,
+      slug: `p-${agentId}`,
+      name: 'p',
+      model: 'test',
+      createdBy: 'plugins-owner',
+      ownerBusinessId: 'plugins-owner',
+    });
 
     const created = await pluginsRepo.createPluginWithFiles(
       db,

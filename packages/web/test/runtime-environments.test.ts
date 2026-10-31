@@ -3,6 +3,7 @@ import type {
   RuntimeEnvironmentVersion,
   RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
   createRootRoute,
@@ -21,6 +22,7 @@ import { buildShouldPoll } from '../src/lib/queries.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environment-detail.js';
 import { RuntimeEnvironmentsPage } from '../src/pages/runtime-environments.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -152,6 +154,12 @@ vi.mock('../src/lib/queries.js', async (original) => {
   };
 });
 
+let client: QueryClient;
+
+function withClient(element: ReactNode) {
+  return createElement(QueryClientProvider, { client }, element);
+}
+
 const environment: RuntimeEnvironment = {
   id: 'rte_1',
   name: '数据分析',
@@ -243,7 +251,7 @@ async function mountPage(page: ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(page));
+  await act(async () => root.render(withClient(page)));
   await flush();
   return {
     host,
@@ -299,7 +307,7 @@ async function mountWithRouter(initialPath: string) {
   const root = createRoot(host);
   await act(async () => {
     await router.load();
-    root.render(createElement(RouterProvider, { router }));
+    root.render(withClient(createElement(RouterProvider, { router })));
   });
   await flush();
   return {
@@ -357,6 +365,10 @@ async function editInput(element: HTMLInputElement, value: string): Promise<void
 
 beforeEach(() => {
   vi.clearAllMocks();
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+  });
+  client.setQueryData(['me'], allAccessMe);
   state.realRouter = false;
   state.updatePending = false;
   state.createPending = false;
@@ -373,13 +385,16 @@ beforeEach(() => {
     },
   );
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  client.clear();
+  vi.unstubAllGlobals();
+});
 
 describe('runtime environments page', () => {
   it('lists named environments with the online version and one h1', () => {
     state.environments = [environment];
     state.search = {};
-    const html = renderToStaticMarkup(createElement(RuntimeEnvironmentsPage));
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(html).toContain('数据分析');
     expect(html).toContain('线上');
@@ -390,7 +405,7 @@ describe('runtime environments page', () => {
   it('shows the create action for an empty list', () => {
     state.environments = [];
     state.search = {};
-    const html = renderToStaticMarkup(createElement(RuntimeEnvironmentsPage));
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(html).toContain('新建第一个运行环境');
     expect(html).toContain('新建环境');
@@ -514,7 +529,7 @@ describe('runtime environment detail page', () => {
       version('rtev_dddddddd', 'building', null),
     ];
     state.search = {};
-    const html = renderToStaticMarkup(createElement(RuntimeEnvironmentDetailPage));
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentDetailPage)));
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(html).toContain('线上');
     expect(html.match(/设为线上/g)).toHaveLength(1);
@@ -529,7 +544,7 @@ describe('runtime environment detail page', () => {
       version('rtev_bbbbbbbb', 'failed', null),
     ];
     state.search = { status: 'failed' };
-    const html = renderToStaticMarkup(createElement(RuntimeEnvironmentDetailPage));
+    const html = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentDetailPage)));
     expect(html).toContain('bbbbbbbb');
     expect(html).not.toContain('aaaaaaaa');
   });
@@ -584,10 +599,12 @@ describe('runtime environment detail page', () => {
     state.search = {};
     let tree: Element[] = [];
     renderToStaticMarkup(
-      createElement(function Probe() {
-        tree = elements(RuntimeEnvironmentDetailPage());
-        return null;
-      }),
+      withClient(
+        createElement(function Probe() {
+          tree = elements(RuntimeEnvironmentDetailPage());
+          return null;
+        }),
+      ),
     );
     const build = buttonWith(tree, '构建新版本');
     const publish = buttonWith(tree, '设为线上');
@@ -740,7 +757,7 @@ describe('runtime environment detail page', () => {
     if (!draftInput) throw new Error('Missing environment name');
     await editInput(draftInput, '未保存的草稿');
     state.environment = { ...environment };
-    await act(async () => page.root.render(createElement(RuntimeEnvironmentDetailPage)));
+    await act(async () => page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))));
     await flush();
     expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(
       '未保存的草稿',

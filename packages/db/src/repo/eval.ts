@@ -1,6 +1,32 @@
-import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
+import type { AccessFilter } from '@agentport/shared';
+import { and, asc, desc, eq, isNull, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
-import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../schema.js';
+import {
+  agentMembers,
+  agents,
+  type EvalCaseSnapshot,
+  evalCases,
+  evalResults,
+  evalRuns,
+} from '../schema.js';
+
+/** 评估资料按专家范围可见：P 全部，W 本人负责，M 本人负责或 canMaintain。 */
+function evalAccessWhere(access: AccessFilter, agentIdColumn: SQLWrapper): SQL | undefined {
+  if (access.scopes.includes('platform')) return undefined;
+  const visible: SQL[] = [];
+  if (access.scopes.includes('maintained_agents')) {
+    visible.push(
+      sql`(exists (select 1 from ${agents} a where a.id = ${agentIdColumn} and a.owner_business_id = ${access.businessId})
+        or exists (select 1 from ${agentMembers} m where m.agent_id = ${agentIdColumn} and m.business_id = ${access.businessId} and m.can_maintain))`,
+    );
+  }
+  if (access.scopes.includes('owned_agents')) {
+    visible.push(
+      sql`exists (select 1 from ${agents} a where a.id = ${agentIdColumn} and a.owner_business_id = ${access.businessId})`,
+    );
+  }
+  return visible.length === 0 ? sql`false` : sql`(${sql.join(visible, sql` or `)})`;
+}
 
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
@@ -21,6 +47,7 @@ export interface EvalCaseInput {
   name: string;
   prompt: string;
   expectation: string;
+  createdBy: string;
 }
 
 export interface EvalCasePatch {
@@ -29,13 +56,19 @@ export interface EvalCasePatch {
   expectation?: string | undefined;
 }
 
-export async function listCases(db: Database, agentId?: string): Promise<EvalCase[]> {
+export async function listCases(
+  db: Database,
+  access: AccessFilter,
+  agentId?: string,
+): Promise<EvalCase[]> {
   const filters: SQL[] = [];
+  const accessWhere = evalAccessWhere(access, evalCases.agentId);
+  if (accessWhere) filters.push(accessWhere);
   if (agentId !== undefined) filters.push(eq(evalCases.agentId, agentId));
   return db
     .select()
     .from(evalCases)
-    .where(filters.length > 0 ? and(...filters) : undefined)
+    .where(and(...filters))
     .orderBy(desc(evalCases.createdAt), desc(evalCases.id));
 }
 
@@ -77,7 +110,13 @@ export async function deleteCase(db: Database, id: string): Promise<boolean> {
 
 export async function createEvalRun(
   db: Database,
-  input: { id: string; agentId: string; total: number; caseSnapshot?: EvalCaseSnapshot[] },
+  input: {
+    id: string;
+    agentId: string;
+    total: number;
+    createdBy: string;
+    caseSnapshot?: EvalCaseSnapshot[];
+  },
 ): Promise<EvalRun> {
   const [row] = await db.insert(evalRuns).values(input).returning();
   if (!row) throw new Error('eval run insert returned no row');
@@ -133,9 +172,11 @@ export async function updateProgress(db: Database, id: string, passed: number): 
 
 export async function listRuns(
   db: Database,
-  options: { agentId?: string; cursor?: string; limit: number },
+  options: { agentId?: string; cursor?: string; limit: number; access: AccessFilter },
 ): Promise<EvalRunPage | null> {
   const filters: SQL[] = [];
+  const accessWhere = evalAccessWhere(options.access, evalRuns.agentId);
+  if (accessWhere) filters.push(accessWhere);
   if (options.agentId !== undefined) filters.push(eq(evalRuns.agentId, options.agentId));
   if (options.cursor !== undefined) {
     // 游标必须落在当前筛选范围内；否则会把别人的历史当成自己的下一页。

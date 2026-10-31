@@ -7,6 +7,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { agentOwnership, conversationSubject, runSubjectFields } from './fixtures/access.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const { publishRun } = vi.hoisted(() => ({
@@ -87,8 +88,11 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       slug: `reconcile-${agentId.slice(4, 12)}`,
       name: 'reconcile',
       model: 'test',
+      ...agentOwnership,
     });
-    await db.insert(schema.conversations).values({ id: conversationId, agentId });
+    await db
+      .insert(schema.conversations)
+      .values({ id: conversationId, agentId, ...conversationSubject });
 
     const stale = new Date(Date.now() - STALE_MS);
     await db.insert(schema.agentRuns).values(
@@ -98,6 +102,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
         agentId,
         status: 'queued',
         createdAt: stale,
+        ...runSubjectFields,
       })),
     );
 
@@ -215,6 +220,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       name: 'reconcile-running',
       model: 'test',
       timeoutMs: AGENT_TIMEOUT_MS,
+      ...agentOwnership,
     });
     await db.insert(schema.agentRuns).values({
       id: runRunning,
@@ -224,6 +230,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       sandboxId: 'sandbox-orphan-running',
       createdAt: new Date(Date.now() - STALE_MS),
       startedAt: new Date(Date.now() - STALE_MS),
+      ...runSubjectFields,
     });
 
     try {
@@ -265,6 +272,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
         name: 'reconcile-short',
         model: 'test',
         timeoutMs: AGENT_TIMEOUT_MS,
+        ...agentOwnership,
       },
       {
         id: longAgent,
@@ -272,6 +280,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
         name: 'reconcile-long',
         model: 'test',
         timeoutMs: LONG_TIMEOUT_MS,
+        ...agentOwnership,
       },
     ]);
     const startedAt = new Date(Date.now() - BETWEEN_CUTOFFS_MS);
@@ -283,6 +292,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
         status: 'running',
         createdAt: startedAt,
         startedAt,
+        ...runSubjectFields,
       })),
     );
 
@@ -323,6 +333,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       name: 'reconcile-active',
       model: 'test',
       timeoutMs: AGENT_TIMEOUT_MS,
+      ...agentOwnership,
     });
     await db.insert(schema.agentRuns).values({
       id: runActive,
@@ -332,6 +343,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       sandboxId: 'sandbox-still-active',
       createdAt: new Date(Date.now() - STALE_MS),
       startedAt: new Date(Date.now() - STALE_MS),
+      ...runSubjectFields,
     });
 
     const activeQueue = new Queue<AgentRunJob>(`reconcile-active-${randomUUID()}`, {

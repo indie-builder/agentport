@@ -20,6 +20,7 @@ import { toastError } from '../src/lib/toast.js';
 import { KnowledgePage } from '../src/pages/knowledge.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
 import { createMsw, runCleanup } from './msw.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -176,8 +177,13 @@ beforeAll(() => msw.listen());
 
 afterAll(() => msw.close());
 
+function mockMe() {
+  server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
+}
+
 beforeEach(() => {
   msw.reset();
+  mockMe();
   vi.mocked(toastError).mockClear();
   vi.stubGlobal(
     'ResizeObserver',
@@ -3060,6 +3066,7 @@ describe('knowledge UX guards', () => {
     expect(document.body.textContent).toContain('产品手册');
 
     await cleanup();
+    mockMe();
     server.use(
       http.get('/api/knowledge/bases', () =>
         HttpResponse.json({ code: 'INTERNAL', message: '列表失败' }, { status: 500 }),
@@ -3322,6 +3329,7 @@ describe('knowledge UX guards', () => {
     expect(document.body.textContent).not.toContain('重命名知识库');
 
     await cleanup();
+    mockMe();
     documentList();
     await mount('/knowledge/kb_1');
     await click(button('导入'));
@@ -3353,6 +3361,7 @@ describe('knowledge UX guards', () => {
     expect(document.getElementById('knowledge-wiki-markdown')).toBeNull();
 
     await cleanup();
+    mockMe();
     documentList();
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('编辑来源 产品仓库'));

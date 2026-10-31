@@ -1,6 +1,8 @@
 # 安全审查记录
 
 > 循环 7 的对抗性审查结果与修复状态。审查为只读，修复逐条验证。
+>
+> **历史说明**：本文件保留循环 7–10 当时的实现描述与修复记录，不按现状重写。认证已迁移为 Better Auth + Drizzle/PostgreSQL 会话，Cookie 为不透明会话令牌 `agentport_token`；`JWT_SECRET` 是 better-auth 会话签名密钥的历史命名，不是应用 JWT，Redis 也不存会话。旧记录中涉及 JWT/`sid`/Redis 会话的条目（如循环 9 的 M2）只代表当时实现，当前行为以 [OPERATIONS.md](OPERATIONS.md) 和代码为准。
 
 ## 已修复
 
@@ -40,7 +42,7 @@
 |---|---|
 | H5 | `/mcp` 60/min + 进程内并发 4；`/api/servers/:id/test` 20/min；`/api/eval/runs` 10/min + 同 agent 只允许一个 running |
 | H8 | 全局启用 CSP；仅 MCP 路由关闭；`style-src` 放行内联样式 |
-| M2 | JWT 增加 `sid`，Redis 存会话，logout 立即失效；TTL 24 小时；鉴权查询 5 秒本地缓存 |
+| M2 | JWT 增加 `sid`，Redis 存会话，logout 立即失效；TTL 24 小时；鉴权查询 5 秒本地缓存（历史实现；当前见文首说明） |
 | M3 | CORS 显式 allowlist（`CORS_ORIGINS`）；`TRUST_PROXY` 支持 |
 | M7 | Agent/Server PATCH 乐观锁，冲突返回 409 `CONFLICT_STALE`；前端提示刷新 |
 | M8 | `agent_runs` / `messages.run_id` 外键（迁移先清理孤儿行） |

@@ -1,9 +1,11 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { toastError } from '../src/lib/toast.js';
 import { PluginsPage } from '../src/pages/plugins.js';
+import { allAccessMe } from './me-fixture.js';
 
 const state = vi.hoisted(() => ({
   saving: false,
@@ -42,7 +44,11 @@ const plugin = {
 };
 
 vi.mock('../src/lib/queries.js', () => ({
-  usePlugins: () => ({
+  meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
+    usePlugins: () => ({
     data: [plugin],
     status: 'success',
     isPending: false,
@@ -79,12 +85,21 @@ vi.mock('@tanstack/react-router', async () => {
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
+let client: QueryClient | undefined;
 
 function mount() {
   host = document.createElement('div');
   document.body.append(host);
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+  });
+  client.setQueryData(['me'], allAccessMe);
   root = createRoot(host);
-  act(() => root?.render(createElement(PluginsPage)));
+  act(() =>
+    root?.render(
+      createElement(QueryClientProvider, { client }, createElement(PluginsPage)),
+    ),
+  );
 }
 
 function flush() {
@@ -154,8 +169,10 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root?.unmount());
   host?.remove();
+  client?.clear();
   root = undefined;
   host = undefined;
+  client = undefined;
 });
 
 describe('plugin editor dialog', () => {

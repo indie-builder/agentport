@@ -1,4 +1,4 @@
-import { ATTACHMENT_LIMITS, agentInputSchema } from '@agentport/shared';
+import { ATTACHMENT_LIMITS, DEFAULT_ROLES, agentInputSchema } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createMemoryHistory,
@@ -35,6 +35,13 @@ const other = {
 };
 
 const attachmentId = '11111111-1111-4111-8111-111111111111';
+
+const adminMe = {
+  authenticated: true as const,
+  user: { businessId: 'admin', username: 'admin', name: '管理员' },
+  roles: [],
+  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+};
 
 function conversationDetail(
   id: string,
@@ -174,6 +181,7 @@ beforeEach(() => {
   }));
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(['me'], adminMe);
   client.setQueryData(['agents'], [agent, other]);
   vi.spyOn(api, 'agents').mockResolvedValue([agent, other]);
   vi.spyOn(api, 'conversations').mockResolvedValue([]);

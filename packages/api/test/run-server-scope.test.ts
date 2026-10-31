@@ -1,6 +1,6 @@
 import { newId, repo, schema } from '@agentport/db';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { type FastifyInstance, infraReady, startApp } from './helpers.js';
+import { type FastifyInstance, infraReady, startApp, ADMIN_BUSINESS_ID } from './helpers.js';
 
 // run token 的授权边界：父智能体自己的绑定，加上启用的直接子级绑定。
 // 这里只验证 SQL 谓词本身，不经过沙盒；外部伪造 run header 时会走到同一函数。
@@ -35,6 +35,8 @@ describe.skipIf(!ready)('run token server scope', () => {
       slug: values.slug,
       name: values.slug,
       model: 'test-model',
+      createdBy: ADMIN_BUSINESS_ID,
+      ownerBusinessId: ADMIN_BUSINESS_ID,
       parentId: values.parentId ?? null,
       enabled: values.enabled ?? true,
     });
@@ -61,12 +63,16 @@ describe.skipIf(!ready)('run token server scope', () => {
   async function seedRun(agentId: string, token?: { hash: string; expiresAt: Date }) {
     const conversationId = newId('conversation');
     const runId = newId('run');
-    await app.db.insert(schema.conversations).values({ id: conversationId, agentId });
+    await app.db
+      .insert(schema.conversations)
+      .values({ id: conversationId, agentId, createdBy: ADMIN_BUSINESS_ID });
     await app.db.insert(schema.agentRuns).values({
       id: runId,
       conversationId,
       agentId,
       status: 'running',
+      subjectKind: 'user',
+      initiatedBy: ADMIN_BUSINESS_ID,
       mcpTokenHash: token?.hash ?? null,
       mcpTokenExpiresAt: token?.expiresAt ?? null,
     });

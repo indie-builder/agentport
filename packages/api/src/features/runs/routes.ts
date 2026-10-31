@@ -7,14 +7,37 @@ import {
   runStatusSchema,
   runTriggerSchema,
 } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { isPgCode, reject } from '../../plugins/errors.js';
+import { AppError, isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
+import { accessFilter, actorOf, authorizeObject } from '../access.js';
 import { registerRunQuestionRoutes } from './questions.js';
 
 const runsRepo = repo.runs;
+const chatRepo = repo.chat;
+
+const RUN_MISSING = '运行记录不存在，可能已被清理；请刷新运行列表';
+
+/** 运行正文只对本人 O 或对应叶 P 开放；服务发起的运行只有 P 能读。 */
+async function authorizeRun(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  runId: string,
+  permissionId: 'runs.read' | 'runs.approve' | 'runs.cancel' | 'runs.export',
+) {
+  const run = await chatRepo.getRun(app.db, runId);
+  if (!run) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
+  await authorizeObject(
+    app,
+    request,
+    permissionId,
+    { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
+    RUN_MISSING,
+  );
+  return run;
+}
 
 const listQuery = z.object({
   agentId: z.string().min(1).optional(),
@@ -39,12 +62,14 @@ function toItem(run: Awaited<ReturnType<typeof runsRepo.listRuns>>[number]) {
 /** 运行列表 + trace 详情。数据来源于 agent_runs 与 messages。 */
 export function registerRunRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
   registerRunQuestionRoutes(rawApp);
 
   app.get(
     '/api/runs',
-    { ...auth, schema: { querystring: listQuery, response: { 200: runListSchema } } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runs.read' } },
+      schema: { querystring: listQuery, response: { 200: runListSchema } },
+    },
     async (request) => {
       const { agentId, status, trigger, limit } = request.query;
       const items = await runsRepo.listRuns(app.db, {
@@ -52,6 +77,7 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
         ...(status === undefined ? {} : { status }),
         ...(trigger === undefined ? {} : { trigger }),
         limit,
+        access: accessFilter(request, 'runs.read'),
       });
 
       return { items: items.map(toItem) };
@@ -61,7 +87,10 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
   /** 导出完整列表；超限明确 409，绝不把截断后的结果当完整导出发出。 */
   app.get(
     '/api/runs/export',
-    { ...auth, schema: { querystring: exportQuerySchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runs.export' } },
+      schema: { querystring: exportQuerySchema },
+    },
     async (request, reply) => {
       const { agentId, status, trigger, limit } = request.query;
       const items = await runsRepo.listRuns(app.db, {
@@ -69,6 +98,7 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
         ...(status === undefined ? {} : { status }),
         ...(trigger === undefined ? {} : { trigger }),
         limit: limit + 1,
+        access: accessFilter(request, 'runs.export'),
       });
       if (items.length > limit) {
         return reject(
@@ -94,11 +124,14 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/runs/:id',
-    { ...auth, schema: { params: idParams, response: { 200: runDetailSchema } } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runs.read' } },
+      schema: { params: idParams, response: { 200: runDetailSchema } },
+    },
     async (request, reply) => {
+      await authorizeRun(app, request, request.params.id, 'runs.read');
       const detail = await runsRepo.getRunDetail(app.db, request.params.id);
-      if (!detail)
-        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
+      if (!detail) return reject(reply, 'RUN_NOT_FOUND', RUN_MISSING);
 
       return {
         run: {
@@ -115,12 +148,12 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
   /** 结构化审批请求：pending 由 MCP 端点写入，批准后 approvedAt 非空。 */
   app.get(
     '/api/runs/:id/approvals',
-    { ...auth, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runs.read' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
-      const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
-      if (!agentId) {
-        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
-      }
+      await authorizeRun(app, request, request.params.id, 'runs.read');
       const rows = await runsRepo.listApprovalRequests(app.db, request.params.id);
       // 一次取时钟，避免同一响应里的行用不同“现在”判断。
       const now = Date.now();
@@ -148,7 +181,7 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
   app.post(
     '/api/runs/:id/approve',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'runs.approve' } },
       schema: {
         params: idParams,
         body: z.object({ serverId: z.string().min(1), toolName: z.string().min(1) }),
@@ -156,10 +189,7 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
     },
     async (request, reply) => {
       const { serverId, toolName } = request.body;
-      const agentId = await runsRepo.getRunAgentId(app.db, request.params.id);
-      if (!agentId) {
-        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新运行列表');
-      }
+      await authorizeRun(app, request, request.params.id, 'runs.approve');
       const approved = await runsRepo.approveTool(app.db, request.params.id, serverId, toolName);
       if (!approved) {
         return reject(
@@ -169,7 +199,7 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
         );
       }
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'agent.run.approved',
         target: request.params.id,
         input: { serverId: approved.serverId, toolName: approved.toolName },
@@ -188,8 +218,13 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
   // 「录制学习」：把一个已完成的运行沉淀成技能草稿。只生成草稿并落库为技能（不自动绑定到专家）。
   app.post(
     '/api/runs/:id/skill-draft',
-    { ...auth, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.create' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
+      // 技能是全局资源（P），同时必须先能读取这段运行正文。
+      await authorizeRun(app, request, request.params.id, 'runs.read');
       const detail = await runsRepo.getRunDetail(app.db, request.params.id);
       if (!detail) return reject(reply, 'NOT_FOUND', '运行不存在，可能已被删除');
       const steps = detail.steps.map((s) =>
@@ -205,7 +240,7 @@ export function registerRunRoutes(rawApp: FastifyInstance): void {
       try {
         const row = await repo.skills.createSkill(app.db, draft);
         await writeAudit(app.db, request.log, {
-          actor: 'admin',
+          actor: actorOf(request),
           action: 'skill.created',
           target: row.id,
           input: { fromRun: detail.run.id, slug: row.slug },

@@ -13,6 +13,7 @@ const ready = await pool.query('select 1').then(
 );
 
 describe.skipIf(!ready)('run detail runtime environment identity', () => {
+  const businessId = 'runs-owner';
   const agentId = newId('agent');
   const conversationId = newId('conversation');
   const startedRunId = newId('run');
@@ -30,14 +31,24 @@ describe.skipIf(!ready)('run detail runtime environment identity', () => {
       slug: `rt-identity-${agentId.slice(4)}`,
       name: 'identity',
       model: 'test',
+      createdBy: businessId,
+      ownerBusinessId: businessId,
     });
-    await db.insert(conversations).values({ id: conversationId, agentId });
+    await db.insert(conversations).values({ id: conversationId, agentId, createdBy: businessId });
     await db.insert(agentRuns).values([
-      { id: queuedRunId, conversationId, agentId },
+      {
+        id: queuedRunId,
+        conversationId,
+        agentId,
+        subjectKind: 'user',
+        initiatedBy: businessId,
+      },
       {
         id: startedRunId,
         conversationId,
         agentId,
+        subjectKind: 'user',
+        initiatedBy: businessId,
         runtimeEnvironmentId: identity.environmentId,
         runtimeEnvironmentName: identity.environmentName,
         runtimeEnvironmentVersionId: identity.versionId,

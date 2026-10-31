@@ -10,7 +10,7 @@ import {
   type ProgressTodo,
   type PublicRunQuestion,
 } from '@agentport/shared';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   ArrowDown,
@@ -115,6 +115,7 @@ import {
   TraceTitle,
 } from '../components/ui/trace.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
+import { can } from '../lib/access.js';
 import {
   type ChatItem,
   latestTopLevelTodos,
@@ -132,6 +133,7 @@ import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatBytes, formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import {
+  meQuery,
   useAgents,
   useConversation,
   useConversationOutputs,
@@ -1019,6 +1021,10 @@ function ChatTopBar({
   onDelete: (trigger: HTMLElement) => void;
 }) {
   const headerTriggerRef = useRef<HTMLElement | null>(null);
+  const me = useQuery(meQuery);
+  const canUpdate = can(me.data, 'conversations.update');
+  const canDelete = can(me.data, 'conversations.delete');
+  const canCreate = can(me.data, 'conversations.create');
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 px-6">
       {/* 会话内的面板开关比导航折叠更轻：虚线面板图标，保持 32px 点击区与同一中心线。 */}
@@ -1088,28 +1094,34 @@ function ChatTopBar({
           />
           <DropdownMenuContent align="start" sideOffset={4} className="w-40">
             <DropdownMenuGroup>
-              <DropdownMenuItem
-                disabled={deleting}
-                onClick={() => {
-                  const trigger = headerTriggerRef.current;
-                  if (trigger) onRename(trigger);
-                }}
-              >
-                <Pencil /> 重命名
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={deleting} onClick={onFork}>
-                <GitBranch /> Fork 会话
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={deleting}
-                onClick={() => {
-                  const trigger = headerTriggerRef.current;
-                  if (trigger) onDelete(trigger);
-                }}
-              >
-                <Trash2 /> 删除会话
-              </DropdownMenuItem>
+              {canUpdate ? (
+                <DropdownMenuItem
+                  disabled={deleting}
+                  onClick={() => {
+                    const trigger = headerTriggerRef.current;
+                    if (trigger) onRename(trigger);
+                  }}
+                >
+                  <Pencil /> 重命名
+                </DropdownMenuItem>
+              ) : null}
+              {canCreate ? (
+                <DropdownMenuItem disabled={deleting} onClick={onFork}>
+                  <GitBranch /> Fork 会话
+                </DropdownMenuItem>
+              ) : null}
+              {canDelete ? (
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={deleting}
+                  onClick={() => {
+                    const trigger = headerTriggerRef.current;
+                    if (trigger) onDelete(trigger);
+                  }}
+                >
+                  <Trash2 /> 删除会话
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1845,6 +1857,9 @@ export function Composer({
   onCancel?: () => void;
 }) {
   // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
+  const me = useQuery(meQuery);
+  const canSend = can(me.data, 'conversations.create');
+  const canCancelRun = can(me.data, 'runs.cancel');
   const input = useChatStore((state) => state.input);
   const setInput = useChatStore((state) => state.setInput);
   const run = useChatStore((state) => state.run);
@@ -1857,7 +1872,7 @@ export function Composer({
 
   // Enter 与发送按钮共用同一条发送路径；输入框在欢迎与会话之间保持同一个节点。
   const submit = (): void => {
-    if (!historyReady || run) return;
+    if (!historyReady || run || !canSend) return;
     void send();
   };
   return (
@@ -1959,6 +1974,7 @@ export function Composer({
             </div>
             {run?.runId && onCancel ? (
               // 运行中发送位换成停止：动作在用户正在打字的地方，不用到消息流里找。
+              canCancelRun ? (
               <InputGroupButton
                 variant="outline"
                 size="icon-sm"
@@ -1971,14 +1987,23 @@ export function Composer({
               >
                 {cancelling ? <LoaderCircle className="animate-spin" /> : <CircleStop />}
               </InputGroupButton>
+              ) : null
             ) : (
               <InputGroupButton
                 type="submit"
                 variant="solid"
                 size="icon-sm"
-                disabled={!agent || Boolean(run) || !hasContent || !historyReady}
+                disabled={
+                  !agent || Boolean(run) || !hasContent || !historyReady || !canSend
+                }
                 aria-label="发送消息"
-                title={run ? '本轮结束后可发送' : undefined}
+                title={
+                  !canSend
+                    ? '当前账户没有新建会话的权限'
+                    : run
+                      ? '本轮结束后可发送'
+                      : undefined
+                }
                 className="ml-auto size-11 sm:size-8"
               >
                 <ArrowUp />

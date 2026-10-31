@@ -43,6 +43,7 @@ import {
   type EvalResult,
   type EvalRun,
 } from '../lib/api.js';
+import { hasAnyGrant } from '../lib/access.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
   evalComparisonStatusLabel,
@@ -54,6 +55,7 @@ import {
   shortId,
 } from '../lib/format.js';
 import {
+  useAgentAccess,
   useAgents,
   useCancelEvalRun,
   useCreateEvalCase,
@@ -165,6 +167,11 @@ export function EvalPage() {
     ? agents.data?.find((agent) => agent.id === agentId)
     : agents.data?.[0];
   const effectiveAgentId = selectedAgent?.id ?? null;
+  const access = useAgentAccess(effectiveAgentId);
+  const permissions = access.data?.permissionIds ?? [];
+  const canReadEval = hasAnyGrant(permissions, 'eval.read');
+  const canManageEval = hasAnyGrant(permissions, 'eval.manage');
+  const canExecuteEval = hasAnyGrant(permissions, 'eval.execute');
   const missingAgent = agents.isSuccess && Boolean(agentId) && !selectedAgent;
   const selectedRunId = search.run ?? null;
   const baseId = search.base ?? null;
@@ -309,7 +316,9 @@ export function EvalPage() {
             ? '所选专家不存在，请清除筛选或重新选择'
             : !effectiveAgentId
               ? '先创建一个专家'
-              : cases.isPending
+              : !canExecuteEval
+                ? '当前账户没有执行该专家评估的权限'
+                : cases.isPending
                 ? '用例加载中，稍后再试'
                 : cases.isError
                   ? '用例加载失败，请重试'
@@ -325,7 +334,7 @@ export function EvalPage() {
         title="评估"
         actions={
           <>
-            {runningRun ? (
+            {runningRun && canExecuteEval ? (
               <Button
                 variant="outline"
                 onClick={stopRun}
@@ -336,6 +345,7 @@ export function EvalPage() {
                 {cancel.isPending ? '停止中…' : '停止后续用例'}
               </Button>
             ) : null}
+            {canExecuteEval ? (
             <Button
               onClick={startRun}
               disabled={startDisabledReason !== null}
@@ -345,6 +355,7 @@ export function EvalPage() {
               <Play data-icon="inline-start" aria-hidden="true" />
               {start.isPending ? '启动中…' : '运行评估'}
             </Button>
+            ) : null}
           </>
         }
       />
@@ -394,6 +405,7 @@ export function EvalPage() {
                   void importJson(targetId, targetName, file);
                 }}
               />
+              {canManageEval ? (
               <Button
                 variant="outline"
                 disabled={!effectiveAgentId || importDataset.isPending}
@@ -403,6 +415,8 @@ export function EvalPage() {
                 <Upload data-icon="inline-start" aria-hidden="true" />{' '}
                 {importDataset.isPending ? '导入中…' : '导入 JSON'}
               </Button>
+              ) : null}
+              {canReadEval ? (
               <Button
                 variant="outline"
                 disabled={!effectiveAgentId || exporting}
@@ -412,6 +426,8 @@ export function EvalPage() {
                 <Download data-icon="inline-start" aria-hidden="true" />{' '}
                 {exporting ? '导出中…' : '导出 JSON'}
               </Button>
+              ) : null}
+              {canManageEval ? (
               <Button
                 variant="outline"
                 ref={createButtonRef}
@@ -423,6 +439,7 @@ export function EvalPage() {
               >
                 <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
               </Button>
+              ) : null}
             </div>
           }
         >
@@ -492,6 +509,7 @@ export function EvalPage() {
                         : '期望为空：只要求有文本输出'}
                     </p>
                   </div>
+                  {canManageEval ? (
                   <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
                     <Button
                       variant="ghost"
@@ -516,6 +534,7 @@ export function EvalPage() {
                       <Trash2 className="size-4" aria-hidden="true" />
                     </Button>
                   </div>
+                  ) : null}
                 </li>
               ))}
             </ul>

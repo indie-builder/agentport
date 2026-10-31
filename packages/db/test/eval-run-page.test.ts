@@ -1,3 +1,4 @@
+import type { AccessFilter } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb } from '../src/client.js';
@@ -11,6 +12,8 @@ const ready = await pool.query('select 1').then(
   () => true,
   () => false,
 );
+const businessId = 'eval-page-owner';
+const access: AccessFilter = { businessId, scopes: ['owned_agents'] };
 
 describe.skipIf(!ready)('eval run list pagination', () => {
   const agentId = newId('agent');
@@ -19,20 +22,29 @@ describe.skipIf(!ready)('eval run list pagination', () => {
 
   beforeAll(async () => {
     await db.insert(agents).values([
-      { id: agentId, slug: `eval-page-${agentId}`, name: 'eval page', model: 'test' },
+      {
+        id: agentId,
+        slug: `eval-page-${agentId}`,
+        name: 'eval page',
+        model: 'test',
+        createdBy: businessId,
+        ownerBusinessId: businessId,
+      },
       {
         id: otherAgentId,
         slug: `eval-page-other-${otherAgentId}`,
         name: 'eval page other',
         model: 'test',
+        createdBy: businessId,
+        ownerBusinessId: businessId,
       },
     ]);
     // 原始 SQL 才能写入微秒：drizzle 的 Date 参数只有毫秒。
     const insert = (id: string, owner: string, createdAt: string, total: number) =>
       pool.query(
         `insert into eval_runs
-           (id, agent_id, status, total, passed, error, created_at, claimed_at, case_snapshot)
-         values ($1, $2, 'succeeded', $3, 1, null, $4, now(), $5)`,
+           (id, agent_id, status, total, passed, error, created_at, claimed_at, case_snapshot, created_by)
+         values ($1, $2, 'succeeded', $3, 1, null, $4, now(), $5, $6)`,
         [
           id,
           owner,
@@ -41,6 +53,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
           JSON.stringify([
             { id: 'case-1', name: 'big'.repeat(2_000), prompt: 'prompt', expectation: 'ok' },
           ]),
+          businessId,
         ],
       );
     await insert(`${base}-newest`, agentId, '2026-01-01T00:00:00.123457Z', 4);
@@ -62,6 +75,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
       const result = await evalRepo.listRuns(db, {
         agentId,
         limit: 1,
+        access,
         ...(cursor === undefined ? {} : { cursor }),
       });
       if (!result) throw new Error('cursor should be valid');
@@ -74,7 +88,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
   });
 
   it('returns only summary columns and reads one extra row to detect the next page', async () => {
-    const page = await evalRepo.listRuns(db, { agentId, limit: 2 });
+    const page = await evalRepo.listRuns(db, { agentId, limit: 2, access });
     expect(page?.items.map((row) => row.total)).toEqual([4, 3]);
     // 下一页游标是本次返回的最后一条，不是多读出来的那条。
     expect(page?.nextCursor).toBe(`${base}-same-z`);
@@ -94,11 +108,17 @@ describe.skipIf(!ready)('eval run list pagination', () => {
 
   it('rejects a cursor that is missing or outside the current agent filter', async () => {
     expect(
-      await evalRepo.listRuns(db, { agentId, limit: 10, cursor: 'evalRun_missing' }),
+      await evalRepo.listRuns(db, { agentId, limit: 10, cursor: 'evalRun_missing', access }),
     ).toBeNull();
-    expect(await evalRepo.listRuns(db, { agentId, limit: 10, cursor: `${base}-other` })).toBeNull();
+    expect(
+      await evalRepo.listRuns(db, { agentId, limit: 10, cursor: `${base}-other`, access }),
+    ).toBeNull();
     // 不筛智能体时，任何已存在的游标都能继续翻页。
-    const unfiltered = await evalRepo.listRuns(db, { limit: 10, cursor: `${base}-other` });
+    const unfiltered = await evalRepo.listRuns(db, {
+      limit: 10,
+      cursor: `${base}-other`,
+      access,
+    });
     expect(unfiltered?.items).toHaveLength(4);
     expect(unfiltered?.items.some((row) => row.id === `${base}-other`)).toBe(false);
   });

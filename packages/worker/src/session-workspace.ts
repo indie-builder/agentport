@@ -1,12 +1,15 @@
 import { chmod, cp, lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WORKSPACE_DIR_MODE } from '@agentport/core';
+import { personalMemoryDir } from './personal-memory.js';
 
 /** 只预建目录，不改内容；刷新必须由调用方持有会话 lease。 */
 export async function ensureSessionWorkspace(input: {
   workspacesDir: string;
   slug: string;
   conversationId: string;
+  /** 用户运行必传；服务主体省略，不挂任何个人记忆。 */
+  businessId?: string;
   /** 本次加载的子智能体；它们各自的项目记忆宿主与沙盒挂载点都要预先建好。 */
   subAgentSlugs?: string[];
 }): Promise<{
@@ -15,20 +18,24 @@ export async function ensureSessionWorkspace(input: {
   inputsDir: string;
   memoryDir: string;
   sessionsDir: string;
-  /** 个人记忆宿主目录，只读挂载到沙盒 /mnt/user。 */
-  personalDir: string;
+  /** 用户个人记忆宿主目录，只读挂载到沙盒 /mnt/user；服务主体为 undefined。 */
+  personalDir?: string;
   /** 子智能体项目记忆宿主目录，按 slug 排序后 rw 挂载到沙盒项目记忆根。 */
   subAgentMemoryDirs: Array<{ slug: string; memoryDir: string }>;
 }> {
   const agent = join(input.workspacesDir, input.slug);
   const session = join(agent, 'session-sandboxes', input.conversationId);
+  const personalDir =
+    input.businessId === undefined
+      ? undefined
+      : personalMemoryDir(input.workspacesDir, input.businessId);
   const paths = {
     workspaceDir: join(session, 'workspace'),
     outputsDir: join(session, 'outputs'),
     inputsDir: join(agent, 'conversation-inputs', input.conversationId),
     memoryDir: join(agent, 'agent-memory'),
     sessionsDir: join(agent, 'sdk-sessions', input.conversationId),
-    personalDir: join(input.workspacesDir, '_user'),
+    ...(personalDir === undefined ? {} : { personalDir }),
   };
   const subAgentMemoryDirs = [...(input.subAgentSlugs ?? [])]
     .sort()
@@ -40,7 +47,12 @@ export async function ensureSessionWorkspace(input: {
     session,
     join(agent, 'conversation-inputs'),
     join(agent, 'sdk-sessions'),
-    ...Object.values(paths),
+    paths.workspaceDir,
+    paths.outputsDir,
+    paths.inputsDir,
+    paths.memoryDir,
+    paths.sessionsDir,
+    ...(personalDir === undefined ? [] : [join(input.workspacesDir, '_users'), personalDir]),
   ];
   // 宿主记忆目录与工作区里的挂载点都要先建好；刷新时保留这棵子树，避免换掉挂载根 inode。
   for (const { slug, memoryDir } of subAgentMemoryDirs) {

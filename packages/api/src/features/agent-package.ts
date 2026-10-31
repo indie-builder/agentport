@@ -1149,7 +1149,12 @@ async function resolveRuntimeEnvironmentId(
 export async function importAgentPackage(
   db: Database,
   parsed: ParsedPackage,
-  options: { nodeEnv: string; selfUrl: string; runtimeEnvironmentId?: string | undefined },
+  options: {
+    nodeEnv: string;
+    selfUrl: string;
+    businessId: string;
+    runtimeEnvironmentId?: string | undefined;
+  },
 ): Promise<AgentPackageImportResult & { counts: ImportCounts }> {
   const runtimeEnvironmentId = await resolveRuntimeEnvironmentId(
     db,
@@ -1353,6 +1358,8 @@ export async function importAgentPackage(
         .values({
           id: newId('agent'),
           slug,
+          createdBy: options.businessId,
+          ownerBusinessId: options.businessId,
           ...toAgentValues(parsed.agent.input, runtimeEnvironmentId),
         })
         .returning();
@@ -1386,6 +1393,8 @@ export async function importAgentPackage(
             id: newId('agent'),
             slug: childSlug,
             parentId: row.id,
+            createdBy: options.businessId,
+            ownerBusinessId: options.businessId,
             ...toAgentValues(child.input),
           })
           .returning();

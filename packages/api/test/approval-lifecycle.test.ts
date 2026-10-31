@@ -13,7 +13,7 @@ import {
   startApp,
   unique,
   waitFor,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID, } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -54,11 +54,13 @@ describe.skipIf(!ready)('approval lifecycle', () => {
       id: unique('lifecycle-conv'),
       agentId: agent.id,
       title: 'approval lifecycle',
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     const run = await repo.chat.createRun(app.db, {
       id: unique('lifecycle-run'),
       conversationId: conversation.id,
       agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     runIds.push(run.id);
     await repo.chat.updateRun(app.db, run.id, { status });

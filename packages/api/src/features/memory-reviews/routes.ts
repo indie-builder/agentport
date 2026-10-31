@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { fail } from '@agentport/core';
-import { ADMIN_USER_ID, type Database, repo, schema } from '@agentport/db';
+import { type Database, repo, schema } from '@agentport/db';
 import {
   createMemoryReviewInputSchema,
   type MemoryContentSnapshot,
@@ -12,12 +12,13 @@ import {
   memoryReviewTargetSchema,
 } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
 import { isAppError, isPgCode, reject } from '../../plugins/errors.js';
 import { getQueue } from '../../queue/producer.js';
 import { typed } from '../../types.js';
+import { actorOf, authorizeObject, userPrincipal } from '../access.js';
 import {
   assertNoPendingReviewWrite,
   discardReviewWriteJournal,
@@ -157,8 +158,8 @@ function toReview(
   };
 }
 
-async function readReview(db: Database, runId: string): Promise<MemoryReview> {
-  const detail = await repo.memoryReviews.findForUser(db, ADMIN_USER_ID, runId);
+async function readReview(db: Database, businessId: string, runId: string): Promise<MemoryReview> {
+  const detail = await repo.memoryReviews.findForUser(db, businessId, runId);
   if (!detail) fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
   return toReview(detail, await sourceSummaries(db, detail.sources));
 }
@@ -177,22 +178,73 @@ async function beforeSnapshot(
   db: Database,
   workspacesDir: string,
   target: MemoryReviewTarget,
+  businessId: string,
 ): Promise<MemoryContentSnapshot> {
-  const state = await readMemoryTarget(db, workspacesDir, target);
+  const state = await readMemoryTarget(db, workspacesDir, target, businessId);
   return {
     content: state.content,
     globs: target.kind === 'agent_rule' ? state.globs : null,
   };
 }
 
+/** 目标类型的实际写叶；个人审核与专家记忆审核共用同一入口。 */
+async function authorizeReviewTarget(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  target: MemoryReviewTarget,
+  permissionId: 'personal_memory.review' | 'personal_memory.write',
+): Promise<void> {
+  if (target.kind === 'personal') {
+    const businessId = userPrincipal(request).businessId;
+    await authorizeObject(
+      app,
+      request,
+      permissionId,
+      { objectId: businessId, createdBy: businessId, privateContent: true },
+      '记忆审核不存在，可能已被清理',
+    );
+    return;
+  }
+  if (target.kind === 'agent_memory') {
+    await authorizeObject(
+      app,
+      request,
+      'agents.memory.read',
+      { objectId: target.agentId, agentId: target.agentId },
+      '智能体不存在，可能已被删除；请刷新后重新选择',
+    );
+    await authorizeObject(
+      app,
+      request,
+      'agents.memory.write',
+      { objectId: target.agentId, agentId: target.agentId },
+      '智能体不存在，可能已被删除；请刷新后重新选择',
+    );
+    return;
+  }
+  await authorizeObject(
+    app,
+    request,
+    'agents.rules.read',
+    { objectId: target.agentId, agentId: target.agentId },
+    '智能体不存在，可能已被删除；请刷新后重新选择',
+  );
+  await authorizeObject(
+    app,
+    request,
+    'agents.rules.write',
+    { objectId: target.agentId, agentId: target.agentId },
+    '智能体不存在，可能已被删除；请刷新后重新选择',
+  );
+}
+
 export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   app.post(
     '/api/memory-reviews',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.review' } },
       schema: {
         headers: createHeaders,
         body: createMemoryReviewInputSchema,
@@ -200,11 +252,13 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      const principal = userPrincipal(request);
+      const businessId = principal.businessId;
       const input = request.body;
       const key = request.headers['idempotency-key'];
       const hash = requestHash(input);
 
-      const existing = await repo.memoryReviews.findByRequest(app.db, ADMIN_USER_ID, key);
+      const existing = await repo.memoryReviews.findByRequest(app.db, businessId, key);
       if (existing) {
         if (existing.requestHash !== hash) {
           return reject(reply, 'CONFLICT', '幂等键已用于不同的审核请求');
@@ -213,11 +267,28 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
       }
 
       await assertModelAgent(app.db, input.modelAgentId);
+      // 审核运行以当前用户为主体执行，必须仍具目标专家的使用范围。
+      await authorizeObject(
+        app,
+        request,
+        'agents.use',
+        { agentId: input.modelAgentId },
+        '智能体不存在，可能已被删除；请刷新后重新选择',
+      );
+      await authorizeReviewTarget(app, request, input.target, 'personal_memory.review');
 
       const loaded: Array<{ source: MemoryReviewSource; messages: SnapshotMessage[] }> = [];
       for (const source of input.sources) {
         const conversation = await repo.chat.getConversation(app.db, source.conversationId);
         if (!conversation) fail('CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除');
+        // 审核会把会话正文交给模型：来源必须是当前用户可读的私有会话。
+        await authorizeObject(
+          app,
+          request,
+          'conversations.read',
+        { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+          '会话不存在，可能已被删除',
+        );
         if (input.target.kind !== 'personal' && conversation.agentId !== input.target.agentId) {
           fail('INVALID_INPUT', '所选会话不属于目标专家，无法用于该专家的记忆审核');
         }
@@ -229,7 +300,12 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
         fail('INVALID_INPUT', '所选会话没有可审核的用户或助手文本消息');
       }
 
-      const before = await beforeSnapshot(app.db, app.config.WORKSPACES_DIR, input.target);
+      const before = await beforeSnapshot(
+        app.db,
+        app.config.WORKSPACES_DIR,
+        input.target,
+        businessId,
+      );
       const bytes =
         snapshot.reduce((total, message) => total + Buffer.byteLength(message.text, 'utf8'), 0) +
         Buffer.byteLength(before.content ?? '', 'utf8');
@@ -256,7 +332,7 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
       let review: Awaited<ReturnType<typeof repo.memoryReviews.createWithRun>>;
       try {
         review = await repo.memoryReviews.createWithRun(app.db, {
-          userId: ADMIN_USER_ID,
+          businessId,
           modelAgentId: input.modelAgentId,
           requestKey: key,
           requestHash: hash,
@@ -268,7 +344,7 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
         });
       } catch (error) {
         if (!isPgCode(error, '23505')) throw error;
-        const raced = await repo.memoryReviews.findByRequest(app.db, ADMIN_USER_ID, key);
+        const raced = await repo.memoryReviews.findByRequest(app.db, businessId, key);
         if (!raced) throw error;
         if (raced.requestHash !== hash) {
           return reject(reply, 'CONFLICT', '幂等键已用于不同的审核请求');
@@ -303,7 +379,7 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
       }
 
       await writeAudit(app.db, request.log, {
-        actor: 'admin',
+        actor: actorOf(request),
         action: 'review.created',
         target: review.runId,
         input: {
@@ -322,17 +398,21 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/memory-reviews',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.read' } },
       schema: { querystring: listQuery, response: { 200: listResponseSchema } },
     },
     async (request) => {
       const { conversationId, agentId, before, limit } = request.query;
-      const details = await repo.memoryReviews.listForUser(app.db, ADMIN_USER_ID, {
-        limit,
-        ...(conversationId === undefined ? {} : { conversationId }),
-        ...(agentId === undefined ? {} : { agentId }),
-        ...(before === undefined ? {} : { before: new Date(before) }),
-      });
+      const details = await repo.memoryReviews.listForUser(
+        app.db,
+        userPrincipal(request).businessId,
+        {
+          limit,
+          ...(conversationId === undefined ? {} : { conversationId }),
+          ...(agentId === undefined ? {} : { agentId }),
+          ...(before === undefined ? {} : { before: new Date(before) }),
+        },
+      );
       const items = await Promise.all(
         details.map(async (detail) =>
           toReview(detail, await sourceSummaries(app.db, detail.sources)),
@@ -345,29 +425,31 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
   app.get(
     '/api/memory-reviews/:runId',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.read' } },
       schema: { params: runParams, response: { 200: memoryReviewSchema } },
     },
-    async (request) => readReview(app.db, request.params.runId),
+    async (request) => readReview(app.db, userPrincipal(request).businessId, request.params.runId),
   );
 
   app.post(
     '/api/memory-reviews/:runId/apply',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.write' } },
       schema: { params: runParams, response: { 200: memoryChangeSchema } },
     },
     async (request) => {
+      const businessId = userPrincipal(request).businessId;
       const initial = await repo.memoryReviews.find(app.db, request.params.runId);
-      if (!initial || initial.userId !== ADMIN_USER_ID) {
+      if (!initial || initial.businessId !== businessId) {
         fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
       }
       const parsedTarget = memoryReviewTargetSchema.safeParse(initial.target);
       if (!parsedTarget.success) fail('INVALID_INPUT', '记忆审核目标非法，无法采纳');
       const target = parsedTarget.data;
+      await authorizeReviewTarget(app, request, target, 'personal_memory.write');
 
       // 采纳持锁到文件/规则、账本与审核决定全部完成，与拒绝、回滚、手工编辑互斥。
-      return withMemoryTargetLock(app.pool, target, initial.userId, async () => {
+      return withMemoryTargetLock(app.pool, target, initial.businessId, async () => {
         const review = await repo.memoryReviews.find(app.db, request.params.runId);
         if (!review) fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
 
@@ -398,7 +480,7 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
 
         const change = await writeMemoryTargetLocked(app.db, {
           workspacesDir: app.config.WORKSPACES_DIR,
-          userId: review.userId,
+          businessId: review.businessId,
           target,
           before: review.before,
           after: {
@@ -417,7 +499,7 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
   app.patch(
     '/api/memory-reviews/:runId',
     {
-      ...auth,
+      config: { access: { kind: 'permission', permissionId: 'personal_memory.review' } },
       schema: {
         params: runParams,
         body: decisionBody,
@@ -425,15 +507,19 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
       },
     },
     async (request) => {
+      const businessId = userPrincipal(request).businessId;
       const initial = await repo.memoryReviews.find(app.db, request.params.runId);
-      if (!initial || initial.userId !== ADMIN_USER_ID) {
+      if (!initial || initial.businessId !== businessId) {
         fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
       }
       const parsedTarget = memoryReviewTargetSchema.safeParse(initial.target);
+      if (parsedTarget.success) {
+        await authorizeReviewTarget(app, request, parsedTarget.data, 'personal_memory.review');
+      }
       const rejectReview = async () => {
         const detail = await repo.memoryReviews.findForUser(
           app.db,
-          ADMIN_USER_ID,
+          businessId,
           request.params.runId,
         );
         if (!detail) fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
@@ -443,6 +529,7 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
             await assertNoPendingReviewWrite(app.db, app.config.WORKSPACES_DIR, {
               runId: detail.runId,
               target: parsedTarget.data,
+              businessId,
             });
           }
           await repo.memoryReviews.updateDecisionIfPending(
@@ -451,11 +538,11 @@ export function registerMemoryReviewRoutes(rawApp: FastifyInstance): void {
             'rejected',
           );
         }
-        return readReview(app.db, request.params.runId);
+        return readReview(app.db, businessId, request.params.runId);
       };
       // 拒绝与采纳共用同一把目标锁；目标非法时采纳本身也无法进行，直接拒绝。
       return parsedTarget.success
-        ? withMemoryTargetLock(app.pool, parsedTarget.data, initial.userId, rejectReview)
+        ? withMemoryTargetLock(app.pool, parsedTarget.data, initial.businessId, rejectReview)
         : rejectReview();
     },
   );

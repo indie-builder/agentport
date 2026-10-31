@@ -1,5 +1,4 @@
 import type {
-  Agent,
   ConversationSummary,
   CreateMemoryReviewInput,
   MemoryReview,
@@ -9,7 +8,7 @@ import { slugSchema } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, errorMessage } from '../lib/api.js';
+import { ApiError, errorMessage, type AgentSummary } from '../lib/api.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatCost, runStatusLabel, runStatusVariant, shortId } from '../lib/format.js';
 import {
@@ -59,7 +58,7 @@ const targetKindOptions = [
 
 function targetDisplay(
   target: MemoryReviewTarget,
-  agents: Agent[] | undefined,
+  agents: AgentSummary[] | undefined,
 ): { label: string; detail: string | null } {
   if (target.kind === 'personal') return { label: '个人偏好', detail: null };
   const agentName = agents?.find((agent) => agent.id === target.agentId)?.name ?? target.agentId;
@@ -316,7 +315,7 @@ function slugFormatErrorOf(value: string): string | null {
 }
 
 function createInitialState(
-  agents: Agent[],
+  agents: AgentSummary[],
   defaultAgentId: string | null,
   seed: MemoryReview | null,
 ): {
@@ -369,7 +368,7 @@ function CreateMemoryReviewDialog({
   onClose,
   finalFocus,
 }: {
-  agents: Agent[];
+  agents: AgentSummary[];
   defaultAgentId: string | null;
   seed: MemoryReview | null;
   onClose: () => void;
@@ -869,8 +868,15 @@ function CreateMemoryReviewDialog({
 
           {modelAgent ? (
             <p className="text-sm text-muted-foreground">
-              将使用「{modelAgent.name}」（{modelAgent.model}），单次预算上限 $
-              {modelAgent.maxBudgetUsd} / 超时 {formatTimeout(modelAgent.timeoutMs)}。
+              将使用「{modelAgent.name}」
+              {modelAgent.model ? `（${modelAgent.model}）` : ''}
+              {modelAgent.maxBudgetUsd === undefined
+                ? ''
+                : `，单次预算上限 $${modelAgent.maxBudgetUsd}`}
+              {modelAgent.timeoutMs === undefined
+                ? ''
+                : ` / 超时 ${formatTimeout(modelAgent.timeoutMs)}`}
+              。
             </p>
           ) : null}
 
@@ -926,7 +932,7 @@ function MemoryReviewDetail({
   onClose,
 }: {
   review: MemoryReview;
-  agents: Agent[] | undefined;
+  agents: AgentSummary[] | undefined;
   rolledBack: boolean;
   actionError: string | null;
   onActionError: (message: string | null) => void;

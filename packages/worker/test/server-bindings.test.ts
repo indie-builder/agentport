@@ -2,6 +2,7 @@ import { createDb, newId, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadRunServerBindings } from '../src/server-bindings.js';
+import { agentOwnership } from './fixtures/access.js';
 
 const url = process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
 const { db, pool } = createDb(url);
@@ -35,6 +36,7 @@ describe.skipIf(!ready)('run server bindings', () => {
       model: 'test-model',
       parentId: parent,
       enabled,
+      ...agentOwnership,
     });
   }
 

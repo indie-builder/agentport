@@ -18,6 +18,7 @@ const ready = await pool.query('select 1').then(
 if (!(ready && isolated)) await isolated?.close();
 
 const agentIds: string[] = [];
+const testSubject = { kind: 'user' as const, businessId: 'test-owner' };
 
 async function newAgent(): Promise<string> {
   const id = newId('agent');
@@ -27,6 +28,8 @@ async function newAgent(): Promise<string> {
     slug: `attach-repo-${id.slice(4)}`,
     name: 'attach-repo',
     model: 'test',
+    createdBy: testSubject.businessId,
+    ownerBusinessId: testSubject.businessId,
   });
   return id;
 }
@@ -57,8 +60,8 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
     const agentId = await newAgent();
     const source = newId('conversation');
     const other = newId('conversation');
-    await chat.createConversation(db, { id: source, agentId, title: 'source' });
-    await chat.createConversation(db, { id: other, agentId, title: 'other' });
+    await chat.createConversation(db, { id: source, agentId, title: 'source', subject: testSubject });
+    await chat.createConversation(db, { id: other, agentId, title: 'other', subject: testSubject });
     const metadata = attachment();
     await chat.appendMessage(db, {
       id: newId('message'),
@@ -75,7 +78,7 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
   it('dedupes attachment ids across messages and ignores malformed metadata', async () => {
     const agentId = await newAgent();
     const conversationId = newId('conversation');
-    await chat.createConversation(db, { id: conversationId, agentId, title: 'ids' });
+    await chat.createConversation(db, { id: conversationId, agentId, title: 'ids', subject: testSubject });
     const shared = attachment('shared.txt');
     const onlyOne = attachment('one.txt');
     const first = newId('message');
@@ -112,8 +115,8 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
     const agentId = await newAgent();
     const conversationId = newId('conversation');
     const runId = newId('run');
-    await chat.createConversation(db, { id: conversationId, agentId, title: 'prune runs' });
-    await chat.createRun(db, { id: runId, conversationId, agentId });
+    await chat.createConversation(db, { id: conversationId, agentId, title: 'prune runs', subject: testSubject });
+    await chat.createRun(db, { id: runId, conversationId, agentId, subject: testSubject });
     await chat.updateRun(db, runId, { status: 'succeeded', endedAt: old() });
     const metadata = attachment();
     const kept = newId('message');
@@ -159,8 +162,8 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
     const agentId = await newAgent();
     const conversationId = newId('conversation');
     const runId = newId('run');
-    await chat.createConversation(db, { id: conversationId, agentId, title: 'retained anchors' });
-    await chat.createRun(db, { id: runId, conversationId, agentId });
+    await chat.createConversation(db, { id: conversationId, agentId, title: 'retained anchors', subject: testSubject });
+    await chat.createRun(db, { id: runId, conversationId, agentId, subject: testSubject });
     await chat.updateRun(db, runId, { status: 'succeeded', endedAt: old() });
     const user = newId('message');
     const after = newId('message');
@@ -198,7 +201,7 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
   it('never deletes orphan messages that reference attachments', async () => {
     const agentId = await newAgent();
     const conversationId = newId('conversation');
-    await chat.createConversation(db, { id: conversationId, agentId, title: 'orphans' });
+    await chat.createConversation(db, { id: conversationId, agentId, title: 'orphans', subject: testSubject });
     const metadata = attachment();
     const kept = newId('message');
     await chat.insertMessages(db, [

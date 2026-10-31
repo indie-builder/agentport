@@ -25,7 +25,15 @@ export function registerAgentToolsEndpoint(app: FastifyInstance, invoker: AgentI
     {
       ...mcpRateLimit,
       // 非浏览器客户端访问，CSP 无意义。
-      config: { ...mcpRateLimit.config, helmet: { contentSecurityPolicy: false } },
+      config: {
+        ...mcpRateLimit.config,
+        helmet: { contentSecurityPolicy: false },
+        access: {
+          kind: 'service',
+          boundary: 'mcp',
+          reason: 'platform MCP endpoint authenticates with PLATFORM_MCP_TOKEN',
+        },
+      },
     },
     async (request, reply) => {
       if (!tokenMatches(expected, bearerToken(request.headers.authorization))) {

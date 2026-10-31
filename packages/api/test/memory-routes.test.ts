@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { schema } from '@agentport/db';
+import { PERMISSIONS } from '@agentport/shared';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +18,29 @@ beforeEach(async () => {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('requireAuth', async () => {});
+  // 本轮只验证文件边界，不接数据库权限：给平台管理员主体并让 authorize 通过。
+  app.decorateRequest('principal', null);
+  const principal = {
+    kind: 'user' as const,
+    authUserId: 'test-auth-user',
+    businessId: 'bootstrap-admin',
+    username: 'admin',
+    name: 'Admin',
+    roles: [],
+    grants: PERMISSIONS.map((permission) => ({
+      permissionId: permission.id,
+      scope: 'platform' as const,
+    })),
+  };
+  app.addHook('onRequest', async (request) => {
+    request.principal = principal;
+  });
+  app.decorate('authorize', async () => {});
+  app.decorate('agentAccess', async (_request: unknown, agentId: string) => ({
+    agentId,
+    permissionIds: [],
+  }));
+  app.decorate('requirePermission', () => async () => {});
   app.decorate('config', { WORKSPACES_DIR: root });
   // 只模拟路由用到的查询形状：agents 查得到一行，其余（活动 run、变更账本）为空。
   const chain = (table: unknown) => {

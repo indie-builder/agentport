@@ -68,13 +68,14 @@ const occupationAvatars: Record<string, string> = {
 };
 
 export function agentAvatar(
-  agent: Pick<Agent, 'slug' | 'name' | 'description'> & Partial<Pick<Agent, 'role'>>,
+  agent: Pick<Agent, 'name' | 'description'> & { role?: string | null; slug?: string | null },
 ): string {
   const occupation = agent.role ? occupationAvatars[agent.role] : undefined;
   if (occupation) return occupation;
-  const identity = `${agent.name} ${agent.slug} ${agent.description}`;
+  const slug = agent.slug ?? '';
+  const identity = `${agent.name} ${slug} ${agent.description}`;
   for (const [pattern, src] of roleAvatars) if (pattern.test(identity)) return src;
-  return avatars[hash(agent.slug) % avatars.length] ?? frontendEngineer;
+  return avatars[hash(slug) % avatars.length] ?? frontendEngineer;
 }
 
 /** 圆形插画头像；尺寸由外部用 size-* 决定，默认 40px。 */
@@ -82,7 +83,7 @@ export function AgentAvatar({
   agent,
   className,
 }: {
-  agent: Pick<Agent, 'slug' | 'name' | 'role' | 'description'>;
+  agent: Pick<Agent, 'name' | 'description'> & { role?: string | null; slug?: string | null };
   className?: string;
 }) {
   return (

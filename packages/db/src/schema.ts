@@ -114,6 +114,10 @@ export const agents = pgTable(
     maxTurns: integer('max_turns').notNull().default(20),
     maxBudgetUsd: numeric('max_budget_usd', { precision: 10, scale: 4 }).notNull().default('2'),
     timeoutMs: integer('timeout_ms').notNull().default(600_000),
+    /** 业务身份；创建后不变，不引用可删除的 authUsers。 */
+    createdBy: text('created_by').notNull(),
+    /** 当前负责人；成员授权与转交都看它。 */
+    ownerBusinessId: text('owner_business_id').notNull(),
     /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
     parentId: text('parent_id').references((): AnyPgColumn => agents.id, {
       onDelete: 'set null',
@@ -128,6 +132,7 @@ export const agents = pgTable(
   },
   (t) => [
     uniqueIndex('agents_slug_idx').on(t.slug),
+    index('agents_owner_idx').on(t.ownerBusinessId),
     index('agents_parent_idx').on(t.parentId),
     index('agents_runtime_environment_idx')
       .on(t.runtimeEnvironmentId)
@@ -447,6 +452,10 @@ export const conversations = pgTable(
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default(''),
+    /** 自然人发起的会话；与 serviceId 恰有一个非空。 */
+    createdBy: text('created_by'),
+    /** 服务发起的会话；与 createdBy 恰有一个非空。 */
+    serviceId: text('service_id', { enum: ['system', 'mcp'] }),
     /** 分支来源会话；原会话删除后分支仍独立存在。 */
     parentId: text('parent_id').references((): AnyPgColumn => conversations.id, {
       onDelete: 'set null',
@@ -471,6 +480,11 @@ export const conversations = pgTable(
     index('conversations_agent_idx').on(t.agentId),
     index('conversations_parent_idx').on(t.parentId),
     index('conversations_last_message_idx').on(t.lastMessageAt.desc(), t.id.desc()),
+    index('conversations_created_by_idx').on(t.createdBy),
+    check(
+      'conversations_subject_check',
+      sql`(${t.createdBy} is not null) <> (${t.serviceId} is not null)`,
+    ),
   ],
 );
 
@@ -482,6 +496,8 @@ export const messages = pgTable(
       .notNull()
       .references(() => conversations.id, { onDelete: 'cascade' }),
     role: text('role').notNull(),
+    /** 自然人消息直接存业务 ID；assistant/tool 与服务输入为 null。 */
+    senderBusinessId: text('sender_business_id'),
     content: jsonb('content').$type<unknown>().notNull(),
     /** 落下这条消息时智能体的回复格式；历史渲染按它而不是当前开关。 */
     uiFormat: text('ui_format').notNull().default('markdown'),
@@ -499,6 +515,7 @@ export const messages = pgTable(
     // 会话消息按 (created_at, id) 排序，复合索引让 listMessages 免排序。
     index('messages_conversation_idx').on(t.conversationId, t.createdAt, t.id),
     index('messages_run_idx').on(t.runId),
+    index('messages_sender_idx').on(t.senderBusinessId),
     check('messages_role_check', sql`${t.role} in ('user', 'assistant', 'tool')`),
     check('messages_ui_format_check', sql`${t.uiFormat} in ('markdown', 'openui')`),
   ],
@@ -523,6 +540,10 @@ export const agentRuns = pgTable(
     trigger: text('trigger', { enum: ['chat', 'mcp', 'schedule', 'event', 'review'] })
       .notNull()
       .default('chat'),
+    /** 执行主体：自然人（initiatedBy）或服务（serviceId）。 */
+    subjectKind: text('subject_kind', { enum: ['user', 'service'] }).notNull(),
+    initiatedBy: text('initiated_by'),
+    serviceId: text('service_id', { enum: ['system', 'mcp'] }),
     /** 入队时锁定的智能体版本号，让「用什么配置跑的」可追溯。 */
     agentVersion: integer('agent_version'),
     sessionId: text('session_id'),
@@ -570,6 +591,12 @@ export const agentRuns = pgTable(
       'agent_runs_trigger_check',
       sql`${t.trigger} in ('chat', 'mcp', 'schedule', 'event', 'review')`,
     ),
+    check('agent_runs_subject_kind_check', sql`${t.subjectKind} in ('user', 'service')`),
+    check(
+      'agent_runs_subject_check',
+      sql`(${t.subjectKind} = 'user' and ${t.initiatedBy} is not null and ${t.serviceId} is null) or (${t.subjectKind} = 'service' and ${t.initiatedBy} is null and ${t.serviceId} in ('system', 'mcp'))`,
+    ),
+    index('agent_runs_initiated_by_idx').on(t.initiatedBy),
     // 任务看板按 trigger 过滤并统计各来源的运行量。
     index('agent_runs_trigger_idx').on(t.trigger),
     // 模型代理每个请求都按 hash 查一次；只索引仍持有 token 的行。
@@ -674,6 +701,10 @@ export const agentSchedules = pgTable(
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    /** 创建人；普通编辑不能改执行主体。 */
+    createdBy: text('created_by').notNull(),
+    /** 触发时的执行主体；创建时等于 createdBy。 */
+    executeAsBusinessId: text('execute_as_business_id').notNull(),
     /** 5 段 cron（分 时 日 月 周），UTC。 */
     cron: text('cron').notNull(),
     /** 每次触发时作为用户消息发给智能体的提示词。 */
@@ -700,6 +731,7 @@ export const evalCases = pgTable(
     name: text('name').notNull(),
     prompt: text('prompt').notNull(),
     expectation: text('expectation').notNull().default(''),
+    createdBy: text('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('eval_cases_agent_idx').on(t.agentId)],
@@ -727,6 +759,8 @@ export const evalRuns = pgTable(
     passed: integer('passed').notNull().default(0),
     error: text('error'),
     caseSnapshot: jsonb('case_snapshot').$type<EvalCaseSnapshot[]>(),
+    /** 评估执行主体就是创建人；worker 触发时重新校验其权限。 */
+    createdBy: text('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     /** 认领时刻：BullMQ 重复投递时，只有抢到认领的 worker 才执行。 */
     claimedAt: timestamp('claimed_at', { withTimezone: true }),
@@ -770,7 +804,13 @@ export const auditLog = pgTable(
   'audit_log',
   {
     id: text('id').primaryKey(),
+    /** actor 为已认证 businessId；anonymous 时可在 metadata 记录脱敏用户名。 */
     actor: text('actor').notNull().default('system'),
+    actorKind: text('actor_kind', { enum: ['user', 'service', 'anonymous'] })
+      .notNull()
+      .default('service'),
+    /** 跨用户读取的目标业务身份。 */
+    subjectBusinessId: text('subject_business_id'),
     action: text('action').notNull(),
     target: text('target'),
     inputDigest: text('input_digest'),
@@ -791,6 +831,93 @@ export const auditLog = pgTable(
   ],
 );
 
+/** 平台首次初始化标记与角色矩阵 revision；只有一行。 */
+export const platformBootstrap = pgTable(
+  'platform_bootstrap',
+  {
+    id: text('id').primaryKey(),
+    /** 首次初始化使用的业务身份；值不连 authUsers，账户可删除后重建。 */
+    adminBusinessId: text('admin_business_id'),
+    rolesRevision: integer('roles_revision').notNull().default(0),
+    initializedAt: timestamp('initialized_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('platform_bootstrap_revision_check', sql`${t.rolesRevision} >= 0`)],
+);
+
+export const roles = pgTable(
+  'roles',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    /** 四默认角色；自定义角色为 null。 */
+    systemKey: text('system_key', { enum: ['admin', 'user', 'owner', 'maintainer'] }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('roles_name_idx').on(t.name),
+    uniqueIndex('roles_system_key_idx').on(t.systemKey),
+    check(
+      'roles_system_key_check',
+      sql`${t.systemKey} is null or ${t.systemKey} in ('admin', 'user', 'owner', 'maintainer')`,
+    ),
+  ],
+);
+
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    roleId: text('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'cascade' }),
+    permissionId: text('permission_id').notNull(),
+    scope: text('scope', {
+      enum: ['own_data', 'authorized_agents', 'maintained_agents', 'owned_agents', 'platform'],
+    }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('role_permissions_pk').on(t.roleId, t.permissionId, t.scope),
+    index('role_permissions_permission_idx').on(t.permissionId),
+    check(
+      'role_permissions_scope_check',
+      sql`${t.scope} in ('own_data', 'authorized_agents', 'maintained_agents', 'owned_agents', 'platform')`,
+    ),
+  ],
+);
+
+/** 业务身份到角色的分配；离线身份（无 authUsers 行）仍保留。 */
+export const userRoles = pgTable(
+  'user_roles',
+  {
+    businessId: text('business_id').notNull(),
+    roleId: text('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    uniqueIndex('user_roles_pk').on(t.businessId, t.roleId),
+    index('user_roles_role_idx').on(t.roleId),
+  ],
+);
+
+export const agentMembers = pgTable(
+  'agent_members',
+  {
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    businessId: text('business_id').notNull(),
+    canUse: boolean('can_use').notNull().default(false),
+    canMaintain: boolean('can_maintain').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('agent_members_pk').on(t.agentId, t.businessId),
+    index('agent_members_business_idx').on(t.businessId),
+    check('agent_members_flags_check', sql`${t.canUse} or ${t.canMaintain}`),
+  ],
+);
+
 /** better-auth 核心表；列名与官方 Drizzle schema 一致（属性 camelCase、DB 列 snake_case）。 */
 export const authUsers = pgTable(
   'user',
@@ -801,12 +928,17 @@ export const authUsers = pgTable(
     emailVerified: boolean('email_verified').notNull().default(false),
     image: text('image'),
     username: text('username'),
+    /** 稳定业务身份；技术 ID 每次重建都变，业务关联只认这一列。 */
+    businessId: text('business_id').notNull(),
+    /** 停用账户：拒绝登录与鉴权，撤销现有会话；删除认证资料不置位。 */
+    disabled: boolean('disabled').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('user_email_idx').on(t.email),
     uniqueIndex('user_username_idx').on(t.username),
+    uniqueIndex('user_business_id_idx').on(t.businessId),
   ],
 );
 
@@ -893,9 +1025,7 @@ export const outputShares = pgTable(
 
 /** 个人记忆：唯一一行文本，revision 做乐观并发控制；空内容时行可以不存在。 */
 export const userPreferences = pgTable('user_preferences', {
-  userId: text('user_id')
-    .primaryKey()
-    .references(() => authUsers.id, { onDelete: 'cascade' }),
+  businessId: text('business_id').primaryKey(),
   content: text('content').notNull().default(''),
   revision: integer('revision').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -911,9 +1041,7 @@ export const memoryReviews = pgTable(
     runId: text('run_id')
       .primaryKey()
       .references(() => agentRuns.id, { onDelete: 'cascade' }),
-    userId: text('user_id')
-      .notNull()
-      .references(() => authUsers.id, { onDelete: 'cascade' }),
+    businessId: text('business_id').notNull(),
     requestKey: text('request_key').notNull(),
     requestHash: text('request_hash').notNull(),
     /** 执行审核的专家；运行与模型配置都取自它。 */
@@ -931,7 +1059,7 @@ export const memoryReviews = pgTable(
     appliedChangeId: text('applied_change_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('memory_reviews_user_request_idx').on(t.userId, t.requestKey)],
+  (t) => [uniqueIndex('memory_reviews_business_request_idx').on(t.businessId, t.requestKey)],
 );
 
 /** 记忆变更账本：采纳提案或撤销时各写一行，before/after 保留完整快照。 */
@@ -939,9 +1067,7 @@ export const memoryChanges = pgTable(
   'memory_changes',
   {
     id: text('id').primaryKey(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => authUsers.id, { onDelete: 'cascade' }),
+    businessId: text('business_id').notNull(),
     /** 个人记忆为 null；专家记忆/规则记录归属的智能体。 */
     agentId: text('agent_id').references(() => agents.id, { onDelete: 'cascade' }),
     target: jsonb('target').$type<MemoryReviewTarget>().notNull(),
@@ -957,7 +1083,7 @@ export const memoryChanges = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('memory_changes_user_created_idx').on(t.userId, t.createdAt),
+    index('memory_changes_business_created_idx').on(t.businessId, t.createdAt),
     index('memory_changes_agent_created_idx').on(t.agentId, t.createdAt),
   ],
 );
@@ -1464,6 +1590,11 @@ export const schema = {
   evalRuns,
   evalResults,
   auditLog,
+  platformBootstrap,
+  roles,
+  rolePermissions,
+  userRoles,
+  agentMembers,
   authUsers,
   authSessions,
   authAccounts,

@@ -1,10 +1,15 @@
 import type {
+  AccessScope,
+  Account,
   Agent,
+  AgentAccess,
   AgentInput,
+  AgentMember,
   AgentPatch,
   ApiTool,
   ApiToolInput,
   Attention,
+  AuthMe,
   ConnectorCatalogItem,
   ConversationSearchResponse,
   ConversationSummary,
@@ -35,6 +40,8 @@ import type {
   OutputShare,
   OutputStyle,
   OverviewTimeseriesPoint,
+  PermissionDefinition,
+  PermissionGrant,
   PersonalMemory,
   Plugin,
   PluginInput,
@@ -44,6 +51,9 @@ import type {
   PublicQuestionResponse,
   PublicRunQuestion,
   ResolvedRuntimeEnvironment,
+  Role,
+  RoleMatrix,
+  RoleMatrixInput,
   Rule,
   RuntimeEnvironment,
   RuntimeEnvironmentInput,
@@ -67,8 +77,7 @@ import type {
   SkillWithAgentCount,
   WorkspaceFiles,
   WritePersonalMemoryInput,
-} from '@agentport/shared';
-import { loginPath } from './auth-redirect.js';
+} from '@agentport/shared';import { loginPath } from './auth-redirect.js';
 
 export type AgentFiles = WorkspaceFiles;
 
@@ -118,10 +127,80 @@ export interface McpImportResult {
   warnings: string[];
 }
 
-export interface Me {
-  authenticated: boolean;
-  username?: string;
+export type Me = AuthMe;
+
+/** 列表只拿业务摘要；role/slug 仅在服务端摘要附带时展示，不作为授权依据。 */
+/** 绑定选择器只拿摘要；不含资源配置、密钥或正文。 */
+export type AgentOptions = {
+  servers: Array<{ id: string; name: string; kind: string }>;
+  skills: Array<{ id: string; slug: string; name: string; description: string }>;
+  plugins: Array<{ id: string; slug: string; name: string }>;
+  runtimeEnvironments: Array<{ id: string; name: string; hasOnlineVersion: boolean }>;
+};
+
+export type AgentSummary = Pick<Agent, 'id' | 'name' | 'description' | 'enabled'> & {
+  createdBy: string;
+  ownerBusinessId: string;
+  role?: string;
+  slug?: string;
+  parentId?: string | null;
+  createdAt?: string;
+  /** 以下字段仅在服务端摘要附带时可用；不作为授权或正文读取的依据。 */
+  uiFormat?: 'markdown' | 'openui';
+  serverIds?: string[];
+  skillIds?: string[];
+  model?: string;
+  maxBudgetUsd?: number;
+  timeoutMs?: number;
+};
+
+export interface AccountPage {
+  items: Account[];
+  total: number;
 }
+
+export interface IdentityCandidate {
+  businessId: string;
+  name: string;
+  accountActive: boolean;
+}
+
+export interface IdentityPage {
+  items: IdentityCandidate[];
+  total: number;
+}
+
+export interface PermissionCatalog {
+  permissions: PermissionDefinition[];
+  scopes: { id: AccessScope; label: string }[];
+}
+
+export interface AgentMemberList {
+  ownerBusinessId: string;
+  members: AgentMember[];
+}
+
+export interface CreateAccountInput {
+  businessId: string;
+  username: string;
+  name: string;
+  password: string;
+  /** 历史业务 ID 必须显式恢复；普通新账户传 false。 */
+  restore: boolean;
+  roleIds?: string[];
+}
+
+export type {
+  AccessScope,
+  Account,
+  AgentAccess,
+  AgentMember,
+  PermissionDefinition,
+  PermissionGrant,
+  Role,
+  RoleMatrix,
+  RoleMatrixInput,
+};
 
 /** 个人偏好保存结果：多返回本次写入的变更 id，供页面提示。 */
 export interface PersonalMemoryWriteResult extends PersonalMemory {
@@ -742,7 +821,10 @@ async function publicShareRequest<T>(
 }
 
 export const api = {
-  me: (): Promise<Me> => request<Me>('/auth/me'),
+  me: (): Promise<AuthMe> => request<AuthMe>('/auth/me'),
+  /** 改密成功后服务端撤销全部会话，调用方必须重新登录。 */
+  changePassword: (currentPassword: string, newPassword: string): Promise<{ ok: true }> =>
+    request('/auth/change-password', 'POST', { currentPassword, newPassword }),
   /** 指标端点不在 /api 下；不可用时返回 null，页面显示「不可用」。 */
   healthMetrics: async (): Promise<HealthMetrics | null> => {
     const probe = await probeHealth<HealthMetrics>('/health/metrics');
@@ -753,6 +835,58 @@ export const api = {
   login: (username: string, password: string): Promise<{ ok: boolean }> =>
     request('/auth/login', 'POST', { username, password }),
   logout: (): Promise<{ ok: boolean }> => request('/auth/logout', 'POST'),
+
+  accounts: (
+    query: { q?: string; limit?: number; offset?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<AccountPage> => {
+    const params = new URLSearchParams();
+    if (query.q) params.set('q', query.q);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.offset !== undefined) params.set('offset', String(query.offset));
+    const search = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/accounts${search}`, 'GET', undefined, signal);
+  },
+  createAccount: (input: CreateAccountInput): Promise<Account> =>
+    request('/accounts', 'POST', input),
+  updateAccount: (
+    businessId: string,
+    input: { username?: string; name?: string },
+  ): Promise<Account> =>
+    request(`/accounts/${encodeURIComponent(businessId)}`, 'PATCH', input),
+  setAccountStatus: (
+    businessId: string,
+    status: Account['status'],
+  ): Promise<Account> =>
+    request(`/accounts/${encodeURIComponent(businessId)}/status`, 'PATCH', { status }),
+  resetAccountPassword: (
+    businessId: string,
+    password: string,
+  ): Promise<{ ok: true }> =>
+    request(`/accounts/${encodeURIComponent(businessId)}/password`, 'POST', {
+      password,
+    }),
+  deleteAccount: (businessId: string): Promise<{ ok: true }> =>
+    request(`/accounts/${encodeURIComponent(businessId)}`, 'DELETE'),
+  setAccountRoles: (businessId: string, roleIds: string[]): Promise<{ ok: true }> =>
+    request(`/accounts/${encodeURIComponent(businessId)}/roles`, 'PUT', { roleIds }),
+
+  roles: (signal?: AbortSignal): Promise<RoleMatrix> =>
+    request('/roles', 'GET', undefined, signal),
+  permissions: (signal?: AbortSignal): Promise<PermissionCatalog> =>
+    request('/permissions', 'GET', undefined, signal),
+  saveRoles: (input: RoleMatrixInput): Promise<RoleMatrix> => request('/roles', 'PUT', input),
+
+  identities: (
+    query: { q?: string; limit?: number; offset?: number; agentId: string },
+    signal?: AbortSignal,
+  ): Promise<IdentityPage> => {
+    const params = new URLSearchParams({ agentId: query.agentId });
+    if (query.q) params.set('q', query.q);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.offset !== undefined) params.set('offset', String(query.offset));
+    return request(`/identities?${params.toString()}`, 'GET', undefined, signal);
+  },
 
   overview: (): Promise<Overview> => request('/overview'),
   overviewTimeseries: (days = 14): Promise<OverviewTimeseriesPoint[]> =>
@@ -833,8 +967,23 @@ export const api = {
   ): Promise<{ serverId: string; toolName: string; approvedAt: string; waiting: boolean }> =>
     request(`/runs/${runId}/approve`, 'POST', { serverId, toolName }),
 
-  agents: (): Promise<Agent[]> => request('/agents'),
+  agents: (): Promise<AgentSummary[]> => request('/agents'),
+  agent: (id: string, signal?: AbortSignal): Promise<Agent> =>
+    request(`/agents/${id}`, 'GET', undefined, signal),
   createAgent: (input: AgentInput): Promise<Agent> => request('/agents', 'POST', input),
+  agentAccess: (id: string): Promise<AgentAccess> => request(`/agents/${id}/access`),
+  agentOptions: (): Promise<AgentOptions> => request('/agents/options'),
+  agentMembers: (id: string): Promise<AgentMemberList> => request(`/agents/${id}/members`),
+  setAgentMember: (
+    id: string,
+    businessId: string,
+    input: { canUse: boolean; canMaintain: boolean },
+  ): Promise<AgentMember> =>
+    request(`/agents/${id}/members/${encodeURIComponent(businessId)}`, 'PUT', input),
+  deleteAgentMember: (id: string, businessId: string): Promise<{ ok: true }> =>
+    request(`/agents/${id}/members/${encodeURIComponent(businessId)}`, 'DELETE'),
+  transferAgent: (id: string, ownerBusinessId: string): Promise<Agent> =>
+    request(`/agents/${id}/transfer`, 'POST', { ownerBusinessId }),
   updateAgent: (id: string, input: AgentPatch, expectedUpdatedAt?: string): Promise<Agent> =>
     request(`/agents/${id}`, 'PATCH', {
       ...input,

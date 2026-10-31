@@ -17,7 +17,7 @@ import {
   queueIdle,
   startApp,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID, } from './helpers.js';
 
 // POST /api/chat 会入队；没有 worker 消费才能断言用户消息的持久化内容。
 const ready = (await infraReady) && (await queueIdle);
@@ -64,7 +64,12 @@ describe.skipIf(!ready)('conversation outputs', () => {
 
   const newConversation = async (agentId: string): Promise<string> => {
     const id = newId('conversation');
-    await repo.chat.createConversation(app.db, { id, agentId, title: '成果' });
+    await repo.chat.createConversation(app.db, {
+      id,
+      agentId,
+      title: '成果',
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
     conversationIds.push(id);
     return id;
   };

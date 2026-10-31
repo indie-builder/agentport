@@ -10,6 +10,7 @@ const ready = await pool.query('select 1').then(
 
 const agentIds: string[] = [];
 const serverIds: string[] = [];
+const businessId = 'openui-owner';
 
 async function newAgent(allowedTools: string[] = [], disallowedTools: string[] = []) {
   const id = newId('agent');
@@ -21,6 +22,8 @@ async function newAgent(allowedTools: string[] = [], disallowedTools: string[] =
     model: 'test',
     allowedTools,
     disallowedTools,
+    createdBy: businessId,
+    ownerBusinessId: businessId,
   });
   return id;
 }

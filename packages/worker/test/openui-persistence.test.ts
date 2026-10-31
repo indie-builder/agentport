@@ -3,6 +3,7 @@ import type { ChatEvent } from '@agentport/shared';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { persistRunMessages } from '../src/messages.js';
+import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
 
 /**
  * 跨轮 UI 编辑的落库语义：基线必须在本 run 输出删除之前取，纯文本/子智能体/截断不能伪造完整程序，
@@ -39,8 +40,14 @@ async function newFixture(): Promise<Fixture> {
     name: 'ui-persist',
     model: 'test',
     uiFormat: 'openui',
+    ...agentOwnership,
   });
-  await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'ui' });
+  await repo.chat.createConversation(db, {
+    id: conversationId,
+    agentId,
+    title: 'ui',
+    subject: userSubject,
+  });
   return { agentId, conversationId };
 }
 
@@ -50,6 +57,7 @@ async function seedRun(fixture: Fixture): Promise<string> {
     id: runId,
     conversationId: fixture.conversationId,
     agentId: fixture.agentId,
+    subject: userSubject,
   });
   await db
     .update(schema.agentRuns)
@@ -61,6 +69,7 @@ async function seedRun(fixture: Fixture): Promise<string> {
     role: 'user',
     content: { type: 'text', text: '继续' },
     runId,
+    senderBusinessId: TEST_BUSINESS_ID,
   });
   return runId;
 }

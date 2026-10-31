@@ -30,13 +30,13 @@ describe.skipIf(!ready)('run agent version pin', () => {
     const conversationId = unique('version-pin-conv');
     runId = unique('version-pin-run');
     runIds.push(runId);
-    await app.pool.query('insert into conversations (id, agent_id) values ($1, $2)', [
+    await app.pool.query('insert into conversations (id, agent_id, created_by) values ($1, $2, \'bootstrap-admin\')', [
       conversationId,
       agent.id,
     ]);
     await app.pool.query(
-      `insert into agent_runs (id, conversation_id, agent_id, status, agent_version)
-       values ($1, $2, $3, 'succeeded', 3)`,
+      `insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by, agent_version)
+       values ($1, $2, $3, 'succeeded', 'user', 'bootstrap-admin', 3)`,
       [runId, conversationId, agent.id],
     );
   });

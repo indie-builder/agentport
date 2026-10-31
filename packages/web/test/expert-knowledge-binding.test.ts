@@ -1,10 +1,11 @@
-import { type Agent, agentInputSchema, type Server } from '@agentport/shared';
+import { type Agent, agentInputSchema, PERMISSIONS, type Server } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Combobox, ComboboxList } from '../src/components/ui/combobox.js';
 import { AgentEditor } from '../src/pages/agents.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));
 vi.mock('@/components/ui/input-group', () => import('../src/components/ui/input-group.js'));
@@ -29,7 +30,17 @@ vi.mock('../src/lib/queries.js', async (original) => {
   const queries = await original<typeof import('../src/lib/queries.js')>();
   return {
     ...queries,
+    meQuery: {
+    queryKey: ['me'],
+    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+  },
     useServers: () => ({ data: mocks.servers, isPending: false, isError: false }),
+    useAgentOptions: () => ({
+      data: { servers: [], skills: [], plugins: [], runtimeEnvironments: [] },
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
     // 通用 /api/servers 已过滤 knowledge；知识库只能从这里拿到 serverId 绑定。
     useKnowledgeBases: () => ({ data: mocks.bases, isPending: false, isError: false }),
     useSkills: () => ({ data: [], isPending: false, isError: false }),
@@ -114,6 +125,7 @@ function inspect(agent: Agent, visit: (tree: Element[], pass: number) => void) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } },
   });
+  client.setQueryData(['me'], allAccessMe);
   client.setQueryData(['agents'], [agent]);
   client.setQueryData(['servers'], [server]);
   client.setQueryData(['knowledge', 'bases'], {
@@ -129,6 +141,7 @@ function inspect(agent: Agent, visit: (tree: Element[], pass: number) => void) {
   const render = () =>
     AgentEditor({
       agent,
+      permissions: PERMISSIONS.map((permission) => permission.id),
       onDirtyChange: () => {},
       onPendingChange: () => {},
       onDeleteRequest: () => {},

@@ -17,6 +17,7 @@ import {
   runInSandbox,
 } from '../src/runner-client.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
+import { agentOwnership, userSubject } from './fixtures/access.js';
 
 async function probeRedis(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
@@ -476,9 +477,20 @@ describe.skipIf(!ready || !dbReady)('runInSandbox cleanup persistence', () => {
       slug: `cleanup-${agentId.slice(4)}`,
       name: 'cleanup',
       model: 'test',
+      ...agentOwnership,
     });
-    await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'cleanup' });
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createConversation(db, {
+      id: conversationId,
+      agentId,
+      title: 'cleanup',
+      subject: userSubject,
+    });
+    await repo.chat.createRun(db, {
+      id: runId,
+      conversationId,
+      agentId,
+      subject: userSubject,
+    });
     await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })
@@ -543,9 +555,20 @@ describe.skipIf(!ready || !dbReady)('runInSandbox byte overflow persistence', ()
       slug: `limits-${agentId.slice(4)}`,
       name: 'limits',
       model: 'test',
+      ...agentOwnership,
     });
-    await repo.chat.createConversation(db, { id: conversationId, agentId, title: 'limits' });
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createConversation(db, {
+      id: conversationId,
+      agentId,
+      title: 'limits',
+      subject: userSubject,
+    });
+    await repo.chat.createRun(db, {
+      id: runId,
+      conversationId,
+      agentId,
+      subject: userSubject,
+    });
     await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })

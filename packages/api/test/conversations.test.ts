@@ -14,7 +14,7 @@ import {
   loginCookie,
   startApp,
   unique,
-} from './helpers.js';
+  ADMIN_BUSINESS_ID,} from './helpers.js';
 
 // 会话 fixture 直接写 repo，不经过 /api/chat：不会产生 queued run，也就不依赖 worker 空闲。
 const ready = await infraReady;
@@ -49,7 +49,12 @@ describe.skipIf(!ready)('conversations', () => {
 
   const newConversation = async (agentId: string, title = '原会话') => {
     const id = newId('conversation');
-    await repo.chat.createConversation(app.db, { id, agentId, title });
+    await repo.chat.createConversation(app.db, {
+      id,
+      agentId,
+      title,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
     conversationIds.push(id);
     return id;
   };
@@ -132,6 +137,7 @@ describe.skipIf(!ready)('conversations', () => {
         role: 'user',
         content: { type: 'text', text: '保留我' },
         runId: null,
+        senderBusinessId: null,
         // 消息级渲染快照：历史按它渲染，不再跟随当前智能体的开关。
         uiFormat: 'markdown',
         uiProgram: null,
@@ -182,6 +188,7 @@ describe.skipIf(!ready)('conversations', () => {
       id: newId('run'),
       conversationId: id,
       agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     await repo.chat.updateRun(app.db, run.id, {
       status: 'succeeded',
@@ -268,6 +275,7 @@ describe.skipIf(!ready)('conversations', () => {
       id: newId('run'),
       conversationId: id,
       agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     // 终态 run 不阻塞删除，同时验证删除会级联带走运行记录。
     await repo.chat.updateRun(app.db, run.id, { status: 'cancelled', endedAt: new Date() });
@@ -318,6 +326,7 @@ describe.skipIf(!ready)('conversations', () => {
       id: newId('run'),
       conversationId: id,
       agentId: agent.id,
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
 
     expectProblem(await remove(id), 'CONFLICT');
@@ -342,7 +351,8 @@ describe.skipIf(!ready)('conversations', () => {
     const branched = await repo.chat.branchConversation(app.db, {
       id: newId('conversation'),
       conversationId: parentId,
-    });
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+});
     if (!branched) throw new Error('branchConversation returned null');
     const childId = branched.conversation.id;
     conversationIds.push(childId);

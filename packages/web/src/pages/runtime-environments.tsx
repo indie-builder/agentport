@@ -3,6 +3,7 @@ import {
   type RuntimeEnvironment,
   type RuntimeEnvironmentInput,
 } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Box, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -26,9 +27,10 @@ import {
   TableRow,
 } from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { can } from '../lib/access.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatRelative, shortId } from '../lib/format.js';
-import { useCreateRuntimeEnvironment, useRuntimeEnvironments } from '../lib/queries.js';
+import { meQuery, useCreateRuntimeEnvironment, useRuntimeEnvironments } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 export function RuntimeEnvironmentsPage() {
@@ -46,6 +48,8 @@ export function RuntimeEnvironmentsPage() {
       .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
   }, [environments.data, query]);
 
+  const me = useQuery(meQuery);
+  const canCreate = can(me.data, 'runtime_environments.create');
   const openCreate = (): void => setCreating(true);
 
   return (
@@ -53,9 +57,11 @@ export function RuntimeEnvironmentsPage() {
       <PageHeader
         title="运行环境"
         actions={
-          <Button ref={createTriggerRef} onClick={openCreate}>
-            <Plus data-icon="inline-start" /> 新建环境
-          </Button>
+          canCreate ? (
+            <Button ref={createTriggerRef} onClick={openCreate}>
+              <Plus data-icon="inline-start" /> 新建环境
+            </Button>
+          ) : null
         }
       />
       <PageToolbar>
@@ -84,9 +90,11 @@ export function RuntimeEnvironmentsPage() {
           icon={<Box className="size-5" />}
           title="新建第一个运行环境"
           action={
-            <Button variant="outline" size="sm" onClick={openCreate}>
-              新建环境
-            </Button>
+            canCreate ? (
+              <Button variant="outline" size="sm" onClick={openCreate}>
+                新建环境
+              </Button>
+            ) : undefined
           }
         />
       ) : null}

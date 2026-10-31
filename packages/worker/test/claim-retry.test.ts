@@ -1,6 +1,7 @@
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { agentOwnership, conversationSubject, userSubject } from './fixtures/access.js';
 
 /**
  * 第 9 轮把认领条件收紧成「只认 queued」。回归审计发现这会让重试失效：
@@ -37,8 +38,11 @@ describe('run claim and retry contract', () => {
       slug: `claim-${agentId.slice(4, 12)}`,
       name: 'claim',
       model: 'test',
+      ...agentOwnership,
     });
-    await db.insert(schema.conversations).values({ id: conversationId, agentId });
+    await db
+      .insert(schema.conversations)
+      .values({ id: conversationId, agentId, ...conversationSubject });
   });
 
   afterAll(async () => {
@@ -50,7 +54,7 @@ describe('run claim and retry contract', () => {
 
   it('claims a queued run exactly once', async () => {
     const runId = newId('run');
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createRun(db, { id: runId, conversationId, agentId, subject: userSubject });
     expect(await claim(runId)).toBe(1);
     // 第二次认领必须失败：这是 BullMQ 重复投递时的保护。
     expect(await claim(runId)).toBe(0);
@@ -58,7 +62,7 @@ describe('run claim and retry contract', () => {
 
   it('a retryable failure can be requeued and claimed again', async () => {
     const runId = newId('run');
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createRun(db, { id: runId, conversationId, agentId, subject: userSubject });
     expect(await claim(runId)).toBe(1);
     // 模拟可重试失败：先回 queued 再抛错。
     expect(await requeue(runId)).toBe(1);
@@ -67,7 +71,7 @@ describe('run claim and retry contract', () => {
 
   it('requeue refuses a run that is not running', async () => {
     const runId = newId('run');
-    await repo.chat.createRun(db, { id: runId, conversationId, agentId });
+    await repo.chat.createRun(db, { id: runId, conversationId, agentId, subject: userSubject });
     expect(await requeue(runId)).toBe(0);
   });
 });

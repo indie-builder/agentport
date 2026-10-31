@@ -51,11 +51,13 @@ function auditOptions(query: Query): repo.audit.AuditQuery {
 
 export function registerAuditRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   app.get(
     '/api/audit',
-    { ...auth, schema: { querystring: querySchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'audit.read' } },
+      schema: { querystring: querySchema },
+    },
     async (request, reply) => {
       const options = auditOptions(request.query);
       const rows = await repo.audit.listAudit(app.db, options);
@@ -72,7 +74,10 @@ export function registerAuditRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/audit/export',
-    { ...auth, schema: { querystring: exportQuerySchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'audit.read' } },
+      schema: { querystring: exportQuerySchema },
+    },
     async (request, reply) => {
       const options = auditOptions(request.query);
       // 多取一条用于判断超限，绝不把截断后的结果当完整导出发出。

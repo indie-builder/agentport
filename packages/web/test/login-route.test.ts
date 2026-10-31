@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type Me } from '../src/lib/api.js';
 import { queryClient } from '../src/lib/queries.js';
 import { routeTree } from '../src/routeTree.gen.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/api.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/api.js')>();
@@ -51,14 +52,19 @@ function form(): HTMLFormElement {
   return element;
 }
 
-async function submit(password: string) {
-  const input = host.querySelector<HTMLInputElement>('input[type="password"]');
-  if (!input) throw new Error('Missing password input');
+async function fill(selector: string, value: string) {
+  const input = host.querySelector<HTMLInputElement>(selector);
+  if (!input) throw new Error(`Missing input ${selector}`);
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
   await act(async () => {
-    setter?.call(input, password);
+    setter?.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
+}
+
+async function submit(password: string) {
+  await fill('input#username', 'admin');
+  await fill('input[type="password"]', password);
   await act(async () => {
     form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   });
@@ -107,7 +113,7 @@ describe('login route session check', () => {
   });
 
   it('does not trust a stale authenticated cache when the fresh check fails, and the form still logs in', async () => {
-    queryClient.setQueryData(['me'], { authenticated: true, username: 'admin' });
+    queryClient.setQueryData(['me'], allAccessMe);
     vi.mocked(api.me).mockRejectedValue(new Error('offline'));
 
     const router = await mount();
@@ -117,13 +123,59 @@ describe('login route session check', () => {
     expect(form()).not.toBeNull();
 
     vi.mocked(api.login).mockResolvedValue({ ok: true });
-    vi.mocked(api.me).mockResolvedValue({ authenticated: true, username: 'admin' });
+    vi.mocked(api.me).mockResolvedValue(allAccessMe);
     vi.mocked(api.agents).mockResolvedValue([]);
     await submit('secret');
 
     expect(api.login).toHaveBeenCalledWith('admin', 'secret');
     // 首次检查 + 登录后刷新，各一次；不会因旧缓存重复请求。
     expect(api.me).toHaveBeenCalledTimes(2);
+    expect(router.state.location.pathname).toBe(TARGET);
+  });
+
+  it('clears the previous account cache and fetches the new identity before navigating', async () => {
+    const oldMe = {
+      ...allAccessMe,
+      user: { businessId: 'business-old', username: 'old', name: '旧账户' },
+    };
+    queryClient.setQueryData(['me'], oldMe);
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    const router = await mount();
+
+    const nextMe = {
+      ...allAccessMe,
+      user: { businessId: 'business-new', username: 'new', name: '新账户' },
+      grants: [{ permissionId: 'agents.read' as const, scope: 'platform' as const }],
+    };
+    vi.mocked(api.login).mockResolvedValue({ ok: true });
+    vi.mocked(api.me).mockResolvedValue(nextMe);
+    vi.mocked(api.agents).mockResolvedValue([]);
+    await submit('secret');
+
+    expect(api.me).toHaveBeenCalledTimes(2);
+    expect(queryClient.getQueryData(['me'])).toEqual(nextMe);
+    expect(router.state.location.pathname).toBe(TARGET);
+  });
+
+  it('does not navigate before the fresh identity request settles', async () => {
+    vi.mocked(api.me).mockResolvedValue({ authenticated: false });
+    const router = await mount();
+
+    let settle!: (me: Me) => void;
+    vi.mocked(api.login).mockResolvedValue({ ok: true });
+    vi.mocked(api.me).mockReturnValue(
+      new Promise<Me>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    await submit('secret');
+
+    expect(router.state.location.pathname).toBe('/login');
+    expect(form()).not.toBeNull();
+
+    vi.mocked(api.agents).mockResolvedValue([]);
+    await act(async () => settle(allAccessMe));
+    await flush();
     expect(router.state.location.pathname).toBe(TARGET);
   });
 });

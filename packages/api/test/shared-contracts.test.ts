@@ -125,6 +125,8 @@ describe('standard agent occupations', () => {
         ...input,
         role,
         id: 'agt_helper',
+        createdBy: 'biz_creator',
+        ownerBusinessId: 'biz_owner',
         parentId: null,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',

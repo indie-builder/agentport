@@ -34,11 +34,10 @@ function safeImageMime(mimeType: string): string {
 
 export function registerKnowledgeImageRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
-  const auth = { preHandler: [rawApp.requireAuth] };
 
   app.get(
     '/api/knowledge/versions/:versionId/images/:name',
-    { ...auth, schema: { params: imageParams } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: imageParams } },
     async (request, reply) => {
       const version = await repo.knowledge.getVersion(app.db, request.params.versionId);
       if (!version) return reject(reply, 'NOT_FOUND', '版本不存在，可能已被删除');
@@ -66,7 +65,7 @@ export function registerKnowledgeImageRoutes(rawApp: FastifyInstance): void {
   // 版本详情只返回 UI 展示所需的安全元数据，不含 blob 地址与磁盘路径。
   app.get(
     '/api/knowledge/versions/:versionId/details',
-    { ...auth, schema: { params: versionParams } },
+    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: versionParams } },
     async (request, reply) => {
       const version = await repo.knowledge.getVersion(app.db, request.params.versionId);
       if (!version) return reject(reply, 'NOT_FOUND', '版本不存在，可能已被删除');

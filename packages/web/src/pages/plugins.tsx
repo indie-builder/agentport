@@ -5,6 +5,7 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import {
   Download,
   MoreHorizontal,
@@ -46,8 +47,10 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
+import { can } from '../lib/access.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
+  meQuery,
   useDeletePlugin,
   useImportNativePlugin,
   useImportPlugin,
@@ -69,6 +72,12 @@ const installFormSchema = nativePluginInstallInputSchema.extend({
 });
 
 export function PluginsPage() {
+  const me = useQuery(meQuery);
+  const canImport = can(me.data, 'plugins.import');
+  const canInstall = can(me.data, 'plugins.install');
+  const canUpdate = can(me.data, 'plugins.update');
+  const canDelete = can(me.data, 'plugins.delete');
+  const canExport = can(me.data, 'plugins.export');
   const plugins = usePlugins();
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/plugins/' });
@@ -159,6 +168,7 @@ export function PluginsPage() {
               if (file) void importZip(file);
             }}
           />
+          {canImport ? (
           <Button
             ref={importButtonRef}
             variant="outline"
@@ -169,15 +179,18 @@ export function PluginsPage() {
             <Upload data-icon="inline-start" aria-hidden="true" />{' '}
             {importPlugin.isPending ? '导入中…' : '导入插件 ZIP'}
           </Button>
-          <Button
-            aria-haspopup="dialog"
-            onClick={(event) => {
-              actionTriggerRef.current = event.currentTarget;
-              setInstalling(true);
-            }}
-          >
-            <PackagePlus data-icon="inline-start" aria-hidden="true" /> 安装插件
-          </Button>
+          ) : null}
+          {canInstall ? (
+            <Button
+              aria-haspopup="dialog"
+              onClick={(event) => {
+                actionTriggerRef.current = event.currentTarget;
+                setInstalling(true);
+              }}
+            >
+              <PackagePlus data-icon="inline-start" aria-hidden="true" /> 安装插件
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -212,9 +225,11 @@ export function PluginsPage() {
           title="还没有插件"
           description="导入一个符合 Claude Code 官方目录结构的插件 ZIP。"
           action={
-            <Button variant="outline" size="sm" onClick={() => importInputRef.current?.click()}>
-              导入插件 ZIP
-            </Button>
+            canImport ? (
+              <Button variant="outline" size="sm" onClick={() => importInputRef.current?.click()}>
+                导入插件 ZIP
+              </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -260,21 +275,27 @@ export function PluginsPage() {
                       />
                       <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                         <DropdownMenuGroup>
-                          <DropdownMenuItem onClick={() => setEditing(plugin)}>
-                            <Pencil /> 编辑
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            nativeButton={false}
-                            render={<a href={`/api/plugins/${plugin.id}/export`} />}
-                          >
-                            <Download /> 导出 ZIP
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => setDeleting(plugin)}
-                          >
-                            <Trash2 /> 删除
-                          </DropdownMenuItem>
+                          {canUpdate ? (
+                            <DropdownMenuItem onClick={() => setEditing(plugin)}>
+                              <Pencil /> 编辑
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canExport ? (
+                            <DropdownMenuItem
+                              nativeButton={false}
+                              render={<a href={`/api/plugins/${plugin.id}/export`} />}
+                            >
+                              <Download /> 导出 ZIP
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canDelete ? (
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => setDeleting(plugin)}
+                            >
+                              <Trash2 /> 删除
+                            </DropdownMenuItem>
+                          ) : null}
                         </DropdownMenuGroup>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -330,6 +351,7 @@ export function PluginsPage() {
                       variant="outline"
                       size="sm"
                       aria-label={`编辑 ${plugin.name}`}
+          className={canUpdate ? undefined : 'hidden'}
                       aria-haspopup="dialog"
                       onClick={(event) => {
                         actionTriggerRef.current = event.currentTarget;

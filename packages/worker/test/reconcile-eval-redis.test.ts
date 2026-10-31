@@ -83,6 +83,8 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
       slug: `reconcile-eval-redis-${randomUUID().slice(0, 8)}`,
       name: 'reconcile-eval-redis',
       model: 'test',
+      createdBy: 'reconcile-eval-user',
+      ownerBusinessId: 'reconcile-eval-user',
     });
     // 超过 1 小时陈旧线；claimedAt 同老，表示这是长时间跑批而不是从未被认领。
     await db.insert(schema.evalRuns).values({
@@ -91,6 +93,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
       status: 'running',
       createdAt: new Date(Date.now() - STALE_MS),
       claimedAt: new Date(Date.now() - STALE_MS),
+      createdBy: 'reconcile-eval-user',
     });
     agentIds.push(agentId);
     evalRunIds.push(evalRunId);

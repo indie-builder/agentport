@@ -5,6 +5,7 @@ import { Queue, QueueEvents } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
+import { loadUserAgentAccess } from './run-access.js';
 
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
@@ -59,7 +60,13 @@ function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages
 function runOneCase(
   db: Database,
   redisUrl: string,
-  input: { agentId: string; prompt: string; timeoutMs: number; title: string },
+  input: {
+    agentId: string;
+    businessId: string;
+    prompt: string;
+    timeoutMs: number;
+    title: string;
+  },
   context: { runId: string | null },
 ) {
   return Effect.gen(function* () {
@@ -67,11 +74,15 @@ function runOneCase(
       repo.agentVersions.latestAgentVersion(db, input.agentId),
     );
     // 评估用例与聊天共用准入：同一事务取绑定锁、锁「发起专家 + enabled 子级」的记忆。
+    // 执行主体显式取 evalRuns.createdBy，不接受 job/client 用户字段。
     const admitted = yield* dbQuery(() =>
       chatRepo.admitChatRun(db, {
         agentId: input.agentId,
         message: input.prompt,
         title: input.title,
+        // 用例运行在 DB 标记为 event：worker 排队复核据此从 evalRuns 重查 eval.execute。
+        trigger: 'event',
+        subject: { kind: 'user', businessId: input.businessId },
         ...(agentVersion === null ? {} : { agentVersion }),
       }),
     );
@@ -158,9 +169,47 @@ export async function executeEvalRun(input: {
     if (!agent) return yield* Effect.fail(new Error(`agent ${evalRun.agentId} not found`));
     if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
 
+    // 执行主体是 evalRuns.createdBy：每次开跑前用 DB 实时账户与授权重查，不降级。
+    const { denial, grants } = yield* dbQuery(() =>
+      loadUserAgentAccess(db, {
+        businessId: evalRun.createdBy,
+        agentId: evalRun.agentId,
+        permissions: ['agents.use', 'eval.execute'],
+      }),
+    );
+    if (denial !== null) {
+      yield* dbQuery(() =>
+        evalRepo.finishEvalRun(db, evalRunId, {
+          status: 'failed',
+          passed: 0,
+          error: denial.message,
+        }),
+      );
+      yield* dbQuery(() =>
+        repo.audit.writeAudit(db, logger, {
+          actor: 'worker',
+          action: 'eval.denied',
+          target: evalRunId,
+          status: 'denied',
+          input: { reason: denial.reason, businessId: evalRun.createdBy },
+        }),
+      );
+      return;
+    }
+    // 用例读取仍受当前用户自己的 eval.read 范围约束，不把执行身份当全平台。
+    const accessFilter = {
+      businessId: evalRun.createdBy,
+      scopes: [
+        ...new Set(
+          grants.filter((grant) => grant.permissionId === 'eval.read').map((grant) => grant.scope),
+        ),
+      ],
+    };
+
     // 有快照就只跑快照：跑批期间改了用例也不能改变本次结果；[] 表示零条，不回读。
     const cases =
-      evalRun.caseSnapshot ?? (yield* dbQuery(() => evalRepo.listCases(db, evalRun.agentId)));
+      evalRun.caseSnapshot ??
+      (yield* dbQuery(() => evalRepo.listCases(db, accessFilter, evalRun.agentId)));
     let passed = 0;
     let crashed: string | null = null;
 
@@ -180,6 +229,7 @@ export async function executeEvalRun(input: {
               redisUrl,
               {
                 agentId: evalRun.agentId,
+                businessId: evalRun.createdBy,
                 prompt: testCase.prompt,
                 timeoutMs: agent.timeoutMs,
                 title: `eval: ${testCase.name}`.slice(0, 80),
