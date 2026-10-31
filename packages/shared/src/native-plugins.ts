@@ -5,6 +5,7 @@ import {
 } from './agent-package.js';
 import { slugSchema } from './params.js';
 import { pluginFileInputSchema } from './plugin.js';
+import { utf8Bytes } from './utf8.js';
 
 /**
  * 原生插件安装：官方 CLI 在一次性沙盒里安装/读取市场插件，再把文本快照交回平台。
@@ -105,16 +106,6 @@ export const nativePluginActionSchema = z.discriminatedUnion('action', [
 ]);
 
 export type NativePluginAction = z.infer<typeof nativePluginActionSchema>;
-
-/** shared 无 Node lib；按 UTF-8 字节校验总大小。 */
-function utf8Bytes(value: string): number {
-  let bytes = 0;
-  for (const ch of value) {
-    const cp = ch.codePointAt(0) ?? 0;
-    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
-  }
-  return bytes;
-}
 
 /** 快照沿用 ZIP 导入的上限：条目数同包，单文件字符数由 pluginFileInputSchema 限制。 */
 const nativePluginFilesSchema = z

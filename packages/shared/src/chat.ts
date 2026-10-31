@@ -4,6 +4,7 @@ import { ATTACHMENT_LIMITS, chatAttachmentInputsSchema } from './attachments.js'
 import { openUiActionSchema } from './openui/protocol.js';
 import { outputRefSchema } from './outputs.js';
 import { nativeQuestionsSchema, publicRunQuestionSchema } from './questions.js';
+import { utf8Bytes } from './utf8.js';
 
 /**
  * 官方可移植的 TodoWrite 开关：专家包 `.claude/settings.json` 与沙盒运行时共用这一份值。
@@ -25,19 +26,6 @@ export const SANDBOX_RUNTIME_ENV = {
   // 启用原生 TodoWrite（而非四个 Task 工具），平台据此渲染任务进度。
   ...PORTABLE_TODO_ENV,
 } as const;
-
-/**
- * shared 不带 Node/DOM lib；按码点手算 UTF-8 字节数，与 TextEncoder 结果一致，
- * 浏览器与 Node 都能用。这里校验的是编码后的字节，不是字符串长度。
- */
-function utf8Bytes(value: string): number {
-  let bytes = 0;
-  for (const ch of value) {
-    const cp = ch.codePointAt(0) ?? 0;
-    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
-  }
-  return bytes;
-}
 
 export const chatRequestSchema = z
   .object({
