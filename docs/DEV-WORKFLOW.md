@@ -29,10 +29,12 @@
    **完成判据**：用户明确确认「按这个做」。
 
 2. **建隔离环境**
-   先 `git fetch origin main`。worktree 位置固定为主 checkout 的 `.claude/worktrees/<任务 slug>`（绝对路径 `<主 checkout>/.claude/worktrees/<slug>`）；默认用 `EnterWorktree`，手动执行时同样是 `git worktree add <主 checkout>/.claude/worktrees/<slug> -b <branch> origin/main`，起点为刚 fetch 的 `origin/main`（用 `EnterWorktree` 时同样核对其起点）。主 checkout 指仓库主目录本身，**不是当前任务 worktree**；新树不建在仓库同级，也不建在当前或其他任何已有**任务 worktree** 内部——现有旧位置属历史，不重构也不照抄。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
+   **每个独立新开发任务首次写入前建专属 worktree；续做同一未完成任务时复用原树与任务记录，不重新建树、不重置基线。** 任务按独立目标与验收划分，同一目标内的步骤与子任务共用该树，不各自建树。
+   新建任务时先 `git fetch origin main`。worktree 位置固定为主 checkout 的 `.claude/worktrees/<任务 slug>`（绝对路径 `<主 checkout>/.claude/worktrees/<slug>`）；默认用 `EnterWorktree`，手动执行时同样是 `git worktree add <主 checkout>/.claude/worktrees/<slug> -b <branch> origin/main`，起点为刚 fetch 的 `origin/main`（用 `EnterWorktree` 时同样核对其起点）。主 checkout 指仓库主目录本身，**不是当前任务 worktree**；新树不建在仓库同级，也不建在当前或其他任何已有**任务 worktree** 内部——现有旧位置属历史，不重构也不照抄。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
    主 checkout 默认不改动、保持干净，任务产出只在 worktree。
+   **主会话先进入目标任务树再派发代码执行**；子代理 `isolation: worktree` 只是额外隔离，不能替代这一步，且额外隔离树同样落在固定位置、禁止套娃。
    进树后记录一次绝对路径、`git rev-parse HEAD` 与 `git status`：已有未提交差异原地写明归属（他人/未完成），不顺手提交、还原或覆盖。这是开工时的一次性记录，后续不反复查全局 status，也不为核对额外加流程；所有动手只在本 worktree 内，子代理保持并行。
-   **完成判据**：会话已位于目标 worktree（`<主 checkout>/.claude/worktrees/<slug>`），HEAD 与声明的起点一致（默认 `origin/main`，偏离时已注明原因），初始差异归属已记入任务记录，产出不落到主 checkout。
+   **完成判据**：主会话已位于目标 worktree（`<主 checkout>/.claude/worktrees/<slug>`）；新建时 HEAD 与声明的起点一致（默认刚 fetch 的 `origin/main`，偏离时已注明原因），续做时保留原基线与任务记录、HEAD 可包含本任务后续提交；初始差异归属已记入任务记录，产出不落到主 checkout。
 
 3. **先写任务记录**
    在 worktree 内创建 `docs/tasks/<slug>.md`（模板见 §3），先把目标、方案、基线、当前有效决定写下来再动手。范围或决定变化时，先改记录再继续。
@@ -41,7 +43,7 @@
 4. **实现（子代理并行）**
    主会话和执行子代理动手前先读 `docs/PITFALLS.md`，将与当前任务相关的规避方式落实到方案、操作和验证中；任务范围变化时重新核对相关条目。不能只在报错后查阅，或只追加记录而不使用。
    涉及参考 UI 时，实现前实际操作目标控件，确认区域、数据与状态并写进记录；无法操作时标为缺口，不凭截图或记忆猜测。参考维度分开：配色与控件外观以 Qoder CN 桌面浅色界面为准（来自实际截图采样，不是其源码 token），布局、尺寸与结构以 `docs/DESIGN-SYSTEM.md` 当前规范为准（含用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任一维度不扩到另一维度。
-   按 `CLAUDE.md` 协作方式：Opus 定契约，Sonnet 子代理并行落地，主会话只编排。所有产出只写进 worktree。
+   按 `CLAUDE.md` 协作方式：Opus 定契约，Sonnet 子代理并行落地，主会话只编排。子代理默认共享当前任务树，按文件边界并行，不各自建树。所有产出只写进 worktree。
    工程纪律按 `ub-mode`：First Make it Work → Then Make it Right → Follow Practice（先实现目标功能 → 再完善设计与实现 → 遵循工作纪律）。第一阶段就要求正确、可验证并有测试，不把正确性与测试推后。
    模块设计按 `codebase-design`：Interface 写清不变量、调用顺序、失败模式与配置，调用方不重复承担同一事实；模块按 leverage / locality 取舍深度，不按文件长度拆；只在已有真实变化处放 Seam，不为单个 Adapter 预造抽象；调用方与测试经过同一 Seam，通过同一 Interface 验证行为。
    文件资源的路径语法、保留入口与文件/目录集合冲突在各独立入口调用同一共享校验判定，入口内不重复校验，表单、导入、导出复用同一规则；唯一性按实际目录命名空间比较（大小写规则见 `docs/ARCHITECTURE.md`），写入成功必须能整棵投影出对应文件。
@@ -62,10 +64,17 @@
    更新任务记录（下一步、验证结果）；切回 main 时说明成果是否已合入。
    **完成判据**：验证命令有真实输出、记录已更新、提交状态与用户授权一致。
 
-7. **`ExitWorktree`**
-   有改动就 keep（保留分支），确认收尾后按需移除。
+7. **工作区收尾（`ExitWorktree`）**
+   用户说「收尾工作区」指：清理本任务已交付的 worktree、退出回主 checkout、把主 checkout 的 main 更新到最新；只处理本任务，不做全局清扫。该口令本身不自动授权 commit/push/merge，只有用户在本任务明确授权时才执行，并如实报告。
 
-   **清理判据（任务收尾必做）**：只要该分支的改动**已全部提交且已合并到 main**，对应 worktree 就没有继续存在的必要，直接 `git worktree remove` 删掉；分支引用与远程保留，删树不丢代码。删之前用 `git status --porcelain` 确认为空；只有 `node_modules` 等可重建依赖挡住时用 `--force`，其它任何未提交内容一律不删、先报告。未合并的分支保留 worktree 供继续开发。
+   **清理前核对**，全部满足才删：
+   - 本分支改动已全部提交，且已合入 main；以 PR 的真实合并状态为准（squash 合并后本地祖先关系不再成立），不能只用 `git merge-base --is-ancestor` 判断。
+   - `git status --porcelain` 为空。
+   - 没有其他会话正在使用该 worktree。
+
+   满足后先 `ExitWorktree` 退出（有改动就 keep 保留分支），再 `git worktree remove`；本地与远程分支都保留，删树不丢代码。只有 `node_modules` 等可重建依赖挡住时用 `--force`；未提交、未合并或被占用时一律保留并报告，不删。
+   回到主 checkout 后确认身处 main 且工作区干净，再 `git fetch origin` 与 `git merge --ff-only origin/main`。不在 main、有本地差异或不能快进时保留现状并报告原因，不 reset、不 stash。
+   **完成判据**：报告每个 worktree 删除或保留的原因、主 checkout 的绝对路径，以及 main 更新到的 commit 或未更新原因。
 
 ### 配置与启动
 
