@@ -1,10 +1,11 @@
 import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { CalendarClock, CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import { CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
@@ -282,7 +283,7 @@ export function SchedulesPage() {
 
       {schedules.data && items.length === 0 ? (
         <PageNote
-          icon={<CalendarClock className="size-4" aria-hidden="true" />}
+          icon={<BusinessIllustration name="schedule" size="compact" />}
           title="按 cron 自动发起运行"
         />
       ) : null}

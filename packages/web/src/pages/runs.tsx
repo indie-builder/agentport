@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { Activity, Download, RefreshCw } from 'lucide-react';
+import { Download, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
@@ -251,7 +252,7 @@ export function RunsPage() {
           ) : null}
           {empty ? (
             <PageNote
-              icon={<Activity className="size-4" aria-hidden="true" />}
+              icon={<BusinessIllustration name={filtered ? 'search' : 'runs'} size="compact" />}
               title={filtered ? '没有匹配的运行' : '还没有运行记录'}
               action={
                 filtered ? (

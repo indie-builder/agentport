@@ -31,6 +31,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock, JsonBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -389,7 +390,7 @@ export function ServersPage() {
 
       {servers.data && all.length === 0 ? (
         <PageNote
-          icon={<ServerIcon className="size-4" aria-hidden="true" />}
+          icon={<BusinessIllustration name="tools" size="compact" />}
           title="把外部服务接成专家可用的工具"
           description="本地命令、远程 MCP 或 HTTP API 都可以。"
           action={
@@ -404,6 +405,7 @@ export function ServersPage() {
 
       {servers.data && all.length > 0 && filtered.length === 0 ? (
         <PageNote
+          icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的连接器"
           description="换个关键词，或清除来源筛选。"
           action={

@@ -67,6 +67,7 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -574,7 +575,7 @@ export function AgentsPage() {
           <ErrorState error={me.error} onRetry={() => void me.refetch()} />
         ) : canCreate ? null : (
           <PageNote
-            icon={<Bot />}
+            icon={<BusinessIllustration name="agents" size="compact" />}
             title="暂无可用专家"
             description="当前账户尚未分配可用专家，请联系管理员。"
           />
@@ -582,6 +583,7 @@ export function AgentsPage() {
       ) : null}
       {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
         <PageNote
+          icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的专家"
           action={
             <div className="flex flex-wrap items-center gap-2">

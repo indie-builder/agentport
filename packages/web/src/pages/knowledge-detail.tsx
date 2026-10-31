@@ -38,6 +38,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { z } from 'zod';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -1006,7 +1007,7 @@ function DocumentsTab({
         ) : null}
         {documents.isSuccess && documentItems.length === 0 ? (
           <EmptyState
-            icon={<FileText className="size-5" />}
+            illustration={<BusinessIllustration name={filtersActive ? 'search' : 'documents'} />}
             title={filtersActive ? '没有匹配的文档' : '还没有文档'}
             action={
               filtersActive ? (
@@ -2801,6 +2802,7 @@ function SourcesTab({
       ) : null}
       {sources.data && sources.data.length === 0 ? (
         <EmptyState
+          illustration={<BusinessIllustration name="knowledge" />}
           title="还没有外部来源"
           action={
             caps.sources ? (
@@ -4398,6 +4400,7 @@ function JobsTab({
       ) : null}
       {jobs.data && jobs.data.length === 0 ? (
         <EmptyState
+          illustration={<BusinessIllustration name={documentId ? 'search' : 'runs'} />}
           title={documentId ? '该文档还没有处理记录' : '还没有任务'}
           description={
             documentId

@@ -6,6 +6,7 @@ import type {
   KnowledgeSearchResponse,
 } from '../lib/api.js';
 import { useKnowledgeFolders, useKnowledgeSearch, useKnowledgeTags } from '../lib/queries.js';
+import { BusinessIllustration } from './business-illustration.js';
 import {
   citationFromHit,
   citationPageLabel,
@@ -415,7 +416,11 @@ export function KnowledgeSearchResults({
         </div>
       ) : null}
       {result.hits.length === 0 ? (
-        <EmptyState title={emptyTitle} description="换一个关键词或扩大筛选范围。" />
+        <EmptyState
+          illustration={<BusinessIllustration name="search" size="compact" />}
+          title={emptyTitle}
+          description="换一个关键词或扩大筛选范围。"
+        />
       ) : (
         <ul className="flex flex-col">
           {result.hits.map((hit, index) => (
@@ -565,7 +570,10 @@ export function SearchTab({
       </div>
 
       {terms === '' ? (
-        <EmptyState icon={<Search className="size-5" />} title="输入关键词后开始检索" />
+        <EmptyState
+          illustration={<BusinessIllustration name="search" />}
+          title="输入关键词后开始检索"
+        />
       ) : null}
       {terms !== '' && result.isPending ? <LoadingState rows={3} /> : null}
       {terms !== '' && result.isError ? (

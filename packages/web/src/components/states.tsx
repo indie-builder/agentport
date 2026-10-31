@@ -69,12 +69,14 @@ export function EmptyState({
   description,
   action,
   icon,
+  illustration,
   className,
 }: {
   title: string;
   description?: string;
   action?: ReactNode;
   icon?: ReactNode;
+  illustration?: ReactNode;
   className?: string;
 }) {
   return (
@@ -84,9 +86,11 @@ export function EmptyState({
         className,
       )}
     >
-      <div className="flex size-10 items-center justify-center rounded-full bg-sunken text-subtle">
-        {icon ?? <Inbox className="size-5" />}
-      </div>
+      {illustration ?? (
+        <div className="flex size-10 items-center justify-center rounded-full bg-sunken text-subtle">
+          {icon ?? <Inbox className="size-5" />}
+        </div>
+      )}
       <div className="mt-1 text-sm font-medium text-fg">{title}</div>
       {description ? (
         <div className="max-w-sm text-xs leading-relaxed text-muted-foreground">{description}</div>
