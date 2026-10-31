@@ -8,7 +8,7 @@ import { runStatusSchema } from './schemas.js';
  * 这里只描述审核请求、提案和历史变更的形状。
  */
 
-/** 记忆目录内的扁平 Markdown 文件名；API 参数、回顾目标、journal 与 web 表单共用这一份。 */
+/** 记忆目录内的扁平 Markdown 文件名；API 参数、提案目标、journal 与 web 表单共用这一份。 */
 export const memoryFileNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.md$/;
 export const memoryFileNameSchema = z
   .string()
@@ -37,7 +37,7 @@ export const memoryReviewTargetSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('agent_memory'),
       agentId: z.string().min(1),
-      /** 一次回顾只处理一个文件；MEMORY.md 也走同名目标，不设隐式默认值。 */
+      /** 一次提案只处理一个文件；MEMORY.md 也走同名目标，不设隐式默认值。 */
       name: memoryFileNameSchema,
     })
     .strict(),

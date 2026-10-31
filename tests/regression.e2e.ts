@@ -203,17 +203,47 @@ test('personal module opens as profile and exposes direct subpages', { session: 
 }) => {
   await app.open('/personal/profile');
   await expect(screen.getByRole('heading', '个人资料', { exact: true })).toHaveCount(1);
-  for (const label of ['个人记忆', '历史回顾', '安全与会话', '我的分享', '使用记录']) {
-    await expect(screen.getByRole('link', label, { exact: true })).toBeVisible();
+  // 个人上下文把六页放进主侧栏；用导航边界精确限定，避免与同名底部账号入口混淆。
+  const personalNav = browser.locator('nav[aria-label="主导航"]');
+  const personalLinks = ['个人记忆', '记忆提案', '我的分享', '使用记录', '个人资料', '账号安全'];
+  await expect(personalNav.getByRole('link', { exact: true })).toHaveCount(personalLinks.length);
+  for (const label of personalLinks) {
+    await expect(personalNav.getByRole('link', label, { exact: true })).toBeVisible();
   }
+  await expect(personalNav.getByRole('link', '个人资料', { exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  const accountEntryCurrent = await browser.evaluate(() =>
+    [...document.querySelectorAll('a[aria-label="个人资料"]')].some(
+      (entry) => entry.closest('nav') === null && entry.getAttribute('aria-current') === 'page',
+    ),
+  );
+  expect(accountEntryCurrent).toBe(true);
   await expect(screen.getByRole('link', '返回工作区', { exact: true })).toBeVisible();
 
   await app.open('/personal/memory');
   await expect(screen.getByRole('heading', '个人记忆', { exact: true })).toHaveCount(1);
+  await expect(personalNav.getByRole('link', '个人记忆', { exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  // 阅读态先说明这些内容会随每轮对话带入；编辑入口再进入源码编辑器。
+  await expect(screen.getByText('每轮对话会带入这些长期信息。')).toBeVisible();
+  const editEntry = screen.getByRole('button', '编辑', { exact: true });
+  if ((await editEntry.count()) > 0) {
+    await editEntry.tap();
+  } else {
+    await screen.getByRole('button', '自己填写', { exact: true }).tap();
+  }
   await expect(screen.getByLabel('个人记忆内容（Markdown）')).toBeVisible();
 
   await app.open('/personal/reviews');
-  await expect(screen.getByRole('heading', '历史回顾', { exact: true })).toHaveCount(1);
+  await expect(screen.getByRole('heading', '记忆提案', { exact: true })).toHaveCount(1);
+  await expect(personalNav.getByRole('link', '记忆提案', { exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
 
   const overflows = await browser.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,

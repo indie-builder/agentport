@@ -65,10 +65,16 @@ export const auditSearchSchema = z.object({
 const runStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'] as const;
 const runTriggers = ['chat', 'mcp', 'schedule', 'event', 'review'] as const;
 
-/** 个人回顾：专家筛选与选中的回顾都进 URL，链接可直接打开详情。 */
+/** 个人记忆提案：专家筛选、选中提案、列表视图与创建入口都进 URL，链接可复现同一视图。 */
 export const personalReviewsSearchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
   run: z.string().min(1).optional().catch(undefined),
+  view: z.enum(['pending', 'generating', 'done']).optional().catch(undefined),
+  create: z
+    .union([z.boolean(), z.enum(['true', 'false'])])
+    .optional()
+    .catch(undefined)
+    .transform((value) => (value === undefined ? undefined : value === true || value === 'true')),
 });
 
 /** 我的分享：游标分页进 URL，刷新和返回保持同一页。 */

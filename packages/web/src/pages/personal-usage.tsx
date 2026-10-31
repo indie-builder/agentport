@@ -1,21 +1,14 @@
-import type { PersonalRun, PersonalRunListQuery, PersonalUsageSummary } from '@agentport/shared';
+import type { PersonalRun, PersonalRunListQuery } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { can } from '../lib/access.js';
 import type { RunStatus } from '../lib/api.js';
 import {
@@ -36,7 +29,7 @@ const triggerLabel: Record<Trigger, string> = {
   mcp: '连接器',
   schedule: '定时任务',
   event: '事件',
-  review: '历史回顾',
+  review: '记忆提案',
 };
 
 const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
@@ -56,29 +49,13 @@ function formatUtcDateTime(value: string): string {
   return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
 }
 
-function usageRows(summary: PersonalUsageSummary): Array<[string, string]> {
-  const rows: Array<[string, string]> = [
-    ['运行次数', String(summary.runCount)],
-    ['成功', String(summary.succeeded)],
-    ['失败', String(summary.failed)],
-    ['已取消', String(summary.cancelled)],
-    ['超时', String(summary.timeout)],
-    ['排队中', String(summary.queued)],
-    ['运行中', String(summary.running)],
-    [
-      '已记录 Token',
-      `${formatTokens(summary.inputTokens)} 输入 / ${formatTokens(summary.outputTokens)} 输出`,
-    ],
-  ];
-  const cost =
-    summary.costUsd === null
-      ? '未记录'
-      : `${formatCost(summary.costUsd)} · ${summary.costRecordedRuns}/${summary.runCount} 次运行`;
-  rows.push(['已记录成本', cost]);
-  if (summary.costUsd !== null && summary.costMissingRuns > 0) {
-    rows.push(['成本覆盖', `${summary.costMissingRuns} 次运行未记录成本`]);
-  }
-  return rows;
+function SummaryStat({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="flex items-baseline justify-between gap-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono tabular-nums text-fg">{value}</span>
+    </span>
+  );
 }
 
 function runDestination(
@@ -131,29 +108,70 @@ export function PersonalUsagePage() {
     ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
   ];
 
+  const actionLinkClass = buttonVariants({ variant: 'link', size: 'sm' });
+
+  const daysControl = (
+    <FilterSelect
+      value={String(days)}
+      onValueChange={(next) => patchSearch({ days: Number(next), cursor: undefined })}
+      options={[
+        { value: '7', label: '最近 7 天' },
+        { value: '30', label: '最近 30 天' },
+        { value: '90', label: '最近 90 天' },
+      ]}
+      label="统计窗口"
+      className="w-32"
+    />
+  );
+
+  const runAction = (run: PersonalRun): ReactNode => {
+    const destination = runDestination(run, { canReadMemory, canReadConversations });
+    if (destination === 'review') {
+      return (
+        <Link
+          to="/personal/reviews"
+          search={{ run: run.id }}
+          aria-label={`审核提案 ${run.agentName ?? shortId(run.id)}`}
+          className={actionLinkClass}
+        >
+          审核提案
+        </Link>
+      );
+    }
+    if (destination === 'chat' && run.conversationId) {
+      return (
+        <Link
+          to="/chat"
+          search={{ agent: run.agentId, conversation: run.conversationId }}
+          aria-label={`回到对话 ${run.agentName ?? shortId(run.id)}`}
+          className={actionLinkClass}
+        >
+          回到对话
+        </Link>
+      );
+    }
+    return (
+      <Link
+        to="/runs/$runId"
+        params={{ runId: run.id }}
+        aria-label={`查看运行 ${run.agentName ?? shortId(run.id)}`}
+        className={actionLinkClass}
+      >
+        查看运行
+      </Link>
+    );
+  };
+
   const columns: DataColumn<PersonalRun>[] = [
-    {
-      id: 'id',
-      header: '运行 ID',
-      locked: true,
-      width: '112px',
-      cell: (run) => (
-        <code className="font-mono text-xs text-muted-foreground" title={run.id}>
-          {shortId(run.id)}
-        </code>
-      ),
-    },
     {
       id: 'agent',
       header: '专家',
-      width: 'minmax(120px,1fr)',
-      cell: (run) => <span className="block truncate text-fg">{run.agentName ?? '已删除'}</span>,
-    },
-    {
-      id: 'status',
-      header: '状态',
-      width: '96px',
-      cell: (run) => <RunStatusBadge status={run.status} />,
+      width: 'minmax(150px,1fr)',
+      cell: (run) => (
+        <span className="block truncate text-fg" title={run.agentName ?? '已删除'}>
+          {run.agentName ?? '已删除'}
+        </span>
+      ),
     },
     {
       id: 'trigger',
@@ -164,8 +182,14 @@ export function PersonalUsagePage() {
       ),
     },
     {
+      id: 'status',
+      header: '状态',
+      width: '96px',
+      cell: (run) => <RunStatusBadge status={run.status} />,
+    },
+    {
       id: 'startedAt',
-      header: '开始',
+      header: '时间',
       width: '110px',
       cell: (run) => (
         <span className="text-sm text-muted-foreground" title={run.startedAt ?? run.createdAt}>
@@ -174,128 +198,99 @@ export function PersonalUsagePage() {
       ),
     },
     {
-      id: 'latency',
-      header: '耗时',
-      numeric: true,
-      width: '76px',
-      cell: (run) => formatDuration(run.latencyMs),
-    },
-    {
-      id: 'cost',
-      header: '成本',
-      numeric: true,
-      width: '84px',
-      cell: (run) => formatCost(run.costUsd),
-    },
-    {
-      id: 'tokens',
-      header: 'Token',
-      numeric: true,
-      width: '116px',
-      cell: (run) => `${formatTokens(run.inputTokens)} / ${formatTokens(run.outputTokens)}`,
+      id: 'actions',
+      header: '去向',
+      locked: true,
+      width: '96px',
+      cell: (run) => runAction(run),
     },
   ];
+
+  const summary = usage.data;
 
   return (
     <Page>
       <PageHeader title="使用记录" />
 
-      <PageToolbar>
-        <FilterSelect
-          value={String(days)}
-          onValueChange={(next) => patchSearch({ days: Number(next), cursor: undefined })}
-          options={[
-            { value: '7', label: '最近 7 天' },
-            { value: '30', label: '最近 30 天' },
-            { value: '90', label: '最近 90 天' },
-          ]}
-          label="统计窗口"
-          className="w-full sm:w-32"
-        />
-        {canAgents ? (
-          <FilterSelect
-            value={search.agent ?? ''}
-            onValueChange={(next) => patchSearch({ agent: next || undefined, cursor: undefined })}
-            options={agentOptions}
-            label="按专家筛选"
-            className="w-full sm:w-36"
-          />
-        ) : null}
-        <FilterSelect
-          value={search.status ?? ''}
-          onValueChange={(next) =>
-            patchSearch({
-              status: (next || undefined) as RunStatus | undefined,
-              cursor: undefined,
-            })
-          }
-          options={[
-            { value: '', label: '全部状态' },
-            ...statuses.map((status) => ({ value: status, label: runStatusLabel[status] })),
-          ]}
-          label="按状态筛选"
-          className="w-full sm:w-32"
-        />
-        <FilterSelect
-          value={search.trigger ?? ''}
-          onValueChange={(next) =>
-            patchSearch({
-              trigger: (next || undefined) as Trigger | undefined,
-              cursor: undefined,
-            })
-          }
-          options={[
-            { value: '', label: '全部来源' },
-            ...triggers.map((trigger) => ({ value: trigger, label: triggerLabel[trigger] })),
-          ]}
-          label="按来源筛选"
-          className="w-full sm:w-32"
-        />
-      </PageToolbar>
-
       {canOverview ? (
-        <PageSection
-          title="使用汇总"
-          description={
-            usage.data
-              ? `${formatUtcDateTime(usage.data.since)} – ${formatUtcDateTime(usage.data.until)}（UTC，按运行创建时间）`
-              : `最近 ${days} 天（UTC，按运行创建时间）`
-          }
-        >
+        <PageSection className="gap-3" divided={false}>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="text-base font-medium text-fg">使用汇总</h2>
+              <p className="text-sm text-muted-foreground">
+                {summary
+                  ? `${formatUtcDateTime(summary.since)} – ${formatUtcDateTime(summary.until)}（UTC，按运行创建时间）`
+                  : `最近 ${days} 天（UTC，按运行创建时间）`}
+              </p>
+            </div>
+            {daysControl}
+          </div>
           {usage.isPending ? <LoadingState rows={3} /> : null}
           {usage.isError ? (
             <ErrorState error={usage.error} onRetry={() => void usage.refetch()} />
           ) : null}
-          {usage.data ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>指标</TableHead>
-                  <TableHead className="text-right">数值</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {usageRows(usage.data).map(([label, value]) => (
-                  <TableRow key={label}>
-                    <TableCell className="text-muted-foreground">{label}</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums text-fg">
-                      {value}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          {summary ? (
+            <dl className="flex flex-col gap-2 text-sm">
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+                <dt className="w-20 shrink-0 text-muted-foreground">运行</dt>
+                <dd className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-6 gap-y-2">
+                  <span className="whitespace-nowrap">
+                    <span className="text-muted-foreground">总计 </span>
+                    <span className="font-mono tabular-nums text-fg">{summary.runCount}</span>
+                  </span>
+                  <div className="grid min-w-0 max-w-[560px] flex-1 grid-cols-6 gap-x-6 gap-y-1">
+                    {statuses.map((status) => (
+                      <SummaryStat
+                        key={status}
+                        label={runStatusLabel[status]}
+                        value={String(summary[status])}
+                      />
+                    ))}
+                  </div>
+                </dd>
+              </div>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <dt className="w-20 shrink-0 text-muted-foreground">Token</dt>
+                <dd className="min-w-0 text-fg">
+                  {`${formatTokens(summary.inputTokens)} 输入 / ${formatTokens(summary.outputTokens)} 输出`}
+                </dd>
+              </div>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <dt className="w-20 shrink-0 text-muted-foreground">已记录成本</dt>
+                <dd className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-fg">
+                  {summary.costUsd === null ? (
+                    <span>未记录</span>
+                  ) : (
+                    <>
+                      <span className="font-mono tabular-nums">
+                        {`${formatCost(summary.costUsd)} · ${summary.costRecordedRuns}/${summary.runCount} 次运行`}
+                      </span>
+                      {summary.costMissingRuns > 0 ? (
+                        <span className="text-muted-foreground">
+                          {`${summary.costMissingRuns} 次运行未记录成本`}
+                        </span>
+                      ) : null}
+                    </>
+                  )}
+                </dd>
+              </div>
+            </dl>
           ) : null}
         </PageSection>
       ) : null}
 
       {canRuns ? (
-        <PageSection
-          title="运行"
-          description="汇总不随下面的筛选和分页变化。"
-          actions={
-            cursor || runs.data?.nextCursor ? (
-              <div className="flex items-center gap-2">
+        <PageSection className="gap-2" divided={canOverview}>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="text-base font-medium text-fg">运行</h2>
+              {canOverview ? (
+                <p className="text-sm text-muted-foreground">汇总不随下面的筛选和分页变化。</p>
+              ) : null}
+            </div>
+            {!canOverview || cursor || runs.data?.nextCursor ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {canOverview ? null : daysControl}
                 {cursor ? (
                   <Button
                     variant="outline"
@@ -315,9 +310,66 @@ export function PersonalUsagePage() {
                   </Button>
                 ) : null}
               </div>
-            ) : undefined
-          }
-        >
+            ) : null}
+          </div>
+          <PageToolbar>
+            {canAgents ? (
+              <FilterSelect
+                value={search.agent ?? ''}
+                onValueChange={(next) =>
+                  patchSearch({ agent: next || undefined, cursor: undefined })
+                }
+                options={agentOptions}
+                label="按专家筛选"
+                className="w-full sm:w-36"
+              />
+            ) : null}
+            <FilterSelect
+              value={search.status ?? ''}
+              onValueChange={(next) =>
+                patchSearch({
+                  status: (next || undefined) as RunStatus | undefined,
+                  cursor: undefined,
+                })
+              }
+              options={[
+                { value: '', label: '全部状态' },
+                ...statuses.map((status) => ({ value: status, label: runStatusLabel[status] })),
+              ]}
+              label="按状态筛选"
+              className="w-full sm:w-32"
+            />
+            <FilterSelect
+              value={search.trigger ?? ''}
+              onValueChange={(next) =>
+                patchSearch({
+                  trigger: (next || undefined) as Trigger | undefined,
+                  cursor: undefined,
+                })
+              }
+              options={[
+                { value: '', label: '全部来源' },
+                ...triggers.map((trigger) => ({ value: trigger, label: triggerLabel[trigger] })),
+              ]}
+              label="按来源筛选"
+              className="w-full sm:w-32"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-pressed={search.status === 'failed'}
+              onClick={() =>
+                patchSearch({
+                  status: search.status === 'failed' ? undefined : 'failed',
+                  cursor: undefined,
+                })
+              }
+            >
+              {search.status === 'failed' ? '清除失败筛选' : '只看失败'}
+            </Button>
+          </PageToolbar>
+
           {runs.isError ? (
             <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
           ) : runs.data && runs.data.items.length === 0 ? (
@@ -338,24 +390,24 @@ export function PersonalUsagePage() {
               label="我的运行"
               loading={runs.isPending}
               empty="没有运行记录"
-              onRowClick={(run) => {
-                const destination = runDestination(run, {
-                  canReadMemory,
-                  canReadConversations,
-                });
-                if (destination === 'review') {
-                  void navigate({ to: '/personal/reviews', search: { run: run.id } });
-                  return;
-                }
-                if (destination === 'chat' && run.conversationId) {
-                  void navigate({
-                    to: '/chat',
-                    search: { agent: run.agentId, conversation: run.conversationId },
-                  });
-                  return;
-                }
-                void navigate({ to: '/runs/$runId', params: { runId: run.id } });
-              }}
+              renderExpanded={(run) => (
+                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+                  <dt className="text-muted-foreground">耗时</dt>
+                  <dd className="font-mono tabular-nums text-fg">
+                    {formatDuration(run.latencyMs)}
+                  </dd>
+                  <dt className="text-muted-foreground">成本</dt>
+                  <dd className="font-mono tabular-nums text-fg">{formatCost(run.costUsd)}</dd>
+                  <dt className="text-muted-foreground">Token</dt>
+                  <dd className="font-mono tabular-nums text-fg">
+                    {`${formatTokens(run.inputTokens)} / ${formatTokens(run.outputTokens)}`}
+                  </dd>
+                  <dt className="text-muted-foreground">运行 ID</dt>
+                  <dd className="font-mono text-xs text-fg" title={run.id}>
+                    {shortId(run.id)}
+                  </dd>
+                </dl>
+              )}
             />
           )}
         </PageSection>

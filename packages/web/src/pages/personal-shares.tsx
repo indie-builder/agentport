@@ -10,6 +10,7 @@ import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageToolbar } from '../components/page.js';
 import { EmptyState, ErrorState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
+import { FieldError } from '../components/ui/field.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
 import { formatDateTime } from '../lib/format.js';
@@ -20,6 +21,50 @@ function shareLink(share: PersonalOutputShare): string {
   return `${window.location.origin}${share.urlPath}`;
 }
 
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1) || path;
+}
+
+function ShareSourceCell({
+  share,
+  canOpenConversation,
+}: {
+  share: PersonalOutputShare;
+  canOpenConversation: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const sourceTitle = share.conversationTitle || share.conversationId;
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      {open && canOpenConversation ? (
+        <Link
+          to="/chat"
+          search={{ agent: share.agentId, conversation: share.conversationId }}
+          className="break-words text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
+        >
+          {sourceTitle}
+        </Link>
+      ) : (
+        <span
+          className={open ? 'break-words text-sm text-fg' : 'line-clamp-2 text-sm text-fg'}
+          title={open ? undefined : sourceTitle}
+        >
+          {sourceTitle}
+        </span>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 justify-start px-0 text-xs text-muted-foreground"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? '收起来源' : '展开来源'}
+      </Button>
+    </div>
+  );
+}
+
 export function PersonalSharesPage() {
   const me = useQuery(meQuery);
   const search = useSearch({ from: '/_shell/personal/shares' });
@@ -28,47 +73,43 @@ export function PersonalSharesPage() {
   const shares = usePersonalOutputShares(cursor);
   const revoke = useRevokePersonalOutputShare();
   const [target, setTarget] = useState<PersonalOutputShare | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
   const canOpenConversation = can(me.data, 'conversations.read');
 
   const columns: DataColumn<PersonalOutputShare>[] = [
     {
-      id: 'path',
+      id: 'file',
       header: '文件',
       locked: true,
-      width: 'minmax(180px,1.4fr)',
-      cell: (share) => (
-        <span className="block truncate font-mono text-xs text-fg" title={share.path}>
-          {share.path}
-        </span>
-      ),
+      width: 'minmax(150px,1.4fr)',
+      cell: (share) => {
+        const name = fileName(share.path);
+        return (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="break-words text-base text-fg" title={share.path}>
+              {name}
+            </span>
+            {name === share.path ? null : (
+              <span className="break-all font-mono text-xs text-muted-foreground">
+                {share.path}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: 'conversation',
       header: '来源会话',
-      width: 'minmax(160px,1fr)',
-      cell: (share) =>
-        canOpenConversation ? (
-          <Link
-            to="/chat"
-            search={{ agent: share.agentId, conversation: share.conversationId }}
-            className="block truncate text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
-            title={share.conversationTitle}
-          >
-            {share.conversationTitle}
-          </Link>
-        ) : (
-          <span className="block truncate text-sm text-fg" title={share.conversationTitle}>
-            {share.conversationTitle}
-          </span>
-        ),
+      width: 'minmax(140px,1fr)',
+      cell: (share) => <ShareSourceCell share={share} canOpenConversation={canOpenConversation} />,
     },
     {
       id: 'createdAt',
       header: '分享于',
-      width: '110px',
+      width: '96px',
       cell: (share) => (
-        <span className="text-sm text-muted-foreground" title={share.createdAt}>
+        <span className="block text-sm text-muted-foreground" title={share.createdAt}>
           {formatDateTime(share.createdAt)}
         </span>
       ),
@@ -76,17 +117,27 @@ export function PersonalSharesPage() {
     {
       id: 'actions',
       header: '操作',
-      width: '84px',
+      align: 'end',
+      width: 'minmax(270px,auto)',
       cell: (share) => (
-        <div className="flex items-center justify-end gap-1">
-          <CopyButton value={shareLink(share)} label={`复制 ${share.path} 的分享链接`} />
+        <div className="flex items-center justify-end gap-x-3 whitespace-nowrap">
+          <a
+            href={share.urlPath}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
+          >
+            查看分享
+          </a>
+          <CopyButton value={shareLink(share)} label="复制链接" showLabel />
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            aria-label={`撤销 ${share.path} 的分享`}
+            className="text-muted-foreground hover:text-danger"
+            aria-label={`撤销 ${fileName(share.path)} 的分享`}
             disabled={revoke.isPending}
             onClick={() => {
-              setActionError(null);
+              setModalError(null);
               setTarget(share);
             }}
           >
@@ -117,42 +168,6 @@ export function PersonalSharesPage() {
         }
       />
 
-      <PageToolbar>
-        {cursor ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void navigate({ to: '/personal/shares', search: {} })}
-          >
-            回到最新
-          </Button>
-        ) : null}
-        {shares.data ? (
-          <span className="text-sm text-muted-foreground">本页 {shares.data.items.length} 条</span>
-        ) : null}
-        {shares.data?.nextCursor ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto"
-            onClick={() =>
-              void navigate({
-                to: '/personal/shares',
-                search: { cursor: shares.data?.nextCursor ?? undefined },
-              })
-            }
-          >
-            下一页
-          </Button>
-        ) : null}
-      </PageToolbar>
-
-      {actionError ? (
-        <div role="alert" className="text-sm text-danger">
-          {actionError}
-        </div>
-      ) : null}
-
       {shares.isError ? (
         <ErrorState error={shares.error} onRetry={() => void shares.refetch()} />
       ) : shares.data && shares.data.items.length === 0 ? (
@@ -177,12 +192,44 @@ export function PersonalSharesPage() {
         />
       )}
 
+      {cursor || shares.data?.nextCursor ? (
+        <PageToolbar>
+          {cursor ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void navigate({ to: '/personal/shares', search: {} })}
+            >
+              回到最新
+            </Button>
+          ) : null}
+          {shares.data?.nextCursor ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() =>
+                void navigate({
+                  to: '/personal/shares',
+                  search: { cursor: shares.data?.nextCursor ?? undefined },
+                })
+              }
+            >
+              下一页
+            </Button>
+          ) : null}
+        </PageToolbar>
+      ) : null}
+
       <ConfirmDialog
         open={target !== null}
-        onClose={() => setTarget(null)}
+        onClose={() => {
+          setTarget(null);
+          setModalError(null);
+        }}
         title="撤销这次分享？"
         description={
-          target ? `「${target.path}」的公开链接会立即失效，已打开的人也无法再访问。` : ''
+          target ? `「${fileName(target.path)}」的公开链接会立即失效，已打开的人也无法再访问。` : ''
         }
         confirmLabel="撤销分享"
         confirmDisabled={revoke.isPending}
@@ -191,12 +238,17 @@ export function PersonalSharesPage() {
           try {
             await revoke.mutateAsync(target.id);
             setTarget(null);
+            setModalError(null);
             toastSuccess('分享已撤销');
           } catch (error) {
-            setActionError(errorMessage(error));
+            setModalError(errorMessage(error));
+            // 继续抛出让 ConfirmDialog 保持弹层，错误已在本弹层内展示。
+            throw error;
           }
         }}
-      />
+      >
+        {modalError ? <FieldError>{modalError}</FieldError> : null}
+      </ConfirmDialog>
     </Page>
   );
 }

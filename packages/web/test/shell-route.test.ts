@@ -18,9 +18,10 @@ import { allAccessMe } from './me-fixture.js';
 async function inspectRoute(
   path: string,
   auth: 'success' | 'pending' | 'error' | 'unauthenticated',
+  me: typeof allAccessMe = allAccessMe,
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  if (auth === 'success') client.setQueryData(['me'], allAccessMe);
+  if (auth === 'success') client.setQueryData(['me'], me);
   if (auth === 'unauthenticated') client.setQueryData(['me'], { authenticated: false });
   client.setQueryDefaults(['me'], {
     queryFn: () =>
@@ -122,6 +123,22 @@ async function inspectRoute(
     path: '/plugins/$pluginId',
     component: () => createElement(PageHeader, { title: '插件详情' }),
   });
+  const personalRoutes = (
+    [
+      ['/personal/profile', '个人资料'],
+      ['/personal/memory', '个人记忆'],
+      ['/personal/reviews', '记忆提案'],
+      ['/personal/security', '账号安全'],
+      ['/personal/shares', '我的分享'],
+      ['/personal/usage', '使用记录'],
+    ] as const
+  ).map(([personalPath, title]) =>
+    createRoute({
+      getParentRoute: () => shell,
+      path: personalPath,
+      component: () => createElement(PageHeader, { title }),
+    }),
+  );
   const login = createRoute({
     getParentRoute: () => rootRoute,
     path: '/login',
@@ -148,6 +165,7 @@ async function inspectRoute(
         audit,
         pluginsIndex,
         pluginDetail,
+        ...personalRoutes,
       ]),
       login,
     ]),
@@ -387,6 +405,13 @@ function navHrefs(host: HTMLElement): string[] {
   return navLinks(host).map((link) => link.getAttribute('href') ?? '');
 }
 
+function navGroupLabels(host: HTMLElement): string[] {
+  const nav = host.querySelector('nav[aria-label="主导航"]');
+  return nav
+    ? [...nav.children].map((group) => group.firstElementChild?.textContent?.trim() ?? '')
+    : [];
+}
+
 describe('business and operations navigation contexts', () => {
   it('shows only business items plus the secondary operations entry on business pages', async () => {
     const view = await inspectRoute('/agents/', 'success');
@@ -468,6 +493,153 @@ describe('business and operations navigation contexts', () => {
     const view = await inspectRoute(path, 'success');
     try {
       expect(document.title).toBe(title);
+    } finally {
+      await view.close();
+    }
+  });
+});
+
+const PERSONAL_HREFS = [
+  '/personal/memory',
+  '/personal/reviews',
+  '/personal/shares',
+  '/personal/usage',
+  '/personal/profile',
+  '/personal/security',
+];
+
+describe('personal navigation context', () => {
+  it('shows only the six personal items and the workspace return on personal pages', async () => {
+    const view = await inspectRoute('/personal/memory', 'success');
+    try {
+      expect(navHrefs(view.host)).toEqual(PERSONAL_HREFS);
+      expect(view.host.querySelector('a[aria-label="返回工作区"]')?.getAttribute('href')).toBe(
+        '/agents',
+      );
+      for (const href of [
+        '/agents',
+        '/chat',
+        '/schedules',
+        '/skills',
+        '/eval',
+        '/operations',
+        '/runs',
+        '/runtime-environments',
+        '/status',
+        '/audit',
+        '/accounts',
+        '/roles',
+      ]) {
+        expect(navHrefs(view.host)).not.toContain(href);
+      }
+      // 内容区旧横导航删除后，个人导航只保留在 AppShell 侧栏。
+      expect(view.host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
+      // 底部账号入口仍是独立入口，不属于导航条目，并保持个人上下文当前态。
+      const account = [
+        ...view.host.querySelectorAll<HTMLAnchorElement>('a[aria-label="个人资料"]'),
+      ].find((link) => link.closest('nav') === null);
+      expect(account?.getAttribute('href')).toBe('/personal/profile');
+      expect(account?.getAttribute('aria-current')).toBe('page');
+    } finally {
+      await view.close();
+    }
+  });
+
+  it.each(PERSONAL_HREFS)('marks the personal nav for %s', async (path) => {
+    const view = await inspectRoute(path, 'success');
+    try {
+      expect(navHrefs(view.host)).toEqual(PERSONAL_HREFS);
+      expect(activeNavLinks(view.host)).toEqual([path]);
+    } finally {
+      await view.close();
+    }
+  });
+
+  it('keeps personal items reachable and marked through collapse and immediate expand', async () => {
+    const view = await inspectRoute('/personal/memory', 'success');
+    try {
+      const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
+      await act(async () => collapse?.click());
+
+      expect(navHrefs(view.host)).toEqual(PERSONAL_HREFS);
+      expect(activeNavLinks(view.host)).toEqual(['/personal/memory']);
+      expect(view.host.querySelector('a[aria-label="返回工作区"]')?.getAttribute('href')).toBe(
+        '/agents',
+      );
+
+      const expand = view.host.querySelector<HTMLButtonElement>('button[aria-label="展开侧栏"]');
+      await act(async () => expand?.click());
+
+      expect(navHrefs(view.host)).toEqual(PERSONAL_HREFS);
+      expect(activeNavLinks(view.host)).toEqual(['/personal/memory']);
+    } finally {
+      await view.close();
+    }
+  });
+
+  it('groups personal destinations by task without adding another navigation', async () => {
+    const view = await inspectRoute('/personal/memory', 'success');
+    try {
+      expect(navGroupLabels(view.host)).toEqual(['与专家协作', '工作记录', '账号']);
+      expect(navLinks(view.host).map((link) => link.textContent?.trim())).toEqual([
+        '个人记忆',
+        '记忆提案',
+        '我的分享',
+        '使用记录',
+        '个人资料',
+        '账号安全',
+      ]);
+      expect(view.host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
+    } finally {
+      await view.close();
+    }
+  });
+
+  it.each([
+    ['/personal/reviews', '记忆提案 · PACE'],
+    ['/personal/security', '账号安全 · PACE'],
+  ])('names the renamed personal page %s as %s', async (path, title) => {
+    const view = await inspectRoute(path, 'success');
+    try {
+      expect(document.title).toBe(title);
+    } finally {
+      await view.close();
+    }
+  });
+
+  it('keeps the existing permission visibility for personal items', async () => {
+    const me = {
+      ...allAccessMe,
+      grants: allAccessMe.grants.filter(
+        (grant) =>
+          grant.permissionId === 'agents.read' || grant.permissionId === 'personal_memory.read',
+      ),
+    };
+    const view = await inspectRoute('/personal/profile', 'success', me);
+    try {
+      expect(navHrefs(view.host)).toEqual([
+        '/personal/memory',
+        '/personal/reviews',
+        '/personal/profile',
+        '/personal/security',
+      ]);
+      expect(navGroupLabels(view.host)).toEqual(['与专家协作', '账号']);
+      expect(view.host.querySelector('a[aria-label="返回工作区"]')?.getAttribute('href')).toBe(
+        '/agents',
+      );
+    } finally {
+      await view.close();
+    }
+  });
+
+  it('does not offer a workspace return when the user has no business permissions', async () => {
+    const view = await inspectRoute('/personal/profile', 'success', {
+      ...allAccessMe,
+      grants: [],
+    });
+    try {
+      expect(navHrefs(view.host)).toEqual(['/personal/profile', '/personal/security']);
+      expect(view.host.querySelector('a[aria-label="返回工作区"]')).toBeNull();
     } finally {
       await view.close();
     }
