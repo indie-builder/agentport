@@ -1,12 +1,16 @@
-import type { OutputStyle } from '@agentport/shared';
+import type { MemoryChange, OutputStyle } from '@agentport/shared';
+import { memoryFileNameSchema, validateMemoryContent } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FilePlus2, Plus, Trash2 } from 'lucide-react';
+import { Download, FilePlus2, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { DialogShell } from '../components/dialog-shell.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { Checkbox } from '../components/ui/checkbox.js';
+import { Dialog } from '../components/ui/dialog.js';
 import { Field, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
@@ -17,19 +21,94 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select.js';
-import { api } from '../lib/api.js';
+import { api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { formatDateTime } from '../lib/format.js';
 import {
   agentMemoryFileQuery,
   agentMemoryQuery,
   agentOutputStylesQuery,
   agentRulesQuery,
+  memoryVersionsQuery,
+  useRollbackMemoryChange,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
 interface DraftCallbacks {
   onDirtyChange?: (dirty: boolean) => void;
   onPendingChange?: (pending: boolean) => void;
+}
+
+/** 记忆写入同时影响文件列表、所选或索引正文以及这次写入的版本。 */
+function invalidateAgentMemoryQueries(
+  client: ReturnType<typeof useQueryClient>,
+  agentId: string,
+): void {
+  void client.invalidateQueries({ queryKey: ['agent-memory', agentId] });
+  void client.invalidateQueries({ queryKey: ['agent-memory-file', agentId] });
+  void client.invalidateQueries({ queryKey: ['memory-versions'] });
+  void client.invalidateQueries({ queryKey: ['memory-reviews'] });
+}
+
+/** MEMORY.md 的历史包含只改主题正文、实际变化在伴随索引里的记录。 */
+function changeAfterContent(change: MemoryChange, name: string): string | null {
+  if (change.target.kind !== 'agent_memory' || change.target.name === name) {
+    return change.after.content;
+  }
+  return change.after.index?.content ?? null;
+}
+
+function changeIndexChanged(change: MemoryChange): boolean {
+  return (change.before.index?.content ?? null) !== (change.after.index?.content ?? null);
+}
+
+/** 摘要取实际变化的行：索引变更常追加在末尾，不能只显示未变的标题行。 */
+function changePreview(change: MemoryChange, name: string): string {
+  const content = changeAfterContent(change, name) ?? '';
+  if (change.target.kind !== 'agent_memory' || change.target.name === name) {
+    return content.trim().split('\n')[0] ?? '';
+  }
+  const beforeLines = new Set((change.before.index?.content ?? '').split('\n'));
+  const changed = content.split('\n').find((line) => line.trim() !== '' && !beforeLines.has(line));
+  return (changed ?? content.trim().split('\n')[0] ?? '').trim();
+}
+
+/** 一次变更实际涉及的文件：主题正文，以及变化了的伴随索引。 */
+function changeFiles(
+  change: MemoryChange,
+): { key: string; label: string; content: string | null }[] {
+  if (change.target.kind !== 'agent_memory') {
+    return [{ key: 'target', label: '变更后内容', content: change.after.content }];
+  }
+  const name = change.target.name;
+  const files = [
+    {
+      key: name,
+      label: name === 'MEMORY.md' ? 'MEMORY.md' : `主题「${name}」正文`,
+      content: change.after.content,
+    },
+  ];
+  if (name !== 'MEMORY.md' && changeIndexChanged(change)) {
+    files.push({
+      key: 'MEMORY.md',
+      label: 'MEMORY.md 索引',
+      content: change.after.index?.content ?? null,
+    });
+  }
+  return files;
+}
+
+/** 新建主题的回滚会删除该主题；不能只说恢复 MEMORY.md。 */
+function rollbackImpact(change: MemoryChange): string {
+  if (change.target.kind !== 'agent_memory') return '恢复此前的保存内容。';
+  const name = change.target.name;
+  const indexText = changeIndexChanged(change) ? '，并恢复此前的 MEMORY.md 索引' : '';
+  if (change.before.content === null && change.after.content !== null) {
+    return name === 'MEMORY.md'
+      ? '删除新建的 MEMORY.md。'
+      : `删除新建的主题「${name}」${indexText}。`;
+  }
+  return `恢复「${name}」此前的正文${indexText}。`;
 }
 
 /** 从专家记忆进入按该专家筛选的历史回顾。 */
@@ -74,7 +153,7 @@ export function MemoryPanel({
     mutationFn: (fileName: string) => api.writeAgentMemoryFile(agentId, fileName, ''),
     onSuccess: (file) => {
       client.setQueryData(agentMemoryFileQuery(agentId, file.name).queryKey, file);
-      void client.invalidateQueries({ queryKey: ['agent-memory', agentId] });
+      invalidateAgentMemoryQueries(client, agentId);
       toastSuccess(`已创建 ${file.name}`);
       setCreating(false);
       setName('');
@@ -89,7 +168,7 @@ export function MemoryPanel({
       toastSuccess(`已删除 ${fileName}`);
       if (selected === fileName) setSelected(null);
       client.removeQueries({ queryKey: ['agent-memory-file', agentId, fileName] });
-      void client.invalidateQueries({ queryKey: ['agent-memory', agentId] });
+      invalidateAgentMemoryQueries(client, agentId);
     },
   });
 
@@ -108,6 +187,11 @@ export function MemoryPanel({
     const trimmed = name.trim();
     if (!trimmed) return;
     const fileName = trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
+    const parsed = memoryFileNameSchema.safeParse(fileName);
+    if (!parsed.success) {
+      toastError(new Error(parsed.error.issues[0]?.message ?? '记忆文件名非法'));
+      return;
+    }
     if (files.some((file) => file.name === fileName)) {
       toastError(new Error('同名记忆文件已存在，请换一个名字。'));
       return;
@@ -140,7 +224,7 @@ export function MemoryPanel({
         ) : null}
         <EmptyState
           icon={<FilePlus2 className="size-5" />}
-          title="初始化记忆"
+          title={canWrite ? '初始化记忆' : '尚未初始化记忆'}
           description="MEMORY.md 作为索引，跨会话保留这位专家的长期记忆。"
           action={
             canWrite ? (
@@ -160,7 +244,17 @@ export function MemoryPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <MemoryReviewLink agentId={agentId} />
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <MemoryReviewLink agentId={agentId} />
+        <Button
+          variant="outline"
+          nativeButton={false}
+          render={<a href={api.agentMemoryDownloadUrl(agentId)} download />}
+        >
+          <Download data-icon="inline-start" aria-hidden="true" />
+          下载记忆
+        </Button>
+      </div>
       {memory.isError ? (
         <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
       ) : null}
@@ -298,7 +392,7 @@ export function MemoryPanel({
             setDeleting(null);
           }}
           title="删除记忆文件"
-          description={`将删除「${deleting ?? ''}」，此操作不可撤销。`}
+          description={`将删除「${deleting ?? ''}」，并记入版本账本。`}
           confirmDisabled={pending}
           onConfirm={async () => {
             if (deleting) await remove.mutateAsync(deleting);
@@ -326,7 +420,12 @@ function MemoryFileEditor({
 }) {
   const client = useQueryClient();
   const file = useQuery(agentMemoryFileQuery(agentId, name));
+  const versions = useQuery(memoryVersionsQuery({ kind: 'agent_memory', agentId, name }));
+  const rollback = useRollbackMemoryChange();
   const [draft, setDraft] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<MemoryChange | null>(null);
+  const [rollbackTarget, setRollbackTarget] = useState<MemoryChange | null>(null);
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
   const content = draft ?? file.data?.content ?? '';
   const dirty = draft !== null && draft !== file.data?.content;
 
@@ -334,16 +433,42 @@ function MemoryFileEditor({
     mutationFn: () => api.writeAgentMemoryFile(agentId, name, content),
     onSuccess: (next) => {
       client.setQueryData(agentMemoryFileQuery(agentId, name).queryKey, next);
-      void client.invalidateQueries({ queryKey: ['agent-memory', agentId] });
+      // 已提交的草稿要清掉，后续外部刷新才能显示服务端新正文。
+      setDraft(null);
+      invalidateAgentMemoryQueries(client, agentId);
       toastSuccess('记忆已保存');
     },
     onError: toastError,
   });
+  const pending = save.isPending || rollback.isPending;
+
+  const rollbackTo = async (change: MemoryChange): Promise<void> => {
+    try {
+      await rollback.mutateAsync(change.id);
+      setDraft(null);
+      setRollbackError(null);
+      toastSuccess('已回滚这次变更');
+      await file.refetch();
+      await versions.refetch();
+    } catch (error) {
+      setRollbackError(errorMessage(error));
+    }
+  };
+
+  const submitSave = (): void => {
+    if (save.isPending) return;
+    const problem = validateMemoryContent(name, content);
+    if (problem !== null) {
+      toastError(new Error(problem));
+      return;
+    }
+    save.mutate();
+  };
 
   // 父级需要用脏状态拦截切换文件与路由离开。
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
-  useEffect(() => onPendingChange(save.isPending), [save.isPending, onPendingChange]);
+  useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
   useEffect(() => () => onPendingChange(false), [onPendingChange]);
 
   if (file.isPending) return <LoadingState rows={4} />;
@@ -364,16 +489,12 @@ function MemoryFileEditor({
                 size="icon"
                 aria-label={`删除 ${name}`}
                 title={`删除 ${name}`}
-                disabled={save.isPending}
+                disabled={pending}
                 onClick={onDelete}
               >
                 <Trash2 aria-hidden="true" />
               </Button>
-              <Button
-                disabled={!dirty || save.isPending}
-                aria-busy={save.isPending}
-                onClick={() => save.mutate()}
-              >
+              <Button disabled={!dirty || pending} aria-busy={save.isPending} onClick={submitSave}>
                 {save.isPending ? '保存中…' : '记忆保存'}
               </Button>
             </>
@@ -387,11 +508,119 @@ function MemoryFileEditor({
           value={content}
           language="markdown"
           aria-label={`${name} 内容`}
-          disabled={save.isPending || !canWrite}
+          disabled={pending || !canWrite}
           onChange={setDraft}
           className="min-h-[18rem]"
         />
       </Field>
+
+      <section aria-label={`${name} 版本`} className="flex flex-col gap-2 border-t pt-3">
+        <h3 className="text-sm font-medium text-fg">版本</h3>
+        {versions.isPending ? <LoadingState rows={3} /> : null}
+        {versions.isError ? (
+          <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
+        ) : null}
+        {versions.data ? (
+          versions.data.items.length === 0 ? (
+            <p className="text-sm text-muted-foreground">保存后会记录版本。</p>
+          ) : (
+            <ul className="divide-y border-y">
+              {versions.data.items.map((change) => {
+                const content = changeAfterContent(change, name);
+                const preview = changePreview(change, name);
+                return (
+                  <li key={change.id} className="flex items-start gap-2 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-fg">{formatDateTime(change.createdAt)}</div>
+                      <div className="truncate text-xs text-muted-foreground" title={content ?? ''}>
+                        {preview || '空内容'}
+                      </div>
+                      {change.reversesChangeId ? (
+                        <div className="text-2xs text-muted-foreground">回滚记录</div>
+                      ) : null}
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setViewing(change)}>
+                      查看
+                    </Button>
+                    {canWrite ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pending || dirty}
+                        title={dirty ? '先保存或放弃当前草稿再回滚' : undefined}
+                        aria-label={`回滚 ${formatDateTime(change.createdAt)} 的变更`}
+                        onClick={() => {
+                          setRollbackError(null);
+                          setRollbackTarget(change);
+                        }}
+                      >
+                        <RotateCcw data-icon="inline-start" aria-hidden="true" />
+                        回滚
+                      </Button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        ) : null}
+        {rollbackError ? (
+          <div role="alert" className="text-sm text-danger">
+            {rollbackError}
+          </div>
+        ) : null}
+      </section>
+
+      <Dialog
+        open={viewing !== null}
+        onOpenChange={(next) => {
+          if (!next) setViewing(null);
+        }}
+      >
+        <DialogShell title={`${name} 版本`} className="max-w-2xl">
+          {viewing ? (
+            <>
+              <p className="mb-3 text-sm text-muted-foreground">
+                {formatDateTime(viewing.createdAt)}
+              </p>
+              <div className="flex flex-col gap-3">
+                {changeFiles(viewing).map((file) => (
+                  <div key={file.key} className="flex min-w-0 flex-col gap-1.5">
+                    <h3 className="text-sm font-medium text-fg">{file.label}</h3>
+                    <CodeBlock
+                      code={file.content ?? ''}
+                      maxHeight="24rem"
+                      copyable={false}
+                      className="min-w-0"
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+          <div className="mt-4 flex justify-end">
+            <Button variant="outline" onClick={() => setViewing(null)}>
+              关闭
+            </Button>
+          </div>
+        </DialogShell>
+      </Dialog>
+
+      <ConfirmDialog
+        open={rollbackTarget !== null}
+        onClose={() => setRollbackTarget(null)}
+        title="回滚这次变更？"
+        description={
+          rollbackTarget
+            ? `将撤销 ${formatDateTime(rollbackTarget.createdAt)} 的这次变更：${rollbackImpact(rollbackTarget)}`
+            : ''
+        }
+        confirmLabel="回滚"
+        confirmDisabled={pending || dirty}
+        onConfirm={async () => {
+          if (rollbackTarget) await rollbackTo(rollbackTarget);
+        }}
+      />
     </div>
   );
 }

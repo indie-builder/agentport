@@ -332,31 +332,38 @@ data/workspaces/<agent-slug>/
 - https://code.claude.com/docs/en/agent-sdk/plugins
 - https://code.claude.com/docs/en/agent-sdk/modifying-system-prompts
 
-### 5.1 记忆、历史回顾与固定版本分享（2026-10-30）
+### 5.1 记忆、历史回顾与固定版本分享（2026-10-31）
 
-记忆按对象分类，权威、加载方式与版本能力各不相同（子智能体记忆源码评审与最终夹具复验通过）：
+记忆按对象分类，权威、加载方式与版本能力各不相同；现有用户偏好与子智能体记忆链路已核实：
 
 | 对象 | 权威 | 沙盒加载 | 版本与回滚 |
 |---|---|---|---|
-| 个人偏好 | `user_preferences` 单行（按 `businessId`，`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_users/<sha256(businessId)>/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮按主体读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本；按 `businessId` 隔离（本工作树实现，未合入 main） |
-| 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` + 主题文件） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制；子智能体的原生 Read/Write/Edit 默认启用但仅可读写自身记忆 Markdown，兄弟、父级与未知子智能体拒绝 | 仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes` |
-| 子智能体记忆（源码评审与最终夹具复验通过） | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：仅 `MEMORY.md` 的采纳、回滚与手工写入进 `memory_changes`，SDK 自主学习直接写 Markdown 不自动记账；源码整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留；运行整合 13 文件 195/195 PASS；未提交 |
+| 个人偏好 | `user_preferences` 单行（按 `businessId`，`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_users/<sha256(businessId)>/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮按主体读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本；按 `businessId` 隔离 |
+| 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` 索引 + 平铺主题 `.md`） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制；子智能体的原生 Read/Write/Edit 默认启用但仅可读写自身记忆 Markdown，兄弟、父级与未知子智能体拒绝 | 平台写入（回顾采纳、主题/索引手工 PUT/DELETE、回滚）按目标文件进 `memory_changes`，主题变更同时记录伴随索引；SDK 原生自动写入直接改 Markdown，不进账本 |
+| 子智能体记忆 | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：平台写入口进账本，SDK 自动写入不记账；验收证据见[子记忆任务记录](tasks/subagent-memory-20261030.md) |
 | 专家规则 | `agent_rules`（DB） | 渲染为 `.claude/rules/<slug>.md`，每次运行自动生效 | `memory_changes` 完整快照 |
 
-- **个人偏好不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。DB 写入成功即成功，文件投影失败只记日志；下一次保存会重新投影，当前没有 worker 启动前自动重建。
-- **个人记忆按 `businessId` 隔离（本工作树实现，未合入 main）**：投影目录与锁都以 `businessId` 为键；worker 从 DB 读取运行主体，服务主体没有个人记忆，也不回退到管理员。既有专家共享 auto-memory 的读写语义保持不变。
-- **历史回顾是用户触发的运行**：`agent_runs.trigger='review'`，读已落库的会话快照，`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema` 返回提案。沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停；不建沙盒、不追加消息、不写成果。证据必须是快照消息原文的连续子串。
-- **确认制，不是自动进化**：提案写入个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。
-- **`MEMORY.md` 是索引**：采纳时限制 200 行 / 25KB（官方启动只加载这个范围）；详细内容放主题文件或规则。
-- **专家记忆写入可恢复**：先写 `.memory-journal/` 日志，再原子 rename，再提交账本；账本失败按原字节恢复，恢复不了就保留日志供下次显式恢复，不根据内容等于提案来补记。
-- **子智能体记忆的准入与并发（源码评审与最终夹具复验通过）**：chat / schedule / eval 只使用稳定启用的直接子智能体集合；执行活动期间资源变化返回 409，普通字段与无关专家仍可编辑。锁顺序固定为绑定锁 → 排序后的 agent 记忆锁 → 行锁；目标自身有执行型活动 run，或目标是启用子专家且其直接父专家有执行型活动 run，就拒绝记忆写入并返回 409；审核 run 与其他无合法归属关系的 run 不占用。会话工作区刷新保留官方记忆子树 inode，挂载集合变化时重建容器。已知子智能体的原生 Read/Write/Edit 默认启用但只允许自己的 Markdown，兄弟、父级与未知子智能体拒绝，既有显式 deny 保留且恢复只移除裸 deny/allow、不清除路径规则；Bash 共享可见，不声称隔离。分层验证：stable 25 文件 376 用例、web 72、outputs 31、migration `generate` + `migrate` 隔离库通过；SDK 最新接口 16/16 PASS（含跨 run、容器内自动 system 加载及边界与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留。源码整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS；运行整合 13 文件 195/195 PASS（`/tmp/subagent-memory-runtime-final-green.json`），未提交、未合并。
+- **个人偏好不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。API 保存以 DB 事务提交为准，投影失败只记日志；worker 在每轮用户运行、挂载工作区前按 DB 重建该用户的投影，崩溃遗留的旧投影不会带入下一轮。服务主体不重建也不挂个人记忆；重建失败则中止该轮运行。
+- **个人记忆按 `businessId` 隔离**：投影目录与锁都以 `businessId` 为键；worker 从 DB 读取运行主体，服务主体没有个人记忆，也不回退到管理员。既有专家共享 auto-memory 的读写语义保持不变。
+- **历史回顾是用户触发的运行**：`agent_runs.trigger='review'`，目标为个人偏好、指定专家的某个记忆文件或规则；`agent_memory` 目标必须带 `name`，不设 `MEMORY.md` 隐式默认。一次回顾只处理一个文件，读已落库的会话快照（最多 10 段，可选用首尾消息固定窗口），`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema` 返回提案；沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停，不建沙盒、不追加消息、不写成果。快照在创建时固定：来源正文 + 目标正文 + 伴随索引合计不超过 256 KiB，超限入队前拒绝。证据必须是快照消息原文的连续子串，并带 `user_fact | confirmed_decision | assistant_suggestion` 归因：用户事实与已确认决定只能引用 user，助手建议只能引用 assistant 且仅作背景；非 null 正文至少有一条用户依据，纯助手建议不能变成可采纳记忆。
+- **确认制，不是自动进化**：提案写入个人偏好、专家记忆文件或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。
+- **`MEMORY.md` 是索引**：官方启动只加载前 200 行或 25KB；回顾采纳与手工 PUT 都按 200 行 / 25KB 拒绝超限，不截断。主题文件正文上限 200000 UTF-8 字节。
+- **主题 + 索引是固定两文件**：主题目标的快照为 `{ content, globs, index: { content } | null }`，`index` 是同专家 `MEMORY.md` 原文；personal、规则与 `MEMORY.md` 自身为 null。主题正文非 null 且索引缺少指向它的行内链接时，平台按确定规则在索引末尾补一行 `- [name](name)`，原索引其余字节、链接与结构逐字保留；已有普通相对链接或 `./name` 链接不重复补。模型不输出索引，也不得顺手整理其它主题。补链后的索引仍须满足 200 行 / 25KB，超限整次写入拒绝，不只写主题。
+- **一次采纳/回滚是一个逻辑变更**：持锁后先要求目标与伴随索引的当前快照都等于 before（任一变化返回 409 并保留完整提案），校验全部候选文件限额，再按“目标文件 → 需要变化的 `MEMORY.md`”顺序原子 rename；一个 `memory_changes` 行同时保存主题与索引前后快照，审核的 `appliedChangeId` 只指向它，重复 apply 返回同一变更。主题手工 PUT 使用同一补链规则；DELETE 保持索引原样，账本中 index before/after 相同。回滚只检查并恢复该次变更实际改过的文件，因此后续无关索引变动不阻断单主题回滚；新主题回滚会移除主题并恢复本次修改前的索引（原来不存在则恢复不存在），但若这些文件之后又被修改则冲突，不覆盖后来内容。删除主题不扫描或重写用户自定义索引链接。
+- **双文件写入可恢复**：`.memory-journal/` 是平台控制目录，不导出、不供 SDK 读取、不是记忆权威。review、rollback、manual 三种写入都先写日志，记录本次涉及的固定文件集合（最多两个）、每个文件的 name、before/after hash（null 区分不存在）和恢复所需原始字节，再原子写文件、提交账本；任一文件写入或 DB 提交失败时恢复全部原始字节，恢复失败保留日志并报告失败，不补记假成功。锁内恢复只认日志证据：全部等于 before 则丢弃，全部等于 after 则补完账本，before/after 混合先恢复原字节，出现第三方内容返回冲突；同专家有未完成两文件变更时，其共享索引占用会阻止其它手工编辑、拒绝与回滚绕过。
+- **无变化**：`proposedContent` 为 null，或按同一确定性函数算出的完整 after 与 before 一致，都表示没有文件要改；内容相同但仍需补主题链接属于有变化。无变化时 run 仍为 `succeeded`、DB decision 保持 `pending`（表示用户尚未决定），UI 显示“无需变更”，不显示待采用/采用/拒绝/回滚；apply 返回 409，零文件、零账本变更，不新增 decision 枚举或伪造 applied 记录。
+- **版本与回滚**：`GET /api/agents/:id/memory/:name/versions` 对所有合法记忆文件返回实际历史；DB 在 LIMIT 前按目标 `kind + agentId + name` 收窄。`MEMORY.md` 的列表还包含“以主题为目标、实际改动了伴随索引”的变更，让索引版本可解释；主题列表按 name 精确命中。回滚沿用 `POST /api/memory/changes/:id/rollback`，返回一个 `MemoryChange`。个人版本按 `businessId` 且 `kind='personal'` 过滤，专家账本不混入个人范围。
+- **原生记忆目录独立下载与回导**：`GET /api/agents/:id/memory/download` 复用 `agents.memory.read` 对象权限，持同专家锁打包。ZIP 根只含实际存在的 `MEMORY.md` 与平铺主题 `.md`，不含 agent ID JSON、版本账本、回顾原文、journal、个人偏好、其它专家或子级目录；无内容返回 404，不用伪 `MEMORY.md` 占位，沿用既有条目数、解压大小、压缩大小与符号链接边界。解压后可直接作为官方 auto-memory 目录使用；回导复用现有 `PUT /api/agents/:id/memory/:name` 写入新专家，不新增 ZIP 上传或整目录覆盖 API。相对链接不依赖原 agentId/slug。专家定义包仍只携带定义，不携带学习到的记忆正文；定义包与这份原生记忆目录是两个交付物。
+- **当前范围与未覆盖**：API 列表/CRUD 只管理 `agent-memory/` 顶层的合法 `.md` 文件；原生文件工具允许的嵌套主题目录尚未进入列表、编辑器、版本与下载管理，属于待办边界。SDK 原生 auto-memory 直接写入的文件不进入 `memory_changes`，因此版本与回滚只覆盖平台写入口（回顾采纳、手工 PUT/DELETE、回滚），不能宣称全部记忆历史可追。
+- **子智能体记忆的准入与并发**：chat / schedule / eval 只使用稳定启用的直接子智能体集合；执行活动期间资源变化返回 409，普通字段与无关专家仍可编辑。锁顺序固定为绑定锁 → 排序后的 agent 记忆锁 → 行锁；目标自身有执行型活动 run，或目标是启用子专家且其直接父专家有执行型活动 run，就拒绝记忆写入并返回 409；审核 run 与其他无合法归属关系的 run 不占用。会话工作区刷新保留官方记忆子树 inode，挂载集合变化时重建容器。子智能体的原生 Read/Write/Edit 默认启用但只允许自己的 Markdown，兄弟、父级与未知子智能体拒绝，既有显式 deny 保留且恢复只移除裸 deny/allow、不清除路径规则；Bash 共享可见，不声称 OS 级隔离。平台写入口进账本，SDK 自动写入不记账。验收证据见[子记忆任务记录](tasks/subagent-memory-20261030.md)；其中真实 SDK 16/16 使用本地假模型，只证明加载与文件边界，不代表真实模型记忆质量。
 - **定义包边界**：子定义 `memory: project` 可导入导出；`user` / `local` 明确拒绝；专家包只携带定义，不携带学习到的记忆正文。
-- **完整快照比较**：`memory_changes` 保存 before/after 完整内容（规则含 `globs`）；个人偏好与规则的冲突判断按完整快照，不用局部 diff。
+- **完整快照比较**：`memory_changes` 保存 before/after 完整内容（规则含 `globs`，主题含伴随 `index`）；个人偏好、规则与记忆的冲突判断按完整快照，不用局部 diff。
+- **验收状态（2026-10-31）**：主题 `name/index/kind` 共享契约、worker 主题回顾、API 双文件账本/版本/下载与 web 面板均已落地；shared、worker、web 独立 review 已 PASS，完整浏览器主路径（受控提案的来源归因、主题/索引双对比、采用、索引版本、ZIP 下载与公开 PUT 回导、整次回滚、无需变更）已实测通过；API 与跨端最终独立评审均 PASS。验证及独立评审通过；本任务 PR 交付，合并状态以 GitHub 为准，不能据此宣称已上线；最终回归数字与证据以[任务记录](tasks/memory-upgrade.md)为准。真实容器 + 官方 SDK + 本地假模型只证明加载与文件边界，付费真实模型的归纳质量与跨 run 召回未审计。沿用既有 `memory_reviews` / `memory_changes` jsonb，不新增表、列或迁移，不兼容旧 JSON 记录、不自动清库。详见[执行契约](tasks/memory-upgrade-contract.md)。
 - **固定版本公开分享**：`output_shares` 锚定 `conversationId + runId + path` 与真实字节 sha256；token 只存哈希与密文，链接为 `/s/<shareId>#<token>`。公开接口校验 token、未撤销、实际字节哈希三重条件，无效统一 404；撤销幂等，已发出的链接不随同一路径的新版本变化。
 
-### 5.2 调研结论：不引入外部记忆服务（2026-10-30）
+### 5.2 调研结论：不引入外部记忆服务（2026-10-31）
 
-不引入 Mem0、Zep、Letta、LangMem 等外部记忆服务，也不新增第二套执行底座。借鉴的是产品做法而非依赖：Manus / Fleet 的候选确认、Devin 的来源与索引分离、Letta 的 Git 式版本思想、claude-mem 的索引优先。当前以官方文件和 PostgreSQL 账本实现；只有实测文件检索不足时，才做可重建的检索索引（PostgreSQL 已具备），并需先给出基准证据。详见 D-73。
+不引入 Mem0、Zep、Letta、LangMem 等外部记忆服务，也不新增第二套执行底座。借鉴的是产品做法而非依赖：Manus / Fleet 的候选确认、Devin 的来源与索引分离、Letta 的 Git 式版本思想、claude-mem 的索引优先。当前以官方文件和 PostgreSQL 账本实现；只有实测文件检索不足时，才做可重建的检索索引（PostgreSQL 已具备），并需先给出基准证据。详见 D-73。本次主题经验升级遵守同一边界：不新增 L1/L2/L3 私有记忆库、后台提取管线、向量/检索索引、服务或依赖，只扩展回顾目标、固定两文件采纳与版本、原生目录下载。
 
 ## 6. 知识库运行时
 

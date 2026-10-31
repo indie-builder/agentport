@@ -230,7 +230,7 @@ describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigge
       modelAgentId: agentId,
       target: { kind: 'personal' },
       sources: [{ conversationId }],
-      before: { content: null, globs: null },
+      before: { content: null, globs: null, index: null },
     });
     expect(await checkQueuedRunAccess(db, queued('review', reviewRunId))).toMatchObject({
       reason: 'permission_denied',

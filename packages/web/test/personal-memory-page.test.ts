@@ -28,8 +28,8 @@ const memory: PersonalMemory = {
 const change: MemoryChange = {
   id: 'chg_1',
   target: { kind: 'personal' },
-  before: { content: '更早的偏好', globs: null },
-  after: { content: '旧偏好', globs: null },
+  before: { content: '更早的偏好', globs: null, index: null },
+  after: { content: '旧偏好', globs: null, index: null },
   sourceReviewRunId: null,
   reversesChangeId: null,
   state: 'applied',
@@ -252,8 +252,8 @@ describe('记忆页个人偏好', () => {
     const savedChange: MemoryChange = {
       ...change,
       id: 'chg_2',
-      before: { content: '旧偏好', globs: null },
-      after: { content: '新偏好', globs: null },
+      before: { content: '旧偏好', globs: null, index: null },
+      after: { content: '新偏好', globs: null, index: null },
       createdAt: '2026-10-02T00:00:00.000Z',
     };
     let saved = false;
@@ -344,8 +344,8 @@ describe('记忆页个人偏好', () => {
     const rollbackChange: MemoryChange = {
       ...change,
       id: 'chg_3',
-      before: { content: '旧偏好', globs: null },
-      after: { content: '更早的偏好', globs: null },
+      before: { content: '旧偏好', globs: null, index: null },
+      after: { content: '更早的偏好', globs: null, index: null },
       reversesChangeId: change.id,
       createdAt: '2026-10-02T00:00:00.000Z',
     };

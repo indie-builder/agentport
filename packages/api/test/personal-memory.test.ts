@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
+import type { MemoryReviewTarget } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -77,14 +78,20 @@ describe.skipIf(!ready)('personal memory', () => {
 
   beforeEach(async () => {
     await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
-    await app.pool.query('delete from user_preferences where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await app.pool.query('delete from user_preferences where business_id = $1', [
+      ADMIN_BUSINESS_ID,
+    ]);
     await rm(personalMemoryDir(root, ADMIN_BUSINESS_ID), { recursive: true, force: true });
   });
 
   afterAll(async () => {
     try {
-      await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
-      await app.pool.query('delete from user_preferences where business_id = $1', [ADMIN_BUSINESS_ID]);
+      await app.pool.query('delete from memory_changes where business_id = $1', [
+        ADMIN_BUSINESS_ID,
+      ]);
+      await app.pool.query('delete from user_preferences where business_id = $1', [
+        ADMIN_BUSINESS_ID,
+      ]);
     } finally {
       await releaseLock?.();
       await app.close();
@@ -158,8 +165,8 @@ describe.skipIf(!ready)('personal memory', () => {
     ).rows;
     expect(row).toMatchObject({
       target: { kind: 'personal' },
-      before: { content: '', globs: null },
-      after: { content, globs: null },
+      before: { content: '', globs: null, index: null },
+      after: { content, globs: null, index: null },
       source_review_run_id: null,
       state: 'applied',
       business_id: ADMIN_BUSINESS_ID,
@@ -175,9 +182,10 @@ describe.skipIf(!ready)('personal memory', () => {
     const row = await repo.userPreferences.get(app.db, ADMIN_BUSINESS_ID);
     expect(row).toMatchObject({ content: 'first', revision: 1 });
     expect(
-      await app.pool.query('select count(*)::int as count from memory_changes where business_id = $1', [
-        ADMIN_BUSINESS_ID,
-      ]),
+      await app.pool.query(
+        'select count(*)::int as count from memory_changes where business_id = $1',
+        [ADMIN_BUSINESS_ID],
+      ),
     ).toMatchObject({ rows: [{ count: 1 }] });
   });
 
@@ -256,6 +264,109 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(none.json()).toEqual({ items: [] });
   });
 
+  it('lists only personal versions and never lets agent changes occupy a page', async () => {
+    await put({ content: 'one', expectedRevision: 0 });
+    // 同一用户采纳专家记忆/规则也写在同一 business_id 下，但不属于个人版本。
+    await repo.memoryChanges.insert(app.db, {
+      businessId: ADMIN_BUSINESS_ID,
+      agentId: null,
+      target: { kind: 'agent_memory', agentId: 'agt_expert', name: 'MEMORY.md' },
+      before: { content: '', globs: null, index: null },
+      after: { content: 'expert memory', globs: null, index: null },
+    });
+    await repo.memoryChanges.insert(app.db, {
+      businessId: ADMIN_BUSINESS_ID,
+      agentId: null,
+      target: { kind: 'agent_rule', agentId: 'agt_expert', slug: 'style' },
+      before: { content: '', globs: null, index: null },
+      after: { content: 'expert rule', globs: null, index: null },
+    });
+
+    const page = await inject(app, {
+      method: 'GET',
+      url: '/api/me/memory/versions?limit=1',
+      headers: auth(),
+    });
+    expect(page.statusCode, page.body).toBe(200);
+    expect(page.json()).toMatchObject({
+      items: [{ target: { kind: 'personal' }, after: { content: 'one' } }],
+    });
+
+    await put({ content: 'two', expectedRevision: 1 });
+    const recent = await inject(app, {
+      method: 'GET',
+      url: `/api/me/memory/versions?before=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}&limit=1`,
+      headers: auth(),
+    });
+    expect(recent.json()).toMatchObject({
+      items: [{ target: { kind: 'personal' }, after: { content: 'two' } }],
+    });
+
+    const all = await inject(app, {
+      method: 'GET',
+      url: '/api/me/memory/versions',
+      headers: auth(),
+    });
+    const { items } = all.json<{ items: Array<{ target: { kind: string } }> }>();
+    expect(items.map((item) => item.target.kind)).toEqual(['personal', 'personal']);
+  });
+
+  it('pages through every personal version with before and skips agent changes', async () => {
+    const base = Date.parse('2026-01-01T00:00:00.000Z');
+    const at = (seconds: number) => new Date(base + seconds * 1000);
+    const insertAt = async (
+      content: string,
+      createdAt: Date,
+      target: MemoryReviewTarget,
+    ): Promise<string> => {
+      const row = await repo.memoryChanges.insert(app.db, {
+        businessId: ADMIN_BUSINESS_ID,
+        agentId: null,
+        target,
+        before: { content: '', globs: null, index: null },
+        after: { content, globs: null, index: null },
+      });
+      // 显式时间戳：分页断言不依赖保存顺序或执行速度。
+      await app.pool.query('update memory_changes set created_at = $2 where id = $1', [
+        row.id,
+        createdAt,
+      ]);
+      return row.id;
+    };
+
+    const one = await insertAt('one', at(1), { kind: 'personal' });
+    const two = await insertAt('two', at(2), { kind: 'personal' });
+    await insertAt('expert memory', at(3), {
+      kind: 'agent_memory',
+      agentId: 'agt_expert',
+      name: 'MEMORY.md',
+    });
+    const three = await insertAt('three', at(4), { kind: 'personal' });
+
+    const page = (before?: Date) =>
+      inject(app, {
+        method: 'GET',
+        url: `/api/me/memory/versions?limit=1${
+          before === undefined ? '' : `&before=${encodeURIComponent(before.toISOString())}`
+        }`,
+        headers: auth(),
+      });
+
+    const first = await page();
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json()).toMatchObject({ items: [{ id: three, after: { content: 'three' } }] });
+
+    // 旧实现先取最新一页再内存过滤，第二页会永远为空；专家记忆也不能占用这一页。
+    const second = await page(at(4));
+    expect(second.json()).toMatchObject({ items: [{ id: two, after: { content: 'two' } }] });
+
+    const third = await page(at(2));
+    expect(third.json()).toMatchObject({ items: [{ id: one, after: { content: 'one' } }] });
+
+    const end = await page(at(1));
+    expect(end.json()).toEqual({ items: [] });
+  });
+
   it('refuses a symlinked projection without touching the link target and still saves the database', async () => {
     const outside = join(root, 'outside.md');
     await writeFile(outside, 'do not touch');
@@ -320,9 +431,10 @@ describe.skipIf(!ready)('personal memory', () => {
       revision: 1,
     });
     expect(
-      await app.pool.query('select count(*)::int as count from memory_changes where business_id = $1', [
-        ADMIN_BUSINESS_ID,
-      ]),
+      await app.pool.query(
+        'select count(*)::int as count from memory_changes where business_id = $1',
+        [ADMIN_BUSINESS_ID],
+      ),
     ).toMatchObject({ rows: [{ count: 1 }] });
   });
 

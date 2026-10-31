@@ -3,6 +3,7 @@ import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
+import { AGENT_MEMORY_MAX_BYTES, AGENT_MEMORY_MAX_LINES } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -11,12 +12,12 @@ import { registerMemoryChangeRoutes } from '../src/features/memory/changes.js';
 import { memorySha256, writeMemoryJournal } from '../src/features/memory/journal.js';
 import { personalMemoryDir, personalMemoryPath } from '../src/features/memory/personal.js';
 import {
-  AGENT_MEMORY_MAX_BYTES,
-  AGENT_MEMORY_MAX_LINES,
+  MEMORY_REVIEW_MAX_BYTES,
   registerMemoryReviewRoutes,
 } from '../src/features/memory-reviews/routes.js';
 import { closeProducer, getQueue } from '../src/queue/producer.js';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -25,7 +26,7 @@ import {
   loginCookie,
   testConfig,
   unique,
-  ADMIN_BUSINESS_ID,} from './helpers.js';
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -36,6 +37,8 @@ const fsFaults = vi.hoisted(() => ({
   failRenameAt: 0,
   /** 第 N 次 rename 暂停；0 表示任意一次都暂停。 */
   gateAt: 0,
+  /** 日志清理阶段的 unlink 失败：已提交的账本不能被改写成 500。 */
+  failUnlink: false,
   renameCalls: 0,
   gate: null as null | { entered: () => void; release: Promise<void> },
 }));
@@ -43,6 +46,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...actual,
+    unlink: async (...args: Parameters<typeof actual.unlink>) => {
+      if (fsFaults.failUnlink) throw new Error('injected unlink failure');
+      return actual.unlink(...args);
+    },
     rename: async (...args: Parameters<typeof actual.rename>) => {
       fsFaults.renameCalls += 1;
       const gated = fsFaults.gateAt === 0 || fsFaults.renameCalls === fsFaults.gateAt;
@@ -122,12 +129,15 @@ describe.skipIf(!ready)('memory reviews', () => {
 
   beforeEach(async () => {
     await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
-    await app.pool.query('delete from user_preferences where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await app.pool.query('delete from user_preferences where business_id = $1', [
+      ADMIN_BUSINESS_ID,
+    ]);
     await rm(personalMemoryDir(root, ADMIN_BUSINESS_ID), { recursive: true, force: true });
     jobs.length = 0;
     fsFaults.failRename = false;
     fsFaults.failRenameAt = 0;
     fsFaults.gateAt = 0;
+    fsFaults.failUnlink = false;
     fsFaults.renameCalls = 0;
     fsFaults.gate = null;
   });
@@ -135,9 +145,15 @@ describe.skipIf(!ready)('memory reviews', () => {
   afterAll(async () => {
     try {
       addSpy.mockRestore();
-      await app.pool.query('delete from memory_reviews where business_id = $1', [ADMIN_BUSINESS_ID]);
-      await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
-      await app.pool.query('delete from user_preferences where business_id = $1', [ADMIN_BUSINESS_ID]);
+      await app.pool.query('delete from memory_reviews where business_id = $1', [
+        ADMIN_BUSINESS_ID,
+      ]);
+      await app.pool.query('delete from memory_changes where business_id = $1', [
+        ADMIN_BUSINESS_ID,
+      ]);
+      await app.pool.query('delete from user_preferences where business_id = $1', [
+        ADMIN_BUSINESS_ID,
+      ]);
       await cleanup(app, { agentSlugs });
     } finally {
       await releaseLock?.();
@@ -163,7 +179,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       agentId,
       title,
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     return conversation.id;
   }
 
@@ -192,7 +208,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     modelAgentId: string;
     target:
       | { kind: 'personal' }
-      | { kind: 'agent_memory'; agentId: string }
+      | { kind: 'agent_memory'; agentId: string; name: string }
       | { kind: 'agent_rule'; agentId: string; slug: string };
     sources: Array<{ conversationId: string; fromMessageId?: string; throughMessageId?: string }>;
     instruction?: string;
@@ -220,14 +236,15 @@ describe.skipIf(!ready)('memory reviews', () => {
   async function completeReview(
     runId: string,
     proposedContent: string | null,
-    evidence: { messageId: string; quote: string },
+    evidence: { messageId: string; quote: string; kind?: string },
   ) {
     await app.pool.query('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
       runId,
       JSON.stringify({
         summary: '生成的提案',
         proposedContent,
-        evidence: proposedContent === null ? [] : [evidence],
+        evidence:
+          proposedContent === null ? [] : [{ ...evidence, kind: evidence.kind ?? 'user_fact' }],
       }),
     ]);
     await app.pool.query(
@@ -270,6 +287,44 @@ describe.skipIf(!ready)('memory reviews', () => {
       () => true,
       () => false,
     );
+  }
+
+  function saveMemory(agent: AgentRef, content: string) {
+    return inject(app, {
+      method: 'PUT',
+      url: `/api/agents/${agent.id}/memory/MEMORY.md`,
+      headers: auth(),
+      payload: { content },
+    });
+  }
+
+  /** 账本已提交但清日志失败：合法日志与已提交行使用同一稳定身份。 */
+  async function writeCommittedManualJournal(agent: AgentRef, changeId: string, content: string) {
+    await writeMemoryJournal(root, agent.slug, {
+      operation: 'manual',
+      operationId: changeId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      files: [
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256(null),
+          afterSha256: memorySha256(content),
+          beforeBase64: null,
+        },
+      ],
+    });
+  }
+
+  async function manualChangeId(agent: AgentRef): Promise<string> {
+    const [change] = (
+      await app.pool.query<{ id: string }>(
+        "select id from memory_changes where agent_id = $1 and target->>'name' = 'MEMORY.md'",
+        [agent.id],
+      )
+    ).rows;
+    if (!change) throw new Error('manual write did not record a change');
+    return change.id;
   }
 
   async function reviewChangeCount(runId: string): Promise<number> {
@@ -325,7 +380,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const key = randomUUID();
     const body = reviewBody({
       modelAgentId: agent.id,
-      target: { kind: 'agent_memory', agentId: agent.id },
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
       sources: [{ conversationId }],
     });
 
@@ -367,7 +422,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const emptyRange = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId, fromMessageId: toolId, throughMessageId: toolId }],
       }),
     );
@@ -376,7 +431,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const unknownBoundary = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId, fromMessageId: unique('missing') }],
       }),
     );
@@ -385,7 +440,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const reversed = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId, fromMessageId: lastId, throughMessageId: firstId }],
       }),
     );
@@ -394,7 +449,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const bounded = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId, fromMessageId: firstId, throughMessageId: lastId }],
       }),
     );
@@ -426,7 +481,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const crossAgent = await postReview(
       reviewBody({
         modelAgentId: owner.id,
-        target: { kind: 'agent_memory', agentId: owner.id },
+        target: { kind: 'agent_memory', agentId: owner.id, name: 'MEMORY.md' },
         sources: [{ conversationId: otherConversation }],
       }),
     );
@@ -478,7 +533,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const response = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId, fromMessageId: messageId, throughMessageId: messageId }],
         instruction: '只保留偏好',
       }),
@@ -530,8 +585,8 @@ describe.skipIf(!ready)('memory reviews', () => {
     ]);
     expect(review.rows[0]).toMatchObject({
       model_agent_id: agent.id,
-      target: { kind: 'agent_memory', agentId: agent.id },
-      before: { content: null, globs: null },
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      before: { content: null, globs: null, index: null },
       instruction: '只保留偏好',
     });
   });
@@ -542,7 +597,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const messageId = await seedMessage(conversationId, 'user', '回答先给结论');
     const body = reviewBody({
       modelAgentId: agent.id,
-      target: { kind: 'agent_memory', agentId: agent.id },
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
       sources: [{ conversationId }],
     });
     const created = await postReview(body);
@@ -643,7 +698,9 @@ describe.skipIf(!ready)('memory reviews', () => {
       after: { content: '回答先给结论。' },
     });
     expect(personalChange.id).toMatch(/^mch_/);
-    expect(await readFile(personalMemoryPath(root, ADMIN_BUSINESS_ID), 'utf8')).toBe('回答先给结论。');
+    expect(await readFile(personalMemoryPath(root, ADMIN_BUSINESS_ID), 'utf8')).toBe(
+      '回答先给结论。',
+    );
     const personal = await inject(app, { method: 'GET', url: '/api/me/memory', headers: auth() });
     expect(personal.json()).toMatchObject({ content: '回答先给结论。', revision: 1 });
     const personalDetail = await getReview(personalRunId);
@@ -659,7 +716,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const memoryReview = await postReview(
       reviewBody({
         modelAgentId: model.id,
-        target: { kind: 'agent_memory', agentId: memoryAgent.id },
+        target: { kind: 'agent_memory', agentId: memoryAgent.id, name: 'MEMORY.md' },
         sources: [{ conversationId: memoryConversation }],
       }),
     );
@@ -676,7 +733,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const memoryApply = await applyReview(memoryRunId);
     expect(memoryApply.statusCode, memoryApply.body).toBe(200);
     expect(memoryApply.json()).toMatchObject({
-      target: { kind: 'agent_memory', agentId: memoryAgent.id },
+      target: { kind: 'agent_memory', agentId: memoryAgent.id, name: 'MEMORY.md' },
       sourceReviewRunId: memoryRunId,
     });
     expect(await readFile(join(root, memoryAgent.slug, 'agent-memory', 'MEMORY.md'), 'utf8')).toBe(
@@ -705,8 +762,8 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(ruleApply.statusCode, ruleApply.body).toBe(200);
     expect(ruleApply.json()).toMatchObject({
       target: { kind: 'agent_rule', agentId: ruleAgent.id, slug: 'style' },
-      before: { content: '旧规则', globs: 'src/**' },
-      after: { content: '新规则正文', globs: 'src/**' },
+      before: { content: '旧规则', globs: 'src/**', index: null },
+      after: { content: '新规则正文', globs: 'src/**', index: null },
     });
     const rule = await app.pool.query<{ content: string; globs: string }>(
       'select content, globs from agent_rules where agent_id = $1 and slug = $2',
@@ -725,7 +782,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       const created = await postReview(
         reviewBody({
           modelAgentId: agent.id,
-          target: { kind: 'agent_memory', agentId: agent.id },
+          target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
           sources: [{ conversationId }],
         }),
       );
@@ -746,7 +803,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const tooManyLines = await applyProposal(`${atLimit}\n- [多一行](one-more.md)`);
     expectProblem(tooManyLines.response, 'INVALID_INPUT');
     expect(tooManyLines.response.json<{ message: string }>().message).toBe(
-      'MEMORY.md 是索引，最多 200 行 / 25KB；详细内容请写入主题文件或规则',
+      `MEMORY.md 不能超过 ${AGENT_MEMORY_MAX_LINES} 行；请把详细内容移到主题文件`,
     );
     expect((await getReview(tooManyLines.runId)).json()).toMatchObject({
       decision: 'pending',
@@ -802,7 +859,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
@@ -835,7 +892,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created2 = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId: conversationId2 }],
       }),
     );
@@ -861,7 +918,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: model.id,
-        target: { kind: 'agent_memory', agentId: target.id },
+        target: { kind: 'agent_memory', agentId: target.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
@@ -1050,7 +1107,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       agentId: target.id,
       message: 'lock probe',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     expect(
       await Promise.race([admission.then(() => 'done'), sleep(150).then(() => 'waiting')]),
     ).toBe('waiting');
@@ -1069,7 +1126,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
@@ -1135,7 +1192,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
@@ -1216,7 +1273,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
@@ -1240,10 +1297,18 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     // 提交成功但进程在删日志前退出：重复采纳仍要清掉残留。
     await writeMemoryJournal(root, agent.slug, {
-      reviewRunId: runId,
-      target: { kind: 'agent_memory', agentId: agent.id },
-      beforeSha256: memorySha256(null),
-      afterSha256: memorySha256('# 约定\n') ?? '',
+      operation: 'review',
+      operationId: runId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      files: [
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256(null),
+          afterSha256: memorySha256('# 约定\n'),
+          beforeBase64: null,
+        },
+      ],
     });
     expect(await journalExists(agent, runId)).toBe(true);
 
@@ -1251,6 +1316,85 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(repeated.statusCode, repeated.body).toBe(200);
     expect(repeated.json<{ id: string }>().id).toBe(applied.json<{ id: string }>().id);
     expect(await journalExists(agent, runId)).toBe(false);
+  });
+
+  it('returns the committed change when journal cleanup fails after an all-after apply retry', async () => {
+    const { agent, runId } = await reviewForMemory('记住这个约定');
+    // 文件已落盘、账本未提交：重试按日志补账后，日志 unlink 失败不能推翻成功。
+    await writeMemoryFile(root, agent.slug, 'MEMORY.md', '# 约定\n');
+    await writeMemoryJournal(root, agent.slug, {
+      operation: 'review',
+      operationId: runId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      files: [
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256(null),
+          afterSha256: memorySha256('# 约定\n'),
+          beforeBase64: null,
+        },
+      ],
+    });
+
+    fsFaults.failUnlink = true;
+    let applied: Awaited<ReturnType<typeof applyReview>>;
+    try {
+      applied = await applyReview(runId);
+    } finally {
+      fsFaults.failUnlink = false;
+    }
+    expect(applied.statusCode, applied.body).toBe(200);
+    expect(await reviewChangeCount(runId)).toBe(1);
+    expect((await getReview(runId)).json()).toMatchObject({
+      decision: 'applied',
+      appliedChangeId: applied.json<{ id: string }>().id,
+    });
+    // 删除失败，日志留待下次清理；账本仍只有一条。
+    expect(await journalExists(agent, runId)).toBe(true);
+  });
+
+  it('returns the committed reverse when journal cleanup fails after an all-after rollback retry', async () => {
+    const agent = await newAgent();
+    await writeMemoryFile(root, agent.slug, 'MEMORY.md', '旧内容');
+    const change = await repo.memoryChanges.insert(app.db, {
+      businessId: ADMIN_BUSINESS_ID,
+      agentId: agent.id,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      before: { content: '旧内容', globs: null, index: null },
+      after: { content: '新内容', globs: null, index: null },
+    });
+    // 回滚目标文件已落盘（旧内容），账本未提交。
+    await writeMemoryJournal(root, agent.slug, {
+      operation: 'rollback',
+      operationId: change.id,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      files: [
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256('新内容'),
+          afterSha256: memorySha256('旧内容'),
+          beforeBase64: Buffer.from('新内容', 'utf8').toString('base64'),
+        },
+      ],
+    });
+
+    fsFaults.failUnlink = true;
+    let reversed: Awaited<ReturnType<typeof rollbackChange>>;
+    try {
+      reversed = await rollbackChange(change.id);
+    } finally {
+      fsFaults.failUnlink = false;
+    }
+    expect(reversed.statusCode, reversed.body).toBe(200);
+    expect(reversed.json()).toMatchObject({ reversesChangeId: change.id });
+    const rows = await app.pool.query<{ count: number }>(
+      'select count(*)::int as count from memory_changes where reverses_change_id = $1',
+      [change.id],
+    );
+    expect(rows.rows[0]?.count).toBe(1);
+    expect(await journalExists(agent, change.id)).toBe(true);
   });
 
   it('allows reject and clears the journal when the file is still the baseline', async () => {
@@ -1261,7 +1405,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
@@ -1270,10 +1414,18 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     // 日志已写、rename 前进程退出：文件仍是基线，写入从未生效。
     await writeMemoryJournal(root, agent.slug, {
-      reviewRunId: runId,
-      target: { kind: 'agent_memory', agentId: agent.id },
-      beforeSha256: memorySha256('旧内容'),
-      afterSha256: memorySha256('# 约定\n') ?? '',
+      operation: 'review',
+      operationId: runId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      files: [
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256('旧内容'),
+          afterSha256: memorySha256('# 约定\n'),
+          beforeBase64: Buffer.from('旧内容', 'utf8').toString('base64'),
+        },
+      ],
     });
 
     const rejected = await rejectReview(runId);
@@ -1292,17 +1444,25 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '# 约定\n', { messageId, quote: '记住这个约定' });
     await writeMemoryJournal(root, agent.slug, {
-      reviewRunId: runId,
-      target: { kind: 'agent_memory', agentId: agent.id },
-      beforeSha256: memorySha256('旧内容'),
-      afterSha256: memorySha256('# 约定\n') ?? '',
+      operation: 'review',
+      operationId: runId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      files: [
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256('旧内容'),
+          afterSha256: memorySha256('# 约定\n'),
+          beforeBase64: Buffer.from('旧内容', 'utf8').toString('base64'),
+        },
+      ],
     });
 
     const saved = await inject(app, {
@@ -1327,17 +1487,25 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '# 约定\n', { messageId, quote: '记住这个约定' });
     await writeMemoryJournal(root, agent.slug, {
-      reviewRunId: runId,
-      target: { kind: 'agent_memory', agentId: agent.id },
-      beforeSha256: memorySha256('旧内容'),
-      afterSha256: memorySha256('# 约定\n') ?? '',
+      operation: 'review',
+      operationId: runId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      files: [
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256('旧内容'),
+          afterSha256: memorySha256('# 约定\n'),
+          beforeBase64: Buffer.from('旧内容', 'utf8').toString('base64'),
+        },
+      ],
     });
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', '第三方内容');
 
@@ -1367,7 +1535,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
-        target: { kind: 'agent_memory', agentId: agent.id },
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
         sources: [{ conversationId }],
       }),
     );
@@ -1376,13 +1544,21 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     // 日志已写、文件已替换但账本未提交（模拟进程在提交前退出）：内容可能已生效。
     await writeMemoryJournal(root, agent.slug, {
-      reviewRunId: runId,
-      target: { kind: 'agent_memory', agentId: agent.id },
-      beforeSha256: memorySha256('旧内容'),
-      afterSha256: memorySha256('# 约定\n') ?? '',
+      operation: 'review',
+      operationId: runId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      files: [
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256('旧内容'),
+          afterSha256: memorySha256('# 约定\n'),
+          beforeBase64: Buffer.from('旧内容', 'utf8').toString('base64'),
+        },
+      ],
     });
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', '# 约定\n');
-    const pendingMessage = '存在未完成的审核写入，请先重试采用或重新生成';
+    const pendingMessage = '存在未完成的记忆写入，请先重试原操作或重新生成';
 
     const put = () =>
       inject(app, {
@@ -1406,9 +1582,9 @@ describe.skipIf(!ready)('memory reviews', () => {
     const change = await repo.memoryChanges.insert(app.db, {
       businessId: ADMIN_BUSINESS_ID,
       agentId: agent.id,
-      target: { kind: 'agent_memory', agentId: agent.id },
-      before: { content: null, globs: null },
-      after: { content: '旧内容', globs: null },
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+      before: { content: null, globs: null, index: null },
+      after: { content: '旧内容', globs: null, index: null },
     });
     expectProblem(await rollbackChange(change.id), 'CONFLICT');
 
@@ -1496,7 +1672,7 @@ describe.skipIf(!ready)('memory reviews', () => {
         agentId: agent.id,
         message: 'lock probe',
         subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+      });
       expect(
         await Promise.race([admission.then(() => 'done'), sleep(150).then(() => 'waiting')]),
       ).toBe('waiting');
@@ -1535,5 +1711,392 @@ describe.skipIf(!ready)('memory reviews', () => {
       expect(review.decision).toBe('rejected');
       expect(await readMemoryFile(root, agent.slug, 'MEMORY.md')).toBeNull();
     }
+  });
+
+  async function themeReview(
+    name: string,
+    proposal: string | null,
+    message = '记住这个约定',
+  ): Promise<{ agent: AgentRef; model: AgentRef; runId: string; messageId: string }> {
+    const model = await newAgent();
+    const agent = await newAgent();
+    const conversationId = await newConversation(agent.id);
+    const messageId = await seedMessage(conversationId, 'user', message);
+    const created = await postReview(
+      reviewBody({
+        modelAgentId: model.id,
+        target: { kind: 'agent_memory', agentId: agent.id, name },
+        sources: [{ conversationId }],
+      }),
+    );
+    expect(created.statusCode, created.body).toBe(202);
+    const runId = created.json<{ runId: string }>().runId;
+    await completeReview(runId, proposal, { messageId, quote: message });
+    return { agent, model, runId, messageId };
+  }
+
+  /** 先落好目标文件再创建审核：before 快照固定在这些真实文件上。 */
+  async function themeReviewWithFiles(
+    name: string,
+    files: Record<string, string>,
+    proposal: string,
+  ): Promise<{ agent: AgentRef; model: AgentRef; runId: string; messageId: string }> {
+    const model = await newAgent();
+    const agent = await newAgent();
+    for (const [file, content] of Object.entries(files)) {
+      await writeMemoryFile(root, agent.slug, file, content);
+    }
+    const conversationId = await newConversation(agent.id);
+    const message = '记住这个约定';
+    const messageId = await seedMessage(conversationId, 'user', message);
+    const created = await postReview(
+      reviewBody({
+        modelAgentId: model.id,
+        target: { kind: 'agent_memory', agentId: agent.id, name },
+        sources: [{ conversationId }],
+      }),
+    );
+    expect(created.statusCode, created.body).toBe(202);
+    const runId = created.json<{ runId: string }>().runId;
+    await completeReview(runId, proposal, { messageId, quote: message });
+    return { agent, model, runId, messageId };
+  }
+
+  it('applies a new theme and its index link as one change', async () => {
+    const { agent, runId } = await themeReview('deploy.md', '# 部署\n使用蓝绿发布。');
+    const applied = await applyReview(runId);
+    expect(applied.statusCode, applied.body).toBe(200);
+    const change = applied.json<{
+      id: string;
+      target: unknown;
+      before: unknown;
+      after: unknown;
+    }>();
+    expect(change.target).toEqual({
+      kind: 'agent_memory',
+      agentId: agent.id,
+      name: 'deploy.md',
+    });
+    expect(change.before).toEqual({
+      content: null,
+      globs: null,
+      index: { content: null },
+    });
+    expect(change.after).toEqual({
+      content: '# 部署\n使用蓝绿发布。',
+      globs: null,
+      index: { content: '- [deploy.md](deploy.md)\n' },
+    });
+    expect((await readMemoryFile(root, agent.slug, 'deploy.md'))?.content).toBe(
+      '# 部署\n使用蓝绿发布。',
+    );
+    expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(
+      '- [deploy.md](deploy.md)\n',
+    );
+    expect(await reviewChangeCount(runId)).toBe(1);
+
+    const themeVersions = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}/memory/deploy.md/versions`,
+      headers: auth(),
+    });
+    expect(themeVersions.json()).toMatchObject({ items: [{ id: change.id }] });
+    // 改变伴随索引的主题变更也出现在 MEMORY.md 历史里。
+    const indexVersions = await inject(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}/memory/MEMORY.md/versions`,
+      headers: auth(),
+    });
+    expect(indexVersions.json()).toMatchObject({ items: [{ id: change.id }] });
+  });
+
+  it('updates an existing theme without rewriting its linked index', async () => {
+    const index = '# 主题\n\n- [deploy.md](deploy.md)\n';
+    const { agent, runId } = await themeReviewWithFiles(
+      'deploy.md',
+      { 'MEMORY.md': index, 'deploy.md': 'old body' },
+      'new body',
+    );
+    const applied = await applyReview(runId);
+    expect(applied.statusCode, applied.body).toBe(200);
+    expect(applied.json()).toMatchObject({
+      before: { content: 'old body', index: { content: index } },
+      after: { content: 'new body', index: { content: index } },
+    });
+    expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(index);
+    expect((await readMemoryFile(root, agent.slug, 'deploy.md'))?.content).toBe('new body');
+  });
+
+  it('rejects an apply when the snapshot already has the proposed content and link', async () => {
+    const index = '- [ops.md](ops.md)\n';
+    const { agent, runId } = await themeReviewWithFiles(
+      'ops.md',
+      { 'MEMORY.md': index, 'ops.md': 'ops body' },
+      'ops body',
+    );
+    expectProblem(await applyReview(runId), 'CONFLICT');
+    expect(await reviewChangeCount(runId)).toBe(0);
+    expect((await getReview(runId)).json()).toMatchObject({
+      decision: 'pending',
+      appliedChangeId: null,
+    });
+    expect((await readMemoryFile(root, agent.slug, 'ops.md'))?.content).toBe('ops body');
+    expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(index);
+  });
+
+  it('restores both files when the index write or the ledger commit fails', async () => {
+    const { agent, runId } = await themeReview('deploy.md', 'body');
+
+    // 第 1 次 rename 写日志，第 2 次主题，第 3 次 MEMORY.md。
+    fsFaults.failRenameAt = 3;
+    const failed = await applyReview(runId);
+    fsFaults.failRenameAt = 0;
+    expect(failed.statusCode, failed.body).toBe(500);
+    expect(await readMemoryFile(root, agent.slug, 'deploy.md')).toBeNull();
+    expect(await readMemoryFile(root, agent.slug, 'MEMORY.md')).toBeNull();
+    expect(await journalExists(agent, runId)).toBe(false);
+    expect((await getReview(runId)).json()).toMatchObject({ decision: 'pending' });
+    expect(await reviewChangeCount(runId)).toBe(0);
+
+    const spy = vi
+      .spyOn(app.db, 'transaction')
+      .mockRejectedValueOnce(new Error('injected database commit failure') as never);
+    let commitFailed: Awaited<ReturnType<typeof applyReview>>;
+    try {
+      commitFailed = await applyReview(runId);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(commitFailed.statusCode, commitFailed.body).toBe(500);
+    expect(await readMemoryFile(root, agent.slug, 'deploy.md')).toBeNull();
+    expect(await readMemoryFile(root, agent.slug, 'MEMORY.md')).toBeNull();
+    expect(await journalExists(agent, runId)).toBe(false);
+
+    const retried = await applyReview(runId);
+    expect(retried.statusCode, retried.body).toBe(200);
+    expect((await readMemoryFile(root, agent.slug, 'deploy.md'))?.content).toBe('body');
+    expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(
+      '- [deploy.md](deploy.md)\n',
+    );
+  });
+
+  it('restores a mixed journal and completes an all-after journal exactly once', async () => {
+    const { agent, runId } = await themeReview('deploy.md', 'body');
+    const indexBefore = '# 索引\n';
+    const indexAfter = '# 索引\n- [deploy.md](deploy.md)\n';
+    await writeMemoryFile(root, agent.slug, 'MEMORY.md', indexBefore);
+
+    // 创建审核时索引尚不存在；这里把基线改成手动写入的索引后再模拟半落盘。
+    await app.pool.query('update memory_reviews set before = $2::jsonb where run_id = $1', [
+      runId,
+      JSON.stringify({ content: null, globs: null, index: { content: indexBefore } }),
+    ]);
+    await writeMemoryJournal(root, agent.slug, {
+      operation: 'review',
+      operationId: runId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: agent.id, name: 'deploy.md' },
+      files: [
+        {
+          name: 'deploy.md',
+          beforeSha256: memorySha256(null),
+          afterSha256: memorySha256('body'),
+          beforeBase64: null,
+        },
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256(indexBefore),
+          afterSha256: memorySha256(indexAfter),
+          beforeBase64: Buffer.from(indexBefore, 'utf8').toString('base64'),
+        },
+      ],
+    });
+    // 只写了索引，主题仍是基线：混合状态必须先恢复原字节再重写。
+    await writeMemoryFile(root, agent.slug, 'MEMORY.md', indexAfter);
+    const applied = await applyReview(runId);
+    expect(applied.statusCode, applied.body).toBe(200);
+    expect((await readMemoryFile(root, agent.slug, 'deploy.md'))?.content).toBe('body');
+    expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(indexAfter);
+    expect(await reviewChangeCount(runId)).toBe(1);
+    expect(await journalExists(agent, runId)).toBe(false);
+
+    // 全部文件已落到 after、只差账本：重试只补记一次。
+    const second = await themeReview('ops.md', 'ops');
+    const opsIndexBefore = indexAfter;
+    const opsIndexAfter = `${indexAfter}- [ops.md](ops.md)\n`;
+    await writeMemoryJournal(root, second.agent.slug, {
+      operation: 'review',
+      operationId: second.runId,
+      businessId: ADMIN_BUSINESS_ID,
+      target: { kind: 'agent_memory', agentId: second.agent.id, name: 'ops.md' },
+      files: [
+        {
+          name: 'ops.md',
+          beforeSha256: memorySha256(null),
+          afterSha256: memorySha256('ops'),
+          beforeBase64: null,
+        },
+        {
+          name: 'MEMORY.md',
+          beforeSha256: memorySha256(opsIndexBefore),
+          afterSha256: memorySha256(opsIndexAfter),
+          beforeBase64: Buffer.from(opsIndexBefore, 'utf8').toString('base64'),
+        },
+      ],
+    });
+    await writeMemoryFile(root, second.agent.slug, 'MEMORY.md', opsIndexAfter);
+    await writeMemoryFile(root, second.agent.slug, 'ops.md', 'ops');
+    await app.pool.query('update memory_reviews set before = $2::jsonb where run_id = $1', [
+      second.runId,
+      JSON.stringify({
+        content: null,
+        globs: null,
+        index: { content: opsIndexBefore },
+      }),
+    ]);
+    const recovered = await applyReview(second.runId);
+    expect(recovered.statusCode, recovered.body).toBe(200);
+    expect(await reviewChangeCount(second.runId)).toBe(1);
+    expect(await journalExists(second.agent, second.runId)).toBe(false);
+    const repeated = await applyReview(second.runId);
+    expect(repeated.json<{ id: string }>().id).toBe(recovered.json<{ id: string }>().id);
+    expect(await reviewChangeCount(second.runId)).toBe(1);
+  });
+
+  it('does not overwrite an external theme edit made after the review', async () => {
+    const { agent, runId } = await themeReview('deploy.md', 'body');
+    await writeMemoryFile(root, agent.slug, 'deploy.md', 'external');
+    expectProblem(await applyReview(runId), 'CONFLICT');
+    expect((await readMemoryFile(root, agent.slug, 'deploy.md'))?.content).toBe('external');
+    expect(await readMemoryFile(root, agent.slug, 'MEMORY.md')).toBeNull();
+    expect(await reviewChangeCount(runId)).toBe(0);
+    expect((await getReview(runId)).json()).toMatchObject({ decision: 'pending' });
+  });
+
+  it('re-validates persisted proposal evidence before applying', async () => {
+    const { agent, runId, messageId } = await themeReview('deploy.md', 'body');
+    await app.pool.query('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
+      runId,
+      JSON.stringify({
+        summary: '只有助手建议',
+        proposedContent: 'body',
+        evidence: [{ messageId, quote: '记住这个约定', kind: 'assistant_suggestion' }],
+      }),
+    ]);
+    expectProblem(await applyReview(runId), 'INVALID_INPUT');
+    expect(await readMemoryFile(root, agent.slug, 'deploy.md')).toBeNull();
+    expect(await reviewChangeCount(runId)).toBe(0);
+
+    await app.pool.query('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
+      runId,
+      JSON.stringify({
+        summary: '引用不连续',
+        proposedContent: 'body',
+        evidence: [{ messageId, quote: '不存在的原话', kind: 'user_fact' }],
+      }),
+    ]);
+    expectProblem(await applyReview(runId), 'INVALID_INPUT');
+    expect(await reviewChangeCount(runId)).toBe(0);
+  });
+
+  it('includes the target name in the idempotency hash and counts the index in the snapshot limit', async () => {
+    const model = await newAgent();
+    const target = await newAgent();
+    const conversationId = await newConversation(target.id);
+    await seedMessage(conversationId, 'user', '记住约定');
+    const key = randomUUID();
+    const first = await postReview(
+      reviewBody({
+        modelAgentId: model.id,
+        target: { kind: 'agent_memory', agentId: target.id, name: 'deploy.md' },
+        sources: [{ conversationId }],
+      }),
+      key,
+    );
+    expect(first.statusCode, first.body).toBe(202);
+    const renamed = await postReview(
+      reviewBody({
+        modelAgentId: model.id,
+        target: { kind: 'agent_memory', agentId: target.id, name: 'ops.md' },
+        sources: [{ conversationId }],
+      }),
+      key,
+    );
+    expectProblem(renamed, 'CONFLICT');
+
+    const big = await newAgent();
+    const bigConversation = await newConversation(big.id);
+    await seedMessage(bigConversation, 'user', 'x'.repeat(MEMORY_REVIEW_MAX_BYTES - 16 * 1024));
+    await writeMemoryFile(root, big.slug, 'MEMORY.md', 'y'.repeat(32 * 1024));
+    const oversized = await postReview(
+      reviewBody({
+        modelAgentId: big.id,
+        target: { kind: 'agent_memory', agentId: big.id, name: 'deploy.md' },
+        sources: [{ conversationId: bigConversation }],
+      }),
+    );
+    expectProblem(oversized, 'PAYLOAD_TOO_LARGE');
+  });
+
+  it('does not let a committed manual journal block review apply', async () => {
+    const agent = await newAgent();
+    const saved = await saveMemory(agent, '# 手工\n');
+    expect(saved.statusCode, saved.body).toBe(200);
+    const changeId = await manualChangeId(agent);
+    await writeCommittedManualJournal(agent, changeId, '# 手工\n');
+
+    const conversationId = await newConversation(agent.id);
+    const messageId = await seedMessage(conversationId, 'user', '记住这个约定');
+    const created = await postReview(
+      reviewBody({
+        modelAgentId: agent.id,
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+        sources: [{ conversationId }],
+      }),
+    );
+    const runId = created.json<{ runId: string }>().runId;
+    await completeReview(runId, '# 约定\n', { messageId, quote: '记住这个约定' });
+
+    const applied = await applyReview(runId);
+    expect(applied.statusCode, applied.body).toBe(200);
+    expect(await journalExists(agent, changeId)).toBe(false);
+    expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe('# 约定\n');
+    expect(await reviewChangeCount(runId)).toBe(1);
+  });
+
+  it('does not let a committed manual journal block review reject or rollback', async () => {
+    const rejectAgent = await newAgent();
+    const rejectSaved = await saveMemory(rejectAgent, '# 手工\n');
+    expect(rejectSaved.statusCode, rejectSaved.body).toBe(200);
+    const rejectChangeId = await manualChangeId(rejectAgent);
+    await writeCommittedManualJournal(rejectAgent, rejectChangeId, '# 手工\n');
+
+    const conversationId = await newConversation(rejectAgent.id);
+    const messageId = await seedMessage(conversationId, 'user', '记住这个约定');
+    const created = await postReview(
+      reviewBody({
+        modelAgentId: rejectAgent.id,
+        target: { kind: 'agent_memory', agentId: rejectAgent.id, name: 'MEMORY.md' },
+        sources: [{ conversationId }],
+      }),
+    );
+    const runId = created.json<{ runId: string }>().runId;
+    await completeReview(runId, '# 约定\n', { messageId, quote: '记住这个约定' });
+
+    const rejected = await rejectReview(runId);
+    expect(rejected.statusCode, rejected.body).toBe(200);
+    expect(await journalExists(rejectAgent, rejectChangeId)).toBe(false);
+    expect((await readMemoryFile(root, rejectAgent.slug, 'MEMORY.md'))?.content).toBe('# 手工\n');
+
+    const rollbackAgent = await newAgent();
+    const rollbackSaved = await saveMemory(rollbackAgent, '# 手工\n');
+    expect(rollbackSaved.statusCode, rollbackSaved.body).toBe(200);
+    const rollbackChangeId = await manualChangeId(rollbackAgent);
+    await writeCommittedManualJournal(rollbackAgent, rollbackChangeId, '# 手工\n');
+
+    const reversed = await rollbackChange(rollbackChangeId);
+    expect(reversed.statusCode, reversed.body).toBe(200);
+    expect(await journalExists(rollbackAgent, rollbackChangeId)).toBe(false);
+    expect(await readMemoryFile(root, rollbackAgent.slug, 'MEMORY.md')).toBeNull();
   });
 });

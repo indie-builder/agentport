@@ -188,8 +188,7 @@ export const identitiesQuery = (
 ) =>
   queryOptions<IdentityPage>({
     queryKey: ['identities', agentId, query],
-    queryFn: ({ signal }) =>
-      api.identities({ ...query, agentId: agentId ?? '' }, signal),
+    queryFn: ({ signal }) => api.identities({ ...query, agentId: agentId ?? '' }, signal),
     enabled: agentId !== null,
     staleTime: 10_000,
   });
@@ -276,7 +275,8 @@ export const memoryVersionsQuery = (target: MemoryReviewTarget) =>
     queryKey: ['memory-versions', target],
     queryFn: ({ signal }) => {
       if (target.kind === 'personal') return api.personalMemoryVersions({}, signal);
-      if (target.kind === 'agent_memory') return api.agentMemoryVersions(target.agentId, signal);
+      if (target.kind === 'agent_memory')
+        return api.agentMemoryVersions(target.agentId, target.name, signal);
       return api.agentRuleVersions(target.agentId, target.slug, signal);
     },
     staleTime: 0,
@@ -311,6 +311,8 @@ function invalidateMemoryContent(client: ReturnType<typeof useQueryClient>): voi
   void client.invalidateQueries({ queryKey: personalMemoryVersionsQuery.queryKey });
   void client.invalidateQueries({ queryKey: ['memory-versions'] });
   void client.invalidateQueries({ queryKey: ['agent-memory'] });
+  // 采纳主题会同时补索引，两个文件的正文缓存都必须刷新。
+  void client.invalidateQueries({ queryKey: ['agent-memory-file'] });
   void client.invalidateQueries({ queryKey: ['agent-rules'] });
 }
 

@@ -163,8 +163,8 @@ export async function writePersonalMemoryLocked(input: {
     const change = await repo.memoryChanges.insert(db, {
       businessId: input.businessId,
       target: { kind: 'personal' },
-      before: { content: before?.content ?? '', globs: null },
-      after: { content: input.content, globs: null },
+      before: { content: before?.content ?? '', globs: null, index: null },
+      after: { content: input.content, globs: null, index: null },
       sourceReviewRunId: input.sourceReviewRunId ?? null,
       reversesChangeId: input.reversesChangeId ?? null,
     });
@@ -221,28 +221,15 @@ export async function writePersonalMemory(input: {
   );
 }
 
-function toMemoryChange(row: Awaited<ReturnType<typeof repo.memoryChanges.listByUser>>[number]) {
-  return {
-    id: row.id,
-    target: row.target,
-    before: row.before,
-    after: row.after,
-    sourceReviewRunId: row.sourceReviewRunId,
-    reversesChangeId: row.reversesChangeId,
-    state: row.state,
-    createdAt: row.createdAt.toISOString(),
-  } satisfies MemoryChange;
-}
-
 /** 版本列表只读，不做任何补偿或投影写入。 */
 export async function listPersonalMemoryVersions(
   db: Database,
   businessId: string,
   options: { before?: string; limit: number },
 ): Promise<MemoryChange[]> {
-  const rows = await repo.memoryChanges.listByUser(db, businessId, options.limit);
-  // shortcut: before 只在已取页内过滤；个人记忆变更量很小，需要跨页精确游标时给 repo.listByUser 加 before。
-  if (options.before === undefined) return rows.map(toMemoryChange);
-  const cutoff = new Date(options.before);
-  return rows.filter((row) => row.createdAt < cutoff).map(toMemoryChange);
+  const rows = await repo.memoryChanges.listPersonalByUser(db, businessId, {
+    ...(options.before === undefined ? {} : { before: new Date(options.before) }),
+    limit: options.limit,
+  });
+  return rows.map((row) => repo.memoryChanges.toMemoryChange(row));
 }
