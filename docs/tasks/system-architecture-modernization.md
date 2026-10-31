@@ -27,12 +27,13 @@
 ## 当前状态
 
 - **范围与有效决定**：仍限定系统架构六条主线；技术栈不更换；模块化单体 + API/worker + 官方 SDK 沙盒；不新增独立服务、第二执行循环、多 worker 扩展或理论防护。前端/API 已冻结契约，后端数据与 AI 运行按两份 Opus 合同逐项接受/拒绝/延期，拒绝项不实施。
-- **已独立通过（各自范围，不是整任务验收）**：A `119 tests / 0 skip`；runtime A `115/115`（core 63 + ZIP 52）；B/C `14 files / 263 tests`、probe `7/7`、完整 web `132 files / 1600 tests`；knowledge `14 files / 206/206`；eval `14 files / 112/112`；`pnpm typecheck` 与 `pnpm build` 已过。
+- **各分区独立通过（各自范围）**：A `119 tests / 0 skip`；runtime A `115/115`（core 63 + ZIP 52）；B/C `14 files / 263 tests`、probe `7/7`、完整 web `132 files / 1600 tests`；knowledge `14 files / 206/206`；eval `14 files / 112/112`；`pnpm typecheck` 与 `pnpm build` 已过。
 - **runtime B 生产行为已实现，原三项终审发现独立 PASS**：删除编排为同一 checked-out 连接持 session advisory lock → 短 tx A 取快照 → 事务外 ACK（连接保持 idle、无事务）→ 同连接短 tx B 精确重核并删除 → unlock 后按 A/B 快照 best-effort 回收目录；agent 与 conversation 两个 DELETE 及四处创建失败补偿共用该编排，两者都回收 `sdk-sessions`、`session-sandboxes`、`conversation-outputs`、`conversation-inputs` 四类目录，`agent-memory/` 与子专家/个人记忆保留。分支补偿 `22/22` PASS；真实 TCP 下控制查询 5s 截止、持锁 40s 从确认拿到锁后启动并覆盖设置恢复，经 `locks 14/14`、矩阵 `127/127` 验证；Docker 第三个完整删除编排 `3/3` PASS。
 - **runtime B 终复审 PASS**：`pg_locks` 按 advisory key 跨隔离库选错连接（旧查询红 1）已限定当前库、空闲且无事务的 session 锁；`release(true)` 后异步释放等待改为有界轮询。最终 Opus 窄复核 PASS：`4 files / 41 tests / 0 failed / 0 skipped`（delete-lifecycle 14、delete-sandbox-hook 10、locks 14、真实 Docker 3），证据来自真实 TCP / PostgreSQL / Redis / Docker。
-- **联合验证**：首轮 `4374 total / 4338 pass / 19 fail / 17 skip` 仅作历史一行，已被后续结果取代。第二轮 `403 files / 4382 tests / 4381 pass / 1 fail / 0 skip`，唯一失败是 MCP 取消测试的观测竞态；修复为等待 job 真实消失后，独立 `3/3` PASS、相关 `52` 项 PASS。第三轮 all3 `4383 total / 4382 pass / 1 timeout / 0 skip`，唯一 timeout 为 outputs 测试并行共享库竞态，改用独享库后 `26/26` 独立 PASS。完整 all4 串行与合规镜像联合仍在运行，**结果未返回前不宣布整任务通过、不预填绿**。
+- **联合验证**：首轮 `4374 total / 4338 pass / 19 fail / 17 skip` 仅作历史一行，已被后续结果取代。第二轮 `403 files / 4382 tests / 4381 pass / 1 fail / 0 skip`，唯一失败是 MCP 取消测试的观测竞态；修复为等待 job 真实消失后，独立 `3/3` PASS、相关 `52` 项 PASS。第三轮 all3 `4383 total / 4382 pass / 1 timeout / 0 skip`，唯一 timeout 为 outputs 测试并行共享库竞态，改用独享库后 `26/26` 独立 PASS。第四轮 all4 串行与合规镜像联合 `success: true`：`403 files / 4383 tests / 4383 passed / 0 failed / 0 pending`（`/tmp/agentport-architecture-final-all4.json`）。该轮在合并 main 前启动、运行中完成合并，不能称为 merged HEAD 的精确全套结果。
+- **合并后增量验证**：merged HEAD `d9a986e3be4e167f98af0d390990cf2a38cb7e07`；Opus 增量审查 PASS（2 files / 40 tests、0 failed，`/tmp/agentport-architecture-merge-review.json`），覆盖专家摘要与权限接口；合并后删除编排定向补验 `3 files / 33 passed / 0 failed / 0 pending`（`/tmp/agentport-architecture-merged-cross.json`，命令 `pnpm exec vitest run --project backend packages/api/test/delete-lifecycle.test.ts packages/db/test/delete-sandbox-hook.test.ts packages/core/test/effect-runtime.test.ts --no-file-parallelism`）；全仓 `pnpm typecheck`、`pnpm build`、`lint:contract`、`lint:focus` 通过。未运行付费模型，未使用 CI。
 - **SDK 16**：使用已有合规镜像 `SANDBOX_IMAGE=agentport/sandbox:runtime-env-bash-20261029` 与当前 shared/sandbox 独占产物，fake 模型验证 `16/16`，0 付费；不修改默认老 dev 镜像。
-- **结论**：各分区独立验证与最终窄复核均已 PASS，runtime B 生产行为已有真实 TCP / PostgreSQL / Redis / Docker 证据；完整 all4 联合仍在运行，结果未返回前整任务不宣布完成。已获授权提交 PR 并合并，后续按真实 all4 结果填写验证。
+- **结论**：各分区独立验证、最终窄复核与 all4 联合均已 PASS，runtime B 生产行为已有真实 TCP / PostgreSQL / Redis / Docker 证据；合并后增量审查通过，merged HEAD 未重跑全量套件。已获授权提交 PR 并合并，发布与工作区收尾由主会话执行；本记录不预填 PR 号、合入或清理结果。
 
 ## 有效决定（保留）
 
@@ -70,20 +71,21 @@
 - [x] knowledge 缺口补齐完成，独立 Opus PASS（14 files / 206/206、0 skipped）。
 - [x] runtime B 短 tx 删除编排、事务外 ACK、同连接 session advisory lock 与四处补偿调用迁移完成；分支补偿 `22/22`、deadline `locks 14/14` + 矩阵 `127/127`、Docker `3/3` 独立 PASS。
 - [x] runtime B 测试边界修复（本库 PID 选择、异步锁释放等待）后的最终 Opus 窄复核 PASS（`4 files / 41 tests / 0 failed / 0 skipped`，真实 TCP / PostgreSQL / Redis / Docker）。
-- [ ] all4 完整串行联合与合规镜像：运行中，待真实结果填写。
+- [x] all4 完整串行联合与合规镜像：`success: true`，403 files / 4383 tests / 4383 passed / 0 failed / 0 pending；在合并 main 前启动，非 merged HEAD 精确全套。
+- [x] 合并后 Opus 增量审查 PASS（2 files / 40 tests、0 failed），全仓 typecheck/build 与 lint:contract/focus 通过。
 - [x] 用户已明确授权提交 PR 并合并；提交与合并动作由主会话执行。
 
 ## 改动文件
 
 - 契约与证据：[架构契约](system-architecture-modernization-contract.md)、[数据契约](system-architecture-data-contract.md)、[运行合同](system-architecture-runtime-contract.md)、[runtimeB revision](system-architecture-runtimeB-revision.md)、[short-tx](system-architecture-runtimeB-shorttx-evidence.md)、[branchfix](system-architecture-runtimeB-branchfix-evidence.md)、[deadlinefix](system-architecture-runtimeB-deadlinefix-evidence.md)、[integration](system-architecture-integration-regressions.md)、[reconcile](system-architecture-reconcile-regression.md)。
 - 源码与测试由 A、B/C、eval、runtime A、knowledge、runtime B 分区在本树写入，以提交前固定 diff 为准；本记录不逐文件登记。
-- 本轮文档收口只改 `docs/ARCHITECTURE.md` §5、本记录、[审计汇总](system-architecture-audit.md) 与 `system-architecture-reconcile-regression.md` 一句措辞；不源码、测试、其他 evidence、LoopX 或 Git。
+- 本轮文档收口只改 `docs/ARCHITECTURE.md` §7 评估状态、本记录与[审计汇总](system-architecture-audit.md)；不源码、测试、其他 evidence、LoopX 或 Git。
 - `.vitest/json/output.json` 为测试运行副产物，不是业务改动。
 
 ## 下一步
 
-- 等待 all4 完整串行联合与合规镜像返回，按实际 pass/fail/timeout/skip 记录；未返回前不填结果、不宣布整任务 PASS。
-- 最终 PR 正文中的联合验证数字以 all4 真实输出为准，不以单个分区结果代填。
+- 验收已完成：all4 联合与合并后增量审查均有真实输出；发布由主会话执行，记录随实际 PR/合并状态更新。
+- 最终 PR 正文中的联合验证数字以 all4 真实输出为准，并注明该轮在合并 main 前启动；merged HEAD 以增量审查与 typecheck/build/lint 为依据，不冒充全量套件。
 - 用户已授权提交 PR 并合并，随后按 DEV-WORKFLOW §2-7 收尾工作区；主会话执行 Git 动作，本记录不代替验证证据。
 
 ## 验证
@@ -104,12 +106,14 @@
 | 联合首轮（历史） | 4374 total / 4338 pass / 19 fail / 17 skip | 已被后续结果取代 | `/tmp/agentport-architecture-final-all.json` |
 | 联合第二轮 | 403 files / 4382 tests / 4381 pass / 1 fail / 0 skip；唯一失败为 MCP 取消观测竞态，修复后独立 3/3、相关 52 项 PASS | 未通过，已被 all3 取代 | 未记录报告路径 |
 | 联合第三轮（all3） | 4383 total / 4382 pass / 1 timeout / 0 skip；唯一 timeout 为 outputs 并行共享库竞态，独享库修后 26/26 PASS | 已被 all4 取代 | 未记录报告路径 |
-| 联合第四轮（all4） | 待填写 | 串行联合与合规镜像运行中，未收到结果前不宣布通过 | 待填写 |
-| SDK 16 | 16/16（`SANDBOX_IMAGE=agentport/sandbox:runtime-env-bash-20261029`，当前 shared/sandbox 独占产物，fake 模型 0 付费） | 替代证据，不代表整任务通过 | `/tmp/agentport-architecture-final-skips-session-sandbox-sdk.json` |
-| 静态检查 | `pnpm typecheck`、`pnpm build` 已过 | 通过 | 无单独报告 |
+| 联合第四轮（all4） | 403 files / 4383 tests / 4383 passed / 0 failed / 0 pending，`success: true` | 通过；在合并 main 前启动，非 merged HEAD 精确全套 | `/tmp/agentport-architecture-final-all4.json`；命令 `SANDBOX_IMAGE=agentport/sandbox:runtime-env-bash-20261029 rtk bypass pnpm exec vitest run --no-file-parallelism --reporter=json --outputFile=/tmp/agentport-architecture-final-all4.json` |
+| 合并后增量审查（merged HEAD `d9a986e`） | 2 files / 40 tests / 0 failed | Opus 增量审查 PASS；未重跑全量套件 | `/tmp/agentport-architecture-merge-review.json` |
+| 合并后删除编排定向补验（merged HEAD `d9a986e`） | 3 files / 33 passed / 0 failed / 0 pending | 定向补验 PASS | `/tmp/agentport-architecture-merged-cross.json`；命令 `pnpm exec vitest run --project backend packages/api/test/delete-lifecycle.test.ts packages/db/test/delete-sandbox-hook.test.ts packages/core/test/effect-runtime.test.ts --no-file-parallelism` |
+| SDK 16 | 16/16（`SANDBOX_IMAGE=agentport/sandbox:runtime-env-bash-20261029`，当前 shared/sandbox 独占产物，fake 模型 0 付费） | 替代证据，非付费模型验收 | `/tmp/agentport-architecture-final-skips-session-sandbox-sdk.json` |
+| 静态检查 | `pnpm typecheck`、`pnpm build`、`lint:contract`、`lint:focus` 通过 | 通过 | 无单独报告；合并后 latest HEAD 已复核 |
 
 补充说明：
 
 - 测试报告里的 `testResults` 是文件数，不是 suite 数；上表 files 与 tests 分开记录。
 - runtime B 已知限制：全局绑定锁在 ACK 窗口会短暂挡住其他专家准入/绑定修改/记忆操作；B 提交后 unlock/reset 失败不能声称可回滚；rm 失败保留 best-effort 语义。详见 [short-tx 证据](system-architecture-runtimeB-shorttx-evidence.md)。
-- 未执行付费模型或 LoopX 操作；all4 串行联合返回前，整任务不以单个分区结果代替联合验收。
+- 未执行付费模型或 LoopX 操作；all4 为合并 main 前启动的串行联合结果，merged HEAD 另有增量审查与静态检查，不能互相替代。
