@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { personalMemoryDir } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, MEMORY_FILE_MAX_BYTES } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
@@ -10,7 +11,6 @@ import { decodePackage } from '../src/features/agent-package-zip.js';
 import { readMemoryFile, writeMemoryFile } from '../src/features/agents/memory-files.js';
 import { registerMemoryChangeRoutes } from '../src/features/memory/changes.js';
 import { memorySha256, writeMemoryJournal } from '../src/features/memory/journal.js';
-import { personalMemoryDir } from '../src/features/memory/personal.js';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,

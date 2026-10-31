@@ -109,7 +109,7 @@ function asIds(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
 }
 
-/** 兼容旧格式（裸数组只记隐藏列）与 { hidden, order }。 */
+/** 只读当前格式 { hidden, order }；其他形状（含旧版裸数组）一律回默认。 */
 function readPrefs(
   storageKey: string | undefined,
   columns: { id: string; locked?: boolean; hiddenByDefault?: boolean }[],
@@ -121,12 +121,10 @@ function readPrefs(
   if (storageKey) {
     try {
       const parsed: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
-      if (Array.isArray(parsed)) {
-        hidden = asIds(parsed);
-      } else if (parsed && typeof parsed === 'object') {
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const prefs = parsed as Partial<ColumnPrefs>;
         hidden = Array.isArray(prefs.hidden) ? asIds(prefs.hidden) : hidden;
-        order = asIds(prefs.order);
+        order = Array.isArray(prefs.order) ? asIds(prefs.order) : order;
       }
     } catch {
       // 损坏的偏好（或 SSR 没有 localStorage）直接丢弃，回到默认。

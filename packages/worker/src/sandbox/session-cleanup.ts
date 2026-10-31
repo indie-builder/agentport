@@ -1,4 +1,5 @@
 import {
+  redactSecrets,
   SESSION_CLEANUP_REQUEST_CHANNEL,
   SESSION_CLEANUP_TIMEOUT_MS,
   type SessionCleanupAck,
@@ -9,7 +10,6 @@ import {
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { waitClose } from '../close-wait.js';
-import { redactSecrets } from '../redact.js';
 import type { SessionSandboxes } from './sessions.js';
 
 /**

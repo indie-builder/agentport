@@ -3,6 +3,7 @@ import {
   type ChatEvent,
   type ExecutionSettlement,
   type ResolvedRuntimeEnvironment,
+  redactSecrets,
   type SandboxInputCommand,
   type SandboxTaskInput,
   SUPERVISOR_INPUT_MAX_BYTES,
@@ -11,7 +12,6 @@ import {
   supervisorOutputSchema,
 } from '@agentport/shared';
 import type { Logger } from 'pino';
-import { redactSecrets } from '../redact.js';
 import type { RuntimeEnvironmentResolver } from '../runtime-environments/resolve.js';
 import type { Sandbox, SandboxProvider } from './provider.js';
 import { SandboxCleanupError } from './provider.js';

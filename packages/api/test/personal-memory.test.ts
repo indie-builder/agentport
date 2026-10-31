@@ -1,16 +1,12 @@
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { personalMemoryDir, personalMemoryPath } from '@agentport/core';
 import { repo } from '@agentport/db';
-import type { MemoryReviewTarget } from '@agentport/shared';
+import { type MemoryReviewTarget, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
-import {
-  PERSONAL_MEMORY_MAX_CHARS,
-  personalMemoryDir,
-  personalMemoryPath,
-} from '../src/features/memory/personal.js';
 import { registerPersonalMemoryRoutes } from '../src/features/memory/routes.js';
 import {
   ADMIN_BUSINESS_ID,

@@ -1,6 +1,11 @@
 import type { Stats } from 'node:fs';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import {
+  PERSONAL_MEMORY_FILENAME,
+  PERSONAL_MEMORY_MAX_BYTES,
+  PERSONAL_MEMORY_MAX_CHARS,
+} from '@agentport/shared';
 import type { HookCallback, PreToolUseHookSpecificOutput } from '@anthropic-ai/claude-agent-sdk';
 
 const MEMORY_TOOLS = new Set(['Read', 'Write', 'Edit']);
@@ -19,17 +24,10 @@ export const PLUGINS_DIR = '/workspace/.claude/plugins';
 /** 子智能体 project 记忆根：每个子只允许自己的 `<slug>/` 子目录。 */
 export const SUBAGENT_MEMORY_DIR = '/workspace/.claude/agent-memory';
 
-export const createMemoryHook = createFileBoundaryHook;
-
 /** 个人记忆由宿主只读挂载到 /mnt/user；每轮用户提交前注入，恢复会话也读最新文件。 */
-export const PERSONAL_MEMORY_FILE = '/mnt/user/CLAUDE.md';
+export const PERSONAL_MEMORY_FILE = `/mnt/user/${PERSONAL_MEMORY_FILENAME}`;
 
-export const PERSONAL_MEMORY_MAX_CHARS = 9000;
-
-/** 异常内容护栏：9000 个字符最坏约 36 KB，超过说明文件异常，本轮不读。 */
-export const PERSONAL_MEMORY_MAX_BYTES = 36 * 1024;
-
-const PERSONAL_MEMORY_LIMIT_MESSAGE = '个人偏好最多 9000 个字符，本轮未启动';
+const PERSONAL_MEMORY_LIMIT_MESSAGE = `个人偏好最多 ${PERSONAL_MEMORY_MAX_CHARS} 个字符，本轮未启动`;
 
 /**
  * UserPromptSubmit hook：读取个人记忆文件并作为 additionalContext 注入本轮。

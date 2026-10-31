@@ -14,7 +14,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
-import { useAgent } from '../src/lib/queries.js';
+import { useAgentSummary } from '../src/lib/queries.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
 import { allAccessMe } from './me-fixture.js';
 
@@ -191,7 +191,7 @@ async function mountAgentProbe(id: string) {
     data: undefined,
   };
   function Probe({ agentId }: { agentId: string }) {
-    const { data } = useAgent(agentId);
+    const { data } = useAgentSummary(agentId);
     snapshot.data = data;
     useEffect(() => {
       snapshot.commits += 1;
@@ -301,7 +301,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe('useAgent cache selection', () => {
+describe('useAgentSummary cache selection', () => {
   const other: Agent = { ...agent, id: 'other', slug: 'other', name: 'Other' };
 
   it('does not commit when another expert changes', async () => {

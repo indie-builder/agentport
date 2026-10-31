@@ -1,4 +1,4 @@
-import type { MemoryChange } from '@agentport/shared';
+import { type MemoryChange, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RotateCcw } from 'lucide-react';
@@ -25,8 +25,6 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 
-/** 与后端 PERSONAL_MEMORY_MAX_CHARS 一致；按 Unicode 码点计数，不是 UTF-8 字节。 */
-const PERSONAL_MEMORY_MAX_CHARS = 9000;
 const PERSONAL_MEMORY_NEAR_LIMIT = 8500;
 
 type MemoryTab = 'personal' | 'reviews';

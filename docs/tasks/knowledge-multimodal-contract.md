@@ -101,7 +101,7 @@ readKnowledgeImage(input: KnowledgeServerInput,
 - `searchKnowledge` 的文字查询显式 inputType=search_query；关键词排除 imageRole=vector，普通向量分支排除 vector，再为 opt-in 同空间库单独查 vector role 并应用 imageVectorMinScore 后融合。
 - vector 查询先限定版本 profileId、可见状态与1024维再算距离；同图多个子块可保留独立 chunkId，不将 vector 分数冒充 OCR 分数。rerank 输入可用描述文本，返回仍保留原图片命中身份。
 - image 从 metadata 投影到 hit，quote 始终可读文字；不返回本机路径/任意远程图片 URL。已有搜索响应/JSON text wire、引用保存方式保持，新增字段跨历史 trace 原样保存。
-- `KNOWLEDGE_TOOL_NAMES` 追加 `knowledge_read_image`；参数上述 schema，默认 description。description 只返回 JSON text `{hit,description}`；image 返回同一 JSON text 加 MCP `{type:'image',data:<base64>,mimeType}`，遵从 CallToolResult；不在聊天层拼 user message。
+- `KNOWLEDGE_TOOL_NAMES` 追加 `knowledge_read_image`（历史写法：现行代码已无该集中常量，工具在 `packages/api/src/features/knowledge/mcp.ts` 逐个 `registerTool` 注册；常驻 `knowledge_search`、`knowledge_list`、`knowledge_read`，仅在图片处理启用时才注册 `knowledge_read_image`）；参数上述 schema，默认 description。description 只返回 JSON text `{hit,description}`；image 返回同一 JSON text 加 MCP `{type:'image',data:<base64>,mimeType}`，遵从 CallToolResult；不在聊天层拼 user message。
 - 读图先按绑定 base/run 权限校验 chunk→document→version→versions.images，要求当前可见、chunk enabled、图片处理已开；不接受任意 name/path/URL。format=image 限 SDK 原生 MIME 与5MiB，超限返回明确工具错误并提示 description，不静默只给描述。
 - 非视觉专家使用 description；视觉专家按工具说明显式选择 image。搜索已提供描述所以不会强迫所有专家接收图；真实 SDK+网关测试须证明 image content 到达视觉模型，不能用 UI 缩略图替代。
 - 复用现有 `GET /api/knowledge/versions/:versionId/images/:name` 与 `api.knowledgeImageUrl`，Web 不加另一供图路由。引用弹窗按 hit.image 显示原图/alt=quote、页码和正文；401/403/404 继续明确呈现。

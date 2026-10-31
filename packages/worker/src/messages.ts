@@ -1,8 +1,13 @@
 import { resolveOpenUiResponse } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
-import { type ChatEvent, type PublicRunQuestion, segmentOpenUi } from '@agentport/shared';
+import {
+  type ChatEvent,
+  hasOpenUiSegment,
+  type PublicRunQuestion,
+  redactJson,
+  redactSecrets,
+} from '@agentport/shared';
 import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm';
-import { redactJson, redactSecrets } from './redact.js';
 
 /** 工具入参在事件里是 JSON 字符串；落库时还原成对象，前端与 trace 都按对象渲染。 */
 function parseToolInput(raw: string | undefined): unknown {
@@ -198,9 +203,7 @@ function canonicalPrograms(
       content.parentToolUseId === undefined &&
       content.truncated !== true &&
       typeof content.text === 'string';
-    const hasUi =
-      eligible &&
-      segmentOpenUi(content.text as string).some((segment) => segment.kind === 'openui');
+    const hasUi = eligible && hasOpenUiSegment(content.text as string);
     // 纯文本消息不写程序，也不更新基线：下一轮补丁仍以最近一次真实 UI 为起点。
     if (!eligible || !hasUi) {
       programs.set(index, null);

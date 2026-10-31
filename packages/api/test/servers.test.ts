@@ -238,9 +238,6 @@ describe.skipIf(!ready)('servers', () => {
     expect(res.statusCode).toBe(201);
   });
 
-  // 已知缺陷（不在本测试文件的修改范围）：servers/routes.ts 的 rethrowConflict 只看顶层
-  // error.code，drizzle 把 pg 的 23505 包在 DrizzleQueryError.cause 里，所以实际返回 500。
-  // agents/routes.ts 已顺着 cause 链查找，servers 侧需同样处理。
   it('rejects a duplicate name with 409', async () => {
     const name = unique('dup');
     created.push(name);

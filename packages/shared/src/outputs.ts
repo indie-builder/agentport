@@ -110,8 +110,6 @@ export const outputManifestFileSchema = z.object({
   changed: z.boolean(),
 });
 
-export type OutputManifestFile = z.infer<typeof outputManifestFileSchema>;
-
 /**
  * 每轮发布的完整快照索引。`userMessageId`/`afterMessageId` 是本轮边界：
  * fork 只复制两个锚点都在映射内的版本，并重写为分支消息 id。

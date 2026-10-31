@@ -1,5 +1,6 @@
 import { lstat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { conversationInputsDir } from '@agentport/core';
 import { attachmentExtension, type MessageAttachment } from '@agentport/shared';
 
 /** 附件只读挂载的容器内路径，与 sandbox 的 INPUTS_DIR 一致。 */
@@ -19,7 +20,11 @@ export interface ConversationInputsIdentity {
 export async function conversationInputsMount(
   input: ConversationInputsIdentity,
 ): Promise<{ hostPath: string; containerPath: string; readonly: true } | null> {
-  const dir = join(input.workspacesDir, input.slug, 'conversation-inputs', input.conversationId);
+  const dir = conversationInputsDir({
+    root: input.workspacesDir,
+    slug: input.slug,
+    conversationId: input.conversationId,
+  });
   const entry = await lstat(dir).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return null;
     throw error;

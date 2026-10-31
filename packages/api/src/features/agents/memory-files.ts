@@ -19,10 +19,6 @@ function workspaceSubdir(workspacesDir: string, slug: string, leaf: string): str
   return resolve(workspacesDir, slug, leaf);
 }
 
-export function memoryDir(workspacesDir: string, slug: string): string {
-  return workspaceSubdir(workspacesDir, slug, 'agent-memory');
-}
-
 function safeName(name: string): string {
   if (!memoryFileNamePattern.test(name)) fail('INVALID_INPUT', '记忆文件名非法：只允许 <name>.md');
   return name;

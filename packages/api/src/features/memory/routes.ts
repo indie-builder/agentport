@@ -1,6 +1,7 @@
 import type { MemoryChange } from '@agentport/shared';
 import {
   memoryChangeSchema,
+  PERSONAL_MEMORY_FILENAME,
   personalMemorySchema,
   writePersonalMemoryInputSchema,
 } from '@agentport/shared';
@@ -9,12 +10,7 @@ import { z } from 'zod';
 import { reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
 import { userPrincipal } from '../access.js';
-import {
-  listPersonalMemoryVersions,
-  PERSONAL_MEMORY_FILENAME,
-  readPersonalMemory,
-  writePersonalMemory,
-} from './personal.js';
+import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } from './personal.js';
 
 const versionsQuery = z.object({
   before: z.iso.datetime().optional(),

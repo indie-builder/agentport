@@ -733,26 +733,6 @@ export async function getAgentServerIds(db: Database | Tx, agentId: string): Pro
   return rows.map((row) => row.serverId);
 }
 
-/** 一次取回多个 agent 的绑定关系，列表接口避免 N+1。 */
-export async function listAgentServerIds(
-  db: Database,
-  agentIds: string[],
-): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>();
-  if (agentIds.length === 0) return out;
-  const rows = await db
-    .select({ agentId: agentServers.agentId, serverId: agentServers.serverId })
-    .from(agentServers)
-    .where(inArray(agentServers.agentId, agentIds))
-    .orderBy(asc(agentServers.agentId), asc(agentServers.serverId));
-  for (const row of rows) {
-    const list = out.get(row.agentId);
-    if (list) list.push(row.serverId);
-    else out.set(row.agentId, [row.serverId]);
-  }
-  return out;
-}
-
 export async function getAgentSkillIds(db: Database | Tx, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ skillId: agentSkills.skillId })
@@ -760,25 +740,6 @@ export async function getAgentSkillIds(db: Database | Tx, agentId: string): Prom
     .where(eq(agentSkills.agentId, agentId))
     .orderBy(asc(agentSkills.skillId));
   return rows.map((row) => row.skillId);
-}
-
-export async function listAgentSkillIds(
-  db: Database,
-  agentIds: string[],
-): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>();
-  if (agentIds.length === 0) return out;
-  const rows = await db
-    .select({ agentId: agentSkills.agentId, skillId: agentSkills.skillId })
-    .from(agentSkills)
-    .where(inArray(agentSkills.agentId, agentIds))
-    .orderBy(asc(agentSkills.agentId), asc(agentSkills.skillId));
-  for (const row of rows) {
-    const list = out.get(row.agentId);
-    if (list) list.push(row.skillId);
-    else out.set(row.agentId, [row.skillId]);
-  }
-  return out;
 }
 
 /** 某 agent 的直接子智能体（含已停用的，供预览/管理）。 */

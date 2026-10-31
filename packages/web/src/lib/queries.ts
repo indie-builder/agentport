@@ -446,11 +446,6 @@ export function useAgentDetail(id: string | null, enabled = true) {
   return useQuery({ ...agentDetailQuery(id ?? '', enabled && id !== null) });
 }
 
-/** 兼容旧调用：仅按列表摘要取单个专家；配置正文用 useAgentDetail。 */
-export function useAgent(id: string) {
-  return useAgentSummary(id);
-}
-
 export function useAgentAccess(id: string | null) {
   return useQuery(agentAccessQuery(id));
 }
@@ -468,10 +463,6 @@ export function useIdentities(
 
 export function useAccounts(query: { q: string; limit: number; offset: number }) {
   return useQuery(accountQuery(query));
-}
-
-export function usePermissionCatalog() {
-  return useQuery(permissionCatalogQuery);
 }
 
 export function useRoleMatrix(enabled = true) {

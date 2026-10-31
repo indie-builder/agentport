@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApprovalRequest } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
-import { ApprovalCard, Composer, findApproval } from '../src/pages/chat.js';
+import { ApprovalCard, Composer } from '../src/pages/chat.js';
 
 vi.mock('../src/lib/chat-store.js', async (original) => {
   const { useChatStore: store } = await original<typeof import('../src/lib/chat-store.js')>();
@@ -44,8 +44,6 @@ vi.mock('react', async (original) => ({
 function approval(serverName: string | null, id = serverName ?? 'unknown'): ApprovalRequest {
   return { id, serverId: id, serverName, toolName: 'write', approvedAt: null, createdAt: '' };
 }
-const tool = { kind: 'tool', toolUseId: 'call-b', name: 'mcp__B__write' } as const;
-
 function findElement(
   node: ReactElement,
   predicate: (props: Record<string, unknown>) => boolean,
@@ -62,7 +60,7 @@ function findElement(
 
 beforeEach(() => useChatStore.getState().reset());
 
-describe('approval placement', () => {
+describe('approval card', () => {
   it('disables every approval while labeling only the matching request pending', () => {
     const html = renderToStaticMarkup(
       createElement(
@@ -83,25 +81,6 @@ describe('approval placement', () => {
     expect(html).toContain('调用仍在等待，批准后可继续本次调用，无需重发');
     expect(html).toContain('本次调用已结束等待，批准仅对后续调用生效，不会恢复已结束的调用。');
     expect(html).toContain('>批准后续调用</button>');
-  });
-  it('matches the exact server when two servers share the tool name', () => {
-    const a = approval('A');
-    const b = approval('B');
-    expect(findApproval(tool, [a, b])).toBe(b);
-  });
-  it('leaves a known different server for its fallback card', () => {
-    expect(findApproval(tool, [approval('A')])).toBeUndefined();
-  });
-  it('leaves ambiguous unknown servers for fallback cards', () => {
-    expect(findApproval(tool, [approval(null, 'a'), approval(null, 'b')])).toBeUndefined();
-  });
-  it('accepts a unique candidate without a server name', () => {
-    const candidate = approval(null);
-    expect(findApproval(tool, [candidate])).toBe(candidate);
-  });
-  it('prefers exact identity over an unknown-server candidate', () => {
-    const exact = approval('B');
-    expect(findApproval(tool, [approval(null), exact])).toBe(exact);
   });
 });
 

@@ -1,8 +1,6 @@
 import {
   MessageScroller as MessageScrollerPrimitive,
   useMessageScroller,
-  useMessageScrollerScrollable,
-  useMessageScrollerVisibility,
 } from '@shadcn/react/message-scroller';
 import { ArrowDownIcon } from 'lucide-react';
 import type * as React from 'react';
@@ -122,6 +120,4 @@ export {
   MessageScrollerProvider,
   MessageScrollerViewport,
   useMessageScroller,
-  useMessageScrollerScrollable,
-  useMessageScrollerVisibility,
 };
