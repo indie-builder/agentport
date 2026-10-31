@@ -4,6 +4,7 @@ import { type FileHandle, lstat, mkdir, open, readdir, rename, unlink } from 'no
 import { join, parse, resolve, sep } from 'node:path';
 import { fail } from '@agentport/core';
 import {
+  MEMORY_FILE_MAX_BYTES,
   type MemoryFile,
   type MemoryFileContent,
   type MemoryFileList,
@@ -12,7 +13,6 @@ import {
 
 const MEMORY_FILE_MODE = 0o600;
 const MEMORY_DIR_MODE = 0o700;
-const MAX_MEMORY_BYTES = 200_000;
 
 function workspaceSubdir(workspacesDir: string, slug: string, leaf: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(slug)) fail('INVALID_INPUT', '智能体目录名非法');
@@ -166,15 +166,16 @@ async function readMemoryFileData(
       try {
         const info = await handle.stat();
         if (!info.isFile()) fail('INVALID_INPUT', '记忆文件必须是普通 Markdown 文件');
-        if (info.size > MAX_MEMORY_BYTES) fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
-        const buffer = Buffer.alloc(MAX_MEMORY_BYTES + 1);
+        if (info.size > MEMORY_FILE_MAX_BYTES)
+          fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
+        const buffer = Buffer.alloc(MEMORY_FILE_MAX_BYTES + 1);
         let size = 0;
         while (size < buffer.length) {
           const { bytesRead } = await handle.read(buffer, size, buffer.length - size, size);
           if (!bytesRead) break;
           size += bytesRead;
         }
-        if (size > MAX_MEMORY_BYTES) fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
+        if (size > MEMORY_FILE_MAX_BYTES) fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
         return { data: buffer.subarray(0, size), updatedAt: info.mtime.toISOString() };
       } finally {
         await handle.close();
@@ -214,7 +215,7 @@ async function writeMemoryFileData(
   data: string | Uint8Array,
 ): Promise<string> {
   safeName(name);
-  if (Buffer.byteLength(data) > MAX_MEMORY_BYTES)
+  if (Buffer.byteLength(data) > MEMORY_FILE_MAX_BYTES)
     fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
   return withMemoryDir(workspacesDir, slug, true, async (dir) => {
     const target = join(dir, name);

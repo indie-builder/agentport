@@ -22,6 +22,9 @@ export function knowledgeEnqueueOptions(jobId: string) {
   };
 }
 
+/** 官方视觉输入单图上限 5MB；按二进制字节计，base64 膨胀不算在内。 */
+export const KNOWLEDGE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
 /** 图片名必须是版本清单里的单段文件名；任何路径分隔符或 `..` 都不接受。 */
 const knowledgeImageNameSchema = z
   .string()

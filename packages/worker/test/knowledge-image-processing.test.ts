@@ -1,12 +1,8 @@
 import { existsSync } from 'node:fs';
+import { KNOWLEDGE_IMAGE_MAX_BYTES, type KnowledgeImageProcessing } from '@agentport/shared';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it } from 'vitest';
-import {
-  assertUsableImage,
-  describeKnowledgeImage,
-  IMAGE_LIMIT_BYTES,
-  type KnowledgeImageProcessing,
-} from '../src/knowledge/image-processing.js';
+import { assertUsableImage, describeKnowledgeImage } from '../src/knowledge/image-processing.js';
 
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -231,7 +227,7 @@ describe('describeKnowledgeImage', () => {
 
   it('rejects an image over the 5MiB vision limit before any paid vision call', async () => {
     const captured: Captured[] = [];
-    const oversized = new Uint8Array(IMAGE_LIMIT_BYTES + 1);
+    const oversized = new Uint8Array(KNOWLEDGE_IMAGE_MAX_BYTES + 1);
     oversized.set(TINY_JPEG);
     await expect(
       describeKnowledgeImage(
