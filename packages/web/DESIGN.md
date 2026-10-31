@@ -325,6 +325,14 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 - **设置**：模型选择读取安全候选投影，端点管理仍用独立权限；切换模型立即影响检索，已有文档需重建恢复向量检索。未保存设置不能执行重建；重建逐文档切换新版本，失败文档保留原版，成功文档不回滚。空白 Wiki 可直接写作，已有版本未加载时不会误当首版。
 - 布局与动线记录见 [knowledge-ux-review](../../docs/tasks/knowledge-ux-review.md)。该验收使用真实组件与固定数据隔离夹具，不覆盖真实登录、外部来源、模型调用与写链路，外壳侧栏为等价几何占位；测量数字见任务记录。已发布 Wiki 尚未进入专家检索，单独跟踪。
 
+### Roles（角色）
+
+- **布局**：顶部横向每个角色一列，左上角为功能表头，列头用 `sunken` 底区分；左侧纵向为功能层级树的行头，父功能下缩进查看、创建等子功能，整组可展开收起，不把父子平铺成「专家 · 查看」；数据区只用 `surface`/白底，单元格只放复选框（父级三态），授权范围在矩阵外的角色设置中配置，整张矩阵一次保存。角色增多时只在表格容器内横向滚动。
+- **展开与未保存反馈**：保留上述布局；工具栏提供「全部展开」「全部收起」，每个功能组行头仍可独立折叠，搜索期间强制展开并禁用折叠。单元格变化按保存基线的逐叶 scope 集合差异判定，新增、撤销与范围调整分别标记（`td data-changed` + 中性浅底/边界，title 与复选框 `aria-description` 说明），父组收起时聚合子叶变化仍可见。工具栏显示真实变化的叶权限数与最近一次角色/功能/动作，改回基线或保存成功即清除；父组只聚合不重复计数。
+- **实现机制**：矩阵的唯一表单草稿由 `src/lib/use-zod-form.ts` 的 `useZodForm` + React Hook Form 管理：`useFieldArray` 负责角色增删，单元格与角色列头按字段路径用 `useController`/`useWatch` 订阅，`defaultValues`/`reset`/`dirty` 与离开保护共用同一份状态，不另存基线副本。功能层级行的展开收起由 TanStack Table 9.3.1 `rowExpandingFeature`（`createExpandedRowModel`、`autoResetExpanded:false`）管理，全部展开/收起用 `toggleAllRowsExpanded`。服务端状态仍由 TanStack Query、可导航状态仍由 TanStack Router 承担，职责不变。
+- **性能**：2026-10-31 在迁移前后用同一脚本、同一隔离夹具（89 个权限叶、4 个角色、556 个复选框）、1480×840 开发模式下，从 React 根 fiber 读取 `actualDuration`，预热 2 次、采样 12 次对比。迁移前（页内 memo + 手写草稿）点击窗口内全部 commit 合计中位/P95 为 23.95ms/34.10ms，迁移后（RHF + TanStack Table）为 16.70ms/18.40ms；角色名输入路径从 23.00ms/44.20ms 降到 15.95ms/23.80ms。点击的首次 commit 从 15.05ms 变为 16.60ms、事件到首次 commit 从 17.50ms 变为 21.85ms，略有回退；角色名输入的首次 commit 从 23.00ms 降到 13.40ms、事件到首次 commit 从 29.6ms 降到 19.6ms，因此不能概括为所有指标更快。数字为 React commit 时间，不等于绘制延迟，本轮未测绘制。基线以 RHF `defaultValues` 为唯一来源，变化计数按 `roleId` 统计 scope；重新加载返回 503 时保留草稿。本轮 90 个 web 用例及 typecheck/build/lint:focus/lint:contract/Biome/diffcheck 均通过。
+- **视觉验收**：2026-10-31 以真实组件 + 固定数据隔离夹具实测（89 个权限叶、4 个默认角色；夹具拦截全部 API 写请求）：1492px 窗口页头 139px、556 个数据 `td` 每格一个 checkbox，列头浅灰、功能行头白；1024px 窗口文档宽 1024、表格容器 client 宽 738；新增第 5 个角色后容器 `scrollWidth` 799，`scrollLeft` 为 60.5 时 sticky 功能行头仍在 x=248；关闭角色设置后焦点回到实际触发器，整组折叠与搜索展开均已实测。未覆盖真实登录与 PUT 写库，不代表用户认可。
+
 ## Elevation & Depth
 
 系统默认是平的。外壳、卡片、表格、列表都没有投影：卡片用 1px `line` ring 划分边界，外壳用 1px outline。深度只出现在浮层：所有菜单、Select、Popover、Dialog、Sheet、Toast 共用同一个 overlay 阴影。Composer 当前没有阴影。
