@@ -13,8 +13,9 @@ import { redactSecrets } from '../redact.js';
 import type { SessionSandboxes } from './sessions.js';
 
 /**
- * 会话删除的内部关闭信道：API 在删除事务里发请求，worker 关闭空闲容器后回一条 ACK。
- * 只是有限请求/应答，不是队列或第二套运行循环；请求不带凭据、宿主路径或 Docker 命令。
+ * 会话删除的内部关闭信道：API 在删除事务之间（事务外、仍持会话锁）发请求，
+ * worker 关闭空闲容器后回一条 ACK。只是有限请求/应答，不是队列或第二套运行循环；
+ * 请求不带凭据、宿主路径或 Docker 命令。
  */
 export interface SessionCleanupChannelOptions {
   redisUrl: string;

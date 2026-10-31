@@ -7,7 +7,7 @@ import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { startRedisContainer, stopRedisContainer } from '../../worker/test/global-setup.js';
-import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
+import { createIsolatedDatabase, type IsolatedDatabase } from '../../worker/test/isolated-db.js';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -39,6 +39,9 @@ const REDIS_URL = isolated?.url ?? 'redis://127.0.0.1:1/8';
  */
 describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
   let app: FastifyInstance;
+  // 无 worker / 不 ACK 用例会持共享库绑定锁等满 ACK 预算；独享库避免同轮其它套件的删除
+  // 被锁等待拖成 5s 控制查询超时。
+  let isolatedDb: IsolatedDatabase | null = null;
   let cookie: string;
   let responder: Awaited<ReturnType<typeof startSessionCleanupResponder>> | undefined;
   let sessions: FakeSessionCloser;
@@ -46,7 +49,9 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
   const personalOwners: string[] = [];
 
   beforeAll(async () => {
-    app = await startApp({ REDIS_URL });
+    isolatedDb = await createIsolatedDatabase('api_delete_lifecycle');
+    if (isolatedDb === null) throw new Error('cannot create an isolated database');
+    app = await startApp({ DATABASE_URL: isolatedDb.url, REDIS_URL });
     cookie = await loginCookie(app);
   });
 
@@ -57,18 +62,50 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
   });
 
   afterAll(async () => {
-    await cleanup(app, { agentSlugs });
-    for (const slug of agentSlugs) {
-      await rm(join(app.config.WORKSPACES_DIR, slug), { recursive: true, force: true });
+    const failures: unknown[] = [];
+    // beforeAll 可能在建库或起 app 前就失败；没有 app 时也没有业务数据要清。
+    if (app) {
+      // 业务数据或目录清理失败也要继续关 app、归还独享库与容器。
+      try {
+        await cleanup(app, { agentSlugs });
+      } catch (error) {
+        failures.push(error);
+      }
+      for (const slug of agentSlugs) {
+        try {
+          await rm(join(app.config.WORKSPACES_DIR, slug), { recursive: true, force: true });
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      for (const businessId of personalOwners) {
+        try {
+          await rm(join(app.config.WORKSPACES_DIR, '_users', hash(businessId)), {
+            recursive: true,
+            force: true,
+          });
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      try {
+        await app.close();
+      } catch (error) {
+        failures.push(error);
+      }
     }
-    for (const businessId of personalOwners) {
-      await rm(join(app.config.WORKSPACES_DIR, '_users', hash(businessId)), {
-        recursive: true,
-        force: true,
-      });
+
+    // app 关闭后再 drop 独享库；库与 Redis 各自尝试，一个失败不跳过另一个。
+    const results = await Promise.allSettled([
+      isolatedDb ? isolatedDb.close() : Promise.resolve(),
+      stopRedisContainer(isolated),
+    ]);
+    for (const result of results) {
+      if (result.status === 'rejected') failures.push(result.reason);
     }
-    await app.close();
-    await stopRedisContainer(isolated);
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'delete lifecycle teardown failed');
+    }
   });
 
   const auth = () => ({ cookie });

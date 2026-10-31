@@ -25,13 +25,13 @@ jobs:
     env:
       DATABASE_URL: postgres://agentport:agentport@localhost:5432/agentport
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
         with:
-          version: 12.15.0
-      - uses: actions/setup-node@v4
+          version: 12.16.1
+      - uses: actions/setup-node@v7.1.0
         with:
-          node-version: 24
+          node-version: 24.22.2
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec biome ci .
@@ -42,7 +42,7 @@ jobs:
       # 因此必须在任何 Vitest 入口之前准备好镜像，不能等到 pnpm test。
       # tag 必须与 packages/worker/test/global-setup.ts 的 REDIS_IMAGE 一致。
       - name: Prepare test Redis image
-        run: docker pull redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b
+        run: docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
       - run: pnpm openui:check
       - run: pnpm typecheck
       - run: pnpm build
@@ -64,7 +64,7 @@ jobs:
           --health-cmd "pg_isready -U agentport -d agentport"
           --health-interval 5s --health-timeout 3s --health-retries 10
       redis:
-        image: redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b
+        image: redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"
@@ -82,13 +82,13 @@ jobs:
       RATE_LIMIT_DISABLED: '1'
       E2E_WORKER_PAUSED: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.1.0
         with:
-          version: 12.15.0
-      - uses: actions/setup-node@v4
+          version: 12.16.1
+      - uses: actions/setup-node@v7.1.0
         with:
-          node-version: 24
+          node-version: 24.22.2
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
@@ -107,7 +107,7 @@ jobs:
       # e2e 是唯一的主套件（Playwright 已退役）。
       - run: pnpm exec e2e run --reporter=list,junit
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: e2e-failure
           path: |
@@ -119,7 +119,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       # 两个镜像都从 root context 构建；依赖安装与构建在 Dockerfile 内完成。
       - run: docker build -t agentport/api:ci .
       - run: docker build --target sandbox -t agentport/sandbox:ci .
