@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { uniquePath } from '../src/knowledge/source-paths.js';
 import {
   probeSource,
   readSource,
@@ -1422,5 +1423,42 @@ describe('Feishu source', () => {
     state.feishuUnsupported = true;
     const unsupported = await readSource(feishuConfig());
     expect(unsupported.failures?.[0]?.code).toBe('unsupported_type');
+  });
+});
+
+describe('uniquePath', () => {
+  it('keeps the first path as-is and records it', () => {
+    const used = new Set<string>();
+
+    expect(uniquePath('folder/notes.md', used, 'tok-1')).toBe('folder/notes.md');
+    expect(used.has('folder/notes.md')).toBe(true);
+  });
+
+  it('inserts the token before the extension on a name conflict', () => {
+    const used = new Set<string>(['folder/notes.md']);
+
+    expect(uniquePath('folder/notes.md', used, 'tok-1')).toBe('folder/notes [tok-1].md');
+    expect(used.has('folder/notes [tok-1].md')).toBe(true);
+  });
+
+  it('appends the token when the path has no extension', () => {
+    const used = new Set<string>(['folder/notes']);
+
+    expect(uniquePath('folder/notes', used, 'tok-1')).toBe('folder/notes [tok-1]');
+  });
+
+  it('treats case and path separators as distinct paths', () => {
+    const used = new Set<string>();
+
+    expect(uniquePath('Notes.md', used, 'tok-1')).toBe('Notes.md');
+    expect(uniquePath('notes.md', used, 'tok-2')).toBe('notes.md');
+    expect(uniquePath('dir\\file.md', used, 'tok-3')).toBe('dir\\file.md');
+    expect(uniquePath('dir/file.md', used, 'tok-4')).toBe('dir/file.md');
+  });
+
+  it('splits at the last dot in the whole path, including dots in a directory name', () => {
+    const used = new Set<string>(['release.notes/page']);
+
+    expect(uniquePath('release.notes/page', used, 'tok-1')).toBe('release [tok-1].notes/page');
   });
 });
