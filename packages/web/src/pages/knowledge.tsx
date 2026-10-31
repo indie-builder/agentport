@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import {
@@ -515,7 +516,7 @@ export function KnowledgePage() {
       ) : null}
       {!bases.isPending && !bases.isError && baseItems.length === 0 ? (
         <EmptyState
-          icon={<LibraryBig className="size-5" />}
+          illustration={<BusinessIllustration name="knowledge" />}
           title="还没有知识库"
           action={
             canCreate ? (
@@ -583,6 +584,7 @@ export function KnowledgePage() {
       ) : null}
       {filteredEmpty ? (
         <EmptyState
+          illustration={<BusinessIllustration name="search" />}
           title="没有匹配的知识库"
           action={
             <Button variant="outline" size="sm" onClick={() => setQuery('')}>

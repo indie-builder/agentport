@@ -390,6 +390,10 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 - **Tables / Lists:** 纯白底、1px `line` 分隔；表头 12px `muted-foreground`，单元格 13/20；行 hover 与展开用不透明 `hover` `#F6F6F6`，选中用 `selected` `#EFEFEF`；卡片页脚同为 `hover` `#F6F6F6`。真实浏览器已测量表头 12px 辅助色与行/页脚底色。
 - **Skeleton / Progress / Separator:** Skeleton 用 `sunken`；Progress 活跃主线用 `primary`，终态走原结果语义；Separator 用 `line`。
 
+### Empty states
+
+- 空态沿用 `EmptyState` / `PageNote`：`EmptyState` 传 `illustration` 时替换原 40px 圆底图标，未传保持默认图标与动作；行内 `PageNote` 复用 `icon` 槽。业务插画只经 `BusinessIllustration` 取 `standard` 96px / `compact` 64px / `error` 144px 三档，固定宽高、`alt=""`、`aria-hidden="true"`，纯装饰、无文字、无动画；`public/brand/scenarios/` 六张场景图仍只服务品牌 Logo 切换。
+
 ### Messages / Code / Charts
 
 - **User message:** 右对齐 `9999` 胶囊、`selected` `#EFEFEF` 底、`fg` 文字、14/22、内边距 8px 16px、最大宽 85%；附件用中性 outline 徽章。助手正文在纯白上无气泡。

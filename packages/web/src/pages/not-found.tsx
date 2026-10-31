@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { buttonVariants } from '../components/ui/button.js';
 
@@ -7,6 +8,7 @@ export function NotFoundPage() {
     <Page>
       <PageHeader title="页面不存在" />
       <PageNote
+        icon={<BusinessIllustration name="not-found" size="error" />}
         title="请检查地址"
         action={
           <Link to="/" className={buttonVariants({ variant: 'outline' })}>

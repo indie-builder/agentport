@@ -227,7 +227,9 @@ body #FFFFFF（应用外壳外部根容器叠加 bg-shell 静态渐变）
 - 图标继承所属文字与状态色：普通图标跟随文字，当前导航与选中项随 `selected-foreground`（`#141414`），危险动作与错误用 `danger`；不单独给图标上色，也不把所有图标染成强调色。
 - 品牌：采用用户确认的 A 版艺术字组合——木工小狗双手搭在大写 `PACE` 上，像在亲手打造字标。字母为白底黑色轮廓，清理粗重黑块和装饰细节，嘴与舌头为黑白，工具保留少量木色、灰色和黄色，不添加红色装饰。完整 Logo 为 `public/brand/pace-wordmark.webp`（透明，768×568，约 51KB），登录页居中显示高 96px，展开侧栏显示高 32px；导航品牌区相应高 32px，与同排折叠按钮共用水平中心线，收起侧栏仍使用原 32px 木工矢量标记 `public/brand/pace-mark.svg`。本次完整艺术字是图片版，并非矢量路径；透明 PNG 母版与生成记录保存在 `docs/brand/`。人物头像、人物卡片动效、对话布局与现有 favicon 保持原样；界面配色统一遵循 §2。
 
-登录页及展开侧栏的品牌 Logo 点击切换 `public/brand/scenarios/` 中下一张小狗图：采用用户选定的「轻推接力」：先解码图片，旧图向左轻退并淡出，新图同时从右侧淡入到位，全程 300ms、缓出曲线；96px 展示下位移为 8px，导航尺寸按比例缩小。两个图层叠放在同一固定占位中，不旋转、不弹跳。品牌区固定正方形占位，Logo 按钮使用 plain 透明变体，悬停和按压不添加底色；保留键盘焦点提示。点击不导航、不自动轮播，刷新恢复原 Logo；转场期间连点不重复触发。遵循系统减少动态效果设置，减少动态效果时直接换图。业务页面不插入这些图片。
+登录页及展开侧栏的品牌 Logo 点击切换 `public/brand/scenarios/` 中下一张小狗图：采用用户选定的「轻推接力」：先解码图片，旧图向左轻退并淡出，新图同时从右侧淡入到位，全程 300ms、缓出曲线；96px 展示下位移为 8px，导航尺寸按比例缩小。两个图层叠放在同一固定占位中，不旋转、不弹跳。品牌区固定正方形占位，Logo 按钮使用 plain 透明变体，悬停和按压不添加底色；保留键盘焦点提示。点击不导航、不自动轮播，刷新恢复原 Logo；转场期间连点不重复触发。遵循系统减少动态效果设置，减少动态效果时直接换图。业务页面不插入这些场景图。
+
+- **业务空态插画。** 业务页面的空态使用 `public/brand/business/<name>.webp` 的统一插画（`knowledge`、`documents`、`tools`、`search`、`schedule`、`runs`、`memory`、`outputs`、`agents`、`review`、`sharing`、`not-found`），统一经 `BusinessIllustration` 渲染。尺寸只有 `standard` 96px、`compact` 64px、`error` 144px 三档，固定 `width`/`height`、`shrink-0 object-contain`，`alt=""`、`aria-hidden="true"`；全部是纯装饰图、画面无文字，无动画与交互，不接受任意 `className`。`EmptyState` 传 `illustration` 时替换原 40px 圆底图标，未传保持原样；行内 `PageNote` 复用 `icon` 槽。有真实下一步动作的空态仍保留原按钮与无障碍语义。`public/brand/scenarios/` 的六张场景图仍只用于品牌 Logo 切换，不进入业务空态。
 
 ## 6. 对话页（核心）
 

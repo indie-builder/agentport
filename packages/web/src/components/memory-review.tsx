@@ -13,7 +13,7 @@ import {
 } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { CircleStop, LoaderCircle, Plus, RotateCcw, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { can } from '../lib/access.js';
 import { type AgentSummary, ApiError, errorMessage } from '../lib/api.js';
@@ -35,6 +35,7 @@ import {
   useRollbackMemoryChange,
 } from '../lib/queries.js';
 import { toastSuccess } from '../lib/toast.js';
+import { BusinessIllustration } from './business-illustration.js';
 import { CodeBlock } from './code-block.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
@@ -286,7 +287,7 @@ export function MemoryReviews({
       {reviews.data ? (
         items.length === 0 ? (
           <EmptyState
-            icon={<Search className="size-5" />}
+            illustration={<BusinessIllustration name="review" />}
             title="让模型整理值得保存的记忆"
             description="选择执行审核的专家和来源会话，生成可采纳的偏好或规则提案。"
             action={
