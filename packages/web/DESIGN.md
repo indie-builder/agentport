@@ -341,7 +341,7 @@ PACE 的世界是一张安静的工作台。屏幕外沿是一层不移动的暖
 ### Cards / Tables / Lists
 
 - **Cards:** 纯白底、16px 圆角、1px `line` ring、16px 内边距，默认无阴影；标题 14/22 500，描述 13/20 `muted-foreground`。
-- **Expert card:** 16px 内边距、40px 头像、描述最多两行；开始对话在描述后 8px、与信息列同左边线，无独立页脚底带、`mt-auto` 或固定高度；空描述不留固定占位。
+- **Expert card:** 208px（`h-52`）固定高、同列宽、16px 网格 gap 与内边距、40px 头像；名称链接与角色分两行，描述最多两行；独立「查看 <名称> 工牌」按钮打开 DialogShell，工牌展示数字员工身份、姓名、角色、启停、完整介绍、员工编号（真实 id）与上岗时间（真实 `createdAt`，含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」），只读不请求详情。开始对话在描述后 8px、与信息列同左边线，无独立页脚底带或 `mt-auto`；空描述不留固定占位。
 - **Tables / Lists:** 纯白底、1px `line` 分隔；选中行用 `selected`。当前实现的表格行 hover/展开使用 `muted` 的 50% 浅层，卡片页脚也使用同一半透明层；这与契约期望的不透明 `hover` 存在差异，本文件按构建记录，不把它升格为规则。
 - **Skeleton / Progress / Separator:** Skeleton 用 `sunken`；Progress 活跃主线用 `primary`，终态走原结果语义；Separator 用 `line`。
 

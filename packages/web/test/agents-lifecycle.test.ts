@@ -668,6 +668,120 @@ describe('expert creation lifecycle', () => {
   });
 });
 
+describe('expert employee badges', () => {
+  const badgeAgent: Agent = {
+    ...agent,
+    id: 'badge',
+    slug: 'badge',
+    name: '工牌专家',
+    role: '测试工程师',
+    description: '负责接口测试。\n覆盖完整回归与发布检查。',
+    createdAt: '2026-01-01T08:30:00Z',
+  };
+
+  it('shows the real employee badge from list data without requesting agent details', async () => {
+    client.setQueryData(['agents'], [badgeAgent]);
+    vi.mocked(api.agents).mockResolvedValue([badgeAgent]);
+    await mount();
+    const trigger = await waitFor(() => button('查看 工牌专家 工牌'));
+    expect(trigger.getAttribute('title')).toBe('数字员工工牌');
+    await click(trigger);
+    const panel = dialog('工牌专家 的工牌');
+    expect(panel.textContent).toContain('数字员工');
+    expect(panel.textContent).toContain('测试工程师');
+    expect(panel.textContent).toContain('已启用');
+    expect(panel.textContent).toContain('负责接口测试。');
+    expect(panel.textContent).toContain('覆盖完整回归与发布检查。');
+    expect(panel.textContent).toContain('badge');
+    const time = panel.querySelector('time');
+    expect(time?.getAttribute('datetime')).toBe('2026-01-01T08:30:00Z');
+    expect(time?.getAttribute('title')).toBe('2026-01-01T08:30:00Z');
+    expect(time?.textContent).toContain('2026');
+    expect(api.agent).not.toHaveBeenCalled();
+  });
+
+  it('labels an empty introduction and an invalid creation time instead of inventing them', async () => {
+    const empty: Agent = {
+      ...badgeAgent,
+      id: 'empty',
+      name: '空介绍',
+      description: '',
+      createdAt: 'not-a-date',
+    };
+    client.setQueryData(['agents'], [empty]);
+    vi.mocked(api.agents).mockResolvedValue([empty]);
+    await mount();
+    await click(await waitFor(() => button('查看 空介绍 工牌')));
+    const panel = dialog('空介绍 的工牌');
+    expect(panel.textContent).toContain('未填写介绍');
+    expect(panel.textContent).toContain('未记录');
+    expect(panel.querySelector('time')).toBeNull();
+  });
+
+  it('shows 未记录 when the creation time is missing', async () => {
+    const missing = {
+      ...badgeAgent,
+      id: 'no-clock',
+      name: '无时间',
+      createdAt: undefined,
+    } as unknown as Agent;
+    client.setQueryData(['agents'], [missing]);
+    vi.mocked(api.agents).mockResolvedValue([missing]);
+    await mount();
+    await click(await waitFor(() => button('查看 无时间 工牌')));
+    const panel = dialog('无时间 的工牌');
+    expect(panel.textContent).toContain('未记录');
+    expect(panel.querySelector('time')).toBeNull();
+  });
+
+  it('keeps the badge available for a disabled digital twin', async () => {
+    const twin: Agent = {
+      ...badgeAgent,
+      id: 'twin-badge',
+      slug: 'twin-badge',
+      name: '我的分身',
+      role: '数字分身',
+      enabled: false,
+    };
+    client.setQueryData(['agents'], [twin]);
+    vi.mocked(api.agents).mockResolvedValue([twin]);
+    const router = await mount();
+    await act(async () => router.navigate({ to: '/agents', search: { status: 'all' } }));
+    await flush();
+    await click(await waitFor(() => button('查看 我的分身 工牌')));
+    const panel = dialog('我的分身 的工牌');
+    expect(panel.textContent).toContain('数字分身');
+    expect(panel.textContent).toContain('已停用');
+  });
+
+  it('returns focus to the badge button when closed', async () => {
+    client.setQueryData(['agents'], [badgeAgent]);
+    vi.mocked(api.agents).mockResolvedValue([badgeAgent]);
+    await mount();
+    const trigger = await waitFor(() => button('查看 工牌专家 工牌'));
+    await click(trigger);
+    const panel = dialog('工牌专家 的工牌');
+    await click(button('关闭', panel));
+    await waitFor(() => document.activeElement === trigger);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('closes without stale data when the selected expert disappears', async () => {
+    const other: Agent = { ...agent, id: 'other', slug: 'other', name: 'Other' };
+    client.setQueryData(['agents'], [badgeAgent, other]);
+    vi.mocked(api.agents).mockResolvedValue([badgeAgent, other]);
+    await mount();
+    await click(await waitFor(() => button('查看 工牌专家 工牌')));
+    expect(dialog('工牌专家 的工牌')).toBeDefined();
+    await act(async () => {
+      client.setQueryData(['agents'], [other]);
+    });
+    await flush();
+    await waitFor(() => !document.body.textContent?.includes('工牌专家 的工牌'));
+    expect(document.body.textContent).not.toContain('覆盖完整回归与发布检查。');
+  });
+});
+
 describe('expert discovery', () => {
   const disabled = { ...agent, id: 'disabled', slug: 'disabled', name: 'Disabled', enabled: false };
 
