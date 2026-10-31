@@ -6,7 +6,7 @@
 
 ## P0
 
-- **WeKnora 核心知识库能力补齐（2026-10-31，本地实现与验收完成，外部依赖仍待）**：以本地 WeKnora 为参照补齐管理与智能体能力。本地实现已落：管理/版本 COW、FAQ、Wiki、统一检索/MCP、来源撤权、ZIP、离线评估、ASR 与 9 种新增来源；官方 SDK 文件 first、共享源与完整快照契约不变。后端原 2 项 P1 修复后并发 P1 再修并独立定点 PASS；前端 3 项 P2 与批次发布 P2 已修，定点复审尚未返回。最新整合验证：web 16 文件 302/302、Wiki P1 6 文件 125/125（并发失败收尾 5 文件 118/118）、DB/shared 127/127、core 94/94；后端旧最终 879/879 仍有效，整合重跑快照 883 项（882 通过、1 失败，非最终，待主会话补数）；全包 typecheck/build/focus/contract 通过。浏览器八组和目录/历史下载 mini 三组通过（本地协议夹具，冻结构建的覆盖范围见任务记录）。真实 Docling/ASR/视觉/语义质量与企业账号未验收，GraphRAG 的 Neo4j/模型费用未授权。完整矩阵、证据、阶段日志与保留资源见 [任务记录](tasks/knowledge-weknora.md)。用户已授权本轮整合提交 push 并合并 #127；合入状态以真实 PR/合并结果为准，完成前不称已合。生产部署/共享库迁移/新增独立服务仍未授权。
+- **WeKnora 核心知识库能力补齐（2026-10-31，本地功能已合入，剩余外部验收与旧默认库阻塞）**：以本地 WeKnora 为参照补齐管理与智能体能力。已落管理/版本 COW、FAQ、Wiki、统一检索/MCP、来源撤权、ZIP、离线评估、ASR 与 9 种新增来源；官方 SDK 文件 first、共享源与完整快照契约不变。实现已由 [PR #127](https://github.com/indie-builder/agentport/pull/127) 合入 main（`f93c276`），独立前后端问题均已修复并 PASS；整合验证覆盖 backend/web/DB/shared/core 全范围、零 skip，typecheck/build/focus/contract 通过，最终文件与用例数字见 [任务记录](tasks/knowledge-weknora.md)，本文不重复易过期的计数。用户后续已授权本地迁移：`agentport_business_e2e_dataset` 已应用 `0046`（账本 47 条），迁移前后数据不变；主 `.env` 指向的旧 `agentport` 库存在历史漂移（`0043` 失败），保持原样，默认库重建仍未授权。剩余只有外部验收与旧默认库阻塞：真实 Docling/ASR/视觉/语义质量、企业账号与 GraphRAG（需 Neo4j/模型费用）未验收；生产发布、清库重建与付费真实模型仍未授权。
 
 0. **智能体能力补齐（首轮与产出查看已完成，2026-10-28）**
    - 范围：以使用智能体完成工作的完整用户故事核对能力，从目标、上下文、执行、必要确认、产出查看到反馈修改定位真实断点。明确保留当前任务的产出查看/预览与必要下载；排除云盘、项目空间、多端协同、分享发布等服务。过程与证据见 [任务记录](tasks/platform-capability-gaps.md) 与 [产出查看记录](tasks/agent-output-viewing.md)，验收统一见 [用户故事](USER-STORIES.md)。

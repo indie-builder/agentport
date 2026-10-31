@@ -320,7 +320,7 @@ pnpm install
 pnpm run up --rebuild
 ```
 
-`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。知识库本轮迁移为 `0046_cold_slipstream`，接在 main 已应用的 `0045_married_expediter` 之后（三类内容、来源范围归属与逐项同步记录、ASR profile 与库绑定、九种来源类型与 range kind）；PR 旧 `0045_real_nightmare` / `0046_many_wildside` / `0047_outstanding_orphan` 已删除。应用前先在隔离随机库验证 `0045→0046` 升级，不迁共享库。
+`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。代码中的迁移链以 `packages/db/migrations/meta/_journal.json` 为准（当前末条 `0046_cold_slipstream`，接在 `0045_married_expediter` 之后）；**实际数据库是否已应用同一链必须单独核对**，不能从代码、其他环境或历史文档推断。应用前先比对 `__drizzle_migrations` 与 journal，并在隔离随机库验证升级。已有库账本或结构与当前链不一致时，不要手改账本、不要给迁移加 `IF NOT EXISTS` 兼容层；个人项目默认按当前 schema 重建干净库，但清理/重建共享库必须先取得用户明确授权，未授权时保持现场、停止迁移并报告缺口。2026-10-31 本机实测记录：共享本机 business 库 `agentport_business_e2e_dataset` 成功应用 `0046`；默认 `agentport` 库因历史账本/结构漂移失败，未清库、未手改账本，重建仍待用户授权。此记录只覆盖两个明确本机配置对应的库，不代表其他环境已迁移。具体行数与差异计数见 [tasks/knowledge-weknora.md](tasks/knowledge-weknora.md) 的迁移实测记录。
 
 **关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 收到 SIGTERM 先 abort 沙盒关停信号：不再新建容器或拉取镜像，进行中的拉取/创建按取消语义收尾，活跃聊天 run 也随同一信号取消；随后并发关闭主与 eval run worker，并最多等待 10s 让已取消的任务收尾（超时不再等），再清理容器（容器 stop 本身不受这 10s 限制，必须等它完成）；其余队列与其他步骤从关停开始就并发关闭、各有界，最后按序执行收尾步骤。单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 

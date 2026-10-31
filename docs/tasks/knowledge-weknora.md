@@ -3,12 +3,14 @@
 ## 目标与当前有效决定（2026-10-31）
 
 用户已明确授权：以本地 WeKnora 核心知识库为完整参照，先拆缺失任务，再并行补齐 Agentport，包含管理与智能体结合。FAQ 属于本轮核心实现；无需再次询问是否进入实现。
-历史记录（2026-10-31 收口前）：当时未授权 commit/push/merge；后续曾授权 commit、push 与创建 PR、暂不授权 merge。上述为历史阶段，已由本轮授权替代：2026-10-31 用户明确授权解决 PR #127 冲突、验证、commit/push 并合并 main。生产部署、共享库迁移、新增独立服务与付费真实模型请求仍未授权。外部依赖只阻塞对应能力，不阻塞其余工作。
+历史记录（2026-10-31 收口前）：当时未授权 commit/push/merge；后续曾授权 commit、push 与创建 PR、暂不授权 merge。上述为历史阶段，已由后续授权替代：2026-10-31 用户明确授权解决 PR #127 冲突、验证、commit/push 并合并 main。当时生产部署、共享库迁移、新增独立服务与付费真实模型请求未授权；后续已授权下述两个明确本机配置对应库的迁移实测，其余授权边界以当前轮记录为准。外部依赖只阻塞对应能力，不阻塞其余工作。
+
+当前轮（2026-10-31 PR 合并与收尾）：用户已授权 commit/push、创建 PR、合并并收尾工作区，也已授权下述两个明确本机配置对应库的迁移实测。PR #127 已真实合并到 main，合并提交 `f93c276`（`Merge pull request #127 from indie-builder/feat/knowledge-weknora`）；此前“已暂存未提交/未合并”的描述全部降为历史记录。当前文档分支只更新 `docs/OPERATIONS.md` 的迁移指导与本任务记录，不改代码、不新增数据库操作、不输出 `.env` 明文；文档变更待终审通过后 commit/push、创建 PR 并合并。生产部署、数据库清理/重建、新增独立服务与付费真实模型请求仍未授权。
 
 首轮整合基线（已完成并提交）：唯一工作树 `/Users/xbjt/Documents/myself/agentport/.claude/worktrees/knowledge-weknora`，起点 HEAD `504d625ef5b0fecaa91e20b714e49391b228fdf2`，初始 clean；fetch 前 `origin/main=b2d3a9576e0a58b4c8bd80afde4626b056122c1c`，随后以 `git merge --no-commit origin/main` 整合，不 rebase、不 force push；该轮已提交为 `1b07a45f3e270f21e06bf79ad394e3885a003a09`（父提交 `504d625` + `b2d3a95`）。保留 PR 全部新能力，并保留 main 当前 UX、businessId/权限、SDK 官方文件系统约定及共享机制；不以整块选 ours/theirs 覆盖另一侧有效功能。main 已应用的 0045 迁移保持原样；删除 PR 旧 0045—0047 及其生成元数据，基于 main 最新迁移链和合并后的 schema 用 `pnpm db:generate` 生成单一后续迁移，不手编 snapshot/journal，只对隔离随机库实测迁移。本执行代理仅负责启动 merge、DB/shared 与关键契约审查，不提交、不推送、不合入 main；API/worker/web 与依赖由其他 owner 执行。
-首轮 DB/shared 收据（随 `1b07a45` 提交）：fetch 后 main 仍为 `b2d3a9576e0a58b4c8bd80afde4626b056122c1c`；merge 已启动、尚未提交。DB/shared 冲突已解决：保留 main 的同步创建/认领/终态原子事务、job 对象 ID/显示名、共享 cron 校验；保留 PR 的来源快照/撤权、版本 COW、FAQ/Wiki/ASR 等全部扩展。最终 `FinishJobInput` 保持 `result?: SyncRunResult`，新增独立 `probeResult?: KnowledgeSourceProbeResult|null`，DB `knowledge_jobs.result` 只存 probe 结果；worker 消费者必须同时保留两类返回。同步统一走 `createSyncJob`，queued 取消走 `finishJob({fromStatus:'queued',status:'cancelled'})`，不恢复旧 `createSyncRun/requestCancel` 旁路。旧迁移链已删除，main 0045 SQL/快照与 `origin/main` 无差异，Drizzle 生成单一 `0046_cold_slipstream` 及 snapshot/journal。`pnpm db:generate` 的 pnpm 12 自动行为修复了冲突锁文件并同步本地依赖，锁文件需依赖 owner 最后复核。本轮未手工安装依赖。
+首轮 DB/shared 收据（历史，随 `1b07a45` 提交）：fetch 后 main 仍为 `b2d3a9576e0a58b4c8bd80afde4626b056122c1c`；当时 merge 已启动、尚未提交。DB/shared 冲突已解决：保留 main 的同步创建/认领/终态原子事务、job 对象 ID/显示名、共享 cron 校验；保留 PR 的来源快照/撤权、版本 COW、FAQ/Wiki/ASR 等全部扩展。最终 `FinishJobInput` 保持 `result?: SyncRunResult`，新增独立 `probeResult?: KnowledgeSourceProbeResult|null`，DB `knowledge_jobs.result` 只存 probe 结果；worker 消费者必须同时保留两类返回。同步统一走 `createSyncJob`，queued 取消走 `finishJob({fromStatus:'queued',status:'cancelled'})`，不恢复旧 `createSyncRun/requestCancel` 旁路。旧迁移链已删除，main 0045 SQL/快照与 `origin/main` 无差异，Drizzle 生成单一 `0046_cold_slipstream` 及 snapshot/journal。`pnpm db:generate` 的 pnpm 12 自动行为修复了冲突锁文件并同步本地依赖，锁文件需依赖 owner 最后复核。本轮未手工安装依赖。
 
-第二轮上游同步（当前进行中）：`origin/main` 已到 `624dc3bd523e6b675cc27127b0ea609c9834351f`（PR #146「统一个人模块并补齐本人数据管理」，父提交含 PR #145 `d0900c8`）；与首轮基线 `b2d3a95` 的共同祖先即 `b2d3a95`，本轮上游只新增 PR #145/#146。已在其上执行 `git merge --no-commit 624dc3b`，冲突 0（`git ls-files -u` 为空），解冲突结果已全部暂存、尚未提交；`HEAD` 仍为 `1b07a45`，`MERGE_HEAD=624dc3b`。保留上游两项能力：`packages/web/src/components/ui/button.tsx` 统一导出 `buttonVariants`（返回/链接按钮经它合并类名），`packages/web/src/components/knowledge-search.tsx` 的「查看原文」按钮带标题、位置、引用与命中序号的完整可访问名；保留 main 的同标题多命中回归用例（`packages/web/test/knowledge-management.test.ts` 两条同标题命中各自可访问名不同），`docs/USER-STORIES.md` 同时保留个人模块 EPIC 10（main）与知识库 EPIC 11（PR #127），docs 各文件两侧内容均保留。
+第二轮上游同步（历史，最终随 `f93c276` 合入）：`origin/main` 已到 `624dc3bd523e6b675cc27127b0ea609c9834351f`（PR #146「统一个人模块并补齐本人数据管理」，父提交含 PR #145 `d0900c8`）；与首轮基线 `b2d3a95` 的共同祖先即 `b2d3a95`，本轮上游只新增 PR #145/#146。当时已在其上执行 `git merge --no-commit 624dc3b`，冲突 0（`git ls-files -u` 为空），解冲突结果已全部暂存、尚未提交；该中间态已结束，不代表当前 HEAD。保留上游两项能力：`packages/web/src/components/ui/button.tsx` 统一导出 `buttonVariants`（返回/链接按钮经它合并类名），`packages/web/src/components/knowledge-search.tsx` 的「查看原文」按钮带标题、位置、引用与命中序号的完整可访问名；保留 main 的同标题多命中回归用例（`packages/web/test/knowledge-management.test.ts` 两条同标题命中各自可访问名不同），`docs/USER-STORIES.md` 同时保留个人模块 EPIC 10（main）与知识库 EPIC 11（PR #127），docs 各文件两侧内容均保留。
 
 验证：首次未注入 env 的测试因 PG 配置缺失跳过 61 项，不能作为通过证据；随后通过 `node --env-file=/Users/xbjt/Documents/myself/agentport/.env node_modules/vitest/vitest.mjs run --project backend` 运行 DB `knowledge-{lifecycle,foundation,document-filter,versions,chunks,tags}`、`access`，shared `knowledge-{contract,mcp-entry,multimodal,server-schema}`，加 `--no-file-parallelism`，最终 11 文件 / 129 测试通过；globalSetup 真实创建并迁移随机 PG 库/临时 Redis，结束清理，未迁开发库。shared/core/db `build` 最终通过；上述五个本轮源码/测试文件 `biome check --write` 通过。新增 probe 结果+对象名+CAS+不推进同步游标行为测试；合并使用既有生命周期故障注入测试及新迁移实测作为主证据，不人为制造冲突标记的红测试。此前两条旧 DB 测试调用实测失败后已迁为统一入口并绿。API/worker/web 全范围与独立终审交主会话，未在此宣称全仓完成。
 
@@ -232,17 +234,38 @@ owner F 独占 API `features/knowledge/wiki-routes.ts`、worker `knowledge/wiki.
 
 ## 当前状态（2026-10-31 收口盘点）
 
-### PR #127 整合收尾当前有效状态（合并已暂存、未提交）
+### PR #127 合入与本地迁移收尾状态（当前）
 
-- 状态：首轮整合已提交 `1b07a45`（父提交 `504d625` + `b2d3a95`）。当前第二轮 merge `origin/main` `624dc3b`（PR #146，含 PR #145 `d0900c8`），冲突 0、解冲突结果全部已暂存，尚未提交；`HEAD` 仍为 `1b07a45`，`MERGE_HEAD=624dc3b`。尚未 commit/push/merge PR #127，不得称已合，也不得称已部署。
-- 上游保留项：返回/链接按钮统一走 `buttonVariants`（`packages/web/src/components/ui/button.tsx`）；检索「查看原文」按钮可访问名包含标题、位置、引用与命中序号（`packages/web/src/components/knowledge-search.tsx`）；main 同标题多命中回归用例保留（`packages/web/test/knowledge-management.test.ts`，两条同标题命中各自可访问名不同）；`docs/USER-STORIES.md` 同时保留个人模块 EPIC 10（main）与知识库 EPIC 11（PR #127）；docs 各文件两侧内容均保留。
-- 本轮验证（同步后暂存工作区）：`knowledge-management` 测试 303/303、0 skip；全包 `pnpm typecheck`、`pnpm build`、focus/contract 通过。后端 883/883、DB/shared 127/127、core 94/94 是首轮同步前的知识范围证据；本轮上游未改 knowledge 后端，这些证据仍有效。Wiki P1 125/125 与并发失败收尾 118/118 同样保留。
+- 状态：PR #127 已真实合并为 `f93c276`（`Merge pull request #127 from indie-builder/feat/knowledge-weknora`）。当前工作树 `/Users/xbjt/Documents/myself/agentport/.claude/worktrees/knowledge-weknora`，分支 `docs/knowledge-migration-closeout`，起点/HEAD `f93c276`（main），初始 clean。首轮 `1b07a45` 与第二轮 merge `624dc3b`（PR #146，含 #145 `d0900c8`）均已随该合并进入 main；历史阶段中“合并已暂存、未提交/未合并”不再代表当前状态。
+- 本轮范围与验证：只改 `docs/OPERATIONS.md` 与 `docs/tasks/knowledge-weknora.md`，不改代码、不删/搬 `business-e2e-dataset` 工作区、不新建报告归档或备份；`git diff --check` 退出 0，迁移核对脚本 `.tmp/local-migration-verify.mjs` 输出 `assertions: PASS`。
+- 上游保留项：返回/链接按钮统一走 `buttonVariants`（`packages/web/src/components/ui/button.tsx`）；检索“查看原文”按钮可访问名包含标题、位置、引用与命中序号（`packages/web/src/components/knowledge-search.tsx`）；main 同标题多命中回归用例保留（`packages/web/test/knowledge-management.test.ts`，两条同标题命中各自可访问名不同）；`docs/USER-STORIES.md` 同时保留个人模块 EPIC 10（main）与知识库 EPIC 11（PR #127）；docs 各文件两侧内容均保留。
+- 合并内容验证（历史证据，随 `f93c276` 合入）：`knowledge-management` 测试 303/303、0 skip；全包 `pnpm typecheck`、`pnpm build`、focus/contract 通过。后端 883/883、DB/shared 127/127、core 94/94 是首轮同步前的知识范围证据；上游未改 knowledge 后端，这些证据仍有效。Wiki P1 125/125 与并发失败收尾 118/118 同样保留。
 - 独立 Opus 定点复审（首轮）：后端 Wiki 两项 P1 与并发失败收尾 P1 均已修复并 PASS；前端 3 项 P2 与批次发布 P2 均已修复并 PASS；Wiki 内部文档测试夹具按真实发布链修正后全范围绿。
-- 迁移：基于 main 0045 生成单一 `0046_cold_slipstream`，隔离随机库迁移 PASS；main 0045 未改。
+- 迁移链：基于 main 0045 生成单一 `0046_cold_slipstream`；本轮实测只覆盖两个明确本机配置对应的已有库，其中 business 是共享本机库，结果见下节；不代表其他环境已迁移。
 - 真实浏览器与外部边界：临时账号与单 embedding 测试 profile（`127.0.0.1:9`，不调用模型）下完成建库、FAQ 草稿、Notion 表单、Wiki 手写草稿→显式发布；未启动 worker。真实 Docling/ASR/视觉/语义、企业账号与 GraphRAG 仍未验收。
-- 下一步：commit 本次 merge → push → 合并 PR #127。未迁移共享库、未改用户登录、未调用付费真实服务。
+- 下一步：按用户授权，终审通过后 commit/push 文档差异、创建 PR 并合并；再确认本分支文档 PR 真实合并、工作区干净且无其他会话占用，按 `docs/DEV-WORKFLOW.md` §2-7 收尾本 worktree。PR #127 的合并不替代本分支文档 PR 的合并。默认 `agentport` 库重建仍待用户授权。
 
-> 本节只记录当前可读状态与真实阶段证据；上方实时契约仍是有效范围与验收标准。计数覆盖范围有重叠，**不相加**为产品总量。截至本次记录，首轮整合已提交为 `1b07a45`，第二轮 merge 尚未提交、未推送、未合并 PR #127；合入状态以真实 PR/合并结果为准。
+### 本地数据库迁移实测（2026-10-31，未授权清库）
+
+两个库都只做迁移与前后只读核对，未清库、未手改账本、未输出 `.env` 明文。证据为 `.tmp/local-migration-{business,default}-{before,after}.json`，核对脚本为 `.tmp/local-migration-verify.mjs`。
+
+**business：成功应用 0046**
+
+- 目标：`business-e2e-dataset/.env` 指向共享本机库 `agentport_business_e2e_dataset`；迁移前账本 46 条、待应用 `0046_cold_slipstream`。
+- 结果：账本 46→47，全部条目 hash 与 journal 时间匹配，pending 为空，核对脚本列出的结构 drift 均为 0；新增 2 表（`knowledge_document_source_ranges`、`knowledge_sync_items`）、既有表新增 14 列（连同新表自身共 27 列）、8 个索引存在，29 个新增或替换约束的 `convalidated` 均为 true。
+- 数据核对：原有 53 张表行数逐一相同；`user`、`account`、`roles`、`role_permissions`、`user_roles`、`platform_bootstrap` 全表内容指纹与 agents/conversations/runs/bases/documents 的 ID 抽样均未变；库字节数由 12908223 增至 13072063，与本次新增结构同时发生。关键行数为 5 experts、13 conversations、14 runs、121 messages、3 user、3 account、4 roles、187 permissions、3 user_roles、1 bootstrap；知识库、文档及分块均为 0 行，`knowledge_jobs` 有 1 行。上述行数、指纹和 ID 抽样不等于全部业务字段逐值校验。
+- 校验：`.tmp/local-migration-verify.mjs` 输出 `assertions: PASS`，`newIndexesVerified: 8`、`newOrReplacedConstraintsVerified: 29`、`existingTablesUnchanged: 53`；当前构建的 Drizzle 只读查询 PASS（owned_agents 5、runs 14、conversations 13、messages 121）。
+- 资源：该业务库由 `business-e2e-dataset` 工作区的持久 data 服务占用；不删除、不搬移该工作区或其数据。
+
+**default：迁移失败，保持原样**
+
+- 目标：主 checkout `.env` 指向 `agentport`；尝试应用待处理迁移，首条 `0043_nappy_queen_noir` 即失败：`42P07 relation "memory_changes" already exists`。未应用任何后续迁移。
+- 账本：49 条；其中 7 条时间戳不在当前 journal 中；缺少 `0042_curious_pet_avengers` 至 `0046_cold_slipstream` 的账本条目。按末条账本时间戳计算的实际 pending 为 0043—0046；缺失的 0042 时间戳早于该末条时间戳，Drizzle 不会自动补跑，不能把 pending 为空当成账本一致。
+- 结构相对当前链：缺 7 表（`agent_members`、`knowledge_document_source_ranges`、`knowledge_sync_items`、`platform_bootstrap`、`role_permissions`、`roles`、`user_roles`）、34 列、12 个索引、8 个 check 约束；多 4 列（`agents.max_thinking_tokens`、`memory_changes.user_id`、`memory_reviews.user_id`、`user_preferences.user_id`）。
+- 失败前后无变化：账本、列结构、所有表行数、账号指纹、抽样与库字节数（65312447）均相同；关键行数为 1 user、1 account、92 agents、53 conversations、95 runs、291 messages、471 knowledge bases、468 documents、1038 model profiles。
+- 处理原则：按 `docs/PITFALLS.md` 不手改 `__drizzle_migrations`、不给迁移加 `IF NOT EXISTS` 兼容层、不静默清理旧库。该库含历史数据，按项目默认“重建干净库”前必须取得用户明确授权；本轮未获清库授权，保留现场并记录为阻塞。
+
+> 本节只记录当前可读状态与真实阶段证据；上方实时契约仍是有效范围与验收标准。计数覆盖范围有重叠，**不相加**为产品总量。PR 合入以 `f93c276` 的真实合并结果为准；迁移结论只覆盖上述两个明确本机配置对应的库（business 为共享本机库），不代表其他环境已迁移。
 
 ### 已实现能力与独立 PASS 域
 
@@ -331,7 +354,7 @@ owner F 独占 API `features/knowledge/wiki-routes.ts`、worker `knowledge/wiki.
 
 ## 交付状态与保留资源
 
-- PR #127（`feat/knowledge-weknora`）已创建并推送；首轮整合已提交为 `1b07a45`（对齐 `b2d3a95`）。当前正在合并 `origin/main` `624dc3b`（PR #146，含 PR #145 `d0900c8`）：冲突 0、已全部暂存、尚未提交；`HEAD` 仍为 `1b07a45`，`MERGE_HEAD=624dc3b`。合入状态以真实 PR/合并结果为准，完成前不称已合、不称已部署。
-- 最终证据：同步后 `knowledge-management` 测试 303/303（0 skip），全包 `pnpm typecheck`、`pnpm build`、focus/contract 通过；后端 55 文件 883/883（0 skip，`.tmp/pr127-backend-latest2-results.json`）、DB/shared 10 文件 127/127、core 2 文件 94/94 为同步前知识范围证据，本轮上游未改 knowledge 后端仍有效；全来源 194/194、Wiki P1 6 文件 125/125 与并发失败收尾 5 文件 118/118 保留。独立 Opus 定点复审的后端 Wiki/并发 P1 与前端 3 项 P2、批次发布 P2 均修复并 PASS。未生产发布、未迁移共享库、未改用户登录、未调用付费真实服务。
-- 自动化 Vitest 报告已备份到 `/tmp/knowledge-weknora-report-backup-unique`；仅清理仓库内纯自动产物，未提交 worktree 不得删除。
-- 真实 Docling/ASR/视觉/语义、企业账号与 GraphRAG 仍未验收，不能称完全追齐 WeKnora；下一步 commit 本次 merge → push → 合并 PR #127。
+- PR #127（`feat/knowledge-weknora`）已真实合并为 `f93c276`；首轮 `1b07a45` 与第二轮 merge `624dc3b`（PR #146，含 PR #145 `d0900c8`）均已进入 main。当前分支 `docs/knowledge-migration-closeout` 起点 `f93c276`，初始 clean；本轮只改 `docs/OPERATIONS.md` 与本记录，不改代码；用户已授权 commit/push、创建 PR、合并与工作区收尾，文档差异待终审后提交。worktree 收尾须在文档差异提交合并、`git status --porcelain` 为空且无其他会话占用后，按 `docs/DEV-WORKFLOW.md` §2-7 执行。
+- 最终证据：`knowledge-management` 测试 303/303（0 skip），全包 `pnpm typecheck`、`pnpm build`、focus/contract 通过；后端 55 文件 883/883（0 skip，`.tmp/pr127-backend-latest2-results.json`）、DB/shared 10 文件 127/127、core 2 文件 94/94 为同步前知识范围证据，上游未改 knowledge 后端仍有效；全来源 194/194、Wiki P1 6 文件 125/125 与并发失败收尾 5 文件 118/118 保留。独立 Opus 定点复审的后端 Wiki/并发 P1 与前端 3 项 P2、批次发布 P2 均修复并 PASS。未生产发布、未改用户登录、未调用付费真实服务。
+- 保留资源：`business-e2e-dataset` 工作区及其持久 data 服务、专用库 `agentport_business_e2e_dataset` 不得删除或搬移；主 checkout `.env` 指向的 `agentport` 旧库在迁移失败后保持原样，未清库、未手改账本，重建待用户授权。`.tmp` 迁移前后证据为本次核对时的临时来源，将随本 worktree 收尾删除；本记录保留核对结果，不承诺临时文件长期可用，不新建归档、备份或总结报告。
+- 真实 Docling/ASR/视觉/语义、企业账号与 GraphRAG 仍未验收，不能称完全追齐 WeKnora；下一步提交并合并本文档变更，随后收尾本 worktree；默认 `agentport` 库重建仍需单独授权。
