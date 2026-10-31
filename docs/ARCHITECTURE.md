@@ -230,7 +230,7 @@ worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也�
 
 `servers.kind` 因此有四种取值：`stdio`、`http`、`generated` 属于用户可创建/导入的连接；`knowledge` 是平台内部的第四种，只能由知识库生命周期写入（name `kb-<slug>`，config 只有 `{ knowledgeBaseId }`）。读写类型分离：`serverKindSchema` 与读联合包含 `knowledge`，`serverInputSchema` 只含前三种。它不出现在 `/api/servers` 列表，也不能经该接口 PATCH/DELETE；URL 永远由运行时拼 `/mcp/:serverId`。共享的 `knowledgeMcpEntry()` 是预览与运行时的唯一构造点，避免两处漂移。
 
-内置知识连接的工具是只读的：`knowledge_search` 返回带 `chunkId`/标题/页码/score 的命中，`knowledge_read` 只读当前版本正文（超过 20,000 字符截断并标 `truncated`），`knowledge_list` 按游标列出文档，`knowledge_read_image` 读取版本图片（详见 §6.2.1）。参数里带别的 `baseId` 返回 `BASE_MISMATCH` 工具错误而不是静默换库；库被禁用时四个工具都返回 `BASE_DISABLED`。没有写入、上传、删除或重建工具。
+内置知识连接的工具是只读的：`knowledge_search` 返回带 `target`/`chunkId`/标题/页码/`score`/`scoreKind`/分路 `scores` 的命中，并完整保留 `degraded`/`warnings`/`directAnswer`；`knowledge_read` 只读当前有效发布版正文，用 `offset`（Unicode code point）与 `nextOffset` 分页读完并返回 `totalCharacters`，不再固定 20,000 字符截断；`knowledge_list` 按 `(updatedAt,id,kind)` 游标只列出当前可读对象；`knowledge_read_image` 仅在该库启用图片处理时注册，读取版本图片（详见 §6.2.1）。参数里带别的 `baseId` 返回 `BASE_MISMATCH` 工具错误而不是静默换库；库被禁用时已注册工具都返回 `BASE_DISABLED`。没有写入、上传、删除或重建工具。
 
 ## 5. 工作区文件模型
 
@@ -383,7 +383,7 @@ data/workspaces/<agent-slug>/
 
 不引入 Mem0、Zep、Letta、LangMem 等外部记忆服务，也不新增第二套执行底座。借鉴的是产品做法而非依赖：Manus / Fleet 的候选确认、Devin 的来源与索引分离、Letta 的 Git 式版本思想、claude-mem 的索引优先。当前以官方文件和 PostgreSQL 账本实现；只有实测文件检索不足时，才做可重建的检索索引（PostgreSQL 已具备），并需先给出基准证据。详见 D-73。本次主题经验升级遵守同一边界：不新增 L1/L2/L3 私有记忆库、后台提取管线、向量/检索索引、服务或依赖，只扩展回顾目标、固定两文件采纳与版本、原生目录下载。
 
-### 5.3 个人模块接口（2026-10-31，本工作树）
+### 5.3 个人模块接口（2026-10-31 已由 PR #146 合入 main）
 
 个人模块把本人资料、记忆、回顾、安全与会话、分享与使用记录集中到 `/personal/*`，复用既有权限叶与数据表，不新增执行底座。页面固定为 `/personal/profile`、`/personal/memory`、`/personal/reviews`、`/personal/security`、`/personal/shares`、`/personal/usage`；`/personal` 转个人资料，旧 `/memory` 页面已删除。侧栏展开与收起状态点击底部用户信息进入同一模块，登出是独立动作。
 
@@ -413,13 +413,13 @@ data/workspaces/<agent-slug>/
 
 | 位置 | 内容 | 说明 |
 |---|---|---|
-| PostgreSQL 18 + pgvector | 知识库/文件夹/标签/文档/版本/chunk/任务/来源/同步运行/Wiki/模型 profile | 迁移 `0036_demonic_dust.sql`；`CREATE EXTENSION vector` 与 HNSW 索引是手工补的 SQL |
+| PostgreSQL 18 + pgvector | 知识库/文件夹/标签/文档/版本/chunk/任务/来源/同步运行/Wiki/模型 profile | 迁移 `0036_demonic_dust.sql` 建基础表（`CREATE EXTENSION vector` 与 HNSW 索引是手工补进迁移的 SQL）；`0045_married_expediter.sql` 是已合入 main 的角色/主体迁移，与知识库无关；知识库扩展集中在 `0046_cold_slipstream.sql`：三类内容、来源范围归属与逐项同步记录、ASR profile 与 `knowledge_bases.asr_profile_id`、九种来源类型与 range kind、版本/分块/Wiki 扩展。PR 旧 `0045_real_nightmare` / `0046_many_wildside` / `0047_outstanding_orphan` 三份迁移已删除，不参与迁移链 |
 | `$KNOWLEDGE_DIR/blobs/<前2位>/<sha256>` | 原件，按内容寻址、只读 | 上传/抓取先写临时文件再原子 rename；同内容复用 |
 | `$KNOWLEDGE_DIR/docs/<documentId>/<versionId>/` | `markdown.md` 与 `images/` | 解析产物；版本删除后目录不会立即消失，等 cleanup 任务回收 |
 | `$KNOWLEDGE_DIR/wiki-sdk/<jobId>/` | Wiki 生成时的平台私有临时 cwd（同时作 HOME / `CLAUDE_CONFIG_DIR`） | 不是 Claude 官方目录约定，也不进入专家工作区或导出包；任务结束即删除 |
 | `knowledgedata:/knowledge` | 上述目录的 compose 命名卷 | api 与 worker 必须同卷；随 `pnpm backup` 归档为 `knowledge/` |
 
-关键 schema 事实：`knowledge_chunks.search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用不写），`embedding vector(1024)` 由 `customType` 映射；GIN 全文索引与 HNSW 向量部分索引（`WHERE enabled AND embedding IS NOT NULL`）在迁移里手写。embedding profile 的 `dimensions` 由 schema 的 check 约束固定为 1024。chunk、版本、Wiki、任务等业务实体都用 `newId()` 生成 TypeID（`kb_`、`kdoc_`、`kchk_`、`kjob_`…，见 `packages/db/src/id.ts`）。`insertChunks` 按 500 行分批执行 `INSERT`，避免单条语句超过 PostgreSQL 绑定参数上限；返回顺序与输入一致。
+`knowledge_documents` 增 `content_kind`（document/faq/wiki）、`source_connection_id` 与 `disabled_reason`；`knowledge_document_source_ranges` 以 `(document_id,range_id)` 联合主键记录真实范围归属。模型 profile 的 `kind` 为 `embedding/rerank/asr`；ASR 行维度为 null、固定 openai 转录协议且不允许图片输入，知识库用 `asr_profile_id` 外键绑定，删除被引用 profile 走 `RESTRICT`。音频不新增表/版本列：转录事实只存版本的 `metadata.audio`（协议、profile 名与 model 快照、真实 duration、段级 UTF-16 偏移与毫秒时码），原件仍走既有 blob。关键 schema 事实：`knowledge_chunks.search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用不写），`embedding vector(1024)` 由 `customType` 映射；GIN 全文索引与 HNSW 向量部分索引（`WHERE enabled AND embedding IS NOT NULL`）在迁移里手写。embedding profile 的 `dimensions` 由 schema 的 check 约束固定为 1024。chunk、版本、Wiki、任务等业务实体都用 `newId()` 生成 TypeID（`kb_`、`kdoc_`、`kchk_`、`kjob_`…，见 `packages/db/src/id.ts`）。`insertChunks` 按 500 行分批执行 `INSERT`，避免单条语句超过 PostgreSQL 绑定参数上限；返回顺序与输入一致。
 
 删除文档/知识库删除行与引用，blob与解析目录由`cleanup`按“无版本引用且超过24小时”回收。知识对账器启动时及每5分钟检查当天UTC清理任务，复用同一队列每日创建一条；入队失败保留queued供后续补投。`POST /bases/:id/rebuild`与知识库“设置”中的整库重建入口贯通，重建前提示人工分块更改会被覆盖。
 
@@ -430,8 +430,11 @@ data/workspaces/<agent-slug>/
 1. 上传走 base64 JSON（路由级 `bodyLimit` 48 MiB，解码后上限 32 MiB），手写正文与 URL 导入走独立入口；三者都先写 blob，再建 `knowledge_documents` 行，最后投 `ingest` 任务并返回 202。
 2. worker 取当前知识库的 embedding profile，解析（Markdown/文本/CSV/JSON/HTML 本地处理；PDF/Office/OCR 走 `DOCLING_URL`）、结构感知分块、批量 embedding，最后在事务里把 `current_version_id` 切到新版本。失败或取消时旧版本继续可查。
 3. 内容读取只走带鉴权的 REST：`versions/:versionId/content` 回原件（`Content-Disposition` 用清洗后的文件名）、`.../markdown` 回解析正文（用 `X-Knowledge-Document-Status` 带文档状态）、`.../images/:name` 回图片。图片名必须匹配白名单文件名且在该版本的 `images` 清单里，磁盘路径只由库内记录拼出，不按 URL 原文读取；对外不暴露静态目录。
-4. 检索固定为两路：关键词（应用侧 `Intl.Segmenter('zh')` 分词 + `plainto_tsquery('simple')`）与向量（pgvector `<=>`），各取 top 50 后用 RRF（k=60）融合取前 30，再按知识库配置的 rerank profile 重排。召回条件同时要求 `chunks.enabled`、文档 `ready` 且 `current_version_id = chunks.version_id`，旧版本与停用内容不会命中。
-5. embedding 不可用时只返回关键词结果并在响应标 `degraded: true`；rerank 失败则保留 RRF 顺序。两种降级都不把整次检索变成错误。模型端点失败被归类为 `auth / rate_limit / timeout / bad_response / unavailable`；只有 `rate_limit`、`timeout`、`unavailable` 会重试，`auth` 与 `bad_response` 重试也不会变好。
+4. 检索固定为两路：关键词（应用侧 `Intl.Segmenter('zh')` 分词 + `plainto_tsquery('simple')`）与向量（pgvector `<=>`），各取 top 50 后用 RRF（k=60）融合取前 30，再按知识库配置的 rerank profile 重排。`kinds` 默认合并 document/FAQ/Wiki；文本向量在融合前按 `minVectorScore`（默认 0.3，未校准初值）过滤，关键词命中不因向量门槛被删。命中带 `target`/`targetVersionId`/`parentContent`/`scores:{keyword,vector,rrf,rerank}` 与 `scoreKind`；Wiki 的 `documentId` 指内部索引，导航必须用 `target`。召回条件同时要求 `chunks.enabled`、文档 `ready` 且 `current_version_id = chunks.version_id`，并叠加来源/范围可读过滤；旧版本、停用、撤权内容与内部 Wiki 索引文档不会作为普通文档命中。
+5. embedding 不可用时只返回关键词结果并标 `degraded: true` 与 `warnings.embedding_unavailable`；rerank 失败保留完整 RRF 顺序并带 `warnings.rerank_unavailable`，Wiki 索引尚未追上线上指针时带 `wiki_index_pending`。降级不把整次检索变成错误。REST 的 `diagnostics` 只在管理端显式开启，MCP 不返回候选正文/内部配置，但必须完整保留 `degraded`/`warnings`。模型端点失败被归类为 `auth / rate_limit / timeout / bad_response / unavailable`；只有 `rate_limit`、`timeout`、`unavailable` 会重试，`auth` 与 `bad_response` 重试也不会变好。
+6. 版本写入是显式 COW：人工改块、删除、启停由 API 按预分配版本 ID 先写完整正文/图片，事务内克隆旧块、重映射 ordinal、插入新版本后切指针；分块编辑另投 `chunksOnly` reindex 补向量。FAQ 草稿同样由 API 预分配文档版本 ID 并先写文件与版本行，发布只切指针。已发布版本与其文件不变，`expectedVersionId` 不符返回 409，不能从旧版本绕过；人工编辑清 locator/page 并标 `editedByUser`，纯 enabled 修改保留定位。`ingest` 任务的输入分三种：上传任务只带 `documentId`，worker 从文档 `contentHash` 取 blob；手写（含草稿保存）、URL 导入与 Wiki 索引任务携带不可变 `input`（内容哈希、文件名、MIME、`expectedCurrentVersionId`），worker 只消费该快照、不读运行时最新文档状态，但文档版本 ID 仍由 worker 解析完成时生成（Wiki 任务里的 `wikiVersionId` 只是页面版本，不是文档版本）；只有 FAQ 的 `ingest` job 携带 API 预分配的文档 `versionId` 与 `input`。草稿发布前核对同一 job 已成功且输入与版本一致（blob/文件名/MIME/父版本）。cleanup 只回收无任何版本引用的 blob/目录，不得删除刚提交的新版本文件。
+7. FAQ 以 `contentKind='faq'`、`sourceType='manual'` 的草稿版本保存标准问/相似问/反例/多答案、`answerStrategy` 与推荐标记；保存不改线上，显式 publish 或整批 publish 后才召回，停用立即撤出 search/read/list。FAQ 不是 Feed 来源，Feed 条目也不会成为 FAQ，二者不共用导入/发布链路。导入支持 JSON/CSV/xlsx（xlsx 只读首张工作表，拒绝公式与额外非空表），`append`/`replace`、`dryRun` 与整批原子发布沿用共享契约 D。
+8. 音频走同一条摄取链：入口 `inspectKnowledgeAudio` 只按真实字节接受 mp3/wav/m4a/flac/ogg 五种，原件上限 25,000,000 字节；空文件、超限、声明/后缀与字节不一致分别明确拒绝，普通非音频返回 null 继续原解析。worker 读取库绑定的启用 `kind='asr'` profile，用唯一 OpenAI Transcriptions multipart + `verbose_json` + `timestamp_granularities[]=segment` 协议请求完整最终 Endpoint URL（不补 `/v1`、不硬编码供应商模型，单请求 300 秒）；段级 start/end 转真实毫秒，正文按转录 markdown 拼接，逐块写真实 `timeFromMs/timeToMs` 并保存 `metadata.audio`。`segments` 缺省或为空时只索引顶层 text、不按 duration 编造时码，详情与引用明确标“无时码”，不作为时码验收通过。`chunksOnly` 只补向量、不重新转录；人工编辑清时码；关闭/切换 ASR 只影响后续摄取，历史音频原件、转录版本与引用仍可读。ASR profile 的测试入口在出站前返回 409，不提供静音探针，验证只能通过显式上传并可能计费；真实转录质量、端点时码覆盖与费用尚未验收。
 
 本地解析：CSV 用 `csv-parse`（保留 BOM、引号内换行、不等宽列，CR-only 换行可解析，非法引号以 `invalid_input` 失败），表格列宽线性聚合，大行数不展开参数；Markdown 是线性轻量分块，只支持最小围栏、单行 Setext 与 GFM 表格（含无外管道），**不是完整 CommonMark**，未覆盖的语法按普通段落处理。
 
@@ -447,20 +450,35 @@ OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` �
 
 ### 6.3 外部来源
 
-首批只做 RSS/Atom/JSON Feed、飞书 Wiki/Drive、GitLab 仓库文件（项目/ref/path）与 GitHub 仓库文本文件。范围（`knowledge_source_ranges`）必须非空，空数组在入口就 400，**不解释成「全企业」**。一个来源可以保存多条范围，每条范围有独立游标：飞书按空间/节点/云盘目录，Feed 按订阅地址，GitLab/GitHub 按项目或仓库 + 可选 ref + paths；GitLab 读取时优先使用范围的 `externalId`/`ref`，缺失时回落到 `config` 的 `projectId`/`ref`，GitHub 则每条范围必须是 `owner/repo`，读取时使用范围的 `ref`，为空时使用该仓库的 `default_branch`，不回退 `config.ref`。来源创建与 PATCH（包括仅修改 ranges）统一调用 `configIssues` 校验，GitHub 的范围 `kind` 必须为 `github_repo`、`externalId` 必须为合法 `owner/repo`，在入口就拒绝；`paths` 是否为仓库相对路径仍由 worker 校验。`listRanges` 只用于展示与连接检查，同步只读已保存的范围。API 支持整体替换范围；前端创建与编辑共用同一套分区表单，支持多条范围的增删与启停，创建时即可配置 cron 与 `syncDeletions`。飞书的 `appId` 存在 `config`，`appSecret` 只存加密列；GitLab/GitHub 的 token 与模型 apiKey 同理。来源级 `appId`/`baseUrl`/`config` 可编辑，凭证只写不读，响应只返回 `hasSecret`。
+首批（2026-10-29 历史范围）只做 RSS/Atom/JSON Feed、飞书 Wiki/Drive、GitLab 仓库文件（项目/ref/path）与 GitHub 仓库文件（owner/repo/ref/path）。范围（`knowledge_source_ranges`）必须非空，空数组在入口就 400，**不解释成「全企业」**。一个来源可以保存多条范围，每条范围有独立游标：飞书按空间/节点/云盘目录，Feed 按订阅地址，GitLab/GitHub 按项目或仓库 + 可选 ref + paths；GitLab 读取时优先使用范围的 `externalId`/`ref`，缺失时回落到 `config` 的 `projectId`/`ref`，GitHub 则每条范围必须是 `owner/repo`，读取时使用范围的 `ref`，为空时使用该仓库的 `default_branch`，不回退 `config.ref`。来源创建与 PATCH（包括仅修改 ranges）统一调用 `configIssues` 校验，GitHub 的范围 `kind` 必须为 `github_repo`、`externalId` 必须为合法 `owner/repo`，在入口就拒绝；`paths` 是否为仓库相对路径仍由 worker 校验。`listRanges` 只用于展示与连接检查，同步只读已保存的范围。API 支持整体替换范围；前端创建与编辑共用同一套分区表单，支持多条范围的增删与启停，创建时即可配置 cron 与 `syncDeletions`。飞书的 `appId` 存在 `config`，`appSecret` 只存加密列；GitLab/GitHub 的 token 与模型 apiKey 同理。来源级 `appId`/`baseUrl`/`config` 可编辑，凭证只写不读，响应只返回 `hasSecret`。
 
-文档身份只按 `(base_id, source_type, source_id)` 匹配外部条目，绝不用标题；`upload`/`manual` 的 `source_id` 为空。外部 `source_id` 形如 `<来源连接 ID>:<源端条目 ID>`（源端 ID 是飞书 token / GitLab `project:ref:path` / `feedURL:itemId`），加上连接前缀后，同一条目出现在两个来源里也不会互相覆盖。来源归属另记在 `metadata.knowledgeSourceId`，因为文档表没有指向来源的外键。
+当前来源连接类型共 14 种：上述飞书 Wiki/Drive、GitLab、GitHub、Feed 五种，加 Lark wiki/drive、Notion、Confluence、语雀、钉钉、IMA、Seafile、Nextcloud 九种；WeKnora 注册总数为 13 种且不含 GitHub，不能把两边的数字互相当作总数。九种新类型在 shared 的来源鉴别联合中逐类声明 config/secrets 与 range kind，入口统一由 `source-routes.ts` 的同一套 `configIssues` 校验（创建/PATCH/test 不各写一套），凭证仍加密、只回 `hasSecret`。最小配置与范围：
+
+- Lark wiki/drive：`appId` + 加密 `appSecret`；固定 `https://open.larksuite.com`，不接受自填 baseUrl；范围 `wiki_space`/`wiki_node` 或 `drive_folder`。在线 docx/sheet/bitable 走导出任务取原件，导出 ticket 与 file_token 不同，失败按单项失败。
+- Notion：加密 `apiKey`，固定 `https://api.notion.com`；范围 `notion_page`/`notion_database`/`notion_data_source`，database 遍历全部 data_sources。正文用原生 Markdown v2，必须同时检查 `truncated`、`unknown_block_ids` 与 warnings；任一不完整即该页失败，不能拼接发布。
+- Confluence：`authMode` 区分 `cloud_basic`/`cloud_scoped`/`dc_pat`，均需站点/应用根 `baseUrl`，Cloud 需 `email`，scoped 另需 `cloudId`，加密 `apiToken` 或 `pat`；范围 `confluence_space`/`confluence_page`。正文取官方 rendered view 的 HTML 字节交给现有 parser，不把 storage 宏 XML 当普通 HTML。
+- 语雀：加密 `apiToken`，固定 `https://www.yuque.com`；范围 `yuque_repo` 使用数字 repo ID，文档身份用数字 doc ID，slug 只作请求定位。
+- 钉钉：`clientId`/`operatorUnionId` + 加密 `clientSecret`；范围 `dingtalk_workspace`/`dingtalk_node`。在线文档节点不能把 nodeId 当 docKey，须经固定 API `GET /v2.0/doc/items?url=` 取 `dentry.docKey`；缺 docKey 明确失败，不猜 URL 尾段。
+- IMA：`clientId` + 加密 `apiKey`，固定 `https://ima.qq.com`；只同步用户指定的知识库，范围 `ima_kb`。官方允许成功但无 `url_info` 的媒体，该条明确 `content_unavailable` 并令本轮不完整；笔记仅作者可读且只提供纯文本，不伪标 Markdown。
+- Seafile：站点 `baseUrl` + 加密 `apiToken`，明确按 Seafile 11+ `Authorization: Bearer`，不双试旧 Token；范围 `seafile_repo` 用 repo UUID，目录根放 `paths`（显式 `/` 规范为 `[]`），文件身份是 `repo UUID + sha256(规范化库内绝对路径)`，改名表现为新增/旧不可见。
+- Nextcloud：站点 `baseUrl` + `username` + 加密 `appPassword`；范围 `nextcloud_path` 是账号 files 根内路径，文件身份是全局命名空间的 `oc:id`（不是 `oc:fileid`、不是路径），改名保持身份；PROPFIND 保持原方法并逐项检查 207。
+
+九种来源的连接身份字段（Lark `appId`、Confluence `authMode/baseUrl/email/cloudId`、钉钉 `clientId/operatorUnionId`、IMA `clientId`、Seafile `baseUrl`、Nextcloud `baseUrl/username` 等）创建后不可 PATCH 更换，换站点/账号必须新建来源；凭证可轮换。所有新来源每轮重新枚举并读取完整快照、按内容哈希决定是否建新版本，**不是远端 changed-only/断点续传**；只有完整枚举且本轮无失败才允许按 `syncDeletions` 停用不可见条目，不把“未再出现”翻译成删除。九种来源的本地 adapter/fixture 与 Web 表单已落，真实账号、配额与私有部署验收仍待配置；详见 [任务记录](tasks/knowledge-weknora.md) 的 K-X3。
+
+文档身份只按 `(base_id, source_type, source_id)` 匹配外部条目，绝不用标题；`upload`/`manual` 的 `source_id` 为空。外部 `source_id` 形如 `<来源连接 ID>:<源端条目 ID>`（源端 ID 是飞书 `feishu:wiki:<nodeToken>`/`feishu:drive:<fileToken>`、GitLab `gitlab:<apiBase>:<projectId>:<ref>:<path>`、GitHub `github:<apiBase>:<repoId>:<ref>:<path>` 或 `<feedURL>:<itemId>`；新增类型使用供应商稳定 ID：Lark node/file token、Notion page/file block、Confluence page/attachment ID、语雀数字 doc ID、钉钉 node ID、IMA kb/media ID、Seafile repo+路径哈希、Nextcloud `oc:id`），加上连接前缀后，同一条目出现在两个来源里也不会互相覆盖。来源归属以 `source_connection_id` 列与 `knowledge_document_source_ranges` 联合主键为真相，不再用 `metadata.knowledgeSourceId`；删源保留已删来源 ID，不级联清空，来源不存在即不可发布/可读。
+
+PATCH 范围或来源状态走 `replaceSourceScope`：同一事务缩小范围、移除失效归属并撤权所有失去有效范围的文档（含 pending/processing/failed），下一次 search/read/list/read_image 立即不暴露。worker 读取用 `getSourceReadSnapshot` 在来源锁下取得配置、凭证与范围的一致快照，发布与撤权按 source→document 锁序复核；快照不一致的旧同步零写入，不能把已撤权内容重新发布。
 
 - Feed 是滚动窗口：条目自然滚出窗口不删除，连接器永远返回「不完整枚举」。
-- 飞书只同步 `docx` 类型的 Wiki 节点与云盘的 docx/文本文件；其他类型或不支持的内容明确报错，不静默跳过。
-- GitLab 只读取文本类扩展名（md/txt/html/csv/json/xml/yaml/rst/adoc 等）的 blob；PDF/Office 等二进制文件不在当前同步范围内。先完整遍历仓库树，任何分页失败都抛出，不推导删除。
-- GitHub 使用 PAT（`secrets.token`），`config.baseUrl` 可选，缺省 `https://api.github.com`；GitHub Enterprise 填 API 根（如 `https://ghe.example.com/api/v3`）。范围是 `owner/repo` + 可选 `ref`（缺省回落到仓库默认分支）+ `paths`，同样只同步文本扩展名文件；空文件写入占位正文以覆盖旧内容。外部条目 ID 为 `github:<apiBase>:<repoId>:<ref>:<path>`；`sourceUrl` 的 ref 与 path 按路径分段编码（保留 `/` 层级，编码 `#`、`?`、空格等段内字符）。递归树读取失败或 `truncated` 直接失败，不把部分枚举当成完整枚举，因此只有完整枚举且本轮无失败时才允许按 `syncDeletions` 推导远端删除。
+- 飞书 Wiki 节点只处理 `obj_type=docx` 并转成 Markdown，其他节点类型逐项报不支持的失败，不静默跳过。云盘按目录递归：`docx` 转 Markdown，`file` 保留原件字节并按扩展名/MIME 交给同一解析链，`folder` 继续递归，`shortcut` 解析到可读目标；`sheet`/`bitable` 等其他云盘类型逐项失败。任一项失败都让本轮不算完整枚举。
+- GitLab 先完整遍历仓库树，任何分页失败都抛出，不推导删除。文本类扩展名（md/txt/html/csv/json/xml/yaml/rst/adoc 等）按文本读取，空文件写占位正文以覆盖旧内容；PDF、Office（doc/docx/ppt/pptx/xls/xlsx）、ODF、RTF、EPUB 与 PNG/JPEG/GIF/WebP 按原字节读取并交给同一 parser（PDF/Office/ODF/RTF/EPUB 需 `DOCLING_URL`，图片需开启图片处理），不在 source 层解码。其他扩展名逐项报 `unsupported file type`，不静默跳过；单项读取失败或失败条目都会让本轮不算完整枚举。
+- GitHub 使用 PAT（`secrets.token`），`config.baseUrl` 可选，缺省 `https://api.github.com`；GitHub Enterprise 填 API 根（如 `https://ghe.example.com/api/v3`）。范围是 `owner/repo` + 可选 `ref`（缺省回落到仓库默认分支）+ `paths`；文本扩展名与二进制集合都和 GitLab 相同（二进制为 PDF/Office/ODF/RTF/EPUB/图片），文本空文件写入占位正文以覆盖旧内容，二进制原件同样交给同一 parser 并按上述依赖解析。外部条目 ID 为 `github:<apiBase>:<repoId>:<ref>:<path>`；`sourceUrl` 的 ref 与 path 按路径分段编码（保留 `/` 层级，编码 `#`、`?`、空格等段内字符）。递归树读取失败或 `truncated` 直接失败，不把部分枚举当成完整枚举，因此只有完整枚举且本轮无失败时才允许按 `syncDeletions` 推导远端删除。
 - GitHub 的 401 与明确无权限的 403 抛 `SourceAuthError`；限流可能是 403（带 `x-ratelimit-remaining: 0` 或 `retry-after`）或 429，这类限流不标记 `auth_error`，来源保持 active、可继续重试。
 - 飞书 Wiki/Drive、GitLab 与 GitHub 只有在连接器明确声明「枚举完整」且本轮无失败时，`syncDeletions: true` 才允许把未再出现的条目置为 `disabled`（不物理删除、不参与检索）。
-- 上传入口不做格式预筛，PDF/Office/OCR 交给 `DOCLING_URL`；未配置时该格式以任务失败明确报出，不静默降级。来源同步走各自的读取路径，不经过 Docling。
-- 来源的「测试」只校验本地配置与凭证是否齐全，不发外网请求；真实连通性以同步 run 的结果为准。
+- 上传入口不做格式预筛，PDF/Office/OCR 交给 `DOCLING_URL`；未配置时该格式以任务失败明确报出，不静默降级。来源侧并非一律绕过 parser：飞书 Wiki/docx 已在连接器转成 Markdown，GitLab/GitHub/Feed 的文本条目直接以文本内容入库，二者都不进入 parser；GitLab/GitHub 的受支持二进制与飞书云盘 `file` 原件按字节进入同一 parser，因此同样依赖 `DOCLING_URL` 或图片处理配置，未配置或格式不受支持时以单项/任务失败报出。GitLab/GitHub 的未知扩展名逐项失败；飞书云盘 `file` 的未知扩展名按 `application/octet-stream` 尝试解析，不保证成功。
+- 来源的「测试」先做本地配置/凭证校验，配置错误 400；通过后投 `source_probe` 任务只读探测远程凭证与范围首项，结果写入 job `result.checks`，不导入、不推进游标，也不等于完整同步验收。
 - 来源 UI 分「选择 provider → 配置」两步；手动同步要求来源为 `active`。手动、失败任务重试与定时触发统一通过 `repo.knowledge.createSyncJob` 创建：同一事务取来源级 `pg_advisory_xact_lock(hashtext(sourceId))`、重读来源与在途 queued/running，再插入 queued sync run 与 job，Redis add 只在事务提交后。同一来源已有在途同步时，手动/重试返回 409，定时触发跳过；缺失 404、非 active 409。
-- 私网出站：`KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 只做精确 `host` / `host:port` / origin 匹配，默认空。它当前作用于两处：worker 的来源连接器抓取（飞书/GitLab/GitHub/Feed，逐跳校验，使用独立的 `validateSourceUrl`）与 API 侧模型 profile 的创建/修改/测试。名单外的地址分别走各自的私网校验；名单只对知识出站生效，不会让普通 MCP server 把任意 URL 变成可信。
+- 私网出站：`KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 只做精确 `host` / `host:port` / origin 匹配，默认空。它当前作用于两处：worker 的来源连接器抓取（全部来源逐跳校验，使用独立的 `validateSourceUrl`；Lark/Notion/钉钉/IMA/语雀为固定 SaaS origin、不接受用户自填，自建 Confluence/Seafile/Nextcloud 的站点需在此精确放行 `host:port`）与 API 侧模型 profile 的创建/修改/测试。名单外的地址分别走各自的私网校验；名单只对知识出站生效，不会让普通 MCP server 把任意 URL 变成可信。
 - 目前**没有**接入该名单的知识出站还有三处，部署时应知悉：URL 导入只经 `assertSafeUrl`；worker 调 Docling 与 embedding/rerank 直接用已保存端点，不再逐次复核；这些端点的可信性依赖部署配置与 API 入口校验，公网部署仍需网络层出站限制兜底 DNS 重绑定。
 - 凭证（飞书 appSecret、GitLab/GitHub token、模型 apiKey）沿用 `encryptSecrets` 加密入库，API 只回 `hasSecret`。
 - GitHub 连接器目前只在本地 fixture 验证；真实 GitHub 授权、限流与私有仓库内容尚未验收。
@@ -474,30 +492,33 @@ OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` �
 - `knowledge/reconcile.ts` 定期对账：running 且超过 2 倍超时、或 Redis 中已消失的置 failed；Redis 丢失但 DB 仍 queued 的重新入队。
 - `knowledge/scheduler.ts` 以数据库的 `sync_cron` 为权威，在 Redis 维护 `knowledge-sync:<sourceId>` 调度器；到点经同一 `createSyncJob` 创建 pair，不在 Redis 保存凭证。清空 cron 即移除调度器；同一来源已有 queued/running 任务时跳过重复触发。入口 cron 先用 shared `cronSchema` 做结构校验，API 再用 BullMQ `getNextMillis` 判定实际可调度性（`99 99 99 99 99` 等被拒），scheduler 不重复预解析；每个来源的「移除旧 pattern → upsert 新 pattern」在独立 `try/catch` 内执行，单来源失败记录来源 ID 与阶段后继续其余来源。
 - 任务重试不复用原行，而是创建新任务；这样才能被重新认领。
+- 知识队列观测复用现有 JSON `GET /health/metrics` 的 `knowledgeQueue:{waiting,active,completed,failed,delayed}`（读既有 producer Queue；单项失败为 `null`），不新增 Prometheus 端点或采集器。
 
 ### 6.5 Wiki 生成
 
 Wiki 生成是知识任务的一种（`wiki_generate`），**直接复用官方 `@anthropic-ai/claude-agent-sdk` 的 `query()`，不引入第二套消息循环**：worker 用 `createSdkMcpServer` + `tool` 注册进程内工具 `wiki_search` / `wiki_read` / `wiki_save_draft`，`allowedTools` 只放这三个 `mcp__knowledge__*`，`tools: []` 清空内置工具，`settingSources: []`、关闭 auto-memory、cwd/HOME 指向任务临时目录。模型取 `KNOWLEDGE_WIKI_MODEL`，走 worker 现有模型网关凭证，不新增 API key。它不创建 `agent_runs` / `conversations` / `messages`，不启动沙盒，也不写工作区。工具与来源限定在本次任务的知识库与可选 `sourceDocumentIds` 内。
 
-草稿只追加版本：SDK 保存不会移动已发布页面的 `current_version_id`；发布与回退是显式 REST 动作，回退会复制目标版本成新版本。来源被删除或停用后，引用它的 Wiki 页标 `stale`，发布时若来源已不可用则拒绝。
+SDK 生成与管理端手工保存都只追加草稿版本，不移动已发布页面的 `current_version_id`；发布与回退才是显式 REST 动作，回退把目标版本复制成新版本并重新核来源。发布/回退前先写好正文并建立带 `wikiVersionId` 的索引 job；来源被删除、范围撤权或来源快照变化后引用它的 Wiki 页标 `stale`，发布与消费均被拒，已发布 Wiki 只在来源仍有效时可被 search/read/list 读取。内部索引文档 `contentKind='wiki'` 不进入普通文档列表，也不能作为 Wiki 自动生成的 `sourceDocumentIds`/来源；搜索命中 Wiki 时 `target` 指页面、`documentId` 指内部索引。索引任务尚未追上线上指针时暂不召回旧索引，但直接 read/list 仍读线上版本。
 
 ### 6.6 与原生记忆的边界
 
-知识语料、个人记忆（原个人偏好）与 SDK 原生 auto-memory（主会话与子智能体各自的 `agent-memory/`）是三类对象：知识库承载有来源的企业文档、版本与引用；`agent-memory/` 承载专家自己的跨会话笔记；个人记忆是跨专家共享、DB 权威的偏好文本，经 hook 注入。三者不共用表、不互相写入；知识不会被挂载进沙盒，记忆也不会进入检索引擎。历史回顾只读已落库的会话快照，不读知识库。
+知识语料、个人记忆（原个人偏好）与 SDK 原生 auto-memory（主会话与子智能体各自的 `agent-memory/`）是三类对象：知识库承载有来源的企业文档、版本与引用；`agent-memory/` 承载专家自己的跨会话笔记；个人记忆是跨专家共享、DB 权威的偏好文本，经 hook 注入。三者不共用表、不互相写入；知识不会被挂载进沙盒，记忆也不会进入检索引擎。历史回顾只读已落库的会话快照，不读知识库。知识能力仍只经官方 `.mcp.json`/SDK 文件约定接入，不扩 `settingSources` 或外部宿主授权；知识正文不进入 Bash 可写范围，也不写入原生 memory。
 
 ### 6.7 导出与备份
 
 | 对象 | 形式 | 是否含向量/凭证/游标 |
 |---|---|---|
 | 专家包 | `.claude/` 目录 ZIP + 根 sidecar | 知识连接导出为**官方 MCP HTTP 条目** + 专用 token 环境变量占位，不含 run token、不含知识正文 |
-| 知识库数据包 | ZIP `pace/knowledge@1`（`manifest.json` + 原件 + markdown） | 不含向量、密钥、同步游标、任务记录；导入按新 ID 建库，profile 按名称匹配，chunk 不导入向量（可 rebuild 补），缺 profile 时整体 409 而不是建半库 |
+| 知识库数据包 | ZIP `pace/knowledge@1`（`manifest.json` + 原件 + markdown，含 pending 手写草稿原件） | 不含向量、密钥、同步游标、任务记录；音频版本的 `metadata.audio` 与时间 locator 随版本保存，manifest 只带可移植的 `asrProfileName` + `{protocol:'openai_transcriptions',model}`，不含 endpointUrl/apiKey/profileId；ASR 已关闭的库仍可导出/导回历史音频版本，导入只补向量、不重新转录。ZIP 复用共享 fflate/预检（central/local 名称同解释、目录也校验、按实际解压字节限额）；导入按新 ID 建库，profile 按名称匹配，chunk 不导入向量（可 rebuild 补），无发布版时恢复为 pending 草稿而不伪造 currentVersion，缺 profile 时整体 409 而不是建半库 |
 | 平台备份 | `knowledge/**` + `pg_dump` + 环境 + 工作区 | 含原件与解析产物；恢复后索引可重建 |
 
 两者不能互相替代：专家包只表达「这个专家绑定了一个知识连接」，知识库数据包才是可迁移的语料交付物。
 
 ### 6.8 当前实现状态
 
-知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId`含文档/检索/Wiki/来源/任务五个面板。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘；未完成真实企业与真实模型服务验收，当前不能据此宣称生产可用。
+知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId` 含文档/检索/离线评估/FAQ/Wiki/来源/任务七个页签。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘。
+
+**当前仍处于评审整改与隔离验收阶段**：上述源码存在不等于整体完成；FAQ、Wiki、来源/范围即时撤权、版本 COW、ZIP 往返等链路仍在按评审意见修复与复测，模块测试或类型检查通过不能写成端到端通过。音频 ASR 的 core/shared/DB/API/worker/Web 本地链路与九种新增来源的 shared/API/DB/worker/Web 已落，但来源叶模块仍在独立评审收尾；真实转录质量与费用、真实 Lark/Notion/Confluence/语雀/钉钉/IMA/Seafile/Nextcloud 账号与配额、真实飞书/GitLab/GitHub/Feed 企业源均未验收。真实 embedding/rerank/视觉模型、Docling Office 与 Cohere 服务也仍未验收；GraphRAG 需要 Neo4j 与抽取模型费用，属待依赖，不部署、不声称可用。
 
 **真实闭环仍未完整验收**：上传 → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成仍没有跑过真模型或真实企业服务；现有 embedding/feed 运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 PDF/OCR 适配已在独立容器用固定镜像实测真实 PDF（文本、图片、表格、OCR 开关与 failure 返回），但 compose profile 从未实际拉起，Office 格式、完整真实 embedding 与企业链仍未验；仅标题 OCR 文本在 chunk 丢失的缺陷已由 PR #95（`b28d3e6`）合入 main 并验证通过（见 [任务记录](tasks/real-runtime-acceptance.md)）。已有的运行记录、发现的问题与未验证项见 [任务记录](tasks/knowledge-runtime-verification.md) 与 [审查整改](tasks/knowledge-review-findings.md)，不能把模块测试通过当成端到端通过。
 

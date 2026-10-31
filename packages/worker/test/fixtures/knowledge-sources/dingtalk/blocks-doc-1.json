@@ -1,0 +1,43 @@
+{
+  "success": true,
+  "result": {
+    "data": [
+      {
+        "blockType": "paragraph",
+        "id": "b1",
+        "paragraph": { "text": "Hello world" }
+      },
+      {
+        "blockType": "heading",
+        "id": "b2",
+        "heading": { "level": 2, "text": "Overview" }
+      },
+      {
+        "blockType": "unorderedList",
+        "id": "b3",
+        "unorderedList": { "list": { "level": 0 } },
+        "children": [{ "text": "first item" }]
+      },
+      {
+        "blockType": "code",
+        "id": "b4",
+        "code": { "text": "const a = 1;", "syntax": "ts" }
+      },
+      {
+        "blockType": "table",
+        "id": "b5",
+        "table": {
+          "cells": [
+            ["Name", "Value"],
+            ["a", "1"]
+          ]
+        }
+      },
+      {
+        "blockType": "attachment",
+        "id": "b6",
+        "attachment": { "name": "spec.pdf", "size": 1024 }
+      }
+    ]
+  }
+}

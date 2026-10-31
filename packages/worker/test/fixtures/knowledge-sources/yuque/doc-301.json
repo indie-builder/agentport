@@ -1,0 +1,14 @@
+{
+  "data": {
+    "id": 301,
+    "type": "Doc",
+    "format": "lake",
+    "slug": "lake-only",
+    "title": "Lake only",
+    "status": 1,
+    "body": null,
+    "body_html": null,
+    "body_lake": "<lake><text>internal lake xml</text></lake>",
+    "content_updated_at": "2026-10-07T08:00:00.000Z"
+  }
+}

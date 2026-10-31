@@ -39,7 +39,7 @@ const FAILURE_TEXT: Record<string, string> = {
   rate_limit: '端点限流，请稍后重试',
   timeout: '端点超时，请检查地址与网络',
   unavailable: '连不上端点，请检查地址与网络',
-  bad_response: '端点响应不符合 embedding/rerank 格式',
+  bad_response: '端点响应不符合 embedding/rerank/ASR 格式',
 };
 
 /** 弹层草稿保护：dirty 关闭先确认，pending 期间禁止关闭与路由离开。 */
@@ -122,6 +122,7 @@ export function KnowledgeSettingsDialog({
   }));
   const [embeddingProfileId, setEmbeddingProfileId] = useState(base.embeddingProfileId);
   const [rerankProfileId, setRerankProfileId] = useState(base.rerankProfileId ?? 'none');
+  const [asrProfileId, setAsrProfileId] = useState(base.asrProfileId ?? 'none');
   const [chunkTokens, setChunkTokens] = useState(String(base.settings.chunkTokens));
   const [chunkOverlap, setChunkOverlap] = useState(String(base.settings.chunkOverlap));
   const [errors, setErrors] = useState<{
@@ -136,11 +137,24 @@ export function KnowledgeSettingsDialog({
   const [rebuilding, setRebuilding] = useState(false);
   const pending = update.isPending || rebuilding;
   const initialSignature = useRef(
-    JSON.stringify({ settings, embeddingProfileId, rerankProfileId, chunkTokens, chunkOverlap }),
+    JSON.stringify({
+      settings,
+      embeddingProfileId,
+      rerankProfileId,
+      asrProfileId,
+      chunkTokens,
+      chunkOverlap,
+    }),
   );
   const dirty =
-    JSON.stringify({ settings, embeddingProfileId, rerankProfileId, chunkTokens, chunkOverlap }) !==
-    initialSignature.current;
+    JSON.stringify({
+      settings,
+      embeddingProfileId,
+      rerankProfileId,
+      asrProfileId,
+      chunkTokens,
+      chunkOverlap,
+    }) !== initialSignature.current;
   const guard = useDraftGuard(dirty, pending, onClose);
   const embedding = (profiles.data ?? []).filter(
     (profile) =>
@@ -149,6 +163,10 @@ export function KnowledgeSettingsDialog({
   const rerank = (profiles.data ?? []).filter(
     (profile) =>
       profile.kind === 'rerank' && (profile.enabled || profile.id === base.rerankProfileId),
+  );
+  // 已绑定但停用的 ASR 仍保留在选项里，避免把停用静默换成别的模型。
+  const asr = (profiles.data ?? []).filter(
+    (profile) => profile.kind === 'asr' && (profile.enabled || profile.id === base.asrProfileId),
   );
   // 图片向量能力跟随当前所选 profile；历史库绑定的停用 profile 仍可能出现在列表里。
   const selectedEmbedding = (profiles.data ?? []).find(
@@ -206,6 +224,7 @@ export function KnowledgeSettingsDialog({
           // 只发送真正换绑的 profile；未换绑时保留后端当前的绑定不变。
           ...(embeddingProfileId === base.embeddingProfileId ? {} : { embeddingProfileId }),
           rerankProfileId: rerankProfileId === 'none' ? null : rerankProfileId,
+          asrProfileId: asrProfileId === 'none' ? null : asrProfileId,
           settings: {
             ...settings,
             chunkTokens: tokens,
@@ -340,6 +359,38 @@ export function KnowledgeSettingsDialog({
                 <FieldError id="knowledge-settings-chunk-overlap-error">
                   {errors.chunkOverlap}
                 </FieldError>
+              </Field>
+              <Field className="gap-1.5 sm:col-span-2">
+                <FieldLabel htmlFor="knowledge-settings-asr">音频转录</FieldLabel>
+                <Select
+                  value={asrProfileId}
+                  disabled={pending || profiles.isPending}
+                  onValueChange={(next) => {
+                    if (next !== null) setAsrProfileId(next);
+                  }}
+                  items={[
+                    { value: 'none', label: '不启用' },
+                    ...asr.map((profile) => ({
+                      value: profile.id,
+                      label: profile.enabled ? profile.name : `${profile.name}（已停用）`,
+                    })),
+                  ]}
+                >
+                  <SelectTrigger id="knowledge-settings-asr" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="none">不启用</SelectItem>
+                      {asr.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id} disabled={!profile.enabled}>
+                          {profile.name}
+                          {profile.enabled ? null : '（已停用）'}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </Field>
               {profiles.isError ? (
                 <div className="flex items-center gap-2 sm:col-span-2">
@@ -639,7 +690,7 @@ export function KnowledgeProfilesDialog({
       >
         <DialogShell
           title="模型配置"
-          description="知识库的 embedding 与重排 profile；凭证只写不回显。"
+          description="知识库的 embedding、重排与音频转录 profile；凭证只写不回显。"
           closeDisabled={formPending}
           finalFocus={finalFocus}
         >
@@ -676,7 +727,7 @@ export function KnowledgeProfilesDialog({
             ) : null}
             {profiles.isSuccess && (profiles.data ?? []).length === 0 ? (
               <FieldDescription>
-                还没有模型 profile；先新增一个 embedding profile。
+                还没有模型 profile；先新增一个 embedding 或 ASR profile。
               </FieldDescription>
             ) : null}
             <ul className="flex flex-col gap-2">
@@ -690,7 +741,11 @@ export function KnowledgeProfilesDialog({
                       <p className="truncate text-sm font-medium">
                         {profile.name}
                         <span className="ml-2 text-xs text-muted-foreground">
-                          {profile.kind === 'embedding' ? 'Embedding' : '重排'}
+                          {profile.kind === 'embedding'
+                            ? 'Embedding'
+                            : profile.kind === 'rerank'
+                              ? '重排'
+                              : 'ASR 转录'}
                         </span>
                       </p>
                       <p className="truncate font-mono text-2xs text-muted-foreground">
@@ -699,7 +754,9 @@ export function KnowledgeProfilesDialog({
                       <p className="text-xs text-muted-foreground">
                         {profile.kind === 'embedding'
                           ? `维度固定 1024 · ${profile.embeddingProtocol === 'cohere_v2' ? 'Cohere v2' : 'OpenAI'}`
-                          : '无维度'}{' '}
+                          : profile.kind === 'rerank'
+                            ? '无维度'
+                            : 'OpenAI 转录（段级时间） · 请通过上传音频验证'}{' '}
                         · {profile.hasSecret ? '已保存密钥' : '无密钥'}
                         {profile.kind === 'embedding' && profile.imageInputEnabled
                           ? ' · 支持图片输入'
@@ -708,14 +765,16 @@ export function KnowledgeProfilesDialog({
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void test(profile)}
-                        disabled={results[profile.id] === '测试中…'}
-                      >
-                        测试
-                      </Button>
+                      {profile.kind === 'asr' ? null : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void test(profile)}
+                          disabled={results[profile.id] === '测试中…'}
+                        >
+                          测试
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -794,7 +853,7 @@ function ProfileForm({
   onPendingChange: (pending: boolean) => void;
 }) {
   const create = useCreateKnowledgeModelProfile();
-  const [kind, setKind] = useState<'embedding' | 'rerank'>(profile?.kind ?? 'embedding');
+  const [kind, setKind] = useState<'embedding' | 'rerank' | 'asr'>(profile?.kind ?? 'embedding');
   const [name, setName] = useState(profile?.name ?? '');
   const [endpointUrl, setEndpointUrl] = useState(profile?.endpointUrl ?? '');
   const [model, setModel] = useState(profile?.model ?? '');
@@ -803,6 +862,7 @@ function ProfileForm({
     profile?.embeddingProtocol ?? 'openai',
   );
   const [imageInput, setImageInput] = useState(profile?.imageInputEnabled ?? false);
+  const [enabled, setEnabled] = useState(profile?.enabled ?? true);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<{ name?: string; endpointUrl?: string; model?: string }>({});
   const initial = useRef({
@@ -812,6 +872,7 @@ function ProfileForm({
     model: profile?.model ?? '',
     protocol: profile?.embeddingProtocol ?? 'openai',
     imageInput: profile?.imageInputEnabled ?? false,
+    enabled: profile?.enabled ?? true,
   }).current;
   const dirty =
     kind !== initial.kind ||
@@ -820,7 +881,8 @@ function ProfileForm({
     model !== initial.model ||
     apiKey !== '' ||
     protocol !== initial.protocol ||
-    imageInput !== initial.imageInput;
+    imageInput !== initial.imageInput ||
+    (kind === 'asr' && enabled !== initial.enabled);
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   useEffect(() => onPendingChange(saving), [saving, onPendingChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
@@ -843,6 +905,7 @@ function ProfileForm({
       ...(kind === 'embedding'
         ? { embeddingProtocol: protocol, imageInputEnabled: imageCapable && imageInput }
         : {}),
+      ...(kind === 'asr' ? { enabled } : {}),
       // 留空即保持原密钥；不回显，也不把空串当成清除。
       ...(apiKey === '' ? {} : { apiKey }),
     };
@@ -872,11 +935,12 @@ function ProfileForm({
               value={kind}
               disabled={busy}
               onValueChange={(next) => {
-                if (next === 'embedding' || next === 'rerank') setKind(next);
+                if (next === 'embedding' || next === 'rerank' || next === 'asr') setKind(next);
               }}
               items={[
                 { value: 'embedding', label: 'Embedding' },
                 { value: 'rerank', label: '重排' },
+                { value: 'asr', label: 'ASR 转录' },
               ]}
             >
               <SelectTrigger id="knowledge-profile-kind" className="w-full">
@@ -886,6 +950,7 @@ function ProfileForm({
                 <SelectGroup>
                   <SelectItem value="embedding">Embedding</SelectItem>
                   <SelectItem value="rerank">重排</SelectItem>
+                  <SelectItem value="asr">ASR 转录</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -974,6 +1039,21 @@ function ProfileForm({
           </Field>
         ) : null}
       </FieldGroup>
+      {kind === 'asr' ? (
+        <div className="flex flex-col gap-3">
+          <FieldDescription>协议固定为 OpenAI 转录（段级时间）。</FieldDescription>
+          <Field orientation="horizontal" className="items-center gap-2">
+            <Switch
+              id="knowledge-profile-enabled"
+              checked={enabled}
+              disabled={busy}
+              aria-label="启用"
+              onCheckedChange={setEnabled}
+            />
+            <FieldLabel htmlFor="knowledge-profile-enabled">启用</FieldLabel>
+          </Field>
+        </div>
+      ) : null}
       {kind === 'embedding' ? (
         <>
           <Field orientation="horizontal" className="items-center gap-2">

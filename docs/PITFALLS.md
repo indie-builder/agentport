@@ -381,6 +381,41 @@
 - **原因**：`refreshSessionDirectory`（`packages/worker/src/session-workspace.ts`）同时服务定义工作区与产出目录，却无条件跳过 `.claude/agent-memory` 以保住工作区的挂载根 inode；产出目录没有挂载根，同名目录只是普通用户文件，被当挂载根跳过就不再复制或删除。
 - **规避**：保留挂载根改为显式选项 `preserveMemoryMount`，只在定义工作区调用时传 `true`（`packages/worker/src/index.ts`），产出保持整棵替换；新增刷新调用前先确认目标是否真有挂载根，不按目录名猜语义。
 
+## 测试：生产 ESM/CJS 互操作不能用 Vitest 结果代替
+
+- **现象**：ExcelJS 等 CJS 依赖在 Vitest 里导入全绿，构建后的 API 以原生 ESM 启动却报具名导出缺失。
+- **原因**：Vitest/Vite 会做 CJS 互操作与转译，掩盖打包后 Node 原生 ESM 对具名导出的限制；测试环境通过不代表 `dist` 可加载。
+- **规避**：用真实 Node 导入构建产物（如 `node --input-type=module -e "await import('./packages/api/dist/...')"`）或直接启动构建后的服务；不把 Vitest 绿色当作 ESM 兼容证据，也不用 mock 替换该检查。
+
+## 知识库：COW 事务提交后失败清理不能删除已发布文件
+
+- **现象**：新版本事务已提交并切指针，随后 job 收尾抛错，cleanup 把当前版本正文/图片删掉，检索或下载失败。
+- **原因**：清理按「本次作业失败」判断，没区分事务前残留与新版本已提交；已发布版本的文件已被 `currentVersionId` 引用。
+- **规避**：清理只删除未被任何版本引用的临时/残留文件；提交后失败只标记任务失败，不回收已发布版本目录。真实 PG 事务测试覆盖「提交后抛错」分支。
+
+## 归档：ZIP 预检的 central/local 与目录身份必须同解释
+
+- **现象**：xlsx 解压限额被绕过（中央目录与本地文件头名称不一致），或真实空目录/恶意目录在导入时误判。
+- **原因**：不同解析器分别读中央目录与本地文件头，目录项未按同一身份校验；只看声明大小或先完整加载再检查都拦不住。
+- **规避**：预检与实际解压共用同一实现与同一路径/身份规则，目录也校验；按实际解压字节统计并设上限，异常立即中止。改共享 ZIP 代码后同时回归 xlsx 与知识包两条调用。
+
+## 知识库：`file-type` 的 AIFF 识别只认 `FORM` 头，普通文本会被误判
+
+- **现象**：以 `FORM` 开头的普通文本（例如 `FORM is important`）在音频入口被当成音频；若直接拒绝，会把非音频文件误报为不支持音频格式。
+- **原因**：`file-type@22.3.0` 对 `aif` 只检查 IFF 的 `FORM` 魔数，不核对偏移 8 处的 `AIFF`/`AIFC` 类型字段；仅凭魔数不能证明容器成立。
+- **规避**：在 `packages/core/src/knowledge-audio.ts` 增加 IFF 类型字段校验，并用“纯文本以 FORM 开头”和“截断但头成立”两条 fixture 区分。格式识别只证明头成立，不是完整解码；不要把识别通过当作音频可转录。
+
+## 模型客户端：响应头已到后的读流失败不能归为 `bad_response`
+
+- **现象**：embedding/rerank/转录请求已拿到 2xx 响应头，读 body 时连接中断，却返回 `bad_response`，队列因此不重试；实际是传输故障。
+- **原因**：旧路径先 `JSON.parse(await response.json())`，把读流失败与完整 JSON 的语法错误混在同一处；响应头成功不代表正文已完整到达。
+- **规避**：在 `packages/core/src/knowledge-models.ts` 的 `readJsonResponse` 先 `await response.text()`，读失败复用取消/超时/不可用分类，只有完整文本解析失败才是 `bad_response`。embedding、rerank 与 ASR 共用这一处，不要在调用方各自 catch 后重分类。
+
+## 知识库：Wiki 最新版本不能用 `created_at`/`now()` 排序
+
+- **现象**：并发保存或打开组织弹层时，按 `created_at DESC` 取到的“最新”版本不是版本号最大的那版，乐观锁误报 409。
+- **原因**：PostgreSQL 的 `now()` 是事务开始时间；先开始、后提交的事务可能得到更早的 `created_at`。版本行在同一事务内写入，时间戳不保证随版本单调递增。
+- **规避**：最新版本、版本列表与 keyset 分页统一按 `version DESC`（同页再加 version keyset），版本号在页面行锁与唯一约束内生成；不要按 `created_at`/`id` 推断业务顺序。当前仓储已改为 `version DESC`，相关定向测试与独立复核结论以任务记录为准，不把本条写成全绿。
 ## 数据库：`userId` 改 `businessId` 必须选 rename，且 Vite 会把真实迁移错误掩成 `charCodeAt`
 
 - **现象**：drizzle-kit 生成迁移后，新库执行报 PostgreSQL `multiple primary keys for table ... are not allowed`；在 Vitest globalSetup 里可能只看到 `TypeError: code.charCodeAt is not a function`，看不出是迁移失败。

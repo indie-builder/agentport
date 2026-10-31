@@ -33,6 +33,8 @@ const makeZip = (files: Record<string, string>, level: 0 | 6 = 0): Buffer => {
 const centralOriginalSize = (archive: Buffer): number => centralOffset(archive) + 24;
 /** 中央目录里的本地文件头偏移。 */
 const localOffset = (archive: Buffer): number => archive.readUInt32LE(centralOffset(archive) + 42);
+const localHeaderNameLength = (archive: Buffer, local: number): number =>
+  archive.readUInt16LE(local + 26);
 
 const rejectionOf = (archive: Buffer): AppError => {
   try {
@@ -205,5 +207,66 @@ describe('agent package ZIP structure', () => {
 
     const files = decodePackage(Buffer.concat([base, comment]));
     expect(files.get('CLAUDE.md')).toBe('hello');
+  });
+
+  it('rejects a directory-named central entry whose local header is a file', () => {
+    // 中央目录名以 / 结尾会被当成目录跳过；本地头却写着同名文件，解压器按本地名读数据。
+    const archive = makeZip({ 'sheet1.xm/': 'hidden' });
+    const local = localOffset(archive);
+    const nameLength = localHeaderNameLength(archive, local);
+    archive[local + 30 + nameLength - 1] = 'l'.charCodeAt(0);
+
+    const error = rejectionOf(archive);
+    expect(error.code).toBe('INVALID_INPUT');
+    expect(error.message).toContain('本地');
+  });
+
+  it('rejects directory entries that carry file data', () => {
+    const declared = makeZip({ 'data/': 'hidden' });
+    const declaredError = rejectionOf(declared);
+    expect(declaredError.code).toBe('INVALID_INPUT');
+    expect(declaredError.message).toContain('目录');
+
+    // 中央和本地都把原大小改成 0，但压缩数据仍解出内容。
+    const hidden = makeZip({ 'data/': 'x'.repeat(1024) }, 6);
+    hidden.writeUInt32LE(0, centralOffset(hidden) + 24);
+    hidden.writeUInt32LE(0, localOffset(hidden) + 22);
+
+    const hiddenError = rejectionOf(hidden);
+    expect(hiddenError.code).toBe('INVALID_INPUT');
+    expect(hiddenError.message).toContain('目录');
+  });
+
+  it('accepts a real empty directory entry', () => {
+    const archive = makeZip({ 'dir/': '', 'CLAUDE.md': 'hello' });
+    expect([...decodePackage(archive)]).toEqual([['CLAUDE.md', 'hello']]);
+  });
+
+  it('rejects a local header whose flags or compression disagree with the central directory', () => {
+    const flags = makeZip({ 'CLAUDE.md': 'hello' });
+    const flagsLocal = localOffset(flags);
+    flags.writeUInt16LE(flags.readUInt16LE(flagsLocal + 6) | 0x800, flagsLocal + 6);
+    const flagsError = rejectionOf(flags);
+    expect(flagsError.code).toBe('INVALID_INPUT');
+    expect(flagsError.message).toContain('标志');
+
+    const compression = makeZip({ 'CLAUDE.md': 'hello' });
+    const compressionLocal = localOffset(compression);
+    compression.writeUInt16LE(8, compressionLocal + 8);
+    const compressionError = rejectionOf(compression);
+    expect(compressionError.code).toBe('INVALID_INPUT');
+    expect(compressionError.message).toContain('压缩');
+  });
+
+  it('accepts a bit-3 entry whose local sizes are zero', () => {
+    const archive = makeZip({ 'CLAUDE.md': 'hello' });
+    const central = centralOffset(archive);
+    const local = localOffset(archive);
+    archive.writeUInt16LE(archive.readUInt16LE(central + 8) | 0x8, central + 8);
+    archive.writeUInt16LE(archive.readUInt16LE(local + 6) | 0x8, local + 6);
+    archive.writeUInt32LE(0, local + 18);
+    archive.writeUInt32LE(0, local + 22);
+
+    expect([...decodePackage(archive)]).toEqual([['CLAUDE.md', 'hello']]);
   });
 });

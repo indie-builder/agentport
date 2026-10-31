@@ -1,0 +1,24 @@
+{
+  "status": "success",
+  "errors": [],
+  "document": {
+    "md_content": "Before **bold** after.\n\nBefore **bold** after.",
+    "json_content": {
+      "texts": [
+        {
+          "self_ref": "#/texts/0",
+          "label": "text",
+          "text": "Before bold after.",
+          "prov": [{ "page_no": 1, "bbox": { "l": 1, "t": 2, "r": 3, "b": 4 } }]
+        },
+        {
+          "self_ref": "#/texts/1",
+          "label": "text",
+          "text": "Before bold after.",
+          "prov": [{ "page_no": 2, "bbox": { "l": 5, "t": 6, "r": 7, "b": 8 } }]
+        }
+      ],
+      "tables": []
+    }
+  }
+}

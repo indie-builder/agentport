@@ -230,6 +230,7 @@ async function publishLinkedPage(
     generatedBy: 'manual',
   });
   if (!version) throw new Error('wiki version missing');
+  await repo.knowledge.publishWikiVersion(db, page.id, version.id);
   return { pageId: page.id, versionId: version.id };
 }
 

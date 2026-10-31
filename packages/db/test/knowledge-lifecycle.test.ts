@@ -467,6 +467,44 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     expect(rows.source).toMatchObject({ cursor: {}, lastSyncStatus: 'cancelled' });
   });
 
+  it('persists probe results and object names without changing source sync state', async () => {
+    const job = await knowledge.createJob(db, {
+      type: 'source_probe',
+      baseId,
+      documentId: null,
+      sourceId,
+      payload: { type: 'source_probe', sourceId },
+    });
+    const result = { ok: true, checks: [{ rangeId: 'range-probe', ok: true }] };
+    await knowledge.claimJob(db, job.id);
+    const finished = await knowledge.finishJob(db, job.id, {
+      status: 'succeeded',
+      probeResult: result,
+    });
+    expect(finished).toMatchObject({ status: 'succeeded', result });
+    const summary = (await knowledge.listJobs(db, { baseId })).items.find(
+      (row) => row.id === job.id,
+    );
+    expect(summary).toMatchObject({
+      documentId: null,
+      sourceId,
+      sourceName: expect.any(String),
+      result,
+    });
+    expect(await knowledge.getSource(db, sourceId)).toMatchObject({
+      cursor: {},
+      lastSyncStatus: null,
+    });
+    expect((await knowledge.listSyncRuns(db, sourceId)).items).toHaveLength(0);
+    expect(
+      await knowledge.finishJob(db, job.id, {
+        status: 'failed',
+        probeResult: { ok: false, checks: [] },
+      }),
+    ).toBeNull();
+    expect((await knowledge.getJob(db, job.id))?.result).toEqual(result);
+  });
+
   it('leaves non-sync jobs as a single-row terminal update', async () => {
     const job = await knowledge.createJob(db, {
       type: 'cleanup',

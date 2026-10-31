@@ -113,13 +113,36 @@ export const runtimeEnvironmentDetailSearchSchema = z.object({
   version: z.string().min(1).optional().catch(undefined),
 });
 
-const knowledgeTabs = ['documents', 'search', 'wiki', 'sources', 'jobs'] as const;
+const knowledgeTabs = [
+  'documents',
+  'search',
+  'evaluations',
+  'faqs',
+  'wiki',
+  'sources',
+  'jobs',
+] as const;
+const knowledgeKinds = ['document', 'faq', 'wiki'] as const;
 
-/** 知识库详情：分区、Wiki 页面与文件夹都进 URL，刷新与分享后回到同一视图。 */
+/**
+ * 知识库详情：分区、Wiki 页面、文档与来源选中、检索条件都进 URL。
+ * 数组经 Router 默认 JSON 序列化，刷新与分享后回到同一筛选。
+ */
 export const knowledgeDetailSearchSchema = z.object({
   panel: z.enum(knowledgeTabs).optional().catch(undefined),
   /** 处理记录按文档过滤；API 参数名为 documentId，URL 用面向用户的 document。 */
   document: z.string().min(1).optional().catch(undefined),
   page: z.string().optional().catch(undefined),
   folder: z.string().optional().catch(undefined),
+  source: z.string().optional().catch(undefined),
+  q: z.string().optional().catch(undefined),
+  folders: z.array(z.string()).optional().catch(undefined),
+  tags: z.array(z.string()).optional().catch(undefined),
+  kinds: z.array(z.enum(knowledgeKinds)).optional().catch(undefined),
+  rerank: z.boolean().optional().catch(undefined),
+  minVectorScore: z.coerce.number().min(-1).max(1).optional().catch(undefined),
+  onlyRecommended: z.boolean().optional().catch(undefined),
+  faqPriority: z.boolean().optional().catch(undefined),
+  faqDirectAnswerThreshold: z.coerce.number().min(-1).max(1).optional().catch(undefined),
+  diagnostics: z.boolean().optional().catch(undefined),
 });

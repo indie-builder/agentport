@@ -38,45 +38,47 @@ beforeAll(async () => {
       }
       if (route === '/slow') return;
       const body = fixture(
-        route === '/json-only'
-          ? 'docling-json-only.json'
-          : route === '/partial'
-            ? 'docling-partial.json'
-            : route === '/failure'
-              ? 'docling-failure.json'
-              : route === '/skipped'
-                ? 'docling-skipped.json'
-                : route === '/md-blocks'
-                  ? 'docling-md-only-blocks.json'
-                  : route === '/dedup'
-                    ? 'docling-dedup-blocks.json'
-                    : route === '/pictures'
-                      ? 'docling-pictures.json'
-                      : route === '/embedded-images'
-                        ? 'docling-embedded-images.json'
-                        : route === '/null-markdown'
-                          ? 'docling-null-markdown.json'
-                          : route === '/null-json'
-                            ? 'docling-null-json.json'
-                            : route === '/invalid-errors'
-                              ? 'docling-invalid-errors.json'
-                              : route === '/invalid'
-                                ? 'docling-invalid.json'
-                                : route === '/fence-trailing'
-                                  ? 'docling-fence-trailing.json'
-                                  : route === '/fence-short'
-                                    ? 'docling-fence-short.json'
-                                    : route === '/fence-opposite'
-                                      ? 'docling-fence-opposite.json'
-                                      : route === '/aligned-table-ocr'
-                                        ? 'docling-aligned-table-ocr.json'
-                                        : route === '/crlf-lines'
-                                          ? 'docling-crlf-lines.json'
-                                          : route === '/same-paragraph'
-                                            ? 'docling-same-paragraph.json'
-                                            : route === '/heading-only'
-                                              ? 'docling-heading-only.json'
-                                              : 'docling-success.json',
+        route === '/json-only-heading'
+          ? 'docling-json-only-heading.json'
+          : route === '/json-only'
+            ? 'docling-json-only.json'
+            : route === '/partial'
+              ? 'docling-partial.json'
+              : route === '/failure'
+                ? 'docling-failure.json'
+                : route === '/skipped'
+                  ? 'docling-skipped.json'
+                  : route === '/md-blocks'
+                    ? 'docling-md-only-blocks.json'
+                    : route === '/dedup'
+                      ? 'docling-dedup-blocks.json'
+                      : route === '/pictures'
+                        ? 'docling-pictures.json'
+                        : route === '/embedded-images'
+                          ? 'docling-embedded-images.json'
+                          : route === '/null-markdown'
+                            ? 'docling-null-markdown.json'
+                            : route === '/null-json'
+                              ? 'docling-null-json.json'
+                              : route === '/invalid-errors'
+                                ? 'docling-invalid-errors.json'
+                                : route === '/invalid'
+                                  ? 'docling-invalid.json'
+                                  : route === '/fence-trailing'
+                                    ? 'docling-fence-trailing.json'
+                                    : route === '/fence-short'
+                                      ? 'docling-fence-short.json'
+                                      : route === '/fence-opposite'
+                                        ? 'docling-fence-opposite.json'
+                                        : route === '/aligned-table-ocr'
+                                          ? 'docling-aligned-table-ocr.json'
+                                          : route === '/crlf-lines'
+                                            ? 'docling-crlf-lines.json'
+                                            : route === '/same-paragraph'
+                                              ? 'docling-same-paragraph.json'
+                                              : route === '/heading-only'
+                                                ? 'docling-heading-only.json'
+                                                : 'docling-success.json',
       );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(body);
@@ -148,6 +150,24 @@ describe('parseDocument native formats', () => {
     expect(parsed.blocks.every((block) => block.heading === '')).toBe(true);
   });
 
+  it('keeps Markdown-looking syntax as literal plain text with exact offsets', async () => {
+    const text = '# literal heading\r\n\r\n**literal text**';
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode(text),
+      filename: 'notes.txt',
+      mimeType: 'text/plain',
+    });
+    expect(parsed.blocks.map((block) => [block.content, block.heading])).toEqual([
+      ['# literal heading', ''],
+      ['**literal text**', ''],
+    ]);
+    for (const block of parsed.blocks) {
+      expect(text.slice(Number(block.locator.startOffset), Number(block.locator.endOffset))).toBe(
+        block.content,
+      );
+    }
+  });
+
   it('renders CSV as a markdown table without corrupting quotes or pipes', async () => {
     const parsed = await parseDocument({
       bytes: fixtureBytes('sample.csv'),
@@ -166,7 +186,14 @@ describe('parseDocument native formats', () => {
       ].join('\n'),
     );
     expect(parsed.blocks).toHaveLength(1);
-    expect(parsed.blocks[0]?.locator).toEqual({ page: 'unknown', kind: 'csv', rows: 4 });
+    expect(parsed.blocks[0]?.locator).toMatchObject({
+      page: 'unknown',
+      kind: 'csv',
+      rows: 4,
+      startOffset: 0,
+      endOffset: parsed.markdown.length,
+      line: 1,
+    });
   });
 
   it('accepts CR-only records and strips a BOM', async () => {
@@ -217,7 +244,13 @@ describe('parseDocument native formats', () => {
       '| --- | --- | --- | --- | --- | --- |',
     ]);
     expect(lines.at(-1)).toBe('| tail0 | tail1 | tail2 | tail3 | tail4 | tail5 |');
-    expect(parsed.blocks[0]?.locator).toEqual({ page: 'unknown', kind: 'csv', rows: 150_001 });
+    expect(parsed.blocks[0]?.locator).toMatchObject({
+      page: 'unknown',
+      kind: 'csv',
+      rows: 150_001,
+      startOffset: 0,
+      endOffset: parsed.markdown.length,
+    });
   });
 
   it('rejects malformed CSV quotes instead of silently rewriting them', async () => {
@@ -472,8 +505,8 @@ describe('parseDocument Docling', () => {
     ).toEqual([
       ['季度报告', '第一段内容。', 2],
       ['季度报告', ['| 指标 | 数值 |', '| --- | --- |', '| 收入 | 100 |'].join('\n'), 4],
-      ['季度报告', '附加说明', 3],
       ['季度报告', '未匹配的段落。', 'unknown'],
+      ['季度报告', '附加说明', 3],
     ]);
     expect(parsed.blocks[0]?.locator).toMatchObject({ ref: '#/texts/1', page: 2 });
   });
@@ -488,10 +521,36 @@ describe('parseDocument Docling', () => {
 
     expect(parsed.markdown).toContain('仅 JSON 的内容');
     expect(parsed.markdown).toContain('| 键 | 值 |');
-    expect(parsed.blocks.map((block) => block.locator)).toEqual([
+    expect(parsed.blocks.map((block) => block.locator)).toMatchObject([
       { page: 7, bbox: { l: 0, t: 0, r: 5, b: 5 }, ref: '#/texts/0' },
       { page: 'unknown', ref: '#/texts/1' },
       { page: 8, bbox: { l: 0, t: 0, r: 5, b: 5 }, ref: '#/tables/0' },
+    ]);
+    // 真实原文偏移一并保留，不再只靠 page/bbox。
+    for (const block of parsed.blocks) {
+      expect(block.locator.startOffset).toEqual(expect.any(Number));
+      expect(block.locator.endOffset).toEqual(expect.any(Number));
+      expect(block.locator.line).toEqual(expect.any(Number));
+    }
+  });
+
+  it('preserves JSON-only headings and literal body syntax without reparsing generated Markdown', async () => {
+    const parsed = await parseDocument({
+      bytes: new TextEncoder().encode('fake'),
+      filename: 'report.pdf',
+      mimeType: 'application/pdf',
+      parserUrl: `${parserUrl}/json-only-heading`,
+    });
+    expect(parsed.markdown).toBe('# literal body\n\n**literal tail**');
+    expect(
+      parsed.blocks.map((block) => [block.content, block.heading, block.locator.page]),
+    ).toEqual([
+      ['# literal body', 'Report', 2],
+      ['**literal tail**', 'Report', 3],
+    ]);
+    expect(parsed.pageMap).toEqual([
+      { page: 2, startOffset: 0, endOffset: 14 },
+      { page: 3, startOffset: 16, endOffset: 32 },
     ]);
   });
 
@@ -512,8 +571,10 @@ describe('parseDocument Docling', () => {
     expect(parsed.blocks.find((block) => block.content.startsWith('|'))?.heading).toBe(
       '报表 > 环境',
     );
-    expect(parsed.blocks.find((block) => block.content.startsWith('|'))?.locator).toEqual({
+    expect(parsed.blocks.find((block) => block.content.startsWith('|'))?.locator).toMatchObject({
       page: 'unknown',
+      startOffset: expect.any(Number),
+      endOffset: expect.any(Number),
     });
   });
 
@@ -525,12 +586,17 @@ describe('parseDocument Docling', () => {
       parserUrl: `${parserUrl}/dedup`,
     });
 
-    // JSON wins because it carries provenance; the same table/code in md must not be indexed twice.
+    // 正文保留 Markdown 原样；同一 occurrence 只补 JSON 的来源信息，不重复索引。
     expect(parsed.blocks.map((block) => [block.content, block.locator.page])).toEqual([
       ['段落一。', 1],
-      ['```ts\nconst a = 1;\n```', 2],
-      [['| 名称 | 数量 |', '| --- | --- |', '| 苹果 | 3 |'].join('\n'), 3],
+      ['````ts\nconst a = 1;\n````', 2],
+      [['名称 | 数量', '--- | ---', '苹果 | 3'].join('\n'), 3],
     ]);
+    for (const block of parsed.blocks) {
+      expect(
+        parsed.markdown.slice(Number(block.locator.startOffset), Number(block.locator.endOffset)),
+      ).toBe(block.content);
+    }
   });
 
   it.each([
@@ -565,7 +631,9 @@ describe('parseDocument Docling', () => {
       const contents = parsed.blocks.map((block) => block.content);
       expect(contents).toContain(jsonBlock);
       expect(contents).toContain(unclosed);
-      if (deduped) expect(contents).not.toContain(deduped);
+      if (deduped) {
+        expect(contents.filter((content) => content.includes('let t = 1;'))).toEqual([deduped]);
+      }
     },
   );
 
@@ -765,6 +833,10 @@ describe('parseDocument Docling', () => {
     expect(parsed.blocks.find((block) => block.content === '1')?.locator).toMatchObject({
       page: 1,
     });
+    // 短 OCR 文本没有可认领的原文位置，不能被裸 indexOf 定位到 "1234" 里。
+    expect(
+      parsed.blocks.find((block) => block.content === '1')?.locator.startOffset,
+    ).toBeUndefined();
 
     const tableLine = '| Revenue  |    1234 | USD    |';
     const tableStart = parsed.markdown.indexOf('| Metric');
@@ -967,6 +1039,65 @@ describe('chunkDocument', () => {
     ]);
     expect(chunks[0]?.locator).toMatchObject({ page: 1, pageTo: 2 });
     expect(chunks[1]?.locator).toMatchObject({ page: 3 });
+  });
+
+  it('merges a chunk time range only when every composing block has real timing', () => {
+    const parsed: ParsedDocument = {
+      markdown: '第一段\n\n第二段\n\n第三段',
+      images: [],
+      pageMap: [],
+      blocks: [
+        block('第一段', '', { startOffset: 0, endOffset: 3, timeFromMs: 0, timeToMs: 500 }),
+        block('第二段', '', { startOffset: 5, endOffset: 8, timeFromMs: 500, timeToMs: 1500 }),
+      ],
+    };
+
+    const chunks = chunkDocument(parsed, { chunkSize: 1000, chunkOverlap: 0 });
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.locator).toMatchObject({ timeFromMs: 0, timeToMs: 1500 });
+  });
+
+  it('does not give a chunk any time when one block has no timing', () => {
+    const parsed: ParsedDocument = {
+      markdown: '有声段\n\n无时码段',
+      images: [],
+      pageMap: [],
+      blocks: [
+        block('有声段', '', { startOffset: 0, endOffset: 3, timeFromMs: 0, timeToMs: 800 }),
+        block('无时码段', '', { startOffset: 5, endOffset: 9 }),
+      ],
+    };
+
+    const chunks = chunkDocument(parsed, { chunkSize: 1000, chunkOverlap: 0 });
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.locator).not.toHaveProperty('timeFromMs');
+    expect(chunks[0]?.locator).not.toHaveProperty('timeToMs');
+  });
+
+  it('keeps the whole source segment time on every split piece instead of interpolating', () => {
+    const text = '长段内容。'.repeat(20);
+    const parsed: ParsedDocument = {
+      markdown: text,
+      images: [],
+      pageMap: [],
+      blocks: [
+        block(text, '', {
+          startOffset: 0,
+          endOffset: text.length,
+          timeFromMs: 1200,
+          timeToMs: 4800,
+        }),
+      ],
+    };
+
+    const chunks = chunkDocument(parsed, { chunkSize: 40, chunkOverlap: 0 });
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.locator).toMatchObject({ timeFromMs: 1200, timeToMs: 4800 });
+    }
   });
 
   it('splits a long Chinese block with a deterministic overlap and explicit ranges', () => {

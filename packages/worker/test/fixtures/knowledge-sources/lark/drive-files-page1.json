@@ -1,0 +1,50 @@
+{
+  "code": 0,
+  "data": {
+    "files": [
+      {
+        "token": "fldA",
+        "name": "Projects",
+        "type": "folder"
+      },
+      {
+        "token": "lnkF",
+        "name": "Projects link",
+        "type": "shortcut",
+        "shortcut_info": {
+          "target_token": "fldA",
+          "target_type": "folder"
+        }
+      },
+      {
+        "token": "lnkD",
+        "name": "Doc link",
+        "type": "shortcut",
+        "shortcut_info": {
+          "target_token": "docL",
+          "target_type": "docx"
+        }
+      },
+      {
+        "token": "lnkB",
+        "name": "Broken link",
+        "type": "shortcut",
+        "shortcut_info": {}
+      },
+      {
+        "token": "docD",
+        "name": "Doc D",
+        "type": "docx",
+        "url": "https://larksuite.com/docx/docD"
+      },
+      {
+        "token": "raw1",
+        "name": "report.pdf",
+        "type": "file",
+        "url": "https://larksuite.com/file/raw1"
+      }
+    ],
+    "has_more": true,
+    "next_page_token": "dp2"
+  }
+}

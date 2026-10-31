@@ -1,0 +1,30 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "knowledge_list": [
+      {
+        "folder_id": "f1",
+        "name": "Folder A",
+        "file_number": 1,
+        "folder_number": 0,
+        "parent_folder_id": "",
+        "is_top": false
+      },
+      {
+        "media_id": "m-pdf",
+        "title": "Manual",
+        "parent_folder_id": ""
+      },
+      {
+        "media_id": "folder_99",
+        "title": "Upstream Folder",
+        "parent_folder_id": "",
+        "media_type": 99
+      }
+    ],
+    "is_end": false,
+    "next_cursor": "c2",
+    "current_path": []
+  }
+}

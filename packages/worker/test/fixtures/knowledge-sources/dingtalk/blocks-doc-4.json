@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "result": {
+    "data": [
+      {
+        "blockType": "paragraph",
+        "id": "c1",
+        "paragraph": { "text": "Folder child body" }
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "document": {
+    "md_content": "Before **bold** after.\nTail",
+    "json_content": {
+      "body": { "children": [{ "$ref": "#/texts/0" }, { "$ref": "#/texts/1" }] },
+      "texts": [
+        { "self_ref": "#/texts/0", "text": "Before bold after.", "prov": [{ "page_no": 2 }] },
+        { "self_ref": "#/texts/1", "text": "Tail", "prov": [{ "page_no": 3 }] }
+      ]
+    }
+  }
+}

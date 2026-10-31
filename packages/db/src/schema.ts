@@ -2,6 +2,9 @@ import type {
   Agent,
   ChatEvent,
   KnowledgeBaseSettings,
+  KnowledgeFaq,
+  KnowledgeLocator,
+  KnowledgeSourceProbeResult,
   MemoryContentSnapshot,
   MemoryReviewProposal,
   MemoryReviewSource,
@@ -23,6 +26,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -1095,13 +1099,13 @@ export const knowledgeModelProfiles = pgTable(
   'knowledge_model_profiles',
   {
     id: text('id').primaryKey(),
-    kind: text('kind', { enum: ['embedding', 'rerank'] }).notNull(),
+    kind: text('kind', { enum: ['embedding', 'rerank', 'asr'] }).notNull(),
     name: text('name').notNull(),
     endpointUrl: text('endpoint_url').notNull(),
     model: text('model').notNull(),
-    /** embedding 固定 1024 维；rerank 为 null。 */
+    /** embedding 固定 1024 维；rerank/asr 为 null。 */
     dimensions: integer('dimensions'),
-    /** 文本/图片共用同一模型的向量协议；rerank 行保持默认 openai。 */
+    /** 文本/图片共用同一模型的向量协议；rerank/asr 行保持默认 openai。 */
     embeddingProtocol: text('embedding_protocol', { enum: ['openai', 'cohere_v2'] })
       .notNull()
       .default('openai'),
@@ -1115,10 +1119,10 @@ export const knowledgeModelProfiles = pgTable(
   },
   (t) => [
     uniqueIndex('knowledge_model_profiles_kind_name_idx').on(t.kind, t.name),
-    check('knowledge_model_profiles_kind_check', sql`${t.kind} in ('embedding', 'rerank')`),
+    check('knowledge_model_profiles_kind_check', sql`${t.kind} in ('embedding', 'rerank', 'asr')`),
     check(
       'knowledge_model_profiles_dimensions_check',
-      sql`(${t.kind} = 'embedding' and ${t.dimensions} = 1024) or (${t.kind} = 'rerank' and ${t.dimensions} is null)`,
+      sql`(${t.kind} = 'embedding' and ${t.dimensions} = 1024) or (${t.kind} in ('rerank', 'asr') and ${t.dimensions} is null)`,
     ),
     check(
       'knowledge_model_profiles_embedding_protocol_check',
@@ -1127,6 +1131,10 @@ export const knowledgeModelProfiles = pgTable(
     check(
       'knowledge_model_profiles_image_input_check',
       sql`${t.imageInputEnabled} = false or (${t.kind} = 'embedding' and ${t.embeddingProtocol} = 'cohere_v2' and ${t.model} = 'embed-v4.0')`,
+    ),
+    check(
+      'knowledge_model_profiles_asr_fields_check',
+      sql`${t.kind} <> 'asr' or (${t.embeddingProtocol} = 'openai' and ${t.imageInputEnabled} = false)`,
     ),
   ],
 );
@@ -1150,6 +1158,10 @@ export const knowledgeBases = pgTable(
     rerankProfileId: text('rerank_profile_id').references(() => knowledgeModelProfiles.id, {
       onDelete: 'set null',
     }),
+    /** 音频转录模型；null 表示未启用 ASR。被引用时禁止删除 profile。 */
+    asrProfileId: text('asr_profile_id').references(() => knowledgeModelProfiles.id, {
+      onDelete: 'restrict',
+    }),
     settings: jsonb('settings').$type<KnowledgeBaseSettings>().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1157,6 +1169,7 @@ export const knowledgeBases = pgTable(
   (t) => [
     uniqueIndex('knowledge_bases_slug_idx').on(t.slug),
     uniqueIndex('knowledge_bases_server_idx').on(t.serverId),
+    index('knowledge_bases_asr_profile_idx').on(t.asrProfileId),
     check('knowledge_bases_status_check', sql`${t.status} in ('active', 'disabled')`),
   ],
 );
@@ -1207,10 +1220,34 @@ export const knowledgeDocuments = pgTable(
     }),
     title: text('title').notNull(),
     sourceType: text('source_type', {
-      enum: ['upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed', 'manual'],
+      enum: [
+        'upload',
+        'url',
+        'feishu_wiki',
+        'feishu_drive',
+        'gitlab',
+        'github',
+        'feed',
+        'manual',
+        'lark_wiki',
+        'lark_drive',
+        'notion',
+        'confluence',
+        'yuque',
+        'dingtalk',
+        'ima',
+        'seafile',
+        'nextcloud',
+      ],
     }).notNull(),
+    /** 语料角色；FAQ 与 Wiki 索引共用文档/版本/分块，不另造执行引擎。 */
+    contentKind: text('content_kind', { enum: ['document', 'faq', 'wiki'] })
+      .notNull()
+      .default('document'),
     /** 外部稳定 ID（飞书 token / `project:ref:path` / `feedURL:itemId`）；upload/manual 为 null。 */
     sourceId: text('source_id'),
+    /** 指向 knowledge_sources；保留已删除来源 ID，不级联清空。 */
+    sourceConnectionId: text('source_connection_id'),
     sourceUrl: text('source_url'),
     sourcePath: text('source_path'),
     mimeType: text('mime_type').notNull(),
@@ -1220,6 +1257,8 @@ export const knowledgeDocuments = pgTable(
     })
       .notNull()
       .default('pending'),
+    /** 停用原因；source/range/remote 只能由后续成功同步重新证明权限后恢复。 */
+    disabledReason: text('disabled_reason', { enum: ['manual', 'source', 'range', 'remote'] }),
     /** 不做 FK：版本表引用文档，反向引用会在删版本时成环。切版本前先在事务里写这里。 */
     currentVersionId: text('current_version_id'),
     contentHash: text('content_hash'),
@@ -1231,17 +1270,27 @@ export const knowledgeDocuments = pgTable(
   (t) => [
     index('knowledge_documents_base_status_idx').on(t.baseId, t.status, t.updatedAt.desc()),
     index('knowledge_documents_base_folder_idx').on(t.baseId, t.folderId),
+    index('knowledge_documents_base_kind_updated_idx').on(t.baseId, t.contentKind, t.updatedAt),
+    index('knowledge_documents_source_connection_idx').on(t.sourceConnectionId),
     // 外部来源只按 sourceId 匹配，绝不用标题；upload/manual 的 null 不受约束。
     uniqueIndex('knowledge_documents_source_idx')
       .on(t.baseId, t.sourceType, t.sourceId)
       .where(isNotNull(t.sourceId)),
     check(
       'knowledge_documents_source_type_check',
-      sql`${t.sourceType} in ('upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed', 'manual')`,
+      sql`${t.sourceType} in ('upload', 'url', 'feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed', 'manual', 'lark_wiki', 'lark_drive', 'notion', 'confluence', 'yuque', 'dingtalk', 'ima', 'seafile', 'nextcloud')`,
     ),
     check(
       'knowledge_documents_status_check',
       sql`${t.status} in ('pending', 'processing', 'ready', 'failed', 'disabled')`,
+    ),
+    check(
+      'knowledge_documents_content_kind_check',
+      sql`${t.contentKind} in ('document', 'faq', 'wiki')`,
+    ),
+    check(
+      'knowledge_documents_disabled_reason_check',
+      sql`${t.disabledReason} is null or ${t.disabledReason} in ('manual', 'source', 'range', 'remote')`,
     ),
   ],
 );
@@ -1262,6 +1311,19 @@ export const knowledgeDocumentVersions = pgTable(
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
     /** 源端版本指纹：commit sha / 飞书 edit_time / feed 条目指纹。 */
     sourceRevision: text('source_revision'),
+    /** 版本来源；人工 chunk 编辑也产生 manual 版本。 */
+    origin: text('origin', { enum: ['source', 'manual', 'faq', 'wiki'] })
+      .notNull()
+      .default('source'),
+    parentVersionId: text('parent_version_id').references(
+      (): AnyPgColumn => knowledgeDocumentVersions.id,
+      {
+        onDelete: 'set null',
+      },
+    ),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    /** FAQ 是文档版本数据，不新增 FAQ 执行引擎。 */
+    faq: jsonb('faq').$type<KnowledgeFaq>(),
     parseStatus: text('parse_status', { enum: ['parsed', 'parse_failed'] }).notNull(),
     pageMap: jsonb('page_map')
       .$type<Array<{ page: number; startOffset: number; endOffset: number }>>()
@@ -1281,9 +1343,14 @@ export const knowledgeDocumentVersions = pgTable(
   (t) => [
     uniqueIndex('knowledge_document_versions_document_version_idx').on(t.documentId, t.version),
     index('knowledge_document_versions_blob_idx').on(t.blobSha256),
+    index('knowledge_document_versions_parent_idx').on(t.parentVersionId),
     check(
       'knowledge_document_versions_parse_status_check',
       sql`${t.parseStatus} in ('parsed', 'parse_failed')`,
+    ),
+    check(
+      'knowledge_document_versions_origin_check',
+      sql`${t.origin} in ('source', 'manual', 'faq', 'wiki')`,
     ),
   ],
 );
@@ -1305,6 +1372,11 @@ export const knowledgeChunks = pgTable(
       onDelete: 'set null',
     }),
     ordinal: integer('ordinal').notNull(),
+    /** 同版本父块序号；父块只作上下文，不参加排名。 */
+    parentOrdinal: integer('parent_ordinal'),
+    indexRole: text('index_role', { enum: ['leaf', 'parent'] })
+      .notNull()
+      .default('leaf'),
     kind: text('kind', { enum: ['text', 'table', 'image'] })
       .notNull()
       .default('text'),
@@ -1321,6 +1393,8 @@ export const knowledgeChunks = pgTable(
     editedByUser: boolean('edited_by_user').notNull().default(false),
     pageFrom: integer('page_from'),
     pageTo: integer('page_to'),
+    /** 解析器结构化定位；人工改正文后置空。 */
+    locator: jsonb('locator').$type<KnowledgeLocator>(),
     tokenCount: integer('token_count').notNull().default(0),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1331,6 +1405,7 @@ export const knowledgeChunks = pgTable(
     index('knowledge_chunks_search_idx').using('gin', t.searchVector),
     index('knowledge_chunks_base_document_idx').on(t.baseId, t.documentId),
     check('knowledge_chunks_kind_check', sql`${t.kind} in ('text', 'table', 'image')`),
+    check('knowledge_chunks_index_role_check', sql`${t.indexRole} in ('leaf', 'parent')`),
   ],
 );
 
@@ -1342,7 +1417,22 @@ export const knowledgeSources = pgTable(
       .notNull()
       .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
     type: text('type', {
-      enum: ['feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed'],
+      enum: [
+        'feishu_wiki',
+        'feishu_drive',
+        'gitlab',
+        'github',
+        'feed',
+        'lark_wiki',
+        'lark_drive',
+        'notion',
+        'confluence',
+        'yuque',
+        'dingtalk',
+        'ima',
+        'seafile',
+        'nextcloud',
+      ],
     }).notNull(),
     name: text('name').notNull(),
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
@@ -1366,7 +1456,7 @@ export const knowledgeSources = pgTable(
     index('knowledge_sources_base_idx').on(t.baseId),
     check(
       'knowledge_sources_type_check',
-      sql`${t.type} in ('feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed')`,
+      sql`${t.type} in ('feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed', 'lark_wiki', 'lark_drive', 'notion', 'confluence', 'yuque', 'dingtalk', 'ima', 'seafile', 'nextcloud')`,
     ),
     check(
       'knowledge_sources_status_check',
@@ -1383,7 +1473,25 @@ export const knowledgeSourceRanges = pgTable(
       .notNull()
       .references(() => knowledgeSources.id, { onDelete: 'cascade' }),
     kind: text('kind', {
-      enum: ['wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'github_repo', 'feed'],
+      enum: [
+        'wiki_space',
+        'wiki_node',
+        'drive_folder',
+        'gitlab_project',
+        'github_repo',
+        'feed',
+        'notion_page',
+        'notion_database',
+        'notion_data_source',
+        'confluence_space',
+        'confluence_page',
+        'yuque_repo',
+        'dingtalk_workspace',
+        'dingtalk_node',
+        'ima_kb',
+        'seafile_repo',
+        'nextcloud_path',
+      ],
     }).notNull(),
     externalId: text('external_id').notNull(),
     ref: text('ref'),
@@ -1400,8 +1508,25 @@ export const knowledgeSourceRanges = pgTable(
     ),
     check(
       'knowledge_source_ranges_kind_check',
-      sql`${t.kind} in ('wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'github_repo', 'feed')`,
+      sql`${t.kind} in ('wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'github_repo', 'feed', 'notion_page', 'notion_database', 'notion_data_source', 'confluence_space', 'confluence_page', 'yuque_repo', 'dingtalk_workspace', 'dingtalk_node', 'ima_kb', 'seafile_repo', 'nextcloud_path')`,
     ),
+  ],
+);
+
+/** 外部条目实际命中的范围；同一文档可属于多个重叠范围。范围删除级联移除归属。 */
+export const knowledgeDocumentSourceRanges = pgTable(
+  'knowledge_document_source_ranges',
+  {
+    documentId: text('document_id')
+      .notNull()
+      .references(() => knowledgeDocuments.id, { onDelete: 'cascade' }),
+    rangeId: text('range_id')
+      .notNull()
+      .references(() => knowledgeSourceRanges.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ name: 'knowledge_document_source_ranges_pk', columns: [t.documentId, t.rangeId] }),
+    index('knowledge_document_source_ranges_range_idx').on(t.rangeId),
   ],
 );
 
@@ -1443,13 +1568,43 @@ export const knowledgeSyncRuns = pgTable(
   ],
 );
 
+/** 逐项同步失败/跳过：只存状态与错误，不存凭证或正文。 */
+export const knowledgeSyncItems = pgTable(
+  'knowledge_sync_items',
+  {
+    id: text('id').primaryKey(),
+    syncRunId: text('sync_run_id')
+      .notNull()
+      .references(() => knowledgeSyncRuns.id, { onDelete: 'cascade' }),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => knowledgeSources.id, { onDelete: 'cascade' }),
+    rangeId: text('range_id').references(() => knowledgeSourceRanges.id, { onDelete: 'set null' }),
+    externalId: text('external_id').notNull(),
+    documentId: text('document_id').references(() => knowledgeDocuments.id, {
+      onDelete: 'set null',
+    }),
+    status: text('status', { enum: ['failed', 'skipped'] }).notNull(),
+    code: text('code').notNull(),
+    message: text('message').notNull().default(''),
+    retryable: boolean('retryable').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('knowledge_sync_items_run_idx').on(t.syncRunId, t.createdAt),
+    index('knowledge_sync_items_source_idx').on(t.sourceId, t.createdAt),
+    check('knowledge_sync_items_status_check', sql`${t.status} in ('failed', 'skipped')`),
+    check('knowledge_sync_items_message_check', sql`char_length(${t.message}) <= 500`),
+  ],
+);
+
 /** 任务账本；BullMQ jobId = 本表 id，worker 只认领 queued 行。 */
 export const knowledgeJobs = pgTable(
   'knowledge_jobs',
   {
     id: text('id').primaryKey(),
     type: text('type', {
-      enum: ['ingest', 'reindex', 'sync', 'wiki_generate', 'cleanup'],
+      enum: ['ingest', 'reindex', 'sync', 'source_probe', 'wiki_generate', 'cleanup'],
     }).notNull(),
     baseId: text('base_id').references(() => knowledgeBases.id, { onDelete: 'cascade' }),
     documentId: text('document_id').references(() => knowledgeDocuments.id, {
@@ -1465,6 +1620,8 @@ export const knowledgeJobs = pgTable(
     progress: integer('progress').notNull().default(0),
     attempts: integer('attempts').notNull().default(0),
     error: text('error'),
+    /** source_probe 的逐范围结果；普通任务为 null。 */
+    result: jsonb('result').$type<KnowledgeSourceProbeResult>(),
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
@@ -1476,7 +1633,7 @@ export const knowledgeJobs = pgTable(
     index('knowledge_jobs_document_idx').on(t.documentId),
     check(
       'knowledge_jobs_type_check',
-      sql`${t.type} in ('ingest', 'reindex', 'sync', 'wiki_generate', 'cleanup')`,
+      sql`${t.type} in ('ingest', 'reindex', 'sync', 'source_probe', 'wiki_generate', 'cleanup')`,
     ),
     check(
       'knowledge_jobs_status_check',
@@ -1494,6 +1651,11 @@ export const knowledgeWikiPages = pgTable(
       .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     title: text('title').notNull(),
+    /** 主题目录：同库父子；循环由事务内校验拒绝。 */
+    parentId: text('parent_id').references((): AnyPgColumn => knowledgeWikiPages.id, {
+      onDelete: 'set null',
+    }),
+    position: integer('position').notNull().default(0),
     status: text('status', { enum: ['draft', 'published', 'stale', 'failed'] })
       .notNull()
       .default('draft'),
@@ -1503,6 +1665,7 @@ export const knowledgeWikiPages = pgTable(
   },
   (t) => [
     uniqueIndex('knowledge_wiki_pages_base_slug_idx').on(t.baseId, t.slug),
+    index('knowledge_wiki_pages_base_parent_idx').on(t.baseId, t.parentId, t.position),
     check(
       'knowledge_wiki_pages_status_check',
       sql`${t.status} in ('draft', 'published', 'stale', 'failed')`,
@@ -1612,7 +1775,9 @@ export const schema = {
   knowledgeChunks,
   knowledgeSources,
   knowledgeSourceRanges,
+  knowledgeDocumentSourceRanges,
   knowledgeSyncRuns,
+  knowledgeSyncItems,
   knowledgeJobs,
   knowledgeWikiPages,
   knowledgeWikiVersions,

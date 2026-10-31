@@ -140,6 +140,8 @@ describe('chunk and hit wire shape', () => {
     chunkId: 'chk_1',
     documentId: 'doc_1',
     versionId: 'ver_1',
+    target: { kind: 'document', id: 'doc_1' },
+    targetVersionId: 'ver_1',
     title: '手册',
     heading: null,
     quote: '正文',
@@ -147,6 +149,7 @@ describe('chunk and hit wire shape', () => {
     pageTo: 1,
     sourceUrl: null,
     score: 0.9,
+    scores: { keyword: 0.5, vector: 0.8, rrf: 0.9, rerank: null },
   };
 
   it('parses old hits without an image field as image:null', () => {
@@ -177,6 +180,8 @@ describe('read-image wire contract', () => {
         chunkId: 'chk_1',
         documentId: 'doc_1',
         versionId: 'ver_1',
+        target: { kind: 'document', id: 'doc_1' },
+        targetVersionId: 'ver_1',
         title: '手册',
         heading: null,
         quote: '正文',
@@ -184,6 +189,7 @@ describe('read-image wire contract', () => {
         pageTo: 1,
         sourceUrl: null,
         score: 0.9,
+        scores: { keyword: 0.5, vector: 0.8, rrf: 0.9, rerank: null },
       },
       description: '一张图表',
     };

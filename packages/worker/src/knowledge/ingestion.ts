@@ -1,18 +1,29 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { embedImages, embedTexts, KnowledgeModelError, segmentForSearch } from '@agentport/core';
+import {
+  type AsrProfile,
+  embedImages,
+  embedTexts,
+  KnowledgeModelError,
+  segmentForSearch,
+} from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
-import type { KnowledgeImageProcessing } from '@agentport/shared';
+import type {
+  KnowledgeAudioMetadata,
+  KnowledgeImageProcessing,
+  KnowledgeLocator,
+  KnowledgeSourceProbeResult,
+} from '@agentport/shared';
 import {
   knowledgeBaseSettingsSchema,
   knowledgeImageChunkMetadataSchema,
   knowledgeJobPayloadSchema,
 } from '@agentport/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { describeKnowledgeImage, type ImageQueryFn } from './image-processing.js';
-import { KnowledgeParseError } from './parsing.js';
+import { KnowledgeParseError, type ParsedBlock } from './parsing.js';
 import { SourceAuthError } from './sources.js';
 
 // 契约 §6.3：解析/分块与来源适配由 sources.ts / parsing.ts 实现，本模块只依赖这些形状。
@@ -44,6 +55,10 @@ export interface ParsedDocument {
   markdown: string;
   images: ParsedImage[];
   pageMap: Array<{ page: number; startOffset: number; endOffset: number }>;
+  /** 解析器真实块与定位（bbox/ref/page/offset）；缺省时按 markdown 重新分块。 */
+  blocks?: ParsedBlock[];
+  /** 仅音频转录取值；持久化到版本 metadata，外部输入不得覆盖。 */
+  audio?: KnowledgeAudioMetadata;
 }
 
 export interface ChunkDraft {
@@ -52,6 +67,11 @@ export interface ChunkDraft {
   content: string;
   pageFrom: number | null;
   pageTo: number | null;
+  /** 同版本父块序号；父块只作上下文，不参加排名。 */
+  parentOrdinal?: number | null;
+  indexRole?: 'leaf' | 'parent';
+  /** 解析器真实定位；人工编辑后不得沿用原页/坐标。 */
+  locator?: KnowledgeLocator | null;
   /** 图片子块（ocr/caption/vector）的定位；普通块为空。 */
   metadata?: Record<string, unknown>;
   /** 仅 imageRole=vector：该 chunk 只做图片向量检索，不进关键词索引。 */
@@ -70,6 +90,12 @@ export interface SourceItem {
   content: Buffer | { markdown: string };
   /** Remote item is gone; only trusted from a connector whose listing was complete. */
   deleted?: boolean;
+  /** feed 全文抓取失败时只有摘要；不能把已有的 full 正文降级覆盖。 */
+  completeness?: 'full' | 'summary';
+  /** 该条目实际命中的来源范围；同一条目出现在多个范围时各次同步都会带上自己的范围。 */
+  rangeId?: string;
+  /** 单项失败：继续其它条目，但不计入完整枚举。 */
+  failure?: { code: string; message: string; retryable: boolean };
 }
 
 /**
@@ -94,12 +120,26 @@ export interface KnowledgeConnector {
     connectionId: string;
     config: Record<string, unknown>;
     secrets: Record<string, string>;
-    ranges: Array<{ kind: string; externalId: string; ref: string | null; paths: string[] }>;
+    ranges: Array<{
+      id?: string;
+      kind: string;
+      externalId: string;
+      ref: string | null;
+      paths: string[];
+    }>;
     cursor: Record<string, unknown>;
     signal: AbortSignal;
     network?: ConnectorNetwork;
     onCheckpoint(cursor: Record<string, unknown>, checkpoint: SourceCheckpoint): Promise<void>;
   }): AsyncIterable<SourceItem>;
+  /** 只读远程凭证与范围首项；不导入条目，不推进游标。 */
+  probe?(input: {
+    config: Record<string, unknown>;
+    secrets: Record<string, string>;
+    range: { kind: string; externalId: string; ref: string | null; paths: string[] };
+    signal: AbortSignal;
+    network?: ConnectorNetwork;
+  }): Promise<void>;
 }
 
 export interface KnowledgeDeps {
@@ -111,11 +151,15 @@ export interface KnowledgeDeps {
     mimeType: string;
     data: Buffer;
     signal?: AbortSignal;
+    /** 仅音频摄取注入；普通文档不依赖 ASR 可用性。 */
+    asr?: AsrProfile;
+    asrProfileName?: string;
   }) => Promise<ParsedDocument>;
   chunkMarkdown: (
     markdown: string,
     pageMap: ParsedDocument['pageMap'],
     options: { chunkTokens: number; overlap: number },
+    blocks?: ParsedDocument['blocks'],
   ) => ChunkDraft[];
   connectors: Partial<Record<KnowledgeSourceRow['type'], KnowledgeConnector>>;
   /** 解密来源/模型凭证；与 API 共用 APP_SECRET_KEY。 */
@@ -181,8 +225,25 @@ export class KnowledgeCancelled extends Error {
 /** 版本与库 profile 不同一：补缺失向量会把新模型向量混进旧版本，只能完整重建。 */
 class KnowledgeProfileMismatch extends Error {}
 
+/** 来源配置/范围在读取后被改：本轮立即中止，旧内容与游标保持不动。 */
+class SourceSnapshotStale extends Error {}
+
 function checkAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new KnowledgeCancelled();
+}
+
+/**
+ * 落块后取消可能还在 Redis 轮询窗口里，signal 未必已 abort；
+ * 任务行已不是 running 时同样不能把这次结果当成功。
+ */
+async function ensureJobRunning(
+  deps: KnowledgeDeps,
+  jobId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  checkAborted(signal);
+  const job = await repo.knowledge.getJob(deps.db, jobId);
+  if (job?.status !== 'running') throw new KnowledgeCancelled();
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +369,8 @@ async function linkWikiAfterIngest(
   base: KnowledgeBaseRow,
   document: KnowledgeDocumentRow,
 ): Promise<void> {
+  // Wiki 索引文档不能反过来生成 Wiki，避免递归；FAQ 也不参与文档联动。
+  if (document.contentKind !== 'document') return;
   const linked = await deps.db
     .select({ pageId: schema.knowledgeWikiSources.pageId })
     .from(schema.knowledgeWikiSources)
@@ -451,6 +514,7 @@ async function imageDrafts(
         content: described.ocr,
         pageFrom: image.page,
         pageTo: image.page,
+        locator: { pageFrom: image.page, pageTo: image.page },
         metadata: metadata('ocr'),
       });
     }
@@ -461,6 +525,7 @@ async function imageDrafts(
         content: described.caption,
         pageFrom: image.page,
         pageTo: image.page,
+        locator: { pageFrom: image.page, pageTo: image.page },
         metadata: metadata('caption'),
       });
     }
@@ -477,6 +542,7 @@ async function imageDrafts(
           content: description,
           pageFrom: image.page,
           pageTo: image.page,
+          locator: { pageFrom: image.page, pageTo: image.page },
           metadata: metadata('vector'),
           // 图片向量是几何距离，不进关键词索引，避免把描述当文字排名。
           searchText: '',
@@ -492,6 +558,7 @@ async function imageDrafts(
           content: description,
           pageFrom: image.page,
           pageTo: image.page,
+          locator: { pageFrom: image.page, pageTo: image.page },
           metadata: metadata('vector'),
           searchText: '',
           embedding: null,
@@ -504,6 +571,182 @@ async function imageDrafts(
   return { drafts, warnings };
 }
 
+/**
+ * 同一标题下的多个 leaf 归到一个 parent：parent 只作展开上下文，不生成向量、不参与排名。
+ * 只有带标题（真实结构边界）且含多个 leaf 的组才建 parent，避免整篇无标题文档变成一个巨型上下文。
+ */
+function withParentChunks(drafts: ChunkDraft[]): ChunkDraft[] {
+  const groups: Array<{ heading: string | null; image: boolean; indexes: number[] }> = [];
+  for (const [index, draft] of drafts.entries()) {
+    const last = groups.at(-1);
+    if (
+      last &&
+      !last.image &&
+      draft.kind !== 'image' &&
+      last.heading !== null &&
+      last.heading === draft.heading
+    ) {
+      last.indexes.push(index);
+    } else {
+      groups.push({ heading: draft.heading, image: draft.kind === 'image', indexes: [index] });
+    }
+  }
+  const output: ChunkDraft[] = [];
+  for (const group of groups) {
+    const members = group.indexes.map((index) => drafts[index] as ChunkDraft);
+    if (group.heading === null || members.length === 1) {
+      output.push(...members);
+      continue;
+    }
+    const pages = members
+      .flatMap((member) => [member.pageFrom, member.pageTo])
+      .filter((page): page is number => typeof page === 'number');
+    const parentOrdinal = output.length;
+    output.push({
+      kind: 'text',
+      heading: group.heading,
+      content: members.map((member) => member.content).join('\n\n'),
+      pageFrom: pages.length > 0 ? Math.min(...pages) : null,
+      pageTo: pages.length > 0 ? Math.max(...pages) : null,
+      indexRole: 'parent',
+      searchText: '',
+      embedding: null,
+    });
+    for (const member of members) output.push({ ...member, indexRole: 'leaf', parentOrdinal });
+  }
+  return output;
+}
+
+/** FAQ 标准问/相似问建立 leaf、答案作为 parent；反例不生成正向索引块。 */
+async function buildFaqChunks(
+  deps: KnowledgeDeps,
+  document: KnowledgeDocumentRow,
+  jobId: string,
+  versionId: string,
+  signal: AbortSignal,
+): Promise<repo.knowledge.NewChunk[]> {
+  const base = await repo.knowledge.getBase(deps.db, document.baseId);
+  if (!base) throw new Error('知识库不存在，文档可能已删除');
+  const version = await repo.knowledge.getVersion(deps.db, versionId);
+  if (!version || version.documentId !== document.id) {
+    throw new Error('FAQ job 指定的版本不存在或不属于该文档');
+  }
+  if (!version.faq) throw new Error('FAQ 版本不存在或缺少 FAQ 数据');
+  if (version.embeddingProfileId !== base.embeddingProfileId) {
+    throw new Error('FAQ 版本的 embedding profile 与知识库不一致，请重新保存');
+  }
+  const client = await embeddingClient(deps, base.embeddingProfileId);
+  const faq = version.faq;
+  const questions = [
+    { text: faq.question, questionKind: 'standard' as const },
+    ...faq.similarQuestions.map((text) => ({ text, questionKind: 'similar' as const })),
+  ];
+  await setStep(deps, jobId, 'embedding', 40);
+  const vectors = await embedAll(
+    client,
+    questions.map((question) => question.text),
+    signal,
+  );
+  checkAborted(signal);
+
+  const drafts: ChunkDraft[] = [
+    {
+      kind: 'text',
+      heading: faq.question,
+      content: faq.answers.join('\n\n'),
+      pageFrom: null,
+      pageTo: null,
+      indexRole: 'parent',
+      searchText: '',
+      embedding: null,
+      metadata: { answerOrdinal: 0, answerCount: faq.answers.length },
+    },
+    ...questions.map((question, index) => ({
+      kind: 'text' as const,
+      heading: faq.question,
+      content: question.text,
+      pageFrom: null,
+      pageTo: null,
+      indexRole: 'leaf' as const,
+      parentOrdinal: 0,
+      searchText: segmentForSearch(question.text),
+      embedding: vectors[index] ?? null,
+      metadata: {
+        questionKind: question.questionKind,
+        matchedQuestion: question.text,
+        answerOrdinal: 0,
+      },
+    })),
+  ];
+  await setStep(deps, jobId, 'indexing', 80);
+  checkAborted(signal);
+  return drafts.map((draft, ordinal) => ({
+    ordinal,
+    parentOrdinal: draft.parentOrdinal ?? null,
+    indexRole: draft.indexRole ?? 'leaf',
+    kind: draft.kind,
+    heading: draft.heading,
+    content: draft.content,
+    searchText: draft.searchText ?? segmentForSearch(draft.content),
+    embedding: draft.embedding ?? null,
+    pageFrom: draft.pageFrom,
+    pageTo: draft.pageTo,
+    locator: null,
+    tokenCount: Math.ceil(draft.content.length / 2),
+    ...(draft.metadata ? { metadata: draft.metadata } : {}),
+  }));
+}
+
+/** API 草稿只替换本任务绑定的索引，不切发布指针；取消错误交给队列写 cancelled。 */
+async function ingestFaqVersion(
+  deps: KnowledgeDeps,
+  document: KnowledgeDocumentRow,
+  jobId: string,
+  versionId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const chunks = await buildFaqChunks(deps, document, jobId, versionId, signal);
+  try {
+    await repo.knowledge.replaceChunks(deps.db, {
+      baseId: document.baseId,
+      documentId: document.id,
+      versionId,
+      folderId: document.folderId,
+      jobId,
+      isAborted: () => signal.aborted,
+      chunks,
+    });
+  } catch (err) {
+    await ensureJobRunning(deps, jobId, signal);
+    throw err;
+  }
+  await ensureJobRunning(deps, jobId, signal);
+}
+
+/**
+ * 只读取绑定且启用的 ASR profile；停用/类型不符时不在这里抛错，
+ * 普通文档不依赖 ASR，真正的音频分支会在适配器入口明确失败。
+ */
+async function resolveAsrProfile(
+  deps: KnowledgeDeps,
+  base: KnowledgeBaseRow,
+): Promise<{ profile: AsrProfile; name: string } | undefined> {
+  if (!base.asrProfileId) return undefined;
+  const profile = await repo.knowledge.getModelProfileWithSecret(deps.db, base.asrProfileId);
+  if (profile?.kind !== 'asr' || !profile.enabled) return undefined;
+  const apiKey = profile.secretsEncrypted
+    ? deps.decrypt(profile.secretsEncrypted).apiKey
+    : undefined;
+  return {
+    profile: {
+      endpointUrl: profile.endpointUrl,
+      model: profile.model,
+      ...(apiKey ? { apiKey } : {}),
+    },
+    name: profile.name,
+  };
+}
+
 async function ingestContent(
   deps: KnowledgeDeps,
   document: KnowledgeDocumentRow,
@@ -513,10 +756,22 @@ async function ingestContent(
     data: Buffer;
     markdown?: string | undefined;
     sourceRevision: string | null;
+    /** 版本来源：外部同步、上传/手写、FAQ 或 Wiki 索引。 */
+    origin: 'source' | 'manual' | 'faq' | 'wiki';
+    /** 版本级元数据（如 contentCompleteness）；不承载来源授权真相。 */
+    versionMetadata?: Record<string, unknown>;
+    /** draft 只生成草稿版本，不切换线上指针；缺省沿用自动原子发布。 */
+    publish?: 'draft' | 'automatic';
+    /** 普通文档用任务快照；Wiki 用执行时索引指针，并在切版事务内重核页面发布版。 */
+    expectedCurrentVersionId: string | null;
+    /** 外部来源必须带本次读取的来源快照；发布守卫在锁内重核配置、密文与范围。 */
+    sourceSnapshot?: repo.knowledge.SourceReadSnapshot | undefined;
     signal: AbortSignal;
     jobId: string;
   },
 ): Promise<string> {
+  const publish = input.publish ?? 'automatic';
+  const draft = publish === 'draft';
   const base = await repo.knowledge.getBase(deps.db, document.baseId);
   if (!base) throw new Error('知识库不存在，文档可能已删除');
   const client = await embeddingClient(deps, base.embeddingProfileId);
@@ -524,6 +779,7 @@ async function ingestContent(
 
   const blobSha = await storeBlob(deps.knowledgeDir, input.data);
   await setStep(deps, input.jobId, 'parsing', 10);
+  const audio = input.markdown === undefined ? await resolveAsrProfile(deps, base) : undefined;
   // 解析器被 abort 时抛的是上游错误；这里统一归成取消，避免被当成可重试的解析失败。
   const parsed: ParsedDocument =
     input.markdown === undefined
@@ -533,6 +789,7 @@ async function ingestContent(
             mimeType: input.mimeType,
             data: input.data,
             signal: input.signal,
+            ...(audio ? { asr: audio.profile, asrProfileName: audio.name } : {}),
           })
           .catch((err: unknown) => {
             if (input.signal.aborted) throw new KnowledgeCancelled();
@@ -542,10 +799,17 @@ async function ingestContent(
   checkAborted(input.signal);
   if (parsed.markdown.trim() === '') throw new Error('解析结果为空');
 
-  const drafts = deps.chunkMarkdown(parsed.markdown, parsed.pageMap, {
-    chunkTokens: base.settings.chunkTokens,
-    overlap: base.settings.chunkOverlap,
-  });
+  const drafts = withParentChunks(
+    deps.chunkMarkdown(
+      parsed.markdown,
+      parsed.pageMap,
+      {
+        chunkTokens: base.settings.chunkTokens,
+        overlap: base.settings.chunkOverlap,
+      },
+      parsed.blocks,
+    ),
+  );
   if (drafts.length === 0) throw new Error('分块结果为空');
 
   let imageWarnings = new Map<string, string[]>();
@@ -577,6 +841,7 @@ async function ingestContent(
     .map((draft, index) => ({ draft, index }))
     .filter(
       (entry) =>
+        entry.draft.indexRole !== 'parent' &&
         !(
           entry.draft.metadata &&
           knowledgeImageChunkMetadataSchema.safeParse(entry.draft.metadata).data?.imageRole ===
@@ -603,6 +868,10 @@ async function ingestContent(
   ) {
     throw new Error('知识库配置已变化，请重试本次摄取');
   }
+  // 音频转录期间绑定被关闭/切换：旧任务结果不能上线，旧版本继续保留。
+  if (parsed.audio && (latest.asrProfileId ?? null) !== (base.asrProfileId ?? null)) {
+    throw new Error('知识库音频转录配置已变化，请重试本次摄取');
+  }
 
   const version = await repo.knowledge.createVersion(deps.db, {
     documentId: document.id,
@@ -612,6 +881,14 @@ async function ingestContent(
     mimeType: input.mimeType,
     sizeBytes: input.data.length,
     sourceRevision: input.sourceRevision,
+    origin: input.origin,
+    parentVersionId: input.expectedCurrentVersionId,
+    metadata: {
+      ...(input.versionMetadata ?? {}),
+      // worker 生成的转录事实放在外来 metadata 之后，外部输入不得覆盖。
+      ...(parsed.audio ? { audio: parsed.audio } : {}),
+      ...(draft ? { publication: 'draft' as const, indexingJobId: input.jobId } : {}),
+    },
     parseStatus: 'parsed',
     pageMap: parsed.pageMap,
     images: parsed.images.map((image) => ({
@@ -633,6 +910,8 @@ async function ingestContent(
     folderId: document.folderId,
     chunks: allDrafts.map((draft, index) => ({
       ordinal: index,
+      parentOrdinal: draft.parentOrdinal ?? null,
+      indexRole: draft.indexRole ?? 'leaf',
       kind: draft.kind,
       heading: draft.heading,
       content: draft.content,
@@ -640,23 +919,32 @@ async function ingestContent(
       embedding: embeddings[index] ?? null,
       pageFrom: draft.pageFrom,
       pageTo: draft.pageTo,
+      locator: draft.locator ?? null,
       tokenCount: Math.ceil(draft.content.length / 2),
       ...(draft.metadata ? { metadata: draft.metadata } : {}),
     })),
   });
   // 运行中取消只走 Redis abort（job 行仍是 running），所以切版前必须先看 signal；
-  // 事务内的 guard 再核对任务未被收尾、库仍 active、profile 与配置未变。
-  checkAborted(input.signal);
+  // 事务内的 guard 再核对任务未被收尾、库仍 active、profile 与配置未变、当前指针未被并发切换。
+  await ensureJobRunning(deps, input.jobId, input.signal);
+  if (draft) {
+    // 草稿只落版本与索引，线上指针和已发布正文保持不动；无发布版时文档仍是 pending。
+    await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'pending');
+    checkAborted(input.signal);
+    return version.id;
+  }
   const published = await repo.knowledge.setCurrentVersion(deps.db, document.id, version.id, {
     jobId: input.jobId,
     baseId: document.baseId,
     embeddingProfileId: client.profileId,
     imageProcessingJson: JSON.stringify(settings.imageProcessing),
+    expectedCurrentVersionId: input.expectedCurrentVersionId,
+    ...(parsed.audio ? { asrProfileId: base.asrProfileId } : {}),
+    ...(input.sourceSnapshot ? { sourceSnapshot: input.sourceSnapshot } : {}),
     isAborted: () => input.signal.aborted,
   });
   if (!published) throw new Error('知识库配置已变化或已停用，未发布本次结果');
   await repo.knowledge.updateDocument(deps.db, document.id, {
-    contentHash: sha256(input.data),
     lastSyncedAt: new Date(),
   });
   // 只有成功切版本才推进 Wiki；失败/取消在上面的异常路径返回，不会走到这里。
@@ -670,9 +958,39 @@ function requirePayload(job: KnowledgeJobRow) {
   return parsed.data;
 }
 
+/**
+ * 失败/草稿收尾只恢复状态，绝不把处理期间被撤权/停用（disabledReason 非空）的文档复活。
+ * 用启动时版本做条件更新，避免旧任务覆盖新版本状态或与来源撤权并发时覆盖新状态。
+ */
+async function settleDocumentStatus(
+  deps: KnowledgeDeps,
+  document: KnowledgeDocumentRow,
+  status: KnowledgeDocumentRow['status'],
+): Promise<void> {
+  await deps.db
+    .update(schema.knowledgeDocuments)
+    .set({ status, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.knowledgeDocuments.id, document.id),
+        document.currentVersionId === null
+          ? isNull(schema.knowledgeDocuments.currentVersionId)
+          : eq(schema.knowledgeDocuments.currentVersionId, document.currentVersionId),
+        ne(schema.knowledgeDocuments.status, 'disabled'),
+        isNull(schema.knowledgeDocuments.disabledReason),
+      ),
+    );
+}
+
 function filenameOf(document: KnowledgeDocumentRow): string {
   const stored = document.metadata.originalFilename;
   return typeof stored === 'string' ? stored : document.title;
+}
+
+function originOf(document: KnowledgeDocumentRow): 'source' | 'manual' | 'faq' | 'wiki' {
+  if (document.contentKind === 'faq') return 'faq';
+  if (document.contentKind === 'wiki') return 'wiki';
+  return document.sourceConnectionId === null ? 'manual' : 'source';
 }
 
 // ---------------------------------------------------------------------------
@@ -687,26 +1005,51 @@ export async function runIngest(
   if (payload.type !== 'ingest') throw new Error('job 类型不是 ingest');
   const document = await repo.knowledge.getDocument(deps.db, payload.documentId);
   if (!document) throw new Error('文档不存在，可能已被删除');
-  if (!document.contentHash) throw new Error('文档没有已上传的原件');
+  // FAQ 版本由 API 预落库并写 blob；这里只按 job 指定版本补问题 leaf/答案 parent，
+  // 不解析 JSON、不切发布指针；版本原有的 faq 数据只读不改。
+  if (document.contentKind === 'faq') {
+    try {
+      if (!payload.versionId) throw new Error('FAQ ingest job 缺少 versionId');
+      await ingestFaqVersion(deps, document, job.id, payload.versionId, signal);
+    } catch (err) {
+      // 尚无发布版的 FAQ 草稿失败后仍是 pending，不能伪装成可读的 ready，也不能复活已停用文档。
+      await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'pending');
+      throw err;
+    }
+    return;
+  }
+  // 手写草稿/上传/URL 都可能带输入快照；有快照时只消费快照，不再读运行时可变的 document。
+  // 上传/URL 的初始导入没有快照，此时文档自身的 contentHash 就是本次合法输入。
+  const snapshot = payload.input;
+  const blobSha = snapshot?.blobSha256 ?? document.contentHash;
+  if (!blobSha) throw new Error('文档没有已上传的原件');
+  const expectedCurrentVersionId =
+    document.contentKind === 'wiki'
+      ? document.currentVersionId
+      : snapshot
+        ? snapshot.expectedCurrentVersionId
+        : document.currentVersionId;
   // 已有当前版本的文档在摄取期间保持原状态：失败时旧版本必须继续可查。
   if (!document.currentVersionId) {
     await repo.knowledge.updateDocument(deps.db, document.id, { status: 'processing' });
   }
   try {
-    const data = await readFile(blobPath(deps.knowledgeDir, document.contentHash));
+    const data = await readFile(blobPath(deps.knowledgeDir, blobSha));
     await ingestContent(deps, document, {
-      filename: filenameOf(document),
-      mimeType: document.mimeType,
+      filename: snapshot?.filename ?? filenameOf(document),
+      mimeType: snapshot?.mimeType ?? document.mimeType,
       data,
       sourceRevision: null,
+      origin: originOf(document),
+      versionMetadata: payload.versionMetadata ?? {},
+      publish: payload.publish,
+      expectedCurrentVersionId,
       signal,
       jobId: job.id,
     });
   } catch (err) {
     // 取消也要收尾：首次摄取无旧版本可回退，留着 processing 会永久卡住。
-    await repo.knowledge.updateDocument(deps.db, document.id, {
-      status: document.currentVersionId ? 'ready' : 'failed',
-    });
+    await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'failed');
     throw err;
   }
 }
@@ -754,9 +1097,12 @@ async function reembedMissing(
     const image = knowledgeImageChunkMetadataSchema.safeParse(chunk.metadata);
     return image.success ? image.data : null;
   };
-  // 图片处理已停用时图片语义 chunk 本来就不参与检索，不补其向量。
+  // 图片处理已停用时图片语义 chunk 本来就不参与检索，不补其向量；父块只作上下文，永不排名。
   const candidates = chunks.filter(
-    (chunk) => chunk.embedding === null && (imageProcessing.enabled || !roleOf(chunk)),
+    (chunk) =>
+      chunk.embedding === null &&
+      chunk.indexRole !== 'parent' &&
+      (imageProcessing.enabled || !roleOf(chunk)),
   );
   const textLike = candidates.filter((chunk) => roleOf(chunk)?.imageRole !== 'vector');
   const vectors = await embedAll(
@@ -795,6 +1141,65 @@ async function reembedMissing(
   }
 }
 
+/**
+ * FAQ 完整重建：以已发布版本快照建新版本，按库当前 profile 重算问题向量，
+ * 再走 reindex 的自动发布守卫切指针；旧版本与线上指针在失败/取消时保持不动。
+ * 不走导入批次发布，也不从 document.contentHash 当普通正文解析。
+ */
+async function rebuildFaqDocument(
+  deps: KnowledgeDeps,
+  document: KnowledgeDocumentRow,
+  jobId: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const current = document.currentVersionId
+    ? await repo.knowledge.getVersion(deps.db, document.currentVersionId)
+    : null;
+  if (!current?.faq) throw new Error('FAQ 文档没有可重建的已发布问答数据');
+  const base = await repo.knowledge.getBase(deps.db, document.baseId);
+  if (!base) throw new Error('知识库不存在，文档可能已删除');
+  const settings = knowledgeBaseSettingsSchema.parse(base.settings);
+  const version = await repo.knowledge.createVersion(deps.db, {
+    documentId: document.id,
+    blobSha256: current.blobSha256,
+    markdownSha256: current.markdownSha256,
+    originalFilename: current.originalFilename,
+    mimeType: current.mimeType,
+    sizeBytes: current.sizeBytes,
+    sourceRevision: null,
+    origin: 'faq',
+    parentVersionId: current.id,
+    faq: current.faq,
+    parseStatus: 'parsed',
+    pageMap: current.pageMap,
+    images: current.images,
+    embeddingProfileId: base.embeddingProfileId,
+  });
+  const chunks = await buildFaqChunks(deps, document, jobId, version.id, signal);
+  // 重建只向刚分配的新版本写入，已发布快照及其分块始终不可变。
+  await repo.knowledge.insertChunks(deps.db, {
+    baseId: document.baseId,
+    documentId: document.id,
+    versionId: version.id,
+    folderId: document.folderId,
+    chunks,
+  });
+  await ensureJobRunning(deps, jobId, signal);
+  const published = await repo.knowledge.setCurrentVersion(deps.db, document.id, version.id, {
+    jobId,
+    baseId: document.baseId,
+    embeddingProfileId: base.embeddingProfileId,
+    imageProcessingJson: JSON.stringify(settings.imageProcessing),
+    expectedCurrentVersionId: current.id,
+    isAborted: () => signal.aborted,
+  });
+  if (!published) {
+    await ensureJobRunning(deps, jobId, signal);
+    throw new Error('知识库配置已变化或已停用，未发布本次结果');
+  }
+  return version.id;
+}
+
 export async function runReindex(
   deps: KnowledgeDeps,
   job: KnowledgeJobRow,
@@ -815,11 +1220,37 @@ export async function runReindex(
       );
 
   let failed = 0;
+  // 全量重建/重解析只有显式确认才允许覆盖人工编辑；chunksOnly 补向量不重写正文。
+  const confirmOverwriteManualChunks = payload.confirmOverwriteManualChunks;
   for (const [index, document] of documents.entries()) {
     checkAborted(signal);
     try {
       if (payload.chunksOnly) {
         await reembedMissing(deps, document, signal);
+        continue;
+      }
+      // 撤权/停用的文档不能靠整库重建复活；恢复必须由后续成功同步重新证明权限。
+      if (document.status === 'disabled' || document.disabledReason !== null) {
+        deps.logger.warn({ documentId: document.id }, 'reindex skipped disabled document');
+        continue;
+      }
+      if (!confirmOverwriteManualChunks && (await hasManualEdits(deps, document))) {
+        deps.logger.warn(
+          { documentId: document.id },
+          'reindex skipped: manual edits require confirmOverwriteManualChunks',
+        );
+        continue;
+      }
+      if (!confirmOverwriteManualChunks && (await hasUnpublishedDraft(deps, document))) {
+        deps.logger.warn(
+          { documentId: document.id },
+          'reindex skipped: unpublished draft requires confirmOverwriteManualChunks',
+        );
+        continue;
+      }
+      // FAQ 没有普通正文可重解析：按已发布快照重建问答索引，否则会丢掉 FAQ 语义。
+      if (document.contentKind === 'faq') {
+        await rebuildFaqDocument(deps, document, job.id, signal);
         continue;
       }
       if (!document.contentHash) throw new Error('文档没有已上传的原件');
@@ -828,17 +1259,44 @@ export async function runReindex(
         await repo.knowledge.updateDocument(deps.db, document.id, { status: 'processing' });
       }
       const data = await readFile(blobPath(deps.knowledgeDir, document.contentHash));
+      // 来源文档重建也要证明当前来源/范围仍授权；快照在切版事务内再核一次。
+      const sourceSnapshot = document.sourceConnectionId
+        ? (await repo.knowledge.getSourceReadSnapshot(deps.db, document.sourceConnectionId))
+            ?.snapshot
+        : undefined;
+      if (document.sourceConnectionId && !sourceSnapshot) {
+        throw new Error('来源不存在，未发布本次结果');
+      }
       await setStep(
         deps,
         job.id,
         `reindex:${index + 1}/${documents.length}`,
         Math.round((index / documents.length) * 100),
       );
+      // Wiki 身份只继承当前索引版本；document.metadata 可能已指向尚未索引的新发布版。
+      const indexedWikiVersion =
+        document.contentKind === 'wiki' && document.currentVersionId
+          ? await repo.knowledge.getVersion(deps.db, document.currentVersionId)
+          : null;
       await ingestContent(deps, document, {
         filename: filenameOf(document),
         mimeType: document.mimeType,
         data,
         sourceRevision: null,
+        origin: originOf(document),
+        versionMetadata: {
+          ...(typeof document.metadata.contentCompleteness === 'string'
+            ? { contentCompleteness: document.metadata.contentCompleteness }
+            : {}),
+          ...(indexedWikiVersion
+            ? {
+                wikiPageId: indexedWikiVersion.metadata.wikiPageId,
+                wikiVersionId: indexedWikiVersion.metadata.wikiVersionId,
+              }
+            : {}),
+        },
+        expectedCurrentVersionId: document.currentVersionId,
+        ...(sourceSnapshot ? { sourceSnapshot } : {}),
         signal,
         jobId: job.id,
       });
@@ -858,11 +1316,39 @@ export async function runReindex(
 // ---------------------------------------------------------------------------
 // runSync：检查点只写 sync run；来源游标只在成功后推进。列举失败绝不批量 disable。
 
+/** 已有当前版本是否含人工编辑；后台覆盖解析文本前必须核对。 */
+async function hasManualEdits(
+  deps: KnowledgeDeps,
+  document: KnowledgeDocumentRow,
+): Promise<boolean> {
+  if (!document.currentVersionId) return false;
+  return (await repo.knowledge.countEditedChunks(deps.db, document.currentVersionId)) > 0;
+}
+
+/** 最新版本是未发布的草稿：重建会读取草稿 contentHash，未经确认不得把它推上线。 */
+async function hasUnpublishedDraft(
+  deps: KnowledgeDeps,
+  document: KnowledgeDocumentRow,
+): Promise<boolean> {
+  // 普通上传/来源文档的 ingest 一律自动发布，不存在草稿版本，省掉每篇一次的版本查询。
+  if (document.contentKind === 'document' && document.sourceType !== 'manual') return false;
+  const latest = await repo.knowledge.listVersions(deps.db, document.id, { limit: 1 });
+  const version = latest.items[0];
+  return (
+    version !== undefined &&
+    version.id !== document.currentVersionId &&
+    version.metadata.publication === 'draft'
+  );
+}
+
 async function upsertSourceItem(
   deps: KnowledgeDeps,
   source: KnowledgeSourceRow,
+  snapshot: repo.knowledge.SourceReadSnapshot,
   jobId: string,
+  syncRunId: string,
   item: SourceItem,
+  rangeIds: ReadonlySet<string>,
   signal: AbortSignal,
 ): Promise<boolean> {
   const data = Buffer.isBuffer(item.content)
@@ -883,23 +1369,22 @@ async function upsertSourceItem(
         )
         .limit(1)
     )[0] ?? null;
-  // 文档表没有指向 knowledge_sources 的外键，删除/失权归属记在 metadata。
+  // 全文永不自动降摘要：任何 metadata/hash 分支之前就固定这条规则，同 hash 也不例外。
+  const keepFull =
+    item.completeness === 'summary' && existing?.metadata.contentCompleteness === 'full';
   const metadata = {
     ...(existing?.metadata ?? {}),
-    knowledgeSourceId: source.id,
     originalFilename: item.title,
+    ...(item.completeness && !keepFull ? { contentCompleteness: item.completeness } : {}),
   };
-  if (existing?.contentHash === contentHash) {
-    // 内容没变也要落标题/路径/链接/归属，否则 rename 与目录调整永远不同步。
-    await repo.knowledge.updateDocument(deps.db, existing.id, {
-      title: item.title,
-      metadata,
-      lastSyncedAt: new Date(),
-      ...(existing.status === 'disabled' ? { status: 'ready' } : {}),
-    });
-    await syncSourceColumns(deps, existing.id, item);
-    return false;
-  }
+  const patch: repo.knowledge.SourceDocumentPatch = {
+    title: item.title,
+    sourceUrl: item.sourceUrl,
+    sourcePath: item.sourcePath,
+    mimeType: item.mimeType,
+    sizeBytes: data.length,
+    metadata,
+  };
   const document =
     existing ??
     (await repo.knowledge.createDocument(deps.db, {
@@ -908,45 +1393,65 @@ async function upsertSourceItem(
       title: item.title,
       sourceType: source.type,
       sourceId: item.sourceId,
+      sourceConnectionId: source.id,
       sourceUrl: item.sourceUrl,
       sourcePath: item.sourcePath,
       mimeType: item.mimeType,
       sizeBytes: data.length,
       metadata,
     }));
-  await repo.knowledge.updateDocument(deps.db, document.id, {
-    title: item.title,
-    metadata,
-    ...(document.currentVersionId ? {} : { status: 'processing' }),
-  });
-  await syncSourceColumns(deps, document.id, item);
-  await ingestContent(deps, document, {
+  // 授权恢复、实际范围归属与 patch 同事务；快照失效时零写返回，本轮不得继续发布。
+  const authorized = await repo.knowledge.setDocumentSourceRanges(
+    deps.db,
+    document.id,
+    [...rangeIds],
+    snapshot,
+    patch,
+  );
+  if (!authorized) throw new SourceSnapshotStale('来源配置已变化，本轮同步中止');
+
+  if (existing?.contentHash === contentHash) return false;
+  // Feed 全文抓取失败只拿到摘要：已有全文必须保留，不能自动降级。
+  if (existing && keepFull) {
+    deps.logger.warn(
+      { sourceId: source.id, itemId: item.sourceId, documentId: existing.id },
+      'feed summary skipped: existing full text kept',
+    );
+    return false;
+  }
+  // 后台同步绝不覆盖人工编辑：保留旧版本，逐项冲突交给来源运行明细呈现。
+  if (existing && (await hasManualEdits(deps, authorized))) {
+    deps.logger.warn(
+      { sourceId: source.id, itemId: item.sourceId, documentId: existing.id },
+      'manual_edit_conflict: external update skipped, old version kept',
+    );
+    await repo.knowledge.recordSyncItem(deps.db, {
+      syncRunId,
+      sourceId: source.id,
+      rangeId: item.rangeId ?? null,
+      externalId: item.sourceId,
+      documentId: existing.id,
+      status: 'skipped',
+      code: 'manual_edit_conflict',
+      message: '外部内容更新与人工编辑冲突，已保留人工版本',
+      retryable: false,
+    });
+    return false;
+  }
+  await ingestContent(deps, authorized, {
     filename: item.title,
     mimeType: item.mimeType,
     data,
     markdown: Buffer.isBuffer(item.content) ? undefined : item.content.markdown,
     sourceRevision: item.revision,
+    origin: 'source',
+    versionMetadata: item.completeness ? { contentCompleteness: item.completeness } : {},
+    expectedCurrentVersionId: authorized.currentVersionId,
+    sourceSnapshot: snapshot,
     signal,
     jobId,
   });
   return existing === null || existing.status === 'disabled';
-}
-
-/** source_url / source_path / mime_type 只在来源条目自述时更新，避免清空已有值。 */
-async function syncSourceColumns(
-  deps: KnowledgeDeps,
-  documentId: string,
-  item: SourceItem,
-): Promise<void> {
-  if (!item.sourceUrl && !item.sourcePath) return;
-  await deps.db
-    .update(schema.knowledgeDocuments)
-    .set({
-      ...(item.sourceUrl ? { sourceUrl: item.sourceUrl } : {}),
-      ...(item.sourcePath ? { sourcePath: item.sourcePath } : {}),
-      mimeType: item.mimeType,
-    })
-    .where(eq(schema.knowledgeDocuments.id, documentId));
 }
 
 /**
@@ -962,7 +1467,7 @@ async function disableStaleDocuments(
   const documents = await listAllPages((cursor) =>
     repo.knowledge.listDocuments(deps.db, {
       baseId: source.baseId,
-      knowledgeSourceId: source.id,
+      sourceConnectionId: source.id,
       status: 'ready',
       limit: LIST_PAGE_SIZE,
       cursor,
@@ -972,7 +1477,10 @@ async function disableStaleDocuments(
   for (const document of documents) {
     checkAborted(signal);
     if (document.sourceId !== null && seen.has(document.sourceId)) continue;
-    await repo.knowledge.updateDocument(deps.db, document.id, { status: 'disabled' });
+    await repo.knowledge.updateDocument(deps.db, document.id, {
+      status: 'disabled',
+      disabledReason: 'source',
+    });
     await repo.knowledge.markWikiStaleByDocument(deps.db, document.id);
     disabled += 1;
   }
@@ -1001,20 +1509,20 @@ export async function runSync(
 ): Promise<SyncRunResult> {
   const payload = requirePayload(job);
   if (payload.type !== 'sync') throw new Error('job 类型不是 sync');
-  const source = await repo.knowledge.getSource(deps.db, payload.sourceId);
-  if (!source) throw new Error('来源不存在，可能已被删除');
+  const read = await repo.knowledge.getSourceReadSnapshot(deps.db, payload.sourceId);
+  if (!read) throw new Error('来源不存在，可能已被删除');
+  const { source, snapshot } = read;
   if (!SYNCABLE.has(source.status)) {
     // 终态由队列按 KnowledgeCancelled 写 cancelled，这里只表示本次不执行。
     throw new KnowledgeCancelled();
   }
   const connector = deps.connectors[source.type];
   if (!connector) throw new Error(`不支持的来源类型 ${source.type}`);
-  const ranges = (await repo.knowledge.listRanges(deps.db, source.id)).filter(
-    (range) => range.enabled,
-  );
+  const ranges = snapshot.ranges.filter((range) => range.enabled);
   if (ranges.length === 0) throw new Error('来源没有启用的范围');
 
-  const secrets = source.secretsEncrypted ? deps.decrypt(source.secretsEncrypted) : {};
+  // connector 的配置、解密输入与范围都只消费同一份读取快照，避免运行中改来源后混用新旧值。
+  const secrets = snapshot.secretsEncrypted ? deps.decrypt(snapshot.secretsEncrypted) : {};
   const network: ConnectorNetwork | undefined =
     deps.trustedHosts?.length || deps.allowLoopback === true
       ? {
@@ -1024,8 +1532,12 @@ export async function runSync(
       : undefined;
   const stats = { listed: 0, created: 0, updated: 0, disabled: 0, failed: 0 };
   const seen = new Set<string>();
+  // 同一外部条目可能落在多个范围：按本轮实际命中的范围合并，不把所有范围挂给所有条目。
+  const rangeIdsByItem = new Map<string, Set<string>>();
   // 默认不完整：连接器必须显式给一个 complete 检查点，删除推导才允许发生。
   let complete = false;
+  // 任何单项失败/跳过（含不可重试）都不能证明完整枚举，删除推导必须关闭。
+  let hadItemIssues = false;
   let cursorAfter: Record<string, unknown> = source.cursor;
   let lastCheckpoint = Date.now();
   const checkpoint = async (
@@ -1033,7 +1545,7 @@ export async function runSync(
     status: SourceCheckpoint,
   ): Promise<void> => {
     cursorAfter = cursor;
-    complete = status.complete && stats.failed === 0;
+    complete = status.complete && stats.failed === 0 && !hadItemIssues;
     await deps.db
       .update(schema.knowledgeSyncRuns)
       .set({ cursorAfter: cursor })
@@ -1044,9 +1556,10 @@ export async function runSync(
   try {
     for await (const item of connector.sync({
       connectionId: source.id,
-      config: source.config,
+      config: snapshot.config,
       secrets,
       ranges: ranges.map((range) => ({
+        id: range.id,
         kind: range.kind,
         externalId: range.externalId,
         ref: range.ref,
@@ -1060,6 +1573,27 @@ export async function runSync(
       checkAborted(signal);
       stats.listed += 1;
       try {
+        if (item.failure) {
+          // 不可重试的不支持项记为 skipped 并继续推进；可重试失败仍让整轮失败等下一轮。
+          hadItemIssues = true;
+          if (item.failure.retryable) stats.failed += 1;
+          deps.logger.warn(
+            { sourceId: source.id, itemId: item.sourceId, code: item.failure.code },
+            'sync item failed',
+          );
+          await repo.knowledge.recordSyncItem(deps.db, {
+            syncRunId: payload.syncRunId,
+            sourceId: source.id,
+            rangeId: item.rangeId ?? null,
+            externalId: item.sourceId,
+            documentId: null,
+            status: item.failure.retryable ? 'failed' : 'skipped',
+            code: item.failure.code,
+            message: item.failure.message,
+            retryable: item.failure.retryable,
+          });
+          continue;
+        }
         if (item.deleted === true) {
           // 显式删除是来源主动陈述，不看 complete；滚动窗口的"缺失"才需要完整枚举。
           const existing =
@@ -1077,21 +1611,57 @@ export async function runSync(
                 .limit(1)
             )[0] ?? null;
           if (existing && existing.status !== 'disabled') {
-            await repo.knowledge.updateDocument(deps.db, existing.id, { status: 'disabled' });
+            await repo.knowledge.updateDocument(deps.db, existing.id, {
+              status: 'disabled',
+              disabledReason: 'source',
+            });
             await repo.knowledge.markWikiStaleByDocument(deps.db, existing.id);
             stats.disabled += 1;
           }
           continue;
         }
         seen.add(item.sourceId);
-        const created = await upsertSourceItem(deps, source, job.id, item, signal);
+        const rangeIds = rangeIdsByItem.get(item.sourceId) ?? new Set<string>();
+        // 单个范围的来源即使连接器未逐项标注，归属也没有歧义。
+        const fallbackRange = ranges.length === 1 ? ranges[0] : undefined;
+        const rangeId = item.rangeId ?? fallbackRange?.id;
+        if (rangeId) rangeIds.add(rangeId);
+        rangeIdsByItem.set(item.sourceId, rangeIds);
+        const created = await upsertSourceItem(
+          deps,
+          source,
+          snapshot,
+          job.id,
+          payload.syncRunId,
+          item,
+          rangeIds,
+          signal,
+        );
         if (created) stats.created += 1;
         else stats.updated += 1;
       } catch (err) {
-        // 凭证已失权：单条失败不能让本轮继续，否则来源会一直 active 反复失败。
-        if (err instanceof KnowledgeCancelled || err instanceof SourceAuthError) throw err;
+        // 凭证失权或来源快照失效：单条失败不能让本轮继续，否则来源会一直 active 反复失败。
+        if (
+          err instanceof KnowledgeCancelled ||
+          err instanceof SourceAuthError ||
+          err instanceof SourceSnapshotStale
+        ) {
+          throw err;
+        }
         stats.failed += 1;
+        hadItemIssues = true;
         deps.logger.warn({ err, sourceId: source.id, itemId: item.sourceId }, 'sync item failed');
+        await repo.knowledge.recordSyncItem(deps.db, {
+          syncRunId: payload.syncRunId,
+          sourceId: source.id,
+          rangeId: item.rangeId ?? null,
+          externalId: item.sourceId,
+          documentId: null,
+          status: 'failed',
+          code: 'ingest_failed',
+          message: describeKnowledgeError(err),
+          retryable: isRetryableKnowledgeError(err),
+        });
         // 临时模型/解析故障保持原类型，交给队列现有分类器重试；永久失败继续汇总。
         if (isRetryableKnowledgeError(err)) throw err;
       }
@@ -1127,11 +1697,68 @@ export async function runSync(
 
   // 只有完整枚举（含所有 range、无单文档失败）才能推导「缺失即删除」。
   // 显式 deleted 已在循环内处理；这里只处理未出现在本次枚举里的旧文档。
-  if (source.config.syncDeletions === true && complete) {
+  if (snapshot.config.syncDeletions === true && complete) {
     stats.disabled += await disableStaleDocuments(deps, source, seen, signal);
   }
 
   return { cursorAfter, stats };
+}
+
+// ---------------------------------------------------------------------------
+// runSourceProbe：只读远程凭证与范围首项；不导入条目，不推进游标。
+
+export async function runSourceProbe(
+  deps: KnowledgeDeps,
+  job: KnowledgeJobRow,
+  signal: AbortSignal,
+): Promise<KnowledgeSourceProbeResult> {
+  const payload = requirePayload(job);
+  if (payload.type !== 'source_probe') throw new Error('job 类型不是 source_probe');
+  const read = await repo.knowledge.getSourceReadSnapshot(deps.db, payload.sourceId);
+  if (!read) throw new Error('来源不存在，可能已被删除');
+  const { source, snapshot } = read;
+  const connector = deps.connectors[source.type];
+  if (!connector?.probe) throw new Error(`不支持的来源类型 ${source.type}`);
+  const ranges = snapshot.ranges.filter((range) => range.enabled);
+  // 没有启用范围就没有可核验的远程权限；空 checks 的 every 会伪造成 ok=true。
+  if (ranges.length === 0) throw new Error('来源没有启用的范围，无法探测');
+  const secrets = snapshot.secretsEncrypted ? deps.decrypt(snapshot.secretsEncrypted) : {};
+  const network: ConnectorNetwork | undefined =
+    deps.trustedHosts?.length || deps.allowLoopback === true
+      ? {
+          ...(deps.trustedHosts?.length ? { trustedHosts: deps.trustedHosts } : {}),
+          ...(deps.allowLoopback === true ? { allowLoopback: true } : {}),
+        }
+      : undefined;
+
+  const checks: KnowledgeSourceProbeResult['checks'] = [];
+  for (const range of ranges) {
+    checkAborted(signal);
+    try {
+      await connector.probe({
+        config: snapshot.config,
+        secrets,
+        range: {
+          kind: range.kind,
+          externalId: range.externalId,
+          ref: range.ref,
+          paths: range.paths,
+        },
+        signal,
+        ...(network ? { network } : {}),
+      });
+      checks.push({ rangeId: range.id, ok: true });
+    } catch (err) {
+      if (err instanceof KnowledgeCancelled || signal.aborted) throw err;
+      checks.push({
+        rangeId: range.id,
+        ok: false,
+        code: err instanceof SourceAuthError ? 'auth_failed' : 'probe_failed',
+        message: describeKnowledgeError(err),
+      });
+    }
+  }
+  return { ok: checks.every((check) => check.ok), checks };
 }
 
 // ---------------------------------------------------------------------------
@@ -1178,18 +1805,22 @@ export async function runCleanup(
 // ---------------------------------------------------------------------------
 // 已认领 job 的分发
 
+export type KnowledgeJobResult = Pick<repo.knowledge.FinishJobInput, 'result' | 'probeResult'>;
+
 export async function runKnowledgeJob(
   deps: KnowledgeDeps,
   job: KnowledgeJobRow,
   signal: AbortSignal,
-): Promise<SyncRunResult | void> {
+): Promise<KnowledgeJobResult | void> {
   switch (job.type) {
     case 'ingest':
       return runIngest(deps, job, signal);
     case 'reindex':
       return runReindex(deps, job, signal);
     case 'sync':
-      return runSync(deps, job, signal);
+      return { result: await runSync(deps, job, signal) };
+    case 'source_probe':
+      return { probeResult: await runSourceProbe(deps, job, signal) };
     case 'cleanup':
       return runCleanup(deps, job, signal);
     case 'wiki_generate':

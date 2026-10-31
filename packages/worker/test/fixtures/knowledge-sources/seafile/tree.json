@@ -1,0 +1,11 @@
+{
+  "listings": {
+    "/Documents": [
+      { "type": "file", "name": "a.md", "size": 3, "mtime": 10, "id": "oid-a" },
+      { "type": "dir", "name": "Manuals" }
+    ],
+    "/Documents/Manuals": [
+      { "type": "file", "name": "b.pdf", "size": 4, "mtime": 11, "id": "oid-b" }
+    ]
+  }
+}

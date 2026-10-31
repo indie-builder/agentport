@@ -37,6 +37,7 @@ const JOB_KEYS = [
   'progress',
   'attempts',
   'error',
+  'result',
   'documentId',
   'sourceId',
   'documentTitle',
@@ -218,6 +219,46 @@ describe.skipIf(!ready)('knowledge job projections', () => {
 
     expect(selects.length).toBeGreaterThan(0);
     for (const text of selects) expect(text).not.toMatch(/"payload"/i);
+  });
+
+  it('probe result coexists with names and never exposes the job payload', async () => {
+    const baseId = await createBase();
+    const sourceId = newId('knowledgeSource');
+    await seedSource(baseId, sourceId, '只读探针来源');
+    const result = {
+      ok: true,
+      checks: [{ rangeId: 'range-probe', ok: true, message: '可访问' }],
+    };
+    const job = await repo.knowledge.createJob(app.db, {
+      type: 'source_probe',
+      baseId,
+      documentId: null,
+      sourceId,
+      payload: { type: 'source_probe', sourceId },
+    });
+    await repo.knowledge.finishJob(app.db, job.id, {
+      fromStatus: 'queued',
+      status: 'succeeded',
+      probeResult: result,
+    });
+    const body = await list(`baseId=${baseId}`);
+    expect(body.items.find((item) => item.id === job.id)).toMatchObject({
+      result,
+      sourceId,
+      sourceName: '只读探针来源',
+      documentId: null,
+      documentTitle: null,
+    });
+    const detail = await inject(app, {
+      method: 'GET',
+      url: `/api/knowledge/jobs/${job.id}`,
+      headers: { cookie },
+    });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json()).toMatchObject({ result, sourceId });
+    expect(detail.json()).not.toHaveProperty('payload');
+    const source = await repo.knowledge.getSource(app.db, sourceId);
+    expect(source).toMatchObject({ cursor: {}, lastSyncAt: null, lastSyncStatus: null });
   });
 
   it('documentId 与 base/status/cursor/limit 同时生效，且不跨库', async () => {

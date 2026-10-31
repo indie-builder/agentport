@@ -1,0 +1,25 @@
+{
+  "status": "success",
+  "document": {
+    "md_content": "| **Revenue** | Value |\n| --- | --- |\n| USD | 100 |",
+    "json_content": {
+      "body": { "children": [{ "$ref": "#/tables/0" }] },
+      "tables": [
+        {
+          "self_ref": "#/tables/0",
+          "prov": [{ "page_no": 4, "bbox": { "l": 1, "t": 2, "r": 3, "b": 4 } }],
+          "data": {
+            "num_rows": 2,
+            "num_cols": 2,
+            "table_cells": [
+              { "text": "Revenue", "start_row_offset_idx": 0, "start_col_offset_idx": 0 },
+              { "text": "Value", "start_row_offset_idx": 0, "start_col_offset_idx": 1 },
+              { "text": "USD", "start_row_offset_idx": 1, "start_col_offset_idx": 0 },
+              { "text": "100", "start_row_offset_idx": 1, "start_col_offset_idx": 1 }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

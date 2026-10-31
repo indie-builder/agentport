@@ -1,0 +1,26 @@
+{
+  "object": "list",
+  "results": [
+    {
+      "object": "block",
+      "id": "66666666-6666-4666-8666-666666666666",
+      "type": "toggle",
+      "has_children": true,
+      "toggle": { "rich_text": [{ "plain_text": "More" }] }
+    },
+    {
+      "object": "block",
+      "id": "99999999-9999-4999-8999-999999999999",
+      "type": "file",
+      "has_children": false,
+      "file": {
+        "type": "file_upload",
+        "name": "uploaded.docx",
+        "file_upload": { "id": "upload-9999" }
+      }
+    }
+  ],
+  "has_more": false,
+  "next_cursor": null,
+  "request_status": { "type": "complete" }
+}

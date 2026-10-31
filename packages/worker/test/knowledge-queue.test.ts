@@ -356,6 +356,11 @@ describe('knowledge worker queue', () => {
       let delayed = 0;
       let failed = 0;
       let completed = 0;
+      // DB 终态先写，processor finally 删 key 后 BullMQ 才发 completed；入队前就等这个事件。
+      let resolveCompleted!: () => void;
+      const completedEvent = new Promise<void>((resolve) => {
+        resolveCompleted = resolve;
+      });
       events.on('active', ({ jobId }) => {
         if (jobId === reindex.id) active += 1;
       });
@@ -367,7 +372,10 @@ describe('knowledge worker queue', () => {
         if (jobId === reindex.id) failed += 1;
       });
       events.on('completed', ({ jobId }) => {
-        if (jobId === reindex.id) completed += 1;
+        if (jobId === reindex.id) {
+          completed += 1;
+          resolveCompleted();
+        }
       });
 
       failNextEmbedding = true;
@@ -397,6 +405,8 @@ describe('knowledge worker queue', () => {
         row = await repo.knowledge.getJob(db, reindex.id);
       }
       if (row && row.status !== last) statuses.push(row.status);
+      // DB 已是 succeeded 时事件可能还没到；等它落地再断言原计数。
+      if (row?.status === 'succeeded') await completedEvent;
 
       // BullMQ 真实重投：两次 active、一次推迟重试、一次完成，DB 认领两次并最终成功。
       expect(row?.status).toBe('succeeded');
@@ -589,6 +599,166 @@ describe('knowledge worker queue', () => {
       await events.close();
       await worker.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 30_000);
+
+  it('commits a sync checkpoint only at successful finish and ignores redelivery', async () => {
+    const { sourceId, job } = await seedSyncPair();
+    let checkpointed!: () => void;
+    const checkpointReady = new Promise<void>((resolve) => {
+      checkpointed = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const connector: KnowledgeConnector = {
+      // biome-ignore lint/correctness/useYield: 空同步只推进检查点
+      async *sync(input) {
+        calls += 1;
+        await input.onCheckpoint({ page: 2 }, { complete: true });
+        checkpointed();
+        await released;
+      },
+    };
+    const worker = await startKnowledgeSyncWorker(connector);
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const events = new QueueEvents(KNOWLEDGE_JOBS_QUEUE, {
+      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      prefix,
+    });
+    events.on('error', () => undefined);
+    await events.waitUntilReady();
+    try {
+      await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+      await checkpointReady;
+      const pending = await syncRowsOf(sourceId, job.id);
+      expect(pending.job?.status).toBe('running');
+      expect(pending.run).toMatchObject({ status: 'running', endedAt: null });
+      expect(pending.source).toMatchObject({ cursor: {}, lastSyncStatus: null });
+
+      release();
+      expect((await waitForJobStatus(job.id, ['succeeded', 'failed']))?.status).toBe('succeeded');
+      const finished = await syncRowsOf(sourceId, job.id);
+      expect(finished.run).toMatchObject({
+        status: 'succeeded',
+        cursorAfter: { page: 2 },
+        stats: { listed: 0, failed: 0 },
+        endedAt: finished.job?.endedAt,
+      });
+      expect(finished.source).toMatchObject({
+        cursor: { page: 2 },
+        lastSyncStatus: 'succeeded',
+        lastSyncAt: finished.job?.endedAt,
+      });
+
+      const replay = await queue.add(
+        'knowledge',
+        { jobId: job.id },
+        {
+          ...knowledgeEnqueueOptions(job.id),
+          jobId: `${job.id}-redelivery`,
+        },
+      );
+      await replay.waitUntilFinished(events, 10_000);
+      expect(calls).toBe(1);
+      expect(await syncRowsOf(sourceId, job.id)).toEqual(finished);
+    } finally {
+      release();
+      await queue.close();
+      await events.close();
+      await worker.close();
+    }
+  }, 30_000);
+
+  it('fails a sync after a checkpoint without committing the source cursor', async () => {
+    const { sourceId, job } = await seedSyncPair();
+    const worker = await startKnowledgeSyncWorker({
+      // biome-ignore lint/correctness/useYield: 枚举在检查点之后失败
+      async *sync(input) {
+        await input.onCheckpoint({ page: 3 }, { complete: false });
+        throw new Error('listing failed after checkpoint');
+      },
+    });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    try {
+      await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+      expect((await waitForJobStatus(job.id, ['failed', 'succeeded']))?.status).toBe('failed');
+      const finished = await syncRowsOf(sourceId, job.id);
+      expect(finished.run).toMatchObject({
+        status: 'failed',
+        cursorAfter: { page: 3 },
+        error: 'listing failed after checkpoint',
+        endedAt: finished.job?.endedAt,
+      });
+      expect(finished.source).toMatchObject({ cursor: {}, lastSyncStatus: 'failed' });
+    } finally {
+      await queue.close();
+      await worker.close();
+    }
+  }, 30_000);
+
+  it('honors cancellation requested after the last checkpoint before sync finish', async () => {
+    const { sourceId, job } = await seedSyncPair();
+    const redis = new Redis(redisUrl);
+    const worker = await startKnowledgeSyncWorker({
+      // biome-ignore lint/correctness/useYield: 空同步返回前写取消键，不等轮询
+      async *sync(input) {
+        await input.onCheckpoint({ page: 4 }, { complete: true });
+        await redis.set(knowledgeCancelKey(job.id), '1', 'EX', 60);
+      },
+    });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    try {
+      await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+      expect((await waitForJobStatus(job.id, ['cancelled', 'succeeded']))?.status).toBe(
+        'cancelled',
+      );
+      const finished = await syncRowsOf(sourceId, job.id);
+      expect(finished.run).toMatchObject({ status: 'cancelled', cursorAfter: { page: 4 } });
+      expect(finished.source).toMatchObject({ cursor: {}, lastSyncStatus: 'cancelled' });
+    } finally {
+      await queue.close();
+      await worker.close();
+      redis.disconnect();
+    }
+  }, 30_000);
+
+  it('persists a readable probe result without changing sync state or cursor', async () => {
+    const { sourceId, job: syncJob } = await seedSyncPair();
+    await repo.knowledge.finishJob(db, syncJob.id, { fromStatus: 'queued', status: 'cancelled' });
+    const before = await repo.knowledge.getSource(db, sourceId);
+    const probe = await repo.knowledge.createJob(db, {
+      type: 'source_probe',
+      baseId: syncJob.baseId,
+      documentId: null,
+      sourceId,
+      payload: { type: 'source_probe', sourceId },
+    });
+    const worker = await startKnowledgeSyncWorker({
+      async probe() {
+        throw new Error('remote range unavailable');
+      },
+      sync() {
+        throw new Error('probe must not sync');
+      },
+    });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    try {
+      await queue.add('knowledge', { jobId: probe.id }, knowledgeEnqueueOptions(probe.id));
+      const finished = await waitForJobStatus(probe.id, ['succeeded', 'failed']);
+      expect(finished).toMatchObject({
+        status: 'succeeded',
+        result: {
+          ok: false,
+          checks: [{ ok: false, code: 'probe_failed', message: 'remote range unavailable' }],
+        },
+      });
+      expect(await repo.knowledge.getSource(db, sourceId)).toEqual(before);
+    } finally {
+      await queue.close();
+      await worker.close();
     }
   }, 30_000);
 
@@ -835,13 +1005,50 @@ describe('knowledge worker queue', () => {
   });
 
   it('owns the wiki job terminal state and requires a saved draft', async () => {
-    const { baseId } = await seedJob();
+    const { baseId, documentId } = await seedJob();
+    const base = await repo.knowledge.getBase(db, baseId);
+    if (!base?.embeddingProfileId) throw new Error('base missing');
+    const version = await repo.knowledge.createVersion(db, {
+      documentId,
+      blobSha256: 'a'.repeat(64),
+      markdownSha256: 'b'.repeat(64),
+      originalFilename: 'doc.md',
+      mimeType: 'text/markdown',
+      sizeBytes: 16,
+      sourceRevision: null,
+      parseStatus: 'parsed',
+      pageMap: [],
+      images: [],
+      embeddingProfileId: base.embeddingProfileId,
+    });
+    await repo.knowledge.setCurrentVersion(db, documentId, version.id);
+    const [sourceChunk] = await repo.knowledge.insertChunks(db, {
+      baseId,
+      documentId,
+      versionId: version.id,
+      folderId: null,
+      chunks: [
+        {
+          ordinal: 0,
+          kind: 'text',
+          heading: null,
+          content: '# 来源',
+          searchText: '# 来源',
+          embedding: null,
+          pageFrom: null,
+          pageTo: null,
+          tokenCount: 2,
+        },
+      ],
+    });
+    if (!sourceChunk) throw new Error('chunk missing');
     const page = await repo.knowledge.createWikiPage(db, {
       baseId,
       slug: 'auth',
       title: '认证',
     });
     const ids = await Promise.all([createWikiJob(baseId, page.id), createWikiJob(baseId, page.id)]);
+    let saveResult: { isError?: boolean; content?: Array<{ text: string }> } | undefined;
 
     const worker = await startKnowledgeWorker({
       db,
@@ -867,10 +1074,10 @@ describe('knowledge worker queue', () => {
               };
             };
             if (index === 0) {
-              await server.instance._registeredTools.wiki_save_draft?.handler(
-                { markdown: '# 草稿', sourceChunkIds: [] },
+              saveResult = (await server.instance._registeredTools.wiki_save_draft?.handler(
+                { markdown: '# 草稿', sourceChunkIds: [sourceChunk.id] },
                 {},
-              );
+              )) as typeof saveResult;
             }
             yield {
               type: 'result',
@@ -899,6 +1106,9 @@ describe('knowledge worker queue', () => {
         rows = await Promise.all(ids.map((id) => repo.knowledge.getJob(db, id)));
       }
       expect(rows.map((row) => row?.status).sort()).toEqual(['failed', 'succeeded']);
+      // 成功分支必须真的通过 save tool 落库，空来源的旧写法现在会被拒绝。
+      expect(saveResult?.isError).toBeFalsy();
+      expect(saveResult?.content?.[0]?.text).toContain('"saved":true');
       const failed = rows.find((row) => row?.status === 'failed');
       expect(failed?.error).toContain('模型没有保存任何草稿');
       const versions = await repo.knowledge.listWikiVersions(db, page.id);

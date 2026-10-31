@@ -1,13 +1,19 @@
 import { decryptSecrets, encryptSecrets } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
-import { cronSchema, knowledgeSourceInputSchema, knowledgeSourceRangeInputSchema } from '@agentport/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import {
+  cronSchema,
+  knowledgeSourceInputSchema,
+  knowledgeSourceRangeExternalIdMax,
+  knowledgeSourceRangeInputSchema,
+} from '@agentport/shared';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
-import { isPgCode, reject } from '../../plugins/errors.js';
+import { AppError, isAppError, isPgCode, reject } from '../../plugins/errors.js';
 import { typed } from '../../types.js';
-import { enqueueKnowledgeJob } from './service.js';
+import { authorizeObject } from '../access.js';
+import { createJob, enqueueKnowledgeJob } from './service.js';
 
 const baseParams = z.object({ id: z.string().min(1) });
 const sourceParams = z.object({ sourceId: z.string().min(1) });
@@ -29,6 +35,7 @@ const sourcePatchSchema = z.object({
   ranges: z.array(knowledgeSourceRangeInputSchema).min(1).optional(),
 });
 
+type SourcePatch = z.infer<typeof sourcePatchSchema>;
 const sourcePatchBodySchema = sourcePatchSchema.refine(
   (value) =>
     value.syncCron === undefined || value.syncCron === null || isSchedulableCron(value.syncCron),
@@ -112,7 +119,76 @@ function githubRepoIssue(externalId: string): string | null {
   return null;
 }
 
-type ConfigIssueRange = Pick<RangeRow, 'kind' | 'externalId' | 'enabled'>;
+/** 新增九类来源各自允许的范围类型；Lark 复用飞书的 range kind。 */
+const SOURCE_RANGE_KINDS: Partial<Record<SourceRow['type'], readonly string[]>> = {
+  lark_wiki: ['wiki_space', 'wiki_node'],
+  lark_drive: ['drive_folder'],
+  notion: ['notion_page', 'notion_database', 'notion_data_source'],
+  confluence: ['confluence_space', 'confluence_page'],
+  yuque: ['yuque_repo'],
+  dingtalk: ['dingtalk_workspace', 'dingtalk_node'],
+  ima: ['ima_kb'],
+  seafile: ['seafile_repo'],
+  nextcloud: ['nextcloud_path'],
+};
+
+/** 连接身份字段创建后不可 PATCH 更换；凭证仍可轮换。 */
+const SOURCE_IDENTITY_FIELDS: Partial<Record<SourceRow['type'], readonly string[]>> = {
+  lark_wiki: ['appId'],
+  lark_drive: ['appId'],
+  confluence: ['authMode', 'baseUrl', 'email', 'cloudId'],
+  dingtalk: ['clientId', 'operatorUnionId'],
+  ima: ['clientId'],
+  seafile: ['baseUrl'],
+  nextcloud: ['baseUrl', 'username'],
+};
+
+const SAFE_TOKEN = /^[A-Za-z0-9._-]+$/;
+const UUID = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+const POSITIVE_ID = /^[1-9][0-9]*$/;
+/** 拒绝字面/单次或多次百分号编码的斜杠与控制字符。 */
+const ENCODED_PATH_BREAK = /%(25)*(2f|5c|00)/i;
+
+/** 库内相对路径：保留大小写与 Unicode，拒绝越界与路径分隔符混淆。 */
+function safeRelativePath(value: string): boolean {
+  if (value.length === 0 || value.startsWith('/') || value.endsWith('/')) return false;
+  if (/[\\\0?#]/.test(value) || ENCODED_PATH_BREAK.test(value)) return false;
+  return value.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
+}
+
+/** 可配置站点只接受站点/应用根，不能塞入凭证、查询串或片段。 */
+function siteUrlIssue(value: unknown): string | null {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return '缺少 config.baseUrl';
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return 'config.baseUrl 不是合法 URL';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return 'config.baseUrl 只支持 http/https';
+  }
+  if (url.username || url.password) return 'config.baseUrl 不能包含账号密码';
+  if (url.search || url.hash) return 'config.baseUrl 不能包含查询串或片段';
+  return null;
+}
+
+function identityIssues(
+  type: SourceRow['type'],
+  stored: Record<string, unknown>,
+  submitted: Record<string, unknown>,
+): string[] {
+  const fields = SOURCE_IDENTITY_FIELDS[type];
+  if (!fields) return [];
+  const normalized = (value: unknown): unknown =>
+    typeof value === 'string' ? value.trim() : (value ?? null);
+  return fields
+    .filter((field) => normalized(stored[field]) !== normalized(submitted[field]))
+    .map((field) => `连接身份字段 config.${field} 创建后不可修改，请新建来源`);
+}
+
+type ConfigIssueRange = Pick<RangeRow, 'kind' | 'externalId' | 'ref' | 'paths' | 'enabled'>;
 
 /**
  * 只校验配置形状与凭证存在性，不发外网请求；真实连通性由 sync run 结果体现。
@@ -139,6 +215,39 @@ function configIssues(
   if (ranges.length === 0) issues.push('来源至少需要一个范围');
   else if (!ranges.some((range) => range.enabled)) issues.push('至少需要一个启用的范围');
 
+  const allowedKinds = SOURCE_RANGE_KINDS[type];
+  if (allowedKinds) {
+    const maxExternalId = (
+      knowledgeSourceRangeExternalIdMax as Partial<Record<SourceRow['type'], number>>
+    )[type];
+    for (const range of ranges) {
+      // 入口上限保证 worker 组合出的 `<connectionId>:<leaf externalId>` 不超 ZIP 的 500 字符。
+      if (maxExternalId !== undefined && range.externalId.length > maxExternalId) {
+        issues.push(`范围 ${range.externalId.slice(0, 40)} 的 ID 超过 ${maxExternalId} 字符`);
+      }
+      // ref/paths 是范围结构，即使停用也不接受新类型上的误填。
+      if (range.ref !== null) issues.push(`范围 ${range.externalId} 不应填写 ref`);
+      if (type === 'seafile') {
+        if (new Set(range.paths).size !== range.paths.length) {
+          issues.push(`范围 ${range.externalId} 的目录不能重复`);
+        }
+        for (const path of range.paths) {
+          if (!safeRelativePath(path)) {
+            issues.push(`范围 ${range.externalId} 的目录 ${path} 必须是库内相对路径`);
+          }
+        }
+      } else if (range.paths.length > 0) {
+        issues.push(`范围 ${range.externalId} 不支持 paths`);
+      }
+      if (!range.enabled) continue;
+      if (!allowedKinds.includes(range.kind)) {
+        issues.push(
+          `范围 ${range.externalId} 的类型必须属于 ${allowedKinds.join('、')}（当前 ${range.kind}）`,
+        );
+      }
+    }
+  }
+
   if (type === 'feishu_wiki' || type === 'feishu_drive') {
     if (!text('appId')) issues.push('缺少 config.appId');
     if (!secrets?.appSecret) issues.push('缺少凭证 appSecret');
@@ -163,6 +272,87 @@ function configIssues(
       }
       const issue = githubRepoIssue(range.externalId);
       if (issue) issues.push(issue);
+    }
+  }
+  if (type === 'lark_wiki' || type === 'lark_drive') {
+    if (!text('appId')) issues.push('缺少 config.appId');
+    if (!secrets?.appSecret) issues.push('缺少凭证 appSecret');
+    for (const range of ranges) {
+      if (!range.enabled) continue;
+      if (!SAFE_TOKEN.test(range.externalId)) {
+        issues.push(`范围 ${range.externalId} 不是合法的 Lark token`);
+      }
+    }
+  }
+  if (type === 'notion') {
+    if (!secrets?.apiKey) issues.push('缺少凭证 apiKey');
+    for (const range of ranges) {
+      if (range.enabled && !UUID.test(range.externalId)) {
+        issues.push(`范围 ${range.externalId} 不是合法的 Notion UUID`);
+      }
+    }
+  }
+  if (type === 'confluence') {
+    const authMode = text('authMode');
+    if (authMode !== 'cloud_basic' && authMode !== 'cloud_scoped' && authMode !== 'dc_pat') {
+      issues.push('config.authMode 必须是 cloud_basic、cloud_scoped 或 dc_pat');
+    }
+    const urlIssue = siteUrlIssue(config.baseUrl);
+    if (urlIssue) issues.push(urlIssue);
+    if (authMode === 'cloud_basic' || authMode === 'cloud_scoped') {
+      if (!text('email')) issues.push('缺少 config.email');
+      if (!secrets?.apiToken) issues.push('缺少凭证 apiToken');
+      if (secrets?.pat) issues.push('凭证 pat 仅用于 dc_pat 模式');
+      if (authMode === 'cloud_scoped' && !text('cloudId')) issues.push('缺少 config.cloudId');
+    }
+    if (authMode === 'dc_pat') {
+      if (!secrets?.pat) issues.push('缺少凭证 pat');
+      if (secrets?.apiToken) issues.push('凭证 apiToken 仅用于 Cloud 模式');
+    }
+    for (const range of ranges) {
+      if (range.enabled && !POSITIVE_ID.test(range.externalId)) {
+        issues.push(`范围 ${range.externalId} 必须是 Confluence 数字 ID`);
+      }
+    }
+  }
+  if (type === 'yuque') {
+    if (!secrets?.apiToken) issues.push('缺少凭证 apiToken');
+    for (const range of ranges) {
+      if (!range.enabled) continue;
+      if (!POSITIVE_ID.test(range.externalId) || !Number.isSafeInteger(Number(range.externalId))) {
+        issues.push(`范围 ${range.externalId} 必须是正整数知识库 ID`);
+      }
+    }
+  }
+  if (type === 'dingtalk') {
+    if (!text('clientId')) issues.push('缺少 config.clientId');
+    if (!text('operatorUnionId')) issues.push('缺少 config.operatorUnionId');
+    if (!secrets?.clientSecret) issues.push('缺少凭证 clientSecret');
+  }
+  if (type === 'ima') {
+    if (!text('clientId')) issues.push('缺少 config.clientId');
+    if (!secrets?.apiKey) issues.push('缺少凭证 apiKey');
+  }
+  if (type === 'seafile') {
+    const urlIssue = siteUrlIssue(config.baseUrl);
+    if (urlIssue) issues.push(urlIssue);
+    if (!secrets?.apiToken) issues.push('缺少凭证 apiToken');
+    for (const range of ranges) {
+      if (range.enabled && !UUID.test(range.externalId)) {
+        issues.push(`范围 ${range.externalId} 必须是 Seafile 库 UUID`);
+      }
+    }
+  }
+  if (type === 'nextcloud') {
+    const urlIssue = siteUrlIssue(config.baseUrl);
+    if (urlIssue) issues.push(urlIssue);
+    if (!text('username')) issues.push('缺少 config.username');
+    if (!secrets?.appPassword) issues.push('缺少凭证 appPassword');
+    for (const range of ranges) {
+      if (!range.enabled) continue;
+      const path = range.externalId;
+      const valid = path === '/' || (path.startsWith('/') && safeRelativePath(path.slice(1)));
+      if (!valid) issues.push(`范围 ${path} 必须是账号根目录下的绝对路径`);
     }
   }
   return issues;
@@ -193,13 +383,58 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
     return { source, ranges: await repo.knowledge.listRanges(app.db, source.id) };
   };
 
+  /**
+   * 外壳只声明可编辑字段；配置默认值与凭证缺省依赖来源当前类型和已存行，
+   * 因此在组合成完整输入后、这一处复用创建 schema 校验。
+   */
+  const parsePatchInput = (source: SourceRow, ranges: RangeRow[], body: SourcePatch) => {
+    if (body.config === undefined && body.secrets === undefined && body.ranges === undefined) {
+      return null;
+    }
+    const storedSecrets = source.secretsEncrypted
+      ? (() => {
+          try {
+            return decryptSecrets(source.secretsEncrypted, secretKey());
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+    const result = knowledgeSourceInputSchema.safeParse({
+      type: source.type,
+      name: body.name ?? source.name,
+      syncCron: body.syncCron === undefined ? source.syncCron : body.syncCron,
+      config: body.config ?? source.config,
+      secrets: body.secrets ?? storedSecrets ?? {},
+      ranges: body.ranges ?? ranges,
+    });
+    if (!result.success) {
+      const issue = result.error.issues[0];
+      const path = issue?.path.join('.');
+      throw new AppError('INVALID_INPUT', issue?.message ?? '配置不合法', {
+        ...(path ? { path } : {}),
+      });
+    }
+    return result.data;
+  };
+
   app.get(
     '/api/knowledge/bases/:id/sources',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: baseParams, querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams, querystring: pageQuery },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.getBase(app.db, request.params.id))) {
         return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
       }
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: request.params.id },
+        '对象不存在',
+      );
       const page = await repo.knowledge.listSources(
         app.db,
         request.params.id,
@@ -216,10 +451,20 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/sources',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: baseParams, body: sourceBodySchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } },
+      schema: { params: baseParams, body: sourceBodySchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.sources.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       const input = request.body;
       // ranges 已由 shared schema 的 min(1) 保证非空。
       const issues = configIssues(input.type, input.config, input.secrets, input.ranges);
@@ -246,54 +491,59 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/sources/:sourceId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: sourceParams, body: sourcePatchBodySchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } },
+      schema: { params: sourceParams, body: sourcePatchBodySchema },
+    },
     async (request, reply) => {
       const found = await loadSource(request.params.sourceId);
       if (!found) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
       const { source, ranges } = found;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.sources.manage',
+        { objectId: source.id },
+        '对象不存在',
+      );
       const body = request.body;
 
-      if (body.config !== undefined || body.secrets !== undefined || body.ranges !== undefined) {
-        const stored = source.secretsEncrypted
-          ? (() => {
-              try {
-                return decryptSecrets(source.secretsEncrypted, secretKey());
-              } catch {
-                return null;
-              }
-            })()
-          : null;
-        const issues = configIssues(
-          source.type,
-          body.config ?? source.config,
-          body.secrets ?? stored,
-          body.ranges ?? ranges,
-        );
+      // 身份字段只对新增九类固定；既有来源仍保留原有可编辑 config 行为。
+      if (body.config !== undefined) {
+        const issues = identityIssues(source.type, source.config, body.config);
         if (issues.length > 0) return reject(reply, 'INVALID_INPUT', issues.join('；'));
       }
 
-      const encrypted = encryptIfAny(body.secrets);
-      const updated = await repo.knowledge.updateSource(app.db, source.id, {
-        ...(body.name === undefined ? {} : { name: body.name }),
-        ...(body.config === undefined ? {} : { config: body.config }),
-        ...(encrypted === undefined ? {} : { secretsEncrypted: encrypted }),
-        ...(body.status === undefined ? {} : { status: body.status }),
-        ...(body.syncCron === undefined ? {} : { syncCron: body.syncCron }),
-      });
-      if (!updated) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
-      // 禁用来源等于撤销其文档的读取权：文档停用并让引用它们的 Wiki 页显式 stale。
-      if (body.status === 'disabled' && source.status !== 'disabled') {
-        const disabled = await repo.knowledge.disableDocumentsBySource(app.db, source.id);
-        for (const document of disabled) {
-          await repo.knowledge.markWikiStaleByDocument(app.db, document.id);
-        }
+      const parsed = parsePatchInput(source, ranges, body);
+      if (parsed !== null) {
+        const issues = configIssues(source.type, parsed.config, parsed.secrets, parsed.ranges);
+        if (issues.length > 0) return reject(reply, 'INVALID_INPUT', issues.join('；'));
       }
-      if (body.ranges === undefined) return toSource(updated, ranges);
+
+      const nextConfig = parsed !== null && body.config !== undefined ? parsed.config : undefined;
+      const nextSecrets =
+        parsed !== null && body.secrets !== undefined
+          ? (parsed.secrets as Record<string, string>)
+          : undefined;
+      const nextRanges = parsed !== null && body.ranges !== undefined ? parsed.ranges : undefined;
+      const encrypted = encryptIfAny(nextSecrets);
       try {
-        const nextRanges = await repo.knowledge.replaceRanges(app.db, source.id, body.ranges);
-        return toSource(updated, nextRanges);
+        // 配置、范围与启停在同一个事务内生效：范围收缩立即撤权，不等下一次同步。
+        const result = await repo.knowledge.replaceSourceScope(app.db, source.id, {
+          ...(body.name === undefined ? {} : { name: body.name }),
+          ...(nextConfig === undefined ? {} : { config: nextConfig }),
+          ...(encrypted === undefined ? {} : { secretsEncrypted: encrypted }),
+          ...(body.status === undefined ? {} : { status: body.status }),
+          ...(body.syncCron === undefined ? {} : { syncCron: body.syncCron }),
+          ...(nextRanges === undefined ? {} : { ranges: nextRanges }),
+        });
+        return {
+          ...toSource(result.source, result.ranges),
+          disabledDocumentIds: result.disabledDocumentIds,
+        };
       } catch (err) {
         if (isPgCode(err, '23505')) return reject(reply, 'CONFLICT', '存在重复的来源范围');
+        if (isAppError(err)) return reject(reply, err.code, err.message);
         throw err;
       }
     },
@@ -301,39 +551,35 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/sources/:sourceId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: sourceParams, querystring: deleteQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } },
+      schema: { params: sourceParams, querystring: deleteQuery },
+    },
     async (request, reply) => {
       const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
       if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.sources.manage',
+        { objectId: source.id },
+        '对象不存在',
+      );
 
       let affected: number;
       if (request.query.documents === 'keep') {
-        // 契约 §3：默认保留历史引用，全部置 disabled，不物理删除。
-        const disabled = await app.db
-          .update(schema.knowledgeDocuments)
-          .set({ status: 'disabled', updatedAt: new Date() })
-          .where(
-            and(
-              eq(schema.knowledgeDocuments.baseId, source.baseId),
-              sql`${schema.knowledgeDocuments.metadata}->>'knowledgeSourceId' = ${source.id}`,
-            ),
-          )
-          .returning({ id: schema.knowledgeDocuments.id });
+        // 契约 §3：默认保留历史引用，全部置 disabled，不物理删除；来源 ID 留在行上但已无授权。
+        // 人工停用原因不被来源删除覆盖。
+        const disabled = await repo.knowledge.disableDocumentsBySource(app.db, source.id);
         for (const document of disabled) {
           await repo.knowledge.markWikiStaleByDocument(app.db, document.id);
         }
         affected = disabled.length;
       } else {
-        // 文档表没有指向来源的外键：归属记在 metadata.knowledgeSourceId。
         const rows = await app.db
           .select({ id: schema.knowledgeDocuments.id })
           .from(schema.knowledgeDocuments)
-          .where(
-            and(
-              eq(schema.knowledgeDocuments.baseId, source.baseId),
-              sql`${schema.knowledgeDocuments.metadata}->>'knowledgeSourceId' = ${source.id}`,
-            ),
-          );
+          .where(eq(schema.knowledgeDocuments.sourceConnectionId, source.id));
         for (const row of rows) {
           await repo.knowledge.markWikiStaleByDocument(app.db, row.id);
           await repo.knowledge.deleteDocument(app.db, row.id);
@@ -345,14 +591,24 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  // 只查本地配置与凭证；真实连通性由 sync run 的结果体现。
+  // 本地配置错误在入口直接 400；其余进入既有队列做最小只读远程探针，不导入、不推进游标。
   app.post(
     '/api/knowledge/sources/:sourceId/test',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } }, schema: { params: sourceParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } },
+      schema: { params: sourceParams },
+    },
     async (request, reply) => {
       const found = await loadSource(request.params.sourceId);
       if (!found) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
       const { source, ranges } = found;
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.sources.manage',
+        { objectId: source.id },
+        '对象不存在',
+      );
       const issues: string[] = [];
       let secrets: Record<string, string> | null = null;
       if (source.secretsEncrypted) {
@@ -363,13 +619,31 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
         }
       }
       issues.push(...configIssues(source.type, source.config, secrets, ranges));
-      return { ok: issues.length === 0, issues };
+      if (issues.length > 0) return reject(reply, 'INVALID_INPUT', issues.join('；'));
+
+      const job = await createJob(app.db, {
+        baseId: source.baseId,
+        documentId: null,
+        sourceId: source.id,
+        payload: { type: 'source_probe', sourceId: source.id },
+      });
+      try {
+        await enqueueKnowledgeJob(job);
+      } catch (err) {
+        await app.db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.id, job.id));
+        if (isAppError(err)) return reject(reply, err.code, err.message);
+        return reject(reply, 'SERVICE_UNAVAILABLE', '测试任务未能提交，请稍后重试');
+      }
+      return reply.status(202).send({ jobId: job.id });
     },
   );
 
   app.post(
     '/api/knowledge/sources/:sourceId/sync',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } }, schema: { params: sourceParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: sourceParams },
+    },
     async (request, reply) => {
       const created = await repo.knowledge.createSyncJob(app.db, request.params.sourceId);
       if (created.status === 'not_found') {
@@ -389,17 +663,65 @@ export function registerSourceRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/sources/:sourceId/runs',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: sourceParams, querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: sourceParams, querystring: pageQuery },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.getSource(app.db, request.params.sourceId))) {
         return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
       }
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: request.params.sourceId },
+        '对象不存在',
+      );
       const page = await repo.knowledge.listSyncRuns(
         app.db,
         request.params.sourceId,
         pageOptions(request.query),
       );
       return { items: page.items.map(toRun), nextCursor: page.nextCursor };
+    },
+  );
+
+  app.get(
+    '/api/knowledge/sources/:sourceId/runs/:syncRunId/items',
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: {
+        params: z.object({
+          sourceId: z.string().min(1),
+          syncRunId: z.string().min(1),
+        }),
+        querystring: pageQuery.extend({ status: z.enum(['failed', 'skipped']).optional() }),
+      },
+    },
+    async (request, reply) => {
+      const source = await repo.knowledge.getSource(app.db, request.params.sourceId);
+      if (!source) return reject(reply, 'NOT_FOUND', '来源不存在，可能已被删除');
+      await authorizeObject(app, request, 'knowledge.read', { objectId: source.id }, '对象不存在');
+      const [run] = await app.db
+        .select({ id: schema.knowledgeSyncRuns.id })
+        .from(schema.knowledgeSyncRuns)
+        .where(
+          and(
+            eq(schema.knowledgeSyncRuns.id, request.params.syncRunId),
+            eq(schema.knowledgeSyncRuns.sourceId, source.id),
+          ),
+        )
+        .limit(1);
+      if (!run) return reject(reply, 'NOT_FOUND', '同步记录不存在或不属于该来源');
+      const page = await repo.knowledge.listSyncItems(app.db, run.id, {
+        ...pageOptions(request.query),
+        ...(request.query.status === undefined ? {} : { status: request.query.status }),
+      });
+      return {
+        items: page.items.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })),
+        nextCursor: page.nextCursor,
+      };
     },
   );
 }

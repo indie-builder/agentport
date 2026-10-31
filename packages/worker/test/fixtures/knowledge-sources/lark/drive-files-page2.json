@@ -1,0 +1,19 @@
+{
+  "code": 0,
+  "data": {
+    "files": [
+      {
+        "token": "sht2",
+        "name": "Sheet D",
+        "type": "sheet"
+      },
+      {
+        "token": "fldB",
+        "name": "Nested",
+        "type": "folder"
+      }
+    ],
+    "has_more": false,
+    "next_page_token": ""
+  }
+}

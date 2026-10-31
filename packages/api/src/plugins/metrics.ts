@@ -1,16 +1,20 @@
 import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { getQueue } from '../queue/producer.js';
+import { getKnowledgeQueue, getQueue } from '../queue/producer.js';
+
+interface QueueCounts {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+}
 
 export interface HealthMetrics {
   process: { uptimeSeconds: number; memoryRssBytes: number; nodeVersion: string };
-  queue: {
-    waiting: number;
-    active: number;
-    completed: number;
-    failed: number;
-    delayed: number;
-  } | null;
+  queue: QueueCounts | null;
+  /** 知识任务与聊天 run 分开消费，单独暴露五态。 */
+  knowledgeQueue: QueueCounts | null;
   db: { total: number; idle: number; waiting: number };
   redis: { pingMs: number } | null;
 }
@@ -71,18 +75,26 @@ export function registerMetrics(app: FastifyInstance): void {
   });
 }
 
+async function jobCounts(queue: {
+  getJobCounts: (...states: typeof JOB_STATES) => Promise<Record<string, number>>;
+}): Promise<QueueCounts> {
+  const counts = await queue.getJobCounts(...JOB_STATES);
+  return {
+    waiting: counts.waiting ?? 0,
+    active: counts.active ?? 0,
+    completed: counts.completed ?? 0,
+    failed: counts.failed ?? 0,
+    delayed: counts.delayed ?? 0,
+  };
+}
+
 /** 每项独立降级：外部依赖不可用时返回 null，调用方仍拿到 200。 */
 export async function collectMetrics(app: FastifyInstance): Promise<HealthMetrics> {
-  const queue = await attempt(app, 'queue', async () => {
-    const counts = await getQueue().getJobCounts(...JOB_STATES);
-    return {
-      waiting: counts.waiting ?? 0,
-      active: counts.active ?? 0,
-      completed: counts.completed ?? 0,
-      failed: counts.failed ?? 0,
-      delayed: counts.delayed ?? 0,
-    };
-  });
+  const queue = await attempt(app, 'queue', () => jobCounts(getQueue()));
+
+  const knowledgeQueue = await attempt(app, 'knowledge queue', () =>
+    jobCounts(getKnowledgeQueue()),
+  );
 
   const redisPing = await attempt(app, 'redis', async () => {
     const started = performance.now();
@@ -97,6 +109,7 @@ export async function collectMetrics(app: FastifyInstance): Promise<HealthMetric
       nodeVersion: process.version,
     },
     queue,
+    knowledgeQueue,
     db: {
       total: app.pool.totalCount,
       idle: app.pool.idleCount,

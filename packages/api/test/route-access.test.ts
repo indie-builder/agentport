@@ -4,8 +4,14 @@ import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { registerKnowledgeContentRoutes } from '../src/features/knowledge/content-routes.js';
+import { registerFaqRoutes } from '../src/features/knowledge/faq-routes.js';
+import { registerRetrievalEvaluationRoutes } from '../src/features/knowledge/retrieval-evaluation.js';
+import { registerKnowledgeRoutes } from '../src/features/knowledge/routes.js';
+import { registerSourceRoutes } from '../src/features/knowledge/source-routes.js';
+import { registerWikiRoutes } from '../src/features/knowledge/wiki-routes.js';
 import { registerAccess } from '../src/plugins/access.js';
-import { registerErrorHandler } from '../src/plugins/errors.js';
+import { AppError, registerErrorHandler } from '../src/plugins/errors.js';
 import {
   adminCookie,
   cookieOf,
@@ -23,6 +29,84 @@ import {
 const ready = await infraReady;
 
 const PASSWORD = 'test-password-123';
+
+describe('knowledge route access registration', () => {
+  it('registers every knowledge route and rejects readers before executing mutations', async () => {
+    const app = Fastify();
+    app.setValidatorCompiler(validatorCompiler);
+    app.setSerializerCompiler(serializerCompiler);
+    registerErrorHandler(app);
+    app.decorate('requireAuth', async (request) => {
+      if (request.headers.authorization !== 'reader')
+        throw new AppError('UNAUTHORIZED', 'not logged in');
+      request.principal = {
+        kind: 'user',
+        authUserId: 'test-auth',
+        businessId: 'test-reader',
+        username: 'reader',
+        name: 'reader',
+        roles: [],
+        grants: [{ permissionId: 'knowledge.read', scope: 'platform' }],
+      };
+    });
+    registerAccess(app);
+    try {
+      for (const register of [
+        registerKnowledgeRoutes,
+        registerKnowledgeContentRoutes,
+        registerFaqRoutes,
+        registerSourceRoutes,
+        registerWikiRoutes,
+        registerRetrievalEvaluationRoutes,
+      ])
+        register(app);
+      await app.ready();
+      const requests = [
+        {
+          method: 'POST',
+          url: '/api/knowledge/bases/base/retrieval-evaluations',
+          payload: {
+            cases: [{ q: '查询', expectedTargets: [{ kind: 'document', id: 'document' }] }],
+          },
+        },
+        { method: 'POST', url: '/api/knowledge/bases/base/faqs/test', payload: { q: '查询' } },
+        {
+          method: 'POST',
+          url: '/api/knowledge/documents/document/publish',
+          payload: { versionId: 'version', expectedVersionId: null },
+        },
+        {
+          method: 'POST',
+          url: '/api/knowledge/faqs/document/publish',
+          payload: { versionId: 'version', expectedVersionId: null },
+        },
+        { method: 'POST', url: '/api/knowledge/sources/source/test' },
+        {
+          method: 'POST',
+          url: '/api/knowledge/bases/base/faqs/batch',
+          payload: {
+            action: 'publish',
+            items: [{ documentId: 'document', versionId: 'version', expectedVersionId: null }],
+          },
+        },
+        {
+          method: 'POST',
+          url: '/api/knowledge/bases/base/documents/batch',
+          payload: { action: 'reprocess', documentIds: ['document'] },
+        },
+      ] as const;
+      for (const request of requests) {
+        const denied = await app.inject({ ...request, headers: { authorization: 'reader' } });
+        expect(denied.statusCode, denied.body).toBe(403);
+        expect(denied.json().code).toBe('FORBIDDEN');
+        const anonymous = await app.inject(request);
+        expect(anonymous.statusCode, anonymous.body).toBe(401);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+});
 
 describe.skipIf(!ready)('route access', () => {
   let app: FastifyInstance;

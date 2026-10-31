@@ -405,29 +405,50 @@ audit_log(
 
 ```sql
 knowledge_bases      (id, slug unique, name, description, status, server_id unique fk,
-                      embedding_profile_id fk, rerank_profile_id fk, settings jsonb)
+                      embedding_profile_id fk, rerank_profile_id fk, asr_profile_id fk nullable,
+                      settings jsonb)
 knowledge_folders    (id, base_id fk, parent_id fk, name, path)          -- 物化路径 /a/b
 knowledge_tags / knowledge_document_tags                                 -- 文档标签
 knowledge_documents  (id, base_id, folder_id, title,
-                      source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,github,feed,manual),
-                      source_id, source_url, mime_type, status, current_version_id, content_hash, metadata)
+                      source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,github,feed,manual,
+                        lark_wiki,lark_drive,notion,confluence,yuque,dingtalk,ima,seafile,nextcloud),
+                      content_kind document|faq|wiki, source_id, source_connection_id,
+                      source_url, source_path, mime_type, size_bytes, status,
+                      disabled_reason check (manual,source,range,remote), current_version_id,
+                      content_hash, metadata, last_synced_at)
 knowledge_document_versions (id, document_id, version, blob_sha256, markdown_sha256,
-                      source_revision, parse_status, page_map, images, embedding_profile_id)
-knowledge_chunks     (id, base_id, document_id, version_id, folder_id, ordinal, kind, heading,
+                      original_filename, mime_type, size_bytes, source_revision,
+                      origin source|manual|faq|wiki, parent_version_id, metadata, faq,
+                      parse_status, page_map, images, embedding_profile_id)
+knowledge_chunks     (id, base_id, document_id, version_id, folder_id, ordinal, parent_ordinal,
+                      index_role leaf|parent, kind text|table|image, heading,
                       content, search_text, search_vector generated, embedding vector(1024),
-                      enabled, edited_by_user, page_from, page_to)
-knowledge_sources    (id, base_id, type check in (feishu_wiki,feishu_drive,gitlab,github,feed),
-                      name, config, secrets_encrypted, status, sync_cron, cursor)
-knowledge_source_ranges (id, source_id, kind, external_id, ref, paths, enabled)
-knowledge_sync_runs  (id, source_id, status, cursor_before, cursor_after, stats)
-knowledge_jobs       (id, type, status, step, progress, payload)     -- BullMQ jobId = id
-knowledge_model_profiles (id, kind embedding|rerank, endpoint_url, model, dimensions, secrets)
+                      enabled, edited_by_user, page_from, page_to, locator, token_count, metadata)
+knowledge_sources    (id, base_id, type check in (feishu_wiki,feishu_drive,gitlab,github,feed,
+                        lark_wiki,lark_drive,notion,confluence,yuque,dingtalk,ima,seafile,nextcloud),
+                      name, config, secrets_encrypted, status, sync_cron, cursor,
+                      last_sync_at, last_sync_status, last_error)
+knowledge_source_ranges (id, source_id, kind check in (wiki_space,wiki_node,drive_folder,gitlab_project,
+                      github_repo,feed,notion_page,notion_database,notion_data_source,
+                      confluence_space,confluence_page,yuque_repo,dingtalk_workspace,dingtalk_node,
+                      ima_kb,seafile_repo,nextcloud_path), external_id, ref, paths, enabled)
+knowledge_document_source_ranges (document_id fk, range_id fk, pk(document_id, range_id))
+knowledge_sync_runs  (id, source_id, status, started_at, ended_at, cursor_before, cursor_after, stats, error)
+knowledge_sync_items (id, sync_run_id fk, source_id fk, range_id fk, external_id, document_id fk,
+                      status failed|skipped, code, message, retryable)
+knowledge_jobs       (id, type check in (ingest,reindex,sync,source_probe,wiki_generate,cleanup),
+                      base_id, document_id, source_id, status, step, progress, attempts,
+                      error, result, payload)     -- BullMQ jobId = id
+knowledge_model_profiles (id, kind embedding|rerank|asr, name, endpoint_url, model, dimensions,
+                      embedding_protocol openai|cohere_v2, image_input_enabled,
+                      secrets_encrypted, enabled)
 knowledge_wiki_pages / knowledge_wiki_versions / knowledge_wiki_sources
+                      -- pages 含 parent_id/position 主题目录；versions 记录生成来源；sources 关联页面引用
 ```
 
-`source_id` 是外部条目的稳定 ID（worker 写入时形如 `<来源连接 ID>:<源端 ID>`，源端 ID 为飞书 token / GitLab `project:ref:path` / `feedURL:itemId`）；`upload`/`manual` 为空，身份只按 ID 匹配而不是标题。飞书的 `appId` 放在 `knowledge_sources.config`，`appSecret` 只在 `secrets_encrypted`。
+`source_id` 是外部条目的稳定 ID（worker 写入时形如 `<来源连接 ID>:<源端 ID>`，源端 ID 按类型使用飞书 token、GitLab/GitHub `project:ref:path`、`feedURL:itemId`、Notion page、Confluence page、语雀 doc ID、钉钉 node ID、IMA kb/media、Seafile repo+路径哈希、Nextcloud `oc:id`）；`upload`/`manual` 为空，身份只按 ID 匹配而不是标题。来源归属以 `source_connection_id` 与 `knowledge_document_source_ranges` 为准；`disabled_reason` 区分 manual/source/range/remote，source/range/remote 只能由后续成功同步重新证明权限后恢复。飞书/Lark 的 `appId` 放在 `knowledge_sources.config`，`appSecret` 只在 `secrets_encrypted`。
 
-`search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用只写 `search_text`），embedding 固定 1024 维。业务实体主键同样用 TypeID（`kb_`、`kdoc_`、`kdv_`、`kchk_`、`ksrc_`、`kjob_` 等）；`knowledge_document_tags` 与 `knowledge_wiki_sources` 是纯关联表，不单独生成 ID。
+`search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用只写 `search_text`）；embedding 固定 1024 维且只对 `kind='embedding'` 生效，`rerank`/`asr` 的 `dimensions` 必须为 null，ASR profile 固定 openai 协议且不允许图片输入。业务实体主键同样用 TypeID（`kb_`、`kdoc_`、`kdv_`、`kchk_`、`ksrc_`、`kjob_` 等）；`knowledge_document_tags`、`knowledge_document_source_ranges` 与 `knowledge_wiki_sources` 是纯关联表，不单独生成 ID。
 
 ---
 
@@ -844,6 +865,7 @@ pnpm dev
 | knowledge source | `ksrc` | — |
 | knowledge source range | `krng` | — |
 | knowledge sync run | `ksyn` | — |
+| knowledge sync item | `ksit` | — |
 | knowledge wiki page | `kwp` | — |
 | knowledge wiki version | `kwv` | — |
 | knowledge wiki source | `kws` | — |
@@ -853,7 +875,7 @@ TypeID 由 uuidv7 编码而来，按时间排序，便于按创建顺序扫描�
 
 例外：
 
-- `agent_skills`、`agent_servers`、`knowledge_document_tags`、`knowledge_wiki_sources`：关联表只有复合唯一索引，没有独立 `id`。
+- `agent_skills`、`agent_servers`、`knowledge_document_tags`、`knowledge_document_source_ranges`、`knowledge_wiki_sources`：关联表只有复合唯一索引，没有独立 `id`。
 - Better Auth 的用户与账号技术 ID 随机生成（bootstrap 也是随机 ID）；`session` / `verification` 默认随机 ID。
 - 认证账户的技术 ID 只作登录载体，可删除并重建；业务记录不引用它，统一直接保存稳定 `businessId`（创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权、个人记忆）。`session` 属于认证载体，账户重建时不恢复旧会话。字段与接口见 §18 及配套契约文件；实现只在本工作树，未合入 main、已通过最终 review、准备发布。
 - `audit_log` 默认用 `newId('audit')`；调用方提供 `dedupeKey` 时直接以其作为主键。

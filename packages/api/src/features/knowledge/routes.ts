@@ -1,37 +1,41 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import {
   decryptSecrets,
   embedImages,
   embedTexts,
   encryptSecrets,
+  inspectKnowledgeAudio,
   KnowledgeModelError,
   rerankDocuments,
   segmentForSearch,
 } from '@agentport/core';
-import { repo, schema } from '@agentport/db';
+import { newId, repo, schema } from '@agentport/db';
 import type { KnowledgeBaseSettings } from '@agentport/shared';
 import {
   httpUrlSchema,
   knowledgeBaseInputSchema,
   knowledgeBaseSettingsSchema,
   knowledgeChunkKindSchema,
+  knowledgeDocumentVersionSchema,
+  knowledgeFaqImportMetadataSchema,
   knowledgeImageChunkMetadataSchema,
   knowledgeJobPayloadSchema,
   knowledgeModelProfileSelectionSchema,
+  knowledgeTargetKindSchema,
 } from '@agentport/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { writeAudit } from '../../plugins/audit.js';
-import { isAppError, isPgCode, reject } from '../../plugins/errors.js';
+import { AppError, isAppError, isPgCode, reject } from '../../plugins/errors.js';
 import { publishKnowledgeCancel } from '../../queue/producer.js';
 import { typed } from '../../types.js';
-import { actorOf } from '../access.js';
+import { actorOf, authorizeObject } from '../access.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 import { searchKnowledge } from './retrieval.js';
-import { createJob, enqueueKnowledgeJob, ensureKnowledgeServer } from './service.js';
+import { createJob, documentWire, enqueueKnowledgeJob, ensureKnowledgeServer } from './service.js';
 
 /** 1x1 PNG：图片能力探针用真实字节，不靠模型名推断。 */
 const TINY_PNG_BASE64 =
@@ -60,6 +64,8 @@ const pageQuery = z.object({
 const baseCreateSchema = knowledgeBaseInputSchema.extend({
   embeddingProfileId: z.string().min(1),
   rerankProfileId: z.string().min(1).nullable().default(null),
+  /** null 表示不启用音频转录；绑定非空 ID 时由入口校验 kind 与 enabled。 */
+  asrProfileId: z.string().min(1).nullable().default(null),
   settings: knowledgeBaseSettingsSchema.prefault({
     chunkTokens: 800,
     chunkOverlap: 120,
@@ -73,6 +79,8 @@ const basePatchSchema = z.object({
   status: z.enum(['active', 'disabled']).optional(),
   embeddingProfileId: z.string().min(1).optional(),
   rerankProfileId: z.string().min(1).nullable().optional(),
+  /** undefined 保持，null 关闭。 */
+  asrProfileId: z.string().min(1).nullable().optional(),
   settings: knowledgeBaseSettingsSchema.partial().optional(),
 });
 
@@ -91,6 +99,8 @@ const uploadSchema = z.object({
   dataBase64: z.string().min(1),
   title: z.string().trim().min(1).max(300).optional(),
   folderId: z.string().min(1).nullable().default(null),
+  /** 浏览器目录上传时的相对路径；只用于建真实目录，不接受绝对路径或 ..。 */
+  relativePath: z.string().min(1).max(512).optional(),
 });
 
 const documentQuery = pageQuery.extend({
@@ -109,54 +119,110 @@ const documentPatchSchema = z.object({
 });
 
 const chunkCreateSchema = z.object({
-  versionId: z.string().min(1).optional(),
+  expectedVersionId: z.string().min(1),
   kind: z.enum(['text', 'table', 'image']).default('text'),
   heading: z.string().max(300).nullable().default(null),
   content: z.string().min(1).max(100_000),
   enabled: z.boolean().default(true),
-  pageFrom: z.number().int().nullable().default(null),
-  pageTo: z.number().int().nullable().default(null),
 });
 const chunkPatchSchema = z.object({
+  expectedVersionId: z.string().min(1),
   content: z.string().min(1).max(100_000).optional(),
   heading: z.string().max(300).nullable().optional(),
   enabled: z.boolean().optional(),
 });
+const chunkDeleteSchema = z.object({ expectedVersionId: z.string().min(1) });
 
 const rebuildSchema = z.object({
   documentIds: z.array(z.string().min(1)).optional(),
   chunksOnly: z.boolean().default(false),
+  confirmOverwriteManualChunks: z.boolean().default(false),
 });
 const reprocessSchema = z.object({ confirmOverwriteManualChunks: z.boolean().default(false) });
 
-/** querystring 一律字符串：folders/tags 用逗号分隔，与浏览器可构造的 URL 形状一致。 */
+const rollbackSchema = z.object({
+  versionId: z.string().min(1),
+  expectedVersionId: z.string().nullable(),
+});
+
+const batchSchema = z.object({
+  documentIds: z.array(z.string().min(1)).min(1).max(100),
+  action: z.enum(['move', 'copy', 'tag', 'delete', 'reprocess']),
+  folderId: z.string().min(1).nullable().optional(),
+  tags: z.array(z.string().trim().min(1).max(64)).max(50).optional(),
+  tagMode: z.enum(['add', 'remove', 'replace']).optional(),
+  confirmOverwriteManualChunks: z.boolean().default(false),
+});
+
+/** 浏览器可构造的重复 query 参数：单值也按一元数组读取。 */
+const repeated = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (value) => (value === undefined ? [] : Array.isArray(value) ? value : [value]),
+    z.array(schema),
+  );
+
 const searchQuery = z.object({
   q: z.string().trim().min(1).max(500),
-  folders: z
-    .string()
-    .optional()
-    .transform((value) => (value ? value.split(',').filter(Boolean) : [])),
-  tags: z
-    .string()
-    .optional()
-    .transform((value) => (value ? value.split(',').filter(Boolean) : [])),
+  // 缺省三类；重复 query 参数按数组读取，单值视为一元数组。
+  kinds: z.preprocess(
+    (value) =>
+      value === undefined ? ['document', 'faq', 'wiki'] : Array.isArray(value) ? value : [value],
+    z.array(knowledgeTargetKindSchema).min(1),
+  ),
+  folders: repeated(z.string()),
+  tags: repeated(z.string()),
   limit: z.coerce.number().int().min(1).max(50).default(10),
   rerank: z
     .enum(['true', 'false'])
     .default('true')
     .transform((value) => value === 'true'),
+  diagnostics: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  minVectorScore: z.coerce.number().min(-1).max(1).default(0.3),
+  onlyRecommended: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  faqPriority: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  faqDirectAnswerThreshold: z.coerce.number().min(-1).max(1).default(0.9),
 });
 
-const profileCreateSchema = z.object({
-  kind: z.enum(['embedding', 'rerank']),
-  name: z.string().trim().min(1).max(120),
-  endpointUrl: httpUrlSchema,
-  model: z.string().trim().min(1).max(200),
-  embeddingProtocol: z.enum(['openai', 'cohere_v2']).default('openai'),
-  imageInputEnabled: z.boolean().default(false),
-  apiKey: z.string().min(1).max(500).optional(),
-  enabled: z.boolean().default(true),
-});
+const profileKindSchema = z.enum(['embedding', 'rerank', 'asr']);
+
+/** ASR 固定 openai 转录协议、无维度、无图片能力；其余字段沿用同一张表。 */
+const profileCreateSchema = z
+  .object({
+    kind: profileKindSchema,
+    name: z.string().trim().min(1).max(120),
+    endpointUrl: httpUrlSchema,
+    model: z.string().trim().min(1).max(200),
+    embeddingProtocol: z.enum(['openai', 'cohere_v2']).default('openai'),
+    imageInputEnabled: z.boolean().default(false),
+    apiKey: z.string().min(1).max(500).optional(),
+    enabled: z.boolean().default(true),
+  })
+  .superRefine((value, ctx) => {
+    if (value.kind !== 'asr') return;
+    if (value.embeddingProtocol !== 'openai') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['embeddingProtocol'],
+        message: 'ASR profile 固定使用 openai 转录协议',
+      });
+    }
+    if (value.imageInputEnabled) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['imageInputEnabled'],
+        message: 'ASR profile 不支持图片输入',
+      });
+    }
+  });
 const profilePatchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   endpointUrl: httpUrlSchema.optional(),
@@ -179,6 +245,8 @@ const chunkSchema = z.object({
   documentId: z.string(),
   versionId: z.string(),
   ordinal: z.number().int(),
+  parentOrdinal: z.number().int().nullable(),
+  indexRole: z.enum(['leaf', 'parent']),
   kind: knowledgeChunkKindSchema,
   heading: z.string().nullable(),
   content: z.string(),
@@ -186,6 +254,7 @@ const chunkSchema = z.object({
   editedByUser: z.boolean(),
   pageFrom: z.number().int().nullable(),
   pageTo: z.number().int().nullable(),
+  locator: z.record(z.string(), z.unknown()).nullable(),
   metadata: z.record(z.string(), z.unknown()),
 });
 
@@ -207,7 +276,7 @@ const tagSchema = z.object({
 
 const profileSchema = z.object({
   id: z.string(),
-  kind: z.enum(['embedding', 'rerank']),
+  kind: profileKindSchema,
   name: z.string(),
   endpointUrl: z.string(),
   model: z.string(),
@@ -238,6 +307,7 @@ function toBase(row: Awaited<ReturnType<typeof repo.knowledge.createBase>>) {
     status: row.status,
     embeddingProfileId: row.embeddingProfileId,
     rerankProfileId: row.rerankProfileId,
+    asrProfileId: row.asrProfileId,
     settings: row.settings,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -245,23 +315,7 @@ function toBase(row: Awaited<ReturnType<typeof repo.knowledge.createBase>>) {
 }
 
 function toDocument(row: DocumentRow, tags: string[]) {
-  return {
-    id: row.id,
-    baseId: row.baseId,
-    folderId: row.folderId,
-    title: row.title,
-    sourceType: row.sourceType,
-    sourceUrl: row.sourceUrl,
-    sourcePath: row.sourcePath,
-    mimeType: row.mimeType,
-    sizeBytes: row.sizeBytes,
-    status: row.status,
-    currentVersionId: row.currentVersionId,
-    tags,
-    lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
+  return documentWire(row, tags);
 }
 
 function toChunk(row: ChunkRow) {
@@ -270,6 +324,8 @@ function toChunk(row: ChunkRow) {
     documentId: row.documentId,
     versionId: row.versionId,
     ordinal: row.ordinal,
+    parentOrdinal: row.parentOrdinal,
+    indexRole: row.indexRole,
     kind: row.kind,
     heading: row.heading,
     content: row.content,
@@ -277,6 +333,7 @@ function toChunk(row: ChunkRow) {
     editedByUser: row.editedByUser,
     pageFrom: row.pageFrom,
     pageTo: row.pageTo,
+    locator: row.locator,
     metadata: row.metadata,
   };
 }
@@ -291,6 +348,7 @@ function toJob(row: JobRow | RawJobRow) {
     progress: row.progress,
     attempts: row.attempts,
     error: row.error,
+    result: row.result,
     documentId: row.documentId,
     sourceId: row.sourceId,
     documentTitle: 'documentTitle' in row ? row.documentTitle : null,
@@ -298,6 +356,28 @@ function toJob(row: JobRow | RawJobRow) {
     createdAt: row.createdAt.toISOString(),
     startedAt: row.startedAt?.toISOString() ?? null,
     endedAt: row.endedAt?.toISOString() ?? null,
+  };
+}
+
+type VersionRow = typeof schema.knowledgeDocumentVersions.$inferSelect;
+
+/** 版本 wire 不返回 hash 与磁盘路径，只给管理端需要的可读字段。 */
+function toDocumentVersion(row: VersionRow, currentVersionId: string | null) {
+  return {
+    id: row.id,
+    documentId: row.documentId,
+    version: row.version,
+    origin: row.origin,
+    parentVersionId: row.parentVersionId,
+    metadata: row.metadata,
+    faq: row.faq,
+    sourceRevision: row.sourceRevision,
+    parseStatus: row.parseStatus,
+    originalFilename: row.originalFilename,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    isCurrent: row.id === currentVersionId,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -316,8 +396,35 @@ function toTag(row: TagRow) {
   return { ...row, createdAt: row.createdAt.toISOString() };
 }
 
-function toProfile(row: ProfileRow) {
-  return { ...row, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+/** wire 只回显式字段：列表行与带密文的创建/更新行都不能把 secretsEncrypted 带出去。 */
+function toProfile(row: {
+  id: string;
+  kind: ProfileRow['kind'];
+  name: string;
+  endpointUrl: string;
+  model: string;
+  dimensions: number | null;
+  embeddingProtocol: ProfileRow['embeddingProtocol'];
+  imageInputEnabled: boolean;
+  enabled: boolean;
+  hasSecret: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    name: row.name,
+    endpointUrl: row.endpointUrl,
+    model: row.model,
+    dimensions: row.dimensions,
+    embeddingProtocol: row.embeddingProtocol,
+    imageInputEnabled: row.imageInputEnabled,
+    enabled: row.enabled,
+    hasSecret: row.hasSecret,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 function notFound(reply: FastifyReply, what: string) {
@@ -398,12 +505,13 @@ function supportsImageVectors(profile: {
 
 /** 图片能力只能长在 embedding profile 上，且协议/模型必须匹配；否则探针结果不可信。 */
 function imageCapabilityProblem(input: {
-  kind: 'embedding' | 'rerank';
+  kind: z.infer<typeof profileKindSchema>;
   model: string;
   embeddingProtocol: 'openai' | 'cohere_v2';
   imageInputEnabled: boolean;
 }): string | null {
   if (!input.imageInputEnabled) return null;
+  if (input.kind === 'asr') return 'ASR profile 不支持图片输入';
   if (input.kind !== 'embedding') return '只有 embedding profile 可以开启图片输入';
   if (input.embeddingProtocol !== 'cohere_v2' || input.model !== 'embed-v4.0') {
     return '图片输入需要 embeddingProtocol=cohere_v2 且 model=embed-v4.0';
@@ -448,11 +556,233 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
     return toDocument(row, tags.get(row.id) ?? []);
   };
 
+  type FullChunkRow = typeof schema.knowledgeChunks.$inferSelect;
+
+  const collectChunks = async (versionId: string): Promise<FullChunkRow[]> => {
+    const items: FullChunkRow[] = [];
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await repo.knowledge.listChunks(app.db, versionId, {
+        limit: 200,
+        ...(cursor === undefined ? {} : { cursor }),
+      });
+      items.push(...page.items);
+      if (page.nextCursor === null || page.nextCursor === cursor) return items;
+      cursor = page.nextCursor;
+    }
+  };
+
+  const cloneChunk = (chunk: FullChunkRow): repo.knowledge.NewChunk => ({
+    ordinal: chunk.ordinal,
+    kind: chunk.kind,
+    heading: chunk.heading,
+    content: chunk.content,
+    searchText: chunk.searchText,
+    embedding: chunk.embedding,
+    pageFrom: chunk.pageFrom,
+    pageTo: chunk.pageTo,
+    tokenCount: chunk.tokenCount,
+    metadata: chunk.metadata,
+    parentOrdinal: chunk.parentOrdinal,
+    indexRole: chunk.indexRole,
+    locator: chunk.locator,
+    enabled: chunk.enabled,
+    editedByUser: chunk.editedByUser,
+  });
+
+  /**
+   * 人工编辑分块 = 新文档版本：正文由新块按序号拼出，原件仍指向同一 blob；
+   * 旧版本与其文件保持只读，任何人不能再原地改写历史。
+   * 版本 id 先在 API 预分配并把完整文件写好后，事务才 INSERT/COW/切指针。
+   */
+  const preparedVersionInput = (
+    current: NonNullable<Awaited<ReturnType<typeof repo.knowledge.getVersion>>>,
+    versionId: string,
+    markdown: string,
+  ): repo.knowledge.EditDocumentChunksInput['preparedVersion'] => ({
+    id: versionId,
+    blobSha256: current.blobSha256,
+    markdownSha256: sha256(Buffer.from(markdown, 'utf8')),
+    originalFilename: current.originalFilename,
+    mimeType: current.mimeType,
+    sizeBytes: current.sizeBytes,
+    sourceRevision: current.sourceRevision,
+    metadata: {},
+    faq: null,
+    parseStatus: current.parseStatus,
+    pageMap: current.pageMap,
+    images: current.images,
+    embeddingProfileId: current.embeddingProfileId,
+  });
+
+  /** 清单声明了什么就逐张复制什么；缺文件立即抛错，不能留下指向坏清单的版本目录。 */
+  const copyVersionImages = async (
+    sourceDir: string,
+    targetDir: string,
+    images: Array<{ name: string }>,
+  ): Promise<void> => {
+    if (images.length === 0) return;
+    await mkdir(targetDir, { recursive: true });
+    for (const image of images) {
+      try {
+        await copyFile(join(sourceDir, image.name), join(targetDir, image.name));
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new AppError('CONFLICT', `版本图片文件缺失：${image.name}`);
+        }
+        throw err;
+      }
+    }
+  };
+
+  /** 文件准备失败必须在事务前抛出；调用方随后清理残留目录，绝不切换指针。 */
+  const prepareVersionFiles = async (
+    documentId: string,
+    current: NonNullable<Awaited<ReturnType<typeof repo.knowledge.getVersion>>>,
+    versionId: string,
+    markdown: string,
+  ): Promise<string> => {
+    const dir = join(app.config.KNOWLEDGE_DIR, 'docs', documentId, versionId);
+    try {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'markdown.md'), markdown, 'utf8');
+      await copyVersionImages(
+        join(app.config.KNOWLEDGE_DIR, 'docs', documentId, current.id, 'images'),
+        join(dir, 'images'),
+        current.images,
+      );
+      return dir;
+    } catch (err) {
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      throw err;
+    }
+  };
+
+  /**
+   * 只有事务确实没提交（版本行不存在）时才删预写目录；
+   * editDocumentChunks 可能提交事务后才在收尾步骤抛错，此时文件已属于线上版本。
+   */
+  const discardUncommittedVersion = async (dir: string, versionId: string): Promise<void> => {
+    try {
+      if (await repo.knowledge.getVersion(app.db, versionId)) return;
+    } catch {
+      return;
+    }
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  };
+
+  /** 索引补齐失败不回滚已提交的人工版本，但要让调用方看到 jobId=null。 */
+  const enqueueChunkReindex = async (
+    baseId: string,
+    documentId: string,
+  ): Promise<string | null> => {
+    const job = await createJob(app.db, {
+      baseId,
+      documentId,
+      payload: {
+        type: 'reindex',
+        baseId,
+        documentIds: [documentId],
+        chunksOnly: true,
+        confirmOverwriteManualChunks: false,
+      },
+    });
+    try {
+      await enqueueKnowledgeJob(job);
+      return job.id;
+    } catch (err) {
+      await app.db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.id, job.id));
+      app.log.warn({ err, documentId }, 'knowledge chunk reindex enqueue failed');
+      return null;
+    }
+  };
+
+  /** 显式启用前只核来源/范围授权，复用 repo 的唯一可读 SQL，不另写一套条件。 */
+  const sourceScopeAllowsEnable = async (documentId: string): Promise<boolean> => {
+    const result = await app.db.execute<{ ok: boolean }>(sql`
+      select ${repo.knowledge.readableDocumentSql('probe')} as ok
+      from (
+        select d.id, 'ready'::text as status, d.current_version_id, null::text as disabled_reason,
+               d.source_connection_id, d.base_id, d.source_path
+        from knowledge_documents d
+        where d.id = ${documentId}
+      ) probe
+    `);
+    return result.rows[0]?.ok === true;
+  };
+
+  /** 目录上传的相对路径只用于建库内真实目录，不信任任何路径分隔符组合。 */
+  const relativePathParts = (raw: string): string[] | null => {
+    if (raw.includes('\\')) return null;
+    if (raw.startsWith('/') || /^[A-Za-z]:/.test(raw)) return null;
+    if ([...raw].some((character) => (character.codePointAt(0) ?? 0) < 0x20)) return null;
+    const parts = raw.split('/');
+    if (parts.some((part) => part === '' || part === '.' || part === '..')) return null;
+    return parts;
+  };
+
+  const folderForPath = async (
+    baseId: string,
+    rootFolderId: string | null,
+    parts: string[],
+  ): Promise<string | null> => {
+    let parentId = rootFolderId;
+    let parentPath = '';
+    if (rootFolderId !== null) {
+      const root = await repo.knowledge.getFolder(app.db, rootFolderId);
+      if (!root || root.baseId !== baseId) throw new Error('root folder missing');
+      parentPath = root.path;
+    }
+    for (const name of parts) {
+      const path = `${parentPath}/${name}`;
+      const existing = await app.db
+        .select({ id: schema.knowledgeFolders.id })
+        .from(schema.knowledgeFolders)
+        .where(
+          and(eq(schema.knowledgeFolders.baseId, baseId), eq(schema.knowledgeFolders.path, path)),
+        )
+        .limit(1);
+      if (existing[0]) {
+        parentId = existing[0].id;
+      } else {
+        try {
+          const created = await repo.knowledge.createFolder(app.db, {
+            baseId,
+            parentId,
+            name,
+            path,
+          });
+          parentId = created.id;
+        } catch (err) {
+          if (!isPgCode(err, '23505')) throw err;
+          // 并发上传同一目录：唯一约束胜出后复用已存在的行。
+          const [row] = await app.db
+            .select({ id: schema.knowledgeFolders.id })
+            .from(schema.knowledgeFolders)
+            .where(
+              and(
+                eq(schema.knowledgeFolders.baseId, baseId),
+                eq(schema.knowledgeFolders.path, path),
+              ),
+            )
+            .limit(1);
+          if (!row) throw err;
+          parentId = row.id;
+        }
+      }
+      parentPath = path;
+    }
+    return parentId;
+  };
+
   // ---- 知识库 -------------------------------------------------------------
 
   app.get(
     '/api/knowledge/bases',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { querystring: pageQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { querystring: pageQuery },
+    },
     async (request) => {
       const page = await repo.knowledge.listBases(app.db, pageOptions(request.query));
       return { items: page.items.map(toBase), nextCursor: page.nextCursor };
@@ -461,13 +791,19 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.create' } }, schema: { body: baseCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.create' } },
+      schema: { body: baseCreateSchema },
+    },
     async (request, reply) => {
       const input = request.body;
-      const [embedding, rerank] = await Promise.all([
+      const [embedding, rerank, asr] = await Promise.all([
         repo.knowledge.getModelProfileWithSecret(app.db, input.embeddingProfileId),
         input.rerankProfileId
           ? repo.knowledge.getModelProfileWithSecret(app.db, input.rerankProfileId)
+          : null,
+        input.asrProfileId
+          ? repo.knowledge.getModelProfileWithSecret(app.db, input.asrProfileId)
           : null,
       ]);
       if (!embedding || embedding.kind !== 'embedding' || !embedding.enabled) {
@@ -475,6 +811,9 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       }
       if (input.rerankProfileId && (!rerank || rerank.kind !== 'rerank' || !rerank.enabled)) {
         return reject(reply, 'INVALID_INPUT', 'rerank profile 不存在、类型不符或已禁用');
+      }
+      if (input.asrProfileId && (!asr || asr.kind !== 'asr' || !asr.enabled)) {
+        return reject(reply, 'INVALID_INPUT', 'ASR profile 不存在、类型不符或已禁用');
       }
       const settingsProblem = await imageSettingsProblem(input.settings, embedding);
       if (settingsProblem !== null) return reject(reply, 'CONFLICT', settingsProblem);
@@ -488,6 +827,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
           serverId: server.id,
           embeddingProfileId: input.embeddingProfileId,
           rerankProfileId: input.rerankProfileId,
+          asrProfileId: input.asrProfileId,
           settings: input.settings,
         });
         await ensureKnowledgeServer(app.db, { slug: row.slug, id: row.id, serverId: server.id });
@@ -509,7 +849,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: baseParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getBase(app.db, request.params.id);
       return row ? toBase(row) : notFound(reply, '知识库');
@@ -518,7 +861,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/bases/:id',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.update' } }, schema: { params: baseParams, body: basePatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.update' } },
+      schema: { params: baseParams, body: basePatchSchema },
+    },
     async (request, reply) => {
       const current = await repo.knowledge.getBase(app.db, request.params.id);
       if (!current) return notFound(reply, '知识库');
@@ -546,10 +892,15 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         request.body.rerankProfileId === undefined
           ? current.rerankProfileId
           : request.body.rerankProfileId;
-      const [embedding, rerank] = await Promise.all([
+      const nextAsrProfileId =
+        request.body.asrProfileId === undefined ? current.asrProfileId : request.body.asrProfileId;
+      const [embedding, rerank, asr] = await Promise.all([
         repo.knowledge.getModelProfileWithSecret(app.db, nextEmbeddingProfileId),
         nextRerankProfileId
           ? repo.knowledge.getModelProfileWithSecret(app.db, nextRerankProfileId)
+          : null,
+        nextAsrProfileId
+          ? repo.knowledge.getModelProfileWithSecret(app.db, nextAsrProfileId)
           : null,
       ]);
       // 与创建入口同一条规则：换绑不能指向错类型或已停用的模型。
@@ -566,6 +917,13 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
           return reject(reply, 'INVALID_INPUT', 'rerank profile 不存在、类型不符或已禁用');
         }
       }
+      if (nextAsrProfileId !== current.asrProfileId) {
+        if (nextAsrProfileId && (!asr || asr.kind !== 'asr' || !asr.enabled)) {
+          return reject(reply, 'INVALID_INPUT', 'ASR profile 不存在、类型不符或已禁用');
+        }
+      } else if (nextAsrProfileId && !asr) {
+        return reject(reply, 'INVALID_INPUT', 'ASR profile 不存在，可能已被删除');
+      }
       const settingsProblem = await imageSettingsProblem(settings, embedding);
       if (settingsProblem !== null) return reject(reply, 'CONFLICT', settingsProblem);
       const { settings: _settings, ...rest } = request.body;
@@ -580,7 +938,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   // 删内置 server 即级联删库与 agent_servers 绑定；blob 由 cleanup job 按引用回收。
   app.delete(
     '/api/knowledge/bases/:id',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.delete' } }, schema: { params: baseParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.delete' } },
+      schema: { params: baseParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getBase(app.db, request.params.id);
       if (!row) return notFound(reply, '知识库');
@@ -627,10 +988,20 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/folders',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: baseParams, body: folderCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: baseParams, body: folderCreateSchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return notFound(reply, '知识库');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
       const parent = request.body.parentId
         ? await repo.knowledge.getFolder(app.db, request.body.parentId)
         : null;
@@ -654,7 +1025,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/folders/:folderId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: folderParams, body: folderPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: folderParams, body: folderPatchSchema },
+    },
     async (request, reply) => {
       const current = await repo.knowledge.getFolder(app.db, request.params.folderId);
       if (!current) return notFound(reply, '文件夹');
@@ -672,7 +1046,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/folders/:folderId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: folderParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: folderParams },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.deleteFolder(app.db, request.params.folderId))) {
         return notFound(reply, '文件夹');
@@ -683,7 +1060,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/tags',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: baseParams, response: { 200: z.array(tagSchema) } } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams, response: { 200: z.array(tagSchema) } },
+    },
     async (request) => {
       const rows = await repo.knowledge.listTags(app.db, request.params.id);
       return rows.map(toTag);
@@ -706,7 +1086,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/tags/:tagId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: tagParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: tagParams },
+    },
     async (request, reply) => {
       if (!(await repo.knowledge.deleteTag(app.db, request.params.tagId)))
         return notFound(reply, '标签');
@@ -718,12 +1101,17 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/documents',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: baseParams, querystring: documentQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: baseParams, querystring: documentQuery },
+    },
     async (request) => {
       const { folderId, tag, status, q, ...rest } = request.query;
       const page = await repo.knowledge.listDocuments(app.db, {
         ...pageOptions(rest),
         baseId: request.params.id,
+        // 普通列表只放真正文档：FAQ 由 FAQ 面板、Wiki 内部索引由 Wiki 页面负责。
+        contentKind: 'document',
         ...(folderId === undefined ? {} : { folderId: folderId === 'null' ? null : folderId }),
         ...(tag === undefined ? {} : { tag }),
         ...(status === undefined ? {} : { status }),
@@ -743,37 +1131,98 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   // 上传走 base64 JSON（避免 multipart 依赖）：先落 blob，再建行，最后入队 ingest。
   app.put(
     '/api/knowledge/bases/:id/documents/upload',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, bodyLimit: UPLOAD_BODY_LIMIT, schema: { params: baseParams, body: uploadSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      bodyLimit: UPLOAD_BODY_LIMIT,
+      schema: { params: baseParams, body: uploadSchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return notFound(reply, '知识库');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
+      const data = decodeBase64(request.body.dataBase64);
+      if (!data) return reject(reply, 'INVALID_INPUT', 'dataBase64 不是合法的 base64');
+      if (data.length > MAX_UPLOAD_BYTES) {
+        return reject(reply, 'PAYLOAD_TOO_LARGE', '文件解码后超过 32MiB 上限');
+      }
+      // 音频在校验阶段就确定格式与 canonical MIME；任何失败都发生在建目录/blob/行/任务之前。
+      let audio: Awaited<ReturnType<typeof inspectKnowledgeAudio>>;
+      try {
+        audio = await inspectKnowledgeAudio({
+          data,
+          filename: request.body.filename,
+          mimeType: request.body.mimeType,
+        });
+      } catch (err) {
+        if (isAppError(err)) return reject(reply, err.code, err.message);
+        throw err;
+      }
+      if (audio) {
+        if (base.status !== 'active') {
+          return reject(reply, 'CONFLICT', '知识库未启用，不能上传音频');
+        }
+        if (!base.asrProfileId) {
+          return reject(reply, 'CONFLICT', '知识库未绑定音频转录模型，不能上传音频');
+        }
+        const asrProfile = await repo.knowledge.getModelProfileWithSecret(
+          app.db,
+          base.asrProfileId,
+        );
+        if (!asrProfile || asrProfile.kind !== 'asr' || !asrProfile.enabled) {
+          return reject(reply, 'CONFLICT', '知识库绑定的音频转录模型不存在或已禁用');
+        }
+      }
+      const mimeType = audio?.mimeType ?? request.body.mimeType;
       if (request.body.folderId) {
         const folder = await repo.knowledge.getFolder(app.db, request.body.folderId);
         if (!folder || folder.baseId !== base.id) {
           return reject(reply, 'INVALID_INPUT', '文件夹不存在或属于其他知识库');
         }
       }
-      const data = decodeBase64(request.body.dataBase64);
-      if (!data) return reject(reply, 'INVALID_INPUT', 'dataBase64 不是合法的 base64');
-      if (data.length > MAX_UPLOAD_BYTES) {
-        return reject(reply, 'PAYLOAD_TOO_LARGE', '文件解码后超过 32MiB 上限');
+      let folderId = request.body.folderId;
+      let title = request.body.title ?? fileTitle(request.body.filename);
+      if (request.body.relativePath !== undefined) {
+        const parts = relativePathParts(request.body.relativePath);
+        if (!parts) {
+          return reject(
+            reply,
+            'INVALID_INPUT',
+            'relativePath 必须是安全的相对路径（不能是绝对路径、.. 或空段）',
+          );
+        }
+        folderId =
+          parts.length > 1
+            ? await folderForPath(base.id, request.body.folderId, parts.slice(0, -1))
+            : request.body.folderId;
+        title = request.body.title ?? fileTitle(parts.at(-1)!);
       }
       const sha = await storeBlob(app.config.KNOWLEDGE_DIR, data);
       const document = await repo.knowledge.createDocument(app.db, {
         baseId: base.id,
-        folderId: request.body.folderId,
-        title: request.body.title ?? fileTitle(request.body.filename),
+        folderId,
+        title,
         sourceType: 'upload',
         sourceId: null,
         sourceUrl: null,
         sourcePath: null,
-        mimeType: request.body.mimeType,
+        mimeType,
         sizeBytes: data.length,
-        metadata: { originalFilename: request.body.filename },
+        metadata: {
+          originalFilename: request.body.filename,
+          ...(request.body.relativePath === undefined
+            ? {}
+            : { relativePath: request.body.relativePath }),
+        },
       });
       await repo.knowledge.updateDocument(app.db, document.id, { contentHash: sha });
       const job = await enqueue(
-        { type: 'ingest', documentId: document.id },
+        { type: 'ingest', documentId: document.id, publish: 'automatic' },
         { baseId: base.id, documentId: document.id },
       );
       await writeAudit(app.db, request.log, {
@@ -790,7 +1239,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/documents/:documentId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: documentParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: documentParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       return row ? documentWithTags(row) : notFound(reply, '文档');
@@ -799,11 +1251,20 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/documents/:documentId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: documentParams, body: documentPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: documentParams, body: documentPatchSchema },
+    },
     async (request, reply) => {
       const current = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!current) return notFound(reply, '文档');
       const { tags, ...patch } = request.body;
+      // 显式启用必须先证明来源授权仍有效；撤权/范围失效的文档只能靠成功同步恢复。
+      if (current.status === 'disabled' && patch.status === 'ready' && current.sourceConnectionId) {
+        if (!(await sourceScopeAllowsEnable(current.id))) {
+          return reject(reply, 'CONFLICT', '来源授权已失效，需成功同步重新确认范围后才能启用');
+        }
+      }
       if (patch.folderId) {
         const folder = await repo.knowledge.getFolder(app.db, patch.folderId);
         if (!folder || folder.baseId !== current.baseId) {
@@ -819,7 +1280,12 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
           return reject(reply, 'CONFLICT', '当前版本没有可用分块，请先重新摄取');
         }
       }
-      const row = await repo.knowledge.updateDocument(app.db, current.id, patch);
+      const row = await repo.knowledge.updateDocument(app.db, current.id, {
+        ...patch,
+        // 人工停用写 manual；显式启用在授权已确认后清除停用原因。
+        ...(patch.status === 'disabled' ? { disabledReason: 'manual' } : {}),
+        ...(patch.status === 'ready' ? { disabledReason: null } : {}),
+      });
       if (!row) return notFound(reply, '文档');
       // 文档停用（不再可检索）时，引用它的 Wiki 页必须显式 stale，不能继续装作有效。
       if (patch.status === 'disabled' && current.status !== 'disabled') {
@@ -841,7 +1307,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/documents/:documentId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: documentParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: documentParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!row) return notFound(reply, '文档');
@@ -862,10 +1331,20 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/documents/:documentId/reprocess',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } }, schema: { params: documentParams, body: reprocessSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: documentParams, body: reprocessSchema },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!row) return notFound(reply, '文档');
+      if (row.status === 'disabled' || row.disabledReason !== null) {
+        return reject(
+          reply,
+          'CONFLICT',
+          '文档已停用，不能通过重解析恢复；请先完成来源同步或显式启用',
+        );
+      }
       if (!row.currentVersionId) return reject(reply, 'CONFLICT', '文档还没有成功解析的版本');
       const manualChunkCount = await repo.knowledge.countEditedChunks(app.db, row.currentVersionId);
       // 重解析新建版本、不继承人工 chunk；未确认时明确拒绝，避免静默丢弃编辑。
@@ -876,8 +1355,15 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
           `存在 ${manualChunkCount} 个人工编辑的分块，重解析会丢弃这些修改；请确认后重试`,
         );
       }
+      // 人工覆盖确认必须随 job 快照进 worker；只校验不传递会被 worker 当成未确认而跳过。
       const job = await enqueue(
-        { type: 'reindex', baseId: row.baseId, documentIds: [row.id], chunksOnly: false },
+        {
+          type: 'reindex',
+          baseId: row.baseId,
+          documentIds: [row.id],
+          chunksOnly: false,
+          confirmOverwriteManualChunks: request.body.confirmOverwriteManualChunks,
+        },
         { baseId: row.baseId, documentId: row.id },
       );
       return reply.status(202).send({ jobId: job.id });
@@ -919,52 +1405,98 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
     },
   );
 
+  /** FAQ/Wiki 的 chunk 是各自语义的投影，直接改会拆掉问答结构与索引版本。 */
+  const editableChunkDocument = (document: DocumentRow, reply: FastifyReply): boolean => {
+    if (document.contentKind === 'document') return true;
+    reject(reply, 'CONFLICT', 'FAQ/Wiki 内部索引不能直接编辑分块，请使用各自入口');
+    return false;
+  };
+
   app.post(
     '/api/knowledge/documents/:documentId/chunks',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: documentParams, body: chunkCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: documentParams, body: chunkCreateSchema },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getDocument(app.db, request.params.documentId);
       if (!row) return notFound(reply, '文档');
-      const versionId = request.body.versionId ?? row.currentVersionId;
-      if (!versionId) return reject(reply, 'CONFLICT', '文档还没有可用版本');
-      // 版本必须属于该文档，否则能往别的文档版本里塞 chunk。
-      const version = await repo.knowledge.getVersion(app.db, versionId);
-      if (!version || version.documentId !== row.id) {
-        return reject(reply, 'INVALID_INPUT', '版本不存在或不属于该文档');
+      if (!editableChunkDocument(row, reply)) return;
+      if (!row.currentVersionId) return reject(reply, 'CONFLICT', '文档还没有可用版本');
+      if (request.body.expectedVersionId !== row.currentVersionId) {
+        return reject(reply, 'CONFLICT_STALE', '文档版本已变化，请刷新后重试');
       }
-      const ordinal = await repo.knowledge.nextChunkOrdinal(app.db, versionId);
-      const [chunk] = await repo.knowledge.insertChunks(app.db, {
-        baseId: row.baseId,
-        documentId: row.id,
-        versionId,
-        folderId: row.folderId,
-        chunks: [
-          {
-            ordinal,
-            kind: request.body.kind,
-            heading: request.body.heading,
-            content: request.body.content,
-            searchText: segmentForSearch(request.body.content),
-            embedding: null,
-            pageFrom: request.body.pageFrom,
-            pageTo: request.body.pageTo,
-            tokenCount: 0,
-          },
-        ],
+      const current = await repo.knowledge.getVersion(app.db, row.currentVersionId);
+      if (!current) return reject(reply, 'CONFLICT', '文档当前版本已失效');
+      const currentChunks = await collectChunks(current.id);
+      const added = {
+        kind: request.body.kind,
+        heading: request.body.heading,
+        content: request.body.content,
+        searchText: segmentForSearch(request.body.content),
+        embedding: null,
+        tokenCount: 0,
+        metadata: {},
+        enabled: request.body.enabled,
+      };
+      const markdown = [...currentChunks.map((chunk) => chunk.content), added.content].join('\n\n');
+      const versionId = newId('knowledgeVersion');
+      const dir = await prepareVersionFiles(row.id, current, versionId, markdown);
+      let result: Awaited<ReturnType<typeof repo.knowledge.editDocumentChunks>>;
+      try {
+        result = await repo.knowledge.editDocumentChunks(app.db, {
+          documentId: row.id,
+          expectedVersionId: request.body.expectedVersionId,
+          mutation: { type: 'add', chunk: added },
+          preparedVersion: preparedVersionInput(current, versionId, markdown),
+        });
+      } catch (err) {
+        await discardUncommittedVersion(dir, versionId);
+        if (isAppError(err)) return reject(reply, err.code, err.message);
+        throw err;
+      }
+      const jobId = await enqueueChunkReindex(row.baseId, row.id);
+      return reply.status(201).send({
+        document: await documentWithTags(result.document),
+        chunk: result.chunk ? toChunk(result.chunk) : null,
+        jobId,
       });
-      if (!chunk) return reject(reply, 'INTERNAL_ERROR', '分块写入失败');
-      // 人工新增的分块没有向量；补向量与修改正文共用 chunksOnly 通道。
-      const job = await enqueue(
-        { type: 'reindex', baseId: row.baseId, documentIds: [row.id], chunksOnly: true },
-        { baseId: row.baseId, documentId: row.id },
-      );
-      return reply.status(201).send({ ...toChunk(chunk), jobId: job.id });
     },
   );
 
+  const currentVersionForChunk = async (
+    chunk: Awaited<ReturnType<typeof repo.knowledge.getChunk>> & {},
+    expectedVersionId: string,
+    reply: FastifyReply,
+  ) => {
+    const document = await repo.knowledge.getDocument(app.db, chunk.documentId);
+    if (!document) {
+      notFound(reply, '文档');
+      return null;
+    }
+    if (!editableChunkDocument(document, reply)) return null;
+    if (
+      !document.currentVersionId ||
+      chunk.versionId !== document.currentVersionId ||
+      expectedVersionId !== document.currentVersionId
+    ) {
+      reject(reply, 'CONFLICT_STALE', '只能修改当前版本的分块，请刷新后重试');
+      return null;
+    }
+    const version = await repo.knowledge.getVersion(app.db, document.currentVersionId);
+    if (!version) {
+      reject(reply, 'CONFLICT', '文档当前版本已失效');
+      return null;
+    }
+    return { document, version };
+  };
+
   app.patch(
     '/api/knowledge/chunks/:chunkId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: chunkParams, body: chunkPatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: chunkParams, body: chunkPatchSchema },
+    },
     async (request, reply) => {
       const current = await repo.knowledge.getChunk(app.db, request.params.chunkId);
       if (!current) return notFound(reply, '分块');
@@ -976,42 +1508,185 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       ) {
         return reject(reply, 'CONFLICT', '图片向量分块只能启停，正文来自原图描述，不能手改');
       }
-      const patch: Partial<repo.knowledge.ChunkPatch> = {};
-      if (request.body.heading !== undefined) patch.heading = request.body.heading;
-      if (request.body.enabled !== undefined) patch.enabled = request.body.enabled;
-      if (request.body.content !== undefined) {
-        patch.content = request.body.content;
-        // search_text 与向量都依赖正文：改了正文就重算分词、清空向量并等补向量。
-        patch.searchText = segmentForSearch(request.body.content);
-        patch.embedding = null;
-        patch.editedByUser = true;
+      const target = await currentVersionForChunk(current, request.body.expectedVersionId, reply);
+      if (!target) return;
+      const chunks = await collectChunks(target.version.id);
+      const index = chunks.findIndex((chunk) => chunk.id === current.id);
+      if (index < 0) return notFound(reply, '分块');
+      const contentChanged =
+        request.body.content !== undefined && request.body.content !== current.content;
+      const headingChanged =
+        request.body.heading !== undefined && request.body.heading !== current.heading;
+      const patch = {
+        ...(contentChanged
+          ? {
+              content: request.body.content!,
+              searchText: segmentForSearch(request.body.content!),
+              embedding: null,
+            }
+          : {}),
+        ...(headingChanged ? { heading: request.body.heading ?? null } : {}),
+        ...(request.body.enabled === undefined ? {} : { enabled: request.body.enabled }),
+      };
+      const nextChunks = chunks.map((chunk) =>
+        chunk.id === current.id
+          ? {
+              content: request.body.content ?? chunk.content,
+              heading: headingChanged ? (request.body.heading ?? null) : chunk.heading,
+            }
+          : chunk,
+      );
+      const markdown = nextChunks.map((chunk) => chunk.content).join('\n\n');
+      const versionId = newId('knowledgeVersion');
+      const dir = await prepareVersionFiles(
+        target.document.id,
+        target.version,
+        versionId,
+        markdown,
+      );
+      let result: Awaited<ReturnType<typeof repo.knowledge.editDocumentChunks>>;
+      try {
+        result = await repo.knowledge.editDocumentChunks(app.db, {
+          documentId: target.document.id,
+          expectedVersionId: request.body.expectedVersionId,
+          mutation: { type: 'update', chunkId: current.id, patch },
+          preparedVersion: preparedVersionInput(target.version, versionId, markdown),
+        });
+      } catch (err) {
+        await discardUncommittedVersion(dir, versionId);
+        if (isAppError(err)) return reject(reply, err.code, err.message);
+        throw err;
       }
-      const row = await repo.knowledge.patchChunk(app.db, request.params.chunkId, patch);
-      if (!row) return notFound(reply, '分块');
-      // 来源分块被禁用后，引用它的 Wiki 页同样要显式 stale。
-      if (patch.enabled === false) {
-        await repo.knowledge.markWikiStaleByDocument(app.db, row.documentId);
-      }
-      if (request.body.content !== undefined) {
-        await enqueue(
-          { type: 'reindex', baseId: row.baseId, documentIds: [row.documentId], chunksOnly: true },
-          { baseId: row.baseId, documentId: row.documentId },
-        );
-      }
-      return toChunk(row);
+      const jobId = contentChanged
+        ? await enqueueChunkReindex(target.document.baseId, target.document.id)
+        : null;
+      return {
+        document: await documentWithTags(result.document),
+        chunk: result.chunk ? toChunk(result.chunk) : null,
+        jobId,
+      };
     },
   );
 
   app.delete(
     '/api/knowledge/chunks/:chunkId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } }, schema: { params: chunkParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.content.manage' } },
+      schema: { params: chunkParams, body: chunkDeleteSchema },
+    },
     async (request, reply) => {
       const chunk = await repo.knowledge.getChunk(app.db, request.params.chunkId);
       if (!chunk) return notFound(reply, '分块');
-      await repo.knowledge.deleteChunk(app.db, chunk.id);
-      // 删除来源分块同样撤销了引用它的 Wiki 页的有效性。
-      await repo.knowledge.markWikiStaleByDocument(app.db, chunk.documentId);
-      return reply.status(204).send();
+      const target = await currentVersionForChunk(chunk, request.body.expectedVersionId, reply);
+      if (!target) return;
+      const chunks = (await collectChunks(target.version.id)).filter((row) => row.id !== chunk.id);
+      const markdown = chunks.map((row) => row.content).join('\n\n');
+      const versionId = newId('knowledgeVersion');
+      const dir = await prepareVersionFiles(
+        target.document.id,
+        target.version,
+        versionId,
+        markdown,
+      );
+      let result: Awaited<ReturnType<typeof repo.knowledge.editDocumentChunks>>;
+      try {
+        result = await repo.knowledge.editDocumentChunks(app.db, {
+          documentId: target.document.id,
+          expectedVersionId: request.body.expectedVersionId,
+          mutation: { type: 'delete', chunkId: chunk.id },
+          preparedVersion: preparedVersionInput(target.version, versionId, markdown),
+        });
+      } catch (err) {
+        await discardUncommittedVersion(dir, versionId);
+        if (isAppError(err)) return reject(reply, err.code, err.message);
+        throw err;
+      }
+      return {
+        document: await documentWithTags(result.document),
+        chunk: null,
+        jobId: null,
+      };
+    },
+  );
+
+  // ---- 版本列表 / 回退 -----------------------------------------------------
+
+  app.get(
+    '/api/knowledge/documents/:documentId/versions',
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: {
+        params: documentParams,
+        querystring: pageQuery,
+        response: {
+          200: z.object({
+            items: z.array(knowledgeDocumentVersionSchema),
+            nextCursor: z.string().nullable(),
+          }),
+        },
+      },
+    },
+    async (request, reply) => {
+      const document = await repo.knowledge.getDocument(app.db, request.params.documentId);
+      if (!document) return notFound(reply, '文档');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.read',
+        { objectId: document.id },
+        '对象不存在',
+      );
+      const page = await repo.knowledge.listDocumentVersions(
+        app.db,
+        document.id,
+        pageOptions(request.query),
+      );
+      return {
+        items: page.items.map((row) => toDocumentVersion(row, document.currentVersionId)),
+        nextCursor: page.nextCursor,
+      };
+    },
+  );
+
+  app.post(
+    '/api/knowledge/documents/:documentId/rollback',
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.publish' } },
+      schema: { params: documentParams, body: rollbackSchema },
+    },
+    async (request, reply) => {
+      const document = await repo.knowledge.getDocument(app.db, request.params.documentId);
+      if (!document) return notFound(reply, '文档');
+      await authorizeObject(
+        app,
+        request,
+        'knowledge.publish',
+        { objectId: document.id },
+        '对象不存在',
+      );
+      const version = await repo.knowledge.getVersion(app.db, request.body.versionId);
+      // 跨文档版本必须 404，不能让一个 documentId 借到别的文档历史。
+      if (!version || version.documentId !== document.id) {
+        return reject(reply, 'NOT_FOUND', '版本不存在或不属于该文档');
+      }
+      const base = await repo.knowledge.getBase(app.db, document.baseId);
+      if (!base) return notFound(reply, '知识库');
+      await authorizeObject(app, request, 'knowledge.publish', { objectId: base.id }, '对象不存在');
+      if (version.embeddingProfileId !== base.embeddingProfileId) {
+        return reject(reply, 'CONFLICT', '该版本来自不同 embedding 空间，需重建后才能切换');
+      }
+      try {
+        const row = await repo.knowledge.activateDocumentVersion(app.db, {
+          documentId: document.id,
+          versionId: version.id,
+          expectedVersionId: request.body.expectedVersionId,
+        });
+        // 回退到的版本同样是线上发布版：仓储已在切指针同事务写发布标记。
+        return documentWithTags(row);
+      } catch (err) {
+        if (isAppError(err)) return reject(reply, err.code, err.message);
+        throw err;
+      }
     },
   );
 
@@ -1019,7 +1694,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/versions/:versionId/content',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: versionParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: versionParams },
+    },
     async (request, reply) => {
       const version = await repo.knowledge.getVersion(app.db, request.params.versionId);
       if (!version) return notFound(reply, '版本');
@@ -1040,7 +1718,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/versions/:versionId/markdown',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: versionParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: versionParams },
+    },
     async (request, reply) => {
       const version = await repo.knowledge.getVersion(app.db, request.params.versionId);
       if (!version) return notFound(reply, '版本');
@@ -1063,13 +1744,15 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/search',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } }, schema: { params: baseParams, querystring: searchQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: baseParams, querystring: searchQuery },
+    },
     async (request, reply) => {
       try {
-        const result = await searchKnowledge(app.db, request.params.id, request.query, {
+        return await searchKnowledge(app.db, request.params.id, request.query, {
           secretKey: secretKey(),
         });
-        return { hits: result.hits, degraded: result.degraded };
       } catch (err) {
         if (isAppError(err)) return reject(reply, err.code, err.message);
         throw err;
@@ -1079,13 +1762,17 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/bases/:id/rebuild',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } }, schema: { params: baseParams, body: rebuildSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: baseParams, body: rebuildSchema },
+    },
     async (request, reply) => {
       const base = await repo.knowledge.getBase(app.db, request.params.id);
       if (!base) return notFound(reply, '知识库');
+      await authorizeObject(app, request, 'knowledge.execute', { objectId: base.id }, '对象不存在');
+      const ids = request.body.documentIds ? [...new Set(request.body.documentIds)] : null;
       // reindex 的 documentIds 必须属于该库；否则跨库文档会被按错误 base 重建。
-      if (request.body.documentIds && request.body.documentIds.length > 0) {
-        const ids = [...new Set(request.body.documentIds)];
+      if (ids && ids.length > 0) {
         const rows = await app.db
           .select({ id: schema.knowledgeDocuments.id })
           .from(schema.knowledgeDocuments)
@@ -1099,12 +1786,39 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
           return reject(reply, 'INVALID_INPUT', '存在不属于该知识库的文档');
         }
       }
+      // 完整重建会覆盖正文；chunksOnly 只补向量并保留人工修改，不需要确认。
+      if (!request.body.chunksOnly && !request.body.confirmOverwriteManualChunks) {
+        const [edited] = await app.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(schema.knowledgeChunks)
+          .innerJoin(
+            schema.knowledgeDocuments,
+            eq(schema.knowledgeDocuments.id, schema.knowledgeChunks.documentId),
+          )
+          .where(
+            and(
+              eq(schema.knowledgeDocuments.baseId, base.id),
+              eq(schema.knowledgeChunks.editedByUser, true),
+              eq(schema.knowledgeChunks.versionId, schema.knowledgeDocuments.currentVersionId),
+              ...(ids && ids.length > 0 ? [inArray(schema.knowledgeDocuments.id, ids)] : []),
+            ),
+          );
+        const editedCount = edited?.count ?? 0;
+        if (editedCount > 0) {
+          return reject(
+            reply,
+            'CONFLICT',
+            `存在 ${editedCount} 个人工编辑的分块，完整重建会丢弃这些修改；请确认后重试`,
+          );
+        }
+      }
       const job = await enqueue(
         {
           type: 'reindex',
           baseId: base.id,
           ...(request.body.documentIds ? { documentIds: request.body.documentIds } : {}),
           chunksOnly: request.body.chunksOnly,
+          confirmOverwriteManualChunks: request.body.confirmOverwriteManualChunks,
         },
         { baseId: base.id, documentId: null },
       );
@@ -1112,11 +1826,254 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
     },
   );
 
+  // ---- 批量操作 -----------------------------------------------------------
+
+  type BatchResult = {
+    documentId: string;
+    status: 'succeeded' | 'failed';
+    newDocumentId?: string;
+    jobId?: string;
+    code?: string;
+    message?: string;
+  };
+
+  const copyDocument = async (document: DocumentRow): Promise<string> => {
+    if (document.contentKind === 'wiki') {
+      throw new AppError('CONFLICT', 'Wiki 索引文档不能复制为普通文档');
+    }
+    const version = document.currentVersionId
+      ? await repo.knowledge.getVersion(app.db, document.currentVersionId)
+      : null;
+    if (!version) throw new AppError('CONFLICT', '文档还没有成功解析的版本，无法复制');
+    const chunks = await collectChunks(version.id);
+    const newDocumentId = newId('knowledgeDocument');
+    const newVersionId = newId('knowledgeVersion');
+    const sourceDir = join(app.config.KNOWLEDGE_DIR, 'docs', document.id, version.id);
+    const targetDir = join(app.config.KNOWLEDGE_DIR, 'docs', newDocumentId, newVersionId);
+    await mkdir(targetDir, { recursive: true });
+    try {
+      const markdown =
+        (await readFile(join(sourceDir, 'markdown.md'), 'utf8').catch(() => null)) ??
+        chunks.map((chunk) => chunk.content).join('\n\n');
+      await writeFile(join(targetDir, 'markdown.md'), markdown, 'utf8');
+      // 清单声明了图片就必须真的复制；任一文件缺失时整项失败，不能留下指向坏清单的假成功副本。
+      await copyVersionImages(
+        join(sourceDir, 'images'),
+        join(targetDir, 'images'),
+        version.images ?? [],
+      );
+      const tagNames =
+        (await repo.knowledge.getDocumentTagNames(app.db, [document.id])).get(document.id) ?? [];
+      await app.db.transaction(async (tx) => {
+        await tx.insert(schema.knowledgeDocuments).values({
+          id: newDocumentId,
+          baseId: document.baseId,
+          folderId: document.folderId,
+          title: document.title,
+          sourceType: 'manual',
+          sourceId: null,
+          sourceUrl: null,
+          sourcePath: null,
+          mimeType: document.mimeType,
+          sizeBytes: document.sizeBytes,
+          // 复制是独立人工文档：保留原启停，不继承来源连接与授权。
+          status:
+            document.status === 'disabled' ? 'disabled' : chunks.length > 0 ? 'ready' : 'pending',
+          contentKind: document.contentKind,
+          disabledReason: document.status === 'disabled' ? document.disabledReason : null,
+          sourceConnectionId: null,
+          currentVersionId: newVersionId,
+          contentHash: version.blobSha256,
+          metadata: { originalFilename: version.originalFilename },
+          lastSyncedAt: null,
+        });
+        await tx.insert(schema.knowledgeDocumentVersions).values({
+          id: newVersionId,
+          documentId: newDocumentId,
+          version: 1,
+          blobSha256: version.blobSha256,
+          markdownSha256: sha256(Buffer.from(markdown, 'utf8')),
+          originalFilename: version.originalFilename,
+          mimeType: version.mimeType,
+          sizeBytes: version.sizeBytes,
+          sourceRevision: null,
+          parseStatus: version.parseStatus,
+          pageMap: version.pageMap,
+          images: version.images,
+          embeddingProfileId: version.embeddingProfileId,
+          origin: 'manual',
+          parentVersionId: null,
+          // 精确版本复制：音频元数据（含段级时码）必须随版本保留，不能重新转录。
+          metadata: version.metadata,
+          faq: version.faq,
+        });
+        await repo.knowledge.insertChunks(tx, {
+          baseId: document.baseId,
+          documentId: newDocumentId,
+          versionId: newVersionId,
+          folderId: document.folderId,
+          chunks: chunks.map(cloneChunk),
+        });
+        if (tagNames.length > 0) {
+          const tags = await repo.knowledge.upsertTags(tx, document.baseId, tagNames);
+          await tx
+            .insert(schema.knowledgeDocumentTags)
+            .values(tags.map((tag) => ({ documentId: newDocumentId, tagId: tag.id })));
+        }
+      });
+      return newDocumentId;
+    } catch (err) {
+      // 失败时连预分配文档目录一起回收，不能留下空文档目录冒充副本。
+      await rm(join(app.config.KNOWLEDGE_DIR, 'docs', newDocumentId), {
+        recursive: true,
+        force: true,
+      }).catch(() => undefined);
+      throw err;
+    }
+  };
+
+  app.post(
+    '/api/knowledge/bases/:id/documents/batch',
+    {
+      config: { access: { kind: 'authenticated' } },
+      schema: { params: baseParams, body: batchSchema },
+      preHandler: async (request, reply) => {
+        await app
+          .requirePermission(
+            request.body.action === 'reprocess' ? 'knowledge.execute' : 'knowledge.content.manage',
+          )
+          .call(app, request, reply, () => undefined);
+      },
+    },
+    async (request, reply) => {
+      const base = await repo.knowledge.getBase(app.db, request.params.id);
+      if (!base) return notFound(reply, '知识库');
+      await authorizeObject(
+        app,
+        request,
+        request.body.action === 'reprocess' ? 'knowledge.execute' : 'knowledge.content.manage',
+        { objectId: base.id },
+        '对象不存在',
+      );
+      const input = request.body;
+      if (input.action === 'move') {
+        if (input.folderId === undefined) {
+          return reject(reply, 'INVALID_INPUT', '移动文档需要 folderId（根目录传 null）');
+        }
+        if (input.folderId !== null) {
+          const folder = await repo.knowledge.getFolder(app.db, input.folderId);
+          if (!folder || folder.baseId !== base.id) {
+            return reject(reply, 'INVALID_INPUT', '文件夹不存在或属于其他知识库');
+          }
+        }
+      }
+      if (input.action === 'tag' && (!input.tags || !input.tagMode)) {
+        return reject(reply, 'INVALID_INPUT', '批量标签需要 tags 与 tagMode');
+      }
+
+      const results: BatchResult[] = [];
+      for (const documentId of input.documentIds) {
+        const document = await repo.knowledge.getDocument(app.db, documentId);
+        if (!document) {
+          results.push({ documentId, status: 'failed', code: 'NOT_FOUND', message: '文档不存在' });
+          continue;
+        }
+        if (document.baseId !== base.id) {
+          results.push({
+            documentId,
+            status: 'failed',
+            code: 'INVALID_INPUT',
+            message: '文档不属于该知识库',
+          });
+          continue;
+        }
+        try {
+          if (input.action === 'move') {
+            await repo.knowledge.updateDocument(app.db, document.id, {
+              folderId: input.folderId ?? null,
+            });
+            results.push({ documentId, status: 'succeeded' });
+          } else if (input.action === 'copy') {
+            results.push({
+              documentId,
+              status: 'succeeded',
+              newDocumentId: await copyDocument(document),
+            });
+          } else if (input.action === 'tag') {
+            const currentNames =
+              (await repo.knowledge.getDocumentTagNames(app.db, [document.id])).get(document.id) ??
+              [];
+            const tags = input.tags ?? [];
+            const names =
+              input.tagMode === 'replace'
+                ? tags
+                : input.tagMode === 'remove'
+                  ? currentNames.filter((name) => !tags.includes(name))
+                  : [...new Set([...currentNames, ...tags])];
+            const rows = await repo.knowledge.upsertTags(app.db, base.id, names);
+            await repo.knowledge.setDocumentTags(
+              app.db,
+              document.id,
+              rows.map((tag) => tag.id),
+            );
+            results.push({ documentId, status: 'succeeded' });
+          } else if (input.action === 'delete') {
+            await repo.knowledge.markWikiStaleByDocument(app.db, document.id);
+            await repo.knowledge.deleteDocument(app.db, document.id);
+            results.push({ documentId, status: 'succeeded' });
+          } else {
+            if (document.status === 'disabled' || document.disabledReason !== null) {
+              throw new AppError('CONFLICT', '文档已停用，不能通过重解析恢复');
+            }
+            if (!document.currentVersionId) {
+              throw new AppError('CONFLICT', '文档还没有成功解析的版本');
+            }
+            if (!input.confirmOverwriteManualChunks) {
+              const edited = await repo.knowledge.countEditedChunks(
+                app.db,
+                document.currentVersionId,
+              );
+              if (edited > 0) {
+                throw new AppError(
+                  'CONFLICT',
+                  `存在 ${edited} 个人工编辑的分块，重解析会丢弃这些修改`,
+                );
+              }
+            }
+            const job = await enqueue(
+              {
+                type: 'reindex',
+                baseId: base.id,
+                documentIds: [document.id],
+                chunksOnly: false,
+                confirmOverwriteManualChunks: input.confirmOverwriteManualChunks,
+              },
+              { baseId: base.id, documentId: document.id },
+            );
+            results.push({ documentId, status: 'succeeded', jobId: job.id });
+          }
+        } catch (err) {
+          results.push({
+            documentId,
+            status: 'failed',
+            code: isAppError(err) ? err.code : 'INTERNAL_ERROR',
+            message: isAppError(err) ? err.message : '操作失败',
+          });
+          if (!isAppError(err)) app.log.error({ err, documentId }, 'knowledge batch item failed');
+        }
+      }
+      return { results };
+    },
+  );
+
   // ---- 任务 ---------------------------------------------------------------
 
   app.get(
     '/api/knowledge/jobs',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { querystring: jobQuery } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { querystring: jobQuery },
+    },
     async (request) => {
       const { baseId, documentId, status, ...rest } = request.query;
       const page = await repo.knowledge.listJobs(app.db, {
@@ -1131,7 +2088,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/jobs/:jobId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.read' } }, schema: { params: jobParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.read' } },
+      schema: { params: jobParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getJob(app.db, request.params.jobId);
       return row ? toJob(row) : notFound(reply, '任务');
@@ -1141,7 +2101,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   // 重试不复用原行：终态只写一次，新行才能真正重新执行。
   app.post(
     '/api/knowledge/jobs/:jobId/retry',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } }, schema: { params: jobParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: jobParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getJob(app.db, request.params.jobId);
       if (!row) return notFound(reply, '任务');
@@ -1162,6 +2125,73 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         await enqueueKnowledgeJob(created.job);
         return reply.status(202).send({ jobId: created.job.id });
       }
+      // 普通 FAQ 草稿版本由 API 预落库，worker 只补分块、不写 metadata；
+      // 重试必须把草稿改绑到新任务：普通草稿写 indexingJobId，批次导入草稿写
+      // faqImportJobId，发布守卫（逐条/整批）才能核到这次重试。
+      let faqDraftBinding: {
+        versionId: string;
+        jobKey: 'indexingJobId' | 'faqImportJobId';
+      } | null = null;
+      if (
+        payload.type === 'ingest' &&
+        payload.publish === 'draft' &&
+        payload.versionId !== undefined
+      ) {
+        const document = await repo.knowledge.getDocument(app.db, payload.documentId);
+        const version = document
+          ? await repo.knowledge.getVersion(app.db, payload.versionId)
+          : null;
+        if (
+          document?.contentKind === 'faq' &&
+          document.id === row.documentId &&
+          document.baseId === row.baseId &&
+          version?.documentId === document.id &&
+          version.metadata.publication === 'draft'
+        ) {
+          if (version.metadata.faqImport === undefined) {
+            faqDraftBinding = { versionId: version.id, jobKey: 'indexingJobId' };
+          } else if (
+            knowledgeFaqImportMetadataSchema.safeParse(version.metadata.faqImport).success
+          ) {
+            faqDraftBinding = { versionId: version.id, jobKey: 'faqImportJobId' };
+          }
+        }
+      }
+      if (faqDraftBinding) {
+        const { versionId, jobKey } = faqDraftBinding;
+        const job = await app.db.transaction(async (tx) => {
+          const created = await createJob(tx, {
+            baseId: row.baseId,
+            documentId: row.documentId,
+            sourceId: row.sourceId,
+            payload,
+          });
+          // 只补一个键：faqImport 快照、replaceTargets 等其它 metadata 原样保留。
+          const rebind =
+            jobKey === 'indexingJobId'
+              ? sql`jsonb_build_object('indexingJobId', ${created.id}::text)`
+              : sql`jsonb_build_object('faqImportJobId', ${created.id}::text)`;
+          const [bound] = await tx
+            .update(schema.knowledgeDocumentVersions)
+            .set({
+              metadata: sql`${schema.knowledgeDocumentVersions.metadata} || ${rebind}`,
+            })
+            .where(
+              and(
+                eq(schema.knowledgeDocumentVersions.id, versionId),
+                sql`${schema.knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
+                jobKey === 'indexingJobId'
+                  ? sql`${schema.knowledgeDocumentVersions.metadata} -> 'faqImport' is null`
+                  : sql`${schema.knowledgeDocumentVersions.metadata} -> 'faqImport' is not null`,
+              ),
+            )
+            .returning({ id: schema.knowledgeDocumentVersions.id });
+          if (!bound) throw new AppError('CONFLICT', '目标 FAQ 草稿已变化，请刷新后重试');
+          return created;
+        });
+        await enqueueKnowledgeJob(job);
+        return reply.status(202).send({ jobId: job.id });
+      }
       const job = await enqueue(payload, {
         baseId: row.baseId,
         documentId: row.documentId,
@@ -1177,7 +2207,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
    */
   app.post(
     '/api/knowledge/jobs/:jobId/cancel',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } }, schema: { params: jobParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.execute' } },
+      schema: { params: jobParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getJob(app.db, request.params.jobId);
       if (!row) return notFound(reply, '任务');
@@ -1216,10 +2249,7 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
       schema: {
         querystring: profileListQuery,
         response: {
-          200: z.union([
-            z.array(profileSchema),
-            z.array(knowledgeModelProfileSelectionSchema),
-          ]),
+          200: z.union([z.array(profileSchema), z.array(knowledgeModelProfileSelectionSchema)]),
         },
       },
       preHandler: async (request, reply) => {
@@ -1245,7 +2275,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/knowledge/model-profiles',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } }, schema: { body: profileCreateSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } },
+      schema: { body: profileCreateSchema },
+    },
     async (request, reply) => {
       const input = request.body;
       const capabilityProblem = imageCapabilityProblem(input);
@@ -1278,7 +2311,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.patch(
     '/api/knowledge/model-profiles/:profileId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } }, schema: { params: profileParams, body: profilePatchSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } },
+      schema: { params: profileParams, body: profilePatchSchema },
+    },
     async (request, reply) => {
       const { apiKey, ...rest } = request.body;
       if (rest.endpointUrl !== undefined)
@@ -1288,6 +2324,13 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         request.params.profileId,
       );
       if (!current) return notFound(reply, '模型 profile');
+      if (
+        current.kind === 'asr' &&
+        rest.embeddingProtocol !== undefined &&
+        rest.embeddingProtocol !== 'openai'
+      ) {
+        return reject(reply, 'INVALID_INPUT', 'ASR profile 固定使用 openai 转录协议');
+      }
       const next = {
         kind: current.kind,
         model: rest.model ?? current.model,
@@ -1307,6 +2350,8 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
         const referenced = await app.pool.query<{ referenced: boolean }>(
           `select exists(
              select 1 from knowledge_bases where embedding_profile_id = $1
+             union all
+             select 1 from knowledge_bases where asr_profile_id = $1
              union all
              select 1 from knowledge_document_versions where embedding_profile_id = $1
            ) as referenced`,
@@ -1333,7 +2378,10 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/knowledge/model-profiles/:profileId',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } }, schema: { params: profileParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } },
+      schema: { params: profileParams },
+    },
     async (request, reply) => {
       try {
         const result = await app.pool.query('delete from knowledge_model_profiles where id = $1', [
@@ -1354,10 +2402,17 @@ export function registerKnowledgeRoutes(rawApp: FastifyInstance): void {
   // 只发一次最小请求验证凭证/维度；不落 job，也不改 profile。
   app.post(
     '/api/knowledge/model-profiles/:profileId/test',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } }, schema: { params: profileParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.models.manage' } },
+      schema: { params: profileParams },
+    },
     async (request, reply) => {
       const row = await repo.knowledge.getModelProfileWithSecret(app.db, request.params.profileId);
       if (!row) return notFound(reply, '模型 profile');
+      // ASR 没有免费探针：不静音上传、不联网、不计费，验证走显式音频上传。
+      if (row.kind === 'asr') {
+        return reject(reply, 'CONFLICT', 'ASR 请通过显式音频上传验证');
+      }
       // 存量数据也要过同一道边界，测试端点不能成为访问内网的跳板。
       try {
         await assertKnowledgeEndpoint(row.endpointUrl, app.config);

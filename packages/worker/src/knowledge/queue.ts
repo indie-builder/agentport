@@ -15,8 +15,8 @@ import {
   isRetryableKnowledgeError,
   KnowledgeCancelled,
   type KnowledgeDeps,
+  type KnowledgeJobResult,
   runKnowledgeJob,
-  type SyncRunResult,
 } from './ingestion.js';
 import { createParsingAdapter } from './parsing-adapter.js';
 import { runWikiGenerate, type WikiQueryFn } from './wiki.js';
@@ -35,6 +35,7 @@ export const KNOWLEDGE_TIMEOUT_MS: Record<KnowledgeJobRow['type'], number> = {
   ingest: 30 * 60_000,
   sync: 30 * 60_000,
   reindex: 2 * 60 * 60_000,
+  source_probe: 5 * 60_000,
   wiki_generate: 15 * 60_000,
   cleanup: 30 * 60_000,
 };
@@ -55,7 +56,7 @@ export interface DispatchDeps extends KnowledgeDeps {
 export async function dispatchKnowledgeJob(
   job: KnowledgeJobRow,
   deps: DispatchDeps,
-): Promise<SyncRunResult | void> {
+): Promise<KnowledgeJobResult | void> {
   if (job.type === 'wiki_generate') {
     return runWikiGenerate(job, {
       db: deps.db,
@@ -181,9 +182,14 @@ export async function startKnowledgeWorker(
         // close 可能发生在认领期间：已经拿到的任务不再执行。
         if (closing) throw new KnowledgeCancelled();
         const result = await dispatchKnowledgeJob(row, { ...dispatch, signal: controller.signal });
+        // 先读 cancel key 再判断 signal：读取期间 timeout/关闭/轮询触发的 abort 也必须算取消。
+        const cancelRequested = (await scanner.get(knowledgeCancelKey(row.id))) !== null;
+        if (cancelRequested || controller.signal.aborted) {
+          throw new KnowledgeCancelled();
+        }
         await finish(config.db, row, {
           status: 'succeeded',
-          ...(result === undefined ? {} : { result }),
+          ...result,
         });
       } catch (err) {
         if (closing) {
@@ -250,7 +256,7 @@ async function resetToQueued(db: KnowledgeDeps['db'], jobId: string, error: stri
 async function finish(
   db: KnowledgeDeps['db'],
   job: KnowledgeJobRow,
-  input: { status: 'succeeded' | 'failed' | 'cancelled'; error?: string; result?: SyncRunResult },
+  input: repo.knowledge.FinishJobInput,
 ): Promise<void> {
   await repo.knowledge.finishJob(db, job.id, input);
 }
