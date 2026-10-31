@@ -6,7 +6,7 @@ import { type BackendInfra, createIsolatedDatabase } from './isolated-db.js';
 
 // 与 docker-compose.yml 的 redis 使用同一 tag+digest；CI 预拉取的就是这个 tag。
 const REDIS_IMAGE =
-  'redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b';
+  'redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537';
 /** 私有实例内部的分区；对外仍沿用测试约定的 db 9。 */
 const REDIS_DB = 9;
 const CONTAINER_PREFIX = 'backend_test_redis';

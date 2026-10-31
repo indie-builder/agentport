@@ -47,9 +47,10 @@ async function seed(effort: string | null): Promise<Fixture> {
     name: `E2E 默认值 ${suffix}`,
   };
   const { pool } = await db();
+  // RBAC NOT NULL：夹具归属首次初始化的 bootstrap 管理员业务身份。
   await pool.query(
-    `insert into agents (id, slug, name, model, effort)
-     values ($1, $2, $3, 'test-model', $4)`,
+    `insert into agents (id, slug, name, model, effort, created_by, owner_business_id)
+     values ($1, $2, $3, 'test-model', $4, 'bootstrap-admin', 'bootstrap-admin')`,
     [fixture.id, fixture.slug, fixture.name, effort],
   );
   created.push(fixture);

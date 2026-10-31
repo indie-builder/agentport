@@ -2,9 +2,9 @@
 # 构建：docker build -t agentport/api:dev .
 # 沙盒镜像由同一 root context 的 sandbox target 产出：
 #   docker build --target sandbox -t agentport/sandbox:dev .
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS base
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS base
 # 固定 pnpm 版本，避免 corepack 在构建时联网取最新版。
-RUN npm install -g pnpm@12.15.0
+RUN npm install -g pnpm@12.16.1
 WORKDIR /repo
 
 # 先只复制 manifest，依赖层可被源码变更复用。
@@ -32,7 +32,7 @@ RUN pnpm --filter @agentport/api deploy --prod /out/api \
 
 # 沙盒运行时镜像：只含 runner 与官方 SDK，不含业务代码与智能体定义。
 # 必须放在 runtime 之前，默认 target 仍是 api/worker 镜像。
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS sandbox
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS sandbox
 
 # git：原生插件安装由官方 CLI 克隆市场仓库；poppler-utils：官方长 PDF 分页读取依赖
 # （pdftoppm/pdfinfo）；bash：官方 CLI 只认 PATH 上的 bash/zsh，缺失即报
@@ -59,7 +59,7 @@ ENV CLAUDE_CONFIG_DIR=/home/node/.claude
 USER node
 ENTRYPOINT ["node", "dist/runner.js"]
 
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS runtime
 # worker 通过宿主 docker.sock 启沙盒，需要 docker CLI（不含 daemon）；
 # 运行环境构建另需 buildx 插件，只在 runtime target 安装。
 RUN apk add --no-cache docker-cli docker-cli-buildx

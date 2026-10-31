@@ -26,7 +26,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:8.10.3-alpine@sha256:896f241f438ab6a210cfb24f573b84bea721a4cbe67f1b4fd07eb638b3b02a7b
+    image: redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
     restart: unless-stopped
     # 密码由 compose 在启动时注入；healthcheck 里用同一个变量名，避免两处不一致。
     environment:
@@ -45,7 +45,7 @@ services:
   # 命名卷首次创建时属主是 root；api/worker 以 node(1000) 运行会 EACCES。
   # 单独的一次性 init 修复，`docker compose up` 与 up.sh 行为一致。
   init:
-    image: alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
+    image: alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
     command: ['chown', '-R', '1000:1000', '/w', '/k']
     restart: 'no'
     volumes:
