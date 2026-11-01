@@ -231,6 +231,12 @@
       "skillPath": "skills/tanstack-query/SKILL.md",
       "computedHash": "8e5a7e3cdc6900c3967945658aa277629ba7b5264ddadc017ee2b76359456719"
     },
+    "test-audit": {
+      "source": "mblode/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/test-audit/SKILL.md",
+      "computedHash": "5977839596c7ec985b06298b1b40acb07a0de1e0e3d4745f49d29665f346de87"
+    },
     "test-driven-development": {
       "source": "obra/superpowers",
       "sourceType": "github",

@@ -41,6 +41,7 @@
 | `react-router` | tanstack/router | TanStack Router 的 React 绑定与组件用法 |
 | `router-query` | tanstack/router | TanStack Router 与 Query 的集成（loader、预取） |
 | `vitest` | antfu/skills | Vitest 配置、断言与测试组织 |
+| `test-audit` | mblode/agent-skills | 定向或全量清理低价值测试并守住覆盖率；先测基线、按文件比对、保留 keeper 测试 |
 | `vite` | antfu/skills | Vite 配置、插件与构建 |
 | `pnpm` | antfu/skills | pnpm workspace 与依赖管理 |
 | `drizzle-orm-patterns` | giuseppe-trisciuoglio/developer-kit | Drizzle ORM schema、查询与迁移模式 |
@@ -160,6 +161,12 @@ mutator / uml-viewer 配套工具本次未安装。上游仓库无 LICENSE 文�
 - `pstack`：模型选择、任务编排、并行拆分与独立 review；不承担工程纪律本身。
 - `test-driven-development`：按需参考红绿步骤，不是硬性门禁。
 - `verification-before-completion`：交付前跑验证、看真实输出再声明完成。
+
+### test-audit（2026-11-01）
+
+上游 `mblode/agent-skills` 许可 MIT（上游最近推送 2026-10-29），本次用 CLI 1.7.4 安装（`--agent claude-code --agent universal -y`）；canonical 目录在 `.agents/skills/test-audit/`，`.claude/skills/test-audit` 为同相对链接，`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。
+
+只在 `SKILL.md` frontmatter 后加一段中文 `Project convention`，`references/`、`evals/` 保持上游原样。约定：执行器为 Vitest 5.0.5，根 `vitest.config.ts` 的 `backend`（node，`packages/**/test/**/*.test.ts`）与 `web`（jsdom）两个 project，命令 `pnpm test` / `pnpm test:web` / `pnpm vitest run <paths>`（可加 `--project backend|web`）；后端测试由 `packages/worker/test/global-setup.ts` 每轮创建独立随机 PostgreSQL 库与临时 Redis 容器，Docker/PostgreSQL 不可用时依赖设施的套件按设计跳过，不盲目 unskip，先起基础设施，绝不回落共享库 / 共享 Redis（见 `docs/PITFALLS.md`）；覆盖率用已装的 `@vitest/coverage-v8`，基线命令与评审命令一致并按文件比较；E2E 统一 `e2e` / `@e2e-dev/web`，不在 `pnpm test` 内，本技能不审计 E2E；主会话不写代码，删改测试由子代理在任务 worktree 执行并附真实证据，不新增阻塞钩子，结论用中文；不引入 crapper / mutator 或新依赖。升级或重装后补回该段，再跑「完成核验」。
 
 ### unslop（2026-11-01）
 
