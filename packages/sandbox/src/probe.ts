@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline';
 import type { Readable } from 'node:stream';
 import {
+  errorText,
   limitToolCatalog,
   SANDBOX_PROBE_CONNECT_TIMEOUT_MS,
   sandboxProbeTaskSchema,
@@ -91,7 +92,7 @@ try {
   emit({ ok: true, ...(version ? { serverInfo: version } : {}), tools });
 } catch (err) {
   // 任何失败都只写一行结果：父进程只看 stdout，进程退出码不携带原因。
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorText(err);
   log(`probe failed: ${message}`);
   emit({ ok: false, tools: [], error: message });
 }

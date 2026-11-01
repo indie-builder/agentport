@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
+  errorText,
   type NativeQuestion,
   type ProgressTodo,
   progressTodoSchema,
@@ -392,7 +393,7 @@ async function resolveSession(input: SandboxTask): Promise<{
     log(`forked ${input.resumeSessionId} -> ${forked.sessionId}`);
     return { resume: forked.sessionId, fork: { sessionId: forked.sessionId } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorText(err);
     return { error: `session fork failed: ${message}` };
   }
 }
@@ -687,7 +688,7 @@ if (session.error !== undefined) {
   } catch (err) {
     // 未捕获的异常会直接退出进程，宿主只能看到「没有 run_finished」。
     // 这里统一转成终态事件：取消归 cancelled，其余归 agent。
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorText(err);
     log(`query failed: ${message}`);
     failRun(abortController.signal.aborted ? 'cancelled' : 'agent', message);
   } finally {

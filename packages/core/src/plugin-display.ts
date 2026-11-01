@@ -1,3 +1,4 @@
+import { errorText } from '@agentport/shared';
 import { isMap, parseDocument } from 'yaml';
 
 export interface PluginMarkdown {
@@ -72,7 +73,7 @@ export function readPluginMarkdown(content: string, fallbackName: string): Plugi
   try {
     fields = doc.toJS({ mapAsMap: true }) as Map<unknown, unknown>;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
     return raw(text, fallbackName, `frontmatter 无法读取：${message}`);
   }
 

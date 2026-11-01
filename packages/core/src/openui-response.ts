@@ -1,4 +1,4 @@
-import { segmentOpenUi } from '@agentport/shared';
+import { errorText, segmentOpenUi } from '@agentport/shared';
 import { createParser, mergeStatements, type ParseResult } from '@openuidev/lang-core';
 import librarySpec from './generated/openui.spec.json' with { type: 'json' };
 
@@ -104,7 +104,7 @@ export function resolveOpenUiResponseDetailed(
       diagnostics.push({
         blockKey,
         code: 'merge-failed',
-        message: error instanceof Error ? error.message : String(error),
+        message: errorText(error),
       });
       parts.push(fence(patch));
       continue;
