@@ -395,7 +395,7 @@ export function KnowledgeDetailPage() {
             }
             className="flex-col gap-5"
           >
-            <TabsList variant="line" aria-label="知识库分区" className="gap-4 border-b pb-3">
+            <TabsList variant="line" aria-label="知识库分区" className="gap-4 border-b">
               {tabs.map((item) => (
                 <TabsTrigger key={item.id} value={item.id}>
                   {item.label}

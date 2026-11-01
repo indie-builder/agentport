@@ -478,7 +478,7 @@ function InstallPluginDialog({
           </div>
         ) : null}
         <Tabs value={tab} onValueChange={(next) => setTab(next as 'market' | 'installed')}>
-          <TabsList aria-label="安装方式">
+          <TabsList variant="line" aria-label="安装方式">
             <TabsTrigger value="market" disabled={pending}>
               从市场安装
             </TabsTrigger>

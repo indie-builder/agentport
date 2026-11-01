@@ -35,7 +35,8 @@
 ## 轮次记录（续）与收敛状态
 - 轮5（本提交）：①待审批卡 pending 加陶土边线+微光+「等待授权」药丸（终态中性，药丸文字用 `--color-link` 达 AA）；②channel `@` 提及浮层统一 `radius-popover`+`shadow-md`；③7 档滚动遮罩触顶/触底动态归零（`--fade-top`/`--fade-bottom` + rAF onScroll，无 setState 抖动）。
 - 轮6（本提交）：跨页面一致性——①内联链接统一 `--color-link`（memory-review/knowledge-citations/memory-panel/personal-shares/personal-usage）；②空态下一步动作改共享 Button(default sm, 用 Link 保留导航语义)；③ghost/outline hover `bg-muted`→`bg-hover`（button/badge/message-scroller）；④Tooltip 加 `.cds-overlay-enter`，Sheet 仅 scrim 透明度（面板保持 fade，避免 scale 露边）。
-- 轮1–6 已闭合多轮审计确认的高/中价值差异。仍待用户决策：轮间距 #2（已批准布局几何）。其余为低价值/N-A。持续审计中。
+- 轮7-8（本提交）：①表格分隔线用 `--hairline`；②Dialog scrim 加 `backdrop-blur-[2px]`；③knowledge-detail tabs 去 `pb-3`；④success 徽章补 `--color-success-soft`；⑤抽出共享 `SegmentedToggle`（view-toggle.tsx），`ViewToggle` 升级 CDS 胶囊+滑动 thumb（7 页通用），skills 复用，plugins 保留语义 line Tabs；⑥空态 EmptyState 虚线→实线（受保护扇形卡保留虚线）；⑦对话轮间距 36→24px（pt-5→pt-2）。17 用例回归通过，Opus 终审可交付。
+- 轮1–8 已闭合多轮审计确认的高/中价值差异。仍可选 backlog：EmptyState 边框可用 `--hairline`、其余低价值项。持续审计中。
 
 ## 当前有效决定
 - 每轮：提交到分支并 push；merge main 需用户确认。#2 轮间距暂列待决策。

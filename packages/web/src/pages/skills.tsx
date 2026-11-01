@@ -11,8 +11,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
-import { motion, useReducedMotion } from 'motion/react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -52,7 +51,7 @@ import {
   FieldLabel,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
-import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
+import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
@@ -434,58 +433,6 @@ export function SkillsPage() {
         />
       ) : null}
     </ResourcePage>
-  );
-}
-
-function SegmentedToggle<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: readonly { value: T; label: string }[];
-  onChange: (value: T) => void;
-}) {
-  const reduce = useReducedMotion();
-  const thumbId = useId();
-  return (
-    <ToggleGroup
-      aria-label={label}
-      multiple={false}
-      className="relative rounded-pill bg-sunken p-0.5 text-muted-foreground"
-      value={[value]}
-      onValueChange={(values) => {
-        const next = options.find((option) => option.value === values[0])?.value;
-        if (next) onChange(next);
-      }}
-    >
-      {options.map((option) => (
-        <ToggleGroupItem
-          key={option.value}
-          value={option.value}
-          className="relative isolate h-7 rounded-pill px-3 text-sm hover:bg-transparent hover:text-fg aria-pressed:bg-transparent aria-pressed:text-fg"
-        >
-          {value === option.value ? (
-            <motion.span
-              layoutId={`segmented-thumb-${thumbId}`}
-              transition={
-                reduce
-                  ? { duration: 0 }
-                  : {
-                      type: 'tween',
-                      duration: 0.12,
-                      ease: [0.32, 0.72, 0, 1] as [number, number, number, number],
-                    }
-              }
-              className="absolute inset-0 -z-10 rounded-pill bg-surface shadow-sm"
-            />
-          ) : null}
-          {option.label}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
   );
 }
 

@@ -2482,7 +2482,7 @@ export function MessagePane({
                   return (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
                       {/* 一轮一组：只靠拉开间距划出轮次边界，不加横线。 */}
-                      <div className={cn('group/turn message-fade-up', turnIndex > 0 && 'pt-5')}>
+                      <div className={cn('group/turn message-fade-up', turnIndex > 0 && 'pt-2')}>
                         {/* Keep 14px conversation text instead of the base message's text-sm. */}
                         <Message align={turn.user ? 'end' : 'start'} className="text-base">
                           <MessageContent

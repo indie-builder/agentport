@@ -63,6 +63,7 @@
   /* 状态：只用于小面积 */
   /* 成功色需同时满足表面、画布、选中底上的文字对比度。 */
   --color-success: #187646;
+  --color-success-soft: #e9f3ec;
   --color-warning: #8a5600;
   --color-warning-soft: #fbf3e4;
   --color-danger: #b42318;
