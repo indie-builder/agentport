@@ -21,7 +21,7 @@ export function App() {
               // Sonner 自带的 [data-sonner-toast][data-styled] 规则特异性更高，只保留中性外观所需的覆盖。
               // shadow-overlay! 会覆盖 Sonner 的 :focus-visible 阴影，焦点改由单层中性 outline 表达。
               toast:
-                'border-line! bg-surface! text-fg! shadow-overlay! focus-visible:outline-2! focus-visible:outline-ring! focus-visible:outline-offset-2!',
+                'rounded-[var(--radius-card)]! border-line! bg-surface! text-fg! shadow-overlay! focus-visible:outline-2! focus-visible:outline-ring! focus-visible:outline-offset-2!',
               description: 'text-muted-foreground!',
               // Sonner 的 [data-button] 规则特异性高于 Tailwind，important 仅用于让操作按钮保持中性 outline。
               actionButton: buttonVariants({

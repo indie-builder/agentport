@@ -278,7 +278,7 @@ function HealthLine() {
   const queueIssue = queue.condition !== 'ok' && queue.condition !== 'failed';
   if (!queueIssue && !redisIssue && !isError) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs tabular-nums text-warning">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-warning">
       {queueIssue ? <span>{queue.message}</span> : null}
       {redisIssue ? <span>Redis 指标不可用</span> : null}
       {isError ? <span>健康指标刷新失败，显示上次结果</span> : null}

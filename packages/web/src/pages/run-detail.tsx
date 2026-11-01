@@ -16,6 +16,7 @@ import { CodeBlock, CollapsibleText, prettyJson } from '../components/code-block
 import { CopyButton } from '../components/copy-button.js';
 import { Page, PageHeader, PageSection } from '../components/page.js';
 import { RunQuestionCard } from '../components/run-question.js';
+import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { can } from '../lib/access.js';
@@ -182,7 +183,8 @@ export function RunDetailPage() {
         <ArrowLeft aria-hidden="true" />
       </a>
       <PageHeader
-        title={`运行 ${shortId(params.runId)}${run.data ? ` · ${runStatusLabel[run.data.run.status]}` : ''}`}
+        title={`运行 ${shortId(params.runId)}`}
+        eyebrow={run.data ? <RunStatusBadge status={run.data.run.status} /> : null}
         className="min-w-0 flex-1 [&_h1]:shrink"
         actions={
           run.data ? (

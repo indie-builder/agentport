@@ -37,7 +37,8 @@
 - 轮6（本提交）：跨页面一致性——①内联链接统一 `--color-link`（memory-review/knowledge-citations/memory-panel/personal-shares/personal-usage）；②空态下一步动作改共享 Button(default sm, 用 Link 保留导航语义)；③ghost/outline hover `bg-muted`→`bg-hover`（button/badge/message-scroller）；④Tooltip 加 `.cds-overlay-enter`，Sheet 仅 scrim 透明度（面板保持 fade，避免 scale 露边）。
 - 轮7-8（本提交）：①表格分隔线用 `--hairline`；②Dialog scrim 加 `backdrop-blur-[2px]`；③knowledge-detail tabs 去 `pb-3`；④success 徽章补 `--color-success-soft`；⑤抽出共享 `SegmentedToggle`（view-toggle.tsx），`ViewToggle` 升级 CDS 胶囊+滑动 thumb（7 页通用），skills 复用，plugins 保留语义 line Tabs；⑥空态 EmptyState 虚线→实线（受保护扇形卡保留虚线）；⑦对话轮间距 36→24px（pt-5→pt-2）。17 用例回归通过，Opus 终审可交付。
 - 轮9-10（本提交）：轮9 审计发现 4 项中价值（空态与页头重复主操作、概览「需要处理」0 项空行、卡内嵌边框空态=卡片套卡片、CardFooter 整条灰带/卡内按钮偏重）；轮10 修复：servers/channels 空态主操作降级 outline、servers 卡内按钮改 ghost；概览/ops「需要处理」0 项整段不渲染（仅 isSuccess&&total=0，保 loading/error）；EmptyState 增 `bordered`(默认 true)、趋势卡用无边框；CardFooter 去灰带改 hairline；文档 §9 卡内操作改 ghost。终审 2 项（PageSection 残留标题、吞错误）已修。
-- 轮1–10 已闭合多轮审计确认的高/中价值差异；构建/typecheck/多轮多视口截图/多轮 Opus 终审通过。**收敛**：余下为低价值项（图表图例弱化、概览健康句 mono、Toast 8px 圆角、run-detail 状态文本、breadcrumb 未用等）。分支 `worktree-cds-polish-p5` 共 6 个提交，未合并 main（等用户）。
+- 轮11（本提交）：低价值收尾——图表图例文字弱化为 muted；概览健康整句去 mono（数值仍等宽）；run-detail 状态改为复用 RunStatusBadge（eyebrow，可读屏）；Toast 圆角对齐 `--radius-card`（Sonner 需 !important）；breadcrumb 经核实被 plugin-detail 使用，保留。
+- 轮1–11 已闭合多轮审计高/中价值 + 主要低价值项。分支 `worktree-cds-polish-p5` 共 9 个提交，未合并 main（等用户）。
 
 ## 当前有效决定
 - 每轮：提交到分支并 push；merge main 需用户确认。#2 轮间距暂列待决策。
