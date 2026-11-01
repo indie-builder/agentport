@@ -543,7 +543,7 @@ export function OverviewPage() {
                 { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
                 { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
               ].map(({ label, value, hint, icon: Icon }) => (
-                <Card key={label}>
+                <Card key={label} interactive={false}>
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between gap-3">
                       <span className="text-sm font-normal text-muted-foreground">{label}</span>

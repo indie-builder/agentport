@@ -42,3 +42,6 @@
 ## 轮次记录
 - **轮1（提交）**：信息表达去冗余 + 动效 bug。①plugins 页脚「查看详情」与标题 Link 同目标，删除页脚重复入口（保留「被 N 个专家使用」+ 编辑按钮）；②runs 页脚「查看运行」与标题 Link 同目标，删除；③knowledge.tsx Card `transition-shadow hover:ring-foreground/25` 覆盖默认交互过渡致 hover 上浮跳变，去掉 overrides。终审发现 4 个既有测试（plugin-editor/audit-action-feedback/run-detail-navigation/runs-view-toggle）仍按旧页脚入口定位，已等价改到标题链接（保留 URL/可访问名/backTo），4 文件 32 用例全绿。验证：typecheck exit0、web build exit0。遗留：另 7 个 theme-contrast/ui-focus-states 既有失败与本轮无关。
   - 待办调整：H1 剩余（channels/runtime 重复主按钮、channel 计数重复）、H2 卡片按需上浮、H3 空态语言统一、M1 动效令牌、M2 强调层级、M4 阅读行长、L1–L3 → 后续轮次。
+- **轮2（提交）**：①H2 卡片 affordance 诚实——`ui/card.tsx` 新增 `interactive` 属性（默认 true），仅真·纯展示卡（overview 指标卡等，无任何可交互子元素）设 `interactive={false}`，消除「不可点却在 hover 上浮」的误导；②M2 数字排版一致——runs 卡片统计（耗时/成本/token 等）补 `tabular-nums`，与 personal-usage/data-table 一致。验证见下。
+  - 终审发现并修复：最初整类移除 `cds-card-interactive` 会连带丢失常驻 `--shadow-panel`（卡片边界）——已拆为 `.cds-card-surface`（所有卡片常驻边界）+ `.cds-card-interactive`（仅 hover 上浮/过渡）；card.tsx 恒带 surface、条件加 interactive；同步 DESIGN-SYSTEM §2.3/§9 与 packages/web/DESIGN.md 措辞。验证：typecheck exit0、web build exit0。
+  - 核实排除（审计过度声称，勿再改）：channel.tsx 头部的头像/chip 是 `xl:hidden` 的响应式身份/状态展示，非纯重复计数；personal-shares `empty="还没有分享"` 是 DataTable 分支，items=0 时已被上方 EmptyState 截胡，实际走不到。

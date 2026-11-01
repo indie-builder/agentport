@@ -178,7 +178,7 @@ function RunCard({ run }: { run: RunListItem }) {
         </CardAction>
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-3">
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs tabular-nums">
           <dt className="text-muted-foreground">开始</dt>
           <dd className="text-right text-muted-foreground" title={formatDateTime(run.startedAt)}>
             {formatRelative(run.startedAt)}

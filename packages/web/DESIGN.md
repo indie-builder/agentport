@@ -353,7 +353,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ## Elevation & Depth
 
-系统默认是平的。外壳、表格与列表没有投影；卡片用 `.cds-card-interactive` 的 `--shadow-panel`（1px `line` 环 + 轻投影），卡片 hover 上浮 1.5px 并换 `--shadow-panel-hover`。深度只出现在卡片、浮层与 Composer：所有菜单、Select、Popover、Dialog、Sheet、Toast 共用 CDS 双环 overlay 阴影；Composer 使用默认/hover/聚焦三态阴影，普通输入的陶土微光只属于焦点。
+系统默认是平的。外壳、表格与列表没有投影；卡片常驻 `.cds-card-surface` 的 `--shadow-panel`（1px `line` 环 + 轻投影）；可交互卡再加 `.cds-card-interactive` 做 hover 上浮 1.5px 并换 `--shadow-panel-hover`。深度只出现在卡片、浮层与 Composer：所有菜单、Select、Popover、Dialog、Sheet、Toast 共用 CDS 双环 overlay 阴影；Composer 使用默认/hover/聚焦三态阴影，普通输入的陶土微光只属于焦点。
 
 ### Shadow Vocabulary
 
@@ -408,7 +408,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Cards / Tables / Lists
 
-- **Cards:** 纯白底、12px 圆角、1px `line` ring；卡片统一带 `.cds-card-interactive` 的 `--shadow-panel`，卡片 hover 上浮 1.5px 并换 `--shadow-panel-hover`。Card 根是带 `py-4` 的纵向 flex，子块间距 16px（`size="sm"` 为 12px），根本身没有水平 padding；Header、Content、Footer 各自承担 16px 水平内边距，Footer 独立 `p-4`，存在 Footer 时根 `pb-0`。因此不能描述成「所有裸 Card 子节点统一 p16」。CardTitle 为 14/22（`text-base`），sm 卡为 13/20（`text-sm`）；描述 13/20 `muted-foreground`。真实浏览器已测量标题行高 22px。
+- **Cards:** 纯白底、12px 圆角、1px `line` ring；卡片统一常驻 `.cds-card-surface` 的 `--shadow-panel`；可交互卡再加 `.cds-card-interactive` 做 hover 上浮 1.5px 并换 `--shadow-panel-hover`。Card 根是带 `py-4` 的纵向 flex，子块间距 16px（`size="sm"` 为 12px），根本身没有水平 padding；Header、Content、Footer 各自承担 16px 水平内边距，Footer 独立 `p-4`，存在 Footer 时根 `pb-0`。因此不能描述成「所有裸 Card 子节点统一 p16」。CardTitle 为 14/22（`text-base`），sm 卡为 13/20（`text-sm`）；描述 13/20 `muted-foreground`。真实浏览器已测量标题行高 22px。
 - **Expert card:** 208px（`h-52`）固定高、同列宽、16px 网格 gap 与内边距、40px 头像（「创建数字分身」入口保持 80px）。已创建卡按 208px 固定预算布局：上下内边距各 16px（合计 32px）、48px 身份头部、12px、72px 中部、12px、32px 操作行。身份头部为 40px 头像加名称链接与角色两行，停用徽章与角色同行，右上角只保留「更多」操作菜单；中部为全宽、最多两行的介绍与最多两行的权限原因，空介绍保留中部空间且不造占位文案；底部为独立 32px 操作行，左侧「开始对话」主操作，右侧带 `IdCard` 图标的 outline「工牌」按钮。无使用权限时权限原因可见并以 `aria-describedby` 关联「开始对话」，停用专家不提供可执行对话。可访问名为「查看 <名称> 工牌」的按钮打开工牌专用的插画式实体证件：沿用 Base UI Dialog 的焦点、Esc/外部点击关闭与关闭后返回原触发器，但作为明确例外使用透明 DialogContent，不套标准头部或白色弹框外壳，标题「<名称> 的工牌」仅 sr-only，关闭按钮可达，不改动全局 DialogShell 契约。视觉为居中的 96px 挂绳与扣环连接 360px 宽竖式卡套，内含 96px 原插画头像；卡套以真实 DOM 展示数字员工身份、姓名、岗位、启停、完整介绍、员工编号（真实 id）与上岗时间（真实 `createdAt`，含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」）。短视口整体单层滚动，长姓名与介绍不截断；白底中性 token，现有插画配色例外沿用，不新增动效；只读不请求详情，不展示提示词、成员资料或二维码等虚构统计。不使用 CardFooter、底带或分隔线。**保留（受保护）**：找专家页的扇形「新建专家」入口卡与「创建数字分身」卡是用户刻意要求的创建入口，不得删除、合并或改为仅页头入口。
 - **Tables / Lists:** 纯白底、1px `line` 分隔；表头 12px `muted-foreground`，单元格 13/20；行 hover 与展开用不透明 `hover` `#F3F3F0`，选中用 `selected` `#EAE9E4`；卡片页脚同为 `hover` `#F3F3F0`。真实浏览器已测量表头 12px 辅助色与行/页脚底色。
 - **Skeleton / Progress / Separator:** Skeleton 用 `sunken`；Progress 活跃主线用 `primary`，终态走原结果语义；Separator 用 `line`。

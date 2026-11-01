@@ -617,8 +617,11 @@
     box-shadow: var(--shadow-focus-glow);
   }
 
-  .cds-card-interactive {
+  .cds-card-surface {
     box-shadow: var(--shadow-panel);
+  }
+
+  .cds-card-interactive {
     transition: box-shadow .2s var(--ease-out-soft), transform .2s var(--ease-out-soft);
   }
 
