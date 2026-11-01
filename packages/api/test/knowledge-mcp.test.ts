@@ -181,16 +181,14 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     const slug = unique('kb-auth');
     const agentId = newId('agent');
     createdAgents.push(slug);
-    await app.db
-      .insert(schema.agents)
-      .values({
-        id: agentId,
-        slug,
-        name: slug,
-        model: 'test-model',
-        createdBy: ADMIN_BUSINESS_ID,
-        ownerBusinessId: ADMIN_BUSINESS_ID,
-      });
+    await app.db.insert(schema.agents).values({
+      id: agentId,
+      slug,
+      name: slug,
+      model: 'test-model',
+      createdBy: ADMIN_BUSINESS_ID,
+      ownerBusinessId: ADMIN_BUSINESS_ID,
+    });
     if (bind === 'self') {
       await app.db.insert(schema.agentServers).values({ agentId, serverId });
     } else if (bind === 'disabled-child') {

@@ -1,5 +1,5 @@
-import { AGENT_PACKAGE_MAX_BYTES, slugSchema } from '@agentport/shared';
 import { schema } from '@agentport/db';
+import { AGENT_PACKAGE_MAX_BYTES, slugSchema } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';

@@ -3,8 +3,10 @@ import type { Queue } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentOwnership, conversationSubject, runSubjectFields } from './fixtures/access.js';
+import { testAccess } from './fixtures/access.js';
 import { createIsolatedDatabase } from './isolated-db.js';
+
+const { agentOwnership, conversationSubject, runSubjectFields } = testAccess(import.meta.url);
 
 const { publishRun } = vi.hoisted(() => ({
   publishRun: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),

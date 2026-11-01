@@ -151,15 +151,19 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
   // ZIP 解析器由 import 路由统一注册（同一类型只能注册一次）；这里只复用。
   const app = typed(rawApp);
 
-  app.get('/api/plugins', { config: { access: { kind: 'permission', permissionId: 'plugins.read' } } }, async () => {
-    const rows = await repo.listPlugins(app.db);
-    return rows.map(
-      (row): PluginWithAgentCount => ({
-        ...toApi(row, []),
-        agentCount: row.agentCount,
-      }),
-    );
-  });
+  app.get(
+    '/api/plugins',
+    { config: { access: { kind: 'permission', permissionId: 'plugins.read' } } },
+    async () => {
+      const rows = await repo.listPlugins(app.db);
+      return rows.map(
+        (row): PluginWithAgentCount => ({
+          ...toApi(row, []),
+          agentCount: row.agentCount,
+        }),
+      );
+    },
+  );
 
   // 插件内容只经 ZIP 导入：单独「新建空插件」会造出永远不生效的记录，
   // 且会绕过导入阶段的组件白名单与 manifest 校验。
@@ -218,23 +222,27 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
   );
 
   // 官方缓存里已安装的插件 + 是否已纳入平台库；不向浏览器暴露宿主路径。
-  app.get('/api/plugins/native', { config: { access: { kind: 'permission', permissionId: 'plugins.read' } } }, async (request, reply) => {
-    const output = await runNativePluginAction(app.config.REDIS_URL, request.log, {
-      action: 'list',
-    });
-    if (!output.ok) return sendNativeFailure(reply, output.error);
-    if (!('installed' in output)) {
-      return reject(reply, 'UPSTREAM_FAILED', '安装器没有返回已安装列表，请稍后重试');
-    }
-    const importedSourceIds = await repo.getImportedPluginSourceIds(
-      app.db,
-      output.installed.map((plugin) => plugin.pluginId),
-    );
-    const installed: Array<NativeInstalledPlugin & { imported: boolean }> = output.installed.map(
-      (plugin) => ({ ...plugin, imported: importedSourceIds.has(plugin.pluginId) }),
-    );
-    return { installed };
-  });
+  app.get(
+    '/api/plugins/native',
+    { config: { access: { kind: 'permission', permissionId: 'plugins.read' } } },
+    async (request, reply) => {
+      const output = await runNativePluginAction(app.config.REDIS_URL, request.log, {
+        action: 'list',
+      });
+      if (!output.ok) return sendNativeFailure(reply, output.error);
+      if (!('installed' in output)) {
+        return reject(reply, 'UPSTREAM_FAILED', '安装器没有返回已安装列表，请稍后重试');
+      }
+      const importedSourceIds = await repo.getImportedPluginSourceIds(
+        app.db,
+        output.installed.map((plugin) => plugin.pluginId),
+      );
+      const installed: Array<NativeInstalledPlugin & { imported: boolean }> = output.installed.map(
+        (plugin) => ({ ...plugin, imported: importedSourceIds.has(plugin.pluginId) }),
+      );
+      return { installed };
+    },
+  );
 
   // 从市场安装：官方 CLI 在 worker 沙盒里下载并安装，再把文本快照纳入插件库。
   app.post(
@@ -294,19 +302,26 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/plugins/:id', { config: { access: { kind: 'permission', permissionId: 'plugins.read' } }, schema: { params: idParams } }, async (request, reply) => {
-    const row = await repo.getPlugin(app.db, request.params.id);
-    if (!row) return notFound(reply);
-    const files = await repo.listPluginFiles(app.db, row.id);
-    return toApi(
-      row,
-      files.map((file) => ({
-        path: file.path,
-        content: file.content,
-        executable: file.executable,
-      })),
-    );
-  });
+  app.get(
+    '/api/plugins/:id',
+    {
+      config: { access: { kind: 'permission', permissionId: 'plugins.read' } },
+      schema: { params: idParams },
+    },
+    async (request, reply) => {
+      const row = await repo.getPlugin(app.db, request.params.id);
+      if (!row) return notFound(reply);
+      const files = await repo.listPluginFiles(app.db, row.id);
+      return toApi(
+        row,
+        files.map((file) => ({
+          path: file.path,
+          content: file.content,
+          executable: file.executable,
+        })),
+      );
+    },
+  );
 
   app.patch(
     '/api/plugins/:id',
@@ -357,7 +372,10 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/plugins/:id',
-    { config: { access: { kind: 'permission', permissionId: 'plugins.delete' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'plugins.delete' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const deleted = await repo.deletePlugin(app.db, request.params.id);
       if (!deleted) return notFound(reply);
@@ -375,7 +393,10 @@ export function registerPluginRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/plugins/:id/export',
-    { config: { access: { kind: 'permission', permissionId: 'plugins.export' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'plugins.export' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const row = await repo.getPlugin(app.db, request.params.id);
       if (!row) return notFound(reply);

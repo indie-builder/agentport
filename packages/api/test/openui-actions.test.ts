@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getQueue } from '../src/queue/producer.js';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -12,7 +13,7 @@ import {
   loginCookie,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID, } from './helpers.js';
+} from './helpers.js';
 
 // 断言只看准入写入的用户消息内容与响应码：即使 worker 在线消费也不改写这条记录，
 // 因此不像状态类用例那样要求队列空闲。
@@ -76,7 +77,7 @@ describe.skipIf(!ready)('openui actions', () => {
       agentId,
       title: 'action source',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     conversationIds.push(conversationId);
     const segments = options.segments ?? 1;
     const text =

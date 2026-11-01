@@ -2,6 +2,7 @@ import { newId, repo } from '@agentport/db';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -10,7 +11,6 @@ import {
   loginCookie,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 const ready = await infraReady;

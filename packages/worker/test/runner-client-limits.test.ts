@@ -17,7 +17,9 @@ import {
   runInSandbox,
 } from '../src/runner-client.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
-import { agentOwnership, userSubject } from './fixtures/access.js';
+import { testAccess } from './fixtures/access.js';
+
+const { agentOwnership, userSubject } = testAccess(import.meta.url);
 
 async function probeRedis(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;

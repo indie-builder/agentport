@@ -31,9 +31,9 @@ vi.mock('../src/lib/queries.js', async (original) => {
   return {
     ...queries,
     meQuery: {
-    queryKey: ['me'],
-    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-  },
+      queryKey: ['me'],
+      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+    },
     useServers: () => ({ data: mocks.servers, isPending: false, isError: false }),
     useAgentOptions: () => ({
       data: { servers: [], skills: [], plugins: [], runtimeEnvironments: [] },

@@ -27,7 +27,10 @@ export function registerKnowledgePackageRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/knowledge/bases/:id/export',
-    { config: { access: { kind: 'permission', permissionId: 'knowledge.export' } }, schema: { params: baseParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'knowledge.export' } },
+      schema: { params: baseParams },
+    },
     async (request, reply) => {
       const pkg = await exportKnowledgePackage(app.db, app.config.KNOWLEDGE_DIR, request.params.id);
       if (!pkg) return reject(reply, 'NOT_FOUND', '知识库不存在，可能已被删除；请刷新后重试');

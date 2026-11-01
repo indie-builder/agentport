@@ -13,7 +13,9 @@
       "!**/.agents",
       "!**/dist",
       "!**/routeTree.gen.ts",
-      "!**/migrations/meta"
+      "!**/migrations/meta",
+      "!docs/**/*.json",
+      "!packages/core/src/generated/**"
     ]
   },
   "formatter": {

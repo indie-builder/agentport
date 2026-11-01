@@ -89,14 +89,13 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
       .select({ actor: auditLog.actor, target: auditLog.target, status: auditLog.status })
       .from(auditLog)
       .where(
-        and(
-          eq(auditLog.action, 'auth.profile.updated'),
-          eq(auditLog.actor, account.businessId),
-        ),
+        and(eq(auditLog.action, 'auth.profile.updated'), eq(auditLog.actor, account.businessId)),
       )
       .orderBy(desc(auditLog.createdAt))
       .limit(1);
-    expect(audit).toEqual([{ actor: account.businessId, target: account.businessId, status: 'ok' }]);
+    expect(audit).toEqual([
+      { actor: account.businessId, target: account.businessId, status: 'ok' },
+    ]);
   });
 
   it('rejects identity fields, blank names, anonymous callers and untrusted origins', async () => {

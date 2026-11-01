@@ -4,7 +4,9 @@ import { type PublicRunQuestion, publicRunQuestion } from '@agentport/shared';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import * as messages from '../src/messages.js';
-import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
+import { testAccess } from './fixtures/access.js';
+
+const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
 /**
  * persistRunMessages 必须在 run 仍为 running 时才能写：取消抢先、终态已写、

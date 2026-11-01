@@ -3,6 +3,7 @@ import type { Server } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   createServer,
@@ -13,7 +14,7 @@ import {
   startApp,
   unique,
   waitFor,
-  ADMIN_BUSINESS_ID, } from './helpers.js';
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -55,7 +56,7 @@ describe.skipIf(!ready)('approval lifecycle', () => {
       agentId: agent.id,
       title: 'approval lifecycle',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     const run = await repo.chat.createRun(app.db, {
       id: unique('lifecycle-run'),
       conversationId: conversation.id,

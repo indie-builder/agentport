@@ -19,7 +19,7 @@ vi.mock('../src/lib/queries.js', () => ({
     queryKey: ['me'],
     queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
   },
-    useSkills: () => ({ data: [] }),
+  useSkills: () => ({ data: [] }),
   useMarketSkills: () => ({}),
   useInstallMarketSkill: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateSkill: () => ({ isPending: false, mutate: vi.fn() }),

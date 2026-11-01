@@ -323,13 +323,7 @@ export function registerOpsRoutes(rawApp: FastifyInstance): void {
         .where(eq(schema.agents.id, request.params.id))
         .limit(1);
       if (!agent) return reject(reply, 'NOT_FOUND', '智能体不存在');
-      await authorizeObject(
-        app,
-        request,
-        'agents.read',
-        { agentId: agent.id },
-        '智能体不存在',
-      );
+      await authorizeObject(app, request, 'agents.read', { agentId: agent.id }, '智能体不存在');
       const since = utcWindowStart(request.query.days);
       const { agg, daily } = await opsRepo.agentStats(app.db, request.params.id, since);
       return {

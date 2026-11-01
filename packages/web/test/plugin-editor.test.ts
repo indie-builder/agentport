@@ -48,7 +48,7 @@ vi.mock('../src/lib/queries.js', () => ({
     queryKey: ['me'],
     queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
   },
-    usePlugins: () => ({
+  usePlugins: () => ({
     data: [plugin],
     status: 'success',
     isPending: false,
@@ -96,9 +96,7 @@ function mount() {
   client.setQueryData(['me'], allAccessMe);
   root = createRoot(host);
   act(() =>
-    root?.render(
-      createElement(QueryClientProvider, { client }, createElement(PluginsPage)),
-    ),
+    root?.render(createElement(QueryClientProvider, { client }, createElement(PluginsPage))),
   );
 }
 

@@ -3,6 +3,7 @@ import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -11,7 +12,7 @@ import {
   loginCookie,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID, } from './helpers.js';
+} from './helpers.js';
 
 // 直接写 repo：不经过 /api/chat，避免依赖 worker 空闲。
 const ready = await infraReady;
@@ -100,7 +101,7 @@ describe.skipIf(!ready)('openui state', () => {
       agentId: agent.id,
       title: 'openui state',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     conversationIds.push(conversationId);
     const content = {
       type: 'text',

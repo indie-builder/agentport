@@ -1,19 +1,24 @@
+import { fileURLToPath } from 'node:url';
 import type { ExecutionSubject } from '@agentport/shared';
 
-/** 测试用稳定业务身份；worker 身份判定在需要真实授权时另行 mock 或建角色数据。 */
-export const TEST_BUSINESS_ID = 'worker-test-user';
+/**
+ * 测试业务身份按测试文件派生：同文件内稳定，不同文件并行时互不共享业务记录，
+ * 避免一个文件落的 agents/run 数据让另一个文件的 createTestAccount(restore:false) 撞 409。
+ */
+export function testAccess(fileUrl: string) {
+  const fileName =
+    fileURLToPath(fileUrl)
+      .split('/')
+      .pop()
+      ?.replace(/\.test\.ts$/, '') ?? 'unknown';
+  const businessId = `worker-${fileName}`;
 
-export const userSubject: ExecutionSubject = { kind: 'user', businessId: TEST_BUSINESS_ID };
-
-/** agents.createdBy / ownerBusinessId 两个 NOT NULL 字段。 */
-export const agentOwnership = {
-  createdBy: TEST_BUSINESS_ID,
-  ownerBusinessId: TEST_BUSINESS_ID,
-} as const;
-
-export const conversationSubject = { createdBy: TEST_BUSINESS_ID } as const;
-
-export const runSubjectFields = {
-  subjectKind: 'user',
-  initiatedBy: TEST_BUSINESS_ID,
-} as const;
+  return {
+    TEST_BUSINESS_ID: businessId,
+    userSubject: { kind: 'user', businessId } as ExecutionSubject,
+    /** agents.createdBy / ownerBusinessId 两个 NOT NULL 字段。 */
+    agentOwnership: { createdBy: businessId, ownerBusinessId: businessId } as const,
+    conversationSubject: { createdBy: businessId } as const,
+    runSubjectFields: { subjectKind: 'user', initiatedBy: businessId } as const,
+  };
+}

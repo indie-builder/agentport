@@ -141,6 +141,12 @@
 - **原因**：把上次的 space id / page 标签 / `ref` 当成长期有效；locator 语法写成 Playwright 的写法。
 - **规避**：①同一个目标只用一个 TaskSpace，用**固定名字**复用（`taskSpace('chat-layout')`），名字才是长期句柄；数字 `spaceId` 只在当轮输出里可读，不要当成跨轮常量存下来；②`task.page(label)` 只查已存在的页，缺页用 `await task.newPage()`（不传参数）且用先前输出里的 `p1`/`p2` 标签；③`ref` 只在当前快照有效，页面变化后重新 `snapshot()` 再点；④role 定位写成 `loc=role:button[name="新建专家"]`，名字是子串匹配用 `[name*="…"]`，`loc=role:dialog` 这种缺名字的写法会报 `Invalid locator`。需要观测条件时用 `waitForSelector`/`waitForFunction`，不用固定 sleep。
 
+## 测试：全量并行时不同文件每轮随机失败，根因是跨文件共享的测试身份与信道
+
+- **现象**：`pnpm test` 全量并行时每轮命中的文件不同：`createTestAccount` 返回 409「该业务 ID 有历史记录」、个人记忆用例查到 2 条本应 1 条、删除接口偶发 503 且服务端日志为 `options.sessions.closeIdle is not a function`；把失败文件单独跑全过。
+- **原因**：三类跨文件共享：① `packages/worker/test/fixtures/access.ts` 曾用固定业务 ID，一个文件写入 agents 记录后，另一个文件用同一 ID 建号被 409 拒绝；② `personal-memory.test.ts` 曾按管理员身份筛整张表，而 `agents.test.ts` 也以管理员写规则；③ 导入真实 worker `src/index.ts` 的入口测试若只 mock 部分 `sessions` 方法，会订阅默认信道 `session-cleanup:requests`，抢答其它 API 测试的删除请求并回传 TypeError（ACK 首个胜出）。
+- **规避**：测试身份按文件 URL 派生（同文件稳定、跨文件唯一）；需要清理或计数的测试用自己创建的账号并按 `business_id` 限定；导入 worker 入口的测试一律 mock `startSessionCleanupChannel` 返回空 `close`（参照 `eval-index-log.test.ts`），不要只给残缺 sessions 补方法。复现用 `--sequence.shuffle --sequence.seed=… --repeats=…` 组合相关文件，并与 `--no-file-parallelism` 对照。
+
 ## 数据库：单表 SELECT 的 SQL 子查询可能丢失外层列限定名
 
 - **现象**：频道消息已写入 `seq=1`，相关子查询的 `maxSeq` 却为 0，合法 SSE 游标被误判为未来游标。

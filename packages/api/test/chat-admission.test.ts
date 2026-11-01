@@ -3,6 +3,7 @@ import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -13,7 +14,7 @@ import {
   startApp,
   unique,
   waitFor,
-  ADMIN_BUSINESS_ID,} from './helpers.js';
+} from './helpers.js';
 
 const ready = await infraReady;
 

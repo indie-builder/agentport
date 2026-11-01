@@ -67,6 +67,10 @@ vi.mock('bullmq', async (importOriginal) => {
   return { ...actual, Worker };
 });
 
+vi.mock('../src/sandbox/session-cleanup.js', () => ({
+  startSessionCleanupChannel: async () => ({ close: async () => undefined }),
+}));
+
 vi.mock('../src/sandbox/docker.js', () => ({
   DockerSandboxProvider: class {
     async destroyAll(): Promise<void> {}

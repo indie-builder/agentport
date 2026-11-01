@@ -200,10 +200,10 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   it('rejects more than 1000 rows instead of truncating', async () => {
     const agent = await seedAgent();
     const conversationId = unique('runs-export-conv');
-    await app.pool.query('insert into conversations (id, agent_id, created_by) values ($1, $2, \'bootstrap-admin\')', [
-      conversationId,
-      agent.id,
-    ]);
+    await app.pool.query(
+      "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
+      [conversationId, agent.id],
+    );
     await app.pool.query(
       `insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by)
        select $1 || '-' || g, $2, $3, 'succeeded', 'user', 'bootstrap-admin' from generate_series(1, 1001) g`,
@@ -220,10 +220,10 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   it('exports exactly 1000 rows', async () => {
     const agent = await seedAgent();
     const conversationId = unique('runs-export-conv');
-    await app.pool.query('insert into conversations (id, agent_id, created_by) values ($1, $2, \'bootstrap-admin\')', [
-      conversationId,
-      agent.id,
-    ]);
+    await app.pool.query(
+      "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
+      [conversationId, agent.id],
+    );
     await app.pool.query(
       `insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by)
        select $1 || '-' || g, $2, $3, 'timeout', 'user', 'bootstrap-admin' from generate_series(1, 1000) g`,

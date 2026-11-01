@@ -5,6 +5,7 @@ import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -13,7 +14,7 @@ import {
   loginCookie,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID,} from './helpers.js';
+} from './helpers.js';
 
 // fixture 直接写 repo / messages 表：不产生 queued run，不需要空闲 worker。
 const ready = await infraReady;

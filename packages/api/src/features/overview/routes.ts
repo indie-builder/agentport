@@ -42,7 +42,10 @@ export function registerOverviewRoutes(rawApp: FastifyInstance): void {
       const agentScope = ownOnly ? eq(schema.agents.createdBy, access.businessId) : undefined;
 
       const inWindow = sql`${schema.agentRuns.startedAt} >= ${since}`;
-      const runWindow = runScope === undefined ? or(inWindow, eq(schema.agentRuns.status, 'running')) : and(or(inWindow, eq(schema.agentRuns.status, 'running')), runScope);
+      const runWindow =
+        runScope === undefined
+          ? or(inWindow, eq(schema.agentRuns.status, 'running'))
+          : and(or(inWindow, eq(schema.agentRuns.status, 'running')), runScope);
       const [[runAgg], agentRows, recent] = await Promise.all([
         app.db
           .select({

@@ -19,10 +19,10 @@ const ready = await infraReady;
 async function seedRun(app: FastifyInstance, agentId: string): Promise<string> {
   const conversationId = unique('wait-conv');
   const runId = unique('wait-run');
-  await app.pool.query('insert into conversations (id, agent_id, created_by) values ($1, $2, \'bootstrap-admin\')', [
-    conversationId,
-    agentId,
-  ]);
+  await app.pool.query(
+    "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
+    [conversationId, agentId],
+  );
   await app.pool.query(
     "insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by) values ($1, $2, $3, 'running', 'user', 'bootstrap-admin')",
     [runId, conversationId, agentId],

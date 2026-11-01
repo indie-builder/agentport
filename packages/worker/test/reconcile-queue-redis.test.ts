@@ -7,8 +7,10 @@ import { eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentOwnership, conversationSubject, runSubjectFields } from './fixtures/access.js';
+import { testAccess } from './fixtures/access.js';
 import { createIsolatedDatabase } from './isolated-db.js';
+
+const { agentOwnership, conversationSubject, runSubjectFields } = testAccess(import.meta.url);
 
 const { publishRun } = vi.hoisted(() => ({
   publishRun: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),

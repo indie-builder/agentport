@@ -19,7 +19,9 @@ import {
   loginCookie,
   startApp,
 } from '../../api/test/helpers.js';
-import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
+import { testAccess } from './fixtures/access.js';
+
+const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
 interface SupervisorChild extends EventEmitter {
   stdin: PassThrough;

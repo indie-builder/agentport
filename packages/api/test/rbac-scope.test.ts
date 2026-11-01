@@ -46,7 +46,11 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       Object.assign(slot, await createTestAccount(app, admin, { systemKeys }));
     }
 
-    const me = await inject(app, { method: 'GET', url: '/api/auth/me', headers: { cookie: admin } });
+    const me = await inject(app, {
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { cookie: admin },
+    });
     adminBusinessId = me.json<{ user: { businessId: string } }>().user.businessId;
 
     const created = await createAgent(app, admin);
@@ -55,8 +59,14 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     secondAgentId = second.json<{ id: string }>().id;
 
     // A/B 被授权使用同一个专家；维护人员被授权维护它，另一维护人员只维护另一个专家。
-    await setAgentMember(app, admin, agentId, userA.businessId, { canUse: true, canMaintain: false });
-    await setAgentMember(app, admin, agentId, userB.businessId, { canUse: true, canMaintain: false });
+    await setAgentMember(app, admin, agentId, userA.businessId, {
+      canUse: true,
+      canMaintain: false,
+    });
+    await setAgentMember(app, admin, agentId, userB.businessId, {
+      canUse: true,
+      canMaintain: false,
+    });
     await setAgentMember(app, admin, agentId, maintainer.businessId, {
       canUse: true,
       canMaintain: true,
@@ -237,8 +247,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     );
     expect(
       audit.rows.some(
-        (row) =>
-          row.actor_kind === 'user' && row.subject_business_id === userA.businessId,
+        (row) => row.actor_kind === 'user' && row.subject_business_id === userA.businessId,
       ),
     ).toBe(true);
   });

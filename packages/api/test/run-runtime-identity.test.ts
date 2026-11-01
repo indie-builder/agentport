@@ -73,10 +73,10 @@ describe.skipIf(!ready)('run runtime environment identity', () => {
     startedRunId = unique('rt-identity-run');
     queuedRunId = unique('rt-identity-queued');
     runIds.push(startedRunId, queuedRunId);
-    await app.pool.query('insert into conversations (id, agent_id, created_by) values ($1, $2, \'bootstrap-admin\')', [
-      conversationId,
-      agentId,
-    ]);
+    await app.pool.query(
+      "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
+      [conversationId, agentId],
+    );
     await app.pool.query(
       `insert into agent_runs
          (id, conversation_id, agent_id, status, subject_kind, initiated_by, runtime_environment_id,

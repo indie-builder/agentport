@@ -10,6 +10,9 @@ import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPersonalMemoryHook } from '../../sandbox/src/memory-permissions.js';
 import { SandboxCleanupError } from '../src/sandbox/provider.js';
+import { testAccess } from './fixtures/access.js';
+
+const { TEST_BUSINESS_ID } = testAccess(import.meta.url);
 
 const mocks = vi.hoisted(() => ({
   sdkFailure: 'throw' as 'throw' | 'abort',
@@ -104,6 +107,10 @@ vi.mock('bullmq', async (importOriginal) => {
   return { ...actual, Worker };
 });
 
+vi.mock('../src/sandbox/session-cleanup.js', () => ({
+  startSessionCleanupChannel: async () => ({ close: async () => undefined }),
+}));
+
 vi.mock('../src/sandbox/docker.js', () => ({
   DockerSandboxProvider: class {
     async destroyAll(): Promise<void> {}
@@ -196,7 +203,6 @@ const cleanupConversations: string[] = [];
 const cleanupAgents: string[] = [];
 const cleanupChannels: string[] = [];
 const cleanupPreferences: string[] = [];
-const TEST_BUSINESS_ID = 'worker-run-user';
 
 async function createRunFixture(
   label: string,

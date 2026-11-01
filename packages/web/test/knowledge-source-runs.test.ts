@@ -316,16 +316,12 @@ describe('knowledge source runs', () => {
 
       await waitForDom(() => findButton('来源 A') !== undefined);
       await click(button('来源 A'));
-      await waitForDom(
-        () => sourcePanel('来源 A').textContent?.includes('新增 7') === true,
-      );
+      await waitForDom(() => sourcePanel('来源 A').textContent?.includes('新增 7') === true);
       expect(runCalls()).toEqual(['/api/knowledge/sources/ksrc_a/runs']);
       expect(sourcePanel('来源 A').textContent).toContain('新增 7');
 
       await click(button('来源 B'));
-      await waitForDom(
-        () => sourcePanel('来源 B').textContent?.includes('新增 9') === true,
-      );
+      await waitForDom(() => sourcePanel('来源 B').textContent?.includes('新增 9') === true);
       expect(runCalls()).toEqual([
         '/api/knowledge/sources/ksrc_a/runs',
         '/api/knowledge/sources/ksrc_b/runs',
@@ -357,9 +353,7 @@ describe('knowledge source runs', () => {
       await waitForDom(() => findButton('来源 A') !== undefined);
       await click(button('来源 A'));
       await click(button('来源 A'));
-      await waitForDom(
-        () => sourcePanel('来源 A').textContent?.includes('新增 7') === true,
-      );
+      await waitForDom(() => sourcePanel('来源 A').textContent?.includes('新增 7') === true);
       expect(sourcePanel('来源 A').textContent).toContain('新增 7');
       expect(document.body.textContent).toContain('新增 7');
 

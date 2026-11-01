@@ -3,12 +3,12 @@ import { AppError, fail } from '@agentport/core';
 import { type Database, newId, schema } from '@agentport/db';
 import type { ServerRow } from '@agentport/db/repo/servers.js';
 import * as serverRepo from '@agentport/db/repo/servers.js';
-import {
-  type ApiTool,
-  type ApiToolInput,
-  type ResolvedRuntimeEnvironment,
-  type Server,
-  type ServerInput,
+import type {
+  ApiTool,
+  ApiToolInput,
+  ResolvedRuntimeEnvironment,
+  Server,
+  ServerInput,
 } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
 import { decryptSecrets, encryptSecrets, maskServer, SECRET_MASK } from './secrets.js';

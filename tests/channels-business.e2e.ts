@@ -178,7 +178,10 @@ async function apiJson<T>(
   return { status: response.status, json };
 }
 
-async function loginAs(browser: Browser, account: Pick<Account, 'username' | 'password'>): Promise<void> {
+async function loginAs(
+  browser: Browser,
+  account: Pick<Account, 'username' | 'password'>,
+): Promise<void> {
   const result = await apiRaw(browser, 'POST', '/api/auth/login', {
     username: account.username,
     password: account.password,
@@ -215,7 +218,10 @@ async function createAccount(
     password: account.password,
     roleIds,
   });
-  assert(result.status === 201, `创建账户 ${tag} 返回 201（实际 ${result.status}：${result.text}）`);
+  assert(
+    result.status === 201,
+    `创建账户 ${tag} 返回 201（实际 ${result.status}：${result.text}）`,
+  );
   return account;
 }
 
@@ -234,7 +240,10 @@ async function ensureState(): Promise<State> {
     'GET',
     '/api/roles',
   );
-  assert(roles.status === 200 && roles.json !== null, `读取角色矩阵返回 200（实际 ${roles.status}）`);
+  assert(
+    roles.status === 200 && roles.json !== null,
+    `读取角色矩阵返回 200（实际 ${roles.status}）`,
+  );
   const userRole = roles.json.roles.find((role) => role.systemKey === 'user');
   assert(userRole !== undefined, '存在平台「用户」角色');
   const roleIds = [userRole.id];
@@ -326,7 +335,8 @@ async function sendMention(screen: Screen, agentName: string, text: string): Pro
 
 function replyPrefix(reply: string): string {
   // 取最长的连续文本段：跨过 Markdown 标记后仍能在页面文本节点里原样匹配。
-  const runs = reply.match(/[\p{Script=Han}A-Za-z0-9，。！？：；、“”‘’（）()·%.,:;!?\-_/]+/gu) ?? [];
+  const runs =
+    reply.match(/[\p{Script=Han}A-Za-z0-9，。！？：；、“”‘’（）()·%.,:;!?\-_/]+/gu) ?? [];
   const longest = runs
     .map((run) => run.trim())
     .filter((run) => run.length >= 8)
@@ -336,7 +346,8 @@ function replyPrefix(reply: string): string {
 
 /** 模型表示「读不到频道」的常见措辞；只在同一句提到频道/上下文时才算命中。 */
 function readFailureEvidence(reply: string): string[] {
-  const markers = /读不到|拿不到|看不到|没有历史对话|没有(?:访问|读取|获取)|无法(?:读取|访问|查看)/g;
+  const markers =
+    /读不到|拿不到|看不到|没有历史对话|没有(?:访问|读取|获取)|无法(?:读取|访问|查看)/g;
   const evidence: string[] = [];
   for (const match of reply.matchAll(markers)) {
     const at = match.index ?? 0;
@@ -357,10 +368,9 @@ async function laneUserMessages(runId: string): Promise<string[]> {
   return rows.map((row) => row.content);
 }
 
-async function latestRunForTrigger(triggerMessageId: string): Promise<
-  | { id: string; status: string; agent_id: string; conversation_id: string }
-  | undefined
-> {
+async function latestRunForTrigger(
+  triggerMessageId: string,
+): Promise<{ id: string; status: string; agent_id: string; conversation_id: string } | undefined> {
   const rows = await query<{
     id: string;
     status: string;
@@ -411,10 +421,13 @@ async function waitRunSettled(triggerMessageId: string, timeoutMs = 600_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     last = await latestRunForTrigger(triggerMessageId);
-    if (last !== undefined && ['succeeded', 'failed', 'cancelled'].includes(last.status)) return last;
+    if (last !== undefined && ['succeeded', 'failed', 'cancelled'].includes(last.status))
+      return last;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  throw new Error(`等待运行结束超时：trigger=${triggerMessageId}；最后状态=${last?.status ?? '无'}`);
+  throw new Error(
+    `等待运行结束超时：trigger=${triggerMessageId}；最后状态=${last?.status ?? '无'}`,
+  );
 }
 
 test.describe('频道真实业务回归（增长周会 2026-11）', { serial: true }, () => {
@@ -456,7 +469,10 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
         businessId: account.businessId,
         role,
       });
-      assert(added.status === 201, `PM 添加 ${role} 返回 201（实际 ${added.status}：${added.text}）`);
+      assert(
+        added.status === 201,
+        `PM 添加 ${role} 返回 201（实际 ${added.status}：${added.text}）`,
+      );
     }
 
     const members = await query<{ business_id: string; role: string }>(
@@ -513,7 +529,10 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
       `/api/channels/${ctx.channelId}/messages`,
       { body: context },
     );
-    assert(posted.status === 201 && posted.json !== null, `运营插话返回 201（实际 ${posted.status}）`);
+    assert(
+      posted.status === 201 && posted.json !== null,
+      `运营插话返回 201（实际 ${posted.status}）`,
+    );
     ctx.contextMessageId = posted.json.id;
     const runsAfter = await query<{ count: string }>(
       'select count(*)::text as count from agent_runs where channel_id = $1',
@@ -527,7 +546,9 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     expect(contextWoke[0]?.count).toBe('0');
     await expect(screen.getByText(context)).toBeVisible({ timeout: 30_000 });
 
-    const run = await waitRunSettled((await messageByBody(ctx.channelId, `@${ctx.agents[0].name} ${requirement}`))?.id ?? '');
+    const run = await waitRunSettled(
+      (await messageByBody(ctx.channelId, `@${ctx.agents[0].name} ${requirement}`))?.id ?? '',
+    );
     expect(run.status).toBe('succeeded');
     ctx.firstRunId = run.id;
     const human = await messageByBody(ctx.channelId, `@${ctx.agents[0].name} ${requirement}`);
@@ -554,7 +575,9 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     console.log(
       `  第一个 lane 用户消息含注入头=${(firstLane[0] ?? '').includes('【频道上下文】')}（此时频道还没有更早消息）`,
     );
-    console.log(`  运行 ID：${run.id}；回复长度：${reply.body.length} 字；耗时：${Date.now() - started}ms`);
+    console.log(
+      `  运行 ID：${run.id}；回复长度：${reply.body.length} 字；耗时：${Date.now() - started}ms`,
+    );
     console.log(`  真实模型摘录：${reply.body.slice(0, 220).replaceAll('\n', ' ')}…`);
 
     await expect(screen.getByText(replyPrefix(reply.body), { exact: false })).toBeVisible({
@@ -684,9 +707,11 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     const run = await latestRunForTrigger(trigger.id);
     assert(run !== undefined, '中断请求有运行记录');
     ctx.cancelRunIds.push(run.id);
-    await expect.poll(async () => (await latestRunForTrigger(trigger.id))?.status, {
-      timeout: 120_000,
-    }).toBe('cancelled');
+    await expect
+      .poll(async () => (await latestRunForTrigger(trigger.id))?.status, {
+        timeout: 120_000,
+      })
+      .toBe('cancelled');
     const leftovers = await agentMessagesForRun(ctx.channelId, run.id);
     expect(leftovers.length).toBe(0);
     console.log(
@@ -719,12 +744,9 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
       body: '观察者尝试发言',
     });
     expect(denied.status).toBe(403);
-    const deniedBind = await nodeApi(
-      ctx.viewer,
-      'POST',
-      `/api/channels/${ctx.channelId}/agents`,
-      { agentId: ctx.agents[0].id },
-    );
+    const deniedBind = await nodeApi(ctx.viewer, 'POST', `/api/channels/${ctx.channelId}/agents`, {
+      agentId: ctx.agents[0].id,
+    });
     expect(deniedBind.status).toBe(403);
     // 观察者本来也没有这两个智能体的使用授权，绑定下拉不会出现；记录 UI 状态供报告核对。
     const manageControls = await screen.getByLabel('选择要绑定的智能体').count();
