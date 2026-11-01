@@ -573,7 +573,7 @@ export function DataTable<T extends RowData>({
                           : undefined
                       }
                       className={cn(
-                        'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left duration-150 hover:bg-hover has-aria-expanded:bg-transparent',
+                        'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
                         interactive ? 'cursor-pointer' : 'cursor-default',
                         isOpen && 'bg-hover has-aria-expanded:bg-hover',
                       )}

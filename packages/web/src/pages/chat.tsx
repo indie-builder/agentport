@@ -2434,7 +2434,7 @@ export function MessagePane({
                       value={assistantText}
                       label="复制回复"
                       variant="ghost"
-                      className="shrink-0 opacity-0 transition-opacity duration-150 group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+                      className="shrink-0 opacity-0 transition-opacity duration-150 ease-out-soft group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
                     />
                   ) : null;
                   // 历史轮次按消息上的 run_id 取读数；读数默认藏起来，指到这一轮才浮出。

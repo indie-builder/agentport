@@ -237,7 +237,7 @@ function SidebarLink({
       // 归属由 routeMeta 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
       activeOptions={{ exact: true, includeSearch: false }}
       className={cn(
-        'relative flex h-8 items-center text-sm transition-colors duration-150',
+        'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
         collapsed ? 'w-8 justify-center' : 'gap-2.5 rounded-item px-2.5',
         collapsed
           ? ''
@@ -249,7 +249,7 @@ function SidebarLink({
     >
       <span
         className={cn(
-          'flex shrink-0 items-center justify-center transition-colors duration-150',
+          'flex shrink-0 items-center justify-center transition-colors duration-150 ease-out-soft',
           collapsed
             ? cn('size-8 rounded-tag', active ? 'bg-selected' : 'hover:bg-hover')
             : 'size-4',
@@ -618,7 +618,7 @@ export function AppShell() {
                   aria-label="个人资料"
                   aria-current={personalContext ? 'page' : undefined}
                   // Keep the circular account surface and translucent hover.
-                  className="flex size-8 items-center justify-center rounded-full bg-sunken p-0 text-muted-foreground transition-colors duration-150 hover:bg-hover"
+                  className="flex size-8 items-center justify-center rounded-full bg-sunken p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover"
                 >
                   <User className="size-4" />
                 </Link>

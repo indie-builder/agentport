@@ -12,7 +12,7 @@
 - 视觉层按 CDS；代码层按本项目规范（shadcn/Base UI、语义令牌禁散落 hex、保 aria/键盘/焦点、无 emoji）。
 - 主会话不写代码，全部派子代理；每轮 typecheck + build（必要时 visual:shots）+ Opus 独立终审 → 提交分支并 push。
 - 不合并 main（除非用户明确授权）。
-- 每 10 分钟由 cron `aa0c2544` 触发一轮；已有完整轮次或无明显差异时只做巡检、不造改动。
+- 每 10 分钟由 cron 触发一轮（当前 job `f3383e16`）；已有完整轮次或无明显差异时只做巡检、不造改动。
 
 ## 参考设计原则（提炼自 open-claude-ui v1 文档）
 1. **表达克制**：层级靠表面明度/字重/留白，不靠框线和彩色标签；一条视线最多 1 层闭合边框，容器内二级控件 ghost/无框；AI 正文零边框，操作栏 hover/focus 才出现；每区只 1 个主操作或危险动作，clay 不作装饰。
@@ -63,4 +63,5 @@
 **候选审计清单**（下一轮起逐条核实）：roles 搜索 `w-64`(256) vs 契约 224；plugin-detail 返回 `ghost icon-sm`(28) vs 其它 detail `outline icon`(32)（上下文差异，酌情）；knowledge-detail 文档阅读未设 max-w（长文可读性，评估加 ~75ch，需不破坏侧栏/tabs）；native Table(runtime/accounts/ops) 已用共享 ui/table（合规）；分页四套按各 API 语义保留。
 - **轮4（布局范围首批，提交）**：核实后确认布局整体已高度符合契约。落地两处真实漂移：①roles 搜索 `w-64`→`w-56`（对齐 §378 224px）；②plugin-detail 返回 `ghost icon-sm`(28)→`outline icon`(32) 与 knowledge/run detail 一致。终审发现并修：按钮变大后描述缩进 `ps-11`→`ps-12` 并同步注释。核实排除：knowledge-detail 实为 tabs 管理页（正文阅读在 1100px 预览 Dialog 内），无需加阅读宽度；卡片网格全部 `sm:2 xl:3 gap-4` 合规、搜索/排序宽度基本合规。验证：typecheck、web build exit0。
 - **轮5（巡检，无代码改动）**：核验 §336 表/卡切换覆盖（ViewToggle 在 runs/ops/runtime/accounts/shares/usage + 记忆提案经 `memory-review.tsx` 复用共享 ViewToggle，全覆盖）、个人模块六页均用 PageHeader、卡片网格 `sm:2 xl:3 gap-4`、搜索/排序宽度合规 → 布局范围判定收敛。范围 A 亦无有意义剩余差异。后续转轻量巡检，不强行造改动。
+- **轮6（提交）**：M1 动效缓动 token 统一（轮3 只做了文档诚信，代码层 `duration-150` 漏 `ease-out-soft` 的实为真漂移）。全仓筛出 13 处写了 `transition-<prop>`+`duration-150` 但漏缓动 token（回落 Tailwind 默认 `cubic-bezier(0.4,0,0.2,1)`），逐处补 `ease-out-soft`：app-shell(240/252/621)、plugin-file-tree、personal-memory-panel、ui/accordion、knowledge(862)、eval(569)、channels(105)、agents(4133)、chat(2437)、data-table(576——其 TableRow 自带 `transition-colors`，故该行 duration 有效)、styles.css `.skip-link`(320 原 `ease`→`var(--ease-out-soft)`)。Opus 终审首轮抓出 data-table 与 skip-link 两处遗漏并补齐。验证：typecheck/build exit0。
 

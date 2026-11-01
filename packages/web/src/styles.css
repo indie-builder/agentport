@@ -317,7 +317,7 @@
     top: 1rem;
     left: 1rem;
     z-index: 60;
-    transition: transform 150ms ease;
+    transition: transform 150ms var(--ease-out-soft);
     padding: 0.5rem 0.75rem;
     border-radius: var(--radius-item);
     background-color: var(--color-primary);

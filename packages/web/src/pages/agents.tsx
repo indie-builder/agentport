@@ -4130,7 +4130,7 @@ function DraftPreview({
       <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronRight
           className={cn(
-            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-150',
+            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out-soft',
             open && 'rotate-90',
           )}
           aria-hidden="true"

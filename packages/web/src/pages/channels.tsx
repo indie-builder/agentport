@@ -102,7 +102,7 @@ function ChannelRow({
       to="/channels/$channelId"
       params={{ channelId: channel.id }}
       className={cn(
-        'flex min-w-0 items-start gap-3 px-4 py-3 transition-colors duration-150 hover:bg-hover',
+        'flex min-w-0 items-start gap-3 px-4 py-3 transition-colors duration-150 ease-out-soft hover:bg-hover',
         channel.archivedAt && 'opacity-70',
       )}
     >

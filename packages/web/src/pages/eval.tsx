@@ -566,7 +566,7 @@ export function EvalPage() {
               {cases.data.map((testCase) => (
                 <li
                   key={testCase.id}
-                  className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
+                  className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">

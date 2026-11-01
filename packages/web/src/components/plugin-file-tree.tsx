@@ -125,7 +125,7 @@ function FolderRow({ folder, props }: { folder: FolderNode; props: TreeProps }) 
         >
           <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
             <ChevronRight
-              className={cn('transition-transform duration-150', expanded && 'rotate-90')}
+              className={cn('transition-transform duration-150 ease-out-soft', expanded && 'rotate-90')}
             />
           </span>
           {expanded ? <FolderOpen aria-hidden="true" /> : <Folder aria-hidden="true" />}

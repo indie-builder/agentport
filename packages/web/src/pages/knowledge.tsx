@@ -859,7 +859,7 @@ function CreateBaseDialog({
             >
               <ChevronRight
                 className={cn(
-                  'size-3.5 shrink-0 transition-transform duration-150',
+                  'size-3.5 shrink-0 transition-transform duration-150 ease-out-soft',
                   advancedOpen && 'rotate-90',
                 )}
                 aria-hidden="true"
