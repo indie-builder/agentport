@@ -12,7 +12,7 @@ import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../compone
 import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
+import { Button } from '../components/ui/button.js';
 import {
   Card,
   CardAction,
@@ -1130,35 +1130,23 @@ function ScheduleDialog({
   );
 }
 
-export function AttentionPanel({ hideTitle = false }: { hideTitle?: boolean } = {}) {
+export function AttentionPanel() {
   const location = useLocation();
   const attention = useAttention();
   const data = attention.data;
+  if (attention.isSuccess && (data?.total ?? 0) === 0) return null;
 
   return (
     <PageSection
       divided={false}
-      {...(hideTitle ? {} : { title: '需要处理' })}
-      actions={
-        data && data.total > 0 ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null
-      }
+      title="需要处理"
+      actions={data ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null}
     >
       {attention.isPending ? <LoadingState rows={2} /> : null}
       {attention.isError ? (
         <ErrorState error={attention.error} onRetry={() => void attention.refetch()} />
       ) : null}
-      {data && data.total === 0 ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm">
-          <span className="text-muted-foreground">没有等待批准的调用或失败的运行</span>
-          <Link
-            to="/runs"
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'ml-auto')}
-          >
-            查看运行
-          </Link>
-        </div>
-      ) : null}
-      {data && data.total > 0 ? (
+      {data ? (
         <ul className="flex flex-col">
           {data.approvals.map((item) =>
             item.kind !== 'approval' ? null : (

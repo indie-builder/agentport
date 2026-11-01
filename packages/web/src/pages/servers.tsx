@@ -402,7 +402,7 @@ export function ServersPage() {
           description="本地命令、远程 MCP 或 HTTP API 都可以。"
           action={
             canCreate ? (
-              <Button onClick={(event) => openCreate(event.currentTarget)}>
+              <Button variant="outline" onClick={(event) => openCreate(event.currentTarget)}>
                 <Plus data-icon="inline-start" /> 新建连接器
               </Button>
             ) : undefined
@@ -864,7 +864,7 @@ function ServerCard({
           工具 {toolCount} · 绑定专家 {agentCount}
         </span>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           aria-label={`编辑 ${displayName}`}
           className={canUpdate ? undefined : 'hidden'}
@@ -951,7 +951,7 @@ function TestSummary({
         ) : null}
       </div>
       <Button
-        variant="outline"
+        variant="ghost"
         size="sm"
         className="self-start"
         aria-label={`查看 ${serverName} 工具与测试详情`}

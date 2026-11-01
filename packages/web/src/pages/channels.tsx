@@ -58,7 +58,7 @@ export function ChannelsPage() {
           }
           action={
             canCreate ? (
-              <Button onClick={() => setCreating(true)}>
+              <Button variant="outline" onClick={() => setCreating(true)}>
                 <Plus aria-hidden="true" />
                 新建频道
               </Button>

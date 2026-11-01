@@ -457,7 +457,7 @@ export function RunTrendCard({ days }: { days: number }) {
                 </Collapsible>
               </div>
             ) : (
-              <EmptyState title="发起对话后生成趋势" />
+              <EmptyState title="发起对话后生成趋势" bordered={false} />
             )}
           </>
         )}
@@ -491,11 +491,7 @@ export function OverviewPage() {
   const windowLabel = data ? `最近 ${days} 天` : '';
   const failedCount = data?.counts.failed ?? 0;
 
-  const attentionSection = (
-    <PageSection title="需要处理" divided={false}>
-      <AttentionPanel hideTitle />
-    </PageSection>
-  );
+  const attentionSection = <AttentionPanel />;
 
   return (
     <Page>
