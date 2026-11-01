@@ -170,6 +170,21 @@ function dialog(titlePrefix: string): HTMLElement {
   if (!element) throw new Error(`Missing dialog: ${titlePrefix}`);
   return element;
 }
+function menuItem(text: string): HTMLElement {
+  const element = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent?.trim() === text,
+  );
+  if (!element) throw new Error(`Missing menu item: ${text}`);
+  return element;
+}
+async function openMenu(label: string): Promise<void> {
+  const trigger = button(label);
+  // Base UI 用 mousedown 打开菜单，jsdom 的 click() 不会触发。
+  await act(async () => {
+    trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  });
+  await flush();
+}
 async function pressEscape(): Promise<void> {
   await act(async () => {
     document.dispatchEvent(
@@ -326,7 +341,8 @@ describe('账户弹窗的未保存保护', () => {
 
   it('重置密码填写后点遮罩先确认', async () => {
     await openAccounts();
-    await click(button('重置密码'));
+    await openMenu('操作 爱丽丝');
+    await click(menuItem('重置密码'));
     await type(field('account-reset-password'), 'test-password-123');
 
     await clickBackdrop();
@@ -342,7 +358,8 @@ describe('账户弹窗的未保存保护', () => {
 
   it('分配角色改动后离开路由先确认，确认才离开且不发请求', async () => {
     await openAccounts();
-    await click(button('分配角色'));
+    await openMenu('操作 爱丽丝');
+    await click(menuItem('分配角色'));
     const assignDialog = dialog('分配「爱丽丝」的角色');
     const member = await waitFor(() =>
       assignDialog.querySelector<HTMLElement>('[role="checkbox"]'),
@@ -395,7 +412,8 @@ describe('账户弹窗保存中', () => {
     route('PUT', /^\/api\/accounts\/alice\/roles$/, () => gate.promise);
 
     await openAccounts();
-    await click(button('分配角色'));
+    await openMenu('操作 爱丽丝');
+    await click(menuItem('分配角色'));
     const member = await waitFor(() => document.querySelector<HTMLElement>('#role-role_member'));
     await click(member);
     await click(button('保存'));
@@ -472,7 +490,8 @@ describe('账户字段错误关联', () => {
 
   it('重置密码的长度与确认不一致分别报错并聚焦第一个字段', async () => {
     await openAccounts();
-    await click(button('重置密码'));
+    await openMenu('操作 爱丽丝');
+    await click(menuItem('重置密码'));
     await type(field('account-reset-password'), 'abc');
     await type(field('account-reset-confirm'), 'xyz');
     await click(button('重置密码', dialog('重置「爱丽丝」的密码')));
@@ -559,7 +578,8 @@ describe('账户弹窗的角色目录', () => {
     route('PUT', /^\/api\/accounts\/alice\/roles$/, () => json({ ok: true }));
 
     await openAccounts();
-    await click(button('分配角色'));
+    await openMenu('操作 爱丽丝');
+    await click(menuItem('分配角色'));
     await waitFor(() => document.body.textContent?.includes('角色目录没有加载出来'));
 
     const assignDialog = dialog('分配「爱丽丝」的角色');

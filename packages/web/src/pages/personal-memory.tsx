@@ -90,11 +90,18 @@ export function PersonalReviewsPage() {
             }),
           })
         }
-        view={search.view ?? null}
-        onViewChange={(next: MemoryReviewView | null) =>
+        stage={search.stage ?? null}
+        onStageChange={(next: MemoryReviewView | null) =>
           void navigate({
             to: '/personal/reviews',
-            search: (current) => ({ ...current, view: next ?? undefined }),
+            search: (current) => ({ ...current, stage: next ?? undefined }),
+          })
+        }
+        view={search.view ?? 'table'}
+        onViewChange={(next) =>
+          void navigate({
+            to: '/personal/reviews',
+            search: (current) => ({ ...current, view: next }),
           })
         }
       />

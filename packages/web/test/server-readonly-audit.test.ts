@@ -26,7 +26,12 @@ vi.mock('@tanstack/react-query', async (original) => {
   const actual = await original<typeof import('@tanstack/react-query')>();
   return {
     ...actual,
-    useQuery: () => ({ data: state.me, isSuccess: true, isPending: false, status: 'success' }),
+    useQuery: (options?: { queryKey?: readonly unknown[] }) => ({
+      data: options?.queryKey?.[0] === 'connector-catalog' ? [] : state.me,
+      isSuccess: true,
+      isPending: false,
+      status: 'success',
+    }),
     useQueryClient: () => ({}),
   };
 });
@@ -41,6 +46,7 @@ vi.mock('../src/lib/queries.js', () => {
   const mutation = () => ({ isPending: false, mutate: state.mutate });
   return {
     meQuery: { queryKey: ['me'], queryFn: async () => state.me },
+    connectorCatalogQuery: { queryKey: ['connector-catalog'], queryFn: async () => [] },
     useServers: () => ({
       data: [server],
       isPending: false,

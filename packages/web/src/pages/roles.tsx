@@ -707,7 +707,7 @@ function MatrixFeedback({
           {changedLeafCount} 项权限未保存
         </span>
       ) : null}
-      <span>{isDirty ? '有未保存的更改' : '已保存'}</span>
+      {isDirty ? <span>有未保存的更改</span> : null}
     </span>
   );
 }
@@ -871,6 +871,7 @@ function RoleHeader({
             variant="ghost"
             size="icon-sm"
             aria-label={`设置角色 ${displayName}`}
+            title={`打开角色设置：${displayName}`}
             disabled={pending}
             onClick={(event) => onOpen(roleKey(role), event.currentTarget)}
           >

@@ -7,10 +7,20 @@ import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
-import { ErrorState } from '../components/states.js';
+import { ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
+import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { api, errorMessage, type RunListItem, type RunStatus } from '../lib/api.js';
+import { cn } from '../lib/cn.js';
 import {
   formatCost,
   formatDateTime,
@@ -24,6 +34,34 @@ import { meQuery, useAgents, useRuns } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
 
 const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
+
+function ExpandableError({ error }: { error: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex min-w-0 items-baseline gap-2">
+      <span
+        className={cn(
+          'min-w-0 text-danger',
+          // DataTable 会把 .truncate 还原成换行；这里显式单行省略，展开后只在单元格内换行。
+          open
+            ? 'break-words whitespace-normal'
+            : 'overflow-hidden text-ellipsis whitespace-nowrap',
+        )}
+        title={open ? undefined : error}
+      >
+        {error}
+      </span>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-fg"
+      >
+        {open ? '收起' : '展开全文'}
+      </button>
+    </div>
+  );
+}
 
 const columns: DataColumn<RunListItem>[] = [
   {
@@ -107,17 +145,86 @@ const columns: DataColumn<RunListItem>[] = [
   {
     id: 'error',
     header: '错误',
-    width: 'minmax(140px,1.2fr)',
+    width: 'minmax(140px,1fr)',
     cell: (run) =>
       run.error ? (
-        <span className="truncate text-danger" title={run.error}>
-          {run.error}
-        </span>
+        <ExpandableError error={run.error} />
       ) : (
         <span className="text-muted-foreground">—</span>
       ),
   },
 ];
+
+function RunCard({
+  run,
+  detailSearch,
+}: {
+  run: RunListItem;
+  detailSearch: { fromAgent?: string; fromStatus?: RunStatus; fromView?: 'cards' };
+}) {
+  const agentName = run.agentName ?? '已删除的专家';
+  const detailLink = {
+    to: '/runs/$runId' as const,
+    params: { runId: run.id },
+    search: detailSearch,
+  };
+
+  return (
+    <Card className="h-full">
+      <CardHeader>
+        <CardTitle className="min-w-0">
+          <h2 className="min-w-0">
+            <Link {...detailLink} className="block truncate hover:underline" title={agentName}>
+              {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
+            </Link>
+          </h2>
+        </CardTitle>
+        <CardAction>
+          <RunStatusBadge status={run.status} />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex min-w-0 flex-col gap-3">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
+          <dt className="text-muted-foreground">开始</dt>
+          <dd className="text-right text-muted-foreground" title={formatDateTime(run.startedAt)}>
+            {formatRelative(run.startedAt)}
+          </dd>
+          <dt className="text-muted-foreground">耗时</dt>
+          <dd className="text-right">{formatDuration(run.latencyMs)}</dd>
+          <dt className="text-muted-foreground">轮次</dt>
+          <dd className="text-right">{run.turns ?? '—'}</dd>
+          <dt className="text-muted-foreground">成本</dt>
+          <dd className="text-right">{formatCost(run.costUsd)}</dd>
+          <dt className="text-muted-foreground">输入 Tokens</dt>
+          <dd className="text-right">{formatTokens(run.inputTokens)}</dd>
+          <dt className="text-muted-foreground">输出 Tokens</dt>
+          <dd className="text-right">{formatTokens(run.outputTokens)}</dd>
+        </dl>
+        {run.error ? (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs text-muted-foreground">错误</span>
+            <p className="break-words whitespace-pre-wrap text-xs text-danger">{run.error}</p>
+          </div>
+        ) : null}
+      </CardContent>
+      <CardFooter className="justify-between gap-3">
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="shrink-0 text-xs text-muted-foreground">运行 ID</span>
+          <code className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={run.id}>
+            {shortId(run.id)}
+          </code>
+        </span>
+        <Link
+          {...detailLink}
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          aria-label={`查看运行 ${shortId(run.id)}`}
+        >
+          查看运行
+        </Link>
+      </CardFooter>
+    </Card>
+  );
+}
 
 export function RunsPage() {
   const navigate = useNavigate();
@@ -128,11 +235,15 @@ export function RunsPage() {
   const search = useSearch({ from: '/_shell/runs/' });
   const agentId = search.agent ?? '';
   const status = search.status ?? '';
+  const view: ListView = search.view ?? 'table';
   const setFilter = (patch: {
     agent?: string | undefined;
     status?: RunStatus | undefined;
   }): void => {
     void navigate({ to: '/runs', search: { ...search, ...patch } });
+  };
+  const setView = (next: ListView): void => {
+    void navigate({ to: '/runs', search: { ...search, view: next }, replace: true });
   };
   const runs = useRuns({
     ...(agentId ? { agentId } : {}),
@@ -178,6 +289,11 @@ export function RunsPage() {
     { value: '', label: '全部状态' },
     ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
   ];
+  const detailSearch = {
+    ...(agentId ? { fromAgent: agentId } : {}),
+    ...(status ? { fromStatus: status } : {}),
+    ...(view === 'cards' ? { fromView: 'cards' as const } : {}),
+  };
 
   return (
     <Page>
@@ -228,6 +344,9 @@ export function RunsPage() {
           最多显示{filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'}
           ，按开始时间选取，未开始的排在最后；排序仅作用于当前显示的记录。
         </p>
+        <div className="ml-auto">
+          <ViewToggle value={view} onChange={setView} />
+        </div>
       </PageToolbar>
 
       {agents.isError ? (
@@ -270,6 +389,21 @@ export function RunsPage() {
                 )
               }
             />
+          ) : view === 'cards' ? (
+            runs.isPending ? (
+              <LoadingState rows={3} layout="cards" />
+            ) : (
+              <ul
+                aria-label="运行列表"
+                className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+              >
+                {items.map((run) => (
+                  <li key={run.id} className="min-w-0">
+                    <RunCard run={run} detailSearch={detailSearch} />
+                  </li>
+                ))}
+              </ul>
+            )
           ) : (
             <DataTable
               rows={items}
@@ -287,10 +421,7 @@ export function RunsPage() {
                 void navigate({
                   to: '/runs/$runId',
                   params: { runId: run.id },
-                  search: {
-                    ...(agentId ? { fromAgent: agentId } : {}),
-                    ...(status ? { fromStatus: status as RunStatus } : {}),
-                  },
+                  search: detailSearch,
                 })
               }
             />

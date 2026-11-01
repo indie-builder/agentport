@@ -10,10 +10,10 @@ import {
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, type RunDetail, type RunListItem, type RunStatus } from '../src/lib/api.js';
+import { api, type RunDetail, type RunListItem } from '../src/lib/api.js';
 import { RunDetailPage } from '../src/pages/run-detail.js';
 import { RunsPage } from '../src/pages/runs.js';
-import { runDetailSearchSchema } from '../src/routes/-search.js';
+import { runDetailSearchSchema, runsSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -78,10 +78,7 @@ async function mount(path = '/runs') {
     getParentRoute: () => shell,
     path: '/runs/',
     component: RunsPage,
-    validateSearch: (search: Record<string, unknown>) => ({
-      agent: typeof search.agent === 'string' ? search.agent : undefined,
-      status: search.status as RunStatus | undefined,
-    }),
+    validateSearch: runsSearchSchema,
   });
   const runDetail = createRoute({
     getParentRoute: () => shell,
@@ -168,6 +165,39 @@ describe('run detail navigation', () => {
       await vi.waitFor(() => expect(router.state.location.pathname).toBe('/runs'));
     });
     expect(router.state.location.search).toEqual({ agent: 'agent-a', status: 'failed' });
+  });
+
+  it('restores the card view when the detail was opened from cards', async () => {
+    client.setQueryData(['runs', null, 'failed', 100], { items: [listItem] });
+    const router = await mount('/runs?view=cards&status=failed');
+
+    const open = host.querySelector<HTMLAnchorElement>('a[aria-label="查看运行 1"]');
+    if (!open) throw new Error('Missing run card link');
+    const openUrl = new URL(open.getAttribute('href') ?? '', 'http://localhost');
+    expect(openUrl.pathname).toBe('/runs/run_1');
+    expect(openUrl.searchParams.get('fromStatus')).toBe('failed');
+    expect(openUrl.searchParams.get('fromView')).toBe('cards');
+
+    await act(async () => open.click());
+    await act(async () => {
+      await vi.waitFor(() => expect(router.state.location.pathname).toBe('/runs/run_1'));
+    });
+    await act(async () => {
+      await vi.waitFor(() => expect(host.textContent).toContain('会话标题'));
+    });
+
+    const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回运行列表"]');
+    if (!back) throw new Error('Missing back link');
+    const backUrl = new URL(back.getAttribute('href') ?? '', 'http://localhost');
+    expect(backUrl.searchParams.get('status')).toBe('failed');
+    expect(backUrl.searchParams.get('view')).toBe('cards');
+
+    await act(async () => back.click());
+    await act(async () => {
+      await vi.waitFor(() => expect(router.state.location.pathname).toBe('/runs'));
+    });
+    await vi.waitFor(() => expect(host.querySelector('ul[aria-label="运行列表"]')).not.toBeNull());
+    expect(router.state.location.search).toMatchObject({ status: 'failed', view: 'cards' });
   });
 
   it('links the conversation title back to its chat with the real search contract', async () => {

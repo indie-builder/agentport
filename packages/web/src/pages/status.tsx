@@ -194,6 +194,7 @@ function SmokeChecklist() {
   return (
     <PageSection
       title="冒烟检查"
+      divided={false}
       actions={
         <Button variant="outline" size="sm" disabled={running} onClick={() => void run()}>
           {running ? (

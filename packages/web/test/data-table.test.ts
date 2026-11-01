@@ -56,7 +56,7 @@ describe('DataTable accessibility', () => {
     vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(prefs) });
     const html = renderTable({ storageKey: 'test.columns' });
     expect(html).toContain('run-1');
-    expect(html.match(/<th\b/g)).toHaveLength(2);
+    expect(html.match(/<th\b/g)).toHaveLength(3);
     // 旧版裸数组偏好不再读取：专家列不能被 ['name'] 隐藏。
     expect(html).toContain('专家');
   });
@@ -102,7 +102,7 @@ describe('DataTable accessibility', () => {
     'keeps loading and empty states inside table cells %j',
     (props) => {
       const html = renderTable({ rows: [], ...props });
-      expect(html).toMatch(/<tbody\b[\s\S]*?<tr\b[\s\S]*?<td\b[^>]*colSpan="2"/);
+      expect(html).toMatch(/<tbody\b[\s\S]*?<tr\b[\s\S]*?<td\b[^>]*colSpan="3"/);
     },
   );
 

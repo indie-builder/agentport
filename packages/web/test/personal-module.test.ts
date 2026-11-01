@@ -20,7 +20,13 @@ import { act, type ComponentType, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
-import { formatDateTime } from '../src/lib/format.js';
+import {
+  formatCost,
+  formatDateTime,
+  formatDuration,
+  formatTokens,
+  shortId,
+} from '../src/lib/format.js';
 import { PersonalReviewsPage } from '../src/pages/personal-memory.js';
 import { PersonalProfilePage } from '../src/pages/personal-profile.js';
 import { PersonalSecurityPage } from '../src/pages/personal-security.js';
@@ -28,6 +34,7 @@ import { PersonalSharesPage } from '../src/pages/personal-shares.js';
 import { PersonalUsagePage } from '../src/pages/personal-usage.js';
 import {
   personalReviewsSearchSchema,
+  personalSecuritySearchSchema,
   personalSharesSearchSchema,
   personalUsageSearchSchema,
 } from '../src/routes/-search.js';
@@ -475,6 +482,58 @@ describe('账号安全', () => {
     expect(maybeButton('重新登录', host)).not.toBeNull();
     expect(logout).not.toHaveBeenCalled();
   });
+
+  it('默认列表，切换到卡片后详情仍可展开、撤销仍在并写回 URL', async () => {
+    vi.spyOn(api, 'me').mockResolvedValue(meWith([]));
+    vi.spyOn(api, 'meSessions').mockResolvedValue({
+      items: [sessionOther, sessionCurrent],
+    });
+    const revoke = vi.spyOn(api, 'revokeMeSession').mockResolvedValue(undefined);
+    await mount({
+      path: '/personal/security',
+      component: PersonalSecurityPage,
+      validateSearch: personalSecuritySearchSchema,
+      me: meWith([]),
+    });
+    await vi.waitFor(() => expect(host.textContent).toContain('当前会话'));
+    expect(host.querySelectorAll('ul')).toHaveLength(2);
+    expect(host.querySelector('[data-slot="card"]')).toBeNull();
+
+    await click(button('卡片'));
+    await vi.waitFor(() =>
+      expect((router.state.location.search as { view?: string }).view).toBe('cards'),
+    );
+    await vi.waitFor(() => expect(host.querySelectorAll('[data-slot="card"]')).toHaveLength(2));
+
+    const [currentCard, otherCard] = [...host.querySelectorAll('[data-slot="card"]')];
+    if (!currentCard || !otherCard) throw new Error('Missing session cards');
+    expect(currentCard.textContent).toContain('当前');
+    expect(currentCard.textContent).toContain('最近活动');
+    expect(currentCard.textContent).toContain('IP');
+    expect(currentCard.textContent).toContain(formatDateTime(sessionCurrent.updatedAt));
+    expect(currentCard.textContent).toContain('127.0.0.1');
+    expect(maybeButton('撤销', currentCard)).toBeNull();
+    expect(otherCard.textContent).toContain(formatDateTime(sessionOther.updatedAt));
+    expect(otherCard.textContent).toContain('127.0.0.1');
+
+    await click(button('会话详情', currentCard));
+    await vi.waitFor(() => expect(currentCard.textContent).toContain('Chrome on macOS'));
+    expect(currentCard.textContent).toContain(formatDateTime(sessionCurrent.createdAt));
+    expect(currentCard.textContent).toContain(formatDateTime(sessionCurrent.expiresAt));
+    await click(button('会话详情', otherCard));
+    await vi.waitFor(() => expect(otherCard.textContent).toContain('Safari on iOS'));
+
+    await click(button('撤销', otherCard));
+    await confirm('撤销会话');
+    await vi.waitFor(() => expect(revoke).toHaveBeenCalledWith('sess-other'));
+
+    await click(button('表格'));
+    await vi.waitFor(() =>
+      expect((router.state.location.search as { view?: string }).view).toBe('table'),
+    );
+    await vi.waitFor(() => expect(host.querySelector('[data-slot="card"]')).toBeNull());
+    expect(host.querySelectorAll('ul')).toHaveLength(2);
+  });
 });
 
 describe('使用记录', () => {
@@ -489,9 +548,9 @@ describe('使用记录', () => {
       me: meWith(['overview.read']),
     });
     await vi.waitFor(() => expect(host.textContent).toContain('已记录成本'));
-    expect(host.textContent).toContain('$0.0500 · 2/3 次运行');
+    expect(host.textContent).toContain('$0.0500 · 3 次中 2 次已记录');
     expect(host.textContent).toContain('1 次运行未记录成本');
-    expect(host.textContent).toContain('1.2k 输入 / 300 输出');
+    expect(host.textContent).toContain('1,200 输入 / 300 输出');
     expect(runs).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain('运行 ID');
   });
@@ -543,6 +602,35 @@ describe('使用记录', () => {
     await vi.waitFor(() =>
       expect(host.querySelector('button[aria-label="展开 run_p1"]')).toBeTruthy(),
     );
+  });
+
+  it('卡片视图保留运行详情与去向动作', async () => {
+    const me = meWith(['runs.read', 'conversations.read']);
+    vi.spyOn(api, 'me').mockResolvedValue(me);
+    vi.spyOn(api, 'personalRuns').mockResolvedValue({ items: [chatRun], nextCursor: null });
+    await mount({
+      path: '/personal/usage',
+      component: PersonalUsagePage,
+      validateSearch: personalUsageSearchSchema,
+      me,
+    });
+    await vi.waitFor(() => expect(host.textContent).toContain('专家甲'));
+    await act(async () => router.navigate({ to: '/personal/usage', search: { view: 'cards' } }));
+    await flush();
+    await vi.waitFor(() => expect(host.querySelector('[data-slot="card"]')).not.toBeNull());
+    expect(host.querySelector('[role="table"]')).toBeNull();
+    const card = host.querySelector('[data-slot="card"]');
+    if (!card) throw new Error('Missing run card');
+    expect(card.textContent).toContain('对话');
+    expect(card.textContent).toContain('成功');
+    expect(card.textContent).toContain(formatDuration(chatRun.latencyMs));
+    expect(card.textContent).toContain(formatCost(chatRun.costUsd));
+    expect(card.textContent).toContain(
+      `${formatTokens(chatRun.inputTokens)} / ${formatTokens(chatRun.outputTokens)}`,
+    );
+    const runId = card.querySelector(`[title="${chatRun.id}"]`);
+    expect(runId?.textContent).toBe(shortId(chatRun.id));
+    expect(host.querySelector('a[aria-label="回到对话 专家甲"]')).not.toBeNull();
   });
 
   it('汇总窗口按 UTC 显示，不随本地时区', async () => {
@@ -692,6 +780,69 @@ describe('我的分享', () => {
       expect(dialog?.textContent).toContain('撤销失败，请重试');
     });
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it('默认渲染表格，切换到卡片后写回 URL 并保留分享动作', async () => {
+    vi.spyOn(api, 'personalOutputShares').mockResolvedValue({
+      items: [share],
+      nextCursor: null,
+    });
+    const me = meWith(['conversations.read', 'conversations.share']);
+    vi.spyOn(api, 'me').mockResolvedValue(me);
+    await mount({
+      path: '/personal/shares',
+      component: PersonalSharesPage,
+      validateSearch: personalSharesSearchSchema,
+      me,
+    });
+    await vi.waitFor(() => expect(host.textContent).toContain('季度总结'));
+    expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).not.toBeNull();
+    expect(host.querySelector('[data-slot="card"]')).toBeNull();
+
+    await click(button('卡片'));
+    await vi.waitFor(() =>
+      expect((router.state.location.search as { view?: string }).view).toBe('cards'),
+    );
+    await vi.waitFor(() => expect(host.querySelector('[data-slot="card"]')).not.toBeNull());
+    expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).toBeNull();
+    const card = host.querySelector('[data-slot="card"]');
+    if (!card) throw new Error('Missing share card');
+    expect(card.textContent).toContain('report.md');
+    expect(card.textContent).toContain('reports/report.md');
+    expect(card.textContent).toContain('季度总结');
+    expect(card.textContent).toContain('来源会话');
+    expect(card.textContent).toContain('查看分享');
+    expect(card.textContent).toContain('复制链接');
+    expect(card.textContent).toContain('撤销');
+
+    await click(button('表格'));
+    await vi.waitFor(() =>
+      expect((router.state.location.search as { view?: string }).view).toBe('table'),
+    );
+    await vi.waitFor(() =>
+      expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).not.toBeNull(),
+    );
+  });
+
+  it('直接打开 view=cards 时渲染卡片视图', async () => {
+    vi.spyOn(api, 'personalOutputShares').mockResolvedValue({
+      items: [share],
+      nextCursor: null,
+    });
+    const me = meWith(['conversations.read', 'conversations.share']);
+    vi.spyOn(api, 'me').mockResolvedValue(me);
+    await mount({
+      path: '/personal/shares',
+      component: PersonalSharesPage,
+      validateSearch: personalSharesSearchSchema,
+      me,
+    });
+    await vi.waitFor(() => expect(host.textContent).toContain('季度总结'));
+    await act(async () => router.navigate({ to: '/personal/shares', search: { view: 'cards' } }));
+    await flush();
+    await vi.waitFor(() => expect(host.querySelector('[data-slot="card"]')).not.toBeNull());
+    expect(host.querySelector('[data-slot="card"]')).not.toBeNull();
+    expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).toBeNull();
   });
 });
 

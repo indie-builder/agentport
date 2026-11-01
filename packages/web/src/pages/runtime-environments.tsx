@@ -1,5 +1,6 @@
 import {
   DEFAULT_RUNTIME_DOCKERFILE,
+  DEFAULT_RUNTIME_ENVIRONMENT_NAME,
   type RuntimeEnvironment,
   type RuntimeEnvironmentInput,
 } from '@agentport/shared';
@@ -15,6 +16,7 @@ import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
@@ -27,6 +29,7 @@ import {
   TableRow,
 } from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatRelative, shortId } from '../lib/format.js';
@@ -35,7 +38,7 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 
 export function RuntimeEnvironmentsPage() {
   const environments = useRuntimeEnvironments();
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: '/runtime-environments/' });
   const search = useSearch({ from: '/_shell/runtime-environments/' });
   const [creating, setCreating] = useState(false);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
@@ -51,6 +54,14 @@ export function RuntimeEnvironmentsPage() {
   const me = useQuery(meQuery);
   const canCreate = can(me.data, 'runtime_environments.create');
   const openCreate = (): void => setCreating(true);
+  const view = search.view ?? 'table';
+  const setView = (next: 'table' | 'cards'): void => {
+    void navigate({
+      to: '/runtime-environments',
+      search: (current) => ({ ...current, view: next }),
+      replace: true,
+    });
+  };
 
   return (
     <Page>
@@ -78,6 +89,9 @@ export function RuntimeEnvironmentsPage() {
             });
           }}
         />
+        <div className="ml-auto">
+          <ViewToggle value={view} onChange={setView} />
+        </div>
       </PageToolbar>
 
       {environments.isPending ? <LoadingState rows={4} /> : null}
@@ -120,19 +134,19 @@ export function RuntimeEnvironmentsPage() {
         />
       ) : null}
 
-      {shown.length > 0 ? (
+      {shown.length > 0 && view === 'table' ? (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>名称</TableHead>
-              <TableHead>线上版本</TableHead>
-              <TableHead>更新时间</TableHead>
+              <TableHead className="w-[50%]">名称</TableHead>
+              <TableHead className="w-[25%]">线上版本</TableHead>
+              <TableHead className="w-[25%] text-right">更新时间</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {shown.map((environment) => (
               <TableRow key={environment.id}>
-                <TableCell>
+                <TableCell className="min-w-0">
                   <div className="flex min-w-0 items-center gap-2">
                     <Link
                       to="/runtime-environments/$environmentId"
@@ -141,7 +155,10 @@ export function RuntimeEnvironmentsPage() {
                     >
                       {environment.name}
                     </Link>
-                    {environment.isDefault ? <Badge variant="secondary">默认</Badge> : null}
+                    {environment.isDefault &&
+                    environment.name !== DEFAULT_RUNTIME_ENVIRONMENT_NAME ? (
+                      <Badge variant="secondary">默认</Badge>
+                    ) : null}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -153,13 +170,57 @@ export function RuntimeEnvironmentsPage() {
                     <span className="text-muted-foreground">未发布</span>
                   )}
                 </TableCell>
-                <TableCell className="text-muted-foreground">
+                <TableCell className="text-right text-muted-foreground">
                   {formatRelative(environment.updatedAt)}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
+      ) : null}
+
+      {shown.length > 0 && view === 'cards' ? (
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {shown.map((environment) => (
+            <li key={environment.id} className="min-w-0">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="flex min-w-0 items-center gap-2">
+                    <Link
+                      to="/runtime-environments/$environmentId"
+                      params={{ environmentId: environment.id }}
+                      className="min-w-0 truncate font-medium text-fg hover:underline"
+                    >
+                      {environment.name}
+                    </Link>
+                    {environment.isDefault &&
+                    environment.name !== DEFAULT_RUNTIME_ENVIRONMENT_NAME ? (
+                      <Badge variant="secondary">默认</Badge>
+                    ) : null}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-2">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="shrink-0 text-xs text-muted-foreground">线上版本</span>
+                    {environment.onlineVersionId ? (
+                      <code className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                        {shortId(environment.onlineVersionId)}
+                      </code>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">未发布</span>
+                    )}
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="shrink-0 text-xs text-muted-foreground">更新时间</span>
+                    <span className="text-sm text-muted-foreground">
+                      {formatRelative(environment.updatedAt)}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {creating ? (

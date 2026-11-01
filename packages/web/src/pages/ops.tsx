@@ -1,6 +1,6 @@
 import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
@@ -13,6 +13,15 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   Field,
@@ -33,8 +42,17 @@ import {
   SelectValue,
 } from '../components/ui/select.js';
 import { Switch } from '../components/ui/switch.js';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
+import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
@@ -217,6 +235,12 @@ const scheduleFormSchema = z
 type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 
 export function SchedulesPage() {
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/_shell/schedules' });
+  const view: ListView = search.view ?? 'table';
+  const setView = (next: ListView): void => {
+    void navigate({ to: '/schedules', search: { ...search, view: next }, replace: true });
+  };
   const schedules = useSchedules();
   const agents = useAgents();
   const me = useQuery(meQuery);
@@ -269,6 +293,9 @@ export function SchedulesPage() {
           <p className="text-sm text-muted-foreground">
             {schedules.data.length} 个定时任务，cron 按 UTC 解析。
           </p>
+          <div className="ml-auto">
+            <ViewToggle value={view} onChange={setView} />
+          </div>
         </PageToolbar>
       ) : null}
 
@@ -288,109 +315,141 @@ export function SchedulesPage() {
         />
       ) : null}
 
-      {items.length > 0 ? (
+      {items.length > 0 && view === 'cards' ? (
+        <ul
+          aria-label="定时任务列表"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        >
+          {items.map((schedule) => {
+            const nextDue =
+              schedule.enabled || schedule.nextDueAt
+                ? formatUtcDateTime(schedule.nextDueAt)
+                : '未安排';
+            return (
+              <li key={schedule.id} className="min-w-0">
+                <ScheduleCard
+                  schedule={schedule}
+                  nextDue={nextDue}
+                  busy={rowBusy}
+                  onToggle={(enabled) => {
+                    if (rowBusy) return;
+                    toggle.mutate({ id: schedule.id, enabled });
+                  }}
+                  onEdit={() => {
+                    if (rowBusy) return;
+                    setEditing(schedule);
+                  }}
+                  onDelete={() => {
+                    if (rowBusy) return;
+                    deletedRef.current = false;
+                    setDeleting(schedule);
+                  }}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      {items.length > 0 && view === 'table' ? (
         <PageSection divided={false}>
-          <table className="w-full border-collapse text-sm">
+          <Table>
             <caption className="sr-only">定时任务列表</caption>
-            <thead>
-              <tr className="border-t border-line text-2xs text-muted-foreground">
-                <th scope="col" className="py-2 pr-2 text-left font-normal">
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col" className="w-[34%]">
                   名称
-                </th>
-                <th
-                  scope="col"
-                  className="hidden w-[150px] py-2 pr-2 text-left font-normal sm:table-cell"
-                >
+                </TableHead>
+                <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
                   cron
-                </th>
-                <th
-                  scope="col"
-                  className="hidden w-[120px] py-2 pr-2 text-left font-normal sm:table-cell"
-                >
+                </TableHead>
+                <TableHead scope="col" className="hidden w-[18%] sm:table-cell">
                   下次触发（UTC）
-                </th>
-                <th
-                  scope="col"
-                  className="hidden w-[120px] py-2 pr-2 text-left font-normal sm:table-cell"
-                >
+                </TableHead>
+                <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
                   上次运行
-                </th>
-                <th scope="col" className="w-px py-2">
+                </TableHead>
+                <TableHead scope="col" className="w-[16%] text-right">
                   <span className="sr-only">操作</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((schedule) => (
-                <tr
-                  key={schedule.id}
-                  className="border-b border-line transition-colors duration-150 ease-out-soft hover:bg-hover"
-                >
-                  <th scope="row" className="min-w-0 py-3 pr-2 text-left font-normal">
-                    <span className="block truncate text-sm font-medium text-fg">
-                      {schedule.name}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {schedule.agentName ?? '已删除的专家'}
-                    </span>
-                    {/* 窄屏收起列，用可见标签保留每项数据。 */}
-                    <span className="block text-2xs text-muted-foreground sm:hidden">
-                      {schedule.cron} · 下次 UTC {formatUtcDateTime(schedule.nextDueAt)} · 上次{' '}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((schedule) => {
+                const nextDue =
+                  schedule.enabled || schedule.nextDueAt
+                    ? formatUtcDateTime(schedule.nextDueAt)
+                    : '未安排';
+                return (
+                  <TableRow key={schedule.id}>
+                    <TableHead scope="row" className="h-auto min-w-0 py-2 font-normal text-fg">
+                      <span className="block truncate text-sm font-medium text-fg">
+                        {schedule.name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {schedule.agentName ?? '已删除的专家'}
+                      </span>
+                      {/* 窄屏收起列，用可见标签保留每项数据。 */}
+                      <span className="block text-2xs text-muted-foreground sm:hidden">
+                        {schedule.cron} · 下次 UTC {nextDue} · 上次{' '}
+                        {formatRelative(schedule.lastRunAt)}
+                      </span>
+                    </TableHead>
+                    <TableCell className="hidden sm:table-cell">
+                      <code className="font-mono text-xs text-muted-foreground">
+                        {schedule.cron}
+                      </code>
+                    </TableCell>
+                    <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
+                      {nextDue}
+                    </TableCell>
+                    <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
                       {formatRelative(schedule.lastRunAt)}
-                    </span>
-                  </th>
-                  <td className="hidden py-3 pr-2 sm:table-cell">
-                    <code className="font-mono text-xs text-muted-foreground">{schedule.cron}</code>
-                  </td>
-                  <td className="hidden py-3 pr-2 text-xs text-muted-foreground sm:table-cell">
-                    {formatUtcDateTime(schedule.nextDueAt)}
-                  </td>
-                  <td className="hidden py-3 pr-2 text-xs text-muted-foreground sm:table-cell">
-                    {formatRelative(schedule.lastRunAt)}
-                  </td>
-                  <td className="py-3">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Switch
-                        size="sm"
-                        checked={schedule.enabled}
-                        disabled={rowBusy}
-                        aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
-                        onCheckedChange={(enabled) => {
-                          if (rowBusy) return;
-                          toggle.mutate({ id: schedule.id, enabled });
-                        }}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`编辑 ${schedule.name}`}
-                        disabled={rowBusy}
-                        onClick={() => {
-                          if (rowBusy) return;
-                          setEditing(schedule);
-                        }}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`删除 ${schedule.name}`}
-                        disabled={rowBusy}
-                        onClick={() => {
-                          if (rowBusy) return;
-                          deletedRef.current = false;
-                          setDeleting(schedule);
-                        }}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Switch
+                          size="sm"
+                          checked={schedule.enabled}
+                          disabled={rowBusy}
+                          aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
+                          onCheckedChange={(enabled) => {
+                            if (rowBusy) return;
+                            toggle.mutate({ id: schedule.id, enabled });
+                          }}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`编辑 ${schedule.name}`}
+                          disabled={rowBusy}
+                          onClick={() => {
+                            if (rowBusy) return;
+                            setEditing(schedule);
+                          }}
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`删除 ${schedule.name}`}
+                          disabled={rowBusy}
+                          onClick={() => {
+                            if (rowBusy) return;
+                            deletedRef.current = false;
+                            setDeleting(schedule);
+                          }}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </PageSection>
       ) : null}
 
@@ -419,6 +478,78 @@ export function SchedulesPage() {
         />
       ) : null}
     </Page>
+  );
+}
+
+function ScheduleCard({
+  schedule,
+  nextDue,
+  busy,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  schedule: Schedule;
+  nextDue: string;
+  busy: boolean;
+  onToggle: (enabled: boolean) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <Card className="h-full">
+      <CardHeader>
+        <CardTitle className="min-w-0">
+          <h2 className="truncate" title={schedule.name}>
+            {schedule.name}
+          </h2>
+        </CardTitle>
+        <CardDescription className="truncate text-xs">
+          {schedule.agentName ?? '已删除的专家'}
+        </CardDescription>
+        <CardAction>
+          <Switch
+            size="sm"
+            checked={schedule.enabled}
+            disabled={busy}
+            aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
+            onCheckedChange={onToggle}
+          />
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
+          <dt className="text-muted-foreground">cron</dt>
+          <dd className="text-right">
+            <code className="font-mono text-xs text-muted-foreground">{schedule.cron}</code>
+          </dd>
+          <dt className="text-muted-foreground">下次触发（UTC）</dt>
+          <dd className="text-right text-muted-foreground">{nextDue}</dd>
+          <dt className="text-muted-foreground">上次运行</dt>
+          <dd className="text-right text-muted-foreground">{formatRelative(schedule.lastRunAt)}</dd>
+        </dl>
+      </CardContent>
+      <CardFooter className="justify-end gap-1.5">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`编辑 ${schedule.name}`}
+          disabled={busy}
+          onClick={onEdit}
+        >
+          <Pencil />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`删除 ${schedule.name}`}
+          disabled={busy}
+          onClick={onDelete}
+        >
+          <Trash2 />
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }
 
