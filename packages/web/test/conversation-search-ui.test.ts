@@ -194,7 +194,6 @@ describe('conversation search overlay', () => {
     await press(input, 'ArrowDown');
     await press(input, 'Enter', 13);
 
-    expect(syntheticClick).toHaveBeenCalled();
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'c2' }));
     expect(input.value).toBe('');

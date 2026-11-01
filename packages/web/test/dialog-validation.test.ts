@@ -51,9 +51,16 @@ describe('DialogShell validation focus', () => {
       frame = callback;
     });
     renderToStaticMarkup(createElement(DialogShell, { title: '编辑' }));
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+    expect(document.activeElement).toBe(input);
     const querySelector = vi.fn(() => null);
     capture.submit?.({ currentTarget: { querySelector } });
-    expect(() => frame?.()).not.toThrow();
-    expect(querySelector).toHaveBeenCalledOnce();
+    expect(frame).toBeTypeOf('function');
+    frame?.();
+    expect(querySelector).toHaveBeenCalledWith('[aria-invalid="true"]');
+    expect(document.activeElement).toBe(input);
+    input.remove();
   });
 });

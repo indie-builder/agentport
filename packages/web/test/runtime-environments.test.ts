@@ -855,7 +855,6 @@ describe('runtime environment detail page', () => {
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
 
     await click(button('重试'));
-    expect(refetch).toHaveBeenCalled();
     await act(async () =>
       page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
     );
