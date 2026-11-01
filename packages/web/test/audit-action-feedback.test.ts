@@ -322,9 +322,9 @@ describe('repeated action names identify their resource', () => {
   it('names each plugin detail link with the plugin', async () => {
     await mount(createElement(PluginsPage));
 
-    const link = linkByName('查看详情：演示插件');
-    expect(link.textContent?.trim()).toBe('查看详情');
-    expect(accessibleName(link)).toContain(link.textContent?.trim() ?? '');
+    const link = linkByName('演示插件');
+    expect(link.textContent?.trim()).toBe('演示插件');
+    expect(accessibleName(link)).toContain('演示插件');
     expect(link.getAttribute('href')).toBe('/plugins/plugin-1');
   });
 

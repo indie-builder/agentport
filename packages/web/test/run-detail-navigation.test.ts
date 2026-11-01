@@ -179,8 +179,10 @@ describe('run detail navigation', () => {
     client.setQueryData(['runs', null, 'failed', 100], { items: [listItem] });
     const router = await mount('/runs?view=cards&status=failed');
 
-    const open = host.querySelector<HTMLAnchorElement>('a[aria-label="查看运行 1"]');
-    if (!open) throw new Error('Missing run card link');
+    const open = [...host.querySelectorAll<HTMLAnchorElement>('ul[aria-label="运行列表"] a')].find(
+      (anchor) => anchor.textContent?.trim() === '专家',
+    );
+    if (!open) throw new Error('Missing run card title link');
     const openUrl = new URL(open.getAttribute('href') ?? '', 'http://localhost');
     expect(openUrl.pathname).toBe('/runs/run_1');
     expect(openUrl.searchParams.get('backTo')).toBe('/runs?view=cards&status=failed');

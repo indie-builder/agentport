@@ -135,7 +135,7 @@ function KnowledgeCard({
 }) {
   return (
     <li className="min-w-0">
-      <Card className="relative h-full transition-shadow hover:ring-foreground/25">
+      <Card className="relative h-full">
         {/* 覆盖整卡的可点击入口；操作菜单用 z-10 保持在它之上。 */}
         <Link
           to="/knowledge/$baseId"

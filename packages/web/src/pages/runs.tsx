@@ -208,13 +208,6 @@ function RunCard({ run }: { run: RunListItem }) {
             {shortId(run.id)}
           </code>
         </span>
-        <Link
-          {...detailLink}
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          aria-label={`查看运行 ${shortId(run.id)}`}
-        >
-          查看运行
-        </Link>
       </CardFooter>
     </Card>
   );
