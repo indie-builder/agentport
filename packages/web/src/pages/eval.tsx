@@ -453,11 +453,6 @@ export function EvalPage() {
         />
       ) : null}
 
-      <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-        <p>期望非空：检查输出包含该文本（不区分大小写）。</p>
-        <p>期望为空：只要求有文本输出。</p>
-      </div>
-
       <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <PageSection
           title="用例维护"

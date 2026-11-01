@@ -245,6 +245,8 @@ export function SchedulesPage() {
   const agents = useAgents();
   const me = useQuery(meQuery);
   const canManage = can(me.data, 'schedules.manage');
+  // 专家列表失败只影响新建/编辑里的专家选择；列表页本身仍可用，错误在弹层内展示。
+  const agentsError = agents.isError ? agents.error : null;
   const client = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
@@ -290,17 +292,11 @@ export function SchedulesPage() {
 
       {schedules.data ? (
         <PageToolbar>
-          <p className="text-sm text-muted-foreground">
-            {schedules.data.length} 个定时任务，cron 按 UTC 解析。
-          </p>
+          <p className="text-sm text-muted-foreground">{schedules.data.length} 个定时任务。</p>
           <div className="ml-auto">
             <ViewToggle value={view} onChange={setView} />
           </div>
         </PageToolbar>
-      ) : null}
-
-      {agents.isError ? (
-        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
       ) : null}
 
       {schedules.isPending ? <LoadingState rows={3} /> : null}
@@ -311,7 +307,15 @@ export function SchedulesPage() {
       {schedules.data && items.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="schedule" size="compact" />}
-          title="按 cron 自动发起运行"
+          title="还没有定时任务"
+          description={canManage ? undefined : '当前账户没有创建权限，请联系管理员。'}
+          action={
+            canManage ? (
+              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                <Plus data-icon="inline-start" aria-hidden="true" /> 新建任务
+              </Button>
+            ) : undefined
+          }
         />
       ) : null}
 
@@ -454,12 +458,19 @@ export function SchedulesPage() {
       ) : null}
 
       {creating ? (
-        <ScheduleDialog agents={agents.data ?? []} onClose={() => setCreating(false)} />
+        <ScheduleDialog
+          agents={agents.data ?? []}
+          agentsError={agentsError}
+          onRetryAgents={() => void agents.refetch()}
+          onClose={() => setCreating(false)}
+        />
       ) : null}
       {editing ? (
         <ScheduleDialog
           schedule={editing}
           agents={agents.data ?? []}
+          agentsError={agentsError}
+          onRetryAgents={() => void agents.refetch()}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -556,10 +567,14 @@ function ScheduleCard({
 function ScheduleDialog({
   schedule,
   agents,
+  agentsError,
+  onRetryAgents,
   onClose,
 }: {
   schedule?: Schedule;
   agents: { id: string; name: string }[];
+  agentsError: unknown;
+  onRetryAgents: () => void;
   onClose: () => void;
 }) {
   const client = useQueryClient();
@@ -778,6 +793,11 @@ function ScheduleDialog({
                 重新加载
               </Button>
             )}
+          </div>
+        ) : null}
+        {agentsError ? (
+          <div className="pb-4">
+            <ErrorState error={agentsError} onRetry={onRetryAgents} title="专家列表没有加载出来" />
           </div>
         ) : null}
         <form onSubmit={submit} className="@container flex flex-col" noValidate>

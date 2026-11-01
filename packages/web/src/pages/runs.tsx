@@ -331,8 +331,8 @@ export function RunsPage() {
           className="w-full sm:w-36"
         />
         <p className="text-sm text-muted-foreground">
-          最多显示{filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'}
-          ，按开始时间选取，未开始的排在最后；排序仅作用于当前显示的记录。
+          {filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'} ·
+          排序仅作用于当前显示的记录
         </p>
         <div className="ml-auto">
           <ViewToggle value={view} onChange={setView} />

@@ -119,6 +119,7 @@ export function LoginPage() {
                 className="h-11"
                 required
                 autoComplete="username"
+                autoFocus
                 disabled={login.isPending}
                 aria-invalid={Boolean(errors.username)}
                 aria-describedby={errors.username ? 'username-error' : undefined}
@@ -134,7 +135,6 @@ export function LoginPage() {
                 required
                 type="password"
                 autoComplete="current-password"
-                autoFocus
                 disabled={login.isPending}
                 aria-invalid={Boolean(errors.password)}
                 aria-describedby={errors.password ? 'password-error' : undefined}

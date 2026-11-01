@@ -389,7 +389,7 @@ function PluginContent({
     <div
       ref={docScroll}
       data-slot="plugin-content-scroll"
-      className="h-full min-h-0 overflow-y-auto px-6 pb-4"
+      className="h-full min-h-0 overflow-y-auto pb-4"
     >
       <div className="max-w-[75ch]">{documentBody}</div>
     </div>

@@ -179,7 +179,7 @@ export function RunDetailPage() {
         aria-label={search.backTo ? '返回来源' : '返回运行列表'}
         className={buttonVariants({ variant: 'outline', size: 'icon' })}
       >
-        <ArrowLeft />
+        <ArrowLeft aria-hidden="true" />
       </a>
       <PageHeader
         title={`运行 ${shortId(params.runId)}${run.data ? ` · ${runStatusLabel[run.data.run.status]}` : ''}`}
@@ -195,7 +195,7 @@ export function RunDetailPage() {
                   aria-label="取消运行"
                   onClick={cancel}
                 >
-                  <CircleStop data-icon="inline-start" />
+                  <CircleStop data-icon="inline-start" aria-hidden="true" />
                   {cancelMutation.isPending ? '取消中…' : '取消'}
                 </Button>
               ) : null}
@@ -205,7 +205,7 @@ export function RunDetailPage() {
                   aria-busy={rerunMutation.isPending}
                   onClick={rerun}
                 >
-                  <RotateCcw data-icon="inline-start" />
+                  <RotateCcw data-icon="inline-start" aria-hidden="true" />
                   {rerunMutation.isPending ? '提交中…' : '重跑'}
                 </Button>
               ) : null}
@@ -216,7 +216,7 @@ export function RunDetailPage() {
                   aria-busy={draftMutation.isPending}
                   onClick={saveAsSkill}
                 >
-                  <Sparkles data-icon="inline-start" />
+                  <Sparkles data-icon="inline-start" aria-hidden="true" />
                   {draftMutation.isPending ? '生成中…' : '存为技能'}
                 </Button>
               ) : null}
@@ -304,7 +304,7 @@ export function RunDetailPage() {
           role="alert"
           className="flex items-start gap-3 border-y border-line bg-danger-soft px-4 py-3"
         >
-          <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-fg">运行{runStatusLabel[detail.status]}</div>
             <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs leading-relaxed text-muted-foreground">
@@ -332,7 +332,7 @@ export function RunDetailPage() {
           role={detail.status === 'running' ? 'alert' : undefined}
           className="flex flex-wrap items-center gap-3 border-y border-line bg-warning-soft px-4 py-2.5"
         >
-          <CircleAlert className="size-4 shrink-0 text-warning" />
+          <CircleAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
           <span className="min-w-0 [overflow-wrap:anywhere] text-xs text-fg">
             {detail.status === 'running'
               ? `有 ${pending.length} 个工具待审批；请查看各项是否仍在等待。`

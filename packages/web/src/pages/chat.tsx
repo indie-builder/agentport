@@ -193,7 +193,7 @@ export function ChatPage() {
   // 否则 cleanup 会清掉未发送附件、草稿与当前会话，错误改由工作区内提示并可重试。
   if (!agents.data || agents.data.length === 0) {
     return (
-      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         {agents.isPending ? (
           <LoadingState rows={3} />
@@ -235,7 +235,7 @@ export function ChatPage() {
   // URL 指向的 agent 不存在：不静默改成第一个，免得把消息发给别的 agent。
   if (!conversationId && search.agent && !agents.data.some((item) => item.id === search.agent)) {
     return (
-      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <EmptyState
           icon={<Bot className="size-5" />}
@@ -815,7 +815,7 @@ function ChatWorkspace({
   // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
   if (conversationId && detail.isError && items.length === 0 && !run) {
     return (
-      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <div className="flex flex-col gap-3">
           <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
@@ -836,7 +836,7 @@ function ChatWorkspace({
   // 自己发送时 store 已有本轮消息，不会闪这一屏。
   if (conversationId && !run && items.length === 0 && hydrated.current !== conversationId) {
     return (
-      <Page className="h-full min-h-0 overflow-y-auto px-3 pb-5">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <LoadingState rows={4} />
       </Page>
@@ -1341,13 +1341,7 @@ function HistoryHeader({
         <Plus />
       </Button>
       {onClose ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-11"
-          aria-label="关闭会话列表"
-          onClick={onClose}
-        >
+        <Button variant="ghost" size="icon" aria-label="关闭会话列表" onClick={onClose}>
           <X className="size-4" />
         </Button>
       ) : null}
@@ -1813,7 +1807,6 @@ function ChatColumn({
                 variant="outline"
                 size="sm"
                 type="button"
-                className="min-h-11 sm:min-h-0"
                 onClick={() => onPickSuggestion(prompt)}
               >
                 <Icon data-icon="inline-start" />
@@ -2024,7 +2017,7 @@ export function Composer({
                   to="/runs/$runId"
                   params={{ runId: lastRunId }}
                   search={{ backTo: location.href }}
-                  className="inline-flex min-h-11 items-center underline-offset-2 hover:text-fg hover:underline sm:min-h-0"
+                  className="inline-flex items-center underline-offset-2 hover:text-fg hover:underline"
                 >
                   查看本次运行
                 </Link>
@@ -2041,7 +2034,7 @@ export function Composer({
                   aria-busy={cancelling}
                   aria-label="停止运行"
                   title="停止本轮运行"
-                  className="ml-auto size-11 sm:size-8"
+                  className="ml-auto"
                 >
                   {cancelling ? <LoaderCircle className="animate-spin" /> : <CircleStop />}
                 </InputGroupButton>
@@ -2057,7 +2050,7 @@ export function Composer({
                 title={
                   !canSend ? '当前账户没有新建会话的权限' : locked ? '本轮结束后可发送' : undefined
                 }
-                className="ml-auto size-11 sm:size-8"
+                className="ml-auto"
               >
                 <ArrowUp />
               </InputGroupButton>
@@ -2134,7 +2127,7 @@ function AttachmentPicker({ disabled }: { disabled: boolean }) {
         title="添加资料（文本、图片、PDF）"
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
-        className="size-11 shrink-0 sm:size-8"
+        className="shrink-0"
       >
         <Paperclip />
       </InputGroupButton>
@@ -2210,7 +2203,7 @@ function RunFooter({
   const broken = run.status === 'reconnecting' || run.status === 'detached';
 
   return (
-    <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-xs tabular-nums text-muted-foreground">
       <span
         className={cn(
           'size-1.5 shrink-0 rounded-full',
@@ -2228,7 +2221,7 @@ function RunFooter({
         />
       ) : null}
       {run.status === 'detached' ? (
-        <Button variant="link" size="xs" className="h-auto p-0 text-2xs" onClick={onRetry}>
+        <Button variant="link" size="xs" className="h-auto p-0" onClick={onRetry}>
           重连
         </Button>
       ) : null}
@@ -3173,7 +3166,7 @@ function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
         : 'text-danger';
   return (
     <div className="flex flex-col gap-1" title={title}>
-      <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-xs tabular-nums text-muted-foreground">
         <span className={tone}>{outcomeLabel[run.status]}</span>
         {run.turns !== undefined ? (
           <>
@@ -3205,7 +3198,7 @@ function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
           params={{ runId: run.runId }}
           search={{ backTo: location.href }}
           aria-label={`查看详情：运行 ${shortId(run.runId)}`}
-          className="text-fg underline decoration-line-strong underline-offset-2 hover:text-fg"
+          className="text-sm text-fg underline decoration-line-strong underline-offset-2 hover:text-fg"
         >
           查看详情
         </Link>

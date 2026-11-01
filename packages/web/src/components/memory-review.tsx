@@ -969,7 +969,7 @@ function CreateMemoryReviewDialog({
           {step === 2 ? (
             <>
               <div>
-                <h3 className="text-sm font-medium text-fg">写入目标与执行方式</h3>
+                <h3 className="text-base font-medium text-fg">写入目标与执行方式</h3>
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   默认写入个人记忆；专家目标会写入该专家的共享文件。
                 </p>
@@ -1229,7 +1229,7 @@ function CreateMemoryReviewDialog({
           {step === 1 ? (
             <>
               <div>
-                <h3 className="text-sm font-medium text-fg">来源</h3>
+                <h3 className="text-base font-medium text-fg">来源</h3>
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   先选来源专家，再从该专家的本人会话中选择最多 {MAX_SOURCES} 段。
                 </p>
@@ -1272,7 +1272,7 @@ function CreateMemoryReviewDialog({
                           <button
                             type="button"
                             aria-label={`移除来源会话 ${source.title || source.conversationId}`}
-                            className="shrink-0 rounded-sm text-muted-foreground hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             disabled={create.isPending}
                             onClick={() =>
                               setSources((previous) =>
@@ -1408,7 +1408,7 @@ function CreateMemoryReviewDialog({
           {step === 3 ? (
             <div className="flex flex-col gap-4">
               <div>
-                <h3 className="text-sm font-medium text-fg">确认生成</h3>
+                <h3 className="text-base font-medium text-fg">确认生成</h3>
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   核对来源、写入目标与执行专家后再生成；生成结果仍需审核才会写入。
                 </p>
@@ -1689,7 +1689,7 @@ function MemoryReviewDetail({
       </div>
 
       <section aria-label="写入目标" className="flex flex-col gap-1.5">
-        <h3 className="text-sm font-medium text-fg">写入目标</h3>
+        <h3 className="text-base font-medium text-fg">写入目标</h3>
         <p className="text-sm text-fg">
           {target.label}
           {target.detail ? (
@@ -1710,7 +1710,7 @@ function MemoryReviewDetail({
       {noChanges ? (
         currentContent?.trim() ? (
           <section aria-label="当前内容" className="flex flex-col gap-1.5">
-            <h3 className="text-sm font-medium text-fg">当前内容</h3>
+            <h3 className="text-base font-medium text-fg">当前内容</h3>
             <CodeBlock
               code={currentContent}
               maxHeight="none"
@@ -1722,7 +1722,7 @@ function MemoryReviewDetail({
       ) : (
         <section aria-label="内容对比" className="grid grid-cols-1 gap-4 @min-[800px]:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-1.5">
-            <h3 className="text-sm font-medium text-fg">
+            <h3 className="text-base font-medium text-fg">
               {review.decision === 'applied' ? '采用前内容' : '修改前内容'}
             </h3>
             <CodeBlock
@@ -1733,7 +1733,7 @@ function MemoryReviewDetail({
             />
           </div>
           <div className="flex min-w-0 flex-col gap-1.5">
-            <h3 className="text-sm font-medium text-fg">提案内容</h3>
+            <h3 className="text-base font-medium text-fg">提案内容</h3>
             {candidate !== null ? (
               <CodeBlock
                 code={candidate}
@@ -1755,7 +1755,7 @@ function MemoryReviewDetail({
       {indexChanged ? (
         <section aria-label="索引对比" className="grid grid-cols-1 gap-4 @min-[800px]:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-1.5">
-            <h3 className="text-sm font-medium text-fg">索引修改前内容</h3>
+            <h3 className="text-base font-medium text-fg">索引修改前内容</h3>
             <CodeBlock
               code={review.before.index?.content ?? ''}
               maxHeight="none"
@@ -1764,7 +1764,7 @@ function MemoryReviewDetail({
             />
           </div>
           <div className="flex min-w-0 flex-col gap-1.5">
-            <h3 className="text-sm font-medium text-fg">索引提案内容</h3>
+            <h3 className="text-base font-medium text-fg">索引提案内容</h3>
             <CodeBlock
               code={after.index?.content ?? ''}
               maxHeight="none"
@@ -1777,7 +1777,7 @@ function MemoryReviewDetail({
 
       {review.proposal ? (
         <section aria-label="提案理由" className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-fg">理由</h3>
+          <h3 className="text-base font-medium text-fg">理由</h3>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">
             {review.proposal.summary}
           </p>
@@ -1786,7 +1786,7 @@ function MemoryReviewDetail({
 
       {review.proposal && review.proposal.evidence.length > 0 ? (
         <section aria-label="证据" className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-fg">证据</h3>
+          <h3 className="text-base font-medium text-fg">证据</h3>
           <ul className="flex flex-col gap-2">
             {review.proposal.evidence.map((evidence) => (
               <li
@@ -1810,7 +1810,7 @@ function MemoryReviewDetail({
 
       {review.sources.length > 0 ? (
         <section aria-label="来源" className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-fg">来源</h3>
+          <h3 className="text-base font-medium text-fg">来源</h3>
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted-foreground">
             {review.sources.map((source) =>
               canReadConversations ? (

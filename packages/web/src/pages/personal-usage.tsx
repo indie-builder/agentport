@@ -289,47 +289,48 @@ export function PersonalUsagePage() {
             <ErrorState error={usage.error} onRetry={() => void usage.refetch()} />
           ) : null}
           {summary ? (
-            <dl className="flex flex-col gap-2 text-sm">
-              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
-                <dt className="w-20 shrink-0 text-muted-foreground">运行</dt>
-                <dd className="min-w-0 flex-1">
-                  <div className="grid min-w-0 grid-cols-7 gap-x-6 gap-y-1">
-                    <SummaryStat label="总计" value={String(summary.runCount)} />
-                    {statuses.map((status) => (
-                      <SummaryStat
-                        key={status}
-                        label={runStatusLabel[status]}
-                        value={String(summary[status])}
-                      />
-                    ))}
-                  </div>
-                </dd>
-              </div>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <dt className="w-20 shrink-0 text-muted-foreground">Token</dt>
-                <dd className="min-w-0 text-fg">
-                  {`${formatTokenCount(summary.inputTokens)} 输入 / ${formatTokenCount(summary.outputTokens)} 输出`}
-                </dd>
-              </div>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <dt className="w-20 shrink-0 text-muted-foreground">已记录成本</dt>
-                <dd className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-fg">
-                  {summary.costUsd === null ? (
-                    <span>未记录</span>
-                  ) : (
-                    <>
-                      <span className="font-mono tabular-nums">
-                        {`${formatCost(summary.costUsd)} · ${summary.runCount} 次中 ${summary.costRecordedRuns} 次已记录`}
+            <dl className="grid grid-cols-[96px_minmax(0,1fr)] items-baseline gap-y-2 text-sm">
+              <dt className="text-muted-foreground">运行</dt>
+              <dd className="min-w-0">
+                <div className="grid min-w-0 grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4 lg:grid-cols-7">
+                  <SummaryStat label="总计" value={String(summary.runCount)} />
+                  {statuses.map((status) => (
+                    <SummaryStat
+                      key={status}
+                      label={runStatusLabel[status]}
+                      value={String(summary[status])}
+                    />
+                  ))}
+                </div>
+              </dd>
+              <dt className="text-muted-foreground">Token</dt>
+              <dd className="min-w-0 text-fg">
+                <span className="font-mono tabular-nums">
+                  {formatTokenCount(summary.inputTokens)}
+                </span>
+                {' 输入 / '}
+                <span className="font-mono tabular-nums">
+                  {formatTokenCount(summary.outputTokens)}
+                </span>
+                {' 输出'}
+              </dd>
+              <dt className="text-muted-foreground">已记录成本</dt>
+              <dd className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-fg">
+                {summary.costUsd === null ? (
+                  <span>未记录</span>
+                ) : (
+                  <>
+                    <span className="font-mono tabular-nums">
+                      {`${formatCost(summary.costUsd)} · ${summary.runCount} 次中 ${summary.costRecordedRuns} 次已记录`}
+                    </span>
+                    {summary.costMissingRuns > 0 ? (
+                      <span className="text-muted-foreground">
+                        {`${summary.costMissingRuns} 次运行未记录成本`}
                       </span>
-                      {summary.costMissingRuns > 0 ? (
-                        <span className="text-muted-foreground">
-                          {`${summary.costMissingRuns} 次运行未记录成本`}
-                        </span>
-                      ) : null}
-                    </>
-                  )}
-                </dd>
-              </div>
+                    ) : null}
+                  </>
+                )}
+              </dd>
             </dl>
           ) : null}
         </PageSection>
@@ -413,7 +414,6 @@ export function PersonalUsagePage() {
             <Button
               type="button"
               variant="outline"
-              size="sm"
               aria-pressed={search.status === 'failed'}
               onClick={() =>
                 patchSearch({

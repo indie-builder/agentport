@@ -70,7 +70,7 @@ export function ErrorState({
       <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
       <div className="min-w-0 flex-1">
         <div className="font-medium text-fg">{title}</div>
-        <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
+        <div className="mt-0.5 break-words text-sm text-muted-foreground">
           {errorMessage(error)}
         </div>
       </div>
@@ -112,7 +112,7 @@ export function EmptyState({
       )}
       <div className="mt-1 text-sm font-medium text-fg">{title}</div>
       {description ? (
-        <div className="max-w-sm text-xs leading-relaxed text-muted-foreground">{description}</div>
+        <div className="max-w-sm text-sm text-muted-foreground">{description}</div>
       ) : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>

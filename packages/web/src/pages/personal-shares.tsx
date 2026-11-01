@@ -9,7 +9,7 @@ import { CopyButton } from '../components/copy-button.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageToolbar } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card.js';
 import { FieldError } from '../components/ui/field.js';
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
@@ -99,11 +99,11 @@ function ShareActions({
         href={share.urlPath}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
+        className={buttonVariants({ variant: 'outline', size: 'sm' })}
       >
         查看分享
       </a>
-      <CopyButton value={shareLink(share)} label="复制链接" showLabel />
+      <CopyButton value={shareLink(share)} label="复制链接" showLabel variant="ghost" />
       <Button
         variant="ghost"
         size="sm"
@@ -191,7 +191,7 @@ export function PersonalSharesPage() {
       header: '分享于',
       width: '96px',
       cell: (share) => (
-        <span className="block text-sm text-muted-foreground" title={share.createdAt}>
+        <span className="block text-xs text-muted-foreground" title={share.createdAt}>
           {formatDateTime(share.createdAt)}
         </span>
       ),

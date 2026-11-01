@@ -11,6 +11,7 @@
 - **图标与边线。** lucide 16px、`strokeWidth={1.75}` 由 `src/App.tsx` 的 `LucideProvider` 统一设置，组件内不再逐个传；1px 线、留白与控件尺寸按 §9，不用新增 border 改变控件尺寸。图表描边沿用图表自身数值，不按图标规则改。
 - **组件与样式栈以 [DESIGN-SYSTEM §12](../../docs/DESIGN-SYSTEM.md#12-实现技术栈硬性) 为准。** 只用 shadcn/ui；交互原语只用 Base UI（`@base-ui/react`），不引入 Radix；Tailwind 4，颜色/字体/圆角/阴影只从 `src/styles.css` 的 `@theme` token 取，禁止硬编码 hex；间距使用 §9 的 `gap-*`/`p-*` 尺度，不新增私有间距令牌。先看 `src/components/ui/` 有无可复用再装官方组件（`pnpm dlx shadcn@latest add <name>`）；改源码时保留原语 `aria-*`、焦点与键盘交互，`--overwrite` 前核对 diff。动效、分栏、拖拽、客户端状态、路由与 OpenUI 渲染等其余选型按 §12，本文不复制完整清单。
 - **页面骨架。** 用 `src/components/page.tsx` 的 `Page`/`PageHeader`/`PageToolbar`/`PageSection`；每个渲染状态恰好一个 `h1`，不写页面级 `mt-*`/`mb-*`。
+- **找专家页的扇形「新建专家」入口卡与「创建数字分身」卡为用户刻意要求保留，不得删除或合并到页头；其它页面仍可按设计规范精简。**
 
 ## 表单
 

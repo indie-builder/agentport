@@ -86,7 +86,7 @@ export function PageSection({
       {title || actions || description ? (
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-            {title ? <h2 className="text-sm font-medium text-fg">{title}</h2> : null}
+            {title ? <h2 className="text-base font-medium text-fg">{title}</h2> : null}
             {description ? (
               <p className="min-w-0 break-words text-sm text-muted-foreground">{description}</p>
             ) : null}

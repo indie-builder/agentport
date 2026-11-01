@@ -122,25 +122,21 @@ type Kind = ServerInput['kind'];
 /** 用户可创建的类型；knowledge 由知识库生命周期生成，不在连接器页出现。 */
 const creatableKinds = ['stdio', 'http', 'generated'] as const;
 
-const kindMeta: Record<Server['kind'], { label: string; hint: string; newHint: string }> = {
+const kindMeta: Record<Server['kind'], { label: string; newHint: string }> = {
   stdio: {
     label: '本地命令',
-    hint: '由沙盒启动的 stdio 进程',
     newHint: '在沙盒里启动一个 MCP 进程，例如 npx 包或本地脚本。',
   },
   http: {
     label: '远程 MCP',
-    hint: '已有的 MCP HTTP 端点',
     newHint: '直接连接一个已经实现了 MCP 协议的 HTTP 服务。',
   },
   generated: {
     label: 'HTTP API 转 MCP',
-    hint: '平台把上游 HTTP API 包装成 MCP',
     newHint: '逐个声明上游 HTTP 端点，平台替你生成可调用的 MCP 工具。',
   },
   knowledge: {
     label: '知识库',
-    hint: '由知识库自动生成',
     newHint: '',
   },
 };
@@ -773,7 +769,7 @@ function ServerCard({
           </h2>
         </CardTitle>
         <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
-          {server.description || kindMeta[server.kind].hint}
+          {server.description}
         </CardDescription>
         <CardAction className="col-start-3">
           <DropdownMenu>

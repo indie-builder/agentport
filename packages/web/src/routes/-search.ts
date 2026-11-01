@@ -107,7 +107,10 @@ export const schedulesSearchSchema = z.object({ view: listViewSchema });
 
 export const personalSecuritySearchSchema = z.object({ view: listViewSchema });
 
-export const accountsSearchSchema = z.object({ view: listViewSchema });
+export const accountsSearchSchema = z.object({
+  q: z.string().optional().catch(undefined),
+  view: listViewSchema,
+});
 
 /** 运行详情：返回来源用进入前的相对 URL，刷新后能回到同一列表视图。 */
 export const runDetailSearchSchema = z.object({
