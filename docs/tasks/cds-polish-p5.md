@@ -20,8 +20,22 @@
 ## 每轮流程
 审计（diff vs 参考）→ 派子代理落地 → `typecheck`/`build`/`visual:shots` 多视口 + Opus 终审 → 提交到分支 `worktree-cds-polish-p5`（每轮一个逻辑提交）→ 下一轮。主分支合并待用户确认。
 
+## 轮次记录
+- 轮1（已提交 a70cb4f）：代码块深色 + DPR 发丝边 + 7 档滚动遮罩 + 复制 2.5s 衰减 + 选区/滚动条；Opus 终审 3 项已修（选区可读、复制重播、围栏复制保留 Streamdown 并记录）。文档同步代码块深色。
+- 轮2（本提交）：item4 分段控件改 CDS 滑动 thumb（Motion layoutId + useId 防串扰 + reduced-motion）。
+  - item5（气泡分组圆角）：N/A（每轮单条用户消息，无连续同侧气泡，避免死代码）。
+  - item7（行内图标光学对齐）：N/A（无真实「图标嵌入文本」场景；tabular-nums 已在用）；rem-scale 不全局套用（会缩全站几何）。
+  - item8（ready 呼吸灯）：N/A（status-dot 仅用于运行态 running/error，无 ready 消费点）。
+
+## 待修复（审计发现的轮3候选，含价值）
+1. [高] 助手回复缺 CDS MessageActions（整段复制/反馈）：`chat.tsx` 读数行加 hover 显影复制按钮，复用 CopyButton。
+2. [中·待决策] 轮间距偏松：`chat.tsx` Content `gap-4` + 轮内 `pt-5` = 36px，CDS 约 16px；属已批准布局几何，改动前需确认。
+3. [中] 用户长消息无 300px 折叠（底部 mask + Show more）。
+4. [中低] 附件 chip 用通用 FileText + 尾部截断丢扩展名；改扩展名徽标 + 中间截断（保留中性 outline）。
+5. [低] 用户气泡缺极轻投影、助手正文缺 4px 内缩。
+
 ## 当前有效决定
-- 第1轮进行中（items 1,2,3,6,9）。提交策略：每轮提交到分支；merge main 需用户确认。
+- 每轮：提交到分支并 push；merge main 需用户确认。#2 轮间距暂列待决策。
 
 ## 验证
-- 每轮：build exit0、typecheck exit0、视觉截图（/chat /agents 及涉及页），Opus 终审通过。
+- 每轮：typecheck exit0、web build exit0、visual:shots 相关路由、Opus 终审通过方提交。
