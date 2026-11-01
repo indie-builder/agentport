@@ -636,8 +636,10 @@
   }
 
   .cds-scroll-fade-y {
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #0000000d calc(28px * .15), #00000026 calc(28px * .3), #0000004d calc(28px * .45), #00000080 calc(28px * .6), #000000b3 calc(28px * .75), #000000d9 calc(28px * .87), #000 28px, #000 calc(100% - 28px), #000000d9 calc(100% - 28px * .87), #000000b3 calc(100% - 28px * .75), #00000080 calc(100% - 28px * .6), #0000004d calc(100% - 28px * .45), #00000026 calc(100% - 28px * .3), #0000000d calc(100% - 28px * .15), transparent);
-    mask-image: linear-gradient(to bottom, transparent, #0000000d calc(28px * .15), #00000026 calc(28px * .3), #0000004d calc(28px * .45), #00000080 calc(28px * .6), #000000b3 calc(28px * .75), #000000d9 calc(28px * .87), #000 28px, #000 calc(100% - 28px), #000000d9 calc(100% - 28px * .87), #000000b3 calc(100% - 28px * .75), #00000080 calc(100% - 28px * .6), #0000004d calc(100% - 28px * .45), #00000026 calc(100% - 28px * .3), #0000000d calc(100% - 28px * .15), transparent);
+    --fade-top: 28px;
+    --fade-bottom: 28px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #0000000d calc(var(--fade-top) * .15), #00000026 calc(var(--fade-top) * .3), #0000004d calc(var(--fade-top) * .45), #00000080 calc(var(--fade-top) * .6), #000000b3 calc(var(--fade-top) * .75), #000000d9 calc(var(--fade-top) * .87), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), #000000d9 calc(100% - var(--fade-bottom) * .87), #000000b3 calc(100% - var(--fade-bottom) * .75), #00000080 calc(100% - var(--fade-bottom) * .6), #0000004d calc(100% - var(--fade-bottom) * .45), #00000026 calc(100% - var(--fade-bottom) * .3), #0000000d calc(100% - var(--fade-bottom) * .15), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #0000000d calc(var(--fade-top) * .15), #00000026 calc(var(--fade-top) * .3), #0000004d calc(var(--fade-top) * .45), #00000080 calc(var(--fade-top) * .6), #000000b3 calc(var(--fade-top) * .75), #000000d9 calc(var(--fade-top) * .87), #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), #000000d9 calc(100% - var(--fade-bottom) * .87), #000000b3 calc(100% - var(--fade-bottom) * .75), #00000080 calc(100% - var(--fade-bottom) * .6), #0000004d calc(100% - var(--fade-bottom) * .45), #00000026 calc(100% - var(--fade-bottom) * .3), #0000000d calc(100% - var(--fade-bottom) * .15), transparent);
   }
 
   @keyframes message-fade-up {

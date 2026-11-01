@@ -32,8 +32,9 @@
 - 2. [中·待决策] 轮间距偏松（`gap-4`+`pt-5`=36px vs CDS ~16px）：属已批准布局几何，需用户确认再改。
 - 轮4（本提交）：用户长消息 >300px 折叠（`FoldingMessageBody`：`useLayoutEffect` 首帧前测量避闪动、`ResizeObserver` 重测、折叠 `max-h-[300px] overflow-hidden` + 底部 3rem 渐变 mask + 「展开/收起」`aria-expanded`；短消息与附件不受影响）。
 
-## 收敛结论（2026-11-01）
-轮1–4 已闭合审计确认的高/中价值差异（深色代码块、DPR 发丝边、7 档遮罩、复制衰减、分段滑动 thumb、助手整段复制、附件扩展名 chip、气泡投影、长消息折叠）。余下仅 **#2 轮间距**（属已批准布局几何，待用户拍板）与若干低价值/N-A 项。loop 视为收敛，等待用户决定：是否改 #2、是否合并 main。
+## 轮次记录（续）与收敛状态
+- 轮5（本提交）：①待审批卡 pending 加陶土边线+微光+「等待授权」药丸（终态中性，药丸文字用 `--color-link` 达 AA）；②channel `@` 提及浮层统一 `radius-popover`+`shadow-md`；③7 档滚动遮罩触顶/触底动态归零（`--fade-top`/`--fade-bottom` + rAF onScroll，无 setState 抖动）。
+- 轮1–5 已闭合多轮审计确认的高/中价值差异。仍待用户决策：轮间距 #2（属已批准布局几何）。其余为低价值/N-A。持续审计中。
 
 ## 当前有效决定
 - 每轮：提交到分支并 push；merge main 需用户确认。#2 轮间距暂列待决策。

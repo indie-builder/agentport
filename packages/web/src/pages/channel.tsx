@@ -760,31 +760,44 @@ function RunControls({
           停止
         </Button>
       ) : null}
-      {pendingApprovals.map((approval) => (
-        <div
-          key={approval.id}
-          className="flex min-w-0 flex-wrap items-center gap-2 rounded-item border border-line bg-surface px-3 py-2 text-xs"
-        >
-          <ShieldAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
-          <span className="min-w-0 break-words text-fg">
-            需要批准：{approval.serverName ?? approval.serverId} · {approval.toolName}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={approve.isPending && approve.variables === approval.id}
-            aria-busy={approve.isPending && approve.variables === approval.id}
-            onClick={() =>
-              approve.mutate(approval.id, {
-                onSuccess: () => toastSuccess('已批准'),
-                onError: (error) => toastError(error),
-              })
-            }
+      {pendingApprovals.map((approval) => {
+        const isPending = active && approval.approvedAt === null;
+        return (
+          <div
+            key={approval.id}
+            className={cn(
+              'flex min-w-0 flex-wrap items-center gap-2 rounded-item border bg-surface px-3 py-2 text-xs',
+              isPending
+                ? 'border-[var(--color-button-primary)]/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-button-primary)_35%,transparent),0_0_12px_-2px_color-mix(in_srgb,var(--color-button-primary)_30%,transparent)]'
+                : 'border-line',
+            )}
           >
-            批准
-          </Button>
-        </div>
-      ))}
+            <ShieldAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
+            {isPending ? (
+              <span className="shrink-0 rounded-full bg-[color-mix(in_srgb,var(--color-button-primary)_12%,transparent)] px-2 py-0.5 text-2xs font-medium text-[var(--color-link)]">
+                等待授权
+              </span>
+            ) : null}
+            <span className="min-w-0 break-words text-fg">
+              需要批准：{approval.serverName ?? approval.serverId} · {approval.toolName}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={approve.isPending && approve.variables === approval.id}
+              aria-busy={approve.isPending && approve.variables === approval.id}
+              onClick={() =>
+                approve.mutate(approval.id, {
+                  onSuccess: () => toastSuccess('已批准'),
+                  onError: (error) => toastError(error),
+                })
+              }
+            >
+              批准
+            </Button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -805,7 +818,7 @@ function MentionMenu({
       <div
         role="listbox"
         aria-label="提及智能体"
-        className="mb-2 max-h-56 overflow-y-auto rounded-item border border-line bg-surface py-1"
+        className="mb-2 max-h-56 overflow-y-auto rounded-[var(--radius-popover)] border border-line bg-surface py-1 shadow-md"
       >
         {options.map((option, index) => (
           <button

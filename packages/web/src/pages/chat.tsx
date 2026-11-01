@@ -3324,6 +3324,7 @@ export const ApprovalCard = memo(function ApprovalCard({
   onApprove: (item: ApprovalRequest) => void;
 }) {
   const busy = pending === item.id;
+  const isPending = item.waiting && item.approvedAt === null;
   const reduce = useReducedMotion();
   return (
     <motion.div
@@ -3331,9 +3332,18 @@ export const ApprovalCard = memo(function ApprovalCard({
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={reduce ? STILL : EXPAND}
-      className="flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2"
+      className={cn(
+        'flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2',
+        isPending &&
+          'border-[var(--color-button-primary)]/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-button-primary)_35%,transparent),0_0_12px_-2px_color-mix(in_srgb,var(--color-button-primary)_30%,transparent)]',
+      )}
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
+      {isPending ? (
+        <span className="shrink-0 rounded-full bg-[color-mix(in_srgb,var(--color-button-primary)_12%,transparent)] px-2 py-0.5 text-2xs font-medium text-[var(--color-link)]">
+          等待授权
+        </span>
+      ) : null}
       <div className="min-w-0 flex-1 basis-48 text-xs leading-relaxed text-fg [overflow-wrap:anywhere]">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
         <span className="text-muted-foreground"> @ {item.serverName ?? item.serverId}</span>{' '}
