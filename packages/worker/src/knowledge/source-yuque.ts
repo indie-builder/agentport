@@ -1,3 +1,4 @@
+import { errorText } from '@agentport/shared';
 import { z } from 'zod';
 import { type FetchOptions, fetchJson, SourceAuthError, validateSourceUrl } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
@@ -118,7 +119,7 @@ function failureOf(
     externalId,
     title,
     code: truncated ? 'truncated' : retryable ? 'fetch_failed' : 'unsupported_type',
-    message: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+    message: errorText(err).slice(0, 500),
     retryable: truncated ? false : retryable,
   };
 }

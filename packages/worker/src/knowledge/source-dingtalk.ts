@@ -1,3 +1,4 @@
+import { errorText } from '@agentport/shared';
 import { z } from 'zod';
 import {
   fetchChecked,
@@ -206,7 +207,7 @@ function failureOf(externalId: string, title: string, err: unknown): SourceFailu
     externalId,
     title,
     code: 'fetch_failed',
-    message: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+    message: errorText(err).slice(0, 500),
     retryable: true,
   };
 }
@@ -389,7 +390,7 @@ function safeDownloadHeaders(raw: Record<string, string>): Record<string, string
 
 /** 预签名 URL 的 query 可能带着长期令牌，失败信息里必须去掉。 */
 function sanitizeDownloadError(err: unknown): Error {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorText(err);
   const redacted = message.replace(/https?:\/\/[^\s"'<>]+/g, (raw) => {
     try {
       const url = new URL(raw);

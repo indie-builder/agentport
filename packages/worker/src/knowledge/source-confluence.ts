@@ -1,3 +1,4 @@
+import { errorText } from '@agentport/shared';
 import { z } from 'zod';
 import {
   type FetchOptions,
@@ -408,7 +409,7 @@ function failureOf(externalId: string, title: string, err: unknown): SourceFailu
     externalId,
     title,
     code: itemError?.code ?? 'fetch_failed',
-    message: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+    message: errorText(err).slice(0, 500),
     retryable: itemError?.retryable ?? true,
   };
 }
