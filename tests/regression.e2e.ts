@@ -228,13 +228,16 @@ test('personal module opens as profile and exposes direct subpages', { session: 
     'aria-current',
     'page',
   );
-  // 阅读态先说明这些内容会随每轮对话带入；编辑入口再进入源码编辑器。
-  await expect(screen.getByText('每轮对话会带入这些长期信息。')).toBeVisible();
-  const editEntry = screen.getByRole('button', '编辑', { exact: true });
-  if ((await editEntry.count()) > 0) {
-    await editEntry.tap();
-  } else {
+  // 查询完成前既非空态也非阅读态，先等面板落定再分支。
+  await expect(screen.getByRole('region', { name: '个人记忆' })).toBeVisible();
+  // 阅读态正文之后说明会随每轮对话带入；空态只展示标题与两个入口。
+  const memoryEmpty = await screen.getByText('还没有个人记忆', { exact: true }).isVisible();
+  if (memoryEmpty) {
+    expect(await screen.getByText('每轮对话会带入这些长期信息。').isVisible()).toBe(false);
     await screen.getByRole('button', '自己填写', { exact: true }).tap();
+  } else {
+    await expect(screen.getByText('每轮对话会带入这些长期信息。')).toBeVisible();
+    await screen.getByRole('button', '编辑', { exact: true }).tap();
   }
   await expect(screen.getByLabel('个人记忆内容（Markdown）')).toBeVisible();
 

@@ -1,6 +1,6 @@
 import type { PersonalRun, PersonalRunListQuery } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -124,6 +124,7 @@ function RunCard({ run, action }: { run: PersonalRun; action: ReactNode }) {
 export function PersonalUsagePage() {
   const me = useQuery(meQuery);
   const search = useSearch({ from: '/_shell/personal/usage' });
+  const location = useLocation();
   const navigate = useNavigate({ from: '/personal/usage' });
   const canOverview = can(me.data, 'overview.read');
   const canRuns = can(me.data, 'runs.read');
@@ -210,6 +211,7 @@ export function PersonalUsagePage() {
       <Link
         to="/runs/$runId"
         params={{ runId: run.id }}
+        search={{ backTo: location.href }}
         aria-label={`查看运行 ${run.agentName ?? shortId(run.id)}`}
         className={actionLinkClass}
       >

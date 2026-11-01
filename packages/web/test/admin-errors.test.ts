@@ -17,6 +17,7 @@ vi.mock('@tanstack/react-router', async () => {
   return {
     useNavigate: () => vi.fn(),
     useSearch: ({ from }: { from?: string } = {}) => (from === '/_shell/eval' ? evalSearch : {}),
+    useLocation: () => ({ href: '/eval' }),
   };
 });
 vi.mock('@tanstack/react-query', () => ({

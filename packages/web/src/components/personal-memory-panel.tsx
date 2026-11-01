@@ -146,8 +146,6 @@ export function PersonalMemoryPanel({
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <p className="text-sm text-muted-foreground">每轮对话会带入这些长期信息。</p>
-
       {memory.isError ? (
         <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
       ) : null}
@@ -307,9 +305,12 @@ export function PersonalMemoryPanel({
             </div>
           </div>
         ) : (
-          <div className="min-w-0 max-w-[75ch]">
-            <Markdown text={content} staticContent />
-          </div>
+          <>
+            <div className="min-w-0 max-w-[75ch]">
+              <Markdown text={content} staticContent />
+            </div>
+            <p className="text-xs text-muted-foreground">每轮对话会带入这些长期信息。</p>
+          </>
         )}
       </section>
 

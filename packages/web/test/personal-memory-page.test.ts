@@ -132,7 +132,6 @@ async function mount(
     await vi.waitFor(() =>
       expect(host.querySelector('section[aria-label="个人记忆"]')).toBeTruthy(),
     );
-    expect(host.textContent).toContain('每轮对话会带入这些长期信息。');
   }
   return router;
 }
@@ -331,8 +330,14 @@ describe('个人记忆页', () => {
 
   it('默认以 Markdown 阅读已有内容，编辑后才出现源码编辑器', async () => {
     await mount();
-    expect(host.textContent).toContain('每轮对话会带入这些长期信息。');
     await vi.waitFor(() => expect(host.textContent).toContain('旧偏好'));
+    // 阅读态正文在说明之前，说明只出现一次。
+    const section = host.querySelector('section[aria-label="个人记忆"]');
+    const sectionText = section?.textContent ?? '';
+    expect(sectionText.indexOf('旧偏好')).toBeLessThan(
+      sectionText.indexOf('每轮对话会带入这些长期信息。'),
+    );
+    expect(host.textContent?.split('每轮对话会带入这些长期信息。')).toHaveLength(2);
     expect(document.getElementById('personal-memory-content')).toBeNull();
     expect(button('编辑')).toBeTruthy();
     expect(link('去对话').getAttribute('href')).toBe('/chat');
@@ -346,6 +351,8 @@ describe('个人记忆页', () => {
     expect(editorValue()).toBe('旧偏好');
     await click(button('取消'));
     await vi.waitFor(() => expect(document.getElementById('personal-memory-content')).toBeNull());
+    // 从编辑返回阅读态，说明仍然只有一处。
+    expect(host.textContent?.split('每轮对话会带入这些长期信息。')).toHaveLength(2);
   });
 
   it('缺少会话读取权限时阅读态不提供去对话入口', async () => {
@@ -384,6 +391,8 @@ describe('个人记忆页', () => {
     });
     await mount();
     expect(host.textContent).toContain('还没有个人记忆');
+    // 空态不显示阅读态的「每轮会带入」说明，只保留空态标题与两个动作。
+    expect(host.textContent).not.toContain('每轮对话会带入这些长期信息。');
     expect(
       [...host.querySelectorAll('a')].filter((item) => item.textContent?.trim() === '从对话整理'),
     ).toHaveLength(1);

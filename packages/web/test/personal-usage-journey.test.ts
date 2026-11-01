@@ -238,7 +238,9 @@ describe('使用记录的任务视角', () => {
       expect([...row.querySelectorAll('a')].map((item) => item.textContent?.trim())).toEqual([
         '查看运行',
       ]);
-      expect(link(row, '查看运行').getAttribute('href')).toBe(`/runs/${runId}`);
+      expect(link(row, '查看运行').getAttribute('href')).toBe(
+        `/runs/${runId}?backTo=${encodeURIComponent('/personal/usage?days=30')}`,
+      );
     }
   });
 

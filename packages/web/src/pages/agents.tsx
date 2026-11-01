@@ -1096,6 +1096,7 @@ export function AgentDetailPage() {
   const remove = useDeleteAgent();
   const toggleEnable = useUpdateAgent();
   const location = useLocation();
+  const search = useSearch({ from: '/_shell/agents/$agentId' });
   const [editorPending, setEditorPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // 删除成功会卸载受限页签；父层保存子层最新 blocker reset，先结算被拦下的离开再返回列表。
@@ -1191,6 +1192,10 @@ export function AgentDetailPage() {
     tabItems.map((item) => item.id).filter((id) => hasAnyGrant(permissions, TAB_PERMISSIONS[id])),
   );
   const hasReadableTab = readableTabs.size > 0;
+  // 配置任务已由工具栏承载删除；页头只在工具栏确实渲染（详情已就绪）时让出入口。
+  const configTabActive =
+    full !== null && canReadConfig && activeAgentTab(search.tab, permissions) === 'config';
+  const deleteInHeader = canDelete && !configTabActive;
 
   return (
     <Page>
@@ -1219,7 +1224,7 @@ export function AgentDetailPage() {
                   查看运行
                 </Link>
               ) : null}
-              {canManageMembers || canTransfer || canDelete ? (
+              {canManageMembers || canTransfer || deleteInHeader ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -1245,7 +1250,7 @@ export function AgentDetailPage() {
                           转交负责人
                         </DropdownMenuItem>
                       ) : null}
-                      {canDelete ? (
+                      {deleteInHeader ? (
                         <DropdownMenuItem variant="destructive" onClick={() => setDeleting(true)}>
                           <Trash2 className="size-4" /> 删除专家
                         </DropdownMenuItem>
@@ -1866,6 +1871,16 @@ const TAB_PERMISSIONS: Record<TabId, PermissionId> = {
   files: 'agents.files.read',
 };
 
+/** URL 里的任务可能没有读权限，回落到第一个可读任务，页面与页头共用同一判定。 */
+function activeAgentTab(value: unknown, permissions: readonly PermissionId[]): TabId {
+  const available = tabItems.filter((item) => hasAnyGrant(permissions, TAB_PERMISSIONS[item.id]));
+  const tab = (typeof value === 'string' ? value : undefined) as TabId | undefined;
+  const requested = tab ?? available[0]?.id ?? 'config';
+  return available.some((item) => item.id === requested)
+    ? requested
+    : (available[0]?.id ?? 'config');
+}
+
 /** 普通连接器与知识库共用一个 serverIds：只替换知识库那部分，其余绑定原样保留。 */
 function mergeKnowledgeIds(current: string[], knowledgeIds: Set<string>, next: string[]): string[] {
   return [...current.filter((id) => !knowledgeIds.has(id)), ...next];
@@ -2027,10 +2042,7 @@ export function AgentEditor({
   const duplicateTriggerRef = useRef<HTMLButtonElement>(null);
   const sectionFromUrl = search.section ?? 'identity';
   // 任务只认 URL：确认放行后才换 URL，子面板才会卸载，草稿不会提前丢。
-  const requestedTab: TabId = search.tab ?? availableTabs[0]?.id ?? 'config';
-  const tab: TabId = availableTabs.some((item) => item.id === requestedTab)
-    ? requestedTab
-    : (availableTabs[0]?.id ?? 'config');
+  const tab = activeAgentTab(search.tab, permissions);
   const [activeSection, setActiveSectionState] = useState<SectionId>(sectionFromUrl);
   const activeFile = search.file ?? '.mcp.json';
   useEffect(() => setActiveSectionState(sectionFromUrl), [sectionFromUrl]);
@@ -2988,9 +3000,15 @@ export function AgentEditor({
                           ) : null,
                         )}
                         {!serversState.isPending && serverOptions.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            还没有可绑定的 server，先去 MCP Servers 页面创建。
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span>还没有可绑定的连接器。</span>
+                            <Link
+                              to="/servers"
+                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                            >
+                              去连接器创建
+                            </Link>
+                          </div>
                         ) : null}
                         {serverOptions.length > 0 ? (
                           <Combobox
@@ -3072,9 +3090,15 @@ export function AgentEditor({
                           />
                         ) : null}
                         {!knowledgeState.isPending && knowledgeOptions.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            前往知识库页面创建，创建后即可在这里绑定。
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span>还没有可绑定的知识库。</span>
+                            <Link
+                              to="/knowledge"
+                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                            >
+                              去知识库创建
+                            </Link>
+                          </div>
                         ) : null}
                         {knowledgeOptions.length > 0 ? (
                           <Combobox
@@ -3155,9 +3179,15 @@ export function AgentEditor({
                           />
                         ) : null}
                         {!skillsState.isPending && skillOptions.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            前往技能页创建或安装技能。
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span>还没有可绑定的技能。</span>
+                            <Link
+                              to="/skills"
+                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                            >
+                              去技能页创建或安装
+                            </Link>
+                          </div>
                         ) : null}
                         {skillOptions.length > 0 ? (
                           <Combobox

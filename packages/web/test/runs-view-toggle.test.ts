@@ -137,11 +137,12 @@ describe('run list view toggle', () => {
     expect(text).toContain('运行 ID');
     expect(text).toContain('错误');
     expect(text).toContain('采集失败：连接超时');
-    expect(
-      cards()
-        ?.querySelector(`a[aria-label="查看运行 ${shortId(run.id)}"]`)
-        ?.getAttribute('href'),
-    ).toBe(`/runs/${run.id}?fromView=cards`);
+    const detailHref = cards()
+      ?.querySelector(`a[aria-label="查看运行 ${shortId(run.id)}"]`)
+      ?.getAttribute('href');
+    const detailUrl = new URL(detailHref ?? '', 'http://localhost');
+    expect(detailUrl.pathname).toBe(`/runs/${run.id}`);
+    expect(detailUrl.searchParams.get('backTo')).toBe('/runs?view=cards');
   });
 
   it('expands the full error text on click and keeps the row from navigating', async () => {

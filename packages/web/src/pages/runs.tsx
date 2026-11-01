@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { BusinessIllustration } from '../components/business-illustration.js';
@@ -155,20 +155,14 @@ const columns: DataColumn<RunListItem>[] = [
   },
 ];
 
-function RunCard({
-  run,
-  detailSearch,
-}: {
-  run: RunListItem;
-  detailSearch: { fromAgent?: string; fromStatus?: RunStatus; fromView?: 'cards' };
-}) {
+function RunCard({ run }: { run: RunListItem }) {
+  const backTo = useLocation().href;
   const agentName = run.agentName ?? '已删除的专家';
   const detailLink = {
     to: '/runs/$runId' as const,
     params: { runId: run.id },
-    search: detailSearch,
+    search: { backTo },
   };
-
   return (
     <Card className="h-full">
       <CardHeader>
@@ -228,6 +222,7 @@ function RunCard({
 
 export function RunsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const me = useQuery(meQuery);
   const canExport = can(me.data, 'runs.export');
   const agents = useAgents();
@@ -289,11 +284,6 @@ export function RunsPage() {
     { value: '', label: '全部状态' },
     ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
   ];
-  const detailSearch = {
-    ...(agentId ? { fromAgent: agentId } : {}),
-    ...(status ? { fromStatus: status } : {}),
-    ...(view === 'cards' ? { fromView: 'cards' as const } : {}),
-  };
 
   return (
     <Page>
@@ -399,7 +389,7 @@ export function RunsPage() {
               >
                 {items.map((run) => (
                   <li key={run.id} className="min-w-0">
-                    <RunCard run={run} detailSearch={detailSearch} />
+                    <RunCard run={run} />
                   </li>
                 ))}
               </ul>
@@ -421,7 +411,7 @@ export function RunsPage() {
                 void navigate({
                   to: '/runs/$runId',
                   params: { runId: run.id },
-                  search: detailSearch,
+                  search: { backTo: location.href },
                 })
               }
             />

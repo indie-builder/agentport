@@ -15,6 +15,7 @@ vi.mock('@tanstack/react-router', async (original) => {
   return {
     ...actual,
     Link: (props: { children?: unknown }) => createElement('a', null, props.children),
+    useLocation: () => ({ href: '/chat' }),
   };
 });
 

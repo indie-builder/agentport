@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, type HealthMetrics, type Overview } from '../src/lib/api.js';
+import { type Attention, api, type HealthMetrics, type Overview } from '../src/lib/api.js';
 import {
   attentionQuery,
   healthMetricsQuery,
@@ -27,6 +27,7 @@ vi.mock('@tanstack/react-router', () => ({
     return createElement('a', { href, ...props }, children);
   },
   useNavigate: () => vi.fn(),
+  useLocation: () => ({ href: '/overview' }),
 }));
 
 const metrics: HealthMetrics = {
@@ -150,6 +151,13 @@ function cells(row: Element): (string | null)[] {
   return [...row.querySelectorAll('th, td')].map((cell) => cell.textContent);
 }
 
+/** 「需要处理」标题是否位于趋势区块之前。 */
+function attentionPrecedesTrend(): boolean {
+  const heading = [...host.querySelectorAll('h2')].find((item) => item.textContent === '需要处理');
+  if (!heading) throw new Error('Missing attention section');
+  return Boolean(heading.compareDocumentPosition(trigger()) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
 describe('overview trend query window', () => {
   it('defaults to the latest 7 days for both the options and the hook', async () => {
     const spy = vi.spyOn(api, 'overviewTimeseries').mockResolvedValue([]);
@@ -241,6 +249,45 @@ describe('overview trend accessibility', () => {
 
     await click(trigger());
     expect(host.querySelector('table caption')?.textContent).toBe('最近 3 天运行趋势明细');
+  });
+});
+
+describe('overview attention placement', () => {
+  it('moves the attention section back after the trend when a background refresh fails', async () => {
+    // 首次数据来自缓存，刷新时 fetch 失败即模拟后台刷新失败。
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Offline')));
+    vi.spyOn(api, 'healthMetrics').mockResolvedValue(metrics);
+    vi.spyOn(api, 'overviewTimeseries').mockResolvedValue(points);
+
+    const queryClient = client();
+    queryClient.setQueryData(overviewQuery.queryKey, overview(3));
+    queryClient.setQueryData(overviewTimeseriesQuery(3).queryKey, points);
+    queryClient.setQueryData(healthMetricsQuery.queryKey, metrics);
+    queryClient.setQueryData<Attention>(attentionQuery.queryKey, {
+      approvals: [],
+      failedRuns: [
+        {
+          kind: 'failed_run',
+          runId: 'run_failed',
+          agentId: 'agt_trend',
+          agentName: '趋势专家',
+          error: 'Offline',
+          endedAt: '2026-10-29T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+
+    await render(createElement(OverviewPage), queryClient);
+    expect(attentionPrecedesTrend()).toBe(true);
+
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: attentionQuery.queryKey });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(host.querySelector('[role="alert"]')).toBeTruthy();
+    expect(attentionPrecedesTrend()).toBe(false);
   });
 });
 

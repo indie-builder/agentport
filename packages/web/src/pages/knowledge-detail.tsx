@@ -455,6 +455,10 @@ export function KnowledgeDetailPage() {
                 documentId={search.document}
                 onClearDocument={() => go({ document: undefined }, true)}
                 onGoDocuments={() => go({ panel: undefined, document: undefined })}
+                onOpenDocument={(document) =>
+                  go({ panel: 'documents', source: undefined, folder: undefined, document })
+                }
+                onOpenSource={(source) => go({ panel: 'sources', source, document: undefined })}
               />
             </TabsContent>
           </Tabs>
@@ -4351,6 +4355,8 @@ function JobsTab({
   documentId,
   onClearDocument,
   onGoDocuments,
+  onOpenDocument,
+  onOpenSource,
 }: {
   baseId: string;
   canExecute: boolean;
@@ -4358,6 +4364,8 @@ function JobsTab({
   documentId: string | undefined;
   onClearDocument: () => void;
   onGoDocuments: () => void;
+  onOpenDocument: (documentId: string) => void;
+  onOpenSource: (sourceId: string) => void;
 }) {
   const jobs = useKnowledgeJobs(baseId, documentId === undefined ? {} : { documentId });
   const retry = useRetryKnowledgeJob(baseId);
@@ -4446,6 +4454,8 @@ function JobsTab({
                 job={job}
                 canExecute={canExecute}
                 busy={retry.isPending || cancel.isPending}
+                onOpenDocument={onOpenDocument}
+                onOpenSource={onOpenSource}
                 onRetry={() =>
                   retry.mutate(job.id, {
                     onSuccess: () => toastSuccess('已重新提交任务'),
@@ -4492,26 +4502,44 @@ function JobRow({
   busy,
   onRetry,
   onCancel,
+  onOpenDocument,
+  onOpenSource,
 }: {
   job: KnowledgeJob;
   canExecute: boolean;
   busy: boolean;
   onRetry: () => void;
   onCancel: () => void;
+  onOpenDocument: (documentId: string) => void;
+  onOpenSource: (sourceId: string) => void;
 }) {
   const active = job.status === 'queued' || job.status === 'running';
   const runningMs = job.startedAt ? Date.now() - new Date(job.startedAt).getTime() : null;
   const reason = knowledgeJobErrorText(job.error);
+  const targetTitle = job.documentId ?? job.sourceId ?? undefined;
+  const openTarget = (): void => {
+    if (job.documentId) onOpenDocument(job.documentId);
+    else if (job.sourceId) onOpenSource(job.sourceId);
+  };
   return (
     <TableRow>
       <TableCell className="text-xs">{jobTypeLabel[job.type]}</TableCell>
       <TableCell className="whitespace-normal">
-        <span
-          className="block break-words text-xs text-fg"
-          title={job.documentId ?? job.sourceId ?? undefined}
-        >
-          {jobTargetLabel(job)}
-        </span>
+        {targetTitle ? (
+          <Button
+            variant="link"
+            size="xs"
+            className="h-auto whitespace-normal px-0 text-left break-words"
+            title={targetTitle}
+            onClick={openTarget}
+          >
+            {jobTargetLabel(job)}
+          </Button>
+        ) : (
+          <span className="block break-words text-xs text-fg" title={targetTitle}>
+            {jobTargetLabel(job)}
+          </span>
+        )}
       </TableCell>
       <TableCell>
         <StatusBadge tone={jobStatusTone[job.status]}>{jobStatusLabel[job.status]}</StatusBadge>
