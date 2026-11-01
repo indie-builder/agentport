@@ -1,4 +1,4 @@
-import type { KnowledgeAudioMetadata } from '@agentport/shared';
+import { errorText, type KnowledgeAudioMetadata } from '@agentport/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import TurndownService from 'turndown';
@@ -1242,10 +1242,7 @@ export async function parseDocument(input: {
     // magic 只说明文件声明自己是什么；真正解码一次，截断/超限的图不进收费的视觉调用。
     await assertUsableImage({ mimeType: sniffed.mimeType, data: input.bytes }).catch(
       (err: unknown) => {
-        throw new KnowledgeParseError(
-          'invalid_input',
-          err instanceof Error ? err.message : String(err),
-        );
+        throw new KnowledgeParseError('invalid_input', errorText(err));
       },
     );
     return imageDocument(input.bytes, sniffed);

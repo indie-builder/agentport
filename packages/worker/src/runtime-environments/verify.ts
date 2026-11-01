@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/db';
+import { errorText } from '@agentport/shared';
 import type { SpawnFn } from './build.js';
 
 /**
@@ -271,7 +272,7 @@ export async function verifyRuntimeEnvironmentImage(
     return {
       ok: false,
       aborted: signal?.aborted === true,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     };
   }
 }

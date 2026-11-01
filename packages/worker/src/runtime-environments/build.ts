@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/db';
 import {
+  errorText,
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
   type RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';
@@ -299,7 +300,7 @@ export async function executeRuntimeEnvironmentBuild(
       logTruncated: log.truncated(),
     };
   } catch (err) {
-    return failure(log, err instanceof Error ? err.message : String(err), signal?.aborted === true);
+    return failure(log, errorText(err), signal?.aborted === true);
   } finally {
     if (tempDir !== undefined) await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
