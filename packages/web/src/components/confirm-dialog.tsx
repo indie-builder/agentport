@@ -62,8 +62,8 @@ export function ConfirmDialog({
         finalFocus={finalFocus}
       >
         <div className="flex gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-item bg-danger-soft text-danger">
-            <AlertTriangle className="size-4" />
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
+            <AlertTriangle className="size-5" />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
             <DialogDescription className="leading-relaxed">{description}</DialogDescription>

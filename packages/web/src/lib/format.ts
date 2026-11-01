@@ -68,12 +68,15 @@ export const runStatusLabel: Record<RunStatus, string> = {
 
 export const runStatusVariant = {
   queued: 'default',
-  running: 'warn',
+  running: 'brand',
   succeeded: 'success',
   failed: 'danger',
   cancelled: 'outline',
   timeout: 'danger',
-} as const satisfies Record<RunStatus, 'default' | 'warn' | 'success' | 'danger' | 'outline'>;
+} as const satisfies Record<
+  RunStatus,
+  'default' | 'warn' | 'brand' | 'success' | 'danger' | 'outline'
+>;
 
 /**
  * TypeID 形如 run_01m5bv0faceh4v4jtw00eta1sn：后缀是时间有序的随机段。

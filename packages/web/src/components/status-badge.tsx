@@ -11,6 +11,7 @@ const statusBadgeVariants = cva('rounded-tag px-1.5', {
       default: 'border-line bg-sunken text-fg',
       success: 'border-line bg-success-soft text-success',
       warn: 'border-line bg-warning-soft text-warning',
+      brand: 'border-line bg-button-primary/12 text-link',
       danger: 'border-line bg-danger-soft text-danger',
       outline: 'border-line-strong bg-transparent text-muted-foreground',
       mono: 'border-code-line bg-code font-mono text-muted-foreground',

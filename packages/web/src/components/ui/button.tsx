@@ -3,15 +3,15 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
 
 const buttonVariantStyles = cva(
-  "group/button cds-btn-squish inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button cds-btn-squish inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-[0.35] aria-disabled:pointer-events-none aria-disabled:opacity-[0.35] aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         plain: 'cursor-pointer bg-transparent',
         default:
-          'border-transparent bg-button-primary text-primary-foreground hover:bg-button-primary-hover active:bg-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          'border-transparent bg-button-primary text-primary-foreground shadow-[var(--shadow-2xs)] hover:bg-button-primary-hover active:bg-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         solid:
-          'bg-button-primary text-primary-foreground hover:bg-button-primary-hover active:bg-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          'bg-button-primary text-primary-foreground shadow-[var(--shadow-2xs)] hover:bg-button-primary-hover active:bg-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         outline:
           'border-border bg-background hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50',
         secondary:

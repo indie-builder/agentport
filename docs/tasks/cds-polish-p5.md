@@ -38,7 +38,8 @@
 - 轮7-8（本提交）：①表格分隔线用 `--hairline`；②Dialog scrim 加 `backdrop-blur-[2px]`；③knowledge-detail tabs 去 `pb-3`；④success 徽章补 `--color-success-soft`；⑤抽出共享 `SegmentedToggle`（view-toggle.tsx），`ViewToggle` 升级 CDS 胶囊+滑动 thumb（7 页通用），skills 复用，plugins 保留语义 line Tabs；⑥空态 EmptyState 虚线→实线（受保护扇形卡保留虚线）；⑦对话轮间距 36→24px（pt-5→pt-2）。17 用例回归通过，Opus 终审可交付。
 - 轮9-10（本提交）：轮9 审计发现 4 项中价值（空态与页头重复主操作、概览「需要处理」0 项空行、卡内嵌边框空态=卡片套卡片、CardFooter 整条灰带/卡内按钮偏重）；轮10 修复：servers/channels 空态主操作降级 outline、servers 卡内按钮改 ghost；概览/ops「需要处理」0 项整段不渲染（仅 isSuccess&&total=0，保 loading/error）；EmptyState 增 `bordered`(默认 true)、趋势卡用无边框；CardFooter 去灰带改 hairline；文档 §9 卡内操作改 ghost。终审 2 项（PageSection 残留标题、吞错误）已修。
 - 轮11（本提交）：低价值收尾——图表图例文字弱化为 muted；概览健康整句去 mono（数值仍等宽）；run-detail 状态改为复用 RunStatusBadge（eyebrow，可读屏）；Toast 圆角对齐 `--radius-card`（Sonner 需 !important）；breadcrumb 经核实被 plugin-detail 使用，保留。
-- 轮1–11 已闭合多轮审计高/中价值 + 主要低价值项。分支 `worktree-cds-polish-p5` 共 9 个提交，未合并 main（等用户）。
+- 轮12（本提交）：低价值收尾——新增 `--shadow-2xs` 极轻投影（default/solid 按钮）；禁用态 opacity 50%→35%（button/input/textarea/select/checkbox/radio-group/switch/toggle）；StatusBadge 增 `brand` tone，runStatusVariant.running warn→brand、RunStatusBadge running 圆点改陶土；ConfirmDialog 危险图标 36px 圆角方→40px 圆形；同步 DESIGN-SYSTEM §2.3/§13「运行中状态徽章/圆点用陶土」例外。轮1–12 全部高/中/低价值项已闭合。
+- 轮1–12 已闭合多轮审计高/中价值 + 主要低价值项。分支 `worktree-cds-polish-p5` 共 10 个提交，未合并 main（等用户）。
 
 ## 当前有效决定
 - 每轮：提交到分支并 push；merge main 需用户确认。#2 轮间距暂列待决策。
