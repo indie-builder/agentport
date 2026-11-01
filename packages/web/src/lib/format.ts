@@ -96,11 +96,11 @@ export const evalStatusLabel: Record<EvalRunStatus, string> = {
 };
 
 export const evalStatusVariant = {
-  running: 'warn',
+  running: 'brand',
   succeeded: 'success',
   failed: 'danger',
   cancelled: 'outline',
-} as const satisfies Record<EvalRunStatus, 'warn' | 'success' | 'danger' | 'outline'>;
+} as const satisfies Record<EvalRunStatus, 'brand' | 'success' | 'danger' | 'outline'>;
 
 type EvalComparisonStatus = EvalComparison['rows'][number]['status'];
 

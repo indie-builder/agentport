@@ -92,7 +92,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     cell: (run) => (
       <StatusBadge tone={evalStatusVariant[run.status]}>
         {run.status === 'running' ? (
-          <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+          <span className="size-1.5 rounded-full bg-button-primary" aria-hidden="true" />
         ) : null}
         {evalStatusLabel[run.status]}
       </StatusBadge>
@@ -795,7 +795,7 @@ function EvalRunResults({ id }: { id: string }) {
       >
         <StatusBadge tone={evalStatusVariant[evalRun.status]}>
           {running ? (
-            <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+            <span className="size-1.5 rounded-full bg-button-primary" aria-hidden="true" />
           ) : null}
           {evalStatusLabel[evalRun.status]}
         </StatusBadge>
