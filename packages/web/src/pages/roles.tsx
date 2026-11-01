@@ -508,7 +508,7 @@ export function RolesPage() {
           placeholder="搜索功能或权限…"
           value={query}
           onChange={setQuery}
-          className="w-64 min-w-0"
+          className="w-56 min-w-0"
         />
         <div className="flex items-center gap-2">
           <Button
