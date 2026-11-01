@@ -460,7 +460,7 @@ export function AppShell() {
   if (me.isPending) {
     return (
       <div
-        className="flex min-h-screen bg-shell"
+        className="flex min-h-screen bg-canvas"
         aria-busy="true"
         role="status"
         aria-label="加载中"
@@ -485,7 +485,7 @@ export function AppShell() {
 
   if (me.isError || !me.data?.authenticated) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-shell text-sm text-muted-foreground">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas text-sm text-muted-foreground">
         <PageHeader title={pageTitle} className="sr-only" />
         {me.isError ? (
           <>
@@ -642,10 +642,9 @@ export function AppShell() {
   return (
     <TooltipProvider delay={400}>
       {/*
-       * 实测结构：侧栏在外、白壳在内。壳的下/右留 4px，左侧紧贴侧栏。
-       * 壳用 1px outline（.04）而不是 border，避免内边距被边框吃掉。
+       * 平铺全幅：侧栏直接坐在画布底色上，白面内容区贴边，分区靠底色差异而不是描边。
        */}
-      <div className="flex h-dvh bg-shell text-fg">
+      <div className="flex h-dvh bg-canvas text-fg">
         <a href="#main-content" className="skip-link">
           跳到主要内容
         </a>
@@ -679,7 +678,7 @@ export function AppShell() {
           </SheetContent>
         </Sheet>
 
-        <div className="mr-1 mb-1 mt-1 flex min-w-0 flex-1 flex-col overflow-hidden rounded-shell bg-surface outline outline-1 -outline-offset-1 outline-shell-line">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
           {/*
            * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
            * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。

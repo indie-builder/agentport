@@ -1929,7 +1929,7 @@ export function Composer({
       }}
     >
       <div className="w-full">
-        <InputGroup className="h-auto rounded-card has-[[data-slot=input-group-control]:focus-visible]:border-composer-focus">
+        <InputGroup className="h-auto rounded-[var(--radius-composer)] bg-surface shadow-composer hover:shadow-composer-hover has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:shadow-composer-focus">
           {outputRef ? (
             <div className="flex min-w-0 items-center gap-2 px-4 pt-3">
               <Badge variant="outline" className="min-w-0 max-w-full">
@@ -2205,10 +2205,8 @@ function RunFooter({
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-xs tabular-nums text-muted-foreground">
       <span
-        className={cn(
-          'size-1.5 shrink-0 rounded-full',
-          run.status === 'detached' ? 'bg-danger' : 'bg-fg',
-        )}
+        className="status-dot shrink-0"
+        data-kind={run.status === 'detached' ? 'error' : 'running'}
         aria-hidden="true"
       />
       <span className="min-w-0 break-words text-fg">{runStatusText(run, items)}</span>
@@ -2452,15 +2450,15 @@ export function MessagePane({
                   return (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
                       {/* 一轮一组：只靠拉开间距划出轮次边界，不加横线。 */}
-                      <div className={cn('group/turn', turnIndex > 0 && 'pt-5')}>
+                      <div className={cn('group/turn message-fade-up', turnIndex > 0 && 'pt-5')}>
                         {/* Keep 14px conversation text instead of the base message's text-sm. */}
                         <Message align={turn.user ? 'end' : 'start'} className="text-base">
                           <MessageContent
-                            // Keep the user's pill surface; MessageContent supplies layout without a bubble appearance.
+                            // Keep the user's bubble surface; MessageContent supplies layout without a bubble appearance.
                             className={cn(
                               'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
                               turn.user &&
-                                'w-fit max-w-[85%] rounded-pill bg-selected px-4 py-2 text-fg',
+                                'w-fit max-w-[85%] rounded-[var(--radius-bubble)] bg-selected px-4 py-3 text-fg',
                             )}
                           >
                             <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
@@ -2699,7 +2697,15 @@ const TurnTrace = memo(function TurnTrace({
         <TraceCollapsibleTrigger>
           <TraceLine status={anyRunning ? 'running' : undefined}>
             <TraceIcon>
-              {anyRunning ? <LoaderCircle className="animate-spin" /> : <ListChecks />}
+              {anyRunning ? (
+                <span className="quiet-dots" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              ) : (
+                <ListChecks />
+              )}
             </TraceIcon>
             <TraceTitle>执行过程</TraceTitle>
             <TraceDescription>{anyRunning ? '运行中' : '已完成'}</TraceDescription>

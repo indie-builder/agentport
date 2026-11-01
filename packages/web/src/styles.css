@@ -13,54 +13,49 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Qoder 视觉契约：暖黄到蓝灰的静态外壳渐变、纯白内容面与中性交互色。
- * 数据蓝只属于图表系列，状态色独立表达结果，插画保留原有配色。
+ * Claude Design System（CDS）亮色契约：暖灰表面阶梯、陶土主操作色、
+ * alpha 发丝边与双环阴影。数据蓝只属于图表系列，状态色独立表达结果。
  */
 @theme {
-  /* 外壳静态渐变三停点，只由 bg-shell 消费，不进入画布纯色。 */
-  --color-shell-start: #ecebc9;
-  --color-shell-mid: #dde3d4;
-  --color-shell-end: #d1dae3;
-
-  /* 表面：内容、卡片、浮层一律纯白；画布同时作为渐变的纯色兜底。 */
-  --color-canvas: #ffffff;
+  /* 表面：侧栏内凹、画布、卡片与浮层共用一套暖灰阶梯。 */
+  --color-canvas: #fcfcfb;
   --color-surface: #ffffff;
   --color-panel: #ffffff;
-  --color-sunken: #f6f6f6;
-  --color-hover: #f6f6f6;
-  --color-chip: #f6f6f6;
-  --color-selected: #efefef;
+  --color-sunken: #f9f9f7;
+  --color-hover: #f3f3f0;
+  --color-chip: #f6f6f4;
+  --color-selected: #eae9e4;
 
   /*
-   * 线与文本：分隔线只做分组；输入家族默认边线等同分隔线，聚焦另有浅中性角色。
-   * 三种浅边线对白均低于 3:1，是用户已接受的 Qoder 视觉限制（见 DESIGN-SYSTEM §2.4）。
+   * 线与文本：分隔线只做分组，边线取 CDS alpha 阶梯。
+   * 浅边线对白低于 3:1，是用户已接受的视觉限制（见 DESIGN-SYSTEM §2.4）。
    */
-  --color-line: #e6e6e6;
-  --color-line-strong: #767676;
-  --color-shell-line: #e6e6e6;
-  --color-fg: #141414;
+  --color-line: rgba(0, 0, 0, 0.10);
+  --color-line-strong: rgba(0, 0, 0, 0.20);
+  --color-fg: #151515;
+  --color-link: #a8482b;
   /*
    * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
    * 文字色走 muted-foreground。两者不能共用同一个变量。
    */
   --color-muted: var(--color-sunken);
-  --color-subtle: #828282;
+  --color-subtle: #8a8a8a;
   /*
-   * 复选框/单选框的未选边界与输入边框会落在白、选中底与渐变最暗端上，
-   * 该色在这三种背景均 ≥3:1；subtle 在渐变下端不足，不能用于边界。
+   * 复选框/单选框的未选边界与输入边框共用一个 alpha 档，
+   * 比发丝边更重，保证在白底与选中底上仍可见。
    */
-  --color-control-boundary: #767676;
+  --color-control-boundary: rgba(0, 0, 0, 0.35);
 
   /* 数据主线保留独立蓝，不参与导航与按钮；失败保留结果状态色。 */
-  --color-chart-runs: #315fad;
+  --color-chart-runs: #2a78d6;
   --color-chart-failed: var(--color-danger);
 
-  /* 中性动作色三态：主按钮实底逐档加深，焦点环与勾选态共用 primary。 */
-  --color-primary-hover: #262626;
+  /* 主操作走陶土三态；通用 primary 仍是墨色，不与动作色混用。 */
+  --color-primary-hover: #151515;
   --color-selected-foreground: var(--color-fg);
-  --color-button-primary: #0d0d0d;
-  --color-button-primary-hover: #262626;
-  --color-button-primary-active: #404040;
+  --color-button-primary: #d97757;
+  --color-button-primary-hover: #cc5a36;
+  --color-button-primary-active: #ad4724;
 
   /* 墨色与正文同值，不再兼任主按钮。 */
   --color-ink: var(--color-fg);
@@ -79,13 +74,16 @@
 
   --color-scrim: rgb(0 0 0 / 0.4);
 
-  /* 圆角：实测 --openui-radius-*（6/8/16）叠加实测元素值 */
-  --radius-shell: 16px; /* 外壳、卡片、建议卡 */
-  --radius-card: 16px;
-  --radius-item: 9px; /* 会话条目、新建会话 */
-  --radius-icon: 7px; /* 图标按钮、logo、折叠按钮 */
+  /* 圆角：CDS 矩阵（卡片 12 / 控件 8 / 标签 6 / Composer 20） */
+  --radius-card: 12px;
+  --radius-item: 8px; /* 会话条目、新建会话 */
+  --radius-icon: 8px; /* 图标按钮、logo、折叠按钮 */
   --radius-tag: 6px; /* 小标签、侧栏图标底 */
   --radius-pill: 9999px;
+  --radius-bubble: 18px;
+  --radius-composer: 20px;
+  --radius-dialog: 16px;
+  --radius-popover: 10px;
 
   /* base-nova 语义圆角映射；Badge 的 4xl 保留项目的小标签圆角。 */
   /*
@@ -105,10 +103,15 @@
   --sidebar-collapsed: 64px;
   --sidebar-pad: 16px 12px;
   --sidebar-pad-collapsed: 16px 16px;
-  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 
-  --font-sans: "Inter Variable", Inter, "Inter Fallback", system-ui, "PingFang SC", sans-serif;
-  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Geist Mono", monospace;
+  /* CDS 动效曲线与时长；--btn-spring 是 15 阶物理弹簧。 */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 60ms;
+  --dur-slow: 0.45s;
+  --btn-spring: linear(0, 0.2459, 0.6526, 0.9468, 1.0764, 1.0915, 1.0585, 1.0219, 0.9993, 0.9914, 0.9921, 0.9957, 0.9988, 1.0004, 1);
+
+  --font-sans: "anthropic-sans", "AnthropicSans", "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "PingFang TC", "Hiragino Sans", sans-serif;
+  --font-mono: "anthropic-mono", "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* 字号阶梯：每档至少差 1px 且语义唯一，不做视觉上分不出的相邻尺寸。 */
   --text-2xs: 0.6875rem;
@@ -142,31 +145,36 @@
   --color-popover-foreground: var(--color-fg);
   --color-card: var(--color-surface);
   --color-card-foreground: var(--color-fg);
-  --color-primary: #0d0d0d;
+  --color-primary: #151515;
   --color-primary-foreground: #ffffff;
   --color-secondary: var(--color-hover);
   --color-secondary-foreground: var(--color-fg);
   --color-accent: var(--color-selected);
   --color-accent-foreground: var(--color-fg);
-  --color-muted-foreground: #5f5f5f;
+  --color-muted-foreground: #525252;
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
   /*
-   * 输入家族：默认边线等同 line；普通聚焦是 PACE 中性近似映射（非 Qoder 源码 token），
-   * composer 聚焦来自 Qoder 焦点分离实测。三者对白 1.25 / 1.88 / 1.36:1，均不达 3:1。
-   * 不新增 input hover；错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
+   * 输入家族：默认边线等同 line，聚焦沿用中性近似值。
+   * 两者对白 1.25 / 1.88:1，均不达 3:1；不新增 input hover，
+   * 错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
    */
   --color-input: var(--color-line);
   --color-input-focus: #bdbdbd;
-  --color-composer-focus: #dddddd;
-  --color-ring: var(--color-primary);
+  --color-ring: #d97757;
   --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
   --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
 
 
-  /* 浮层共享 overlay 阴影；不加彩色光晕。 */
-  --shadow-overlay: 0 8px 24px -8px rgb(0 0 0 / 0.12);
+  /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
+  --shadow-overlay: inset 0 0 0 1px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+  --shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px rgba(0, 0, 0, 0.10);
+  --shadow-composer-hover: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.20);
+  --shadow-composer-focus: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.20);
+  --shadow-panel: 0 0 0 1px var(--color-line), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-panel-hover: 0 0 0 1px var(--color-line-strong), 0 4px 16px -2px rgba(0, 0, 0, 0.09);
+  --shadow-focus-glow: inset 0 0 0 1px #ffffff, 0 0 0 1.5px #d97757, 0 0 6px 1px rgba(217, 119, 87, 0.25);
 
   /*
    * 底座浮层用 shadow-md / shadow-lg。项目只有一种浮层阴影语言，
@@ -174,20 +182,6 @@
    */
   --shadow-md: var(--shadow-overlay);
   --shadow-lg: var(--shadow-overlay);
-}
-
-/*
- * 外部外壳的静态三色渐变；纯色画布兜底，无渐变或渐变不可用时仍是白底。
- * 只服务 AppShell 的外部根与透明导航透出，画布和内容面保持纯色。
- */
-@utility bg-shell {
-  background-color: var(--color-canvas);
-  background-image: linear-gradient(
-    180deg in srgb,
-    var(--color-shell-start) 0%,
-    var(--color-shell-mid) 50%,
-    var(--color-shell-end) 100%
-  );
 }
 
 @layer base {
@@ -235,6 +229,14 @@
     caret-color: var(--color-primary);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    text-wrap: pretty;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    letter-spacing: -0.01em;
   }
 
   /* 焦点兜底与 skip link 都走中性语义令牌。 */
@@ -421,5 +423,173 @@
       transition-delay: 0ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+@layer components {
+  .cds-btn-squish {
+    transform-origin: 50%;
+    transition:
+      transform var(--dur-slow) var(--btn-spring),
+      color var(--dur-fast) ease,
+      background-color var(--dur-fast) ease,
+      border-color var(--dur-fast) ease;
+  }
+
+  .cds-btn-squish:active {
+    transform: scale(0.975);
+    transition: transform var(--dur-fast) ease-out;
+  }
+
+  @keyframes quiet-dot {
+    0%,
+    8% {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    22% {
+      opacity: 1;
+      transform: translateY(-2.5px);
+    }
+    36%,
+    70% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    90%,
+    100% {
+      opacity: 0;
+      transform: translateY(0);
+    }
+  }
+
+  .quiet-dots {
+    display: inline-flex;
+    gap: 3.5px;
+  }
+
+  .quiet-dots > span {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--color-button-primary);
+    /* 静止态可见：reduced-motion 下动画结束后回到这里，避免指示点整组消失。 */
+    opacity: 1;
+    animation: quiet-dot 1.9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  .quiet-dots > span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .quiet-dots > span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  @keyframes dot-pulse {
+    0%,
+    5% {
+      opacity: 0.2857;
+    }
+    15%,
+    25% {
+      opacity: 1;
+    }
+    65%,
+    100% {
+      opacity: 0.2857;
+    }
+  }
+
+  .status-dot {
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  .status-dot[data-kind="ready"] {
+    background: var(--color-button-primary);
+  }
+
+  .status-dot[data-kind="running"] {
+    background: var(--color-button-primary);
+    animation: dot-pulse 1.2s infinite;
+  }
+
+  .status-dot[data-kind="error"] {
+    background: var(--color-danger);
+  }
+
+  @keyframes cds-skeleton-sweep {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .cds-skeleton-sweep {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cds-skeleton-sweep::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.6) 50%,
+      transparent 70%
+    );
+    animation: cds-skeleton-sweep 2s linear infinite;
+  }
+
+  .cds-focus-glow:focus-visible {
+    border-color: var(--color-button-primary);
+    box-shadow: var(--shadow-focus-glow);
+  }
+
+  .cds-card-interactive {
+    box-shadow: var(--shadow-panel);
+    transition: box-shadow .2s var(--ease-out-soft), transform .2s var(--ease-out-soft);
+  }
+
+  .cds-card-interactive:hover {
+    box-shadow: var(--shadow-panel-hover);
+    transform: translateY(-1.5px);
+  }
+
+  .cds-overlay-enter {
+    transition: opacity .2s cubic-bezier(.165,.84,.44,1), transform .2s cubic-bezier(.165,.84,.44,1);
+  }
+
+  .cds-overlay-enter[data-starting-style],
+  .cds-overlay-enter[data-ending-style] {
+    opacity: 0;
+    transform: scale(.96);
+  }
+
+  .cds-scroll-fade-y {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  }
+
+  @keyframes message-fade-up {
+    0% {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .message-fade-up {
+    animation: message-fade-up .4s cubic-bezier(.34,1.3,.64,1) both;
   }
 }
