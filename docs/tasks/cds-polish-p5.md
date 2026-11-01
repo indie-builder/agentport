@@ -30,7 +30,10 @@
 ## 待修复 / 轮次记录（续）
 - 轮3（本提交）：①助手回复整段复制（复用 CopyButton，hover/focus 显影、始终占位可 Tab）；②附件 chip 扩展名徽标 + `middleTruncate` + `min-w-0 truncate`（保扩展名/大小/操作不被挤）；③用户气泡轻投影 `--shadow-bubble`；④终审后修：附件名可收缩、移除误波及 OpenUI 卡片的 `pl-1` 内缩（改在 openui-message 内部区分文本/卡片，超出边界，故按低价值去掉）。
 - 2. [中·待决策] 轮间距偏松（`gap-4`+`pt-5`=36px vs CDS ~16px）：属已批准布局几何，需用户确认再改。
-- 3. [中·轮4] 用户长消息 300px 折叠（底部 mask + Show more）。
+- 轮4（本提交）：用户长消息 >300px 折叠（`FoldingMessageBody`：`useLayoutEffect` 首帧前测量避闪动、`ResizeObserver` 重测、折叠 `max-h-[300px] overflow-hidden` + 底部 3rem 渐变 mask + 「展开/收起」`aria-expanded`；短消息与附件不受影响）。
+
+## 收敛结论（2026-11-01）
+轮1–4 已闭合审计确认的高/中价值差异（深色代码块、DPR 发丝边、7 档遮罩、复制衰减、分段滑动 thumb、助手整段复制、附件扩展名 chip、气泡投影、长消息折叠）。余下仅 **#2 轮间距**（属已批准布局几何，待用户拍板）与若干低价值/N-A 项。loop 视为收敛，等待用户决定：是否改 #2、是否合并 main。
 
 ## 当前有效决定
 - 每轮：提交到分支并 push；merge main 需用户确认。#2 轮间距暂列待决策。

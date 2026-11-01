@@ -48,6 +48,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -3046,6 +3047,55 @@ function WelcomeState() {
 /** 只为展示取字段，避免把 Agent 类型一路传进展示组件。 */
 type AgentView = NonNullable<ReturnType<typeof useAgents>['data']>[number];
 
+function FoldingMessageBody({ text }: { text: string }) {
+  const bodyRef = useRef<HTMLParagraphElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const measure = () => setOverflowing(body.scrollHeight > 300);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [text]);
+
+  const collapsed = overflowing && !expanded;
+  const maskImage = collapsed
+    ? 'linear-gradient(to bottom, black calc(100% - 3rem), transparent)'
+    : undefined;
+
+  return (
+    <>
+      <p
+        ref={bodyRef}
+        className={cn(
+          'whitespace-pre-wrap break-words',
+          collapsed && 'max-h-[300px] overflow-hidden',
+        )}
+        style={{ WebkitMaskImage: maskImage, maskImage }}
+      >
+        {text}
+      </p>
+      {overflowing ? (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          aria-expanded={expanded}
+          aria-label={expanded ? '收起消息' : '展开完整消息'}
+          onClick={() => setExpanded((value) => !value)}
+          className="self-start text-xs"
+        >
+          {expanded ? '收起' : '展开'}
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
 /** 文本增量只更新对应片段，工具行继续使用独立的 memo。 */
 const MessagePart = memo(function MessagePart({
   item,
@@ -3074,7 +3124,7 @@ const MessagePart = memo(function MessagePart({
       // 不覆盖行高：气泡与助手正文共用 base 14/22。附图消息可以没有正文。
       return (
         <div className="flex min-w-0 flex-col gap-2">
-          {item.text ? <p className="whitespace-pre-wrap break-words">{item.text}</p> : null}
+          {item.text ? <FoldingMessageBody text={item.text} /> : null}
           {item.attachments && item.attachments.length > 0 ? (
             <ul aria-label="附件" className="flex min-w-0 flex-wrap gap-2">
               {item.attachments.map((attachment, index) => (
