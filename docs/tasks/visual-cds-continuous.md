@@ -68,4 +68,6 @@
 - **轮8（全站审计，6 组并行，2026-11-02）**：对除对话页外全部页面按 §8/§9/§10 + 参考布局逐页只读审计，产出分优先级清单：P1×1（channel.tsx:168 多人群聊人类消息丢作者名，已代码核实）、P2×~14、P3×~20、文档缺口×3。完整清单见会话交付。
 - **轮9（提交，机械一致性批）**：筛选宽统一 144px（agents 启用状态、personal-usage 统计窗口/状态/来源）；ops「下次触发（UTC）」表格 + 卡片补 `tabular-nums`；accounts 创建时间补 `font-mono tabular-nums`。裁决保持 agents 排序 `w-32`=128 不动。typecheck/build exit0，Opus 终审通过。P1 与其余 P2（卡片假可点、频道作者名、异步刷新错误态、空态去重、个人字段 a11y 等）留待后续轮次。
 - **轮10（提交，执行/评估页）**：run-detail 页头返回控件改入 `PageHeader leading`（删外层包装 div 与 className 覆盖，对齐 plugin-detail）；步骤 h2 `text-sm`→`text-base`；选中步骤 `bg-hover`→`bg-selected`，Opus 终审追加修正为 `bg-selected hover:bg-selected`（ghost 按钮 hover 会盖选中色）。eval 运行中状态 `warn`→`brand` tone + 圆点 `bg-warning`→`bg-button-primary`（format.ts 类型联合同步），与 RunStatusBadge 统一。typecheck/build exit0，Opus 终审通过。
+- **轮11（提交，空结果清除筛选）**：§9 空结果给恢复动作。accounts 空态：筛选无结果（settled）时补「清除筛选」（清 q、重置 offset、保留 view；按钮 size=sm）；personal-usage 空结果：区分「窗口无数据」与「筛选无结果」——新增 `hasActiveFilter`，有筛选时标题改「没有匹配的运行记录」并给「清除筛选」（清 agent/trigger/status/cursor，保留 days/view）。真实 URL 键为 agent/trigger/status（来源=trigger，非 source）。typecheck/build exit0，Opus 终审通过。
+  - 备注（P1 暂缓）：channel 多人群聊「人类消息缺作者名」受数据模型限制——`ChannelMember` 无成员显示名，`memberLabel` 对他人仅回退 `shortId`，无法补真实作者名；仅能显示 opaque shortId，属产品取舍，待用户定夺。
 

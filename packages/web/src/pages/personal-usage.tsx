@@ -135,6 +135,7 @@ export function PersonalUsagePage() {
   const days = search.days ?? 30;
   const cursor = search.cursor ?? null;
   const view = search.view ?? 'table';
+  const hasActiveFilter = Boolean(search.agent || search.trigger || search.status);
   const usage = usePersonalUsage(days, canOverview);
   const agents = useQuery({ ...agentsQuery, enabled: canAgents });
   const query: PersonalRunListQuery = {
@@ -434,11 +435,28 @@ export function PersonalUsagePage() {
           ) : runs.data && runs.data.items.length === 0 ? (
             <PageNote
               icon={<Activity className="size-4" aria-hidden="true" />}
-              title="这个窗口还没有运行记录"
+              title={hasActiveFilter ? '没有匹配的运行记录' : '这个窗口还没有运行记录'}
               action={
-                <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-                  新建对话
-                </Link>
+                hasActiveFilter ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      patchSearch({
+                        agent: undefined,
+                        trigger: undefined,
+                        status: undefined,
+                        cursor: undefined,
+                      })
+                    }
+                  >
+                    清除筛选
+                  </Button>
+                ) : (
+                  <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                    新建对话
+                  </Link>
+                )
               }
             />
           ) : view === 'cards' ? (

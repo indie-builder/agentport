@@ -167,7 +167,22 @@ export function AccountsPage() {
           title={settled ? '没有匹配的账户' : '还没有账户'}
           description={settled ? undefined : '创建后即可分配角色；删除认证资料不会移除业务授权。'}
           action={
-            canManage && !settled ? (
+            settled ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setOffset(0);
+                  void navigate({
+                    to: '/accounts',
+                    search: { ...search, q: undefined },
+                    replace: true,
+                  });
+                }}
+              >
+                清除筛选
+              </Button>
+            ) : canManage ? (
               <Button onClick={() => setCreating(true)}>新建账户</Button>
             ) : undefined
           }
