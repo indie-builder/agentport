@@ -1,6 +1,6 @@
 import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
@@ -1111,6 +1111,7 @@ function ScheduleDialog({
 }
 
 export function AttentionPanel({ hideTitle = false }: { hideTitle?: boolean } = {}) {
+  const location = useLocation();
   const attention = useAttention();
   const data = attention.data;
 
@@ -1145,6 +1146,7 @@ export function AttentionPanel({ hideTitle = false }: { hideTitle?: boolean } = 
                 <Link
                   to="/runs/$runId"
                   params={{ runId: item.runId }}
+                  search={{ backTo: location.href }}
                   className="-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5 hover:bg-hover"
                 >
                   <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
@@ -1166,6 +1168,7 @@ export function AttentionPanel({ hideTitle = false }: { hideTitle?: boolean } = 
                 <Link
                   to="/runs/$runId"
                   params={{ runId: item.runId }}
+                  search={{ backTo: location.href }}
                   className="-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5 hover:bg-hover"
                 >
                   <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />

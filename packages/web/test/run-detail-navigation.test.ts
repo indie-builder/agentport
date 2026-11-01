@@ -13,7 +13,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type RunDetail, type RunListItem } from '../src/lib/api.js';
 import { RunDetailPage } from '../src/pages/run-detail.js';
 import { RunsPage } from '../src/pages/runs.js';
-import { runDetailSearchSchema, runsSearchSchema } from '../src/routes/-search.js';
+import {
+  personalUsageSearchSchema,
+  runDetailSearchSchema,
+  runsSearchSchema,
+} from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
@@ -91,9 +95,15 @@ async function mount(path = '/runs') {
     path: '/chat',
     component: () => createElement('h1', null, '对话'),
   });
+  const usage = createRoute({
+    getParentRoute: () => shell,
+    path: '/personal/usage',
+    component: () => createElement('h1', null, '使用记录'),
+    validateSearch: personalUsageSearchSchema,
+  });
   history = createMemoryHistory({ initialEntries: [path] });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shell.addChildren([runs, runDetail, chat])]),
+    routeTree: rootRoute.addChildren([shell.addChildren([runs, runDetail, chat, usage])]),
     history,
   });
   await act(async () => {
@@ -132,7 +142,7 @@ afterEach(async () => {
 });
 
 describe('run detail navigation', () => {
-  it('carries list filters into the detail and restores them on the way back', async () => {
+  it('carries list filters into the detail via backTo and restores them on the way back', async () => {
     const router = await mount('/runs?agent=agent-a&status=failed');
     const open = host.querySelector<HTMLButtonElement>('button[data-row]');
     if (!open) throw new Error('Missing run row action');
@@ -141,22 +151,20 @@ describe('run detail navigation', () => {
       await vi.waitFor(() => expect(router.state.location.pathname).toBe('/runs/run_1'));
     });
     expect(router.state.location.search).toEqual({
-      fromAgent: 'agent-a',
-      fromStatus: 'failed',
+      backTo: '/runs?agent=agent-a&status=failed',
     });
 
     await act(async () => {
       await vi.waitFor(() => expect(host.textContent).toContain('会话标题'));
     });
-    const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回运行列表"]');
+    const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回来源"]');
     expect(back?.getAttribute('href')).toBe('/runs?agent=agent-a&status=failed');
 
-    // 选中步骤只改 step，列表来源筛选仍在 URL 里。
+    // 选中步骤只改 step，来源 URL 仍在 URL 里。
     const steps = host.querySelectorAll<HTMLButtonElement>('ol button');
     await act(async () => steps[1]?.click());
     expect(router.state.location.search).toMatchObject({
-      fromAgent: 'agent-a',
-      fromStatus: 'failed',
+      backTo: '/runs?agent=agent-a&status=failed',
       step: 1,
     });
 
@@ -175,8 +183,7 @@ describe('run detail navigation', () => {
     if (!open) throw new Error('Missing run card link');
     const openUrl = new URL(open.getAttribute('href') ?? '', 'http://localhost');
     expect(openUrl.pathname).toBe('/runs/run_1');
-    expect(openUrl.searchParams.get('fromStatus')).toBe('failed');
-    expect(openUrl.searchParams.get('fromView')).toBe('cards');
+    expect(openUrl.searchParams.get('backTo')).toBe('/runs?view=cards&status=failed');
 
     await act(async () => open.click());
     await act(async () => {
@@ -186,11 +193,11 @@ describe('run detail navigation', () => {
       await vi.waitFor(() => expect(host.textContent).toContain('会话标题'));
     });
 
-    const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回运行列表"]');
+    const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回来源"]');
     if (!back) throw new Error('Missing back link');
     const backUrl = new URL(back.getAttribute('href') ?? '', 'http://localhost');
-    expect(backUrl.searchParams.get('status')).toBe('failed');
     expect(backUrl.searchParams.get('view')).toBe('cards');
+    expect(backUrl.searchParams.get('status')).toBe('failed');
 
     await act(async () => back.click());
     await act(async () => {
@@ -200,8 +207,35 @@ describe('run detail navigation', () => {
     expect(router.state.location.search).toMatchObject({ status: 'failed', view: 'cards' });
   });
 
+  it('returns to a filtered usage list captured in backTo', async () => {
+    const router = await mount(
+      '/runs/run_1?backTo=%2Fpersonal%2Fusage%3Fdays%3D7%26status%3Dfailed',
+    );
+    const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回来源"]');
+    if (!back) throw new Error('Missing back link');
+    expect(back.getAttribute('href')).toBe('/personal/usage?days=7&status=failed');
+
+    await act(async () => back.click());
+    await act(async () => {
+      await vi.waitFor(() => expect(router.state.location.pathname).toBe('/personal/usage'));
+    });
+    expect(router.state.location.search).toEqual({ days: 7, status: 'failed' });
+  });
+
+  it('falls back to the runs list when backTo is not site-relative', async () => {
+    for (const path of [
+      '/runs/run_1?backTo=https%3A%2F%2Fevil.example',
+      '/runs/run_1?backTo=%2F%2Fevil.example',
+      '/runs/run_1',
+    ]) {
+      await mount(path);
+      const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回运行列表"]');
+      expect(back?.getAttribute('href')).toBe('/runs');
+    }
+  });
+
   it('links the conversation title back to its chat with the real search contract', async () => {
-    await mount('/runs/run_1?fromAgent=agent-a&fromStatus=failed');
+    await mount('/runs/run_1?backTo=%2Fruns');
     const link = [...host.querySelectorAll<HTMLAnchorElement>('a')].find(
       (anchor) => anchor.textContent?.trim() === '会话标题',
     );
@@ -217,7 +251,7 @@ describe('run detail navigation', () => {
       ...detail,
       conversation: { ...detail.conversation, title: '' },
     });
-    await mount('/runs/run_1?fromAgent=agent-a');
+    await mount('/runs/run_1?backTo=%2Fruns');
     const link = [...host.querySelectorAll<HTMLAnchorElement>('a')].find(
       (anchor) => anchor.textContent?.trim() === '返回会话',
     );

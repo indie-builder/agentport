@@ -1320,6 +1320,40 @@ describe('expert deletion lifecycle', () => {
     expect(document.querySelector('#agent-name')).toBeNull();
   });
 
+  it('shows the header delete entry only when the config toolbar is not on screen', async () => {
+    await mount();
+    await click(link('Expert'));
+    await waitFor(() => document.querySelector('#agent-name'));
+
+    // 配置任务由工具栏承载删除，页头菜单不再重复。
+    await click(button('专家管理操作'));
+    await waitFor(() => menuItem('管理成员'));
+    expect(
+      [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim()),
+    ).not.toContain('删除专家');
+
+    await click(button('专家管理操作'));
+    const filesTab = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (item) => item.textContent?.trim() === '完整文件',
+    );
+    if (!filesTab) throw new Error('Missing files tab');
+    await click(filesTab);
+    await click(button('专家管理操作'));
+    await waitFor(() => menuItem('删除专家'));
+  });
+
+  it('keeps the header delete entry when the config detail never loads', async () => {
+    client.removeQueries({ queryKey: ['agent-detail', agent.id], exact: true });
+    vi.mocked(api.agent).mockRejectedValue(new Error('Detail unavailable'));
+    await mount();
+    await click(link('Expert'));
+    await waitFor(() => button('专家管理操作'));
+
+    // 工具栏因详情缺失而不渲染时，页头必须保留唯一的删除入口。
+    await click(button('专家管理操作'));
+    await waitFor(() => menuItem('删除专家'));
+  });
+
   it('keeps the draft and delete confirmation when deletion fails', async () => {
     const request = deferred<void>();
     vi.spyOn(api, 'deleteAgent').mockReturnValue(request.promise);

@@ -10,6 +10,7 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, children, ...props }: { to: string; children: ReactNode }) =>
     createElement('a', { href: to, ...props }, children),
   useNavigate: () => vi.fn(),
+  useLocation: () => ({ href: '/operations' }),
 }));
 
 const metrics: HealthMetrics = {

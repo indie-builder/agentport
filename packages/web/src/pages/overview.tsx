@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { Activity, Bot, Plus, Server, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
@@ -49,7 +49,12 @@ import {
   shortId,
 } from '../lib/format.js';
 import { judgeQueue } from '../lib/health.js';
-import { healthMetricsQuery, useOverview, useOverviewTimeseries } from '../lib/queries.js';
+import {
+  healthMetricsQuery,
+  useAttention,
+  useOverview,
+  useOverviewTimeseries,
+} from '../lib/queries.js';
 import { AttentionPanel } from './ops.js';
 
 const agentColumns: DataColumn<OverviewAgentRow>[] = [
@@ -463,7 +468,11 @@ export function RunTrendCard({ days }: { days: number }) {
 
 export function OverviewPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const overview = useOverview();
+  const attention = useAttention();
+  // 后台刷新失败时旧 data 仍在，只有本次请求成功才前置，避免失败后区块跳位。
+  const hasAttention = attention.isSuccess && (attention.data?.total ?? 0) > 0;
   const data = overview.data ?? null;
 
   const error = overview.isError ? overview.error : null;
@@ -481,6 +490,12 @@ export function OverviewPage() {
   const days = data?.window.days ?? 7;
   const windowLabel = data ? `最近 ${days} 天` : '';
   const failedCount = data?.counts.failed ?? 0;
+
+  const attentionSection = (
+    <PageSection title="需要处理" divided={false}>
+      <AttentionPanel hideTitle />
+    </PageSection>
+  );
 
   return (
     <Page>
@@ -551,11 +566,11 @@ export function OverviewPage() {
             </div>
           </section>
 
+          {hasAttention ? attentionSection : null}
+
           <RunTrendCard days={days} />
 
-          <PageSection title="需要处理" divided={false}>
-            <AttentionPanel hideTitle />
-          </PageSection>
+          {hasAttention ? null : attentionSection}
 
           <PageSection
             title="最近运行"
@@ -578,7 +593,11 @@ export function OverviewPage() {
                 label="最近运行"
                 storageKey="pace.overview.run-columns"
                 onRowClick={(run) =>
-                  void navigate({ to: '/runs/$runId', params: { runId: run.id } })
+                  void navigate({
+                    to: '/runs/$runId',
+                    params: { runId: run.id },
+                    search: { backTo: location.href },
+                  })
                 }
               />
             ) : (

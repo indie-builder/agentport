@@ -6,31 +6,51 @@ import {
 } from '../src/routes/-search.js';
 
 describe('shared search contract', () => {
-  it('accepts the same run statuses on run detail filters as the runs list', () => {
+  it('accepts the known run statuses on the runs list', () => {
     const statuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
 
     for (const status of statuses) {
       expect(runsSearchSchema.parse({ status })).toEqual({ status });
-      expect(runDetailSearchSchema.parse({ fromStatus: status })).toEqual({ fromStatus: status });
     }
 
-    expect(runDetailSearchSchema.parse({ fromStatus: 'unknown' })).toEqual({});
     expect(runsSearchSchema.parse({ status: 'unknown' })).toEqual({});
   });
 
-  it('carries the originating run filters and step together', () => {
+  it('carries the backTo source URL and step together', () => {
     expect(
       runDetailSearchSchema.parse({
         step: '3',
-        fromAgent: 'agent_01m5bv0faceh4v4jtw00eta1sn',
-        fromStatus: 'failed',
+        backTo: '/runs?agent=agent_01m5bv0faceh4v4jtw00eta1sn&status=failed',
       }),
     ).toEqual({
       step: 3,
-      fromAgent: 'agent_01m5bv0faceh4v4jtw00eta1sn',
-      fromStatus: 'failed',
+      backTo: '/runs?agent=agent_01m5bv0faceh4v4jtw00eta1sn&status=failed',
     });
     expect(runDetailSearchSchema.parse({ step: '-1' })).toEqual({});
+  });
+
+  it('rejects backTo values that leave the site', () => {
+    for (const backTo of [
+      'https://evil.example',
+      '//evil.example',
+      '/\\evil.example',
+      '/\t/evil.example',
+      '//placeholder.invalid',
+      '/\\placeholder.invalid',
+      '/\\t/placeholder.invalid',
+      '/ placeholder.invalid',
+      'runs',
+      '',
+    ]) {
+      expect(runDetailSearchSchema.parse({ backTo })).toEqual({});
+    }
+    expect(runDetailSearchSchema.parse({ backTo: `/${'a'.repeat(2048)}` })).toEqual({});
+  });
+
+  it('keeps in-site backTo links usable', () => {
+    expect(runDetailSearchSchema.parse({ backTo: '/personal/usage?days=7&status=failed' })).toEqual(
+      { backTo: '/personal/usage?days=7&status=failed' },
+    );
   });
 
   it('keeps the selected run and comparison sides addressable in the eval URL', () => {

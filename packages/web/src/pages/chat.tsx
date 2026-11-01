@@ -11,7 +11,7 @@ import {
   type PublicRunQuestion,
 } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useBlocker, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   ArrowDown,
   ArrowUp,
@@ -1875,6 +1875,7 @@ export function Composer({
 }) {
   // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
   const me = useQuery(meQuery);
+  const location = useLocation();
   const canSend = can(me.data, 'conversations.create');
   const canCancelRun = can(me.data, 'runs.cancel');
   const input = useChatStore((state) => state.input);
@@ -1984,6 +1985,7 @@ export function Composer({
                 <Link
                   to="/runs/$runId"
                   params={{ runId: lastRunId }}
+                  search={{ backTo: location.href }}
                   className="inline-flex min-h-11 items-center underline-offset-2 hover:text-fg hover:underline sm:min-h-0"
                 >
                   查看本次运行
@@ -3075,6 +3077,7 @@ function renderAssistantText(
 
 /** 一行读数：完成 · 轮次 · 耗时 · token · 成本 · 查看详情。 */
 function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
+  const location = useLocation();
   const tone =
     run.status === 'succeeded'
       ? 'text-success'
@@ -3113,6 +3116,7 @@ function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
         <Link
           to="/runs/$runId"
           params={{ runId: run.runId }}
+          search={{ backTo: location.href }}
           aria-label={`查看详情：运行 ${shortId(run.runId)}`}
           className="text-fg underline decoration-line-strong underline-offset-2 hover:text-fg"
         >

@@ -5482,6 +5482,56 @@ describe('knowledge jobs pagination', () => {
   });
 });
 
+describe('knowledge job targets', () => {
+  it('opens the document or source workspace from a job record', async () => {
+    documentList();
+    server.use(
+      http.get('/api/knowledge/jobs', () =>
+        HttpResponse.json({
+          items: [
+            jobFixture({
+              id: 'kjob_doc',
+              type: 'ingest',
+              status: 'succeeded',
+              documentId: 'kdoc_1',
+              documentTitle: '上线流程',
+            }),
+            jobFixture({
+              id: 'kjob_src',
+              type: 'sync',
+              status: 'succeeded',
+              sourceId: 'ksrc_1',
+              sourceName: '产品仓库',
+            }),
+          ],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/knowledge/sources/ksrc_1/runs', () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/documents/kdoc_1', () => HttpResponse.json(doc)),
+    );
+    const router = await mount('/knowledge/kb_1', { panel: 'jobs' });
+
+    await click(button('上线流程'));
+    await waitFor(() => router.state.location.search.panel === 'documents');
+    expect(router.state.location.search.document).toBe('kdoc_1');
+
+    await click(button('处理记录'));
+    await waitFor(() => router.state.location.search.panel === 'jobs');
+    // 从文档跳到处理记录保留文档过滤，先清掉才能看到来源任务。
+    await click(button('查看全部处理记录'));
+    await waitFor(() => router.state.location.search.document === undefined);
+
+    await click(button('产品仓库'));
+    await waitFor(() => router.state.location.search.panel === 'sources');
+    expect(router.state.location.search.source).toBe('ksrc_1');
+    expect(router.state.location.search.document).toBeUndefined();
+    await waitFor(() => document.body.textContent?.includes('同步记录') === true);
+  });
+});
+
 describe('knowledge document filters', () => {
   it('clears query, status, tag and folder together from the empty result', async () => {
     const folderFixture = {

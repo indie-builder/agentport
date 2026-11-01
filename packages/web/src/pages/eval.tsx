@@ -1,5 +1,5 @@
 import { evalDatasetSchema } from '@agentport/shared';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleStop, Download, GitCompare, Pencil, Play, Plus, Trash2, Upload } from 'lucide-react';
 import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -672,6 +672,7 @@ export function EvalPage() {
 
 function EvalRunResults({ id }: { id: string }) {
   const detail = useEvalRun(id);
+  const location = useLocation();
   const [exporting, setExporting] = useState(false);
 
   // 只有从没拿到过详情时才整块报错；后台轮询/手动刷新失败要保留已有结果树。
@@ -812,6 +813,7 @@ function EvalRunResults({ id }: { id: string }) {
                   <Link
                     to="/runs/$runId"
                     params={{ runId: result.runId }}
+                    search={{ backTo: location.href }}
                     className="ml-auto text-sm text-fg underline underline-offset-4"
                   >
                     查看运行

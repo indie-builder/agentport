@@ -897,7 +897,7 @@ describe('记忆提案', () => {
 
     await browserBack();
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
-    await vi.waitFor(() => expect(host.textContent).toContain('每轮对话会带入这些长期信息。'));
+    await vi.waitFor(() => expect(host.textContent).toContain('还没有个人记忆'));
   });
 
   it('生成记忆提案草稿阻止切回个人记忆，确认后仅继续该次导航', async () => {
@@ -925,7 +925,7 @@ describe('记忆提案', () => {
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('放弃并离开', discardDialog() as HTMLElement));
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
-    await vi.waitFor(() => expect(host.textContent).toContain('每轮对话会带入这些长期信息。'));
+    await vi.waitFor(() => expect(host.textContent).toContain('还没有个人记忆'));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 

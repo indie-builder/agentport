@@ -18,6 +18,12 @@ vi.mock('../src/lib/chat-store.js', async (original) => {
 
 vi.mock('@/components/ui/button', async () => import('../src/components/ui/button.js'));
 
+// Composer 直接作为函数调用，没有路由上下文；这里固定返回当前位置。
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children }: { children?: unknown }) => createElement('a', null, children),
+  useLocation: () => ({ href: '/chat' }),
+}));
+
 // Composer 直接作为函数调用，没有 QueryClientProvider；这里固定返回管理员 grants。
 vi.mock('@tanstack/react-query', async (original) => {
   const { DEFAULT_ROLES } = await import('@agentport/shared');

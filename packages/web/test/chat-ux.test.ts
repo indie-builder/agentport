@@ -301,7 +301,7 @@ describe('confirmed chat UX defects', () => {
     await mount('/chat?agent=agent-a&conversation=conversation-a');
     expect(host.textContent).toContain('失败');
     expect(host.textContent).toContain('Connector refused the request');
-    expect(host.querySelector('a[href="/runs/run-old"]')).not.toBeNull();
+    expect(host.querySelector('a[href^="/runs/run-old"]')).not.toBeNull();
     expect(host.textContent).not.toMatch(/0\.0s|0 tok|\$0\.000|NaNs/);
     // 这次运行没有产出回复，但已经结束：只显示失败原因，不再冒充仍在等待。
     expect(host.textContent).not.toContain('等待回复');
@@ -369,7 +369,7 @@ describe('confirmed chat UX defects', () => {
       });
       await mount('/chat?agent=agent-a&conversation=conversation-a');
       expect(host.textContent).toContain(label);
-      expect(host.querySelector('a[href="/runs/run-old"]')).not.toBeNull();
+      expect(host.querySelector('a[href^="/runs/run-old"]')).not.toBeNull();
       expect(host.textContent).not.toContain('等待回复');
     },
   );
@@ -495,7 +495,7 @@ describe('confirmed chat UX defects', () => {
       await mount('/chat?agent=agent-a&conversation=conversation-a');
 
       // 没有助手输出的终态运行：结果留在它自己的用户轮里，并且常驻可见。
-      const oldLink = host.querySelector('a[href="/runs/run-a"]');
+      const oldLink = host.querySelector('a[href^="/runs/run-a"]');
       expect(oldLink).not.toBeNull();
       const oldTurn = oldLink?.closest('[data-message-id]');
       expect(oldTurn?.getAttribute('data-message-id')).toBe('message-a:0');
@@ -510,9 +510,9 @@ describe('confirmed chat UX defects', () => {
       const replyTurn = host.querySelector('[data-message-id="message-c:0"]');
       expect(replyTurn?.textContent).toContain('second reply');
       expect(replyTurn?.textContent).not.toContain(errorText);
-      expect(host.querySelectorAll('a[href="/runs/run-a"]')).toHaveLength(1);
+      expect(host.querySelectorAll('a[href^="/runs/run-a"]')).toHaveLength(1);
       // 最新轮的读数由运行详情驱动；消息区内只出现一次（输入框上方另有本次运行入口）。
-      expect(replyTurn?.querySelectorAll('a[href="/runs/run-b"]')).toHaveLength(1);
+      expect(replyTurn?.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(1);
       expect(replyTurn?.textContent).toContain('完成');
       // 终态运行不再显示仍在等待。
       expect(host.textContent).not.toContain('等待回复');
@@ -636,7 +636,7 @@ describe('confirmed chat UX defects', () => {
         }),
       );
       await mount('/chat?agent=agent-a&conversation=conversation-a');
-      expect(runLink()?.getAttribute('href')).toBe('/runs/run-old');
+      expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-old\?backTo=/);
       await type('follow-up');
       await act(async () =>
         host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.click(),
@@ -651,7 +651,7 @@ describe('confirmed chat UX defects', () => {
         expect(runLink()).toBeUndefined();
         expect(message().value).toBe('follow-up');
         expect(host.textContent).toContain('Send rejected');
-      } else expect(runLink()?.getAttribute('href')).toBe('/runs/run-new');
+      } else expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-new\?backTo=/);
     },
   );
 });
@@ -721,12 +721,12 @@ describe('live terminal outcomes across a follow-up send', () => {
     expect(host.textContent).toContain(error);
     // 已接受但事件流尚未 onopen：沿用 reconnecting 文案，等连接打开才进入「等待回复」。
     expect(host.textContent).toContain('连接已中断，正在重连');
-    const oldLink = host.querySelector('a[href="/runs/run-a"]');
+    const oldLink = host.querySelector('a[href^="/runs/run-a"]');
     const oldTurn = oldLink?.closest('[data-message-id]');
     expect(oldTurn?.textContent).toContain('first prompt');
     expect(oldTurn?.textContent).not.toContain('second prompt');
     expect(oldLink?.closest('[class*="transition-opacity"]')?.className).toContain('opacity-100');
-    expect(runLink()?.getAttribute('href')).toBe('/runs/run-b');
+    expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-b\?backTo=/);
 
     await emit({ type: 'text_delta', text: 'second reply', blockIndex: 0 }, 1);
     await emit(
@@ -749,11 +749,11 @@ describe('live terminal outcomes across a follow-up send', () => {
       element.textContent?.includes('second reply'),
     );
     expect(replyTurn?.textContent).not.toContain(error);
-    expect(replyTurn?.querySelectorAll('a[href="/runs/run-b"]')).toHaveLength(1);
+    expect(replyTurn?.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(1);
     expect(replyTurn?.textContent).toContain('完成');
-    expect(host.querySelectorAll('a[href="/runs/run-a"]')).toHaveLength(1);
+    expect(host.querySelectorAll('a[href^="/runs/run-a"]')).toHaveLength(1);
     // 输入框上方的「查看本次运行」指向新运行，消息区里只有新轮一条读数链接。
-    expect(host.querySelectorAll('a[href="/runs/run-b"]')).toHaveLength(2);
+    expect(host.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(2);
   });
 
   it('keeps a cancelled turn without output after the next send', async () => {
@@ -767,13 +767,13 @@ describe('live terminal outcomes across a follow-up send', () => {
     await flush();
 
     await send('second prompt');
-    const oldLink = host.querySelector('a[href="/runs/run-a"]');
+    const oldLink = host.querySelector('a[href^="/runs/run-a"]');
     const oldTurn = oldLink?.closest('[data-message-id]');
     expect(oldTurn?.textContent).toContain('first prompt');
     expect(oldTurn?.textContent).toContain('已停止');
     expect(oldTurn?.textContent).not.toContain('second prompt');
     // 取消没有失败原因，读数沿用既有规则默认透明，但链接仍在 DOM 与 Tab 序里。
-    expect(runLink()?.getAttribute('href')).toBe('/runs/run-b');
+    expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-b\?backTo=/);
   });
 
   it('keeps a completed reply and its readout after the next send', async () => {
@@ -800,7 +800,7 @@ describe('live terminal outcomes across a follow-up send', () => {
 
     await send('second prompt');
     // 已完成回复的读数从最新读数换成缓存里的历史读数，仍只出现一次并留在原轮。
-    const oldLink = host.querySelector('a[href="/runs/run-a"]');
+    const oldLink = host.querySelector('a[href^="/runs/run-a"]');
     const oldTurn = oldLink?.closest('[data-message-id]');
     expect(oldTurn?.textContent).toContain('first reply');
     expect(oldTurn?.textContent).toContain('完成');
@@ -820,15 +820,15 @@ describe('live terminal outcomes across a follow-up send', () => {
     );
     await flush();
 
-    expect(host.querySelectorAll('a[href="/runs/run-a"]')).toHaveLength(1);
+    expect(host.querySelectorAll('a[href^="/runs/run-a"]')).toHaveLength(1);
     const firstTurn = [...host.querySelectorAll('[data-message-id]')].find((element) =>
       element.textContent?.includes('first reply'),
     );
-    expect(firstTurn?.querySelectorAll('a[href="/runs/run-a"]')).toHaveLength(1);
+    expect(firstTurn?.querySelectorAll('a[href^="/runs/run-a"]')).toHaveLength(1);
     const replyTurn = [...host.querySelectorAll('[data-message-id]')].find((element) =>
       element.textContent?.includes('second reply'),
     );
-    expect(replyTurn?.querySelectorAll('a[href="/runs/run-b"]')).toHaveLength(1);
+    expect(replyTurn?.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(1);
     expect(replyTurn?.textContent).not.toContain('first reply');
   });
 });
@@ -1374,7 +1374,7 @@ describe('chat focus handoff and history detail reachability', () => {
     expect(oldest.closest('[aria-hidden="true"]')).toBeNull();
     oldest.focus();
     expect(document.activeElement).toBe(oldest);
-    expect(oldest.getAttribute('href')).toBe('/runs/run-1');
+    expect(oldest.getAttribute('href')).toMatch(/^\/runs\/run-1\?backTo=/);
   });
 
   it('keeps the same composer textarea and its focus after the first Enter send', async () => {

@@ -81,12 +81,8 @@ export function RunDetailPage() {
   const draftMutation = useSkillDraftFromRun();
   const approveMutation = useApproveRun();
   const approvalInFlight = useRef(false);
-  // 列表来源筛选与视图随 URL 往返，返回时恢复；直接打开详情就回到未筛选列表。
-  const listSearch = {
-    ...(search.fromAgent ? { agent: search.fromAgent } : {}),
-    ...(search.fromStatus ? { status: search.fromStatus } : {}),
-    ...(search.fromView === 'cards' ? { view: 'cards' as const } : {}),
-  };
+  // 来源页把进入前的 URL 带在 backTo 里；直接打开详情就回到运行列表。
+  const backTo = search.backTo ?? '/runs';
   const selected = search.step ?? null;
 
   const selectStep = (index: number): void => {
@@ -111,7 +107,12 @@ export function RunDetailPage() {
       { agentId: detail.agentId, conversationId: detail.conversationId, message: prompt },
       {
         onSuccess: (accepted) =>
-          void navigate({ to: '/runs/$runId', params: { runId: accepted.runId } }),
+          void navigate({
+            to: '/runs/$runId',
+            params: { runId: accepted.runId },
+            // 新运行没有步骤选中，来源仍沿用当前页带来的 backTo。
+            search: search.backTo ? { backTo: search.backTo } : {},
+          }),
         onError: (error) => toastError(error),
       },
     );
@@ -159,14 +160,27 @@ export function RunDetailPage() {
 
   const header = (
     <div className="flex min-w-0 items-end gap-3">
-      <Link
-        to="/runs"
-        search={listSearch}
-        aria-label="返回运行列表"
+      <a
+        href={backTo}
+        onClick={(event) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          ) {
+            return;
+          }
+          event.preventDefault();
+          void navigate({ href: backTo });
+        }}
+        aria-label={search.backTo ? '返回来源' : '返回运行列表'}
         className={buttonVariants({ variant: 'outline', size: 'icon' })}
       >
         <ArrowLeft />
-      </Link>
+      </a>
       <PageHeader
         title={`运行 ${shortId(params.runId)}${run.data ? ` · ${runStatusLabel[run.data.run.status]}` : ''}`}
         className="min-w-0 flex-1 [&_h1]:shrink"
