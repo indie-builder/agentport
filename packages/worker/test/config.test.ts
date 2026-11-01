@@ -65,6 +65,21 @@ describe('SANDBOX_IDLE_TIMEOUT_MS', () => {
   });
 });
 
+describe('SANDBOX_MAX_ACTIVE', () => {
+  it('defaults to six and accepts positive overrides', () => {
+    expect(loadConfig(base).SANDBOX_MAX_ACTIVE).toBe(6);
+    expect(loadConfig({ ...base, SANDBOX_MAX_ACTIVE: '3' }).SANDBOX_MAX_ACTIVE).toBe(3);
+  });
+
+  it('rejects zero, negatives and non-integers', () => {
+    for (const value of ['0', '-1', '1.5', 'many']) {
+      expect(() => loadConfig({ ...base, SANDBOX_MAX_ACTIVE: value })).toThrow(
+        /SANDBOX_MAX_ACTIVE/,
+      );
+    }
+  });
+});
+
 describe('SANDBOX_EGRESS', () => {
   it('defaults to open', () => {
     expect(loadConfig(base).SANDBOX_EGRESS).toBe('open');

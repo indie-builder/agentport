@@ -19,6 +19,8 @@ export const idPrefixes = {
   outputStyle: 'ost',
   conversation: 'conv',
   message: 'msg',
+  channel: 'chn',
+  channelMessage: 'chm',
   run: 'run',
   question: 'q',
   approval: 'apr',

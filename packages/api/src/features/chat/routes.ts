@@ -145,6 +145,8 @@ function hasPlatformScope(request: FastifyRequest, permissionId: PermissionId): 
 async function loadRun(app: FastifyInstance, request: FastifyRequest, id: string) {
   const run = await chatRepo.getRun(app.db, id);
   if (!run) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
+  // 频道 run 的 initiatedBy 是触发者，读取入口统一走频道 SSE 的成员校验。
+  if (run.channelId !== null) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
   await authorizeObject(
     app,
     request,
@@ -894,6 +896,10 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
       if (!run) {
         return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新后重试');
       }
+      // 频道 run 的停止与读取按频道成员授权，不走这里的 createdBy 私有会话判定。
+      if (run.channelId !== null) {
+        return reject(reply, 'RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新后重试');
+      }
       await authorizeObject(
         app,
         request,
@@ -902,7 +908,7 @@ export function registerChatRoutes(rawApp: FastifyInstance): void {
         RUN_MISSING,
       );
       // 已结束的 run 再发 cancel 只会打扰 worker，直接返回。
-      if (terminalEvent(run) === null && (await cancelAgentRun(app, runId))) {
+      if (terminalEvent(run) === null && (await cancelAgentRun(app, runId)) !== null) {
         await writeAudit(app.db, request.log, {
           actor: actorOf(request),
           action: 'agent.run.cancelled',

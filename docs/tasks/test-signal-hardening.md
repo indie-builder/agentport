@@ -26,6 +26,7 @@
 
 - 用户 2026-11-01：「按你的建议来给我处理」→ 执行上述三项，不含 pre-push 钩子、不含 CI runner/成本改造、不含产品 hooks 改动。
 - 假绿修复方向：基础设施缺失时运行非零退出（而非仅 warn），跳过行为本身保留。
+- 用户本轮授权：在原 worktree 将 `origin/main`（`fa138c2`）合入已提交的 `91c0bf9`；保留双方踩坑条目与频道测试逻辑，夹具统一用 `testAccess(import.meta.url)`，完成合并提交及指定验证；不 push、不建 PR。续做起点工作区干净。
 
 ## 已替代项及原因
 
@@ -51,7 +52,7 @@
 
 ## 下一步
 
-无。改动已在本任务 worktree 内验证完成，未提交（用户未授权 commit/push/merge）。
+无。本轮合并（父提交 `91c0bf9`、`fa138c2`）已完成，独立 Opus 合并终审通过。提交后发现主线新增 `tests/channels-business.e2e.ts` 唯一格式错误，仅用 Biome 格式化并经独立 Opus 增量终审确认生成 JavaScript 完全一致；此机械修复和全部验证记录一并纳入合并提交。不 push、不建 PR。
 
 ## 验证
 
@@ -61,3 +62,10 @@
 - 串扰：`--sequence.shuffle --sequence.seed=431` 下 worker 两文件、personal-memory+agents 各 12 轮均通过；worker 目录 83 文件 1096 用例通过；`seed=1106` 下 output-retention + worker 入口测试 10 轮通过且无 503。
 - 全量（最终）：`pnpm test` 147.39s，452/452 文件、5315/5315 用例通过。
 - 终审：独立 Opus 按固定 diff 审查，结论「通过，无必须修项」；非阻塞备注：`!docs/**/*.json` 排除略宽。
+- 本轮合并（2026-11-01）：仅 `docs/PITFALLS.md` 文本冲突，双方全部条目保留；两个 worker 测试自动合并保留全部频道测试，`message-persistence` 留工厂，`run-runtime-identity` 本地固定身份改为工厂。全仓 10 处夹具导入均为 `testAccess`，冲突标记扫描无输出。
+- 锁文件：`git diff --stat HEAD~1 HEAD -- pnpm-lock.yaml` 无输出，因此未运行安装；所有 Git 操作均显式 `/usr/bin/git -C <本 worktree>`，未用 stash。
+- 本轮 `pnpm typecheck`：退出 0，全部 7 个包 `Done`；格式化后复跑仍退出 0。
+- 本轮 `pnpm lint`：首次 1 error / 379 warnings，唯一 error 为主线新增 `tests/channels-business.e2e.ts` 格式；最小格式化后退出 0，`Checked 1059 files in 465ms. No fixes applied. Found 379 warnings.` 未改业务逻辑或削弱测试。
+- 本轮 `pnpm test`：退出 0，`Test Files 463 passed (463)`，`Tests 5486 passed (5486)`，`Duration 141.47s`；主线频道测试加入后文件数高于原 452。
+- 本轮指定三文件：`pnpm exec vitest run packages/worker/test/message-persistence.test.ts packages/worker/test/run-runtime-identity.test.ts packages/worker/test/run-pending-finish.test.ts` 退出 0，3 文件 74 用例通过，9.75s。每轮 globalSetup 独立 PG/Redis，可并行运行。
+- 本轮独立 Opus 合并终审及格式化增量终审均通过，无必须修项。完整原始输出位于 `/tmp/agentport-test-signal-hardening-{typecheck,lint,full,targeted}.log`。

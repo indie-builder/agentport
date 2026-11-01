@@ -89,6 +89,8 @@ type FailureKind = 'agent' | 'infra' | 'cancelled';
 const configDir = process.env.CLAUDE_CONFIG_DIR ?? '/home/node/.claude';
 const memoryDirectory = '/mnt/agent-memory';
 const workspaceDir = '/workspace';
+// 频道 run 由 worker 在容器 env 里标记；私聊不设置，token 口径保持原样。
+const channelRun = process.env.PACE_RUN_TRIGGER === 'channel';
 
 function log(message: string): void {
   process.stderr.write(`[runner] ${message}\n`);
@@ -164,6 +166,29 @@ function tokenUsage(
     }
   }
   return seen ? { inputTokens: input, outputTokens: output } : {};
+}
+
+// 频道必须排除 resume 的历史累计用量，私聊保留原统计口径。
+function resultTokenUsage(message: {
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens?: number | null;
+    cache_creation_input_tokens?: number | null;
+  };
+  modelUsage: Record<string, { inputTokens?: number; outputTokens?: number }> | undefined;
+}): { inputTokens?: number; outputTokens?: number } {
+  if (!channelRun) return tokenUsage(message.modelUsage);
+  const snapshot = tokenUsage(Object.fromEntries(assistantUsage));
+  return {
+    inputTokens: Math.max(
+      message.usage.input_tokens +
+        (message.usage.cache_read_input_tokens ?? 0) +
+        (message.usage.cache_creation_input_tokens ?? 0),
+      snapshot.inputTokens ?? 0,
+    ),
+    outputTokens: Math.max(message.usage.output_tokens, snapshot.outputTokens ?? 0),
+  };
 }
 
 function toolResultText(content: unknown): string {
@@ -331,6 +356,7 @@ const disallowedTools = baseDisallowed.filter((tool) => {
 let emittedTerminal = false;
 /** init 里拿到的真实会话 id；取消时 result 可能来不及到达，也要能上报。 */
 let initSessionId: string | undefined;
+const assistantUsage = new Map<string, { inputTokens: number; outputTokens: number }>();
 // run_finished 只能有一条：宿主按它落库并结束 SSE。
 function emit(event: RunnerEvent): void {
   if (event.type === 'run_finished') emittedTerminal = true;
@@ -346,6 +372,7 @@ function failRun(kind: FailureKind, message: string): void {
     error: message,
     failureKind: kind,
     ...(initSessionId === undefined ? {} : { sessionId: initSessionId }),
+    ...(channelRun ? tokenUsage(Object.fromEntries(assistantUsage)) : {}),
   });
 }
 
@@ -549,6 +576,20 @@ if (session.error !== undefined) {
       }
 
       if (message.type === 'assistant') {
+        // result 未到便中断时保留真实用量；同一 API 响应的多个块共享 id，不能重复累计。
+        const usage = message.message.usage;
+        if (channelRun && message.error === undefined && usage !== undefined) {
+          const previous = assistantUsage.get(message.message.id);
+          assistantUsage.set(message.message.id, {
+            inputTokens: Math.max(
+              previous?.inputTokens ?? 0,
+              usage.input_tokens +
+                (usage.cache_read_input_tokens ?? 0) +
+                (usage.cache_creation_input_tokens ?? 0),
+            ),
+            outputTokens: Math.max(previous?.outputTokens ?? 0, usage.output_tokens),
+          });
+        }
         // 子智能体消息带 parent_tool_use_id（父侧 Agent 的 tool_use id）；顶层为 null。
         const parent = parentTag(message.parent_tool_use_id);
         const open = openBlocks.get(parentKey(message.parent_tool_use_id));
@@ -660,7 +701,7 @@ if (session.error !== undefined) {
             turns: message.num_turns,
             // fork 后 session id 会变；以 result 为准，宿主据此更新会话。
             sessionId: message.session_id,
-            ...tokenUsage(message.modelUsage),
+            ...resultTokenUsage(message),
           });
           continue;
         }
@@ -671,7 +712,7 @@ if (session.error !== undefined) {
           costUsd: message.total_cost_usd,
           turns: message.num_turns,
           sessionId: message.session_id,
-          ...tokenUsage(message.modelUsage),
+          ...resultTokenUsage(message),
           ...(succeeded
             ? {}
             : {

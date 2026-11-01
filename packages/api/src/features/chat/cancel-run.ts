@@ -4,13 +4,19 @@ import type { FastifyInstance } from 'fastify';
 import { getQueue, publishRun, requestRunCancel } from '../../queue/producer.js';
 
 /**
- * 请求取消一个 run；只有真正发出信号才返回 true。
+ * 请求取消一个 run；结果说明本次真正执行了哪条路径。
  *
  * - queued：用 CAS 和 worker claim 竞争，赢下的一方直接写终态并发布 run_finished。
  * - running：容器和已写文件由 worker 收尾，这里只发取消信号。
  *   提前写终态会让 worker 的 updateRun（status='running'）落空，成果快照也会丢。
+ * - null：已终态，或取消信号已存在，本次没有产生新的取消。
  */
-export async function cancelAgentRun(app: FastifyInstance, runId: string): Promise<boolean> {
+export type CancelAgentRunResult = 'queued' | 'running' | null;
+
+export async function cancelAgentRun(
+  app: FastifyInstance,
+  runId: string,
+): Promise<CancelAgentRunResult> {
   const [queued] = await app.db
     .update(schema.agentRuns)
     .set({ status: 'cancelled', endedAt: new Date() })
@@ -24,12 +30,12 @@ export async function cancelAgentRun(app: FastifyInstance, runId: string): Promi
       .getJob(runId)
       .then((job) => job?.remove())
       .catch(() => undefined);
-    return true;
+    return 'queued';
   }
 
   // CAS 失败：worker 可能已领取（running），也可能已终态；后者不再发信号。
   const run = await repo.chat.getRun(app.db, runId);
-  if (run?.status !== 'running') return false;
+  if (run?.status !== 'running') return null;
   // 发布失败必须抛出：静默返回成功会让界面显示「正在停止」而容器继续跑。
-  return requestRunCancel(runId);
+  return (await requestRunCancel(runId)) ? 'running' : null;
 }

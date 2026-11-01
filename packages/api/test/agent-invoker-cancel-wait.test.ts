@@ -49,7 +49,7 @@ vi.mock('../src/plugins/audit.js', () => ({ writeAudit: vi.fn(async () => undefi
 vi.mock('../src/features/chat/cancel-run.js', () => ({
   cancelAgentRun: vi.fn(async () => {
     state.cancelCalls += 1;
-    return true;
+    return 'queued';
   }),
 }));
 

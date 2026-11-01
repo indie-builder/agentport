@@ -58,7 +58,7 @@ export function createInvoker(app: FastifyInstance): AgentInvoker {
           input: { slug: string; promptLength: number } | { reason: 'deadline' },
           message: string,
         ): Promise<never> => {
-          if (await cancelAgentRun(app, run.id)) {
+          if ((await cancelAgentRun(app, run.id)) !== null) {
             await writeAudit(app.db, app.log, {
               actor: 'mcp',
               actorKind: 'service',

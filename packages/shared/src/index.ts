@@ -7,6 +7,7 @@ export * from './access.js';
 export * from './agent.js';
 export * from './agent-package.js';
 export * from './attachments.js';
+export * from './channels.js';
 export * from './chat.js';
 export * from './config.js';
 export * from './connector-catalog.js';

@@ -41,13 +41,15 @@ interface SeedRunInput {
   businessId?: string;
   serviceId?: 'system' | 'mcp';
   status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout';
-  trigger?: 'chat' | 'mcp' | 'schedule' | 'event' | 'review';
+  trigger?: 'chat' | 'mcp' | 'schedule' | 'event' | 'review' | 'channel';
   createdAt?: Date;
   costUsd?: string | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
   conversationId?: string;
   conversationOwner?: string | null;
+  channelId?: string;
+  error?: string;
 }
 
 const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
@@ -59,6 +61,7 @@ describe.skipIf(!ready)('personal data', () => {
   const roleIds: string[] = [];
   const directAgentIds: string[] = [];
   const agentSlugs: string[] = [];
+  const channelIds: string[] = [];
 
   const auth = (cookie: string) => ({ cookie });
 
@@ -115,8 +118,13 @@ describe.skipIf(!ready)('personal data', () => {
     if (input.conversationId === undefined) {
       if (input.serviceId === undefined) {
         await app.pool.query(
-          'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
-          [conversationId, input.agentId, input.conversationOwner ?? input.businessId],
+          'insert into conversations (id, agent_id, created_by, channel_id) values ($1, $2, $3, $4)',
+          [
+            conversationId,
+            input.agentId,
+            input.conversationOwner ?? input.businessId,
+            input.channelId ?? null,
+          ],
         );
       } else {
         await app.pool.query(
@@ -128,8 +136,8 @@ describe.skipIf(!ready)('personal data', () => {
     await app.pool.query(
       `insert into agent_runs
          (id, conversation_id, agent_id, status, trigger, subject_kind, initiated_by, service_id,
-          created_at, cost_usd, input_tokens, output_tokens)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          channel_id, error, created_at, cost_usd, input_tokens, output_tokens)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         runId,
         conversationId,
@@ -139,6 +147,8 @@ describe.skipIf(!ready)('personal data', () => {
         input.serviceId === undefined ? 'user' : 'service',
         input.serviceId === undefined ? input.businessId : null,
         input.serviceId ?? null,
+        input.channelId ?? null,
+        input.error ?? null,
         input.createdAt ?? new Date(),
         input.costUsd ?? null,
         input.inputTokens ?? null,
@@ -258,6 +268,9 @@ describe.skipIf(!ready)('personal data', () => {
 
   afterAll(async () => {
     await cleanup(app, { agentSlugs });
+    if (channelIds.length > 0) {
+      await app.pool.query('delete from channels where id = any($1::text[])', [channelIds]);
+    }
     if (directAgentIds.length > 0) {
       await app.pool.query('delete from agents where id = any($1::text[])', [directAgentIds]);
     }
@@ -393,6 +406,69 @@ describe.skipIf(!ready)('personal data', () => {
 
     const usage = personalUsageSummarySchema.parse((await getUsage(user.cookie, 'days=90')).json());
     expect(usage.runCount).toBe(3);
+  });
+
+  it('hides channel runs and errors from personal runs after channel membership is removed', async () => {
+    const agent = await createAgent(app, admin, { track: agentSlugs });
+    const agentId = agent.json<{ id: string }>().id;
+    const sensitiveError = unique('channel-sensitive-error');
+    const privateError = unique('private-run-error');
+    const roles = [
+      await createRole([['runs.read', 'own_data']]),
+      await createRole([['runs.read', 'platform']]),
+    ];
+
+    for (const role of roles) {
+      const author = await createAccountWithRoles([role]);
+
+      const channelId = newId('channel');
+      channelIds.push(channelId);
+      await app.pool.query('insert into channels (id, name, created_by) values ($1, $2, $3)', [
+        channelId,
+        unique('personal-data-channel'),
+        ADMIN_BUSINESS_ID,
+      ]);
+      await app.pool.query(
+        `insert into channel_members (channel_id, business_id, role)
+         values ($1, $2, 'owner'), ($1, $3, 'member')`,
+        [channelId, ADMIN_BUSINESS_ID, author.businessId],
+      );
+
+      // 同作者：私聊 run 与频道 run 都由本人发起，频道 run 带不能外泄的错误正文。
+      const privateRun = await seedRun({
+        agentId,
+        businessId: author.businessId,
+        status: 'failed',
+        error: privateError,
+      });
+      const channelRun = await seedRun({
+        agentId,
+        businessId: author.businessId,
+        trigger: 'channel',
+        channelId,
+        status: 'failed',
+        error: sensitiveError,
+      });
+
+      // 先确认成员关系真实存在，再移除；不是只给 run 挂一个假 channelId。
+      const membership = await app.pool.query<{ role: string }>(
+        'select role from channel_members where channel_id = $1 and business_id = $2',
+        [channelId, author.businessId],
+      );
+      expect(membership.rows).toEqual([{ role: 'member' }]);
+      await app.pool.query(
+        'delete from channel_members where channel_id = $1 and business_id = $2',
+        [channelId, author.businessId],
+      );
+
+      const res = await getRuns(author.cookie, 'days=90');
+      expect(res.statusCode, res.body).toBe(200);
+      const page = personalRunListSchema.parse(res.json());
+      const byId = new Map(page.items.map((item) => [item.id, item]));
+      expect(byId.get(privateRun.runId)).toMatchObject({ status: 'failed', error: privateError });
+      expect.soft(byId.has(channelRun.runId)).toBe(false);
+      expect.soft(res.body).not.toContain(sensitiveError);
+    }
   });
 
   it('aggregates usage cost with recorded-coverage and status totals', async () => {

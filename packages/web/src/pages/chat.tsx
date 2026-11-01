@@ -44,6 +44,7 @@ import {
   type ComponentProps,
   type FormEvent,
   memo,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -103,6 +104,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
   useMessageScroller,
+  useMessageScrollerVisibility,
 } from '../components/ui/message-scroller.js';
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import {
@@ -1863,6 +1865,15 @@ export function Composer({
   historyReady = true,
   cancelling = false,
   onCancel,
+  value,
+  onValueChange,
+  onKeyDown,
+  enabled,
+  locked: lockedProp,
+  canAttach = true,
+  canSend: canSendProp,
+  sendDenied = '当前账户没有新建会话的权限，不能发送消息。',
+  placeholder = '描述你想完成的事…',
 }: {
   agent: AgentView | null;
   send: ReturnType<typeof useChatStream>['send'];
@@ -1872,25 +1883,48 @@ export function Composer({
   historyReady?: boolean;
   cancelling?: boolean;
   onCancel?: () => void;
+  /** 受控输入：频道页用本地状态，缺省仍读写聊天草稿。 */
+  value?: string;
+  onValueChange?: (value: string, caret: number | null) => void;
+  /** 返回 true 表示已消费按键（如 @ 补全），不再触发发送。 */
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean;
+  /** 不依赖聊天专家也能输入；频道没有单一 agent。 */
+  enabled?: boolean;
+  /** 覆盖聊天运行锁：频道允许多条 run 并行时继续发送。 */
+  locked?: boolean;
+  canAttach?: boolean;
+  /** 覆盖平台发送权限：频道按成员角色判定。 */
+  canSend?: boolean;
+  /** 不能发送时的原因，频道用于区分只读与已关闭。 */
+  sendDenied?: string;
+  placeholder?: string;
 }) {
   // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
   const me = useQuery(meQuery);
   const location = useLocation();
-  const canSend = can(me.data, 'conversations.create');
+  const canSend = canSendProp ?? can(me.data, 'conversations.create');
   const canCancelRun = can(me.data, 'runs.cancel');
-  const input = useChatStore((state) => state.input);
+  const storeInput = useChatStore((state) => state.input);
   const setInput = useChatStore((state) => state.setInput);
   const run = useChatStore((state) => state.run);
   const outputRef = useChatStore((state) => state.outputRef);
   const setOutputRef = useChatStore((state) => state.setOutputRef);
   const pendingAttachments = useChatStore((state) => state.pendingAttachments);
   const setPendingAttachments = useChatStore((state) => state.setPendingAttachments);
-  const hasContent = Boolean(input.trim()) || pendingAttachments.length > 0;
-  const attachmentsLocked = !agent || !historyReady || Boolean(run);
+  const input = value ?? storeInput;
+  const enabledValue = enabled ?? agent !== null;
+  const locked = lockedProp ?? Boolean(run);
+  const attachments = canAttach ? pendingAttachments : [];
+  const hasContent = Boolean(input.trim()) || attachments.length > 0;
+  const attachmentsLocked = !enabledValue || !historyReady || locked;
+  const change = (next: string, caret: number | null): void => {
+    if (onValueChange) onValueChange(next, caret);
+    else setInput(next);
+  };
 
   // Enter 与发送按钮共用同一条发送路径；输入框在欢迎与会话之间保持同一个节点。
   const submit = (): void => {
-    if (!historyReady || run || !canSend) return;
+    if (!historyReady || locked || !canSend) return;
     void send();
   };
   return (
@@ -1921,12 +1955,12 @@ export function Composer({
               </Button>
             </div>
           ) : null}
-          {pendingAttachments.length > 0 ? (
+          {attachments.length > 0 ? (
             <ul
               aria-label="待发送资料"
               className="flex w-full min-w-0 flex-wrap items-center gap-2 px-4 pt-3"
             >
-              {pendingAttachments.map((file, index) => (
+              {attachments.map((file, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: 同名文件可重复选择，位置即身份
                 <li key={`${file.name}-${index}`} className="flex min-w-0 items-center gap-1">
                   <Badge variant="outline" className="min-w-0 max-w-full">
@@ -1941,7 +1975,7 @@ export function Composer({
                     size="icon-xs"
                     aria-label={`移除 ${file.name}`}
                     title="移除资料"
-                    disabled={Boolean(run)}
+                    disabled={locked}
                     onClick={() =>
                       setPendingAttachments(
                         pendingAttachments.filter((_, position) => position !== index),
@@ -1960,17 +1994,21 @@ export function Composer({
             aria-label="消息"
             aria-describedby={canSend ? undefined : 'composer-send-denied'}
             rows={2}
-            placeholder="描述你想完成的事…"
-            title={run ? '本轮结束后才能发送；现在可以先把下一条写好' : undefined}
-            disabled={!agent || !historyReady}
+            placeholder={placeholder}
+            title={locked ? '本轮结束后才能发送；现在可以先把下一条写好' : undefined}
+            disabled={!enabledValue || !historyReady}
             value={input}
             className={cn(
               'max-h-40 min-w-0 px-4 pb-2 pt-4 text-base md:text-base',
               welcome ? 'min-h-20' : 'min-h-14',
             )}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(event) => change(event.target.value, event.target.selectionStart)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+              if (onKeyDown?.(event)) {
+                event.preventDefault();
+                return;
+              }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 submit();
@@ -1979,7 +2017,7 @@ export function Composer({
           />
           <InputGroupAddon align="block-end" className="justify-between gap-3 px-4 pb-3 pt-0">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs font-normal text-muted-foreground">
-              <AttachmentPicker disabled={attachmentsLocked} />
+              {canAttach ? <AttachmentPicker disabled={attachmentsLocked} /> : null}
               <span className="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
               {lastRunId ? (
                 <Link
@@ -2013,11 +2051,11 @@ export function Composer({
                 type="submit"
                 variant="solid"
                 size="icon-sm"
-                disabled={!agent || Boolean(run) || !hasContent || !historyReady || !canSend}
+                disabled={!enabledValue || locked || !hasContent || !historyReady || !canSend}
                 aria-label="发送消息"
                 aria-describedby={canSend ? undefined : 'composer-send-denied'}
                 title={
-                  !canSend ? '当前账户没有新建会话的权限' : run ? '本轮结束后可发送' : undefined
+                  !canSend ? '当前账户没有新建会话的权限' : locked ? '本轮结束后可发送' : undefined
                 }
                 className="ml-auto size-11 sm:size-8"
               >
@@ -2028,7 +2066,7 @@ export function Composer({
         </InputGroup>
         {!canSend ? (
           <p id="composer-send-denied" className="mt-2 px-1 text-xs text-muted-foreground">
-            当前账户没有新建会话的权限，不能发送消息。
+            {sendDenied}
           </p>
         ) : null}
       </div>
@@ -2207,6 +2245,15 @@ function runStatusText(run: RunState, items: ChatItem[]): string {
   return tool ? `正在调用 ${tool.name}` : '等待回复';
 }
 
+/** 可见消息 id 变化时通知外部；频道用它推进已读游标。 */
+function VisibleMessageIdsTracker({ onChange }: { onChange: (ids: string[]) => void }) {
+  const { visibleMessageIds } = useMessageScrollerVisibility();
+  useEffect(() => {
+    onChange(visibleMessageIds);
+  }, [visibleMessageIds, onChange]);
+  return null;
+}
+
 export function MessagePane({
   items,
   loading,
@@ -2234,6 +2281,10 @@ export function MessagePane({
   streaming,
   onAction,
   openUiSnapshot,
+  renderItemHeader,
+  renderItemFooter,
+  onVisibleMessageIdsChange,
+  scrollPreviousItemPeek,
 }: {
   items: ChatItem[];
   loading: boolean;
@@ -2274,6 +2325,13 @@ export function MessagePane({
   onAction: (action: OpenUiAction) => void;
   /** 生成式 UI 的状态写回、工具桥与会话级审批；按段闭包来源。 */
   openUiSnapshot?: OpenUiSnapshot;
+  /** 频道用：在消息内容前后插入作者标识与运行控制，聊天不传。 */
+  renderItemHeader?: (item: ChatItem) => ReactNode;
+  renderItemFooter?: (item: ChatItem) => ReactNode;
+  /** 可见消息 id 变化时回调；频道用它推进已读游标。 */
+  onVisibleMessageIdsChange?: (ids: string[]) => void;
+  /** 顶部预留高度；频道传 0，贴顶的短消息才会计入可见。 */
+  scrollPreviousItemPeek?: number;
 }) {
   const reduce = useReducedMotion();
   const turns = useMemo(
@@ -2309,7 +2367,15 @@ export function MessagePane({
   const appendedUser = tailItem?.kind === 'user' ? tailItem : null;
 
   return (
-    <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollEdgeThreshold={80}>
+    <MessageScrollerProvider
+      autoScroll
+      defaultScrollPosition="end"
+      scrollEdgeThreshold={80}
+      {...(scrollPreviousItemPeek === undefined ? {} : { scrollPreviousItemPeek })}
+    >
+      {onVisibleMessageIdsChange ? (
+        <VisibleMessageIdsTracker onChange={onVisibleMessageIdsChange} />
+      ) : null}
       <MessageScroller className="h-auto flex-1">
         <MessageScrollerViewport aria-label="对话消息">
           {/* 入口留在视口顶部的正常流里，但不进 Content：原语靠 Content 旧首子项后移识别 prepend。 */}
@@ -2440,16 +2506,37 @@ export function MessagePane({
                                     />
                                   );
                                 }
+                                const header = renderItemHeader?.(item);
+                                const footer = renderItemFooter?.(item);
+                                if (!header && !footer) {
+                                  return (
+                                    <MessagePart
+                                      // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
+                                      key={`${index}-${item.kind}`}
+                                      item={item}
+                                      openUi={openUi}
+                                      streaming={latest && streaming}
+                                      onAction={onAction}
+                                      {...(openUiSnapshot ? { openUiSnapshot } : {})}
+                                    />
+                                  );
+                                }
                                 return (
-                                  <MessagePart
+                                  <div
                                     // biome-ignore lint/suspicious/noArrayIndexKey: 只追加的流式日志，索引即顺序
                                     key={`${index}-${item.kind}`}
-                                    item={item}
-                                    openUi={openUi}
-                                    streaming={latest && streaming}
-                                    onAction={onAction}
-                                    {...(openUiSnapshot ? { openUiSnapshot } : {})}
-                                  />
+                                    className="flex min-w-0 flex-col gap-1.5"
+                                  >
+                                    {header}
+                                    <MessagePart
+                                      item={item}
+                                      openUi={openUi}
+                                      streaming={latest && streaming}
+                                      onAction={onAction}
+                                      {...(openUiSnapshot ? { openUiSnapshot } : {})}
+                                    />
+                                    {footer}
+                                  </div>
                                 );
                               })}
                             </MessageGroup>

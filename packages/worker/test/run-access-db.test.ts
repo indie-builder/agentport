@@ -1,5 +1,5 @@
 import { createDb, newId, schema } from '@agentport/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { checkQueuedRunAccess, checkUserAgentAccess } from '../src/run-access.js';
 import { createIsolatedDatabase } from './isolated-db.js';
@@ -11,6 +11,7 @@ const { db } = dbHandle;
 
 const businessId = 'run-access-user';
 const ownerBusinessId = 'run-access-owner';
+const secondBusinessId = 'run-access-second';
 const roleId = newId('role');
 const agentId = newId('agent');
 const userId = newId('user');
@@ -115,13 +116,63 @@ describe.skipIf(!ready)('checkUserAgentAccess against real account and grants', 
 });
 
 describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigger', () => {
-  const queued = (trigger: 'chat' | 'schedule' | 'event' | 'review', runId = 'run-x') => ({
+  const queued = (
+    trigger: 'chat' | 'schedule' | 'event' | 'review' | 'channel',
+    runId = 'run-x',
+    overrides: { channelId?: string | null; conversationId?: string; businessId?: string } = {},
+  ) => ({
     runId,
     trigger,
     agentId,
     conversationId,
     businessId,
+    channelId: null as string | null,
+    ...overrides,
   });
+
+  const channelIds: string[] = [];
+  const laneConversationIds: string[] = [];
+
+  async function newChannelLane(
+    input: {
+      role?: 'owner' | 'admin' | 'member' | 'viewer';
+      status?: 'active' | 'paused' | 'disconnected';
+      conversationChannelId?: string;
+      bindingChannelId?: string;
+      bindingConversationId?: string;
+      createdBy?: string;
+    } = {},
+  ): Promise<{ channelId: string; conversationId: string }> {
+    const channelId = newId('channel');
+    const laneConversationId = newId('conversation');
+    channelIds.push(channelId);
+    laneConversationIds.push(laneConversationId);
+    await db.insert(schema.channels).values({
+      id: channelId,
+      name: `channel-${channelId.slice(4)}`,
+      createdBy: ownerBusinessId,
+    });
+    await db.insert(schema.channelMembers).values({
+      channelId,
+      businessId,
+      role: input.role ?? 'member',
+    });
+    await db.insert(schema.conversations).values({
+      id: laneConversationId,
+      agentId,
+      channelId: input.conversationChannelId ?? channelId,
+      title: 'channel lane',
+      createdBy: input.createdBy ?? businessId,
+    });
+    await db.insert(schema.channelAgentBindings).values({
+      channelId: input.bindingChannelId ?? channelId,
+      agentId,
+      conversationId: input.bindingConversationId ?? laneConversationId,
+      status: input.status ?? 'active',
+      addedBy: ownerBusinessId,
+    });
+    return { channelId, conversationId: laneConversationId };
+  }
 
   beforeEach(async () => {
     await db
@@ -252,5 +303,157 @@ describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigge
 
     await db.delete(schema.memoryReviews).where(eq(schema.memoryReviews.runId, reviewRunId));
     await db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, reviewRunId));
+  });
+
+  afterAll(async () => {
+    if (!ready) return;
+    await db.delete(schema.channels).where(inArray(schema.channels.id, channelIds));
+    await db
+      .delete(schema.conversations)
+      .where(inArray(schema.conversations.id, laneConversationIds));
+  });
+
+  it('allows a channel member without agents.use or conversations.create', async () => {
+    const lane = await newChannelLane();
+    await db.delete(schema.rolePermissions).where(eq(schema.rolePermissions.roleId, roleId));
+    const run = queued('channel', newId('run'), {
+      channelId: lane.channelId,
+      conversationId: lane.conversationId,
+    });
+
+    expect(await checkQueuedRunAccess(db, run)).toBeNull();
+    // 同一组无授权下 chat 仍按原规则拒绝：频道放行没有改写其它触发。
+    expect(await checkQueuedRunAccess(db, queued('chat'))).toMatchObject({
+      reason: 'permission_denied',
+    });
+  });
+
+  it('allows a second channel member even when the lane was created by someone else', async () => {
+    const lane = await newChannelLane({ createdBy: secondBusinessId });
+    await db.insert(schema.channelMembers).values({
+      channelId: lane.channelId,
+      businessId: secondBusinessId,
+      role: 'owner',
+    });
+
+    expect(
+      await checkQueuedRunAccess(
+        db,
+        queued('channel', newId('run'), {
+          channelId: lane.channelId,
+          conversationId: lane.conversationId,
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('allows owner and admin roles', async () => {
+    for (const role of ['owner', 'admin'] as const) {
+      const lane = await newChannelLane({ role });
+      expect(
+        await checkQueuedRunAccess(
+          db,
+          queued('channel', newId('run'), {
+            channelId: lane.channelId,
+            conversationId: lane.conversationId,
+          }),
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it('denies non-members, viewers and disconnected bindings', async () => {
+    const nonMember = await newChannelLane({ role: 'member' });
+    await db
+      .delete(schema.channelMembers)
+      .where(eq(schema.channelMembers.channelId, nonMember.channelId));
+    expect(
+      await checkQueuedRunAccess(
+        db,
+        queued('channel', newId('run'), {
+          channelId: nonMember.channelId,
+          conversationId: nonMember.conversationId,
+        }),
+      ),
+    ).toMatchObject({ reason: 'permission_denied' });
+
+    const viewer = await newChannelLane({ role: 'viewer' });
+    expect(
+      await checkQueuedRunAccess(
+        db,
+        queued('channel', newId('run'), {
+          channelId: viewer.channelId,
+          conversationId: viewer.conversationId,
+        }),
+      ),
+    ).toMatchObject({ reason: 'permission_denied' });
+
+    const disconnected = await newChannelLane({ status: 'disconnected' });
+    expect(
+      await checkQueuedRunAccess(
+        db,
+        queued('channel', newId('run'), {
+          channelId: disconnected.channelId,
+          conversationId: disconnected.conversationId,
+        }),
+      ),
+    ).toMatchObject({ reason: 'permission_denied' });
+  });
+
+  it('denies a queued channel run once the channel is archived', async () => {
+    const lane = await newChannelLane();
+    const run = queued('channel', newId('run'), {
+      channelId: lane.channelId,
+      conversationId: lane.conversationId,
+    });
+    expect(await checkQueuedRunAccess(db, run)).toBeNull();
+
+    await db
+      .update(schema.channels)
+      .set({ archivedAt: new Date() })
+      .where(eq(schema.channels.id, lane.channelId));
+    expect(await checkQueuedRunAccess(db, run)).toMatchObject({ reason: 'permission_denied' });
+  });
+
+  it('denies a missing channel id and a lane that does not match the run', async () => {
+    const lane = await newChannelLane();
+    expect(
+      await checkQueuedRunAccess(
+        db,
+        queued('channel', newId('run'), {
+          channelId: null,
+          conversationId: lane.conversationId,
+        }),
+      ),
+    ).toMatchObject({ reason: 'invalid_subject' });
+
+    const otherLane = await newChannelLane();
+    expect(
+      await checkQueuedRunAccess(
+        db,
+        queued('channel', newId('run'), {
+          channelId: lane.channelId,
+          conversationId: otherLane.conversationId,
+        }),
+      ),
+    ).toMatchObject({ reason: 'invalid_subject' });
+  });
+
+  it('denies a disabled account even for a valid channel member', async () => {
+    const lane = await newChannelLane();
+    await db
+      .update(schema.authUsers)
+      .set({ disabled: true })
+      .where(eq(schema.authUsers.id, userId));
+
+    expect(
+      await checkQueuedRunAccess(
+        db,
+        queued('channel', newId('run'), {
+          channelId: lane.channelId,
+          conversationId: lane.conversationId,
+        }),
+      ),
+    ).toMatchObject({ reason: 'account_inactive' });
   });
 });

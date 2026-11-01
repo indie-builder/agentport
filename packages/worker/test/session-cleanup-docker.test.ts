@@ -185,6 +185,7 @@ async function setup(failDestroy = false): Promise<Incident> {
   const sessions = new SessionSandboxes({
     provider,
     idleTimeoutMs: 60_000,
+    maxActive: 32,
     logger: pino({ level: 'silent' }),
     resolveRuntimeEnvironment: async () => ({
       environmentId: 'env_docker',
@@ -335,6 +336,7 @@ describe.skipIf(!dockerReady || !imageReady || !dbReady)('session cleanup real d
     const restarted = new SessionSandboxes({
       provider: incident.provider,
       idleTimeoutMs: 60_000,
+      maxActive: 32,
       logger: pino({ level: 'silent' }),
       resolveRuntimeEnvironment: async () => ({
         environmentId: 'env_docker',

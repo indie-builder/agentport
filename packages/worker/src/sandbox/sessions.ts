@@ -65,6 +65,8 @@ export interface SessionSandboxLease {
 export interface SessionSandboxesOptions {
   provider: SandboxProvider;
   idleTimeoutMs: number;
+  /** 同时存活的容器软上限；达到上限时先回收最久未用的空闲容器。 */
+  maxActive: number;
   logger: Logger;
   /** 只在真实创建容器时调用；复用存活容器不读线上版本。 */
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
@@ -159,6 +161,8 @@ interface SessionEntry {
   active: ActiveExecution | null;
   ready: boolean;
   readyWaiter: ReadyWaiter | null;
+  /** 转为空闲时推进，用于软上限按「最久未用」挑选可回收条目。 */
+  lastUsedSeq: number;
 }
 
 function specMatches(current: SessionSandboxSpec, next: SessionSandboxSpec): boolean {
@@ -186,17 +190,20 @@ function specMatches(current: SessionSandboxSpec, next: SessionSandboxSpec): boo
 export class SessionSandboxes {
   private readonly provider: SandboxProvider;
   private readonly idleTimeoutMs: number;
+  private readonly maxActive: number;
   private readonly logger: Logger;
   private readonly resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
   private readonly entries = new Map<string, SessionEntry>();
   /** 创建/重建中的 acquire；close 必须等它们按取消语义收尾。 */
   private readonly pending = new Set<Promise<unknown>>();
   private readonly closed = new AbortController();
+  private useSeq = 0;
   private closePromise: Promise<void> | null = null;
 
   constructor(options: SessionSandboxesOptions) {
     this.provider = options.provider;
     this.idleTimeoutMs = options.idleTimeoutMs;
+    this.maxActive = options.maxActive;
     this.logger = options.logger;
     this.resolveRuntimeEnvironment = options.resolveRuntimeEnvironment;
   }
@@ -425,6 +432,7 @@ export class SessionSandboxes {
       active: null,
       ready: false,
       readyWaiter: null,
+      lastUsedSeq: 0,
     };
     this.entries.set(spec.conversationId, entry);
     const createSignal = AbortSignal.any([signal, this.closed.signal]);
@@ -439,6 +447,12 @@ export class SessionSandboxes {
       throw err;
     }
     entry.runtimeEnvironment = runtimeEnvironment;
+
+    await this.reclaimForCreate(entry);
+    if (createSignal.aborted) {
+      this.removeEntry(entry);
+      throw abortError();
+    }
 
     let sandbox: Sandbox;
     try {
@@ -645,6 +659,7 @@ export class SessionSandboxes {
 
   private scheduleIdle(entry: SessionEntry): void {
     if (entry.idleTimer !== null || entry.leaseHeld || this.closed.signal.aborted) return;
+    entry.lastUsedSeq = ++this.useSeq;
     const timer = setTimeout(() => {
       entry.idleTimer = null;
       if (entry.leaseHeld || this.closed.signal.aborted) return;
@@ -654,6 +669,49 @@ export class SessionSandboxes {
     }, this.idleTimeoutMs);
     timer.unref();
     entry.idleTimer = timer;
+  }
+
+  /**
+   * 新建容器前的软上限：达到上限就回收最久未用的空闲容器；没有可回收对象时
+   * 放行并告警，绝不为了腾位置停掉持锁或执行中的容器。
+   */
+  private async reclaimForCreate(entry: SessionEntry): Promise<void> {
+    const live = [...this.entries.values()].filter(
+      (item) => item !== entry && item.sandbox !== null,
+    );
+    if (live.length < this.maxActive) return;
+    const victim = live
+      .filter((item) => this.reclaimable(item))
+      .sort((a, b) => a.lastUsedSeq - b.lastUsedSeq)[0];
+    if (victim === undefined) {
+      this.logger.warn(
+        {
+          conversationId: entry.conversationId,
+          active: live.length + 1,
+          maxActive: this.maxActive,
+        },
+        'session sandbox active limit exceeded, creating anyway',
+      );
+      return;
+    }
+    try {
+      await this.destroyEntry(victim);
+    } catch {
+      // performDestroy 已记录并保留 broken；软上限不阻塞本次执行。
+    }
+  }
+
+  private reclaimable(entry: SessionEntry): boolean {
+    return (
+      entry.sandbox !== null &&
+      entry.alive &&
+      !entry.leaseHeld &&
+      !entry.acquirePending &&
+      entry.active === null &&
+      entry.destroying === null &&
+      entry.broken === null &&
+      !this.closed.signal.aborted
+    );
   }
 
   private clearIdle(entry: SessionEntry): void {

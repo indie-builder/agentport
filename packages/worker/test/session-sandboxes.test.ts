@@ -187,6 +187,7 @@ async function createManager(
   return new SessionSandboxes({
     provider,
     idleTimeoutMs,
+    maxActive: 6,
     logger: pino({ level: 'silent' }),
     resolveRuntimeEnvironment: resolve,
   });
@@ -1537,6 +1538,83 @@ describe('session sandboxes', () => {
     await execution.done;
     expect(events).toEqual([{ type: 'error', message: 'ok' }]);
     await lease.release({ reuse: false });
+    await sessions.close();
+  });
+});
+
+async function cappedManager(provider: FakeProvider, maxActive: number) {
+  const { SessionSandboxes } = await import('../src/sandbox/sessions.js');
+  const logger = pino({ level: 'silent' });
+  const warn = vi.spyOn(logger, 'warn');
+  const sessions = new SessionSandboxes({
+    provider,
+    idleTimeoutMs: 300_000,
+    maxActive,
+    logger,
+    resolveRuntimeEnvironment: async () => runtime('version_1', imageId('1')),
+  });
+  return { sessions, warn };
+}
+
+describe('session sandbox active cap', () => {
+  it('does not reclaim while the live count stays below the limit', async () => {
+    const provider = new FakeProvider();
+    const { sessions } = await cappedManager(provider, 3);
+    const first = await acquire(sessions, spec());
+    await first.release({ reuse: true });
+    const second = await acquire(sessions, spec({ conversationId: 'conv_2' }));
+    await second.release({ reuse: true });
+
+    const third = await acquire(sessions, spec({ conversationId: 'conv_3' }));
+
+    expect(provider.destroyed).toEqual([]);
+    expect(provider.creates).toHaveLength(3);
+    await third.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('reclaims the least recently used idle container when a new one hits the limit', async () => {
+    const provider = new FakeProvider();
+    const { sessions } = await cappedManager(provider, 2);
+    const first = await acquire(sessions, spec());
+    await first.release({ reuse: true });
+    const second = await acquire(sessions, spec({ conversationId: 'conv_2' }));
+    await second.release({ reuse: true });
+
+    const third = await acquire(sessions, spec({ conversationId: 'conv_3' }));
+
+    expect(provider.destroyed).toEqual(['sandbox-1']);
+    expect(provider.creates).toHaveLength(3);
+    expect(third.sandboxId).toBe('sandbox-3');
+
+    // 未被回收的 conv_2 仍复用原容器；复用不触发回收。
+    const reused = await acquire(sessions, spec({ conversationId: 'conv_2' }));
+    expect(reused.sandboxId).toBe('sandbox-2');
+    expect(provider.destroyed).toEqual(['sandbox-1']);
+    await reused.release({ reuse: true });
+    await third.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('allows exceeding the limit with a warning when every container is busy', async () => {
+    const provider = new FakeProvider();
+    const { sessions, warn } = await cappedManager(provider, 1);
+    const first = await acquire(sessions, spec());
+    await startRun(first, provider, 'run_1');
+
+    const second = await acquire(sessions, spec({ conversationId: 'conv_2' }));
+
+    expect(second.sandboxId).toBe('sandbox-2');
+    expect(provider.destroyed).toEqual([]);
+    expect(provider.creates).toHaveLength(2);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv_2', active: 2, maxActive: 1 }),
+      expect.stringContaining('active limit'),
+    );
+
+    settle(provider.childOf(first.sandboxId), 'run_1');
+    await first.release({ reuse: false });
+    await second.release({ reuse: false });
     await sessions.close();
   });
 });

@@ -17,6 +17,7 @@ import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   bigint,
+  bigserial,
   boolean,
   check,
   customType,
@@ -460,6 +461,8 @@ export const conversations = pgTable(
     createdBy: text('created_by'),
     /** 服务发起的会话；与 createdBy 恰有一个非空。 */
     serviceId: text('service_id', { enum: ['system', 'mcp'] }),
+    /** 频道 agent lane；非空时不出现在私有会话列表，访问走频道成员校验。 */
+    channelId: text('channel_id').references(() => channels.id, { onDelete: 'cascade' }),
     /** 分支来源会话；原会话删除后分支仍独立存在。 */
     parentId: text('parent_id').references((): AnyPgColumn => conversations.id, {
       onDelete: 'set null',
@@ -485,6 +488,10 @@ export const conversations = pgTable(
     index('conversations_parent_idx').on(t.parentId),
     index('conversations_last_message_idx').on(t.lastMessageAt.desc(), t.id.desc()),
     index('conversations_created_by_idx').on(t.createdBy),
+    // 一个 agent 在一个频道只有一个 lane；私有对话 channel_id 为空，不受约束。
+    uniqueIndex('conversations_channel_agent_idx')
+      .on(t.channelId, t.agentId)
+      .where(isNotNull(t.channelId)),
     check(
       'conversations_subject_check',
       sql`(${t.createdBy} is not null) <> (${t.serviceId} is not null)`,
@@ -513,6 +520,10 @@ export const messages = pgTable(
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     /** SDK transcript 里的消息 uuid；用于按历史点 fork，缺失表示这条还没进 transcript。 */
     sdkMessageUuid: text('sdk_message_uuid'),
+    /** 频道消息与 lane 内 user message 的关联；私有对话为空。 */
+    channelMessageId: text('channel_message_id').references((): AnyPgColumn => channelMessages.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -522,6 +533,102 @@ export const messages = pgTable(
     index('messages_sender_idx').on(t.senderBusinessId),
     check('messages_role_check', sql`${t.role} in ('user', 'assistant', 'tool')`),
     check('messages_ui_format_check', sql`${t.uiFormat} in ('markdown', 'openui')`),
+  ],
+);
+
+/** 频道是一等对象；M1 全部私有，归档后只读。 */
+export const channels = pgTable('channels', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  createdBy: text('created_by').notNull(),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** 频道成员只放人；未读游标就是 last_read_seq，不单设表。 */
+export const channelMembers = pgTable(
+  'channel_members',
+  {
+    channelId: text('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    businessId: text('business_id').notNull(),
+    role: text('role', { enum: ['owner', 'admin', 'member', 'viewer'] })
+      .notNull()
+      .default('member'),
+    lastReadSeq: bigint('last_read_seq', { mode: 'number' }).notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'channel_members_pk', columns: [t.channelId, t.businessId] }),
+    index('channel_members_business_idx').on(t.businessId),
+    check('channel_members_role_check', sql`${t.role} in ('owner', 'admin', 'member', 'viewer')`),
+    check('channel_members_last_read_seq_check', sql`${t.lastReadSeq} >= 0`),
+  ],
+);
+
+/** 一条绑定 = 一个 agent lane；conversationId 在 M2 才有值。 */
+export const channelAgentBindings = pgTable(
+  'channel_agent_bindings',
+  {
+    channelId: text('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    conversationId: text('conversation_id').references(() => conversations.id, {
+      onDelete: 'set null',
+    }),
+    status: text('status', { enum: ['active', 'paused', 'disconnected'] })
+      .notNull()
+      .default('active'),
+    contextSeq: bigint('context_seq', { mode: 'number' }).notNull().default(0),
+    autoWakeOnAll: boolean('auto_wake_on_all').notNull().default(false),
+    addedBy: text('added_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('channel_agent_bindings_channel_agent_idx').on(t.channelId, t.agentId),
+    index('channel_agent_bindings_agent_idx').on(t.agentId),
+    index('channel_agent_bindings_conversation_idx').on(t.conversationId),
+    check(
+      'channel_agent_bindings_status_check',
+      sql`${t.status} in ('active', 'paused', 'disconnected')`,
+    ),
+  ],
+);
+
+/** 频道时间线唯一来源；seq 全局递增，事件回放就是 seq > cursor。 */
+export const channelMessages = pgTable(
+  'channel_messages',
+  {
+    id: text('id').primaryKey(),
+    channelId: text('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    seq: bigserial('seq', { mode: 'number' }).notNull(),
+    kind: text('kind', { enum: ['human', 'agent', 'system'] }).notNull(),
+    authorBusinessId: text('author_business_id'),
+    agentId: text('agent_id'),
+    runId: text('run_id'),
+    body: text('body').notNull(),
+    clientMessageId: text('client_message_id'),
+    /** agent 回复对应的 messages.id；一条消息只投影一次。 */
+    sourceMessageId: text('source_message_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('channel_messages_channel_seq_idx').on(t.channelId, t.seq),
+    uniqueIndex('channel_messages_client_message_idx')
+      .on(t.channelId, t.clientMessageId)
+      .where(isNotNull(t.clientMessageId)),
+    uniqueIndex('channel_messages_source_message_idx')
+      .on(t.sourceMessageId)
+      .where(isNotNull(t.sourceMessageId)),
+    check('channel_messages_kind_check', sql`${t.kind} in ('human', 'agent', 'system')`),
   ],
 );
 
@@ -535,13 +642,20 @@ export const agentRuns = pgTable(
     agentId: text('agent_id')
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
+    /** 频道触发的运行所属频道；私有对话为空。 */
+    channelId: text('channel_id').references(() => channels.id, { onDelete: 'cascade' }),
+    /** 触发本次运行的频道消息（人 @agent 的那条）。 */
+    channelTriggerMessageId: text('channel_trigger_message_id').references(
+      (): AnyPgColumn => channelMessages.id,
+      { onDelete: 'set null' },
+    ),
     status: text('status', {
       enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'],
     })
       .notNull()
       .default('queued'),
-    /** 本次运行由谁发起：对话 / 外部 MCP / 定时 / 事件 / 记忆审核。 */
-    trigger: text('trigger', { enum: ['chat', 'mcp', 'schedule', 'event', 'review'] })
+    /** 本次运行由谁发起：对话 / 外部 MCP / 定时 / 事件 / 记忆审核 / 频道。 */
+    trigger: text('trigger', { enum: ['chat', 'mcp', 'schedule', 'event', 'review', 'channel'] })
       .notNull()
       .default('chat'),
     /** 执行主体：自然人（initiatedBy）或服务（serviceId）。 */
@@ -593,7 +707,7 @@ export const agentRuns = pgTable(
     ),
     check(
       'agent_runs_trigger_check',
-      sql`${t.trigger} in ('chat', 'mcp', 'schedule', 'event', 'review')`,
+      sql`${t.trigger} in ('chat', 'mcp', 'schedule', 'event', 'review', 'channel')`,
     ),
     check('agent_runs_subject_kind_check', sql`${t.subjectKind} in ('user', 'service')`),
     check(
@@ -671,6 +785,8 @@ export const approvalRequests = pgTable(
     conversationId: text('conversation_id').references(() => conversations.id, {
       onDelete: 'cascade',
     }),
+    /** 频道内审批所属频道；私有对话为空。 */
+    channelId: text('channel_id').references(() => channels.id, { onDelete: 'cascade' }),
     /** 触发这次调用的助手消息，供 UI 回到原位置展示。 */
     messageId: text('message_id'),
     /** 审批来源：openui 表示 UI 按钮/工具桥发起。 */
@@ -681,6 +797,8 @@ export const approvalRequests = pgTable(
     toolName: text('tool_name').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
+    /** 频道内批准人的业务 ID；不是外键，与现有审计列保持同样的纯文本身份。 */
+    approvedByBusinessId: text('approved_by_business_id'),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
   (t) => [
@@ -1746,6 +1864,10 @@ export const schema = {
   runtimeEnvironments,
   conversations,
   messages,
+  channels,
+  channelMembers,
+  channelAgentBindings,
+  channelMessages,
   agentRuns,
   approvalRequests,
   agentSchedules,

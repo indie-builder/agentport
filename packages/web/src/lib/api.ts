@@ -10,6 +10,11 @@ import type {
   ApiToolInput,
   Attention,
   AuthMe,
+  Channel,
+  ChannelAgentBinding,
+  ChannelDetail,
+  ChannelListItem,
+  ChannelMessage,
   ConnectorCatalogItem,
   ConversationBranch,
   ConversationSearchResponse,
@@ -302,6 +307,34 @@ export interface ApprovalRequest {
 
 export interface ApprovalRequestList {
   items: ApprovalRequest[];
+}
+
+/** 频道活动 run：只有 queued/running；状态来自 DB，不是 SSE 快照。 */
+export interface ChannelActiveRun {
+  runId: string;
+  agentId: string;
+  status: 'queued' | 'running';
+  startedAt: string | null;
+}
+
+/** 频道待批工具审批；列表已过滤已批准与已过期。 */
+export interface ChannelApproval {
+  id: string;
+  channelId: string;
+  runId: string;
+  serverId: string;
+  serverName: string | null;
+  toolName: string;
+  createdAt: string;
+  approvedAt: string | null;
+  expiresAt: string | null;
+}
+
+interface ChannelMessageInput {
+  body: string;
+  clientMessageId?: string;
+  mentions?: string[];
+  mentionAll?: boolean;
 }
 
 export interface RunQuery {
@@ -1218,6 +1251,40 @@ export const api = {
   renameConversation: (id: string, title: string): Promise<ConversationDetail['conversation']> =>
     request(`/conversations/${id}`, 'PATCH', { title }),
   deleteConversation: (id: string): Promise<void> => request(`/conversations/${id}`, 'DELETE'),
+
+  channels: (signal?: AbortSignal): Promise<ChannelListItem[]> =>
+    request('/channels', 'GET', undefined, signal),
+  createChannel: (input: { name: string; description?: string | null }): Promise<Channel> =>
+    request('/channels', 'POST', input),
+  channel: (id: string, signal?: AbortSignal): Promise<ChannelDetail> =>
+    request(`/channels/${id}`, 'GET', undefined, signal),
+  channelMessages: (
+    id: string,
+    options: { after?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<ChannelMessage[]> => {
+    const params = new URLSearchParams();
+    if (options.after !== undefined) params.set('after', String(options.after));
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    const query = params.size > 0 ? `?${params.toString()}` : '';
+    return request(`/channels/${id}/messages${query}`, 'GET', undefined, signal);
+  },
+  postChannelMessage: (id: string, input: ChannelMessageInput): Promise<ChannelMessage> =>
+    request(`/channels/${id}/messages`, 'POST', input),
+  markChannelRead: (id: string, seq: number): Promise<{ lastReadSeq: number }> =>
+    request(`/channels/${id}/read`, 'POST', { seq }),
+  bindChannelAgent: (
+    id: string,
+    input: { agentId: string; autoWakeOnAll?: boolean },
+  ): Promise<ChannelAgentBinding> => request(`/channels/${id}/agents`, 'POST', input),
+  channelRuns: (id: string, signal?: AbortSignal): Promise<{ items: ChannelActiveRun[] }> =>
+    request(`/channels/${id}/runs?status=active`, 'GET', undefined, signal),
+  channelApprovals: (id: string, signal?: AbortSignal): Promise<{ items: ChannelApproval[] }> =>
+    request(`/channels/${id}/approvals`, 'GET', undefined, signal),
+  approveChannelApproval: (id: string, approvalId: string): Promise<ChannelApproval> =>
+    request(`/channels/${id}/approvals/${approvalId}/approve`, 'POST'),
+  stopChannelRun: (id: string, runId: string): Promise<{ ok: boolean }> =>
+    request(`/channels/${id}/runs/${runId}/stop`, 'POST'),
 
   conversations: (agentId?: string, signal?: AbortSignal): Promise<Conversation[]> => {
     const query = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';

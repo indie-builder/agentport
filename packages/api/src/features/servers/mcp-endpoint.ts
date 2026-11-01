@@ -8,7 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { reject } from '../../plugins/errors.js';
 import { mcpRateLimit } from '../../plugins/security.js';
-import { isRunCancelRequested } from '../../queue/producer.js';
+import { isRunCancelRequested, publishChannelEvent } from '../../queue/producer.js';
 import { typed } from '../../types.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
 import { bearerToken, tokenMatches } from './bearer.js';
@@ -54,13 +54,36 @@ function handlerFor(app: FastifyInstance, serverId: string, runId: string | null
             isRunActive: async () =>
               (await repo.runs.isRunActive(app.db, trustedRunId)) &&
               !(await isRunCancelRequested(trustedRunId)),
-            onApprovalRequired: (toolName, expiresAt) =>
-              repo.runs.requestApproval(app.db, {
+            onApprovalRequired: async (toolName, expiresAt) => {
+              const approval = await repo.runs.requestApproval(app.db, {
                 runId: trustedRunId,
                 serverId,
                 toolName,
                 expiresAt,
-              }),
+              });
+              // 只有频道 run 需要实时提示；私有 run 仍走运行详情轮询，行为不变。
+              if (approval.channelId === null) return;
+              try {
+                await publishChannelEvent(approval.channelId, {
+                  type: 'approval.requested',
+                  channelId: approval.channelId,
+                  runId: trustedRunId,
+                  approvalId: approval.id,
+                  toolName: approval.toolName,
+                });
+              } catch (err) {
+                // 事件只是唤醒提示：发布失败不能把工具调用或 run 报失败。
+                app.log.warn(
+                  {
+                    err,
+                    channelId: approval.channelId,
+                    runId: trustedRunId,
+                    approvalId: approval.id,
+                  },
+                  'channel approval event publish failed',
+                );
+              }
+            },
           }),
     });
   });

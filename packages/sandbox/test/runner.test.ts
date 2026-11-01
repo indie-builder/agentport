@@ -53,6 +53,7 @@ const io = vi.hoisted(() => {
     askResults: [] as unknown[],
     /** 在 init 之后中止 query，模拟用户取消。 */
     abort: false,
+    throwAfterMessages: false,
     /** query.close() 是否被显式调用。 */
     closed: false,
   };
@@ -124,6 +125,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
       }
       if (io.messages !== null) {
         yield* io.messages as AsyncIterable<unknown>;
+        if (io.abort) (options.abortController as AbortController).abort();
+        if (io.abort || io.throwAfterMessages) throw new Error('query ended before result');
         return;
       }
       yield {
@@ -191,6 +194,8 @@ async function run(
     plugins?: Array<{ name: string; path: string }>;
     pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
     abort?: boolean;
+    throwAfterMessages?: boolean;
+    channel?: boolean;
   } = {},
 ): Promise<{ events: Event[]; stderr: string }> {
   io.resetStdin();
@@ -212,7 +217,12 @@ async function run(
   io.pluginErrors = init.pluginErrors;
   io.askResults = [];
   io.abort = init.abort ?? false;
+  io.throwAfterMessages = init.throwAfterMessages ?? false;
   io.closed = false;
+  // runner 每个用例重新导入；容器 env 只在这一轮生效，结束后恢复。
+  const previousTrigger = process.env.PACE_RUN_TRIGGER;
+  if (init.channel === true) process.env.PACE_RUN_TRIGGER = 'channel';
+  else delete process.env.PACE_RUN_TRIGGER;
   vi.resetModules();
   const events: Event[] = [];
   let stderr = '';
@@ -229,6 +239,8 @@ async function run(
   } finally {
     stdout.mockRestore();
     stderrSpy.mockRestore();
+    if (previousTrigger === undefined) delete process.env.PACE_RUN_TRIGGER;
+    else process.env.PACE_RUN_TRIGGER = previousTrigger;
   }
   return { events, stderr };
 }
@@ -792,6 +804,31 @@ describe('assistant block streaming', () => {
     ];
   }
 
+  /** 带真实 API 用量的完整 assistant 消息；同一 id 的多个块共享快照。 */
+  function usageAssistant(
+    id: string,
+    input: number,
+    output: number,
+    cached = 0,
+    created = 0,
+  ): unknown {
+    return {
+      type: 'assistant',
+      parent_tool_use_id: null,
+      uuid: SDK_UUID,
+      message: {
+        id,
+        content: [{ type: 'text', text: 'answer' }],
+        usage: {
+          input_tokens: input,
+          output_tokens: output,
+          cache_read_input_tokens: cached,
+          cache_creation_input_tokens: created,
+        },
+      },
+    };
+  }
+
   it('emits start/delta/stop per content block and keeps one completed text per block', async () => {
     const { events } = await run({}, turn());
     const streamed = events.filter((event) => event.type !== 'run_finished');
@@ -827,6 +864,218 @@ describe('assistant block streaming', () => {
       { type: 'assistant_text', text: 'second', blockIndex: 2, sdkUuid: SDK_UUID },
     ]);
   });
+
+  for (const channel of [false, true]) {
+    for (const abort of [false, true]) {
+      it(`uses real assistant usage on an interrupted ${channel ? 'channel' : 'private'} run only when its trigger allows it (${abort ? 'abort' : 'throw'})`, async () => {
+        const { events } = await run({}, [usageAssistant('msg-real', 7, 3, 11, 5)], {
+          abort,
+          throwAfterMessages: true,
+          channel,
+        });
+        const finished = events.at(-1);
+        expect(finished).toMatchObject({
+          type: 'run_finished',
+          status: abort ? 'cancelled' : 'failed',
+        });
+        if (channel) expect(finished).toMatchObject({ inputTokens: 23, outputTokens: 3 });
+        else {
+          expect(finished).not.toHaveProperty('inputTokens');
+          expect(finished).not.toHaveProperty('outputTokens');
+        }
+        expect(events.filter((event) => event.type === 'assistant_text')).toEqual([
+          { type: 'assistant_text', text: 'answer', sdkUuid: SDK_UUID },
+        ]);
+        expect(io.closed).toBe(true);
+      });
+    }
+  }
+
+  it('deduplicates channel usage snapshots by API message id and includes cache-only input', async () => {
+    const { events } = await run(
+      {},
+      [
+        usageAssistant('msg-1', 7, 1),
+        usageAssistant('msg-1', 7, 4),
+        usageAssistant('msg-1', 7, 4),
+        usageAssistant('msg-2', 0, 0, 13),
+      ],
+      { throwAfterMessages: true, channel: true },
+    );
+    expect(events.at(-1)).toMatchObject({ inputTokens: 20, outputTokens: 4 });
+    const zero = await run({}, [usageAssistant('msg-zero', 0, 0)], {
+      throwAfterMessages: true,
+      channel: true,
+    });
+    expect(zero.events.at(-1)).toMatchObject({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  it('keeps private normal results on cumulative modelUsage', async () => {
+    const normal = await run({}, [
+      usageAssistant('msg-1', 7, 4),
+      ...result.map((message) => ({
+        ...message,
+        modelUsage: { model: { inputTokens: 31, outputTokens: 9 } },
+      })),
+    ]);
+    expect(normal.events.at(-1)).toMatchObject({ inputTokens: 31, outputTokens: 9 });
+  });
+
+  it('uses per-turn result usage for channel runs instead of cumulative modelUsage', async () => {
+    const normal = await run(
+      {},
+      [
+        usageAssistant('msg-1', 7, 4),
+        ...result.map((message) => ({
+          ...message,
+          usage: {
+            input_tokens: 2,
+            output_tokens: 5,
+            cache_read_input_tokens: 11,
+            cache_creation_input_tokens: 3,
+          },
+          modelUsage: { model: { inputTokens: 100, outputTokens: 100 } },
+        })),
+      ],
+      { channel: true },
+    );
+    expect(normal.events.at(-1)).toMatchObject({ inputTokens: 16, outputTokens: 5 });
+  });
+
+  it('falls back to real assistant usage when a channel error result reports zero', async () => {
+    const { events } = await run(
+      {},
+      [
+        ...init,
+        usageAssistant('msg-real', 7, 3, 11, 5),
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          errors: ['boom'],
+          total_cost_usd: 0,
+          num_turns: 1,
+          session_id: 'session-1',
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+          modelUsage: { model: { inputTokens: 100, outputTokens: 100 } },
+        },
+      ],
+      { channel: true },
+    );
+    expect(events.at(-1)).toMatchObject({ inputTokens: 23, outputTokens: 3 });
+  });
+
+  it('ignores historical modelUsage for a resumed channel run with a synthetic error', async () => {
+    const text = 'API Error: rate_limit';
+    const { events } = await run(
+      {},
+      [
+        ...init,
+        {
+          type: 'assistant',
+          error: 'rate_limit',
+          parent_tool_use_id: null,
+          uuid: SDK_UUID,
+          message: {
+            id: 'msg-synthetic',
+            content: [{ type: 'text', text }],
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_input_tokens: 0,
+              cache_creation_input_tokens: 0,
+            },
+          },
+        },
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          errors: [text],
+          total_cost_usd: 0,
+          num_turns: 1,
+          session_id: 'session-resumed',
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+          modelUsage: { model: { inputTokens: 100, outputTokens: 100 } },
+        },
+      ],
+      { channel: true },
+    );
+    expect(events.at(-1)).toMatchObject({ inputTokens: 0, outputTokens: 0 });
+    expect(events.filter((event) => event.type === 'assistant_text')).toEqual([
+      { type: 'assistant_text', text, sdkUuid: SDK_UUID },
+    ]);
+  });
+
+  it('does not count synthetic API errors in a channel run when query throws before result', async () => {
+    const { events } = await run(
+      {},
+      [
+        {
+          type: 'assistant',
+          error: 'rate_limit',
+          parent_tool_use_id: null,
+          uuid: SDK_UUID,
+          message: {
+            id: 'msg-synthetic',
+            content: [{ type: 'text', text: 'API Error: rate_limit' }],
+            usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        },
+      ],
+      { throwAfterMessages: true, channel: true },
+    );
+    expect(events.at(-1)).not.toHaveProperty('inputTokens');
+    expect(events.at(-1)).not.toHaveProperty('outputTokens');
+    expect(events.filter((event) => event.type === 'assistant_text')).toEqual([
+      { type: 'assistant_text', text: 'API Error: rate_limit', sdkUuid: SDK_UUID },
+    ]);
+  });
+
+  for (const error of ['authentication_failed', 'rate_limit', 'cloud_credential_error'] as const) {
+    it(`preserves synthetic ${error} text and reports zero model usage`, async () => {
+      const text = `API Error: ${error}`;
+      const { events } = await run({}, [
+        ...init,
+        {
+          type: 'assistant',
+          error,
+          parent_tool_use_id: null,
+          uuid: SDK_UUID,
+          message: { content: [{ type: 'text', text }] },
+        },
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          errors: [text],
+          total_cost_usd: 0,
+          num_turns: 1,
+          session_id: 'session-1',
+          modelUsage: { model: { inputTokens: 0, outputTokens: 0 } },
+        },
+      ]);
+      expect(events.filter((event) => event.type === 'assistant_text')).toEqual([
+        { type: 'assistant_text', text, sdkUuid: SDK_UUID },
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        type: 'run_finished',
+        status: 'failed',
+        inputTokens: 0,
+        outputTokens: 0,
+      });
+    });
+  }
 
   it('keeps sub-agent attribution on every streamed block', async () => {
     const { events } = await run({}, turn('toolu_parent'));

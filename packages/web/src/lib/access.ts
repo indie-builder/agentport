@@ -57,6 +57,7 @@ export type MenuItem = {
 export const WORK_MENU: readonly MenuItem[] = [
   { to: '/agents', label: '找专家', permissionIds: ['agents.read'] },
   { to: '/chat', label: '对话', permissionIds: ['conversations.read'] },
+  { to: '/channels', label: '频道', permissionIds: ['conversations.read'] },
   { to: '/schedules', label: '定时任务', permissionIds: ['schedules.read'] },
 ];
 
@@ -142,6 +143,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, readonly PermissionId[]>
   '/_shell/agents/': ['agents.read'],
   '/_shell/agents/$agentId': ['agents.read'],
   '/_shell/chat': ['conversations.read'],
+  '/_shell/channels/': ['conversations.read'],
+  '/_shell/channels/$channelId': ['conversations.read'],
   '/_shell/personal/memory': ['personal_memory.read'],
   '/_shell/personal/reviews': ['personal_memory.read'],
   '/_shell/personal/shares': ['conversations.share'],

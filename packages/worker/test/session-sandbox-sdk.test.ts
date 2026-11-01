@@ -749,6 +749,7 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     return new SessionSandboxes({
       provider,
       idleTimeoutMs,
+      maxActive: 32,
       logger: quiet,
       resolveRuntimeEnvironment: async () => ({
         environmentId: 'env_test',
