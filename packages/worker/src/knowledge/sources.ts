@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { errorText } from '@agentport/shared';
 import { parseFeed, parseJsonFeed } from 'feedsmith';
 import TurndownService from 'turndown';
 import { z } from 'zod';
@@ -121,7 +122,7 @@ function failureOf(
     externalId,
     title,
     code: truncated ? 'truncated' : retryable ? 'fetch_failed' : 'unsupported_type',
-    message: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+    message: errorText(err).slice(0, 500),
     retryable: truncated ? false : retryable,
   };
 }
