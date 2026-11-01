@@ -345,7 +345,7 @@ function renderClaudeMd(input: WorkspaceInput): string {
     '',
     '## 任务清单',
     '',
-    '多步骤任务（三步以上）用原生 `TodoWrite` 维护清单：每项写 `content` 与进行中的 `activeForm`，完成一步就更新状态，用户会在界面上看到进度。',
+    '多步骤任务用原生 `TodoWrite` 维护清单，用户会在界面上看到进度。',
     '简单问答或单步操作不需要清单。',
     // dontAsk 下 SDK 直接拒绝提问（见官方权限流程），提示词不能承诺做不到的事。
     ...(agent.permissionMode === 'dontAsk'

@@ -97,7 +97,7 @@
 
 ### 技术栈最佳实践技能
 
-新增技能的适配以 `SKILL.md` 顶部一段 `Project convention` 为主，`references/` 与其余文件维持上游原样；例外是 `router-core` 的 `data-loading/SKILL.md`、`ssr/SKILL.md` 也改了本地路径引用。11 个技能中 9 个有适配（合计 11 个文件，含 Better Auth），`vite`、`pnpm` 未改动；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。升级或重装后按本组规则补回适配，再跑「完成核验」。
+新增技能的适配以 `SKILL.md` 顶部一段 `Project convention` 为主，`references/` 与其余文件维持上游原样；例外是 `router-core` 的 `data-loading/SKILL.md`、`ssr/SKILL.md` 也改了本地路径引用。`vite`、`pnpm` 未改动；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。升级或重装后按本组规则补回适配，再跑「完成核验」。本组实际适配范围以各 `SKILL.md` 的 `Project convention` 为准，不在本文写死数量。
 
 - **Fastify**：保持本项目入口约定——`typed(rawApp)` 类型化实例、Zod `schema` 校验、handler 直接读 `request.body`、统一 `INVALID_INPUT` 错误映射、`/api/*` 默认 `requireAuth`；认证走 Better Auth + Drizzle/PostgreSQL，不引入 JWT 或 TypeBox 层。
 - **Better Auth / Drizzle**：认证实现以 `packages/api/src/features/auth` 为准；Drizzle 按本地 lock 锁定版本与 `packages/db/src/schema.ts` 现行写法。常规业务实体主键用应用层 `newId(entity)` TypeID；认证、关联表、幂等派生标识、外部资源等按 `docs/PROJECT-BRIEF.md` §「ID 约定」的例外处理；不采用上游 `serial`/数据库生成 ID 示例。迁移只走 `pnpm db:generate` + `pnpm db:migrate`。
