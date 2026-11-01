@@ -436,7 +436,7 @@ export function PersonalUsagePage() {
               icon={<Activity className="size-4" aria-hidden="true" />}
               title="这个窗口还没有运行记录"
               action={
-                <Link to="/chat" className="text-sm text-primary underline underline-offset-4">
+                <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
                   新建对话
                 </Link>
               }

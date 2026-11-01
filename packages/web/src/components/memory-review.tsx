@@ -1602,7 +1602,7 @@ function MemoryReviewDetail({
     review.target.kind === 'personal' ? (
       <Link
         to="/personal/memory"
-        className="text-primary underline underline-offset-4 hover:text-primary-hover"
+        className="text-[var(--color-link)] underline underline-offset-4"
       >
         {targetLinkLabel}
       </Link>
@@ -1611,7 +1611,7 @@ function MemoryReviewDetail({
         to="/agents/$agentId"
         params={{ agentId: review.target.agentId }}
         search={{ tab: review.target.kind === 'agent_memory' ? 'memory' : 'rules' }}
-        className="text-primary underline underline-offset-4 hover:text-primary-hover"
+        className="text-[var(--color-link)] underline underline-offset-4"
       >
         {targetLinkLabel}
       </Link>
@@ -1826,7 +1826,7 @@ function MemoryReviewDetail({
                   className={
                     pending
                       ? 'cursor-not-allowed text-muted-foreground underline underline-offset-4'
-                      : 'text-primary underline underline-offset-4 hover:text-primary-hover'
+                      : 'text-[var(--color-link)] underline underline-offset-4'
                   }
                 >
                   {source.title || source.conversationId}（{source.messageCount} 条消息）

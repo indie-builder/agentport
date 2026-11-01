@@ -43,7 +43,7 @@ function ShareSourceCell({
         <Link
           to="/chat"
           search={{ agent: share.agentId, conversation: share.conversationId }}
-          className="break-words text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
+          className="break-words text-sm text-[var(--color-link)] underline underline-offset-4"
         >
           {sourceTitle}
         </Link>
@@ -251,7 +251,7 @@ export function PersonalSharesPage() {
           title="还没有分享"
           description="在会话成果里分享文件后，链接会出现在这里。"
           action={
-            <Link to="/chat" className="text-sm text-primary underline underline-offset-4">
+            <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
               去对话
             </Link>
           }
