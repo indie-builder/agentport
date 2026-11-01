@@ -8,17 +8,36 @@ import { Skeleton } from './ui/skeleton.js';
 export function LoadingState({
   rows = 3,
   layout = 'rows',
+  columns = 4,
 }: {
   rows?: number;
-  layout?: 'rows' | 'cards';
+  layout?: 'rows' | 'cards' | 'list';
+  columns?: 3 | 4;
 }) {
+  if (layout === 'list') {
+    return (
+      <div role="status" aria-busy="true" aria-label="加载中" className="@container">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 @4xl:grid-cols-2">
+          {Array.from({ length: rows }, (_, i) => (
+            <Skeleton
+              // biome-ignore lint/suspicious/noArrayIndexKey: 骨架屏是静态占位
+              key={i}
+              className="h-14.5 w-full rounded-item"
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const gridClassName =
+    columns === 3
+      ? 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3'
+      : 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4';
+
   return (
     <div
-      className={
-        layout === 'cards'
-          ? 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
-          : 'flex flex-col gap-2'
-      }
+      className={layout === 'cards' ? gridClassName : 'flex flex-col gap-2'}
       aria-busy="true"
       aria-label="加载中"
       role="status"
@@ -27,7 +46,7 @@ export function LoadingState({
         <Skeleton
           // biome-ignore lint/suspicious/noArrayIndexKey: 骨架屏是静态占位
           key={i}
-          className={layout === 'cards' ? 'h-48 w-full rounded-card' : 'h-11 w-full'}
+          className={layout === 'cards' ? 'h-52 w-full rounded-card' : 'h-11 w-full'}
         />
       ))}
     </div>

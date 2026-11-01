@@ -562,12 +562,12 @@ function MarketSkillsPage({
           description="再多输入一个字符即可搜索市场。"
         />
       ) : null}
-      {skills.isPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {skills.isPending ? <LoadingState rows={8} layout="list" /> : null}
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
       ) : null}
       {loaded && !tooShort && (market.isPending || market.isDebouncing) ? (
-        <LoadingState rows={4} layout="cards" />
+        <LoadingState rows={8} layout="list" />
       ) : null}
       {loaded && !tooShort && !market.isPending && !market.isDebouncing && market.isError ? (
         <ErrorState error={market.error} onRetry={() => void market.refetch()} />

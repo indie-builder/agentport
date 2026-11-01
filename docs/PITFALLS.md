@@ -499,3 +499,9 @@
 - **现象**：成员打开 run 事件流后、Redis 回放尚未结束时被移出频道，已撤权的连接仍把回放中的历史 token 送给对方，直到回放结束才停。
 - **原因**：`subscribeRun` 在首次回放全部完成后才 resolve；调用方在 `await subscribeRun(...)` 之后才启动撤权/终态复核定时器，回放期间的逐事件回调不经过该定时器，而逐页回放可能持续很久。
 - **规避**：撤权核验必须放在回放回调内逐事件执行（每次重新查成员/run），不能只依赖 await 之后的定时器；需要周期核验时用独立授权计时或在回放循环里检查。测试把撤权卡在回放第一页之后，断言剩余 token 一条都不外发。
+
+## 迁移台账与仓库 journal 不一致，所有登录 500
+
+- **现象**：任意 worktree 的 API 登录都返回 500，日志是 `relation "platform_bootstrap" does not exist`；`drizzle.__drizzle_migrations` 有几十条旧记录，但最大 `created_at` 早于当前 journal 的 0043。
+- **原因**：多个 worktree/分支各自生成过迁移，共享库被另一套 journal 迁移过，台账与仓库 journal 的时间戳/内容对不上。drizzle migrator 只按「journal.when > 台账最大 created_at」判断待执行，于是重跑已存在的迁移，在第一个 `CREATE TABLE` 就失败并整批回滚。
+- **规避**：先 `pg_dump -Fc` 备份；只读核验实际结构与 journal，确定真实基线；对已存在的对象按核验结果登记台账（hash 用迁移 SQL 的 sha256），对新增的 NOT NULL 列先建可空列、回填后再 `SET NOT NULL`；在 dump 恢复出的副本库完整演练后再作用于共享库。不要直接 `pnpm db:migrate` 硬跑，也不要为了跑通而删除业务数据。
