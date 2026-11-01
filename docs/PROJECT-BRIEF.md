@@ -128,9 +128,9 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 交互原语 | Base UI（`@base-ui/react`） | 1.9.0；项目不再直接依赖 Radix |
 | 消息滚动容器 | `@shadcn/react`（`message-scroller`） | 0.3.1；仅 `components/ui/message-scroller.tsx` 使用 |
 | 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.168.48 |
-| 服务端状态 | TanStack Query | 5.105.0 |
+| 服务端状态 | TanStack Query | 5.105.1 |
 | 数据表格 | TanStack Table + dnd-kit（`@dnd-kit/core`/`sortable`/`utilities`） | 9.3.1 / 6.3.1 / 10.0.0 / 3.2.2 |
-| 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 6.0.2 |
+| 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 7.0.0 |
 | 校验 | zod（与后端共享） | 4.6.7 |
 | 客户端状态 | Zustand | 5.0.16 |
 | 动效 | Motion | 14.9.0 |
@@ -163,7 +163,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 限流存储 | `@fastify/rate-limit` 内置 Redis store（ioredis） | —（未装 rate-limit-redis） |
 | 压缩 | @fastify/compress | 9.3.0 |
 | 静态托管 | @fastify/static | 10.1.8 |
-| 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.14 |
+| 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.15 |
 | API 文档 | @fastify/swagger + `@scalar/fastify-api-reference`（已接入，需登录访问） | 9.9.2 / 1.76.4 |
 | 过载保护 | 未接入（无 `@fastify/under-pressure` 依赖；`/health/live`、`/health/ready` 由 `routes/health.ts` 自行实现） | — |
 | Redis 客户端 | ioredis | 6.0.0 |
