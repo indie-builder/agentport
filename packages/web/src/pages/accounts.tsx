@@ -1,6 +1,16 @@
 import { isValidBusinessId } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, SearchX, ShieldCheck } from 'lucide-react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import {
+  CirclePause,
+  CirclePlay,
+  KeyRound,
+  MoreHorizontal,
+  Plus,
+  SearchX,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -10,8 +20,17 @@ import { SearchInput } from '../components/search-input.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
@@ -22,8 +41,10 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table.js';
+import { ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { type Account, ApiError, errorMessage } from '../lib/api.js';
+import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
   meQuery,
@@ -52,12 +73,22 @@ function validateBusinessId(value: string): string | null {
 
 export function AccountsPage() {
   const me = useQuery(meQuery);
+  const search = useSearch({ from: '/_shell/accounts' });
+  const navigate = useNavigate({ from: '/accounts' });
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
   const settled = useDebouncedValue(query.trim(), 300);
   const accounts = useAccounts({ q: settled, limit: PAGE_SIZE, offset });
   const canManage = can(me.data, 'accounts.manage');
   const canManageRoles = can(me.data, 'roles.manage');
+  const view = search.view ?? 'table';
+  const setView = (next: 'table' | 'cards'): void => {
+    void navigate({
+      to: '/accounts',
+      search: (current) => ({ ...current, view: next }),
+      replace: true,
+    });
+  };
   const roles = useRoleMatrix(canManageRoles);
   // 角色目录的加载与失败要原样交给弹窗处理，不能在这里抹成空数组。
   const roleDirectory: RoleDirectory = {
@@ -79,6 +110,19 @@ export function AccountsPage() {
   const items = accounts.data?.items ?? [];
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const toggleStatus = (account: Account): void => {
+    if (account.status === 'active') {
+      setStatusTarget(account);
+      return;
+    }
+    setStatus.mutate(
+      { businessId: account.businessId, status: 'active' },
+      {
+        onSuccess: () => toastSuccess(`已启用 ${account.name}`),
+        onError: toastError,
+      },
+    );
+  };
 
   return (
     <Page>
@@ -106,6 +150,7 @@ export function AccountsPage() {
         <span role="status" className="ml-auto text-xs text-muted-foreground">
           {accounts.isPending ? '加载中…' : accounts.isError ? '数量不可用' : `共 ${total} 个账户`}
         </span>
+        <ViewToggle value={view} onChange={setView} />
       </PageToolbar>
 
       {accounts.isPending ? <LoadingState rows={4} /> : null}
@@ -125,7 +170,7 @@ export function AccountsPage() {
         />
       ) : null}
 
-      {items.length > 0 ? (
+      {items.length > 0 && view === 'table' ? (
         <Table aria-label="账户列表">
           <TableHeader>
             <TableRow>
@@ -154,53 +199,80 @@ export function AccountsPage() {
                   {new Date(account.createdAt).toLocaleDateString('zh-CN')}
                 </TableCell>
                 <TableCell>
-                  <div className="flex flex-wrap items-center justify-end gap-1">
-                    {canManage ? (
-                      <>
-                        <Button variant="ghost" size="sm" onClick={() => setEditing(account)}>
-                          编辑
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setResetting(account)}>
-                          重置密码
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            account.status === 'active'
-                              ? setStatusTarget(account)
-                              : setStatus.mutate(
-                                  { businessId: account.businessId, status: 'active' },
-                                  {
-                                    onSuccess: () => toastSuccess(`已启用 ${account.name}`),
-                                    onError: toastError,
-                                  },
-                                )
-                          }
-                        >
-                          {account.status === 'active' ? '停用' : '启用'}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-danger"
-                          onClick={() => setDeleting(account)}
-                        >
-                          删除认证
-                        </Button>
-                      </>
-                    ) : null}
-                    {canManageRoles ? (
-                      <Button variant="ghost" size="sm" onClick={() => setAssigningRoles(account)}>
-                        分配角色
-                      </Button>
-                    ) : null}
-                  </div>
+                  <AccountRowActions
+                    account={account}
+                    canManage={canManage}
+                    canManageRoles={canManageRoles}
+                    className="justify-end"
+                    onEdit={setEditing}
+                    onResetPassword={setResetting}
+                    onAssignRoles={setAssigningRoles}
+                    onToggleStatus={toggleStatus}
+                    onDelete={setDeleting}
+                  />
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
+      ) : null}
+
+      {items.length > 0 && view === 'cards' ? (
+        <ul aria-label="账户列表" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {items.map((account) => (
+            <li key={account.businessId} className="min-w-0">
+              <Card className="h-full">
+                <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
+                  <CardTitle className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">{account.name}</span>
+                    <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
+                  </CardTitle>
+                  <CardAction className="col-start-2 row-start-1">
+                    <AccountRowActions
+                      account={account}
+                      canManage={canManage}
+                      canManageRoles={canManageRoles}
+                      onEdit={setEditing}
+                      onResetPassword={setResetting}
+                      onAssignRoles={setAssigningRoles}
+                      onToggleStatus={toggleStatus}
+                      onDelete={setDeleting}
+                    />
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-2">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="shrink-0 text-xs text-muted-foreground">业务 ID</span>
+                    <span
+                      className="min-w-0 truncate font-mono text-xs text-muted-foreground"
+                      title={account.businessId}
+                    >
+                      {account.businessId}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="shrink-0 text-xs text-muted-foreground">用户名</span>
+                    <span className="min-w-0 break-words text-right text-sm text-fg">
+                      {account.username}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs text-muted-foreground">角色</span>
+                    <span className="whitespace-normal text-sm text-fg">
+                      {account.roles.map((role) => role.name).join('、') || '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="shrink-0 text-xs text-muted-foreground">创建时间</span>
+                    <span className="text-sm text-muted-foreground">
+                      {new Date(account.createdAt).toLocaleDateString('zh-CN')}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {pages > 1 ? (
@@ -296,6 +368,76 @@ type RoleDirectory = {
   error: unknown;
   refetch: () => void;
 };
+
+function AccountRowActions({
+  account,
+  canManage,
+  canManageRoles,
+  className,
+  onEdit,
+  onResetPassword,
+  onAssignRoles,
+  onToggleStatus,
+  onDelete,
+}: {
+  account: Account;
+  canManage: boolean;
+  canManageRoles: boolean;
+  className?: string;
+  onEdit: (account: Account) => void;
+  onResetPassword: (account: Account) => void;
+  onAssignRoles: (account: Account) => void;
+  onToggleStatus: (account: Account) => void;
+  onDelete: (account: Account) => void;
+}) {
+  if (!canManage && !canManageRoles) return null;
+  return (
+    <div className={cn('flex flex-wrap items-center gap-1', className)}>
+      {canManage ? (
+        <Button variant="ghost" size="sm" onClick={() => onEdit(account)}>
+          编辑
+        </Button>
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button variant="ghost" size="icon-sm" aria-label={`操作 ${account.name}`}>
+              <MoreHorizontal />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+          <DropdownMenuGroup>
+            {canManageRoles ? (
+              <DropdownMenuItem onClick={() => onAssignRoles(account)}>
+                <ShieldCheck /> 分配角色
+              </DropdownMenuItem>
+            ) : null}
+            {canManage ? (
+              <>
+                <DropdownMenuItem onClick={() => onResetPassword(account)}>
+                  <KeyRound /> 重置密码
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onToggleStatus(account)}>
+                  {account.status === 'active' ? <CirclePause /> : <CirclePlay />}
+                  {account.status === 'active' ? '停用' : '启用'}
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </DropdownMenuGroup>
+          {canManage ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={() => onDelete(account)}>
+                <Trash2 /> 删除认证
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
 
 /** 关闭弹层与路由离开共用同一份放弃确认；请求中先取消关闭，成功关闭前结算被拦下的导航。 */
 function useDiscardGuard(dirty: boolean, pending: boolean, onClose: () => void) {

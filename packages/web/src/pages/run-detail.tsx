@@ -81,10 +81,11 @@ export function RunDetailPage() {
   const draftMutation = useSkillDraftFromRun();
   const approveMutation = useApproveRun();
   const approvalInFlight = useRef(false);
-  // 列表来源筛选随 URL 往返，返回时恢复；直接打开详情就回到未筛选列表。
+  // 列表来源筛选与视图随 URL 往返，返回时恢复；直接打开详情就回到未筛选列表。
   const listSearch = {
     ...(search.fromAgent ? { agent: search.fromAgent } : {}),
     ...(search.fromStatus ? { status: search.fromStatus } : {}),
+    ...(search.fromView === 'cards' ? { view: 'cards' as const } : {}),
   };
   const selected = search.step ?? null;
 

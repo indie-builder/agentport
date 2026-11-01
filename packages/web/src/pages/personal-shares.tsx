@@ -8,11 +8,14 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { CopyButton } from '../components/copy-button.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { Page, PageHeader, PageToolbar } from '../components/page.js';
-import { EmptyState, ErrorState } from '../components/states.js';
+import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card.js';
 import { FieldError } from '../components/ui/field.js';
+import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
+import { cn } from '../lib/cn.js';
 import { formatDateTime } from '../lib/format.js';
 import { meQuery, usePersonalOutputShares, useRevokePersonalOutputShare } from '../lib/queries.js';
 import { toastSuccess } from '../lib/toast.js';
@@ -65,16 +68,109 @@ function ShareSourceCell({
   );
 }
 
+function ShareFile({ share }: { share: PersonalOutputShare }) {
+  const name = fileName(share.path);
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="break-words text-base text-fg" title={share.path}>
+        {name}
+      </span>
+      {name === share.path ? null : (
+        <span className="break-all font-mono text-xs text-muted-foreground">{share.path}</span>
+      )}
+    </div>
+  );
+}
+
+function ShareActions({
+  share,
+  revokePending,
+  onRevoke,
+  className,
+}: {
+  share: PersonalOutputShare;
+  revokePending: boolean;
+  onRevoke: (share: PersonalOutputShare) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex items-center gap-x-3 whitespace-nowrap', className)}>
+      <a
+        href={share.urlPath}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
+      >
+        查看分享
+      </a>
+      <CopyButton value={shareLink(share)} label="复制链接" showLabel />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground hover:text-danger"
+        aria-label={`撤销 ${fileName(share.path)} 的分享`}
+        disabled={revokePending}
+        onClick={() => onRevoke(share)}
+      >
+        撤销
+      </Button>
+    </div>
+  );
+}
+
+function ShareCard({
+  share,
+  canOpenConversation,
+  revokePending,
+  onRevoke,
+}: {
+  share: PersonalOutputShare;
+  canOpenConversation: boolean;
+  revokePending: boolean;
+  onRevoke: (share: PersonalOutputShare) => void;
+}) {
+  return (
+    <Card className="h-full">
+      <CardHeader>
+        <CardTitle className="min-w-0">
+          <ShareFile share={share} />
+        </CardTitle>
+        <span className="text-xs text-muted-foreground" title={share.createdAt}>
+          分享于 {formatDateTime(share.createdAt)}
+        </span>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-1">
+        <span className="text-xs text-muted-foreground">来源会话</span>
+        <ShareSourceCell share={share} canOpenConversation={canOpenConversation} />
+      </CardContent>
+      <CardFooter className="justify-end">
+        <ShareActions
+          share={share}
+          revokePending={revokePending}
+          onRevoke={onRevoke}
+          className="flex-wrap justify-end gap-y-1"
+        />
+      </CardFooter>
+    </Card>
+  );
+}
+
 export function PersonalSharesPage() {
   const me = useQuery(meQuery);
   const search = useSearch({ from: '/_shell/personal/shares' });
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: '/personal/shares' });
   const cursor = search.cursor ?? null;
+  const view = search.view ?? 'table';
   const shares = usePersonalOutputShares(cursor);
   const revoke = useRevokePersonalOutputShare();
   const [target, setTarget] = useState<PersonalOutputShare | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const canOpenConversation = can(me.data, 'conversations.read');
+
+  const requestRevoke = (share: PersonalOutputShare): void => {
+    setModalError(null);
+    setTarget(share);
+  };
 
   const columns: DataColumn<PersonalOutputShare>[] = [
     {
@@ -82,21 +178,7 @@ export function PersonalSharesPage() {
       header: '文件',
       locked: true,
       width: 'minmax(150px,1.4fr)',
-      cell: (share) => {
-        const name = fileName(share.path);
-        return (
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="break-words text-base text-fg" title={share.path}>
-              {name}
-            </span>
-            {name === share.path ? null : (
-              <span className="break-all font-mono text-xs text-muted-foreground">
-                {share.path}
-              </span>
-            )}
-          </div>
-        );
-      },
+      cell: (share) => <ShareFile share={share} />,
     },
     {
       id: 'conversation',
@@ -120,30 +202,12 @@ export function PersonalSharesPage() {
       align: 'end',
       width: 'minmax(270px,auto)',
       cell: (share) => (
-        <div className="flex items-center justify-end gap-x-3 whitespace-nowrap">
-          <a
-            href={share.urlPath}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
-          >
-            查看分享
-          </a>
-          <CopyButton value={shareLink(share)} label="复制链接" showLabel />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-danger"
-            aria-label={`撤销 ${fileName(share.path)} 的分享`}
-            disabled={revoke.isPending}
-            onClick={() => {
-              setModalError(null);
-              setTarget(share);
-            }}
-          >
-            撤销
-          </Button>
-        </div>
+        <ShareActions
+          share={share}
+          revokePending={revoke.isPending}
+          onRevoke={requestRevoke}
+          className="justify-end"
+        />
       ),
     },
   ];
@@ -153,18 +217,29 @@ export function PersonalSharesPage() {
       <PageHeader
         title="我的分享"
         actions={
-          <Button
-            variant="outline"
-            onClick={() => void shares.refetch()}
-            disabled={shares.isFetching}
-          >
-            <RefreshCw
-              data-icon="inline-start"
-              className={shares.isFetching ? 'animate-spin' : undefined}
-              aria-hidden="true"
+          <>
+            <ViewToggle
+              value={view}
+              onChange={(next: ListView) =>
+                void navigate({
+                  to: '/personal/shares',
+                  search: (current) => ({ ...current, view: next }),
+                })
+              }
             />
-            {shares.isFetching ? '刷新中…' : '刷新'}
-          </Button>
+            <Button
+              variant="outline"
+              onClick={() => void shares.refetch()}
+              disabled={shares.isFetching}
+            >
+              <RefreshCw
+                data-icon="inline-start"
+                className={shares.isFetching ? 'animate-spin' : undefined}
+                aria-hidden="true"
+              />
+              {shares.isFetching ? '刷新中…' : '刷新'}
+            </Button>
+          </>
         }
       />
 
@@ -181,6 +256,22 @@ export function PersonalSharesPage() {
             </Link>
           }
         />
+      ) : view === 'cards' ? (
+        shares.isPending ? (
+          <LoadingState rows={3} layout="cards" />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {(shares.data?.items ?? []).map((share) => (
+              <ShareCard
+                key={share.id}
+                share={share}
+                canOpenConversation={canOpenConversation}
+                revokePending={revoke.isPending}
+                onRevoke={requestRevoke}
+              />
+            ))}
+          </div>
+        )
       ) : (
         <DataTable
           rows={shares.data?.items ?? []}
@@ -198,7 +289,12 @@ export function PersonalSharesPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void navigate({ to: '/personal/shares', search: {} })}
+              onClick={() =>
+                void navigate({
+                  to: '/personal/shares',
+                  search: (current) => ({ ...current, cursor: undefined }),
+                })
+              }
             >
               回到最新
             </Button>
@@ -211,7 +307,10 @@ export function PersonalSharesPage() {
               onClick={() =>
                 void navigate({
                   to: '/personal/shares',
-                  search: { cursor: shares.data?.nextCursor ?? undefined },
+                  search: (current) => ({
+                    ...current,
+                    cursor: shares.data?.nextCursor ?? undefined,
+                  }),
                 })
               }
             >

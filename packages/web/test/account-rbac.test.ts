@@ -203,6 +203,14 @@ function menuItem(text: string): HTMLElement {
   if (!element) throw new Error(`Missing menu item: ${text}`);
   return element;
 }
+async function openMenu(label: string): Promise<void> {
+  const trigger = button(label);
+  // Base UI 用 mousedown 打开菜单，jsdom 的 click() 不会触发。
+  await act(async () => {
+    trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  });
+  await flush();
+}
 function maybeDialog(titlePrefix: string): HTMLElement | null {
   return (
     [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((item) =>
@@ -1173,14 +1181,16 @@ describe('账户管理', () => {
 
   it('停用需要确认，启用可直接撤销停用状态', async () => {
     await openAccounts();
-    await waitFor(() => maybeButton('停用'));
-    await click(button('停用'));
+    await waitFor(() => maybeButton('操作 爱丽丝'));
+    await openMenu('操作 爱丽丝');
+    await click(menuItem('停用'));
     expect(dialog('停用账户「爱丽丝」')).toBeTruthy();
     await click(button('停用', dialog('停用账户「爱丽丝」')));
     expect(bodyOf('/api/accounts/alice/status', 'PATCH')).toEqual({ status: 'disabled' });
 
-    await waitFor(() => maybeButton('启用'));
-    await click(button('启用'));
+    await waitFor(() => host.querySelector('tbody')?.textContent?.includes('停用'));
+    await openMenu('操作 爱丽丝');
+    await click(menuItem('启用'));
     expect(calls.filter((call) => call.path === '/api/accounts/alice/status').at(-1)?.body).toEqual(
       { status: 'active' },
     );
@@ -1188,7 +1198,9 @@ describe('账户管理', () => {
 
   it('删除认证只发 DELETE，并说明业务授权保留', async () => {
     await openAccounts();
-    await click(button('删除认证'));
+    await waitFor(() => maybeButton('操作 爱丽丝'));
+    await openMenu('操作 爱丽丝');
+    await click(menuItem('删除认证'));
     const confirmation = dialog('删除「爱丽丝」的登录认证');
     expect(confirmation.textContent).toContain('业务内容、角色、专家归属与个人记忆都会保留');
     await click(button('删除', confirmation));

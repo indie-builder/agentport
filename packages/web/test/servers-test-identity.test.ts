@@ -1,4 +1,4 @@
-import type { RuntimeEnvironment, Server } from '@agentport/shared';
+import type { ConnectorCatalogItem, RuntimeEnvironment, Server } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -77,6 +77,21 @@ const secondStdioServer: Server = {
   id: 'server-stdio-second',
   name: 'stdio-second',
 };
+const huggingFaceServer: Server = {
+  ...httpServer,
+  id: 'server-huggingface',
+  name: 'huggingface',
+  url: 'https://huggingface.co/mcp',
+};
+const huggingFaceCatalogItem: ConnectorCatalogItem = {
+  slug: 'huggingface',
+  name: 'Hugging Face',
+  description: '模型与数据集',
+  kind: 'http',
+  url: 'https://huggingface.co/mcp',
+  sourceUrl: 'https://huggingface.co',
+  reviewedAt: '2026-01-01',
+};
 const resolvedEnvironment = {
   environmentId: namedEnvironment.id,
   environmentName: namedEnvironment.name,
@@ -102,9 +117,19 @@ async function flush(): Promise<void> {
   });
 }
 
+async function render(): Promise<void> {
+  await act(async () => {
+    root.render(createElement(QueryClientProvider, { client }, createElement(ServersPage)));
+  });
+  await flush();
+}
+
 async function mount(
   servers: Server[],
-  { cacheEnvironments = true }: { cacheEnvironments?: boolean } = {},
+  {
+    cacheEnvironments = true,
+    catalog = [],
+  }: { cacheEnvironments?: boolean; catalog?: ConnectorCatalogItem[] } = {},
 ): Promise<void> {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
@@ -112,6 +137,7 @@ async function mount(
   client.setQueryData(['me'], allAccessMe);
   client.setQueryData(['servers'], servers);
   client.setQueryData(['agents'], []);
+  client.setQueryData(['connector-catalog'], catalog);
   if (cacheEnvironments) {
     client.setQueryData(
       ['runtime-environments'],
@@ -121,10 +147,7 @@ async function mount(
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => {
-    root.render(createElement(QueryClientProvider, { client }, createElement(ServersPage)));
-  });
-  await flush();
+  await render();
 }
 
 async function click(element: HTMLElement): Promise<void> {
@@ -186,6 +209,7 @@ async function selectEnvironment(name: string): Promise<void> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.search = {};
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -207,6 +231,30 @@ afterEach(async () => {
   client?.clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe('server search', () => {
+  it('matches a connector by its catalog display name as well as its slug', async () => {
+    vi.spyOn(api, 'servers').mockResolvedValue([huggingFaceServer]);
+    await mount([huggingFaceServer], { catalog: [huggingFaceCatalogItem] });
+    const cards = () => document.querySelectorAll('[data-slot="server-card"]');
+    expect(cards()).toHaveLength(1);
+    const card = serverCard('Hugging Face');
+
+    state.search = { q: 'Hugging Face' };
+    await render();
+    expect(cards()).toHaveLength(1);
+    expect(serverCard('Hugging Face')).toBe(card);
+
+    state.search = { q: 'huggingface' };
+    await render();
+    expect(cards()).toHaveLength(1);
+    expect(serverCard('Hugging Face')).toBe(card);
+
+    state.search = { q: 'no-such-connector' };
+    await render();
+    expect(cards()).toHaveLength(0);
+  });
 });
 
 describe('server test environment identity', () => {
@@ -323,7 +371,7 @@ describe('server test environment identity', () => {
     await mount([refreshed]);
 
     const card = serverCard(stdioServer.name);
-    expect(card.textContent).toContain(`上次试连通过 · ${namedEnvironment.name}`);
+    expect(card.textContent).toContain(`环境 ${namedEnvironment.name} · 1234abcd`);
     expect(card.textContent).not.toContain('未测试');
 
     await click(button(`查看 ${stdioServer.name} 工具与测试详情`));
@@ -408,17 +456,25 @@ describe('server test environment identity', () => {
 
   it('waits for the environment list and retries it before allowing a test', async () => {
     let rejectFirst: ((error: Error) => void) | undefined;
-    const fetchMock = vi
-      .fn()
-      .mockImplementationOnce(
-        () =>
-          new Promise<Response>((_resolve, reject) => {
+    let environmentAttempts = 0;
+    // 页面同时请求连接器目录，试连成功后还会刷新连接器列表；按 URL 区分，不能依赖调用顺序。
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/connector-catalog')) return Promise.resolve(Response.json([]));
+      if (url.includes('/servers')) return Promise.resolve(Response.json([stdioServer]));
+      if (url.includes('/runtime-environments')) {
+        environmentAttempts += 1;
+        if (environmentAttempts === 1) {
+          return new Promise<Response>((_resolve, reject) => {
             rejectFirst = reject;
-          }),
-      )
-      .mockResolvedValueOnce(
-        Response.json([defaultEnvironment, namedEnvironment, otherEnvironment]),
-      );
+          });
+        }
+        return Promise.resolve(
+          Response.json([defaultEnvironment, namedEnvironment, otherEnvironment]),
+        );
+      }
+      return Promise.resolve(Response.json([]));
+    });
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(api, 'servers').mockResolvedValue([stdioServer]);
     const testServer = vi

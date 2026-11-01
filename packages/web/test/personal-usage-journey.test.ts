@@ -163,7 +163,8 @@ describe('使用记录的任务视角', () => {
     await mount('/personal/usage', me);
     await vi.waitFor(() => expect(rows()).toHaveLength(2));
 
-    expect(headers()).toEqual(['专家', '来源', '状态', '时间', '去向']);
+    // 末尾空表头是列设置操作列。
+    expect(headers()).toEqual(['专家', '来源', '状态', '时间', '去向', '']);
 
     const first = rows()[0];
     if (!first) throw new Error('Missing first run row');

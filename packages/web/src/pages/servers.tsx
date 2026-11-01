@@ -180,6 +180,7 @@ export function ServersPage() {
   const canTools = can(me.data, 'servers.tools.manage');
   const canTokens = can(me.data, 'servers.tokens.read');
   const servers = useServers();
+  const catalog = useQuery(connectorCatalogQuery);
   const agents = useAgents();
   const environments = useRuntimeEnvironments();
   const test = useTestServer();
@@ -224,22 +225,32 @@ export function ServersPage() {
   const environmentsLoading = environments.isFetching && environments.data === undefined;
   const environmentsError = environments.isError ? environments.error : null;
 
+  // 目录条目的 name 是人类可读名；已登记的 server 只有 slug 作为 name。
+  const catalogNames = useMemo(
+    () => new Map((catalog.data ?? []).map((item) => [item.slug, item.name])),
+    [catalog.data],
+  );
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return all
       .filter((server) => {
         if (kind !== 'all' && server.kind !== kind) return false;
-        return [server.name, server.description, detailOf(server)]
+        return [server.name, catalogNames.get(server.name), server.description, detailOf(server)]
+          .filter(Boolean)
           .join(' ')
           .toLowerCase()
           .includes(needle);
       })
       .sort((left, right) =>
         sort === 'name'
-          ? left.name.localeCompare(right.name, 'zh-CN')
+          ? (catalogNames.get(left.name) ?? left.name).localeCompare(
+              catalogNames.get(right.name) ?? right.name,
+              'zh-CN',
+            )
           : Date.parse(right.createdAt) - Date.parse(left.createdAt),
       );
-  }, [all, kind, query, sort]);
+  }, [all, catalogNames, kind, query, sort]);
 
   const agentCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -431,6 +442,7 @@ export function ServersPage() {
             <li key={server.id} className="min-w-0">
               <ServerCard
                 server={server}
+                displayName={catalogNames.get(server.name) ?? server.name}
                 agentCount={
                   agents.isError
                     ? '未知'
@@ -699,6 +711,7 @@ function TestEnvironmentDialog({
 
 function ServerCard({
   server,
+  displayName,
   agentCount,
   lastTest,
   testing,
@@ -716,6 +729,7 @@ function ServerCard({
   canDelete,
 }: {
   server: Server;
+  displayName: string;
   agentCount: number | '未知' | '加载中…';
   lastTest: LastTest | null;
   testing: boolean;
@@ -752,8 +766,8 @@ function ServerCard({
               className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal"
               onClick={(event) => onEdit(event.currentTarget)}
             >
-              <span className="line-clamp-2 break-words" title={server.name}>
-                {server.name}
+              <span className="line-clamp-2 break-words" title={displayName}>
+                {displayName}
               </span>
             </Button>
           </h2>
@@ -769,7 +783,7 @@ function ServerCard({
                   ref={menuTriggerRef}
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`操作 ${server.name}`}
+                  aria-label={`操作 ${displayName}`}
                 >
                   <MoreHorizontal />
                 </Button>
@@ -831,20 +845,11 @@ function ServerCard({
       <CardContent className="flex flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <Badge variant="secondary">{kindMeta[server.kind].label}</Badge>
-          {server.lastTestOk === true ? (
-            <span
-              className="text-xs text-muted-foreground"
-              title={
-                server.lastTestedAt ? `测试于 ${formatDateTime(server.lastTestedAt)}` : undefined
-              }
-            >
-              上次试连通过
-              {server.lastTestRuntimeEnvironment
-                ? ` · ${server.lastTestRuntimeEnvironment.environmentName}`
-                : ''}
-            </span>
-          ) : server.lastTestOk === false ? (
-            <span className="text-xs text-danger">上次试连失败</span>
+          {/* 目录条目的人类可读名与 slug 不同，slug 作次信息；自定义连接器两者相同，不重复展示。 */}
+          {displayName !== server.name ? (
+            <Badge variant="secondary" className="max-w-full font-mono">
+              <span className="truncate">{server.name}</span>
+            </Badge>
           ) : null}
         </div>
         <code className="truncate font-mono text-xs text-muted-foreground" title={detailOf(server)}>
@@ -854,7 +859,7 @@ function ServerCard({
           state={lastTest}
           server={server}
           testing={testing}
-          serverName={server.name}
+          serverName={displayName}
           onOpen={(trigger) => onCatalog(trigger)}
         />
       </CardContent>
@@ -865,7 +870,7 @@ function ServerCard({
         <Button
           variant="outline"
           size="sm"
-          aria-label={`编辑 ${server.name}`}
+          aria-label={`编辑 ${displayName}`}
           className={canUpdate ? undefined : 'hidden'}
           onClick={(event) => onEdit(event.currentTarget)}
         >

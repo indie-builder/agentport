@@ -6,6 +6,9 @@ export const resourceSearchSchema = z.object({
   sort: z.enum(['newest', 'name']).optional().catch(undefined),
 });
 
+/** 表格/卡片切换进 URL；非法值忽略，由页面回落到默认视图。 */
+export const listViewSchema = z.enum(['table', 'cards']).optional().catch(undefined);
+
 export const serversSearchSchema = resourceSearchSchema.extend({
   kind: z.enum(['stdio', 'http', 'generated']).optional().catch(undefined),
 });
@@ -65,11 +68,12 @@ export const auditSearchSchema = z.object({
 const runStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'] as const;
 const runTriggers = ['chat', 'mcp', 'schedule', 'event', 'review'] as const;
 
-/** 个人记忆提案：专家筛选、选中提案、列表视图与创建入口都进 URL，链接可复现同一视图。 */
+/** 个人记忆提案：专家筛选、选中提案、阶段筛选、列表布局与创建入口都进 URL，链接可复现同一视图。 */
 export const personalReviewsSearchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
   run: z.string().min(1).optional().catch(undefined),
-  view: z.enum(['pending', 'generating', 'done']).optional().catch(undefined),
+  stage: z.enum(['pending', 'generating', 'done']).optional().catch(undefined),
+  view: listViewSchema,
   create: z
     .union([z.boolean(), z.enum(['true', 'false'])])
     .optional()
@@ -80,6 +84,7 @@ export const personalReviewsSearchSchema = z.object({
 /** 我的分享：游标分页进 URL，刷新和返回保持同一页。 */
 export const personalSharesSearchSchema = z.object({
   cursor: z.string().min(1).max(200).optional().catch(undefined),
+  view: listViewSchema,
 });
 
 /** 使用记录：窗口、筛选与游标都进 URL；汇总只随窗口变化。 */
@@ -89,18 +94,27 @@ export const personalUsageSearchSchema = z.object({
   status: z.enum(runStatuses).optional().catch(undefined),
   trigger: z.enum(runTriggers).optional().catch(undefined),
   cursor: z.string().min(1).max(200).optional().catch(undefined),
+  view: listViewSchema,
 });
 
 export const runsSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),
   status: z.enum(runStatuses).optional().catch(undefined),
+  view: listViewSchema,
 });
 
-/** 运行详情：来源列表的专家/状态筛选随链接带回，刷新后能回到同一批运行。 */
+export const schedulesSearchSchema = z.object({ view: listViewSchema });
+
+export const personalSecuritySearchSchema = z.object({ view: listViewSchema });
+
+export const accountsSearchSchema = z.object({ view: listViewSchema });
+
+/** 运行详情：来源列表的专家/状态/视图随链接带回，刷新后能回到同一批运行。 */
 export const runDetailSearchSchema = z.object({
   step: z.coerce.number().int().nonnegative().optional().catch(undefined),
   fromAgent: z.string().optional().catch(undefined),
   fromStatus: z.enum(runStatuses).optional().catch(undefined),
+  fromView: z.enum(['table', 'cards']).optional().catch(undefined),
 });
 
 /** 评估：选中运行与比较两侧都进 URL，深链可打开不在当前分页里的批次。 */
@@ -117,6 +131,7 @@ const buildStatuses = ['queued', 'building', 'ready', 'failed'] as const;
 
 export const runtimeEnvironmentsSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
+  view: listViewSchema,
 });
 
 /** 运行环境详情：状态筛选与选中的构建版本进 URL，刷新与分享后回到同一视图。 */

@@ -9,6 +9,15 @@ import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../compone
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
+import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import type { RunStatus } from '../lib/api.js';
 import {
@@ -49,9 +58,16 @@ function formatUtcDateTime(value: string): string {
   return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
 }
 
+// 成本按货币保留 4 位小数；Token 是计数，统一用精确整数加千分位，避免同屏混用 k/M 缩写。
+const tokenCountFormatter = new Intl.NumberFormat('zh-CN');
+
+function formatTokenCount(value: number): string {
+  return tokenCountFormatter.format(value);
+}
+
 function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
-    <span className="flex items-baseline justify-between gap-2">
+    <span className="flex min-w-0 flex-col gap-0.5">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-mono tabular-nums text-fg">{value}</span>
     </span>
@@ -67,6 +83,44 @@ function runDestination(
   return 'detail';
 }
 
+function RunCard({ run, action }: { run: PersonalRun; action: ReactNode }) {
+  return (
+    <Card className="h-full">
+      <CardHeader>
+        <CardTitle className="min-w-0 truncate" title={run.agentName ?? '已删除'}>
+          {run.agentName ?? '已删除'}
+        </CardTitle>
+        <CardAction>
+          <RunStatusBadge status={run.status} />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-3">
+        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+          <dt className="text-muted-foreground">来源</dt>
+          <dd className="text-right text-muted-foreground">{triggerLabel[run.trigger]}</dd>
+          <dt className="text-muted-foreground">时间</dt>
+          <dd className="text-right text-muted-foreground" title={run.startedAt ?? run.createdAt}>
+            {formatDateTime(run.startedAt ?? run.createdAt)}
+          </dd>
+          <dt className="text-muted-foreground">耗时</dt>
+          <dd className="font-mono tabular-nums text-fg">{formatDuration(run.latencyMs)}</dd>
+          <dt className="text-muted-foreground">成本</dt>
+          <dd className="font-mono tabular-nums text-fg">{formatCost(run.costUsd)}</dd>
+          <dt className="text-muted-foreground">Token</dt>
+          <dd className="font-mono tabular-nums text-fg">
+            {`${formatTokens(run.inputTokens)} / ${formatTokens(run.outputTokens)}`}
+          </dd>
+          <dt className="text-muted-foreground">运行 ID</dt>
+          <dd className="font-mono text-xs text-fg" title={run.id}>
+            {shortId(run.id)}
+          </dd>
+        </dl>
+      </CardContent>
+      <CardFooter className="justify-end">{action}</CardFooter>
+    </Card>
+  );
+}
+
 export function PersonalUsagePage() {
   const me = useQuery(meQuery);
   const search = useSearch({ from: '/_shell/personal/usage' });
@@ -78,6 +132,7 @@ export function PersonalUsagePage() {
   const canReadConversations = can(me.data, 'conversations.read');
   const days = search.days ?? 30;
   const cursor = search.cursor ?? null;
+  const view = search.view ?? 'table';
   const usage = usePersonalUsage(days, canOverview);
   const agents = useQuery({ ...agentsQuery, enabled: canAgents });
   const query: PersonalRunListQuery = {
@@ -96,6 +151,7 @@ export function PersonalUsagePage() {
     status?: RunStatus | undefined;
     trigger?: Trigger | undefined;
     cursor?: string | undefined;
+    view?: ListView | undefined;
   }): void => {
     void navigate({
       to: '/personal/usage',
@@ -233,12 +289,9 @@ export function PersonalUsagePage() {
             <dl className="flex flex-col gap-2 text-sm">
               <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
                 <dt className="w-20 shrink-0 text-muted-foreground">运行</dt>
-                <dd className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-6 gap-y-2">
-                  <span className="whitespace-nowrap">
-                    <span className="text-muted-foreground">总计 </span>
-                    <span className="font-mono tabular-nums text-fg">{summary.runCount}</span>
-                  </span>
-                  <div className="grid min-w-0 max-w-[560px] flex-1 grid-cols-6 gap-x-6 gap-y-1">
+                <dd className="min-w-0 flex-1">
+                  <div className="grid min-w-0 grid-cols-7 gap-x-6 gap-y-1">
+                    <SummaryStat label="总计" value={String(summary.runCount)} />
                     {statuses.map((status) => (
                       <SummaryStat
                         key={status}
@@ -252,7 +305,7 @@ export function PersonalUsagePage() {
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <dt className="w-20 shrink-0 text-muted-foreground">Token</dt>
                 <dd className="min-w-0 text-fg">
-                  {`${formatTokens(summary.inputTokens)} 输入 / ${formatTokens(summary.outputTokens)} 输出`}
+                  {`${formatTokenCount(summary.inputTokens)} 输入 / ${formatTokenCount(summary.outputTokens)} 输出`}
                 </dd>
               </div>
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -263,7 +316,7 @@ export function PersonalUsagePage() {
                   ) : (
                     <>
                       <span className="font-mono tabular-nums">
-                        {`${formatCost(summary.costUsd)} · ${summary.costRecordedRuns}/${summary.runCount} 次运行`}
+                        {`${formatCost(summary.costUsd)} · ${summary.runCount} 次中 ${summary.costRecordedRuns} 次已记录`}
                       </span>
                       {summary.costMissingRuns > 0 ? (
                         <span className="text-muted-foreground">
@@ -368,6 +421,9 @@ export function PersonalUsagePage() {
             >
               {search.status === 'failed' ? '清除失败筛选' : '只看失败'}
             </Button>
+            <div className="ml-auto">
+              <ViewToggle value={view} onChange={(next) => patchSearch({ view: next })} />
+            </div>
           </PageToolbar>
 
           {runs.isError ? (
@@ -382,6 +438,16 @@ export function PersonalUsagePage() {
                 </Link>
               }
             />
+          ) : view === 'cards' ? (
+            runs.isPending ? (
+              <LoadingState rows={3} layout="cards" />
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {(runs.data?.items ?? []).map((run) => (
+                  <RunCard key={run.id} run={run} action={runAction(run)} />
+                ))}
+              </div>
+            )
           ) : (
             <DataTable
               rows={runs.data?.items ?? []}

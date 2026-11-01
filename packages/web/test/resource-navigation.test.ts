@@ -38,8 +38,13 @@ vi.mock('@tanstack/react-query', async (original) => {
   const { allAccessMe } = await import('./me-fixture.js');
   return {
     ...actual,
-    // 页面用 useQuery 读取 /me 做权限判断；其余数据 hook 来自下面的 queries mock。
-    useQuery: () => ({ data: allAccessMe, isSuccess: true, isPending: false, status: 'success' }),
+    // 页面用 useQuery 读取 /me 做权限判断；连接器目录不是权限对象，返回空目录。
+    useQuery: (options?: { queryKey?: readonly unknown[] }) => ({
+      data: options?.queryKey?.[0] === 'connector-catalog' ? [] : allAccessMe,
+      isSuccess: true,
+      isPending: false,
+      status: 'success',
+    }),
     useQueries: () => [],
     useQueryClient: () => ({}),
   };
@@ -48,9 +53,10 @@ vi.mock('../src/lib/queries.js', () => {
   const mutation = () => ({ isPending: state.pending, mutate: state.mutate });
   return {
     meQuery: {
-    queryKey: ['me'],
-    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-  },
+      queryKey: ['me'],
+      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+    },
+    connectorCatalogQuery: { queryKey: ['connector-catalog'], queryFn: async () => [] },
     useAgents: () => ({ data: [] }),
     useAgentOptions: () => ({
       data: undefined,

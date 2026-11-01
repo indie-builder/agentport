@@ -1,5 +1,13 @@
 import type { Agent, Schedule } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import { HttpResponse, http } from 'msw';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -56,8 +64,22 @@ async function mount() {
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
+  const rootRoute = createRootRoute({ component: Outlet });
+  const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
+  const schedulesRoute = createRoute({
+    getParentRoute: () => shell,
+    path: '/schedules',
+    component: SchedulesPage,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([shell.addChildren([schedulesRoute])]),
+    history: createMemoryHistory({ initialEntries: ['/schedules'] }),
+  });
   await act(async () => {
-    root.render(createElement(QueryClientProvider, { client }, createElement(SchedulesPage)));
+    await router.load();
+    root.render(
+      createElement(QueryClientProvider, { client }, createElement(RouterProvider, { router })),
+    );
   });
   await act(async () => {
     await vi.waitFor(() => expect(container.textContent).toContain(schedules[0]?.name ?? ''));

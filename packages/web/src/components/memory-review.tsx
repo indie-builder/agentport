@@ -43,6 +43,7 @@ import { FilterSelect } from './filter-select.js';
 import { EmptyState, ErrorState, LoadingState } from './states.js';
 import { StatusBadge } from './status-badge.js';
 import { Button } from './ui/button.js';
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from './ui/card.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Dialog } from './ui/dialog.js';
 import { Field, FieldError, FieldLabel, FieldTitle } from './ui/field.js';
@@ -56,6 +57,7 @@ import {
   SelectValue,
 } from './ui/select.js';
 import { Textarea } from './ui/textarea.js';
+import { type ListView, ViewToggle } from './view-toggle.js';
 
 const INSTRUCTION_MAX_CHARS = 4000;
 const MAX_SOURCES = 10;
@@ -172,6 +174,8 @@ export function MemoryReviews({
   onRunChange,
   createRequested,
   onCreateRequestedChange,
+  stage,
+  onStageChange,
   view,
   onViewChange,
 }: {
@@ -188,8 +192,10 @@ export function MemoryReviews({
   /** 新建流程是否由 URL 打开；关闭时同步移除，刷新与后退保持同一视图。 */
   createRequested: boolean;
   onCreateRequestedChange: (next: boolean) => void;
-  view: MemoryReviewView | null;
-  onViewChange: (next: MemoryReviewView | null) => void;
+  stage: MemoryReviewView | null;
+  onStageChange: (next: MemoryReviewView | null) => void;
+  view: ListView;
+  onViewChange: (next: ListView) => void;
 }) {
   const me = useQuery(meQuery);
   const agents = useQuery({ ...agentsQuery, enabled: canReadAgents });
@@ -243,7 +249,7 @@ export function MemoryReviews({
   const viewCounts: Record<MemoryReviewView, number> = { pending: 0, generating: 0, done: 0 };
   for (const item of items) viewCounts[reviewViewOf(item)] += 1;
   const visibleItems = items
-    .filter((item) => view === null || reviewViewOf(item) === view)
+    .filter((item) => stage === null || reviewViewOf(item) === stage)
     .slice()
     .sort(
       (left, right) =>
@@ -300,20 +306,22 @@ export function MemoryReviews({
           />
         ) : null}
         <FilterSelect
-          value={view ?? 'all'}
-          onValueChange={(next) => onViewChange(next === 'all' ? null : (next as MemoryReviewView))}
+          value={stage ?? 'all'}
+          onValueChange={(next) =>
+            onStageChange(next === 'all' ? null : (next as MemoryReviewView))
+          }
           options={reviewViewOptions}
           label="按处理状态筛选"
           className="w-full sm:w-36"
         />
-        {canReview ? (
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            {reviews.data && items.length > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                当前已加载 {items.length} 条 · 待审核 {viewCounts.pending} · 生成中{' '}
-                {viewCounts.generating} · 已处理 {viewCounts.done}
-              </p>
-            ) : null}
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          {reviews.data && items.length > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              当前已加载 {items.length} 条 · 待审核 {viewCounts.pending} · 生成中{' '}
+              {viewCounts.generating} · 已处理 {viewCounts.done}
+            </p>
+          ) : null}
+          {canReview ? (
             <Button
               ref={createTrigger}
               onClick={() => openCreate()}
@@ -337,13 +345,9 @@ export function MemoryReviews({
               <Plus data-icon="inline-start" aria-hidden="true" />
               生成记忆提案
             </Button>
-          </div>
-        ) : reviews.data && items.length > 0 ? (
-          <p className="ml-auto text-xs text-muted-foreground">
-            当前已加载 {items.length} 条 · 待审核 {viewCounts.pending} · 生成中{' '}
-            {viewCounts.generating} · 已处理 {viewCounts.done}
-          </p>
-        ) : null}
+          ) : null}
+          <ViewToggle value={view} onChange={onViewChange} />
+        </div>
       </div>
 
       {agents.isError ? (
@@ -375,11 +379,79 @@ export function MemoryReviews({
             title="当前筛选下没有提案"
             description="这里只统计当前已加载的记录，可以切回全部查看。"
             action={
-              <Button variant="outline" onClick={() => onViewChange(null)}>
+              <Button variant="outline" onClick={() => onStageChange(null)}>
                 查看全部
               </Button>
             }
           />
+        ) : view === 'cards' ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {visibleItems.map((review) => {
+              const target = targetDisplay(review.target, agents.data);
+              const status = decisionDisplay(review, rolledBack(review));
+              const accessibleTarget = target.detail
+                ? `${target.label}（${target.detail}）`
+                : target.label;
+              const summary =
+                review.proposal?.summary ??
+                review.sources
+                  .map((source) => source.title)
+                  .filter(Boolean)
+                  .join('、');
+              return (
+                <Card key={review.runId} className="h-full min-w-0">
+                  <CardHeader>
+                    <CardTitle className="min-w-0">
+                      <h2 className="truncate" title={target.detail ?? target.label}>
+                        {target.label}
+                        {target.detail ? (
+                          <span className="ml-1.5 font-normal text-muted-foreground">
+                            {target.detail}
+                          </span>
+                        ) : null}
+                      </h2>
+                    </CardTitle>
+                    <CardAction>
+                      {status ? <StatusBadge tone={status.tone}>{status.label}</StatusBadge> : null}
+                    </CardAction>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col gap-3">
+                    {review.proposal ? (
+                      <p className="line-clamp-2 max-w-[75ch] text-sm text-muted-foreground">
+                        {review.proposal.summary}
+                      </p>
+                    ) : null}
+                    <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-xs">
+                      <dt className="text-muted-foreground">运行状态</dt>
+                      <dd className="justify-self-end">
+                        <StatusBadge tone={runStatusVariant[review.status]}>
+                          {runStatusLabel[review.status]}
+                        </StatusBadge>
+                      </dd>
+                      {review.costUsd ? (
+                        <>
+                          <dt className="text-muted-foreground">成本</dt>
+                          <dd className="text-right font-mono text-muted-foreground">
+                            {formatCost(review.costUsd)}
+                          </dd>
+                        </>
+                      ) : null}
+                    </dl>
+                  </CardContent>
+                  <CardFooter className="justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`查看${accessibleTarget}提案：${summary || '提案'}（${shortId(review.runId)}）`}
+                      onClick={(event) => openDetail(review, event.currentTarget)}
+                    >
+                      查看
+                    </Button>
+                  </CardFooter>
+                </Card>
+              );
+            })}
+          </div>
         ) : (
           <ul className="divide-y border-y">
             {visibleItems.map((review) => {
@@ -412,7 +484,7 @@ export function MemoryReviews({
                         ) : null}
                       </div>
                       {review.proposal ? (
-                        <p className="line-clamp-2 text-sm text-muted-foreground">
+                        <p className="line-clamp-2 max-w-[75ch] text-sm text-muted-foreground">
                           {review.proposal.summary}
                         </p>
                       ) : null}

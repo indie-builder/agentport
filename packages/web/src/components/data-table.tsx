@@ -379,18 +379,22 @@ export function DataTable<T extends RowData>({
 
   const draggingColumn = orderedColumns.find((c) => c.id === dragging?.id);
 
-  const template = visible
-    .map((column) => sourceById.get(column.id)?.width ?? 'minmax(120px,1fr)')
-    .join(' ');
+  // 尾部固定 32px 操作列承载列设置入口。
+  const template = [
+    ...visible.map((column) => sourceById.get(column.id)?.width ?? 'minmax(120px,1fr)'),
+    '32px',
+  ].join(' ');
 
   // 窄屏保底宽度，让容器横向滚动而不是把文字截成省略号。
+  // 额外 44px 是尾部操作列 32px 加上它和前一列的 12px 间距。
   const minWidth =
     visible.reduce((sum, column) => {
       const match = sourceById.get(column.id)?.width?.match(/^(minmax\()?(\d+)px/);
       return sum + (match?.[2] ? Number(match[2]) : 140);
     }, 0) +
     visible.length * 12 +
-    32;
+    32 +
+    44;
 
   // 行用方向键上下移动；Enter/Space 由原生 button 激活，不重复处理。
   const onRowKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
@@ -406,258 +410,263 @@ export function DataTable<T extends RowData>({
   };
 
   return (
-    <div className={cn('flex min-w-0 max-w-full flex-col', className)}>
-      <div className="flex h-8 items-center justify-between">
-        <div className="text-xs text-muted-foreground">
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={(event) =>
+        setDragging({
+          id: String(event.active.id),
+          // 原生 KeyboardEvent：dnd-kit 的 activatorEvent 是 DOM 事件。
+          keyboard: event.activatorEvent instanceof globalThis.KeyboardEvent,
+        })
+      }
+      onDragCancel={() => setDragging(null)}
+      onDragEnd={onDragEnd}
+    >
+      <div className={cn('flex min-w-0 max-w-full flex-col', className)}>
+        <div className="pb-2 text-xs text-muted-foreground">
           {loading ? '加载中…' : rows.length > 0 ? `${rows.length} 行` : null}
         </div>
-        <div>
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={(event) =>
-              setDragging({
-                id: String(event.active.id),
-                // 原生 KeyboardEvent：dnd-kit 的 activatorEvent 是 DOM 事件。
-                keyboard: event.activatorEvent instanceof globalThis.KeyboardEvent,
-              })
-            }
-            onDragCancel={() => setDragging(null)}
-            onDragEnd={onDragEnd}
-          >
-            <Popover
-              open={pickerOpen}
-              onOpenChange={(open, eventDetails) => {
-                // 保留弹层并放行 Escape，让 document 上的 dnd-kit 取消键盘拖动。
-                if (!open && eventDetails.reason === 'escape-key' && dragging?.keyboard) {
-                  eventDetails.cancel();
-                  eventDetails.allowPropagation();
-                  return;
-                }
-                setPickerOpen(open);
-                if (!open) setDragging(null);
-              }}
+        {/* Explicit roles preserve table semantics when CSS grid supplies the existing column widths. */}
+        <Table
+          role="table"
+          aria-label={label}
+          aria-busy={loading}
+          className="block"
+          style={{ minWidth }}
+        >
+          <TableHeader role="rowgroup" className="block">
+            <TableRow
+              role="row"
+              className="grid items-center gap-3 px-3 pb-2 hover:bg-transparent"
+              style={{ gridTemplateColumns: template }}
             >
-              <PopoverTrigger
-                render={
-                  <Button variant="ghost" size="sm" aria-label="列设置">
-                    <Columns3 className="size-4" aria-hidden="true" />列
-                  </Button>
-                }
-              />
-              <PopoverContent align="end" aria-label="列设置" className="w-64 p-2">
-                <ColumnPicker
-                  columns={draggable}
-                  hidden={hiddenSet}
-                  toggle={(id) => table.getColumn(id)?.toggleVisibility()}
-                  move={moveColumn}
-                />
-              </PopoverContent>
-            </Popover>
-            {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
-            <DragOverlay>
-              {draggingColumn ? (
-                <div className="rounded-icon border bg-surface px-2 py-1.5 text-xs shadow-overlay">
-                  {draggingColumn.header}
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-        </div>
-      </div>
-      {/* Explicit roles preserve table semantics when CSS grid supplies the existing column widths. */}
-      <Table
-        role="table"
-        aria-label={label}
-        aria-busy={loading}
-        className="block"
-        style={{ minWidth }}
-      >
-        <TableHeader role="rowgroup" className="block">
-          <TableRow
-            role="row"
-            className="grid items-center gap-3 px-3 pb-2 hover:bg-transparent"
-            style={{ gridTemplateColumns: template }}
-          >
-            {visible.map((column, index) => {
-              const source = sourceById.get(column.id);
-              const dir = column.getIsSorted();
-              return (
-                <TableHead
-                  key={column.id}
-                  role="columnheader"
-                  scope="col"
-                  aria-sort={
-                    dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : undefined
-                  }
-                  className={cn(
-                    'h-auto min-w-0 p-0 text-xs font-normal whitespace-normal text-muted-foreground',
-                    source?.numeric && 'text-right',
-                    source?.align === 'end' && 'text-right',
-                    index === 0 && hasRowInteraction && 'pl-7',
-                  )}
-                >
-                  {column.getCanSort() ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => column.toggleSorting(dir !== 'desc')}
-                      aria-label={`${source?.header ?? column.id}，按此列排序`}
-                      className={cn(
-                        'h-auto w-full justify-start gap-1 rounded-none border-0 p-0 text-xs font-normal whitespace-normal',
-                        source?.numeric && 'justify-end',
-                      )}
-                    >
-                      {source?.header ?? column.id}
-                      {dir === 'asc' ? (
-                        <ArrowUp aria-hidden="true" />
-                      ) : dir === 'desc' ? (
-                        <ArrowDown aria-hidden="true" />
-                      ) : (
-                        <ChevronsUpDown className="opacity-40" aria-hidden="true" />
-                      )}
-                    </Button>
-                  ) : (
-                    (source?.header ?? column.id)
-                  )}
-                </TableHead>
-              );
-            })}
-          </TableRow>
-        </TableHeader>
-        <TableBody role="rowgroup" className="block">
-          {loading && rows.length === 0 ? (
-            Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
-              <TableRow key={key} role="row" className="block">
-                <TableCell role="cell" colSpan={visible.length} className="block p-0">
-                  <Skeleton className="h-14" />
-                </TableCell>
-              </TableRow>
-            ))
-          ) : rows.length === 0 ? (
-            <TableRow role="row" className="block hover:bg-transparent">
-              <TableCell
-                role="cell"
-                colSpan={visible.length}
-                className="block py-16 text-center text-sm whitespace-normal text-muted-foreground"
-              >
-                {empty ?? '暂无数据'}
-              </TableCell>
-            </TableRow>
-          ) : (
-            table.getRowModel().rows.map((row) => {
-              const key = row.id;
-              const rowName = rowLabel?.(row.original) ?? key;
-              const expandedContent = renderExpanded?.(row.original) ?? null;
-              const isOpen = expanded === key && expandedContent !== null;
-              const interactive = expandedContent !== null || Boolean(onRowClick);
-              const panelId = `${tableId}-row-panel-${key}`;
-              const activate = () => {
-                if (expandedContent !== null) setExpanded(isOpen ? null : key);
-                onRowClick?.(row.original);
-              };
-              return (
-                <Fragment key={key}>
-                  {/* Row clicks supplement the keyboard-accessible action button in the first cell. */}
-                  <TableRow
-                    role="row"
-                    onClick={
-                      interactive
-                        ? (event) => {
-                            if (
-                              (event.target as Element).closest(
-                                'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [contenteditable], [tabindex]',
-                              )
-                            )
-                              return;
-                            activate();
-                          }
-                        : undefined
+              {visible.map((column, index) => {
+                const source = sourceById.get(column.id);
+                const dir = column.getIsSorted();
+                return (
+                  <TableHead
+                    key={column.id}
+                    role="columnheader"
+                    scope="col"
+                    aria-sort={
+                      dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : undefined
                     }
                     className={cn(
-                      'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left text-base duration-150 hover:bg-hover has-aria-expanded:bg-transparent',
-                      interactive ? 'cursor-pointer' : 'cursor-default',
-                      isOpen && 'bg-hover has-aria-expanded:bg-hover',
+                      'h-auto min-w-0 p-0 text-xs font-normal whitespace-normal text-muted-foreground',
+                      source?.numeric && 'text-right',
+                      source?.align === 'end' && 'text-right',
+                      index === 0 && hasRowInteraction && 'pl-7',
                     )}
-                    style={{ gridTemplateColumns: template }}
                   >
-                    {row.getVisibleCells().map((cell, index) => {
-                      const source = sourceById.get(cell.column.id);
-                      return (
-                        <TableCell
-                          key={cell.id}
-                          role="cell"
-                          className={cn(
-                            'min-w-0 px-0 py-2 whitespace-normal wrap-anywhere [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal [&_.truncate]:text-clip',
-                            source?.numeric &&
-                              'text-right font-mono tabular-nums text-muted-foreground',
-                            source?.align === 'end' && 'text-right',
-                          )}
-                        >
-                          <div
-                            className={cn(index === 0 && interactive && 'flex items-center gap-1')}
-                          >
-                            {index === 0 && interactive && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-xs"
-                                data-row=""
-                                aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${rowName}`}
-                                aria-expanded={expandedContent !== null ? isOpen : undefined}
-                                aria-controls={expandedContent !== null ? panelId : undefined}
-                                onKeyDown={onRowKeyDown}
-                                onClick={activate}
-                              >
-                                {expandedContent !== null ? (
-                                  isOpen ? (
-                                    <ChevronDown aria-hidden="true" />
-                                  ) : (
-                                    <ChevronRight aria-hidden="true" />
-                                  )
-                                ) : (
-                                  <ArrowUpRight aria-hidden="true" />
-                                )}
-                              </Button>
-                            )}
-                            <div className="min-w-0">
-                              <table.FlexRender cell={cell} />
-                            </div>
-                          </div>
-                        </TableCell>
-                      );
-                    })}
-                  </TableRow>
-                  {expandedContent !== null && (
+                    {column.getCanSort() ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => column.toggleSorting(dir !== 'desc')}
+                        aria-label={`${source?.header ?? column.id}，按此列排序`}
+                        className={cn(
+                          'h-auto w-full justify-start gap-1 rounded-none border-0 p-0 text-xs font-normal whitespace-normal',
+                          source?.numeric && 'justify-end',
+                        )}
+                      >
+                        {source?.header ?? column.id}
+                        {dir === 'asc' ? (
+                          <ArrowUp aria-hidden="true" />
+                        ) : dir === 'desc' ? (
+                          <ArrowDown aria-hidden="true" />
+                        ) : (
+                          <ChevronsUpDown className="opacity-40" aria-hidden="true" />
+                        )}
+                      </Button>
+                    ) : (
+                      (source?.header ?? column.id)
+                    )}
+                  </TableHead>
+                );
+              })}
+              <TableHead
+                role="columnheader"
+                scope="col"
+                className="h-auto min-w-0 justify-self-end self-center p-0"
+              >
+                <Popover
+                  open={pickerOpen}
+                  onOpenChange={(open, eventDetails) => {
+                    // 保留弹层并放行 Escape，让 document 上的 dnd-kit 取消键盘拖动。
+                    if (!open && eventDetails.reason === 'escape-key' && dragging?.keyboard) {
+                      eventDetails.cancel();
+                      eventDetails.allowPropagation();
+                      return;
+                    }
+                    setPickerOpen(open);
+                    if (!open) setDragging(null);
+                  }}
+                >
+                  <PopoverTrigger
+                    render={
+                      <Button variant="ghost" size="icon-xs" aria-label="列设置" title="列设置">
+                        <Columns3 className="size-4" aria-hidden="true" />
+                      </Button>
+                    }
+                  />
+                  <PopoverContent align="end" aria-label="列设置" className="w-64 p-2">
+                    <ColumnPicker
+                      columns={draggable}
+                      hidden={hiddenSet}
+                      toggle={(id) => table.getColumn(id)?.toggleVisibility()}
+                      move={moveColumn}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody role="rowgroup" className="block">
+            {loading && rows.length === 0 ? (
+              Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
+                <TableRow key={key} role="row" className="block">
+                  <TableCell role="cell" colSpan={visible.length + 1} className="block p-0">
+                    <Skeleton className="h-14" />
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : rows.length === 0 ? (
+              <TableRow role="row" className="block hover:bg-transparent">
+                <TableCell
+                  role="cell"
+                  colSpan={visible.length + 1}
+                  className="block py-16 text-center text-sm whitespace-normal text-muted-foreground"
+                >
+                  {empty ?? '暂无数据'}
+                </TableCell>
+              </TableRow>
+            ) : (
+              table.getRowModel().rows.map((row) => {
+                const key = row.id;
+                const rowName = rowLabel?.(row.original) ?? key;
+                const expandedContent = renderExpanded?.(row.original) ?? null;
+                const isOpen = expanded === key && expandedContent !== null;
+                const interactive = expandedContent !== null || Boolean(onRowClick);
+                const panelId = `${tableId}-row-panel-${key}`;
+                const activate = () => {
+                  if (expandedContent !== null) setExpanded(isOpen ? null : key);
+                  onRowClick?.(row.original);
+                };
+                return (
+                  <Fragment key={key}>
+                    {/* Row clicks supplement the keyboard-accessible action button in the first cell. */}
                     <TableRow
                       role="row"
-                      aria-hidden={isOpen ? undefined : true}
-                      className={cn('block border-0 hover:bg-transparent', isOpen && 'border-b')}
+                      onClick={
+                        interactive
+                          ? (event) => {
+                              if (
+                                (event.target as Element).closest(
+                                  'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [contenteditable], [tabindex]',
+                                )
+                              )
+                                return;
+                              activate();
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left text-base duration-150 hover:bg-hover has-aria-expanded:bg-transparent',
+                        interactive ? 'cursor-pointer' : 'cursor-default',
+                        isOpen && 'bg-hover has-aria-expanded:bg-hover',
+                      )}
+                      style={{ gridTemplateColumns: template }}
                     >
-                      <TableCell
-                        id={panelId}
-                        role="cell"
-                        colSpan={visible.length}
-                        className="block p-0 whitespace-normal"
-                      >
-                        {/* 收起时 Panel 不挂载内容，展开详情仍保持首次打开的懒查询。 */}
-                        <Collapsible open={isOpen}>
-                          <CollapsibleContent animated>
-                            <div className={hasRowInteraction ? 'py-4 pl-10 pr-3' : 'px-3 py-4'}>
-                              {expandedContent}
+                      {row.getVisibleCells().map((cell, index) => {
+                        const source = sourceById.get(cell.column.id);
+                        return (
+                          <TableCell
+                            key={cell.id}
+                            role="cell"
+                            className={cn(
+                              'min-w-0 px-0 py-2 whitespace-normal wrap-anywhere [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal [&_.truncate]:text-clip',
+                              source?.numeric &&
+                                'text-right font-mono tabular-nums text-muted-foreground',
+                              source?.align === 'end' && 'text-right',
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                index === 0 && interactive && 'flex items-center gap-1',
+                              )}
+                            >
+                              {index === 0 && interactive && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  data-row=""
+                                  aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${rowName}`}
+                                  aria-expanded={expandedContent !== null ? isOpen : undefined}
+                                  aria-controls={expandedContent !== null ? panelId : undefined}
+                                  onKeyDown={onRowKeyDown}
+                                  onClick={activate}
+                                >
+                                  {expandedContent !== null ? (
+                                    isOpen ? (
+                                      <ChevronDown aria-hidden="true" />
+                                    ) : (
+                                      <ChevronRight aria-hidden="true" />
+                                    )
+                                  ) : (
+                                    <ArrowUpRight aria-hidden="true" />
+                                  )}
+                                </Button>
+                              )}
+                              <div className="min-w-0">
+                                <table.FlexRender cell={cell} />
+                              </div>
                             </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-                      </TableCell>
+                          </TableCell>
+                        );
+                      })}
+                      <TableCell role="cell" className="min-w-0 p-0" />
                     </TableRow>
-                  )}
-                </Fragment>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
-    </div>
+                    {expandedContent !== null && (
+                      <TableRow
+                        role="row"
+                        aria-hidden={isOpen ? undefined : true}
+                        className={cn('block border-0 hover:bg-transparent', isOpen && 'border-b')}
+                      >
+                        <TableCell
+                          id={panelId}
+                          role="cell"
+                          colSpan={visible.length + 1}
+                          className="block p-0 whitespace-normal"
+                        >
+                          {/* 收起时 Panel 不挂载内容，展开详情仍保持首次打开的懒查询。 */}
+                          <Collapsible open={isOpen}>
+                            <CollapsibleContent animated>
+                              <div className={hasRowInteraction ? 'py-4 pl-10 pr-3' : 'px-3 py-4'}>
+                                {expandedContent}
+                              </div>
+                            </CollapsibleContent>
+                          </Collapsible>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+        {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
+        <DragOverlay>
+          {draggingColumn ? (
+            <div className="rounded-icon border bg-surface px-2 py-1.5 text-xs shadow-overlay">
+              {draggingColumn.header}
+            </div>
+          ) : null}
+        </DragOverlay>
+      </div>
+    </DndContext>
   );
 }

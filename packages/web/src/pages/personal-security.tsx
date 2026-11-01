@@ -1,5 +1,5 @@
 import { type PersonalSession, passwordSchema } from '@agentport/shared';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { KeyRound } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { z } from 'zod';
@@ -11,9 +11,12 @@ import {
 } from '../components/motion-collapsible.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
+import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card.js';
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { formatDateTime } from '../lib/format.js';
@@ -57,7 +60,9 @@ function byActivity(a: PersonalSession, b: PersonalSession): number {
 }
 
 export function PersonalSecurityPage() {
-  const navigate = useNavigate();
+  const search = useSearch({ from: '/_shell/personal/security' });
+  const navigate = useNavigate({ from: '/personal/security' });
+  const view = search.view ?? 'table';
   const change = useChangePassword();
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -102,9 +107,20 @@ export function PersonalSecurityPage() {
         <PageHeader
           title="账号安全"
           actions={
-            <CollapsibleTrigger disabled={change.isPending} render={<Button variant="outline" />}>
-              {passwordOpen ? '收起' : '修改密码'}
-            </CollapsibleTrigger>
+            <>
+              <ViewToggle
+                value={view}
+                onChange={(next) =>
+                  void navigate({
+                    to: '/personal/security',
+                    search: (current) => ({ ...current, view: next }),
+                  })
+                }
+              />
+              <CollapsibleTrigger disabled={change.isPending} render={<Button variant="outline" />}>
+                {passwordOpen ? '收起' : '修改密码'}
+              </CollapsibleTrigger>
+            </>
           }
         />
 
@@ -199,16 +215,18 @@ export function PersonalSecurityPage() {
           </section>
         </CollapsibleContent>
 
-        <SessionSection onRelogin={relogin} divided={passwordOpen} />
+        <SessionSection view={view} onRelogin={relogin} divided={passwordOpen} />
       </Collapsible>
     </Page>
   );
 }
 
 function SessionSection({
+  view,
   onRelogin,
   divided,
 }: {
+  view: ListView;
   onRelogin: () => Promise<void>;
   divided: boolean;
 }) {
@@ -245,6 +263,7 @@ function SessionSection({
         {current.length > 0 ? (
           <SessionGroup
             title="当前会话"
+            view={view}
             sessions={current}
             revoke={revoke}
             onRevoke={(session) => {
@@ -261,6 +280,7 @@ function SessionSection({
         {others.length > 0 ? (
           <SessionGroup
             title="其他会话"
+            view={view}
             sessions={others}
             revoke={revoke}
             onRevoke={(session) => {
@@ -324,12 +344,14 @@ function SessionSection({
 
 function SessionGroup({
   title,
+  view,
   sessions,
   revoke,
   onRevoke,
   action,
 }: {
   title: string;
+  view: ListView;
   sessions: PersonalSession[];
   revoke: ReturnType<typeof useRevokePersonalSession>;
   onRevoke: (session: PersonalSession) => void;
@@ -341,56 +363,134 @@ function SessionGroup({
         <h2 className="text-base font-medium text-fg">{title}</h2>
         {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
       </div>
-      <ul className="mt-3 divide-y border-y">
-        {sessions.map((session) => (
-          <li key={session.id}>
-            <Collapsible>
-              <div className="flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 py-3">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="text-base text-fg">
-                    最近活动 {formatDateTime(session.updatedAt)}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {session.ipAddress || '未记录 IP'}
-                  </span>
-                </div>
-                <CollapsibleTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="group shrink-0 text-muted-foreground"
-                    />
-                  }
-                >
-                  会话详情
-                </CollapsibleTrigger>
-                {session.current ? null : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={revoke.isPending}
-                    aria-label={`撤销 ${formatDateTime(session.updatedAt)} 的会话`}
-                    onClick={() => onRevoke(session)}
+      {view === 'cards' ? (
+        <ul className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {sessions.map((session) => (
+            <li key={session.id} className="min-w-0">
+              <SessionCard session={session} revoke={revoke} onRevoke={onRevoke} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="mt-3 divide-y border-y">
+          {sessions.map((session) => (
+            <li key={session.id}>
+              <Collapsible>
+                <div className="flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 py-3">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-base text-fg">
+                      最近活动 {formatDateTime(session.updatedAt)}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      {session.ipAddress || '未记录 IP'}
+                    </span>
+                  </div>
+                  <CollapsibleTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="group shrink-0 text-muted-foreground"
+                      />
+                    }
                   >
-                    撤销
-                  </Button>
-                )}
-              </div>
-              <CollapsibleContent animated>
-                <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-4 gap-y-1 pb-3 text-xs text-muted-foreground">
-                  <dt>用户代理</dt>
-                  <dd className="min-w-0 break-all">{session.userAgent || '未记录用户代理'}</dd>
-                  <dt>登录</dt>
-                  <dd>{formatDateTime(session.createdAt)}</dd>
-                  <dt>到期</dt>
-                  <dd>{formatDateTime(session.expiresAt)}</dd>
-                </dl>
-              </CollapsibleContent>
-            </Collapsible>
-          </li>
-        ))}
-      </ul>
+                    会话详情
+                  </CollapsibleTrigger>
+                  {session.current ? null : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={revoke.isPending}
+                      aria-label={`撤销 ${formatDateTime(session.updatedAt)} 的会话`}
+                      onClick={() => onRevoke(session)}
+                    >
+                      撤销
+                    </Button>
+                  )}
+                </div>
+                <CollapsibleContent animated>
+                  <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-4 gap-y-1 pb-3 text-xs text-muted-foreground">
+                    <dt>用户代理</dt>
+                    <dd className="min-w-0 break-all">{session.userAgent || '未记录用户代理'}</dd>
+                    <dt>登录</dt>
+                    <dd>{formatDateTime(session.createdAt)}</dd>
+                    <dt>到期</dt>
+                    <dd>{formatDateTime(session.expiresAt)}</dd>
+                  </dl>
+                </CollapsibleContent>
+              </Collapsible>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
+  );
+}
+
+function SessionCard({
+  session,
+  revoke,
+  onRevoke,
+}: {
+  session: PersonalSession;
+  revoke: ReturnType<typeof useRevokePersonalSession>;
+  onRevoke: (session: PersonalSession) => void;
+}) {
+  return (
+    <Card className="h-full">
+      <Collapsible className="flex min-h-0 flex-1 flex-col gap-(--card-spacing)">
+        <CardHeader>
+          <CardTitle className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 text-xs font-normal text-muted-foreground">最近活动</span>
+            <span className="min-w-0 truncate" title={session.updatedAt}>
+              {formatDateTime(session.updatedAt)}
+            </span>
+            {session.current ? <StatusBadge>当前</StatusBadge> : null}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-1 flex-col gap-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="shrink-0 text-xs text-muted-foreground">IP</span>
+            <span className="min-w-0 break-all text-right font-mono text-sm text-fg">
+              {session.ipAddress || '未记录 IP'}
+            </span>
+          </div>
+          <CollapsibleTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 justify-start px-0 text-xs text-muted-foreground"
+              />
+            }
+          >
+            会话详情
+          </CollapsibleTrigger>
+          <CollapsibleContent animated>
+            <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <dt>用户代理</dt>
+              <dd className="min-w-0 break-all">{session.userAgent || '未记录用户代理'}</dd>
+              <dt>登录</dt>
+              <dd>{formatDateTime(session.createdAt)}</dd>
+              <dt>到期</dt>
+              <dd>{formatDateTime(session.expiresAt)}</dd>
+            </dl>
+          </CollapsibleContent>
+        </CardContent>
+        {session.current ? null : (
+          <CardFooter className="justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={revoke.isPending}
+              aria-label={`撤销 ${formatDateTime(session.updatedAt)} 的会话`}
+              onClick={() => onRevoke(session)}
+            >
+              撤销
+            </Button>
+          </CardFooter>
+        )}
+      </Collapsible>
+    </Card>
   );
 }

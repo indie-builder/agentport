@@ -452,7 +452,7 @@ function SegmentedToggle<T extends string>({
       aria-label={label}
       multiple={false}
       spacing={0}
-      className="rounded-lg bg-muted text-muted-foreground"
+      className="rounded-lg bg-hover text-muted-foreground"
       value={[value]}
       onValueChange={(values) => {
         const next = options.find((option) => option.value === values[0])?.value;
@@ -460,7 +460,11 @@ function SegmentedToggle<T extends string>({
       }}
     >
       {options.map((option) => (
-        <ToggleGroupItem key={option.value} value={option.value}>
+        <ToggleGroupItem
+          key={option.value}
+          value={option.value}
+          className="border border-transparent aria-pressed:border-line"
+        >
           {option.label}
         </ToggleGroupItem>
       ))}

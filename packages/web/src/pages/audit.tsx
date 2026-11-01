@@ -49,7 +49,7 @@ const columns: DataColumn<AuditEntry>[] = [
   {
     id: 'target',
     header: '目标',
-    width: 'minmax(120px,1fr)',
+    width: 'minmax(120px,200px)',
     cell: (row) =>
       row.target ? (
         <span className="whitespace-normal [overflow-wrap:anywhere] font-mono text-muted-foreground">
@@ -73,14 +73,14 @@ const columns: DataColumn<AuditEntry>[] = [
     id: 'durationMs',
     header: '耗时',
     numeric: true,
-    width: '90px',
+    width: '72px',
     sortValue: (row) => row.durationMs,
     cell: (row) => formatDuration(row.durationMs),
   },
   {
     id: 'requestId',
     header: '请求 ID',
-    width: '130px',
+    width: 'minmax(130px,1fr)',
     cell: (row) =>
       row.requestId ? (
         <span className="whitespace-normal [overflow-wrap:anywhere] font-mono text-muted-foreground">

@@ -383,6 +383,37 @@ describe('记忆提案', () => {
     expect(host.querySelectorAll('h1')).toHaveLength(1);
   });
 
+  it('默认渲染列表，view=cards 渲染卡片，切换写入 URL 并保留阶段筛选', async () => {
+    vi.mocked(api.memoryReviews).mockResolvedValue({
+      items: [
+        makeReview({
+          runId: 'run-a',
+          proposal: { summary: '补充长期偏好', proposedContent: 'x', evidence: [] },
+        }),
+        makeReview({
+          runId: 'run-b',
+          proposal: { summary: '记录部署约定', proposedContent: 'y', evidence: [] },
+        }),
+      ],
+    });
+    const router = await mount('/personal/reviews?stage=pending');
+    await vi.waitFor(() => expect(host.textContent).toContain('补充长期偏好'));
+    expect(host.querySelector('ul')).toBeTruthy();
+    expect(host.querySelectorAll('[data-slot="card"]')).toHaveLength(0);
+
+    await click(button('卡片', host));
+    await vi.waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ view: 'cards', stage: 'pending' }),
+    );
+    expect(host.querySelector('ul')).toBeNull();
+    const cards = [...host.querySelectorAll<HTMLElement>('[data-slot="card"]')];
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.textContent).toContain('运行状态');
+    expect(cards[0]?.textContent).toContain('成本');
+    expect(cards[0]?.textContent).toContain('补充长期偏好');
+    expect(cards[0]?.querySelector('button[aria-label^="查看"]')).toBeTruthy();
+  });
+
   it('按 URL 的专家筛选请求列表', async () => {
     await mount('/personal/reviews?agent=agent-b');
     await vi.waitFor(() =>
@@ -438,7 +469,9 @@ describe('记忆提案', () => {
         item.getAttribute('aria-label')?.includes('生成中会话'),
       ),
     ).toBe(false);
-    await vi.waitFor(() => expect(router.state.location.search).toMatchObject({ view: 'pending' }));
+    await vi.waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ stage: 'pending' }),
+    );
     expect(router.state.location.search).not.toHaveProperty('create');
 
     await chooseOption('按处理状态筛选', '生成中', host);

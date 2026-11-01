@@ -52,68 +52,73 @@ export function PersonalProfilePage() {
     <Page>
       <PageHeader title="个人资料" />
 
-      <form
-        aria-label="个人资料"
-        noValidate
-        className="flex w-full min-w-0 flex-col gap-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <FieldGroup>
-          <Field
-            orientation="horizontal"
-            className="items-start gap-x-4"
-            data-disabled={update.isPending}
-            data-invalid={formState.errors.name ? true : undefined}
-          >
-            <FieldContent className="w-24 flex-none pt-2">
-              <FieldLabel htmlFor="personal-name">显示姓名</FieldLabel>
-            </FieldContent>
-            <div className={FIELD_VALUE}>
-              <Input
-                id="personal-name"
-                autoComplete="name"
-                disabled={update.isPending}
-                aria-invalid={formState.errors.name ? true : undefined}
-                aria-describedby={formError ? 'personal-name-error' : undefined}
-                {...register('name')}
-              />
-              <FieldError>{formState.errors.name?.message}</FieldError>
-              {formError ? <FieldError id="personal-name-error">{formError}</FieldError> : null}
-            </div>
-          </Field>
-        </FieldGroup>
-        <div className="ml-28 flex max-w-[448px] justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!dirty || update.isPending}
-            onClick={() => {
-              setFormError(null);
-              reset({ name: user.user.name });
-            }}
-          >
-            取消
-          </Button>
-          <Button type="submit" disabled={!dirty || update.isPending} aria-busy={update.isPending}>
-            {update.isPending ? '保存中…' : '保存'}
-          </Button>
-        </div>
-      </form>
+      <section className="flex w-full min-w-0 flex-col gap-3">
+        <h2 className="text-base font-medium text-fg">身份</h2>
+        <form
+          aria-label="个人资料"
+          noValidate
+          className="flex w-full min-w-0 flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <FieldGroup>
+            <Field
+              orientation="horizontal"
+              className="items-start gap-x-4"
+              data-disabled={update.isPending}
+              data-invalid={formState.errors.name ? true : undefined}
+            >
+              <FieldContent className="w-24 flex-none pt-2">
+                <FieldLabel htmlFor="personal-name">显示姓名</FieldLabel>
+              </FieldContent>
+              <div className={FIELD_VALUE}>
+                <Input
+                  id="personal-name"
+                  autoComplete="name"
+                  disabled={update.isPending}
+                  aria-invalid={formState.errors.name ? true : undefined}
+                  aria-describedby={formError ? 'personal-name-error' : undefined}
+                  {...register('name')}
+                />
+                <FieldError>{formState.errors.name?.message}</FieldError>
+                {formError ? <FieldError id="personal-name-error">{formError}</FieldError> : null}
+              </div>
+            </Field>
+          </FieldGroup>
+          <dl className={`${IDENTITY_GRID} gap-y-2 text-sm`}>
+            <dt className="text-muted-foreground">用户名</dt>
+            <dd className="min-w-0 break-words text-fg">{user.user.username}</dd>
+            <dt className="text-muted-foreground">角色</dt>
+            <dd className="min-w-0 break-words text-fg">
+              {user.roles.map((role) => role.name).join('、') || '无角色'}
+            </dd>
+          </dl>
+          <div className="ml-28 flex max-w-[448px] justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!dirty || update.isPending}
+              onClick={() => {
+                setFormError(null);
+                reset({ name: user.user.name });
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              type="submit"
+              disabled={!dirty || update.isPending}
+              aria-busy={update.isPending}
+            >
+              {update.isPending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        </form>
+      </section>
 
       <section className="flex w-full min-w-0 flex-col gap-3 border-t pt-5">
-        <h2 className="text-base font-medium text-fg">身份</h2>
-        <dl className={`${IDENTITY_GRID} gap-y-2 text-sm`}>
-          <dt className="text-muted-foreground">用户名</dt>
-          <dd className="min-w-0 break-words text-fg">{user.user.username}</dd>
-          <dt className="text-muted-foreground">角色</dt>
-          <dd className="min-w-0 break-words text-fg">
-            {user.roles.map((role) => role.name).join('、') || '无角色'}
-          </dd>
-        </dl>
-
         <Collapsible>
           <CollapsibleTrigger
             render={
