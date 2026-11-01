@@ -327,6 +327,7 @@ export function StatusPage() {
     <Page>
       <PageHeader
         title="健康"
+        description="运行指标每 10 秒自动刷新。"
         actions={
           <Button variant="outline" onClick={refresh} disabled={isFetching}>
             <RefreshCw
@@ -338,7 +339,6 @@ export function StatusPage() {
           </Button>
         }
       />
-      <p className="text-xs text-muted-foreground">运行指标每 10 秒自动刷新。</p>
 
       <PageSection title="端点诊断">
         <div className="flex flex-wrap items-start gap-3 border-b pb-3">

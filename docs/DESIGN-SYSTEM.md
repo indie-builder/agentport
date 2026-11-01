@@ -470,8 +470,8 @@ spacing:
 
 ## 11. 动效
 
-- CDS 缓动曲线全部在 `@theme`：`--ease-swift` `cubic-bezier(0.16, 1, 0.3, 1)`、`--ease-expand` `cubic-bezier(0.19, 1, 0.22, 1)`、`--ease-enter` `cubic-bezier(0.22, 1, 0.36, 1)`、`--ease-out` `cubic-bezier(0.165, 0.84, 0.44, 1)`、`--ease-snap` `cubic-bezier(0.32, 0.72, 0, 1)`、`--ease-overshoot` `cubic-bezier(0.34, 1.3, 0.64, 1)`、`--ease-pop` `cubic-bezier(0.34, 1.56, 0.64, 1)`、`--ease-pulse` `cubic-bezier(0.4, 0, 0.2, 1)`；`--ease-out-soft` 等同 `--ease-enter`。
-- 时长阶梯：`--dur-fast` 60ms、`--dur-snap` 120ms、`--dur-base` 200ms、`--dur-sheet` 300ms、`--dur-slow` 450ms。只过渡实际变化的属性，禁止 `transition-all`。
+- CDS 缓动曲线以 `--ease-enter`(`cubic-bezier(0.22, 1, 0.36, 1)`) 为基准，本项目 `@theme` 落为 `--ease-out-soft`；`--ease-swift` `cubic-bezier(0.16, 1, 0.3, 1)`、`--ease-expand` `cubic-bezier(0.19, 1, 0.22, 1)`、`--ease-out` `cubic-bezier(0.165, 0.84, 0.44, 1)`、`--ease-snap` `cubic-bezier(0.32, 0.72, 0, 1)`、`--ease-overshoot` `cubic-bezier(0.34, 1.3, 0.64, 1)`、`--ease-pop` `cubic-bezier(0.34, 1.56, 0.64, 1)`、`--ease-pulse` `cubic-bezier(0.4, 0, 0.2, 1)` 为 CDS 参考曲线，具体动画在各自 utility 内联对应 cubic-bezier（如 `quiet-dot` 用 `cubic-bezier(0.4, 0, 0.2, 1)`）。
+- `@theme` 时长令牌为 `--dur-fast` 60ms 与 `--dur-slow` 0.45s；CDS 参考阶梯 `--dur-snap` 120ms / `--dur-base` 200ms / `--dur-sheet` 300ms 按场景在 utility 内联。只过渡实际变化的属性，禁止 `transition-all`。
 - 按钮按压走 15 阶物理弹簧 `--btn-spring`（`linear(0, 0.2459, … 1)`），active 时 `scale(0.975)`；`.cds-btn-squish` 把 `transform` 绑定到 `--dur-slow` + `--btn-spring`，颜色/边框走 60ms。弹簧按压允许出现在所有共享 `Button`。
 - 侧栏宽度过渡 160ms；标签淡出 90ms；展开状态 Logo 切图为 300ms 轻推接力；收起状态保留 Logo 与展开按钮互换的 140ms 过渡。
 - 允许的动效：局部交互与状态反馈（悬停背景、展开折叠、浮层显隐、流式光标、复制/安装结果）、消息入场 `message-fade-up`（0.4s、`--ease-overshoot`）、卡片 hover 上浮 1.5px（200ms、`--ease-out-soft`）、执行过程展开 `timeline-expand`（200ms、`--ease-expand`）、滚动遮罩 `scroll-fade-y`（上下 28px 渐隐）、等待点 `quiet-dots`（1.9s、`--ease-pulse`）与状态呼吸点（陶土 `dot-pulse` 1.2s、`clay-breathe`）、普通输入焦点微光 `--shadow-focus-glow`。

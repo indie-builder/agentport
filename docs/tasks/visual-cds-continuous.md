@@ -45,3 +45,6 @@
 - **轮2（提交）**：①H2 卡片 affordance 诚实——`ui/card.tsx` 新增 `interactive` 属性（默认 true），仅真·纯展示卡（overview 指标卡等，无任何可交互子元素）设 `interactive={false}`，消除「不可点却在 hover 上浮」的误导；②M2 数字排版一致——runs 卡片统计（耗时/成本/token 等）补 `tabular-nums`，与 personal-usage/data-table 一致。验证见下。
   - 终审发现并修复：最初整类移除 `cds-card-interactive` 会连带丢失常驻 `--shadow-panel`（卡片边界）——已拆为 `.cds-card-surface`（所有卡片常驻边界）+ `.cds-card-interactive`（仅 hover 上浮/过渡）；card.tsx 恒带 surface、条件加 interactive；同步 DESIGN-SYSTEM §2.3/§9 与 packages/web/DESIGN.md 措辞。验证：typecheck exit0、web build exit0。
   - 核实排除（审计过度声称，勿再改）：channel.tsx 头部的头像/chip 是 `xl:hidden` 的响应式身份/状态展示，非纯重复计数；personal-shares `empty="还没有分享"` 是 DataTable 分支，items=0 时已被上方 EmptyState 截胡，实际走不到。
+- **轮3（提交）**：①M1 文档诚信——`DESIGN-SYSTEM §11` 原称「缓动全部在 @theme / 时长阶梯各档都是令牌」，实际 @theme 只有 `--ease-out-soft`/`--dur-fast`/`--dur-slow`/`--btn-spring`，其余曲线与时长是 utility 内联；按「文档服从代码」修正两条并保留 CDS 参考值。②status.tsx 把 PageHeader 后的孤立说明行「运行指标每 10 秒自动刷新」并入 PageHeader `description`，消除 `Page` 直接子节点造成的上下留白不均（§2 留白节奏 + 页面骨架）。
+  - 核实排除：H3「空态三套语言」不成立——skills/servers/plugins/knowledge 主空态统一用 `PageNote`+BusinessIllustration；knowledge 的 96px 插画空态是刻意品牌化，非缺陷。M4「阅读行长」参考值 42–48rem 反而宽于现状 60–75ch，且为 max-width 语义，非同类框定，不做。
+  - 收敛判断：经 3 轮，H1/H2/H3、M1/M2/M3/M4 已处理或核实排除；剩余仅 L1（图标尺寸散落，面广收益低）、L2（发丝边 0.5/1px 混用，属既有可接受限制）、L3（brand tone 现已被运行徽章使用）等细节，趋于收敛。后续轮次以巡检为主，不强行造改动。
