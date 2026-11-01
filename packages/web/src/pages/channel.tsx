@@ -379,37 +379,42 @@ function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
         </h1>
         {channelRole ? <Badge variant="outline">{ROLE_LABEL[channelRole]}</Badge> : null}
         {channel.archivedAt ? <Badge>已关闭</Badge> : null}
-        <MemberAvatars members={channel.members} businessId={businessId} name={user?.user.name} />
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {channel.agentBindings.map((binding) => {
-            const agent = agentById.get(binding.agentId);
-            const status = bindingStatus(
-              binding.status,
-              activeAgentIds.has(binding.agentId),
-              waitingAgentIds.has(binding.agentId),
-            );
-            return (
-              <span
-                key={binding.agentId}
-                className="flex min-w-0 items-center gap-1.5 rounded-pill bg-sunken px-2 py-1 text-xs text-muted-foreground"
-              >
-                <AgentAvatar
-                  agent={agent ?? { name: shortId(binding.agentId), description: '' }}
-                  className="size-4"
-                />
-                <span className="max-w-28 truncate text-fg">
-                  {agent?.name ?? shortId(binding.agentId)}
+        <span className="text-xs text-muted-foreground">
+          {channel.members.length} 成员 · {channel.agentBindings.length} 智能体
+        </span>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 xl:hidden">
+          <MemberAvatars members={channel.members} businessId={businessId} name={user?.user.name} />
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {channel.agentBindings.map((binding) => {
+              const agent = agentById.get(binding.agentId);
+              const status = bindingStatus(
+                binding.status,
+                activeAgentIds.has(binding.agentId),
+                waitingAgentIds.has(binding.agentId),
+              );
+              return (
+                <span
+                  key={binding.agentId}
+                  className="flex min-w-0 items-center gap-1.5 rounded-pill bg-sunken px-2 py-1 text-xs text-muted-foreground"
+                >
+                  <AgentAvatar
+                    agent={agent ?? { name: shortId(binding.agentId), description: '' }}
+                    className="size-4"
+                  />
+                  <span className="max-w-28 truncate text-fg">
+                    {agent?.name ?? shortId(binding.agentId)}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className={cn('size-1.5 rounded-full', status.dot)} aria-hidden="true" />
+                    {status.label}
+                  </span>
                 </span>
-                <span className="flex items-center gap-1">
-                  <span className={cn('size-1.5 rounded-full', status.dot)} aria-hidden="true" />
-                  {status.label}
-                </span>
-              </span>
-            );
-          })}
-          {channel.agentBindings.length === 0 ? (
-            <span className="text-xs text-muted-foreground">尚未绑定智能体</span>
-          ) : null}
+              );
+            })}
+            {channel.agentBindings.length === 0 ? (
+              <span className="text-xs text-muted-foreground">尚未绑定智能体</span>
+            ) : null}
+          </div>
         </div>
       </header>
 
