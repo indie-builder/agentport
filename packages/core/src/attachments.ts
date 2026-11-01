@@ -17,6 +17,7 @@ import {
   attachmentExtension,
   attachmentMimeForFilename,
   type ChatAttachmentInput,
+  hasErrorCode,
   type MessageAttachment,
   messageAttachmentSchema,
   slugSchema,
@@ -57,10 +58,6 @@ export interface DecodedConversationAttachment {
   sha256: string;
   extension: string;
   data: Buffer;
-}
-
-function hasCode(error: unknown, code: string): boolean {
-  return error instanceof Error && 'code' in error && error.code === code;
 }
 
 function conversationSegments(input: ConversationInputsIdentity): string[] {
@@ -222,7 +219,7 @@ async function trustedPath(
 ): Promise<string> {
   const logicalRoot = resolve(input.root);
   const physicalRoot = await realpath(logicalRoot).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) {
+    if (hasErrorCode(error, 'ENOENT')) {
       return fail('NOT_FOUND', '工作区根目录不存在', { path: `/${label}` });
     }
     throw error;
@@ -231,7 +228,7 @@ async function trustedPath(
   for (const segment of segments) {
     physical = join(physical, segment);
     const info = await lstat(physical).catch((error: unknown) => {
-      if (hasCode(error, 'ENOENT')) return null;
+      if (hasErrorCode(error, 'ENOENT')) return null;
       throw error;
     });
     if (info === null) break;
@@ -252,7 +249,7 @@ async function existingDirectory(
 ): Promise<string | null> {
   const logicalRoot = resolve(input.root);
   const physicalRoot = await realpath(logicalRoot).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) return null;
+    if (hasErrorCode(error, 'ENOENT')) return null;
     throw error;
   });
   if (physicalRoot === null) return null;
@@ -260,12 +257,12 @@ async function existingDirectory(
   for (const segment of segments) {
     physical = join(physical, segment);
     const info = await lstat(physical).catch((error: unknown) => {
-      if (hasCode(error, 'ENOENT')) return null;
+      if (hasErrorCode(error, 'ENOENT')) return null;
       throw error;
     });
     if (info === null || info.isSymbolicLink() || !info.isDirectory()) return null;
     const actual = await realpath(physical).catch((error: unknown) => {
-      if (hasCode(error, 'ENOENT')) return null;
+      if (hasErrorCode(error, 'ENOENT')) return null;
       throw error;
     });
     if (actual === null) return null;
@@ -370,7 +367,7 @@ export async function readConversationAttachment(
     'attachmentId',
   );
   const info = await lstat(full).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) {
+    if (hasErrorCode(error, 'ENOENT')) {
       fail('NOT_FOUND', '附件不存在，可能已被删除', { path: '/attachmentId' });
     }
     throw error;
@@ -410,7 +407,7 @@ export async function copyConversationInputs(input: CopyConversationInputsInput)
   };
   const sourceDir = await trustedPath(source, conversationSegments(source), 'sourceConversationId');
   const entries = await readdir(sourceDir, { withFileTypes: true }).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) {
+    if (hasErrorCode(error, 'ENOENT')) {
       fail('NOT_FOUND', '源会话没有可复制的附件', { path: '/sourceConversationId' });
     }
     throw error;

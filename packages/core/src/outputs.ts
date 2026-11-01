@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import {
+  hasErrorCode,
   type OutputFile,
   type OutputList,
   type OutputManifest,
@@ -122,7 +123,7 @@ async function trustedPath(
 ): Promise<string> {
   const logicalRoot = resolve(identity.root);
   const physicalRoot = await realpath(logicalRoot).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT'))
+    if (hasErrorCode(error, 'ENOENT'))
       return fail('NOT_FOUND', '产出根目录不存在', { path: `/${label}` });
     throw error;
   });
@@ -130,7 +131,7 @@ async function trustedPath(
   for (const segment of segments) {
     physical = join(physical, segment);
     const info = await lstat(physical).catch((error: unknown) => {
-      if (hasCode(error, 'ENOENT')) return null;
+      if (hasErrorCode(error, 'ENOENT')) return null;
       throw error;
     });
     if (info === null) break;
@@ -147,10 +148,6 @@ async function trustedPath(
 
 function baseFileOf(conversationRoot: string, runId: string): string {
   return join(conversationRoot, DRAFTS, `${runId}.base`);
-}
-
-function hasCode(error: unknown, code: string): boolean {
-  return error instanceof Error && 'code' in error && error.code === code;
 }
 
 export function sha256Hex(data: Buffer | string): string {
@@ -194,7 +191,7 @@ async function loadManifest(
     MANIFEST,
   );
   const info = await lstat(full).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) return null;
+    if (hasErrorCode(error, 'ENOENT')) return null;
     throw error;
   });
   if (info === null) return null;
@@ -218,7 +215,7 @@ async function publishedVersions(
 ): Promise<Array<{ runId: string; manifest: OutputManifest }>> {
   const runsDir = await trustedPath(identity, [...conversationSegments(identity), RUNS], RUNS);
   const entries = await readdir(runsDir, { withFileTypes: true }).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) return [];
+    if (hasErrorCode(error, 'ENOENT')) return [];
     throw error;
   });
   const versions: Array<{ runId: string; manifest: OutputManifest }> = [];
@@ -260,7 +257,7 @@ async function readRegularFile(
 ): Promise<Buffer> {
   await trustedPath(identity, relative(resolve(identity.root), full).split(sep), path);
   const info = await lstat(full).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) fail('NOT_FOUND', '产出文件不存在', { path: `/${path}` });
+    if (hasErrorCode(error, 'ENOENT')) fail('NOT_FOUND', '产出文件不存在', { path: `/${path}` });
     throw error;
   });
   if (info.isSymbolicLink() || !info.isFile()) {
@@ -346,7 +343,7 @@ export async function setOutputDraftBlocked(
   } else {
     await mkdir(dirname(path), { recursive: true });
     const existing = await lstat(path).catch((error: unknown) => {
-      if (hasCode(error, 'ENOENT')) return null;
+      if (hasErrorCode(error, 'ENOENT')) return null;
       throw error;
     });
     if (existing !== null) await readRegularFile(input, path, 'blocked');
@@ -392,7 +389,7 @@ export async function prepareOutputDraft(input: PrepareOutputDraftInput): Promis
   const runId = runIdOf(input.runId);
   const draftDir = await trustedPath(input, [...conversationSegments(input), DRAFTS, runId], runId);
   const existing = await lstat(draftDir).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) return null;
+    if (hasErrorCode(error, 'ENOENT')) return null;
     throw error;
   });
   if (existing !== null) {
@@ -466,7 +463,8 @@ export async function captureOutputDraft(input: {
     'sourceDir',
   );
   const sourceInfo = await lstat(sourceDir).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) fail('NOT_FOUND', '产出挂载目录不存在', { path: '/sourceDir' });
+    if (hasErrorCode(error, 'ENOENT'))
+      fail('NOT_FOUND', '产出挂载目录不存在', { path: '/sourceDir' });
     throw error;
   });
   if (sourceInfo.isSymbolicLink() || !sourceInfo.isDirectory()) {
@@ -486,7 +484,7 @@ export async function captureOutputDraft(input: {
     }
 
     const existing = await lstat(draftDir).catch((error: unknown) => {
-      if (hasCode(error, 'ENOENT')) return null;
+      if (hasErrorCode(error, 'ENOENT')) return null;
       throw error;
     });
     if (existing !== null) {
@@ -529,7 +527,7 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
   const runId = runIdOf(input.runId);
   const draftDir = await trustedPath(input, [...conversationSegments(input), DRAFTS, runId], runId);
   const draftInfo = await lstat(draftDir).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) return null;
+    if (hasErrorCode(error, 'ENOENT')) return null;
     throw error;
   });
   // 本轮没有可写挂载或草稿已被处理：没有产出可发布。
@@ -544,7 +542,7 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
     runId,
   );
   const already = await lstat(snapshotDir).catch((error: unknown) => {
-    if (hasCode(error, 'ENOENT')) return null;
+    if (hasErrorCode(error, 'ENOENT')) return null;
     throw error;
   });
   if (already !== null) {
@@ -767,7 +765,7 @@ export async function copyConversationOutputs(input: CopyConversationOutputsInpu
       runId,
     );
     const exists = await lstat(targetRun).catch((error: unknown) => {
-      if (hasCode(error, 'ENOENT')) return null;
+      if (hasErrorCode(error, 'ENOENT')) return null;
       throw error;
     });
     if (exists !== null) continue;

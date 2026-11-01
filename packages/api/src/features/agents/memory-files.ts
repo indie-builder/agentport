@@ -4,6 +4,7 @@ import { type FileHandle, lstat, mkdir, open, readdir, rename, unlink } from 'no
 import { join, parse, resolve, sep } from 'node:path';
 import { fail } from '@agentport/core';
 import {
+  hasErrorCode,
   MEMORY_FILE_MAX_BYTES,
   type MemoryFile,
   type MemoryFileContent,
@@ -22,10 +23,6 @@ function workspaceSubdir(workspacesDir: string, slug: string, leaf: string): str
 function safeName(name: string): string {
   if (!memoryFileNamePattern.test(name)) fail('INVALID_INPUT', '记忆文件名非法：只允许 <name>.md');
   return name;
-}
-
-function hasCode(error: unknown, code: string): boolean {
-  return error instanceof Error && 'code' in error && error.code === code;
 }
 
 function invalidLink(): never {
@@ -58,7 +55,7 @@ async function checkedDir(
         try {
           await mkdir(current, { mode: MEMORY_DIR_MODE });
         } catch (error) {
-          if (!hasCode(error, 'EEXIST')) throw error;
+          if (!hasErrorCode(error, 'EEXIST')) throw error;
         }
       }
       const info = await lstat(current);
@@ -75,7 +72,7 @@ async function checkedDir(
     return handle;
   } catch (error) {
     await handle.close();
-    if (hasCode(error, 'ELOOP')) invalidLink();
+    if (hasErrorCode(error, 'ELOOP')) invalidLink();
     throw error;
   }
 }
@@ -121,7 +118,7 @@ async function regularFile(target: string) {
     if (!info.isFile()) fail('INVALID_INPUT', '记忆文件必须是普通 Markdown 文件');
     return info;
   } catch (error) {
-    if (hasCode(error, 'ENOENT')) return null;
+    if (hasErrorCode(error, 'ENOENT')) return null;
     throw error;
   }
 }
@@ -144,7 +141,7 @@ export async function listMemoryFiles(
       return { files, initialized: files.some((file) => file.name === 'MEMORY.md') };
     });
   } catch (error) {
-    if (hasCode(error, 'ENOENT')) return { files: [], initialized: false };
+    if (hasErrorCode(error, 'ENOENT')) return { files: [], initialized: false };
     throw error;
   }
 }
@@ -182,8 +179,8 @@ async function readMemoryFileData(
       }
     });
   } catch (error) {
-    if (hasCode(error, 'ENOENT')) return null;
-    if (hasCode(error, 'ELOOP')) invalidLink();
+    if (hasErrorCode(error, 'ENOENT')) return null;
+    if (hasErrorCode(error, 'ELOOP')) invalidLink();
     throw error;
   }
 }
@@ -241,7 +238,7 @@ async function writeMemoryFileData(
       try {
         await unlink(temporary);
       } catch (cleanupError) {
-        if (!hasCode(cleanupError, 'ENOENT')) {
+        if (!hasErrorCode(cleanupError, 'ENOENT')) {
           throw new AggregateError([error, cleanupError], '记忆临时文件清理失败');
         }
       }
@@ -284,7 +281,7 @@ export async function deleteMemoryFile(
       return true;
     });
   } catch (error) {
-    if (hasCode(error, 'ENOENT')) return false;
+    if (hasErrorCode(error, 'ENOENT')) return false;
     throw error;
   }
 }

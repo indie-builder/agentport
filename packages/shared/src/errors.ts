@@ -16,6 +16,11 @@ export function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** 判断未知错误是否带有指定 `code`（Node fs 的 ENOENT/EEXIST 等）。 */
+export function hasErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code;
+}
+
 /**
  * 稳定错误码。加新码是兼容变更；改语义或删除是破坏性变更——
  * 前端与外部 MCP 客户端都可能依赖它。
