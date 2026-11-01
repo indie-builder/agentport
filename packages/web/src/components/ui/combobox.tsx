@@ -103,7 +103,7 @@ function ComboboxContent({
           data-slot="combobox-content"
           data-chips={!!anchor}
           className={cn(
-            'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-line transition-opacity duration-150 ease-out-soft data-[chips=true]:min-w-(--anchor-width) data-ending-style:opacity-0 data-starting-style:opacity-0 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-8 *:data-[slot=input-group]:border-input *:data-[slot=input-group]:bg-surface *:data-[slot=input-group]:shadow-none',
+            'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] overflow-hidden rounded-[var(--radius-popover)] bg-popover text-popover-foreground shadow-md ring-1 ring-line cds-overlay-enter data-[chips=true]:min-w-(--anchor-width) *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-8 *:data-[slot=input-group]:border-input *:data-[slot=input-group]:bg-surface *:data-[slot=input-group]:shadow-none',
             className,
           )}
           {...props}
@@ -169,7 +169,7 @@ function ComboboxChips({
     <ComboboxPrimitive.Chips
       data-slot="combobox-chips"
       className={cn(
-        'flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent bg-clip-padding px-2.5 py-1 text-sm transition-colors focus-within:border-input-focus has-aria-invalid:border-destructive has-aria-invalid:focus-within:border-destructive has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-2 has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-solid has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-ring has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-offset-2 has-data-[slot=combobox-chip]:px-1 dark:bg-input/30 dark:has-aria-invalid:border-destructive/50',
+        'flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent bg-clip-padding px-2.5 py-1 text-sm transition-colors focus-within:border-[var(--color-button-primary)] focus-within:shadow-[var(--shadow-focus-glow)] has-aria-invalid:border-destructive has-aria-invalid:focus-within:border-destructive has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-2 has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-solid has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-ring has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-offset-2 has-data-[slot=combobox-chip]:px-1 dark:bg-input/30 dark:has-aria-invalid:border-destructive/50',
         className,
       )}
       {...props}

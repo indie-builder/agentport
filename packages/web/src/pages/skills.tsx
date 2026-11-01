@@ -451,8 +451,7 @@ function SegmentedToggle<T extends string>({
     <ToggleGroup
       aria-label={label}
       multiple={false}
-      spacing={0}
-      className="rounded-lg bg-hover text-muted-foreground"
+      className="rounded-pill bg-sunken p-0.5 text-muted-foreground"
       value={[value]}
       onValueChange={(values) => {
         const next = options.find((option) => option.value === values[0])?.value;
@@ -463,7 +462,7 @@ function SegmentedToggle<T extends string>({
         <ToggleGroupItem
           key={option.value}
           value={option.value}
-          className="border border-transparent aria-pressed:border-line"
+          className="h-7 rounded-pill px-3 text-sm hover:bg-transparent hover:text-fg aria-pressed:bg-surface aria-pressed:text-fg aria-pressed:shadow-sm aria-pressed:hover:bg-surface"
         >
           {option.label}
         </ToggleGroupItem>

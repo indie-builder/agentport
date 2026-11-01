@@ -23,7 +23,7 @@
 
 0. **官方最佳实践优先。** 项目引用的每个技术栈（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest…）如果官方文档给出了做法，**以官方为准**。用户的口头偏好、我的判断、项目历史习惯，都不高于官方文档。用户明确说过「我可能说的也不对」——遇到分歧先去查官方文档，再决定；涉及 Claude Agent SDK / Claude Code 时同时核对已安装的 `sdk.d.ts`（见「智能体运行底座」）。
 1. **并行优先。** 任何可拆的工作都必须并行；串行只在存在真实依赖时允许，并且必须说明依赖是什么。
-2. **UI 基准优先。** 视觉外观（配色、控件外观与状态）以 Qoder CN 桌面浅色界面为准；布局几何、颜色数值与信息表达以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 当前规范为准（含 2026-10-30 用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任何技术选型、库默认样式、动效偏好都不得改动这套视觉数值。前端实现细节见 [packages/web/CLAUDE.md](packages/web/CLAUDE.md)。
+2. **UI 基准优先。** 视觉外观（配色、控件外观与状态）以 Claude Design System（CDS，参考 open-claude-ui，仅亮色）为准；布局几何、信息表达与视觉数值以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 当前规范为准（含 2026-10-30 用户批准的布局契约），OpenUI 桌面基准仅保留为历史参考；任何技术选型、库默认样式、动效偏好都不得改动这套视觉数值。前端实现细节见 [packages/web/CLAUDE.md](packages/web/CLAUDE.md)。
 3. **技术栈优先。** 功能实现必须走项目已选定的库与官方原生能力（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest 等），不允许手写等价实现；具体栈、包职责与用法见各模块规则与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 4. **零死代码。** 无人引用的组件、导出、样式、依赖、注释掉的代码块一律删除；不保留「以后可能用」的占位实现。删之前用 grep 确认引用，删之后跑 typecheck / 构建确认没断。注释只解释「代码看不出来的原因」，不写复述代码的废话。**但用户明确要求保留的元素/入口不属于死代码，不得删除；受保护清单见各模块 `CLAUDE.md` 与 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md)。**
 5. 其余按本文件后续条款执行。

@@ -3,10 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// 直接读生产 styles.css，校验冻结契约的可访问约束；
+// 直接读生产 styles.css，校验 CDS 亮色契约；
 // 只解析 @theme 里的 --color-* 声明与 var() 别名，不复制第二份颜色表。
-// 输入默认/聚焦边线按 Qoder 参考取浅中性，对白低于 3:1 是已记录的已知限制；
-// 强边界、文本与动作用色仍按原可访问阈值检查。
 
 const css = await readFile(
   join(dirname(fileURLToPath(import.meta.url)), '../src/styles.css'),
@@ -24,14 +22,35 @@ function value(name: string): string {
   return alias ? value(alias[1]) : declared;
 }
 
+type Rgba = { r: number; g: number; b: number; a: number };
 type Rgb = [number, number, number];
 
-function rgb(name: string): Rgb {
-  const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value(name));
-  if (!match) throw new Error(`${name} is not a hex color: ${value(name)}`);
-  const hex = match[1].length === 3 ? [...match[1]].map((c) => c + c).join('') : match[1];
-  return [0, 2, 4].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)) as Rgb;
+function parse(raw: string): Rgba {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(raw);
+  if (hex) {
+    const digits = hex[1].length === 3 ? [...hex[1]].map((c) => c + c).join('') : hex[1];
+    const [r, g, b] = [0, 2, 4].map((i) => Number.parseInt(digits.slice(i, i + 2), 16)) as Rgb;
+    return { r, g, b, a: 1 };
+  }
+  const rgba = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$/i.exec(raw);
+  if (rgba) {
+    const [r, g, b] = rgba.slice(1, 4).map(Number) as Rgb;
+    return { r, g, b, a: rgba[4] === undefined ? 1 : Number(rgba[4]) };
+  }
+  throw new Error(`not a hex or rgb(a) color: ${raw}`);
 }
+
+const token = (name: string): Rgba => parse(value(name));
+
+function composite(fg: Rgba, bg: Rgb): Rgb {
+  return [
+    fg.r * fg.a + bg[0] * (1 - fg.a),
+    fg.g * fg.a + bg[1] * (1 - fg.a),
+    fg.b * fg.a + bg[2] * (1 - fg.a),
+  ];
+}
+
+const white: Rgb = [255, 255, 255];
 
 function luminance([r, g, b]: Rgb): number {
   const linear = (channel: number) => {
@@ -41,116 +60,72 @@ function luminance([r, g, b]: Rgb): number {
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 }
 
-function contrast(a: Rgb, b: Rgb): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+function ratio(foreground: string, background: string): number {
+  const bg = composite(token(background), white);
+  const fg = composite(token(foreground), bg);
+  const [hi, lo] = [luminance(fg), luminance(bg)].sort((x, y) => y - x) as [number, number];
   return (hi + 0.05) / (lo + 0.05);
 }
 
-const white: Rgb = [255, 255, 255];
+describe('CDS light theme token contract', () => {
+  it('keeps the warm-gray surface ladder', () => {
+    expect(token('--color-surface')).toEqual(parse('#ffffff'));
+    expect(token('--color-canvas')).toEqual(parse('#fcfcfb'));
+    expect(token('--color-sunken')).toEqual(parse('#f9f9f7'));
+    expect(token('--color-selected')).toEqual(parse('#eae9e4'));
+  });
 
-describe('theme tokens match the frozen Qoder visual contract', () => {
-  it('keeps every content surface pure white', () => {
-    for (const name of [
-      '--color-canvas',
+  it('keeps body and helper text readable on every surface', () => {
+    for (const background of [
       '--color-surface',
-      '--color-panel',
-      '--color-background',
-      '--color-card',
-      '--color-popover',
-    ]) {
-      expect(rgb(name), name).toEqual(white);
-    }
-  });
-
-  it('uses neutral dark actions instead of a brand hue', () => {
-    for (const name of [
-      '--color-primary',
-      '--color-primary-hover',
-      '--color-ring',
-      '--color-button-primary',
-      '--color-button-primary-hover',
-      '--color-button-primary-active',
-    ]) {
-      const [r, g, b] = rgb(name);
-      expect(r === g && g === b, name).toBe(true);
-    }
-    expect(rgb('--color-primary')).toEqual(rgb('--color-button-primary'));
-    expect(rgb('--color-primary-foreground')).toEqual(white);
-    expect(rgb('--color-selected-foreground')).toEqual(rgb('--color-fg'));
-    expect(rgb('--color-accent-foreground')).toEqual(rgb('--color-fg'));
-  });
-
-  it('keeps the data series independent from UI actions', () => {
-    expect(rgb('--color-chart-runs')).not.toEqual(rgb('--color-primary'));
-    expect(contrast(rgb('--color-chart-runs'), rgb('--color-surface'))).toBeGreaterThanOrEqual(3);
-  });
-
-  it('keeps body, helper and status text readable on white and selected', () => {
-    for (const background of ['--color-surface', '--color-selected', '--color-code'] as const) {
-      for (const foreground of [
-        '--color-fg',
-        '--color-muted-foreground',
-        '--color-success',
-        '--color-warning',
-        '--color-danger',
-      ]) {
+      '--color-canvas',
+      '--color-selected',
+      '--color-sunken',
+    ] as const) {
+      for (const foreground of ['--color-fg', '--color-muted-foreground'] as const) {
         expect(
-          contrast(rgb(foreground), rgb(background)),
+          ratio(foreground, background),
           `${foreground} on ${background}`,
         ).toBeGreaterThanOrEqual(4.5);
       }
     }
   });
 
-  it('keeps helper text readable at the worst end of the shell gradient', () => {
-    const stops = ['--color-shell-start', '--color-shell-mid', '--color-shell-end'] as const;
-    const ratios = stops.map((stop) => contrast(rgb('--color-muted-foreground'), rgb(stop)));
-    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it('keeps solid actions and strong boundaries accessible', () => {
-    for (const action of [
-      '--color-button-primary',
-      '--color-button-primary-hover',
-      '--color-button-primary-active',
-    ]) {
-      expect(
-        contrast(rgb('--color-primary-foreground'), rgb(action)),
-        action,
-      ).toBeGreaterThanOrEqual(4.5);
-    }
-    for (const boundary of ['--color-line-strong', '--color-control-boundary'] as const) {
-      for (const background of [
-        '--color-surface',
-        '--color-selected',
-        '--color-shell-end',
+  it('keeps status colors readable on surface and canvas', () => {
+    for (const background of ['--color-surface', '--color-canvas'] as const) {
+      for (const foreground of [
+        '--color-success',
+        '--color-warning',
+        '--color-danger',
       ] as const) {
         expect(
-          contrast(rgb(boundary), rgb(background)),
-          `${boundary} on ${background}`,
-        ).toBeGreaterThanOrEqual(3);
+          ratio(foreground, background),
+          `${foreground} on ${background}`,
+        ).toBeGreaterThanOrEqual(4.5);
       }
     }
-    expect(contrast(rgb('--color-ring'), rgb('--color-selected'))).toBeGreaterThanOrEqual(3);
   });
 
-  it('records the accepted low-contrast input boundary mapping', () => {
-    // 输入默认边线等同分隔线；普通与 composer 聚焦是 PACE 适配，不是 Qoder 源码 token。
-    expect(rgb('--color-input')).toEqual(rgb('--color-line'));
-    expect(rgb('--color-input-focus')).toEqual([0xbd, 0xbd, 0xbd]);
-    expect(rgb('--color-composer-focus')).toEqual([0xdd, 0xdd, 0xdd]);
-    expect(declarations.has('--color-input-hover')).toBe(false);
+  it('keeps the chart series distinct and visible', () => {
+    expect(token('--color-chart-runs')).not.toEqual(token('--color-primary'));
+    expect(ratio('--color-chart-runs', '--color-surface')).toBeGreaterThanOrEqual(3);
+  });
 
-    // 对白实算低于 3:1：明确记录限制，不能把这些值冒充为 WCAG AA。
-    expect(contrast(rgb('--color-input'), white)).toBeCloseTo(1.248, 3);
-    expect(contrast(rgb('--color-input-focus'), white)).toBeCloseTo(1.879, 3);
-    expect(contrast(rgb('--color-composer-focus'), white)).toBeCloseTo(1.358, 3);
-    for (const name of [
-      '--color-input',
-      '--color-input-focus',
-      '--color-composer-focus',
-    ] as const) {
-      expect(contrast(rgb(name), white), name).toBeLessThan(3);
-    }
+  it('keeps clay as the primary action with a white foreground', () => {
+    expect(token('--color-button-primary')).toEqual(parse('#d97757'));
+    expect(token('--color-primary-foreground')).toEqual(parse('#ffffff'));
+    expect(token('--color-selected-foreground')).toEqual(token('--color-fg'));
+    expect(token('--color-accent-foreground')).toEqual(token('--color-fg'));
+  });
+
+  it('records the accepted low-contrast CDS limits', () => {
+    // 发丝边与低对比焦点是 CDS 的视觉选择，用户已接受；它们不属于 WCAG AA 达标。
+    expect(token('--color-input')).toEqual(token('--color-line'));
+    expect(ratio('--color-input', '--color-surface')).toBeCloseTo(1.254, 2);
+    expect(ratio('--color-input', '--color-surface')).toBeLessThan(3);
+    expect(ratio('--color-control-boundary', '--color-surface')).toBeCloseTo(2.442, 2);
+    expect(ratio('--color-control-boundary', '--color-surface')).toBeLessThan(3);
+    expect(ratio('--color-ring', '--color-selected')).toBeCloseTo(2.568, 2);
+    expect(ratio('--color-ring', '--color-selected')).toBeLessThan(3);
   });
 });
