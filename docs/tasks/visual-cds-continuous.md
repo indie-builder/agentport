@@ -62,4 +62,5 @@
 **本范围方法**：逐页对照 DESIGN-SYSTEM 布局契约 + 参考规范，只在「真实实现漂移」或「参考确有更优且不冲突」时修，逐条记录证据；不重构已批契约的几何。
 **候选审计清单**（下一轮起逐条核实）：roles 搜索 `w-64`(256) vs 契约 224；plugin-detail 返回 `ghost icon-sm`(28) vs 其它 detail `outline icon`(32)（上下文差异，酌情）；knowledge-detail 文档阅读未设 max-w（长文可读性，评估加 ~75ch，需不破坏侧栏/tabs）；native Table(runtime/accounts/ops) 已用共享 ui/table（合规）；分页四套按各 API 语义保留。
 - **轮4（布局范围首批，提交）**：核实后确认布局整体已高度符合契约。落地两处真实漂移：①roles 搜索 `w-64`→`w-56`（对齐 §378 224px）；②plugin-detail 返回 `ghost icon-sm`(28)→`outline icon`(32) 与 knowledge/run detail 一致。终审发现并修：按钮变大后描述缩进 `ps-11`→`ps-12` 并同步注释。核实排除：knowledge-detail 实为 tabs 管理页（正文阅读在 1100px 预览 Dialog 内），无需加阅读宽度；卡片网格全部 `sm:2 xl:3 gap-4` 合规、搜索/排序宽度基本合规。验证：typecheck、web build exit0。
+- **轮5（巡检，无代码改动）**：核验 §336 表/卡切换覆盖（ViewToggle 在 runs/ops/runtime/accounts/shares/usage + 记忆提案经 `memory-review.tsx` 复用共享 ViewToggle，全覆盖）、个人模块六页均用 PageHeader、卡片网格 `sm:2 xl:3 gap-4`、搜索/排序宽度合规 → 布局范围判定收敛。范围 A 亦无有意义剩余差异。后续转轻量巡检，不强行造改动。
 
