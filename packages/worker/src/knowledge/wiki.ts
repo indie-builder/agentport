@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { segmentForSearch } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
-import { knowledgeJobPayloadSchema } from '@agentport/shared';
+import { errorText, knowledgeJobPayloadSchema } from '@agentport/shared';
 import {
   createSdkMcpServer,
   type Options,
@@ -372,7 +372,7 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
               });
               return text({ pageId: page.id, versionId, saved: true });
             } catch (err) {
-              return toolError(err instanceof Error ? err.message : String(err));
+              return toolError(errorText(err));
             }
           },
         ),

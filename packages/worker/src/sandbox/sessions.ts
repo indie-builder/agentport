@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   type ChatEvent,
   type ExecutionSettlement,
+  errorText,
   type ResolvedRuntimeEnvironment,
   redactSecrets,
   type SandboxInputCommand,
@@ -83,10 +84,6 @@ function abortError(): Error {
   const error = new Error('session sandbox acquire aborted');
   error.name = 'AbortError';
   return error;
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 function toError(err: unknown): Error {

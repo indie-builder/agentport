@@ -19,6 +19,7 @@ import {
   agentRunJobSchema,
   EVAL_RUNS_QUEUE,
   effortSchema,
+  errorText,
   knowledgeMcpEntry,
   messageAttachments,
   permissionModeSchema,
@@ -978,8 +979,7 @@ const worker = new Worker(
             await lease.release({ reuse: false });
             outcome.settlement = { state: 'stopped', code: null, signal: null };
           } catch (cleanupError) {
-            outcome.cleanupError =
-              cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+            outcome.cleanupError = errorText(cleanupError);
             outcome.settlement = { state: 'unconfirmed', error: outcome.cleanupError };
           }
         }
@@ -998,8 +998,7 @@ const worker = new Worker(
               try {
                 await lease.release({ reuse: false });
               } catch (cleanupError) {
-                outcome.cleanupError =
-                  cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+                outcome.cleanupError = errorText(cleanupError);
                 outcome.settlement = { state: 'unconfirmed', error: outcome.cleanupError };
                 logger.error({ err: cleanupError, runId }, 'sandbox cleanup failed');
               }
@@ -1036,7 +1035,7 @@ const worker = new Worker(
             outcome,
           );
         } catch (err) {
-          outputSettlementError = err instanceof Error ? err.message : String(err);
+          outputSettlementError = errorText(err);
           logger.error({ err, runId }, 'failed to record output sandbox settlement');
         }
       }
@@ -1077,7 +1076,7 @@ const worker = new Worker(
         persistedMessages = persisted.messages;
         if (!persisted.written) messageSaveError = '消息保存被拒绝，运行或会话已由外部终止';
       } catch (err) {
-        messageSaveError = err instanceof Error ? err.message : String(err);
+        messageSaveError = errorText(err);
         logger.error({ err, runId }, 'failed to persist run messages');
       }
 
@@ -1131,7 +1130,7 @@ const worker = new Worker(
           }
         } catch (err) {
           // 发布失败不掩盖运行本身的结果；草稿仍在，页面据此明确提示没有发布快照。
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorText(err);
           logger.error({ err, runId }, 'failed to publish run outputs');
           if (!willRetry) {
             outcome = {

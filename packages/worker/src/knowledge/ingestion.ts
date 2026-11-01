@@ -16,6 +16,7 @@ import type {
   KnowledgeSourceProbeResult,
 } from '@agentport/shared';
 import {
+  errorText,
   knowledgeBaseSettingsSchema,
   knowledgeImageChunkMetadataSchema,
   knowledgeJobPayloadSchema,
@@ -202,7 +203,7 @@ export function isRetryableKnowledgeError(err: unknown): boolean {
 }
 
 export function describeKnowledgeError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorText(err);
   const kind =
     err instanceof KnowledgeModelError
       ? `${err.kind}: `
