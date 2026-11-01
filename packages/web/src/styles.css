@@ -70,6 +70,8 @@
 
   /* 代码：中性浅底与分隔线 */
   --color-code: #f6f6f6;
+  --color-code-block: #0d0d0c;
+  --color-code-block-fg: #e6e6e4;
   --color-code-line: var(--color-line);
 
   --color-scrim: rgb(0 0 0 / 0.4);
@@ -168,12 +170,12 @@
 
 
   /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
-  --shadow-overlay: inset 0 0 0 1px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
-  --shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px rgba(0, 0, 0, 0.10);
-  --shadow-composer-hover: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.20);
-  --shadow-composer-focus: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.20);
-  --shadow-panel: 0 0 0 1px var(--color-line), 0 1px 3px rgba(0, 0, 0, 0.04);
-  --shadow-panel-hover: 0 0 0 1px var(--color-line-strong), 0 4px 16px -2px rgba(0, 0, 0, 0.09);
+  --shadow-overlay: inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+  --shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10);
+  --shadow-composer-hover: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20);
+  --shadow-composer-focus: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20), 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20);
+  --shadow-panel: 0 0 0 var(--hairline) var(--color-line), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-panel-hover: 0 0 0 var(--hairline) var(--color-line-strong), 0 4px 16px -2px rgba(0, 0, 0, 0.09);
   --shadow-focus-glow: inset 0 0 0 1px #ffffff, 0 0 0 1.5px #d97757, 0 0 6px 1px rgba(217, 119, 87, 0.25);
 
   /*
@@ -184,11 +186,23 @@
   --shadow-lg: var(--shadow-overlay);
 }
 
+:root {
+  --hairline: 1px;
+}
+
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 2dppx) {
+  :root {
+    --hairline: 0.5px;
+  }
+}
+
+@media (-webkit-min-device-pixel-ratio: 3), (min-resolution: 3dppx) {
+  :root {
+    --hairline: calc(1px / 3);
+  }
+}
+
 @layer base {
-  /*
-   * Shiki 的 css-variables 主题在这里收口：正文墨色，
-   * 关键字/函数/链接用中性主色，注释用辅助灰。背景透明，代码块表面由容器的 bg-code 决定。
-   */
   [data-streamdown] {
     --shiki-background: transparent;
     --shiki-foreground: var(--color-fg);
@@ -201,6 +215,23 @@
     --shiki-token-parameter: var(--color-muted-foreground);
     --shiki-token-punctuation: var(--color-muted-foreground);
     --shiki-token-link: var(--color-primary);
+  }
+
+  [data-streamdown="code-block"],
+  [data-streamdown="code-block"] [data-streamdown] {
+    --shiki-background: transparent;
+    --shiki-foreground: var(--color-code-block-fg);
+    --shiki-token-comment: #8b8b86;
+    --shiki-token-string: #cdcdc8;
+    --shiki-token-string-expression: #cdcdc8;
+    --shiki-token-constant: var(--color-code-block-fg);
+    --shiki-token-keyword: #e0a48a;
+    --shiki-token-function: #e0a48a;
+    --shiki-token-parameter: #b8b8b2;
+    --shiki-token-punctuation: #8b8b86;
+    --shiki-token-link: #e0a48a;
+    --color-muted-foreground: #b8b8b2;
+    --color-foreground: var(--color-code-block-fg);
   }
 
   /*
@@ -246,8 +277,16 @@
   }
 
   ::selection {
-    background-color: var(--color-selected);
+    background: color-mix(in srgb, var(--color-button-primary) 22%, transparent);
     color: var(--color-fg);
+  }
+
+  [data-streamdown="code-block"] ::selection,
+  [data-streamdown="code-block"]::selection,
+  .cds-code-surface ::selection,
+  .cds-code-surface::selection {
+    background: rgba(217, 119, 87, 0.38);
+    color: #ffffff;
   }
 
   ::-webkit-scrollbar {
@@ -263,7 +302,7 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(15 15 15 / 0.32);
+    background-color: rgb(60 55 52 / 0.32);
   }
 
   ::-webkit-scrollbar-track {
@@ -427,6 +466,28 @@
 }
 
 @layer components {
+  @keyframes saved-check-decay {
+    0%,
+    75% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0.92);
+    }
+  }
+
+  .saved-check-decay {
+    animation: saved-check-decay .35s cubic-bezier(.165,.84,.44,1) 2.2s forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .saved-check-decay {
+      animation: none;
+    }
+  }
+
   .cds-btn-squish {
     transform-origin: 50%;
     transition:
@@ -574,8 +635,8 @@
   }
 
   .cds-scroll-fade-y {
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent);
-    mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #0000000d calc(28px * .15), #00000026 calc(28px * .3), #0000004d calc(28px * .45), #00000080 calc(28px * .6), #000000b3 calc(28px * .75), #000000d9 calc(28px * .87), #000 28px, #000 calc(100% - 28px), #000000d9 calc(100% - 28px * .87), #000000b3 calc(100% - 28px * .75), #00000080 calc(100% - 28px * .6), #0000004d calc(100% - 28px * .45), #00000026 calc(100% - 28px * .3), #0000000d calc(100% - 28px * .15), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #0000000d calc(28px * .15), #00000026 calc(28px * .3), #0000004d calc(28px * .45), #00000080 calc(28px * .6), #000000b3 calc(28px * .75), #000000d9 calc(28px * .87), #000 28px, #000 calc(100% - 28px), #000000d9 calc(100% - 28px * .87), #000000b3 calc(100% - 28px * .75), #00000080 calc(100% - 28px * .6), #0000004d calc(100% - 28px * .45), #00000026 calc(100% - 28px * .3), #0000000d calc(100% - 28px * .15), transparent);
   }
 
   @keyframes message-fade-up {

@@ -37,6 +37,8 @@ colors:
   danger-soft: "#FCEBE9"
   chart-runs: "#2A78D6"
   code: "#F6F6F6"
+  code-block: "#0D0D0C"
+  code-block-fg: "#E6E6E4"
   scrim: "rgb(0 0 0 / 0.4)"
 typography:
   display:
@@ -261,6 +263,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 - **正文墨（Text Ink）** (#151515)：正文、标题、选中项前景与普通图标。
 - **辅助灰（Helper Gray）** (#525252)：placeholder、描述、元信息、注释、表头次要信息；承载可读文字。
 - **装饰灰（Decorative Gray）** (#8A8A8A)：只用于装饰图标与禁用例外，不承载需要阅读的信息。
+- **代码块（Code Block）** (#0D0D0C / #E6E6E4)：围栏/块级代码的深色面与浅色正文；行内 `code` 仍是浅 chip `#F6F6F6`，两种代码形态不互换。
 - **状态色**：success `#187646`、warning `#8A5600`、danger `#B42318`；浅底分别是 `#FBF3E4`、`#FCEBE9`。只在小面积表达结果。
 - **遮罩（Scrim）** (`rgb(0 0 0 / 0.4)`)：Dialog、Sheet 等模态遮罩。
 
@@ -418,7 +421,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 - **User message:** 右对齐 18px 胶囊、`selected` `#EAE9E4` 底、`fg` 文字、14/22、内边距 12px 16px、最大宽 85%；附件用中性 outline 徽章。助手正文在纯白上无气泡。
 - **Message entrance:** 每轮消息以 `.message-fade-up` 入场（0.4s 上浮淡入）；减少动态效果时直接显示。
-- **Code / Shiki:** 代码块表面 `code` `#F6F6F6`、12px 圆角、1px `line` 边线、12/20 等宽；Shiki 背景透明，正文 `fg`，关键字/函数/链接 `primary`，注释/标点 `muted-foreground`。
+- **Code / Shiki:** 围栏/块级代码为深色面 `code-block` `#0D0D0C`、12px 圆角、1px `white/10` 边线、12/20 等宽；Shiki 背景透明，浅色语法用 `code-block-fg` `#E6E6E4`，关键字/函数/链接用暖陶土调的浅色，注释、参数与标点用暖灰层次，复制反馈 2.5s 后衰减回初始态。行内 `code` 仍是浅 chip `#F6F6F6` 配 `fg`。深色代码块内选区用陶土半透明底配白字。
 - **CodeMirror:** selection 与 searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底 `fg`，真实可编辑搜索输入使用 `input` 默认边线与 `input-focus` 聚焦边线，按钮仍用 `line`。
 - **Charts:** 白底、网格 `line`、坐标与 tooltip 用 `muted-foreground` / `fg`；首系列 `chart-runs` `#2A78D6`，其余系列用中性灰阶并叠加虚线/纹理，失败系列 `chart-failed`（即 `danger`）。图表不播放动画。
 

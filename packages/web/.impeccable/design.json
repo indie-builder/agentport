@@ -428,7 +428,37 @@
       },
       "code": {
         "role": "secondary",
-        "displayName": "代码块底",
+        "displayName": "行内代码 chip",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "code-block": {
+        "role": "secondary",
+        "displayName": "代码块深色面",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
+        ],
+        "tonalRampSource": "tool-preview-synthesized-not-product-token"
+      },
+      "code-block-fg": {
+        "role": "neutral",
+        "displayName": "代码块浅色语法",
         "tonalRamp": [
           "oklch(15% 0 0)",
           "oklch(25% 0 0)",
@@ -834,6 +864,14 @@
       "css": ".ds-card { display: flex; flex-direction: column; gap: var(--card-spacing, 16px); padding: var(--card-spacing, 16px) 0; border-radius: var(--radius-card, 12px); background: var(--color-card, #FFFFFF); color: var(--color-card-foreground, #151515); box-shadow: 0 0 0 1px var(--color-line, rgba(0, 0, 0, 0.10)), 0 1px 3px rgba(0, 0, 0, 0.04); transition: box-shadow .2s var(--ease-out-soft), transform .2s var(--ease-out-soft); } .ds-card:hover { box-shadow: 0 0 0 1px var(--color-line-strong, rgba(0, 0, 0, 0.20)), 0 4px 16px -2px rgba(0, 0, 0, 0.09); transform: translateY(-1.5px); } .ds-card-header { display: grid; gap: 4px; padding: 0 var(--card-spacing, 16px); } .ds-card-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 22px; } .ds-card-description { color: var(--color-muted-foreground, #525252); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-card-content { padding: 0 var(--card-spacing, 16px); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; }"
     },
     {
+      "name": "Code Block",
+      "kind": "custom",
+      "refersTo": "code-block",
+      "description": "围栏/块级代码为深色面 #0D0D0C、12px 圆角、1px white/10 边线、12/20 等宽；Shiki 背景透明，浅色语法用 code-block-fg #E6E6E4，关键字/函数/链接用暖陶土调的浅色，注释、参数与标点用暖灰层次；复制反馈 2.5s 后衰减回初始态，块内选区用陶土半透明底配白字。行内 code 仍是浅 chip #F6F6F6。",
+      "html": "<div class=\"ds-code-block\"><pre><code>const answer = 42;</code></pre></div>",
+      "css": ".ds-code-block { padding: 12px; border: 1px solid rgba(255, 255, 255, 0.10); border-radius: var(--radius-card, 12px); background: var(--color-code-block, #0D0D0C); color: var(--color-code-block-fg, #E6E6E4); font-family: \"anthropic-mono\", \"JetBrains Mono Variable\", \"JetBrains Mono\", ui-monospace, \"SF Mono\", Menlo, monospace; font-size: 12px; line-height: 20px; } .ds-code-block ::selection { background: rgba(217, 119, 87, 0.38); color: #FFFFFF; }"
+    },
+    {
       "name": "Dialog",
       "kind": "custom",
       "refersTo": "dialog",
@@ -860,7 +898,7 @@
   ],
   "narrative": {
     "northStar": "The Quiet Workbench（静默工作台）",
-    "overview": "PACE 的世界是一张安静的暖灰工作台。根容器铺 canvas #FCFCFB，侧栏透明坐在画布上；主工作区贴边平铺 surface #FFFFFF，没有外层渐变、圆角、外边距或描边。工具、标题与正文是暖墨色，主操作与焦点用陶土 #D97757，状态只在小面积出现。\n\n这套系统用陶土承担「可执行」与焦点，用暖灰阶梯承担层级：default 与显式 solid 共用 #D97757 → #CC5A36 → #AD4724 三态实底；正文链接用深陶土 #A8482B；输入默认边线是 rgba(0,0,0,.10) 发丝边，Input / Textarea 普通聚焦换成陶土边并叠 --shadow-focus-glow 三层微光，其余输入类聚焦换 input-focus，composer 聚焦换三态阴影。唯一的蓝色是图表首系列 chart-runs #2A78D6。\n\n本文是当前实现的快照，机器可读 token 以 DESIGN.md frontmatter 与 src/styles.css 的 @theme 为准；配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色。未覆盖项与规范差异见 Known Gaps 和对应任务记录。",
+    "overview": "PACE 的世界是一张安静的暖灰工作台。根容器铺 canvas #FCFCFB，侧栏透明坐在画布上；主工作区贴边平铺 surface #FFFFFF，没有外层渐变、圆角、外边距或描边。工具、标题与正文是暖墨色，主操作与焦点用陶土 #D97757，状态只在小面积出现。\n\n这套系统用陶土承担「可执行」与焦点，用暖灰阶梯承担层级：default 与显式 solid 共用 #D97757 → #CC5A36 → #AD4724 三态实底；正文链接用深陶土 #A8482B；输入默认边线是 rgba(0,0,0,.10) 发丝边，Input / Textarea 普通聚焦换成陶土边并叠 --shadow-focus-glow 三层微光，其余输入类聚焦换 input-focus，composer 聚焦换三态阴影。唯一的蓝色是图表首系列 chart-runs #2A78D6。围栏/块级代码是深色 #0D0D0C 面配浅色语法 #E6E6E4，行内代码仍是浅 chip #F6F6F6，两种代码形态不互换。\n\n本文是当前实现的快照，机器可读 token 以 DESIGN.md frontmatter 与 src/styles.css 的 @theme 为准；配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色。未覆盖项与规范差异见 Known Gaps 和对应任务记录。",
     "keyCharacteristics": [
       "平铺外壳：canvas #FCFCFB 画布 + 贴边 surface #FFFFFF 主区，无渐变、无外边距、无外层描边或圆角。",
       "陶土动作三态：#D97757 / #CC5A36 / #AD4724，白字；hover、active 逐步加深。",

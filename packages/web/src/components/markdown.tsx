@@ -161,9 +161,8 @@ const components: Components = {
   },
 };
 
-// 代码块沿用消息同一套灰度主题与圆角；类名保持常量，Streamdown 的 memo 才能命中。
 const CODE_BLOCK_CLASS =
-  '[&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-line [&_[data-streamdown=code-block]]:bg-code [&_[data-streamdown=code-block-body]]:bg-transparent';
+  '[&_[data-streamdown=inline-code]]:bg-code [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-white/10 [&_[data-streamdown=code-block]]:bg-[var(--color-code-block)] [&_[data-streamdown=code-block]]:text-[var(--color-code-block-fg)] [&_[data-streamdown=code-block-body]]:border-white/10 [&_[data-streamdown=code-block-body]]:bg-transparent';
 // 单换行保留：模型常按行生成纯文本，折叠成空格会改变原意（与旧的纯文本路径一致）。
 const PARAGRAPH_CLASS = '[&_p]:whitespace-pre-wrap';
 const BODY_CLASS = `min-w-0 text-base text-fg ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;

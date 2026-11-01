@@ -18,7 +18,8 @@ export function highlightJson(text: string): ReactNode[] {
     const start = match.index;
     if (start > last) nodes.push(text.slice(last, start));
     const [token] = match;
-    const className = match[1] === 'null' ? 'text-muted-foreground' : 'text-fg';
+    const className =
+      match[1] === 'null' ? 'text-white/55' : 'text-[var(--color-code-block-fg)]';
     nodes.push(
       <span key={index++} className={className}>
         {token}
@@ -67,12 +68,12 @@ function CodeLines({
           {lineNumbers ? (
             <span
               aria-hidden="true"
-              className="mr-3 inline-block w-8 shrink-0 select-none text-right text-muted-foreground"
+              className="mr-3 inline-block w-8 shrink-0 select-none text-right text-white/45"
             >
               {i + 1}
             </span>
           ) : null}
-          <span className="whitespace-pre text-fg/90">
+          <span className="whitespace-pre text-[var(--color-code-block-fg)]">
             {json ? highlightJson(line) : line || ' '}
           </span>
         </span>
@@ -110,11 +111,14 @@ export function CodeBlock({
     <Collapsible
       open={open}
       onOpenChange={setExpanded}
-      className={cn('group relative overflow-hidden rounded-card border bg-code', className)}
+      className={cn(
+        'cds-code-surface group relative overflow-hidden rounded-card border border-white/10 bg-[var(--color-code-block)] text-[var(--color-code-block-fg)]',
+        className,
+      )}
     >
       {large && (
         // Keep compact disclosure text and its focus ring; the primitive supplies no styling.
-        <CollapsibleTrigger className="px-3 py-2 text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <CollapsibleTrigger className="px-3 py-2 text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           {expanded ? '收起内容' : '内容过大，点击查看'}
         </CollapsibleTrigger>
       )}
@@ -124,7 +128,7 @@ export function CodeBlock({
             value={code}
             label={copyLabel}
             showLabel
-            className="absolute right-2 top-2 z-10 bg-surface/90 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+            className="absolute right-2 top-2 z-10 bg-surface/90 text-fg [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
           />
         ) : null}
         {/* 滚动区可聚焦，键盘用户才能用方向键/PageDown 浏览超长内容。 */}

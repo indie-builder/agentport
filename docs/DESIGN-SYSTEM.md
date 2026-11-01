@@ -35,6 +35,8 @@ colors:
   danger-soft: "#FCEBE9"
   chart-runs: "#2A78D6"
   code: "#F6F6F6"
+  code-block: "#0D0D0C"
+  code-block-fg: "#E6E6E4"
   scrim: "rgb(0 0 0 / 0.4)"
 typography:
   sans:
@@ -114,7 +116,7 @@ spacing:
 
 | 基础角色 | 令牌 | 值 | 用途 |
 |---|---|---|---|
-| 画布 / 表面 | `canvas` / `surface`、`panel` / `sunken`、`hover`、`chip`、`code` | `#FCFCFB` / `#FFFFFF` / `#F9F9F7` / `#F3F3F0` / `#F6F6F4` / `#F6F6F6` | 应用底色与侧栏 / 主区、卡片、浮层、输入基底 / 下沉容器 / 悬停层 / chip 底 / 代码块 |
+| 画布 / 表面 | `canvas` / `surface`、`panel` / `sunken`、`hover`、`chip`、`code` | `#FCFCFB` / `#FFFFFF` / `#F9F9F7` / `#F3F3F0` / `#F6F6F4` / `#F6F6F6` | 应用底色与侧栏 / 主区、卡片、浮层、输入基底 / 下沉容器 / 悬停层 / chip 底 / 行内代码 chip |
 | 文本 | `fg`、`ink`、`foreground` / `muted-foreground` / `subtle` | `#151515` / `#525252` / `#8A8A8A` | 正文、标题与选中前景 / 辅助信息、占位符、元信息、注释 / 仅装饰与禁用例外，不承载可读文字 |
 | 边线 | `line`、`border`、`input`、`code-line` / `line-strong` / `control-boundary` | `rgba(0, 0, 0, 0.10)` / `rgba(0, 0, 0, 0.20)` / `rgba(0, 0, 0, 0.35)` | 分隔线与输入发丝边 / 较强分隔 / checkbox、radio 与 off 开关强边界 |
 | 交互 | `hover` / `selected`、`accent` / `chip` | `#F3F3F0` / `#EAE9E4` / `#F6F6F4` | 悬停与中性浅层 / 当前导航、页签、列表选中、菜单高亮、用户消息气泡 / chip 底 |
@@ -150,7 +152,7 @@ spacing:
 - **消息。** 用户消息由浅蓝底改为 `selected` 中性浅底 + `fg`，保留现有胶囊形状、对齐与宽度；附件用中性 `outline`。助手正文仍在白底上无气泡。
 - **浮层与菜单。** 白表面、`line` 边线、统一 overlay 阴影；菜单项 hover/键盘高亮用 `accent` + `accent-foreground`，危险项用 `danger` 且不被普通 hover 覆盖；菜单内搜索等可编辑边界用 `input`。Dialog、AlertDialog、Sheet、Popover、Tooltip、Toast 共用同一表面与阴影，遮罩用 `scrim`；tooltip 若既有反色则保留深底白字。确认框的 default 为深色主操作、取消用 `outline`，危险确认保持 `destructive`。Toast 操作按钮用显式 `outline` 中性次操作；Sonner 自带规则特异性更高，允许 toast 根与操作按钮用中性语义令牌做必要的 `!important` 覆盖，不保留旧的蓝色专用覆盖；关闭按钮白底、中性 hover，保留时长、位置、关闭与屏幕阅读器提示。
 - **状态与数据不借用动作色。** 成功、警告、失败继续用独立状态色；运行图表首系列用 `chart-runs` 数据蓝，失败用 `chart-failed`（即 `danger`）。OpenUI 图表只把首系列映射数据蓝，其余系列保留既有中性层级与纹理，不扩展分类色板；数据蓝不能蔓延回导航、按钮或焦点。
-- **代码。** 块表面用 `code` `#F6F6F6`；正文 `fg`，关键字/函数/链接用中性 `primary`，注释与标点用 `muted-foreground`。CodeMirror 原生主题走相同令牌，selection/searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底，真实可编辑搜索 input 用 `input` 默认边线与 `input-focus` 聚焦边线。
+- **代码。** 围栏/块级代码为深色面：表面 `code-block` `#0D0D0C`，正文与语法用浅色 `code-block-fg` `#E6E6E4`，关键字/函数/链接用暖陶土调的浅色，注释、参数与标点用暖灰层次，复制反馈 2.5s 后衰减回初始态。行内 `code` 仍是浅 chip `#F6F6F6` 配 `fg` 正文。深色代码块内选区用陶土半透明底配白色文字，不沿用全局近黑前景。CodeMirror 原生主题走浅色令牌，selection/searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底，真实可编辑搜索 input 用 `input` 默认边线与 `input-focus` 聚焦边线。
 - **徽章。** default 与 secondary 都是浅中性底、`fg` 字，不再整枚深色填充；outline 仍白底 `line`；危险/成功/警告继续各自语义，链接 badge 保留焦点。文本不借用 `subtle`。
 - 所有控件只引用语义令牌（`primary`、`primary-hover`、`button-primary` 三态、`ring`、`selected`、`selected-foreground`、`accent`、`accent-foreground`、`muted-foreground`、`input`、`input-focus`、`link`、`control-boundary`、`shadow-focus-glow`、`chart-runs` 等），不逐页写色值。字体、尺寸、布局与品牌素材不随配色调整改变。
 - 保留 hover、active、expanded、checked、selected、invalid、disabled、focus-visible 的真实状态；不能用页面级 CSS 把所有 `bg-primary` 强制改白。状态不只依赖颜色，沿用既有文字、勾选、图标与 ARIA。
@@ -168,7 +170,7 @@ spacing:
 | `muted-foreground` / `sunken #F9F9F7` | 7.41:1 |
 | `muted-foreground` / `chip #F6F6F4` | 7.22:1 |
 | `muted-foreground` / `hover #F3F3F0` | 7.03:1 |
-| `muted-foreground` / `code #F6F6F6` | 7.23:1 |
+| `muted-foreground` / 行内 `code #F6F6F6` | 7.23:1 |
 | 白 / `button-primary` normal、hover、active | 3.12 / 4.13 / 5.67:1 |
 | `fg` / `button-primary` | 5.85:1 |
 | `ring #D97757` / selected | 2.57:1（已知限制，低于 3:1） |

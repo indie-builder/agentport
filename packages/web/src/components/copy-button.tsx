@@ -4,10 +4,6 @@ import { cn } from '../lib/cn.js';
 import { toastError } from '../lib/toast.js';
 import { Button } from './ui/button.js';
 
-/**
- * 复制文本，1.5s 内显示「已复制」。
- * label 同时作为 aria-label、title 与（showLabel 时）可见文字；定位由调用方用 className 决定。
- */
 export function CopyButton({
   value,
   label,
@@ -22,6 +18,7 @@ export function CopyButton({
   className?: string;
 }) {
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
   // 用值本身而不是布尔标记判断反馈：正文换成另一份时立刻回到「复制」，不会闪回上一份的「已复制」。
   const copied = copiedValue === value;
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,8 +33,9 @@ export function CopyButton({
     try {
       await navigator.clipboard.writeText(value);
       if (resetTimer.current !== null) clearTimeout(resetTimer.current);
+      setNonce((current) => current + 1);
       setCopiedValue(value);
-      resetTimer.current = setTimeout(() => setCopiedValue(null), 1500);
+      resetTimer.current = setTimeout(() => setCopiedValue(null), 2500);
     } catch {
       toastError(new Error('无法复制，请选择内容后手动复制。'));
     }
@@ -52,7 +50,7 @@ export function CopyButton({
       title={text}
       className={className}
     >
-      <span className="grid">
+      <span key={nonce} className="grid">
         <Copy
           aria-hidden="true"
           data-icon={showLabel ? 'inline-start' : undefined}
@@ -66,11 +64,15 @@ export function CopyButton({
           data-icon={showLabel ? 'inline-start' : undefined}
           className={cn(
             'col-start-1 row-start-1 text-success transition-opacity duration-150 ease-out-soft',
-            copied ? 'opacity-100' : 'opacity-0',
+            copied ? 'saved-check-decay opacity-100' : 'opacity-0',
           )}
         />
       </span>
-      {showLabel ? text : null}
+      {showLabel ? (
+        <span key={nonce} className={cn(copied && 'saved-check-decay')}>
+          {text}
+        </span>
+      ) : null}
     </Button>
   );
 }
