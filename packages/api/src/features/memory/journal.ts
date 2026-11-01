@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { chmod, lstat, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fail } from '@agentport/core';
-import { type MemoryReviewTarget, memoryFileNameSchema } from '@agentport/shared';
+import { hasErrorCode, type MemoryReviewTarget, memoryFileNameSchema } from '@agentport/shared';
 import { z } from 'zod';
 import { withMemoryJournalDir } from '../agents/memory-files.js';
 
@@ -54,10 +54,6 @@ export function memorySha256(content: string | null): string | null {
 
 export function bufferSha256(content: Buffer | null): string | null {
   return content === null ? null : createHash('sha256').update(content).digest('hex');
-}
-
-function hasCode(error: unknown, code: string): boolean {
-  return error instanceof Error && 'code' in error && error.code === code;
 }
 
 function journalName(operationId: string): string {
@@ -112,7 +108,7 @@ export async function listMemoryJournals(
       return entries;
     });
   } catch (error) {
-    if (hasCode(error, 'ENOENT')) return [];
+    if (hasErrorCode(error, 'ENOENT')) return [];
     throw error;
   }
 }
@@ -168,10 +164,10 @@ export async function deleteMemoryJournal(
       try {
         await unlink(join(dir, name));
       } catch (error) {
-        if (!hasCode(error, 'ENOENT')) throw error;
+        if (!hasErrorCode(error, 'ENOENT')) throw error;
       }
     });
   } catch (error) {
-    if (!hasCode(error, 'ENOENT')) throw error;
+    if (!hasErrorCode(error, 'ENOENT')) throw error;
   }
 }
