@@ -157,6 +157,7 @@ export function AuditPage() {
     <Page>
       <PageHeader
         title="审计"
+        description="输入只保存摘要，不落原文。"
         actions={
           <>
             <Button
@@ -223,7 +224,6 @@ export function AuditPage() {
           className="w-full sm:w-36"
         />
       </PageToolbar>
-      <p className="text-xs text-muted-foreground">输入只保存摘要，不落原文。</p>
 
       {audit.isError && !audit.data ? (
         <ErrorState

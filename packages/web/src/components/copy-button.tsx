@@ -12,11 +12,13 @@ export function CopyButton({
   value,
   label,
   showLabel = false,
+  variant,
   className,
 }: {
   value: string;
   label: string;
   showLabel?: boolean;
+  variant?: 'outline' | 'ghost';
   className?: string;
 }) {
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export function CopyButton({
   const text = copied ? '已复制' : label;
   return (
     <Button
-      variant={showLabel ? 'outline' : 'ghost'}
+      variant={variant ?? (showLabel ? 'outline' : 'ghost')}
       size={showLabel ? 'sm' : 'icon-sm'}
       onClick={() => void copy()}
       aria-label={text}

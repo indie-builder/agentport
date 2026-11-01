@@ -57,7 +57,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="break-words font-mono text-md tabular-nums text-fg">{value}</div>
+      <div className="break-words font-mono text-xs leading-5 tabular-nums text-fg">{value}</div>
     </div>
   );
 }
@@ -343,7 +343,7 @@ export function StatusPage() {
       <PageSection title="端点诊断">
         <div className="flex flex-wrap items-start gap-3 border-b pb-3">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h3 className="text-sm text-fg">
+            <h3 className="text-sm font-medium text-fg">
               存活检查{' '}
               <code className="break-all font-mono text-xs text-muted-foreground">
                 /health/live
@@ -362,7 +362,7 @@ export function StatusPage() {
         </div>
         <div className="flex flex-wrap items-start gap-3">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h3 className="text-sm text-fg">
+            <h3 className="text-sm font-medium text-fg">
               就绪检查{' '}
               <code className="break-all font-mono text-xs text-muted-foreground">
                 /health/ready

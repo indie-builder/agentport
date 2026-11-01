@@ -529,9 +529,9 @@ export function AppShell() {
         <SidebarBrand collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
       )}
       {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
-      <nav aria-label="主导航" className="mt-[18px] flex-1 overflow-y-auto overflow-x-hidden">
+      <nav aria-label="主导航" className="mt-4 flex-1 overflow-y-auto overflow-x-hidden">
         {navGroups.map((group) => (
-          <div key={group.label} className="mt-3 first:mt-3">
+          <div key={group.label} className="mt-3">
             {drawer || !collapsed ? (
               <div className="px-2.5 pb-1.5 pt-4 text-xs text-muted-foreground">{group.label}</div>
             ) : (
@@ -554,7 +554,7 @@ export function AppShell() {
         ))}
       </nav>
       {/* 底部：次级运维入口（或返回工作区）与用户信息。 */}
-      <div className={cn('flex flex-col gap-1 pt-[18px]', collapsed && !drawer && 'items-center')}>
+      <div className={cn('flex flex-col gap-1 pt-4', collapsed && !drawer && 'items-center')}>
         {bottomEntry ? (
           <SidebarLink
             to={bottomEntry.to}

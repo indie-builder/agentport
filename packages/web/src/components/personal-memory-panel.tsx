@@ -1,7 +1,7 @@
 import { type MemoryChange, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
 import { Link } from '@tanstack/react-router';
 import { ChevronRight, Download, Pencil, RotateCcw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { formatDateTime } from '../lib/format.js';
@@ -50,6 +50,9 @@ export function PersonalMemoryPanel({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [rollbackTarget, setRollbackTarget] = useState<MemoryChange | null>(null);
   const [rollbackError, setRollbackError] = useState<string | null>(null);
+  // 编辑区卸载后焦点会掉到 body；退出时把它交还给重新出现的入口按钮。
+  const editTrigger = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
 
   const content = editing ? (draft ?? memory.data?.content ?? '') : (memory.data?.content ?? '');
   const chars = [...content].length;
@@ -63,11 +66,20 @@ export function PersonalMemoryPanel({
   useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
   useEffect(() => () => onPendingChange(false), [onPendingChange]);
 
+  useEffect(() => {
+    if (editing || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    // 等确认弹层卸载并完成它自己的焦点清理后再接回入口按钮。
+    const frame = requestAnimationFrame(() => editTrigger.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [editing]);
+
   const exitEditing = (): void => {
     setEditing(false);
     setDraft(null);
     setDraftBaseline(null);
     setConflict(false);
+    restoreFocus.current = true;
   };
 
   const beginEditing = (): void => {
@@ -188,7 +200,7 @@ export function PersonalMemoryPanel({
                 下载
               </a>
               {canWrite ? (
-                <Button size="sm" onClick={beginEditing}>
+                <Button ref={editTrigger} size="sm" onClick={beginEditing}>
                   <Pencil data-icon="inline-start" aria-hidden="true" />
                   编辑
                 </Button>
@@ -292,7 +304,11 @@ export function PersonalMemoryPanel({
               自己填写长期信息，或从过去对话整理一条可审核的提案。
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              {canWrite ? <Button onClick={beginEditing}>自己填写</Button> : null}
+              {canWrite ? (
+                <Button ref={editTrigger} onClick={beginEditing}>
+                  自己填写
+                </Button>
+              ) : null}
               {canReview ? (
                 <Link
                   to="/personal/reviews"
@@ -355,7 +371,7 @@ export function PersonalMemoryPanel({
                             {preview || '空内容'}
                           </div>
                           {change.reversesChangeId ? (
-                            <div className="text-2xs text-muted-foreground">回滚记录</div>
+                            <div className="text-xs text-muted-foreground">回滚记录</div>
                           ) : null}
                         </div>
                         <Button

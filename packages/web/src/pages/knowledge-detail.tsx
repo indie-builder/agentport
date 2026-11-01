@@ -945,12 +945,14 @@ function DocumentsTab({
           </div>
         </PageToolbar>
 
-        <p className="text-xs text-muted-foreground">
-          音频支持 mp3、wav、m4a、flac、ogg，单个不超过 25 MB。
-          {asrEnabled
-            ? '上传后会调用已配置的转录模型，可能计费；失败重试可能再次计费。'
-            : '先在知识库设置里绑定音频转录模型。'}
-        </p>
+        {caps.content ? (
+          <p className="text-xs text-muted-foreground">
+            音频支持 mp3、wav、m4a、flac、ogg，单个不超过 25 MB。
+            {asrEnabled
+              ? '上传后会调用已配置的转录模型，可能计费；失败重试可能再次计费。'
+              : '先在知识库设置里绑定音频转录模型。'}
+          </p>
+        ) : null}
 
         {(caps.content || caps.execute) && selectedDocuments.length > 0 ? (
           <div

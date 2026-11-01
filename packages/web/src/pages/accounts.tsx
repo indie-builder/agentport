@@ -75,7 +75,7 @@ export function AccountsPage() {
   const me = useQuery(meQuery);
   const search = useSearch({ from: '/_shell/accounts' });
   const navigate = useNavigate({ from: '/accounts' });
-  const [query, setQuery] = useState('');
+  const query = search.q ?? '';
   const [offset, setOffset] = useState(0);
   const settled = useDebouncedValue(query.trim(), 300);
   const accounts = useAccounts({ q: settled, limit: PAGE_SIZE, offset });
@@ -142,10 +142,14 @@ export function AccountsPage() {
           placeholder="搜索业务 ID、用户名或姓名…"
           value={query}
           onChange={(next) => {
-            setQuery(next);
             setOffset(0);
+            void navigate({
+              to: '/accounts',
+              search: { ...search, q: next || undefined },
+              replace: true,
+            });
           }}
-          className="w-72 min-w-0"
+          className="w-56 min-w-0"
         />
         <span role="status" className="ml-auto text-xs text-muted-foreground">
           {accounts.isPending ? '加载中…' : accounts.isError ? '数量不可用' : `共 ${total} 个账户`}

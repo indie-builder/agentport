@@ -75,8 +75,8 @@ export function ResourcePage({
                   to={to}
                   aria-current={id === section ? 'page' : undefined}
                   className={cn(
-                    "relative inline-flex h-[25px] flex-none items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color,border-color,box-shadow] duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-                    'after:absolute after:inset-x-0 after:bottom-[-5px] after:h-0.5 after:bg-primary after:opacity-0 after:transition-opacity',
+                    "relative inline-flex h-8 flex-none items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color,border-color,box-shadow] duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+                    'after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary after:opacity-0 after:transition-opacity',
                     id === section ? 'text-primary after:opacity-100' : 'hover:text-foreground',
                   )}
                 >

@@ -148,9 +148,17 @@ function KnowledgeCard({
             <LibraryBig aria-hidden="true" />
           </span>
           <CardTitle className="col-start-2 min-w-0">
-            <h2 className="truncate text-base leading-snug font-medium" title={base.name}>
-              {base.name}
-            </h2>
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="min-w-0 truncate text-base leading-snug font-medium" title={base.name}>
+                {base.name}
+              </h2>
+              <StatusBadge
+                className="shrink-0"
+                tone={base.status === 'active' ? 'success' : 'outline'}
+              >
+                {base.status === 'active' ? '启用' : '停用'}
+              </StatusBadge>
+            </div>
           </CardTitle>
           <CardAction className="relative z-10 col-start-3 row-span-2 row-start-1">
             <DropdownMenu>
@@ -200,13 +208,12 @@ function KnowledgeCard({
             {base.description || '—'}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-1 flex-wrap items-center gap-2">
-          <StatusBadge tone={base.status === 'active' ? 'success' : 'outline'}>
-            {base.status === 'active' ? '启用' : '停用'}
-          </StatusBadge>
+        <CardContent className="flex flex-1 items-center">
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+            {base.slug}
+          </span>
         </CardContent>
-        <CardFooter className="mt-auto justify-between gap-2">
-          <span className="truncate font-mono text-2xs text-muted-foreground">{base.slug}</span>
+        <CardFooter className="mt-auto">
           <span className="text-xs text-muted-foreground">{formatRelative(base.updatedAt)}</span>
         </CardFooter>
       </Card>

@@ -250,13 +250,13 @@ function HealthLine() {
   const { data, isPending, isError, isFetching, refetch } = useQuery(healthMetricsQuery);
   if (!data) {
     return (
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-2xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
         <span>{isPending ? '健康指标加载中…' : '健康指标不可用'}</span>
         {isPending ? null : (
           <Button
             variant="plain"
             size="xs"
-            className="h-auto p-0 text-2xs font-normal text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
+            className="h-auto p-0 font-normal text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
             disabled={isFetching}
             onClick={() => void refetch()}
           >
@@ -278,7 +278,7 @@ function HealthLine() {
   const queueIssue = queue.condition !== 'ok' && queue.condition !== 'failed';
   if (!queueIssue && !redisIssue && !isError) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-2xs tabular-nums text-warning">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs tabular-nums text-warning">
       {queueIssue ? <span>{queue.message}</span> : null}
       {redisIssue ? <span>Redis 指标不可用</span> : null}
       {isError ? <span>健康指标刷新失败，显示上次结果</span> : null}
@@ -286,7 +286,7 @@ function HealthLine() {
         <Button
           variant="plain"
           size="xs"
-          className="h-auto p-0 text-2xs font-normal text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
+          className="h-auto p-0 font-normal text-muted-foreground underline-offset-2 hover:text-fg hover:underline"
           disabled={isFetching}
           onClick={() => void refetch()}
         >
@@ -528,8 +528,7 @@ export function OverviewPage() {
       {data && !empty ? (
         <>
           <HealthLine />
-          <section className="flex flex-col gap-3" aria-label="平台概况">
-            <p className="text-xs text-muted-foreground">{windowLabel}</p>
+          <PageSection title="平台概况" description={windowLabel} divided={false}>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 {
@@ -564,7 +563,7 @@ export function OverviewPage() {
                 </Card>
               ))}
             </div>
-          </section>
+          </PageSection>
 
           {hasAttention ? attentionSection : null}
 
@@ -601,11 +600,7 @@ export function OverviewPage() {
                 }
               />
             ) : (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm">
-                <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-                  <Plus className="size-3.5" aria-hidden="true" /> 新建对话
-                </Link>
-              </div>
+              <PageNote title="发起对话后在这里查看运行" />
             )}
           </PageSection>
 
