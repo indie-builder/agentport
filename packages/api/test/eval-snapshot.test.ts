@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getEvalQueue } from '../src/queue/producer.js';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   infraReady,
@@ -12,7 +13,6 @@ import {
   queueIdle,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 // 提交评估会入队；有活跃 worker 时 job 会被立刻消费，断言只能看到原始用例。

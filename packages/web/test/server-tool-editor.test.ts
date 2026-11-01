@@ -16,7 +16,7 @@ vi.mock('../src/lib/queries.js', () => ({
     queryKey: ['me'],
     queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
   },
-    useServers: () => ({ data: [] }),
+  useServers: () => ({ data: [] }),
   useAgents: () => ({ data: [] }),
   useTools: () => ({ data: [] }),
   useCreateServer: () => ({ mutate: vi.fn(), isPending: false }),

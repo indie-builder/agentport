@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { fail, isAppError } from '@agentport/core';
-import {
-  type KnowledgeFaq,
-  type KnowledgeFaqImportIssue,
-  type KnowledgeFaqImportResult,
-  type KnowledgeFaqTransferEntry,
+import type {
+  KnowledgeFaq,
+  KnowledgeFaqImportIssue,
+  KnowledgeFaqImportResult,
+  KnowledgeFaqTransferEntry,
 } from '@agentport/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
 import type { Workbook as ExcelWorkbook } from 'exceljs';

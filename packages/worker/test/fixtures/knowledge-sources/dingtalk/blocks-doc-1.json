@@ -27,10 +27,7 @@
         "blockType": "table",
         "id": "b5",
         "table": {
-          "cells": [
-            ["Name", "Value"],
-            ["a", "1"]
-          ]
+          "cells": [["Name", "Value"], ["a", "1"]]
         }
       },
       {

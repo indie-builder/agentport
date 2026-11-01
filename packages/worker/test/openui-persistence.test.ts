@@ -3,7 +3,9 @@ import type { ChatEvent } from '@agentport/shared';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { persistRunMessages } from '../src/messages.js';
-import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
+import { testAccess } from './fixtures/access.js';
+
+const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
 /**
  * 跨轮 UI 编辑的落库语义：基线必须在本 run 输出删除之前取，纯文本/子智能体/截断不能伪造完整程序，

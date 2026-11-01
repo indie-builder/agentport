@@ -97,7 +97,9 @@ describe('testConnection tool catalog limits', () => {
 
   it('redacts bearer and assignment secrets in the result and warn log', async () => {
     mocks.connect.mockRejectedValueOnce(
-      new Error('connect failed: Authorization: Bearer abcdefghijklmnop, MCP_TOKEN=superSecretValue123'),
+      new Error(
+        'connect failed: Authorization: Bearer abcdefghijklmnop, MCP_TOKEN=superSecretValue123',
+      ),
     );
     const logger = { warn: vi.fn() };
 

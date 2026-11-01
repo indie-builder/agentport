@@ -1,6 +1,6 @@
 import { newId, repo, schema } from '@agentport/db';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { type FastifyInstance, infraReady, startApp, ADMIN_BUSINESS_ID } from './helpers.js';
+import { ADMIN_BUSINESS_ID, type FastifyInstance, infraReady, startApp } from './helpers.js';
 
 // run token 的授权边界：父智能体自己的绑定，加上启用的直接子级绑定。
 // 这里只验证 SQL 谓词本身，不经过沙盒；外部伪造 run header 时会走到同一函数。

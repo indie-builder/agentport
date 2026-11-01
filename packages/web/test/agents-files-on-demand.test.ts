@@ -1,4 +1,4 @@
-import { PERMISSIONS, type Agent, agentInputSchema, type WorkspaceFiles } from '@agentport/shared';
+import { type Agent, agentInputSchema, PERMISSIONS, type WorkspaceFiles } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -24,9 +24,9 @@ vi.mock('../src/lib/queries.js', async (importOriginal) => {
   return {
     ...actual,
     meQuery: {
-    queryKey: ['me'],
-    queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
-  },
+      queryKey: ['me'],
+      queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
+    },
     useAgents: () => ({ data: state.agent ? [state.agent] : [] }),
     useAgentOptions: () => ({
       data: { servers: [], skills: [], plugins: [], runtimeEnvironments: [] },

@@ -114,16 +114,25 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
   const key = (): string => app.config.APP_SECRET_KEY;
 
-  app.get('/api/servers', { config: { access: { kind: 'permission', permissionId: 'servers.read' } } }, async () => repo.listServers(app.db, key()));
+  app.get(
+    '/api/servers',
+    { config: { access: { kind: 'permission', permissionId: 'servers.read' } } },
+    async () => repo.listServers(app.db, key()),
+  );
 
   // 连接器目录（策划清单）：只读，用于浏览并预填创建表单，绝不执行任何命令。
-  app.get('/api/connector-catalog', { config: { access: { kind: 'permission', permissionId: 'servers.read' } } }, async () =>
-    connectorCatalogSchema.parse(connectorCatalog),
+  app.get(
+    '/api/connector-catalog',
+    { config: { access: { kind: 'permission', permissionId: 'servers.read' } } },
+    async () => connectorCatalogSchema.parse(connectorCatalog),
   );
 
   app.post(
     '/api/servers',
-    { config: { access: { kind: 'permission', permissionId: 'servers.create' } }, schema: { body: serverInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.create' } },
+      schema: { body: serverInputSchema },
+    },
     async (request, reply) => {
       const input = request.body;
       try {
@@ -184,10 +193,17 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/servers/:id', { config: { access: { kind: 'permission', permissionId: 'servers.read' } }, schema: { params: idParams } }, async (request, reply) => {
-    const server = await repo.getServer(app.db, request.params.id, key());
-    return server ?? notFound(reply, 'server');
-  });
+  app.get(
+    '/api/servers/:id',
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.read' } },
+      schema: { params: idParams },
+    },
+    async (request, reply) => {
+      const server = await repo.getServer(app.db, request.params.id, key());
+      return server ?? notFound(reply, 'server');
+    },
+  );
 
   /** 只返回掩码与端点；明文只由 rotate 返回一次。 */
   app.get(
@@ -217,7 +233,10 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.post(
     '/api/servers/:id/rotate-token',
-    { config: { access: { kind: 'permission', permissionId: 'servers.tokens.rotate' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.tokens.rotate' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const row = await repo.getServerRow(app.db, request.params.id);
       if (!row) return notFound(reply, 'server');
@@ -282,7 +301,10 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/servers/:id',
-    { config: { access: { kind: 'permission', permissionId: 'servers.delete' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.delete' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       // 知识库连接随知识库删除，不能从这里单独删掉。
       const row = await repo.getServerRow(app.db, request.params.id);
@@ -381,7 +403,10 @@ export function registerServerRoutes(rawApp: FastifyInstance): void {
 
   app.get(
     '/api/servers/:id/tools',
-    { config: { access: { kind: 'permission', permissionId: 'servers.read' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'servers.read' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       if (!(await dbRepo.servers.serverExists(app.db, request.params.id))) {
         return notFound(reply, 'server');

@@ -36,7 +36,7 @@ vi.mock('../src/lib/queries.js', () => ({
     queryKey: ['me'],
     queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
   },
-    usePlugin: () => state.query,
+  usePlugin: () => state.query,
 }));
 
 vi.mock('@tanstack/react-router', () => ({

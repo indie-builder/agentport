@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { buildApp } from '../src/app.js';
 import { registerPersonalMemoryRoutes } from '../src/features/memory/routes.js';
 import {
-  ADMIN_BUSINESS_ID,
+  createTestAccount,
   expectProblem,
   infraReady,
   inject,
@@ -40,25 +40,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
-// 三个记忆测试文件并行时共用同一把会话级 advisory 锁：它们都会删写同一行管理员个人偏好。
-const MEMORY_TEST_LOCK = 'agentport.memory-tests';
-
 describe.skipIf(!ready)('personal memory', () => {
   let app: FastifyInstance;
   let cookie: string;
+  let businessId: string;
   let root: string;
-  let releaseLock: (() => Promise<void>) | undefined;
-
-  async function acquireMemoryLock(pool: FastifyInstance['pool']): Promise<() => Promise<void>> {
-    const client = await pool.connect();
-    // 等锁可能超过连接默认的 statement_timeout。
-    await client.query('set statement_timeout = 0');
-    await client.query('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
-    return async () => {
-      await client.query('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
-      client.release();
-    };
-  }
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'personal-memory-'));
@@ -68,28 +54,23 @@ describe.skipIf(!ready)('personal memory', () => {
       registerPersonalMemoryRoutes(app);
     }
     await app.ready();
-    releaseLock = await acquireMemoryLock(app.pool);
-    cookie = await loginCookie(app);
+    // 独立账号：并行测试文件也会以管理员身份写记忆，按 business_id 筛全表会串数据。
+    const account = await createTestAccount(app, await loginCookie(app), { systemKeys: ['user'] });
+    cookie = account.cookie;
+    businessId = account.businessId;
   }, 60_000);
 
   beforeEach(async () => {
-    await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
-    await app.pool.query('delete from user_preferences where business_id = $1', [
-      ADMIN_BUSINESS_ID,
-    ]);
-    await rm(personalMemoryDir(root, ADMIN_BUSINESS_ID), { recursive: true, force: true });
+    await app.pool.query('delete from memory_changes where business_id = $1', [businessId]);
+    await app.pool.query('delete from user_preferences where business_id = $1', [businessId]);
+    await rm(personalMemoryDir(root, businessId), { recursive: true, force: true });
   });
 
   afterAll(async () => {
     try {
-      await app.pool.query('delete from memory_changes where business_id = $1', [
-        ADMIN_BUSINESS_ID,
-      ]);
-      await app.pool.query('delete from user_preferences where business_id = $1', [
-        ADMIN_BUSINESS_ID,
-      ]);
+      await app.pool.query('delete from memory_changes where business_id = $1', [businessId]);
+      await app.pool.query('delete from user_preferences where business_id = $1', [businessId]);
     } finally {
-      await releaseLock?.();
       await app.close();
       await rm(root, { recursive: true, force: true });
     }
@@ -139,10 +120,10 @@ describe.skipIf(!ready)('personal memory', () => {
       body: JSON.stringify({ content, revision: 1, updatedAt: body.updatedAt }),
     });
 
-    const file = personalMemoryPath(root, ADMIN_BUSINESS_ID);
+    const file = personalMemoryPath(root, businessId);
     expect(await readFile(file, 'utf8')).toBe(content);
     expect((await stat(file)).mode & 0o777).toBe(0o600);
-    const dir = await stat(personalMemoryDir(root, ADMIN_BUSINESS_ID));
+    const dir = await stat(personalMemoryDir(root, businessId));
     expect(dir.isDirectory()).toBe(true);
     expect(dir.mode & 0o777).toBe(0o700);
 
@@ -165,22 +146,22 @@ describe.skipIf(!ready)('personal memory', () => {
       after: { content, globs: null, index: null },
       source_review_run_id: null,
       state: 'applied',
-      business_id: ADMIN_BUSINESS_ID,
+      business_id: businessId,
     });
   });
 
   it('rejects a stale revision without touching the database or file', async () => {
     expect((await put({ content: 'first', expectedRevision: 0 })).statusCode).toBe(200);
-    const file = personalMemoryPath(root, ADMIN_BUSINESS_ID);
+    const file = personalMemoryPath(root, businessId);
     const response = await put({ content: 'stale', expectedRevision: 0 });
     expectProblem(response, 'CONFLICT');
     expect(await readFile(file, 'utf8')).toBe('first');
-    const row = await repo.userPreferences.get(app.db, ADMIN_BUSINESS_ID);
+    const row = await repo.userPreferences.get(app.db, businessId);
     expect(row).toMatchObject({ content: 'first', revision: 1 });
     expect(
       await app.pool.query(
         'select count(*)::int as count from memory_changes where business_id = $1',
-        [ADMIN_BUSINESS_ID],
+        [businessId],
       ),
     ).toMatchObject({ rows: [{ count: 1 }] });
   });
@@ -197,7 +178,7 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(rejected.json<{ message: string }>().message).toBe(
       '个人偏好最多 9000 个字符，请精简后保存',
     );
-    expect(await readFile(personalMemoryPath(root, ADMIN_BUSINESS_ID), 'utf8')).toBe(atLimit);
+    expect(await readFile(personalMemoryPath(root, businessId), 'utf8')).toBe(atLimit);
 
     // 代理对字符按一个码点计，不按 UTF-16 code unit 计。
     const emoji = '😀'.repeat(PERSONAL_MEMORY_MAX_CHARS);
@@ -264,14 +245,14 @@ describe.skipIf(!ready)('personal memory', () => {
     await put({ content: 'one', expectedRevision: 0 });
     // 同一用户采纳专家记忆/规则也写在同一 business_id 下，但不属于个人版本。
     await repo.memoryChanges.insert(app.db, {
-      businessId: ADMIN_BUSINESS_ID,
+      businessId: businessId,
       agentId: null,
       target: { kind: 'agent_memory', agentId: 'agt_expert', name: 'MEMORY.md' },
       before: { content: '', globs: null, index: null },
       after: { content: 'expert memory', globs: null, index: null },
     });
     await repo.memoryChanges.insert(app.db, {
-      businessId: ADMIN_BUSINESS_ID,
+      businessId: businessId,
       agentId: null,
       target: { kind: 'agent_rule', agentId: 'agt_expert', slug: 'style' },
       before: { content: '', globs: null, index: null },
@@ -316,7 +297,7 @@ describe.skipIf(!ready)('personal memory', () => {
       target: MemoryReviewTarget,
     ): Promise<string> => {
       const row = await repo.memoryChanges.insert(app.db, {
-        businessId: ADMIN_BUSINESS_ID,
+        businessId: businessId,
         agentId: null,
         target,
         before: { content: '', globs: null, index: null },
@@ -366,23 +347,23 @@ describe.skipIf(!ready)('personal memory', () => {
   it('refuses a symlinked projection without touching the link target and still saves the database', async () => {
     const outside = join(root, 'outside.md');
     await writeFile(outside, 'do not touch');
-    await mkdir(personalMemoryDir(root, ADMIN_BUSINESS_ID), { recursive: true });
-    await symlink(outside, personalMemoryPath(root, ADMIN_BUSINESS_ID));
+    await mkdir(personalMemoryDir(root, businessId), { recursive: true });
+    await symlink(outside, personalMemoryPath(root, businessId));
 
     const response = await put({ content: 'new', expectedRevision: 0 });
     expect(response.statusCode, response.body).toBe(200);
     expect(await readFile(outside, 'utf8')).toBe('do not touch');
-    expect(await repo.userPreferences.get(app.db, ADMIN_BUSINESS_ID)).toMatchObject({
+    expect(await repo.userPreferences.get(app.db, businessId)).toMatchObject({
       content: 'new',
       revision: 1,
     });
   });
 
   it('commits the database when the projection directory cannot be used', async () => {
-    await writeFile(personalMemoryDir(root, ADMIN_BUSINESS_ID), 'not a directory');
+    await writeFile(personalMemoryDir(root, businessId), 'not a directory');
     const response = await put({ content: 'new', expectedRevision: 0 });
     expect(response.statusCode, response.body).toBe(200);
-    expect(await repo.userPreferences.get(app.db, ADMIN_BUSINESS_ID)).toMatchObject({
+    expect(await repo.userPreferences.get(app.db, businessId)).toMatchObject({
       content: 'new',
       revision: 1,
     });
@@ -400,15 +381,15 @@ describe.skipIf(!ready)('personal memory', () => {
     }
     expect(saved.statusCode, saved.body).toBe(200);
 
-    expect(await repo.userPreferences.get(app.db, ADMIN_BUSINESS_ID)).toMatchObject({
+    expect(await repo.userPreferences.get(app.db, businessId)).toMatchObject({
       content: 'two',
       revision: 2,
     });
     // 文件仍是旧投影；下一轮运行前 worker 会按数据库重建。
-    expect(await readFile(personalMemoryPath(root, ADMIN_BUSINESS_ID), 'utf8')).toBe('one');
+    expect(await readFile(personalMemoryPath(root, businessId), 'utf8')).toBe('one');
     const changes = await app.pool.query<{ after: { content: string } }>(
       'select after from memory_changes where business_id = $1 order by created_at',
-      [ADMIN_BUSINESS_ID],
+      [businessId],
     );
     expect(changes.rows.map((row) => row.after.content)).toEqual(['one', 'two']);
   });
@@ -422,14 +403,14 @@ describe.skipIf(!ready)('personal memory', () => {
       fsFaults.failWriteFile = false;
     }
     expect(saved.statusCode, saved.body).toBe(200);
-    expect(await repo.userPreferences.get(app.db, ADMIN_BUSINESS_ID)).toMatchObject({
+    expect(await repo.userPreferences.get(app.db, businessId)).toMatchObject({
       content: 'new',
       revision: 1,
     });
     expect(
       await app.pool.query(
         'select count(*)::int as count from memory_changes where business_id = $1',
-        [ADMIN_BUSINESS_ID],
+        [businessId],
       ),
     ).toMatchObject({ rows: [{ count: 1 }] });
   });
@@ -437,7 +418,7 @@ describe.skipIf(!ready)('personal memory', () => {
   it('serializes saves on the user advisory lock while reads stay lock-free', async () => {
     const client = await app.pool.connect();
     await client.query('set statement_timeout = 0');
-    await client.query('select pg_advisory_lock(hashtext($1))', [`user:${ADMIN_BUSINESS_ID}`]);
+    await client.query('select pg_advisory_lock(hashtext($1))', [`user:${businessId}`]);
     let save: Promise<Awaited<ReturnType<typeof put>>> | undefined;
     try {
       save = put({ content: 'locked', expectedRevision: 0 });
@@ -455,10 +436,10 @@ describe.skipIf(!ready)('personal memory', () => {
         ).statusCode,
       ).toBe(200);
     } finally {
-      await client.query('select pg_advisory_unlock(hashtext($1))', [`user:${ADMIN_BUSINESS_ID}`]);
+      await client.query('select pg_advisory_unlock(hashtext($1))', [`user:${businessId}`]);
       client.release();
     }
     expect((await save)?.statusCode).toBe(200);
-    expect(await readFile(personalMemoryPath(root, ADMIN_BUSINESS_ID), 'utf8')).toBe('locked');
+    expect(await readFile(personalMemoryPath(root, businessId), 'utf8')).toBe('locked');
   });
 });

@@ -39,11 +39,18 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
   const app = typed(rawApp);
   const envs = repo.runtimeEnvironments;
 
-  app.get('/api/runtime-environments', { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } }, }, async () => envs.listRuntimeEnvironments(app.db));
+  app.get(
+    '/api/runtime-environments',
+    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } } },
+    async () => envs.listRuntimeEnvironments(app.db),
+  );
 
   app.post(
     '/api/runtime-environments',
-    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.create' } }, schema: { body: runtimeEnvironmentInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runtime_environments.create' } },
+      schema: { body: runtimeEnvironmentInputSchema },
+    },
     async (request, reply) => {
       const env = await envs.createRuntimeEnvironment(app.db, request.body);
       await writeAudit(app.db, request.log, {
@@ -60,7 +67,10 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.get(
     '/api/runtime-environments/:id',
-    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const env = await envs.getRuntimeEnvironment(app.db, request.params.id);
       return env ?? notFound(reply);
@@ -90,7 +100,10 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.delete(
     '/api/runtime-environments/:id',
-    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.delete' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runtime_environments.delete' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const ok = await envs.deleteRuntimeEnvironment(app.db, request.params.id);
       if (!ok) return notFound(reply);
@@ -107,7 +120,10 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.get(
     '/api/runtime-environments/:id/versions',
-    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       if (!(await envs.getRuntimeEnvironment(app.db, request.params.id))) return notFound(reply);
       return envs.listRuntimeEnvironmentVersions(app.db, request.params.id);
@@ -120,7 +136,10 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
    */
   app.post(
     '/api/runtime-environments/:id/versions',
-    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.build' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runtime_environments.build' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const version = await envs.enqueueRuntimeEnvironmentBuild(
         app.db,
@@ -159,7 +178,10 @@ export function registerRuntimeEnvironmentRoutes(rawApp: FastifyInstance): void 
 
   app.get(
     '/api/runtime-environments/:id/versions/:versionId',
-    { config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } }, schema: { params: versionParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'runtime_environments.read' } },
+      schema: { params: versionParams },
+    },
     async (request, reply) => {
       const version = await envs.getRuntimeEnvironmentVersion(
         app.db,

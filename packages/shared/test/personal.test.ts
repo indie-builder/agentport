@@ -64,9 +64,9 @@ describe('personal sessions', () => {
   };
 
   it('accepts display metadata and strips credential fields', () => {
-    expect(
-      personalSessionSchema.parse({ ...session, token: 'raw', userId: 'auth_user' }),
-    ).toEqual(session);
+    expect(personalSessionSchema.parse({ ...session, token: 'raw', userId: 'auth_user' })).toEqual(
+      session,
+    );
   });
 
   it('requires nullable session metadata and ISO timestamps', () => {

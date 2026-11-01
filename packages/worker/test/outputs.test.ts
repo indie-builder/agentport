@@ -17,7 +17,9 @@ import {
   recordOutputSandboxSettlement,
   selectedOutput,
 } from '../src/outputs.js';
-import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
+import { testAccess } from './fixtures/access.js';
+
+const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
 const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
 const dbReady = await pool.query('select 1').then(

@@ -51,14 +51,23 @@ function notFound(reply: FastifyReply) {
 export function registerSkillRoutes(rawApp: FastifyInstance): void {
   const app = typed(rawApp);
 
-  app.get('/api/skills', { config: { access: { kind: 'permission', permissionId: 'skills.read' } } }, async () => {
-    const rows = await repo.listSkills(app.db);
-    return rows.map((row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }));
-  });
+  app.get(
+    '/api/skills',
+    { config: { access: { kind: 'permission', permissionId: 'skills.read' } } },
+    async () => {
+      const rows = await repo.listSkills(app.db);
+      return rows.map(
+        (row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }),
+      );
+    },
+  );
 
   app.post(
     '/api/skills',
-    { config: { access: { kind: 'permission', permissionId: 'skills.create' } }, schema: { body: skillInputSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.create' } },
+      schema: { body: skillInputSchema },
+    },
     async (request, reply) => {
       try {
         const row = await repo.createSkill(app.db, request.body);
@@ -80,7 +89,10 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
   // 导入只接受官方 SKILL.md；slug 即 frontmatter 的 name，冲突与手动创建一样返回 409。
   app.post(
     '/api/skills/import',
-    { config: { access: { kind: 'permission', permissionId: 'skills.import' } }, schema: { body: importSchema } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.import' } },
+      schema: { body: importSchema },
+    },
     async (request, reply) => {
       const { skill, warnings } = request.body;
       try {
@@ -100,15 +112,25 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
     },
   );
 
-  app.get('/api/skills/:id', { config: { access: { kind: 'permission', permissionId: 'skills.read' } }, schema: { params: idParams } }, async (request, reply) => {
-    const row = await repo.getSkill(app.db, request.params.id);
-    return row ? toApi(row) : notFound(reply);
-  });
+  app.get(
+    '/api/skills/:id',
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.read' } },
+      schema: { params: idParams },
+    },
+    async (request, reply) => {
+      const row = await repo.getSkill(app.db, request.params.id);
+      return row ? toApi(row) : notFound(reply);
+    },
+  );
 
   // 下载内容必须与 worker 落盘的 SKILL.md 一致，因此复用同一个渲染函数。
   app.get(
     '/api/skills/:id/file',
-    { config: { access: { kind: 'permission', permissionId: 'skills.read' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.read' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const row = await repo.getSkill(app.db, request.params.id);
       if (!row) return notFound(reply);
@@ -162,7 +184,10 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
 
   app.delete(
     '/api/skills/:id',
-    { config: { access: { kind: 'permission', permissionId: 'skills.delete' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.delete' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const ok = await repo.deleteSkill(app.db, request.params.id);
       if (!ok) return notFound(reply);
@@ -180,7 +205,10 @@ export function registerSkillRoutes(rawApp: FastifyInstance): void {
   // 技能支持资源文件（官方 SKILL.md 目录里的 scripts/、references/ 等）。
   app.get(
     '/api/skills/:id/files',
-    { config: { access: { kind: 'permission', permissionId: 'skills.files.read' } }, schema: { params: idParams } },
+    {
+      config: { access: { kind: 'permission', permissionId: 'skills.files.read' } },
+      schema: { params: idParams },
+    },
     async (request, reply) => {
       const skill = await repo.getSkill(app.db, request.params.id);
       if (!skill) return notFound(reply);

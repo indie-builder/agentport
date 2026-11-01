@@ -1,7 +1,9 @@
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { agentOwnership, conversationSubject, userSubject } from './fixtures/access.js';
+import { testAccess } from './fixtures/access.js';
+
+const { agentOwnership, conversationSubject, userSubject } = testAccess(import.meta.url);
 
 /**
  * 第 9 轮把认领条件收紧成「只认 queued」。回归审计发现这会让重试失效：

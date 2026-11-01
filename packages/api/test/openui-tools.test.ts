@@ -7,7 +7,9 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createRole } from './access-helpers.js';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   createServer as createApiServer,
@@ -20,8 +22,7 @@ import {
   setAgentMember,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID, } from './helpers.js';
-import { createRole } from './access-helpers.js';
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -177,7 +178,7 @@ describe.skipIf(!ready)('openui tools', () => {
       agentId: agent.id,
       title: 'tool bridge',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
     return { server, agent, conversationId, messageId };
@@ -494,7 +495,7 @@ describe.skipIf(!ready)('openui tools', () => {
       agentId: first.agent.id,
       title: 'other',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     conversationIds.push(otherConversation);
 
     const pending = (
@@ -527,7 +528,7 @@ describe.skipIf(!ready)('openui tools', () => {
       agentId: shared.agent.id,
       title: 'tool bridge other',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     conversationIds.push(otherConversation);
     const otherMessageId = await appendUiMessage(otherConversation);
 
@@ -730,7 +731,7 @@ describe.skipIf(!ready)('openui tools', () => {
       agentId: agent.id,
       title: 'http bridge',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
 
@@ -779,7 +780,7 @@ describe.skipIf(!ready)('openui tools', () => {
       agentId: agent.id,
       title: 'mcp bridge',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
-});
+    });
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
     return { server, conversationId, messageId };

@@ -191,6 +191,8 @@ export default async function setup(project: TestProject): Promise<() => Promise
     REDIS_URL: redis?.url ?? UNAVAILABLE.REDIS_URL,
   });
 
+  const missing = [...(database ? [] : ['PostgreSQL']), ...(redis ? [] : ['Redis'])];
+
   // watch 会话开始时 globalSetup 只跑一次；会话内复用本轮资源，退出时 teardown 清理。
   return async () => {
     const results = await Promise.allSettled([
@@ -200,6 +202,16 @@ export default async function setup(project: TestProject): Promise<() => Promise
     const failures = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : [],
     );
+    // 清理后仍缺基础设施就以非零退出：套件跳过不等于通过。
+    if (missing.length > 0) {
+      const missingError = new Error(
+        `backend tests: missing infrastructure (${missing.join(', ')}); dependent suites were skipped, not passed`,
+      );
+      if (failures.length > 0) {
+        throw new AggregateError([...failures, missingError], missingError.message);
+      }
+      throw missingError;
+    }
     if (failures.length > 0) {
       throw new AggregateError(failures, 'backend tests: teardown failed');
     }

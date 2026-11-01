@@ -3,6 +3,7 @@ import type { Agent } from '@agentport/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
@@ -11,7 +12,6 @@ import {
   loginCookie,
   startApp,
   unique,
-  ADMIN_BUSINESS_ID,
 } from './helpers.js';
 
 // 直接落库构造已收口的跑批：不入队，就不需要 worker 空闲。

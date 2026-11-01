@@ -13,7 +13,13 @@ const sections = [
   { id: 'skills', to: '/skills', label: '技能', icon: Sparkles, permission: 'skills.read' },
   { id: 'servers', to: '/servers', label: '连接器', icon: Cable, permission: 'servers.read' },
   { id: 'plugins', to: '/plugins', label: '插件', icon: Puzzle, permission: 'plugins.read' },
-  { id: 'knowledge', to: '/knowledge', label: '知识库', icon: LibraryBig, permission: 'knowledge.read' },
+  {
+    id: 'knowledge',
+    to: '/knowledge',
+    label: '知识库',
+    icon: LibraryBig,
+    permission: 'knowledge.read',
+  },
 ] as const;
 
 const sortOptions = [
@@ -56,9 +62,7 @@ export function ResourcePage({
     knowledge: '知识库',
   }[section];
   const me = useQuery(meQuery);
-  const visibleSections = sections.filter((item) =>
-    canAny(me.data, [item.permission]),
-  );
+  const visibleSections = sections.filter((item) => canAny(me.data, [item.permission]));
   return (
     <Page>
       <PageHeader title={label} className="sr-only" />
