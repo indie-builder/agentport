@@ -2,6 +2,7 @@ import type { Stats } from 'node:fs';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import {
+  errorText,
   PERSONAL_MEMORY_FILENAME,
   PERSONAL_MEMORY_MAX_BYTES,
   PERSONAL_MEMORY_MAX_CHARS,
@@ -50,7 +51,7 @@ export function createPersonalMemoryHook(
       info = await lstat(file);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
-      return fail(`个人记忆读取失败：${error instanceof Error ? error.message : String(error)}`);
+      return fail(`个人记忆读取失败：${errorText(error)}`);
     }
     if (info.isSymbolicLink() || !info.isFile()) {
       return fail(`个人记忆必须是普通文件：${file}`);
@@ -62,7 +63,7 @@ export function createPersonalMemoryHook(
     try {
       content = await readFile(file, 'utf8');
     } catch (error) {
-      return fail(`个人记忆读取失败：${error instanceof Error ? error.message : String(error)}`);
+      return fail(`个人记忆读取失败：${errorText(error)}`);
     }
     if ([...content].length > PERSONAL_MEMORY_MAX_CHARS) {
       return fail(PERSONAL_MEMORY_LIMIT_MESSAGE);

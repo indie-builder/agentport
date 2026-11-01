@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   chatEventSchema,
   type ExecutionSettlement,
+  errorText,
   type SandboxInputCommand,
   SUPERVISOR_INPUT_MAX_BYTES,
   type SupervisorInput,
@@ -642,9 +643,7 @@ if (isEntryPoint()) {
       process.exitCode = 0;
     })
     .catch((error: unknown) => {
-      process.stderr.write(
-        `[supervisor] ${error instanceof Error ? error.message : String(error)}\n`,
-      );
+      process.stderr.write(`[supervisor] ${errorText(error)}\n`);
       process.exitCode = 1;
     })
     .finally(() => {
