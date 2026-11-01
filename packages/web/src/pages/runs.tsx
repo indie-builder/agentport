@@ -381,7 +381,7 @@ export function RunsPage() {
             />
           ) : view === 'cards' ? (
             runs.isPending ? (
-              <LoadingState rows={3} layout="cards" />
+              <LoadingState rows={3} layout="cards" columns={3} />
             ) : (
               <ul
                 aria-label="运行列表"

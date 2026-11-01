@@ -442,7 +442,7 @@ export function PersonalUsagePage() {
             />
           ) : view === 'cards' ? (
             runs.isPending ? (
-              <LoadingState rows={3} layout="cards" />
+              <LoadingState rows={3} layout="cards" columns={3} />
             ) : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {(runs.data?.items ?? []).map((run) => (

@@ -481,3 +481,9 @@
 - **现象**：长测试跑着时执行 `pnpm install`/升级依赖，已启动的 worker 多数正常，但新 fork 的 worker 报模块找不到，路径指向已被替换的 `.pnpm` 目录；单独重跑整套又全绿。
 - **原因**：pnpm 安装会重排 `node_modules/.pnpm` 的虚拟 store 并更新顶层链接；已加载模块的进程不受影响，新 worker 按新解析结果启动，旧 peer 路径已不存在，失败被误当成代码回归。
 - **规避**：测试运行期间不安装/升级依赖；先停掉测试进程，等 `pnpm install` 完成后再从干净状态重跑。出现这类「路径不存在」先核对是否刚装过依赖，不要改业务代码或删测试。
+
+## 迁移台账与仓库 journal 不一致，所有登录 500
+
+- **现象**：任意 worktree 的 API 登录都返回 500，日志是 `relation "platform_bootstrap" does not exist`；`drizzle.__drizzle_migrations` 有几十条旧记录，但最大 `created_at` 早于当前 journal 的 0043。
+- **原因**：多个 worktree/分支各自生成过迁移，共享库被另一套 journal 迁移过，台账与仓库 journal 的时间戳/内容对不上。drizzle migrator 只按「journal.when > 台账最大 created_at」判断待执行，于是重跑已存在的迁移，在第一个 `CREATE TABLE` 就失败并整批回滚。
+- **规避**：先 `pg_dump -Fc` 备份；只读核验实际结构与 journal，确定真实基线；对已存在的对象按核验结果登记台账（hash 用迁移 SQL 的 sha256），对新增的 NOT NULL 列先建可空列、回填后再 `SET NOT NULL`；在 dump 恢复出的副本库完整演练后再作用于共享库。不要直接 `pnpm db:migrate` 硬跑，也不要为了跑通而删除业务数据。
