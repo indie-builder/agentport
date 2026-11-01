@@ -1,6 +1,6 @@
 import { DbError } from '@agentport/core';
 import { type createDb, schema } from '@agentport/db';
-import { type AgentRunJob, EVAL_RUNS_QUEUE, RUNS_QUEUE } from '@agentport/shared';
+import { type AgentRunJob, EVAL_RUNS_QUEUE, errorText, RUNS_QUEUE } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { and, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { Effect, Result, Schedule } from 'effect';
@@ -240,7 +240,7 @@ function reconcileRunning(
         Effect.tryPromise({
           try: () =>
             cleanup({ runId: current.id, conversationId: current.conversationId, sandboxId }),
-          catch: (err) => new Error(err instanceof Error ? err.message : String(err)),
+          catch: (err) => new Error(errorText(err)),
         }),
       );
       if (Result.isFailure(cleaned)) {

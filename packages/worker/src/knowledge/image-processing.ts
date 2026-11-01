@@ -1,7 +1,11 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { KNOWLEDGE_IMAGE_MAX_BYTES, type KnowledgeImageProcessing } from '@agentport/shared';
+import {
+  errorText,
+  KNOWLEDGE_IMAGE_MAX_BYTES,
+  type KnowledgeImageProcessing,
+} from '@agentport/shared';
 import {
   type Options,
   query,
@@ -42,7 +46,7 @@ export async function assertUsableImage(input: {
     // raw() 才会真正解码像素；metadata() 只读文件头，截断图能蒙混过关。
     await sharp(input.data, { limitInputPixels: 268402689 }).raw().toBuffer();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorText(err);
     throw new Error(`图片无法解码：${message}`);
   }
   // libvips 在像素完整时容忍缺失的 PNG IEND；尾部被截断的文件仍要拒绝。
@@ -175,7 +179,7 @@ async function runAction(input: {
     if (input.signal.aborted || controller.signal.aborted) {
       throw new Error('图片描述已取消');
     }
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorText(err);
     return { text: null, warning: `${input.action}: ${message}`.slice(0, 300) };
   } finally {
     input.signal.removeEventListener('abort', onAbort);

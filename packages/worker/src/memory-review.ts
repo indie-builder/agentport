@@ -5,6 +5,7 @@ import { type Database, repo, schema } from '@agentport/db';
 import {
   AGENT_MEMORY_MAX_BYTES,
   AGENT_MEMORY_MAX_LINES,
+  errorText,
   MEMORY_FILE_MAX_BYTES,
   type MemoryContentSnapshot,
   type MemoryReviewEvidence,
@@ -435,7 +436,7 @@ export async function executeMemoryReview(
     await finishRun(db, input.runId, 'succeeded', spend, null);
   } catch (err) {
     // 超时、用户取消与 worker 关停都通过 abort 到达这里，按第一次终止原因收尾。
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorText(err);
     const cancelled =
       termination === 'cancel' ||
       termination === 'shutdown' ||
