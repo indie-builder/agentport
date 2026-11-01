@@ -22,7 +22,6 @@ import {
   CircleCheck,
   CircleStop,
   Download,
-  FileText,
   GitBranch,
   ListChecks,
   LoaderCircle,
@@ -60,6 +59,7 @@ import { CollapsibleText, JsonBlock, LARGE_CONTENT_CHARS } from '../components/c
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { ConversationOutputs, type OutputSelection } from '../components/conversation-outputs.js';
 import { ConversationSearch } from '../components/conversation-search.js';
+import { CopyButton } from '../components/copy-button.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { KnowledgeCitations, knowledgeHitsFromTool } from '../components/knowledge-citations.js';
 import { AssistantText } from '../components/openui-message.js';
@@ -159,6 +159,22 @@ import type {
   OpenUiStateSaveInput,
   OpenUiToolCallInput,
 } from '../openui/renderer.js';
+
+function filenameExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1) : '';
+}
+
+function middleTruncate(name: string, max = 24): string {
+  if (name.length <= max) return name;
+  const extension = filenameExtension(name);
+  const suffix = extension ? `.${extension}` : '';
+  const stem = suffix ? name.slice(0, -suffix.length) : name;
+  const available = Math.max(1, max - suffix.length - 1);
+  const head = Math.ceil(available / 2);
+  const tail = Math.floor(available / 2);
+  return `${stem.slice(0, head)}…${tail ? stem.slice(-tail) : ''}${suffix}`;
+}
 
 export function ChatPage() {
   const search = useSearch({ from: '/_shell/chat' });
@@ -1957,8 +1973,12 @@ export function Composer({
                 // biome-ignore lint/suspicious/noArrayIndexKey: 同名文件可重复选择，位置即身份
                 <li key={`${file.name}-${index}`} className="flex min-w-0 items-center gap-1">
                   <Badge variant="outline" className="min-w-0 max-w-full">
-                    <FileText aria-hidden="true" />
-                    <span className="truncate">{file.name}</span>
+                    <span aria-hidden="true" className="shrink-0 font-mono text-2xs">
+                      {filenameExtension(file.name).toUpperCase() || 'FILE'}
+                    </span>
+                    <span title={file.name} className="min-w-0 truncate">
+                      {middleTruncate(file.name)}
+                    </span>
                     <span className="shrink-0 text-2xs text-muted-foreground">
                       {formatBytes(file.size)}
                     </span>
@@ -2405,6 +2425,17 @@ export function MessagePane({
               ? turns.map((turn, turnIndex) => {
                   const messageId = turn.user ? userMessageId(turn.items) : undefined;
                   const latest = turnIndex === turns.length - 1;
+                  const assistantText = turn.items
+                    .flatMap((item) => (item.kind === 'text' ? [item.text] : []))
+                    .join('\n\n');
+                  const copyReply = assistantText.trim() ? (
+                    <CopyButton
+                      value={assistantText}
+                      label="复制回复"
+                      variant="ghost"
+                      className="shrink-0 opacity-0 transition-opacity duration-150 group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+                    />
+                  ) : null;
                   // 历史轮次按消息上的 run_id 取读数；读数默认藏起来，指到这一轮才浮出。
                   // 没有助手输出的轮次（下一条仍是用户消息）由用户消息自己的 run_id 承载。
                   const turnRunId = turn.items
@@ -2458,7 +2489,7 @@ export function MessagePane({
                             className={cn(
                               'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
                               turn.user &&
-                                'w-fit max-w-[85%] rounded-[var(--radius-bubble)] bg-selected px-4 py-3 text-fg',
+                                'w-fit max-w-[85%] rounded-[var(--radius-bubble)] bg-selected px-4 py-3 text-fg shadow-[var(--shadow-bubble)]',
                             )}
                           >
                             <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
@@ -2534,8 +2565,15 @@ export function MessagePane({
                             {turnTodos ? <TodoProgress todos={turnTodos} /> : null}
                             {!turn.user && latest ? (
                               <>
-                                {runFooter}
-                                {lastRun ? <RunMetricsLine run={lastRun} /> : null}
+                                {runFooter || lastRun || copyReply ? (
+                                  <div className="flex min-w-0 items-start gap-1.5">
+                                    <div className="min-w-0 flex-1">
+                                      {runFooter}
+                                      {lastRun ? <RunMetricsLine run={lastRun} /> : null}
+                                    </div>
+                                    {copyReply}
+                                  </div>
+                                ) : null}
                                 {approvalItems
                                   .filter((item) => !placed.has(item.id))
                                   .map((item) => (
@@ -2557,19 +2595,24 @@ export function MessagePane({
                         {historyRun ? (
                           <div
                             className={cn(
-                              'mt-1 transition-opacity duration-150 ease-out-soft motion-reduce:transition-none',
+                              'mt-1 flex min-w-0 items-start gap-1.5 transition-opacity duration-150 ease-out-soft motion-reduce:transition-none',
                               persistentRun
                                 ? 'opacity-100'
                                 : 'opacity-0 group-focus-within/turn:opacity-100 group-hover/turn:opacity-100 pointer-coarse:opacity-100',
                             )}
                           >
-                            <RunMetricsLine
-                              run={historyRun}
-                              {...(historyRun.endedAt
-                                ? { title: `完成于 ${formatDateTime(historyRun.endedAt)}` }
-                                : {})}
-                            />
+                            <div className="min-w-0 flex-1">
+                              <RunMetricsLine
+                                run={historyRun}
+                                {...(historyRun.endedAt
+                                  ? { title: `完成于 ${formatDateTime(historyRun.endedAt)}` }
+                                  : {})}
+                              />
+                            </div>
+                            {copyReply}
                           </div>
+                        ) : !latest && copyReply ? (
+                          <div className="mt-1 flex items-center">{copyReply}</div>
                         ) : null}
                         {runFiles.length > 0 ? (
                           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
@@ -3053,12 +3096,18 @@ const MessagePart = memo(function MessagePart({
                     }
                     className="min-w-0 max-w-full"
                   >
-                    <FileText aria-hidden="true" />
-                    <span className="truncate">{attachment.filename}</span>
+                    <span aria-hidden="true" className="shrink-0 font-mono text-2xs">
+                      {filenameExtension(attachment.filename).toUpperCase() || 'FILE'}
+                    </span>
+                    <span title={attachment.filename} className="min-w-0 truncate">
+                      {middleTruncate(attachment.filename)}
+                    </span>
                     <span className="shrink-0 text-2xs text-muted-foreground">
                       {formatBytes(attachment.size)}
                     </span>
-                    {attachment.downloadUrl ? <Download aria-hidden="true" /> : null}
+                    {attachment.downloadUrl ? (
+                      <Download aria-hidden="true" className="shrink-0" />
+                    ) : null}
                   </Badge>
                 </li>
               ))}
@@ -3068,7 +3117,7 @@ const MessagePart = memo(function MessagePart({
       );
     case 'text':
       return (
-        <>
+        <div className="min-w-0">
           {renderAssistantText(item.text, messageOpenUi, streaming, onAction, {
             // 优先用回填的持久化 id；历史项的 id 形如 `msg_x:0`，需要去掉块后缀。
             ...(item.messageId !== undefined
@@ -3085,7 +3134,7 @@ const MessagePart = memo(function MessagePart({
               该段内容超过单块上限，只显示了前一部分。
             </p>
           ) : null}
-        </>
+        </div>
       );
     case 'notice':
       return (

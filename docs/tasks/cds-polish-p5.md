@@ -27,12 +27,10 @@
   - item7（行内图标光学对齐）：N/A（无真实「图标嵌入文本」场景；tabular-nums 已在用）；rem-scale 不全局套用（会缩全站几何）。
   - item8（ready 呼吸灯）：N/A（status-dot 仅用于运行态 running/error，无 ready 消费点）。
 
-## 待修复（审计发现的轮3候选，含价值）
-1. [高] 助手回复缺 CDS MessageActions（整段复制/反馈）：`chat.tsx` 读数行加 hover 显影复制按钮，复用 CopyButton。
-2. [中·待决策] 轮间距偏松：`chat.tsx` Content `gap-4` + 轮内 `pt-5` = 36px，CDS 约 16px；属已批准布局几何，改动前需确认。
-3. [中] 用户长消息无 300px 折叠（底部 mask + Show more）。
-4. [中低] 附件 chip 用通用 FileText + 尾部截断丢扩展名；改扩展名徽标 + 中间截断（保留中性 outline）。
-5. [低] 用户气泡缺极轻投影、助手正文缺 4px 内缩。
+## 待修复 / 轮次记录（续）
+- 轮3（本提交）：①助手回复整段复制（复用 CopyButton，hover/focus 显影、始终占位可 Tab）；②附件 chip 扩展名徽标 + `middleTruncate` + `min-w-0 truncate`（保扩展名/大小/操作不被挤）；③用户气泡轻投影 `--shadow-bubble`；④终审后修：附件名可收缩、移除误波及 OpenUI 卡片的 `pl-1` 内缩（改在 openui-message 内部区分文本/卡片，超出边界，故按低价值去掉）。
+- 2. [中·待决策] 轮间距偏松（`gap-4`+`pt-5`=36px vs CDS ~16px）：属已批准布局几何，需用户确认再改。
+- 3. [中·轮4] 用户长消息 300px 折叠（底部 mask + Show more）。
 
 ## 当前有效决定
 - 每轮：提交到分支并 push；merge main 需用户确认。#2 轮间距暂列待决策。
