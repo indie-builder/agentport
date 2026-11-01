@@ -7,7 +7,7 @@ import {
   redactJson,
   redactSecrets,
 } from '@agentport/shared';
-import { and, desc, eq, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 
 /** 工具入参在事件里是 JSON 字符串；落库时还原成对象，前端与 trace 都按对象渲染。 */
 function parseToolInput(raw: string | undefined): unknown {
@@ -159,6 +159,24 @@ export interface PersistedMessage {
   uiProgram: string | null;
 }
 
+export type PersistedChannelMessage = typeof schema.channelMessages.$inferSelect;
+
+/** 频道时间线只放主助手正文：子智能体内部文本不投影，多块按空行拼接。 */
+function channelReplyOf(
+  messages: Array<{ id: string; row: MessageRow }>,
+): { body: string; sourceMessageId: string } | null {
+  const blocks = messages.filter(({ row }) => {
+    if (row.role !== 'assistant') return false;
+    const content = row.content as { text?: unknown; parentToolUseId?: unknown };
+    return content.parentToolUseId === undefined && typeof content.text === 'string';
+  });
+  if (blocks.length === 0) return null;
+  return {
+    body: blocks.map(({ row }) => (row.content as { text: string }).text).join('\n\n'),
+    sourceMessageId: blocks.at(-1)?.id ?? '',
+  };
+}
+
 /** 该会话上一条主助手（非子智能体）已合并的完整程序：跨轮补丁的基线。 */
 async function previousUiProgram(
   tx: Parameters<Parameters<Database['transaction']>[0]>[0],
@@ -230,12 +248,20 @@ export async function persistRunMessages(
     events: ChatEvent[];
     /** 本次运行后的 SDK session；与消息同事务写入，避免只存一半。 */
     sdkSessionId?: string;
+    /** 调用方以成功结果或正 token 用量确认模型已执行；初始化 session 与文本都不能独立证明消费。 */
+    modelExecuted?: boolean;
     /** fork 造成的 uuid 重映射（旧 → 新），更新页面已保存的历史消息。 */
     uuidMap?: Array<{ from: string; to: string }>;
     /** 本轮智能体的回复格式；历史渲染按消息快照，不跟随之后的开关切换。 */
     uiFormat?: 'markdown' | 'openui';
+    /** 重试中间轮不投影频道：同一 run 覆盖同一 seq 行会让已订阅者漏掉最终正文。 */
+    projectChannelReply?: boolean;
   },
-): Promise<{ written: boolean; messages: PersistedMessage[] }> {
+): Promise<{
+  written: boolean;
+  messages: PersistedMessage[];
+  channelMessage?: PersistedChannelMessage;
+}> {
   const rows = buildMessageRows(input.events);
   const uiFormat = input.uiFormat ?? 'markdown';
 
@@ -248,8 +274,31 @@ export async function persistRunMessages(
       .for('key share');
     if (!agent) return { written: false, messages: [] };
 
+    // 频道行锁必须早于会话锁：准入与发消息先锁频道再锁会话，先读会话只为确定锁哪行频道，反向会死锁。
+    const [lane] = await tx
+      .select({ channelId: schema.conversations.channelId })
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.id, input.conversationId),
+          eq(schema.conversations.agentId, input.agentId),
+        ),
+      )
+      .limit(1);
+    if (!lane) return { written: false, messages: [] };
+
+    if (lane.channelId !== null) {
+      const [channel] = await tx
+        .select({ id: schema.channels.id })
+        .from(schema.channels)
+        .where(eq(schema.channels.id, lane.channelId))
+        .limit(1)
+        .for('update');
+      if (!channel) return { written: false, messages: [] };
+    }
+
     const [conversation] = await tx
-      .select({ id: schema.conversations.id })
+      .select({ id: schema.conversations.id, channelId: schema.conversations.channelId })
       .from(schema.conversations)
       .where(
         and(
@@ -259,10 +308,15 @@ export async function persistRunMessages(
       )
       .limit(1)
       .for('update');
-    if (!conversation) return { written: false, messages: [] };
+    if (!conversation || conversation.channelId !== lane.channelId) {
+      return { written: false, messages: [] };
+    }
 
     const [run] = await tx
-      .select({ id: schema.agentRuns.id })
+      .select({
+        id: schema.agentRuns.id,
+        channelTriggerMessageId: schema.agentRuns.channelTriggerMessageId,
+      })
       .from(schema.agentRuns)
       .where(
         and(
@@ -270,6 +324,9 @@ export async function persistRunMessages(
           eq(schema.agentRuns.conversationId, input.conversationId),
           eq(schema.agentRuns.agentId, input.agentId),
           eq(schema.agentRuns.status, 'running'),
+          lane.channelId === null
+            ? isNull(schema.agentRuns.channelId)
+            : eq(schema.agentRuns.channelId, lane.channelId),
         ),
       )
       .limit(1)
@@ -307,6 +364,49 @@ export async function persistRunMessages(
         ...(row.sdkMessageUuid === undefined ? {} : { sdkMessageUuid: row.sdkMessageUuid }),
       })),
     );
+    // 频道 lane 的助手正文与 messages 同事务投影；重放复用同一行，seq 不变。
+    let channelMessage: PersistedChannelMessage | undefined;
+    if (lane.channelId !== null && (input.projectChannelReply ?? true)) {
+      const reply = channelReplyOf(withIds);
+      if (reply !== null) {
+        const [existing] = await tx
+          .select({ id: schema.channelMessages.id })
+          .from(schema.channelMessages)
+          .where(
+            and(
+              eq(schema.channelMessages.channelId, lane.channelId),
+              eq(schema.channelMessages.runId, input.runId),
+              eq(schema.channelMessages.kind, 'agent'),
+            ),
+          )
+          .orderBy(desc(schema.channelMessages.createdAt), desc(schema.channelMessages.id))
+          .limit(1);
+        if (existing) {
+          [channelMessage] = await tx
+            .update(schema.channelMessages)
+            .set({
+              agentId: input.agentId,
+              body: reply.body,
+              sourceMessageId: reply.sourceMessageId,
+            })
+            .where(eq(schema.channelMessages.id, existing.id))
+            .returning();
+        } else {
+          [channelMessage] = await tx
+            .insert(schema.channelMessages)
+            .values({
+              id: newId('channelMessage'),
+              channelId: lane.channelId,
+              kind: 'agent',
+              agentId: input.agentId,
+              runId: input.runId,
+              body: reply.body,
+              sourceMessageId: reply.sourceMessageId,
+            })
+            .returning();
+        }
+      }
+    }
     // 会话的 SDK 状态必须与输出同事务：先落消息再单独存 session，
     // 失败时会出现「页面有历史、transcript 缺一截」的静默错位。
     if (input.sdkSessionId !== undefined) {
@@ -314,6 +414,20 @@ export async function persistRunMessages(
         conversationId: input.conversationId,
         sdkSessionId: input.sdkSessionId,
         ...(input.uuidMap === undefined ? {} : { uuidMap: input.uuidMap }),
+      });
+    }
+    // SDK 合成错误也会产生助手文本，须按真实执行证据随结果原子消费上下文。
+    if (
+      lane.channelId !== null &&
+      run.channelTriggerMessageId !== null &&
+      (input.modelExecuted === true ||
+        input.events.some((event) => event.type === 'tool_start' || event.type === 'tool_result'))
+    ) {
+      await repo.chat.consumeChannelContext(tx, {
+        channelId: lane.channelId,
+        agentId: input.agentId,
+        conversationId: input.conversationId,
+        channelMessageId: run.channelTriggerMessageId,
       });
     }
     // 只回传可渲染的助手文本块，前端据此回填 messageId。
@@ -334,6 +448,7 @@ export async function persistRunMessages(
             uiProgram: programs.get(index) ?? null,
           };
         }),
+      ...(channelMessage === undefined ? {} : { channelMessage }),
     };
   });
 }

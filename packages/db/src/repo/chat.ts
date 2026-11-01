@@ -7,15 +7,27 @@ import {
   asc,
   desc,
   eq,
+  gt,
   inArray,
   isNotNull,
+  isNull,
+  lt,
   type SQL,
   type SQLWrapper,
   sql,
 } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
-import { agentRuns, agents, conversations, messages } from '../schema.js';
+import {
+  agentRuns,
+  agents,
+  channelAgentBindings,
+  channelMessages,
+  channels,
+  conversations,
+  messages,
+} from '../schema.js';
+import { channelMemberRole } from './channels.js';
 import { lockAgentBindings, lockRunResources } from './locks.js';
 import { inheritApprovals } from './runs.js';
 
@@ -89,7 +101,14 @@ export async function agentEnabled(db: Database, agentId: string): Promise<boole
 
 export async function createConversation(
   db: Database | Tx,
-  input: { id: string; agentId: string; title: string; subject: ExecutionSubject },
+  input: {
+    id: string;
+    agentId: string;
+    title: string;
+    subject: ExecutionSubject;
+    /** 非空表示频道 agent lane；私有对话不传。 */
+    channelId?: string;
+  },
 ): Promise<Conversation> {
   const [row] = await db
     .insert(conversations)
@@ -97,6 +116,7 @@ export async function createConversation(
       id: input.id,
       agentId: input.agentId,
       title: input.title,
+      channelId: input.channelId ?? null,
       ...conversationSubject(input.subject),
     })
     .returning();
@@ -118,6 +138,7 @@ export async function renameConversation(
   return row ?? null;
 }
 
+/** 私有入口：频道 lane 不在这里暴露，访问统一走频道成员校验。 */
 export async function getConversation(
   db: Database | Tx,
   conversationId: string,
@@ -125,7 +146,7 @@ export async function getConversation(
   const [row] = await db
     .select()
     .from(conversations)
-    .where(eq(conversations.id, conversationId))
+    .where(and(eq(conversations.id, conversationId), isNull(conversations.channelId)))
     .limit(1);
   return row ?? null;
 }
@@ -551,7 +572,9 @@ export async function listConversations(
       createdAt: conversations.createdAt,
     })
     .from(conversations)
-    .where(and(agentFilter, conversationAccessWhere(options.access)))
+    .where(
+      and(agentFilter, conversationAccessWhere(options.access), isNull(conversations.channelId)),
+    )
     .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
     .limit(options.limit ?? 50)
     .as('page');
@@ -703,6 +726,8 @@ export async function searchConversations(
   const agentFilter =
     options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId);
   const accessFilter = conversationAccessWhere(options.access);
+  // 频道 lane 只从频道页访问，私有搜索不返回别人的 lane。
+  const privateOnly = isNull(conversations.channelId);
   const take = options.limit + 1;
   // 查询、正文、id 与 title 全部走同一份 SQL 规范化；JS 的 lower 与 PG 不一致，不参与比较。
   const needle =
@@ -724,7 +749,7 @@ export async function searchConversations(
       })
       .from(conversations)
       .innerJoin(agents, eq(agents.id, conversations.agentId))
-      .where(and(agentFilter, accessFilter, cursorFilter))
+      .where(and(agentFilter, accessFilter, privateOnly, cursorFilter))
       .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
       .limit(take);
   } else {
@@ -754,6 +779,7 @@ export async function searchConversations(
         and(
           agentFilter,
           accessFilter,
+          privateOnly,
           // 字面子串：strpos 不解释 % / _；lower 让匹配大小写不敏感。
           sql`(
             ${idMatch}
@@ -844,6 +870,8 @@ export async function appendMessage(
     senderBusinessId?: string | null;
     runId?: string;
     sdkMessageUuid?: string;
+    /** 频道触发时关联的频道消息。 */
+    channelMessageId?: string;
   },
 ): Promise<Message> {
   const [row] = await db
@@ -855,6 +883,7 @@ export async function appendMessage(
       senderBusinessId: input.senderBusinessId ?? null,
       content: input.content,
       runId: input.runId ?? null,
+      channelMessageId: input.channelMessageId ?? null,
       ...(input.sdkMessageUuid === undefined ? {} : { sdkMessageUuid: input.sdkMessageUuid }),
     })
     .returning();
@@ -868,9 +897,11 @@ export async function createRun(
     id: string;
     conversationId: string;
     agentId: string;
-    trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
+    trigger?: 'chat' | 'mcp' | 'schedule' | 'event' | 'channel';
     agentVersion?: number | null;
     subject: ExecutionSubject;
+    channelId?: string;
+    channelTriggerMessageId?: string;
   },
 ): Promise<AgentRun> {
   const [row] = await db
@@ -883,10 +914,55 @@ export async function createRun(
       ...runSubject(input.subject),
       ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
       ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
+      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
+      ...(input.channelTriggerMessageId === undefined
+        ? {}
+        : { channelTriggerMessageId: input.channelTriggerMessageId }),
     })
     .returning();
   if (!row) throw new Error('agent run insert returned no row');
   return row;
+}
+
+export const CHANNEL_CONTEXT_MESSAGE_LIMIT = 20;
+export const CHANNEL_CONTEXT_CHAR_LIMIT = 8000;
+
+const CHANNEL_CONTEXT_HEADER = '【频道上下文】\n';
+const CHANNEL_CONTEXT_CURRENT = '【当前消息】\n';
+const CHANNEL_CONTEXT_OMITTED = '更早的消息已省略\n';
+
+interface ChannelContextMessage {
+  kind: 'human' | 'agent' | 'system';
+  authorBusinessId: string | null;
+  agentId: string | null;
+  body: string;
+}
+
+function channelContextLine(message: ChannelContextMessage): string {
+  if (message.kind === 'human') {
+    return `成员 ${(message.authorBusinessId ?? '').slice(-6)}：${message.body}\n`;
+  }
+  if (message.kind === 'agent') return `智能体 ${message.agentId ?? ''}：${message.body}\n`;
+  return `系统：${message.body}\n`;
+}
+
+function buildChannelContext(rows: ChannelContextMessage[], truncated: boolean): string | null {
+  if (rows.length === 0) return null;
+  const lines = rows.map(channelContextLine);
+  const fixed = CHANNEL_CONTEXT_HEADER.length + CHANNEL_CONTEXT_CURRENT.length;
+  const whole = fixed + lines.reduce((sum, line) => sum + line.length, 0);
+  if (!truncated && whole <= CHANNEL_CONTEXT_CHAR_LIMIT) {
+    return `${CHANNEL_CONTEXT_HEADER}${lines.reverse().join('')}${CHANNEL_CONTEXT_CURRENT}`;
+  }
+  const budget = CHANNEL_CONTEXT_CHAR_LIMIT - fixed - CHANNEL_CONTEXT_OMITTED.length;
+  const included: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    if (used + line.length > budget) break;
+    included.push(line);
+    used += line.length;
+  }
+  return `${CHANNEL_CONTEXT_HEADER}${CHANNEL_CONTEXT_OMITTED}${included.reverse().join('')}${CHANNEL_CONTEXT_CURRENT}`;
 }
 
 /** 先锁会话再检查活动运行，让后续入场看到前一个事务的提交。 */
@@ -896,13 +972,15 @@ export async function admitChatRun(
     agentId: string;
     message: string;
     conversationId?: string;
-    trigger?: 'chat' | 'mcp' | 'schedule' | 'event';
+    trigger?: 'chat' | 'mcp' | 'schedule' | 'event' | 'channel';
     agentVersion?: number;
     /** 新会话标题；缺省取消息前 80 字。非浏览器入口用它标明来源。 */
     title?: string;
     /** 用户消息的完整 content；缺省等价于 `{ type: 'text', text: input.message }`。 */
     userContent?: unknown;
     subject: ExecutionSubject;
+    /** 频道触发：准入自行取建该 agent 的 lane，并从 DB 复核频道成员与绑定。 */
+    channel?: { channelId: string; channelMessageId: string };
   },
 ): Promise<{
   run: AgentRun;
@@ -927,9 +1005,129 @@ export async function admitChatRun(
     if (!owner.enabled) {
       fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
     }
+    if (input.channel === undefined && input.trigger === 'channel') {
+      fail('INVALID_INPUT', '频道触发必须带频道与来源消息');
+    }
 
     let conversationId: string;
-    if (input.conversationId === undefined) {
+    let channelContext: string | null = null;
+    if (input.channel !== undefined) {
+      const { channelId, channelMessageId } = input.channel;
+      if (input.subject.kind !== 'user') {
+        fail('INVALID_INPUT', '频道触发必须由自然人发起');
+      }
+      // 频道行锁把同一频道的准入与发消息串行化，lane 的取建不靠裸查再插。
+      const [channel] = await tx
+        .select({ id: channels.id, archivedAt: channels.archivedAt })
+        .from(channels)
+        .where(eq(channels.id, channelId))
+        .limit(1)
+        .for('update');
+      if (!channel) fail('NOT_FOUND', '频道不存在，可能已被删除');
+      if (channel.archivedAt !== null) fail('CONFLICT', '频道已归档，无法触发智能体');
+      const role = await channelMemberRole(tx, channelId, input.subject.businessId);
+      if (role === null) fail('NOT_FOUND', '频道不存在，可能已被删除');
+      if (role === 'viewer') fail('FORBIDDEN', '当前频道角色不能触发智能体');
+      const [trigger] = await tx
+        .select({
+          seq: channelMessages.seq,
+          kind: channelMessages.kind,
+          authorBusinessId: channelMessages.authorBusinessId,
+        })
+        .from(channelMessages)
+        .where(
+          and(eq(channelMessages.id, channelMessageId), eq(channelMessages.channelId, channelId)),
+        )
+        .limit(1);
+      if (!trigger) fail('NOT_FOUND', '触发消息不存在，可能已被删除');
+      if (trigger.kind !== 'human' || trigger.authorBusinessId !== input.subject.businessId) {
+        fail('FORBIDDEN', '只能从自己发送的频道消息触发智能体');
+      }
+      const [binding] = await tx
+        .select({
+          conversationId: channelAgentBindings.conversationId,
+          status: channelAgentBindings.status,
+          contextSeq: channelAgentBindings.contextSeq,
+        })
+        .from(channelAgentBindings)
+        .where(
+          and(
+            eq(channelAgentBindings.channelId, channelId),
+            eq(channelAgentBindings.agentId, input.agentId),
+          ),
+        )
+        .limit(1)
+        .for('update');
+      if (!binding) fail('AGENT_NOT_FOUND', '该智能体未加入频道，无法触发');
+      if (binding.status !== 'active') {
+        fail('CONFLICT', '该智能体在频道内已暂停或断开，无法触发');
+      }
+      // 只补注入上次游标之后、触发消息之前的新消息；limit+1 用来判断是否还有更早的。
+      const contextRows = await tx
+        .select({
+          kind: channelMessages.kind,
+          authorBusinessId: channelMessages.authorBusinessId,
+          agentId: channelMessages.agentId,
+          body: channelMessages.body,
+        })
+        .from(channelMessages)
+        .where(
+          and(
+            eq(channelMessages.channelId, channelId),
+            gt(channelMessages.seq, binding.contextSeq),
+            lt(channelMessages.seq, trigger.seq),
+          ),
+        )
+        .orderBy(desc(channelMessages.seq))
+        .limit(CHANNEL_CONTEXT_MESSAGE_LIMIT + 1);
+      channelContext = buildChannelContext(
+        contextRows.slice(0, CHANNEL_CONTEXT_MESSAGE_LIMIT),
+        contextRows.length > CHANNEL_CONTEXT_MESSAGE_LIMIT,
+      );
+      if (binding.conversationId === null) {
+        // 解绑再加回时旧 lane 仍在；频道行锁内先复用，避免撞 partial unique。
+        const [existing] = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(
+            and(eq(conversations.channelId, channelId), eq(conversations.agentId, input.agentId)),
+          )
+          .limit(1)
+          .for('update');
+        if (existing) {
+          conversationId = existing.id;
+        } else {
+          conversationId = newId('conversation');
+          await createConversation(tx, {
+            id: conversationId,
+            agentId: input.agentId,
+            title: input.title ?? input.message.slice(0, 80),
+            subject: input.subject,
+            channelId,
+          });
+        }
+        await tx
+          .update(channelAgentBindings)
+          .set({ conversationId })
+          .where(
+            and(
+              eq(channelAgentBindings.channelId, channelId),
+              eq(channelAgentBindings.agentId, input.agentId),
+            ),
+          );
+      } else {
+        conversationId = binding.conversationId;
+        const [lane] = await tx
+          .select({ agentId: conversations.agentId, channelId: conversations.channelId })
+          .from(conversations)
+          .where(eq(conversations.id, conversationId))
+          .limit(1)
+          .for('update');
+        if (lane?.channelId !== channelId || lane.agentId !== input.agentId) {
+          fail('INTERNAL_ERROR', '频道智能体会话与绑定不一致，请刷新后重试');
+        }
+      }
+    } else if (input.conversationId === undefined) {
       conversationId = newId('conversation');
       await createConversation(tx, {
         id: conversationId,
@@ -967,11 +1165,22 @@ export async function admitChatRun(
       conversationId,
       agentId: input.agentId,
       subject: input.subject,
-      ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
+      ...(input.channel !== undefined
+        ? {
+            trigger: 'channel' as const,
+            channelId: input.channel.channelId,
+            channelTriggerMessageId: input.channel.channelMessageId,
+          }
+        : input.trigger === undefined
+          ? {}
+          : { trigger: input.trigger }),
       ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
     });
-    // 批准原先绑定单次 run；重发消息会新建 run，这里把上一 run 的已批准工具带过来。
-    const inherited = await inheritApprovals(tx, { conversationId, runId: run.id });
+    // 频道 lane 由多位成员共享，单次运行批准不能跨触发者继承。
+    const inherited =
+      input.channel === undefined
+        ? await inheritApprovals(tx, { conversationId, runId: run.id })
+        : [];
     // 页面消息的 SDK 身份由平台生成：runner 用它发首条用户消息，后续按点 fork 依赖它。
     const userMessageUuid = randomUUID();
     await appendMessage(tx, {
@@ -979,13 +1188,36 @@ export async function admitChatRun(
       conversationId,
       role: 'user',
       senderBusinessId: input.subject.kind === 'user' ? input.subject.businessId : null,
-      content: input.userContent ?? { type: 'text', text: input.message },
+      content:
+        channelContext === null
+          ? (input.userContent ?? { type: 'text', text: input.message })
+          : { type: 'text', text: `${channelContext}${input.message}` },
       runId: run.id,
       sdkMessageUuid: userMessageUuid,
+      ...(input.channel === undefined ? {} : { channelMessageId: input.channel.channelMessageId }),
     });
 
     return { run, conversationId, inherited, userMessageUuid };
   });
+}
+
+export async function consumeChannelContext(
+  db: Database | Tx,
+  input: { channelId: string; agentId: string; conversationId: string; channelMessageId: string },
+): Promise<void> {
+  await db
+    .update(channelAgentBindings)
+    .set({ contextSeq: sql`greatest(${channelAgentBindings.contextSeq}, ${channelMessages.seq})` })
+    .from(channelMessages)
+    .where(
+      and(
+        eq(channelAgentBindings.channelId, input.channelId),
+        eq(channelAgentBindings.agentId, input.agentId),
+        eq(channelAgentBindings.conversationId, input.conversationId),
+        eq(channelMessages.channelId, input.channelId),
+        eq(channelMessages.id, input.channelMessageId),
+      ),
+    );
 }
 
 /** 运行收尾：同一事务里更新会话的 SDK 状态并重映射消息 uuid（fork 会换 uuid）。 */

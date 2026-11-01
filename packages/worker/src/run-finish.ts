@@ -2,6 +2,7 @@ import { type createDb, repo, schema } from '@agentport/db';
 import type { ChatEvent } from '@agentport/shared';
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import { publishChannelEventSafely } from './channel-events.js';
 import { publishRun } from './runner-client.js';
 
 export type RunFinishedEvent = Extract<ChatEvent, { type: 'run_finished' }>;
@@ -65,8 +66,27 @@ export async function finalizeRun(input: {
           : [lt(schema.agentRuns.createdAt, input.queuedBefore)]),
       ),
     )
-    .returning({ id: schema.agentRuns.id });
+    .returning({
+      id: schema.agentRuns.id,
+      channelId: schema.agentRuns.channelId,
+      agentId: schema.agentRuns.agentId,
+    });
   if (row === undefined) return false;
+  // 频道终态只在 CAS 胜出后发一次；失败只记日志，不回滚也不触发重试。
+  if (row.channelId !== null) {
+    await publishChannelEventSafely(
+      row.channelId,
+      {
+        type: 'run.finished',
+        channelId: row.channelId,
+        runId: row.id,
+        agentId: row.agentId,
+        status: input.event.status,
+      },
+      input.logger,
+      { runId: row.id },
+    );
+  }
   await publishRun(input.runId, input.event, input.logger);
   await repo.audit.writeAudit(input.db, input.logger, {
     actor: 'worker',

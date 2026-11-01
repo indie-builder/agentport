@@ -29,6 +29,8 @@ async function authorizeRun(
 ) {
   const run = await chatRepo.getRun(app.db, runId);
   if (!run) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
+  // 频道 run 的 initiatedBy 是触发者；M2 私有入口不做频道授权，统一按不存在处理。
+  if (run.channelId !== null) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
   await authorizeObject(
     app,
     request,

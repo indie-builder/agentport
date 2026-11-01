@@ -3,6 +3,7 @@ import { registerAgentRoutes } from '../features/agents/routes.js';
 import { registerAuditRoutes } from '../features/audit/routes.js';
 import { registerAccountRoutes } from '../features/auth/accounts.js';
 import { registerAuth } from '../features/auth/routes.js';
+import { registerChannelRoutes } from '../features/channels/routes.js';
 import { registerChatRoutes } from '../features/chat/routes.js';
 import { registerEvalRoutes } from '../features/eval/routes.js';
 import { registerExportRoutes } from '../features/export/routes.js';
@@ -63,6 +64,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerPluginRoutes(app);
   await registerAuditRoutes(app);
   await registerChatRoutes(app);
+  registerChannelRoutes(app);
   registerOutputShareRoutes(app);
   registerPersonalRoutes(app);
   registerPersonalMemoryRoutes(app);

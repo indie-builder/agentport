@@ -1,0 +1,1 @@
+ALTER TABLE "channel_agent_bindings" ADD COLUMN "context_seq" bigint DEFAULT 0 NOT NULL;

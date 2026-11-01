@@ -7,6 +7,9 @@ import type {
   ApiToolInput,
   Attention,
   AuthMe,
+  ChannelDetail,
+  ChannelListItem,
+  ChannelMessage,
   ChatRequest,
   ConnectorCatalogItem,
   ConversationSummary,
@@ -72,6 +75,8 @@ import {
   type ApprovalRequestList,
   type AuditQuery,
   api,
+  type ChannelActiveRun,
+  type ChannelApproval,
   type Conversation,
   type ConversationDetail,
   type ConversationSearchOptions,
@@ -102,6 +107,7 @@ import {
   type RunList,
   type RunQuery,
 } from './api.js';
+import { mergeChannelMessages } from './channel-state.js';
 import { bindChatIdentity, useChatStore } from './chat-store.js';
 import { toastError, toastSuccess } from './toast.js';
 import { useDebouncedValue } from './use-debounced-value.js';
@@ -2821,5 +2827,125 @@ export function useCreateKnowledgeModelProfile() {
     mutationFn: (input: Parameters<typeof api.createKnowledgeModelProfile>[0]) =>
       api.createKnowledgeModelProfile(input),
     onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.profiles }),
+  });
+}
+
+// ---- 频道 ----------------------------------------------------------------
+
+export const channelsQuery = queryOptions<ChannelListItem[]>({
+  queryKey: ['channels'],
+  queryFn: ({ signal }) => api.channels(signal),
+  staleTime: 0,
+});
+
+export const channelQuery = (id: string) =>
+  queryOptions<ChannelDetail>({
+    queryKey: ['channel', id],
+    queryFn: ({ signal }) => api.channel(id, signal),
+    staleTime: 0,
+  });
+
+const CHANNEL_MESSAGES_PAGE_SIZE = 200;
+
+/** 首屏取最前一页；后续消息由频道 SSE 按 seq 补齐，重取只能并入不能替换。 */
+export const channelMessagesQuery = (id: string) =>
+  queryOptions<ChannelMessage[]>({
+    queryKey: ['channel-messages', id],
+    queryFn: ({ signal }) =>
+      api.channelMessages(id, { after: 0, limit: CHANNEL_MESSAGES_PAGE_SIZE }, signal),
+    staleTime: 0,
+  });
+
+export const channelRunsQuery = (id: string) =>
+  queryOptions<ChannelActiveRun[]>({
+    queryKey: ['channel-runs', id],
+    queryFn: async ({ signal }) => (await api.channelRuns(id, signal)).items,
+    // 事件流负责实时；低频轮询兜底漏发的 run 生命周期事件。
+    refetchInterval: 15_000,
+  });
+
+export const channelApprovalsQuery = (id: string) =>
+  queryOptions<ChannelApproval[]>({
+    queryKey: ['channel-approvals', id],
+    queryFn: async ({ signal }) => (await api.channelApprovals(id, signal)).items,
+    refetchInterval: 15_000,
+  });
+
+export function useChannels() {
+  return useQuery(channelsQuery);
+}
+
+export function useChannel(id: string) {
+  return useQuery(channelQuery(id));
+}
+
+export function useChannelMessages(id: string) {
+  const client = useQueryClient();
+  return useQuery({
+    ...channelMessagesQuery(id),
+    // 缓存可能已被 SSE 补齐到第 200 条之后，重取整页只能并入，否则中间区间永久丢失。
+    queryFn: async ({ signal }) => {
+      const page = await api.channelMessages(
+        id,
+        { after: 0, limit: CHANNEL_MESSAGES_PAGE_SIZE },
+        signal,
+      );
+      return mergeChannelMessages(
+        client.getQueryData<ChannelMessage[]>(channelMessagesQuery(id).queryKey) ?? [],
+        page,
+      );
+    },
+  });
+}
+
+export function useChannelRuns(id: string) {
+  return useQuery(channelRunsQuery(id));
+}
+
+export function useChannelApprovals(id: string) {
+  return useQuery(channelApprovalsQuery(id));
+}
+
+export function useCreateChannel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; description?: string | null }) => api.createChannel(input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['channels'] }),
+  });
+}
+
+export function useBindChannelAgent(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { agentId: string; autoWakeOnAll?: boolean }) =>
+      api.bindChannelAgent(id, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useStopChannelRun(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.stopChannelRun(id, runId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['channel-runs', id] }),
+  });
+}
+
+export function useApproveChannelApproval(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (approvalId: string) => api.approveChannelApproval(id, approvalId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['channel-approvals', id] }),
+  });
+}
+
+export function useMarkChannelRead(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (seq: number) => api.markChannelRead(id, seq),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['channels'] }),
   });
 }

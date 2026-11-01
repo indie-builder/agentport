@@ -206,6 +206,25 @@ worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也�
 
 实现状态（2026-10-28）：隔离环境真实模型验证 CSV/PNG/14 页 PDF 的原生读取、报告内容与下载哈希一致、同会话第二轮读取历史附件、分支删源后继续读取；跨会话下载 404、伪类型/超限 400。Compose 为完整支持环境；宿主直跑需同一绝对 `WORKSPACES_DIR`，非 uid 1000 宿主与沙盒的 0700 目录限制见 `docs/OPERATIONS.md`。详见 [任务记录](tasks/agent-attachments.md)。
 
+### 3.5 频道模式 M1 / M2 / M3 数据模型
+
+频道是一等对象；M1 落四张频道表，M2 给现有 `conversations` / `messages` / `agent_runs` 增加可空来源列，M3 给 `approval_requests` 增加可空频道与批准人列，不回填或改变已有私有对话行。
+
+| 表 | 关键列与约束 | 说明 |
+|---|---|---|
+| `channels` | `id`（`chn_`）、`name`、`description` nullable、`created_by`、`archived_at` nullable、`created_at` / `updated_at` | 频道主对象；M1 全部私有，`archived_at` 同时作为关闭标记，关闭后拒绝新消息与新 run |
+| `channel_members` | `(channel_id, business_id)` 复合主键、`role`（owner/admin/member/viewer，默认 member）、`last_read_seq` bigint 默认 0、`created_at` | 只放人；未读游标折进成员行，不单设表；`channel_id` 级联删除 |
+| `channel_agent_bindings` | `channel_id` / `agent_id` 级联外键、`conversation_id` nullable（set null）、`status`（active/paused/disconnected，默认 active）、`context_seq` bigint 默认 0、`auto_wake_on_all` 默认 false、`added_by`、`created_at`；`unique(channel_id, agent_id)` | 一条绑定 = 一个 agent lane；首次唤醒时填入 `conversation_id`；`context_seq` 记录最近一次**已确认执行**的 run 消费到的频道消息 seq（准入只读取，不推进） |
+| `channel_messages` | `id`（`chm_`）、`channel_id` 级联外键、`seq` bigserial、`kind`（human/agent/system）、`author_business_id` / `agent_id` / `run_id` nullable、`body`、`client_message_id` / `source_message_id` nullable、`created_at`；`index(channel_id, seq)`、partial unique `(channel_id, client_message_id) where not null`、partial unique `(source_message_id) where not null` | 频道时间线唯一来源；事件回放即 `seq > cursor`，不另设事件表；`agent_id` / `run_id` 只存标识，不建外键以保留历史 |
+
+角色、状态与消息类型沿用 text + CHECK，不引入 PostgreSQL enum。M2 增加 `conversations.channel_id` 可空级联外键与 partial unique `(channel_id, agent_id) where channel_id is not null`、`messages.channel_message_id` 可空来源标识、`agent_runs.channel_id` / `channel_trigger_message_id` 可空来源标识，并扩展 trigger CHECK 为 `channel`。lane 的 `created_by` 仅记录首次触发者；私有会话列表与搜索排除 lane，执行准入按频道成员角色与 active 绑定判断。
+
+频道消息请求使用显式 `mentions: agentId[]`，不解析正文中的名字；`mentionAll` 只唤醒 `auto_wake_on_all=true` 的绑定。无 mention 不执行；每个 lane 复用既有 `admitChatRun` → BullMQ → sandbox 管线，忙碌 lane 写 system 提示并跳过。助手文本与频道投影同事务保存；可重试的中间尝试只保留 lane 消息，不进入频道时间线，最终尝试才投影，`source_message_id` 唯一索引保证投影身份唯一。`packages/shared/src/channels.ts` 是请求/响应/生命周期事件契约；Redis 键由 `channelStreamKey` / `channelEventsConnectionName` 统一生成。消息用 DB `seq` 回放，`run.started` / `run.finished` 是实时提示，发布失败不改变运行结果。
+
+频道准入在同一事务内用绑定的 `context_seq` 做增量上下文注入：只取 `context_seq < seq < 触发消息 seq` 的 human/agent/system 消息，最多最新 20 条（`CHANNEL_CONTEXT_MESSAGE_LIMIT`），再反转成升序拼到本轮用户消息前。前缀总长（含分隔与省略提示、不含当前消息）不超过 8000 字符（`CHANNEL_CONTEXT_CHAR_LIMIT`），超限从最早整条丢弃并标注「更早的消息已省略」，单条超长时只保留省略提示；没有新消息时保持原 content 不变。游标**不在准入时推进**：只有该 run 被确认执行（消息持久化事务内）才把 `context_seq` 推进到触发消息 seq，因此 queued 取消、入队失败、开跑前拒绝都不会吞掉未注入的上下文；旧消息重放用 `Math.max` 不回退。注入只改该 run 原有的一条 lane 用户消息，不新增频道消息。
+
+M3 只给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade）与 `approved_by_business_id`（可空 text），不新增审批状态列或独立计划审批表，也不回填旧行。关闭复用 `channels.archived_at`：`postMessage`、`admitChatRun` 频道分支在同一行锁内检查并拒绝新内容；`postSystemMessage` 已关闭时返回 `null`，不写忙碌误提示。`approval.requested` 是频道 SSE 的实时提示事件，审批状态仍以 `approval_requests` 行为准。频道 UI 已随 M4 提供（列表页与频道详情页）；成员管理、断开/关闭入口与频道附件仍属后续切片。
+
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
 前两个方向共用 MCP 协议与同一个 Node 适配器，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。
@@ -361,7 +380,7 @@ data/workspaces/<agent-slug>/
 | 子智能体记忆 | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：平台写入口进账本，SDK 自动写入不记账；验收证据见[子记忆任务记录](tasks/subagent-memory-20261030.md) |
 | 专家规则 | `agent_rules`（DB） | 渲染为 `.claude/rules/<slug>.md`，每次运行自动生效 | `memory_changes` 完整快照 |
 
-- **个人记忆（原个人偏好）不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。API 保存以 DB 事务提交为准，投影失败只记日志；worker 在每轮用户运行、挂载工作区前按 DB 重建该用户的投影，崩溃遗留的旧投影不会带入下一轮。服务主体不重建也不挂个人记忆；重建失败则中止该轮运行。
+- **个人记忆（原个人偏好）不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。API 保存以 DB 事务提交为准，投影失败只记日志；worker 在每轮**私有**用户运行、挂载工作区前按 DB 重建该用户的投影，崩溃遗留的旧投影不会带入下一轮。频道 run 属于共享执行上下文，不投影、不挂载、也不注入触发者的个人记忆。注意这只覆盖**个人**记忆：专家与子智能体记忆按专家目录共享，频道里仍能读到，不能据此宣称私人信息已完全隔离。服务主体不重建也不挂个人记忆；重建失败则中止该轮运行。
 - **个人记忆按 `businessId` 隔离**：投影目录与锁都以 `businessId` 为键；worker 从 DB 读取运行主体，服务主体没有个人记忆，也不回退到管理员。既有专家共享 auto-memory 的读写语义保持不变。
 - **记忆提案是用户触发的运行**：`agent_runs.trigger='review'`，目标为个人记忆、指定专家的某个记忆文件或规则；`agent_memory` 目标必须带 `name`，不设 `MEMORY.md` 隐式默认。一次记忆提案只处理一个文件，读已落库的会话快照（最多 10 段，可选用首尾消息固定窗口），`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema` 返回提案；沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停，不建沙盒、不追加消息、不写成果。快照在创建时固定：来源正文 + 目标正文 + 伴随索引合计不超过 256 KiB，超限入队前拒绝。证据必须是快照消息原文的连续子串，并带 `user_fact | confirmed_decision | assistant_suggestion` 归因：用户事实与已确认决定只能引用 user，助手建议只能引用 assistant 且仅作背景；非 null 正文至少有一条用户依据，纯助手建议不能变成可采纳记忆。
 - **确认制，不是自动进化**：提案写入个人记忆、专家记忆文件或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。

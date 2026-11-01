@@ -136,10 +136,11 @@ export async function checkQueuedRunAccess(
   db: Database,
   run: {
     runId: string;
-    trigger: 'chat' | 'mcp' | 'schedule' | 'event' | 'review';
+    trigger: 'chat' | 'mcp' | 'schedule' | 'event' | 'review' | 'channel';
     agentId: string;
     conversationId: string;
     businessId: string;
+    channelId: string | null;
   },
 ): Promise<RunAccessDenial | null> {
   const identity = await repo.accounts.getIdentity(db, run.businessId);
@@ -152,11 +153,62 @@ export async function checkQueuedRunAccess(
     reason: 'permission_denied',
     message: QUEUED_DENIED,
   });
-  if (!agentPermissionAllows(access.grants, 'agents.use', relation, run.businessId)) {
+  // 频道成员资格就是频道 lane 的授权来源：不再要求平台的 agents.use 专家范围。
+  if (
+    run.trigger !== 'channel' &&
+    !agentPermissionAllows(access.grants, 'agents.use', relation, run.businessId)
+  ) {
     return denied();
   }
 
   switch (run.trigger) {
+    case 'channel': {
+      if (run.channelId === null) {
+        return { reason: 'invalid_subject', message: QUEUED_SOURCE_MISMATCH };
+      }
+      const [lane] = await db
+        .select({
+          role: schema.channelMembers.role,
+          bindingStatus: schema.channelAgentBindings.status,
+          archivedAt: schema.channels.archivedAt,
+          conversationChannelId: schema.conversations.channelId,
+          conversationAgentId: schema.conversations.agentId,
+        })
+        .from(schema.channelAgentBindings)
+        .innerJoin(schema.conversations, eq(schema.conversations.id, run.conversationId))
+        .innerJoin(schema.channels, eq(schema.channels.id, run.channelId))
+        .leftJoin(
+          schema.channelMembers,
+          and(
+            eq(schema.channelMembers.channelId, run.channelId),
+            eq(schema.channelMembers.businessId, run.businessId),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.channelAgentBindings.channelId, run.channelId),
+            eq(schema.channelAgentBindings.agentId, run.agentId),
+            eq(schema.channelAgentBindings.conversationId, run.conversationId),
+          ),
+        )
+        .limit(1);
+      if (
+        !lane ||
+        lane.conversationChannelId !== run.channelId ||
+        lane.conversationAgentId !== run.agentId
+      ) {
+        return { reason: 'invalid_subject', message: QUEUED_SOURCE_MISMATCH };
+      }
+      if (
+        lane.archivedAt !== null ||
+        lane.role === null ||
+        lane.role === 'viewer' ||
+        lane.bindingStatus !== 'active'
+      ) {
+        return denied();
+      }
+      return null;
+    }
     case 'chat': {
       const [conversation] = await db
         .select({ createdBy: schema.conversations.createdBy })

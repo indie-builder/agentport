@@ -34,6 +34,7 @@ import { Worker } from 'bullmq';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
 import { conversationInputsMount, promptWithAttachments } from './attachments.js';
+import { publishChannelEventSafely } from './channel-events.js';
 import { loadConfig } from './config.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
 import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
@@ -43,7 +44,11 @@ import { startKnowledgeReconciler } from './knowledge/reconcile.js';
 import { startKnowledgeScheduler } from './knowledge/scheduler.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { executeMemoryReview } from './memory-review.js';
-import { type PersistedMessage, persistRunMessages } from './messages.js';
+import {
+  type PersistedChannelMessage,
+  type PersistedMessage,
+  persistRunMessages,
+} from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
 import { registerNativePlugins } from './native-plugins.js';
 import { promptWithOpenUiAction } from './openui-action.js';
@@ -131,6 +136,7 @@ const provider = new DockerSandboxProvider({
 const sessionSandboxes = new SessionSandboxes({
   provider,
   idleTimeoutMs: config.SANDBOX_IDLE_TIMEOUT_MS,
+  maxActive: config.SANDBOX_MAX_ACTIVE,
   resolveRuntimeEnvironment,
   logger,
 });
@@ -543,6 +549,7 @@ const worker = new Worker(
         trigger: schema.agentRuns.trigger,
         agentId: schema.agentRuns.agentId,
         conversationId: schema.agentRuns.conversationId,
+        channelId: schema.agentRuns.channelId,
         subjectKind: schema.agentRuns.subjectKind,
         initiatedBy: schema.agentRuns.initiatedBy,
         serviceId: schema.agentRuns.serviceId,
@@ -572,6 +579,7 @@ const worker = new Worker(
           agentId: run.agentId,
           conversationId: run.conversationId,
           businessId: subject.businessId,
+          channelId: run.channelId,
         });
         if (denial !== null) {
           logger.warn({ runId, reason: denial.reason }, 'run denied before sandbox start');
@@ -625,6 +633,15 @@ const worker = new Worker(
       status: 'ok',
       dedupeKey: `aud_started_${runId.slice(4)}`,
     });
+    // 认领成功后再广播频道生命周期；发布失败只记日志，不影响执行与重试。
+    if (run.channelId !== null) {
+      await publishChannelEventSafely(
+        run.channelId,
+        { type: 'run.started', channelId: run.channelId, runId, agentId },
+        logger,
+        { runId },
+      );
+    }
 
     let lease: SessionSandboxLease | undefined;
     let leaseReleased = false;
@@ -659,15 +676,17 @@ const worker = new Worker(
           .orderBy(asc(schema.agents.id));
         const enabledChildren = subAgentRows.filter((row) => row.enabled);
         const subAgentSlugs = enabledChildren.map((row) => row.slug).sort();
-        // 个人记忆先按 DB 重写再挂载，崩溃后不会把旧投影带进本轮；服务主体没有个人记忆。
-        if (subject.kind === 'user') {
-          await projectPersonalMemory(db, pool, workspacesDir, subject.businessId);
+        // 频道 run 共享 lane，不投影也不挂载任何参与者偏好；用户 run 先按 DB 重写，崩溃后不带旧投影。
+        const personalBusinessId =
+          subject.kind === 'user' && run.channelId === null ? subject.businessId : undefined;
+        if (personalBusinessId !== undefined) {
+          await projectPersonalMemory(db, pool, workspacesDir, personalBusinessId);
         }
         const sessionPaths = await ensureSessionWorkspace({
           workspacesDir,
           slug: agent.slug,
           conversationId,
-          ...(subject.kind === 'user' ? { businessId: subject.businessId } : {}),
+          ...(personalBusinessId === undefined ? {} : { businessId: personalBusinessId }),
           subAgentSlugs,
         });
         const inputsMount = await conversationInputsMount({
@@ -931,7 +950,11 @@ const worker = new Worker(
           task,
           lease,
           signal: sandboxClosing.signal,
-          env: sandboxEnv(sandboxApiUrl, runId),
+          // 真实 run 来源元数据，只给频道 run；私聊 env 保持原样。
+          env:
+            run.channelId === null
+              ? sandboxEnv(sandboxApiUrl, runId)
+              : { ...sandboxEnv(sandboxApiUrl, runId), PACE_RUN_TRIGGER: 'channel' },
           logger: logger.child({ runId }),
           // 问题先落库再推界面；轮询答案也只读这条 run 的记录。
           questions: {
@@ -1047,14 +1070,27 @@ const worker = new Worker(
       // 落库前先判定是否还会重试：失败轮次的 SDK session 与 fork 映射不能污染下一次续聊。
       const retryable = isRetryable(outcome);
       const willRetry = retryable && job.attemptsMade + 1 < (job.opts.attempts ?? 1);
+      // 成功结果、正 token 或工具事件都证明模型已执行；频道游标与 session 边界共用这一判据。
+      const modelExecuted =
+        outcome.status === 'succeeded' ||
+        (outcome.inputTokens ?? 0) > 0 ||
+        (outcome.outputTokens ?? 0) > 0 ||
+        outcome.events.some((event) => event.type === 'tool_start' || event.type === 'tool_result');
+      // 频道轮没执行时不存 session：游标未推进会在下一轮重注入，恢复这段 transcript 会收到两份同一上下文。
+      const sdkSessionId =
+        willRetry || (run.channelId !== null && !modelExecuted) ? undefined : outcome.sessionId;
       const forked = outcome.events.find((event) => event.type === 'session_forked');
       let persistedMessages: PersistedMessage[] = [];
+      let projectedChannelMessage: PersistedChannelMessage | undefined;
       let messagesWritten = false;
       let messageSaveError: string | undefined;
       try {
         // 分支首轮：从宿主 transcript 的 forkedFrom 算新旧 uuid 映射，再与消息同事务写入。
         const uuidMap =
-          !willRetry && forked?.type === 'session_forked' && sessionsDirForRun !== null
+          !willRetry &&
+          (run.channelId === null || modelExecuted) &&
+          forked?.type === 'session_forked' &&
+          sessionsDirForRun !== null
             ? await readForkUuidMap(
                 sessionsDirForRun,
                 forked.sessionId,
@@ -1066,18 +1102,47 @@ const worker = new Worker(
           conversationId,
           runId,
           events: outcome.events,
-          ...(willRetry || outcome.sessionId === undefined
-            ? {}
-            : { sdkSessionId: outcome.sessionId }),
+          ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
           ...(uuidMap === undefined ? {} : { uuidMap }),
           uiFormat: runUiFormat,
+          // 中间轮投影会占用频道 seq，已订阅者按 seq > cursor 永远读不到最终正文。
+          projectChannelReply: !willRetry,
+          ...(run.channelId !== null && modelExecuted ? { modelExecuted: true } : {}),
         });
         messagesWritten = persisted.written;
         persistedMessages = persisted.messages;
+        projectedChannelMessage = persisted.channelMessage;
         if (!persisted.written) messageSaveError = '消息保存被拒绝，运行或会话已由外部终止';
       } catch (err) {
         messageSaveError = errorText(err);
         logger.error({ err, runId }, 'failed to persist run messages');
+      }
+
+      // DB 已提交的投影才是权威；Redis 只负责唤醒，失败不改变运行结果。
+      if (projectedChannelMessage !== undefined) {
+        await publishChannelEventSafely(
+          projectedChannelMessage.channelId,
+          {
+            type: 'message.created',
+            channelId: projectedChannelMessage.channelId,
+            seq: projectedChannelMessage.seq,
+            message: {
+              id: projectedChannelMessage.id,
+              channelId: projectedChannelMessage.channelId,
+              seq: projectedChannelMessage.seq,
+              kind: projectedChannelMessage.kind,
+              authorBusinessId: projectedChannelMessage.authorBusinessId,
+              agentId: projectedChannelMessage.agentId,
+              runId: projectedChannelMessage.runId,
+              body: projectedChannelMessage.body,
+              clientMessageId: projectedChannelMessage.clientMessageId,
+              sourceMessageId: projectedChannelMessage.sourceMessageId,
+              createdAt: projectedChannelMessage.createdAt.toISOString(),
+            },
+          },
+          logger,
+          { runId },
+        );
       }
 
       if (!messagesWritten && !willRetry) {

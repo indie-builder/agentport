@@ -9,6 +9,7 @@ import {
   CalendarClock,
   Container,
   FlaskConical,
+  Hash,
   HeartPulse,
   History,
   KeyRound,
@@ -61,6 +62,7 @@ type NavItem = {
 const iconFor: Record<string, typeof Cable> = {
   '/agents': Users,
   '/chat': MessagesSquare,
+  '/channels': Hash,
   '/schedules': CalendarClock,
   '/skills': Cable,
   '/eval': FlaskConical,
@@ -110,6 +112,8 @@ const routeMeta: Record<string, { nav: string; title: string }> = {
   '/_shell/agents/': { nav: '/agents', title: '找专家' },
   '/_shell/agents/$agentId': { nav: '/agents', title: '找专家' },
   '/_shell/chat': { nav: '/chat', title: '对话' },
+  '/_shell/channels/': { nav: '/channels', title: '频道' },
+  '/_shell/channels/$channelId': { nav: '/channels', title: '频道' },
   '/_shell/personal/': { nav: '/personal/profile', title: '个人资料' },
   '/_shell/personal/profile': { nav: '/personal/profile', title: '个人资料' },
   '/_shell/personal/memory': { nav: '/personal/memory', title: '个人记忆' },
@@ -407,6 +411,8 @@ export function AppShell() {
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
   const locationHref = useRouterState({ select: (state) => state.location.href });
+  // 对话与频道详情占满高度；频道列表仍是普通可滚动页面。
+  const immersive = pathname.startsWith('/chat') || /^\/channels\/[^/]+/.test(pathname);
 
   const logout = async (): Promise<void> => {
     await logoutAccount();
@@ -697,11 +703,11 @@ export function AppShell() {
             tabIndex={-1}
             className={cn(
               'min-h-0 flex-1',
-              pathname.startsWith('/chat') ? 'overflow-hidden' : 'overflow-y-auto',
+              immersive ? 'overflow-hidden' : 'overflow-y-auto',
               personalContext && '[scrollbar-gutter:stable]',
             )}
           >
-            {pathname.startsWith('/chat') ? (
+            {immersive ? (
               <div className="h-full">{content}</div>
             ) : (
               // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。

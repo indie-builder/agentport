@@ -401,6 +401,47 @@ audit_log(
 )
 ```
 
+频道模式 M1 的四张表与 M2 的可空来源关联（已有私有对话行不改写）：
+
+```sql
+channels(id text pk, name text, description text nullable, created_by text,
+         archived_at timestamptz nullable, created_at timestamptz, updated_at timestamptz)
+
+channel_members(channel_id text fk cascade, business_id text,
+                role text check in (owner,admin,member,viewer) default member,
+                last_read_seq bigint default 0, created_at timestamptz,
+                primary key (channel_id, business_id))
+
+channel_agent_bindings(channel_id text fk cascade, agent_id text fk agents cascade,
+                       conversation_id text fk conversations set null,
+                       status text check in (active,paused,disconnected) default active,
+                       context_seq bigint not null default 0,
+                       auto_wake_on_all boolean default false, added_by text,
+                       created_at timestamptz, unique (channel_id, agent_id))
+
+channel_messages(id text pk, channel_id text fk cascade, seq bigserial,
+                 kind text check in (human,agent,system),
+                 author_business_id text nullable, agent_id text nullable, run_id text nullable,
+                 body text, client_message_id text nullable, source_message_id text nullable,
+                 created_at timestamptz)
+-- 索引 (channel_id, seq)；partial unique (channel_id, client_message_id) where client_message_id is not null
+-- partial unique (source_message_id) where source_message_id is not null
+
+-- M2：只新增可空列，私有对话 channel_id 保持 null
+conversations.channel_id text nullable fk channels(id) on delete cascade
+-- partial unique (channel_id, agent_id) where channel_id is not null
+messages.channel_message_id text nullable
+agent_runs.channel_id text nullable
+agent_runs.channel_trigger_message_id text nullable
+-- agent_runs.trigger CHECK 加入 channel
+
+-- M3：审批挂频道与批准人；关闭复用 channels.archived_at
+approval_requests.channel_id text nullable fk channels(id) on delete cascade
+approval_requests.approved_by_business_id text nullable
+```
+
+人发消息只写一条频道时间线；显式 `mentions` 与 opt-in `mentionAll` 才唤醒 agent。每个 `(channel_id, agent_id)` 复用一个 lane，lane 内的 user message 指向来源频道消息，run 也记录频道与触发消息。准入按绑定的 `context_seq` 增量拼入频道上下文：只取游标之后、触发消息之前的 human/agent/system 消息，最多最新 20 条，前缀（含分隔与省略提示，不含当前消息）不超过 8000 字符，超限从最早整条丢弃并标注「更早的消息已省略」；成功准入在同一事务把游标推进到触发消息 seq，旧消息重放不回退，失败或拒绝随事务回滚。没有新消息时保持原 content 不变，不新增频道消息。游标不在准入时推进：只有 run 被确认执行后（消息持久化事务内）才把游标推进到触发消息 seq，queued 取消与入队失败不吞上下文。频道 run 不投影也不注入触发者的个人记忆。助手回复与 `channel_messages` 投影同事务写入，可重试中间尝试不投影到频道；最终回复投影由 `source_message_id` 唯一索引去重。lane 首次创建者仅供溯源，频道成员角色与 active 绑定决定执行准入；私有会话列表和搜索排除 lane。频道关闭后 `postMessage` 与 `admitChatRun` 在频道行锁内拒绝新消息与新 run。审批不设 denied/expired 持久状态机，仅记录 `approved_at` 与 `approved_by_business_id`。
+
 知识库是一组独立的内容表，不挂在专家定义下（字段契约见 [ARCHITECTURE.md §6.1](ARCHITECTURE.md#61-存储与数据模型)）：
 
 ```sql
@@ -851,6 +892,8 @@ pnpm dev
 | agent | `agt` | `agt_01m5afshq0exxsn0sc47th80fh` |
 | conversation | `conv` | `conv_01m5ag6528eh7bw80fjkysa3vp` |
 | message | `msg` | — |
+| channel | `chn` | — |
+| channel message | `chm` | — |
 | run | `run` | `run_01m5ag7sq6eh7bw81dxdrhkvec` |
 | runtime environment | `rte` | — |
 | runtime environment version | `rtev` | — |
@@ -876,6 +919,7 @@ TypeID 由 uuidv7 编码而来，按时间排序，便于按创建顺序扫描�
 例外：
 
 - `agent_skills`、`agent_servers`、`knowledge_document_tags`、`knowledge_document_source_ranges`、`knowledge_wiki_sources`：关联表只有复合唯一索引，没有独立 `id`。
+- `channel_members`、`channel_agent_bindings`：频道关联表，不单独生成 ID；前者用 `(channel_id, business_id)` 复合主键，后者用 `unique(channel_id, agent_id)`。
 - Better Auth 的用户与账号技术 ID 随机生成（bootstrap 也是随机 ID）；`session` / `verification` 默认随机 ID。
 - 认证账户的技术 ID 只作登录载体，可删除并重建；业务记录不引用它，统一直接保存稳定 `businessId`（创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权、个人记忆）。`session` 属于认证载体，账户重建时不恢复旧会话。字段与接口见 §18 及配套契约文件；实现只在本工作树，未合入 main、已通过最终 review、准备发布。
 - `audit_log` 默认用 `newId('audit')`；调用方提供 `dedupeKey` 时直接以其作为主键。

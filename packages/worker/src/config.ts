@@ -42,6 +42,8 @@ const envSchema = z
      * 不支持 0/-1 无限保活。
      */
     SANDBOX_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+    /** 同时存活的会话沙盒容器上限；达到上限时回收最久未用的空闲容器。 */
+    SANDBOX_MAX_ACTIVE: z.coerce.number().int().positive().default(6),
     AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
     /** 维护任务的保留天数；0 不合法，要保留更久就调大。 */
     RETAIN_RUN_DAYS: z.coerce.number().int().positive().default(90),

@@ -416,7 +416,14 @@ describe('business and operations navigation contexts', () => {
   it('shows only business items plus the secondary operations entry on business pages', async () => {
     const view = await inspectRoute('/agents/', 'success');
     try {
-      expect(navHrefs(view.host)).toEqual(['/agents', '/chat', '/schedules', '/skills', '/eval']);
+      expect(navHrefs(view.host)).toEqual([
+        '/agents',
+        '/chat',
+        '/channels',
+        '/schedules',
+        '/skills',
+        '/eval',
+      ]);
       expect(view.host.querySelector('a[aria-label="运维"]')?.getAttribute('href')).toBe(
         '/operations',
       );
@@ -443,7 +450,7 @@ describe('business and operations navigation contexts', () => {
       expect(view.host.querySelector('a[aria-label="返回工作区"]')?.getAttribute('href')).toBe(
         '/agents',
       );
-      for (const href of ['/agents', '/chat', '/schedules', '/skills', '/eval']) {
+      for (const href of ['/agents', '/chat', '/channels', '/schedules', '/skills', '/eval']) {
         expect(navHrefs(view.host)).not.toContain(href);
       }
     } finally {
@@ -472,7 +479,14 @@ describe('business and operations navigation contexts', () => {
   it('falls back to the business context for unknown routes without selecting an item', async () => {
     const view = await inspectRoute('/runs/missing/extra', 'success');
     try {
-      expect(navHrefs(view.host)).toEqual(['/agents', '/chat', '/schedules', '/skills', '/eval']);
+      expect(navHrefs(view.host)).toEqual([
+        '/agents',
+        '/chat',
+        '/channels',
+        '/schedules',
+        '/skills',
+        '/eval',
+      ]);
       expect(activeNavLinks(view.host)).toEqual([]);
     } finally {
       await view.close();

@@ -1,10 +1,15 @@
 import type {
   AgentRunJob,
+  ChannelEvent,
+  ChannelMessage,
   ChatEvent,
   EvalRunJob,
   RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';
 import {
+  channelEventSchema,
+  channelEventsConnectionName,
+  channelStreamKey,
   chatEventSchema,
   EVAL_RUNS_QUEUE,
   KNOWLEDGE_CANCEL_PAYLOAD,
@@ -52,6 +57,7 @@ let evalQueue: Queue<EvalRunJob> | undefined;
 let knowledgeQueue: Queue<{ jobId: string }> | undefined;
 let runtimeEnvironmentBuildQueue: Queue<RuntimeEnvironmentBuildJob> | undefined;
 let client: Redis | undefined;
+let channelClient: Redis | undefined;
 
 export function getQueue(): Queue<AgentRunJob> {
   if (!queue) {
@@ -100,6 +106,21 @@ function getClient(): Redis {
   return client;
 }
 
+function getChannelClient(): Redis {
+  if (!channelClient) {
+    channelClient = new Redis(REDIS_URL, {
+      connectionName: 'channel-producer',
+      maxRetriesPerRequest: 1,
+      commandTimeout: 1_000,
+      connectTimeout: 1_000,
+      // 允许冷启动时短暂排队：首个事件常发生在连接 ready 之前；commandTimeout 仍保证 Redis 不可用时不阻塞请求。
+      enableOfflineQueue: true,
+    });
+    channelClient.on('error', logRedisError);
+  }
+  return channelClient;
+}
+
 /** 运行中的知识任务：worker 每秒轮询该键，非空即 abort；键由 worker 收尾时删除。 */
 export async function publishKnowledgeCancel(jobId: string): Promise<void> {
   await getClient().set(
@@ -110,7 +131,7 @@ export async function publishKnowledgeCancel(jobId: string): Promise<void> {
   );
 }
 
-function parseEvent(payload: string): ChatEvent | null {
+function parseChatEvent(payload: string): ChatEvent | null {
   let raw: unknown;
   try {
     raw = JSON.parse(payload);
@@ -118,6 +139,17 @@ function parseEvent(payload: string): ChatEvent | null {
     return null;
   }
   const parsed = chatEventSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+function parseChannelEvent(payload: string): ChannelEvent | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  const parsed = channelEventSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 
@@ -142,6 +174,31 @@ export async function publishRun(runId: string, event: ChatEvent): Promise<void>
       .expire(key, STREAM_TTL_SECONDS)
       .exec(),
   );
+}
+
+/** 频道事件只做唤醒；订阅端按 DB 的 seq 补拉，不信任这里的正文。 */
+export async function publishChannelEvent(channelId: string, event: ChannelEvent): Promise<void> {
+  const redis = getChannelClient();
+  const key = channelStreamKey(channelId);
+  throwOnCommandError(
+    await redis
+      .pipeline()
+      .xadd(key, '*', 'payload', JSON.stringify(event))
+      .expire(key, STREAM_TTL_SECONDS)
+      .exec(),
+  );
+}
+
+export async function publishChannelMessage(
+  channelId: string,
+  message: ChannelMessage,
+): Promise<void> {
+  return publishChannelEvent(channelId, {
+    type: 'message.created',
+    channelId,
+    seq: message.seq,
+    message,
+  });
 }
 
 /**
@@ -189,12 +246,49 @@ export async function subscribeRun(
   cb: (event: ChatEvent) => void | Promise<void>,
   signal?: AbortSignal,
 ): Promise<RunSubscription> {
+  return subscribeStream(
+    runStreamKey(runId),
+    runEventsConnectionName(runId),
+    parseChatEvent,
+    { type: 'error', message: 'Server shutting down' },
+    { type: 'error', message: '事件流中断，请刷新页面或重试' },
+    cb,
+    signal,
+  );
+}
+
+export async function subscribeChannel(
+  channelId: string,
+  cb: (event: ChannelEvent) => void | Promise<void>,
+  signal?: AbortSignal,
+): Promise<RunSubscription> {
+  return subscribeStream(
+    channelStreamKey(channelId),
+    channelEventsConnectionName(channelId),
+    parseChannelEvent,
+    { type: 'error', message: 'Server shutting down' },
+    { type: 'error', message: '事件流中断，请刷新页面或重试' },
+    cb,
+    signal,
+    getChannelClient(),
+  );
+}
+
+async function subscribeStream<T>(
+  key: string,
+  connectionName: string,
+  parse: (payload: string) => T | null,
+  shutdownEvent: T,
+  errorEvent: T,
+  cb: (event: T) => void | Promise<void>,
+  signal?: AbortSignal,
+  replayClient?: Redis,
+): Promise<RunSubscription> {
   if (signal?.aborted) return { close: () => undefined };
-  const key = runStreamKey(runId);
   let closed = false;
   const redis = new Redis(REDIS_URL, {
     maxRetriesPerRequest: null,
-    connectionName: runEventsConnectionName(runId),
+    connectionName,
   });
   redis.on('error', (err) => {
     // 主动断开会打断在途的 XREAD，连接关闭后的 EPIPE 属于预期。
@@ -214,11 +308,9 @@ export async function subscribeRun(
   signal?.addEventListener('abort', onAbort, { once: true });
   subscriptions.set(redis, () => {
     // Shutdown must not wait for a stalled viewer to drain.
-    void Promise.resolve(cb({ type: 'error', message: 'Server shutting down' })).catch(
-      (err: unknown) => {
-        logRedisError(err instanceof Error ? err : new Error(String(err)));
-      },
-    );
+    void Promise.resolve(cb(shutdownEvent)).catch((err: unknown) => {
+      logRedisError(err instanceof Error ? err : new Error(String(err)));
+    });
     release();
   });
 
@@ -226,7 +318,7 @@ export async function subscribeRun(
     let cursor = '0-0';
     for (;;) {
       if (closed) break;
-      const page = (await getClient().xrange(
+      const page = (await (replayClient ?? getClient()).xrange(
         key,
         cursor,
         '+',
@@ -236,7 +328,7 @@ export async function subscribeRun(
       for (const [id, fields] of page) {
         if (closed) break;
         lastId = id;
-        const event = parseEvent(payloadOf(fields) ?? '');
+        const event = parse(payloadOf(fields) ?? '');
         if (event) await cb(event);
       }
       if (closed || page.length < READ_PAGE_SIZE) break;
@@ -270,7 +362,7 @@ export async function subscribeRun(
           for (const [id, fields] of batch) {
             if (closed) return;
             lastId = id;
-            const event = parseEvent(payloadOf(fields) ?? '');
+            const event = parse(payloadOf(fields) ?? '');
             if (event) await cb(event);
           }
         }
@@ -280,7 +372,7 @@ export async function subscribeRun(
       if (!closed) {
         logRedisError(err instanceof Error ? err : new Error(String(err)));
         try {
-          await cb({ type: 'error', message: '事件流中断，请刷新页面或重试' });
+          await cb(errorEvent);
         } catch {
           // 观众写入失败时仍要释放连接。
         }
@@ -293,6 +385,8 @@ export async function subscribeRun(
 }
 
 export async function closeProducer(): Promise<void> {
+  channelClient?.disconnect();
+  channelClient = undefined;
   const closing = [queue, evalQueue, knowledgeQueue, runtimeEnvironmentBuildQueue, client] as const;
   queue = undefined;
   evalQueue = undefined;
