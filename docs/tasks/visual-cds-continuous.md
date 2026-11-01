@@ -70,4 +70,5 @@
 - **轮10（提交，执行/评估页）**：run-detail 页头返回控件改入 `PageHeader leading`（删外层包装 div 与 className 覆盖，对齐 plugin-detail）；步骤 h2 `text-sm`→`text-base`；选中步骤 `bg-hover`→`bg-selected`，Opus 终审追加修正为 `bg-selected hover:bg-selected`（ghost 按钮 hover 会盖选中色）。eval 运行中状态 `warn`→`brand` tone + 圆点 `bg-warning`→`bg-button-primary`（format.ts 类型联合同步），与 RunStatusBadge 统一。typecheck/build exit0，Opus 终审通过。
 - **轮11（提交，空结果清除筛选）**：§9 空结果给恢复动作。accounts 空态：筛选无结果（settled）时补「清除筛选」（清 q、重置 offset、保留 view；按钮 size=sm）；personal-usage 空结果：区分「窗口无数据」与「筛选无结果」——新增 `hasActiveFilter`，有筛选时标题改「没有匹配的运行记录」并给「清除筛选」（清 agent/trigger/status/cursor，保留 days/view）。真实 URL 键为 agent/trigger/status（来源=trigger，非 source）。typecheck/build exit0，Opus 终审通过。
   - 备注（P1 暂缓）：channel 多人群聊「人类消息缺作者名」受数据模型限制——`ChannelMember` 无成员显示名，`memberLabel` 对他人仅回退 `shortId`，无法补真实作者名；仅能显示 opaque shortId，属产品取舍，待用户定夺。
+- **轮12（提交，个人模块 a11y/字号）**：personal-security 密码表单三字段补无障碍关联（Field `data-invalid`、Input `aria-invalid`+`aria-describedby`、FieldError `id`，参照 knowledge-faq 既有写法；当前密码补齐 data-invalid/aria-invalid）；personal-usage 专家列（主信息）字号 13→`text-base`(14)（§8.8）。typecheck/build exit0，Opus 终审通过。
 
