@@ -1,4 +1,5 @@
 import {
+  errorText,
   type NativeQuestion,
   nativeQuestionInputSchema,
   type SandboxInputCommand,
@@ -111,7 +112,7 @@ export function createQuestionChannel(input: {
       try {
         line = await input.readLine();
       } catch (err) {
-        log(`stdin command read failed: ${err instanceof Error ? err.message : String(err)}`);
+        log(`stdin command read failed: ${errorText(err)}`);
         line = null;
       }
       if (line === null) {

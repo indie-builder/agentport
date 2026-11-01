@@ -1,3 +1,4 @@
+import { errorText } from '@agentport/shared';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 
@@ -66,7 +67,7 @@ export function buildAgentServer(specs: AgentToolSpec[], invoker: AgentInvoker):
           return { content: [{ type: 'text', text }] };
         } catch (err) {
           return {
-            content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }],
+            content: [{ type: 'text', text: errorText(err) }],
             isError: true,
           };
         }

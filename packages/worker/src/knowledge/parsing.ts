@@ -384,10 +384,7 @@ function parseCsvRows(text: string): string[][] {
       trim: false,
     });
   } catch (error) {
-    throw new KnowledgeParseError(
-      'invalid_input',
-      `CSV 解析失败: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new KnowledgeParseError('invalid_input', `CSV 解析失败: ${errorText(error)}`);
   }
   return rows.filter((row) => row.some((value) => value.trim() !== ''));
 }
@@ -443,10 +440,7 @@ function jsonDocument(text: string): ParsedDocument {
   try {
     value = JSON.parse(text);
   } catch (error) {
-    throw new KnowledgeParseError(
-      'invalid_input',
-      `JSON 解析失败: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new KnowledgeParseError('invalid_input', `JSON 解析失败: ${errorText(error)}`);
   }
   const markdown = ['```json', JSON.stringify(value, null, 2), '```'].join('\n');
   return {
@@ -1114,10 +1108,7 @@ async function parseWithDocling(input: {
     if (timeout.aborted) {
       throw new KnowledgeParseError('upstream_http', `Docling 超过 ${DOCLING_TIMEOUT_MS}ms 未响应`);
     }
-    throw new KnowledgeParseError(
-      'upstream_http',
-      `请求 Docling 失败: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new KnowledgeParseError('upstream_http', `请求 Docling 失败: ${errorText(error)}`);
   }
 
   if ([301, 302, 303, 307, 308].includes(response.status)) {
