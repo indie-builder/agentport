@@ -242,6 +242,11 @@ export function RuntimeEnvironmentDetailPage() {
               <Hammer data-icon="inline-start" />
               {build.isPending ? '提交中…' : '构建新版本'}
             </Button>
+            {current.isDefault ? (
+              <span className="self-center text-xs text-muted-foreground">
+                默认运行环境不可删除
+              </span>
+            ) : null}
             <Button
               ref={deleteTriggerRef}
               variant="destructive"
