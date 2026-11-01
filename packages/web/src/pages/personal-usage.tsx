@@ -30,7 +30,7 @@ import {
 } from '../lib/format.js';
 import { agentsQuery, meQuery, usePersonalRuns, usePersonalUsage } from '../lib/queries.js';
 
-const triggers = ['chat', 'mcp', 'schedule', 'event', 'review'] as const;
+const triggers = ['chat', 'mcp', 'schedule', 'event', 'review', 'channel'] as const;
 type Trigger = (typeof triggers)[number];
 
 const triggerLabel: Record<Trigger, string> = {
@@ -39,6 +39,7 @@ const triggerLabel: Record<Trigger, string> = {
   schedule: '定时任务',
   event: '事件',
   review: '记忆提案',
+  channel: '频道',
 };
 
 const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];

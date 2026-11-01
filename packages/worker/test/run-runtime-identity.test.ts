@@ -1,24 +1,70 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RunFailure } from '@agentport/core';
-import { createDb, newId, schema } from '@agentport/db';
-import { RUNS_QUEUE } from '@agentport/shared';
+import { personalMemoryDir, personalMemoryPath, RunFailure } from '@agentport/core';
+import { createDb, newId, repo, schema } from '@agentport/db';
+import { chatEventSchema, RUNS_QUEUE } from '@agentport/shared';
+import type { UserPromptSubmitHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPersonalMemoryHook } from '../../sandbox/src/memory-permissions.js';
 import { SandboxCleanupError } from '../src/sandbox/provider.js';
 
 const mocks = vi.hoisted(() => ({
+  sdkFailure: 'throw' as 'throw' | 'abort',
+  sdkSynthetic: false,
+  stdinLines: [] as string[],
   acquire: vi.fn(),
   run: vi.fn(),
   start: vi.fn(),
   release: vi.fn(),
   publishRun: vi.fn(async () => undefined),
+  publishChannelEvent: vi.fn(async () => undefined),
   isRetryable: vi.fn(() => false),
   checkAccess: vi.fn(),
   processors: new Map<string, (job: unknown) => Promise<void>>(),
   dbHandles: [] as Array<{ pool: { end(): Promise<void> } }>,
+}));
+
+vi.mock('node:readline', () => ({
+  createInterface: () => ({
+    close() {},
+    async *[Symbol.asyncIterator]() {
+      yield* mocks.stdinLines;
+    },
+  }),
+}));
+
+vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>()),
+  query: ({ options }: { options: { abortController: AbortController } }) =>
+    Object.assign(
+      (async function* () {
+        yield {
+          type: 'assistant',
+          parent_tool_use_id: null,
+          uuid: '33333333-4444-4555-8666-777777777777',
+          ...(mocks.sdkSynthetic ? { error: 'rate_limit' } : {}),
+          message: {
+            id: 'msg-boundary',
+            content: [{ type: 'text', text: 'API Error: rate_limit' }],
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_input_tokens: mocks.sdkSynthetic ? 0 : 13,
+            },
+          },
+        };
+        if (mocks.sdkFailure === 'abort') options.abortController.abort();
+        throw new Error('query ended before result');
+      })(),
+      { close() {} },
+    ),
+}));
+
+vi.mock('../src/channel-events.js', () => ({
+  publishChannelEventSafely: mocks.publishChannelEvent,
 }));
 
 vi.mock('../src/run-access.js', async (importOriginal) => {
@@ -148,6 +194,8 @@ const { db } = dbHandle;
 const cleanupRuns: string[] = [];
 const cleanupConversations: string[] = [];
 const cleanupAgents: string[] = [];
+const cleanupChannels: string[] = [];
+const cleanupPreferences: string[] = [];
 const TEST_BUSINESS_ID = 'worker-run-user';
 
 async function createRunFixture(
@@ -158,7 +206,8 @@ async function createRunFixture(
     kind: 'user',
     businessId: TEST_BUSINESS_ID,
   },
-  trigger: 'chat' | 'schedule' | 'event' | 'review' = 'chat',
+  trigger: 'chat' | 'schedule' | 'event' | 'review' | 'channel' = 'chat',
+  channelId?: string,
 ) {
   const fixtureAgentId = newId('agent');
   const fixtureConversationId = newId('conversation');
@@ -166,6 +215,14 @@ async function createRunFixture(
   cleanupAgents.push(fixtureAgentId);
   cleanupConversations.push(fixtureConversationId);
   cleanupRuns.push(fixtureRunId);
+  if (channelId !== undefined) {
+    cleanupChannels.push(channelId);
+    await db.insert(schema.channels).values({
+      id: channelId,
+      name: `retry-${channelId.slice(4)}`,
+      createdBy: TEST_BUSINESS_ID,
+    });
+  }
   await db.insert(schema.agents).values({
     id: fixtureAgentId,
     slug: `retry-${fixtureAgentId.slice(4)}`,
@@ -178,6 +235,7 @@ async function createRunFixture(
     id: fixtureConversationId,
     agentId: fixtureAgentId,
     title: label,
+    ...(channelId === undefined ? {} : { channelId }),
     ...(subject.kind === 'user'
       ? { createdBy: subject.businessId }
       : { serviceId: subject.serviceId }),
@@ -187,6 +245,7 @@ async function createRunFixture(
     conversationId: fixtureConversationId,
     agentId: fixtureAgentId,
     trigger,
+    ...(channelId === undefined ? {} : { channelId }),
     ...(subject.kind === 'user'
       ? { subjectKind: 'user', initiatedBy: subject.businessId }
       : { subjectKind: 'service', serviceId: subject.serviceId }),
@@ -260,6 +319,8 @@ describe('run runtime environment identity persistence', () => {
     mocks.release.mockReset();
     mocks.publishRun.mockReset();
     mocks.publishRun.mockImplementation(async () => undefined);
+    mocks.publishChannelEvent.mockReset();
+    mocks.publishChannelEvent.mockImplementation(async () => undefined);
     mocks.release.mockResolvedValue(undefined);
     // 默认放行身份重查；具体拒绝场景在用例里覆盖返回值。
     mocks.checkAccess.mockReset();
@@ -282,6 +343,12 @@ describe('run runtime environment identity persistence', () => {
     }
     for (const id of cleanupAgents) {
       await db.delete(schema.agents).where(eq(schema.agents.id, id));
+    }
+    for (const id of cleanupChannels) {
+      await db.delete(schema.channels).where(eq(schema.channels.id, id));
+    }
+    for (const id of cleanupPreferences) {
+      await db.delete(schema.userPreferences).where(eq(schema.userPreferences.businessId, id));
     }
     await rm(workdir, { recursive: true, force: true });
     for (const handle of mocks.dbHandles) await handle.pool.end();
@@ -714,6 +781,7 @@ describe('run runtime environment identity persistence', () => {
       agentId: fixture.agentId,
       conversationId: fixture.conversationId,
       businessId: TEST_BUSINESS_ID,
+      channelId: null,
     });
     const [run] = await db
       .select()
@@ -759,6 +827,138 @@ describe('run runtime environment identity persistence', () => {
     expect(acquireInput?.spec.personalDir).toBe(join(workdir, '_users', digest));
   });
 
+  it('skips personal memory for every member sharing a channel lane, and keeps it for their private chat', async () => {
+    const channelId = newId('channel');
+    const laneAgentId = newId('agent');
+    const laneConversationId = newId('conversation');
+    const userA = 'channel-lane-user-a';
+    const userB = 'channel-lane-user-b';
+    cleanupChannels.push(channelId);
+    cleanupAgents.push(laneAgentId);
+    cleanupConversations.push(laneConversationId);
+    cleanupPreferences.push(userA, userB);
+    await db.insert(schema.channels).values({
+      id: channelId,
+      name: 'privacy lane',
+      createdBy: userA,
+    });
+    await db.insert(schema.agents).values({
+      id: laneAgentId,
+      slug: `lane-${laneAgentId.slice(4)}`,
+      name: 'lane',
+      model: 'test',
+      createdBy: userA,
+      ownerBusinessId: userA,
+    });
+    await db.insert(schema.conversations).values({
+      id: laneConversationId,
+      agentId: laneAgentId,
+      channelId,
+      title: 'lane',
+      createdBy: userA,
+    });
+    await db.insert(schema.userPreferences).values([
+      { businessId: userA, content: 'A 的个人偏好' },
+      { businessId: userB, content: 'B 的个人偏好' },
+    ]);
+
+    const laneJob = async (businessId: string) => {
+      const laneRunId = newId('run');
+      cleanupRuns.push(laneRunId);
+      await db.insert(schema.agentRuns).values({
+        id: laneRunId,
+        conversationId: laneConversationId,
+        agentId: laneAgentId,
+        trigger: 'channel',
+        channelId,
+        subjectKind: 'user',
+        initiatedBy: businessId,
+      });
+      await db.insert(schema.messages).values({
+        id: newId('message'),
+        conversationId: laneConversationId,
+        role: 'user',
+        content: { type: 'text', text: 'ask' },
+        runId: laneRunId,
+        senderBusinessId: businessId,
+      });
+      return {
+        data: {
+          runId: laneRunId,
+          agentId: laneAgentId,
+          conversationId: laneConversationId,
+          prompt: 'ask',
+        },
+      };
+    };
+
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-channel-lane'));
+    mocks.run.mockResolvedValue({
+      status: 'succeeded',
+      sandboxId: 'sandbox-channel-lane',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [],
+      sessionId: 'sdk-channel-lane',
+    });
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+    for (const businessId of [userA, userB]) {
+      await processor?.({
+        data: (await laneJob(businessId)).data,
+        attemptsMade: 0,
+        opts: { attempts: 1 },
+      });
+    }
+
+    expect(mocks.acquire).toHaveBeenCalledTimes(2);
+    for (const call of mocks.acquire.mock.calls) {
+      expect((call[0] as { spec: { personalDir?: string } }).spec.personalDir).toBeUndefined();
+    }
+    await expect(stat(personalMemoryPath(workdir, userA))).rejects.toThrow(/ENOENT/);
+    await expect(stat(personalMemoryPath(workdir, userB))).rejects.toThrow(/ENOENT/);
+
+    // 频道 lane 共享给所有成员，模型输入不能出现任一成员的个人偏好。
+    const channelPrompts = mocks.run.mock.calls.map(
+      ([input]) => (input as { task: { prompt: string } }).task.prompt,
+    );
+    expect(channelPrompts).toHaveLength(2);
+    for (const prompt of channelPrompts) {
+      expect(prompt).not.toContain('A 的个人偏好');
+      expect(prompt).not.toContain('B 的个人偏好');
+    }
+    const promptEvent: UserPromptSubmitHookInput = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'session',
+      transcript_path: '/tmp/transcript',
+      cwd: '/workspace',
+      prompt: 'ask',
+    };
+    for (const businessId of [userA, userB]) {
+      const hook = createPersonalMemoryHook(personalMemoryPath(workdir, businessId));
+      expect(await hook(promptEvent, undefined, { signal: new AbortController().signal })).toEqual(
+        {},
+      );
+    }
+
+    const privateRun = await createRunFixture('private-same-author', {
+      kind: 'user',
+      businessId: userA,
+    });
+    await processor?.({ ...privateRun.job, attemptsMade: 0, opts: { attempts: 1 } });
+    const privateAcquire = mocks.acquire.mock.calls[2]?.[0] as
+      | { spec: { personalDir?: string } }
+      | undefined;
+    expect(privateAcquire?.spec.personalDir).toBe(personalMemoryDir(workdir, userA));
+    expect(await readFile(personalMemoryPath(workdir, userA), 'utf8')).toBe('A 的个人偏好');
+    expect(
+      await createPersonalMemoryHook(personalMemoryPath(workdir, userA))(promptEvent, undefined, {
+        signal: new AbortController().signal,
+      }),
+    ).toMatchObject({
+      hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'A 的个人偏好' },
+    });
+  });
+
   it('fails a queued schedule run without sandbox when schedules.manage was revoked', async () => {
     const fixture = await createRunFixture('schedule-denied', undefined, 'schedule');
     mocks.checkAccess.mockResolvedValue({
@@ -775,6 +975,7 @@ describe('run runtime environment identity persistence', () => {
       agentId: fixture.agentId,
       conversationId: fixture.conversationId,
       businessId: TEST_BUSINESS_ID,
+      channelId: null,
     });
     expect(mocks.acquire).not.toHaveBeenCalled();
     expect(mocks.run).not.toHaveBeenCalled();
@@ -828,4 +1029,491 @@ describe('run runtime environment identity persistence', () => {
       | undefined;
     expect(acquireInput?.spec.personalDir).toBeUndefined();
   });
+
+  it('projects only the final channel reply after a retried attempt', async () => {
+    const channelId = newId('channel');
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-channel-retry'));
+    mocks.run
+      .mockResolvedValueOnce({
+        status: 'failed',
+        sandboxId: 'sandbox-channel-retry',
+        settlement: { state: 'stopped', code: 0, signal: null },
+        events: [{ type: 'assistant_text', text: '中间回复 A', blockIndex: 0 }],
+        error: 'infra down',
+        failure: new RunFailure('infra', 'infra down'),
+      })
+      .mockResolvedValueOnce({
+        status: 'succeeded',
+        sandboxId: 'sandbox-channel-retry',
+        settlement: { state: 'stopped', code: 0, signal: null },
+        events: [{ type: 'assistant_text', text: '最终回复 B', blockIndex: 0 }],
+      });
+
+    const fixture = await createRunFixture('channel-retry', undefined, 'channel', channelId);
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+
+    await expect(
+      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+    ).rejects.toThrow('retryable sandbox failure');
+    // 中间轮已落库到私有会话，但不能提前占用频道 seq：已订阅者会漏掉最终正文。
+    expect(
+      await db
+        .select()
+        .from(schema.channelMessages)
+        .where(eq(schema.channelMessages.runId, fixture.runId)),
+    ).toHaveLength(0);
+    expect(
+      mocks.publishChannelEvent.mock.calls.filter(([, event]) => event.type === 'message.created'),
+    ).toHaveLength(0);
+
+    await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
+
+    const [projection] = await db
+      .select()
+      .from(schema.channelMessages)
+      .where(eq(schema.channelMessages.runId, fixture.runId));
+    expect(projection).toMatchObject({
+      channelId,
+      kind: 'agent',
+      agentId: fixture.agentId,
+      runId: fixture.runId,
+      body: '最终回复 B',
+    });
+    const assistant = await db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(and(eq(schema.messages.runId, fixture.runId), eq(schema.messages.role, 'assistant')));
+    expect(assistant.some((row) => row.id === projection?.sourceMessageId)).toBe(true);
+
+    const created = mocks.publishChannelEvent.mock.calls
+      .map(([, event]) => event)
+      .filter((event) => event.type === 'message.created');
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({
+      channelId,
+      seq: projection?.seq,
+      message: { id: projection?.id, body: '最终回复 B' },
+    });
+  });
+
+  it('leaves no channel projection when the final retry has no assistant text', async () => {
+    const channelId = newId('channel');
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-channel-empty'));
+    mocks.run
+      .mockResolvedValueOnce({
+        status: 'failed',
+        sandboxId: 'sandbox-channel-empty',
+        settlement: { state: 'stopped', code: 0, signal: null },
+        events: [{ type: 'assistant_text', text: '中间回复 A', blockIndex: 0 }],
+        error: 'infra down',
+        failure: new RunFailure('infra', 'infra down'),
+      })
+      .mockResolvedValueOnce({
+        status: 'succeeded',
+        sandboxId: 'sandbox-channel-empty',
+        settlement: { state: 'stopped', code: 0, signal: null },
+        events: [],
+      });
+
+    const fixture = await createRunFixture('channel-empty', undefined, 'channel', channelId);
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+
+    await expect(
+      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+    ).rejects.toThrow('retryable sandbox failure');
+    await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
+
+    expect(
+      await db
+        .select()
+        .from(schema.channelMessages)
+        .where(eq(schema.channelMessages.runId, fixture.runId)),
+    ).toHaveLength(0);
+    expect(
+      mocks.publishChannelEvent.mock.calls.filter(([, event]) => event.type === 'message.created'),
+    ).toHaveLength(0);
+  });
+
+  for (const scenario of [
+    { name: 'a failed outcome with model tokens', status: 'failed', tokens: { inputTokens: 17 } },
+    {
+      name: 'a cancelled outcome with model tokens',
+      status: 'cancelled',
+      tokens: { outputTokens: 9 },
+    },
+    { name: 'a succeeded outcome without text', status: 'succeeded', tokens: {} },
+    { name: 'a failure with only a session id', status: 'failed', tokens: {}, advances: false },
+    {
+      name: 'real runner assistant then throw',
+      status: 'failed',
+      tokens: {},
+      sdk: 'throw',
+      synthetic: false,
+    },
+    {
+      name: 'real runner assistant then abort',
+      status: 'cancelled',
+      tokens: {},
+      sdk: 'abort',
+      synthetic: false,
+    },
+    {
+      name: 'real runner synthetic rate_limit then throw',
+      status: 'failed',
+      tokens: {},
+      sdk: 'throw',
+      synthetic: true,
+      advances: false,
+    },
+  ] as const) {
+    it(`advances the channel cursor after ${scenario.name} only when the model executed`, async () => {
+      const channelId = newId('channel');
+      const fixture = await createRunFixture(
+        `cursor-${scenario.status}`,
+        undefined,
+        'channel',
+        channelId,
+      );
+      await db
+        .insert(schema.channelMembers)
+        .values({ channelId, businessId: TEST_BUSINESS_ID, role: 'owner' });
+      await db.insert(schema.channelAgentBindings).values({
+        channelId,
+        agentId: fixture.agentId,
+        conversationId: fixture.conversationId,
+        addedBy: TEST_BUSINESS_ID,
+      });
+      const [, trigger] = await db
+        .insert(schema.channelMessages)
+        .values(
+          ['unconsumed context', 'first trigger'].map((body) => ({
+            id: newId('channelMessage'),
+            channelId,
+            kind: 'human' as const,
+            authorBusinessId: TEST_BUSINESS_ID,
+            body,
+          })),
+        )
+        .returning();
+      if (!trigger) throw new Error('missing trigger message');
+      await db
+        .update(schema.agentRuns)
+        .set({ channelTriggerMessageId: trigger.id })
+        .where(eq(schema.agentRuns.id, fixture.runId));
+
+      mocks.acquire.mockResolvedValue(sandboxLease(`sandbox-cursor-${scenario.status}`));
+      mocks.run.mockResolvedValue({
+        status: scenario.status,
+        sandboxId: `sandbox-cursor-${scenario.status}`,
+        settlement: { state: 'stopped', code: 0, signal: null },
+        events: [],
+        sessionId: `sdk-cursor-${scenario.status}`,
+        ...scenario.tokens,
+        ...(scenario.status === 'succeeded' ? {} : { error: 'model failed without output' }),
+      });
+
+      if ('sdk' in scenario) {
+        mocks.sdkFailure = scenario.sdk;
+        mocks.sdkSynthetic = scenario.synthetic;
+        mocks.run.mockImplementation(async (input) => {
+          const actual =
+            await vi.importActual<typeof import('../src/runner-client.js')>(
+              '../src/runner-client.js',
+            );
+          actual.configureRunnerClient(process.env.REDIS_URL ?? '');
+          try {
+            return await actual.runInSandbox({
+              ...input,
+              lease: {
+                sandboxId: 'runner-boundary',
+                release: async () => undefined,
+                start: async ({ onEvent, env }) => {
+                  mocks.stdinLines = [JSON.stringify(input.task)];
+                  const signals = new Set(process.listeners('SIGTERM'));
+                  // 容器边界：把 worker 交给 sandbox 的 env 原样注入 runner 进程。
+                  const previousEnv = { ...process.env };
+                  Object.assign(process.env, env);
+                  const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+                    onEvent(chatEventSchema.parse(JSON.parse(String(chunk))));
+                    return true;
+                  });
+                  try {
+                    vi.resetModules();
+                    await import('../../sandbox/src/runner.js');
+                  } finally {
+                    stdout.mockRestore();
+                    for (const key of Object.keys(env)) {
+                      if (previousEnv[key] === undefined) delete process.env[key];
+                      else process.env[key] = previousEnv[key];
+                    }
+                    for (const listener of process.listeners('SIGTERM')) {
+                      if (!signals.has(listener)) process.off('SIGTERM', listener);
+                    }
+                  }
+                  return {
+                    done: Promise.resolve({ state: 'stopped', code: 0, signal: null }),
+                    send() {},
+                    cancel: async () => ({ state: 'stopped', code: 0, signal: null }),
+                  };
+                },
+              },
+            });
+          } finally {
+            await actual.closeRunnerClient();
+          }
+        });
+      }
+
+      const processor = mocks.processors.get(RUNS_QUEUE);
+      expect(processor).toBeDefined();
+      await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+      if ('sdk' in scenario) {
+        expect(await mocks.run.mock.results[0]?.value).toMatchObject({
+          status: scenario.status,
+          ...(scenario.synthetic ? {} : { inputTokens: 13, outputTokens: 0 }),
+        });
+        const [reply] = await db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(eq(schema.messages.runId, fixture.runId), eq(schema.messages.role, 'assistant')),
+          );
+        expect(repo.chat.messageText(reply?.content)).toBe('API Error: rate_limit');
+      }
+
+      const [run] = await db
+        .select({ status: schema.agentRuns.status })
+        .from(schema.agentRuns)
+        .where(eq(schema.agentRuns.id, fixture.runId))
+        .limit(1);
+      expect(run?.status).toBe(scenario.status);
+      const [binding] = await db
+        .select({ contextSeq: schema.channelAgentBindings.contextSeq })
+        .from(schema.channelAgentBindings)
+        .where(
+          and(
+            eq(schema.channelAgentBindings.channelId, channelId),
+            eq(schema.channelAgentBindings.agentId, fixture.agentId),
+          ),
+        );
+      const advances = 'advances' in scenario ? scenario.advances : true;
+      expect(binding?.contextSeq).toBe(advances ? trigger.seq : 0);
+
+      // 下一轮准入用真实 repo：游标已推进时不能再注入上一轮已消费的上下文。
+      const [nextTrigger] = await db
+        .insert(schema.channelMessages)
+        .values({
+          id: newId('channelMessage'),
+          channelId,
+          kind: 'human',
+          authorBusinessId: TEST_BUSINESS_ID,
+          body: 'next trigger',
+        })
+        .returning();
+      if (!nextTrigger) throw new Error('missing next trigger');
+      const admitted = await repo.chat.admitChatRun(db, {
+        agentId: fixture.agentId,
+        message: nextTrigger.body,
+        subject: { kind: 'user', businessId: TEST_BUSINESS_ID },
+        channel: { channelId, channelMessageId: nextTrigger.id },
+      });
+      cleanupRuns.push(admitted.run.id);
+      const [user] = await db
+        .select({ content: schema.messages.content })
+        .from(schema.messages)
+        .where(and(eq(schema.messages.runId, admitted.run.id), eq(schema.messages.role, 'user')));
+      const text = repo.chat.messageText(user?.content);
+      if (advances) {
+        expect(text).not.toContain('first trigger');
+      } else {
+        expect(text).toContain('first trigger');
+      }
+    });
+  }
+
+  /** 频道失败轮与正常轮的 session 边界必须和游标一致，否则下一轮会同时恢复 transcript 并重注入上下文。 */
+  async function channelLane(
+    label: string,
+  ): Promise<Awaited<ReturnType<typeof createRunFixture>> & { channelId: string }> {
+    const channelId = newId('channel');
+    const fixture = await createRunFixture(label, undefined, 'channel', channelId);
+    await db.insert(schema.channelMembers).values({
+      channelId,
+      businessId: TEST_BUSINESS_ID,
+      role: 'owner',
+    });
+    await db.insert(schema.channelAgentBindings).values({
+      channelId,
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      addedBy: TEST_BUSINESS_ID,
+    });
+    const [, trigger] = await db
+      .insert(schema.channelMessages)
+      .values(
+        ['unconsumed context', 'first trigger'].map((body) => ({
+          id: newId('channelMessage'),
+          channelId,
+          kind: 'human' as const,
+          authorBusinessId: TEST_BUSINESS_ID,
+          body,
+        })),
+      )
+      .returning();
+    if (!trigger) throw new Error('missing trigger message');
+    await db
+      .update(schema.agentRuns)
+      .set({ channelTriggerMessageId: trigger.id })
+      .where(eq(schema.agentRuns.id, fixture.runId));
+    return { ...fixture, channelId };
+  }
+
+  async function admitNextChannelRun(
+    fixture: { channelId: string; agentId: string; conversationId: string },
+    prompt: string,
+  ): Promise<{ runId: string; job: { data: Record<string, string> } }> {
+    const [trigger] = await db
+      .insert(schema.channelMessages)
+      .values({
+        id: newId('channelMessage'),
+        channelId: fixture.channelId,
+        kind: 'human',
+        authorBusinessId: TEST_BUSINESS_ID,
+        body: prompt,
+      })
+      .returning();
+    if (!trigger) throw new Error('missing next trigger');
+    const admitted = await repo.chat.admitChatRun(db, {
+      agentId: fixture.agentId,
+      message: trigger.body,
+      subject: { kind: 'user', businessId: TEST_BUSINESS_ID },
+      channel: { channelId: fixture.channelId, channelMessageId: trigger.id },
+    });
+    cleanupRuns.push(admitted.run.id);
+    return {
+      runId: admitted.run.id,
+      job: {
+        data: {
+          runId: admitted.run.id,
+          agentId: fixture.agentId,
+          conversationId: admitted.conversationId,
+          prompt: trigger.body,
+        },
+      },
+    };
+  }
+
+  function taskOfCall(index: number): { prompt: string; resumeSessionId?: string } | undefined {
+    const call = mocks.run.mock.calls[index]?.[0] as
+      | { task: { prompt: string; resumeSessionId?: string } }
+      | undefined;
+    return call?.task;
+  }
+
+  function occurrences(text: string, needle: string): number {
+    return text.split(needle).length - 1;
+  }
+
+  async function conversationSession(conversationId: string): Promise<string | null | undefined> {
+    return (await repo.chat.getConversationSdkState(db, conversationId))?.sdkSessionId;
+  }
+
+  it('does not resume a failed channel round that never executed the model', async () => {
+    const fixture = await channelLane('channel-session-unexecuted');
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-session-unexecuted'));
+    mocks.run.mockResolvedValue({
+      status: 'failed',
+      sandboxId: 'sandbox-session-unexecuted',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      sessionId: 'sdk-failed-without-execution',
+      error: 'API Error: model failed before producing output',
+    });
+
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+    // 零用量：游标不推进，session 也不能成为下一轮可恢复的 transcript 边界。
+    expect(await conversationSession(fixture.conversationId)).toBeNull();
+
+    const next = await admitNextChannelRun(fixture, 'next trigger');
+    mocks.run.mockResolvedValue({
+      status: 'succeeded',
+      sandboxId: 'sandbox-session-unexecuted',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [{ type: 'assistant_text', text: 'after retry', blockIndex: 0 }],
+      sessionId: 'sdk-next-executed',
+    });
+    await processor?.({ ...next.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+    const task = taskOfCall(1);
+    expect(task?.resumeSessionId).toBeUndefined();
+    // 游标未推进，上下文重新注入是正确的；没有 transcript 恢复时最终请求只出现一次。
+    expect(occurrences(task?.prompt ?? '', 'unconsumed context')).toBe(1);
+    expect(await conversationSession(fixture.conversationId)).toBe('sdk-next-executed');
+  });
+
+  it('keeps the executed channel session boundary and does not re-inject consumed context', async () => {
+    const fixture = await channelLane('channel-session-executed');
+    mocks.acquire.mockResolvedValue(sandboxLease('sandbox-session-executed'));
+    mocks.run.mockResolvedValue({
+      status: 'succeeded',
+      sandboxId: 'sandbox-session-executed',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [{ type: 'assistant_text', text: 'first answer', blockIndex: 0 }],
+      inputTokens: 12,
+      sessionId: 'sdk-executed',
+    });
+
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+    expect(await conversationSession(fixture.conversationId)).toBe('sdk-executed');
+
+    const next = await admitNextChannelRun(fixture, 'next trigger');
+    mocks.run.mockResolvedValue({
+      status: 'succeeded',
+      sandboxId: 'sandbox-session-executed',
+      settlement: { state: 'stopped', code: 0, signal: null },
+      events: [{ type: 'assistant_text', text: 'second answer', blockIndex: 0 }],
+      inputTokens: 9,
+      sessionId: 'sdk-executed',
+    });
+    await processor?.({ ...next.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+    const task = taskOfCall(1);
+    // 已执行轮恢复 transcript，游标已推进，下一轮不再拼入同一段频道上下文。
+    expect(task?.resumeSessionId).toBe('sdk-executed');
+    expect(occurrences(task?.prompt ?? '', 'unconsumed context')).toBe(0);
+    expect(task?.prompt).toContain('next trigger');
+  });
+
+  it.each(['failed', 'succeeded'] as const)(
+    'keeps saving the SDK session for a private %s run',
+    async (status) => {
+      const fixture = await createRunFixture(`private-session-${status}`);
+      mocks.acquire.mockResolvedValue(sandboxLease(`sandbox-private-${status}`));
+      mocks.run.mockResolvedValue({
+        status,
+        sandboxId: `sandbox-private-${status}`,
+        settlement: { state: 'stopped', code: 0, signal: null },
+        events: [],
+        sessionId: `sdk-private-${status}`,
+        ...(status === 'failed' ? { error: 'model failed without output' } : {}),
+      });
+
+      const processor = mocks.processors.get(RUNS_QUEUE);
+      expect(processor).toBeDefined();
+      await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+
+      expect(await conversationSession(fixture.conversationId)).toBe(`sdk-private-${status}`);
+    },
+  );
 });

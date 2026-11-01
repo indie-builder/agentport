@@ -80,8 +80,13 @@ describe.skipIf(!ready)('chat', () => {
       headers: auth(),
     });
     expect(conversation.statusCode).toBe(200);
-    const detail = conversation.json<{ messages: Array<{ role: string }> }>();
-    expect(detail.messages.some((m) => m.role === 'user')).toBe(true);
+    const detail = conversation.json<{
+      messages: Array<{ role: string; content: { type: string; text: string } }>;
+    }>();
+    expect(detail.messages.find((message) => message.role === 'user')?.content).toEqual({
+      type: 'text',
+      text: 'hello there',
+    });
   });
 
   it('persists parentToolUseId on messages produced inside a sub-agent', async () => {

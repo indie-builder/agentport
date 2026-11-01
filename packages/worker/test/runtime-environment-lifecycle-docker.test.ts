@@ -263,6 +263,7 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
       sessions = new SessionSandboxes({
         provider,
         idleTimeoutMs: IDLE_TIMEOUT_MS,
+        maxActive: 32,
         logger: pino({ level: 'silent' }),
         resolveRuntimeEnvironment: createRuntimeEnvironmentResolver((id) =>
           repo.runtimeEnvironments.resolveOnlineRuntimeEnvironment(db, id),

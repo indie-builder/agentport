@@ -147,9 +147,9 @@ export async function listRuns(
     access: AccessFilter;
   },
 ): Promise<RunListItem[]> {
-  const filters: SQL[] = [];
+  const filters: SQL[] = [isNull(agentRuns.channelId)];
   if (options.access.scopes.includes('platform')) {
-    // P 看全平台真实运行。
+    // P 看全平台私有运行；频道运行只从频道入口访问。
   } else if (options.access.scopes.includes('own_data')) {
     filters.push(eq(agentRuns.initiatedBy, options.access.businessId));
   } else {
@@ -221,6 +221,7 @@ export async function listPersonalRuns(
   },
 ): Promise<PersonalRunPage | null> {
   const filters = personalRunWhere(options.businessId, options.since, options.until);
+  filters.push(isNull(agentRuns.channelId));
   if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
   if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
@@ -469,19 +470,72 @@ export interface ApprovalRequestRow {
   expiresAt: Date | null;
 }
 
-/** 被拒绝的工具调用落一条 pending 记录；重复调用只延后到期，不覆盖已有批准。 */
+export interface RequestedApproval {
+  id: string;
+  /** 频道触发的 run 才有值；私有对话为空，旧审批路径行为不变。 */
+  channelId: string | null;
+  runId: string;
+  serverId: string;
+  toolName: string;
+  createdAt: Date;
+  approvedAt: Date | null;
+  expiresAt: Date | null;
+}
+
+/**
+ * 被拒绝的工具调用落一条 pending 记录；重复调用只延后到期，不覆盖已有批准。
+ * 返回持久化后的行：频道 run 的调用方要拿 approvalId 发审批事件。
+ */
 export async function requestApproval(
   db: Database,
   input: { runId: string; serverId: string; toolName: string; expiresAt?: Date | null },
-): Promise<void> {
-  await db
+): Promise<RequestedApproval> {
+  // 审批行归属频道：从 run 读取，调用方不必再传一次，也不会与 run 归属分叉。
+  const [run] = await db
+    .select({ channelId: agentRuns.channelId })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, input.runId))
+    .limit(1);
+  const columns = {
+    id: approvalRequests.id,
+    channelId: approvalRequests.channelId,
+    runId: approvalRequests.runId,
+    serverId: approvalRequests.serverId,
+    toolName: approvalRequests.toolName,
+    createdAt: approvalRequests.createdAt,
+    approvedAt: approvalRequests.approvedAt,
+    expiresAt: approvalRequests.expiresAt,
+  };
+  const [inserted] = await db
     .insert(approvalRequests)
-    .values({ id: newId('approval'), ...input, expiresAt: input.expiresAt ?? null })
+    .values({
+      id: newId('approval'),
+      ...input,
+      channelId: run?.channelId ?? null,
+      expiresAt: input.expiresAt ?? null,
+    })
     .onConflictDoUpdate({
       target: [approvalRequests.runId, approvalRequests.serverId, approvalRequests.toolName],
       set: { expiresAt: sql`greatest(${approvalRequests.expiresAt}, excluded.expires_at)` },
       setWhere: isNull(approvalRequests.approvedAt),
-    });
+    })
+    .returning(columns);
+  if (inserted) return { ...inserted, runId: input.runId };
+
+  // 已批准的行不参与 upsert，returning 为空：读回既有行给调用方，行为保持幂等。
+  const [existing] = await db
+    .select(columns)
+    .from(approvalRequests)
+    .where(
+      and(
+        eq(approvalRequests.runId, input.runId),
+        eq(approvalRequests.serverId, input.serverId),
+        eq(approvalRequests.toolName, input.toolName),
+      ),
+    )
+    .limit(1);
+  if (!existing) throw new Error('approval request conflict without existing row');
+  return { ...existing, runId: input.runId };
 }
 
 /** MCP handler 每次调用前读取：只认该 run 在该 server 上已批准的工具。 */

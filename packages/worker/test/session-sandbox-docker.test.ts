@@ -180,6 +180,7 @@ async function incident(
   const sessions = new SessionSandboxes({
     provider,
     idleTimeoutMs,
+    maxActive: 32,
     logger: pino({ level: 'silent' }),
     resolveRuntimeEnvironment: async () => ({
       environmentId: 'env_docker',

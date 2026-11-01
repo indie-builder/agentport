@@ -66,7 +66,7 @@ export const auditSearchSchema = z.object({
 });
 
 const runStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'] as const;
-const runTriggers = ['chat', 'mcp', 'schedule', 'event', 'review'] as const;
+const runTriggers = ['chat', 'mcp', 'schedule', 'event', 'review', 'channel'] as const;
 
 /** 个人记忆提案：专家筛选、选中提案、阶段筛选、列表布局与创建入口都进 URL，链接可复现同一视图。 */
 export const personalReviewsSearchSchema = z.object({

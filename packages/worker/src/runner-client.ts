@@ -1,6 +1,8 @@
 import { isRetryableFailure, RunFailure } from '@agentport/core';
 import {
+  type ChannelEvent,
   type ChatEvent,
+  channelStreamKey,
   type ExecutionSettlement,
   errorText,
   type NativeQuestion,
@@ -408,6 +410,39 @@ export async function publishRun(runId: string, event: ChatEvent, logger: Logger
     .expire(key, 3600)
     .exec();
   // 无 WATCH 时不应返回 null；真出现说明命令没执行，不能当作发布成功。
+  if (replies === null) throw new Error('redis pipeline aborted');
+  for (const reply of replies) {
+    if (reply[0]) throw reply[0];
+  }
+}
+
+/** 频道事件只是唤醒信号：Redis 黑洞时必须有界返回，不能拖住 run 收尾。 */
+const CHANNEL_PUBLISH_TIMEOUT_MS = 2_000;
+
+function withPublishTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('channel event publish timed out')), ms);
+    timer.unref();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** 与 API 的频道订阅共用同一条 Redis Stream；写入失败由调用方决定是否降级。 */
+export async function publishChannelEvent(
+  channelId: string,
+  event: ChannelEvent,
+  logger: Logger,
+): Promise<void> {
+  const key = channelStreamKey(channelId);
+  const replies = await withPublishTimeout(
+    getPublisher(logger)
+      .pipeline()
+      .xadd(key, '*', 'payload', JSON.stringify(event))
+      .expire(key, 3600)
+      .exec(),
+    CHANNEL_PUBLISH_TIMEOUT_MS,
+  );
   if (replies === null) throw new Error('redis pipeline aborted');
   for (const reply of replies) {
     if (reply[0]) throw reply[0];

@@ -141,6 +141,12 @@
 - **原因**：把上次的 space id / page 标签 / `ref` 当成长期有效；locator 语法写成 Playwright 的写法。
 - **规避**：①同一个目标只用一个 TaskSpace，用**固定名字**复用（`taskSpace('chat-layout')`），名字才是长期句柄；数字 `spaceId` 只在当轮输出里可读，不要当成跨轮常量存下来；②`task.page(label)` 只查已存在的页，缺页用 `await task.newPage()`（不传参数）且用先前输出里的 `p1`/`p2` 标签；③`ref` 只在当前快照有效，页面变化后重新 `snapshot()` 再点；④role 定位写成 `loc=role:button[name="新建专家"]`，名字是子串匹配用 `[name*="…"]`，`loc=role:dialog` 这种缺名字的写法会报 `Invalid locator`。需要观测条件时用 `waitForSelector`/`waitForFunction`，不用固定 sleep。
 
+## 数据库：单表 SELECT 的 SQL 子查询可能丢失外层列限定名
+
+- **现象**：频道消息已写入 `seq=1`，相关子查询的 `maxSeq` 却为 0，合法 SSE 游标被误判为未来游标。
+- **原因**：Drizzle 在单表 SELECT 投影里把 `${channels.id}` 生成成未限定表名的 `"id"`；放进 `channel_messages m` 子查询后，被 PostgreSQL 解析成内层 `m.id`。
+- **规避**：已有频道 ID 入参时直接绑定参数，避免此处相关列引用；涉及嵌套 SQL 先检查 `.toSQL()` 并用真实非空数据验证，不只看类型检查或空列表测试。
+
 ## 数据库：Drizzle `sql` 模板里的 JS 数组会展开成多个占位符
 
 - **现象**：`sql`${ids}::text[]`` 生成 `($2, $3)::text[]`，非空数组报 `cannot cast type record to text[]`，空数组直接语法错误；看起来像 SQL 写错。
@@ -476,8 +482,20 @@
 - **原因**：`writeFileSync` 先截断再写，另一端恰好落在截断与写完之间就会读到半截 JSON；同一文件由不同进程高频覆盖时概率更高。
 - **规避**：同目录写临时文件再 `renameSync` 到目标（`packages/worker/test/fixtures/session-task.mjs` 的 busy 输出）；跨进程读的文件都按这条处理，不用「重试解析」掩盖。
 
+## 测试：消息持久化与账号重建套件共用 worker 身份会冲突
+
+- **现象**：`message-persistence` 与 `run-pending-finish` 同轮并行时，后者 `createTestAccount` 返回 409「该业务 ID 有历史记录」，未进入测试主体；独立运行通过。
+- **原因**：两者复用 `fixtures/access.ts` 的 `TEST_BUSINESS_ID`，前者可先写带该身份的消息，后者此时建账号被正常的身份恢复校验拒绝。
+- **规避**：验证时让 `run-pending-finish` 独立运行或用 `--no-file-parallelism`；改夹具时按套件分配唯一业务身份，不放宽生产身份校验。
+
 ## 测试：依赖安装与 vitest 运行并发会让新 worker 丢掉旧 peer 路径
 
 - **现象**：长测试跑着时执行 `pnpm install`/升级依赖，已启动的 worker 多数正常，但新 fork 的 worker 报模块找不到，路径指向已被替换的 `.pnpm` 目录；单独重跑整套又全绿。
 - **原因**：pnpm 安装会重排 `node_modules/.pnpm` 的虚拟 store 并更新顶层链接；已加载模块的进程不受影响，新 worker 按新解析结果启动，旧 peer 路径已不存在，失败被误当成代码回归。
 - **规避**：测试运行期间不安装/升级依赖；先停掉测试进程，等 `pnpm install` 完成后再从干净状态重跑。出现这类「路径不存在」先核对是否刚装过依赖，不要改业务代码或删测试。
+
+## SSE：`subscribeRun` 回放完才 resolve，await 之后启动的定时器保护不了长回放
+
+- **现象**：成员打开 run 事件流后、Redis 回放尚未结束时被移出频道，已撤权的连接仍把回放中的历史 token 送给对方，直到回放结束才停。
+- **原因**：`subscribeRun` 在首次回放全部完成后才 resolve；调用方在 `await subscribeRun(...)` 之后才启动撤权/终态复核定时器，回放期间的逐事件回调不经过该定时器，而逐页回放可能持续很久。
+- **规避**：撤权核验必须放在回放回调内逐事件执行（每次重新查成员/run），不能只依赖 await 之后的定时器；需要周期核验时用独立授权计时或在回放循环里检查。测试把撤权卡在回放第一页之后，断言剩余 token 一条都不外发。

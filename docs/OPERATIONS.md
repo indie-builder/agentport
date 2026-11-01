@@ -75,6 +75,7 @@
 | `SANDBOX_CPUS` | 否 | `1` | worker | CPU 核数上限 |
 | `SANDBOX_PIDS` | 否 | `128` | worker | PID 上限 |
 | `SANDBOX_IDLE_TIMEOUT_MS` | 否 | `300000` | worker | 会话沙盒无执行任务后的保留时间（毫秒）。执行中或等待用户回答不算空闲；只接受正整数，不支持 `0`/`-1` 无限保活，可用短阈值实测 |
+| `SANDBOX_MAX_ACTIVE` | 否 | `6` | worker | 同时存活的会话沙盒容器数软上限。达到上限时回收最久未用的空闲容器；正在执行任务或持有锁的容器永不回收；找不到可回收对象时放行新容器并告警，宁可超出上限也不阻塞执行 |
 | `SANDBOX_MAX_FIELD_BYTES` | 否 | `1048576` | worker | 沙盒单块文本/工具负载上限（字节）。超限只截断该块并随事件标 `truncated`，不再静默丢尾部。上限固定 1MiB：最坏 JSON 转义约 6 倍，仍落在 shared `SUPERVISOR_INPUT_MAX_BYTES`（8MiB，`packages/shared/src/sandbox-session.ts`，supervisor 输入/输出与 worker 侧协议共用）的单行上限内；配置超过 1MiB 时 worker 启动直接报错，不靠调高单行上限兜底。supervisor 协议帧超限按显式失败处理（输入 `INVALID_COMMAND`、输出本轮失败），不再静默丢弃 |
 
 #### 会话沙盒生命周期
@@ -82,7 +83,7 @@
 - 一个平台会话最多一个沙盒容器；同一会话的连续 run 短期复用，不同会话各自独立，不跨会话共享。
 - 只有正常完成或成功取消、且本轮进程已确认停稳时保留容器。运行失败（failed/error）、超时或异常导致无法确认停稳、清理失败、运行结束前 release、镜像或挂载发生变化时都会销毁容器，避免复用仍在写入或状态不可信的容器。
 - 销毁失败仍保留跟踪并阻止复用；后续获取该会话时先重试清理，确认旧容器删除后才重建，无需重启 worker；仍失败该请求失败。
-- worker 现有沙盒模块负责空闲回收：没有执行任务且未在等待用户回答超过 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收容器。该阈值是正整数，不支持 `0`/`-1` 保活，可用短值实测。
+- worker 现有沙盒模块负责空闲回收：没有执行任务且未在等待用户回答超过 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收容器。该阈值是正整数，不支持 `0`/`-1` 保活，可用短值实测。除空闲超时外还有数量上限：同时存活的会话沙盒容器达到 `SANDBOX_MAX_ACTIVE`（默认 6）时，回收最久未用的空闲容器；正在执行任务或持锁的容器永不回收；找不到可回收对象时放行并告警，宁可短暂超出上限也不阻塞执行。
 - 回收只删除容器，不删除宿主上的持久数据（`agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/`、`conversation-inputs/<conversationId>/`）；后续 run 新建容器时从 `sdk-sessions` 与 `agent-memory` 恢复同一 SDK 会话与记忆。
 - 容器内是常驻 supervisor，每轮启动新的 runner（新 SDK query）；复用只省容器创建与启动（缓存镜像基线约 122ms/次），不算也不承诺 SDK 冷启动优化。
 - 会话级稳定目录为 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/{workspace,outputs}`：`workspace` 渲染本轮官方定义后只读挂入 `/workspace`，`outputs` 可写挂入 `/mnt/outputs`，`/mnt/inputs` 始终挂载（会话目录即使本轮无附件也预建）。整个 `session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存（`workspace` 每轮按数据库重渲染，`outputs` 停稳后复制进 `conversation-outputs`），不是不可丢失的持久交付；容器回收与关停不删除、也不 rename 该根目录，丢失后可由数据库与持久数据重建；删除会话时由 API 回收该会话目录。

@@ -27,6 +27,8 @@ import { Route as ShellStatusRouteImport } from './routes/_shell/status'
 import { Route as SShareIdRouteImport } from './routes/s.$shareId'
 import { Route as ShellAgentsIndexRouteImport } from './routes/_shell/agents.index'
 import { Route as ShellAgentsAgentIdRouteImport } from './routes/_shell/agents.$agentId'
+import { Route as ShellChannelsIndexRouteImport } from './routes/_shell/channels.index'
+import { Route as ShellChannelsChannelIdRouteImport } from './routes/_shell/channels.$channelId'
 import { Route as ShellKnowledgeIndexRouteImport } from './routes/_shell/knowledge.index'
 import { Route as ShellKnowledgeBaseIdRouteImport } from './routes/_shell/knowledge.$baseId'
 import { Route as ShellPersonalIndexRouteImport } from './routes/_shell/personal.index'
@@ -132,6 +134,16 @@ const ShellAgentsAgentIdRoute = ShellAgentsAgentIdRouteImport.update({
   path: '/agents/$agentId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellChannelsIndexRoute = ShellChannelsIndexRouteImport.update({
+  id: '/channels/',
+  path: '/channels/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellChannelsChannelIdRoute = ShellChannelsChannelIdRouteImport.update({
+  id: '/channels/$channelId',
+  path: '/channels/$channelId',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellKnowledgeIndexRoute = ShellKnowledgeIndexRouteImport.update({
   id: '/knowledge/',
   path: '/knowledge/',
@@ -227,6 +239,7 @@ export interface FileRoutesByFullPath {
   '/status': typeof ShellStatusRoute
   '/s/$shareId': typeof SShareIdRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/channels/$channelId': typeof ShellChannelsChannelIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/personal/memory': typeof ShellPersonalMemoryRoute
   '/personal/profile': typeof ShellPersonalProfileRoute
@@ -238,6 +251,7 @@ export interface FileRoutesByFullPath {
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/agents/': typeof ShellAgentsIndexRoute
+  '/channels/': typeof ShellChannelsIndexRoute
   '/knowledge/': typeof ShellKnowledgeIndexRoute
   '/personal/': typeof ShellPersonalIndexRoute
   '/plugins/': typeof ShellPluginsIndexRoute
@@ -260,6 +274,7 @@ export interface FileRoutesByTo {
   '/s/$shareId': typeof SShareIdRoute
   '/': typeof ShellIndexRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/channels/$channelId': typeof ShellChannelsChannelIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/personal/memory': typeof ShellPersonalMemoryRoute
   '/personal/profile': typeof ShellPersonalProfileRoute
@@ -271,6 +286,7 @@ export interface FileRoutesByTo {
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/agents': typeof ShellAgentsIndexRoute
+  '/channels': typeof ShellChannelsIndexRoute
   '/knowledge': typeof ShellKnowledgeIndexRoute
   '/personal': typeof ShellPersonalIndexRoute
   '/plugins': typeof ShellPluginsIndexRoute
@@ -296,6 +312,7 @@ export interface FileRoutesById {
   '/s/$shareId': typeof SShareIdRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/agents/$agentId': typeof ShellAgentsAgentIdRoute
+  '/_shell/channels/$channelId': typeof ShellChannelsChannelIdRoute
   '/_shell/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/_shell/personal/memory': typeof ShellPersonalMemoryRoute
   '/_shell/personal/profile': typeof ShellPersonalProfileRoute
@@ -307,6 +324,7 @@ export interface FileRoutesById {
   '/_shell/runs/$runId': typeof ShellRunsRunIdRoute
   '/_shell/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/_shell/agents/': typeof ShellAgentsIndexRoute
+  '/_shell/channels/': typeof ShellChannelsIndexRoute
   '/_shell/knowledge/': typeof ShellKnowledgeIndexRoute
   '/_shell/personal/': typeof ShellPersonalIndexRoute
   '/_shell/plugins/': typeof ShellPluginsIndexRoute
@@ -332,6 +350,7 @@ export interface FileRouteTypes {
     | '/status'
     | '/s/$shareId'
     | '/agents/$agentId'
+    | '/channels/$channelId'
     | '/knowledge/$baseId'
     | '/personal/memory'
     | '/personal/profile'
@@ -343,6 +362,7 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/runtime-environments/$environmentId'
     | '/agents/'
+    | '/channels/'
     | '/knowledge/'
     | '/personal/'
     | '/plugins/'
@@ -365,6 +385,7 @@ export interface FileRouteTypes {
     | '/s/$shareId'
     | '/'
     | '/agents/$agentId'
+    | '/channels/$channelId'
     | '/knowledge/$baseId'
     | '/personal/memory'
     | '/personal/profile'
@@ -376,6 +397,7 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/runtime-environments/$environmentId'
     | '/agents'
+    | '/channels'
     | '/knowledge'
     | '/personal'
     | '/plugins'
@@ -400,6 +422,7 @@ export interface FileRouteTypes {
     | '/s/$shareId'
     | '/_shell/'
     | '/_shell/agents/$agentId'
+    | '/_shell/channels/$channelId'
     | '/_shell/knowledge/$baseId'
     | '/_shell/personal/memory'
     | '/_shell/personal/profile'
@@ -411,6 +434,7 @@ export interface FileRouteTypes {
     | '/_shell/runs/$runId'
     | '/_shell/runtime-environments/$environmentId'
     | '/_shell/agents/'
+    | '/_shell/channels/'
     | '/_shell/knowledge/'
     | '/_shell/personal/'
     | '/_shell/plugins/'
@@ -550,6 +574,20 @@ declare module '@tanstack/react-router' {
       path: '/agents/$agentId'
       fullPath: '/agents/$agentId'
       preLoaderRoute: typeof ShellAgentsAgentIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/channels/': {
+      id: '/_shell/channels/'
+      path: '/channels'
+      fullPath: '/channels/'
+      preLoaderRoute: typeof ShellChannelsIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/channels/$channelId': {
+      id: '/_shell/channels/$channelId'
+      path: '/channels/$channelId'
+      fullPath: '/channels/$channelId'
+      preLoaderRoute: typeof ShellChannelsChannelIdRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/knowledge/': {
@@ -699,11 +737,13 @@ interface ShellRouteChildren {
   ShellStatusRoute: typeof ShellStatusRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellAgentsAgentIdRoute: typeof ShellAgentsAgentIdRoute
+  ShellChannelsChannelIdRoute: typeof ShellChannelsChannelIdRoute
   ShellKnowledgeBaseIdRoute: typeof ShellKnowledgeBaseIdRoute
   ShellPluginsPluginIdRoute: typeof ShellPluginsPluginIdRoute
   ShellRunsRunIdRoute: typeof ShellRunsRunIdRoute
   ShellRuntimeEnvironmentsEnvironmentIdRoute: typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   ShellAgentsIndexRoute: typeof ShellAgentsIndexRoute
+  ShellChannelsIndexRoute: typeof ShellChannelsIndexRoute
   ShellKnowledgeIndexRoute: typeof ShellKnowledgeIndexRoute
   ShellPluginsIndexRoute: typeof ShellPluginsIndexRoute
   ShellRunsIndexRoute: typeof ShellRunsIndexRoute
@@ -725,12 +765,14 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellStatusRoute: ShellStatusRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellAgentsAgentIdRoute: ShellAgentsAgentIdRoute,
+  ShellChannelsChannelIdRoute: ShellChannelsChannelIdRoute,
   ShellKnowledgeBaseIdRoute: ShellKnowledgeBaseIdRoute,
   ShellPluginsPluginIdRoute: ShellPluginsPluginIdRoute,
   ShellRunsRunIdRoute: ShellRunsRunIdRoute,
   ShellRuntimeEnvironmentsEnvironmentIdRoute:
     ShellRuntimeEnvironmentsEnvironmentIdRoute,
   ShellAgentsIndexRoute: ShellAgentsIndexRoute,
+  ShellChannelsIndexRoute: ShellChannelsIndexRoute,
   ShellKnowledgeIndexRoute: ShellKnowledgeIndexRoute,
   ShellPluginsIndexRoute: ShellPluginsIndexRoute,
   ShellRunsIndexRoute: ShellRunsIndexRoute,

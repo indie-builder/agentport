@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-/** 运行来源：对话 / 外部 MCP / 定时 / 事件 / 记忆审核。 */
-export const runTriggerSchema = z.enum(['chat', 'mcp', 'schedule', 'event', 'review']);
+/** 运行来源：对话 / 外部 MCP / 定时 / 事件 / 记忆审核 / 频道。 */
+export const runTriggerSchema = z.enum(['chat', 'mcp', 'schedule', 'event', 'review', 'channel']);
 export type RunTrigger = z.infer<typeof runTriggerSchema>;
 
 /** 5 段 cron 结构校验（分 时 日 月 周，UTC）；实际可调度性由 API schema 用 BullMQ 解析。 */

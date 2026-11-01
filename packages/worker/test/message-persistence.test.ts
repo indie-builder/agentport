@@ -2,7 +2,7 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent, RunQuestion } from '@agentport/shared';
 import { type PublicRunQuestion, publicRunQuestion } from '@agentport/shared';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import * as messages from '../src/messages.js';
 import { agentOwnership, TEST_BUSINESS_ID, userSubject } from './fixtures/access.js';
 
@@ -18,17 +18,20 @@ const ready = await pool.query('select 1').then(
 );
 
 const agentIds: string[] = [];
+const channelIds: string[] = [];
 const TERMINAL = ['cancelled', 'succeeded', 'failed', 'timeout', 'queued'] as const;
 
 interface Fixture {
   agentId: string;
   conversationId: string;
+  channelId?: string;
 }
 
-async function newFixture(): Promise<Fixture> {
+async function newFixture(channelId?: string): Promise<Fixture> {
   const agentId = newId('agent');
   const conversationId = newId('conversation');
   agentIds.push(agentId);
+  if (channelId !== undefined) channelIds.push(channelId);
   await db.insert(schema.agents).values({
     id: agentId,
     slug: `persist-${agentId.slice(4)}`,
@@ -42,7 +45,13 @@ async function newFixture(): Promise<Fixture> {
     title: 'persist',
     subject: userSubject,
   });
-  return { agentId, conversationId };
+  if (channelId !== undefined) {
+    await db
+      .update(schema.conversations)
+      .set({ channelId })
+      .where(eq(schema.conversations.id, conversationId));
+  }
+  return { agentId, conversationId, ...(channelId === undefined ? {} : { channelId }) };
 }
 
 async function seedRun(input: Fixture, status?: (typeof TERMINAL)[number]): Promise<string> {
@@ -59,6 +68,7 @@ async function seedRun(input: Fixture, status?: (typeof TERMINAL)[number]): Prom
     .set({
       status: status ?? 'running',
       startedAt: new Date(),
+      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
       ...(status === undefined || status === 'queued' ? {} : { endedAt: new Date() }),
     })
     .where(eq(schema.agentRuns.id, runId));
@@ -351,7 +361,285 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
   afterAll(async () => {
     // 删 agent 级联清掉会话、run、消息；被测试删除的 agent 已是 no-op。
     await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
+    await db.delete(schema.channels).where(inArray(schema.channels.id, channelIds));
     await pool.end();
+  });
+
+  async function newChannelFixture(): Promise<Fixture & { channelId: string }> {
+    const channelId = newId('channel');
+    await db.insert(schema.channels).values({
+      id: channelId,
+      name: `persist-channel-${channelId.slice(4)}`,
+      createdBy: TEST_BUSINESS_ID,
+    });
+    const fixture = await newFixture(channelId);
+    return { ...fixture, channelId };
+  }
+
+  async function channelProjectionOf(runId: string) {
+    return db.select().from(schema.channelMessages).where(eq(schema.channelMessages.runId, runId));
+  }
+
+  async function newContextFixture() {
+    const fixture = await newChannelFixture();
+    await db.insert(schema.channelMembers).values({
+      channelId: fixture.channelId,
+      businessId: TEST_BUSINESS_ID,
+      role: 'owner',
+    });
+    await db.insert(schema.channelAgentBindings).values({
+      channelId: fixture.channelId,
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      addedBy: TEST_BUSINESS_ID,
+    });
+    const [context, trigger] = await db
+      .insert(schema.channelMessages)
+      .values(
+        ['unconsumed context', 'first trigger'].map((body) => ({
+          id: newId('channelMessage'),
+          channelId: fixture.channelId,
+          kind: 'human' as const,
+          authorBusinessId: TEST_BUSINESS_ID,
+          body,
+        })),
+      )
+      .returning();
+    if (!context || !trigger) throw new Error('missing context fixture');
+    const admit = (message: typeof trigger) =>
+      repo.chat.admitChatRun(db, {
+        agentId: fixture.agentId,
+        message: message.body,
+        subject: userSubject,
+        channel: { channelId: fixture.channelId, channelMessageId: message.id },
+      });
+    const cursor = async () => {
+      const [binding] = await db
+        .select()
+        .from(schema.channelAgentBindings)
+        .where(
+          and(
+            eq(schema.channelAgentBindings.channelId, fixture.channelId),
+            eq(schema.channelAgentBindings.agentId, fixture.agentId),
+          ),
+        );
+      return binding?.contextSeq;
+    };
+    const nextTrigger = async () => {
+      const [message] = await db
+        .insert(schema.channelMessages)
+        .values({
+          id: newId('channelMessage'),
+          channelId: fixture.channelId,
+          kind: 'human',
+          authorBusinessId: TEST_BUSINESS_ID,
+          body: 'next trigger',
+        })
+        .returning();
+      if (!message) throw new Error('missing next trigger');
+      return message;
+    };
+    return { ...fixture, context, trigger, admit, cursor, nextTrigger };
+  }
+
+  for (const failure of [
+    'queued cancellation',
+    'enqueue failure',
+    'pre-run rejection',
+    'preparation failure',
+  ] as const) {
+    it(`keeps context available after ${failure}`, async () => {
+      const fixture = await newContextFixture();
+      const admitted = await fixture.admit(fixture.trigger);
+      if (failure === 'preparation failure') {
+        await repo.chat.updateRun(db, admitted.run.id, {
+          status: 'running',
+          startedAt: new Date(),
+        });
+        const saved = await messages.persistRunMessages(db, {
+          ...fixture,
+          runId: admitted.run.id,
+          events: [],
+        });
+        expect(saved.written).toBe(true);
+      }
+      await repo.chat.updateRun(db, admitted.run.id, {
+        status: failure === 'queued cancellation' ? 'cancelled' : 'failed',
+        endedAt: new Date(),
+      });
+      expect.soft(await fixture.cursor()).toBe(0);
+      const next = await fixture.admit(await fixture.nextTrigger());
+      const [user] = await db
+        .select()
+        .from(schema.messages)
+        .where(and(eq(schema.messages.runId, next.run.id), eq(schema.messages.role, 'user')));
+      expect.soft(repo.chat.messageText(user?.content)).toContain('unconsumed context');
+      expect.soft(repo.chat.messageText(user?.content)).toContain('first trigger');
+    });
+  }
+
+  for (const error of ['authentication_failed', 'rate_limit', 'cloud_credential_error'] as const) {
+    it(`keeps context for the next turn after a synthetic ${error} assistant message`, async () => {
+      const fixture = await newContextFixture();
+      const admitted = await fixture.admit(fixture.trigger);
+      await repo.chat.updateRun(db, admitted.run.id, {
+        status: 'running',
+        startedAt: new Date(),
+      });
+      const errorText = `API Error: ${error}`;
+      const saved = await messages.persistRunMessages(db, {
+        ...fixture,
+        runId: admitted.run.id,
+        events: [text(errorText)],
+        sdkSessionId: 'initialized-without-model-execution',
+        modelExecuted: false,
+      });
+      expect(saved.written).toBe(true);
+      expect(await outputOf(admitted.run.id)).toEqual([{ type: 'text', text: errorText }]);
+      expect.soft(await fixture.cursor()).toBe(0);
+      await repo.chat.updateRun(db, admitted.run.id, {
+        status: 'failed',
+        endedAt: new Date(),
+      });
+      const next = await fixture.admit(await fixture.nextTrigger());
+      const [user] = await db
+        .select()
+        .from(schema.messages)
+        .where(and(eq(schema.messages.runId, next.run.id), eq(schema.messages.role, 'user')));
+      expect.soft(repo.chat.messageText(user?.content)).toContain('unconsumed context');
+      expect.soft(repo.chat.messageText(user?.content)).toContain('first trigger');
+    });
+
+    it(`preserves visible synthetic ${error} assistant text in private conversations`, async () => {
+      const fixture = await newFixture();
+      const runId = await seedRun(fixture);
+      const errorText = `API Error: ${error}`;
+      const saved = await messages.persistRunMessages(db, {
+        ...fixture,
+        runId,
+        events: [text(errorText)],
+        modelExecuted: false,
+      });
+      expect(saved.messages).toHaveLength(1);
+      expect(saved.channelMessage).toBeUndefined();
+      expect(await outputOf(runId)).toEqual([{ type: 'text', text: errorText }]);
+    });
+  }
+
+  for (const status of ['failed', 'cancelled'] as const) {
+    it(`consumes context after confirmed model text even when the run is ${status}`, async () => {
+      const fixture = await newContextFixture();
+      const admitted = await fixture.admit(fixture.trigger);
+      await repo.chat.updateRun(db, admitted.run.id, {
+        status: 'running',
+        startedAt: new Date(),
+      });
+      await messages.persistRunMessages(db, {
+        ...fixture,
+        runId: admitted.run.id,
+        events: [text('API Error: rate_limit')],
+        modelExecuted: true,
+      });
+      await repo.chat.updateRun(db, admitted.run.id, { status, endedAt: new Date() });
+      expect(await fixture.cursor()).toBe(fixture.trigger.seq);
+      const next = await fixture.admit(await fixture.nextTrigger());
+      const [user] = await db
+        .select()
+        .from(schema.messages)
+        .where(and(eq(schema.messages.runId, next.run.id), eq(schema.messages.role, 'user')));
+      expect(repo.chat.messageText(user?.content)).not.toContain('unconsumed context');
+      expect(repo.chat.messageText(user?.content)).not.toContain('first trigger');
+    });
+  }
+
+  for (const evidence of ['sdk session', 'assistant', 'tool'] as const) {
+    it(`consumes context atomically with ${evidence} evidence and does not inject it again`, async () => {
+      const fixture = await newContextFixture();
+      const runId = await seedRun(fixture);
+      await db
+        .update(schema.agentRuns)
+        .set({
+          channelTriggerMessageId: fixture.trigger.id,
+        })
+        .where(eq(schema.agentRuns.id, runId));
+      const input = {
+        ...fixture,
+        runId,
+        events:
+          evidence === 'assistant'
+            ? [text('answer')]
+            : evidence === 'tool'
+              ? [{ type: 'tool_start' as const, toolUseId: 'executed-tool', name: 'Search' }]
+              : [],
+        ...(evidence === 'assistant' ? { modelExecuted: true } : {}),
+        ...(evidence === 'sdk session'
+          ? { sdkSessionId: 'confirmed-sdk-session', modelExecuted: true }
+          : {}),
+      };
+      await messages.persistRunMessages(db, input);
+      expect(await fixture.cursor()).toBe(fixture.trigger.seq);
+      await messages.persistRunMessages(db, input);
+      expect(await fixture.cursor()).toBe(fixture.trigger.seq);
+      await repo.chat.updateRun(db, runId, { status: 'succeeded', endedAt: new Date() });
+      const next = await fixture.admit(await fixture.nextTrigger());
+      const [user] = await db
+        .select()
+        .from(schema.messages)
+        .where(and(eq(schema.messages.runId, next.run.id), eq(schema.messages.role, 'user')));
+      expect(repo.chat.messageText(user?.content)).not.toContain('unconsumed context');
+      expect(repo.chat.messageText(user?.content)).not.toContain('first trigger');
+    });
+  }
+
+  it('does not consume context from pure error or initialization events', async () => {
+    const fixture = await newContextFixture();
+    const runId = await seedRun(fixture);
+    await db
+      .update(schema.agentRuns)
+      .set({ channelTriggerMessageId: fixture.trigger.id })
+      .where(eq(schema.agentRuns.id, runId));
+    await messages.persistRunMessages(db, {
+      ...fixture,
+      runId,
+      events: [{ type: 'error', message: 'preparation failed' }],
+      sdkSessionId: 'initialized-without-model-execution',
+    });
+    expect(await fixture.cursor()).toBe(0);
+  });
+
+  it('rolls cursor, messages and SDK state back together when persistence fails', async () => {
+    const fixture = await newContextFixture();
+    const runId = await seedRun(fixture);
+    await db
+      .update(schema.agentRuns)
+      .set({ channelTriggerMessageId: fixture.trigger.id })
+      .where(eq(schema.agentRuns.id, runId));
+    const consume = repo.chat.consumeChannelContext;
+    const failure = vi
+      .spyOn(repo.chat, 'consumeChannelContext')
+      .mockImplementationOnce(async (tx, input) => {
+        await consume(tx, input);
+        throw new Error('injected persistence failure');
+      });
+    try {
+      await expect(
+        messages.persistRunMessages(db, {
+          ...fixture,
+          runId,
+          events: [text('rollback answer')],
+          sdkSessionId: 'rollback-session',
+          modelExecuted: true,
+        }),
+      ).rejects.toThrow('injected persistence failure');
+    } finally {
+      failure.mockRestore();
+    }
+    expect(await fixture.cursor()).toBe(0);
+    expect(await outputOf(runId)).toEqual([]);
+    expect(await channelProjectionOf(runId)).toEqual([]);
+    expect(
+      (await repo.chat.getConversationSdkState(db, fixture.conversationId))?.sdkSessionId,
+    ).toBeNull();
   });
 
   it('stores SDK session state and fork uuid mapping in the same transaction', async () => {
@@ -461,6 +749,155 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     expect(output[0]?.text).toBe('key sk-a***');
     // 重放只删本 run 的输出；用户消息带同一个 run_id，必须保留且不重复。
     expect(await userCount(runId)).toBe(1);
+  });
+
+  it('projects one agent channel message from top-level assistant text only', async () => {
+    const fixture = await newChannelFixture();
+    const runId = await seedRun(fixture);
+
+    const result = await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [
+        { type: 'assistant_text', text: '主回复', blockIndex: 0 },
+        { type: 'assistant_text', text: '子智能体内部文本', blockIndex: 1, parentToolUseId: 'tu1' },
+        { type: 'assistant_text', text: '第二段', blockIndex: 2 },
+      ],
+    });
+
+    expect(result.channelMessage).toMatchObject({
+      channelId: fixture.channelId,
+      kind: 'agent',
+      agentId: fixture.agentId,
+      runId,
+      body: '主回复\n\n第二段',
+    });
+    const assistantRows = await db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(and(eq(schema.messages.runId, runId), eq(schema.messages.role, 'assistant')));
+    expect(assistantRows.some((row) => row.id === result.channelMessage?.sourceMessageId)).toBe(
+      true,
+    );
+  });
+
+  it('keeps one channel projection with a stable seq when the same run is replayed', async () => {
+    const fixture = await newChannelFixture();
+    const runId = await seedRun(fixture);
+    const events = [text('first answer')];
+
+    const first = await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events,
+    });
+    const second = await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events,
+    });
+
+    expect(first.channelMessage?.id).toBeDefined();
+    expect(second.channelMessage).toMatchObject({
+      id: first.channelMessage?.id,
+      seq: first.channelMessage?.seq,
+      body: 'first answer',
+    });
+    expect(await channelProjectionOf(runId)).toHaveLength(1);
+    const assistantRows = await db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(and(eq(schema.messages.runId, runId), eq(schema.messages.role, 'assistant')));
+    expect(assistantRows.some((row) => row.id === second.channelMessage?.sourceMessageId)).toBe(
+      true,
+    );
+  });
+
+  it('skips the channel projection when this attempt will retry', async () => {
+    const fixture = await newChannelFixture();
+    const runId = await seedRun(fixture);
+
+    const result = await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [text('中间回复 A')],
+      projectChannelReply: false,
+    });
+
+    expect(result.written).toBe(true);
+    expect(result.messages).not.toHaveLength(0);
+    expect(result.channelMessage).toBeUndefined();
+    expect(await channelProjectionOf(runId)).toHaveLength(0);
+  });
+
+  it('projects only the final reply after a retried attempt', async () => {
+    const fixture = await newChannelFixture();
+    const runId = await seedRun(fixture);
+
+    await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [text('中间回复 A')],
+      projectChannelReply: false,
+    });
+    expect(await channelProjectionOf(runId)).toHaveLength(0);
+
+    const final = await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [text('最终回复 B')],
+      projectChannelReply: true,
+    });
+
+    const rows = await channelProjectionOf(runId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ runId, body: '最终回复 B' });
+    expect(final.channelMessage?.id).toBe(rows[0]?.id);
+  });
+
+  it('does not leave a stale channel projection when the final attempt has no text', async () => {
+    const fixture = await newChannelFixture();
+    const runId = await seedRun(fixture);
+
+    await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [text('中间回复 A')],
+      projectChannelReply: false,
+    });
+    const final = await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [],
+      projectChannelReply: true,
+    });
+
+    expect(final.written).toBe(true);
+    expect(final.channelMessage).toBeUndefined();
+    expect(await channelProjectionOf(runId)).toHaveLength(0);
+  });
+
+  it('does not project a private conversation into channel messages', async () => {
+    const fixture = await newFixture();
+    const runId = await seedRun(fixture);
+
+    const result = await messages.persistRunMessages(db, {
+      agentId: fixture.agentId,
+      conversationId: fixture.conversationId,
+      runId,
+      events: [text('private answer')],
+    });
+
+    expect(result.channelMessage).toBeUndefined();
+    expect(await channelProjectionOf(runId)).toHaveLength(0);
   });
 
   it('stores the redacted todo snapshot with its tool result row', async () => {
