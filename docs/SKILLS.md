@@ -56,6 +56,12 @@
 | `ub-mode` | unclebob/ub-mode | 默认日常工程纪律：First Make it Work → Then Make it Right → Follow Practice；编排与并行仍归 pstack |
 | `unslop` | heydamir/unslop | AI 生成感 UI 的诊断与九轮打磨（React/Tailwind，桌面浅色）；接在 DESIGN-SYSTEM 与 shadcn/Base UI 之上 |
 
+## 项目自研技能
+
+项目自有技能放在 `.claude/skills/` 的真实目录，不写入 `.agents/skills/`，也不登记 `skills-lock.json`；它们不是上游 vendored，升级或重装上游技能时不得覆盖、删除。
+
+- `visual-check`：开发完成后的 UI 视觉抽查。`scripts/visual-shots.mjs` 默认起隔离临时库 + API/Web，登录后按多个桌面视口截图并打开，结束停服务、删临时库；`--base-url` 复用已有栈。截图产物在 `.visual/`（已 gitignore）。
+
 ## 范围
 
 - 技能：`.agents/skills/`、`.claude/skills/`、`skills-lock.json`；同步 `docs/SKILLS.md` 与任务记录。

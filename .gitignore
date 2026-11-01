@@ -25,6 +25,9 @@ playwright-report/
 # 本地取证的临时脚本与截图
 .tmp/
 
+# visual-check 截图与日志
+.visual/
+
 # 本地 worktree，不入库
 .claude/worktrees/
 

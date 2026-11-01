@@ -33,6 +33,7 @@
     "backup": "bash scripts/backup.sh",
     "restore": "bash scripts/restore.sh",
     "smoke": "bash scripts/smoke.sh",
+    "visual:shots": "node scripts/visual-shots.mjs",
     "infra:up": "docker compose up -d postgres redis",
     "infra:down": "docker compose down",
     "clean": "pnpm -r exec rm -rf dist node_modules && rm -rf node_modules",
