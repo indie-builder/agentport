@@ -80,3 +80,18 @@
 - 技能首页卡片骨架：3 列（视口 <1536px 时为 xl:3），4 项，每项实测 208px。
 - 运行页卡片视图骨架：3 列，3 项，每项实测 208px。
 - 截图：`/tmp/agentport-preview/market-list.png`、`skills-cards.png`、`runs-cards.png`。
+
+## 环境修复（本次顺带发现）
+
+预览登录时发现共享库 `agentport` 的 drizzle 台账与仓库 journal 不一致（台账最大 `created_at` 早于 0043，实际结构停在 0043 之前），导致所有 API 登录 500。
+
+处理方式（经用户授权，已有 `pg_dump -Fc` 备份 `/tmp/agentport-backup-before-migration.dump`）：
+
+- 只读核验实际结构与 journal，确定真实基线；在 dump 恢复的副本库完整演练。
+- 台账：删除 49 条旧记录，按仓库 0000–0046 的 47 条真实 `(hash, created_at)` 重建。
+- 0043：不重跑（对象已存在），补齐漂移（删 `agents.max_thinking_tokens`、`memory_changes.state` 默认值改回 `applied`）。
+- 0044 / 0046：原样执行；0046 额外回填 39 条 feed 文档的来源与范围、155 个版本 `origin`。
+- 0045：四条 NOT NULL 加列改为「先可空 → 回填 → SET NOT NULL」；历史无主体字段的数据统一归现有 admin（业务 ID `bootstrap-admin`）；审计按 actor 分类回填；种子化 4 角色 / 187 权限 / 1 条 user_roles。
+- 验证：台账 47 条、`pnpm db:migrate` 无新增；登录 200；`platform_bootstrap` = `initial/bootstrap-admin/0`；92 专家 / 95 运行 / 53 会话 / 291 消息保持不变；审计 60493 user + 393 anonymous + 407 service。
+
+备份文件与预览库 `agentport_preview` 为临时产物，确认无误后可删除。
