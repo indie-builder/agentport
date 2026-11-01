@@ -521,7 +521,7 @@ export function AgentsPage() {
               { value: 'disabled', label: '已停用' },
             ]}
             label="按启用状态筛选"
-            className="w-32"
+            className="w-36"
           />
           {hasRoleData ? (
             <FilterSelect

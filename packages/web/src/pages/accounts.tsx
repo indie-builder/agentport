@@ -199,7 +199,7 @@ export function AccountsPage() {
                 <TableCell>
                   <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
                 </TableCell>
-                <TableCell className="text-muted-foreground">
+                <TableCell className="font-mono tabular-nums text-muted-foreground">
                   {new Date(account.createdAt).toLocaleDateString('zh-CN')}
                 </TableCell>
                 <TableCell>

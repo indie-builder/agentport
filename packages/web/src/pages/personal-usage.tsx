@@ -178,7 +178,7 @@ export function PersonalUsagePage() {
         { value: '90', label: '最近 90 天' },
       ]}
       label="统计窗口"
-      className="w-32"
+      className="w-36"
     />
   );
 
@@ -394,7 +394,7 @@ export function PersonalUsagePage() {
                 ...statuses.map((status) => ({ value: status, label: runStatusLabel[status] })),
               ]}
               label="按状态筛选"
-              className="w-full sm:w-32"
+              className="w-full sm:w-36"
             />
             <FilterSelect
               value={search.trigger ?? ''}
@@ -409,7 +409,7 @@ export function PersonalUsagePage() {
                 ...triggers.map((trigger) => ({ value: trigger, label: triggerLabel[trigger] })),
               ]}
               label="按来源筛选"
-              className="w-full sm:w-32"
+              className="w-full sm:w-36"
             />
             <Button
               type="button"

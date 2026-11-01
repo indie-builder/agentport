@@ -404,7 +404,7 @@ export function SchedulesPage() {
                         {schedule.cron}
                       </code>
                     </TableCell>
-                    <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
+                    <TableCell className="hidden text-xs tabular-nums text-muted-foreground sm:table-cell">
                       {nextDue}
                     </TableCell>
                     <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
@@ -535,7 +535,7 @@ function ScheduleCard({
             <code className="font-mono text-xs text-muted-foreground">{schedule.cron}</code>
           </dd>
           <dt className="text-muted-foreground">下次触发（UTC）</dt>
-          <dd className="text-right text-muted-foreground">{nextDue}</dd>
+          <dd className="text-right tabular-nums text-muted-foreground">{nextDue}</dd>
           <dt className="text-muted-foreground">上次运行</dt>
           <dd className="text-right text-muted-foreground">{formatRelative(schedule.lastRunAt)}</dd>
         </dl>
