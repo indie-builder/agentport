@@ -300,8 +300,20 @@ export function SchedulesPage() {
       ) : null}
 
       {schedules.isPending ? <LoadingState rows={3} /> : null}
-      {schedules.isError ? (
+      {schedules.isError && !schedules.data ? (
         <ErrorState error={schedules.error} onRetry={() => void schedules.refetch()} />
+      ) : null}
+      {schedules.isError && schedules.data ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留上次列表"
+          description="以下为上次成功加载的定时任务。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void schedules.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
 
       {schedules.data && items.length === 0 ? (
@@ -1143,8 +1155,20 @@ export function AttentionPanel() {
       actions={data ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null}
     >
       {attention.isPending ? <LoadingState rows={2} /> : null}
-      {attention.isError ? (
+      {attention.isError && !data ? (
         <ErrorState error={attention.error} onRetry={() => void attention.refetch()} />
+      ) : null}
+      {attention.isError && data ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留上次结果"
+          description="以下为上次成功加载的待处理项。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void attention.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
       {data ? (
         <ul className="flex flex-col">

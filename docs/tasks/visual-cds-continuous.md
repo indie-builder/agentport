@@ -73,4 +73,5 @@
 - **轮12（提交，个人模块 a11y/字号）**：personal-security 密码表单三字段补无障碍关联（Field `data-invalid`、Input `aria-invalid`+`aria-describedby`、FieldError `id`，参照 knowledge-faq 既有写法；当前密码补齐 data-invalid/aria-invalid）；personal-usage 专家列（主信息）字号 13→`text-base`(14)（§8.8）。typecheck/build exit0，Opus 终审通过。
 - **轮13（提交，skills 权限门控）**：skills 卡 CardFooter「编辑」按钮对无 `skills.update` 用户也显示、点开是只读「查看」弹层（名实不符）；按 plugins/servers 既有 `className={canUpdate ? undefined : 'hidden'}` 隐藏之（标题链接仍可打开只读查看）。typecheck/build exit0，Opus 终审通过。
   - 核实排除：审计「卡片假可点 → interactive=false」不成立——§150/§348 明确「可交互卡（有标题链接/编辑动作）加 cds-card-interactive hover 上浮，纯展示卡不加」，知识库才是唯一整卡链接卡（§362）；资源卡当前 interactive=true 合规，不改。
+- **轮14（提交，缓存刷新错误态）**：区分「首载失败（无数据）」与「后台刷新失败（有缓存）」——后者不再整块 ErrorState「内容没有加载出来」而丢数据，改为保留旧数据 + 顶部 PageNote(danger) 提示 + 重试（照 status.tsx 范式）。三处：overview 主视图、ops 定时任务、ops AttentionPanel。Opus 终审抓出 a11y 回退（原 ErrorState 有 role=alert，PageNote 无）→ 修共享 `PageNote`：`tone="danger"` 时输出 `role="alert"`（default 不变，11 处 danger 调用受益）。typecheck/build exit0，Opus 两轮复核通过。
 

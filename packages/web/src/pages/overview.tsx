@@ -504,7 +504,22 @@ export function OverviewPage() {
         }
       />
 
-      {error ? <ErrorState error={error} onRetry={() => void overview.refetch()} /> : null}
+      {error && !data ? (
+        <ErrorState error={error} onRetry={() => void overview.refetch()} />
+      ) : null}
+
+      {error && data ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留加载的内容"
+          description="以下内容为上次成功加载的结果。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void overview.refetch()}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
 
       {loading ? <LoadingState rows={3} /> : null}
 
