@@ -8,7 +8,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader } from '../components/page.js';
+import { Page, PageHeader, PageSection } from '../components/page.js';
 import { Button } from '../components/ui/button.js';
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
@@ -56,8 +56,7 @@ export function PersonalProfilePage() {
     <Page>
       <PageHeader title="个人资料" />
 
-      <section className="flex w-full min-w-0 flex-col gap-3">
-        <h2 className="text-base font-medium text-fg">身份</h2>
+      <PageSection title="身份" divided={false} className="w-full gap-3">
         <form
           aria-label="个人资料"
           noValidate
@@ -122,9 +121,9 @@ export function PersonalProfilePage() {
             </Button>
           </div>
         </form>
-      </section>
+      </PageSection>
 
-      <section className="flex w-full min-w-0 flex-col gap-3 border-t pt-5">
+      <PageSection divided className="w-full gap-3">
         <Collapsible>
           <CollapsibleTrigger
             render={
@@ -147,7 +146,7 @@ export function PersonalProfilePage() {
             </dl>
           </CollapsibleContent>
         </Collapsible>
-      </section>
+      </PageSection>
 
       <ConfirmDialog
         open={blocker.status === 'blocked'}
