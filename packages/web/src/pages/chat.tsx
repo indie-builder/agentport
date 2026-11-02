@@ -3248,13 +3248,12 @@ export const ApprovalCard = memo(function ApprovalCard({
       transition={reduce ? STILL : EXPAND}
       className={cn(
         'flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2',
-        isPending &&
-          'border-[var(--color-button-primary)]/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-button-primary)_35%,transparent),0_0_12px_-2px_color-mix(in_srgb,var(--color-button-primary)_30%,transparent)]',
+        isPending && 'border-line',
       )}
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       {isPending ? (
-        <span className="shrink-0 rounded-full bg-[color-mix(in_srgb,var(--color-button-primary)_12%,transparent)] px-2 py-0.5 text-2xs font-medium text-[var(--color-link)]">
+        <span className="shrink-0 rounded-full bg-warning-soft px-2 py-0.5 text-2xs font-medium text-warning">
           等待授权
         </span>
       ) : null}
