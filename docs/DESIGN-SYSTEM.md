@@ -386,7 +386,7 @@
 | 类名合并 | `cn`（`lib/cn.ts`） | 唯一实现，不引入 clsx / tailwind-merge 的第二份 |
 | 生成式 UI 渲染 | `@openuidev/react-lang` 的 `<Renderer>` | 组件实现全部映射到 shadcn/ui；官方解析、响应式、表单与Query/Mutation运行时负责交互。业务不加载 `@openuidev/react-ui` 的视觉层，该包仅作开发期契约对照。围栏外散文仍走Markdown |
 
-- 项目圆角：卡片 12 / Composer 20 / 用户消息气泡 18 / 行与常规控件 8 / 32px 图标按钮 8（共享 `size="icon"` 32px / `icon-lg` 36px 与紧凑、侧栏折叠实例一致）/ 紧凑图标按钮 8 / 标签 6；外壳平铺、无外框圆角。底座内部细节沿用官方结构；`--radius` 为 8px，InputGroup 的内部按钮经 `calc(var(--radius) - 3px)` 推导为 5px。共享映射见 `styles.css`。
+- 项目圆角：卡片 12 / Composer 20 / 用户消息气泡 18 / 行与常规控件 8 / 32px 图标按钮 8（共享 `size="icon"` 32px / `icon-lg` 36px 与紧凑、侧栏折叠实例一致）/ 紧凑图标按钮 8 / 标签 6；外壳平铺、无外框圆角。底座内部细节沿用官方结构；`--radius` 为 8px；InputGroup 的内部按钮与 addon 采用 8px 图标圆角档。共享映射见 `styles.css`。
 - shadcn 原语的语义色（`bg-popover`、`text-muted-foreground`、`bg-accent` 等）已全部映射到统一语义令牌，**不要在组件里改回具体色值**。
 - shadcn 定制顺序：内置 variant → 局部布局 → 源码中的语义 variant → 有实际复用需求的应用组合。底座组件放 `components/ui/`，应用组合放 `src/components/`（如 `ConfirmDialog`）。允许改源码，但保留原语的 `aria-*`、焦点管理与键盘交互，只改外观 token；安装/更新前对比 git diff，`--overwrite` 会覆盖既有定制。
 

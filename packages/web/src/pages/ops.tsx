@@ -1083,7 +1083,7 @@ function ScheduleDialog({
             </FieldSet>
           </div>
 
-          <div className="sticky -bottom-4 z-10 -mx-5 -mb-4 mt-4 flex justify-end gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-4">
+          <div className="sticky -bottom-4 z-10 -mx-5 -mb-4 mt-4 flex justify-end gap-2 rounded-b-[var(--radius-dialog)] border-t border-line bg-surface px-5 py-4">
             <Button variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>

@@ -90,8 +90,7 @@
 
   /* base-nova 语义圆角映射；Badge 的 4xl 保留项目的小标签圆角。 */
   /*
-   * --radius 是 shadcn 的基础变量，input-group 用 calc(var(--radius) - 3px)
-   * 推导小按钮圆角。缺了它 calc 整条失效，圆角会变成 0。
+   * --radius 是 shadcn 的基础变量，保留供底座组件与 Tailwind 圆角工具映射使用。
    */
   --radius: var(--radius-item);
   --radius-sm: var(--radius-tag); /* 小标签 */

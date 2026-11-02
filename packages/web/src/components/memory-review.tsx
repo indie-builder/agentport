@@ -1252,7 +1252,7 @@ function CreateMemoryReviewDialog({
                           <button
                             type="button"
                             aria-label={`移除来源会话 ${source.title || source.conversationId}`}
-                            className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="inline-flex size-6 shrink-0 items-center justify-center rounded-icon text-muted-foreground hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             disabled={create.isPending}
                             onClick={() =>
                               setSources((previous) =>
