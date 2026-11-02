@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-01T14:26:10Z",
+  "generatedAt": "2026-11-02T00:00:00Z",
   "title": "Design System: PACE (Claude CDS)",
   "extensions": {
     "tonalRampNotice": "tonalRamp 是面板预览用合成色阶，不是产品 token，也不作为新主题 palette；实现只使用 DESIGN.md frontmatter 与 src/styles.css @theme 的规范值。",
@@ -782,7 +782,7 @@
       {
         "name": "input-focus-line",
         "value": "border-color: var(--color-input-focus, #BDBDBD)",
-        "purpose": "Select 触发器、Combobox、InputGroup 与 SourceEditor 的普通聚焦仍把 1px 发丝边换成 input-focus 浅中性线，不叠光环。"
+        "purpose": "仅 SourceEditor 与 CodeMirror 搜索普通聚焦把 1px 发丝边换成 input-focus 浅中性线；Select 触发器、Combobox、InputGroup 改用陶土微光 .cds-focus-glow。"
       },
       {
         "name": "composer-focus",
@@ -898,12 +898,12 @@
   ],
   "narrative": {
     "northStar": "The Quiet Workbench（静默工作台）",
-    "overview": "PACE 的世界是一张安静的暖灰工作台。根容器铺 canvas #FCFCFB，侧栏透明坐在画布上；主工作区贴边平铺 surface #FFFFFF，没有外层渐变、圆角、外边距或描边。工具、标题与正文是暖墨色，主操作与焦点用陶土 #D97757，状态只在小面积出现。\n\n这套系统用陶土承担「可执行」与焦点，用暖灰阶梯承担层级：default 与显式 solid 共用 #D97757 → #CC5A36 → #AD4724 三态实底；正文链接用深陶土 #A8482B；输入默认边线是 rgba(0,0,0,.10) 发丝边，Input / Textarea 普通聚焦换成陶土边并叠 --shadow-focus-glow 三层微光，其余输入类聚焦换 input-focus，composer 聚焦换三态阴影。唯一的蓝色是图表首系列 chart-runs #2A78D6。围栏/块级代码是深色 #0D0D0C 面配浅色语法 #E6E6E4，行内代码仍是浅 chip #F6F6F6，两种代码形态不互换。\n\n本文是当前实现的快照，机器可读 token 以 DESIGN.md frontmatter 与 src/styles.css 的 @theme 为准；配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色。未覆盖项与规范差异见 Known Gaps 和对应任务记录。",
+    "overview": "PACE 的世界是一张安静的暖灰工作台。根容器铺 canvas #FCFCFB，侧栏透明坐在画布上；主工作区贴边平铺 surface #FFFFFF，没有外层渐变、圆角、外边距或描边。工具、标题与正文是暖墨色，主操作与焦点用陶土 #D97757，状态只在小面积出现。\n\n这套系统用陶土承担「可执行」与焦点，用暖灰阶梯承担层级：default 与显式 solid 共用 #D97757 → #CC5A36 → #AD4724 三态实底；正文链接用深陶土 #A8482B；输入默认边线是 rgba(0,0,0,.10) 发丝边，Input / Textarea 普通聚焦换成陶土边并叠 --shadow-focus-glow 三层微光，Select/Combobox/InputGroup 聚焦同样用陶土微光 .cds-focus-glow，仅 SourceEditor/CodeMirror 搜索换 input-focus，composer 聚焦换三态阴影。唯一的蓝色是图表首系列 chart-runs #2A78D6。围栏/块级代码是深色 #0D0D0C 面配浅色语法 #E6E6E4，行内代码仍是浅 chip #F6F6F6，两种代码形态不互换。\n\n本文是视觉与组件外观权威（impeccable），机器可读 token 以 DESIGN.md frontmatter 与 src/styles.css 的 @theme 为准；配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色。未覆盖项与规范差异见 Known Gaps 和对应任务记录。",
     "keyCharacteristics": [
       "平铺外壳：canvas #FCFCFB 画布 + 贴边 surface #FFFFFF 主区，无渐变、无外边距、无外层描边或圆角。",
       "陶土动作三态：#D97757 / #CC5A36 / #AD4724，白字；hover、active 逐步加深。",
       "暖灰表面阶梯：canvas #FCFCFB、surface #FFFFFF、sunken #F9F9F7、hover #F3F3F0、chip #F6F6F4、selected #EAE9E4。",
-      "alpha 发丝边：line rgba(0,0,0,.10)、line-strong rgba(0,0,0,.20)、control-boundary rgba(0,0,0,.35)；Input / Textarea 聚焦改用陶土微光（1px 陶土边 + --shadow-focus-glow），其余输入类仍用 input-focus #BDBDBD，均低于 3:1 的已接受限制。",
+      "alpha 发丝边：line rgba(0,0,0,.10)、line-strong rgba(0,0,0,.20)、control-boundary rgba(0,0,0,.35)；Input / Textarea 聚焦改用陶土微光（1px 陶土边 + --shadow-focus-glow），Select/Combobox/InputGroup 聚焦同样用陶土微光，仅 SourceEditor/CodeMirror 搜索用 input-focus #BDBDBD，均低于 3:1 的已接受限制。",
       "正文链接与 link 变体用深陶土 #A8482B；卡片用 --shadow-panel，hover 上浮 1.5px 并换 --shadow-panel-hover。",
       "双环浮层阴影、卡片 panel 两态与 composer 三态阴影，外壳无阴影；焦点环为陶土 #D97757。",
       "数据蓝 #2A78D6 只用于图表首系列；AnthropicSans → Inter → 中文回退的 13/20 界面档与 14/22 对话阅读档；按钮使用 15 阶物理弹簧。"
@@ -945,7 +945,7 @@
       "Do 用 button-primary 陶土三态（#D97757 / #CC5A36 / #AD4724）承载 default 与 solid，配白字。",
       "Do 用 input rgba(0,0,0,.10) 画输入默认发丝边，用 line（同值）只做分组与分隔；checkbox/radio 强边界用 control-boundary rgba(0,0,0,.35)。",
       "Do 用 selected / accent #EAE9E4 表示当前导航、选中页签、菜单高亮与用户消息。",
-      "Do 每个控件只留一层常驻焦点信号：Input / Textarea 用 .cds-focus-glow（1px 陶土边 + --shadow-focus-glow），其余输入类换 input-focus，composer 换 shadow-composer-focus，按钮类用 2px 陶土 ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。",
+      "Do 每个控件只留一层常驻焦点信号：Input / Textarea 用 .cds-focus-glow（1px 陶土边 + --shadow-focus-glow），Select/Combobox/InputGroup 用 .cds-focus-glow，仅 SourceEditor/CodeMirror 搜索换 input-focus，composer 换 shadow-composer-focus，按钮类用 2px 陶土 ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。",
       "Do 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途。",
       "Do 把 chart-runs #2A78D6 只用于图表首系列；失败用 danger。",
       "Do 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。"

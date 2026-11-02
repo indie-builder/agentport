@@ -134,7 +134,7 @@
 **原决定**：只做深色。
 
 **修订**：用户明确要求「不要深色，只需要浅色」。前端整体重做为暖纸浅色主题，
-令牌见 `docs/DESIGN-SYSTEM.md` §3；深色主题不再维护，因此也不存在切换开关。
+令牌见 `packages/web/DESIGN.md` frontmatter 或 `packages/web/src/styles.css`；深色主题不再维护，因此也不存在切换开关。
 
 ---
 

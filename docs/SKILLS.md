@@ -32,7 +32,7 @@
 | `pick-ui-library` | emilkowalski/skills | 前端库选型（遵守项目能力选型顺序） |
 | `prototype` | emilkowalski/skills | 多方案 UI 原型与可视化挑选 |
 | `remove-animations` | emilkowalski/skills | 删除无必要动效 |
-| `review-animations` | emilkowalski/skills | 动效代码评审（以 DESIGN-SYSTEM 为基线） |
+| `review-animations` | emilkowalski/skills | 动效代码评审（视觉与动效数值以 packages/web/DESIGN.md 为准，工程规约见 DESIGN-SYSTEM） |
 | `openui` | thesysdev/skills | 明确涉及 OpenUI / OpenUI Lang / `@openuidev/*` / Gateway / Autofix / CLI 的生成式 UI 任务；不用于普通 chat/dashboard，也不替代本项目 UI 实现 |
 | `fastify-best-practices` | mcollina/skills | Fastify 5 路由、schema 校验、插件与生命周期 |
 | `better-auth-best-practices` | better-auth/skills | Better Auth 会话、插件与鉴权配置 |
@@ -54,7 +54,7 @@
 | `effect-ts` | effect-ts/skills | Effect 4 任务内副作用、取消/超时/资源释放与类型化错误 |
 | `getting-started` | tanstack/table | TanStack Table v9 React 入口；包内配套 table-state、feature 与迁移技能 |
 | `ub-mode` | unclebob/ub-mode | 默认日常工程纪律：First Make it Work → Then Make it Right → Follow Practice；编排与并行仍归 pstack |
-| `unslop` | heydamir/unslop | AI 生成感 UI 的诊断与九轮打磨（React/Tailwind，桌面浅色）；接在 DESIGN-SYSTEM 与 shadcn/Base UI 之上 |
+| `unslop` | heydamir/unslop | AI 生成感 UI 的诊断与九轮打磨（React/Tailwind，桌面浅色）；接在 packages/web/DESIGN.md（视觉权威）与 shadcn/Base UI 之上 |
 
 ## 项目自研技能
 
@@ -99,7 +99,7 @@
 `openui` 只对 `SKILL.md` 做两处适配，`references/` 与其余文件保持上游原样；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。
 
 - `description` 收窄：仅用于明确涉及 OpenUI、OpenUI Lang、`@openuidev/*` 包、OpenUI Gateway、Autofix、`@openuidev/cli` 的任务；不用于普通 chat / agent / dashboard 需求，也不用于只借 openui.com 做视觉参考的场景。
-- 正文 Project convention：UI 一律 shadcn/Base UI、Tailwind 4 现有 `@theme` token 与 `docs/DESIGN-SYSTEM.md`，不新建 app；运行底座只有 Claude Agent SDK，不默认切换 Gateway / OpenAI / LangGraph，也不引入外部存储或部署。
+- 正文 Project convention：UI 一律 shadcn/Base UI、Tailwind 4 现有 `@theme` token 与 `packages/web/DESIGN.md`（视觉）及 `docs/DESIGN-SYSTEM.md`（工程规约），不新建 app；运行底座只有 Claude Agent SDK，不默认切换 Gateway / OpenAI / LangGraph，也不引入外部存储或部署。
 - 更新（`add`/`update`）后同样要补回这两处；以本地版与上游 `SKILL.md` 的差异为准，适配副本路径记入当次任务记录。
 
 ### 技术栈最佳实践技能
@@ -143,10 +143,10 @@
 
 上游 `emilkowalski/skills`（MIT，Copyright (c) 2026 Emil Kowalski）本次安装其中的桌面 Web 技能，排除 `animate-expo`、`write-swift`、`mobile-native`（与本项目栈不符）。上游根目录有 `LICENSE`，但 CLI 安装只复制技能目录内容，因此每个新技能目录补了一份上游 `LICENSE`；`SKILL.md` 其余内容与关联引用文件保持上游原样，`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。
 
-每个 `SKILL.md` 只在 frontmatter 后加一段中文 `Project convention`（原 `name`/`description` 不变），共同约定：仅桌面 Web；复用 shadcn/ui、Base UI、Tailwind 4 `@theme` token 与 Motion；视觉和动效数值以 `docs/DESIGN-SYSTEM.md` 为准；不换栈、不新增重复依赖。技能特有约定：
+每个 `SKILL.md` 只在 frontmatter 后加一段中文 `Project convention`（原 `name`/`description` 不变），共同约定：仅桌面 Web；复用 shadcn/ui、Base UI、Tailwind 4 `@theme` token 与 Motion；视觉和动效数值以 `packages/web/DESIGN.md` 与 `packages/web/src/styles.css` 令牌为准；工程规约见 `docs/DESIGN-SYSTEM.md`；不换栈、不新增重复依赖。技能特有约定：
 
 - `animate`：键盘、高频交互与既定动效按项目规范处理，保留 hover/focus 同等反馈，不套用上游一律禁止的规则。
-- `improve-animations`：计划写入 `docs/tasks/`，不建 `plans/`；审计与计划的范围、属性、数值及 reduced-motion 以 `docs/DESIGN-SYSTEM.md` 为准，上游硬性要求与已定项目动效冲突时以项目为准。
+- `improve-animations`：计划写入 `docs/tasks/`，不建 `plans/`；审计与计划的范围、属性、数值及 reduced-motion 以 `packages/web/DESIGN.md` 与 `styles.css` 令牌为准，上游硬性要求与已定项目动效冲突时以项目为准。
 - `remove-animations`：依赖清理按当次授权执行，确认零引用后直接清理，不重复确认。
 - `prototype`：picker 交互照 PICKER.md，视觉控件用项目组件与 token。
 - `break-ui`：只验证桌面容器宽度、200% 缩放、键盘与长内容/极值，不强制移动端、未支持主题或 RTL。
@@ -176,7 +176,7 @@ mutator / uml-viewer 配套工具本次未安装。上游仓库无 LICENSE 文�
 
 ### unslop（2026-11-01）
 
-上游 `heydamir/unslop` 许可 CC-BY-4.0，`SKILL.md` 顶部原有署名段落保留。本地只在 `SKILL.md` frontmatter 之后补一段中文 `Project convention`（桌面浅色、shadcn/Base UI + Tailwind 4 `@theme`、以 `docs/DESIGN-SYSTEM.md` 为准；只诊断与打磨，不换栈、不改布局契约），`references/`、`scripts/` 保持上游原样；CLI 不带上游根 `LICENSE`，已从上游补入技能目录。
+上游 `heydamir/unslop` 许可 CC-BY-4.0，`SKILL.md` 顶部原有署名段落保留。本地只在 `SKILL.md` frontmatter 之后补一段中文 `Project convention`（桌面浅色、shadcn/Base UI + Tailwind 4 `@theme`、视觉/动效数值以 `packages/web/DESIGN.md` 为准；只诊断与打磨，不换栈、不改布局契约），`references/`、`scripts/` 保持上游原样；CLI 不带上游根 `LICENSE`，已从上游补入技能目录。
 `skills-lock.json` 的 `computedHash` 保留上游 CLI 值。升级或重装后需补回 Project convention 与 `LICENSE`，再跑「完成核验」。
 
 ## 插件更新
