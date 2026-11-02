@@ -76,4 +76,5 @@
 - **轮14（提交，缓存刷新错误态）**：区分「首载失败（无数据）」与「后台刷新失败（有缓存）」——后者不再整块 ErrorState「内容没有加载出来」而丢数据，改为保留旧数据 + 顶部 PageNote(danger) 提示 + 重试（照 status.tsx 范式）。三处：overview 主视图、ops 定时任务、ops AttentionPanel。Opus 终审抓出 a11y 回退（原 ErrorState 有 role=alert，PageNote 无）→ 修共享 `PageNote`：`tone="danger"` 时输出 `role="alert"`（default 不变，11 处 danger 调用受益）。typecheck/build exit0，Opus 两轮复核通过。
 - **轮15（提交，频道页去重/间距）**：channels 空列表时页头与空态「新建频道」重复 → 页头按钮仅在 pending/error/有数据时显示，空态唯一入口；列表外层 PageSection `divided={false}` 去掉 Header 下多余全宽顶线（避免与列表 border 叠层）；channel 头部「N 成员·M 智能体」加 `xl:hidden`（xl+ 由右侧栏承载，断点对齐 sidebar `xl:flex`）。typecheck/build exit0，Opus 终审通过。
   - 核实排除：status 页头 description 内联——PageHeader 是 `min-h-14 flex-wrap` 自适应行，"内容自然换行可增高"符合 §8.2，非缺陷，不改共享组件。
+- **轮16（提交，文档缺口对齐·文档服从代码）**：①§9 知识库详情任务页签由 5 项更正为实际的 7 项（文档/来源/检索测试/离线评估/FAQ/Wiki/处理记录）；②§9 阅读工具栏补说明：插件详情无单文件下载，下载即页头「导出 ZIP」整包，工具栏不设下载（知识库/成果仍保留下载）；③`packages/web/DESIGN.md` 个人资料分区更正为「身份（h2，含姓名表单+用户名+角色）→ 账号详情（1px 分隔线 + 折叠展开业务 ID）」，与代码一致。docs-only，无需构建。
 
