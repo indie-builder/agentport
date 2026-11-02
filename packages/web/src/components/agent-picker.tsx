@@ -1,4 +1,5 @@
 import { Bot } from 'lucide-react';
+import { cn } from '../lib/cn.js';
 import { AgentAvatar } from './agent-avatar.js';
 import { Button } from './ui/button.js';
 import {
@@ -24,11 +25,23 @@ export function AgentPicker({
   agentId,
   agentOptions,
   onSwitchAgent,
+  triggerVariant = 'ghost',
+  placeholder = '选择专家',
+  triggerClassName,
+  triggerAriaLabel,
+  disabled,
+  triggerId,
 }: {
   agent: AgentPickerAgent | null;
   agentId?: string | null;
   agentOptions: Array<{ value: string; label: string; agent?: AgentPickerAgent }>;
   onSwitchAgent: (id: string) => void;
+  triggerVariant?: 'ghost' | 'field';
+  placeholder?: string;
+  triggerClassName?: string;
+  triggerAriaLabel?: string;
+  disabled?: boolean;
+  triggerId?: string;
 }) {
   return (
     <Combobox
@@ -49,25 +62,49 @@ export function AgentPicker({
           .includes(needle);
       }}
     >
-      <ComboboxTrigger
-        render={
-          <Button
-            variant="ghost"
-            aria-label={agent ? `选择专家：${agent.name}` : '选择专家'}
-            title="切换专家"
-            className="h-8 w-full min-w-0 justify-start gap-2 px-2 font-normal"
-          />
-        }
-      >
-        {agent ? (
-          <AgentAvatar agent={agent} className="size-5" />
-        ) : (
-          <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
-        )}
-        <span className="min-w-0 flex-1 truncate text-left text-sm text-fg">
-          {agent?.name ?? '选择专家'}
-        </span>
-      </ComboboxTrigger>
+      {triggerVariant === 'field' ? (
+        <ComboboxTrigger
+          render={
+            <Button
+              variant="plain"
+              disabled={disabled}
+              id={triggerId}
+              aria-label={triggerAriaLabel ?? placeholder}
+              className={cn(
+                'flex w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none cds-focus-glow focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-[0.35]',
+                triggerClassName,
+              )}
+            />
+          }
+        >
+          {agent ? (
+            <AgentAvatar agent={agent} className="size-5" />
+          ) : (
+            <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
+          )}
+          <span className="min-w-0 flex-1 truncate text-left">{agent?.name ?? placeholder}</span>
+        </ComboboxTrigger>
+      ) : (
+        <ComboboxTrigger
+          render={
+            <Button
+              variant="ghost"
+              aria-label={agent ? `选择专家：${agent.name}` : '选择专家'}
+              title="切换专家"
+              className="h-8 w-full min-w-0 justify-start gap-2 px-2 font-normal"
+            />
+          }
+        >
+          {agent ? (
+            <AgentAvatar agent={agent} className="size-5" />
+          ) : (
+            <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
+          )}
+          <span className="min-w-0 flex-1 truncate text-left text-sm text-fg">
+            {agent?.name ?? '选择专家'}
+          </span>
+        </ComboboxTrigger>
+      )}
       <ComboboxContent className="min-w-[16rem]">
         <ComboboxInput
           aria-label="搜索专家"

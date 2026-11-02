@@ -11,18 +11,11 @@ import {
   useState,
 } from 'react';
 import { AgentAvatar } from '../components/agent-avatar.js';
+import { AgentPicker } from '../components/agent-picker.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select.js';
 import { authenticated, can } from '../lib/access.js';
 import { api, type ChannelApproval } from '../lib/api.js';
 import {
@@ -704,26 +697,20 @@ function ChannelSidebarDetail({
         </ul>
         {canManage && bindable.length > 0 ? (
           <div className="flex flex-col gap-2">
-            <Select
-              value={agentToBind}
-              onValueChange={(value) => {
-                if (value !== null) onAgentToBind(value);
-              }}
-              items={bindable.map((agent) => ({ value: agent.id, label: agent.name }))}
-            >
-              <SelectTrigger aria-label="选择要绑定的智能体" className="w-full">
-                <SelectValue placeholder="选择智能体" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {bindable.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
-                      {agent.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <AgentPicker
+              triggerVariant="field"
+              agent={bindable.find((agent) => agent.id === agentToBind) ?? null}
+              agentId={agentToBind}
+              agentOptions={bindable.map((agent) => ({
+                value: agent.id,
+                label: agent.name,
+                agent,
+              }))}
+              onSwitchAgent={(id) => onAgentToBind(id)}
+              placeholder="选择智能体"
+              triggerAriaLabel="选择要绑定的智能体"
+              triggerClassName="w-full"
+            />
             <Button
               size="sm"
               disabled={agentToBind === null || bind.isPending}
