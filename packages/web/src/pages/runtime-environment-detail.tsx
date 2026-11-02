@@ -363,7 +363,7 @@ export function RuntimeEnvironmentDetailPage() {
         ) : null}
 
         {shownVersions.length > 0 ? (
-          <Table>
+          <Table aria-label="构建版本列表">
             <TableHeader>
               <TableRow>
                 <TableHead>版本</TableHead>

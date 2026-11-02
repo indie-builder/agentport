@@ -135,7 +135,7 @@ export function RuntimeEnvironmentsPage() {
       ) : null}
 
       {shown.length > 0 && view === 'table' ? (
-        <Table>
+        <Table aria-label="运行环境列表">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[50%]">名称</TableHead>
@@ -180,7 +180,7 @@ export function RuntimeEnvironmentsPage() {
       ) : null}
 
       {shown.length > 0 && view === 'cards' ? (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <ul aria-label="运行环境列表" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((environment) => (
             <li key={environment.id} className="min-w-0">
               <Card className="h-full">

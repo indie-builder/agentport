@@ -57,7 +57,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="break-words font-mono text-xs leading-5 tabular-nums text-fg">{value}</div>
+      <div className="break-words font-mono text-sm leading-5 tabular-nums text-fg">{value}</div>
     </div>
   );
 }
