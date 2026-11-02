@@ -791,39 +791,49 @@ function CreateAccountDialog({
   );
 }
 
+const accountEditFormSchema = z.object({
+  username: z.string().min(1, '请填写用户名。'),
+  name: z.string().superRefine((value, ctx) => {
+    if (value.trim().length === 0) ctx.addIssue({ code: 'custom', message: '请填写姓名。' });
+  }),
+});
+type AccountEditFormValues = z.infer<typeof accountEditFormSchema>;
+
 function EditAccountDialog({ account, onClose }: { account: Account; onClose: () => void }) {
   const update = useUpdateAccount();
-  const [username, setUsername] = useState(account.username);
-  const [name, setName] = useState(account.name);
+  const { register, handleSubmit, formState } = useZodForm(accountEditFormSchema, {
+    defaultValues: { username: account.username, name: account.name },
+  });
+  const { errors, isDirty } = formState;
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
   const [saved, setSaved] = useState(false);
   const pending = update.isPending && !saved;
-  const dirty = !saved && (username !== account.username || name !== account.name);
+  const dirty = !saved && isDirty;
   const guard = useDiscardGuard(dirty, pending, onClose);
-  const usernameError = submitted && username.length === 0 ? '请填写用户名。' : null;
-  const nameError = submitted && name.trim().length === 0 ? '请填写姓名。' : null;
+  const usernameError = errors.username?.message;
+  const nameError = errors.name?.message;
 
-  const submit = async (): Promise<void> => {
-    if (pending) return;
-    setSubmitted(true);
-    setError(null);
-    if (username.length === 0 || name.trim().length === 0) return;
-    try {
-      await update.mutateAsync({
-        businessId: account.businessId,
-        input: {
-          ...(username === account.username ? {} : { username }),
-          ...(name === account.name ? {} : { name }),
-        },
-      });
-      setSaved(true);
-      toastSuccess('账户资料已更新');
-      guard.finish();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  };
+  const submit = handleSubmit(
+    async (values: AccountEditFormValues) => {
+      if (pending) return;
+      setError(null);
+      try {
+        await update.mutateAsync({
+          businessId: account.businessId,
+          input: {
+            ...(values.username === account.username ? {} : { username: values.username }),
+            ...(values.name === account.name ? {} : { name: values.name }),
+          },
+        });
+        setSaved(true);
+        toastSuccess('账户资料已更新');
+        guard.finish();
+      } catch (cause) {
+        setError(errorMessage(cause));
+      }
+    },
+    () => setError(null),
+  );
 
   return (
     <Dialog
@@ -842,14 +852,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
         className="max-w-lg sm:max-w-lg"
         closeDisabled={pending}
       >
-        <form
-          aria-label="编辑账户"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
+        <form aria-label="编辑账户" noValidate onSubmit={submit}>
           <FieldGroup className="gap-5">
             <Field data-disabled>
               <FieldLabel htmlFor="account-edit-business-id">业务 ID</FieldLabel>
@@ -863,8 +866,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
                 disabled={pending}
                 aria-invalid={Boolean(usernameError)}
                 aria-describedby={usernameError ? 'account-edit-username-error' : undefined}
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                {...register('username')}
               />
               <FieldError id="account-edit-username-error">{usernameError ?? undefined}</FieldError>
             </Field>
@@ -876,8 +878,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
                 disabled={pending}
                 aria-invalid={Boolean(nameError)}
                 aria-describedby={nameError ? 'account-edit-name-error' : undefined}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
+                {...register('name')}
               />
               <FieldError id="account-edit-name-error">{nameError ?? undefined}</FieldError>
             </Field>
