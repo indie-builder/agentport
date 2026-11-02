@@ -769,7 +769,7 @@ function ServerCard({
           </h2>
         </CardTitle>
         <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
-          {server.description}
+          {server.description || '暂无描述'}
         </CardDescription>
         <CardAction className="col-start-3">
           <DropdownMenu>
@@ -2464,7 +2464,7 @@ export function ServerFormDialog({
               <Button
                 type="submit"
                 size="sm"
-                disabled={pending || kind === null}
+                disabled={pending || kind === null || (!creating && !isDirty)}
                 aria-busy={pending}
               >
                 {pending ? '保存中…' : creating ? '创建' : '保存更改'}

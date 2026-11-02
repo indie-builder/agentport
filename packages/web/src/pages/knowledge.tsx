@@ -205,7 +205,7 @@ function KnowledgeCard({
             </DropdownMenu>
           </CardAction>
           <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10">
-            {base.description || '—'}
+            {base.description || '暂无描述'}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-1 items-center">
