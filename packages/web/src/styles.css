@@ -169,9 +169,9 @@
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
   /*
-   * 输入家族：默认边线等同 line，聚焦沿用中性近似值。
-   * 两者对白 1.25 / 1.88:1，均不达 3:1；不新增 input hover，
-   * 错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
+   * 输入家族：默认边线等同 line；普通 Input/Textarea 聚焦走陶土 button-primary，
+   * SourceEditor 沿用中性 input-focus（line / input-focus 对白仅 1.25 / 1.88:1，不达 3:1）；
+   * 不新增 input hover，错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
    */
   --color-input: var(--color-line);
   --color-input-focus: #bdbdbd;
@@ -281,7 +281,7 @@
     letter-spacing: -0.01em;
   }
 
-  /* 焦点兜底与 skip link 都走中性语义令牌。 */
+  /* 焦点兜底走陶土 ring 令牌；skip link 沿用中性语义令牌。 */
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
