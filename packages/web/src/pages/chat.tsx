@@ -128,9 +128,11 @@ import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import {
   formatBytes,
+  formatCost,
   formatDateTime,
   formatDuration,
   formatRelative,
+  formatTokens,
   shortId,
 } from '../lib/format.js';
 import {
@@ -3194,19 +3196,19 @@ function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
         {run.durationMs !== undefined ? (
           <>
             <span aria-hidden="true">·</span>
-            <span>{(run.durationMs / 1000).toFixed(1)}s</span>
+            <span>{formatDuration(run.durationMs)}</span>
           </>
         ) : null}
         {run.tokens !== undefined ? (
           <>
             <span aria-hidden="true">·</span>
-            <span>{run.tokens.toLocaleString('en-US')} tok</span>
+            <span>{formatTokens(run.tokens)} tokens</span>
           </>
         ) : null}
         {run.costUsd !== undefined ? (
           <>
             <span aria-hidden="true">·</span>
-            <span>${run.costUsd.toFixed(3)}</span>
+            <span>{formatCost(run.costUsd)}</span>
           </>
         ) : null}
         <span aria-hidden="true">·</span>
