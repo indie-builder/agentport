@@ -4,6 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Hash, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { DialogShell } from '../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge-shared.js';
 import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
@@ -157,6 +158,7 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
     formState: { errors, isDirty, isSubmitting },
   } = form;
   const pending = create.isPending || isSubmitting;
+  const guard = useDraftGuard(isDirty, pending, onClose);
 
   const submit = handleSubmit((values) => {
     const description = values.description?.trim();
@@ -164,7 +166,12 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
       { name: values.name, ...(description ? { description } : {}) },
       {
         onSuccess: (channel) => {
-          void navigate({ to: '/channels/$channelId', params: { channelId: channel.id } });
+          guard.finish();
+          void navigate({
+            to: '/channels/$channelId',
+            params: { channelId: channel.id },
+            ignoreBlocker: true,
+          });
         },
         onError: (error) => toastError(error),
       },
@@ -175,12 +182,11 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
     <Dialog
       open
       onOpenChange={(next, details) => {
-        // 有草稿或请求在途时 Esc / 外部点击不直接丢弃。
-        if (!next && (pending || isDirty)) {
+        if (pending) {
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="新建频道" closeDisabled={pending}>
@@ -215,7 +221,7 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
             ) : null}
           </Field>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
+            <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
               取消
             </Button>
             <Button type="submit" disabled={pending} aria-busy={pending}>
@@ -223,6 +229,7 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
             </Button>
           </div>
         </form>
+        <DraftGuardDialogs guard={guard} draft="新建频道草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
