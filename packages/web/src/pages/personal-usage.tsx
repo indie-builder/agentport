@@ -430,7 +430,20 @@ export function PersonalUsagePage() {
             </div>
           </PageToolbar>
 
-          {runs.isError ? (
+          {runs.isError && runs.data !== undefined ? (
+            <PageNote
+              tone="danger"
+              title="刷新失败，已保留加载的内容"
+              description="以下为上次成功加载的内容。"
+              action={
+                <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
+                  重试
+                </Button>
+              }
+            />
+          ) : null}
+
+          {runs.isError && runs.data === undefined ? (
             <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
           ) : runs.data && runs.data.items.length === 0 ? (
             <PageNote

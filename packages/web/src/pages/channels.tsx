@@ -4,7 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Hash, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageHeader, PageSection } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -35,7 +35,7 @@ export function ChannelsPage() {
       <PageHeader
         title="频道"
         actions={
-          canCreate && (channels.isPending || channels.isError || items.length > 0) ? (
+          canCreate && (channels.isPending || (channels.isError && channels.data === undefined) || items.length > 0) ? (
             <Button onClick={() => setCreating(true)}>
               <Plus aria-hidden="true" />
               新建频道
@@ -43,9 +43,22 @@ export function ChannelsPage() {
           ) : undefined
         }
       />
+      {channels.isError && channels.data !== undefined ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留加载的内容"
+          description="以下为上次成功加载的内容。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void channels.refetch()}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+
       {channels.isPending ? (
         <LoadingState rows={4} />
-      ) : channels.isError ? (
+      ) : channels.isError && channels.data === undefined ? (
         <ErrorState error={channels.error} onRetry={() => void channels.refetch()} />
       ) : items.length === 0 ? (
         <EmptyState

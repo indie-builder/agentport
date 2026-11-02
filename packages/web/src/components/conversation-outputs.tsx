@@ -18,6 +18,7 @@ import { BlobPdf } from './blob-pdf.js';
 import { BusinessIllustration } from './business-illustration.js';
 import { CodeBlock } from './code-block.js';
 import { Markdown } from './markdown.js';
+import { PageNote } from './page.js';
 import { ReaderToolbar } from './reader-toolbar.js';
 import { ShareDialog } from './share-dialog.js';
 import { EmptyState, ErrorState, LoadingState } from './states.js';
@@ -139,6 +140,18 @@ export function ConversationOutputs({
         <h2 className="min-w-0 truncate text-sm font-medium text-fg">会话成果</h2>
       </div>
       <div className="@container min-h-0 flex-1 overflow-y-auto p-3">
+        {outputs.isError && outputs.data !== undefined ? (
+          <PageNote
+            tone="danger"
+            title="刷新失败，已保留加载的内容"
+            description="以下为上次成功加载的内容。"
+            action={
+              <Button variant="outline" size="sm" onClick={() => void outputs.refetch()}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
         {conversationId === null ? (
           <EmptyState
             illustration={<BusinessIllustration name="outputs" size="compact" />}
@@ -146,7 +159,7 @@ export function ConversationOutputs({
           />
         ) : outputs.isPending ? (
           <LoadingState rows={4} />
-        ) : outputs.isError ? (
+        ) : outputs.isError && outputs.data === undefined ? (
           <ErrorState error={outputs.error} onRetry={() => void outputs.refetch()} />
         ) : files.length === 0 ? (
           <EmptyState

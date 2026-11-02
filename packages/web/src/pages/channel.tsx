@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react';
 import { AgentAvatar } from '../components/agent-avatar.js';
-import { Page, PageHeader } from '../components/page.js';
+import { Page, PageHeader, PageNote } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -81,7 +81,7 @@ export function ChannelPage({ channelId }: { channelId: string }) {
       </Page>
     );
   }
-  if (detail.isError) {
+  if (detail.isError && detail.data === undefined) {
     return (
       <Page className="h-full min-h-0 px-6 py-4">
         <PageHeader title="频道" />
@@ -89,7 +89,27 @@ export function ChannelPage({ channelId }: { channelId: string }) {
       </Page>
     );
   }
-  return <ChannelWorkspace key={detail.data.id} channel={detail.data} />;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {detail.isError ? (
+        <div key="notice" className="shrink-0 px-6 pt-2">
+          <PageNote
+            tone="danger"
+            title="刷新失败，已保留加载的内容"
+            description="以下为上次成功加载的内容。"
+            action={
+              <Button variant="outline" size="sm" onClick={() => void detail.refetch()}>
+                重试
+              </Button>
+            }
+          />
+        </div>
+      ) : null}
+      <div key="workspace" className="min-h-0 flex-1">
+        <ChannelWorkspace key={detail.data.id} channel={detail.data} />
+      </div>
+    </div>
+  );
 }
 
 function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {

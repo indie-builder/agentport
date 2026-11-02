@@ -79,6 +79,35 @@
 - **轮16（提交，文档缺口对齐·文档服从代码）**：①§9 知识库详情任务页签由 5 项更正为实际的 7 项（文档/来源/检索测试/离线评估/FAQ/Wiki/处理记录）；②§9 阅读工具栏补说明：插件详情无单文件下载，下载即页头「导出 ZIP」整包，工具栏不设下载（知识库/成果仍保留下载）；③`packages/web/DESIGN.md` 个人资料分区更正为「身份（h2，含姓名表单+用户名+角色）→ 账号详情（1px 分隔线 + 折叠展开业务 ID）」，与代码一致。docs-only，无需构建。
 - **轮17（提交，knowledge 空态去重 + 频道行高）**：knowledge 空列表隐藏页头「新建知识库」（空态唯一入口；空态按钮共用 `createButtonRef` 保焦点回退）；channels 列表行高收敛——`ChannelRow` py-3→py-2、右侧信息三行合并为两行（未读徽章与时间同行）。**真实渲染实测**（visual-check 隔离栈，1440/1280 截图）行高约 56–62px（≤64，§8.3）、右列不溢出；知识库空态仅一个「新建知识库」。typecheck/build exit0，Opus 终审通过。
   - **P1 决策（用户「按建议处理」）**：频道多人群聊作者名——`ChannelMember` 无成员显示名、`memberLabel` 对他人仅回退 `shortId`，补真实作者名不可行；仅能显示 opaque shortId，收益有限且需改共享 chat 渲染、风险高 → **维持现状**，记为已知限制。
+
+## 全站一致性专项（2026-11-02 起，6 维并行审计）
+用户反馈「同类事情各页做法不一」（选专家仅为示例）。6 维只读审计（选择控件/专家展示、按钮与操作、页面骨架工具栏、状态与反馈、表单弹窗、排版数字图标文案）合并为下列主题，分批落地（每批：子代理→typecheck/build→Opus 终审→提交分支，不合并 main）。
+- **A 数据完整性**
+  - A1(P1) 后台刷新失败整块替换缓存：channels/channel/personal-shares/personal-usage/conversation-outputs 仍是 `isError?ErrorState:内容`，改 `isError && data===undefined` 才整块替换，有缓存则保留+PageNote(danger)+重试（同轮14 范式）。share-dialog 经核实为「错误提示与列表并列追加」非替换，无需改。
+- **B 专家选择与身份**
+  - B1(P1/P2) 抽共享 `AgentPicker`（chat.tsx:1370-1446 蓝本：可搜索 Combobox+头像+名称+角色），替换 channel 绑定、ops 执行专家、memory 执行/目标专家；频道 @ 提及补头像/角色/空态。⚠改 ops 前须同步 `DESIGN-SYSTEM:368`。
+  - B2(P2) 统一专家身份展示：AgentAvatar 接入运行详情/使用记录/总览；抽 `agentRoleLabel`；已删除专家统一「已删除的专家」。
+- **C 空态与创建动作**
+  - C1(P1/P2) 空态三层（页面级 EmptyState / 区块 PageNote / 行内 Inline）+ 空态唯一主 CTA 用 `default`+sm + 空态时隐藏页头重复创建按钮（knowledge/channels/accounts/agents/runtime-env/servers/eval 约 7 页）。
+- **D 危险动作与行操作**
+  - D1(P1) destructive 语义统一：ops/eval 行内删除、personal-shares 撤销、knowledge-settings 模型删除改 destructive（或菜单 destructive 项）。
+  - D2(P1/P2) 列表行操作三形态收敛（多操作进「更多」菜单/单一动作文字按钮）；详情页返回/删除入口统一（配置页删除进菜单、返回入 leading）。
+- **E 骨架/工具栏/分区**
+  - E1(P2) PageSection `divided={false}` 规则修正：status/runtime-environment-detail/overview(移除两个 divided=false)/eval 首个顶层分区不应画线。
+  - E2(P2) 找专家工具栏布局（搜索左、筛选排序 ml-auto 大空白）改为资源中心顺序；memory-review 手写工具栏→PageToolbar、页级主操作移入 PageHeader actions；memory 专家筛选宽 176→144。
+  - E3(P3) 分页四形态统一（抽共享 Pager / 固定位置与外框）。
+- **F 表单与弹窗**
+  - F1(P1) 新建频道弹窗退出路径不一致/无草稿保护 → useDraftGuard+DraftGuardDialogs。
+  - F2(P2) 字段错误 aria 关联缺失：knowledge-documents/knowledge-wiki/personal-profile/knowledge-evaluations 的 FieldError 补 id + aria-invalid/aria-describedby。
+  - F3(P2) 保存禁用策略（编辑态 `disabled={!dirty||pending}`、取消始终可用）、失败内联 vs toast 统一（表单失败内联 FieldError）、横向 Field 几何统一。
+  - F4(P2,大) 多字段手写 useState→useZodForm（accounts/knowledge-settings/memory-review/runtime-env 等，按页分批）。
+- **G 排版/数字/文案**
+  - G1(P1) 数字格式统一走 `lib/format`（chat.tsx:3285-3297 绕过，耗时/token/成本精度不一）。
+  - G2(P2) 日期/时区统一 formatter（本地无年份、UTC 两处手写复制）。
+  - G3(P2) 数值列右对齐+font-mono+tabular-nums（knowledge-evaluations/知识进度等）。
+  - G4(P2) `2xs` 越界到可点击/普通区（conversation-search 等）→ xs。
+  - G5(P2/P3) 文案统一：保存/保存更改、新建 X/创建、空值「—」vs「暂无描述」、已删除专家。
+  - G6(P3) 图标尺寸档位、分区标题 13/14 上下文。
 - **轮18（提交，P3 收尾批：运行环境 a11y + 状态指标层级）**：runtime-environments 表格与卡片列表补 `aria-label="运行环境列表"`、runtime-environment-detail 构建版本表补 `aria-label="构建版本列表"`（对齐 accounts/roles/knowledge-detail 既有命名）；status `Metric` 数值 12→`text-sm`(13)、标签仍 12（§4 层级）。typecheck/build exit0，Opus 终审通过。
 - **轮19（提交，P3 收尾）**：accounts 空态图标按语义区分——搜索无结果用 `SearchX`、无账户用 `UsersRound`（新增导入）；roles 工具栏在「N 项权限未保存」已显示时不再重复通用「有未保存的更改」（仅非权限改动时显示）。typecheck/build exit0，Opus 终审通过。
 

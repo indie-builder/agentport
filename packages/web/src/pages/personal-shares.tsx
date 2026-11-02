@@ -7,7 +7,7 @@ import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { CopyButton } from '../components/copy-button.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { Page, PageHeader, PageToolbar } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card.js';
@@ -243,7 +243,20 @@ export function PersonalSharesPage() {
         }
       />
 
-      {shares.isError ? (
+      {shares.isError && shares.data !== undefined ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留加载的内容"
+          description="以下为上次成功加载的内容。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void shares.refetch()}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+
+      {shares.isError && shares.data === undefined ? (
         <ErrorState error={shares.error} onRetry={() => void shares.refetch()} />
       ) : shares.data && shares.data.items.length === 0 ? (
         <EmptyState
