@@ -56,7 +56,7 @@ export function FaqRetrievalControls({
 }) {
   return (
     <>
-      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="flex items-center gap-2 text-sm text-muted-foreground">
         <Switch
           checked={value.onlyRecommended ?? false}
           onCheckedChange={(checked) => onChange({ onlyRecommended: checked ? true : undefined })}
@@ -64,7 +64,7 @@ export function FaqRetrievalControls({
         />
         只推荐 FAQ
       </span>
-      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="flex items-center gap-2 text-sm text-muted-foreground">
         <Switch
           checked={value.faqPriority ?? false}
           onCheckedChange={(checked) => onChange({ faqPriority: checked ? true : undefined })}
@@ -73,7 +73,7 @@ export function FaqRetrievalControls({
         FAQ 优先
       </span>
       <Field className="w-32 gap-1">
-        <FieldLabel htmlFor={`${idPrefix}-direct-threshold`} className="text-2xs">
+        <FieldLabel htmlFor={`${idPrefix}-direct-threshold`} className="text-sm">
           直接答案门槛
         </FieldLabel>
         <Input
@@ -124,7 +124,7 @@ function MultiFilter({
             <Filter data-icon="inline-start" aria-hidden="true" />
             {label}
             {active.length === 0 ? null : (
-              <span className="ml-1 rounded-full bg-selected px-1.5 text-2xs">{active.length}</span>
+              <span className="ml-1 rounded-full bg-selected px-1.5 text-xs">{active.length}</span>
             )}
           </Button>
         }
@@ -136,7 +136,7 @@ function MultiFilter({
           options.map((option) => (
             <span
               key={option.value}
-              className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-xs text-fg hover:bg-hover"
+              className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-sm text-fg hover:bg-hover"
             >
               <Checkbox
                 aria-label={option.label}
@@ -235,7 +235,7 @@ function HitRow({
   return (
     <li className="flex flex-col gap-1 border-b py-3 last:border-b-0">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="rounded-tag border border-line px-1.5 text-2xs text-muted-foreground">
+        <span className="rounded-tag border border-line px-1.5 text-xs text-muted-foreground">
           {contentKindLabel[hitKind(hit)]}
         </span>
         <span className="min-w-0 truncate text-sm font-medium text-fg" title={hit.title}>
@@ -244,18 +244,18 @@ function HitRow({
         {hit.heading ? (
           <span className="truncate text-xs text-muted-foreground">{hit.heading}</span>
         ) : null}
-        <span className="ml-auto shrink-0 text-2xs text-muted-foreground">
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
           {locator === null ? null : `${locator} · `}
           {scoreKindLabel(hit.scoreKind)} {hit.score.toFixed(4)}
         </span>
       </div>
-      <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">{hit.quote}</p>
+      <p className="line-clamp-3 text-sm text-muted-foreground">{hit.quote}</p>
       {hit.faq ? (
-        <div className="flex flex-col gap-1 text-xs">
-          <span className="text-2xs text-muted-foreground">
+        <div className="flex flex-col gap-1 text-sm">
+          <span className="text-sm text-muted-foreground">
             {hit.faq.questionKind === 'similar' ? '相似问' : '标准问'}：{hit.faq.matchedQuestion}
           </span>
-          <span className="text-2xs text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {hit.faq.answerStrategy === 'random'
               ? '随机答案 · 本次 1 条'
               : `全部答案 · ${hit.faq.answers.length} 条`}
@@ -270,9 +270,9 @@ function HitRow({
         </div>
       ) : null}
       {hit.parentContent ? (
-        <details className="text-xs text-muted-foreground">
+        <details className="text-sm text-muted-foreground">
           <summary className="cursor-pointer">父块上下文</summary>
-          <p className="mt-1 leading-relaxed">{hit.parentContent}</p>
+          <p className="mt-1">{hit.parentContent}</p>
         </details>
       ) : null}
       <ScoreBreakdown scores={hit.scores} scoreKind={hit.scoreKind} score={hit.score} />
@@ -393,7 +393,7 @@ export function KnowledgeSearchResults({
       {warnings.length > 0 ? (
         <ul className="flex flex-col gap-1">
           {warnings.map((warning) => (
-            <li key={warning.code} className="text-xs text-warning">
+            <li key={warning.code} className="text-sm text-warning">
               {warning.message}
             </li>
           ))}
@@ -526,7 +526,7 @@ export function SearchTab({
           onChange={(next) => onChange({ tags: next })}
         />
         <KindFilter selected={state.kinds} onChange={(next) => onChange({ kinds: next })} />
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex items-center gap-2 text-sm text-muted-foreground">
           <Switch
             checked={state.rerank ?? true}
             onCheckedChange={(checked) => onChange({ rerank: checked ? undefined : false })}
@@ -535,7 +535,7 @@ export function SearchTab({
           重排
         </span>
         <Field className="w-32 gap-1">
-          <FieldLabel htmlFor="knowledge-min-vector" className="text-2xs">
+          <FieldLabel htmlFor="knowledge-min-vector" className="text-sm">
             向量门槛
           </FieldLabel>
           <Input

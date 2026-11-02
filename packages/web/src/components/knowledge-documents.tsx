@@ -93,7 +93,7 @@ function BatchResults({
               ) : null}
             </div>
             {result.code || result.message ? (
-              <span className="text-2xs text-danger">
+              <span className="text-sm text-danger">
                 {[result.code, result.message].filter(Boolean).join(': ')}
               </span>
             ) : null}
