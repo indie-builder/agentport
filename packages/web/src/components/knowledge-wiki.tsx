@@ -1,6 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpen, GitCompare, Link2, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Controller } from 'react-hook-form';
+import { z } from 'zod';
 import type {
   KnowledgeWikiDiff,
   KnowledgeWikiPageDetail,
@@ -25,6 +27,7 @@ import {
   useSaveKnowledgeWikiPage,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 import { CodeBlock } from './code-block.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
@@ -999,6 +1002,14 @@ function WikiMarkdownDialog({
   );
 }
 
+const wikiPageFormSchema = z.object({
+  title: z.string(),
+  slug: z.string(),
+  parentId: z.string(),
+  position: z.string(),
+});
+type WikiPageFormValues = z.infer<typeof wikiPageFormSchema>;
+
 function CreateWikiPageDialog({
   baseId,
   pages,
@@ -1013,19 +1024,19 @@ function CreateWikiPageDialog({
   onCreated: (page: { id: string }) => void;
 }) {
   const create = useCreateKnowledgeWikiPage(baseId);
-  const [slug, setSlug] = useState('');
-  const [title, setTitle] = useState('');
-  const [parentId, setParentId] = useState(initialParentId ?? 'null');
-  const [position, setPosition] = useState('0');
-  const slugValid = /^[a-z0-9][a-z0-9-_]*$/.test(slug);
+  const { register, control, handleSubmit, watch, formState } = useZodForm(wikiPageFormSchema, {
+    defaultValues: { title: '', slug: '', parentId: initialParentId ?? 'null', position: '0' },
+  });
+  const { isDirty } = formState;
+  const titleValue = watch('title');
+  const slugValue = watch('slug');
+  const positionValue = watch('position');
+  const slugValid = /^[a-z0-9][a-z0-9-_]*$/.test(slugValue);
   const pending = create.isPending;
-  const parsedPosition = Number(position);
+  const parsedPosition = Number(positionValue);
   const invalidPosition = !Number.isInteger(parsedPosition) || parsedPosition < 0;
-  const guard = useDraftGuard(
-    slug !== '' || title !== '' || parentId !== 'null' || position !== '0',
-    pending,
-    onClose,
-  );
+  const dirty = isDirty;
+  const guard = useDraftGuard(dirty, pending, onClose);
   const parentOptions = [
     { value: 'null', label: '顶层' },
     ...wikiTreePages(pages).map(({ page, depth }) => ({
@@ -1033,6 +1044,26 @@ function CreateWikiPageDialog({
       label: `${'　'.repeat(depth)}${page.title}`,
     })),
   ];
+  const submit = handleSubmit((values: WikiPageFormValues) => {
+    const parsed = Number(values.position);
+    if (!Number.isInteger(parsed) || parsed < 0) return;
+    create.mutate(
+      {
+        slug: values.slug,
+        title: values.title.trim(),
+        parentId: values.parentId === 'null' ? null : values.parentId,
+        position: parsed,
+      },
+      {
+        onSuccess: (page) => {
+          toastSuccess('Wiki 页面已创建');
+          guard.finish();
+          onCreated(page);
+        },
+        onError: toastError,
+      },
+    );
+  });
 
   return (
     <Dialog
@@ -1046,55 +1077,27 @@ function CreateWikiPageDialog({
       }}
     >
       <DialogShell title="新建 Wiki 页面" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (invalidPosition) return;
-            create.mutate(
-              {
-                slug,
-                title: title.trim(),
-                parentId: parentId === 'null' ? null : parentId,
-                position: parsedPosition,
-              },
-              {
-                onSuccess: (page) => {
-                  toastSuccess('Wiki 页面已创建');
-                  guard.finish();
-                  onCreated(page);
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>
-            <Field className="gap-1.5" data-invalid={slug !== '' && !slugValid}>
+            <Field className="gap-1.5" data-invalid={slugValue !== '' && !slugValid}>
               <FieldLabel htmlFor="wiki-title">
                 标题 <RequiredMark />
               </FieldLabel>
-              <Input
-                id="wiki-title"
-                value={title}
-                disabled={pending}
-                onChange={(event) => setTitle(event.target.value)}
-              />
+              <Input id="wiki-title" {...register('title')} disabled={pending} />
             </Field>
-            <Field className="gap-1.5" data-invalid={slug !== '' && !slugValid}>
+            <Field className="gap-1.5" data-invalid={slugValue !== '' && !slugValid}>
               <FieldLabel htmlFor="wiki-slug">
                 Slug <RequiredMark />
               </FieldLabel>
               <Input
                 id="wiki-slug"
-                value={slug}
+                {...register('slug')}
                 disabled={pending}
-                aria-invalid={slug !== '' && !slugValid}
-                aria-describedby={slug !== '' && !slugValid ? 'wiki-slug-error' : undefined}
-                onChange={(event) => setSlug(event.target.value)}
+                aria-invalid={slugValue !== '' && !slugValid}
+                aria-describedby={slugValue !== '' && !slugValid ? 'wiki-slug-error' : undefined}
                 className="font-mono"
               />
-              {slug !== '' && !slugValid ? (
+              {slugValue !== '' && !slugValid ? (
                 <FieldError id="wiki-slug-error">仅允许小写字母、数字、- 和 _</FieldError>
               ) : null}
             </Field>
@@ -1102,27 +1105,33 @@ function CreateWikiPageDialog({
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
             <Field className="gap-1.5">
               <FieldLabel htmlFor="wiki-create-parent">上级页面</FieldLabel>
-              <Select
-                value={parentId}
-                disabled={pending}
-                onValueChange={(next) => {
-                  if (next !== null) setParentId(next);
-                }}
-                items={parentOptions}
-              >
-                <SelectTrigger id="wiki-create-parent" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {parentOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              <Controller
+                name="parentId"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    disabled={pending}
+                    onValueChange={(next) => {
+                      if (next !== null) field.onChange(next);
+                    }}
+                    items={parentOptions}
+                  >
+                    <SelectTrigger id="wiki-create-parent" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {parentOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </Field>
             <Field className="gap-1.5" data-invalid={invalidPosition}>
               <FieldLabel htmlFor="wiki-create-position">排序</FieldLabel>
@@ -1131,11 +1140,10 @@ function CreateWikiPageDialog({
                 type="number"
                 min={0}
                 step={1}
-                value={position}
+                {...register('position')}
                 disabled={pending}
                 aria-invalid={invalidPosition}
                 aria-describedby={invalidPosition ? 'wiki-create-position-error' : undefined}
-                onChange={(event) => setPosition(event.target.value)}
               />
               <FieldError id="wiki-create-position-error">
                 {invalidPosition ? '需为非负整数' : null}
@@ -1148,7 +1156,7 @@ function CreateWikiPageDialog({
             </Button>
             <Button
               type="submit"
-              disabled={pending || title.trim() === '' || !slugValid || invalidPosition}
+              disabled={pending || titleValue.trim() === '' || !slugValid || invalidPosition}
               aria-busy={pending}
             >
               {pending ? '创建中…' : '创建'}
