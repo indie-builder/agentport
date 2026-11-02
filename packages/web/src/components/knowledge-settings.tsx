@@ -694,7 +694,7 @@ export function KnowledgeProfilesDialog({
                               : 'ASR 转录'}
                         </span>
                       </p>
-                      <p className="truncate font-mono text-2xs text-muted-foreground">
+                      <p className="truncate font-mono text-xs text-muted-foreground">
                         {profile.model} · {profile.endpointUrl}
                       </p>
                       <p className="text-xs text-muted-foreground">

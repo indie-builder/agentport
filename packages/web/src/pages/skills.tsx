@@ -312,7 +312,7 @@ export function SkillsPage() {
                     <h2 className="min-w-0">
                       <Button
                         variant="ghost"
-                        className="h-auto w-full min-w-0 justify-start p-0 text-base leading-snug font-medium"
+                        className="h-auto w-full min-w-0 justify-start p-0 text-base font-medium"
                         onClick={(event) => {
                           actionTriggerRef.current = event.currentTarget;
                           setEditing(skill);

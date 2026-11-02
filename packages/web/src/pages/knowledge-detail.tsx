@@ -549,7 +549,7 @@ function ExpertUsage({ base, enabled }: { base: KnowledgeBase; enabled: boolean 
               >
                 {agent.name}
               </Link>
-              <span className="shrink-0 text-2xs text-muted-foreground">配置 · 能力</span>
+              <span className="shrink-0 text-sm text-muted-foreground">配置 · 能力</span>
             </li>
           ))}
         </ul>
@@ -562,7 +562,7 @@ function ExpertUsage({ base, enabled }: { base: KnowledgeBase; enabled: boolean 
       {agents.isSuccess && used.length === 0 && unknown === 0 && !pending ? (
         <div className="flex flex-col gap-1">
           <InlineEmpty>没有被任何专家使用</InlineEmpty>
-          <span className="text-xs text-muted-foreground">在专家的能力配置中绑定此知识库。</span>
+          <span className="text-sm text-muted-foreground">在专家的能力配置中绑定此知识库。</span>
           <Link to="/agents" className="self-start text-xs text-fg underline underline-offset-2">
             选择专家
           </Link>
@@ -745,7 +745,7 @@ function DocumentsTab({
     <div className="grid min-w-0 gap-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-medium text-fg">文件夹</h2>
+          <h2 className="text-base font-medium text-fg">文件夹</h2>
           {caps.content ? (
             <Button
               variant="ghost"
@@ -948,7 +948,7 @@ function DocumentsTab({
         </PageToolbar>
 
         {caps.content ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             音频支持 mp3、wav、m4a、flac、ogg，单个不超过 25 MB。
             {asrEnabled
               ? '上传后会调用已配置的转录模型，可能计费；失败重试可能再次计费。'
@@ -1083,7 +1083,7 @@ function DocumentsTab({
                       {document.title}
                     </button>
                     {document.tags.length > 0 ? (
-                      <span className="mt-0.5 block truncate text-2xs text-muted-foreground">
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                         {document.tags.join(' · ')}
                       </span>
                     ) : null}
@@ -1850,7 +1850,7 @@ function DocumentViewer({
                       <span className="truncate" title={item.title}>
                         {item.title}
                       </span>
-                      <span className="truncate text-2xs">{documentStatusLabel[item.status]}</span>
+                      <span className="truncate text-xs">{documentStatusLabel[item.status]}</span>
                     </button>
                   );
                 })}
@@ -2003,7 +2003,7 @@ function DocumentViewer({
                       {versionImages.map((image) => (
                         <li key={image.name} className="flex min-w-0 flex-col gap-1">
                           <VersionImage versionId={versionId} image={image} />
-                          <span className="truncate text-2xs text-muted-foreground">
+                          <span className="truncate text-xs text-muted-foreground">
                             第 {image.page} 页 · {image.name}
                           </span>
                         </li>
@@ -2016,7 +2016,7 @@ function DocumentViewer({
               <PageSection title="分块">
                 {!versionId ? <InlineEmpty>还没有分块</InlineEmpty> : null}
                 {versionId && !isCurrent ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     历史版本只读；切回当前版本后可编辑分块。
                   </p>
                 ) : null}
@@ -2067,7 +2067,7 @@ function DocumentViewer({
                                 {locator === null ? label : `${label} · ${locator}`}
                               </span>
                             </div>
-                            <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                            <p className="line-clamp-3 text-sm text-muted-foreground">
                               {chunk.content}
                             </p>
                           </div>
@@ -2892,7 +2892,7 @@ function SourcesTab({
                     >
                       {sourceStatusLabel[source.status]}
                     </StatusBadge>
-                    <span className="text-2xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       上次同步 {lastSyncStatus ? `${lastSyncStatus} · ` : ''}
                       {formatRelative(source.lastSyncAt)}
                     </span>
@@ -2973,11 +2973,11 @@ function SourcesTab({
                       ) : null}
                     </div>
                   </div>
-                  <span className="truncate text-2xs text-muted-foreground">
+                  <span className="truncate text-xs text-muted-foreground">
                     {sourceTargetSummary(source)}
                   </span>
                   {source.lastError ? (
-                    <span className="text-2xs text-danger">{source.lastError}</span>
+                    <span className="text-sm text-danger">{source.lastError}</span>
                   ) : null}
                   {probeJobs[source.id] ? (
                     <SourceProbeStatus jobId={probeJobs[source.id] ?? ''} />
@@ -3379,7 +3379,7 @@ function RangeRows({
           className="flex flex-col gap-2 rounded-item border border-line p-2.5"
         >
           <div className="flex items-center gap-2">
-            <span className="text-2xs text-muted-foreground">范围 {index + 1}</span>
+            <span className="text-xs text-muted-foreground">范围 {index + 1}</span>
             <Switch
               id={`source-range-${index}-enabled`}
               size="sm"
@@ -3388,7 +3388,7 @@ function RangeRows({
               aria-label={`启用范围 ${index + 1}`}
               onCheckedChange={(checked) => patch(index, { enabled: checked })}
             />
-            <span className="text-2xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {range.enabled ? '启用' : '停用'}
             </span>
             <Button
@@ -4228,7 +4228,7 @@ function SourceDialog({
 function SourceProbeStatus({ jobId }: { jobId: string }) {
   const job = useKnowledgeJobDetail(jobId);
   if (job.isPending) {
-    return <span className="text-2xs text-muted-foreground">连接测试进行中…</span>;
+    return <span className="text-xs text-muted-foreground">连接测试进行中…</span>;
   }
   if (job.isError) {
     return <span className="text-xs text-danger">连接测试结果没有加载出来。</span>;
@@ -4236,7 +4236,7 @@ function SourceProbeStatus({ jobId }: { jobId: string }) {
   const result = job.data?.result;
   if (!result) {
     return (
-      <span className="text-2xs text-muted-foreground">
+      <span className="text-xs text-muted-foreground">
         连接测试{job.data?.status === 'failed' ? '失败' : '进行中'}
         {job.data?.error ? ` · ${knowledgeJobErrorText(job.data.error)}` : ''}
       </span>
@@ -4244,11 +4244,11 @@ function SourceProbeStatus({ jobId }: { jobId: string }) {
   }
   return (
     <div className="flex flex-col gap-0.5 rounded-item border border-line px-2 py-1">
-      <span className={`text-2xs ${result.ok ? 'text-success' : 'text-danger'}`}>
+      <span className={`text-xs ${result.ok ? 'text-success' : 'text-danger'}`}>
         连接测试{result.ok ? '通过' : '失败'}
       </span>
       {result.checks.map((check) => (
-        <span key={check.rangeId} className="text-2xs text-muted-foreground">
+        <span key={check.rangeId} className="text-xs text-muted-foreground">
           {check.rangeId} · {check.ok ? '可读' : (check.code ?? '不可读')}
           {check.message ? ` · ${check.message}` : ''}
         </span>
@@ -4267,7 +4267,7 @@ function SyncRunItems({
   onOpenDocument: (documentId: string) => void;
 }) {
   const items = useKnowledgeSyncItems(sourceId, syncRunId);
-  if (items.isPending) return <span className="text-2xs text-muted-foreground">加载中…</span>;
+  if (items.isPending) return <span className="text-xs text-muted-foreground">加载中…</span>;
   if (items.isError && items.data === undefined) {
     return (
       <Button variant="link" size="xs" onClick={() => void items.refetch()}>
@@ -4277,17 +4277,17 @@ function SyncRunItems({
   }
   const itemRows = items.data?.pages.flatMap((page) => page.items) ?? [];
   if (itemRows.length === 0) {
-    return <span className="text-2xs text-muted-foreground">没有失败或跳过项</span>;
+    return <span className="text-xs text-muted-foreground">没有失败或跳过项</span>;
   }
   return (
     <div className="flex flex-col gap-2">
       <ul className="flex flex-col gap-1">
         {itemRows.map((item) => (
-          <li key={item.id} className="flex flex-wrap items-center gap-2 text-2xs">
+          <li key={item.id} className="flex flex-wrap items-center gap-2 text-sm">
             <StatusBadge tone={item.status === 'failed' ? 'danger' : 'outline'}>
               {item.status === 'failed' ? '失败' : '跳过'}
             </StatusBadge>
-            <span className="font-mono text-muted-foreground">{item.externalId}</span>
+            <span className="font-mono text-xs text-muted-foreground">{item.externalId}</span>
             <span className="text-danger">
               {item.code}
               {item.message ? `: ${item.message}` : ''}
@@ -4331,15 +4331,15 @@ function SourceRuns({
   const runs = useKnowledgeSourceRuns(sourceId);
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-item bg-sunken/40 p-2">
-      <span className="text-2xs text-muted-foreground">同步记录</span>
-      {runs.isPending ? <span className="text-2xs text-muted-foreground">加载中…</span> : null}
+      <span className="text-sm font-medium text-muted-foreground">同步记录</span>
+      {runs.isPending ? <span className="text-xs text-muted-foreground">加载中…</span> : null}
       {runs.isError ? (
         <Button variant="link" size="xs" onClick={() => void runs.refetch()}>
           同步记录没有加载出来，重试
         </Button>
       ) : null}
       {runs.data && runs.data.length === 0 ? (
-        <span className="text-2xs text-muted-foreground">还没有同步记录</span>
+        <span className="text-xs text-muted-foreground">还没有同步记录</span>
       ) : null}
       {runs.data && runs.data.length > 0 ? (
         <ul className="flex flex-col gap-1">
@@ -4561,20 +4561,20 @@ function JobRow({
   };
   return (
     <TableRow>
-      <TableCell className="text-xs">{jobTypeLabel[job.type]}</TableCell>
+      <TableCell className="text-sm">{jobTypeLabel[job.type]}</TableCell>
       <TableCell className="whitespace-normal">
         {targetTitle ? (
           <Button
             variant="link"
             size="xs"
-            className="h-auto whitespace-normal px-0 text-left break-words"
+            className="h-auto whitespace-normal px-0 text-sm text-left break-words"
             title={targetTitle}
             onClick={openTarget}
           >
             {jobTargetLabel(job)}
           </Button>
         ) : (
-          <span className="block break-words text-xs text-fg" title={targetTitle}>
+          <span className="block break-words text-sm text-fg" title={targetTitle}>
             {jobTargetLabel(job)}
           </span>
         )}
@@ -4584,7 +4584,7 @@ function JobRow({
       </TableCell>
       <TableCell className="whitespace-normal">
         <span
-          className="block break-words text-xs text-muted-foreground"
+          className="block break-words text-sm text-muted-foreground"
           title={job.error ?? job.step ?? ''}
         >
           {reason ?? job.step ?? '—'}

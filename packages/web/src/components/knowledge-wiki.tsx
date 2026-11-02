@@ -118,7 +118,7 @@ export function WikiTab({
     <div className="grid min-w-0 gap-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-fg">页面</h2>
+          <h2 className="text-base font-medium text-fg">页面</h2>
           {caps.content ? (
             <Button
               variant="ghost"
@@ -157,7 +157,7 @@ export function WikiTab({
                   )}
                 >
                   <span className="truncate">{page.title}</span>
-                  <span className="truncate text-2xs">{pageStatusLabel[page.status]}</span>
+                  <span className="truncate text-xs">{pageStatusLabel[page.status]}</span>
                 </button>
               </li>
             ))}
@@ -613,20 +613,20 @@ function WikiLinks({
   if (links.data.outgoing.length === 0 && links.data.incoming.length === 0) return null;
   return (
     <Collapsible className="rounded-item border border-line px-3 py-2">
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1 text-xs text-muted-foreground">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1 text-sm text-muted-foreground">
         <Link2 className="size-3.5" aria-hidden="true" /> 链接
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 flex flex-col gap-2">
         <div className="flex flex-col gap-1">
-          <span className="text-2xs text-muted-foreground">出链</span>
+          <span className="text-xs text-muted-foreground">出链</span>
           {links.data.outgoing.length === 0 ? (
-            <span className="text-2xs text-muted-foreground">无</span>
+            <span className="text-sm text-muted-foreground">无</span>
           ) : (
             links.data.outgoing.map((link) =>
               link.targetPageId === null ? (
                 <span
                   key={`missing:${link.anchor ?? ''}`}
-                  className="text-2xs text-muted-foreground"
+                  className="text-sm text-muted-foreground"
                 >
                   目标页不存在{link.anchor ? `#${link.anchor}` : ''}
                 </span>
@@ -648,9 +648,9 @@ function WikiLinks({
           )}
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-2xs text-muted-foreground">入链</span>
+          <span className="text-xs text-muted-foreground">入链</span>
           {links.data.incoming.length === 0 ? (
-            <span className="text-2xs text-muted-foreground">无</span>
+            <span className="text-sm text-muted-foreground">无</span>
           ) : (
             links.data.incoming.map((link) => (
               <Button

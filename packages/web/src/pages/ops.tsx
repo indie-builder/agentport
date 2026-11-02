@@ -396,7 +396,7 @@ export function SchedulesPage() {
                         {schedule.agentName ?? '已删除的专家'}
                       </span>
                       {/* 窄屏收起列，用可见标签保留每项数据。 */}
-                      <span className="block text-2xs text-muted-foreground sm:hidden">
+                      <span className="block text-xs text-muted-foreground sm:hidden">
                         {schedule.cron} · 下次 UTC {nextDue} · 上次{' '}
                         {formatRelative(schedule.lastRunAt)}
                       </span>
@@ -910,7 +910,7 @@ function ScheduleDialog({
             </FieldGroup>
 
             <FieldSet className="w-full gap-5 @min-[800px]:self-start @min-[800px]:border-l @min-[800px]:border-line @min-[800px]:pl-6">
-              <FieldLegend className="mb-0 text-base font-medium leading-8">执行计划</FieldLegend>
+              <FieldLegend className="mb-0 flex h-8 items-center text-base font-medium">执行计划</FieldLegend>
               <FieldGroup className="gap-5">
                 <div
                   className={cn(
