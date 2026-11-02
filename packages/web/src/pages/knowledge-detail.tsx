@@ -2597,6 +2597,12 @@ function ManualDocumentDialog({
   );
 }
 
+const urlImportFormSchema = z.object({
+  url: z.string(),
+  target: z.string(),
+});
+type UrlImportFormValues = z.infer<typeof urlImportFormSchema>;
+
 function UrlImportDialog({
   baseId,
   folderId,
@@ -2609,15 +2615,33 @@ function UrlImportDialog({
   onClose: () => void;
 }) {
   const create = useImportKnowledgeUrl(baseId);
-  const [url, setUrl] = useState('');
   const initialTarget = folderId ?? 'null';
-  const [target, setTarget] = useState(initialTarget);
   const pending = create.isPending;
+  const { register, control, handleSubmit, watch, formState } = useZodForm(urlImportFormSchema, {
+    defaultValues: { url: '', target: initialTarget },
+  });
+  const { isDirty } = formState;
+  const urlValue = watch('url');
   // 后端 httpUrlSchema 只收 http(s)；这里只做按钮可用性判断，最终由入口校验。
-  const validUrl = /^https?:\/\/\S+$/i.test(url.trim());
-  const invalidUrl = url.trim() !== '' && !validUrl;
-  const dirty = url.trim() !== '' || target !== initialTarget;
+  const validUrl = /^https?:\/\/\S+$/i.test(urlValue.trim());
+  const invalidUrl = urlValue.trim() !== '' && !validUrl;
+  const dirty = isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
+  const submit = handleSubmit((values: UrlImportFormValues) => {
+    create.mutate(
+      {
+        url: values.url.trim(),
+        folderId: values.target === 'null' ? null : values.target,
+      },
+      {
+        onSuccess: () => {
+          toastSuccess('已提交抓取任务');
+          guard.finish();
+        },
+        onError: toastError,
+      },
+    );
+  });
 
   return (
     <Dialog
@@ -2631,25 +2655,7 @@ function UrlImportDialog({
       }}
     >
       <DialogShell title="导入网址" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create.mutate(
-              {
-                url: url.trim(),
-                folderId: target === 'null' ? null : target,
-              },
-              {
-                onSuccess: () => {
-                  toastSuccess('已提交抓取任务');
-                  guard.finish();
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>
             <Field className="gap-1.5" data-invalid={invalidUrl}>
               <FieldLabel htmlFor="knowledge-url">
@@ -2658,9 +2664,8 @@ function UrlImportDialog({
               <Input
                 id="knowledge-url"
                 type="url"
-                value={url}
+                {...register('url')}
                 disabled={pending}
-                onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://example.com/doc"
                 aria-invalid={invalidUrl}
                 aria-describedby={invalidUrl ? 'knowledge-url-error' : 'knowledge-url-hint'}
@@ -2675,12 +2680,18 @@ function UrlImportDialog({
                 </FieldDescription>
               )}
             </Field>
-            <ImportFolderField
-              id="knowledge-url-folder"
-              value={target}
-              folders={folders}
-              disabled={pending}
-              onChange={setTarget}
+            <Controller
+              control={control}
+              name="target"
+              render={({ field }) => (
+                <ImportFolderField
+                  id="knowledge-url-folder"
+                  value={field.value}
+                  folders={folders}
+                  disabled={pending}
+                  onChange={field.onChange}
+                />
+              )}
             />
           </FieldGroup>
           <div className="flex justify-end gap-2">
