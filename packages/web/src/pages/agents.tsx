@@ -4591,7 +4591,7 @@ function VersionRow({
               render={
                 <Button variant="ghost" size="sm">
                   <ChevronRight
-                    className={cn('size-4 transition-transform', open && 'rotate-90')}
+                    className={cn('transition-transform', open && 'rotate-90')}
                     aria-hidden="true"
                   />
                   {open ? '收起差异' : '查看差异'}
@@ -4600,7 +4600,7 @@ function VersionRow({
             />
             {canRestore ? (
               <Button variant="outline" size="sm" disabled={rollbackDisabled} onClick={onRollback}>
-                <RotateCcw className="size-4" /> 回滚
+                <RotateCcw /> 回滚
               </Button>
             ) : null}
           </div>

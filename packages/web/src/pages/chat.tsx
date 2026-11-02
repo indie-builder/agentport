@@ -2555,9 +2555,9 @@ export function MessagePane({
                               onClick={() => onBranchMessage(messageId)}
                             >
                               {branchingMessageId === messageId ? (
-                                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                                <LoaderCircle className="animate-spin" aria-hidden="true" />
                               ) : (
-                                <GitBranch className="size-4" aria-hidden="true" />
+                                <GitBranch aria-hidden="true" />
                               )}
                             </Button>
                           </div>

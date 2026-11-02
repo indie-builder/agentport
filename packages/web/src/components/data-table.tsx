@@ -192,7 +192,7 @@ function ColumnRow({
         // Keep the subdued drag handle, 6px corners, translucent hover, and focus ring.
         className="cursor-grab touch-none rounded-tag border-0 p-1 text-muted-foreground transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <GripVertical className="size-4" aria-hidden="true" />
+        <GripVertical aria-hidden="true" />
       </Button>
       <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-icon px-2 py-1.5 text-xs hover:bg-hover">
         <Checkbox checked={checked} onCheckedChange={() => onToggle()} />
@@ -507,7 +507,7 @@ export function DataTable<T extends RowData>({
                   <PopoverTrigger
                     render={
                       <Button variant="ghost" size="icon-xs" aria-label="列设置" title="列设置">
-                        <Columns3 className="size-4" aria-hidden="true" />
+                        <Columns3 aria-hidden="true" />
                       </Button>
                     }
                   />

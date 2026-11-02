@@ -1921,7 +1921,7 @@ export function ToolForm({
             '保存更改'
           ) : (
             <>
-              <Plus className="size-4" /> 添加
+              <Plus /> 添加
             </>
           )}
         </Button>

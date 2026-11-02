@@ -579,7 +579,7 @@ export function EvalPage() {
                         }}
                       >
                         <span className="sr-only">编辑 {testCase.name}</span>
-                        <Pencil className="size-4" aria-hidden="true" />
+                        <Pencil aria-hidden="true" />
                       </Button>
                       <Button
                         variant="destructive"
@@ -590,7 +590,7 @@ export function EvalPage() {
                         }}
                       >
                         <span className="sr-only">删除 {testCase.name}</span>
-                        <Trash2 className="size-4" aria-hidden="true" />
+                        <Trash2 aria-hidden="true" />
                       </Button>
                     </div>
                   ) : null}
