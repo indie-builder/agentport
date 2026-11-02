@@ -33,6 +33,10 @@ export function PersonalProfilePage() {
   });
   const { register, handleSubmit, reset, formState } = form;
   const dirty = formState.isDirty;
+  const nameErrorIds = [
+    formState.errors.name ? 'personal-name-field-error' : null,
+    formError ? 'personal-name-error' : null,
+  ].filter((id): id is string => id !== null);
   const blocker = useFormBlocker(dirty, update.isPending);
 
   if (!user) return null;
@@ -78,11 +82,13 @@ export function PersonalProfilePage() {
                   id="personal-name"
                   autoComplete="name"
                   disabled={update.isPending}
-                  aria-invalid={formState.errors.name ? true : undefined}
-                  aria-describedby={formError ? 'personal-name-error' : undefined}
+                  aria-invalid={Boolean(formState.errors.name || formError)}
+                  aria-describedby={nameErrorIds.length > 0 ? nameErrorIds.join(' ') : undefined}
                   {...register('name')}
                 />
-                <FieldError>{formState.errors.name?.message}</FieldError>
+                <FieldError id="personal-name-field-error">
+                  {formState.errors.name?.message}
+                </FieldError>
                 {formError ? <FieldError id="personal-name-error">{formError}</FieldError> : null}
               </div>
             </Field>

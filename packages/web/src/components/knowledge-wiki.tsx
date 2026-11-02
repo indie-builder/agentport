@@ -778,9 +778,12 @@ function WikiOrganizeDialog({
                 value={position}
                 disabled={pending}
                 aria-invalid={invalidPosition}
+                aria-describedby={invalidPosition ? 'wiki-position-error' : undefined}
                 onChange={(event) => setPosition(event.target.value)}
               />
-              <FieldError>{invalidPosition ? '需为非负整数' : null}</FieldError>
+              <FieldError id="wiki-position-error">
+                {invalidPosition ? '需为非负整数' : null}
+              </FieldError>
             </Field>
           </FieldGroup>
           <FieldError>{error}</FieldError>
@@ -949,10 +952,11 @@ function WikiMarkdownDialog({
                 rows={14}
                 disabled={pending}
                 aria-invalid={error !== null}
+                aria-describedby={error !== null ? 'knowledge-wiki-markdown-error' : undefined}
                 onChange={(event) => setValue(event.target.value)}
                 className="font-mono"
               />
-              <FieldError>{error}</FieldError>
+              <FieldError id="knowledge-wiki-markdown-error">{error}</FieldError>
             </Field>
             <div className="flex justify-end gap-2">
               {error ? (
@@ -1130,9 +1134,12 @@ function CreateWikiPageDialog({
                 value={position}
                 disabled={pending}
                 aria-invalid={invalidPosition}
+                aria-describedby={invalidPosition ? 'wiki-create-position-error' : undefined}
                 onChange={(event) => setPosition(event.target.value)}
               />
-              <FieldError>{invalidPosition ? '需为非负整数' : null}</FieldError>
+              <FieldError id="wiki-create-position-error">
+                {invalidPosition ? '需为非负整数' : null}
+              </FieldError>
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">

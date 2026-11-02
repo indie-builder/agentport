@@ -102,7 +102,11 @@ export function KnowledgeEvaluations({
               disabled={pending}
               required
               aria-invalid={error !== null}
-              aria-describedby="knowledge-evaluation-target-format"
+              aria-describedby={
+                error !== null
+                  ? 'knowledge-evaluation-target-format knowledge-evaluation-error'
+                  : 'knowledge-evaluation-target-format'
+              }
               onChange={(event) => setTargets(event.target.value)}
             />
             <FieldDescription id="knowledge-evaluation-target-format">
@@ -145,7 +149,9 @@ export function KnowledgeEvaluations({
             </Field>
           </div>
         </FieldGroup>
-        <FieldError role="alert">{error}</FieldError>
+        <FieldError id="knowledge-evaluation-error" role="alert">
+          {error}
+        </FieldError>
         <div className="flex justify-end gap-2">
           <Button
             type="button"

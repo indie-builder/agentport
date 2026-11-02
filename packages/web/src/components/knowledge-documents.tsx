@@ -247,6 +247,8 @@ export function BatchActionDialog({
                     id="knowledge-batch-tags"
                     value={tags}
                     disabled={batch.isPending}
+                    aria-invalid={invalid}
+                    aria-describedby={invalid ? 'knowledge-batch-tags-error' : undefined}
                     onChange={(event) => setTags(event.target.value)}
                     placeholder="以逗号分隔"
                   />
@@ -276,7 +278,9 @@ export function BatchActionDialog({
                 {batch.isPending ? '处理中…' : batchActionLabel[action]}
               </Button>
             </div>
-            <FieldError>{invalid ? '至少填写一个标签' : null}</FieldError>
+            <FieldError id="knowledge-batch-tags-error">
+              {invalid ? '至少填写一个标签' : null}
+            </FieldError>
           </div>
         ) : (
           <BatchResults results={results} titles={selection.titles} onClose={guard.finish} />
@@ -416,13 +420,15 @@ export function ManualDraftDialog({
               <SourceEditor
                 id="knowledge-manual-draft"
                 aria-label="正文（Markdown）"
+                aria-invalid={error !== null}
+                aria-describedby={error !== null ? 'knowledge-manual-draft-error' : undefined}
                 value={content}
                 onChange={setContent}
                 language="markdown"
                 disabled={pending}
                 className="min-h-56"
               />
-              <FieldError>{error}</FieldError>
+              <FieldError id="knowledge-manual-draft-error">{error}</FieldError>
             </Field>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={guard.close} disabled={pending}>
