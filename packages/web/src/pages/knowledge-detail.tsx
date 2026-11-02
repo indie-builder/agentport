@@ -2206,6 +2206,12 @@ function DocumentViewer({
   );
 }
 
+const chunkFormSchema = z.object({
+  heading: z.string(),
+  content: z.string(),
+});
+type ChunkFormValues = z.infer<typeof chunkFormSchema>;
+
 function ChunkDialog({
   baseId,
   documentId,
@@ -2227,16 +2233,16 @@ function ChunkDialog({
   const create = useCreateKnowledgeChunk(baseId, documentId, versionId);
   const creating = chunk === undefined;
   // 基线取打开时的正文：父级分块查询刷新不能覆盖用户正在改的草稿。
-  const [initial] = useState(chunk?.content ?? '');
-  const [initialHeading] = useState(chunk?.heading ?? '');
-  const [content, setContent] = useState(initial);
-  const [heading, setHeading] = useState(initialHeading);
+  const { register, handleSubmit, watch, formState } = useZodForm(chunkFormSchema, {
+    defaultValues: { heading: chunk?.heading ?? '', content: chunk?.content ?? '' },
+  });
+  const { isDirty } = formState;
+  const trimmed = watch('content').trim();
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const pending = update.isPending || create.isPending;
-  const trimmed = content.trim();
-  const dirty = content !== initial || heading !== initialHeading;
+  const dirty = isDirty;
   const blocker = useFormBlocker(dirty, pending);
   // 保存/重载回调在拦截发生前创建，不能读当时的 blocker 快照。
   const blockerRef = useRef(blocker);
@@ -2276,6 +2282,25 @@ function ChunkDialog({
     else finish();
   };
 
+  const submit = handleSubmit((values: ChunkFormValues) => {
+    setError(null);
+    const patch = {
+      content: values.content.trim(),
+      heading: values.heading.trim() === '' ? null : values.heading.trim(),
+    };
+    const handlers = {
+      onSuccess: () => {
+        toastSuccess(creating ? '分块已新增，正在补建向量' : '分块已保存，正在补建向量');
+        finish();
+      },
+      onError: (reason: unknown) => {
+        setError(errorMessage(reason));
+      },
+    };
+    if (chunk) update.mutate({ chunkId: chunk.id, patch }, handlers);
+    else create.mutate(patch, handlers);
+  });
+
   return (
     <Dialog
       open
@@ -2288,47 +2313,19 @@ function ChunkDialog({
       }}
     >
       <DialogShell title={creating ? '新增分块' : '编辑分块'} closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setError(null);
-            const patch = {
-              content: trimmed,
-              heading: heading.trim() === '' ? null : heading.trim(),
-            };
-            const handlers = {
-              onSuccess: () => {
-                toastSuccess(creating ? '分块已新增，正在补建向量' : '分块已保存，正在补建向量');
-                finish();
-              },
-              onError: (reason: unknown) => {
-                // 保留草稿；服务端拒绝时给出明确的重载入口，不静默丢弃修改。
-                setError(errorMessage(reason));
-              },
-            };
-            if (chunk) update.mutate({ chunkId: chunk.id, patch }, handlers);
-            else create.mutate(patch, handlers);
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <Field className="gap-1.5">
             <FieldLabel htmlFor="knowledge-chunk-heading">标题</FieldLabel>
-            <Input
-              id="knowledge-chunk-heading"
-              value={heading}
-              disabled={pending}
-              onChange={(event) => setHeading(event.target.value)}
-            />
+            <Input id="knowledge-chunk-heading" {...register('heading')} disabled={pending} />
           </Field>
           <Field className="gap-1.5" data-invalid={error !== null}>
             <FieldLabel htmlFor="knowledge-chunk-content">正文</FieldLabel>
             <Textarea
               id="knowledge-chunk-content"
-              value={content}
+              {...register('content')}
               rows={10}
               disabled={pending}
               aria-invalid={error !== null}
-              onChange={(event) => setContent(event.target.value)}
             />
             <FieldError>{error}</FieldError>
           </Field>
