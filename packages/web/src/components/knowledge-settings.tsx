@@ -2,6 +2,8 @@ import type { KnowledgeBase, KnowledgeBaseSettings } from '@agentport/shared';
 import { knowledgeImageProcessingSchema } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
+import { Controller } from 'react-hook-form';
+import { z } from 'zod';
 import { can } from '../lib/access.js';
 import { api, errorMessage, type KnowledgeModelProfile } from '../lib/api.js';
 import {
@@ -12,6 +14,7 @@ import {
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from './knowledge-shared.js';
@@ -781,6 +784,24 @@ export function KnowledgeProfilesDialog({
   );
 }
 
+const profileFormSchema = z.object({
+  kind: z.enum(['embedding', 'rerank', 'asr']),
+  name: z.string().superRefine((value, ctx) => {
+    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '请填写 profile 名称' });
+  }),
+  endpointUrl: z.string().superRefine((value, ctx) => {
+    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '请填写 Endpoint URL' });
+  }),
+  model: z.string().superRefine((value, ctx) => {
+    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '请填写模型 ID' });
+  }),
+  apiKey: z.string(),
+  protocol: z.enum(['openai', 'cohere_v2']),
+  imageInput: z.boolean(),
+  enabled: z.boolean(),
+});
+type ProfileFormValues = z.infer<typeof profileFormSchema>;
+
 function ProfileForm({
   profile,
   onCancel,
@@ -795,66 +816,45 @@ function ProfileForm({
   onPendingChange: (pending: boolean) => void;
 }) {
   const create = useCreateKnowledgeModelProfile();
-  const [kind, setKind] = useState<'embedding' | 'rerank' | 'asr'>(profile?.kind ?? 'embedding');
-  const [name, setName] = useState(profile?.name ?? '');
-  const [endpointUrl, setEndpointUrl] = useState(profile?.endpointUrl ?? '');
-  const [model, setModel] = useState(profile?.model ?? '');
-  const [apiKey, setApiKey] = useState('');
-  const [protocol, setProtocol] = useState<'openai' | 'cohere_v2'>(
-    profile?.embeddingProtocol ?? 'openai',
-  );
-  const [imageInput, setImageInput] = useState(profile?.imageInputEnabled ?? false);
-  const [enabled, setEnabled] = useState(profile?.enabled ?? true);
-  const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<{ name?: string; endpointUrl?: string; model?: string }>({});
-  const initial = useRef({
-    kind: profile?.kind ?? 'embedding',
-    name: profile?.name ?? '',
-    endpointUrl: profile?.endpointUrl ?? '',
-    model: profile?.model ?? '',
-    protocol: profile?.embeddingProtocol ?? 'openai',
-    imageInput: profile?.imageInputEnabled ?? false,
-    enabled: profile?.enabled ?? true,
-  }).current;
-  const dirty =
-    kind !== initial.kind ||
-    name !== initial.name ||
-    endpointUrl !== initial.endpointUrl ||
-    model !== initial.model ||
-    apiKey !== '' ||
-    protocol !== initial.protocol ||
-    imageInput !== initial.imageInput ||
-    (kind === 'asr' && enabled !== initial.enabled);
-  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
-  useEffect(() => onPendingChange(saving), [saving, onPendingChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
-  const busy = saving;
+  const { register, control, handleSubmit, watch, formState } = useZodForm(profileFormSchema, {
+    defaultValues: {
+      kind: profile?.kind ?? 'embedding',
+      name: profile?.name ?? '',
+      endpointUrl: profile?.endpointUrl ?? '',
+      model: profile?.model ?? '',
+      apiKey: '',
+      protocol: profile?.embeddingProtocol ?? 'openai',
+      imageInput: profile?.imageInputEnabled ?? false,
+      enabled: profile?.enabled ?? true,
+    },
+  });
+  const { errors, dirtyFields, isSubmitting } = formState;
+  const [kind, protocol, model] = watch(['kind', 'protocol', 'model']);
+  const busy = isSubmitting;
   const imageCapable = kind === 'embedding' && protocol === 'cohere_v2' && model === 'embed-v4.0';
+  const dirty =
+    Object.entries(dirtyFields).some(([key, value]) => key !== 'enabled' && Boolean(value)) ||
+    (kind === 'asr' && Boolean(dirtyFields.enabled));
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  useEffect(() => onPendingChange(isSubmitting), [isSubmitting, onPendingChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
-  const save = async (event: React.FormEvent): Promise<void> => {
-    event.preventDefault();
-    const nextErrors: typeof errors = {};
-    if (name.trim() === '') nextErrors.name = '请填写 profile 名称';
-    if (endpointUrl.trim() === '') nextErrors.endpointUrl = '请填写 Endpoint URL';
-    if (model.trim() === '') nextErrors.model = '请填写模型 ID';
-    setErrors(nextErrors);
-    if (Object.values(nextErrors).some(Boolean)) return;
+  const save = handleSubmit(async (values: ProfileFormValues) => {
+    const imgCapable =
+      values.kind === 'embedding' && values.protocol === 'cohere_v2' && values.model === 'embed-v4.0';
     const input = {
-      name: name.trim(),
-      endpointUrl: endpointUrl.trim(),
-      model: model.trim(),
-      // 图片输入只对 Cohere v2 的 embed-v4.0 生效；其他模型一律发 false。
-      ...(kind === 'embedding'
-        ? { embeddingProtocol: protocol, imageInputEnabled: imageCapable && imageInput }
+      name: values.name.trim(),
+      endpointUrl: values.endpointUrl.trim(),
+      model: values.model.trim(),
+      ...(values.kind === 'embedding'
+        ? { embeddingProtocol: values.protocol, imageInputEnabled: imgCapable && values.imageInput }
         : {}),
-      ...(kind === 'asr' ? { enabled } : {}),
-      // 留空即保持原密钥；不回显，也不把空串当成清除。
-      ...(apiKey === '' ? {} : { apiKey }),
+      ...(values.kind === 'asr' ? { enabled: values.enabled } : {}),
+      ...(values.apiKey === '' ? {} : { apiKey: values.apiKey }),
     };
-    setSaving(true);
     try {
       if (profile === null) {
-        await create.mutateAsync({ kind, ...input });
+        await create.mutateAsync({ kind: values.kind, ...input });
       } else {
         await api.updateKnowledgeModelProfile(profile.id, input);
       }
@@ -862,10 +862,8 @@ function ProfileForm({
       onSaved();
     } catch (error) {
       toastError(error);
-    } finally {
-      setSaving(false);
     }
-  };
+  });
 
   return (
     <form className="flex flex-col gap-3 rounded-item border border-line p-3" onSubmit={save}>
@@ -873,29 +871,37 @@ function ProfileForm({
         {profile === null ? (
           <Field className="gap-1.5">
             <FieldLabel htmlFor="knowledge-profile-kind">类型</FieldLabel>
-            <Select
-              value={kind}
-              disabled={busy}
-              onValueChange={(next) => {
-                if (next === 'embedding' || next === 'rerank' || next === 'asr') setKind(next);
-              }}
-              items={[
-                { value: 'embedding', label: 'Embedding' },
-                { value: 'rerank', label: '重排' },
-                { value: 'asr', label: 'ASR 转录' },
-              ]}
-            >
-              <SelectTrigger id="knowledge-profile-kind" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="embedding">Embedding</SelectItem>
-                  <SelectItem value="rerank">重排</SelectItem>
-                  <SelectItem value="asr">ASR 转录</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <Controller
+              control={control}
+              name="kind"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  disabled={busy}
+                  onValueChange={(next) => {
+                    if (next === 'embedding' || next === 'rerank' || next === 'asr') {
+                      field.onChange(next);
+                    }
+                  }}
+                  items={[
+                    { value: 'embedding', label: 'Embedding' },
+                    { value: 'rerank', label: '重排' },
+                    { value: 'asr', label: 'ASR 转录' },
+                  ]}
+                >
+                  <SelectTrigger id="knowledge-profile-kind" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="embedding">Embedding</SelectItem>
+                      <SelectItem value="rerank">重排</SelectItem>
+                      <SelectItem value="asr">ASR 转录</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
+            />
           </Field>
         ) : null}
         <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>
@@ -904,13 +910,12 @@ function ProfileForm({
           </FieldLabel>
           <Input
             id="knowledge-profile-name"
-            value={name}
+            {...register('name')}
             disabled={busy}
             aria-invalid={Boolean(errors.name)}
             aria-describedby={errors.name ? 'knowledge-profile-name-error' : undefined}
-            onChange={(event) => setName(event.target.value)}
           />
-          <FieldError id="knowledge-profile-name-error">{errors.name}</FieldError>
+          <FieldError id="knowledge-profile-name-error">{errors.name?.message}</FieldError>
         </Field>
         <Field className="gap-1.5 sm:col-span-2" data-invalid={Boolean(errors.endpointUrl)}>
           <FieldLabel htmlFor="knowledge-profile-endpoint">
@@ -918,14 +923,13 @@ function ProfileForm({
           </FieldLabel>
           <Input
             id="knowledge-profile-endpoint"
-            value={endpointUrl}
+            {...register('endpointUrl')}
             disabled={busy}
             placeholder="https://…"
             aria-invalid={Boolean(errors.endpointUrl)}
             aria-describedby={errors.endpointUrl ? 'knowledge-profile-endpoint-error' : undefined}
-            onChange={(event) => setEndpointUrl(event.target.value)}
           />
-          <FieldError id="knowledge-profile-endpoint-error">{errors.endpointUrl}</FieldError>
+          <FieldError id="knowledge-profile-endpoint-error">{errors.endpointUrl?.message}</FieldError>
         </Field>
         <Field className="gap-1.5" data-invalid={Boolean(errors.model)}>
           <FieldLabel htmlFor="knowledge-profile-model">
@@ -933,51 +937,55 @@ function ProfileForm({
           </FieldLabel>
           <Input
             id="knowledge-profile-model"
-            value={model}
+            {...register('model')}
             disabled={busy}
             className="font-mono"
             aria-invalid={Boolean(errors.model)}
             aria-describedby={errors.model ? 'knowledge-profile-model-error' : undefined}
-            onChange={(event) => setModel(event.target.value)}
           />
-          <FieldError id="knowledge-profile-model-error">{errors.model}</FieldError>
+          <FieldError id="knowledge-profile-model-error">{errors.model?.message}</FieldError>
         </Field>
         <Field className="gap-1.5">
           <FieldLabel htmlFor="knowledge-profile-key">API Key</FieldLabel>
           <Input
             id="knowledge-profile-key"
             type="password"
-            value={apiKey}
+            {...register('apiKey')}
             autoComplete="off"
             disabled={busy}
             placeholder={profile?.hasSecret ? '留空保持原密钥' : '可选'}
-            onChange={(event) => setApiKey(event.target.value)}
           />
         </Field>
         {kind === 'embedding' ? (
           <Field className="gap-1.5">
             <FieldLabel htmlFor="knowledge-profile-protocol">Embedding 协议</FieldLabel>
-            <Select
-              value={protocol}
-              disabled={busy}
-              onValueChange={(next) => {
-                if (next === 'openai' || next === 'cohere_v2') setProtocol(next);
-              }}
-              items={[
-                { value: 'openai', label: 'OpenAI' },
-                { value: 'cohere_v2', label: 'Cohere v2' },
-              ]}
-            >
-              <SelectTrigger id="knowledge-profile-protocol" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="cohere_v2">Cohere v2</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <Controller
+              control={control}
+              name="protocol"
+              render={({ field }) => (
+                <Select
+                  value={field.value}
+                  disabled={busy}
+                  onValueChange={(next) => {
+                    if (next === 'openai' || next === 'cohere_v2') field.onChange(next);
+                  }}
+                  items={[
+                    { value: 'openai', label: 'OpenAI' },
+                    { value: 'cohere_v2', label: 'Cohere v2' },
+                  ]}
+                >
+                  <SelectTrigger id="knowledge-profile-protocol" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="openai">OpenAI</SelectItem>
+                      <SelectItem value="cohere_v2">Cohere v2</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
+            />
           </Field>
         ) : null}
       </FieldGroup>
@@ -985,12 +993,18 @@ function ProfileForm({
         <div className="flex flex-col gap-3">
           <FieldDescription>协议固定为 OpenAI 转录（段级时间）。</FieldDescription>
           <Field orientation="horizontal" className="items-center gap-2">
-            <Switch
-              id="knowledge-profile-enabled"
-              checked={enabled}
-              disabled={busy}
-              aria-label="启用"
-              onCheckedChange={setEnabled}
+            <Controller
+              control={control}
+              name="enabled"
+              render={({ field }) => (
+                <Switch
+                  id="knowledge-profile-enabled"
+                  checked={field.value}
+                  disabled={busy}
+                  aria-label="启用"
+                  onCheckedChange={field.onChange}
+                />
+              )}
             />
             <FieldLabel htmlFor="knowledge-profile-enabled">启用</FieldLabel>
           </Field>
@@ -999,12 +1013,18 @@ function ProfileForm({
       {kind === 'embedding' ? (
         <>
           <Field orientation="horizontal" className="items-center gap-2">
-            <Switch
-              id="knowledge-profile-image-input"
-              checked={imageCapable && imageInput}
-              disabled={busy || !imageCapable}
-              aria-label="图片输入"
-              onCheckedChange={setImageInput}
+            <Controller
+              control={control}
+              name="imageInput"
+              render={({ field }) => (
+                <Switch
+                  id="knowledge-profile-image-input"
+                  checked={imageCapable && field.value}
+                  disabled={busy || !imageCapable}
+                  aria-label="图片输入"
+                  onCheckedChange={field.onChange}
+                />
+              )}
             />
             <FieldLabel htmlFor="knowledge-profile-image-input">图片输入</FieldLabel>
           </Field>
