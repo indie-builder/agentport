@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Controller } from 'react-hook-form';
+import { z } from 'zod';
 import type {
   KnowledgeBatchInput,
   KnowledgeBatchResult,
@@ -15,6 +17,7 @@ import {
   useSaveKnowledgeDocumentManual,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 import { DialogShell } from './dialog-shell.js';
 import {
   DraftGuardDialogs,
@@ -104,6 +107,13 @@ function BatchResults({
   );
 }
 
+const batchActionFormSchema = z.object({
+  targetFolder: z.string(),
+  tagMode: z.enum(['add', 'remove', 'replace']),
+  tags: z.string(),
+});
+type BatchActionFormValues = z.infer<typeof batchActionFormSchema>;
+
 /**
  * 批量操作一次只提交一个 action；移动/复制选择目标目录，标签选择模式与本批标签。
  * 每个文档由后端单独事务处理，UI 原样展示逐项结果。
@@ -126,9 +136,13 @@ export function BatchActionDialog({
   const batch = useBatchKnowledgeDocuments(baseId);
   const [selection] = useState(() => ({ ids: [...documentIds], titles: { ...titles } }));
   const guard = useDraftGuard(false, batch.isPending, onClose);
-  const [targetFolder, setTargetFolder] = useState('null');
-  const [tagMode, setTagMode] = useState<NonNullable<KnowledgeBatchInput['tagMode']>>('add');
-  const [tags, setTags] = useState('');
+  const { register, control, watch, getValues } = useZodForm<BatchActionFormValues>(
+    batchActionFormSchema,
+    {
+      defaultValues: { targetFolder: 'null', tagMode: 'add', tags: '' },
+    },
+  );
+  const tagsValue = watch('tags');
   const [results, setResults] = useState<KnowledgeBatchResult[] | null>(null);
   const folderOptions = [
     { value: 'null', label: '未分类' },
@@ -137,20 +151,25 @@ export function BatchActionDialog({
       label: `${'　'.repeat(folder.depth)}${folder.label}`,
     })),
   ];
-  const tagList = tags
+  const tagList = tagsValue
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
   const invalid = action === 'tag' && tagList.length === 0;
 
   const submit = (): void => {
+    const values = getValues();
+    const list = values.tags
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
     const input: KnowledgeBatchInput = {
       documentIds: selection.ids,
       action,
       ...(action === 'move' || action === 'copy'
-        ? { folderId: targetFolder === 'null' ? null : targetFolder }
+        ? { folderId: values.targetFolder === 'null' ? null : values.targetFolder }
         : {}),
-      ...(action === 'tag' ? { tags: tagList, tagMode } : {}),
+      ...(action === 'tag' ? { tags: list, tagMode: values.tagMode } : {}),
       ...(action === 'reprocess' ? { confirmOverwriteManualChunks: true } : {}),
     };
     batch.mutate(input, {
@@ -183,27 +202,33 @@ export function BatchActionDialog({
             {action === 'move' || action === 'copy' ? (
               <Field className="gap-1.5">
                 <FieldLabel htmlFor="knowledge-batch-folder">目标文件夹</FieldLabel>
-                <Select
-                  value={targetFolder}
-                  disabled={batch.isPending}
-                  onValueChange={(next) => {
-                    if (next !== null) setTargetFolder(next);
-                  }}
-                  items={folderOptions}
-                >
-                  <SelectTrigger id="knowledge-batch-folder" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {folderOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <Controller
+                  name="targetFolder"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      value={field.value}
+                      disabled={batch.isPending}
+                      onValueChange={(next) => {
+                        if (next !== null) field.onChange(next);
+                      }}
+                      items={folderOptions}
+                    >
+                      <SelectTrigger id="knowledge-batch-folder" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {folderOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </Field>
             ) : null}
             {action === 'copy' ? (
@@ -215,41 +240,46 @@ export function BatchActionDialog({
               <FieldGroup className="grid gap-3 sm:grid-cols-2">
                 <Field className="gap-1.5">
                   <FieldLabel htmlFor="knowledge-batch-tag-mode">方式</FieldLabel>
-                  <Select
-                    value={tagMode}
-                    disabled={batch.isPending}
-                    onValueChange={(next) => {
-                      if (next === 'add' || next === 'remove' || next === 'replace') {
-                        setTagMode(next);
-                      }
-                    }}
-                    items={[
-                      { value: 'add', label: '添加' },
-                      { value: 'remove', label: '移除' },
-                      { value: 'replace', label: '替换为' },
-                    ]}
-                  >
-                    <SelectTrigger id="knowledge-batch-tag-mode" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="add">添加</SelectItem>
-                        <SelectItem value="remove">移除</SelectItem>
-                        <SelectItem value="replace">替换为</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <Controller
+                    name="tagMode"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        value={field.value}
+                        disabled={batch.isPending}
+                        onValueChange={(next) => {
+                          if (next === 'add' || next === 'remove' || next === 'replace') {
+                            field.onChange(next);
+                          }
+                        }}
+                        items={[
+                          { value: 'add', label: '添加' },
+                          { value: 'remove', label: '移除' },
+                          { value: 'replace', label: '替换为' },
+                        ]}
+                      >
+                        <SelectTrigger id="knowledge-batch-tag-mode" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="add">添加</SelectItem>
+                            <SelectItem value="remove">移除</SelectItem>
+                            <SelectItem value="replace">替换为</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
                 </Field>
                 <Field className="gap-1.5" data-invalid={invalid}>
                   <FieldLabel htmlFor="knowledge-batch-tags">标签</FieldLabel>
                   <Input
                     id="knowledge-batch-tags"
-                    value={tags}
+                    {...register('tags')}
                     disabled={batch.isPending}
                     aria-invalid={invalid}
                     aria-describedby={invalid ? 'knowledge-batch-tags-error' : undefined}
-                    onChange={(event) => setTags(event.target.value)}
                     placeholder="以逗号分隔"
                   />
                 </Field>
