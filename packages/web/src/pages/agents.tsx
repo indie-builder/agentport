@@ -4017,7 +4017,7 @@ export function AgentEditor({
               disabled={pending}
               render={<Button variant="ghost" size="icon-sm" aria-label="关闭" className="-mr-1" />}
             >
-              <X aria-hidden="true" />
+              <X className="size-3" aria-hidden="true" />
             </SheetClose>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

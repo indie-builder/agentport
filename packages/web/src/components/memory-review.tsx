@@ -1262,7 +1262,7 @@ function CreateMemoryReviewDialog({
                               )
                             }
                           >
-                            <X className="size-3.5" aria-hidden="true" />
+                            <X className="size-3" aria-hidden="true" />
                           </button>
                         </li>
                       );

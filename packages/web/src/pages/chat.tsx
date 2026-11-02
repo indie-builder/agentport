@@ -1352,7 +1352,7 @@ function HistoryHeader({
       </Button>
       {onClose ? (
         <Button variant="ghost" size="icon" aria-label="关闭会话列表" onClick={onClose}>
-          <X className="size-4" />
+          <X className="size-3" />
         </Button>
       ) : null}
     </div>

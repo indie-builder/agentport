@@ -670,7 +670,7 @@ export function AppShell() {
                   // Keep the subdued close icon and translucent hover instead of the ghost defaults.
                   className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-hover"
                 >
-                  <X className="size-4" />
+                  <X className="size-3" />
                 </Button>
               }
             />
