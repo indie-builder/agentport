@@ -105,7 +105,7 @@ export function PersonalProfilePage() {
             <Button
               type="button"
               variant="outline"
-              disabled={!dirty || update.isPending}
+              disabled={update.isPending}
               onClick={() => {
                 setFormError(null);
                 reset({ name: user.user.name });
