@@ -71,4 +71,6 @@
 - **轮11（提交，空结果清除筛选）**：§9 空结果给恢复动作。accounts 空态：筛选无结果（settled）时补「清除筛选」（清 q、重置 offset、保留 view；按钮 size=sm）；personal-usage 空结果：区分「窗口无数据」与「筛选无结果」——新增 `hasActiveFilter`，有筛选时标题改「没有匹配的运行记录」并给「清除筛选」（清 agent/trigger/status/cursor，保留 days/view）。真实 URL 键为 agent/trigger/status（来源=trigger，非 source）。typecheck/build exit0，Opus 终审通过。
   - 备注（P1 暂缓）：channel 多人群聊「人类消息缺作者名」受数据模型限制——`ChannelMember` 无成员显示名，`memberLabel` 对他人仅回退 `shortId`，无法补真实作者名；仅能显示 opaque shortId，属产品取舍，待用户定夺。
 - **轮12（提交，个人模块 a11y/字号）**：personal-security 密码表单三字段补无障碍关联（Field `data-invalid`、Input `aria-invalid`+`aria-describedby`、FieldError `id`，参照 knowledge-faq 既有写法；当前密码补齐 data-invalid/aria-invalid）；personal-usage 专家列（主信息）字号 13→`text-base`(14)（§8.8）。typecheck/build exit0，Opus 终审通过。
+- **轮13（提交，skills 权限门控）**：skills 卡 CardFooter「编辑」按钮对无 `skills.update` 用户也显示、点开是只读「查看」弹层（名实不符）；按 plugins/servers 既有 `className={canUpdate ? undefined : 'hidden'}` 隐藏之（标题链接仍可打开只读查看）。typecheck/build exit0，Opus 终审通过。
+  - 核实排除：审计「卡片假可点 → interactive=false」不成立——§150/§348 明确「可交互卡（有标题链接/编辑动作）加 cds-card-interactive hover 上浮，纯展示卡不加」，知识库才是唯一整卡链接卡（§362）；资源卡当前 interactive=true 合规，不改。
 
