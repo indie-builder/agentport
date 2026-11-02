@@ -7,6 +7,7 @@ import {
   CircleAlert,
   CircleCheck,
   Clock,
+  Ellipsis,
   Hammer,
   LoaderCircle,
   RotateCcw,
@@ -21,6 +22,13 @@ import { ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import {
@@ -242,20 +250,32 @@ export function RuntimeEnvironmentDetailPage() {
               <Hammer data-icon="inline-start" />
               {build.isPending ? '提交中…' : '构建新版本'}
             </Button>
-            {current.isDefault ? (
-              <span className="self-center text-xs text-muted-foreground">
-                默认运行环境不可删除
-              </span>
-            ) : null}
-            <Button
-              ref={deleteTriggerRef}
-              variant="destructive"
-              disabled={current.isDefault}
-              title={current.isDefault ? '默认运行环境不能删除' : undefined}
-              onClick={() => setConfirmingDelete(true)}
-            >
-              <Trash2 data-icon="inline-start" /> 删除
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    ref={deleteTriggerRef}
+                    variant="ghost"
+                    size="icon"
+                    aria-label="运行环境操作"
+                  >
+                    <Ellipsis />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={current.isDefault}
+                    title={current.isDefault ? '默认运行环境不能删除' : undefined}
+                    onClick={() => setConfirmingDelete(true)}
+                  >
+                    <Trash2 className="size-4" /> 删除
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         }
       />

@@ -91,7 +91,7 @@
   - C1(P1/P2) 空态三层（页面级 EmptyState / 区块 PageNote / 行内 Inline）+ 空态唯一主 CTA 用 `default`+sm + 空态时隐藏页头重复创建按钮（knowledge/channels/accounts/agents/runtime-env/servers/eval 约 7 页）。〔进度：knowledge/channels 此前已隐藏（轮15/17）；accounts 已完成——真正空列表时隐藏页头「新建账户」，搜索无结果保留；servers/runtime-env 已完成——真空列表隐藏页头「新建」并把空态创建升为主操作(default，runtime-env 空态按钮接管焦点 ref)；eval 已完成——用例空态去重复「新建用例」（保留标题栏那个）；agents 暂缓——受保护两张入口卡 + 筛选空态「新建/清除筛选」双动作属刻意设计，不强改〕
 - **D 危险动作与行操作**
   - D1(P1) destructive 语义统一：ops/eval 行内删除、personal-shares 撤销、knowledge-settings 模型删除改 destructive（或菜单 destructive 项）。
-  - D2(P1/P2) 列表行操作三形态收敛（多操作进「更多」菜单/单一动作文字按钮）；详情页返回/删除入口统一（配置页删除进菜单、返回入 leading）。
+  - D2(P1/P2) 列表行操作三形态收敛（多操作进「更多」菜单/单一动作文字按钮）；详情页返回/删除入口统一（配置页删除进菜单、返回入 leading）。〔进度：runtime-env-detail「删除」已从页头常驻 destructive 收进 Ellipsis「更多」菜单（对齐 agents），焦点 ref 挂菜单触发器；待其它详情返回入口与行操作形态按需逐页收敛（判断较重）〕
 - **E 骨架/工具栏/分区**
   - E1(P2) PageSection `divided={false}` 规则修正：status/runtime-environment-detail/overview(移除两个 divided=false)/eval 首个顶层分区不应画线。
   - E2(P2) 找专家工具栏布局（搜索左、筛选排序 ml-auto 大空白）改为资源中心顺序；memory-review 手写工具栏→PageToolbar、页级主操作移入 PageHeader actions；memory 专家筛选宽 176→144。
