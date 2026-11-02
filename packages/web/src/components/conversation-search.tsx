@@ -198,7 +198,7 @@ export function ConversationSearch({
                       {item.title || '未命名会话'}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">{item.agentName}</span>
-                    <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                    <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
                       {formatRelative(item.updatedAt)}
                     </span>
                   </span>

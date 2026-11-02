@@ -1308,7 +1308,7 @@ export function AgentDetailPage() {
           }
         />
         {current.enabled && !canUse ? (
-          <p id="agent-use-denied" className="text-xs text-muted-foreground">
+          <p id="agent-use-denied" className="text-sm text-muted-foreground">
             当前账户没有使用该专家的权限，无法开始对话。
           </p>
         ) : null}
@@ -1636,7 +1636,7 @@ function AgentMembersDialog({
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate">{member.name || member.businessId}</div>
-                  <div className="truncate font-mono text-2xs text-muted-foreground">
+                  <div className="truncate font-mono text-xs text-muted-foreground">
                     {member.businessId}
                     {member.accountActive ? '' : ' · 离线'}
                   </div>
@@ -1722,7 +1722,7 @@ function AgentMembersDialog({
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate">{candidate.name || candidate.businessId}</div>
-                  <div className="truncate font-mono text-2xs text-muted-foreground">
+                  <div className="truncate font-mono text-xs text-muted-foreground">
                     {candidate.businessId}
                     {candidate.accountActive ? '' : ' · 离线'}
                   </div>
@@ -1810,7 +1810,7 @@ function TransferAgentDialog({
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{candidate.name || candidate.businessId}</span>
-                <span className="block truncate font-mono text-2xs text-muted-foreground">
+                <span className="block truncate font-mono text-xs text-muted-foreground">
                   {candidate.businessId}
                   {candidate.accountActive ? '' : ' · 离线'}
                 </span>
@@ -2653,7 +2653,7 @@ export function AgentEditor({
             <label
               data-disabled={pending}
               htmlFor="agent-enabled"
-              className="inline-flex items-center gap-2 rounded-item p-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
+              className="inline-flex items-center gap-2 rounded-item p-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
             >
               <Switch
                 disabled={pending || !canEnable}
@@ -2667,7 +2667,7 @@ export function AgentEditor({
             </label>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {dirty ? (
-                <span className="mr-1 inline-flex items-center gap-1.5 text-2xs text-warning">
+                <span className="mr-1 inline-flex items-center gap-1.5 text-xs text-warning">
                   <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
                   未保存
                 </span>
@@ -3390,7 +3390,7 @@ export function AgentEditor({
                                 })}
                               </ul>
                             ) : null}
-                            <p className="mt-1.5 text-xs text-muted-foreground">
+                            <p className="mt-1.5 text-sm text-muted-foreground">
                               hooks 与 MCP
                               默认关闭：插件启动的进程以沙盒内用户权限运行，不经过平台的审批与审计。
                             </p>
@@ -3507,12 +3507,12 @@ export function AgentEditor({
                               </a>
                             ))}
                           </div>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm text-muted-foreground">
                             技能文件与 MCP 连接配置需来自同一工作区。
                           </p>
                           {subAgentIdsField.value.length !== agent.subAgentIds.length ||
                           subAgentIdsField.value.some((id) => !agent.subAgentIds.includes(id)) ? (
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-sm text-muted-foreground">
                               绑定未保存 · 下载的是已保存版本。
                             </p>
                           ) : null}
@@ -3533,7 +3533,7 @@ export function AgentEditor({
 
                 {activeSection === 'permissions' ? (
                   <Section id="permissions" title="权限">
-                    <div className="flex flex-col gap-2 rounded-item bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
+                    <div className="flex flex-col gap-2 rounded-item bg-warning-soft px-3 py-2 text-sm text-warning">
                       <p>
                         内置工具在会话容器内运行；原生文件工具受细粒度边界限制，Bash
                         默认启用、可执行任意命令，但同样无法越过 Docker 挂载边界写入只读目录（如
@@ -3622,7 +3622,7 @@ export function AgentEditor({
 
                     <div>
                       <h3 className="mb-2 text-sm font-medium text-fg">内置工具</h3>
-                      <p className="mb-2 max-w-[70ch] text-xs leading-relaxed text-muted-foreground">
+                      <p className="mb-2 max-w-[70ch] text-sm text-muted-foreground">
                         {agent.parentId === null
                           ? '主会话可用原生文件工具读写记忆 Markdown 与本轮成果，并只读附件与技能参考；关闭某个工具不等于 Bash 无法读写文件，Bash 仍受 Docker 挂载边界约束。恢复保留已有规则；文件工具的自定义允许项不扩大平台范围，路径禁用规则由 SDK 判断；平台文件边界始终保留。'
                           : '子智能体默认读写自身记忆目录内的 Markdown；关闭工具不会关闭 MEMORY.md 自动加载。自定义允许项不扩大文件范围，其他禁用规则仍生效；Bash 可访问同一容器的可写挂载。子级禁用规则带路径时也会禁用整个工具。'}
@@ -3858,7 +3858,7 @@ export function AgentEditor({
               {fileGroups.map((group) => (
                 <Fragment key={group}>
                   <li className="min-w-0">
-                    <p className="px-2 pt-1 pb-0.5 text-2xs text-muted-foreground">{group}</p>
+                    <p className="px-2 pt-1 pb-0.5 text-xs text-muted-foreground">{group}</p>
                   </li>
                   {fileEntries
                     .filter((entry) => entry.group === group)
@@ -4007,8 +4007,7 @@ export function AgentEditor({
             <div className="min-w-0">
               {/* Keep the larger, heavier history title instead of the base title typography. */}
               <SheetTitle className="text-md font-semibold">版本历史</SheetTitle>
-              {/* Keep smaller, relaxed history help text instead of the base text-sm. */}
-              <SheetDescription className="mt-1 text-xs leading-relaxed">
+              <SheetDescription className="mt-1 text-sm">
                 每次保存生成一份快照。回滚会覆盖当前配置并生成新版本。
               </SheetDescription>
             </div>
@@ -4126,7 +4125,7 @@ function DraftPreview({
   // Collapsible is unstyled; keep the draft border, 9px corners, and compact muted trigger.
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border">
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronRight
           className={cn(
             'size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out-soft',
@@ -4384,12 +4383,12 @@ function FilesPreview({
   return (
     <div className="flex flex-col gap-3">
       {entry?.id === '.mcp.json' ? (
-        <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+        <p className="rounded-item bg-chip px-3 py-2 text-sm text-muted-foreground">
           密钥在运行时注入，此处显示为占位符。
         </p>
       ) : null}
       {dirty ? (
-        <p className="rounded-item bg-chip px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+        <p className="rounded-item bg-chip px-3 py-2 text-sm text-muted-foreground">
           显示上次保存的文件；未保存内容见配置草稿。
         </p>
       ) : null}
@@ -4406,7 +4405,7 @@ function FilesPreview({
         />
       ) : null}
       {!disabled && entry && !entry.content ? <InlineEmpty>该文件当前为空。</InlineEmpty> : null}
-      <p className="py-2 text-2xs text-muted-foreground">
+      <p className="py-2 text-sm text-muted-foreground">
         除根文件外，路径相对 <code className="font-mono">.claude/</code>；agent md
         仅供预览，不落盘。
       </p>
@@ -4820,7 +4819,7 @@ export function CreateAgentDialog({
           >
             <CollapsibleTrigger
               type="button"
-              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <ChevronRight
                 className={cn(

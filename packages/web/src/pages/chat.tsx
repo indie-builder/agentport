@@ -1408,7 +1408,7 @@ function HistoryPanel({
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
         {history.length === 0 && !pending && !error ? (
-          <p className="px-2 py-5 text-xs leading-relaxed text-muted-foreground">
+          <p className="px-2 py-5 text-sm text-muted-foreground">
             {hasAgent ? '开始对话后，记录会出现在这里。' : '先选择专家。'}
           </p>
         ) : null}
@@ -1993,7 +1993,7 @@ export function Composer({
           </InputGroupAddon>
         </InputGroup>
         {!canSend ? (
-          <p id="composer-send-denied" className="mt-2 px-1 text-xs text-muted-foreground">
+          <p id="composer-send-denied" className="mt-2 px-1 text-sm text-muted-foreground">
             {sendDenied}
           </p>
         ) : null}
@@ -2538,7 +2538,7 @@ export function MessagePane({
                                 size="sm"
                                 disabled={runOutputs.loadingMore}
                                 onClick={runOutputs.onLoadMore}
-                                className="h-7 px-1.5 text-xs text-muted-foreground"
+                                className="h-7 px-1.5 text-sm text-muted-foreground"
                               >
                                 {runOutputs.loadingMore ? '正在加载…' : '加载更多成果'}
                               </Button>
@@ -3001,7 +3001,7 @@ function FoldingMessageBody({ text }: { text: string }) {
           aria-expanded={expanded}
           aria-label={expanded ? '收起消息' : '展开完整消息'}
           onClick={() => setExpanded((value) => !value)}
-          className="self-start text-xs"
+          className="self-start text-sm"
         >
           {expanded ? '收起' : '展开'}
         </Button>
@@ -3094,7 +3094,7 @@ const MessagePart = memo(function MessagePart({
             ...(openUiSnapshot ?? {}),
           })}
           {item.truncated ? (
-            <p className="text-2xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               该段内容超过单块上限，只显示了前一部分。
             </p>
           ) : null}
@@ -3104,7 +3104,7 @@ const MessagePart = memo(function MessagePart({
       return (
         <div
           className={cn(
-            'flex min-w-0 items-center gap-1.5 text-2xs [overflow-wrap:anywhere]',
+            'flex min-w-0 items-center gap-1.5 text-sm [overflow-wrap:anywhere]',
             item.tone === 'ok'
               ? 'text-success'
               : item.tone === 'error'
@@ -3222,7 +3222,7 @@ function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
           查看详情
         </Link>
       </div>
-      {run.error ? <p className="break-words text-2xs text-danger">{run.error}</p> : null}
+      {run.error ? <p className="break-words text-sm text-danger">{run.error}</p> : null}
     </div>
   );
 }
@@ -3253,11 +3253,11 @@ export const ApprovalCard = memo(function ApprovalCard({
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       {isPending ? (
-        <span className="shrink-0 rounded-full bg-warning-soft px-2 py-0.5 text-2xs font-medium text-warning">
+        <span className="shrink-0 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
           等待授权
         </span>
       ) : null}
-      <div className="min-w-0 flex-1 basis-48 text-xs leading-relaxed text-fg [overflow-wrap:anywhere]">
+      <div className="min-w-0 flex-1 basis-48 text-sm text-fg [overflow-wrap:anywhere]">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
         <span className="text-muted-foreground"> @ {item.serverName ?? item.serverId}</span>{' '}
         {item.waiting
