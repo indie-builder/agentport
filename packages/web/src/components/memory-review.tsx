@@ -1771,7 +1771,7 @@ function MemoryReviewDetail({
             {review.proposal.evidence.map((evidence) => (
               <li
                 key={`${evidence.messageId}:${evidence.kind}:${evidence.quote}`}
-                className="border-l-2 border-line-strong/70 pl-3"
+                className="border-l border-line pl-3"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-tag bg-sunken px-1.5 py-0.5 text-2xs text-muted-foreground">

@@ -2727,8 +2727,7 @@ export function AgentEditor({
                 <DropdownMenuContent
                   align="end"
                   sideOffset={4}
-                  // Keep the 16px menu corners, explicit border, and project overlay shadow.
-                  className="w-40 rounded-card border shadow-overlay"
+                  className="w-40"
                 >
                   <DropdownMenuGroup>
                     {canClone ? (

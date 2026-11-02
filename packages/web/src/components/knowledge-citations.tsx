@@ -692,7 +692,7 @@ export function KnowledgeHitDialog({
           <p className="text-sm font-medium text-fg">{citation.title}</p>
           <CitationMeta citation={citation} />
           {citation.quote ? (
-            <p className="border-l-2 border-line-strong pl-3 text-sm leading-relaxed text-fg">
+            <p className="border-l border-line pl-3 text-sm leading-relaxed text-fg">
               <mark className="bg-warning-soft text-fg">{citation.quote}</mark>
             </p>
           ) : null}

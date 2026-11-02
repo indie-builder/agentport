@@ -68,7 +68,7 @@ export function ChannelPage({ channelId }: { channelId: string }) {
   const detail = useChannel(channelId);
   if (detail.isPending) {
     return (
-      <Page className="h-full min-h-0 px-6 py-4">
+      <Page className="h-full min-h-0 px-6 pb-6">
         <PageHeader title="频道" />
         <LoadingState rows={4} />
       </Page>
@@ -76,7 +76,7 @@ export function ChannelPage({ channelId }: { channelId: string }) {
   }
   if (detail.isError && detail.data === undefined) {
     return (
-      <Page className="h-full min-h-0 px-6 py-4">
+      <Page className="h-full min-h-0 px-6 pb-6">
         <PageHeader title="频道" />
         <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
       </Page>
@@ -836,7 +836,7 @@ function MentionMenu({
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onPick(option)}
             className={cn(
-              'flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-sm',
+              'flex w-full min-w-0 items-center gap-2 rounded-item px-3 py-1.5 text-left text-sm',
               index === selected ? 'bg-accent text-accent-foreground' : 'text-fg hover:bg-hover',
             )}
           >

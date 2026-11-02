@@ -297,7 +297,7 @@ export function AccessDenied({
     void client.invalidateQueries({ queryKey: meQuery.queryKey });
   };
   return (
-    <Page className="pt-6">
+    <Page>
       <PageHeader title={noPermissions ? '没有可用权限' : '无权访问'} />
       <PageNote
         title={
@@ -707,7 +707,7 @@ export function AppShell() {
             )}
           >
             {immersive ? (
-              <div className="h-full">{content}</div>
+              <div className={cn('h-full', denied && 'p-6')}>{content}</div>
             ) : (
               // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。
               <div className="w-full px-6 pb-6">
