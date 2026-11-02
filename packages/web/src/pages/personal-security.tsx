@@ -9,7 +9,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader, PageNote } from '../components/page.js';
+import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
@@ -18,7 +18,6 @@ import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../comp
 import { Input } from '../components/ui/input.js';
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { ApiError, errorMessage } from '../lib/api.js';
-import { cn } from '../lib/cn.js';
 import { formatDateTime } from '../lib/format.js';
 import {
   clearSessionQueries,
@@ -125,7 +124,7 @@ export function PersonalSecurityPage() {
         />
 
         <CollapsibleContent animated>
-          <section className="flex w-full min-w-0 flex-col gap-4">
+          <PageSection divided={false} className="w-full">
             <div className="flex min-w-0 flex-col gap-1">
               <h2 className="text-base font-medium text-fg">修改密码</h2>
               <p className="min-w-0 break-words text-sm text-muted-foreground">
@@ -233,7 +232,7 @@ export function PersonalSecurityPage() {
                 </div>
               </FieldGroup>
             </form>
-          </section>
+          </PageSection>
         </CollapsibleContent>
 
         <SessionSection view={view} onRelogin={relogin} divided={passwordOpen} />
@@ -315,7 +314,7 @@ function SessionSection({
   }
 
   return (
-    <section className={cn('flex min-w-0 flex-col gap-4', divided && 'border-t pt-5')}>
+    <PageSection divided={divided}>
       {body}
 
       <ConfirmDialog
@@ -359,7 +358,7 @@ function SessionSection({
           </div>
         ) : null}
       </ConfirmDialog>
-    </section>
+    </PageSection>
   );
 }
 
