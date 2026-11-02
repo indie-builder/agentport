@@ -4,6 +4,7 @@ import type {
 } from '@agentport/shared';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
+  ArrowLeft,
   CircleAlert,
   CircleCheck,
   Clock,
@@ -241,11 +242,17 @@ export function RuntimeEnvironmentDetailPage() {
       <PageHeader
         title={current.name}
         eyebrow={current.isDefault ? <Badge variant="secondary">默认</Badge> : null}
+        leading={
+          <Link
+            to="/runtime-environments"
+            aria-label="返回运行环境列表"
+            className={buttonVariants({ variant: 'outline', size: 'icon' })}
+          >
+            <ArrowLeft aria-hidden="true" />
+          </Link>
+        }
         actions={
           <>
-            <Link to="/runtime-environments" className={buttonVariants({ variant: 'outline' })}>
-              返回列表
-            </Link>
             <Button onClick={startBuild} disabled={build.isPending}>
               <Hammer data-icon="inline-start" />
               {build.isPending ? '提交中…' : '构建新版本'}
