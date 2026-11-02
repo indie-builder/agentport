@@ -503,9 +503,9 @@ export function AgentsPage() {
               replace: true,
             })
           }
-          className="min-w-40 flex-1 sm:w-56 sm:flex-none"
+          className="w-56 min-w-0"
         />
-        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <FilterSelect
             value={status}
             onValueChange={(next) => {
