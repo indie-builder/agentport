@@ -99,7 +99,7 @@
 - **F 表单与弹窗**
   - F1(P1) 新建频道弹窗退出路径不一致/无草稿保护 → useDraftGuard+DraftGuardDialogs。〔进度：已完成——CreateChannelDialog 接入 useDraftGuard(isDirty,pending,onClose)+DraftGuardDialogs，pending 期拦截关闭、取消走 guard.close；成功导航带 ignoreBlocker:true 绕过尚未随 effect cleanup 注销的 dirty blocker（否则创建成功却停在列表）。typecheck/build exit0，Opus 两轮终审通过〕
   - F2(P2) 字段错误 aria 关联缺失：knowledge-documents/knowledge-wiki/personal-profile/knowledge-evaluations 的 FieldError 补 id + aria-invalid/aria-describedby。
-  - F3(P2) 保存禁用策略（编辑态 `disabled={!dirty||pending}`、取消始终可用）、失败内联 vs toast 统一（表单失败内联 FieldError）、横向 Field 几何统一。〔进度：保存禁用策略——servers 编辑态（非创建）已加 `!dirty` 禁用（对齐 personal-profile/agents，提交 `897352d`）；person=profile/agents 已一致；knowledge-settings 等手写 useState 无 dirty 追踪，需先接 RHF（F4）再统一。失败内联/横向 Field 几何待后续〕
+  - F3(P2) 保存禁用策略（编辑态 `disabled={!dirty||pending}`、取消始终可用）、失败内联 vs toast 统一（表单失败内联 FieldError）、横向 Field 几何统一。〔进度：保存禁用策略——servers 编辑态（非创建）已加 `!dirty` 禁用（对齐 personal-profile/agents，提交 `897352d`）；personal-profile/agents 已一致；knowledge-settings 等手写 useState 无 dirty 追踪，需先接 RHF（F4）再统一；「取消始终可用」——personal-profile 取消按钮去掉 `!dirty` 禁用、仅提交中禁用（提交 `6980ca6`）。失败内联/横向 Field 几何待后续〕
   - F4(P2,大) 多字段手写 useState→useZodForm（accounts/knowledge-settings/memory-review/runtime-env 等，按页分批）。
 - **G 排版/数字/文案**
   - G1(P1) 数字格式统一走 `lib/format`（chat.tsx:3285-3297 绕过，耗时/token/成本精度不一）。〔进度：已完成——chat.tsx RunMetricsLine 三处手写格式化改为 formatDuration/formatTokens/formatCost，与 runs/run-detail/overview/personal-usage 一致；typecheck/build exit0，Opus 终审通过（12 项格式化边界断言全过）〕
