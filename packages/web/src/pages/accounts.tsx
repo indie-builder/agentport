@@ -10,6 +10,7 @@ import {
   SearchX,
   ShieldCheck,
   Trash2,
+  UsersRound,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -163,7 +164,7 @@ export function AccountsPage() {
       ) : null}
       {accounts.data && items.length === 0 ? (
         <PageNote
-          icon={<SearchX />}
+          icon={settled ? <SearchX /> : <UsersRound />}
           title={settled ? '没有匹配的账户' : '还没有账户'}
           description={settled ? undefined : '创建后即可分配角色；删除认证资料不会移除业务授权。'}
           action={

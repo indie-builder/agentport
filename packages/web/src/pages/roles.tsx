@@ -707,7 +707,7 @@ function MatrixFeedback({
           {changedLeafCount} 项权限未保存
         </span>
       ) : null}
-      {isDirty ? <span>有未保存的更改</span> : null}
+      {isDirty && changedLeafCount === 0 ? <span>有未保存的更改</span> : null}
     </span>
   );
 }

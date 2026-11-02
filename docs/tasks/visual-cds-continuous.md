@@ -80,4 +80,5 @@
 - **轮17（提交，knowledge 空态去重 + 频道行高）**：knowledge 空列表隐藏页头「新建知识库」（空态唯一入口；空态按钮共用 `createButtonRef` 保焦点回退）；channels 列表行高收敛——`ChannelRow` py-3→py-2、右侧信息三行合并为两行（未读徽章与时间同行）。**真实渲染实测**（visual-check 隔离栈，1440/1280 截图）行高约 56–62px（≤64，§8.3）、右列不溢出；知识库空态仅一个「新建知识库」。typecheck/build exit0，Opus 终审通过。
   - **P1 决策（用户「按建议处理」）**：频道多人群聊作者名——`ChannelMember` 无成员显示名、`memberLabel` 对他人仅回退 `shortId`，补真实作者名不可行；仅能显示 opaque shortId，收益有限且需改共享 chat 渲染、风险高 → **维持现状**，记为已知限制。
 - **轮18（提交，P3 收尾批：运行环境 a11y + 状态指标层级）**：runtime-environments 表格与卡片列表补 `aria-label="运行环境列表"`、runtime-environment-detail 构建版本表补 `aria-label="构建版本列表"`（对齐 accounts/roles/knowledge-detail 既有命名）；status `Metric` 数值 12→`text-sm`(13)、标签仍 12（§4 层级）。typecheck/build exit0，Opus 终审通过。
+- **轮19（提交，P3 收尾）**：accounts 空态图标按语义区分——搜索无结果用 `SearchX`、无账户用 `UsersRound`（新增导入）；roles 工具栏在「N 项权限未保存」已显示时不再重复通用「有未保存的更改」（仅非权限改动时显示）。typecheck/build exit0，Opus 终审通过。
 
