@@ -84,7 +84,7 @@ const columns: DataColumn<RunListItem>[] = [
     sortValue: (run) => run.agentName ?? '',
     cell: (run) => (
       <span className="truncate text-fg">
-        {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
+        {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
       </span>
     ),
   },
@@ -169,7 +169,7 @@ function RunCard({ run }: { run: RunListItem }) {
         <CardTitle className="min-w-0">
           <h2 className="min-w-0">
             <Link {...detailLink} className="block truncate hover:underline" title={agentName}>
-              {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
+              {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
             </Link>
           </h2>
         </CardTitle>

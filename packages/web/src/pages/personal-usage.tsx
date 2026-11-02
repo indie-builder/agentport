@@ -74,8 +74,8 @@ function RunCard({ run, action }: { run: PersonalRun; action: ReactNode }) {
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle className="min-w-0 truncate" title={run.agentName ?? '已删除'}>
-          {run.agentName ?? '已删除'}
+        <CardTitle className="min-w-0 truncate" title={run.agentName ?? '已删除的专家'}>
+          {run.agentName ?? '已删除的专家'}
         </CardTitle>
         <CardAction>
           <RunStatusBadge status={run.status} />
@@ -214,8 +214,8 @@ export function PersonalUsagePage() {
       header: '专家',
       width: 'minmax(150px,1fr)',
       cell: (run) => (
-        <span className="block truncate text-base text-fg" title={run.agentName ?? '已删除'}>
-          {run.agentName ?? '已删除'}
+        <span className="block truncate text-base text-fg" title={run.agentName ?? '已删除的专家'}>
+          {run.agentName ?? '已删除的专家'}
         </span>
       ),
     },

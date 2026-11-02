@@ -188,7 +188,7 @@ const runColumns: DataColumn<RecentRun>[] = [
     sortValue: (run) => run.agentName ?? '',
     cell: (run) => (
       <span className="min-w-0 text-fg [overflow-wrap:anywhere]">
-        {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
+        {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
       </span>
     ),
   },
