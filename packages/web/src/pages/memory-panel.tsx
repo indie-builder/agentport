@@ -511,7 +511,7 @@ function MemoryFileEditor({
           aria-label={`${name} 内容`}
           disabled={pending || !canWrite}
           onChange={setDraft}
-          className="min-h-[18rem]"
+          className="min-h-72"
         />
       </Field>
 
@@ -860,7 +860,7 @@ export function RulesPanel({
                   aria-label="规则内容（Markdown）"
                   disabled={pending || !canWrite}
                   onChange={setDraft}
-                  className="min-h-[16rem]"
+                  className="min-h-64"
                 />
               </Field>
             </FieldGroup>
@@ -1198,7 +1198,7 @@ export function OutputStylesPanel({
                   aria-label="风格内容"
                   disabled={pending || !canWrite}
                   onChange={setBody}
-                  className="min-h-[16rem]"
+                  className="min-h-64"
                 />
               </Field>
             </FieldGroup>

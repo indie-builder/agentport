@@ -801,7 +801,7 @@ export function SkillDialog({
                   aria-label="步骤"
                   disabled={pending}
                   readOnly={readOnly}
-                  className="min-h-[16rem]"
+                  className="min-h-64"
                 />
               )}
             />

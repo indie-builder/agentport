@@ -908,7 +908,7 @@ function TestSummary({
     : (server.lastTestRuntimeEnvironment ?? null);
   return (
     <div className="flex flex-col gap-2">
-      <div className="max-w-[220px] flex flex-col gap-0.5">
+      <div className="max-w-55 flex flex-col gap-0.5">
         <div className="flex items-center gap-1.5">
           {ok ? (
             <CircleCheck className="size-3.5 shrink-0 text-success" />
@@ -1889,7 +1889,7 @@ export function ToolForm({
               aria-invalid={Boolean(errors.inputSchema)}
               aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
               disabled={pending}
-              className="min-h-[10rem]"
+              className="min-h-40"
             />
           )}
         />

@@ -950,7 +950,7 @@ function CompareDialog({
         title="比较评估运行"
         description="只比较相同冻结输入的结果；单边记录也可能是批次未执行完成，不代表用例增删。专家配置未固定，不构成完整可复现的结论。"
         finalFocus={finalFocus}
-        className="sm:max-w-[900px]"
+        className="sm:max-w-225"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
