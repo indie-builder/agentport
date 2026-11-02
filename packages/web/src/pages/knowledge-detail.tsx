@@ -2464,6 +2464,14 @@ function ImportFolderField({
   );
 }
 
+const manualDocumentFormSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  tags: z.string(),
+  target: z.string(),
+});
+type ManualDocumentFormValues = z.infer<typeof manualDocumentFormSchema>;
+
 function ManualDocumentDialog({
   baseId,
   folderId,
@@ -2476,15 +2484,35 @@ function ManualDocumentDialog({
   onClose: () => void;
 }) {
   const create = useCreateKnowledgeManualDocument(baseId);
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [tags, setTags] = useState('');
   const initialTarget = folderId ?? 'null';
-  const [target, setTarget] = useState(initialTarget);
   const pending = create.isPending;
-  const invalid = title.trim() === '' || content.trim() === '';
-  const dirty = title !== '' || content !== '' || tags !== '' || target !== initialTarget;
+  const { register, control, handleSubmit, watch, formState } = useZodForm(manualDocumentFormSchema, {
+    defaultValues: { title: '', content: '', tags: '', target: initialTarget },
+  });
+  const { isDirty } = formState;
+  const invalid = watch('title').trim() === '' || watch('content').trim() === '';
+  const dirty = isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
+  const submit = handleSubmit((values: ManualDocumentFormValues) => {
+    create.mutate(
+      {
+        title: values.title.trim(),
+        content: values.content,
+        folderId: values.target === 'null' ? null : values.target,
+        tags: values.tags
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+      },
+      {
+        onSuccess: () => {
+          toastSuccess('已创建手写文档，正在解析');
+          guard.finish();
+        },
+        onError: toastError,
+      },
+    );
+  });
 
   return (
     <Dialog
@@ -2498,30 +2526,7 @@ function ManualDocumentDialog({
       }}
     >
       <DialogShell title="手写文档" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create.mutate(
-              {
-                title: title.trim(),
-                content,
-                folderId: target === 'null' ? null : target,
-                tags: tags
-                  .split(',')
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-              },
-              {
-                onSuccess: () => {
-                  toastSuccess('已创建手写文档，正在解析');
-                  guard.finish();
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>
             <Field className="gap-1.5">
               <FieldLabel htmlFor="knowledge-manual-title">
@@ -2529,26 +2534,30 @@ function ManualDocumentDialog({
               </FieldLabel>
               <Input
                 id="knowledge-manual-title"
-                value={title}
+                {...register('title')}
                 maxLength={300}
                 disabled={pending}
-                onChange={(event) => setTitle(event.target.value)}
               />
             </Field>
-            <ImportFolderField
-              id="knowledge-manual-folder"
-              value={target}
-              folders={folders}
-              disabled={pending}
-              onChange={setTarget}
+            <Controller
+              control={control}
+              name="target"
+              render={({ field }) => (
+                <ImportFolderField
+                  id="knowledge-manual-folder"
+                  value={field.value}
+                  folders={folders}
+                  disabled={pending}
+                  onChange={field.onChange}
+                />
+              )}
             />
             <Field className="gap-1.5">
               <FieldLabel htmlFor="knowledge-manual-tags">标签</FieldLabel>
               <Input
                 id="knowledge-manual-tags"
-                value={tags}
+                {...register('tags')}
                 disabled={pending}
-                onChange={(event) => setTags(event.target.value)}
                 placeholder="以逗号分隔"
               />
             </Field>
@@ -2556,14 +2565,20 @@ function ManualDocumentDialog({
               <FieldLabel htmlFor="knowledge-manual-content">
                 正文（Markdown） <RequiredMark />
               </FieldLabel>
-              <SourceEditor
-                id="knowledge-manual-content"
-                aria-label="正文（Markdown）"
-                value={content}
-                onChange={setContent}
-                language="markdown"
-                disabled={pending}
-                className="min-h-48"
+              <Controller
+                control={control}
+                name="content"
+                render={({ field }) => (
+                  <SourceEditor
+                    id="knowledge-manual-content"
+                    aria-label="正文（Markdown）"
+                    value={field.value}
+                    onChange={field.onChange}
+                    language="markdown"
+                    disabled={pending}
+                    className="min-h-48"
+                  />
+                )}
               />
             </Field>
           </FieldGroup>
