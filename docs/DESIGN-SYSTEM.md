@@ -1,87 +1,7 @@
----
-colors:
-  primary: "#151515"
-  primary-hover: "#151515"
-  primary-foreground: "#FFFFFF"
-  ring: "#D97757"
-  button-primary: "#D97757"
-  button-primary-hover: "#CC5A36"
-  button-primary-active: "#AD4724"
-  canvas: "#FCFCFB"
-  surface: "#FFFFFF"
-  panel: "#FFFFFF"
-  sunken: "#F9F9F7"
-  hover: "#F3F3F0"
-  chip: "#F6F6F4"
-  selected: "#EAE9E4"
-  accent: "#EAE9E4"
-  accent-foreground: "#151515"
-  selected-foreground: "#151515"
-  secondary: "#F3F3F0"
-  secondary-foreground: "#151515"
-  line: "rgba(0, 0, 0, 0.10)"
-  line-strong: "rgba(0, 0, 0, 0.20)"
-  input: "rgba(0, 0, 0, 0.10)"
-  input-focus: "#BDBDBD"
-  link: "#A8482B"
-  control-boundary: "rgba(0, 0, 0, 0.35)"
-  fg: "#151515"
-  muted-foreground: "#525252"
-  subtle: "#8A8A8A"
-  success: "#187646"
-  warning: "#8A5600"
-  warning-soft: "#FBF3E4"
-  danger: "#B42318"
-  danger-soft: "#FCEBE9"
-  chart-runs: "#2A78D6"
-  code: "#F6F6F6"
-  code-block: "#0D0D0C"
-  code-block-fg: "#E6E6E4"
-  scrim: "rgb(0 0 0 / 0.4)"
-typography:
-  sans:
-    fontFamily: '"anthropic-sans", "AnthropicSans", "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "PingFang TC", "Hiragino Sans", sans-serif'
-  mono:
-    fontFamily: '"anthropic-mono", "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace'
-  body:
-    fontFamily: '"anthropic-sans", "AnthropicSans", "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "PingFang TC", "Hiragino Sans", sans-serif'
-    fontSize: "14px"
-    fontWeight: 400
-    lineHeight: "22px"
-  ui:
-    fontFamily: '"anthropic-sans", "AnthropicSans", "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "PingFang TC", "Hiragino Sans", sans-serif'
-    fontSize: "13px"
-    fontWeight: 400
-    lineHeight: "20px"
-  title:
-    fontFamily: '"anthropic-sans", "AnthropicSans", "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "PingFang TC", "Hiragino Sans", sans-serif'
-    fontSize: "16px"
-    fontWeight: 500
-    lineHeight: "24px"
-    letterSpacing: "-0.01em"
-rounded:
-  card: "12px"
-  item: "8px"
-  icon: "8px"
-  tag: "6px"
-  pill: "9999px"
-  composer: "20px"
-  bubble: "18px"
-  dialog: "16px"
-  popover: "10px"
-spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "12px"
-  lg: "16px"
-  xl: "20px"
-  2xl: "24px"
----
-
 # PACE 设计规范（Claude CDS 外观 · PACE 布局）
 
-> 配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，**仅亮色**；布局、尺寸与结构以本文当前值为准：2026-10-30 用户批准的布局契约替代 OpenUI 早期几何基准，OpenUI 仅保留为历史参考。
-> 实现产物快照见 [packages/web/DESIGN.md](../packages/web/DESIGN.md)（sidecar `packages/web/.impeccable/design.json` 为生成物，CDS 值已随本轮迁移同步）。
+> **权威与范围：** 视觉与组件外观（配色、字体、圆角、阴影、组件 states/appearance）的唯一权威是 [packages/web/DESIGN.md](../packages/web/DESIGN.md)（impeccable，frontmatter tokens + Components 段）；精确实现值见 `packages/web/src/styles.css` 的 `@theme`。**本文不独立定义视觉数值**（下文保留的实现说明以此处权威与令牌为准），只规定工程规约：整体结构、布局契约、对话与侧栏行为、组件交互与无障碍、异步状态、信息表达、动效、技术栈与禁止项。二者冲突时，视觉数值以 DESIGN.md/令牌为准。
+> 仅亮色；布局、尺寸与结构沿用本文的 2026-10-30 用户批准布局契约，OpenUI 早期几何基准仅保留为历史参考。
 > 信息架构于 2026-10-29 按「工作 / 构建 / 运维」重排。布局数值已同步；此前的浏览器验收覆盖旧外顶栏结构；2026-10-31 已实页验收恢复后的三栏顶部对齐、历史开合、成果与窄桌面抽屉，见 [本任务记录](tasks/chat-history-agent-picker.md)。
 
 ---
@@ -112,32 +32,9 @@ spacing:
 
 根容器铺画布 `canvas #FCFCFB`，侧栏透明坐在画布上；主内容区、页面、会话历史、详情阅读区、卡片与浮层统一为 `surface #FFFFFF`。中性层为暖灰 `sunken #F9F9F7` / `hover #F3F3F0` / `chip #F6F6F4` / `selected #EAE9E4`；正文 `fg #151515`。主操作走陶土 `button-primary #D97757` 三态，焦点环同为陶土 `ring #D97757`；界面不再用墨色承载「可点击」。`chart-runs #2A78D6` 只保留为图表数据系列，仅用于数据，不表示导航、按钮、焦点或结果状态。状态色独立表达结果。
 
-### 2.1 基础角色（六类）
+### 2.1–2.2 色彩令牌与语义角色
 
-| 基础角色 | 令牌 | 值 | 用途 |
-|---|---|---|---|
-| 画布 / 表面 | `canvas` / `surface`、`panel` / `sunken`、`hover`、`chip`、`code` | `#FCFCFB` / `#FFFFFF` / `#F9F9F7` / `#F3F3F0` / `#F6F6F4` / `#F6F6F6` | 应用底色与侧栏 / 主区、卡片、浮层、输入基底 / 下沉容器 / 悬停层 / chip 底 / 行内代码 chip |
-| 文本 | `fg`、`ink`、`foreground` / `muted-foreground` / `subtle` | `#151515` / `#525252` / `#8A8A8A` | 正文、标题与选中前景 / 辅助信息、占位符、元信息、注释 / 仅装饰与禁用例外，不承载可读文字 |
-| 边线 | `line`、`border`、`input`、`code-line` / `line-strong` / `control-boundary` | `rgba(0, 0, 0, 0.10)` / `rgba(0, 0, 0, 0.20)` / `rgba(0, 0, 0, 0.35)` | 分隔线与输入发丝边 / 较强分隔 / checkbox、radio 与 off 开关强边界 |
-| 交互 | `hover` / `selected`、`accent` / `chip` | `#F3F3F0` / `#EAE9E4` / `#F6F6F4` | 悬停与中性浅层 / 当前导航、页签、列表选中、菜单高亮、用户消息气泡 / chip 底 |
-| 状态 | `success` / `warning` / `danger` | `#187646` / `#8A5600` / `#B42318` | 仅小面积表达结果，不借用动作色或数据蓝 |
-| 数据 | `chart-runs` / `chart-failed` | `#2A78D6` / `danger` | 运行图表首系列 / 失败系列；数据蓝只用于图表数据 |
-
-### 2.2 派生颜色
-
-| 派生 | 令牌 | 值 | 用途 |
-|---|---|---|---|
-| 动作实底 | `button-primary` / `button-primary-hover` / `button-primary-active` | `#D97757` / `#CC5A36` / `#AD4724` | 普通主操作 `default` 与显式 `solid`（发送、登录）共用的陶土三态实底，白字 |
-| 动作悬停 | `primary-hover` | `#151515` | 墨色强调元素的悬停，用实色，不用透明度降低对比度 |
-| 链接 | `link` | `#A8482B` | 正文链接与 `link` 变体的深陶土；白底 5.79:1、`selected` 4.76:1，保留装饰线下划线 |
-| 反色内容 | `primary-foreground` | `#FFFFFF` | 陶土与墨色实底上的文字与图标 |
-| 焦点环 | `ring` | `#D97757` | 全局与组件 `:focus-visible` 的陶土环；对 `selected` 仅约 2.57:1，见 §2.4 |
-| 选中前景 | `selected-foreground` / `accent-foreground` | `#151515` | 选中项与菜单高亮上的文字及继承文字色的图标 |
-| 状态浅底 | `warning-soft` / `danger-soft` | `#FBF3E4` / `#FCEBE9` | 警告与危险的小面积浅底 |
-| 数据系列 | `chart-runs` / `chart-failed` | `#2A78D6` / `danger` | 运行系列 / 失败系列；数据蓝只用于图表数据 |
-| 输入聚焦（Input / Textarea） | `ring` + `shadow-focus-glow` | `#D97757` + 三层陶土微光 | 普通输入与文本域聚焦用 `.cds-focus-glow`：1px 陶土边 + `--shadow-focus-glow`（白色内环、1.5px 陶土环、6px 微光）；陶土边对白约 3.12:1、对 `selected` 约 2.57:1，见 §2.4 |
-| 输入聚焦（其余输入类） | `input-focus` | `#BDBDBD` | SourceEditor 与 CodeMirror 搜索的普通聚焦浅中性线；composer 焦点由 `shadow-composer-focus` 表达；不满足 3:1，见 §2.4 |
-| 遮罩 | `scrim` | `rgb(0 0 0 / 0.4)` | 弹层遮罩 |
+色彩令牌与色值以 `packages/web/DESIGN.md` 的 `colors` frontmatter 与 `packages/web/src/styles.css` `@theme` 为唯一来源，本文件不重复色值。语义角色（用途见 §2.3）：画布/表面/下沉/悬停/chip/选中；正文/辅助/装饰；边线/强边线/控件边界；陶土主操作三态、链接、焦点环；状态（成功/警告/危险）与浅底；数据系列；遮罩。
 
 外壳渐变令牌 `shell-start` / `shell-mid` / `shell-end` 与外壳描边令牌已随平铺外壳删除；当前外壳不再使用描边。
 
@@ -159,7 +56,7 @@ spacing:
 
 ### 2.4 对比度
 
-以下按 §2.1–2.2 的声明值用 WCAG sRGB 相对亮度计算（普通文字 ≥ 4.5:1，非文字边界 ≥ 3:1）；半透明边线先按白色或 `selected` 合成再计算。数值是声明值而不是浏览器实测：
+以下按 DESIGN.md 的声明值用 WCAG sRGB 相对亮度计算（普通文字 ≥ 4.5:1，非文字边界 ≥ 3:1）；半透明边线先按白色或 `selected` 合成再计算。数值是声明值而不是浏览器实测：
 
 | 前景 / 背景 | 实算 |
 |---|---:|
@@ -188,22 +85,9 @@ spacing:
 
 正文 `fg` 与辅助文字 `muted-foreground` 在 `surface`、`canvas`、`sunken`、`selected` 上均不低于 4.5:1；状态色在 `surface`、`canvas` 上不低于 4.5:1。陶土 `button-primary` 上的白字约 3.12:1，只适合图标或大号文本，不用于小号正文；hover/active 档升至 4.13/5.67:1。`ring` 陶土环对 `selected` 约 2.57:1、`control-boundary` 对白约 2.43:1、`input-focus` 对白约 1.88:1、输入发丝边对白约 1.25:1，都是 CDS 视觉下用户已接受的限制，**不得宣称整页 WCAG AA 达标**。发丝边只做分组，不单独承担可编辑语义；输入可编辑性仍由位置、标签与焦点变化共同表达。输入/聚焦/错误态与几何的实页复测记录见 [本任务记录](tasks/visual-baseline-claude-cds.md)；源码再变时须重跑对应页。
 
-## 3. 圆角（实测值）
+## 3. 圆角与实现值
 
-| 元素 | 半径 |
-|---|---|
-| 外壳 | 无外框圆角（平铺全幅） |
-| 卡片 / 线程容器 / 建议卡 | **12px** |
-| 对话输入区（Composer） | **20px** |
-| 用户消息气泡 | **18px** |
-| 建议入口 | 沿用共享按钮圆角 |
-| 侧栏条目（展开） | **8px** |
-| 32px 图标按钮 | **8px** |
-| 紧凑图标按钮（28/24px）/ logo / 折叠按钮 | 8px |
-| 侧栏收起态图标块 / 小标签 | 6px |
-| 头像 / 圆形按钮 / 模型选择器 | 9999px |
-| Dialog / AlertDialog | **16px**（`--radius-dialog`） |
-| Popover / Select / Combobox / DropdownMenu | **10px**（`--radius-popover`） |
+圆角阶梯唯一来源：`packages/web/DESIGN.md` 的 `rounded` frontmatter。以下实现说明保留：
 
 32px 图标按钮使用 8px；共享 `Button` 的 `size="icon"` 32px / `icon-lg` 36px、紧凑图标按钮与侧栏折叠按钮实例一致。不能用更小的标签圆角替代图标按钮圆角。
 
@@ -223,17 +107,9 @@ spacing:
 - 2026-10-31 用户批准的对话字号收紧是 PACE 适配，字号阶梯不随 CDS 外观迁移而改变：会话标题、默认对话/Markdown/OpenUI 正文与输入使用 `base` 14/22，欢迎标题使用 `2xl` 20/28；全局 `md` 15/26 令牌保留给运行详情等原有用途。
 - **字号阶梯固定在 `styles.css` 的 `--text-*`，按语义唯一取值，不在页面里写硬编码字号。** 相邻档至少差 1px 或一个可见字重差：
 
-  | Token | 尺寸 / 行高 | 唯一用途 |
-  | --- | --- | --- |
-  | `2xs` | 11 / 16 | 密集只读数据的次要行列：trace 时间戳、ID、分组小标签；**不用于可点击控件或正文** |
-  | `xs` | 12 / 16 | 常规元信息：时间、ID、表格副信息；所有徽章 |
-  | `sm` | 13 / 20 | 界面默认：导航、控件、表格单元格、说明 |
-  | `base` | 14 / 22 | 列表与卡片标题、会话标题、对话/Markdown/OpenUI 默认正文、对话输入 |
-  | `md` | 15 / 26 | 运行详情、评估、记忆与插件详情等页面保留的原有正文/标题用途 |
-  | `lg` | 16 / 24 | 普通页面标题（h1） |
-  | `xl` | 18 / 26 | Markdown 一级标题 |
-  | `2xl` | 20 / 28 | 对话欢迎标题 |
-  | `3xl` | 24 / 32 | 主统计数字 |
+  字体族与字号阶梯唯一来源：`packages/web/DESIGN.md` 的 `typography` frontmatter 与 `styles.css` 的 `--text-*`。使用规则保留：
+
+  `2xs` 用于密集只读数据的次要行列（trace 时间戳、ID、分组小标签），**不用于可点击控件或正文**；`xs` 用于常规元信息（时间、ID、表格副信息）与所有徽章；`sm` 用于导航、控件、表格单元格与说明；`base` 用于列表与卡片标题、会话标题、对话/Markdown/OpenUI 默认正文与对话输入；`md` 保留给运行详情、评估、记忆与插件详情等原有正文/标题用途；`lg` 用于普通页面 h1，`xl` 用于 Markdown 一级标题，`2xl` 用于对话欢迎标题，`3xl` 用于主统计数字。
 
 - `2xs` 只出现在高密度只读视图（运行 trace、连接器表格、版本历史）；同一类信息在常规页面上用 `xs`。判断标准是「这一屏是否需要在同样高度里塞下多列数值」，不是信息本身的性质。
 
@@ -383,7 +259,7 @@ spacing:
 
 ### 固定视觉值与场景例外
 
-- §1–8 的尺寸、圆角与间距以本文当前值为准；色彩以本规范 §2 为准，调整统一从 styles.css 的语义令牌进入。
+- §1–8 的布局尺寸与间距以本文工程规约为准；配色、字体、圆角、阴影与组件外观按 `packages/web/DESIGN.md`（视觉权威），精确实现值以 styles.css 的语义令牌为准。
 - `subtle`（`#8A8A8A`）保留给装饰细节、次要状态图标与禁用例外；表头、时间、计数、帮助文字、错误恢复说明与可操作标签使用 `muted-foreground`（`#525252`，见 §2）或 `fg`。`subtle` 不用于承载需要阅读的信息；`muted-foreground` 辅助文字保持至少 4.5:1 对比度（见 §2.4）。禁用状态保留其既有例外。
 - 控件沿用桌面字号：Input / Textarea 使用共享 13px 语义字号；多行代码编辑器可保留等宽排版，但不关闭浏览器缩放。
 - 聊天继续使用 832px 阅读轴线与多行输入区；运行默认数据表并支持卡片切换，审计、评估结果使用数据表；资源中心的内资源使用卡片，技能市场使用轻量条目列表。统一的是令牌、控件与状态反馈，不是这些场景的布局形态。
@@ -482,7 +358,7 @@ spacing:
 
 ## 12. 实现技术栈（硬性）
 
-视觉由上文的数值决定，交互与结构由下列库决定。**不得手写这些库已经提供的东西**：
+视觉由 `packages/web/DESIGN.md` 与 styles.css 令牌决定，交互与结构由下列库决定。**不得手写这些库已经提供的东西**：
 
 | 需求 | 唯一实现 | 约束 |
 |---|---|---|
