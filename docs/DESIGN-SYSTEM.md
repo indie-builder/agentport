@@ -126,6 +126,19 @@
 
 - **lucide**，`stroke-width: 1.75`，`size` 由 `App.tsx` 的 `LucideProvider` 统一默认 16px。尺寸按 Claude CDS 档位：**XS 12px**（徽章/关闭）、**SM 14px**（密集操作栏/次级）、**MD 16px**（标准交互件，默认）、**LG 20px**（卡片主操作）、**XL 24px**（模态/空状态主图）；非档位 `size`（如 18px、临时 `w-*/h-*`）视为偏差。受保护例外沿用既定值：资源卡片头部图标 40px、空态业务插画 96/64/144。
 - **行内光学基线**：正文/标题里与文字内联的图标用 `.align-[-0.125em]`（14–16px 文本）、`.align-[-0.075em]`（11–12px 小字）；flex 布局内的图标用 `items-center` 盒对齐，不强加该规则。
+
+**尺寸档用途映射（组件）**
+
+| 档 | 尺寸 | 用途 / 组件 |
+|---|---|---|
+| XS | 12px | Badge/标签、关闭与清除 X、`Button size="xs"/"icon-xs"`、`InputGroupButton size="icon-xs"` |
+| SM | 14px | 密集操作栏与表格行 `Button size="sm"/"icon-sm"`、列表/折叠/文件树等密集文本旁图标、频道次级导航 |
+| MD | 16px | 标准交互件：`Button default/icon`、菜单/Select/Combobox 项、PageNote、内容区图标 |
+| LG | 20px | `EmptyState` 默认主图（40px 圆底内）、Dialog 顶部 40px 圆底图标 |
+| XL | 24px | ≥48px 容器或模态主图；当前空态主图仍用 LG 20（40px 圆底为已批准布局，保留） |
+
+- 图标按钮档位：`icon`(32px)=MD 16、`icon-sm`(28px)=SM 14、`icon-xs`(24px)=XS 12；`icon-lg`(36px) 暂无实例，出现时用 LG 20。
+- 记录在案的例外（不改）：频道次级导航 Hash 图标用 SM 14（`channel.tsx`，text-xs 旁的密集次级导航）；图表 tooltip 10px / 图例 12px 属 Recharts 图表子系统（`ui/chart.tsx`），不按本节的交互图标规则处理。
 - 图标继承所属文字与状态色：普通图标跟随文字，当前导航与选中项随 `selected-foreground`（`#151515`），危险动作与错误用 `danger`；不单独给图标上色，也不把所有图标染成强调色。
 - 品牌：采用用户确认的 A 版艺术字组合——木工小狗双手搭在大写 `PACE` 上，像在亲手打造字标。字母为白底黑色轮廓，清理粗重黑块和装饰细节，嘴与舌头为黑白，工具保留少量木色、灰色和黄色，不添加红色装饰。完整 Logo 为 `public/brand/pace-wordmark.webp`（透明，768×568，约 51KB），登录页居中显示高 96px，展开侧栏显示高 32px；导航品牌区相应高 32px，与同排折叠按钮共用水平中心线，收起侧栏仍使用原 32px 木工矢量标记 `public/brand/pace-mark.svg`。本次完整艺术字是图片版，并非矢量路径；透明 PNG 母版与生成记录保存在 `docs/brand/`。人物头像、人物卡片动效、对话布局与现有 favicon 保持原样；界面配色统一遵循 §2。
 

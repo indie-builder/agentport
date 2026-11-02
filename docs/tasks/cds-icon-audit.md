@@ -384,3 +384,18 @@
 - **有效尺寸**：按当前组件的 CSS 规则与优先级计算，而不是只数源文件里的 `size-*`；`Badge` 的 `!`、`Button` 的 `:not([class*='size-'])`、`InputGroupButton` 的基础 16px 都已计入。
 - **未做渲染测量**：本阶段没有启动浏览器；12px 关闭图标、14px icon-sm 等视觉平衡项需要在实施批次中按 `docs/DEV-WORKFLOW.md` 读实际几何或截图复核。
 - **规范冲突**：任务背景称 §5 未定义 20/24 与光学基线，当前工作区文档已定义；本审计以当前文档为准。若这两份文档的未提交改动被回退，需要重新核对 §5 后再执行批次 B10。
+
+## 7. 实施状态（2026-11-02）
+
+- **决定**：采纳审计建议 `icon-sm = SM 14`、`icon-xs = XS 12`、`close/clear X = XS 12`。
+- **已完成**：
+  - 文档：`docs/DESIGN-SYSTEM.md` §5 五档尺寸 + 行内光学基线 + 组件映射与例外；`packages/web/DESIGN.md` 同步（提交 `dbda286`）。
+  - B1：`button.tsx` `icon-sm` 补 14px svg 规则、`input-group.tsx` `icon-xs` 补 12px、清理 `data-table/agents/servers/chat/eval` 共 9 处局部 `size-4` 覆盖（提交 `0ae6e3a`）。
+  - B5–B8：Dialog/Sheet/DialogShell/历史面板/版本面板/记忆提案的 7 处关闭/移除 X 统一 `size-3`；搜索框/会话搜索/组合框清除由 `icon-xs` 规则自动归位（提交 `44797f4`）。
+- **P3 处理决定**：
+  - 频道次级导航 `channel.tsx` Hash 图标保持 SM 14（密集次级导航，已在 §5 记为例外）。
+  - 图表 tooltip 10px / 图例 12px 保留（`ui/chart.tsx` 属 Recharts 图表子系统，非交互图标）。
+  - 空态主图保持 LG 20 + 40px 圆底（XL 24 缺口记录在 §5）；受保护项不变。
+  - P3-6 重复显式 14px 无害，随相关文件后续改动时顺带清理；光学基线当前无适用点（均为 flex `items-center` 盒对齐）。
+- **验证**：`typecheck`/`build` 通过；全量 `pnpm test:web` 维持既有 9 项基线、无新增回退；受影响页面（账户/角色/运行环境）视觉抽查正常。
+- 结论：**图标体系已按 CDS 规范落地完成**（B1、B5–B8、B10 完成；B2–B4、B6–B9 的显式覆盖/例外随上述批次一并处理或记录为例外）。
