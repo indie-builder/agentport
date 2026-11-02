@@ -2673,7 +2673,7 @@ export function AgentEditor({
                 </span>
               ) : null}
               {saveHint ? (
-                <span className="mr-1 flex items-center gap-1.5 text-2xs text-danger">
+                <span className="mr-1 flex items-center gap-1.5 text-xs text-danger">
                   <span id="agent-save-hint" role="alert">
                     {saveHint}
                   </span>
