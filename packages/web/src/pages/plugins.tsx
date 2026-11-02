@@ -343,14 +343,6 @@ export function PluginsPage() {
                     被 {plugin.agentCount} 个专家使用
                   </span>
                   <div className="flex items-center gap-2">
-                    <Link
-                      to="/plugins/$pluginId"
-                      params={{ pluginId: plugin.id }}
-                      aria-label={`查看详情：${plugin.name}`}
-                      className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                    >
-                      查看详情
-                    </Link>
                     <Button
                       variant="outline"
                       size="sm"

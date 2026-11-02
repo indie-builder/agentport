@@ -357,6 +357,19 @@ async function click(element: HTMLElement): Promise<void> {
   await flush();
 }
 
+async function openDeleteMenuItem(scope: ParentNode = document) {
+  const trigger = scope.querySelector<HTMLElement>('[aria-label="运行环境操作"]');
+  if (!trigger) throw new Error('Missing 运行环境更多操作触发器');
+  await click(trigger);
+  return await vi.waitFor(() => {
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (node) => node.textContent?.trim() === '删除',
+    );
+    expect(item).toBeTruthy();
+    return item as HTMLElement;
+  });
+}
+
 async function editInput(
   element: HTMLInputElement | HTMLTextAreaElement,
   value: string,
@@ -664,7 +677,7 @@ describe('runtime environment detail page', () => {
     state.search = {};
     state.remove.mockResolvedValueOnce(undefined);
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
-    await click(button('删除'));
+    await click(await openDeleteMenuItem());
     const confirmation = dialog('删除运行环境');
     expect(confirmation.textContent).toContain('数据分析');
     await click(button('删除', confirmation));
@@ -684,7 +697,7 @@ describe('runtime environment detail page', () => {
     state.search = {};
     state.remove.mockRejectedValueOnce(conflict);
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
-    await click(button('删除'));
+    await click(await openDeleteMenuItem());
     await click(button('删除', dialog('删除运行环境')));
     expect(toastError).toHaveBeenCalledWith(conflict);
     expect(toastError).toHaveBeenCalledWith(
@@ -700,8 +713,8 @@ describe('runtime environment detail page', () => {
     state.versions = [];
     state.search = {};
     const page = await mountPage(createElement(RuntimeEnvironmentDetailPage));
-    const remove = button('删除');
-    expect(remove.disabled).toBe(true);
+    const remove = await openDeleteMenuItem();
+    expect(remove.getAttribute('aria-disabled')).toBe('true');
     expect(remove.title).toBe('默认运行环境不能删除');
     await page.unmount();
   });
@@ -716,7 +729,7 @@ describe('runtime environment detail page', () => {
     if (!input) throw new Error('Missing environment name');
     await editInput(input, '删除前的草稿');
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
-    await click(button('删除'));
+    await click(await openDeleteMenuItem());
     await click(button('删除', dialog('删除运行环境')));
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(false);
     expect(state.navigate).toHaveBeenCalledWith({
@@ -748,7 +761,7 @@ describe('runtime environment detail page', () => {
     const input = page.host.querySelector<HTMLInputElement>('#runtime-environment-name');
     if (!input) throw new Error('Missing environment name');
     await editInput(input, '失败后保留的草稿');
-    await click(button('删除'));
+    await click(await openDeleteMenuItem());
     await click(button('删除', dialog('删除运行环境')));
     expect(state.navigate).not.toHaveBeenCalled();
     expect(page.host.querySelector<HTMLInputElement>('#runtime-environment-name')?.value).toBe(

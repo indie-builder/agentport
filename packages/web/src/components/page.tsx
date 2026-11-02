@@ -114,7 +114,10 @@ export function PageNote({
   tone?: 'default' | 'danger';
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm">
+    <div
+      role={tone === 'danger' ? 'alert' : undefined}
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 border-y py-5 text-sm"
+    >
       {icon ? (
         <span className={cn('shrink-0', tone === 'danger' ? 'text-danger' : 'text-subtle')}>
           {icon}

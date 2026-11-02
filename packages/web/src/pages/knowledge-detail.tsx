@@ -36,8 +36,9 @@ import {
   Upload,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Controller } from 'react-hook-form';
 import { toast } from 'sonner';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -181,6 +182,7 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 import type { knowledgeDetailSearchSchema } from '../routes/-search.js';
 
 const tabs = [
@@ -1500,6 +1502,14 @@ function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void })
   );
 }
 
+const documentPropertiesSchema = z.object({
+  title: z.string(),
+  folderId: z.string(),
+  tags: z.string(),
+  status: z.enum(['ready', 'disabled']),
+});
+type DocumentPropertiesValues = z.infer<typeof documentPropertiesSchema>;
+
 function DocumentDialog({
   baseId,
   document,
@@ -1519,17 +1529,13 @@ function DocumentDialog({
     tags: document.tags.join(', '),
     status: document.status === 'disabled' ? ('disabled' as const) : ('ready' as const),
   }));
-  const [title, setTitle] = useState(initial.title);
-  const [folderId, setFolderId] = useState(initial.folderId);
-  const [tags, setTags] = useState(initial.tags);
-  const [status, setStatus] = useState<'ready' | 'disabled'>(initial.status);
+  const { register, control, handleSubmit, watch, formState } = useZodForm(documentPropertiesSchema, {
+    defaultValues: initial,
+  });
+  const { isDirty } = formState;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pending = update.isPending;
-  const dirty =
-    title !== initial.title ||
-    folderId !== initial.folderId ||
-    tags !== initial.tags ||
-    status !== initial.status;
+  const dirty = isDirty;
   const blocker = useFormBlocker(dirty, pending);
   // 保存回调在拦截发生前创建，不能读当时的 blocker 快照。
   const blockerRef = useRef(blocker);
@@ -1546,6 +1552,31 @@ function DocumentDialog({
     if (dirty) setConfirmDiscard(true);
     else finish();
   };
+  const submit = handleSubmit((values: DocumentPropertiesValues) => {
+    update.mutate(
+      {
+        documentId: document.id,
+        patch: {
+          title: values.title.trim(),
+          folderId: values.folderId === 'null' ? null : values.folderId,
+          tags: values.tags
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+          ...(document.status === 'failed' || document.status === 'pending'
+            ? {}
+            : { status: values.status }),
+        },
+      },
+      {
+        onSuccess: () => {
+          toastSuccess('文档已更新');
+          finish();
+        },
+        onError: toastError,
+      },
+    );
+  });
 
   return (
     <Dialog
@@ -1559,113 +1590,91 @@ function DocumentDialog({
       }}
     >
       <DialogShell title="编辑文档" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            update.mutate(
-              {
-                documentId: document.id,
-                patch: {
-                  title: title.trim(),
-                  folderId: folderId === 'null' ? null : folderId,
-                  tags: tags
-                    .split(',')
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                  ...(document.status === 'failed' || document.status === 'pending'
-                    ? {}
-                    : { status }),
-                },
-              },
-              {
-                onSuccess: () => {
-                  toastSuccess('文档已更新');
-                  finish();
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>
             <Field className="gap-1.5">
               <FieldLabel htmlFor="document-title">
                 标题 <RequiredMark />
               </FieldLabel>
-              <Input
-                id="document-title"
-                value={title}
-                disabled={pending}
-                onChange={(event) => setTitle(event.target.value)}
-              />
+              <Input id="document-title" {...register('title')} disabled={pending} />
             </Field>
             <FieldGroup className="grid gap-3 sm:grid-cols-2">
               <Field className="gap-1.5">
                 <FieldLabel htmlFor="document-folder">文件夹</FieldLabel>
-                <Select
-                  value={folderId}
-                  disabled={pending}
-                  onValueChange={(next) => {
-                    if (next !== null) setFolderId(next);
-                  }}
-                  items={[
-                    { value: 'null', label: '未分类' },
-                    ...treeFolders(folders).map((folder) => ({
-                      value: folder.id,
-                      label: `${'　'.repeat(folder.depth)}${folder.label}`,
-                    })),
-                  ]}
-                >
-                  <SelectTrigger id="document-folder" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="null">未分类</SelectItem>
-                      {treeFolders(folders).map((folder) => (
-                        <SelectItem key={folder.id} value={folder.id}>
-                          {`${'　'.repeat(folder.depth)}${folder.label}`}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <Controller
+                  control={control}
+                  name="folderId"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value}
+                      disabled={pending}
+                      onValueChange={(next) => {
+                        if (next !== null) field.onChange(next);
+                      }}
+                      items={[
+                        { value: 'null', label: '未分类' },
+                        ...treeFolders(folders).map((folder) => ({
+                          value: folder.id,
+                          label: `${'　'.repeat(folder.depth)}${folder.label}`,
+                        })),
+                      ]}
+                    >
+                      <SelectTrigger id="document-folder" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="null">未分类</SelectItem>
+                          {treeFolders(folders).map((folder) => (
+                            <SelectItem key={folder.id} value={folder.id}>
+                              {`${'　'.repeat(folder.depth)}${folder.label}`}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </Field>
               <Field className="gap-1.5">
                 <FieldLabel htmlFor="document-status">状态</FieldLabel>
-                <Select
-                  value={status}
-                  disabled={
-                    pending || document.status === 'failed' || document.status === 'pending'
-                  }
-                  onValueChange={(next) => {
-                    if (next === 'ready' || next === 'disabled') setStatus(next);
-                  }}
-                  items={[
-                    { value: 'ready', label: '可检索' },
-                    { value: 'disabled', label: '已停用' },
-                  ]}
-                >
-                  <SelectTrigger id="document-status" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="ready">可检索</SelectItem>
-                      <SelectItem value="disabled">已停用</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <Controller
+                  control={control}
+                  name="status"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value}
+                      disabled={
+                        pending || document.status === 'failed' || document.status === 'pending'
+                      }
+                      onValueChange={(next) => {
+                        if (next === 'ready' || next === 'disabled') field.onChange(next);
+                      }}
+                      items={[
+                        { value: 'ready', label: '可检索' },
+                        { value: 'disabled', label: '已停用' },
+                      ]}
+                    >
+                      <SelectTrigger id="document-status" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="ready">可检索</SelectItem>
+                          <SelectItem value="disabled">已停用</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </Field>
             </FieldGroup>
             <Field className="gap-1.5">
               <FieldLabel htmlFor="document-tags">标签</FieldLabel>
               <Input
                 id="document-tags"
-                value={tags}
+                {...register('tags')}
                 disabled={pending}
-                onChange={(event) => setTags(event.target.value)}
                 placeholder="以逗号分隔"
               />
             </Field>
@@ -1674,7 +1683,11 @@ function DocumentDialog({
             <Button variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>
-            <Button type="submit" disabled={pending || title.trim() === ''} aria-busy={pending}>
+            <Button
+              type="submit"
+              disabled={pending || watch('title').trim() === ''}
+              aria-busy={pending}
+            >
               {pending ? '保存中…' : '保存'}
             </Button>
           </div>
@@ -2193,6 +2206,12 @@ function DocumentViewer({
   );
 }
 
+const chunkFormSchema = z.object({
+  heading: z.string(),
+  content: z.string(),
+});
+type ChunkFormValues = z.infer<typeof chunkFormSchema>;
+
 function ChunkDialog({
   baseId,
   documentId,
@@ -2214,16 +2233,16 @@ function ChunkDialog({
   const create = useCreateKnowledgeChunk(baseId, documentId, versionId);
   const creating = chunk === undefined;
   // 基线取打开时的正文：父级分块查询刷新不能覆盖用户正在改的草稿。
-  const [initial] = useState(chunk?.content ?? '');
-  const [initialHeading] = useState(chunk?.heading ?? '');
-  const [content, setContent] = useState(initial);
-  const [heading, setHeading] = useState(initialHeading);
+  const { register, handleSubmit, watch, formState } = useZodForm(chunkFormSchema, {
+    defaultValues: { heading: chunk?.heading ?? '', content: chunk?.content ?? '' },
+  });
+  const { isDirty } = formState;
+  const trimmed = watch('content').trim();
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const pending = update.isPending || create.isPending;
-  const trimmed = content.trim();
-  const dirty = content !== initial || heading !== initialHeading;
+  const dirty = isDirty;
   const blocker = useFormBlocker(dirty, pending);
   // 保存/重载回调在拦截发生前创建，不能读当时的 blocker 快照。
   const blockerRef = useRef(blocker);
@@ -2263,6 +2282,25 @@ function ChunkDialog({
     else finish();
   };
 
+  const submit = handleSubmit((values: ChunkFormValues) => {
+    setError(null);
+    const patch = {
+      content: values.content.trim(),
+      heading: values.heading.trim() === '' ? null : values.heading.trim(),
+    };
+    const handlers = {
+      onSuccess: () => {
+        toastSuccess(creating ? '分块已新增，正在补建向量' : '分块已保存，正在补建向量');
+        finish();
+      },
+      onError: (reason: unknown) => {
+        setError(errorMessage(reason));
+      },
+    };
+    if (chunk) update.mutate({ chunkId: chunk.id, patch }, handlers);
+    else create.mutate(patch, handlers);
+  });
+
   return (
     <Dialog
       open
@@ -2275,47 +2313,19 @@ function ChunkDialog({
       }}
     >
       <DialogShell title={creating ? '新增分块' : '编辑分块'} closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setError(null);
-            const patch = {
-              content: trimmed,
-              heading: heading.trim() === '' ? null : heading.trim(),
-            };
-            const handlers = {
-              onSuccess: () => {
-                toastSuccess(creating ? '分块已新增，正在补建向量' : '分块已保存，正在补建向量');
-                finish();
-              },
-              onError: (reason: unknown) => {
-                // 保留草稿；服务端拒绝时给出明确的重载入口，不静默丢弃修改。
-                setError(errorMessage(reason));
-              },
-            };
-            if (chunk) update.mutate({ chunkId: chunk.id, patch }, handlers);
-            else create.mutate(patch, handlers);
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <Field className="gap-1.5">
             <FieldLabel htmlFor="knowledge-chunk-heading">标题</FieldLabel>
-            <Input
-              id="knowledge-chunk-heading"
-              value={heading}
-              disabled={pending}
-              onChange={(event) => setHeading(event.target.value)}
-            />
+            <Input id="knowledge-chunk-heading" {...register('heading')} disabled={pending} />
           </Field>
           <Field className="gap-1.5" data-invalid={error !== null}>
             <FieldLabel htmlFor="knowledge-chunk-content">正文</FieldLabel>
             <Textarea
               id="knowledge-chunk-content"
-              value={content}
+              {...register('content')}
               rows={10}
               disabled={pending}
               aria-invalid={error !== null}
-              onChange={(event) => setContent(event.target.value)}
             />
             <FieldError>{error}</FieldError>
           </Field>
@@ -2454,6 +2464,14 @@ function ImportFolderField({
   );
 }
 
+const manualDocumentFormSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  tags: z.string(),
+  target: z.string(),
+});
+type ManualDocumentFormValues = z.infer<typeof manualDocumentFormSchema>;
+
 function ManualDocumentDialog({
   baseId,
   folderId,
@@ -2466,15 +2484,35 @@ function ManualDocumentDialog({
   onClose: () => void;
 }) {
   const create = useCreateKnowledgeManualDocument(baseId);
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [tags, setTags] = useState('');
   const initialTarget = folderId ?? 'null';
-  const [target, setTarget] = useState(initialTarget);
   const pending = create.isPending;
-  const invalid = title.trim() === '' || content.trim() === '';
-  const dirty = title !== '' || content !== '' || tags !== '' || target !== initialTarget;
+  const { register, control, handleSubmit, watch, formState } = useZodForm(manualDocumentFormSchema, {
+    defaultValues: { title: '', content: '', tags: '', target: initialTarget },
+  });
+  const { isDirty } = formState;
+  const invalid = watch('title').trim() === '' || watch('content').trim() === '';
+  const dirty = isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
+  const submit = handleSubmit((values: ManualDocumentFormValues) => {
+    create.mutate(
+      {
+        title: values.title.trim(),
+        content: values.content,
+        folderId: values.target === 'null' ? null : values.target,
+        tags: values.tags
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+      },
+      {
+        onSuccess: () => {
+          toastSuccess('已创建手写文档，正在解析');
+          guard.finish();
+        },
+        onError: toastError,
+      },
+    );
+  });
 
   return (
     <Dialog
@@ -2488,30 +2526,7 @@ function ManualDocumentDialog({
       }}
     >
       <DialogShell title="手写文档" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create.mutate(
-              {
-                title: title.trim(),
-                content,
-                folderId: target === 'null' ? null : target,
-                tags: tags
-                  .split(',')
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-              },
-              {
-                onSuccess: () => {
-                  toastSuccess('已创建手写文档，正在解析');
-                  guard.finish();
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>
             <Field className="gap-1.5">
               <FieldLabel htmlFor="knowledge-manual-title">
@@ -2519,26 +2534,30 @@ function ManualDocumentDialog({
               </FieldLabel>
               <Input
                 id="knowledge-manual-title"
-                value={title}
+                {...register('title')}
                 maxLength={300}
                 disabled={pending}
-                onChange={(event) => setTitle(event.target.value)}
               />
             </Field>
-            <ImportFolderField
-              id="knowledge-manual-folder"
-              value={target}
-              folders={folders}
-              disabled={pending}
-              onChange={setTarget}
+            <Controller
+              control={control}
+              name="target"
+              render={({ field }) => (
+                <ImportFolderField
+                  id="knowledge-manual-folder"
+                  value={field.value}
+                  folders={folders}
+                  disabled={pending}
+                  onChange={field.onChange}
+                />
+              )}
             />
             <Field className="gap-1.5">
               <FieldLabel htmlFor="knowledge-manual-tags">标签</FieldLabel>
               <Input
                 id="knowledge-manual-tags"
-                value={tags}
+                {...register('tags')}
                 disabled={pending}
-                onChange={(event) => setTags(event.target.value)}
                 placeholder="以逗号分隔"
               />
             </Field>
@@ -2546,14 +2565,20 @@ function ManualDocumentDialog({
               <FieldLabel htmlFor="knowledge-manual-content">
                 正文（Markdown） <RequiredMark />
               </FieldLabel>
-              <SourceEditor
-                id="knowledge-manual-content"
-                aria-label="正文（Markdown）"
-                value={content}
-                onChange={setContent}
-                language="markdown"
-                disabled={pending}
-                className="min-h-48"
+              <Controller
+                control={control}
+                name="content"
+                render={({ field }) => (
+                  <SourceEditor
+                    id="knowledge-manual-content"
+                    aria-label="正文（Markdown）"
+                    value={field.value}
+                    onChange={field.onChange}
+                    language="markdown"
+                    disabled={pending}
+                    className="min-h-48"
+                  />
+                )}
               />
             </Field>
           </FieldGroup>
@@ -2572,6 +2597,12 @@ function ManualDocumentDialog({
   );
 }
 
+const urlImportFormSchema = z.object({
+  url: z.string(),
+  target: z.string(),
+});
+type UrlImportFormValues = z.infer<typeof urlImportFormSchema>;
+
 function UrlImportDialog({
   baseId,
   folderId,
@@ -2584,15 +2615,33 @@ function UrlImportDialog({
   onClose: () => void;
 }) {
   const create = useImportKnowledgeUrl(baseId);
-  const [url, setUrl] = useState('');
   const initialTarget = folderId ?? 'null';
-  const [target, setTarget] = useState(initialTarget);
   const pending = create.isPending;
+  const { register, control, handleSubmit, watch, formState } = useZodForm(urlImportFormSchema, {
+    defaultValues: { url: '', target: initialTarget },
+  });
+  const { isDirty } = formState;
+  const urlValue = watch('url');
   // 后端 httpUrlSchema 只收 http(s)；这里只做按钮可用性判断，最终由入口校验。
-  const validUrl = /^https?:\/\/\S+$/i.test(url.trim());
-  const invalidUrl = url.trim() !== '' && !validUrl;
-  const dirty = url.trim() !== '' || target !== initialTarget;
+  const validUrl = /^https?:\/\/\S+$/i.test(urlValue.trim());
+  const invalidUrl = urlValue.trim() !== '' && !validUrl;
+  const dirty = isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
+  const submit = handleSubmit((values: UrlImportFormValues) => {
+    create.mutate(
+      {
+        url: values.url.trim(),
+        folderId: values.target === 'null' ? null : values.target,
+      },
+      {
+        onSuccess: () => {
+          toastSuccess('已提交抓取任务');
+          guard.finish();
+        },
+        onError: toastError,
+      },
+    );
+  });
 
   return (
     <Dialog
@@ -2606,25 +2655,7 @@ function UrlImportDialog({
       }}
     >
       <DialogShell title="导入网址" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create.mutate(
-              {
-                url: url.trim(),
-                folderId: target === 'null' ? null : target,
-              },
-              {
-                onSuccess: () => {
-                  toastSuccess('已提交抓取任务');
-                  guard.finish();
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>
             <Field className="gap-1.5" data-invalid={invalidUrl}>
               <FieldLabel htmlFor="knowledge-url">
@@ -2633,9 +2664,8 @@ function UrlImportDialog({
               <Input
                 id="knowledge-url"
                 type="url"
-                value={url}
+                {...register('url')}
                 disabled={pending}
-                onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://example.com/doc"
                 aria-invalid={invalidUrl}
                 aria-describedby={invalidUrl ? 'knowledge-url-error' : 'knowledge-url-hint'}
@@ -2650,12 +2680,18 @@ function UrlImportDialog({
                 </FieldDescription>
               )}
             </Field>
-            <ImportFolderField
-              id="knowledge-url-folder"
-              value={target}
-              folders={folders}
-              disabled={pending}
-              onChange={setTarget}
+            <Controller
+              control={control}
+              name="target"
+              render={({ field }) => (
+                <ImportFolderField
+                  id="knowledge-url-folder"
+                  value={field.value}
+                  folders={folders}
+                  disabled={pending}
+                  onChange={field.onChange}
+                />
+              )}
             />
           </FieldGroup>
           <div className="flex justify-end gap-2">
@@ -4195,7 +4231,7 @@ function SourceProbeStatus({ jobId }: { jobId: string }) {
     return <span className="text-2xs text-muted-foreground">连接测试进行中…</span>;
   }
   if (job.isError) {
-    return <span className="text-2xs text-danger">连接测试结果没有加载出来。</span>;
+    return <span className="text-xs text-danger">连接测试结果没有加载出来。</span>;
   }
   const result = job.data?.result;
   if (!result) {

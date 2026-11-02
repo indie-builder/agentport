@@ -35,11 +35,13 @@ import {
   useRollbackMemoryChange,
 } from '../lib/queries.js';
 import { toastSuccess } from '../lib/toast.js';
+import { AgentPicker } from './agent-picker.js';
 import { BusinessIllustration } from './business-illustration.js';
 import { CodeBlock } from './code-block.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
 import { FilterSelect } from './filter-select.js';
+import { PageToolbar } from './page.js';
 import { EmptyState, ErrorState, LoadingState } from './states.js';
 import { StatusBadge } from './status-badge.js';
 import { Button } from './ui/button.js';
@@ -295,14 +297,14 @@ export function MemoryReviews({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
+      <PageToolbar>
         {canReadAgents ? (
           <FilterSelect
             value={agentId ?? ''}
             onValueChange={(next) => onAgentChange(next || null)}
             options={agentOptions}
             label="按专家筛选记忆提案"
-            className="w-full sm:w-44"
+            className="w-full sm:w-36"
           />
         ) : null}
         <FilterSelect
@@ -348,7 +350,7 @@ export function MemoryReviews({
           ) : null}
           <ViewToggle value={view} onChange={onViewChange} />
         </div>
-      </div>
+      </PageToolbar>
 
       {agents.isError ? (
         <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
@@ -726,7 +728,7 @@ function CreateMemoryReviewDialog({
       (option.value === 'agent_memory' ? canUseAgentMemoryTarget : canUseAgentRuleTarget),
   );
   const enabled = agents.filter((agent) => agent.enabled);
-  const agentOptions = enabled.map((agent) => ({ value: agent.id, label: agent.name }));
+  const agentOptions = enabled.map((agent) => ({ value: agent.id, label: agent.name, agent }));
   const ruleSlug = ruleChoice === '__new__' ? newRuleSlug.trim() : ruleChoice;
   const baseRuleOptions = [
     ...(rules.data ?? []).map((rule) => ({ value: rule.slug, label: rule.slug })),
@@ -981,35 +983,25 @@ function CreateMemoryReviewDialog({
                   data-invalid={fieldErrors.model ? true : undefined}
                 >
                   <FieldLabel htmlFor="memory-review-model">执行专家</FieldLabel>
-                  <Select
-                    value={modelAgentId}
-                    items={agentOptions}
-                    disabled={create.isPending || !canUseAgents}
-                    onValueChange={(next) => {
-                      if (next === null) return;
-                      setModelAgentId(next);
+                  <AgentPicker
+                    triggerVariant="field"
+                    agent={enabled.find((agent) => agent.id === modelAgentId) ?? null}
+                    agentId={modelAgentId}
+                    agentOptions={agentOptions}
+                    onSwitchAgent={(id) => {
+                      setModelAgentId(id);
                       setFieldErrors((previous) => clearFieldErrors(previous, 'model', 'form'));
                     }}
-                  >
-                    <SelectTrigger
-                      id="memory-review-model"
-                      className="w-full"
-                      aria-label="执行专家"
-                      aria-invalid={fieldErrors.model ? true : undefined}
-                      aria-describedby={fieldErrors.model ? 'memory-review-model-error' : undefined}
-                    >
-                      <SelectValue placeholder="选择专家" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {agentOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                    placeholder="选择专家"
+                    triggerId="memory-review-model"
+                    triggerAriaLabel="执行专家"
+                    triggerClassName="w-full"
+                    disabled={create.isPending || !canUseAgents}
+                    ariaInvalid={fieldErrors.model ? true : undefined}
+                    ariaDescribedby={
+                      fieldErrors.model ? 'memory-review-model-error' : undefined
+                    }
+                  />
                   {fieldErrors.model ? (
                     <FieldError id="memory-review-model-error">{fieldErrors.model}</FieldError>
                   ) : null}
@@ -1053,13 +1045,13 @@ function CreateMemoryReviewDialog({
                     data-invalid={fieldErrors.target ? true : undefined}
                   >
                     <FieldLabel htmlFor="memory-review-target-agent">目标专家</FieldLabel>
-                    <Select
-                      value={targetAgentId}
-                      items={agentOptions}
-                      disabled={create.isPending}
-                      onValueChange={(next) => {
-                        if (next === null) return;
-                        setTargetAgentId(next);
+                    <AgentPicker
+                      triggerVariant="field"
+                      agent={enabled.find((agent) => agent.id === targetAgentId) ?? null}
+                      agentId={targetAgentId}
+                      agentOptions={agentOptions}
+                      onSwitchAgent={(id) => {
+                        setTargetAgentId(id);
                         setRuleChoice('__new__');
                         setNewRuleSlug('');
                         setMemoryChoice(MEMORY_INDEX_NAME);
@@ -1068,28 +1060,16 @@ function CreateMemoryReviewDialog({
                           clearFieldErrors(previous, 'target', 'slug', 'memory', 'form'),
                         );
                       }}
-                    >
-                      <SelectTrigger
-                        id="memory-review-target-agent"
-                        className="w-full"
-                        aria-label="目标专家"
-                        aria-invalid={fieldErrors.target ? true : undefined}
-                        aria-describedby={
-                          fieldErrors.target ? 'memory-review-target-error' : undefined
-                        }
-                      >
-                        <SelectValue placeholder="选择专家" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {agentOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
+                      placeholder="选择专家"
+                      triggerId="memory-review-target-agent"
+                      triggerAriaLabel="目标专家"
+                      triggerClassName="w-full"
+                      disabled={create.isPending}
+                      ariaInvalid={fieldErrors.target ? true : undefined}
+                      ariaDescribedby={
+                        fieldErrors.target ? 'memory-review-target-error' : undefined
+                      }
+                    />
                     {fieldErrors.target ? (
                       <FieldError id="memory-review-target-error">{fieldErrors.target}</FieldError>
                     ) : null}

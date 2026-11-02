@@ -145,6 +145,7 @@ export function PersonalSecurityPage() {
                   orientation="horizontal"
                   className="items-start gap-x-4"
                   data-disabled={change.isPending}
+                  data-invalid={formState.errors.currentPassword ? true : undefined}
                 >
                   <FieldContent className="w-24 flex-none pt-2">
                     <FieldLabel htmlFor="security-current-password">当前密码</FieldLabel>
@@ -156,9 +157,17 @@ export function PersonalSecurityPage() {
                       autoComplete="current-password"
                       autoFocus
                       disabled={change.isPending}
+                      aria-invalid={formState.errors.currentPassword ? true : undefined}
+                      aria-describedby={
+                        formState.errors.currentPassword
+                          ? 'security-current-password-error'
+                          : undefined
+                      }
                       {...register('currentPassword')}
                     />
-                    <FieldError>{formState.errors.currentPassword?.message}</FieldError>
+                    <FieldError id="security-current-password-error">
+                      {formState.errors.currentPassword?.message}
+                    </FieldError>
                   </div>
                 </Field>
                 <Field
@@ -177,9 +186,14 @@ export function PersonalSecurityPage() {
                       autoComplete="new-password"
                       disabled={change.isPending}
                       aria-invalid={formState.errors.newPassword ? true : undefined}
+                      aria-describedby={
+                        formState.errors.newPassword ? 'security-new-password-error' : undefined
+                      }
                       {...register('newPassword')}
                     />
-                    <FieldError>{formState.errors.newPassword?.message}</FieldError>
+                    <FieldError id="security-new-password-error">
+                      {formState.errors.newPassword?.message}
+                    </FieldError>
                   </div>
                 </Field>
                 <Field
@@ -198,9 +212,16 @@ export function PersonalSecurityPage() {
                       autoComplete="new-password"
                       disabled={change.isPending}
                       aria-invalid={formState.errors.confirmPassword ? true : undefined}
+                      aria-describedby={
+                        formState.errors.confirmPassword
+                          ? 'security-confirm-password-error'
+                          : undefined
+                      }
                       {...register('confirmPassword')}
                     />
-                    <FieldError>{formState.errors.confirmPassword?.message}</FieldError>
+                    <FieldError id="security-confirm-password-error">
+                      {formState.errors.confirmPassword?.message}
+                    </FieldError>
                   </div>
                 </Field>
                 {formError ? <FieldError>{formError}</FieldError> : null}

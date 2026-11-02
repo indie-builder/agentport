@@ -390,6 +390,7 @@ export function SkillsPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className={canUpdateSkill ? undefined : 'hidden'}
                     aria-label={`编辑 ${skill.name}`}
                     title={`编辑 ${skill.name}`}
                     aria-haspopup="dialog"

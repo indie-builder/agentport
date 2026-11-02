@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Box, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageToolbar } from '../components/page.js';
@@ -35,6 +36,7 @@ import { useFormBlocker } from '../lib/form.js';
 import { formatRelative, shortId } from '../lib/format.js';
 import { meQuery, useCreateRuntimeEnvironment, useRuntimeEnvironments } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 export function RuntimeEnvironmentsPage() {
   const environments = useRuntimeEnvironments();
@@ -68,7 +70,7 @@ export function RuntimeEnvironmentsPage() {
       <PageHeader
         title="运行环境"
         actions={
-          canCreate ? (
+          canCreate && !(environments.data && environments.data.length === 0) ? (
             <Button ref={createTriggerRef} onClick={openCreate}>
               <Plus data-icon="inline-start" /> 新建环境
             </Button>
@@ -105,7 +107,7 @@ export function RuntimeEnvironmentsPage() {
           title="新建第一个运行环境"
           action={
             canCreate ? (
-              <Button variant="outline" size="sm" onClick={openCreate}>
+              <Button ref={createTriggerRef} size="sm" onClick={openCreate}>
                 新建环境
               </Button>
             ) : undefined
@@ -135,7 +137,7 @@ export function RuntimeEnvironmentsPage() {
       ) : null}
 
       {shown.length > 0 && view === 'table' ? (
-        <Table>
+        <Table aria-label="运行环境列表">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[50%]">名称</TableHead>
@@ -180,7 +182,7 @@ export function RuntimeEnvironmentsPage() {
       ) : null}
 
       {shown.length > 0 && view === 'cards' ? (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <ul aria-label="运行环境列表" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((environment) => (
             <li key={environment.id} className="min-w-0">
               <Card className="h-full">
@@ -243,6 +245,11 @@ export function RuntimeEnvironmentsPage() {
   );
 }
 
+const environmentFormSchema = z.object({
+  name: z.string().trim().min(1, '不能为空，请填写后再创建'),
+  dockerfile: z.string(),
+});
+
 function CreateEnvironmentDialog({
   onClose,
   onCreated,
@@ -254,12 +261,13 @@ function CreateEnvironmentDialog({
 }) {
   const create = useCreateRuntimeEnvironment();
   const pending = create.isPending;
-  const [name, setName] = useState('');
-  const [dockerfile, setDockerfile] = useState(DEFAULT_RUNTIME_DOCKERFILE);
-  const [nameError, setNameError] = useState<string | null>(null);
+  const { register, handleSubmit, watch, formState } = useZodForm(environmentFormSchema, {
+    defaultValues: { name: '', dockerfile: DEFAULT_RUNTIME_DOCKERFILE },
+  });
+  const { errors, isDirty } = formState;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [created, setCreated] = useState(false);
-  const dirty = !created && (name !== '' || dockerfile !== DEFAULT_RUNTIME_DOCKERFILE);
+  const dirty = !created && isDirty;
   // 成功回调读不到拦截发生后的 blocker 实例：用 ref 拿最新一次再结算。
   const blocker = useFormBlocker(dirty, !created && pending, { ignoreSamePath: true });
   const blockerRef = useRef(blocker);
@@ -278,14 +286,8 @@ function CreateEnvironmentDialog({
     else finish();
   };
 
-  const submit = async (): Promise<void> => {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setNameError('不能为空，请填写后再创建');
-      return;
-    }
-    setNameError(null);
-    const input: RuntimeEnvironmentInput = { name: trimmed, dockerfile };
+  const submit = handleSubmit(async (values) => {
+    const input: RuntimeEnvironmentInput = { name: values.name, dockerfile: values.dockerfile };
     try {
       const environment = await create.mutateAsync(input);
       // 实体已创建，草稿无需再保护；结算期间被拦下的离开后再进入详情。
@@ -296,7 +298,7 @@ function CreateEnvironmentDialog({
     } catch (error) {
       toastError(error);
     }
-  };
+  });
 
   return (
     <Dialog
@@ -318,37 +320,32 @@ function CreateEnvironmentDialog({
           }}
         >
           <FieldGroup>
-            <Field data-invalid={Boolean(nameError)}>
+            <Field data-invalid={Boolean(errors.name)}>
               <FieldLabel htmlFor="runtime-environment-name">
                 名称
                 <RequiredMark />
               </FieldLabel>
               <Input
                 id="runtime-environment-name"
-                value={name}
+                {...register('name')}
                 maxLength={64}
                 autoComplete="off"
                 disabled={pending}
                 aria-required="true"
-                aria-invalid={Boolean(nameError)}
-                aria-describedby={nameError ? 'runtime-environment-name-error' : undefined}
-                onChange={(event) => {
-                  setName(event.currentTarget.value);
-                  setNameError(null);
-                }}
+                aria-invalid={Boolean(errors.name)}
+                aria-describedby={errors.name ? 'runtime-environment-name-error' : undefined}
               />
-              <FieldError id="runtime-environment-name-error">{nameError}</FieldError>
+              <FieldError id="runtime-environment-name-error">{errors.name?.message}</FieldError>
             </Field>
             <Field>
               <FieldLabel htmlFor="runtime-environment-dockerfile">Dockerfile</FieldLabel>
               <Textarea
                 id="runtime-environment-dockerfile"
-                value={dockerfile}
+                {...register('dockerfile')}
                 rows={14}
                 spellCheck={false}
                 disabled={pending}
                 className="font-mono text-xs leading-relaxed"
-                onChange={(event) => setDockerfile(event.currentTarget.value)}
               />
             </Field>
           </FieldGroup>
@@ -356,7 +353,7 @@ function CreateEnvironmentDialog({
             <Button type="button" variant="outline" disabled={pending} onClick={close}>
               取消
             </Button>
-            <Button type="submit" disabled={pending || !name.trim()}>
+            <Button type="submit" disabled={pending || !watch('name').trim()}>
               {pending ? '创建中…' : '创建'}
             </Button>
           </div>

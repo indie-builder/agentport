@@ -11,7 +11,7 @@
 |---|---|---|
 | 要建什么、为谁 | `PRODUCT.md` + `docs/PROJECT-BRIEF.md` + `docs/USER-STORIES.md` | 需求澄清时 |
 | 技术栈、目录、数据流 | `docs/ARCHITECTURE.md` | 设计时 |
-| 颜色、字体、组件、氛围 | `docs/DESIGN-SYSTEM.md`；实现产物快照 `packages/web/DESIGN.md` | 做 UI 时 |
+| 颜色、字体、圆角、组件外观（视觉权威） | `packages/web/DESIGN.md`（impeccable，token 见 `packages/web/src/styles.css`）；布局/交互/无障碍/信息表达工程规约见 `docs/DESIGN-SYSTEM.md` | 做 UI 时 |
 | 编码规则与 AI 禁止事项 | 根 `CLAUDE.md`（始终加载）+ `packages/<pkg>/CLAUDE.md`（进入该包时按需加载，入口见根「模块规则」） | 每会话自动加载根；进入/编辑包文件前读对应模块规则 |
 | 项目级待办 | `docs/REMAINING-TODOS.md` | 规划时 |
 | 变更历史 | `CHANGELOG.md` | 追溯时 |

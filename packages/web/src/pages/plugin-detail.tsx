@@ -190,7 +190,7 @@ function PluginDetailContent({
             <Link
               to="/plugins"
               aria-label="返回插件列表"
-              className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+              className={buttonVariants({ variant: 'outline', size: 'icon' })}
             >
               <ArrowLeft aria-hidden="true" />
             </Link>
@@ -208,8 +208,8 @@ function PluginDetailContent({
           }
         />
         {plugin.description ? (
-          // ps-11 对齐标题：返回按钮 icon-sm(1.75rem) + Header gap-4。
-          <p className="min-w-0 max-w-[60ch] break-words ps-11 text-sm text-muted-foreground">
+          // ps-12 对齐标题：返回按钮 icon(2rem) + Header gap-4。
+          <p className="min-w-0 max-w-[60ch] break-words ps-12 text-sm text-muted-foreground">
             {plugin.description}
           </p>
         ) : null}

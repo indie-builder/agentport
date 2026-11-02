@@ -84,7 +84,7 @@ const columns: DataColumn<RunListItem>[] = [
     sortValue: (run) => run.agentName ?? '',
     cell: (run) => (
       <span className="truncate text-fg">
-        {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
+        {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
       </span>
     ),
   },
@@ -169,7 +169,7 @@ function RunCard({ run }: { run: RunListItem }) {
         <CardTitle className="min-w-0">
           <h2 className="min-w-0">
             <Link {...detailLink} className="block truncate hover:underline" title={agentName}>
-              {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
+              {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
             </Link>
           </h2>
         </CardTitle>
@@ -178,7 +178,7 @@ function RunCard({ run }: { run: RunListItem }) {
         </CardAction>
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-3">
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs tabular-nums">
           <dt className="text-muted-foreground">开始</dt>
           <dd className="text-right text-muted-foreground" title={formatDateTime(run.startedAt)}>
             {formatRelative(run.startedAt)}
@@ -208,13 +208,6 @@ function RunCard({ run }: { run: RunListItem }) {
             {shortId(run.id)}
           </code>
         </span>
-        <Link
-          {...detailLink}
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          aria-label={`查看运行 ${shortId(run.id)}`}
-        >
-          查看运行
-        </Link>
       </CardFooter>
     </Card>
   );

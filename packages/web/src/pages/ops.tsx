@@ -1,4 +1,9 @@
-import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentport/shared';
+import {
+  type AgentSummary,
+  type Schedule,
+  type ScheduleInput,
+  scheduleInputSchema,
+} from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
@@ -6,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { BusinessIllustration } from '../components/business-illustration.js';
+import { AgentPicker } from '../components/agent-picker.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
@@ -57,7 +63,7 @@ import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
-import { formatRelative } from '../lib/format.js';
+import { formatRelative, formatUtcDateTime } from '../lib/format.js';
 import { meQuery, useAgents, useAttention, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
@@ -81,22 +87,6 @@ const weekdayOptions = [
 ] as const;
 
 const defaultWeekdays = ['1', '2', '3', '4', '5'];
-
-// cron 与下次触发都以 UTC 为准；表格不再跟随浏览器本地时区显示。
-const utcDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'UTC',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-function formatUtcDateTime(value: string | null | undefined): string {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
-}
 
 function parseTime(value: string): { hours: number; minutes: number } | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
@@ -300,8 +290,20 @@ export function SchedulesPage() {
       ) : null}
 
       {schedules.isPending ? <LoadingState rows={3} /> : null}
-      {schedules.isError ? (
+      {schedules.isError && !schedules.data ? (
         <ErrorState error={schedules.error} onRetry={() => void schedules.refetch()} />
+      ) : null}
+      {schedules.isError && schedules.data ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留上次列表"
+          description="以下为上次成功加载的定时任务。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void schedules.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
 
       {schedules.data && items.length === 0 ? (
@@ -404,7 +406,7 @@ export function SchedulesPage() {
                         {schedule.cron}
                       </code>
                     </TableCell>
-                    <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
+                    <TableCell className="hidden text-xs tabular-nums text-muted-foreground sm:table-cell">
                       {nextDue}
                     </TableCell>
                     <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
@@ -435,7 +437,7 @@ export function SchedulesPage() {
                           <Pencil />
                         </Button>
                         <Button
-                          variant="ghost"
+                          variant="destructive"
                           size="icon-sm"
                           aria-label={`删除 ${schedule.name}`}
                           disabled={rowBusy}
@@ -535,7 +537,7 @@ function ScheduleCard({
             <code className="font-mono text-xs text-muted-foreground">{schedule.cron}</code>
           </dd>
           <dt className="text-muted-foreground">下次触发（UTC）</dt>
-          <dd className="text-right text-muted-foreground">{nextDue}</dd>
+          <dd className="text-right tabular-nums text-muted-foreground">{nextDue}</dd>
           <dt className="text-muted-foreground">上次运行</dt>
           <dd className="text-right text-muted-foreground">{formatRelative(schedule.lastRunAt)}</dd>
         </dl>
@@ -572,7 +574,7 @@ function ScheduleDialog({
   onClose,
 }: {
   schedule?: Schedule;
-  agents: { id: string; name: string }[];
+  agents: AgentSummary[];
   agentsError: unknown;
   onRetryAgents: () => void;
   onClose: () => void;
@@ -684,11 +686,22 @@ function ScheduleDialog({
     else finish();
   };
 
+  const pickerAgent = (agent: AgentSummary) => ({
+    name: agent.name,
+    description: agent.description,
+    role: agent.role ?? null,
+    slug: agent.slug ?? null,
+  });
+  const selectedAgent = agents.find((agent) => agent.id === watched.agentId);
   const agentOptions = [
     ...(schedule && !agents.some((agent) => agent.id === schedule.agentId)
       ? [{ value: schedule.agentId, label: schedule.agentName ?? '已删除的专家' }]
       : []),
-    ...agents.map((agent) => ({ value: agent.id, label: agent.name })),
+    ...agents.map((agent) => ({
+      value: agent.id,
+      label: agent.name,
+      agent: pickerAgent(agent),
+    })),
   ];
 
   const changeFrequency = (next: ScheduleFrequency): void => {
@@ -862,41 +875,29 @@ function ScheduleDialog({
                       control={control}
                       name="agentId"
                       render={({ field }) => (
-                        <Select
+                        <AgentPicker
+                          triggerVariant="field"
+                          agent={selectedAgent ? pickerAgent(selectedAgent) : null}
+                          agentId={field.value}
+                          agentOptions={agentOptions}
+                          onSwitchAgent={(id) => field.onChange(id)}
+                          triggerRef={field.ref}
+                          onBlur={field.onBlur}
+                          placeholder="选择专家"
+                          triggerId="schedule-agent"
+                          triggerAriaLabel="执行专家"
+                          triggerClassName="max-w-60 min-w-0"
                           disabled={pending || Boolean(schedule)}
-                          value={field.value}
-                          items={agentOptions}
-                          onValueChange={(next) => {
-                            if (next !== null) field.onChange(next);
-                          }}
-                        >
-                          <SelectTrigger
-                            id="schedule-agent"
-                            className="max-w-60 min-w-0"
-                            ref={field.ref}
-                            onBlur={field.onBlur}
-                            aria-invalid={Boolean(errors.agentId)}
-                            aria-describedby={
-                              [
-                                schedule ? 'schedule-agent-hint' : null,
-                                errors.agentId ? 'schedule-agent-error' : null,
-                              ]
-                                .filter(Boolean)
-                                .join(' ') || undefined
-                            }
-                          >
-                            <SelectValue placeholder="选择专家" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {agentOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
+                          ariaInvalid={Boolean(errors.agentId)}
+                          ariaDescribedby={
+                            [
+                              schedule ? 'schedule-agent-hint' : null,
+                              errors.agentId ? 'schedule-agent-error' : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' ') || undefined
+                          }
+                        />
                       )}
                     />
                   </div>
@@ -1138,13 +1139,24 @@ export function AttentionPanel() {
 
   return (
     <PageSection
-      divided={false}
       title="需要处理"
       actions={data ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null}
     >
       {attention.isPending ? <LoadingState rows={2} /> : null}
-      {attention.isError ? (
+      {attention.isError && !data ? (
         <ErrorState error={attention.error} onRetry={() => void attention.refetch()} />
+      ) : null}
+      {attention.isError && data ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留上次结果"
+          description="以下为上次成功加载的待处理项。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void attention.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
       {data ? (
         <ul className="flex flex-col">

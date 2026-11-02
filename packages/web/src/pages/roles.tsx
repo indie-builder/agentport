@@ -508,7 +508,7 @@ export function RolesPage() {
           placeholder="搜索功能或权限…"
           value={query}
           onChange={setQuery}
-          className="w-64 min-w-0"
+          className="w-56 min-w-0"
         />
         <div className="flex items-center gap-2">
           <Button
@@ -707,7 +707,7 @@ function MatrixFeedback({
           {changedLeafCount} 项权限未保存
         </span>
       ) : null}
-      {isDirty ? <span>有未保存的更改</span> : null}
+      {isDirty && changedLeafCount === 0 ? <span>有未保存的更改</span> : null}
     </span>
   );
 }

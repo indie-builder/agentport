@@ -2,7 +2,7 @@
 
 shadcn 把组件源码交给项目维护，支持修改源码。源码永远不可改、必须反复覆盖重装，以及包装至少三个调用方，都不是官方要求。
 
-新增或改造 UI 时，先读对应的 shadcn / Base UI 文档，安装或复用官方组件，再应用 `docs/DESIGN-SYSTEM.md`。共享视觉通过 `packages/web/src/styles.css` 的语义令牌维护。
+新增或改造 UI 时，先读对应的 shadcn / Base UI 文档，安装或复用官方组件，再应用 `packages/web/DESIGN.md`（视觉）与 `docs/DESIGN-SYSTEM.md`（工程规约）。共享视觉通过 `packages/web/src/styles.css` 的语义令牌维护。
 
 ## 定制顺序
 
@@ -19,7 +19,7 @@ shadcn 把组件源码交给项目维护，支持修改源码。源码永远不�
 
 ## 设计与交互
 
-颜色、圆角、控件尺寸、焦点、卡片和弹层交互统一遵循 [DESIGN-SYSTEM.md §9](DESIGN-SYSTEM.md#9-组件与交互契约)。本文只维护底座安装与源码定制流程；新增视觉规则在设计契约中补齐，不在本文或页面重新定义。
+颜色、圆角、控件尺寸、焦点等视觉值遵循 `packages/web/DESIGN.md`；控件与弹层交互规约遵循 [DESIGN-SYSTEM.md §9](DESIGN-SYSTEM.md#9-组件与交互契约)。本文只维护底座安装与源码定制流程；新增视觉规则在设计契约中补齐，不在本文或页面重新定义。
 
 ## 组合约定
 

@@ -342,7 +342,7 @@ export function PersonalMemoryPanel({
           }
         >
           <ChevronRight
-            className={cn('transition-transform duration-150', versionsOpen && 'rotate-90')}
+            className={cn('transition-transform duration-150 ease-out-soft', versionsOpen && 'rotate-90')}
             aria-hidden="true"
           />
           版本历史{versionCount > 0 ? `（${versionCount}）` : ''}

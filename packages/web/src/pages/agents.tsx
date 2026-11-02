@@ -503,9 +503,9 @@ export function AgentsPage() {
               replace: true,
             })
           }
-          className="min-w-40 flex-1 sm:w-56 sm:flex-none"
+          className="w-56 min-w-0"
         />
-        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <FilterSelect
             value={status}
             onValueChange={(next) => {
@@ -521,7 +521,7 @@ export function AgentsPage() {
               { value: 'disabled', label: '已停用' },
             ]}
             label="按启用状态筛选"
-            className="w-32"
+            className="w-36"
           />
           {hasRoleData ? (
             <FilterSelect
@@ -2673,7 +2673,7 @@ export function AgentEditor({
                 </span>
               ) : null}
               {saveHint ? (
-                <span className="mr-1 flex items-center gap-1.5 text-2xs text-danger">
+                <span className="mr-1 flex items-center gap-1.5 text-xs text-danger">
                   <span id="agent-save-hint" role="alert">
                     {saveHint}
                   </span>
@@ -4130,7 +4130,7 @@ function DraftPreview({
       <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronRight
           className={cn(
-            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-150',
+            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out-soft',
             open && 'rotate-90',
           )}
           aria-hidden="true"

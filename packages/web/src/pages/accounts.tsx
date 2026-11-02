@@ -10,8 +10,10 @@ import {
   SearchX,
   ShieldCheck,
   Trash2,
+  UsersRound,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
@@ -46,6 +48,7 @@ import { can } from '../lib/access.js';
 import { type Account, ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
+import { formatDate } from '../lib/format.js';
 import {
   meQuery,
   useAccounts,
@@ -59,6 +62,7 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 const PAGE_SIZE = 50;
 
@@ -129,7 +133,7 @@ export function AccountsPage() {
       <PageHeader
         title="账户"
         actions={
-          canManage ? (
+          canManage && !(accounts.data && items.length === 0 && !settled) ? (
             <Button onClick={() => setCreating(true)}>
               <Plus data-icon="inline-start" /> 新建账户
             </Button>
@@ -163,11 +167,26 @@ export function AccountsPage() {
       ) : null}
       {accounts.data && items.length === 0 ? (
         <PageNote
-          icon={<SearchX />}
+          icon={settled ? <SearchX /> : <UsersRound />}
           title={settled ? '没有匹配的账户' : '还没有账户'}
           description={settled ? undefined : '创建后即可分配角色；删除认证资料不会移除业务授权。'}
           action={
-            canManage && !settled ? (
+            settled ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setOffset(0);
+                  void navigate({
+                    to: '/accounts',
+                    search: { ...search, q: undefined },
+                    replace: true,
+                  });
+                }}
+              >
+                清除筛选
+              </Button>
+            ) : canManage ? (
               <Button onClick={() => setCreating(true)}>新建账户</Button>
             ) : undefined
           }
@@ -199,8 +218,8 @@ export function AccountsPage() {
                 <TableCell>
                   <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
                 </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {new Date(account.createdAt).toLocaleDateString('zh-CN')}
+                <TableCell className="font-mono tabular-nums text-muted-foreground">
+                  {formatDate(account.createdAt)}
                 </TableCell>
                 <TableCell>
                   <AccountRowActions
@@ -269,7 +288,7 @@ export function AccountsPage() {
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="shrink-0 text-xs text-muted-foreground">创建时间</span>
                     <span className="text-sm text-muted-foreground">
-                      {new Date(account.createdAt).toLocaleDateString('zh-CN')}
+                      {formatDate(account.createdAt)}
                     </span>
                   </div>
                 </CardContent>
@@ -545,6 +564,20 @@ function RoleChecks({
   );
 }
 
+const accountFormSchema = z.object({
+  businessId: z.string().superRefine((value, ctx) => {
+    const message = validateBusinessId(value);
+    if (message) ctx.addIssue({ code: 'custom', message });
+  }),
+  username: z.string().min(1, '请填写用户名。'),
+  name: z.string().superRefine((value, ctx) => {
+    if (value.trim().length === 0) ctx.addIssue({ code: 'custom', message: '请填写姓名。' });
+  }),
+  password: z.string().min(8, '密码至少 8 个字符。'),
+  roleIds: z.array(z.string()),
+});
+type AccountFormValues = z.infer<typeof accountFormSchema>;
+
 function CreateAccountDialog({
   canAssignRoles,
   roleDirectory,
@@ -555,55 +588,42 @@ function CreateAccountDialog({
   onClose: () => void;
 }) {
   const create = useCreateAccount();
-  const [businessId, setBusinessId] = useState('');
-  const [username, setUsername] = useState('');
-  const [name, setName] = useState('');
-  const [password, setpassword] = useState('');
-  const [roleIds, setRoleIds] = useState<string[]>([]);
+  const { register, handleSubmit, watch, setValue, formState } = useZodForm(accountFormSchema, {
+    defaultValues: { businessId: '', username: '', name: '', password: '', roleIds: [] },
+  });
+  const { errors, isDirty } = formState;
+  const roleIds = watch('roleIds');
   const [restore, setRestore] = useState(false);
   const [restorePrompt, setRestorePrompt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
   const [saved, setSaved] = useState(false);
   const pending = create.isPending && !saved;
-  const dirty =
-    !saved &&
-    (businessId !== '' || username !== '' || name !== '' || password !== '' || roleIds.length > 0);
+  const dirty = !saved && isDirty;
   const guard = useDiscardGuard(dirty, pending, onClose);
   const rolesUnavailable = canAssignRoles && roleDirectory.roles === undefined;
-  const businessError = submitted ? validateBusinessId(businessId) : null;
-  const usernameError = submitted && username.length === 0 ? '请填写用户名。' : null;
-  const nameError = submitted && name.trim().length === 0 ? '请填写姓名。' : null;
-  const passwordError = submitted && password.length < 8 ? '密码至少 8 个字符。' : null;
+  const businessError = errors.businessId?.message;
+  const usernameError = errors.username?.message;
+  const nameError = errors.name?.message;
+  const passwordError = errors.password?.message;
 
-  const submit = async (asRestore: boolean): Promise<void> => {
+  const doCreate = async (values: AccountFormValues, asRestore: boolean): Promise<void> => {
     if (pending) return;
-    setSubmitted(true);
     setError(null);
-    if (
-      validateBusinessId(businessId) ||
-      username.length === 0 ||
-      name.trim().length === 0 ||
-      password.length < 8
-    ) {
-      return;
-    }
-    // 角色目录没有结果时不能创建，也不允许走恢复流程兜底。
     if (rolesUnavailable) {
       setError('角色目录没有加载出来，请重试后再创建。');
       return;
     }
     try {
       await create.mutateAsync({
-        businessId,
-        username,
-        name,
-        password,
+        businessId: values.businessId,
+        username: values.username,
+        name: values.name,
+        password: values.password,
         restore: asRestore,
-        ...(canAssignRoles && roleIds.length > 0 ? { roleIds } : {}),
+        ...(canAssignRoles && values.roleIds.length > 0 ? { roleIds: values.roleIds } : {}),
       });
       setSaved(true);
-      toastSuccess(`已创建账户 ${name}`);
+      toastSuccess(`已创建账户 ${values.name}`);
       guard.finish();
     } catch (cause) {
       if (!asRestore && cause instanceof ApiError && cause.status === 409) {
@@ -613,6 +633,10 @@ function CreateAccountDialog({
       setError(errorMessage(cause));
     }
   };
+  const submitForm = handleSubmit(
+    (values) => doCreate(values, restore),
+    () => setError(null),
+  );
 
   return (
     <Dialog
@@ -636,7 +660,7 @@ function CreateAccountDialog({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            void submit(restore);
+            void submitForm();
           }}
         >
           <FieldGroup className="gap-5">
@@ -650,8 +674,7 @@ function CreateAccountDialog({
                 disabled={pending}
                 aria-invalid={Boolean(businessError)}
                 aria-describedby={businessError ? 'account-business-id-error' : undefined}
-                value={businessId}
-                onChange={(event) => setBusinessId(event.target.value)}
+                {...register('businessId')}
               />
               <FieldError id="account-business-id-error">{businessError ?? undefined}</FieldError>
             </Field>
@@ -666,8 +689,7 @@ function CreateAccountDialog({
                   disabled={pending}
                   aria-invalid={Boolean(usernameError)}
                   aria-describedby={usernameError ? 'account-username-error' : undefined}
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
+                  {...register('username')}
                 />
                 <FieldError id="account-username-error">{usernameError ?? undefined}</FieldError>
               </Field>
@@ -681,8 +703,7 @@ function CreateAccountDialog({
                   disabled={pending}
                   aria-invalid={Boolean(nameError)}
                   aria-describedby={nameError ? 'account-name-error' : undefined}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  {...register('name')}
                 />
                 <FieldError id="account-name-error">{nameError ?? undefined}</FieldError>
               </Field>
@@ -698,8 +719,7 @@ function CreateAccountDialog({
                 disabled={pending}
                 aria-invalid={Boolean(passwordError)}
                 aria-describedby={passwordError ? 'account-password-error' : undefined}
-                value={password}
-                onChange={(event) => setpassword(event.target.value)}
+                {...register('password')}
               />
               <FieldError id="account-password-error">{passwordError ?? undefined}</FieldError>
             </Field>
@@ -711,10 +731,10 @@ function CreateAccountDialog({
                   selected={roleIds}
                   disabled={pending}
                   onToggle={(id) =>
-                    setRoleIds((current) =>
-                      current.includes(id)
-                        ? current.filter((item) => item !== id)
-                        : [...current, id],
+                    setValue(
+                      'roleIds',
+                      roleIds.includes(id) ? roleIds.filter((item) => item !== id) : [...roleIds, id],
+                      { shouldDirty: true },
                     )
                   }
                 />
@@ -743,7 +763,10 @@ function CreateAccountDialog({
                     disabled={pending || rolesUnavailable}
                     onClick={() => {
                       setRestore(true);
-                      void submit(true);
+                      void handleSubmit(
+                        (values) => doCreate(values, true),
+                        () => setError(null),
+                      )();
                     }}
                   >
                     <ShieldCheck data-icon="inline-start" /> 恢复原身份和授权
@@ -768,39 +791,49 @@ function CreateAccountDialog({
   );
 }
 
+const accountEditFormSchema = z.object({
+  username: z.string().min(1, '请填写用户名。'),
+  name: z.string().superRefine((value, ctx) => {
+    if (value.trim().length === 0) ctx.addIssue({ code: 'custom', message: '请填写姓名。' });
+  }),
+});
+type AccountEditFormValues = z.infer<typeof accountEditFormSchema>;
+
 function EditAccountDialog({ account, onClose }: { account: Account; onClose: () => void }) {
   const update = useUpdateAccount();
-  const [username, setUsername] = useState(account.username);
-  const [name, setName] = useState(account.name);
+  const { register, handleSubmit, formState } = useZodForm(accountEditFormSchema, {
+    defaultValues: { username: account.username, name: account.name },
+  });
+  const { errors, isDirty } = formState;
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
   const [saved, setSaved] = useState(false);
   const pending = update.isPending && !saved;
-  const dirty = !saved && (username !== account.username || name !== account.name);
+  const dirty = !saved && isDirty;
   const guard = useDiscardGuard(dirty, pending, onClose);
-  const usernameError = submitted && username.length === 0 ? '请填写用户名。' : null;
-  const nameError = submitted && name.trim().length === 0 ? '请填写姓名。' : null;
+  const usernameError = errors.username?.message;
+  const nameError = errors.name?.message;
 
-  const submit = async (): Promise<void> => {
-    if (pending) return;
-    setSubmitted(true);
-    setError(null);
-    if (username.length === 0 || name.trim().length === 0) return;
-    try {
-      await update.mutateAsync({
-        businessId: account.businessId,
-        input: {
-          ...(username === account.username ? {} : { username }),
-          ...(name === account.name ? {} : { name }),
-        },
-      });
-      setSaved(true);
-      toastSuccess('账户资料已更新');
-      guard.finish();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  };
+  const submit = handleSubmit(
+    async (values: AccountEditFormValues) => {
+      if (pending) return;
+      setError(null);
+      try {
+        await update.mutateAsync({
+          businessId: account.businessId,
+          input: {
+            ...(values.username === account.username ? {} : { username: values.username }),
+            ...(values.name === account.name ? {} : { name: values.name }),
+          },
+        });
+        setSaved(true);
+        toastSuccess('账户资料已更新');
+        guard.finish();
+      } catch (cause) {
+        setError(errorMessage(cause));
+      }
+    },
+    () => setError(null),
+  );
 
   return (
     <Dialog
@@ -819,14 +852,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
         className="max-w-lg sm:max-w-lg"
         closeDisabled={pending}
       >
-        <form
-          aria-label="编辑账户"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
+        <form aria-label="编辑账户" noValidate onSubmit={submit}>
           <FieldGroup className="gap-5">
             <Field data-disabled>
               <FieldLabel htmlFor="account-edit-business-id">业务 ID</FieldLabel>
@@ -840,8 +866,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
                 disabled={pending}
                 aria-invalid={Boolean(usernameError)}
                 aria-describedby={usernameError ? 'account-edit-username-error' : undefined}
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                {...register('username')}
               />
               <FieldError id="account-edit-username-error">{usernameError ?? undefined}</FieldError>
             </Field>
@@ -853,8 +878,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
                 disabled={pending}
                 aria-invalid={Boolean(nameError)}
                 aria-describedby={nameError ? 'account-edit-name-error' : undefined}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
+                {...register('name')}
               />
               <FieldError id="account-edit-name-error">{nameError ?? undefined}</FieldError>
             </Field>
@@ -875,33 +899,46 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
   );
 }
 
+const resetPasswordFormSchema = z
+  .object({
+    password: z.string().min(8, '密码至少 8 个字符。'),
+    confirm: z.string(),
+  })
+  .refine((values) => values.confirm === values.password, {
+    message: '两次输入的密码不一致。',
+    path: ['confirm'],
+  });
+type ResetPasswordFormValues = z.infer<typeof resetPasswordFormSchema>;
+
 function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: () => void }) {
   const reset = useResetAccountPassword();
-  const [password, setpassword] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const { register, handleSubmit, formState } = useZodForm(resetPasswordFormSchema, {
+    defaultValues: { password: '', confirm: '' },
+  });
+  const { errors, isDirty } = formState;
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
   const [saved, setSaved] = useState(false);
   const pending = reset.isPending && !saved;
-  const dirty = !saved && (password !== '' || confirm !== '');
+  const dirty = !saved && isDirty;
   const guard = useDiscardGuard(dirty, pending, onClose);
-  const passwordError = submitted && password.length < 8 ? '密码至少 8 个字符。' : null;
-  const confirmError = submitted && confirm !== password ? '两次输入的密码不一致。' : null;
+  const passwordError = errors.password?.message;
+  const confirmError = errors.confirm?.message;
 
-  const submit = async (): Promise<void> => {
-    if (pending) return;
-    setSubmitted(true);
-    setError(null);
-    if (password.length < 8 || password !== confirm) return;
-    try {
-      await reset.mutateAsync({ businessId: account.businessId, password });
-      setSaved(true);
-      toastSuccess('密码已重置');
-      guard.finish();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  };
+  const submit = handleSubmit(
+    async (values: ResetPasswordFormValues) => {
+      if (pending) return;
+      setError(null);
+      try {
+        await reset.mutateAsync({ businessId: account.businessId, password: values.password });
+        setSaved(true);
+        toastSuccess('密码已重置');
+        guard.finish();
+      } catch (cause) {
+        setError(errorMessage(cause));
+      }
+    },
+    () => setError(null),
+  );
 
   return (
     <Dialog
@@ -920,14 +957,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
         className="max-w-md sm:max-w-md"
         closeDisabled={pending}
       >
-        <form
-          aria-label="重置密码"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
+        <form aria-label="重置密码" noValidate onSubmit={submit}>
           <FieldGroup className="gap-5">
             <Field data-invalid={Boolean(passwordError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-reset-password">新密码</FieldLabel>
@@ -938,8 +968,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
                 disabled={pending}
                 aria-invalid={Boolean(passwordError)}
                 aria-describedby={passwordError ? 'account-reset-password-error' : undefined}
-                value={password}
-                onChange={(event) => setpassword(event.target.value)}
+                {...register('password', { deps: ['confirm'] })}
               />
               <FieldError id="account-reset-password-error">
                 {passwordError ?? undefined}
@@ -954,8 +983,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
                 disabled={pending}
                 aria-invalid={Boolean(confirmError)}
                 aria-describedby={confirmError ? 'account-reset-confirm-error' : undefined}
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
+                {...register('confirm')}
               />
               <FieldError id="account-reset-confirm-error">{confirmError ?? undefined}</FieldError>
             </Field>

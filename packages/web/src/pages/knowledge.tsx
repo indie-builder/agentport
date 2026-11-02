@@ -135,7 +135,7 @@ function KnowledgeCard({
 }) {
   return (
     <li className="min-w-0">
-      <Card className="relative h-full transition-shadow hover:ring-foreground/25">
+      <Card className="relative h-full">
         {/* 覆盖整卡的可点击入口；操作菜单用 z-10 保持在它之上。 */}
         <Link
           to="/knowledge/$baseId"
@@ -205,7 +205,7 @@ function KnowledgeCard({
             </DropdownMenu>
           </CardAction>
           <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10">
-            {base.description || '—'}
+            {base.description || '暂无描述'}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-1 items-center">
@@ -402,7 +402,7 @@ export function KnowledgePage() {
               if (file) onImportFile(file);
             }}
           />
-          {canCreate ? (
+          {canCreate && (bases.isPending || bases.isError || baseItems.length > 0) ? (
             <Button ref={createButtonRef} onClick={() => setCreating(true)}>
               <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
             </Button>
@@ -470,7 +470,12 @@ export function KnowledgePage() {
           title="还没有知识库"
           action={
             canCreate ? (
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+              <Button
+                ref={createButtonRef}
+                variant="outline"
+                size="sm"
+                onClick={() => setCreating(true)}
+              >
                 <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
               </Button>
             ) : undefined
@@ -859,7 +864,7 @@ function CreateBaseDialog({
             >
               <ChevronRight
                 className={cn(
-                  'size-3.5 shrink-0 transition-transform duration-150',
+                  'size-3.5 shrink-0 transition-transform duration-150 ease-out-soft',
                   advancedOpen && 'rotate-90',
                 )}
                 aria-hidden="true"

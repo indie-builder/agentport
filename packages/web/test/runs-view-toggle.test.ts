@@ -137,8 +137,8 @@ describe('run list view toggle', () => {
     expect(text).toContain('运行 ID');
     expect(text).toContain('错误');
     expect(text).toContain('采集失败：连接超时');
-    const detailHref = cards()
-      ?.querySelector(`a[aria-label="查看运行 ${shortId(run.id)}"]`)
+    const detailHref = [...(cards()?.querySelectorAll<HTMLAnchorElement>('a') ?? [])]
+      .find((anchor) => anchor.textContent?.trim() === '专家')
       ?.getAttribute('href');
     const detailUrl = new URL(detailHref ?? '', 'http://localhost');
     expect(detailUrl.pathname).toBe(`/runs/${run.id}`);

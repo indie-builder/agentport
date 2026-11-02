@@ -953,7 +953,7 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 
 ## 17. 信息架构与业务任务（2026-10-29）
 
-> 本节是当前有效的信息架构契约。与 §1.4 的早期页面诉求冲突时以本节为准；视觉数值仍以 [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) 为准，验收以 [USER-STORIES.md](USER-STORIES.md) 为准，任务过程见 [agent-experience-redesign.md](tasks/agent-experience-redesign.md)。
+> 本节是当前有效的信息架构契约。与 §1.4 的早期页面诉求冲突时以本节为准；视觉数值以 [packages/web/DESIGN.md](../packages/web/DESIGN.md) 为准，验收以 [USER-STORIES.md](USER-STORIES.md) 为准，任务过程见 [agent-experience-redesign.md](tasks/agent-experience-redesign.md)。
 >
 > §1.4 中「知识库与专家/技能/连接器/插件并列的资源页签」已被本节替代：专家移出资源中心，知识库仍在资源中心。
 

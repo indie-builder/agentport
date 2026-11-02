@@ -57,7 +57,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="break-words font-mono text-xs leading-5 tabular-nums text-fg">{value}</div>
+      <div className="break-words font-mono text-sm leading-5 tabular-nums text-fg">{value}</div>
     </div>
   );
 }
@@ -327,6 +327,7 @@ export function StatusPage() {
     <Page>
       <PageHeader
         title="健康"
+        description="运行指标每 10 秒自动刷新。"
         actions={
           <Button variant="outline" onClick={refresh} disabled={isFetching}>
             <RefreshCw
@@ -338,7 +339,6 @@ export function StatusPage() {
           </Button>
         }
       />
-      <p className="text-xs text-muted-foreground">运行指标每 10 秒自动刷新。</p>
 
       <PageSection title="端点诊断">
         <div className="flex flex-wrap items-start gap-3 border-b pb-3">

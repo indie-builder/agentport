@@ -358,7 +358,8 @@ describe('conversation outputs list', () => {
       await client.invalidateQueries({ queryKey: ['conversation-outputs', 'conversation-a'] });
     });
     await flush();
-    expect(workspace().textContent).toContain('outputs unavailable');
+    expect(workspace().textContent).toContain('刷新失败，已保留加载的内容');
+    expect(workspace().textContent).toContain('当前会话没有成果文件');
 
     vi.mocked(api.outputs).mockResolvedValue(list);
     const retry = [...workspace().querySelectorAll('button')].find(

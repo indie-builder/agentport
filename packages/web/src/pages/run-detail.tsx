@@ -160,73 +160,72 @@ export function RunDetailPage() {
   };
 
   const header = (
-    <div className="flex min-w-0 items-end gap-3">
-      <a
-        href={backTo}
-        onClick={(event) => {
-          if (
-            event.defaultPrevented ||
-            event.button !== 0 ||
-            event.metaKey ||
-            event.ctrlKey ||
-            event.shiftKey ||
-            event.altKey
-          ) {
-            return;
-          }
-          event.preventDefault();
-          void navigate({ href: backTo });
-        }}
-        aria-label={search.backTo ? '返回来源' : '返回运行列表'}
-        className={buttonVariants({ variant: 'outline', size: 'icon' })}
-      >
-        <ArrowLeft aria-hidden="true" />
-      </a>
-      <PageHeader
-        title={`运行 ${shortId(params.runId)}`}
-        eyebrow={run.data ? <RunStatusBadge status={run.data.run.status} /> : null}
-        className="min-w-0 flex-1 [&_h1]:shrink"
-        actions={
-          run.data ? (
-            <>
-              {cancellable && canCancel ? (
-                <Button
-                  variant="outline"
-                  disabled={cancelMutation.isPending}
-                  aria-busy={cancelMutation.isPending}
-                  aria-label="取消运行"
-                  onClick={cancel}
-                >
-                  <CircleStop data-icon="inline-start" aria-hidden="true" />
-                  {cancelMutation.isPending ? '取消中…' : '取消'}
-                </Button>
-              ) : null}
-              {terminal && hasPrompt && canRerun ? (
-                <Button
-                  disabled={rerunMutation.isPending}
-                  aria-busy={rerunMutation.isPending}
-                  onClick={rerun}
-                >
-                  <RotateCcw data-icon="inline-start" aria-hidden="true" />
-                  {rerunMutation.isPending ? '提交中…' : '重跑'}
-                </Button>
-              ) : null}
-              {terminal && hasPrompt && canRerun ? (
-                <Button
-                  variant="outline"
-                  disabled={draftMutation.isPending}
-                  aria-busy={draftMutation.isPending}
-                  onClick={saveAsSkill}
-                >
-                  <Sparkles data-icon="inline-start" aria-hidden="true" />
-                  {draftMutation.isPending ? '生成中…' : '存为技能'}
-                </Button>
-              ) : null}
-            </>
-          ) : undefined
-        }
-      />
-    </div>
+    <PageHeader
+      leading={
+        <a
+          href={backTo}
+          onClick={(event) => {
+            if (
+              event.defaultPrevented ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            ) {
+              return;
+            }
+            event.preventDefault();
+            void navigate({ href: backTo });
+          }}
+          aria-label={search.backTo ? '返回来源' : '返回运行列表'}
+          className={buttonVariants({ variant: 'outline', size: 'icon' })}
+        >
+          <ArrowLeft aria-hidden="true" />
+        </a>
+      }
+      title={`运行 ${shortId(params.runId)}`}
+      eyebrow={run.data ? <RunStatusBadge status={run.data.run.status} /> : null}
+      actions={
+        run.data ? (
+          <>
+            {cancellable && canCancel ? (
+              <Button
+                variant="outline"
+                disabled={cancelMutation.isPending}
+                aria-busy={cancelMutation.isPending}
+                aria-label="取消运行"
+                onClick={cancel}
+              >
+                <CircleStop data-icon="inline-start" aria-hidden="true" />
+                {cancelMutation.isPending ? '取消中…' : '取消'}
+              </Button>
+            ) : null}
+            {terminal && hasPrompt && canRerun ? (
+              <Button
+                disabled={rerunMutation.isPending}
+                aria-busy={rerunMutation.isPending}
+                onClick={rerun}
+              >
+                <RotateCcw data-icon="inline-start" aria-hidden="true" />
+                {rerunMutation.isPending ? '提交中…' : '重跑'}
+              </Button>
+            ) : null}
+            {terminal && hasPrompt && canRerun ? (
+              <Button
+                variant="outline"
+                disabled={draftMutation.isPending}
+                aria-busy={draftMutation.isPending}
+                onClick={saveAsSkill}
+              >
+                <Sparkles data-icon="inline-start" aria-hidden="true" />
+                {draftMutation.isPending ? '生成中…' : '存为技能'}
+              </Button>
+            ) : null}
+          </>
+        ) : undefined
+      }
+    />
   );
 
   if (run.isPending) {
@@ -398,7 +397,7 @@ export function RunDetailPage() {
       <div className="grid min-w-0 gap-4 border-t pt-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <section className="flex min-w-0 flex-col gap-4" aria-label="步骤">
           <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
-            <h2 className="text-sm font-medium text-fg">步骤</h2>
+            <h2 className="text-base font-medium text-fg">步骤</h2>
             <span className="text-2xs text-muted-foreground">
               {steps.length} 步 · 时间为运行后经过时间
             </span>
@@ -424,7 +423,7 @@ export function RunDetailPage() {
                       aria-current={isActive ? 'step' : undefined}
                       className={cn(
                         'w-full justify-start gap-2.5 text-left',
-                        isActive && 'bg-hover',
+                        isActive && 'bg-selected hover:bg-selected',
                       )}
                     >
                       <span className="w-5 shrink-0 text-right font-mono text-2xs tabular-nums text-muted-foreground">

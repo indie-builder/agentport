@@ -735,26 +735,32 @@ export function ScoreBreakdown({
 }) {
   if (!scores) return null;
   return (
-    <dl className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted-foreground">
+    <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <div className="flex gap-1">
         <dt>{scoreKindLabel(scoreKind)}</dt>
-        <dd className="font-mono text-fg">{score.toFixed(4)}</dd>
+        <dd className="font-mono tabular-nums text-fg">{score.toFixed(4)}</dd>
       </div>
       <div className="flex gap-1">
         <dt>关键词</dt>
-        <dd className="font-mono">{scores.keyword === null ? '—' : scores.keyword.toFixed(3)}</dd>
+        <dd className="font-mono tabular-nums">
+          {scores.keyword === null ? '—' : scores.keyword.toFixed(3)}
+        </dd>
       </div>
       <div className="flex gap-1">
         <dt>向量</dt>
-        <dd className="font-mono">{scores.vector === null ? '—' : scores.vector.toFixed(3)}</dd>
+        <dd className="font-mono tabular-nums">
+          {scores.vector === null ? '—' : scores.vector.toFixed(3)}
+        </dd>
       </div>
       <div className="flex gap-1">
         <dt>RRF</dt>
-        <dd className="font-mono">{scores.rrf.toFixed(4)}</dd>
+        <dd className="font-mono tabular-nums">{scores.rrf.toFixed(4)}</dd>
       </div>
       <div className="flex gap-1">
         <dt>重排</dt>
-        <dd className="font-mono">{scores.rerank === null ? '—' : scores.rerank.toFixed(3)}</dd>
+        <dd className="font-mono tabular-nums">
+          {scores.rerank === null ? '—' : scores.rerank.toFixed(3)}
+        </dd>
       </div>
     </dl>
   );

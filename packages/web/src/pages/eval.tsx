@@ -92,7 +92,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     cell: (run) => (
       <StatusBadge tone={evalStatusVariant[run.status]}>
         {run.status === 'running' ? (
-          <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+          <span className="size-1.5 rounded-full bg-button-primary" aria-hidden="true" />
         ) : null}
         {evalStatusLabel[run.status]}
       </StatusBadge>
@@ -546,19 +546,6 @@ export function EvalPage() {
             <PageNote
               icon={<BusinessIllustration name="review" size="compact" />}
               title="还没有用例"
-              action={
-                canManageEval ? (
-                  <Button
-                    variant="outline"
-                    onClick={(event) => {
-                      dialogTriggerRef.current = event.currentTarget;
-                      setCreatingAgentId(effectiveAgentId);
-                    }}
-                  >
-                    <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
-                  </Button>
-                ) : undefined
-              }
             />
           ) : null}
           {effectiveAgentId && cases.data && cases.data.length > 0 ? (
@@ -566,7 +553,7 @@ export function EvalPage() {
               {cases.data.map((testCase) => (
                 <li
                   key={testCase.id}
-                  className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 last:border-b-0 hover:bg-hover"
+                  className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">
@@ -595,7 +582,7 @@ export function EvalPage() {
                         <Pencil className="size-4" aria-hidden="true" />
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="destructive"
                         size="icon-sm"
                         onClick={(event) => {
                           dialogTriggerRef.current = event.currentTarget;
@@ -795,7 +782,7 @@ function EvalRunResults({ id }: { id: string }) {
       >
         <StatusBadge tone={evalStatusVariant[evalRun.status]}>
           {running ? (
-            <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+            <span className="size-1.5 rounded-full bg-button-primary" aria-hidden="true" />
           ) : null}
           {evalStatusLabel[evalRun.status]}
         </StatusBadge>

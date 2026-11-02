@@ -102,7 +102,11 @@ export function KnowledgeEvaluations({
               disabled={pending}
               required
               aria-invalid={error !== null}
-              aria-describedby="knowledge-evaluation-target-format"
+              aria-describedby={
+                error !== null
+                  ? 'knowledge-evaluation-target-format knowledge-evaluation-error'
+                  : 'knowledge-evaluation-target-format'
+              }
               onChange={(event) => setTargets(event.target.value)}
             />
             <FieldDescription id="knowledge-evaluation-target-format">
@@ -145,7 +149,9 @@ export function KnowledgeEvaluations({
             </Field>
           </div>
         </FieldGroup>
-        <FieldError role="alert">{error}</FieldError>
+        <FieldError id="knowledge-evaluation-error" role="alert">
+          {error}
+        </FieldError>
         <div className="flex justify-end gap-2">
           <Button
             type="button"
@@ -178,10 +184,10 @@ export function KnowledgeEvaluations({
             <TableRow>
               <TableHead>查询</TableHead>
               <TableHead>命中</TableHead>
-              <TableHead>Recall@K</TableHead>
-              <TableHead>MRR</TableHead>
-              <TableHead>分块 Recall@K</TableHead>
-              <TableHead>耗时</TableHead>
+              <TableHead className="text-right">Recall@K</TableHead>
+              <TableHead className="text-right">MRR</TableHead>
+              <TableHead className="text-right">分块 Recall@K</TableHead>
+              <TableHead className="text-right">耗时</TableHead>
               <TableHead>警告</TableHead>
             </TableRow>
           </TableHeader>
@@ -190,10 +196,18 @@ export function KnowledgeEvaluations({
               <TableRow key={result.q}>
                 <TableCell>{result.q}</TableCell>
                 <TableCell>{result.hit ? '命中' : '未命中'}</TableCell>
-                <TableCell>{percent(result.recallAtK)}</TableCell>
-                <TableCell>{result.reciprocalRank.toFixed(3)}</TableCell>
-                <TableCell>{percent(result.chunkRecallAtK)}</TableCell>
-                <TableCell>{result.elapsedMs} ms</TableCell>
+                <TableCell className="text-right font-mono tabular-nums">
+                  {percent(result.recallAtK)}
+                </TableCell>
+                <TableCell className="text-right font-mono tabular-nums">
+                  {result.reciprocalRank.toFixed(3)}
+                </TableCell>
+                <TableCell className="text-right font-mono tabular-nums">
+                  {percent(result.chunkRecallAtK)}
+                </TableCell>
+                <TableCell className="text-right font-mono tabular-nums">
+                  {result.elapsedMs} ms
+                </TableCell>
                 <TableCell>
                   {result.degraded ? '检索降级 ' : ''}
                   {result.warnings.map((warning) => warning.message).join('；') || '—'}
@@ -203,10 +217,16 @@ export function KnowledgeEvaluations({
             <TableRow>
               <TableCell>总体</TableCell>
               <TableCell>—</TableCell>
-              <TableCell>{percent(report.recallAtK)}</TableCell>
-              <TableCell>{report.mrr.toFixed(3)}</TableCell>
-              <TableCell>{percent(report.chunkRecallAtK)}</TableCell>
-              <TableCell>—</TableCell>
+              <TableCell className="text-right font-mono tabular-nums">
+                {percent(report.recallAtK)}
+              </TableCell>
+              <TableCell className="text-right font-mono tabular-nums">
+                {report.mrr.toFixed(3)}
+              </TableCell>
+              <TableCell className="text-right font-mono tabular-nums">
+                {percent(report.chunkRecallAtK)}
+              </TableCell>
+              <TableCell className="text-right font-mono tabular-nums">—</TableCell>
               <TableCell>—</TableCell>
             </TableRow>
           </TableBody>

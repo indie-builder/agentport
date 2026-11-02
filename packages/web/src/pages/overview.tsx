@@ -188,7 +188,7 @@ const runColumns: DataColumn<RecentRun>[] = [
     sortValue: (run) => run.agentName ?? '',
     cell: (run) => (
       <span className="min-w-0 text-fg [overflow-wrap:anywhere]">
-        {run.agentName ?? <span className="text-muted-foreground">已删除</span>}
+        {run.agentName ?? <span className="text-muted-foreground">已删除的专家</span>}
       </span>
     ),
   },
@@ -504,7 +504,22 @@ export function OverviewPage() {
         }
       />
 
-      {error ? <ErrorState error={error} onRetry={() => void overview.refetch()} /> : null}
+      {error && !data ? (
+        <ErrorState error={error} onRetry={() => void overview.refetch()} />
+      ) : null}
+
+      {error && data ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留加载的内容"
+          description="以下内容为上次成功加载的结果。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void overview.refetch()}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
 
       {loading ? <LoadingState rows={3} /> : null}
 
@@ -543,7 +558,7 @@ export function OverviewPage() {
                 { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
                 { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
               ].map(({ label, value, hint, icon: Icon }) => (
-                <Card key={label}>
+                <Card key={label} interactive={false}>
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between gap-3">
                       <span className="text-sm font-normal text-muted-foreground">{label}</span>
@@ -569,7 +584,6 @@ export function OverviewPage() {
 
           <PageSection
             title="最近运行"
-            divided={false}
             {...(data.counts.running ? { description: `${data.counts.running} 个正在运行` } : {})}
             actions={
               <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
@@ -602,7 +616,6 @@ export function OverviewPage() {
 
           <PageSection
             title="专家运行"
-            divided={false}
             actions={
               <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                 管理专家

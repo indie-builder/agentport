@@ -4,7 +4,8 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Hash, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageHeader, PageSection } from '../components/page.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge-shared.js';
+import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -35,7 +36,7 @@ export function ChannelsPage() {
       <PageHeader
         title="频道"
         actions={
-          canCreate ? (
+          canCreate && (channels.isPending || (channels.isError && channels.data === undefined) || items.length > 0) ? (
             <Button onClick={() => setCreating(true)}>
               <Plus aria-hidden="true" />
               新建频道
@@ -43,9 +44,22 @@ export function ChannelsPage() {
           ) : undefined
         }
       />
+      {channels.isError && channels.data !== undefined ? (
+        <PageNote
+          tone="danger"
+          title="刷新失败，已保留加载的内容"
+          description="以下为上次成功加载的内容。"
+          action={
+            <Button variant="outline" size="sm" onClick={() => void channels.refetch()}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+
       {channels.isPending ? (
         <LoadingState rows={4} />
-      ) : channels.isError ? (
+      ) : channels.isError && channels.data === undefined ? (
         <ErrorState error={channels.error} onRetry={() => void channels.refetch()} />
       ) : items.length === 0 ? (
         <EmptyState
@@ -66,7 +80,7 @@ export function ChannelsPage() {
           }
         />
       ) : (
-        <PageSection>
+        <PageSection divided={false}>
           <ul className="divide-y divide-line overflow-hidden rounded-card border border-line">
             {items.map((channel, index) => (
               <li key={channel.id}>
@@ -102,7 +116,7 @@ function ChannelRow({
       to="/channels/$channelId"
       params={{ channelId: channel.id }}
       className={cn(
-        'flex min-w-0 items-start gap-3 px-4 py-3 transition-colors duration-150 hover:bg-hover',
+        'flex min-w-0 items-start gap-3 px-4 py-2 transition-colors duration-150 ease-out-soft hover:bg-hover',
         channel.archivedAt && 'opacity-70',
       )}
     >
@@ -117,14 +131,16 @@ function ChannelRow({
         <p className="min-w-0 truncate text-sm text-muted-foreground">{summary}</p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground">
-        {channel.unreadCount > 0 ? (
-          <Badge aria-label={`${channel.unreadCount} 条未读`}>{channel.unreadCount}</Badge>
-        ) : null}
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
+          {channel.unreadCount > 0 ? (
+            <Badge aria-label={`${channel.unreadCount} 条未读`}>{channel.unreadCount}</Badge>
+          ) : null}
+          <span>{formatRelative(last?.createdAt)}</span>
+        </span>
         <span className="whitespace-nowrap">
           {memberCount === undefined ? '成员 —' : `${memberCount} 成员`}
           {agentCount === undefined ? '' : ` · ${agentCount} 智能体`}
         </span>
-        <span className="whitespace-nowrap">{formatRelative(last?.createdAt)}</span>
       </div>
     </Link>
   );
@@ -142,6 +158,7 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
     formState: { errors, isDirty, isSubmitting },
   } = form;
   const pending = create.isPending || isSubmitting;
+  const guard = useDraftGuard(isDirty, pending, onClose);
 
   const submit = handleSubmit((values) => {
     const description = values.description?.trim();
@@ -149,7 +166,12 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
       { name: values.name, ...(description ? { description } : {}) },
       {
         onSuccess: (channel) => {
-          void navigate({ to: '/channels/$channelId', params: { channelId: channel.id } });
+          guard.finish();
+          void navigate({
+            to: '/channels/$channelId',
+            params: { channelId: channel.id },
+            ignoreBlocker: true,
+          });
         },
         onError: (error) => toastError(error),
       },
@@ -160,12 +182,11 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
     <Dialog
       open
       onOpenChange={(next, details) => {
-        // 有草稿或请求在途时 Esc / 外部点击不直接丢弃。
-        if (!next && (pending || isDirty)) {
+        if (pending) {
           details.cancel();
           return;
         }
-        if (!next) onClose();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="新建频道" closeDisabled={pending}>
@@ -200,7 +221,7 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
             ) : null}
           </Field>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
+            <Button type="button" variant="outline" disabled={pending} onClick={guard.close}>
               取消
             </Button>
             <Button type="submit" disabled={pending} aria-busy={pending}>
@@ -208,6 +229,7 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
             </Button>
           </div>
         </form>
+        <DraftGuardDialogs guard={guard} draft="新建频道草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );

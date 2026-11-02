@@ -25,6 +25,7 @@ import {
   formatDateTime,
   formatDuration,
   formatTokens,
+  formatUtcDateTime,
   runStatusLabel,
   shortId,
 } from '../lib/format.js';
@@ -43,21 +44,6 @@ const triggerLabel: Record<Trigger, string> = {
 };
 
 const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
-
-// 汇总窗口是 UTC 日界，固定按 UTC 显示，不跟随浏览器本地时区。
-const utcDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-  timeZone: 'UTC',
-});
-
-function formatUtcDateTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
-}
 
 // 成本按货币保留 4 位小数；Token 是计数，统一用精确整数加千分位，避免同屏混用 k/M 缩写。
 const tokenCountFormatter = new Intl.NumberFormat('zh-CN');
@@ -88,8 +74,8 @@ function RunCard({ run, action }: { run: PersonalRun; action: ReactNode }) {
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle className="min-w-0 truncate" title={run.agentName ?? '已删除'}>
-          {run.agentName ?? '已删除'}
+        <CardTitle className="min-w-0 truncate" title={run.agentName ?? '已删除的专家'}>
+          {run.agentName ?? '已删除的专家'}
         </CardTitle>
         <CardAction>
           <RunStatusBadge status={run.status} />
@@ -135,6 +121,7 @@ export function PersonalUsagePage() {
   const days = search.days ?? 30;
   const cursor = search.cursor ?? null;
   const view = search.view ?? 'table';
+  const hasActiveFilter = Boolean(search.agent || search.trigger || search.status);
   const usage = usePersonalUsage(days, canOverview);
   const agents = useQuery({ ...agentsQuery, enabled: canAgents });
   const query: PersonalRunListQuery = {
@@ -178,7 +165,7 @@ export function PersonalUsagePage() {
         { value: '90', label: '最近 90 天' },
       ]}
       label="统计窗口"
-      className="w-32"
+      className="w-36"
     />
   );
 
@@ -227,8 +214,8 @@ export function PersonalUsagePage() {
       header: '专家',
       width: 'minmax(150px,1fr)',
       cell: (run) => (
-        <span className="block truncate text-fg" title={run.agentName ?? '已删除'}>
-          {run.agentName ?? '已删除'}
+        <span className="block truncate text-base text-fg" title={run.agentName ?? '已删除的专家'}>
+          {run.agentName ?? '已删除的专家'}
         </span>
       ),
     },
@@ -394,7 +381,7 @@ export function PersonalUsagePage() {
                 ...statuses.map((status) => ({ value: status, label: runStatusLabel[status] })),
               ]}
               label="按状态筛选"
-              className="w-full sm:w-32"
+              className="w-full sm:w-36"
             />
             <FilterSelect
               value={search.trigger ?? ''}
@@ -409,7 +396,7 @@ export function PersonalUsagePage() {
                 ...triggers.map((trigger) => ({ value: trigger, label: triggerLabel[trigger] })),
               ]}
               label="按来源筛选"
-              className="w-full sm:w-32"
+              className="w-full sm:w-36"
             />
             <Button
               type="button"
@@ -429,16 +416,46 @@ export function PersonalUsagePage() {
             </div>
           </PageToolbar>
 
-          {runs.isError ? (
+          {runs.isError && runs.data !== undefined ? (
+            <PageNote
+              tone="danger"
+              title="刷新失败，已保留加载的内容"
+              description="以下为上次成功加载的内容。"
+              action={
+                <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
+                  重试
+                </Button>
+              }
+            />
+          ) : null}
+
+          {runs.isError && runs.data === undefined ? (
             <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
           ) : runs.data && runs.data.items.length === 0 ? (
             <PageNote
               icon={<Activity className="size-4" aria-hidden="true" />}
-              title="这个窗口还没有运行记录"
+              title={hasActiveFilter ? '没有匹配的运行记录' : '这个窗口还没有运行记录'}
               action={
-                <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-                  新建对话
-                </Link>
+                hasActiveFilter ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      patchSearch({
+                        agent: undefined,
+                        trigger: undefined,
+                        status: undefined,
+                        cursor: undefined,
+                      })
+                    }
+                  >
+                    清除筛选
+                  </Button>
+                ) : (
+                  <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                    新建对话
+                  </Link>
+                )
               }
             />
           ) : view === 'cards' ? (

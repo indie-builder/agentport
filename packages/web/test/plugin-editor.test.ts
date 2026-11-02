@@ -184,15 +184,12 @@ describe('plugin editor dialog', () => {
     expect(fetchPlugin).toHaveBeenCalledWith('plugin');
   });
 
-  it('opens the detail page from the card title and footer', async () => {
+  it('opens the detail page from the card title', async () => {
     mount();
 
     const titleLink = document.querySelector<HTMLAnchorElement>('h2 a[href="/plugins/plugin"]');
     expect(titleLink?.textContent).toContain('Demo 插件');
-    const footerLink = [...document.querySelectorAll<HTMLAnchorElement>('a')].find(
-      (link) => link.textContent?.trim() === '查看详情',
-    );
-    expect(footerLink?.getAttribute('href')).toBe('/plugins/plugin');
+    expect(titleLink?.getAttribute('href')).toBe('/plugins/plugin');
     expect(document.body.textContent).not.toContain('编辑插件');
   });
 

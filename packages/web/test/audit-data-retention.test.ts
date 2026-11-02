@@ -221,7 +221,7 @@ describe('run list keeps cached rows when a refetch fails', () => {
 
     expect(host.querySelector('table[aria-label="运行列表"]')).not.toBeNull();
     expect(host.querySelector('[title="run_cached"]')).not.toBeNull();
-    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
     expect(button('重试')).not.toBeNull();
 
     await click('重试');
@@ -243,7 +243,7 @@ describe('run list keeps cached rows when a refetch fails', () => {
     });
     await actWaitFor(() => expect(host.textContent).toContain('runs unavailable'));
     expect(host.textContent).toContain('还没有运行记录');
-    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
   });
 
   it('uses the full error state only when no run data was ever loaded', async () => {
