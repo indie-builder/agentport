@@ -97,12 +97,12 @@
   - E2(P2) 找专家工具栏布局（搜索左、筛选排序 ml-auto 大空白）改为资源中心顺序；memory-review 手写工具栏→PageToolbar、页级主操作移入 PageHeader actions；memory 专家筛选宽 176→144。〔进度：找专家（agents）工具栏已改为搜索(224)+筛选+排序左组（去 flex-1 与 ml-auto，中间空白消除）；待 memory-review 工具栏→PageToolbar + 主操作入 PageHeader + 筛选宽 176→144〕〔更新：memory-review 工具栏已改共享 PageToolbar、专家筛选宽 176→144 完成；「生成记忆提案」主操作入 PageHeader 暂缓——需把 create 触发器/状态从列表组件提升到页面层，跨组件改造风险高，维持工具栏内放置〕
   - E3(P3) 分页四形态统一（抽共享 Pager / 固定位置与外框）。
 - **F 表单与弹窗**
-  - F1(P1) 新建频道弹窗退出路径不一致/无草稿保护 → useDraftGuard+DraftGuardDialogs。
+  - F1(P1) 新建频道弹窗退出路径不一致/无草稿保护 → useDraftGuard+DraftGuardDialogs。〔进度：已完成——CreateChannelDialog 接入 useDraftGuard(isDirty,pending,onClose)+DraftGuardDialogs，pending 期拦截关闭、取消走 guard.close；成功导航带 ignoreBlocker:true 绕过尚未随 effect cleanup 注销的 dirty blocker（否则创建成功却停在列表）。typecheck/build exit0，Opus 两轮终审通过〕
   - F2(P2) 字段错误 aria 关联缺失：knowledge-documents/knowledge-wiki/personal-profile/knowledge-evaluations 的 FieldError 补 id + aria-invalid/aria-describedby。
   - F3(P2) 保存禁用策略（编辑态 `disabled={!dirty||pending}`、取消始终可用）、失败内联 vs toast 统一（表单失败内联 FieldError）、横向 Field 几何统一。
   - F4(P2,大) 多字段手写 useState→useZodForm（accounts/knowledge-settings/memory-review/runtime-env 等，按页分批）。
 - **G 排版/数字/文案**
-  - G1(P1) 数字格式统一走 `lib/format`（chat.tsx:3285-3297 绕过，耗时/token/成本精度不一）。
+  - G1(P1) 数字格式统一走 `lib/format`（chat.tsx:3285-3297 绕过，耗时/token/成本精度不一）。〔进度：已完成——chat.tsx RunMetricsLine 三处手写格式化改为 formatDuration/formatTokens/formatCost，与 runs/run-detail/overview/personal-usage 一致；typecheck/build exit0，Opus 终审通过（12 项格式化边界断言全过）〕
   - G2(P2) 日期/时区统一 formatter（本地无年份、UTC 两处手写复制）。
   - G3(P2) 数值列右对齐+font-mono+tabular-nums（knowledge-evaluations/知识进度等）。
   - G4(P2) `2xs` 越界到可点击/普通区（conversation-search 等）→ xs。
