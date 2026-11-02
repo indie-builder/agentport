@@ -31,6 +31,7 @@ colors:
   button-primary-hover: "#CC5A36"
   button-primary-active: "#AD4724"
   success: "#187646"
+  success-soft: "#E9F3EC"
   warning: "#8A5600"
   warning-soft: "#FBF3E4"
   danger: "#B42318"
@@ -220,7 +221,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 这套系统用陶土承担「可执行」与焦点，用暖灰阶梯承担层级：普通主操作、发送、登录共用 `#D97757` → `#CC5A36` → `#AD4724` 三态实底；正文链接用深陶土 `#A8482B`；Input / Textarea 聚焦用陶土微光（1px 陶土边 + 三层微光），Select / Combobox / InputGroup 同样用陶土微光（`.cds-focus-glow`），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。唯一的蓝色是运行图表首系列的数据蓝。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
 
-本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文只记录实现值，不把未覆盖的浏览器证据写成已验收，未覆盖项与规范差异见 Known Gaps 和对应任务记录。
+本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文只记录实现值，不把未覆盖的浏览器证据写成已验收，未覆盖项与规范差异见 Known Gaps 和对应任务记录。视觉令牌与参考项目 open-claude-ui（Claude CDS）对齐；暖灰不透明状态层、气泡 18px、链接/危险取更深对比度色、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等为有意适配，见 Do's 与 Known Gaps。
 
 **Key Characteristics:**
 - 平铺外壳：`canvas #FCFCFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。
@@ -357,10 +358,10 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Shadow Vocabulary
 
-- **Overlay** (`inset 0 0 0 1px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)`)：菜单、Select、Combobox、Popover、Dialog、AlertDialog、Sheet、Toast。`shadow-md` 与 `shadow-lg` 都映射到这一值。
+- **Overlay** (`0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)`；实现经 `--hairline`，retina 下约 0.5px)：菜单、Select、Combobox、Popover、Dialog、AlertDialog、Sheet、Toast。`shadow-md` 与 `shadow-lg` 都映射到这一值。
 - **Composer**：默认 `0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px rgba(0, 0, 0, 0.10)`；hover `0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.20)`；聚焦 `0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.20)`。
-- **Focus Glow** (`inset 0 0 0 1px #ffffff, 0 0 0 1.5px #d97757, 0 0 6px 1px rgba(217, 119, 87, 0.25)`)：普通输入与文本域经 `.cds-focus-glow` 使用的陶土焦点信号；无边框按钮类仍用单层 2px `ring`。
-- **Panel** (`0 0 0 1px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.04)`)：卡片常驻边界与轻投影，取代单独 ring。
+- **Focus Glow** (`inset 0 0 0 1px #fcfcfb, 0 0 0 1.5px #d97757, 0 0 6px 1px rgba(217, 119, 87, 0.25)`)：普通输入与文本域经 `.cds-focus-glow` 使用的陶土焦点信号；无边框按钮类仍用单层 2px `ring`。
+- **Panel** (`0 0 0 1px rgba(0, 0, 0, 0.10), var(--shadow-sm)`（值 `0 1px 2px 0 rgba(0,0,0,0.05), 0 2px 8px 0 rgba(0,0,0,0.08)`）)：卡片常驻边界与轻投影，取代单独 ring。
 - **Panel Hover** (`0 0 0 1px rgba(0, 0, 0, 0.20), 0 4px 16px -2px rgba(0, 0, 0, 0.09)`)：卡片 hover 时配合 `translateY(-1.5px)`。
 - **Modal Scrim** (`rgb(0 0 0 / 0.4)`)：模态遮罩，不是阴影。
 
