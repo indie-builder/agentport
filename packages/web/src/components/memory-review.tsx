@@ -41,6 +41,7 @@ import { CodeBlock } from './code-block.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
 import { FilterSelect } from './filter-select.js';
+import { PageToolbar } from './page.js';
 import { EmptyState, ErrorState, LoadingState } from './states.js';
 import { StatusBadge } from './status-badge.js';
 import { Button } from './ui/button.js';
@@ -296,14 +297,14 @@ export function MemoryReviews({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
+      <PageToolbar>
         {canReadAgents ? (
           <FilterSelect
             value={agentId ?? ''}
             onValueChange={(next) => onAgentChange(next || null)}
             options={agentOptions}
             label="按专家筛选记忆提案"
-            className="w-full sm:w-44"
+            className="w-full sm:w-36"
           />
         ) : null}
         <FilterSelect
@@ -349,7 +350,7 @@ export function MemoryReviews({
           ) : null}
           <ViewToggle value={view} onChange={onViewChange} />
         </div>
-      </div>
+      </PageToolbar>
 
       {agents.isError ? (
         <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />

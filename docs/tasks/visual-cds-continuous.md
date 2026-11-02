@@ -94,7 +94,7 @@
   - D2(P1/P2) 列表行操作三形态收敛（多操作进「更多」菜单/单一动作文字按钮）；详情页返回/删除入口统一（配置页删除进菜单、返回入 leading）。〔进度：runtime-env-detail「删除」已从页头常驻 destructive 收进 Ellipsis「更多」菜单（对齐 agents），焦点 ref 挂菜单触发器；待其它详情返回入口与行操作形态按需逐页收敛（判断较重）〕
 - **E 骨架/工具栏/分区**
   - E1(P2) PageSection `divided={false}` 规则修正：status/runtime-environment-detail/overview(移除两个 divided=false)/eval 首个顶层分区不应画线。
-  - E2(P2) 找专家工具栏布局（搜索左、筛选排序 ml-auto 大空白）改为资源中心顺序；memory-review 手写工具栏→PageToolbar、页级主操作移入 PageHeader actions；memory 专家筛选宽 176→144。〔进度：找专家（agents）工具栏已改为搜索(224)+筛选+排序左组（去 flex-1 与 ml-auto，中间空白消除）；待 memory-review 工具栏→PageToolbar + 主操作入 PageHeader + 筛选宽 176→144〕
+  - E2(P2) 找专家工具栏布局（搜索左、筛选排序 ml-auto 大空白）改为资源中心顺序；memory-review 手写工具栏→PageToolbar、页级主操作移入 PageHeader actions；memory 专家筛选宽 176→144。〔进度：找专家（agents）工具栏已改为搜索(224)+筛选+排序左组（去 flex-1 与 ml-auto，中间空白消除）；待 memory-review 工具栏→PageToolbar + 主操作入 PageHeader + 筛选宽 176→144〕〔更新：memory-review 工具栏已改共享 PageToolbar、专家筛选宽 176→144 完成；「生成记忆提案」主操作入 PageHeader 暂缓——需把 create 触发器/状态从列表组件提升到页面层，跨组件改造风险高，维持工具栏内放置〕
   - E3(P3) 分页四形态统一（抽共享 Pager / 固定位置与外框）。
 - **F 表单与弹窗**
   - F1(P1) 新建频道弹窗退出路径不一致/无草稿保护 → useDraftGuard+DraftGuardDialogs。
