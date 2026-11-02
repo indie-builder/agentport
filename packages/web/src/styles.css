@@ -169,9 +169,6 @@
   --color-input: var(--color-line);
   --color-input-focus: #bdbdbd;
   --color-ring: #d97757;
-  --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
-  --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
-
 
   /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
   --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);

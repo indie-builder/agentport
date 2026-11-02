@@ -20,7 +20,7 @@ export const documentStatusLabel = {
 
 export const documentStatusTone = {
   pending: 'default',
-  processing: 'warn',
+  processing: 'default',
   ready: 'success',
   failed: 'danger',
   disabled: 'outline',
@@ -36,7 +36,7 @@ export const jobStatusLabel = {
 
 export const jobStatusTone = {
   queued: 'default',
-  running: 'warn',
+  running: 'brand',
   succeeded: 'success',
   failed: 'danger',
   cancelled: 'outline',
