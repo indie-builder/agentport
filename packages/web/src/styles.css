@@ -107,8 +107,11 @@
   --sidebar-pad: 16px 12px;
   --sidebar-pad-collapsed: 16px 16px;
 
-  /* CDS 动效曲线与时长；--btn-spring 是 15 阶物理弹簧。 */
-  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  /* CDS 动效曲线与时长；--ease-out-soft 对齐参考 ease-swift，是交互/悬停主曲线；--btn-spring 是 15 阶物理弹簧。 */
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.165, 0.84, 0.44, 1);
+  --ease-overshoot: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --ease-pulse: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 60ms;
   --dur-slow: 0.45s;
   --btn-spring: linear(0, 0.2459, 0.6526, 0.9468, 1.0764, 1.0915, 1.0585, 1.0219, 0.9993, 0.9914, 0.9921, 0.9957, 0.9988, 1.0004, 1);
@@ -483,7 +486,7 @@
   }
 
   .saved-check-decay {
-    animation: saved-check-decay .35s cubic-bezier(.165,.84,.44,1) 2.2s forwards;
+    animation: saved-check-decay .35s var(--ease-out) 2.2s forwards;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -540,7 +543,7 @@
     background: var(--color-button-primary);
     /* 静止态可见：reduced-motion 下动画结束后回到这里，避免指示点整组消失。 */
     opacity: 1;
-    animation: quiet-dot 1.9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    animation: quiet-dot 1.9s var(--ease-pulse) infinite;
   }
 
   .quiet-dots > span:nth-child(2) {
@@ -632,7 +635,7 @@
   }
 
   .cds-overlay-enter {
-    transition: opacity .2s cubic-bezier(.165,.84,.44,1), transform .2s cubic-bezier(.165,.84,.44,1);
+    transition: opacity .2s var(--ease-out), transform .2s var(--ease-out);
   }
 
   .cds-overlay-enter[data-starting-style],
@@ -660,6 +663,6 @@
   }
 
   .message-fade-up {
-    animation: message-fade-up .4s cubic-bezier(.34,1.3,.64,1) both;
+    animation: message-fade-up .4s var(--ease-overshoot) both;
   }
 }

@@ -673,7 +673,7 @@
       {
         "name": "swift",
         "value": "cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "快速跟随与轻量状态切换。"
+        "purpose": "快速跟随与轻量状态切换；即 styles.css 的 --ease-out-soft（交互/悬停主曲线）。"
       },
       {
         "name": "expand",
@@ -683,7 +683,7 @@
       {
         "name": "enter",
         "value": "cubic-bezier(0.22, 1, 0.36, 1)",
-        "purpose": "统一开合与状态过渡；styles.css 的 --ease-out-soft 同值。"
+        "purpose": "侧栏、品牌切图与聊天工作区的 Motion 过渡；不作为主交互曲线。"
       },
       {
         "name": "out",
