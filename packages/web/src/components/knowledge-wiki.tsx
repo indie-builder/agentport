@@ -549,7 +549,7 @@ function WikiPageEditor({
         <Dialog open onOpenChange={(next) => (next ? undefined : setPreviewing(null))}>
           <DialogShell
             title={`预览 v${previewing.version}`}
-            className="max-w-[860px] sm:max-w-[860px]"
+            className="max-w-215 sm:max-w-215"
           >
             <Markdown text={previewing.markdown} />
           </DialogShell>
@@ -831,7 +831,7 @@ function WikiDiffDialog({
   const diff = useKnowledgeWikiDiff(pageId, fromVersionId, toVersionId);
   return (
     <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogShell title="版本贡献差异" className="max-w-[860px] sm:max-w-[860px]">
+      <DialogShell title="版本贡献差异" className="max-w-215 sm:max-w-215">
         {diff.isPending ? <LoadingState rows={3} /> : null}
         {diff.isError ? <ErrorText>差异没有加载出来。</ErrorText> : null}
         {diff.data ? <DiffBody diff={diff.data} /> : null}

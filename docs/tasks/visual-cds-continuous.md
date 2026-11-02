@@ -131,3 +131,4 @@
   - Wave12（radius P3-05 过期说明收尾）：styles.css 输入家族注释更正为「普通 Input/Textarea 聚焦陶土 button-primary，SourceEditor 沿用中性 input-focus」；焦点兜底注释更正为「陶土 ring；skip link 沿用中性」。仅注释，build exit0。至此 radius P3-05 完成。
   - Wave13（spacing P3-01 等值整理 A01/A02）：agent-picker min-w-[16rem]→min-w-64；personal-memory-panel min-h-[24rem]→min-h-96；personal-profile/personal-security max-w-[448px]→max-w-112（各 2 处）。Tailwind v4 默认 --spacing=.25rem、根字号 16px 下严格等值，构建产物已生成对应类。Opus 终审通过；build exit0、全量测试维持基线（9/1870/1879，6 文件）。
   - Wave14（spacing P3-01 A03/A04）：memory-panel min-h-[18rem]→72、[16rem]→64(×2)；skills [16rem]→64；servers max-w-[220px]→55、min-h-[10rem]→40；eval sm:max-w-[900px]→225。等值零视觉；Opus 通过；build exit0、测试基线（9/1870/1879）。
+  - Wave15（spacing P3-01 A05/A06/A09）：knowledge-citations/wiki max-w-[860px]→215（含 sm，wiki 2 处）、knowledge-faq 760/720/680→190/180/170、dialog-shell 560→140（含 sm，保留 max-h-[80dvh]/calc 等）。等值零视觉；Opus 通过；build exit0、测试基线（9/1870/1879）。

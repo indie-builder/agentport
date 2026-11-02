@@ -316,7 +316,7 @@ function FaqEditorForm({
       <DialogShell
         title={initialDetail ? '编辑 FAQ' : '新建 FAQ'}
         closeDisabled={pending}
-        className="max-w-[760px] sm:max-w-[760px]"
+        className="max-w-190 sm:max-w-190"
       >
         <form
           className="flex flex-col gap-4"
@@ -929,7 +929,7 @@ function FaqImportDialog({
       <DialogShell
         title={canImport ? '导入 FAQ' : '批次发布 FAQ'}
         closeDisabled={pending}
-        className="max-w-[720px] sm:max-w-[720px]"
+        className="max-w-180 sm:max-w-180"
       >
         <div className="flex flex-col gap-4">
           {recovered && committed === null ? (
@@ -1944,7 +1944,7 @@ function FaqHistoryDialog({
       <DialogShell
         title="FAQ 版本历史"
         closeDisabled={rollback.isPending}
-        className="max-w-[680px] sm:max-w-[680px]"
+        className="max-w-170 sm:max-w-170"
       >
         {versions.isPending ? <LoadingState rows={3} /> : null}
         {versions.isError ? (
