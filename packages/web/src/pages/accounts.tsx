@@ -130,7 +130,7 @@ export function AccountsPage() {
       <PageHeader
         title="账户"
         actions={
-          canManage ? (
+          canManage && !(accounts.data && items.length === 0 && !settled) ? (
             <Button onClick={() => setCreating(true)}>
               <Plus data-icon="inline-start" /> 新建账户
             </Button>
