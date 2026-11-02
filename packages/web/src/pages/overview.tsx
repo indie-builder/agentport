@@ -584,7 +584,6 @@ export function OverviewPage() {
 
           <PageSection
             title="最近运行"
-            divided={false}
             {...(data.counts.running ? { description: `${data.counts.running} 个正在运行` } : {})}
             actions={
               <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
@@ -617,7 +616,6 @@ export function OverviewPage() {
 
           <PageSection
             title="专家运行"
-            divided={false}
             actions={
               <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                 管理专家

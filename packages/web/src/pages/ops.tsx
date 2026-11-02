@@ -1150,7 +1150,6 @@ export function AttentionPanel() {
 
   return (
     <PageSection
-      divided={false}
       title="需要处理"
       actions={data ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null}
     >

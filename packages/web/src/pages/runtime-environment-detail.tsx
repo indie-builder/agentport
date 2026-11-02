@@ -264,7 +264,7 @@ export function RuntimeEnvironmentDetailPage() {
         <ErrorState error={environment.error} onRetry={() => void environment.refetch()} />
       ) : null}
 
-      <PageSection title="配置">
+      <PageSection title="配置" divided={false}>
         <form
           className="flex flex-col gap-5"
           onSubmit={(event) => {
