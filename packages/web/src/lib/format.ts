@@ -14,6 +14,33 @@ export function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : dateFormatter.format(date);
 }
 
+const utcDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: 'UTC',
+});
+
+export function formatUtcDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
+}
+
+const dateOnlyFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : dateOnlyFormatter.format(date);
+}
+
 export function formatRelative(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);

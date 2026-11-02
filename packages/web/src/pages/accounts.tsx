@@ -47,6 +47,7 @@ import { can } from '../lib/access.js';
 import { type Account, ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { useFormBlocker } from '../lib/form.js';
+import { formatDate } from '../lib/format.js';
 import {
   meQuery,
   useAccounts,
@@ -216,7 +217,7 @@ export function AccountsPage() {
                   <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
                 </TableCell>
                 <TableCell className="font-mono tabular-nums text-muted-foreground">
-                  {new Date(account.createdAt).toLocaleDateString('zh-CN')}
+                  {formatDate(account.createdAt)}
                 </TableCell>
                 <TableCell>
                   <AccountRowActions
@@ -285,7 +286,7 @@ export function AccountsPage() {
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="shrink-0 text-xs text-muted-foreground">创建时间</span>
                     <span className="text-sm text-muted-foreground">
-                      {new Date(account.createdAt).toLocaleDateString('zh-CN')}
+                      {formatDate(account.createdAt)}
                     </span>
                   </div>
                 </CardContent>

@@ -63,7 +63,7 @@ import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
-import { formatRelative } from '../lib/format.js';
+import { formatRelative, formatUtcDateTime } from '../lib/format.js';
 import { meQuery, useAgents, useAttention, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
@@ -87,22 +87,6 @@ const weekdayOptions = [
 ] as const;
 
 const defaultWeekdays = ['1', '2', '3', '4', '5'];
-
-// cron 与下次触发都以 UTC 为准；表格不再跟随浏览器本地时区显示。
-const utcDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'UTC',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-function formatUtcDateTime(value: string | null | undefined): string {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
-}
 
 function parseTime(value: string): { hours: number; minutes: number } | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);

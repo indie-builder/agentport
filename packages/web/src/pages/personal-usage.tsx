@@ -25,6 +25,7 @@ import {
   formatDateTime,
   formatDuration,
   formatTokens,
+  formatUtcDateTime,
   runStatusLabel,
   shortId,
 } from '../lib/format.js';
@@ -43,21 +44,6 @@ const triggerLabel: Record<Trigger, string> = {
 };
 
 const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
-
-// 汇总窗口是 UTC 日界，固定按 UTC 显示，不跟随浏览器本地时区。
-const utcDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-  timeZone: 'UTC',
-});
-
-function formatUtcDateTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
-}
 
 // 成本按货币保留 4 位小数；Token 是计数，统一用精确整数加千分位，避免同屏混用 k/M 缩写。
 const tokenCountFormatter = new Intl.NumberFormat('zh-CN');
