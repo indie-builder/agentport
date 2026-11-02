@@ -36,8 +36,9 @@ import {
   Upload,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Controller } from 'react-hook-form';
 import { toast } from 'sonner';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -181,6 +182,7 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 import type { knowledgeDetailSearchSchema } from '../routes/-search.js';
 
 const tabs = [
@@ -1500,6 +1502,14 @@ function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void })
   );
 }
 
+const documentPropertiesSchema = z.object({
+  title: z.string(),
+  folderId: z.string(),
+  tags: z.string(),
+  status: z.enum(['ready', 'disabled']),
+});
+type DocumentPropertiesValues = z.infer<typeof documentPropertiesSchema>;
+
 function DocumentDialog({
   baseId,
   document,
@@ -1519,17 +1529,13 @@ function DocumentDialog({
     tags: document.tags.join(', '),
     status: document.status === 'disabled' ? ('disabled' as const) : ('ready' as const),
   }));
-  const [title, setTitle] = useState(initial.title);
-  const [folderId, setFolderId] = useState(initial.folderId);
-  const [tags, setTags] = useState(initial.tags);
-  const [status, setStatus] = useState<'ready' | 'disabled'>(initial.status);
+  const { register, control, handleSubmit, watch, formState } = useZodForm(documentPropertiesSchema, {
+    defaultValues: initial,
+  });
+  const { isDirty } = formState;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pending = update.isPending;
-  const dirty =
-    title !== initial.title ||
-    folderId !== initial.folderId ||
-    tags !== initial.tags ||
-    status !== initial.status;
+  const dirty = isDirty;
   const blocker = useFormBlocker(dirty, pending);
   // 保存回调在拦截发生前创建，不能读当时的 blocker 快照。
   const blockerRef = useRef(blocker);
@@ -1546,6 +1552,31 @@ function DocumentDialog({
     if (dirty) setConfirmDiscard(true);
     else finish();
   };
+  const submit = handleSubmit((values: DocumentPropertiesValues) => {
+    update.mutate(
+      {
+        documentId: document.id,
+        patch: {
+          title: values.title.trim(),
+          folderId: values.folderId === 'null' ? null : values.folderId,
+          tags: values.tags
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+          ...(document.status === 'failed' || document.status === 'pending'
+            ? {}
+            : { status: values.status }),
+        },
+      },
+      {
+        onSuccess: () => {
+          toastSuccess('文档已更新');
+          finish();
+        },
+        onError: toastError,
+      },
+    );
+  });
 
   return (
     <Dialog
@@ -1559,113 +1590,91 @@ function DocumentDialog({
       }}
     >
       <DialogShell title="编辑文档" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            update.mutate(
-              {
-                documentId: document.id,
-                patch: {
-                  title: title.trim(),
-                  folderId: folderId === 'null' ? null : folderId,
-                  tags: tags
-                    .split(',')
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                  ...(document.status === 'failed' || document.status === 'pending'
-                    ? {}
-                    : { status }),
-                },
-              },
-              {
-                onSuccess: () => {
-                  toastSuccess('文档已更新');
-                  finish();
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>
             <Field className="gap-1.5">
               <FieldLabel htmlFor="document-title">
                 标题 <RequiredMark />
               </FieldLabel>
-              <Input
-                id="document-title"
-                value={title}
-                disabled={pending}
-                onChange={(event) => setTitle(event.target.value)}
-              />
+              <Input id="document-title" {...register('title')} disabled={pending} />
             </Field>
             <FieldGroup className="grid gap-3 sm:grid-cols-2">
               <Field className="gap-1.5">
                 <FieldLabel htmlFor="document-folder">文件夹</FieldLabel>
-                <Select
-                  value={folderId}
-                  disabled={pending}
-                  onValueChange={(next) => {
-                    if (next !== null) setFolderId(next);
-                  }}
-                  items={[
-                    { value: 'null', label: '未分类' },
-                    ...treeFolders(folders).map((folder) => ({
-                      value: folder.id,
-                      label: `${'　'.repeat(folder.depth)}${folder.label}`,
-                    })),
-                  ]}
-                >
-                  <SelectTrigger id="document-folder" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="null">未分类</SelectItem>
-                      {treeFolders(folders).map((folder) => (
-                        <SelectItem key={folder.id} value={folder.id}>
-                          {`${'　'.repeat(folder.depth)}${folder.label}`}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <Controller
+                  control={control}
+                  name="folderId"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value}
+                      disabled={pending}
+                      onValueChange={(next) => {
+                        if (next !== null) field.onChange(next);
+                      }}
+                      items={[
+                        { value: 'null', label: '未分类' },
+                        ...treeFolders(folders).map((folder) => ({
+                          value: folder.id,
+                          label: `${'　'.repeat(folder.depth)}${folder.label}`,
+                        })),
+                      ]}
+                    >
+                      <SelectTrigger id="document-folder" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="null">未分类</SelectItem>
+                          {treeFolders(folders).map((folder) => (
+                            <SelectItem key={folder.id} value={folder.id}>
+                              {`${'　'.repeat(folder.depth)}${folder.label}`}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </Field>
               <Field className="gap-1.5">
                 <FieldLabel htmlFor="document-status">状态</FieldLabel>
-                <Select
-                  value={status}
-                  disabled={
-                    pending || document.status === 'failed' || document.status === 'pending'
-                  }
-                  onValueChange={(next) => {
-                    if (next === 'ready' || next === 'disabled') setStatus(next);
-                  }}
-                  items={[
-                    { value: 'ready', label: '可检索' },
-                    { value: 'disabled', label: '已停用' },
-                  ]}
-                >
-                  <SelectTrigger id="document-status" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="ready">可检索</SelectItem>
-                      <SelectItem value="disabled">已停用</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <Controller
+                  control={control}
+                  name="status"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value}
+                      disabled={
+                        pending || document.status === 'failed' || document.status === 'pending'
+                      }
+                      onValueChange={(next) => {
+                        if (next === 'ready' || next === 'disabled') field.onChange(next);
+                      }}
+                      items={[
+                        { value: 'ready', label: '可检索' },
+                        { value: 'disabled', label: '已停用' },
+                      ]}
+                    >
+                      <SelectTrigger id="document-status" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="ready">可检索</SelectItem>
+                          <SelectItem value="disabled">已停用</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </Field>
             </FieldGroup>
             <Field className="gap-1.5">
               <FieldLabel htmlFor="document-tags">标签</FieldLabel>
               <Input
                 id="document-tags"
-                value={tags}
+                {...register('tags')}
                 disabled={pending}
-                onChange={(event) => setTags(event.target.value)}
                 placeholder="以逗号分隔"
               />
             </Field>
@@ -1674,7 +1683,11 @@ function DocumentDialog({
             <Button variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>
-            <Button type="submit" disabled={pending || title.trim() === ''} aria-busy={pending}>
+            <Button
+              type="submit"
+              disabled={pending || watch('title').trim() === ''}
+              aria-busy={pending}
+            >
               {pending ? '保存中…' : '保存'}
             </Button>
           </div>
