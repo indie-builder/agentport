@@ -105,7 +105,7 @@
   - G1(P1) 数字格式统一走 `lib/format`（chat.tsx:3285-3297 绕过，耗时/token/成本精度不一）。〔进度：已完成——chat.tsx RunMetricsLine 三处手写格式化改为 formatDuration/formatTokens/formatCost，与 runs/run-detail/overview/personal-usage 一致；typecheck/build exit0，Opus 终审通过（12 项格式化边界断言全过）〕
   - G2(P2) 日期/时区统一 formatter（本地无年份、UTC 两处手写复制）。〔进度：已完成——`lib/format` 新增 `formatUtcDateTime`（UTC，替代 personal-usage/ops 两份重复实现）与 `formatDate`（本地 date-only，用于 accounts 创建时间，替换 `toLocaleDateString`）；两处「必须 UTC」语义保留，typecheck/build exit0，Opus 终审通过（三时区实测）。遗留：`formatDateTime` 无年份属既有紧凑取舍，未改〕
   - G3(P2) 数值列右对齐+font-mono+tabular-nums（knowledge-evaluations/知识进度等）。
-  - G4(P2) `2xs` 越界到可点击/普通区（conversation-search 等）→ xs。〔核查：DESIGN-SYSTEM 规定 2xs(11/16) 仅用于密集只读数据（trace 时间戳/ID/分组小标签），不用于可点击控件或正文；全仓约百处，绝大多数落在密集只读视图内属合法用法，逐处改写主观且收益低，暂缓；若做，仅清理独立可点击链接（如 knowledge-search「查看来源」）等明确违例〕
+  - G4(P2) `2xs` 越界到可点击/普通区（conversation-search 等）→ xs。〔核查：DESIGN-SYSTEM 规定 2xs(11/16) 仅用于密集只读数据（trace 时间戳/ID/分组小标签），不用于可点击控件或正文；全仓约百处，绝大多数落在密集只读视图内属合法用法，逐处改写主观且收益低。已完成可辩护的明确违例：knowledge-search「查看来源」外链 `text-2xs`→`text-xs`（typecheck/build exit0、Opus 通过）；其余（含按钮内次级状态、密集数据行列）保留 2xs〕
   - G5(P2/P3) 文案统一：保存/保存更改、新建 X/创建、空值「—」vs「暂无描述」、已删除专家。
   - G6(P3) 图标尺寸档位、分区标题 13/14 上下文。
 - **轮18（提交，P3 收尾批：运行环境 a11y + 状态指标层级）**：runtime-environments 表格与卡片列表补 `aria-label="运行环境列表"`、runtime-environment-detail 构建版本表补 `aria-label="构建版本列表"`（对齐 accounts/roles/knowledge-detail 既有命名）；status `Metric` 数值 12→`text-sm`(13)、标签仍 12（§4 层级）。typecheck/build exit0，Opus 终审通过。
