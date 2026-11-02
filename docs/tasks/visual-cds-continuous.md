@@ -86,7 +86,7 @@
   - A1(P1) 后台刷新失败整块替换缓存：channels/channel/personal-shares/personal-usage/conversation-outputs 仍是 `isError?ErrorState:内容`，改 `isError && data===undefined` 才整块替换，有缓存则保留+PageNote(danger)+重试（同轮14 范式）。share-dialog 经核实为「错误提示与列表并列追加」非替换，无需改。
 - **B 专家选择与身份**
   - B1(P1/P2) 抽共享 `AgentPicker`（chat.tsx:1370-1446 蓝本：可搜索 Combobox+头像+名称+角色），替换 channel 绑定、ops 执行专家、memory 执行/目标专家；频道 @ 提及补头像/角色/空态。⚠改 ops 前须同步 `DESIGN-SYSTEM:368`。〔进度：B1a 已完成——抽出 `components/agent-picker.tsx` 并让 chat 复用，行为等价；B1b-1 已完成——AgentPicker 增 field 触发形态，频道绑定智能体改用之；B1b-2a 已完成——记忆提案执行/目标专家改用 AgentPicker(field)；B1b-2b 已完成——ops 定时任务执行专家改用 AgentPicker(field)（RHF Controller 接线，triggerRef/onBlur），并同步 DESIGN-SYSTEM:368；B 主题完成〕
-  - B2(P2) 统一专家身份展示：AgentAvatar 接入运行详情/使用记录/总览；抽 `agentRoleLabel`；已删除专家统一「已删除的专家」。
+  - B2(P2) 统一专家身份展示：AgentAvatar 接入运行详情/使用记录/总览；抽 `agentRoleLabel`；已删除专家统一「已删除的专家」。〔进度：已删除专家文案已完成——personal-usage/overview/runs 的「已删除」统一为「已删除的专家」（7 处），typecheck/build exit0，Opus 通过。待评估：AgentAvatar 接入 run-detail/usage/overview 受数据约束（运行行仅 `agentName`，无 role/description/slug），需数据侧支持，暂缓；`agentRoleLabel` 抽取待与相关页一并评估〕
 - **C 空态与创建动作**
   - C1(P1/P2) 空态三层（页面级 EmptyState / 区块 PageNote / 行内 Inline）+ 空态唯一主 CTA 用 `default`+sm + 空态时隐藏页头重复创建按钮（knowledge/channels/accounts/agents/runtime-env/servers/eval 约 7 页）。〔进度：knowledge/channels 此前已隐藏（轮15/17）；accounts 已完成——真正空列表时隐藏页头「新建账户」，搜索无结果保留；servers/runtime-env 已完成——真空列表隐藏页头「新建」并把空态创建升为主操作(default，runtime-env 空态按钮接管焦点 ref)；eval 已完成——用例空态去重复「新建用例」（保留标题栏那个）；agents 暂缓——受保护两张入口卡 + 筛选空态「新建/清除筛选」双动作属刻意设计，不强改〕
 - **D 危险动作与行操作**
@@ -103,7 +103,7 @@
   - F4(P2,大) 多字段手写 useState→useZodForm（accounts/knowledge-settings/memory-review/runtime-env 等，按页分批）。
 - **G 排版/数字/文案**
   - G1(P1) 数字格式统一走 `lib/format`（chat.tsx:3285-3297 绕过，耗时/token/成本精度不一）。〔进度：已完成——chat.tsx RunMetricsLine 三处手写格式化改为 formatDuration/formatTokens/formatCost，与 runs/run-detail/overview/personal-usage 一致；typecheck/build exit0，Opus 终审通过（12 项格式化边界断言全过）〕
-  - G2(P2) 日期/时区统一 formatter（本地无年份、UTC 两处手写复制）。
+  - G2(P2) 日期/时区统一 formatter（本地无年份、UTC 两处手写复制）。〔进度：已完成——`lib/format` 新增 `formatUtcDateTime`（UTC，替代 personal-usage/ops 两份重复实现）与 `formatDate`（本地 date-only，用于 accounts 创建时间，替换 `toLocaleDateString`）；两处「必须 UTC」语义保留，typecheck/build exit0，Opus 终审通过（三时区实测）。遗留：`formatDateTime` 无年份属既有紧凑取舍，未改〕
   - G3(P2) 数值列右对齐+font-mono+tabular-nums（knowledge-evaluations/知识进度等）。
   - G4(P2) `2xs` 越界到可点击/普通区（conversation-search 等）→ xs。
   - G5(P2/P3) 文案统一：保存/保存更改、新建 X/创建、空值「—」vs「暂无描述」、已删除专家。
