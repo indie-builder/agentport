@@ -19,7 +19,7 @@ export function highlightJson(text: string): ReactNode[] {
     if (start > last) nodes.push(text.slice(last, start));
     const [token] = match;
     const className =
-      match[1] === 'null' ? 'text-white/55' : 'text-[var(--color-code-block-fg)]';
+      match[1] === 'null' ? 'text-[var(--color-code-block-dim)]' : 'text-[var(--color-code-block-fg)]';
     nodes.push(
       <span key={index++} className={className}>
         {token}
@@ -68,7 +68,7 @@ function CodeLines({
           {lineNumbers ? (
             <span
               aria-hidden="true"
-              className="mr-3 inline-block w-8 shrink-0 select-none text-right text-white/45"
+              className="mr-3 inline-block w-8 shrink-0 select-none text-right text-[var(--color-code-block-faint)]"
             >
               {i + 1}
             </span>
