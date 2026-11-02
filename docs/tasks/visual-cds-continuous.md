@@ -91,7 +91,7 @@
   - C1(P1/P2) 空态三层（页面级 EmptyState / 区块 PageNote / 行内 Inline）+ 空态唯一主 CTA 用 `default`+sm + 空态时隐藏页头重复创建按钮（knowledge/channels/accounts/agents/runtime-env/servers/eval 约 7 页）。〔进度：knowledge/channels 此前已隐藏（轮15/17）；accounts 已完成——真正空列表时隐藏页头「新建账户」，搜索无结果保留；servers/runtime-env 已完成——真空列表隐藏页头「新建」并把空态创建升为主操作(default，runtime-env 空态按钮接管焦点 ref)；eval 已完成——用例空态去重复「新建用例」（保留标题栏那个）；agents 暂缓——受保护两张入口卡 + 筛选空态「新建/清除筛选」双动作属刻意设计，不强改〕
 - **D 危险动作与行操作**
   - D1(P1) destructive 语义统一：ops/eval 行内删除、personal-shares 撤销、knowledge-settings 模型删除改 destructive（或菜单 destructive 项）。
-  - D2(P1/P2) 列表行操作三形态收敛（多操作进「更多」菜单/单一动作文字按钮）；详情页返回/删除入口统一（配置页删除进菜单、返回入 leading）。〔进度：runtime-env-detail「删除」已从页头常驻 destructive 收进 Ellipsis「更多」菜单（对齐 agents），焦点 ref 挂菜单触发器；待其它详情返回入口与行操作形态按需逐页收敛（判断较重）〕
+  - D2(P1/P2) 列表行操作三形态收敛（多操作进「更多」菜单/单一动作文字按钮）；详情页返回/删除入口统一（配置页删除进菜单、返回入 leading）。〔进度：runtime-env-detail「删除」已从页头常驻 destructive 收进 Ellipsis「更多」菜单（对齐 agents），焦点 ref 挂菜单触发器；runtime-env-detail「返回列表」已从右栏文字按钮改 leading 图标返回（对齐 run-detail/knowledge-detail），typecheck/build exit0、Opus 通过。待评估：agents 详情页头复杂（leading 已挂 AgentAvatar、actions 含返回/查看运行/删除），返回入口是否迁 leading 需单独判断，暂留；其余详情返回入口已核对一致〕
 - **E 骨架/工具栏/分区**
   - E1(P2) PageSection `divided={false}` 规则修正：status/runtime-environment-detail/overview(移除两个 divided=false)/eval 首个顶层分区不应画线。
   - E2(P2) 找专家工具栏布局（搜索左、筛选排序 ml-auto 大空白）改为资源中心顺序；memory-review 手写工具栏→PageToolbar、页级主操作移入 PageHeader actions；memory 专家筛选宽 176→144。〔进度：找专家（agents）工具栏已改为搜索(224)+筛选+排序左组（去 flex-1 与 ml-auto，中间空白消除）；待 memory-review 工具栏→PageToolbar + 主操作入 PageHeader + 筛选宽 176→144〕〔更新：memory-review 工具栏已改共享 PageToolbar、专家筛选宽 176→144 完成；「生成记忆提案」主操作入 PageHeader 暂缓——需把 create 触发器/状态从列表组件提升到页面层，跨组件改造风险高，维持工具栏内放置〕
@@ -110,4 +110,6 @@
   - G6(P3) 图标尺寸档位、分区标题 13/14 上下文。
 - **轮18（提交，P3 收尾批：运行环境 a11y + 状态指标层级）**：runtime-environments 表格与卡片列表补 `aria-label="运行环境列表"`、runtime-environment-detail 构建版本表补 `aria-label="构建版本列表"`（对齐 accounts/roles/knowledge-detail 既有命名）；status `Metric` 数值 12→`text-sm`(13)、标签仍 12（§4 层级）。typecheck/build exit0，Opus 终审通过。
 - **轮19（提交，P3 收尾）**：accounts 空态图标按语义区分——搜索无结果用 `SearchX`、无账户用 `UsersRound`（新增导入）；roles 工具栏在「N 项权限未保存」已显示时不再重复通用「有未保存的更改」（仅非权限改动时显示）。typecheck/build exit0，Opus 终审通过。
+- **轮20（提交，F/G/B/D 收尾批）**：F1 新建频道弹窗接入 useDraftGuard+DraftGuardDialogs（成功导航 ignoreBlocker 绕过残留 blocker）；G1 chat RunMetricsLine 耗时/token/成本改用 lib/format；G2 日期 formatter 收敛到 lib/format（新增 formatUtcDateTime/formatDate，合并两处 UTC 重复）；B2 已删除专家标签统一「已删除的专家」；D2 runtime-env-detail 返回入口入 leading。均 typecheck/build exit0、Opus 逐批终审通过，只本地提交。
+- **收敛状态（轮20 后）**：主题 A/B1/C1/D1/D2(除 agents 详情)/E1/E2(除记忆提案主操作)/F1/F2/G1/G2/G3 已完成。剩余为**大或主观项**，按「不强行造改动」暂缓并留档：F3 保存禁用/失败内联（跨多页表单，需拆小片）、F4 多字段手写 useState→useZodForm（大）、E3 分页四形态抽共享 Pager（跨页中等重构）、G4 `text-2xs` 越界（约百处、主观）、G5 保存/新建文案（弹窗提交 vs 页级保存栏属合理差异）、G6 图标尺寸/分区标题、B2 AgentAvatar 接入运行详情（受数据约束）、agents 详情返回入口（页头复杂）。
 
