@@ -85,7 +85,7 @@
 - **A 数据完整性**
   - A1(P1) 后台刷新失败整块替换缓存：channels/channel/personal-shares/personal-usage/conversation-outputs 仍是 `isError?ErrorState:内容`，改 `isError && data===undefined` 才整块替换，有缓存则保留+PageNote(danger)+重试（同轮14 范式）。share-dialog 经核实为「错误提示与列表并列追加」非替换，无需改。
 - **B 专家选择与身份**
-  - B1(P1/P2) 抽共享 `AgentPicker`（chat.tsx:1370-1446 蓝本：可搜索 Combobox+头像+名称+角色），替换 channel 绑定、ops 执行专家、memory 执行/目标专家；频道 @ 提及补头像/角色/空态。⚠改 ops 前须同步 `DESIGN-SYSTEM:368`。〔进度：B1a 已完成——抽出 `components/agent-picker.tsx` 并让 chat 复用，行为等价；B1b-1 已完成——AgentPicker 增 field 触发形态，频道绑定智能体改用之；待 B1b-2 ops/记忆表单接入（Controller ref/onBlur）并对齐 ops 规范〕
+  - B1(P1/P2) 抽共享 `AgentPicker`（chat.tsx:1370-1446 蓝本：可搜索 Combobox+头像+名称+角色），替换 channel 绑定、ops 执行专家、memory 执行/目标专家；频道 @ 提及补头像/角色/空态。⚠改 ops 前须同步 `DESIGN-SYSTEM:368`。〔进度：B1a 已完成——抽出 `components/agent-picker.tsx` 并让 chat 复用，行为等价；B1b-1 已完成——AgentPicker 增 field 触发形态，频道绑定智能体改用之；B1b-2a 已完成——记忆提案执行/目标专家改用 AgentPicker(field)；待 B1b-2b ops 执行专家接入（Controller ref/onBlur）并对齐 ops 规范〕
   - B2(P2) 统一专家身份展示：AgentAvatar 接入运行详情/使用记录/总览；抽 `agentRoleLabel`；已删除专家统一「已删除的专家」。
 - **C 空态与创建动作**
   - C1(P1/P2) 空态三层（页面级 EmptyState / 区块 PageNote / 行内 Inline）+ 空态唯一主 CTA 用 `default`+sm + 空态时隐藏页头重复创建按钮（knowledge/channels/accounts/agents/runtime-env/servers/eval 约 7 页）。
