@@ -290,7 +290,7 @@ function HitRow({
             href={hit.sourceUrl}
             target="_blank"
             rel="noreferrer"
-            className="w-fit text-2xs text-muted-foreground underline underline-offset-2"
+            className="w-fit text-xs text-muted-foreground underline underline-offset-2"
           >
             查看来源
           </a>
