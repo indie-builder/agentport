@@ -20,7 +20,7 @@ import { toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
 // 短字段统一 448px；横向标签列 96px，值列与表单、提交按钮共用同一轴线。
-const FIELD_VALUE = 'flex w-full min-w-0 max-w-[448px] flex-1 flex-col gap-1.5';
+const FIELD_VALUE = 'flex w-full min-w-0 max-w-112 flex-1 flex-col gap-1.5';
 const IDENTITY_GRID = 'grid grid-cols-[96px_minmax(0,1fr)] gap-x-4';
 
 export function PersonalProfilePage() {
@@ -101,7 +101,7 @@ export function PersonalProfilePage() {
               {user.roles.map((role) => role.name).join('、') || '无角色'}
             </dd>
           </dl>
-          <div className="ml-28 flex max-w-[448px] justify-end gap-2">
+          <div className="ml-28 flex max-w-112 justify-end gap-2">
             <Button
               type="button"
               variant="outline"

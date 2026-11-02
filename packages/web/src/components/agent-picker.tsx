@@ -121,7 +121,7 @@ export function AgentPicker({
           </span>
         </ComboboxTrigger>
       )}
-      <ComboboxContent className="min-w-[16rem]">
+      <ComboboxContent className="min-w-64">
         <ComboboxInput
           aria-label="搜索专家"
           placeholder="搜索名称、角色或 Slug…"

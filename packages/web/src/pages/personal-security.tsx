@@ -47,7 +47,7 @@ const passwordFormSchema = z
   });
 
 // 与个人资料一致：短字段 448px，横向标签列 96px。
-const FIELD_VALUE = 'flex w-full min-w-0 max-w-[448px] flex-1 flex-col gap-1.5';
+const FIELD_VALUE = 'flex w-full min-w-0 max-w-112 flex-1 flex-col gap-1.5';
 
 function isFreshnessError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 403;
@@ -225,7 +225,7 @@ export function PersonalSecurityPage() {
                   </div>
                 </Field>
                 {formError ? <FieldError>{formError}</FieldError> : null}
-                <div className="ml-28 flex max-w-[448px] justify-end">
+                <div className="ml-28 flex max-w-112 justify-end">
                   <Button type="submit" disabled={change.isPending} aria-busy={change.isPending}>
                     <KeyRound data-icon="inline-start" aria-hidden="true" />
                     {change.isPending ? '正在修改…' : '保存新密码'}
