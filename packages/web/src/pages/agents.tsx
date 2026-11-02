@@ -4122,7 +4122,7 @@ function DraftPreview({
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
 
-  // Collapsible is unstyled; keep the draft border, 9px corners, and compact muted trigger.
+  // Collapsible is unstyled; keep the draft border, 8px corners, and compact muted trigger.
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border">
       <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
