@@ -88,7 +88,7 @@
   - B1(P1/P2) 抽共享 `AgentPicker`（chat.tsx:1370-1446 蓝本：可搜索 Combobox+头像+名称+角色），替换 channel 绑定、ops 执行专家、memory 执行/目标专家；频道 @ 提及补头像/角色/空态。⚠改 ops 前须同步 `DESIGN-SYSTEM:368`。〔进度：B1a 已完成——抽出 `components/agent-picker.tsx` 并让 chat 复用，行为等价；B1b-1 已完成——AgentPicker 增 field 触发形态，频道绑定智能体改用之；B1b-2a 已完成——记忆提案执行/目标专家改用 AgentPicker(field)；B1b-2b 已完成——ops 定时任务执行专家改用 AgentPicker(field)（RHF Controller 接线，triggerRef/onBlur），并同步 DESIGN-SYSTEM:368；B 主题完成〕
   - B2(P2) 统一专家身份展示：AgentAvatar 接入运行详情/使用记录/总览；抽 `agentRoleLabel`；已删除专家统一「已删除的专家」。
 - **C 空态与创建动作**
-  - C1(P1/P2) 空态三层（页面级 EmptyState / 区块 PageNote / 行内 Inline）+ 空态唯一主 CTA 用 `default`+sm + 空态时隐藏页头重复创建按钮（knowledge/channels/accounts/agents/runtime-env/servers/eval 约 7 页）。〔进度：knowledge/channels 此前已隐藏（轮15/17）；accounts 已完成——真正空列表时隐藏页头「新建账户」，搜索无结果保留；待 servers/runtime-env/agents/eval + 空态主 CTA 变体统一〕
+  - C1(P1/P2) 空态三层（页面级 EmptyState / 区块 PageNote / 行内 Inline）+ 空态唯一主 CTA 用 `default`+sm + 空态时隐藏页头重复创建按钮（knowledge/channels/accounts/agents/runtime-env/servers/eval 约 7 页）。〔进度：knowledge/channels 此前已隐藏（轮15/17）；accounts 已完成——真正空列表时隐藏页头「新建账户」，搜索无结果保留；servers/runtime-env 已完成——真空列表隐藏页头「新建」并把空态创建升为主操作(default，runtime-env 空态按钮接管焦点 ref)；待 agents/eval〕
 - **D 危险动作与行操作**
   - D1(P1) destructive 语义统一：ops/eval 行内删除、personal-shares 撤销、knowledge-settings 模型删除改 destructive（或菜单 destructive 项）。
   - D2(P1/P2) 列表行操作三形态收敛（多操作进「更多」菜单/单一动作文字按钮）；详情页返回/删除入口统一（配置页删除进菜单、返回入 leading）。

@@ -369,20 +369,20 @@ export function ServersPage() {
             </Button>
           ) : null}
           {canCreate ? (
-            <>
-              <Button
-                variant="outline"
-                onClick={(event) => {
-                  triggerRef.current = event.currentTarget;
-                  setCatalogOpen(true);
-                }}
-              >
-                <LibraryBig data-icon="inline-start" aria-hidden="true" /> 浏览目录
-              </Button>
-              <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
-                <Plus data-icon="inline-start" /> 新建连接器
-              </Button>
-            </>
+            <Button
+              variant="outline"
+              onClick={(event) => {
+                triggerRef.current = event.currentTarget;
+                setCatalogOpen(true);
+              }}
+            >
+              <LibraryBig data-icon="inline-start" aria-hidden="true" /> 浏览目录
+            </Button>
+          ) : null}
+          {canCreate && !(servers.data && all.length === 0) ? (
+            <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
+              <Plus data-icon="inline-start" /> 新建连接器
+            </Button>
           ) : null}
         </>
       }
@@ -402,7 +402,7 @@ export function ServersPage() {
           description="本地命令、远程 MCP 或 HTTP API 都可以。"
           action={
             canCreate ? (
-              <Button variant="outline" onClick={(event) => openCreate(event.currentTarget)}>
+              <Button size="sm" onClick={(event) => openCreate(event.currentTarget)}>
                 <Plus data-icon="inline-start" /> 新建连接器
               </Button>
             ) : undefined

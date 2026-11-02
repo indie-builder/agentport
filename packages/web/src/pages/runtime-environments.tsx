@@ -68,7 +68,7 @@ export function RuntimeEnvironmentsPage() {
       <PageHeader
         title="运行环境"
         actions={
-          canCreate ? (
+          canCreate && !(environments.data && environments.data.length === 0) ? (
             <Button ref={createTriggerRef} onClick={openCreate}>
               <Plus data-icon="inline-start" /> 新建环境
             </Button>
@@ -105,7 +105,7 @@ export function RuntimeEnvironmentsPage() {
           title="新建第一个运行环境"
           action={
             canCreate ? (
-              <Button variant="outline" size="sm" onClick={openCreate}>
+              <Button ref={createTriggerRef} size="sm" onClick={openCreate}>
                 新建环境
               </Button>
             ) : undefined
