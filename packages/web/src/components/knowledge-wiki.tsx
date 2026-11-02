@@ -671,6 +671,12 @@ function WikiLinks({
   );
 }
 
+const wikiOrganizeFormSchema = z.object({
+  parentId: z.string(),
+  position: z.string(),
+});
+type WikiOrganizeFormValues = z.infer<typeof wikiOrganizeFormSchema>;
+
 function WikiOrganizeDialog({
   baseId,
   page,
@@ -683,13 +689,18 @@ function WikiOrganizeDialog({
   onClose: () => void;
 }) {
   const save = useSaveKnowledgeWikiPage(baseId);
-  const [parentId, setParentId] = useState(page.parentId ?? 'null');
-  const [position, setPosition] = useState(String(page.position ?? 0));
+  const { register, control, handleSubmit, watch, formState } = useZodForm(wikiOrganizeFormSchema, {
+    defaultValues: { parentId: page.parentId ?? 'null', position: String(page.position ?? 0) },
+  });
+  const { isDirty } = formState;
+  const positionValue = watch('position');
   // 组织保存比对最新真实版本；currentVersionId 可能停在已发布旧版，不能当并发基线。
   const [expectedVersion] = useState(() => page.versions[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
   const pending = save.isPending;
-  const dirty = parentId !== (page.parentId ?? 'null') || position !== String(page.position ?? 0);
+  const parsedPosition = Number(positionValue);
+  const invalidPosition = !Number.isInteger(parsedPosition) || parsedPosition < 0;
+  const dirty = isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
   // 不能把页面挂到自己或后代下；后端也会拒绝，这里先减少明显无效选项。
   const descendants = new Set<string>();
@@ -707,8 +718,28 @@ function WikiOrganizeDialog({
       }),
     ),
   ];
-  const parsedPosition = Number(position);
-  const invalidPosition = !Number.isInteger(parsedPosition) || parsedPosition < 0;
+  const submit = handleSubmit((values: WikiOrganizeFormValues) => {
+    setError(null);
+    const parsed = Number(values.position);
+    if (!Number.isInteger(parsed) || parsed < 0) return;
+    save.mutate(
+      {
+        pageId: page.id,
+        patch: {
+          parentId: values.parentId === 'null' ? null : values.parentId,
+          position: parsed,
+          expectedVersion,
+        },
+      },
+      {
+        onSuccess: () => {
+          toastSuccess('Wiki 目录已更新');
+          guard.finish();
+        },
+        onError: (reason) => setError(errorMessage(reason)),
+      },
+    );
+  });
   return (
     <Dialog
       open
@@ -721,55 +752,37 @@ function WikiOrganizeDialog({
       }}
     >
       <DialogShell title="组织 Wiki 页面" closeDisabled={pending}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setError(null);
-            if (invalidPosition) return;
-            save.mutate(
-              {
-                pageId: page.id,
-                patch: {
-                  parentId: parentId === 'null' ? null : parentId,
-                  position: parsedPosition,
-                  expectedVersion,
-                },
-              },
-              {
-                onSuccess: () => {
-                  toastSuccess('Wiki 目录已更新');
-                  guard.finish();
-                },
-                onError: (reason) => setError(errorMessage(reason)),
-              },
-            );
-          }}
-        >
+        <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
             <Field className="gap-1.5">
               <FieldLabel htmlFor="wiki-parent">上级页面</FieldLabel>
-              <Select
-                value={parentId}
-                disabled={pending}
-                onValueChange={(next) => {
-                  if (next !== null) setParentId(next);
-                }}
-                items={options}
-              >
-                <SelectTrigger id="wiki-parent" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {options.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              <Controller
+                name="parentId"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    disabled={pending}
+                    onValueChange={(next) => {
+                      if (next !== null) field.onChange(next);
+                    }}
+                    items={options}
+                  >
+                    <SelectTrigger id="wiki-parent" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {options.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </Field>
             <Field className="gap-1.5" data-invalid={invalidPosition}>
               <FieldLabel htmlFor="wiki-position">排序</FieldLabel>
@@ -778,11 +791,10 @@ function WikiOrganizeDialog({
                 type="number"
                 min={0}
                 step={1}
-                value={position}
+                {...register('position')}
                 disabled={pending}
                 aria-invalid={invalidPosition}
                 aria-describedby={invalidPosition ? 'wiki-position-error' : undefined}
-                onChange={(event) => setPosition(event.target.value)}
               />
               <FieldError id="wiki-position-error">
                 {invalidPosition ? '需为非负整数' : null}
