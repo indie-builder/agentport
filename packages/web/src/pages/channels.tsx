@@ -35,7 +35,7 @@ export function ChannelsPage() {
       <PageHeader
         title="频道"
         actions={
-          canCreate ? (
+          canCreate && (channels.isPending || channels.isError || items.length > 0) ? (
             <Button onClick={() => setCreating(true)}>
               <Plus aria-hidden="true" />
               新建频道
@@ -66,7 +66,7 @@ export function ChannelsPage() {
           }
         />
       ) : (
-        <PageSection>
+        <PageSection divided={false}>
           <ul className="divide-y divide-line overflow-hidden rounded-card border border-line">
             {items.map((channel, index) => (
               <li key={channel.id}>

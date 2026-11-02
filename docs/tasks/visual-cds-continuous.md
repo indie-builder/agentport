@@ -74,4 +74,6 @@
 - **轮13（提交，skills 权限门控）**：skills 卡 CardFooter「编辑」按钮对无 `skills.update` 用户也显示、点开是只读「查看」弹层（名实不符）；按 plugins/servers 既有 `className={canUpdate ? undefined : 'hidden'}` 隐藏之（标题链接仍可打开只读查看）。typecheck/build exit0，Opus 终审通过。
   - 核实排除：审计「卡片假可点 → interactive=false」不成立——§150/§348 明确「可交互卡（有标题链接/编辑动作）加 cds-card-interactive hover 上浮，纯展示卡不加」，知识库才是唯一整卡链接卡（§362）；资源卡当前 interactive=true 合规，不改。
 - **轮14（提交，缓存刷新错误态）**：区分「首载失败（无数据）」与「后台刷新失败（有缓存）」——后者不再整块 ErrorState「内容没有加载出来」而丢数据，改为保留旧数据 + 顶部 PageNote(danger) 提示 + 重试（照 status.tsx 范式）。三处：overview 主视图、ops 定时任务、ops AttentionPanel。Opus 终审抓出 a11y 回退（原 ErrorState 有 role=alert，PageNote 无）→ 修共享 `PageNote`：`tone="danger"` 时输出 `role="alert"`（default 不变，11 处 danger 调用受益）。typecheck/build exit0，Opus 两轮复核通过。
+- **轮15（提交，频道页去重/间距）**：channels 空列表时页头与空态「新建频道」重复 → 页头按钮仅在 pending/error/有数据时显示，空态唯一入口；列表外层 PageSection `divided={false}` 去掉 Header 下多余全宽顶线（避免与列表 border 叠层）；channel 头部「N 成员·M 智能体」加 `xl:hidden`（xl+ 由右侧栏承载，断点对齐 sidebar `xl:flex`）。typecheck/build exit0，Opus 终审通过。
+  - 核实排除：status 页头 description 内联——PageHeader 是 `min-h-14 flex-wrap` 自适应行，"内容自然换行可增高"符合 §8.2，非缺陷，不改共享组件。
 

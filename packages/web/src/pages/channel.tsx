@@ -379,7 +379,7 @@ function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
         </h1>
         {channelRole ? <Badge variant="outline">{ROLE_LABEL[channelRole]}</Badge> : null}
         {channel.archivedAt ? <Badge>已关闭</Badge> : null}
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground xl:hidden">
           {channel.members.length} 成员 · {channel.agentBindings.length} 智能体
         </span>
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 xl:hidden">
