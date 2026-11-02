@@ -546,19 +546,6 @@ export function EvalPage() {
             <PageNote
               icon={<BusinessIllustration name="review" size="compact" />}
               title="还没有用例"
-              action={
-                canManageEval ? (
-                  <Button
-                    variant="outline"
-                    onClick={(event) => {
-                      dialogTriggerRef.current = event.currentTarget;
-                      setCreatingAgentId(effectiveAgentId);
-                    }}
-                  >
-                    <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
-                  </Button>
-                ) : undefined
-              }
             />
           ) : null}
           {effectiveAgentId && cases.data && cases.data.length > 0 ? (
