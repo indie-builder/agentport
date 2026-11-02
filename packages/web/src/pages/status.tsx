@@ -66,7 +66,7 @@ function Reason({ tone = 'danger', children }: { tone?: 'warn' | 'danger'; child
   const Icon = tone === 'warn' ? CircleAlert : CircleX;
   return (
     <div
-      className={`flex items-start gap-1.5 border-t pt-2 text-sm leading-relaxed ${
+      className={`flex items-start gap-1.5 border-t pt-2 text-sm ${
         tone === 'warn' ? 'text-warning' : 'text-danger'
       }`}
     >

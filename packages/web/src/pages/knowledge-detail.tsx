@@ -4231,7 +4231,7 @@ function SourceProbeStatus({ jobId }: { jobId: string }) {
     return <span className="text-xs text-muted-foreground">连接测试进行中…</span>;
   }
   if (job.isError) {
-    return <span className="text-xs text-danger">连接测试结果没有加载出来。</span>;
+    return <span className="text-sm text-danger">连接测试结果没有加载出来。</span>;
   }
   const result = job.data?.result;
   if (!result) {

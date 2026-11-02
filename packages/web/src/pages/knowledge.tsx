@@ -149,7 +149,7 @@ function KnowledgeCard({
           </span>
           <CardTitle className="col-start-2 min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="min-w-0 truncate text-base leading-snug font-medium" title={base.name}>
+              <h2 className="min-w-0 truncate text-base font-medium" title={base.name}>
                 {base.name}
               </h2>
               <StatusBadge
@@ -860,7 +860,7 @@ function CreateBaseDialog({
           >
             <CollapsibleTrigger
               type="button"
-              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <ChevronRight
                 className={cn(

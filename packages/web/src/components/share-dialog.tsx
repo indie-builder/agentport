@@ -71,7 +71,7 @@ export function ShareDialog({
             <span className="break-all text-sm text-fg">{path}</span>
             <span className="text-xs text-muted-foreground">{formatDateTime(createdAt)}</span>
           </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             链接固定在这个版本，之后更新同一路径不会改变链接内容。持有链接的人可查看和下载此文件。
           </p>
 

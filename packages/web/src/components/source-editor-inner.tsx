@@ -38,7 +38,7 @@ function contentAttributes({ id, label, describedBy, invalid, disabled }: Conten
 const editorTheme = EditorView.theme({
   '&': { color: 'var(--color-fg)', backgroundColor: 'transparent' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.5', overflow: 'auto' },
+  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: 'inherit', overflow: 'auto' },
   '.cm-content': {
     padding: '0.5rem 0.625rem',
     caretColor: 'var(--color-fg)',

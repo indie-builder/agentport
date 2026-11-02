@@ -481,7 +481,7 @@ function SessionCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 justify-start px-0 text-xs text-muted-foreground"
+                className="h-7 justify-start px-0 text-sm text-muted-foreground"
               />
             }
           >

@@ -364,11 +364,11 @@ function ChartDataView({
   if (rows.length === 0) return null;
   return (
     <Collapsible>
-      <CollapsibleTrigger className="self-start rounded-item text-xs text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <CollapsibleTrigger className="self-start rounded-item text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         数据视图
       </CollapsibleTrigger>
       <CollapsibleContent animated className="pt-2">
-        <Table className="text-xs">
+        <Table className="text-sm">
           <TableHeader>
             <TableRow>
               <TableHead className="text-muted-foreground">{label}</TableHead>
@@ -497,7 +497,7 @@ type XYProps = {
 const AXIS_PROPS = {
   tickLine: false,
   axisLine: false,
-  tick: { fontSize: 12 },
+  tick: { fontSize: 'var(--text-xs)' },
   tickMargin: 6,
   minTickGap: 8,
 } as const;
@@ -724,7 +724,7 @@ export function RadarChartRenderer({ props }: RenderProps<XYProps>) {
       >
         <RechartsRadarChart accessibilityLayer data={rows}>
           <PolarGrid />
-          <PolarAngleAxis dataKey="category" tick={{ fontSize: 12 }} />
+          <PolarAngleAxis dataKey="category" tick={{ fontSize: 'var(--text-xs)' }} />
           <PolarRadiusAxis tick={false} axisLine={false} />
           <ChartTooltipPortal content={<FixedTooltipContent />} />
           {series.length > 1 ? (

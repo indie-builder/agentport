@@ -559,7 +559,7 @@ export function EvalPage() {
                     <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">
                       {testCase.name}
                     </div>
-                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
                       {testCase.prompt}
                     </p>
                     <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -872,7 +872,7 @@ function EvalRunResults({ id }: { id: string }) {
                   </Link>
                 ) : null}
               </div>
-              <div className="mt-2 grid gap-x-8 gap-y-2 text-sm leading-relaxed sm:grid-cols-2">
+              <div className="mt-2 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
                 <div>
                   <div className="text-xs text-muted-foreground">Prompt</div>
                   <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
@@ -1002,7 +1002,7 @@ function CompareDialog({
                       {row.base?.name ?? row.head?.name ?? '—'}
                     </span>
                   </div>
-                  <div className="mt-2 grid gap-x-8 gap-y-3 text-sm leading-relaxed sm:grid-cols-2">
+                  <div className="mt-2 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
                     <CompareSide
                       title="基准"
                       result={row.base}

@@ -2673,7 +2673,7 @@ export function AgentEditor({
                 </span>
               ) : null}
               {saveHint ? (
-                <span className="mr-1 flex items-center gap-1.5 text-xs text-danger">
+                <span className="mr-1 flex items-center gap-1.5 text-sm text-danger">
                   <span id="agent-save-hint" role="alert">
                     {saveHint}
                   </span>
@@ -2999,7 +2999,7 @@ export function AgentEditor({
                           ) : null,
                         )}
                         {!serversState.isPending && serverOptions.length === 0 ? (
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                             <span>还没有可绑定的连接器。</span>
                             <Link
                               to="/servers"
@@ -3089,7 +3089,7 @@ export function AgentEditor({
                           />
                         ) : null}
                         {!knowledgeState.isPending && knowledgeOptions.length === 0 ? (
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                             <span>还没有可绑定的知识库。</span>
                             <Link
                               to="/knowledge"
@@ -3178,7 +3178,7 @@ export function AgentEditor({
                           />
                         ) : null}
                         {!skillsState.isPending && skillOptions.length === 0 ? (
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                             <span>还没有可绑定的技能。</span>
                             <Link
                               to="/skills"
@@ -3258,7 +3258,7 @@ export function AgentEditor({
                           </span>
                         </div>
                         {agent.parentId !== null ? (
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm text-muted-foreground">
                             插件在会话级加载，子智能体不能单独绑定。
                           </p>
                         ) : pluginsState.isPending ? (
@@ -3409,7 +3409,7 @@ export function AgentEditor({
                           </span>
                         </div>
                         {agent.parentId !== null ? (
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm text-muted-foreground">
                             它本身已经是子智能体，不能再委派。子智能体只支持一层。
                           </p>
                         ) : agents.isPending ? (
@@ -3418,7 +3418,7 @@ export function AgentEditor({
                           <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
                         ) : subAgentOptions.length === 0 ? (
                           agents.data?.length === 0 ? (
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                               <span>还没有可委派的专家。</span>
                               <Link
                                 to="/agents"
@@ -3428,7 +3428,7 @@ export function AgentEditor({
                               </Link>
                             </div>
                           ) : (
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-sm text-muted-foreground">
                               没有可选的主智能体。只有「没有父级」的智能体才能被委派。
                             </p>
                           )

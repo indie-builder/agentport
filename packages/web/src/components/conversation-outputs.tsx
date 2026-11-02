@@ -137,7 +137,7 @@ export function ConversationOutputs({
       )}
     >
       <div className="flex shrink-0 items-center border-b px-3 py-2.5">
-        <h2 className="min-w-0 truncate text-sm font-medium text-fg">会话成果</h2>
+        <h2 className="min-w-0 truncate text-base font-medium text-fg">会话成果</h2>
       </div>
       <div className="@container min-h-0 flex-1 overflow-y-auto p-3">
         {outputs.isError && outputs.data !== undefined ? (
@@ -317,7 +317,7 @@ export function ConversationOutputs({
                     <LoadingState rows={3} />
                   )
                 ) : shownKind === 'binary' ? (
-                  <p className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-xs leading-relaxed text-muted-foreground">
+                  <p className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-sm text-muted-foreground">
                     二进制文件，请下载后查看。
                   </p>
                 ) : shownKind === 'image' || shownKind === 'pdf' ? (

@@ -488,7 +488,7 @@ export function KnowledgeImage({
   }
   if (image.status === 'error') {
     return (
-      <p role="alert" className="text-xs text-danger">
+      <p role="alert" className="text-sm text-danger">
         {image.message}
       </p>
     );
@@ -591,7 +591,7 @@ function DocumentCitationBody({ citation }: { citation: KnowledgeCitation }) {
 
 function ErrorText({ children }: { children: string }) {
   return (
-    <p role="alert" className="text-xs text-danger">
+    <p role="alert" className="text-sm text-danger">
       {children}
     </p>
   );

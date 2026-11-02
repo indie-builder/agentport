@@ -345,7 +345,7 @@ function CreateEnvironmentDialog({
                 rows={14}
                 spellCheck={false}
                 disabled={pending}
-                className="font-mono text-xs leading-relaxed"
+                className="font-mono text-xs leading-5"
               />
             </Field>
           </FieldGroup>
