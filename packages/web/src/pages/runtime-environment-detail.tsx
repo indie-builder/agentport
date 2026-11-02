@@ -15,6 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -53,6 +54,7 @@ import {
   useUpdateRuntimeEnvironment,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 type BuildStatus = RuntimeEnvironmentVersionStatus;
 
@@ -88,6 +90,14 @@ function StatusLabel({ status }: { status: BuildStatus }) {
   );
 }
 
+const runtimeEnvironmentFormSchema = z.object({
+  name: z.string().superRefine((value, ctx) => {
+    if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '不能为空，请填写后再保存' });
+  }),
+  dockerfile: z.string(),
+});
+type RuntimeEnvironmentFormValues = z.infer<typeof runtimeEnvironmentFormSchema>;
+
 export function RuntimeEnvironmentDetailPage() {
   const { environmentId } = useParams({
     from: '/_shell/runtime-environments/$environmentId',
@@ -101,35 +111,25 @@ export function RuntimeEnvironmentDetailPage() {
   const build = useBuildRuntimeEnvironment();
   const publish = usePublishRuntimeEnvironment();
   const remove = useDeleteRuntimeEnvironment();
-  const [name, setName] = useState('');
-  const [dockerfile, setDockerfile] = useState('');
-  const [nameError, setNameError] = useState<string | null>(null);
+  const form = useZodForm(runtimeEnvironmentFormSchema, {
+    defaultValues: { name: '', dockerfile: '' },
+  });
+  const { register, reset, handleSubmit, formState } = form;
+  const nameError = formState.errors.name?.message;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   // 删除成功后实体已不存在，草稿无需再保护；用状态确保重渲染后 guard 立即解除。
   const [leaving, setLeaving] = useState(false);
   const logTriggerRef = useRef<HTMLElement | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
-  // 线上指针变化也会刷新环境；有未保存草稿时不能被这次刷新盖掉。
-  const savedRef = useRef<{ id: string; name: string; dockerfile: string } | null>(null);
-  const draftRef = useRef({ name, dockerfile });
-  draftRef.current = { name, dockerfile };
+  const baselineIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const data = environment.data;
     if (!data) return;
-    const saved = { id: data.id, name: data.name, dockerfile: data.dockerfile };
-    const previous = savedRef.current;
-    // 同实体仍有草稿时，后台刷新不能推进基线：否则服务器值偶合草稿后会被误判为无草稿，后续刷新覆盖草稿。
-    const editing =
-      previous !== null &&
-      previous.id === saved.id &&
-      (draftRef.current.name !== previous.name ||
-        draftRef.current.dockerfile !== previous.dockerfile);
-    if (editing) return;
-    setName(saved.name);
-    setDockerfile(saved.dockerfile);
-    setNameError(null);
-    savedRef.current = saved;
+    // 同实体刷新时编辑中的草稿不推进基线；切换实体则强制重置到新实体值。
+    if (baselineIdRef.current === data.id && form.formState.isDirty) return;
+    reset({ name: data.name, dockerfile: data.dockerfile });
+    baselineIdRef.current = data.id;
   }, [environment.data]);
 
   const updateSearch = (patch: {
@@ -144,12 +144,7 @@ export function RuntimeEnvironmentDetailPage() {
     });
   };
 
-  const dirty =
-    !leaving &&
-    Boolean(
-      savedRef.current &&
-        (name !== savedRef.current.name || dockerfile !== savedRef.current.dockerfile),
-    );
+  const dirty = !leaving && formState.isDirty;
   const pending = update.isPending || remove.isPending;
   const blocker = useFormBlocker(dirty, pending, { ignoreSamePath: true });
   // 成功回调读不到拦截发生后的 blocker 实例：用 ref 拿最新一次再结算。
@@ -184,27 +179,19 @@ export function RuntimeEnvironmentDetailPage() {
 
   const current = environment.data;
 
-  const save = async (): Promise<void> => {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setNameError('不能为空，请填写后再保存');
-      return;
-    }
-    setNameError(null);
+  const save = handleSubmit(async (values: RuntimeEnvironmentFormValues) => {
     try {
       const saved = await update.mutateAsync({
         id: current.id,
-        patch: { name: trimmed, dockerfile },
+        patch: { name: values.name.trim(), dockerfile: values.dockerfile },
       });
-      // 保存返回值可能被服务端规范化（如去掉首尾空格）；草稿与基线一起同步，避免永久 dirty。
-      savedRef.current = { id: saved.id, name: saved.name, dockerfile: saved.dockerfile };
-      setName(saved.name);
-      setDockerfile(saved.dockerfile);
+      reset({ name: saved.name, dockerfile: saved.dockerfile });
+      baselineIdRef.current = saved.id;
       toastSuccess('已保存');
     } catch (error) {
       toastError(error);
     }
-  };
+  });
 
   const startBuild = (): void => {
     if (dirty) {
@@ -292,13 +279,7 @@ export function RuntimeEnvironmentDetailPage() {
       ) : null}
 
       <PageSection title="配置" divided={false}>
-        <form
-          className="flex flex-col gap-5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
+        <form className="flex flex-col gap-5" onSubmit={save}>
           <FieldGroup>
             <Field
               orientation="horizontal"
@@ -311,8 +292,8 @@ export function RuntimeEnvironmentDetailPage() {
                 <FieldError id="runtime-environment-name-error">{nameError}</FieldError>
               </FieldContent>
               <Input
+                {...register('name')}
                 id="runtime-environment-name"
-                value={name}
                 maxLength={64}
                 autoComplete="off"
                 disabled={update.isPending}
@@ -320,22 +301,17 @@ export function RuntimeEnvironmentDetailPage() {
                 aria-invalid={Boolean(nameError)}
                 aria-describedby={nameError ? 'runtime-environment-name-error' : undefined}
                 className="w-64"
-                onChange={(event) => {
-                  setName(event.currentTarget.value);
-                  setNameError(null);
-                }}
               />
             </Field>
             <Field data-disabled={update.isPending}>
               <FieldLabel htmlFor="runtime-environment-dockerfile">Dockerfile</FieldLabel>
               <Textarea
+                {...register('dockerfile')}
                 id="runtime-environment-dockerfile"
-                value={dockerfile}
                 rows={18}
                 spellCheck={false}
                 disabled={update.isPending}
                 className="font-mono text-xs leading-relaxed"
-                onChange={(event) => setDockerfile(event.currentTarget.value)}
               />
             </Field>
           </FieldGroup>
