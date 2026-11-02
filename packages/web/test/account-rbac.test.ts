@@ -1051,7 +1051,7 @@ describe('角色权限矩阵', () => {
     expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
     expect(cell('成员', '查看专家').closest('td')?.getAttribute('data-changed')).toBe('true');
     expect(button('保存更改').disabled).toBe(false);
-    expect(document.body.textContent).toContain('有未保存的更改');
+    expect(document.querySelector('[aria-label="未保存权限变更"]')?.textContent).toContain('项权限未保存');
     expect(document.body.textContent).toContain('矩阵已被其他操作修改');
     expect(document.querySelector('[role="status"]')?.textContent).toBe(feedback);
     expect(document.querySelector('[aria-label="未保存权限变更"]')?.textContent).toBe(count);
