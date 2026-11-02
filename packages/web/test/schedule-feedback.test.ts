@@ -142,11 +142,11 @@ async function selectOption(id: string, label: string) {
   const trigger = document.getElementById(id);
   if (!trigger) throw new Error(`Missing select: ${id}`);
   await clickElement(trigger);
-  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (item) => item.textContent?.trim() === label,
+  const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].filter((item) =>
+    item.textContent?.includes(label),
   );
-  if (!option) throw new Error(`Missing option: ${label}`);
-  await clickElement(option);
+  if (options.length !== 1) throw new Error(`Option "${label}" matched ${options.length} items`);
+  await clickElement(options[0]);
 }
 
 function frequencyText(): string {

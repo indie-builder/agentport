@@ -253,11 +253,11 @@ async function fill(id: string, value: string) {
 async function chooseOption(selectLabel: string, optionLabel: string, scope: ParentNode) {
   await click(button(selectLabel, scope));
   const option = await vi.waitFor(() => {
-    const element = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-      (item) => item.textContent?.trim() === optionLabel,
+    const matches = [...document.querySelectorAll<HTMLElement>('[role="option"]')].filter((item) =>
+      item.textContent?.includes(optionLabel),
     );
-    expect(element).toBeTruthy();
-    return element as HTMLElement;
+    expect(matches).toHaveLength(1);
+    return matches[0] as HTMLElement;
   });
   await click(option);
 }
