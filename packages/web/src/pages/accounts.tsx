@@ -13,6 +13,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
@@ -61,6 +62,7 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 const PAGE_SIZE = 50;
 
@@ -562,6 +564,20 @@ function RoleChecks({
   );
 }
 
+const accountFormSchema = z.object({
+  businessId: z.string().superRefine((value, ctx) => {
+    const message = validateBusinessId(value);
+    if (message) ctx.addIssue({ code: 'custom', message });
+  }),
+  username: z.string().min(1, '请填写用户名。'),
+  name: z.string().superRefine((value, ctx) => {
+    if (value.trim().length === 0) ctx.addIssue({ code: 'custom', message: '请填写姓名。' });
+  }),
+  password: z.string().min(8, '密码至少 8 个字符。'),
+  roleIds: z.array(z.string()),
+});
+type AccountFormValues = z.infer<typeof accountFormSchema>;
+
 function CreateAccountDialog({
   canAssignRoles,
   roleDirectory,
@@ -572,55 +588,42 @@ function CreateAccountDialog({
   onClose: () => void;
 }) {
   const create = useCreateAccount();
-  const [businessId, setBusinessId] = useState('');
-  const [username, setUsername] = useState('');
-  const [name, setName] = useState('');
-  const [password, setpassword] = useState('');
-  const [roleIds, setRoleIds] = useState<string[]>([]);
+  const { register, handleSubmit, watch, setValue, formState } = useZodForm(accountFormSchema, {
+    defaultValues: { businessId: '', username: '', name: '', password: '', roleIds: [] },
+  });
+  const { errors, isDirty } = formState;
+  const roleIds = watch('roleIds');
   const [restore, setRestore] = useState(false);
   const [restorePrompt, setRestorePrompt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
   const [saved, setSaved] = useState(false);
   const pending = create.isPending && !saved;
-  const dirty =
-    !saved &&
-    (businessId !== '' || username !== '' || name !== '' || password !== '' || roleIds.length > 0);
+  const dirty = !saved && isDirty;
   const guard = useDiscardGuard(dirty, pending, onClose);
   const rolesUnavailable = canAssignRoles && roleDirectory.roles === undefined;
-  const businessError = submitted ? validateBusinessId(businessId) : null;
-  const usernameError = submitted && username.length === 0 ? '请填写用户名。' : null;
-  const nameError = submitted && name.trim().length === 0 ? '请填写姓名。' : null;
-  const passwordError = submitted && password.length < 8 ? '密码至少 8 个字符。' : null;
+  const businessError = errors.businessId?.message;
+  const usernameError = errors.username?.message;
+  const nameError = errors.name?.message;
+  const passwordError = errors.password?.message;
 
-  const submit = async (asRestore: boolean): Promise<void> => {
+  const doCreate = async (values: AccountFormValues, asRestore: boolean): Promise<void> => {
     if (pending) return;
-    setSubmitted(true);
     setError(null);
-    if (
-      validateBusinessId(businessId) ||
-      username.length === 0 ||
-      name.trim().length === 0 ||
-      password.length < 8
-    ) {
-      return;
-    }
-    // 角色目录没有结果时不能创建，也不允许走恢复流程兜底。
     if (rolesUnavailable) {
       setError('角色目录没有加载出来，请重试后再创建。');
       return;
     }
     try {
       await create.mutateAsync({
-        businessId,
-        username,
-        name,
-        password,
+        businessId: values.businessId,
+        username: values.username,
+        name: values.name,
+        password: values.password,
         restore: asRestore,
-        ...(canAssignRoles && roleIds.length > 0 ? { roleIds } : {}),
+        ...(canAssignRoles && values.roleIds.length > 0 ? { roleIds: values.roleIds } : {}),
       });
       setSaved(true);
-      toastSuccess(`已创建账户 ${name}`);
+      toastSuccess(`已创建账户 ${values.name}`);
       guard.finish();
     } catch (cause) {
       if (!asRestore && cause instanceof ApiError && cause.status === 409) {
@@ -630,6 +633,10 @@ function CreateAccountDialog({
       setError(errorMessage(cause));
     }
   };
+  const submitForm = handleSubmit(
+    (values) => doCreate(values, restore),
+    () => setError(null),
+  );
 
   return (
     <Dialog
@@ -653,7 +660,7 @@ function CreateAccountDialog({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            void submit(restore);
+            void submitForm();
           }}
         >
           <FieldGroup className="gap-5">
@@ -667,8 +674,7 @@ function CreateAccountDialog({
                 disabled={pending}
                 aria-invalid={Boolean(businessError)}
                 aria-describedby={businessError ? 'account-business-id-error' : undefined}
-                value={businessId}
-                onChange={(event) => setBusinessId(event.target.value)}
+                {...register('businessId')}
               />
               <FieldError id="account-business-id-error">{businessError ?? undefined}</FieldError>
             </Field>
@@ -683,8 +689,7 @@ function CreateAccountDialog({
                   disabled={pending}
                   aria-invalid={Boolean(usernameError)}
                   aria-describedby={usernameError ? 'account-username-error' : undefined}
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
+                  {...register('username')}
                 />
                 <FieldError id="account-username-error">{usernameError ?? undefined}</FieldError>
               </Field>
@@ -698,8 +703,7 @@ function CreateAccountDialog({
                   disabled={pending}
                   aria-invalid={Boolean(nameError)}
                   aria-describedby={nameError ? 'account-name-error' : undefined}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  {...register('name')}
                 />
                 <FieldError id="account-name-error">{nameError ?? undefined}</FieldError>
               </Field>
@@ -715,8 +719,7 @@ function CreateAccountDialog({
                 disabled={pending}
                 aria-invalid={Boolean(passwordError)}
                 aria-describedby={passwordError ? 'account-password-error' : undefined}
-                value={password}
-                onChange={(event) => setpassword(event.target.value)}
+                {...register('password')}
               />
               <FieldError id="account-password-error">{passwordError ?? undefined}</FieldError>
             </Field>
@@ -728,10 +731,10 @@ function CreateAccountDialog({
                   selected={roleIds}
                   disabled={pending}
                   onToggle={(id) =>
-                    setRoleIds((current) =>
-                      current.includes(id)
-                        ? current.filter((item) => item !== id)
-                        : [...current, id],
+                    setValue(
+                      'roleIds',
+                      roleIds.includes(id) ? roleIds.filter((item) => item !== id) : [...roleIds, id],
+                      { shouldDirty: true },
                     )
                   }
                 />
@@ -760,7 +763,10 @@ function CreateAccountDialog({
                     disabled={pending || rolesUnavailable}
                     onClick={() => {
                       setRestore(true);
-                      void submit(true);
+                      void handleSubmit(
+                        (values) => doCreate(values, true),
+                        () => setError(null),
+                      )();
                     }}
                   >
                     <ShieldCheck data-icon="inline-start" /> 恢复原身份和授权
