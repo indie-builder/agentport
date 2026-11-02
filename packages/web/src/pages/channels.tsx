@@ -102,7 +102,7 @@ function ChannelRow({
       to="/channels/$channelId"
       params={{ channelId: channel.id }}
       className={cn(
-        'flex min-w-0 items-start gap-3 px-4 py-3 transition-colors duration-150 ease-out-soft hover:bg-hover',
+        'flex min-w-0 items-start gap-3 px-4 py-2 transition-colors duration-150 ease-out-soft hover:bg-hover',
         channel.archivedAt && 'opacity-70',
       )}
     >
@@ -117,14 +117,16 @@ function ChannelRow({
         <p className="min-w-0 truncate text-sm text-muted-foreground">{summary}</p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground">
-        {channel.unreadCount > 0 ? (
-          <Badge aria-label={`${channel.unreadCount} 条未读`}>{channel.unreadCount}</Badge>
-        ) : null}
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
+          {channel.unreadCount > 0 ? (
+            <Badge aria-label={`${channel.unreadCount} 条未读`}>{channel.unreadCount}</Badge>
+          ) : null}
+          <span>{formatRelative(last?.createdAt)}</span>
+        </span>
         <span className="whitespace-nowrap">
           {memberCount === undefined ? '成员 —' : `${memberCount} 成员`}
           {agentCount === undefined ? '' : ` · ${agentCount} 智能体`}
         </span>
-        <span className="whitespace-nowrap">{formatRelative(last?.createdAt)}</span>
       </div>
     </Link>
   );

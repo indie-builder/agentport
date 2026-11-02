@@ -77,4 +77,6 @@
 - **轮15（提交，频道页去重/间距）**：channels 空列表时页头与空态「新建频道」重复 → 页头按钮仅在 pending/error/有数据时显示，空态唯一入口；列表外层 PageSection `divided={false}` 去掉 Header 下多余全宽顶线（避免与列表 border 叠层）；channel 头部「N 成员·M 智能体」加 `xl:hidden`（xl+ 由右侧栏承载，断点对齐 sidebar `xl:flex`）。typecheck/build exit0，Opus 终审通过。
   - 核实排除：status 页头 description 内联——PageHeader 是 `min-h-14 flex-wrap` 自适应行，"内容自然换行可增高"符合 §8.2，非缺陷，不改共享组件。
 - **轮16（提交，文档缺口对齐·文档服从代码）**：①§9 知识库详情任务页签由 5 项更正为实际的 7 项（文档/来源/检索测试/离线评估/FAQ/Wiki/处理记录）；②§9 阅读工具栏补说明：插件详情无单文件下载，下载即页头「导出 ZIP」整包，工具栏不设下载（知识库/成果仍保留下载）；③`packages/web/DESIGN.md` 个人资料分区更正为「身份（h2，含姓名表单+用户名+角色）→ 账号详情（1px 分隔线 + 折叠展开业务 ID）」，与代码一致。docs-only，无需构建。
+- **轮17（提交，knowledge 空态去重 + 频道行高）**：knowledge 空列表隐藏页头「新建知识库」（空态唯一入口；空态按钮共用 `createButtonRef` 保焦点回退）；channels 列表行高收敛——`ChannelRow` py-3→py-2、右侧信息三行合并为两行（未读徽章与时间同行）。**真实渲染实测**（visual-check 隔离栈，1440/1280 截图）行高约 56–62px（≤64，§8.3）、右列不溢出；知识库空态仅一个「新建知识库」。typecheck/build exit0，Opus 终审通过。
+  - **P1 决策（用户「按建议处理」）**：频道多人群聊作者名——`ChannelMember` 无成员显示名、`memberLabel` 对他人仅回退 `shortId`，补真实作者名不可行；仅能显示 opaque shortId，收益有限且需改共享 chat 渲染、风险高 → **维持现状**，记为已知限制。
 

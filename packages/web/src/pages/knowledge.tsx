@@ -402,7 +402,7 @@ export function KnowledgePage() {
               if (file) onImportFile(file);
             }}
           />
-          {canCreate ? (
+          {canCreate && (bases.isPending || bases.isError || baseItems.length > 0) ? (
             <Button ref={createButtonRef} onClick={() => setCreating(true)}>
               <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
             </Button>
@@ -470,7 +470,12 @@ export function KnowledgePage() {
           title="还没有知识库"
           action={
             canCreate ? (
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+              <Button
+                ref={createButtonRef}
+                variant="outline"
+                size="sm"
+                onClick={() => setCreating(true)}
+              >
                 <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
               </Button>
             ) : undefined
