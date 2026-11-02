@@ -1,4 +1,5 @@
 import { Bot } from 'lucide-react';
+import type { FocusEventHandler, Ref } from 'react';
 import { cn } from '../lib/cn.js';
 import { AgentAvatar } from './agent-avatar.js';
 import { Button } from './ui/button.js';
@@ -31,6 +32,8 @@ export function AgentPicker({
   triggerAriaLabel,
   disabled,
   triggerId,
+  triggerRef,
+  onBlur,
   ariaInvalid,
   ariaDescribedby,
 }: {
@@ -44,9 +47,12 @@ export function AgentPicker({
   triggerAriaLabel?: string;
   disabled?: boolean;
   triggerId?: string;
+  triggerRef?: Ref<HTMLButtonElement> | undefined;
+  onBlur?: FocusEventHandler<HTMLButtonElement> | undefined;
   ariaInvalid?: boolean | undefined;
   ariaDescribedby?: string | undefined;
 }) {
+  const selectedLabel = agentOptions.find((option) => option.value === agentId)?.label;
   return (
     <Combobox
       items={agentOptions}
@@ -71,6 +77,8 @@ export function AgentPicker({
           render={
             <Button
               variant="plain"
+              ref={triggerRef}
+              onBlur={onBlur}
               disabled={disabled}
               id={triggerId}
               aria-label={triggerAriaLabel ?? placeholder}
@@ -88,7 +96,9 @@ export function AgentPicker({
           ) : (
             <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
           )}
-          <span className="min-w-0 flex-1 truncate text-left">{agent?.name ?? placeholder}</span>
+          <span className="min-w-0 flex-1 truncate text-left">
+            {agent?.name ?? selectedLabel ?? placeholder}
+          </span>
         </ComboboxTrigger>
       ) : (
         <ComboboxTrigger

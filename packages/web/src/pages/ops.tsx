@@ -1,4 +1,9 @@
-import { type Schedule, type ScheduleInput, scheduleInputSchema } from '@agentport/shared';
+import {
+  type AgentSummary,
+  type Schedule,
+  type ScheduleInput,
+  scheduleInputSchema,
+} from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
@@ -6,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { BusinessIllustration } from '../components/business-illustration.js';
+import { AgentPicker } from '../components/agent-picker.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
@@ -584,7 +590,7 @@ function ScheduleDialog({
   onClose,
 }: {
   schedule?: Schedule;
-  agents: { id: string; name: string }[];
+  agents: AgentSummary[];
   agentsError: unknown;
   onRetryAgents: () => void;
   onClose: () => void;
@@ -696,11 +702,22 @@ function ScheduleDialog({
     else finish();
   };
 
+  const pickerAgent = (agent: AgentSummary) => ({
+    name: agent.name,
+    description: agent.description,
+    role: agent.role ?? null,
+    slug: agent.slug ?? null,
+  });
+  const selectedAgent = agents.find((agent) => agent.id === watched.agentId);
   const agentOptions = [
     ...(schedule && !agents.some((agent) => agent.id === schedule.agentId)
       ? [{ value: schedule.agentId, label: schedule.agentName ?? '已删除的专家' }]
       : []),
-    ...agents.map((agent) => ({ value: agent.id, label: agent.name })),
+    ...agents.map((agent) => ({
+      value: agent.id,
+      label: agent.name,
+      agent: pickerAgent(agent),
+    })),
   ];
 
   const changeFrequency = (next: ScheduleFrequency): void => {
@@ -874,41 +891,29 @@ function ScheduleDialog({
                       control={control}
                       name="agentId"
                       render={({ field }) => (
-                        <Select
+                        <AgentPicker
+                          triggerVariant="field"
+                          agent={selectedAgent ? pickerAgent(selectedAgent) : null}
+                          agentId={field.value}
+                          agentOptions={agentOptions}
+                          onSwitchAgent={(id) => field.onChange(id)}
+                          triggerRef={field.ref}
+                          onBlur={field.onBlur}
+                          placeholder="选择专家"
+                          triggerId="schedule-agent"
+                          triggerAriaLabel="执行专家"
+                          triggerClassName="max-w-60 min-w-0"
                           disabled={pending || Boolean(schedule)}
-                          value={field.value}
-                          items={agentOptions}
-                          onValueChange={(next) => {
-                            if (next !== null) field.onChange(next);
-                          }}
-                        >
-                          <SelectTrigger
-                            id="schedule-agent"
-                            className="max-w-60 min-w-0"
-                            ref={field.ref}
-                            onBlur={field.onBlur}
-                            aria-invalid={Boolean(errors.agentId)}
-                            aria-describedby={
-                              [
-                                schedule ? 'schedule-agent-hint' : null,
-                                errors.agentId ? 'schedule-agent-error' : null,
-                              ]
-                                .filter(Boolean)
-                                .join(' ') || undefined
-                            }
-                          >
-                            <SelectValue placeholder="选择专家" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {agentOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
+                          ariaInvalid={Boolean(errors.agentId)}
+                          ariaDescribedby={
+                            [
+                              schedule ? 'schedule-agent-hint' : null,
+                              errors.agentId ? 'schedule-agent-error' : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' ') || undefined
+                          }
+                        />
                       )}
                     />
                   </div>
