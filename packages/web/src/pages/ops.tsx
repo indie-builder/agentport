@@ -447,7 +447,7 @@ export function SchedulesPage() {
                           <Pencil />
                         </Button>
                         <Button
-                          variant="ghost"
+                          variant="destructive"
                           size="icon-sm"
                           aria-label={`删除 ${schedule.name}`}
                           disabled={rowBusy}

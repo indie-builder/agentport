@@ -105,9 +105,8 @@ function ShareActions({
       </a>
       <CopyButton value={shareLink(share)} label="复制链接" showLabel variant="ghost" />
       <Button
-        variant="ghost"
+        variant="destructive"
         size="sm"
-        className="text-muted-foreground hover:text-danger"
         aria-label={`撤销 ${fileName(share.path)} 的分享`}
         disabled={revokePending}
         onClick={() => onRevoke(share)}

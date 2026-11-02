@@ -595,7 +595,7 @@ export function EvalPage() {
                         <Pencil className="size-4" aria-hidden="true" />
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="destructive"
                         size="icon-sm"
                         onClick={(event) => {
                           dialogTriggerRef.current = event.currentTarget;

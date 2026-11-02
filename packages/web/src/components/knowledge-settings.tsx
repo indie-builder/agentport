@@ -727,9 +727,8 @@ export function KnowledgeProfilesDialog({
                         编辑
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="destructive"
                         size="sm"
-                        className="text-destructive"
                         disabled={formPending}
                         onClick={() => setDeleting(profile)}
                       >
