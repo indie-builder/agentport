@@ -899,33 +899,46 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
   );
 }
 
+const resetPasswordFormSchema = z
+  .object({
+    password: z.string().min(8, '密码至少 8 个字符。'),
+    confirm: z.string(),
+  })
+  .refine((values) => values.confirm === values.password, {
+    message: '两次输入的密码不一致。',
+    path: ['confirm'],
+  });
+type ResetPasswordFormValues = z.infer<typeof resetPasswordFormSchema>;
+
 function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: () => void }) {
   const reset = useResetAccountPassword();
-  const [password, setpassword] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const { register, handleSubmit, formState } = useZodForm(resetPasswordFormSchema, {
+    defaultValues: { password: '', confirm: '' },
+  });
+  const { errors, isDirty } = formState;
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
   const [saved, setSaved] = useState(false);
   const pending = reset.isPending && !saved;
-  const dirty = !saved && (password !== '' || confirm !== '');
+  const dirty = !saved && isDirty;
   const guard = useDiscardGuard(dirty, pending, onClose);
-  const passwordError = submitted && password.length < 8 ? '密码至少 8 个字符。' : null;
-  const confirmError = submitted && confirm !== password ? '两次输入的密码不一致。' : null;
+  const passwordError = errors.password?.message;
+  const confirmError = errors.confirm?.message;
 
-  const submit = async (): Promise<void> => {
-    if (pending) return;
-    setSubmitted(true);
-    setError(null);
-    if (password.length < 8 || password !== confirm) return;
-    try {
-      await reset.mutateAsync({ businessId: account.businessId, password });
-      setSaved(true);
-      toastSuccess('密码已重置');
-      guard.finish();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  };
+  const submit = handleSubmit(
+    async (values: ResetPasswordFormValues) => {
+      if (pending) return;
+      setError(null);
+      try {
+        await reset.mutateAsync({ businessId: account.businessId, password: values.password });
+        setSaved(true);
+        toastSuccess('密码已重置');
+        guard.finish();
+      } catch (cause) {
+        setError(errorMessage(cause));
+      }
+    },
+    () => setError(null),
+  );
 
   return (
     <Dialog
@@ -944,14 +957,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
         className="max-w-md sm:max-w-md"
         closeDisabled={pending}
       >
-        <form
-          aria-label="重置密码"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
+        <form aria-label="重置密码" noValidate onSubmit={submit}>
           <FieldGroup className="gap-5">
             <Field data-invalid={Boolean(passwordError)} data-disabled={pending}>
               <FieldLabel htmlFor="account-reset-password">新密码</FieldLabel>
@@ -962,8 +968,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
                 disabled={pending}
                 aria-invalid={Boolean(passwordError)}
                 aria-describedby={passwordError ? 'account-reset-password-error' : undefined}
-                value={password}
-                onChange={(event) => setpassword(event.target.value)}
+                {...register('password', { deps: ['confirm'] })}
               />
               <FieldError id="account-reset-password-error">
                 {passwordError ?? undefined}
@@ -978,8 +983,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
                 disabled={pending}
                 aria-invalid={Boolean(confirmError)}
                 aria-describedby={confirmError ? 'account-reset-confirm-error' : undefined}
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
+                {...register('confirm')}
               />
               <FieldError id="account-reset-confirm-error">{confirmError ?? undefined}</FieldError>
             </Field>
