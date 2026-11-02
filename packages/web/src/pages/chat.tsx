@@ -203,7 +203,7 @@ export function ChatPage() {
   // 否则 cleanup 会清掉未发送附件、草稿与当前会话，错误改由工作区内提示并可重试。
   if (!agents.data || agents.data.length === 0) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         {agents.isPending ? (
           <LoadingState rows={3} />
@@ -245,7 +245,7 @@ export function ChatPage() {
   // URL 指向的 agent 不存在：不静默改成第一个，免得把消息发给别的 agent。
   if (!conversationId && search.agent && !agents.data.some((item) => item.id === search.agent)) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <EmptyState
           icon={<Bot className="size-5" />}
@@ -825,7 +825,7 @@ function ChatWorkspace({
   // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
   if (conversationId && detail.isError && items.length === 0 && !run) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <div className="flex flex-col gap-3">
           <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
@@ -846,7 +846,7 @@ function ChatWorkspace({
   // 自己发送时 store 已有本轮消息，不会闪这一屏。
   if (conversationId && !run && items.length === 0 && hydrated.current !== conversationId) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <LoadingState rows={4} />
       </Page>
@@ -861,7 +861,7 @@ function ChatWorkspace({
           side="left"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-[294px]! max-w-full! gap-5 p-0"
+          className="w-73.5! max-w-full! gap-5 p-0"
         >
           <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader
@@ -895,7 +895,7 @@ function ChatWorkspace({
           finalFocus={() =>
             workspaceFeedbackRef.current ? composerRef.current : workspaceToggleRef.current
           }
-          className="w-[400px]! max-w-full! gap-0 p-0"
+          className="w-100! max-w-full! gap-0 p-0"
         >
           <SheetTitle className="sr-only">会话成果</SheetTitle>
           <ConversationOutputs
@@ -1083,7 +1083,7 @@ function ChatTopBar({
         </Button>
       )}
       {showAgentPicker ? (
-        <div className="min-w-0 shrink basis-[11rem]">
+        <div className="min-w-0 shrink basis-44">
           <AgentPicker
             agent={agent}
             agentId={agent?.id ?? null}
@@ -1731,7 +1731,7 @@ function ChatColumn({
 
         {/* 建议入口在输入框上方 8px，只有欢迎且已选专家时出现；点击只填草稿。 */}
         {showWelcome && agent ? (
-          <div className="mx-auto flex w-full max-w-[880px] shrink-0 flex-wrap gap-2 px-6 pb-2">
+          <div className="mx-auto flex w-full max-w-220 shrink-0 flex-wrap gap-2 px-6 pb-2">
             {welcomeSuggestions.map(({ label, icon: Icon, prompt }) => (
               <Button
                 key={label}
@@ -1853,7 +1853,7 @@ export function Composer({
   };
   return (
     <form
-      className={cn('mx-auto w-full max-w-[880px] shrink-0 px-6 pb-6', welcome ? 'pt-0' : 'pt-3')}
+      className={cn('mx-auto w-full max-w-220 shrink-0 px-6 pb-6', welcome ? 'pt-0' : 'pt-3')}
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -2306,7 +2306,7 @@ export function MessagePane({
         <MessageScrollerViewport aria-label="对话消息">
           {/* 入口留在视口顶部的正常流里，但不进 Content：原语靠 Content 旧首子项后移识别 prepend。 */}
           {hasOlder || loadingOlder ? (
-            <div className="mx-auto flex w-full max-w-[880px] justify-center px-6 pt-4">
+            <div className="mx-auto flex w-full max-w-220 justify-center px-6 pt-4">
               <Button
                 variant="outline"
                 size="sm"
@@ -2319,7 +2319,7 @@ export function MessagePane({
             </div>
           ) : null}
           <MessageScrollerContent
-            className={cn('mx-auto w-full max-w-[880px] gap-4 px-6', !welcome && 'py-4')}
+            className={cn('mx-auto w-full max-w-220 gap-4 px-6', !welcome && 'py-4')}
           >
             {loading ? (
               <MessageScrollerItem messageId="loading">
@@ -2987,7 +2987,7 @@ function FoldingMessageBody({ text }: { text: string }) {
         ref={bodyRef}
         className={cn(
           'whitespace-pre-wrap break-words',
-          collapsed && 'max-h-[300px] overflow-hidden',
+          collapsed && 'max-h-75 overflow-hidden',
         )}
         style={{ WebkitMaskImage: maskImage, maskImage }}
       >

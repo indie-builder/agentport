@@ -478,7 +478,7 @@ function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
             />
           ) : null}
           {channel.archivedAt ? (
-            <p className="mx-auto w-full max-w-[880px] px-6 pb-2 text-sm text-muted-foreground">
+            <p className="mx-auto w-full max-w-220 px-6 pb-2 text-sm text-muted-foreground">
               频道已关闭，历史消息仍可查看。
             </p>
           ) : null}
@@ -816,7 +816,7 @@ function MentionMenu({
   onPick: (target: MentionTarget) => void;
 }) {
   return (
-    <div className="mx-auto w-full max-w-[880px] shrink-0 px-6">
+    <div className="mx-auto w-full max-w-220 shrink-0 px-6">
       <div
         role="listbox"
         aria-label="提及智能体"

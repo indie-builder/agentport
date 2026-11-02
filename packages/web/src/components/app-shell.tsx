@@ -601,7 +601,7 @@ export function AppShell() {
             className={cn(
               buttonVariants({ variant: 'ghost' }),
               // 账号入口保持独立外观：紧凑 12px 标签、8px 角、20px 头像，靠左排布。
-              'h-8 w-[200px] justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-fg',
+              'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-fg',
             )}
           >
             <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
@@ -658,7 +658,7 @@ export function AppShell() {
             showCloseButton={false}
             aria-describedby={undefined}
             // Keep the project shadow.
-            className="w-[294px]! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
+            className="w-73.5! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
           >
             <SheetTitle className="sr-only">导航</SheetTitle>
             <SheetClose

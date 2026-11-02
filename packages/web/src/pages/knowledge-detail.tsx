@@ -1816,7 +1816,7 @@ function DocumentViewer({
       <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
         <DialogShell
           title={document.title}
-          className="max-h-[85dvh] max-w-[1100px] sm:max-w-[1100px]"
+          className="max-h-[85dvh] max-w-275 sm:max-w-275"
           closeDisabled={toggle.isPending || remove.isPending}
         >
           <div
@@ -3821,7 +3821,7 @@ function SourceDialog({
       <DialogShell
         title={editing ? '编辑来源' : '新建来源'}
         closeDisabled={pending}
-        className="max-w-[760px] sm:max-w-[760px]"
+        className="max-w-190 sm:max-w-190"
       >
         <form
           className="flex flex-col gap-4"

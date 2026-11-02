@@ -1430,7 +1430,7 @@ describe('knowledge source editing', () => {
     await click(button('新建来源'));
     const creator = dialog('新建来源');
     // 连接 + 范围 + 计划三块并排时 560px 太挤，与定时任务弹窗同宽。
-    expect(creator.classList.contains('max-w-[760px]')).toBe(true);
+    expect(creator.classList.contains('max-w-190')).toBe(true);
     for (const label of ['GitHub', 'GitLab', '飞书知识库', '飞书云盘', 'RSS']) {
       expect(creator.textContent).toContain(label);
     }

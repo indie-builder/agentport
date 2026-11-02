@@ -783,7 +783,7 @@ function ScheduleDialog({
       <DialogShell
         title={schedule ? '编辑定时任务' : '新建定时任务'}
         closeDisabled={pending}
-        className="max-w-[1024px] sm:max-w-[1024px]"
+        className="max-w-256 sm:max-w-256"
       >
         {conflict ? (
           <div role="alert" className="flex flex-wrap items-center gap-2 pb-4 text-sm">
