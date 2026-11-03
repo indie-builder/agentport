@@ -559,7 +559,7 @@ export function EvalPage() {
                     <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">
                       {testCase.name}
                     </div>
-                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
                       {testCase.prompt}
                     </p>
                     <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -579,7 +579,7 @@ export function EvalPage() {
                         }}
                       >
                         <span className="sr-only">编辑 {testCase.name}</span>
-                        <Pencil className="size-4" aria-hidden="true" />
+                        <Pencil aria-hidden="true" />
                       </Button>
                       <Button
                         variant="destructive"
@@ -590,7 +590,7 @@ export function EvalPage() {
                         }}
                       >
                         <span className="sr-only">删除 {testCase.name}</span>
-                        <Trash2 className="size-4" aria-hidden="true" />
+                        <Trash2 aria-hidden="true" />
                       </Button>
                     </div>
                   ) : null}
@@ -872,7 +872,7 @@ function EvalRunResults({ id }: { id: string }) {
                   </Link>
                 ) : null}
               </div>
-              <div className="mt-2 grid gap-x-8 gap-y-2 text-sm leading-relaxed sm:grid-cols-2">
+              <div className="mt-2 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
                 <div>
                   <div className="text-xs text-muted-foreground">Prompt</div>
                   <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">
@@ -950,7 +950,7 @@ function CompareDialog({
         title="比较评估运行"
         description="只比较相同冻结输入的结果；单边记录也可能是批次未执行完成，不代表用例增删。专家配置未固定，不构成完整可复现的结论。"
         finalFocus={finalFocus}
-        className="sm:max-w-[900px]"
+        className="sm:max-w-225"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -1002,7 +1002,7 @@ function CompareDialog({
                       {row.base?.name ?? row.head?.name ?? '—'}
                     </span>
                   </div>
-                  <div className="mt-2 grid gap-x-8 gap-y-3 text-sm leading-relaxed sm:grid-cols-2">
+                  <div className="mt-2 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
                     <CompareSide
                       title="基准"
                       result={row.base}

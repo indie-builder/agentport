@@ -308,7 +308,7 @@ export function RunDetailPage() {
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-fg">运行{runStatusLabel[detail.status]}</div>
-            <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs leading-relaxed text-muted-foreground">
+            <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs leading-5 text-muted-foreground">
               {detail.error}
             </pre>
           </div>

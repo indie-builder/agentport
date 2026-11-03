@@ -311,7 +311,7 @@ export function RuntimeEnvironmentDetailPage() {
                 rows={18}
                 spellCheck={false}
                 disabled={update.isPending}
-                className="font-mono text-xs leading-relaxed"
+                className="font-mono text-xs leading-5"
               />
             </Field>
           </FieldGroup>
@@ -491,7 +491,7 @@ export function RuntimeEnvironmentDetailPage() {
                 {selectedVersion.data.error ? (
                   <div className="flex flex-col gap-1.5">
                     <ErrorState error={new Error(selectedVersion.data.error)} title="构建失败" />
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       检查 Dockerfile 并保存更改，再点「构建新版本」重试。
                     </p>
                   </div>
@@ -507,7 +507,7 @@ export function RuntimeEnvironmentDetailPage() {
                       rows={10}
                       spellCheck={false}
                       value={selectedVersion.data.dockerfile}
-                      className="font-mono text-xs leading-relaxed"
+                      className="font-mono text-xs leading-5"
                     />
                   </Field>
                   <Field>
@@ -524,10 +524,10 @@ export function RuntimeEnvironmentDetailPage() {
                           ? '构建还没有输出日志'
                           : '没有日志'
                       }
-                      className="min-h-72 font-mono text-xs leading-relaxed"
+                      className="min-h-72 font-mono text-xs leading-5"
                     />
                     {selectedVersion.data.logTruncated ? (
-                      <p className="text-xs text-muted-foreground">日志已截断，仅保留最近部分。</p>
+                      <p className="text-sm text-muted-foreground">日志已截断，仅保留最近部分。</p>
                     ) : null}
                   </Field>
                 </FieldGroup>

@@ -1252,7 +1252,7 @@ function CreateMemoryReviewDialog({
                           <button
                             type="button"
                             aria-label={`移除来源会话 ${source.title || source.conversationId}`}
-                            className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="inline-flex size-6 shrink-0 items-center justify-center rounded-icon text-muted-foreground hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             disabled={create.isPending}
                             onClick={() =>
                               setSources((previous) =>
@@ -1262,7 +1262,7 @@ function CreateMemoryReviewDialog({
                               )
                             }
                           >
-                            <X className="size-3.5" aria-hidden="true" />
+                            <X className="size-3" aria-hidden="true" />
                           </button>
                         </li>
                       );
@@ -1771,13 +1771,13 @@ function MemoryReviewDetail({
             {review.proposal.evidence.map((evidence) => (
               <li
                 key={`${evidence.messageId}:${evidence.kind}:${evidence.quote}`}
-                className="border-l-2 border-line-strong/70 pl-3"
+                className="border-l border-line pl-3"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-tag bg-sunken px-1.5 py-0.5 text-2xs text-muted-foreground">
+                  <span className="rounded-tag bg-sunken px-1.5 py-0.5 text-xs text-muted-foreground">
                     {evidenceKindLabel[evidence.kind]}
                   </span>
-                  <span className="font-mono text-2xs text-muted-foreground">
+                  <span className="font-mono text-xs text-muted-foreground">
                     {evidence.messageId}
                   </span>
                 </div>

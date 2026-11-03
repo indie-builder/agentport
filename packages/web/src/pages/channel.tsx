@@ -68,7 +68,7 @@ export function ChannelPage({ channelId }: { channelId: string }) {
   const detail = useChannel(channelId);
   if (detail.isPending) {
     return (
-      <Page className="h-full min-h-0 px-6 py-4">
+      <Page className="h-full min-h-0 px-6 pb-6">
         <PageHeader title="频道" />
         <LoadingState rows={4} />
       </Page>
@@ -76,7 +76,7 @@ export function ChannelPage({ channelId }: { channelId: string }) {
   }
   if (detail.isError && detail.data === undefined) {
     return (
-      <Page className="h-full min-h-0 px-6 py-4">
+      <Page className="h-full min-h-0 px-6 pb-6">
         <PageHeader title="频道" />
         <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
       </Page>
@@ -478,7 +478,7 @@ function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
             />
           ) : null}
           {channel.archivedAt ? (
-            <p className="mx-auto w-full max-w-[880px] px-6 pb-2 text-xs text-muted-foreground">
+            <p className="mx-auto w-full max-w-220 px-6 pb-2 text-sm text-muted-foreground">
               频道已关闭，历史消息仍可查看。
             </p>
           ) : null}
@@ -650,7 +650,7 @@ function ChannelSidebarDetail({
   return (
     <aside className="hidden w-72 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line px-4 py-4 xl:flex">
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-fg">
+        <h2 className="text-base font-medium text-fg">
           成员 <span className="font-normal text-muted-foreground">{channel.members.length}</span>
         </h2>
         <ul className="flex flex-col gap-1.5">
@@ -671,7 +671,7 @@ function ChannelSidebarDetail({
       </section>
 
       <section className="flex flex-col gap-2 border-t border-line pt-4">
-        <h2 className="text-sm font-medium text-fg">
+        <h2 className="text-base font-medium text-fg">
           智能体{' '}
           <span className="font-normal text-muted-foreground">{channel.agentBindings.length}</span>
         </h2>
@@ -772,16 +772,11 @@ function RunControls({
         return (
           <div
             key={approval.id}
-            className={cn(
-              'flex min-w-0 flex-wrap items-center gap-2 rounded-item border bg-surface px-3 py-2 text-xs',
-              isPending
-                ? 'border-[var(--color-button-primary)]/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-button-primary)_35%,transparent),0_0_12px_-2px_color-mix(in_srgb,var(--color-button-primary)_30%,transparent)]'
-                : 'border-line',
-            )}
+            className="flex min-w-0 flex-wrap items-center gap-2 rounded-item border border-line bg-surface px-3 py-2 text-sm"
           >
             <ShieldAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
             {isPending ? (
-              <span className="shrink-0 rounded-full bg-[color-mix(in_srgb,var(--color-button-primary)_12%,transparent)] px-2 py-0.5 text-2xs font-medium text-[var(--color-link)]">
+              <span className="shrink-0 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
                 等待授权
               </span>
             ) : null}
@@ -821,7 +816,7 @@ function MentionMenu({
   onPick: (target: MentionTarget) => void;
 }) {
   return (
-    <div className="mx-auto w-full max-w-[880px] shrink-0 px-6">
+    <div className="mx-auto w-full max-w-220 shrink-0 px-6">
       <div
         role="listbox"
         aria-label="提及智能体"
@@ -836,7 +831,7 @@ function MentionMenu({
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onPick(option)}
             className={cn(
-              'flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-sm',
+              'flex w-full min-w-0 items-center gap-2 rounded-item px-3 py-1.5 text-left text-sm',
               index === selected ? 'bg-accent text-accent-foreground' : 'text-fg hover:bg-hover',
             )}
           >

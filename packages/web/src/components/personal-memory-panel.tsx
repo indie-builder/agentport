@@ -253,7 +253,7 @@ export function PersonalMemoryPanel({
                       : (previous ?? memory.data?.revision ?? null),
                   );
                 }}
-                className="min-h-[24rem] [&_.cm-editor]:h-full"
+                className="min-h-96 [&_.cm-editor]:h-full"
               />
             </Field>
             {overLimit ? (

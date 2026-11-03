@@ -878,7 +878,7 @@ function RoleHeader({
             <Settings />
           </Button>
         </div>
-        {error ? <span className="text-2xs font-normal text-danger">{error}</span> : null}
+        {error ? <span className="text-sm font-normal text-danger">{error}</span> : null}
       </div>
     </TableHead>
   );
@@ -1109,11 +1109,11 @@ function RoleSettings({
           </Field>
           {error ? <FieldError id={`role-name-error-${roleKey(role)}`}>{error}</FieldError> : null}
           {role.systemKey === 'admin' ? (
-            <p className="text-2xs text-muted-foreground">系统管理员权限不可修改</p>
+            <p className="text-sm text-muted-foreground">系统管理员权限不可修改</p>
           ) : null}
         </div>
         <div className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-fg">授权范围</h2>
+          <h2 className="text-base font-medium text-fg">授权范围</h2>
           {granted.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               在矩阵中勾选功能后，可在这里调整授权范围。
@@ -1149,7 +1149,7 @@ function RoleSettings({
           )}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-          <p className="text-2xs text-muted-foreground">修改将在保存更改后生效。</p>
+          <p className="text-sm text-muted-foreground">修改将在保存更改后生效。</p>
           <Button variant="outline" disabled={pending} onClick={onClose}>
             完成
           </Button>

@@ -30,7 +30,7 @@ export function DialogShell({
   return (
     <DialogContent
       className={cn(
-        'top-[10dvh]! flex max-h-[80dvh] w-[calc(100%-2rem)] max-w-[560px] translate-y-0! flex-col gap-0 p-0 sm:max-w-[560px]',
+        'top-[10dvh]! flex max-h-[80dvh] w-[calc(100%-2rem)] max-w-140 translate-y-0! flex-col gap-0 p-0 sm:max-w-140',
         className,
       )}
       showCloseButton={false}
@@ -45,7 +45,7 @@ export function DialogShell({
           disabled={closeDisabled}
           render={<Button variant="ghost" size="icon-sm" aria-label="关闭" />}
         >
-          <X aria-hidden="true" />
+          <X className="size-3" aria-hidden="true" />
         </DialogClose>
       </DialogHeader>
       <div

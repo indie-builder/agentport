@@ -580,7 +580,7 @@ export function ContextCardBlockRenderer({
             ) : null}
             <div className="relative flex min-w-0 flex-col gap-1">
               {typeof itemProps?.title === 'string' ? (
-                <span className="text-base font-semibold break-words text-fg">
+                <span className="text-base font-medium break-words text-fg">
                   {itemProps.title}
                 </span>
               ) : itemProps?.title ? (

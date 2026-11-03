@@ -42,14 +42,14 @@ export function RunOutputs({
               onClick={() =>
                 onSelect({ runId: file.runId, path: file.path, mode: selectionMode(file) })
               }
-              className="h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 text-xs font-normal text-muted-foreground hover:bg-hover hover:text-fg"
+              className="h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 text-sm font-normal text-muted-foreground hover:bg-hover hover:text-fg"
             >
               <FileText className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="truncate">{file.path}</span>
               {status ? (
                 <span
                   className={cn(
-                    'shrink-0 text-2xs',
+                    'shrink-0 text-xs',
                     file.status === 'failed' ? 'text-danger' : 'text-muted-foreground',
                   )}
                 >

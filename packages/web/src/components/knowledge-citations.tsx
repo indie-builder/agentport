@@ -488,7 +488,7 @@ export function KnowledgeImage({
   }
   if (image.status === 'error') {
     return (
-      <p role="alert" className="text-xs text-danger">
+      <p role="alert" className="text-sm text-danger">
         {image.message}
       </p>
     );
@@ -591,7 +591,7 @@ function DocumentCitationBody({ citation }: { citation: KnowledgeCitation }) {
 
 function ErrorText({ children }: { children: string }) {
   return (
-    <p role="alert" className="text-xs text-danger">
+    <p role="alert" className="text-sm text-danger">
       {children}
     </p>
   );
@@ -644,14 +644,14 @@ function FaqCitationBody({ documentId, versionId }: { documentId: string; versio
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <p className="text-sm font-medium text-fg">{faq.question}</p>
-      <p className="text-2xs text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         {faq.answerStrategy === 'random' ? '检索随机返回一条' : '检索返回全部答案'} · 此处展示完整
         {faq.answers.length} 条{faq.isRecommended ? ' · 推荐' : ''}
       </p>
       {faq.similarQuestions.length > 0 ? (
         <p className="text-xs text-muted-foreground">相似问：{faq.similarQuestions.join(' · ')}</p>
       ) : null}
-      <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm leading-relaxed text-fg">
+      <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-fg">
         {faq.answers.map((answer, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 答案按原顺序渲染，不提供排序
           <li key={`answer-${index}`}>{answer}</li>
@@ -687,12 +687,12 @@ export function KnowledgeHitDialog({
 }) {
   return (
     <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
-      <DialogShell title="引用原文" className="max-w-[860px] sm:max-w-[860px]">
+      <DialogShell title="引用原文" className="max-w-215 sm:max-w-215">
         <div className="flex min-w-0 flex-col gap-4">
           <p className="text-sm font-medium text-fg">{citation.title}</p>
           <CitationMeta citation={citation} />
           {citation.quote ? (
-            <p className="border-l-2 border-line-strong pl-3 text-sm leading-relaxed text-fg">
+            <p className="border-l border-line pl-3 text-sm text-fg">
               <mark className="bg-warning-soft text-fg">{citation.quote}</mark>
             </p>
           ) : null}
@@ -701,7 +701,7 @@ export function KnowledgeHitDialog({
               <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground">
                 <ChevronDown className="size-3.5" aria-hidden="true" /> 父块上下文
               </summary>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              <p className="mt-2 text-sm text-muted-foreground">
                 {citation.parentContent}
               </p>
             </details>

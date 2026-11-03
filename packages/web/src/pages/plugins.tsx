@@ -252,7 +252,7 @@ export function PluginsPage() {
                         className={buttonVariants({
                           variant: 'ghost',
                           className:
-                            'h-auto w-full min-w-0 justify-start p-0 text-base leading-snug font-medium',
+                            'h-auto w-full min-w-0 justify-start p-0 text-base font-medium',
                         })}
                       >
                         <span className="truncate" title={plugin.name}>

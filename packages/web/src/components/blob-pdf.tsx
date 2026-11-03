@@ -21,7 +21,7 @@ function PdfNotice({ children }: { children: string }) {
   return (
     <p
       role="alert"
-      className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-xs leading-relaxed text-muted-foreground"
+      className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-sm text-muted-foreground"
     >
       {children}
     </p>

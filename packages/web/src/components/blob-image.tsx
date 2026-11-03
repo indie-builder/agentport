@@ -46,7 +46,7 @@ export function BlobImage({
       {active !== null && state === 'error' ? (
         <p
           role="alert"
-          className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-xs leading-relaxed text-muted-foreground"
+          className="rounded-card border border-dashed border-line-strong/70 px-3 py-4 text-sm text-muted-foreground"
         >
           图片无法解码，请下载原件查看。
         </p>

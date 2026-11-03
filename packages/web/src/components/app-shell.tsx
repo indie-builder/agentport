@@ -297,7 +297,7 @@ export function AccessDenied({
     void client.invalidateQueries({ queryKey: meQuery.queryKey });
   };
   return (
-    <Page className="pt-6">
+    <Page>
       <PageHeader title={noPermissions ? '没有可用权限' : '无权访问'} />
       <PageNote
         title={
@@ -600,8 +600,8 @@ export function AppShell() {
             onClick={drawer ? () => setMobileOpen(false) : undefined}
             className={cn(
               buttonVariants({ variant: 'ghost' }),
-              // 账号入口保持独立外观：紧凑 12px 标签、7px 角、20px 头像，靠左排布。
-              'h-8 w-[200px] justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-fg',
+              // 账号入口保持独立外观：紧凑 12px 标签、8px 角、20px 头像，靠左排布。
+              'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-fg',
             )}
           >
             <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
@@ -658,7 +658,7 @@ export function AppShell() {
             showCloseButton={false}
             aria-describedby={undefined}
             // Keep the project shadow.
-            className="w-[294px]! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
+            className="w-73.5! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
           >
             <SheetTitle className="sr-only">导航</SheetTitle>
             <SheetClose
@@ -670,7 +670,7 @@ export function AppShell() {
                   // Keep the subdued close icon and translucent hover instead of the ghost defaults.
                   className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-hover"
                 >
-                  <X className="size-4" />
+                  <X className="size-3" />
                 </Button>
               }
             />
@@ -707,7 +707,7 @@ export function AppShell() {
             )}
           >
             {immersive ? (
-              <div className="h-full">{content}</div>
+              <div className={cn('h-full', denied && 'p-6')}>{content}</div>
             ) : (
               // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。
               <div className="w-full px-6 pb-6">

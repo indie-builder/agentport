@@ -58,7 +58,7 @@ function ShareSourceCell({
       <Button
         variant="ghost"
         size="sm"
-        className="h-7 justify-start px-0 text-xs text-muted-foreground"
+        className="h-7 justify-start px-0 text-sm text-muted-foreground"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >

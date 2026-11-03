@@ -73,9 +73,17 @@
   --color-code: #f6f6f6;
   --color-code-block: #0d0d0c;
   --color-code-block-fg: #e6e6e4;
+  --color-code-syntax-comment: #8b8b86;
+  --color-code-syntax-string: #cdcdc8;
+  --color-code-syntax-accent: #e0a48a;
+  --color-code-syntax-muted: #b8b8b2;
+  --color-code-block-dim: rgb(255 255 255 / 0.55);
+  --color-code-block-faint: rgb(255 255 255 / 0.45);
   --color-code-line: var(--color-line);
 
   --color-scrim: rgb(0 0 0 / 0.4);
+  --color-scrollbar-thumb: rgb(0 0 0 / 0.16);
+  --color-scrollbar-thumb-hover: rgb(60 55 52 / 0.32);
 
   /* 圆角：CDS 矩阵（卡片 12 / 控件 8 / 标签 6 / Composer 20） */
   --radius-card: 12px;
@@ -90,8 +98,7 @@
 
   /* base-nova 语义圆角映射；Badge 的 4xl 保留项目的小标签圆角。 */
   /*
-   * --radius 是 shadcn 的基础变量，input-group 用 calc(var(--radius) - 3px)
-   * 推导小按钮圆角。缺了它 calc 整条失效，圆角会变成 0。
+   * --radius 是 shadcn 的基础变量，保留供底座组件与 Tailwind 圆角工具映射使用。
    */
   --radius: var(--radius-item);
   --radius-sm: var(--radius-tag); /* 小标签 */
@@ -162,16 +169,13 @@
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
   /*
-   * 输入家族：默认边线等同 line，聚焦沿用中性近似值。
-   * 两者对白 1.25 / 1.88:1，均不达 3:1；不新增 input hover，
-   * 错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
+   * 输入家族：默认边线等同 line；普通 Input/Textarea 聚焦走陶土 button-primary，
+   * SourceEditor 沿用中性 input-focus（line / input-focus 对白仅 1.25 / 1.88:1，不达 3:1）；
+   * 不新增 input hover，错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
    */
   --color-input: var(--color-line);
   --color-input-focus: #bdbdbd;
   --color-ring: #d97757;
-  --secondary: var(--color-secondary); /* 次按钮悬停 color-mix 的原始 CSS 变量 */
-  --foreground: var(--color-foreground); /* 次按钮悬停 color-mix 的前景混合色 */
-
 
   /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
   --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
@@ -228,16 +232,16 @@
   [data-streamdown="code-block"] [data-streamdown] {
     --shiki-background: transparent;
     --shiki-foreground: var(--color-code-block-fg);
-    --shiki-token-comment: #8b8b86;
-    --shiki-token-string: #cdcdc8;
-    --shiki-token-string-expression: #cdcdc8;
+    --shiki-token-comment: var(--color-code-syntax-comment);
+    --shiki-token-string: var(--color-code-syntax-string);
+    --shiki-token-string-expression: var(--color-code-syntax-string);
     --shiki-token-constant: var(--color-code-block-fg);
-    --shiki-token-keyword: #e0a48a;
-    --shiki-token-function: #e0a48a;
-    --shiki-token-parameter: #b8b8b2;
-    --shiki-token-punctuation: #8b8b86;
-    --shiki-token-link: #e0a48a;
-    --color-muted-foreground: #b8b8b2;
+    --shiki-token-keyword: var(--color-code-syntax-accent);
+    --shiki-token-function: var(--color-code-syntax-accent);
+    --shiki-token-parameter: var(--color-code-syntax-muted);
+    --shiki-token-punctuation: var(--color-code-syntax-comment);
+    --shiki-token-link: var(--color-code-syntax-accent);
+    --color-muted-foreground: var(--color-code-syntax-muted);
     --color-foreground: var(--color-code-block-fg);
   }
 
@@ -277,7 +281,7 @@
     letter-spacing: -0.01em;
   }
 
-  /* 焦点兜底与 skip link 都走中性语义令牌。 */
+  /* 焦点兜底走陶土 ring 令牌；skip link 沿用中性语义令牌。 */
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
@@ -292,8 +296,8 @@
   [data-streamdown="code-block"]::selection,
   .cds-code-surface ::selection,
   .cds-code-surface::selection {
-    background: rgba(217, 119, 87, 0.38);
-    color: #ffffff;
+    background: color-mix(in srgb, var(--color-button-primary) 38%, transparent);
+    color: var(--color-primary-foreground);
   }
 
   ::-webkit-scrollbar {
@@ -304,12 +308,12 @@
   ::-webkit-scrollbar-thumb {
     border: 3px solid transparent;
     border-radius: 9999px;
-    background-color: rgb(0 0 0 / 0.16);
+    background-color: var(--color-scrollbar-thumb);
     background-clip: content-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(60 55 52 / 0.32);
+    background-color: var(--color-scrollbar-thumb-hover);
   }
 
   ::-webkit-scrollbar-track {
@@ -326,7 +330,7 @@
     border-radius: var(--radius-item);
     background-color: var(--color-primary);
     color: var(--color-primary-foreground);
-    font-size: 14px;
+    font-size: var(--text-base);
     transform: translateY(-200%);
   }
 
@@ -610,7 +614,7 @@
     background: linear-gradient(
       105deg,
       transparent 30%,
-      rgba(255, 255, 255, 0.6) 50%,
+      color-mix(in srgb, var(--color-surface) 60%, transparent) 50%,
       transparent 70%
     );
     animation: cds-skeleton-sweep 2s linear infinite;

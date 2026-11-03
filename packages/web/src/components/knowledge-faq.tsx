@@ -316,7 +316,7 @@ function FaqEditorForm({
       <DialogShell
         title={initialDetail ? '编辑 FAQ' : '新建 FAQ'}
         closeDisabled={pending}
-        className="max-w-[760px] sm:max-w-[760px]"
+        className="max-w-190 sm:max-w-190"
       >
         <form
           className="flex flex-col gap-4"
@@ -504,7 +504,7 @@ function FaqEditorForm({
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <span className="text-2xs text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 只影响检索命中；管理详情与导出始终保留全部答案。
               </span>
             </Field>
@@ -596,8 +596,8 @@ function ImportResults({ response }: { response: KnowledgeFaqImportResponse }) {
   return (
     <ul className="flex max-h-56 flex-col gap-1 overflow-auto">
       {rows.map((result) => (
-        <li key={`${result.row}-${result.status}`} className="text-2xs">
-          <span className="font-mono text-muted-foreground">第 {result.row} 行</span>{' '}
+        <li key={`${result.row}-${result.status}`} className="text-sm">
+          <span className="font-mono text-xs text-muted-foreground">第 {result.row} 行</span>{' '}
           <span className={result.status === 'failed' ? 'text-danger' : 'text-warning'}>
             {importStatusLabel[result.status]}
           </span>
@@ -929,7 +929,7 @@ function FaqImportDialog({
       <DialogShell
         title={canImport ? '导入 FAQ' : '批次发布 FAQ'}
         closeDisabled={pending}
-        className="max-w-[720px] sm:max-w-[720px]"
+        className="max-w-180 sm:max-w-180"
       >
         <div className="flex flex-col gap-4">
           {recovered && committed === null ? (
@@ -1114,15 +1114,15 @@ function FaqImportDialog({
                   </Select>
                   {mode === 'replace' ? (
                     existingComplete ? (
-                      <span className="text-2xs text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         旧 FAQ 会保留到整批发布成功；失败时线上不变。
                       </span>
                     ) : existing.isError ? (
-                      <span className="text-2xs text-danger">
+                      <span className="text-sm text-danger">
                         旧 FAQ 数量读取失败，暂不能替换。
                       </span>
                     ) : (
-                      <span className="text-2xs text-muted-foreground">正在读取旧 FAQ 数量…</span>
+                      <span className="text-sm text-muted-foreground">正在读取旧 FAQ 数量…</span>
                     )
                   ) : null}
                 </Field>
@@ -1174,7 +1174,7 @@ function FaqImportDialog({
                   <ImportCounts response={preview} />
                   <ImportResults response={preview} />
                   {preview.counts.failed > 0 ? (
-                    <span className="text-xs text-danger">存在失败行，整批不会写入。</span>
+                    <span className="text-sm text-danger">存在失败行，整批不会写入。</span>
                   ) : null}
                 </div>
               ) : null}
@@ -1193,7 +1193,7 @@ function FaqImportDialog({
                   已整批上线，旧 FAQ 的替换在发布成功时完成。
                 </span>
               ) : jobsReadError ? (
-                <span className="flex flex-wrap items-center gap-2 text-xs text-danger">
+                <span className="flex flex-wrap items-center gap-2 text-sm text-danger">
                   <span className="min-w-0 flex-1">
                     索引任务状态读取失败，重试后再发布；旧 FAQ 仍在线上。
                   </span>
@@ -1209,15 +1209,15 @@ function FaqImportDialog({
                   </Button>
                 </span>
               ) : failedJob ? (
-                <span className="text-xs text-danger">
+                <span className="text-sm text-danger">
                   索引任务失败：{failedJob.error ?? '未知原因'}；旧 FAQ 仍在线上。
                 </span>
               ) : jobsSettled && !jobsOk ? (
-                <span className="text-xs text-danger">
+                <span className="text-sm text-danger">
                   索引任务未全部成功，未发布；旧 FAQ 仍在线上。
                 </span>
               ) : jobsOk && committedDetailErrorCount > 0 ? (
-                <span className="flex flex-wrap items-center gap-2 text-xs text-danger">
+                <span className="flex flex-wrap items-center gap-2 text-sm text-danger">
                   <span className="min-w-0 flex-1">
                     草稿版本读取失败，重试后再发布；旧 FAQ 仍在线上。
                   </span>
@@ -1367,11 +1367,11 @@ function FaqTest({ baseId }: { baseId: string }) {
           onChange={setDraft}
           className="min-w-48 flex-1 sm:max-w-md"
         />
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex items-center gap-2 text-sm text-muted-foreground">
           <Switch checked={rerank} onCheckedChange={setRerank} aria-label="启用重排" /> 重排
         </span>
         <Field className="w-32 gap-1">
-          <FieldLabel htmlFor="faq-test-threshold" className="text-2xs">
+          <FieldLabel htmlFor="faq-test-threshold" className="text-sm">
             向量门槛
           </FieldLabel>
           <Input
@@ -1728,24 +1728,24 @@ export function FaqTab({
                     {faqStatusLabel[statusValue]}
                   </StatusBadge>
                   {item.faq && item.faq.answers.length > 1 ? (
-                    <span className="text-2xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {item.faq.answers.length} 个答案
                     </span>
                   ) : null}
                   {item.faq ? (
-                    <span className="text-2xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {item.faq.answerStrategy === 'random' ? '随机一条' : '全部答案'}
                     </span>
                   ) : null}
                   {item.faq?.isRecommended ? <StatusBadge tone="outline">推荐</StatusBadge> : null}
                   {item.status === 'pending' ? null : (
-                    <span className="ml-auto text-2xs text-muted-foreground">
+                    <span className="ml-auto text-xs text-muted-foreground">
                       {documentStatusLabel[item.status]}
                     </span>
                   )}
                 </div>
                 {item.faq?.answers[0] ? (
-                  <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                  <p className="line-clamp-2 text-sm text-muted-foreground">
                     {item.faq.answers[0]}
                   </p>
                 ) : null}
@@ -1944,7 +1944,7 @@ function FaqHistoryDialog({
       <DialogShell
         title="FAQ 版本历史"
         closeDisabled={rollback.isPending}
-        className="max-w-[680px] sm:max-w-[680px]"
+        className="max-w-170 sm:max-w-170"
       >
         {versions.isPending ? <LoadingState rows={3} /> : null}
         {versions.isError ? (

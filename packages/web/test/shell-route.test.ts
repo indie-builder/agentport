@@ -707,7 +707,7 @@ describe('personal entry', () => {
       // 账号入口不是导航条目：头像与姓名靠左，保持 200×32 与紧凑样式。
       expect(entry.closest('nav')).toBeNull();
       expect(entry.classList.contains('justify-start')).toBe(true);
-      expect(entry.classList.contains('w-[200px]')).toBe(true);
+      expect(entry.classList.contains('w-50')).toBe(true);
       expect(entry.classList.contains('h-8')).toBe(true);
       expect(entry.classList.contains('text-xs')).toBe(true);
       expect(entry.classList.contains('rounded-[var(--radius-icon)]')).toBe(true);

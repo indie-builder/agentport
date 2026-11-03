@@ -908,7 +908,7 @@ function TestSummary({
     : (server.lastTestRuntimeEnvironment ?? null);
   return (
     <div className="flex flex-col gap-2">
-      <div className="max-w-[220px] flex flex-col gap-0.5">
+      <div className="max-w-55 flex flex-col gap-0.5">
         <div className="flex items-center gap-1.5">
           {ok ? (
             <CircleCheck className="size-3.5 shrink-0 text-success" />
@@ -1003,7 +1003,7 @@ function ConnectorCatalogDialog({
                     使用
                   </Button>
                 </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">{item.description}</p>
+                <p className="text-sm text-muted-foreground">{item.description}</p>
                 {item.kind === 'stdio' ? (
                   <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                     <code className="break-words font-mono text-fg">
@@ -1137,7 +1137,7 @@ function ToolCatalogDialog({
                     ) : null}
                   </div>
                   {tool.description ? (
-                    <p className="text-xs leading-relaxed text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       {tool.description}
                     </p>
                   ) : null}
@@ -1193,14 +1193,14 @@ function DeleteServerDialog({
         <div className="rounded-item bg-danger-soft p-3">
           <p className="text-xs text-danger">影响范围</p>
           {loading ? (
-            <p className="mt-1 text-xs text-muted-foreground">正在读取绑定关系…</p>
+            <p className="mt-1 text-sm text-muted-foreground">正在读取绑定关系…</p>
           ) : unknown ? (
-            <p className="mt-1 text-xs text-danger">
+            <p className="mt-1 text-sm text-danger">
               读取不到完整的绑定关系，暂时无法安全删除。请刷新后重试，或先到智能体页确认。
             </p>
           ) : (
             <>
-              <ul className="mt-1 flex flex-col gap-0.5 text-xs text-fg">
+              <ul className="mt-1 flex flex-col gap-0.5 text-sm text-fg">
                 <li>
                   工具 <span className="font-mono tabular-nums">{toolCount}</span> 个
                   {toolCount > 0 ? '，会一并删除' : ''}
@@ -1211,7 +1211,7 @@ function DeleteServerDialog({
                 </li>
               </ul>
               {bound.length > 0 ? (
-                <ul className="mt-2 flex flex-col gap-0.5 border-t border-line pt-2 text-xs text-fg">
+                <ul className="mt-2 flex flex-col gap-0.5 border-t border-line pt-2 text-sm text-fg">
                   {bound.map((agent) => (
                     <li key={agent.id}>· {agent.name}</li>
                   ))}
@@ -1311,7 +1311,7 @@ function ConnectionDialog({
             {data ? (
               // 未轮换时接口只回掩码：那不是可用的 token，不能让用户复制。
               data.token === SECRET_MASK || !revealed ? (
-                <p className="text-xs leading-relaxed text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {SECRET_MASK} 已配置。点「轮换 Token」生成新的明文，旧的立即失效。
                 </p>
               ) : (
@@ -1328,7 +1328,7 @@ function ConnectionDialog({
               <p className="text-xs text-muted-foreground">加载中…</p>
             )}
             {revealed ? (
-              <p role="status" className="text-2xs leading-relaxed text-warning">
+              <p role="status" className="text-sm text-warning">
                 只显示这一次，请立即保存；旧 token 已失效。
               </p>
             ) : null}
@@ -1741,7 +1741,7 @@ export function ToolForm({
       noValidate
     >
       <div className="flex items-baseline justify-between gap-2 sm:col-span-6">
-        <h3 className="text-xs text-muted-foreground">
+        <h3 className="text-base font-medium text-fg">
           {tool ? `编辑工具 ${tool.name}` : '添加工具'}
         </h3>
         {tool ? (
@@ -1889,7 +1889,7 @@ export function ToolForm({
               aria-invalid={Boolean(errors.inputSchema)}
               aria-describedby={errors.inputSchema ? `tool-schema-error-${serverId}` : undefined}
               disabled={pending}
-              className="min-h-[10rem]"
+              className="min-h-40"
             />
           )}
         />
@@ -1921,7 +1921,7 @@ export function ToolForm({
             '保存更改'
           ) : (
             <>
-              <Plus className="size-4" /> 添加
+              <Plus /> 添加
             </>
           )}
         </Button>
@@ -2234,7 +2234,7 @@ export function ServerFormDialog({
         >
           {creating ? (
             <FieldSet className="gap-2.5" disabled={pending} data-disabled={pending}>
-              <FieldLegend className="mb-2.5 text-xs font-normal text-muted-foreground">
+              <FieldLegend variant="label" className="mb-2.5 text-muted-foreground">
                 来源类型
               </FieldLegend>
               <ToggleGroup
@@ -2258,7 +2258,7 @@ export function ServerFormDialog({
                     className="h-auto min-w-0 flex-col items-start gap-1 whitespace-normal px-3 py-2.5 text-left"
                   >
                     <span>{kindMeta[value].label}</span>
-                    <span className="text-2xs font-normal leading-snug text-muted-foreground">
+                    <span className="text-sm font-normal text-muted-foreground">
                       {kindMeta[value].newHint}
                     </span>
                   </ToggleGroupItem>
@@ -2447,7 +2447,7 @@ export function ServerFormDialog({
                     </FieldDescription>
                   </Field>
                   {kind === 'generated' && !viewOnly ? (
-                    <p className="rounded-item bg-chip p-3 text-xs leading-relaxed text-muted-foreground">
+                    <p className="rounded-item bg-chip p-3 text-sm text-muted-foreground">
                       保存后会直接打开工具编辑，把上游 HTTP API 的端点声明成 MCP 工具。
                     </p>
                   ) : null}

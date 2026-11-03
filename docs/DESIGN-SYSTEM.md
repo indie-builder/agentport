@@ -124,7 +124,21 @@
 
 ## 5. 图标
 
-- **lucide**，`stroke-width: 1.75`，尺寸 **16px**（次级 14px，最小 12px）。
+- **lucide**，`stroke-width: 1.75`，`size` 由 `App.tsx` 的 `LucideProvider` 统一默认 16px。尺寸按 Claude CDS 档位：**XS 12px**（徽章/关闭）、**SM 14px**（密集操作栏/次级）、**MD 16px**（标准交互件，默认）、**LG 20px**（卡片主操作）、**XL 24px**（模态/空状态主图）；非档位 `size`（如 18px、临时 `w-*/h-*`）视为偏差。受保护例外沿用既定值：资源卡片头部图标 40px、空态业务插画 96/64/144。
+- **行内光学基线**：正文/标题里与文字内联的图标用 `.align-[-0.125em]`（14–16px 文本）、`.align-[-0.075em]`（11–12px 小字）；flex 布局内的图标用 `items-center` 盒对齐，不强加该规则。
+
+**尺寸档用途映射（组件）**
+
+| 档 | 尺寸 | 用途 / 组件 |
+|---|---|---|
+| XS | 12px | Badge/标签、关闭与清除 X、`Button size="xs"/"icon-xs"`、`InputGroupButton size="icon-xs"` |
+| SM | 14px | 密集操作栏与表格行 `Button size="sm"/"icon-sm"`、列表/折叠/文件树等密集文本旁图标、频道次级导航 |
+| MD | 16px | 标准交互件：`Button default/icon`、菜单/Select/Combobox 项、PageNote、内容区图标 |
+| LG | 20px | `EmptyState` 默认主图（40px 圆底内）、Dialog 顶部 40px 圆底图标 |
+| XL | 24px | ≥48px 容器或模态主图；当前空态主图仍用 LG 20（40px 圆底为已批准布局，保留） |
+
+- 图标按钮档位：`icon`(32px)=MD 16、`icon-sm`(28px)=SM 14、`icon-xs`(24px)=XS 12；`icon-lg`(36px) 暂无实例，出现时用 LG 20。
+- 记录在案的例外（不改）：频道次级导航 Hash 图标用 SM 14（`channel.tsx`，text-xs 旁的密集次级导航）；图表 tooltip 10px / 图例 12px 属 Recharts 图表子系统（`ui/chart.tsx`），不按本节的交互图标规则处理。
 - 图标继承所属文字与状态色：普通图标跟随文字，当前导航与选中项随 `selected-foreground`（`#151515`），危险动作与错误用 `danger`；不单独给图标上色，也不把所有图标染成强调色。
 - 品牌：采用用户确认的 A 版艺术字组合——木工小狗双手搭在大写 `PACE` 上，像在亲手打造字标。字母为白底黑色轮廓，清理粗重黑块和装饰细节，嘴与舌头为黑白，工具保留少量木色、灰色和黄色，不添加红色装饰。完整 Logo 为 `public/brand/pace-wordmark.webp`（透明，768×568，约 51KB），登录页居中显示高 96px，展开侧栏显示高 32px；导航品牌区相应高 32px，与同排折叠按钮共用水平中心线，收起侧栏仍使用原 32px 木工矢量标记 `public/brand/pace-mark.svg`。本次完整艺术字是图片版，并非矢量路径；透明 PNG 母版与生成记录保存在 `docs/brand/`。人物头像、人物卡片动效、对话布局与现有 favicon 保持原样；界面配色统一遵循 §2。
 
@@ -372,7 +386,7 @@
 | 类名合并 | `cn`（`lib/cn.ts`） | 唯一实现，不引入 clsx / tailwind-merge 的第二份 |
 | 生成式 UI 渲染 | `@openuidev/react-lang` 的 `<Renderer>` | 组件实现全部映射到 shadcn/ui；官方解析、响应式、表单与Query/Mutation运行时负责交互。业务不加载 `@openuidev/react-ui` 的视觉层，该包仅作开发期契约对照。围栏外散文仍走Markdown |
 
-- 项目圆角：卡片 12 / Composer 20 / 用户消息气泡 18 / 行与常规控件 8 / 32px 图标按钮 8（共享 `size="icon"` 32px / `icon-lg` 36px 与紧凑、侧栏折叠实例一致）/ 紧凑图标按钮 8 / 标签 6；外壳平铺、无外框圆角。底座内部细节沿用官方结构；`--radius` 为 8px，InputGroup 的内部按钮经 `calc(var(--radius) - 3px)` 推导为 5px。共享映射见 `styles.css`。
+- 项目圆角：卡片 12 / Composer 20 / 用户消息气泡 18 / 行与常规控件 8 / 32px 图标按钮 8（共享 `size="icon"` 32px / `icon-lg` 36px 与紧凑、侧栏折叠实例一致）/ 紧凑图标按钮 8 / 标签 6；外壳平铺、无外框圆角。底座内部细节沿用官方结构；`--radius` 为 8px；InputGroup 的内部按钮与 addon 采用 8px 图标圆角档。共享映射见 `styles.css`。
 - shadcn 原语的语义色（`bg-popover`、`text-muted-foreground`、`bg-accent` 等）已全部映射到统一语义令牌，**不要在组件里改回具体色值**。
 - shadcn 定制顺序：内置 variant → 局部布局 → 源码中的语义 variant → 有实际复用需求的应用组合。底座组件放 `components/ui/`，应用组合放 `src/components/`（如 `ConfirmDialog`）。允许改源码，但保留原语的 `aria-*`、焦点管理与键盘交互，只改外观 token；安装/更新前对比 git diff，`--overwrite` 会覆盖既有定制。
 

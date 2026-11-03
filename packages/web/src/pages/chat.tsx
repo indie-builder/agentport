@@ -203,7 +203,7 @@ export function ChatPage() {
   // 否则 cleanup 会清掉未发送附件、草稿与当前会话，错误改由工作区内提示并可重试。
   if (!agents.data || agents.data.length === 0) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         {agents.isPending ? (
           <LoadingState rows={3} />
@@ -245,7 +245,7 @@ export function ChatPage() {
   // URL 指向的 agent 不存在：不静默改成第一个，免得把消息发给别的 agent。
   if (!conversationId && search.agent && !agents.data.some((item) => item.id === search.agent)) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <EmptyState
           icon={<Bot className="size-5" />}
@@ -825,7 +825,7 @@ function ChatWorkspace({
   // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
   if (conversationId && detail.isError && items.length === 0 && !run) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <div className="flex flex-col gap-3">
           <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
@@ -846,7 +846,7 @@ function ChatWorkspace({
   // 自己发送时 store 已有本轮消息，不会闪这一屏。
   if (conversationId && !run && items.length === 0 && hydrated.current !== conversationId) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-[880px] overflow-y-auto px-6 pb-6">
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
         <LoadingState rows={4} />
       </Page>
@@ -861,7 +861,7 @@ function ChatWorkspace({
           side="left"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-[294px]! max-w-full! gap-5 p-0"
+          className="w-73.5! max-w-full! gap-5 p-0"
         >
           <SheetTitle className="sr-only">会话历史</SheetTitle>
           <HistoryHeader
@@ -895,7 +895,7 @@ function ChatWorkspace({
           finalFocus={() =>
             workspaceFeedbackRef.current ? composerRef.current : workspaceToggleRef.current
           }
-          className="w-[400px]! max-w-full! gap-0 p-0"
+          className="w-100! max-w-full! gap-0 p-0"
         >
           <SheetTitle className="sr-only">会话成果</SheetTitle>
           <ConversationOutputs
@@ -1083,7 +1083,7 @@ function ChatTopBar({
         </Button>
       )}
       {showAgentPicker ? (
-        <div className="min-w-0 shrink basis-[11rem]">
+        <div className="min-w-0 shrink basis-44">
           <AgentPicker
             agent={agent}
             agentId={agent?.id ?? null}
@@ -1352,7 +1352,7 @@ function HistoryHeader({
       </Button>
       {onClose ? (
         <Button variant="ghost" size="icon" aria-label="关闭会话列表" onClick={onClose}>
-          <X className="size-4" />
+          <X className="size-3" />
         </Button>
       ) : null}
     </div>
@@ -1408,7 +1408,7 @@ function HistoryPanel({
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
         {history.length === 0 && !pending && !error ? (
-          <p className="px-2 py-5 text-xs leading-relaxed text-muted-foreground">
+          <p className="px-2 py-5 text-sm text-muted-foreground">
             {hasAgent ? '开始对话后，记录会出现在这里。' : '先选择专家。'}
           </p>
         ) : null}
@@ -1731,7 +1731,7 @@ function ChatColumn({
 
         {/* 建议入口在输入框上方 8px，只有欢迎且已选专家时出现；点击只填草稿。 */}
         {showWelcome && agent ? (
-          <div className="mx-auto flex w-full max-w-[880px] shrink-0 flex-wrap gap-2 px-6 pb-2">
+          <div className="mx-auto flex w-full max-w-220 shrink-0 flex-wrap gap-2 px-6 pb-2">
             {welcomeSuggestions.map(({ label, icon: Icon, prompt }) => (
               <Button
                 key={label}
@@ -1853,7 +1853,7 @@ export function Composer({
   };
   return (
     <form
-      className={cn('mx-auto w-full max-w-[880px] shrink-0 px-6 pb-6', welcome ? 'pt-0' : 'pt-3')}
+      className={cn('mx-auto w-full max-w-220 shrink-0 px-6 pb-6', welcome ? 'pt-0' : 'pt-3')}
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -1993,7 +1993,7 @@ export function Composer({
           </InputGroupAddon>
         </InputGroup>
         {!canSend ? (
-          <p id="composer-send-denied" className="mt-2 px-1 text-xs text-muted-foreground">
+          <p id="composer-send-denied" className="mt-2 px-1 text-sm text-muted-foreground">
             {sendDenied}
           </p>
         ) : null}
@@ -2306,7 +2306,7 @@ export function MessagePane({
         <MessageScrollerViewport aria-label="对话消息">
           {/* 入口留在视口顶部的正常流里，但不进 Content：原语靠 Content 旧首子项后移识别 prepend。 */}
           {hasOlder || loadingOlder ? (
-            <div className="mx-auto flex w-full max-w-[880px] justify-center px-6 pt-4">
+            <div className="mx-auto flex w-full max-w-220 justify-center px-6 pt-4">
               <Button
                 variant="outline"
                 size="sm"
@@ -2319,7 +2319,7 @@ export function MessagePane({
             </div>
           ) : null}
           <MessageScrollerContent
-            className={cn('mx-auto w-full max-w-[880px] gap-4 px-6', !welcome && 'py-4')}
+            className={cn('mx-auto w-full max-w-220 gap-4 px-6', !welcome && 'py-4')}
           >
             {loading ? (
               <MessageScrollerItem messageId="loading">
@@ -2538,7 +2538,7 @@ export function MessagePane({
                                 size="sm"
                                 disabled={runOutputs.loadingMore}
                                 onClick={runOutputs.onLoadMore}
-                                className="h-7 px-1.5 text-xs text-muted-foreground"
+                                className="h-7 px-1.5 text-sm text-muted-foreground"
                               >
                                 {runOutputs.loadingMore ? '正在加载…' : '加载更多成果'}
                               </Button>
@@ -2555,9 +2555,9 @@ export function MessagePane({
                               onClick={() => onBranchMessage(messageId)}
                             >
                               {branchingMessageId === messageId ? (
-                                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                                <LoaderCircle className="animate-spin" aria-hidden="true" />
                               ) : (
-                                <GitBranch className="size-4" aria-hidden="true" />
+                                <GitBranch aria-hidden="true" />
                               )}
                             </Button>
                           </div>
@@ -2987,7 +2987,7 @@ function FoldingMessageBody({ text }: { text: string }) {
         ref={bodyRef}
         className={cn(
           'whitespace-pre-wrap break-words',
-          collapsed && 'max-h-[300px] overflow-hidden',
+          collapsed && 'max-h-75 overflow-hidden',
         )}
         style={{ WebkitMaskImage: maskImage, maskImage }}
       >
@@ -3001,7 +3001,7 @@ function FoldingMessageBody({ text }: { text: string }) {
           aria-expanded={expanded}
           aria-label={expanded ? '收起消息' : '展开完整消息'}
           onClick={() => setExpanded((value) => !value)}
-          className="self-start text-xs"
+          className="self-start text-sm"
         >
           {expanded ? '收起' : '展开'}
         </Button>
@@ -3094,7 +3094,7 @@ const MessagePart = memo(function MessagePart({
             ...(openUiSnapshot ?? {}),
           })}
           {item.truncated ? (
-            <p className="text-2xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               该段内容超过单块上限，只显示了前一部分。
             </p>
           ) : null}
@@ -3104,7 +3104,7 @@ const MessagePart = memo(function MessagePart({
       return (
         <div
           className={cn(
-            'flex min-w-0 items-center gap-1.5 text-2xs [overflow-wrap:anywhere]',
+            'flex min-w-0 items-center gap-1.5 text-sm [overflow-wrap:anywhere]',
             item.tone === 'ok'
               ? 'text-success'
               : item.tone === 'error'
@@ -3222,7 +3222,7 @@ function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
           查看详情
         </Link>
       </div>
-      {run.error ? <p className="break-words text-2xs text-danger">{run.error}</p> : null}
+      {run.error ? <p className="break-words text-sm text-danger">{run.error}</p> : null}
     </div>
   );
 }
@@ -3248,17 +3248,16 @@ export const ApprovalCard = memo(function ApprovalCard({
       transition={reduce ? STILL : EXPAND}
       className={cn(
         'flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2',
-        isPending &&
-          'border-[var(--color-button-primary)]/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-button-primary)_35%,transparent),0_0_12px_-2px_color-mix(in_srgb,var(--color-button-primary)_30%,transparent)]',
+        isPending && 'border-line',
       )}
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       {isPending ? (
-        <span className="shrink-0 rounded-full bg-[color-mix(in_srgb,var(--color-button-primary)_12%,transparent)] px-2 py-0.5 text-2xs font-medium text-[var(--color-link)]">
+        <span className="shrink-0 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
           等待授权
         </span>
       ) : null}
-      <div className="min-w-0 flex-1 basis-48 text-xs leading-relaxed text-fg [overflow-wrap:anywhere]">
+      <div className="min-w-0 flex-1 basis-48 text-sm text-fg [overflow-wrap:anywhere]">
         工具 <code className="font-mono text-xs">{item.toolName}</code>
         <span className="text-muted-foreground"> @ {item.serverName ?? item.serverId}</span>{' '}
         {item.waiting

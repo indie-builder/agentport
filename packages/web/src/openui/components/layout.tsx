@@ -176,12 +176,12 @@ function SourceStrip({
               href={source.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="min-w-0 break-words font-semibold text-fg underline decoration-line-strong underline-offset-2 hover:decoration-fg"
+              className="min-w-0 break-words font-medium text-fg underline decoration-line-strong underline-offset-2 hover:decoration-fg"
             >
               {source.title}
             </a>
           ) : (
-            <span className="min-w-0 break-words font-semibold text-fg">{source.title}</span>
+            <span className="min-w-0 break-words font-medium text-fg">{source.title}</span>
           )}
           <span className="shrink-0 text-muted-foreground">{source.sourceName}</span>
         </div>
@@ -211,7 +211,7 @@ export function CardHeaderRenderer({ props }: RenderProps<{ title?: string; subt
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {props.title ? (
-        <h2 className="text-lg font-semibold break-words text-fg">{props.title}</h2>
+        <h2 className="text-base font-medium break-words text-fg">{props.title}</h2>
       ) : null}
       {props.subtitle ? (
         <p className="text-sm break-words text-muted-foreground">{props.subtitle}</p>
@@ -226,7 +226,7 @@ export function InlineHeaderRenderer({
   if (!props.heading && !props.description) return null;
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-base font-semibold break-words text-fg">{props.heading}</span>
+      <span className="text-base font-medium break-words text-fg">{props.heading}</span>
       {props.description ? (
         <span className="text-sm break-words text-muted-foreground">{props.description}</span>
       ) : null}
@@ -344,7 +344,7 @@ export function SectionBlockRenderer({
       <div className="flex min-w-0 flex-col gap-4">
         {sections.map((section, index) => (
           <section key={`${childProps(section)?.value ?? index}`} className="flex flex-col gap-2">
-            <h3 className="text-base font-semibold break-words text-fg">
+            <h3 className="text-base font-medium break-words text-fg">
               {String(childProps(section)?.trigger ?? '')}
             </h3>
             <div className="flex flex-col gap-3">{renderNode(childProps(section)?.content)}</div>
@@ -375,7 +375,7 @@ export function StepsRenderer({ props, renderNode }: RenderProps<{ items: unknow
             {index + 1}
           </span>
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-base font-semibold break-words text-fg">
+            <span className="text-base font-medium break-words text-fg">
               {String(childProps(item)?.title ?? '')}
             </span>
             {childProps(item)?.details ? (
