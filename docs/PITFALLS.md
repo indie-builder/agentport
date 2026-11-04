@@ -25,7 +25,7 @@
 
 - **现象**：用中文任务名调用 `EnterWorktree` 会失败。
 - **原因**：工具限制 name 每段只能是字母、数字、点、下划线、短横线（最长 64）。
-- **规避**：worktree 名用 `log-to-file` 这类 ASCII slug；中文只写在 `docs/tasks/<slug>.md` 的标题里。
+- **规避**：worktree 名用 `log-to-file` 这类 ASCII slug；中文任务名只用于当前会话或原生待办的标题，不放进 worktree 名。
 
 ## worktree 里两类命令会被拒绝，原因不同
 
@@ -57,11 +57,11 @@
 - **原因**：那是图表描边宽度，与 lucide 图标无关；规则针对的是 lucide 组件。
 - **规避**：契约检查只匹配从 `lucide-react` 导入的组件名；不要为此改图表数值。
 
-## 不要把任务记录写进 `.claude/worktrees/`
+## 不要把任务跟踪资料写进 `.claude/worktrees/`
 
-- **现象**：写在 worktree 目录里的记录，任务收尾后无法追溯。
+- **现象**：手写到 worktree 目录里的临时记录或计划，任务收尾后无法追溯，或随树删除而丢失。
 - **原因**：worktree 退出即删或按周期清理，且 `.claude/worktrees/` 被 gitignore。
-- **规避**：任务记录写 `docs/tasks/<slug>.md`，踩坑写 `docs/PITFALLS.md`，都在 worktree 内创建并随分支提交。
+- **规避**：普通任务跟踪放当前对话或原生待办；只有用户明确要求保存时才写入指定路径。跨任务教训写 `docs/PITFALLS.md` 并随分支提交；需要暂停或交接时用 pstack 原生 checkpoint，不手造目录。
 
 ## 运行：`pnpm up` 会更新依赖，不会启动项目
 
@@ -169,7 +169,7 @@
 
 - **现象**：合并 review 时按 main 里已有的实现反推哪条决定有效，忽略了用户之后明确的新决定。
 - **原因**：把代码时间线当成决定时间线。
-- **规避**：以任务记录「当前有效决定」和用户最新明确表态为准（`docs/DEV-WORKFLOW.md` §3）。
+- **规避**：以当前会话中用户最新明确表态和原生待办为准（`docs/DEV-WORKFLOW.md` §3），不按旧任务文档或代码时间线反推。
 
 ## 沟通：clear 后按指代猜测要撤销什么
 
