@@ -94,9 +94,9 @@ packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维�
    - DatePicker：日历点击能打开，single/range 在正负时区下按本地年月日往返；
    - CheckBoxGroup / SwitchGroup：默认项与改动项聚合后，显示值与提交载荷一致；
    - message：无效程序 → 有效程序能恢复渲染，正常表单不因该路径重挂。
-7. **更新本文「版本基线」表**与 `docs/tasks/openui-integration.md` 的版本记录；
-   本轮行为修复的证据见 `docs/tasks/openui-integration-fixes.md`：实现、范围验证与独立复核已完成，
-   改动仍未提交、未合入 main。
+7. **更新本文「版本基线」表**；`docs/tasks/openui-integration.md` 与
+   `docs/tasks/openui-integration-fixes.md` 只作为历史证据链接保留，不再要求更新。
+   本轮验证结果留在当前对话或原生待办。
 
 ## `openui:check` 检查什么
 

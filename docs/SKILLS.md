@@ -15,7 +15,7 @@
 | `api-integration-surface-strategy` | samber/developer-platform-skills | 按回滚成本与受众排序 REST/CLI/SDK/MCP 等各集成面的建设顺序 |
 | `vercel-react-best-practices` | vercel-labs/agent-skills | React 19 组件与性能 |
 | `supabase-postgres-best-practices` | supabase/agent-skills | PostgreSQL 18 查询、索引、RLS |
-| `test-driven-development` | obra/superpowers | 按需参考的红绿步骤：先写失败测试 → 最小实现 → 重构；Vitest 为项目默认执行器，不替代 `ub-mode` |
+| `test-driven-development` | obra/superpowers | 按需参考的红绿步骤：先写失败测试 → 最小实现 → 重构；Vitest 为项目默认执行器，仅在获准的测试范围内作红绿参考 |
 | `verification-before-completion` | obra/superpowers | 交付前先跑验证命令并看真实输出，再声明完成 / 修复 / 通过 |
 | `shadcn` | shadcn-ui/ui | 组件库（本项目唯一 UI 组件来源） |
 | `migrate-radix-to-base` | shadcn-ui/ui | Radix 组件迁移到 Base UI（交互原语已统一 Base UI） |
@@ -28,7 +28,7 @@
 | `break-ui` | emilkowalski/skills | 极值数据压力测试与破坏点报告（桌面） |
 | `emil-design-eng` | emilkowalski/skills | UI 打磨与动效审美原则 |
 | `find-animation-opportunities` | emilkowalski/skills | 只读发现应加动效的位置 |
-| `improve-animations` | emilkowalski/skills | 动效审计与实施计划（写入 `docs/tasks/`） |
+| `improve-animations` | emilkowalski/skills | 动效审计与实施计划（默认对话交付，按需保存） |
 | `pick-ui-library` | emilkowalski/skills | 前端库选型（遵守项目能力选型顺序） |
 | `prototype` | emilkowalski/skills | 多方案 UI 原型与可视化挑选 |
 | `remove-animations` | emilkowalski/skills | 删除无必要动效 |
@@ -53,7 +53,6 @@
 | `zustand-5` | prowler-cloud/prowler | Zustand 5 共享客户端交互状态；对应现有 `chat-store` 的流式展示与草稿 |
 | `effect-ts` | effect-ts/skills | Effect 4 任务内副作用、取消/超时/资源释放与类型化错误 |
 | `getting-started` | tanstack/table | TanStack Table v9 React 入口；包内配套 table-state、feature 与迁移技能 |
-| `ub-mode` | unclebob/ub-mode | 默认日常工程纪律：First Make it Work → Then Make it Right → Follow Practice；编排与并行仍归 pstack |
 | `unslop` | heydamir/unslop | AI 生成感 UI 的诊断与九轮打磨（React/Tailwind，桌面浅色）；接在 packages/web/DESIGN.md（视觉权威）与 shadcn/Base UI 之上 |
 
 ## 项目自研技能
@@ -64,7 +63,7 @@
 
 ## 范围
 
-- 技能：`.agents/skills/`、`.claude/skills/`、`skills-lock.json`；同步 `docs/SKILLS.md` 与任务记录。
+- 技能：`.agents/skills/`、`.claude/skills/`、`skills-lock.json`；同步 `docs/SKILLS.md`，过程证据留在当前对话或原生待办。
 - 插件：只处理本项目实际生效或继承的插件（以当次 `claude plugin list` 或插件配置为准），排除禁用项与其他项目专属项。
 - user scope 插件更新会同时影响其他项目：按当次请求和既有明确授权确定范围，已覆盖的操作不重复确认，交付中说明该跨项目影响。
 - 技能与插件数量以当次 CLI 发现结果为准，不在文档或命令里写死条目数。
@@ -72,17 +71,17 @@
 
 ## 开始前
 
-1. 读 `docs/DEV-WORKFLOW.md`、`docs/PITFALLS.md`，进入 worktree 并记录基线；先写 `docs/tasks/<slug>.md`。
+1. 读 `docs/DEV-WORKFLOW.md`、`docs/PITFALLS.md`，进入 worktree 并记录基线；把目标与步骤放进原生待办或当前对话，不强制写任务文件。
 2. 核对当次 CLI 版本与帮助：`npx --yes skills@latest --version`/`--help`、`claude --version`、`claude plugin update --help`、`claude plugin marketplace update --help`；插件行为以 <https://code.claude.com/docs/en/discover-plugins>、<https://code.claude.com/docs/en/plugins/loading.md> 为准。
 3. 记录现状：lock 中的来源、上游 hash、技能目录与链接、本地已有差异；插件 id、scope、版本与发布 pin。
-4. 保存差异证据与可恢复的项目适配补丁（含 shadcn / openui 规则），路径记入任务记录，完成后才能执行 `update`/`add`/`remove`。`git diff` 不够——适配已在 HEAD，须比本地与旧上游；旧上游不可得时保存完整适配文件及规则。三方比对确认差异是适配还是漂移后再动，不得直接覆盖。
+4. 保存差异证据与可恢复的项目适配补丁（含 shadcn / openui 规则），路径留在当前对话或原生待办；Git HEAD 已足够恢复的内容不额外备份。完成后才能执行 `update`/`add`/`remove`。`git diff` 不够——适配已在 HEAD，须比本地与旧上游；旧上游不可得时保存完整适配文件及规则。三方比对确认差异是适配还是漂移后再动，不得直接覆盖。
 
 ## 技能更新
 
 - 先跑原生 `npx --yes skills@latest update --project --yes`（CLI 1.7.4 实测，后续按当次核对）：只比较上游 hash 与 lock，非交互不删技能；输出 up to date 不代表本地与上游一致，必须再核验完整目录。
 - 无新版且本地无文件变化时不重装。
 - 需与上游对齐时定向重装：`npx --yes skills@latest add <repo> --skill <name> --agent claude-code --agent universal -y`。两个 agent 缺一不可（只给 `claude-code` 会退化成 copy 模式，canonical 不更新、入口变成真实目录）。整目录替换；`.git`、`__pycache__`、`__pypackages__` 不复制，`metadata.json` 是否复制按当次 CLI 实物核对（CLI 1.7.4 本次 `vercel-composition-patterns` 已实际复制）；重装前保留差异证据，装后逐项补回项目适配。
-- 确凿的上游整技能删除才执行 `npx --yes skills@latest remove <name> -y`，并清理 lock、链接与文档；网络或鉴权失败不等于删除。上游只删单文件时，同步删除本地对应文件。
+- 上游确凿删除整技能，或用户明确要求删除时，执行 `npx --yes skills@latest remove <name> -y`，并清理 lock、链接与文档；网络或鉴权失败不等于删除。用户要求的删除以 Git HEAD 为原始证据，不另存备份或归档。上游只删单文件时，同步删除本地对应文件。
 - lock 存的是上游 hash，不是带项目适配的本地内容 hash；不要为了“匹配”改 lock。CLI 1.7.4 实测：上游目录 hash 包含 `metadata.json`，安装时是否复制该文件按当次实物（本次 `vercel-composition-patterns` 已复制，docker 两项与 `mcp-builder` 未复制），因此核验以当次安装出的目录为准：有该文件时连同比对，没有时排除后比对，不按固定假设判断。
 
 ## 项目适配（必须保留）
@@ -100,7 +99,7 @@
 
 - `description` 收窄：仅用于明确涉及 OpenUI、OpenUI Lang、`@openuidev/*` 包、OpenUI Gateway、Autofix、`@openuidev/cli` 的任务；不用于普通 chat / agent / dashboard 需求，也不用于只借 openui.com 做视觉参考的场景。
 - 正文 Project convention：UI 一律 shadcn/Base UI、Tailwind 4 现有 `@theme` token 与 `packages/web/DESIGN.md`（视觉）及 `docs/DESIGN-SYSTEM.md`（工程规约），不新建 app；运行底座只有 Claude Agent SDK，不默认切换 Gateway / OpenAI / LangGraph，也不引入外部存储或部署。
-- 更新（`add`/`update`）后同样要补回这两处；以本地版与上游 `SKILL.md` 的差异为准，适配副本路径记入当次任务记录。
+- 更新（`add`/`update`）后同样要补回这两处；以本地版与上游 `SKILL.md` 的差异为准，适配差异留在当前对话或技能内 Project convention，不强制另存副本。
 
 ### 技术栈最佳实践技能
 
@@ -146,27 +145,14 @@
 每个 `SKILL.md` 只在 frontmatter 后加一段中文 `Project convention`（原 `name`/`description` 不变），共同约定：仅桌面 Web；复用 shadcn/ui、Base UI、Tailwind 4 `@theme` token 与 Motion；视觉和动效数值以 `packages/web/DESIGN.md` 与 `packages/web/src/styles.css` 令牌为准；工程规约见 `docs/DESIGN-SYSTEM.md`；不换栈、不新增重复依赖。技能特有约定：
 
 - `animate`：键盘、高频交互与既定动效按项目规范处理，保留 hover/focus 同等反馈，不套用上游一律禁止的规则。
-- `improve-animations`：计划写入 `docs/tasks/`，不建 `plans/`；审计与计划的范围、属性、数值及 reduced-motion 以 `packages/web/DESIGN.md` 与 `styles.css` 令牌为准，上游硬性要求与已定项目动效冲突时以项目为准。
+- `improve-animations`：计划与报告默认在当前对话交付，只有用户明确要求保存时才按指定路径保存，不建 `plans/`；审计与计划的范围、属性、数值及 reduced-motion 以 `packages/web/DESIGN.md` 与 `styles.css` 令牌为准，上游硬性要求与已定项目动效冲突时以项目为准。
 - `remove-animations`：依赖清理按当次授权执行，确认零引用后直接清理，不重复确认。
-- `prototype`：picker 交互照 PICKER.md，视觉控件用项目组件与 token。
+- `prototype`：picker 交互照 PICKER.md，视觉控件用项目组件与 token；原型过程与选择结论默认在当前对话交付，只有明确要求保存时才按指定路径保存。
 - `break-ui`：只验证桌面容器宽度、200% 缩放、键盘与长内容/极值，不强制移动端、未支持主题或 RTL。
 - `pick-ui-library`：遵守现有 → 原生/已装 → 开源 → 自研，不因清单换栈。
 - `ask-sonner`：复用 `packages/web/src/App.tsx` 已挂载的唯一 Toaster。
 
 升级或重装（`add`/`update`）后需补回上述 Project convention 与各目录 `LICENSE`（CLI 不会带上这两项），再跑「完成核验」。
-
-### ub-mode（原样安装）
-
-`ub-mode` 的 `SKILL.md` 与 `README.md` 保持上游原版，无本地适配；更新或重装后核对与上游逐字节一致
-（`diff -r --exclude=.git <上游快照> .agents/skills/ub-mode`）。上游 README 提到的 crapper / dryer /
-mutator / uml-viewer 配套工具本次未安装。上游仓库无 LICENSE 文件，此处只登记来源与安装事实。
-
-职责分工（用户 2026-10-28 决定，流程细节以 `docs/DEV-WORKFLOW.md` 为准，不在此复制）：
-
-- `ub-mode`：默认日常工程纪律，阶段固定为 First Make it Work → Then Make it Right → Follow Practice（先实现目标功能 → 再完善设计与实现 → 遵循工作纪律）；随手可用，不要求 `/ub-mode`。
-- `pstack`：模型选择、任务编排、并行拆分与独立 review；不承担工程纪律本身。
-- `test-driven-development`：按需参考红绿步骤，不是硬性门禁。
-- `verification-before-completion`：交付前跑验证、看真实输出再声明完成。
 
 ### test-audit（2026-11-01）
 
@@ -178,6 +164,24 @@ mutator / uml-viewer 配套工具本次未安装。上游仓库无 LICENSE 文�
 
 上游 `heydamir/unslop` 许可 CC-BY-4.0，`SKILL.md` 顶部原有署名段落保留。本地只在 `SKILL.md` frontmatter 之后补一段中文 `Project convention`（桌面浅色、shadcn/Base UI + Tailwind 4 `@theme`、视觉/动效数值以 `packages/web/DESIGN.md` 为准；只诊断与打磨，不换栈、不改布局契约），`references/`、`scripts/` 保持上游原样；CLI 不带上游根 `LICENSE`，已从上游补入技能目录。
 `skills-lock.json` 的 `computedHash` 保留上游 CLI 值。升级或重装后需补回 Project convention 与 `LICENSE`，再跑「完成核验」。
+
+## pstack 项目适配
+
+pstack 按上游原样使用，冲突处按本表执行，其余以上游为准。项目在 `.agents/playbooks/` 维护 Feature、Refactoring、Opening a PR、Shipping、Pause safely、Worktree cleanup 六个短适配器，只把对应上游步骤接到本规范，不复制完整政策。模型角色先按根 `CLAUDE.md`「协作方式」匹配，未被覆盖的角色再按运行时 `/setup-pstack` 的 override sheet；本文不复述角色行。
+
+| 上游默认 | 本项目执行 |
+|---|---|
+| 自动 commit / PR / WIP / 外发 | 仅在本任务明确授权范围内执行；未授权停在「验证完成、未提交差异」 |
+| 提交或合并后监控 CI、冷却等待 | CI 仅手动触发，只有用户明确要求才监控；合并不等 CI |
+| 每个委派强制独立 worktree | 默认共享当前任务树，按文件边界并行；额外隔离也落在固定 `.claude/worktrees/<slug>`，不套娃 |
+| 主编排直接改文件 | 全部编辑委派子代理；主会话只读、定契约、派发、审查、验证与提交 |
+| 自建进度账 | 普通任务用运行时原生待办/当前对话跟踪，不强制任务文件；暂停、交接或长期任务用 pstack 原生 checkpoint；跨任务教训进 `docs/PITFALLS.md` |
+| 技能自动升降 effort | 按根 `CLAUDE.md`「协作方式」精确派发 model 与 effort，不自动升降，不改变主会话模型 |
+| 通用模型角色表 | 普通设计初稿、普通审查、技术解释与常规开发用 Sonnet；关键设计、重大架构、安全/并发/权限/数据丢失判断与独立终审用 Opus，终审不降级。Haiku 只做明确事实定位，含糊需求或跨模块推理交 Sonnet，关键风险交 Opus；`how explorer` 即使默认 Haiku，brief 也必须限定为明确事实，架构与语义研究改用 Sonnet。跨家族偏好不强制普通审查升级 Opus 或回退 Fable，普通评选可同家族 Sonnet，关键判断可同家族 Opus；仅改模型选择，不删评审、不改人数 |
+| 角色面板候选数量 | 架构至少 2 个独立候选；其余按上游角色面板数量 |
+| no-comments / code-quality 全量清理 | 按改动范围给建议；不因超千行或存在注释就扩大重构，或删非显然的 why 注释 |
+| 兼容性审查 | 个人项目不向后兼容，有意删除不报兼容缺陷；不新增兼容 shim 或新旧双路径，当前行为仍受保护 |
+| 改写已安装插件缓存 | 不改上游插件缓存 |
 
 ## 插件更新
 

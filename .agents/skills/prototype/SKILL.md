@@ -4,7 +4,7 @@ description: Build multiple genuinely different versions of a UI piece you descr
 disable-model-invocation: true
 ---
 
-> **Project convention（适用于本文件及关联引用）：** 变体与 picker 仍用项目现有 shadcn/ui、Base UI、Tailwind 4 `@theme` token 与 Motion 实现，视觉以 `docs/DESIGN-SYSTEM.md` 为准；picker 的交互与键位照 PICKER.md，但不复制其中不符合本栈的样式或控件。原型只放在 dev-only 路由/页面，选择后按项目规则并入并清理，过程记录写入 `docs/tasks/`。
+> **Project convention（适用于本文件及关联引用）：** 变体与 picker 仍用项目现有 shadcn/ui、Base UI、Tailwind 4 `@theme` token 与 Motion 实现，视觉以 `docs/DESIGN-SYSTEM.md` 为准；picker 的交互与键位照 PICKER.md，但不复制其中不符合本栈的样式或控件。原型只放在 dev-only 路由/页面，选择后按项目规则并入并清理；原型过程与选择结论默认在当前对话交付，只有用户明确要求保存时才按指定路径保存，不创建固定任务文档。
 
 # Prototyping Variants
 

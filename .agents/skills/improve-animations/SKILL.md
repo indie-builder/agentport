@@ -3,7 +3,7 @@ name: improve-animations
 description: Survey a codebase's animation and motion code as a senior motion advisor, then produce a prioritized audit and self-contained implementation plans for other agents (or cheaper models) to execute. Read-only on source code — it plans improvements, it does not apply them. Use when the user asks to "improve the animations", "audit the motion", "make this app feel better", or wants a roadmap of animation fixes rather than a review of a single diff.
 ---
 
-> **Project convention（适用于本文件及关联引用）：** 审计基线为桌面 Web、shadcn/ui、Base UI、Tailwind 4 token 与 Motion；计划写到 `docs/tasks/` 下的任务记录（不创建 `plans/` 或 `animation-plans/`），沿用项目任务记录的格式与验证方式，执行仍走项目研发流程（子代理执行、独立 review）。审计、建议及计划中的允许范围、属性、数值和 reduced-motion 行为均以 `docs/DESIGN-SYSTEM.md` 为准；本约定优先于本文件及 `AUDIT.md`、`PLAN-TEMPLATE.md` 的上游硬性要求，已明确的项目动效不得作为缺陷。
+> **Project convention（适用于本文件及关联引用）：** 审计基线为桌面 Web、shadcn/ui、Base UI、Tailwind 4 token 与 Motion；计划与报告默认在当前对话交付，不创建 `plans/` 或 `animation-plans/`；只有用户明确要求保存到文件时才按指定路径保存。执行仍走项目研发流程（子代理执行、独立 review），验证方式按改动范围选择。审计、建议及计划中的允许范围、属性、数值和 reduced-motion 行为均以 `docs/DESIGN-SYSTEM.md` 为准；本约定优先于本文件及 `AUDIT.md`、`PLAN-TEMPLATE.md` 的上游硬性要求，已明确的项目动效不得作为缺陷。
 
 # Improving Animations
 
