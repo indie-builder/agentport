@@ -13,7 +13,7 @@
 - 文件能力范围以 `ARCHITECTURE.md`「官方文件能力与接入状态」为准，覆盖官方支持项与版本/加载约束，不局限于技能、子智能体几个示例目录；不把 CLI 专属、用户级状态或尚未接入功能声称为已支持。
 - 当前完成：**50/50**（第1–50轮已验收，循环已停止）。登记/调研/派发本身不计轮；只有来源、差距、实现与实际验收齐全才计入。没有有价值缺口时继续换领域核对，不能为凑轮添加功能。
 - 决策只维护 `DECISIONS-PENDING.md`；能决定则采用推荐方案，未决项仅搁置其依赖，其余继续。单管理员/单机等决定不变；知识库/RAG 已按 D-9 当前决定建设（原「不做内置 RAG、用技能替代」已被替代），编排 DSL 仍不做。不自动发布、部署或删除真实数据。
-- 知识库这条线的记录放在独立任务文件里，不占用本文件的 50 轮编号：[实现契约](tasks/knowledge-implementation-contract.md)、[实施记录](tasks/knowledge-implementation.md)、[独立审查整改](tasks/knowledge-review-findings.md)、[真实运行验证](tasks/knowledge-runtime-verification.md)。
+- 知识库这条线的实现、审查与运行验证记录见 git 历史，不占用本文件的 50 轮编号。
 - 基线纠偏：历史优先级表的“凭证代理未做”已过时，D-17已实现；D-18已实现有超时的调用内挂起，跨进程重启恢复仍不同于持久化检查点。
 
 | 轮次 | 来源与差距 | 实现 | 实际验证 | 状态 |
@@ -102,7 +102,7 @@
 
 | 46 | 评估行提交后入队失败会遗留running并阻止同专家再次提交，最长等待一小时清理 | 入队异常仅条件收口running且claimedAt为空的批次，固定503；仅收口赢家尽力移除job，保留已认领/终态，日志不附原始cause | 6分支与日志安全断言、联合35通过1跳过、独立复审通过；清理夹具按ID隔离修正后完整回归568/568，类型lint构建通过；DB收尾失败仍需取消/既有清理 | 完成 |
 
-| 47 | 专家选择默认强度或清空思考预算时undefined被JSON省略，保存后旧值重新出现 | 仅PATCH接受effort/maxThinkingTokens为null表示清除；省略保留，创建导入不变，完整表单显式清除并同步乐观缓存 | API默认清除5项与导入/版本联合34项通过，真实页面设置high/2048→默认空值→改名重载保持，完整E2E41通过1跳过、全量578/578，类型lint构建及窄范围复审通过；2026-10-29已撤去`maxThinkingTokens`固定数值字段（旧请求/包/任务明确拒绝），`effort`的null清除语义仍有效，见[移除固定思考预算](tasks/remove-fixed-thinking-budget.md) | 完成 |
+| 47 | 专家选择默认强度或清空思考预算时undefined被JSON省略，保存后旧值重新出现 | 仅PATCH接受effort/maxThinkingTokens为null表示清除；省略保留，创建导入不变，完整表单显式清除并同步乐观缓存 | API默认清除5项与导入/版本联合34项通过，真实页面设置high/2048→默认空值→改名重载保持，完整E2E41通过1跳过、全量578/578，类型lint构建及窄范围复审通过；2026-10-29已撤去`maxThinkingTokens`固定数值字段（旧请求/包/任务明确拒绝），`effort`的null清除语义仍有效，见移除固定思考预算 | 完成 |
 
 | 48 | 连接期间数据库已终态而run_finished丢失时，原SSE只等待后续事件，页面可能持续运行 | 每2秒不重叠检查数据库终态；遗漏时先发terminal_missing恢复标记再发终态，复用持久化回答恢复，连接关闭清理检查 | 真实HTTP/Redis5项、客户端恢复及裁剪联合23项通过，真实页面仅DB终态无XADD仍恢复完整回答，完整E2E41通过1跳过、全量578/578，类型lint构建过；复审无阻塞并补finishing保护与失败清理 | 完成 |
 
@@ -281,7 +281,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| 工作区按 run 隔离 | ✅ | `WORKSPACES_DIR/<slug>/<runId>/`（`run_*`）；run 结束删除，重试复用同一目录；会话复用另用 `session-sandboxes/<conversationId>/{workspace,outputs}`（实施中，见 [任务记录](tasks/session-sandbox-lifecycle.md)） |
+| 工作区按 run 隔离 | ✅ | `WORKSPACES_DIR/<slug>/<runId>/`（`run_*`）；run 结束删除，重试复用同一目录；会话复用另用 `session-sandboxes/<conversationId>/{workspace,outputs}`（实施中） |
 | 工具卡片持久化 | ✅ | worker 同时落 `tool_use` 与 `tool_result`；刷新后可重建卡片 |
 | Redis 健康检查修复 | ✅ | compose healthcheck 使用容器内 `REDIS_PASSWORD`，新部署不再卡在 unhealthy |
 | 取消与孤儿收敛 | ✅ | SIGTERM → SIGKILL 升级；5 分钟周期把超时仍 `running` 的 run 置 `failed` 并补发 `run_finished` |
@@ -336,7 +336,7 @@
 | ~~P2~~ | 子智能体（单层委派） | ✅ |
 | P1 | 持久化 HITL（暂停 → 落盘 → 恢复） | 未做；当前是最小审批闭环（D-3） |
 | ~~P1~~ | 模型凭证代理（M12 剩余项） | ✅ 已按 D-17 实现：worker 持有真实凭证，沙盒每 run 只拿短期 token；文件权限与 run token 已先行完成。见 [SECURITY.md](SECURITY.md) |
-| P3 | RAG / 知识库 | 未做；技能可覆盖多数场景（D-9）——循环 1 时的排序。当前已按 D-9 建设（模块与前端落盘，真实闭环验收未完成），见 [ARCHITECTURE.md §6.8](ARCHITECTURE.md#68-当前实现状态) 与 [运行验证记录](tasks/knowledge-runtime-verification.md) |
+| P3 | RAG / 知识库 | 未做；技能可覆盖多数场景（D-9）——循环 1 时的排序。当前已按 D-9 建设（模块与前端落盘，真实闭环验收未完成），见 [ARCHITECTURE.md §6.8](ARCHITECTURE.md#68-当前实现状态) 与运行验证记录 |
 
 ---
 

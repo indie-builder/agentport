@@ -1,7 +1,7 @@
 # OpenUI 升级手册
 
 > 目标：OpenUI 发新版时，用最小改动、可验证的步骤完成升级，而不是靠记忆改代码。
-> 当前基线见 `docs/tasks/openui-integration.md`；行为复核与修复进展见 `docs/tasks/openui-integration-fixes.md`。
+> 当前基线见任务记录；行为复核与修复进展见修复记录。
 
 ## 版本基线
 
@@ -89,13 +89,12 @@ packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维�
    需独立用例的组件（如 EditableTable、DatePicker）登记进豁免清单。**样例 + 明确豁免登记只是升级护栏，
    不等于交互等价**；豁免项必须有真实专项测试，否则等于没验证。本轮的表格与表单专项为
    `openui-editable-table.test.ts`、`openui-form-fixes.test.ts`，已通过专项验证及独立 Opus 复核，
-   证据见 `docs/tasks/openui-integration-fixes.md`。复杂交互至少覆盖：
+   证据见修复记录。复杂交互至少覆盖：
    - 表格：空表流式中补入行、state hydration / 命名空间恢复、编辑后 Save → 卸载 → reload 得到保存值；
    - DatePicker：日历点击能打开，single/range 在正负时区下按本地年月日往返；
    - CheckBoxGroup / SwitchGroup：默认项与改动项聚合后，显示值与提交载荷一致；
    - message：无效程序 → 有效程序能恢复渲染，正常表单不因该路径重挂。
-7. **更新本文「版本基线」表**；`docs/tasks/openui-integration.md` 与
-   `docs/tasks/openui-integration-fixes.md` 只作为历史证据链接保留，不再要求更新。
+7. **更新本文「版本基线」表**；对应任务记录只作为历史证据保留，不再要求更新。
    本轮验证结果留在当前对话或原生待办。
 
 ## `openui:check` 检查什么

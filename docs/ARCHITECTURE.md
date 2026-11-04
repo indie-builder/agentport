@@ -170,7 +170,7 @@
 - **展示**：实时流、历史恢复与重连回放复用同一字段；每个用户轮次只显示最后一次确认的顶层快照。子智能体清单不进入主清单，空快照隐藏清单；没有清单时保留原有工具与运行状态行，不新增空态。
 - **边界**：清单是模型自报的步骤进度，不是运行成功、完成度或成果质量的判据；停止、失败或成功都不会自动改写步骤状态，运行终态也不会替模型补完未完成项。没有任务表、endpoint、队列或 schema 迁移。
 
-能力状态（2026-10-28）：已由 [PR #96](https://github.com/indie-builder/agentport/pull/96) 合入 main（`cd95b19`）。真实 SDK→沙盒→SSE→历史保存已通过14项验收；浏览器刷新后保留同一份清单。独立 review 的导出设置、快照大小、确认顺序与字号问题已修复并复核通过；测试和完整证据见 [任务记录](tasks/platform-capability-gaps.md)。此证据只验证用户故事 US-6.3 的进度环节，不代表子智能体与整个复杂任务故事均已验收。官方依据见 <https://code.claude.com/docs/en/agent-sdk/todo-tracking>。
+能力状态（2026-10-28）：已由 [PR #96](https://github.com/indie-builder/agentport/pull/96) 合入 main（`cd95b19`）。真实 SDK→沙盒→SSE→历史保存已通过14项验收；浏览器刷新后保留同一份清单。独立 review 的导出设置、快照大小、确认顺序与字号问题已修复并复核通过；测试和完整证据见任务记录。此证据只验证用户故事 US-6.3 的进度环节，不代表子智能体与整个复杂任务故事均已验收。官方依据见 <https://code.claude.com/docs/en/agent-sdk/todo-tracking>。
 
 ### 3.2 会话成果的生成、版本与查看
 
@@ -180,11 +180,11 @@
 
 边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制仅 PNG/JPEG/GIF/WebP 图片与 PDF 有预览（PDF 为浏览器原生查看器 + header 门槛，不是结构或安全完整验证），Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
 
-实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见 [任务记录](tasks/agent-output-viewing.md) 与 D-67。成果查看不代表成果质量自动通过。
+实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见任务记录与 D-67。成果查看不代表成果质量自动通过。
 
-后续更新（2026-10-30）：新增认证 `outputs/:runId?path=` 元数据接口（响应只含 `{ file }`，handler 仍整份读取所选文件校验 manifest 成员，不回正文）与 PNG/JPEG/GIF/WebP 图片预览；会话成果面板与公开分享页共用 `BlobImage`，解码成功才显示，损坏字节保留原件下载；公开页只替换 image 为共享组件，PDF 行为随后续 PDF 任务改为共享 `BlobPdf`。三轮 Opus review 与最终浏览器验收通过；源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`。详见 [任务记录](tasks/image-output-preview-20261030.md)。
+后续更新（2026-10-30）：新增认证 `outputs/:runId?path=` 元数据接口（响应只含 `{ file }`，handler 仍整份读取所选文件校验 manifest 成员，不回正文）与 PNG/JPEG/GIF/WebP 图片预览；会话成果面板与公开分享页共用 `BlobImage`，解码成功才显示，损坏字节保留原件下载；公开页只替换 image 为共享组件，PDF 行为随后续 PDF 任务改为共享 `BlobPdf`。三轮 Opus review 与最终浏览器验收通过；源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`。详见任务记录。
 
-后续更新（2026-10-30，PDF）：私有成果精确命中 `application/pdf` 后经鉴权下载取 Blob，公开分享页移除旧对象 URL/iframe 分支，两处共用 `BlobPdf`；先判断 `navigator.pdfViewerEnabled === true`，只把前 5 字节为 `%PDF-` 的文件交给原生查看器（仅 header 门槛），以固定 `application/pdf` 建 Blob URL；不支持、header 不符、读取失败分别提示并保留下载，iframe 的 load/error 不作为解码成功判据，对象 URL 随换版与卸载释放；CSP 仅新增 `frame-src 'self' blob:`，`object-src 'none'` 与 `script-src 'self'` 保持，无新依赖/API/DB/模型费用。API 一审 26 用例、Web 一审补修 97 用例、二审无 mustfix、第三轮 `a18c436ffd11f7505` 无 mustfix（4 文件 110 用例）；生产隔离浏览器验收通过（Chromium 原生查看器，私有/公开旧新版、切版刷新、下载 sha、公开无管理 cookie、伪 PDF 无 iframe、引用不发模型、临时资源清理 0）。该更新覆盖上一条 2026-10-28 的「Office/PDF 不预览」：PDF 已可原生预览，Office 仍只下载。限制：加密/坏结构 PDF 由原生 viewer 兜底未逐一实测，大 PDF 未压测，非 Chromium 未测；实现 `ca5cb28` 与文档 `9caf2fa` 已由 PR #123 合入 `main` `b683903`。详见 [任务记录](tasks/pdf-output-preview-20261030.md)。
+后续更新（2026-10-30，PDF）：私有成果精确命中 `application/pdf` 后经鉴权下载取 Blob，公开分享页移除旧对象 URL/iframe 分支，两处共用 `BlobPdf`；先判断 `navigator.pdfViewerEnabled === true`，只把前 5 字节为 `%PDF-` 的文件交给原生查看器（仅 header 门槛），以固定 `application/pdf` 建 Blob URL；不支持、header 不符、读取失败分别提示并保留下载，iframe 的 load/error 不作为解码成功判据，对象 URL 随换版与卸载释放；CSP 仅新增 `frame-src 'self' blob:`，`object-src 'none'` 与 `script-src 'self'` 保持，无新依赖/API/DB/模型费用。API 一审 26 用例、Web 一审补修 97 用例、二审无 mustfix、第三轮 `a18c436ffd11f7505` 无 mustfix（4 文件 110 用例）；生产隔离浏览器验收通过（Chromium 原生查看器，私有/公开旧新版、切版刷新、下载 sha、公开无管理 cookie、伪 PDF 无 iframe、引用不发模型、临时资源清理 0）。该更新覆盖上一条 2026-10-28 的「Office/PDF 不预览」：PDF 已可原生预览，Office 仍只下载。限制：加密/坏结构 PDF 由原生 viewer 兜底未逐一实测，大 PDF 未压测，非 Chromium 未测；实现 `ca5cb28` 与文档 `9caf2fa` 已由 PR #123 合入 `main` `b683903`。详见任务记录。
 
 ### 3.3 原生澄清提问（已接通）
 
@@ -194,7 +194,7 @@ US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户�
 
 权限边界：官方 `dontAsk` 直接拒绝需要交互的工具、不会进入回调；新建默认采用 `default`，显式模式不重写。回调只处理主会话原生提问，其余未预批准工具拒绝；文件访问hook、禁用工具、子级边界与MCP服务端审批保留。回答问题不表示批准副作用。子智能体官方暂不支持原生提问。
 
-本地SDK0.3.311探针已验证default回答后继续、dontAsk拒绝；隔离Linux沙盒与桌面浏览器已完成提问→刷新→回答→同run成果交付，并在最终源码上复测4条真实run（主场景、拒答、停止、超时）通过。回答后MCP副作用仍等待独立批准。公开问题以题序号与选项序号提交，API映射回原SDK键值；DB/SDK保留原文，GET/POST/SSE/历史统一脱敏投影。已知限制：流式增量按单帧脱敏；等待占用整体run超时。详见 [任务记录](tasks/agent-clarification.md)。
+本地SDK0.3.311探针已验证default回答后继续、dontAsk拒绝；隔离Linux沙盒与桌面浏览器已完成提问→刷新→回答→同run成果交付，并在最终源码上复测4条真实run（主场景、拒答、停止、超时）通过。回答后MCP副作用仍等待独立批准。公开问题以题序号与选项序号提交，API映射回原SDK键值；DB/SDK保留原文，GET/POST/SSE/历史统一脱敏投影。已知限制：流式增量按单帧脱敏；等待占用整体run超时。详见任务记录。
 
 ### 3.4 会话输入附件
 
@@ -204,7 +204,7 @@ worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也�
 
 附件按会话保留：分支只复制被复制消息引用的文件（字节复制，删源后独立）；删除会话/专家回收目录；`pruneRuns` 保留带附件的用户消息并置空 `runId`，孤儿清理永不删除附件消息，保证历史与下载入口不随旧 run 消失。下载经鉴权且只接受该会话消息引用的附件。附件是运行数据，不进入智能体定义，也不替代知识库。
 
-实现状态（2026-10-28）：隔离环境真实模型验证 CSV/PNG/14 页 PDF 的原生读取、报告内容与下载哈希一致、同会话第二轮读取历史附件、分支删源后继续读取；跨会话下载 404、伪类型/超限 400。Compose 为完整支持环境；宿主直跑需同一绝对 `WORKSPACES_DIR`，非 uid 1000 宿主与沙盒的 0700 目录限制见 `docs/OPERATIONS.md`。详见 [任务记录](tasks/agent-attachments.md)。
+实现状态（2026-10-28）：隔离环境真实模型验证 CSV/PNG/14 页 PDF 的原生读取、报告内容与下载哈希一致、同会话第二轮读取历史附件、分支删源后继续读取；跨会话下载 404、伪类型/超限 400。Compose 为完整支持环境；宿主直跑需同一绝对 `WORKSPACES_DIR`，非 uid 1000 宿主与沙盒的 0700 目录限制见 `docs/OPERATIONS.md`。详见任务记录。
 
 ### 3.5 频道模式 M1 / M2 / M3 数据模型
 
@@ -308,7 +308,7 @@ data/workspaces/<agent-slug>/
 
 ### 生成式 UI（OpenUI）接入
 
-> 官方契约重调及独立评审已完成，验证见 `docs/tasks/openui-integration.md`。当前继续按官方 shadcn 示例调整 UI 呈现，范围和本轮验收见 `docs/tasks/openui-official-shadcn-ui.md`；适配来源见 `docs/OPENUI-UI-ADAPTATION.md`，升级见 `docs/OPENUI-UPGRADE.md`。
+> 官方契约重调及独立评审已完成，验证见任务记录。当前继续按官方 shadcn 示例调整 UI 呈现，范围和本轮验收见任务记录；适配来源见 `docs/OPENUI-UI-ADAPTATION.md`，升级见 `docs/OPENUI-UPGRADE.md`。
 
 智能体的 `uiFormat` 决定助手回复的格式：`markdown`（默认）或 `openui`。选 `openui` 时，平台在 CLAUDE.md 的平台生成段末尾追加一段组件签名提示词，模型把 OpenUI Lang 程序放进 ```openui-lang 围栏；浏览器用同一个组件库解析并渲染围栏内容，围栏外的散文仍按 Markdown 显示。
 
@@ -377,7 +377,7 @@ data/workspaces/<agent-slug>/
 |---|---|---|---|
 | 个人记忆（原个人偏好；底层表 `user_preferences`） | `user_preferences` 单行（按 `businessId`，`revision` 乐观锁） | DB 投影到 `WORKSPACES_DIR/_users/<sha256(businessId)>/CLAUDE.md`（0700/0600，temp + rename），只读挂到 `/mnt/user`；runner 的 `UserPromptSubmit` hook 每轮按主体读取并以 `additionalContext` 注入，上限 9000 字符 / 36 KiB，超限拒绝本轮 | `memory_changes` 账本；按 `businessId` 隔离 |
 | 专家记忆 | `agent-memory/` 官方文件（`MEMORY.md` 索引 + 平铺主题 `.md`） | runner 开启原生 auto-memory（`autoMemoryEnabled` + `autoMemoryDirectory`），模型按官方机制自动写，不逐条确认；主会话文件工具受 PreToolUse 路径 hook 限制；子智能体的原生 Read/Write/Edit 默认启用但仅可读写自身记忆 Markdown，兄弟、父级与未知子智能体拒绝 | 平台写入（记忆提案采纳、主题/索引手工 PUT/DELETE、回滚）按目标文件进 `memory_changes`，主题变更同时记录伴随索引；SDK 原生自动写入直接改 Markdown，不进账本 |
-| 子智能体记忆 | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：平台写入口进账本，SDK 自动写入不记账；验收证据见[子记忆任务记录](tasks/subagent-memory-20261030.md) |
+| 子智能体记忆 | 各子智能体自身 `agent-memory/` 官方文件 | 子定义写官方 `memory: project`；worker 把该子智能体既有的 `WORKSPACES_DIR/<slug>/agent-memory` 直接 rw 挂到 `/workspace/.claude/agent-memory/<slug>/`，由 SDK 原生按 project 自动加载，与主会话 auto-memory 相互独立，主记忆与兄弟记忆不合并 | 与专家记忆一致：平台写入口进账本，SDK 自动写入不记账；验收证据见子记忆任务记录 |
 | 专家规则 | `agent_rules`（DB） | 渲染为 `.claude/rules/<slug>.md`，每次运行自动生效 | `memory_changes` 完整快照 |
 
 - **个人记忆（原个人偏好）不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。API 保存以 DB 事务提交为准，投影失败只记日志；worker 在每轮**私有**用户运行、挂载工作区前按 DB 重建该用户的投影，崩溃遗留的旧投影不会带入下一轮。频道 run 属于共享执行上下文，不投影、不挂载、也不注入触发者的个人记忆。注意这只覆盖**个人**记忆：专家与子智能体记忆按专家目录共享，频道里仍能读到，不能据此宣称私人信息已完全隔离。服务主体不重建也不挂个人记忆；重建失败则中止该轮运行。
@@ -392,10 +392,10 @@ data/workspaces/<agent-slug>/
 - **版本与回滚**：`GET /api/agents/:id/memory/:name/versions` 对所有合法记忆文件返回实际历史；DB 在 LIMIT 前按目标 `kind + agentId + name` 收窄。`MEMORY.md` 的列表还包含“以主题为目标、实际改动了伴随索引”的变更，让索引版本可解释；主题列表按 name 精确命中。回滚沿用 `POST /api/memory/changes/:id/rollback`，返回一个 `MemoryChange`。个人版本按 `businessId` 且 `kind='personal'` 过滤，专家账本不混入个人范围。
 - **原生记忆目录独立下载与回导**：`GET /api/agents/:id/memory/download` 复用 `agents.memory.read` 对象权限，持同专家锁打包。ZIP 根只含实际存在的 `MEMORY.md` 与平铺主题 `.md`，不含 agent ID JSON、版本账本、记忆提案原文、journal、个人记忆、其它专家或子级目录；无内容返回 404，不用伪 `MEMORY.md` 占位，沿用既有条目数、解压大小、压缩大小与符号链接边界。解压后可直接作为官方 auto-memory 目录使用；回导复用现有 `PUT /api/agents/:id/memory/:name` 写入新专家，不新增 ZIP 上传或整目录覆盖 API。相对链接不依赖原 agentId/slug。专家定义包仍只携带定义，不携带学习到的记忆正文；定义包与这份原生记忆目录是两个交付物。
 - **当前范围与未覆盖**：API 列表/CRUD 只管理 `agent-memory/` 顶层的合法 `.md` 文件；原生文件工具允许的嵌套主题目录尚未进入列表、编辑器、版本与下载管理，属于待办边界。SDK 原生 auto-memory 直接写入的文件不进入 `memory_changes`，因此版本与回滚只覆盖平台写入口（记忆提案采纳、手工 PUT/DELETE、回滚），不能宣称全部记忆历史可追。
-- **子智能体记忆的准入与并发**：chat / schedule / eval 只使用稳定启用的直接子智能体集合；执行活动期间资源变化返回 409，普通字段与无关专家仍可编辑。锁顺序固定为绑定锁 → 排序后的 agent 记忆锁 → 行锁；目标自身有执行型活动 run，或目标是启用子专家且其直接父专家有执行型活动 run，就拒绝记忆写入并返回 409；审核 run 与其他无合法归属关系的 run 不占用。会话工作区刷新保留官方记忆子树 inode，挂载集合变化时重建容器。子智能体的原生 Read/Write/Edit 默认启用但只允许自己的 Markdown，兄弟、父级与未知子智能体拒绝，既有显式 deny 保留且恢复只移除裸 deny/allow、不清除路径规则；Bash 共享可见，不声称 OS 级隔离。平台写入口进账本，SDK 自动写入不记账。验收证据见[子记忆任务记录](tasks/subagent-memory-20261030.md)；其中真实 SDK 16/16 使用本地假模型，只证明加载与文件边界，不代表真实模型记忆质量。
+- **子智能体记忆的准入与并发**：chat / schedule / eval 只使用稳定启用的直接子智能体集合；执行活动期间资源变化返回 409，普通字段与无关专家仍可编辑。锁顺序固定为绑定锁 → 排序后的 agent 记忆锁 → 行锁；目标自身有执行型活动 run，或目标是启用子专家且其直接父专家有执行型活动 run，就拒绝记忆写入并返回 409；审核 run 与其他无合法归属关系的 run 不占用。会话工作区刷新保留官方记忆子树 inode，挂载集合变化时重建容器。子智能体的原生 Read/Write/Edit 默认启用但只允许自己的 Markdown，兄弟、父级与未知子智能体拒绝，既有显式 deny 保留且恢复只移除裸 deny/allow、不清除路径规则；Bash 共享可见，不声称 OS 级隔离。平台写入口进账本，SDK 自动写入不记账。验收证据见子记忆任务记录；其中真实 SDK 16/16 使用本地假模型，只证明加载与文件边界，不代表真实模型记忆质量。
 - **定义包边界**：子定义 `memory: project` 可导入导出；`user` / `local` 明确拒绝；专家包只携带定义，不携带学习到的记忆正文。
 - **完整快照比较**：`memory_changes` 保存 before/after 完整内容（规则含 `globs`，主题含伴随 `index`）；个人记忆、规则与专家记忆的冲突判断按完整快照，不用局部 diff。
-- **验收状态（2026-10-31）**：主题 `name/index/kind` 共享契约、worker 主题记忆提案、API 双文件账本/版本/下载与 web 面板均已落地；shared、worker、web 独立 review 已 PASS，完整浏览器主路径（受控提案的来源归因、主题/索引双对比、采用、索引版本、ZIP 下载与公开 PUT 回导、整次回滚、无需变更）已实测通过；API 与跨端最终独立评审均 PASS。验证及独立评审通过；本任务 PR 交付，合并状态以 GitHub 为准，不能据此宣称已上线；最终回归数字与证据以[任务记录](tasks/memory-upgrade.md)为准。真实容器 + 官方 SDK + 本地假模型只证明加载与文件边界，付费真实模型的归纳质量与跨 run 召回未审计。沿用既有 `memory_reviews` / `memory_changes` jsonb，不新增表、列或迁移，不兼容旧 JSON 记录、不自动清库。详见[执行契约](tasks/memory-upgrade-contract.md)。
+- **验收状态（2026-10-31）**：主题 `name/index/kind` 共享契约、worker 主题记忆提案、API 双文件账本/版本/下载与 web 面板均已落地；shared、worker、web 独立 review 已 PASS，完整浏览器主路径（受控提案的来源归因、主题/索引双对比、采用、索引版本、ZIP 下载与公开 PUT 回导、整次回滚、无需变更）已实测通过；API 与跨端最终独立评审均 PASS。验证及独立评审通过；本任务 PR 交付，合并状态以 GitHub 为准，不能据此宣称已上线；最终回归数字与证据以任务记录为准。真实容器 + 官方 SDK + 本地假模型只证明加载与文件边界，付费真实模型的归纳质量与跨 run 召回未审计。沿用既有 `memory_reviews` / `memory_changes` jsonb，不新增表、列或迁移，不兼容旧 JSON 记录、不自动清库。详见执行契约。
 - **固定版本公开分享**：`output_shares` 锚定 `conversationId + runId + path` 与真实字节 sha256；token 只存哈希与密文，链接为 `/s/<shareId>#<token>`。公开接口校验 token、未撤销、实际字节哈希三重条件，无效统一 404；撤销幂等，已发出的链接不随同一路径的新版本变化。
 
 ### 5.2 调研结论：不引入外部记忆服务（2026-10-31）
@@ -420,7 +420,7 @@ data/workspaces/<agent-slug>/
 - 共享契约集中在 `packages/shared/src/personal.ts`；本人列表查询在 SQL 层固定本人范围，管理员个人页也不返回全局数据。既有 `personal_memory.read/write`、`conversations.share`、`overview.read`、`runs.read` 等权限叶不新增、不扩权。
 - 会话管理受 Better Auth 默认鲜度限制：登录态过旧返回 403 并提示重新登录，不自动登出。分享列表只表示链接未撤销，不保证文件字节仍存在；公开访问仍按既有文件存在与哈希校验。
 - 无 DB schema/迁移、无新依赖；沿用 `user_preferences`、`memory_changes`、`output_shares`、`agent_runs` 等现有结构。
-- 实现与验证：定向测试、web 全量、typecheck/build 与真实页面检查记录见 [任务记录](tasks/personal-module.md)；真实页面使用隔离库构造样本，未调用模型或 worker，最终终审状态以该记录为准。
+- 实现与验证：定向测试、web 全量、typecheck/build 与真实页面检查记录见任务记录；真实页面使用隔离库构造样本，未调用模型或 worker，最终终审状态以该记录为准。
 
 ## 6. 知识库运行时
 
@@ -465,7 +465,7 @@ OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` �
 
 可选原生图片向量使用同一 embedding profile 的 Cohere v2 `embed-v4.0` 文本与图像编码，固定1024维；profile 新字段 `embeddingProtocol`/`imageInputEnabled` 由迁移 `0036_demonic_dust.sql` 声明。只有显式支持图片输入的 profile 才允许库开启图片向量；关键词排除 vector 子块，图像向量召回独立应用最低相似度。同维不同模型不混用：向量分支限定版本 profile ID，profile 被引用后不允许原地替换模型/协议。
 
-专家仍通过官方 `.mcp.json` 加载知识连接。`knowledge_read_image` 默认返回可读描述；`format:image` 校验绑定库、当前版本、文档/chunk状态和版本图片清单后返回 JSON 文本加 MCP 原生 image content。原图传给 SDK，不在聊天执行层重新拼消息；Web 引用经已有鉴权图片端点显示同一原图。真实 SDK→受控 MCP→图像到达本地模型协议夹具已实测，真实视觉模型质量与 Cohere 服务未验收。详见 [多模态实施](tasks/knowledge-multimodal-implementation.md)。
+专家仍通过官方 `.mcp.json` 加载知识连接。`knowledge_read_image` 默认返回可读描述；`format:image` 校验绑定库、当前版本、文档/chunk状态和版本图片清单后返回 JSON 文本加 MCP 原生 image content。原图传给 SDK，不在聊天执行层重新拼消息；Web 引用经已有鉴权图片端点显示同一原图。真实 SDK→受控 MCP→图像到达本地模型协议夹具已实测，真实视觉模型质量与 Cohere 服务未验收。详见多模态实施。
 
 ### 6.3 外部来源
 
@@ -482,7 +482,7 @@ OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` �
 - Seafile：站点 `baseUrl` + 加密 `apiToken`，明确按 Seafile 11+ `Authorization: Bearer`，不双试旧 Token；范围 `seafile_repo` 用 repo UUID，目录根放 `paths`（显式 `/` 规范为 `[]`），文件身份是 `repo UUID + sha256(规范化库内绝对路径)`，改名表现为新增/旧不可见。
 - Nextcloud：站点 `baseUrl` + `username` + 加密 `appPassword`；范围 `nextcloud_path` 是账号 files 根内路径，文件身份是全局命名空间的 `oc:id`（不是 `oc:fileid`、不是路径），改名保持身份；PROPFIND 保持原方法并逐项检查 207。
 
-九种来源的连接身份字段（Lark `appId`、Confluence `authMode/baseUrl/email/cloudId`、钉钉 `clientId/operatorUnionId`、IMA `clientId`、Seafile `baseUrl`、Nextcloud `baseUrl/username` 等）创建后不可 PATCH 更换，换站点/账号必须新建来源；凭证可轮换。所有新来源每轮重新枚举并读取完整快照、按内容哈希决定是否建新版本，**不是远端 changed-only/断点续传**；只有完整枚举且本轮无失败才允许按 `syncDeletions` 停用不可见条目，不把“未再出现”翻译成删除。九种来源的本地 adapter/fixture 与 Web 表单已落，真实账号、配额与私有部署验收仍待配置；详见 [任务记录](tasks/knowledge-weknora.md) 的 K-X3。
+九种来源的连接身份字段（Lark `appId`、Confluence `authMode/baseUrl/email/cloudId`、钉钉 `clientId/operatorUnionId`、IMA `clientId`、Seafile `baseUrl`、Nextcloud `baseUrl/username` 等）创建后不可 PATCH 更换，换站点/账号必须新建来源；凭证可轮换。所有新来源每轮重新枚举并读取完整快照、按内容哈希决定是否建新版本，**不是远端 changed-only/断点续传**；只有完整枚举且本轮无失败才允许按 `syncDeletions` 停用不可见条目，不把“未再出现”翻译成删除。九种来源的本地 adapter/fixture 与 Web 表单已落，真实账号、配额与私有部署验收仍待配置；详见任务记录中的 K-X3。
 
 文档身份只按 `(base_id, source_type, source_id)` 匹配外部条目，绝不用标题；`upload`/`manual` 的 `source_id` 为空。外部 `source_id` 形如 `<来源连接 ID>:<源端条目 ID>`（源端 ID 是飞书 `feishu:wiki:<nodeToken>`/`feishu:drive:<fileToken>`、GitLab `gitlab:<apiBase>:<projectId>:<ref>:<path>`、GitHub `github:<apiBase>:<repoId>:<ref>:<path>` 或 `<feedURL>:<itemId>`；新增类型使用供应商稳定 ID：Lark node/file token、Notion page/file block、Confluence page/attachment ID、语雀数字 doc ID、钉钉 node ID、IMA kb/media ID、Seafile repo+路径哈希、Nextcloud `oc:id`），加上连接前缀后，同一条目出现在两个来源里也不会互相覆盖。来源归属以 `source_connection_id` 列与 `knowledge_document_source_ranges` 联合主键为真相，不再用 `metadata.knowledgeSourceId`；删源保留已删来源 ID，不级联清空，来源不存在即不可发布/可读。
 
@@ -539,7 +539,7 @@ SDK 生成与管理端手工保存都只追加草稿版本，不移动已发布�
 
 **当前仍处于评审整改与隔离验收阶段**：上述源码存在不等于整体完成；FAQ、Wiki、来源/范围即时撤权、版本 COW、ZIP 往返等链路仍在按评审意见修复与复测，模块测试或类型检查通过不能写成端到端通过。音频 ASR 的 core/shared/DB/API/worker/Web 本地链路与九种新增来源的 shared/API/DB/worker/Web 已落，但来源叶模块仍在独立评审收尾；真实转录质量与费用、真实 Lark/Notion/Confluence/语雀/钉钉/IMA/Seafile/Nextcloud 账号与配额、真实飞书/GitLab/GitHub/Feed 企业源均未验收。真实 embedding/rerank/视觉模型、Docling Office 与 Cohere 服务也仍未验收；GraphRAG 需要 Neo4j 与抽取模型费用，属待依赖，不部署、不声称可用。
 
-**真实闭环仍未完整验收**：上传 → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成仍没有跑过真模型或真实企业服务；现有 embedding/feed 运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 PDF/OCR 适配已在独立容器用固定镜像实测真实 PDF（文本、图片、表格、OCR 开关与 failure 返回），但 compose profile 从未实际拉起，Office 格式、完整真实 embedding 与企业链仍未验；仅标题 OCR 文本在 chunk 丢失的缺陷已由 PR #95（`b28d3e6`）合入 main 并验证通过（见 [任务记录](tasks/real-runtime-acceptance.md)）。已有的运行记录、发现的问题与未验证项见 [任务记录](tasks/knowledge-runtime-verification.md) 与 [审查整改](tasks/knowledge-review-findings.md)，不能把模块测试通过当成端到端通过。
+**真实闭环仍未完整验收**：上传 → 真实 embedding/rerank → 检索、真实飞书/GitLab 凭证、真实 Wiki 模型生成仍没有跑过真模型或真实企业服务；现有 embedding/feed 运行用的是本地协议夹具（确定性向量与自建 feed/article 服务），只能证明协议形状与任务生命周期，**不代表真实企业来源已接通**。Docling 的 PDF/OCR 适配已在独立容器用固定镜像实测真实 PDF（文本、图片、表格、OCR 开关与 failure 返回），但 compose profile 从未实际拉起，Office 格式、完整真实 embedding 与企业链仍未验；仅标题 OCR 文本在 chunk 丢失的缺陷已由 PR #95（`b28d3e6`）合入 main 并验证通过。已有的运行记录、发现的问题与未验证项见任务记录与审查整改，不能把模块测试通过当成端到端通过。
 
 ## 7. 关键设计决策
 
@@ -605,7 +605,7 @@ runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`ag
 
 ## 8. 账户、业务身份与权限（2026-10-31 已由 PR #129 合入 main）
 
-> 本节描述已合入 main 的实现；实施契约见 [account-rbac.md](tasks/account-rbac.md) 及其配套契约文件。验收证据与剩余项见任务记录。
+> 本节描述已合入 main 的实现；实施契约见任务记录及其配套契约文件。验收证据与剩余项见任务记录。
 
 ### 8.1 两类身份
 

@@ -19,26 +19,9 @@
 | [OPERATIONS.md](OPERATIONS.md) | 部署、备份恢复、维护任务、故障排查、观测入口、压测 |
 | [RUNBOOK.md](RUNBOOK.md) | 故障处置手册 |
 | [FIRST-RUN.md](FIRST-RUN.md) | 首次跑起来的步骤 |
-| [SKILLS.md](SKILLS.md) | 已装技能清单、项目适配、技能与插件更新 SOP |
-| [tasks/knowledge-runtime-verification.md](tasks/knowledge-runtime-verification.md) | 知识库真实运行验证记录（已操作、未验收、工具限制） |
-| [tasks/knowledge-review-findings.md](tasks/knowledge-review-findings.md) | 知识实现独立审查发现与整改范围 |
-| [tasks/knowledge-implementation.md](tasks/knowledge-implementation.md) | 知识实施进度、测试与部署配置记录 |
-| [tasks/knowledge-implementation-contract.md](tasks/knowledge-implementation-contract.md) | 知识实现契约：表、接口、模块与执行包 |
-| [tasks/memory-upgrade.md](tasks/memory-upgrade.md) | 记忆主题升级任务记录（验证及独立评审通过，本任务 PR 交付，合并状态以 GitHub 为准） |
-| [tasks/memory-upgrade-contract.md](tasks/memory-upgrade-contract.md) | 记忆主题升级执行契约：目标、快照、账本与验收 |
-| [tasks/memory-upgrade-research.md](tasks/memory-upgrade-research.md) | 腾讯记忆能力研究与本仓现状映射（证据报告） |
-| [tasks/personal-center-redesign.md](tasks/personal-center-redesign.md) | 个人中心重设计：结构选择、种子证据与验证记录 |
-| [tasks/personal-center-ux-brief.md](tasks/personal-center-ux-brief.md) | 个人中心六页动线、空间契约、实测与独立复核记录 |
-| [tasks/personal-module.md](tasks/personal-module.md) | 个人模块实施记录：统一入口、六个子页与账号安全 |
-| [tasks/runtime-environment-config.md](tasks/runtime-environment-config.md) | 运行环境能力：命名环境、构建版本、线上指针与专家绑定 |
-| [tasks/runtime-environment-contract.md](tasks/runtime-environment-contract.md) | 运行环境 DB/shared 共享契约与方法签名 |
-| [tasks/runtime-environment-probe-contract.md](tasks/runtime-environment-probe-contract.md) | stdio 试连的环境身份、jsonb 字段与读写行为 |
-| [tasks/enable-agent-bash.md](tasks/enable-agent-bash.md) | 恢复智能体 Bash 能力的调查、权限契约与验收 |
+| [SKILLS.md](SKILLS.md) | 项目适配、技能与插件更新 SOP |
 | [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) | OpenUI 组件契约、官方 spec 生成与升级行为回归 |
 | [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、Base UI 适配边界与项目令牌映射 |
-| `tasks/<slug>.md` | 历史任务记录（只读参考，非当前执行契约；普通任务跟踪用原生待办/当前对话，不要求新建） |
-
-> 上表 `tasks/` 链接与目录内文档是历史资料，保留当时的契约与验证事实；不批量迁移、不改写，也不作为当前执行权威。
 
 ## 仓库根文档
 

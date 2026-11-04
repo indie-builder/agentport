@@ -1,59 +1,9 @@
 # 项目技能与插件维护
 
-> 本文件是本项目技能与插件维护的唯一 SOP：已装技能清单、项目适配、更新与删除流程。
+> 本文件是本项目技能与插件维护的唯一 SOP：项目适配、更新与删除流程。
 > 技能装在 `.agents/skills/`，Claude Code 经 `.claude/skills/` 相对符号链接读取，版本锁定在 `skills-lock.json`。命令均在仓库或当前 worktree 根执行。
 
-## 清单
-
-| 技能 | 来源 | 对应项目技术栈 |
-|---|---|---|
-| `frontend-design` | anthropics/skills | 整体 UI 方向与排版 |
-| `api-and-interface-design` | addyosmani/agent-skills | REST 接口契约、TypeScript 类型边界与错误语义 |
-| `cli-interface-design` | samber/developer-platform-skills | 在 API 之上设计 CLI：命令分层、`--json`/退出码冻结契约、agent 友好 |
-| `public-api-design-review` | samber/developer-platform-skills | REST 面检查表：命名、方法/状态码、分页、错误信封、Hyrum's Law 兼容 |
-| `api-error-design` | samber/developer-platform-skills | 错误码 taxonomy、RFC 9457 problem-details、retryable 信号 |
-| `api-integration-surface-strategy` | samber/developer-platform-skills | 按回滚成本与受众排序 REST/CLI/SDK/MCP 等各集成面的建设顺序 |
-| `vercel-react-best-practices` | vercel-labs/agent-skills | React 19 组件与性能 |
-| `supabase-postgres-best-practices` | supabase/agent-skills | PostgreSQL 18 查询、索引、RLS |
-| `test-driven-development` | obra/superpowers | 按需参考的红绿步骤：先写失败测试 → 最小实现 → 重构；Vitest 为项目默认执行器，仅在获准的测试范围内作红绿参考 |
-| `verification-before-completion` | obra/superpowers | 交付前先跑验证命令并看真实输出，再声明完成 / 修复 / 通过 |
-| `shadcn` | shadcn-ui/ui | 组件库（本项目唯一 UI 组件来源） |
-| `migrate-radix-to-base` | shadcn-ui/ui | Radix 组件迁移到 Base UI（交互原语已统一 Base UI） |
-| `tailwind-design-system` | wshobson/agents | Tailwind 4 token 与设计系统 |
-| `animate` | emilkowalski/skills | 从零构建动效：动画决策顺序与实现（Motion/CSS） |
-| `animation-performance` | emilkowalski/skills | 动效掉帧定位与合成层性能 |
-| `animation-vocabulary` | emilkowalski/skills | 动效术语反查与命名 |
-| `apple-design` | emilkowalski/skills | Apple 交互、弹性动效与手势原则（桌面 Web 范围内） |
-| `ask-sonner` | emilkowalski/skills | Sonner toast 用法与排障（复用现有 Toaster） |
-| `break-ui` | emilkowalski/skills | 极值数据压力测试与破坏点报告（桌面） |
-| `emil-design-eng` | emilkowalski/skills | UI 打磨与动效审美原则 |
-| `find-animation-opportunities` | emilkowalski/skills | 只读发现应加动效的位置 |
-| `improve-animations` | emilkowalski/skills | 动效审计与实施计划（默认对话交付，按需保存） |
-| `pick-ui-library` | emilkowalski/skills | 前端库选型（遵守项目能力选型顺序） |
-| `prototype` | emilkowalski/skills | 多方案 UI 原型与可视化挑选 |
-| `remove-animations` | emilkowalski/skills | 删除无必要动效 |
-| `review-animations` | emilkowalski/skills | 动效代码评审（视觉与动效数值以 packages/web/DESIGN.md 为准，工程规约见 DESIGN-SYSTEM） |
-| `openui` | thesysdev/skills | 明确涉及 OpenUI / OpenUI Lang / `@openuidev/*` / Gateway / Autofix / CLI 的生成式 UI 任务；不用于普通 chat/dashboard，也不替代本项目 UI 实现 |
-| `fastify-best-practices` | mcollina/skills | Fastify 5 路由、schema 校验、插件与生命周期 |
-| `better-auth-best-practices` | better-auth/skills | Better Auth 会话、插件与鉴权配置 |
-| `tanstack-query-best-practices` | deckardger/tanstack-agent-skills | TanStack Query 5 数据获取与缓存 |
-| `router-core` | tanstack/router | TanStack Router 核心：路由树、类型安全导航 |
-| `react-router` | tanstack/router | TanStack Router 的 React 绑定与组件用法 |
-| `router-query` | tanstack/router | TanStack Router 与 Query 的集成（loader、预取） |
-| `vitest` | antfu/skills | Vitest 配置、断言与测试组织 |
-| `test-audit` | mblode/agent-skills | 定向或全量清理低价值测试并守住覆盖率；先测基线、按文件比对、保留 keeper 测试 |
-| `vite` | antfu/skills | Vite 配置、插件与构建 |
-| `pnpm` | antfu/skills | pnpm workspace 与依赖管理 |
-| `drizzle-orm-patterns` | giuseppe-trisciuoglio/developer-kit | Drizzle ORM schema、查询与迁移模式 |
-| `react-hook-form` | pproenca/dot-skills | React Hook Form 表单状态与校验 |
-| `docker-build-strategies` | docker/skills | Dockerfile 多阶段、缓存、非 root 与镜像瘦身；对应根 `Dockerfile` 与沙盒镜像 |
-| `docker-compose-patterns` | docker/skills | Compose 服务编排、健康检查、卷与网络；对应现有 `docker-compose.yml` |
-| `mcp-builder` | anthropics/skills | MCP server 工具设计与契约；对应现有 Fastify `/mcp/:serverId` |
-| `vercel-composition-patterns` | vercel-labs/agent-skills | React 组合模式；对应 web 的 shadcn/Base UI 组件边界 |
-| `zustand-5` | prowler-cloud/prowler | Zustand 5 共享客户端交互状态；对应现有 `chat-store` 的流式展示与草稿 |
-| `effect-ts` | effect-ts/skills | Effect 4 任务内副作用、取消/超时/资源释放与类型化错误 |
-| `getting-started` | tanstack/table | TanStack Table v9 React 入口；包内配套 table-state、feature 与迁移技能 |
-| `unslop` | heydamir/unslop | AI 生成感 UI 的诊断与九轮打磨（React/Tailwind，桌面浅色）；接在 packages/web/DESIGN.md（视觉权威）与 shadcn/Base UI 之上 |
+技能清单以 `skills-lock.json` 与 `.agents/skills/` 目录为准，本文不复述。
 
 ## 项目自研技能
 
@@ -90,7 +40,7 @@
 
 - 一律 `pnpm dlx`；项目内命令从当前 worktree 根加 `-c packages/web`（`info`、`docs`、`add`、`search`、`view`、`apply`、已有项目的 `init`、`preset resolve`），相对路径保证不出 worktree。
 - `preset decode`、`preset url`、`preset open` 不接受 cwd，不加 `-c`；新建项目用其实际新目录。
-- 所有更新（`add`/`update`，含整目录替换）完成后都要补回本节规则。历史背景见 `docs/tasks/shadcn-worktree-context.md`，执行规则以技能内 Project convention 为准。
+- 所有更新（`add`/`update`，含整目录替换）完成后都要补回本节规则。历史背景见 任务记录，执行规则以技能内 Project convention 为准。
 - 实物验证：适配补回后运行 `pnpm dlx shadcn@latest info --json -c packages/web`，须退出 0 且返回路径位于当前 worktree 的 `packages/web`；只改文字不算完成。
 
 ### openui
@@ -167,7 +117,7 @@
 
 ## pstack 项目适配
 
-pstack 按上游原样使用，冲突处按本表执行，其余以上游为准。项目在 `.agents/playbooks/` 维护 Feature、Refactoring、Opening a PR、Shipping、Pause safely、Worktree cleanup 六个短适配器，只把对应上游步骤接到本规范，不复制完整政策。模型角色先按根 `CLAUDE.md`「协作方式」匹配，未被覆盖的角色再按运行时 `/setup-pstack` 的 override sheet；本文不复述角色行。
+pstack 按上游原样使用，冲突处按本表执行，其余以上游为准。项目在 `.agents/playbooks/` 维护 Feature、Refactoring、Opening a PR、Shipping、Pause safely、Worktree cleanup 六个短适配器，只把对应上游步骤接到本规范，不复制完整政策。
 
 | 上游默认 | 本项目执行 |
 |---|---|
@@ -176,10 +126,9 @@ pstack 按上游原样使用，冲突处按本表执行，其余以上游为准�
 | 每个委派强制独立 worktree | 默认共享当前任务树，按文件边界并行；额外隔离也落在固定 `.claude/worktrees/<slug>`，不套娃 |
 | 主编排直接改文件 | 全部编辑委派子代理；主会话只读、定契约、派发、审查、验证与提交 |
 | 自建进度账 | 普通任务用运行时原生待办/当前对话跟踪，不强制任务文件；暂停、交接或长期任务用 pstack 原生 checkpoint；跨任务教训进 `docs/PITFALLS.md` |
-| 技能自动升降 effort | 按根 `CLAUDE.md`「协作方式」精确派发 model 与 effort，不自动升降，不改变主会话模型 |
-| 通用模型角色表 | 普通设计初稿、普通审查、技术解释与常规开发用 Sonnet；关键设计、重大架构、安全/并发/权限/数据丢失判断与独立终审用 Opus，终审不降级。Haiku 只做明确事实定位，含糊需求或跨模块推理交 Sonnet，关键风险交 Opus；`how explorer` 即使默认 Haiku，brief 也必须限定为明确事实，架构与语义研究改用 Sonnet。跨家族偏好不强制普通审查升级 Opus 或回退 Fable，普通评选可同家族 Sonnet，关键判断可同家族 Opus；仅改模型选择，不删评审、不改人数 |
+| 技能自动升降 effort | 精确派发 model 与 effort，不自动升降，不改变主会话模型 |
 | 角色面板候选数量 | 架构至少 2 个独立候选；其余按上游角色面板数量 |
-| no-comments / code-quality 全量清理 | 按改动范围给建议；不因超千行或存在注释就扩大重构，或删非显然的 why 注释 |
+| no-comments / code-quality 全量清理 | 按改动范围给建议；不因超千行或存在注释就扩大重构 |
 | 兼容性审查 | 个人项目不向后兼容，有意删除不报兼容缺陷；不新增兼容 shim 或新旧双路径，当前行为仍受保护 |
 | 改写已安装插件缓存 | 不改上游插件缓存 |
 
