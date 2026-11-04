@@ -18,7 +18,7 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 | 观测 | 运行列表与 trace 详情、成本/轮次/token/延迟、审计日志、`/health/*`、队列与进程指标、`/status` 系统状态页 |
 | 评估 | 用例管理、`eval-runs` 队列异步回归跑批、通过率与结果详情 |
 | 治理 | Better Auth 多账户登录（Drizzle 会话落库、可吊销）、Redis 限流、UTC cron 定时任务（BullMQ Job Scheduler，运行队列积压超过 100 时跳过）、数据保留任务、数据库备份与恢复 |
-| 账户与权限 | 稳定 `businessId`、认证账户可重建、默认四角色、DB 可配置的角色·功能矩阵与对象范围、专家成员、私有会话/个人记忆隔离、跨用户运维审计；实现与验收记录见 [docs/tasks/account-rbac.md](docs/tasks/account-rbac.md) |
+| 账户与权限 | 稳定 `businessId`、认证账户可重建、默认四角色、DB 可配置的角色·功能矩阵与对象范围、专家成员、私有会话/个人记忆隔离、跨用户运维审计；实现与验收记录见 任务记录 |
 | 子智能体 | 单层委派、调用归属展示；已用真实模型 + 沙盒端到端验证 |
 
 ## 快速开始
@@ -38,7 +38,7 @@ pnpm run up        # 生成 .env、起依赖、迁移、构建镜像、冒烟
 # 打开 http://localhost:3000
 ```
 
-首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`，并打印管理员密码；首次部署请先按需修改 `ADMIN_PASSWORD` 再执行 `pnpm run up`。`ADMIN_PASSWORD` 只在首次初始化（`platform_bootstrap` marker 不存在）时创建管理员 `bootstrap-admin`，之后启动或登录都不再按 `.env` 覆盖已有密码；后续改密走显式账户操作。实现与验收记录见 [docs/tasks/account-rbac.md](docs/tasks/account-rbac.md)。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
+首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`，并打印管理员密码；首次部署请先按需修改 `ADMIN_PASSWORD` 再执行 `pnpm run up`。`ADMIN_PASSWORD` 只在首次初始化（`platform_bootstrap` marker 不存在）时创建管理员 `bootstrap-admin`，之后启动或登录都不再按 `.env` 覆盖已有密码；后续改密走显式账户操作。实现与验收记录见 任务记录。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
 
 `pnpm run up` 依次完成：`docker compose up -d --wait` 启动 postgres/redis 并等 healthcheck 通过 → 从仓库根构建 `agentport/sandbox:dev`（已存在则跳过，`pnpm run up --rebuild` 强制重建）→ compose 一次性 `migrate` 服务执行迁移 → 构建并启动 api/worker；compose 的 `--wait --wait-timeout 120` 会等 api 的 `/health/ready` healthcheck 通过 → `pnpm smoke`。任一步失败会打印原因并以非零退出。停止服务用 `pnpm run down`（保留数据卷），`pnpm run down --clean` 会删除数据卷。
 

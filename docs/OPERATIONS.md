@@ -90,7 +90,7 @@
 - 每轮重新渲染官方定义并刷新到 `workspace`；本轮短期 MCP/模型凭证只进当轮 runner，stdio 的 `env` 与 http 的 `headers` 还会把上游解密 secrets 写入当轮 `.mcp.json`，可能是长期凭证。运行结束（不论容器清理是否成功）都会尝试清空本轮 MCP token；DB 清空失败只记 warning，token 可能保留到过期时间；模型 token 从代理内存集合移除并尝试清空 DB hash，清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。终态停稳后删除 `.mcp.json`，删除失败时记录错误并禁止复用该容器，文件可能留到下一轮刷新时被覆盖；残留期间上游长期 secret 仍可能有效。空闲容器不保留上一轮身份，下一轮重新渲染。
 - `agent-memory/` 仍按智能体共享，不随会话隔离；只有 `sdk-sessions/<conversationId>/` 按会话隔离。
 - `sandbox-probe` 试连与 `native-plugins` 安装仍使用一次性容器，不进入会话复用。
-- 实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核；最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK 4 例）。真实付费模型与浏览器全链路未测。详见 [任务记录](tasks/session-sandbox-lifecycle.md)。
+- 实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核；最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK 4 例）。真实付费模型与浏览器全链路未测。详见任务记录。
 
 ### 原生记忆存储（native memory storage）
 
@@ -190,7 +190,7 @@ curl -s http://localhost:3000/health/ready
 - `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`pnpm run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
 - 知识库卷 `knowledgedata` 与 `workspaces` 一样由一次性 `init` 服务 `chown 1000:1000`（镜像 `USER node`，即 uid 1000），否则 api/worker 首次上传会 EACCES。卷内容随 `pnpm backup` 的 `knowledge/` 归档；`docker compose down -v` 会连同知识库一起删除。
-- 复杂格式解析默认不部署：需要时 `docker compose --profile docling up -d docling`，并把 `.env` 的 `DOCLING_URL` 设为 `http://docling:5001`。不内置时指向外部 Docling 服务即可，`DOCLING_TOKEN` 通过 `X-Api-Key` 发送。当前配置 Docling Serve 1.38.2（tag/digest 见 `docker-compose.yml`，该镜像已预装解析模型，无需首次下载）。本轮已用该固定镜像在独立容器中验证真实 PDF 的文本、图片与表格解析、纯图片 PDF 的 OCR 开关、200/401/损坏文件的 failure 返回；镜像预装 rapidocr，无运行时模型下载。来源 pageMap 的两处缺陷已修复并经 Opus review 通过：真实响应回放确认表格 chunk 的 pageFrom 为 2、短 OCR 不侵入数字、CRLF 与多段 JSON 区间均回归通过，详细范围见任务记录。范围限于独立容器直连 Docling，`--profile docling` 的 compose 路径未实际拉起；Office 格式本轮未实测，不声称已验证；仅标题 OCR 文本在 chunk 丢失的缺陷已修复并在工作分支验证通过（真实响应回放 1/1），尚未合入 main，见 [任务记录](tasks/real-runtime-acceptance.md)。compose 的 `DOCLING_SERVE_MAX_SYNC_WAIT` 为 `600`，与客户端 10 分钟超时对齐。未配置 `DOCLING_URL` 时 PDF/Office/OCR 解析会明确报错，而不是假装成功。
+- 复杂格式解析默认不部署：需要时 `docker compose --profile docling up -d docling`，并把 `.env` 的 `DOCLING_URL` 设为 `http://docling:5001`。不内置时指向外部 Docling 服务即可，`DOCLING_TOKEN` 通过 `X-Api-Key` 发送。当前配置 Docling Serve 1.38.2（tag/digest 见 `docker-compose.yml`，该镜像已预装解析模型，无需首次下载）。本轮已用该固定镜像在独立容器中验证真实 PDF 的文本、图片与表格解析、纯图片 PDF 的 OCR 开关、200/401/损坏文件的 failure 返回；镜像预装 rapidocr，无运行时模型下载。来源 pageMap 的两处缺陷已修复并经 Opus review 通过：真实响应回放确认表格 chunk 的 pageFrom 为 2、短 OCR 不侵入数字、CRLF 与多段 JSON 区间均回归通过，详细范围见任务记录。范围限于独立容器直连 Docling，`--profile docling` 的 compose 路径未实际拉起；Office 格式本轮未实测，不声称已验证；仅标题 OCR 文本在 chunk 丢失的缺陷已修复并在工作分支验证通过（真实响应回放 1/1），尚未合入 main，见任务记录。compose 的 `DOCLING_SERVE_MAX_SYNC_WAIT` 为 `600`，与客户端 10 分钟超时对齐。未配置 `DOCLING_URL` 时 PDF/Office/OCR 解析会明确报错，而不是假装成功。
 - 基础设施版本：Redis 8.10.3（compose 的 `redis` 服务，tag/digest 见 `docker-compose.yml` 与 CI）；是否已启动以当次 `docker compose ps` 为准，本文不代替运行状态。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
 - Redis 健康检查（compose 里的 `healthcheck.test`）在容器内使用 redis 服务自身的 `REDIS_PASSWORD`；若宿主另行导出 `REDIS_PASSWORD`，compose 会用它重建 redis，与 `.env` 的 `REDIS_URL` 不一致时 api/worker 连不上。`pnpm run up` 不读取宿主导出的该变量，直接使用 `.env`。
@@ -321,7 +321,7 @@ pnpm install
 pnpm run up --rebuild
 ```
 
-`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。代码中的迁移链以 `packages/db/migrations/meta/_journal.json` 为准（当前末条 `0046_cold_slipstream`，接在 `0045_married_expediter` 之后）；**实际数据库是否已应用同一链必须单独核对**，不能从代码、其他环境或历史文档推断。应用前先比对 `__drizzle_migrations` 与 journal，并在隔离随机库验证升级。已有库账本或结构与当前链不一致时，不要手改账本、不要给迁移加 `IF NOT EXISTS` 兼容层；个人项目默认按当前 schema 重建干净库，但清理/重建共享库必须先取得用户明确授权，未授权时保持现场、停止迁移并报告缺口。2026-10-31 本机实测记录：共享本机 business 库 `agentport_business_e2e_dataset` 成功应用 `0046`；默认 `agentport` 库因历史账本/结构漂移失败，未清库、未手改账本，重建仍待用户授权。此记录只覆盖两个明确本机配置对应的库，不代表其他环境已迁移。具体行数与差异计数见 [tasks/knowledge-weknora.md](tasks/knowledge-weknora.md) 的迁移实测记录。
+`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。代码中的迁移链以 `packages/db/migrations/meta/_journal.json` 为准（当前末条 `0046_cold_slipstream`，接在 `0045_married_expediter` 之后）；**实际数据库是否已应用同一链必须单独核对**，不能从代码、其他环境或历史文档推断。应用前先比对 `__drizzle_migrations` 与 journal，并在隔离随机库验证升级。已有库账本或结构与当前链不一致时，不要手改账本、不要给迁移加 `IF NOT EXISTS` 兼容层；个人项目默认按当前 schema 重建干净库，但清理/重建共享库必须先取得用户明确授权，未授权时保持现场、停止迁移并报告缺口。2026-10-31 本机实测记录：共享本机 business 库 `agentport_business_e2e_dataset` 成功应用 `0046`；默认 `agentport` 库因历史账本/结构漂移失败，未清库、未手改账本，重建仍待用户授权。此记录只覆盖两个明确本机配置对应的库，不代表其他环境已迁移。具体行数与差异计数见任务记录的迁移实测记录。
 
 **关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 收到 SIGTERM 先 abort 沙盒关停信号：不再新建容器或拉取镜像，进行中的拉取/创建按取消语义收尾，活跃聊天 run 也随同一信号取消；随后并发关闭主与 eval run worker，并最多等待 10s 让已取消的任务收尾（超时不再等），再清理容器（容器 stop 本身不受这 10s 限制，必须等它完成）；其余队列与其他步骤从关停开始就并发关闭、各有界，最后按序执行收尾步骤。单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 
@@ -492,7 +492,7 @@ pnpm --filter @agentport/worker maintenance
 | 模型调用 401 / 403 | 凭证缺失、失效，或 `ANTHROPIC_BASE_URL` 在容器内不可达 | `docker compose logs worker` 看容器 stderr；确认 `.env` 只填了 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 之一；`ANTHROPIC_BASE_URL` 不要写 `127.0.0.1`（worker 会改写为 `host.docker.internal`，Linux 需 Docker 支持该别名） |
 | MCP 工具未出现在智能体上下文 | 未绑定 server、工具被禁用、绑定关系未保存，或 server 连接失败 | 「MCP Servers」页点「测试」看 `listTools()`；检查 generated server 的工具是否 `enabled`；「智能体 → 文件预览」确认 `.mcp.json` 含该 server；运行详情看拒绝原因（`permissionMode=dontAsk` 下未预批准会直接拒绝） |
 | `mcp__<server>__tool` 被拒绝 | 允许规则写成了 `mcp__*`，或 server 名与绑定名不一致 | 规则由 worker 按 `.mcp.json` 的 server key 生成 `mcp__<name>__*`；不要手写 `mcp__*`；在文件预览核对 server key |
-| 原生澄清提问被拒绝 | 智能体显式使用 `dontAsk`，或 `AskUserQuestion` 被禁用 | 官方 `dontAsk` 不触发 `canUseTool`，即使allow也拒绝需要交互的工具。需要澄清时显式选 `default`；本能力接入状态与验收见 `docs/tasks/agent-clarification.md`，不要把普通文本问句当同run挂起已接通 |
+| 原生澄清提问被拒绝 | 智能体显式使用 `dontAsk`，或 `AskUserQuestion` 被禁用 | 官方 `dontAsk` 不触发 `canUseTool`，即使allow也拒绝需要交互的工具。需要澄清时显式选 `default`；本能力接入状态与验收见任务记录，不要把普通文本问句当同run挂起已接通 |
 | 队列堆积，run 一直 `queued` | worker 未启动、并发占满、Redis 不可用 | 登录后看 `/health/metrics` 的 `queue.waiting/active`（需 Cookie）；`docker compose logs worker`；确认 `AGENT_MAX_CONCURRENT`；`docker compose ps worker` |
 | SSE 无输出或立即断开 | 未登录（401 后前端跳登录）、反向代理缓冲、run 尚未开始、事件流已过期 | `curl -N -b "agentport_token=<token>" http://localhost:3000/api/chat/<runId>/events`；代理需关闭 buffering（代码已发 `X-Accel-Buffering: no`）；确认 run 状态不是 `queued`；事件流 TTL 为 1 小时 |
 | generated server 在沙盒内 401 | `.mcp.json` 里的 `mcpToken` 与数据库不一致，或平台地址不可达 | 短期 token 只在 run 期间有效，run 结束后 401 属预期；外部客户端用长期 `mcpToken`（页面「轮换 token」后旧值立即失效）；确认 `SANDBOX_API_URL` 从容器可达（`docker run --rm curlimages/curl -s $SANDBOX_API_URL/health/live`） |

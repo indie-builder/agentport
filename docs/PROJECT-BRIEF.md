@@ -768,7 +768,7 @@ interface SandboxProvider {
    - **npm 使用 scope**：`@agentport/api`、`@agentport/web`、`@agentport/shared`、`@agentport/worker`（scope 需在 npm 注册，若不用公开 npm 则直接使用）。
    - **Docker 镜像名**：`agentport/api`、`agentport/worker`、`agentport/sandbox`。
    - **展示名**：PACE（仓库与包名仍为 `agentport`）。
-2. **登录方式**：Better Auth（username/密码 + Drizzle adapter，会话写 PostgreSQL，httpOnly Cookie `agentport_token`），不使用 JWT，也不在 Redis 校验会话。多账户/RBAC 已在本工作树实现、未合入 main、已通过最终 review、准备发布：稳定 `businessId`、默认四角色、DB 可配置的角色·功能矩阵与对象范围、私有会话/个人记忆隔离；见 §18 与 [account-rbac.md](tasks/account-rbac.md)。
+2. **登录方式**：Better Auth（username/密码 + Drizzle adapter，会话写 PostgreSQL，httpOnly Cookie `agentport_token`），不使用 JWT，也不在 Redis 校验会话。多账户/RBAC 已在本工作树实现、未合入 main、已通过最终 review、准备发布：稳定 `businessId`、默认四角色、DB 可配置的角色·功能矩阵与对象范围、私有会话/个人记忆隔离；见 §18 与任务记录。
 3. **HTTP→MCP 的输入方式**：当前先做手动建工具，表结构按可导入 OpenAPI 设计。是否要 OpenAPI 导入？
 4. **智能体是否允许非 MCP 工具**：Bash 默认启用；原生 Read/Write/Edit 仅限记忆、产出、附件与技能参考；其余内置工具默认禁止。
 5. ~~**Redis 镜像标签**~~ 已确认 `redis:8-alpine` 可用（§15.2）；当前配置为 Redis 8.10.3（`redis:8.10.3-alpine`）。
@@ -953,7 +953,7 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 
 ## 17. 信息架构与业务任务（2026-10-29）
 
-> 本节是当前有效的信息架构契约。与 §1.4 的早期页面诉求冲突时以本节为准；视觉数值以 [packages/web/DESIGN.md](../packages/web/DESIGN.md) 为准，验收以 [USER-STORIES.md](USER-STORIES.md) 为准，任务过程见 [agent-experience-redesign.md](tasks/agent-experience-redesign.md)。
+> 本节是当前有效的信息架构契约。与 §1.4 的早期页面诉求冲突时以本节为准；视觉数值以 [packages/web/DESIGN.md](../packages/web/DESIGN.md) 为准，验收以 [USER-STORIES.md](USER-STORIES.md) 为准，任务过程见任务记录。
 >
 > §1.4 中「知识库与专家/技能/连接器/插件并列的资源页签」已被本节替代：专家移出资源中心，知识库仍在资源中心。
 
@@ -1029,7 +1029,7 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 
 ## 18. 账户、业务身份与权限矩阵（2026-10-31，本工作树已实现；未合入 main）
 
-> 本节描述本工作树的最终实现，尚未合入 main、已通过最终 review、准备发布；实施契约以 [account-rbac.md](tasks/account-rbac.md) 及其配套契约文件为准，证据与剩余项见任务记录。
+> 本节描述本工作树的最终实现，尚未合入 main、已通过最终 review、准备发布；实施契约以任务记录及其配套契约文件为准，证据与剩余项见任务记录。
 
 ### 18.1 业务身份
 

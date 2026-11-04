@@ -18,4 +18,4 @@
 - 草稿刷新：[之前丢失](screens/breaker-06-draft-after-refresh.png)／[常规刷新恢复](screens/rerun-breaker-06-a-draft-after-refresh.png)。
 - 同文重写：[中间版本刷新丢失](screens/rerun-breaker-25-same-text-after-reload.png)／[最终已有会话刷新保留](screens/rerun-breaker-final-05-a-reload.png)／[最终新会话刷新保留](screens/rerun-breaker-final-10-new-reload.png)。
 
-报告是各阶段的原始观测，不回写旧失败为通过；其中对影响人数的“预计”不作为实测命中人数。部分报告含原临时目录路径，截图按文件名可在本目录 `screens/` 查找；凭据、Cookie、脚本不纳入证据。最终汇总见 [任务记录](../../tasks/launch-qa-first-run.md)。
+报告是各阶段的原始观测，不回写旧失败为通过；其中对影响人数的“预计”不作为实测命中人数。部分报告含原临时目录路径，截图按文件名可在本目录 `screens/` 查找；凭据、Cookie、脚本不纳入证据。最终汇总见任务记录。

@@ -115,4 +115,4 @@ Fastify 通配路由的 `*` 段同样属于路由 schema：技能文件写入用
 
 `knowledge_read_image` 接受 chunkId 和 description/image 格式，不接受任意路径或URL；再按绑定库→当前可见文档/版本→启用chunk→版本图片清单读取。原图以 MCP 原生 image content 返回，MIME与单图5MiB限制独立校验；描述结果仍为JSON text以保存引用。图片metadata导入须与同版本图片清单对应，向量数值不进知识包，图片向量子块身份需保留以恢复索引。
 
-2026-10-25 的实际状态：上传、手写、URL 导入、来源同步与内置 MCP 的**自动**测试已覆盖对应断言；多模态实际SDK/CLI+本地协议夹具及页面链验证见 [实施记录](tasks/knowledge-multimodal-implementation.md)。真实 Docling /视觉模型/ Cohere / embedding / rerank / 飞书 / GitLab 尚未用真实服务或凭证验证，不能用 fixture 通过代替质量验收。
+2026-10-25 的实际状态：上传、手写、URL 导入、来源同步与内置 MCP 的**自动**测试已覆盖对应断言；多模态实际SDK/CLI+本地协议夹具及页面链验证见实施记录。真实 Docling /视觉模型/ Cohere / embedding / rerank / 飞书 / GitLab 尚未用真实服务或凭证验证，不能用 fixture 通过代替质量验收。
