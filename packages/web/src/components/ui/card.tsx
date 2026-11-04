@@ -4,7 +4,7 @@ import type * as React from 'react';
 function Card({
   className,
   size = 'default',
-  interactive = true,
+  interactive = false,
   ...props
 }: React.ComponentProps<'div'> & { size?: 'default' | 'sm'; interactive?: boolean }) {
   return (

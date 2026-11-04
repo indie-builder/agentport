@@ -242,7 +242,7 @@ function SidebarLink({
         collapsed
           ? ''
           : active
-            ? 'bg-selected font-medium text-selected-foreground'
+            ? 'bg-selected text-selected-foreground'
             : 'text-fg hover:bg-hover',
         collapsed && (active ? 'text-selected-foreground' : 'text-fg'),
       )}
@@ -466,7 +466,7 @@ export function AppShell() {
         aria-label="加载中"
       >
         <PageHeader title={pageTitle} className="sr-only" />
-        <div className="hidden w-56 shrink-0 border-r p-3 sm:block">
+        <div className="hidden w-56 shrink-0 p-3 lg:block">
           <Skeleton className="mb-3 h-8 w-full" />
           <div className="flex flex-col gap-2">
             <Skeleton className="h-8 w-full" />
@@ -474,7 +474,7 @@ export function AppShell() {
             <Skeleton className="h-8 w-full" />
           </div>
         </div>
-        <div className="flex flex-1 flex-col gap-4 p-8">
+        <div className="flex flex-1 flex-col gap-4 bg-surface px-6 pb-6">
           <Skeleton className="h-6 w-40" />
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
@@ -531,12 +531,10 @@ export function AppShell() {
       {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
       <nav aria-label="主导航" className="mt-4 flex-1 overflow-y-auto overflow-x-hidden">
         {navGroups.map((group) => (
-          <div key={group.label} className="mt-3">
+          <div key={group.label} className={cn(drawer || !collapsed ? 'mt-0.5' : 'mt-3')}>
             {drawer || !collapsed ? (
               <div className="px-2.5 pb-1.5 pt-4 text-xs text-muted-foreground">{group.label}</div>
-            ) : (
-              <div className="mx-auto mb-1 h-px w-6" aria-hidden="true" />
-            )}
+            ) : null}
             <div className="flex flex-col gap-0.5">
               {group.items.map((item) => (
                 <SidebarLink
@@ -601,7 +599,7 @@ export function AppShell() {
             className={cn(
               buttonVariants({ variant: 'ghost' }),
               // 账号入口保持独立外观：紧凑 12px 标签、8px 角、20px 头像，靠左排布。
-              'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-fg',
+              'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground',
             )}
           >
             <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">

@@ -465,6 +465,7 @@ export function useChatStream({
             ...(tokens === null ? {} : { tokens }),
             ...(event.costUsd === undefined ? {} : { costUsd: event.costUsd }),
             ...(event.error === undefined ? {} : { error: event.error }),
+            endedAt: new Date().toISOString(),
           });
           cacheRunMetrics(client, accepted.conversationId, {
             runId: accepted.runId,

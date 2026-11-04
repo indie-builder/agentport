@@ -50,7 +50,7 @@ export function SegmentedToggle<T extends string>({
                   : {
                       type: 'tween',
                       duration: 0.12,
-                      ease: [0.32, 0.72, 0, 1] as [number, number, number, number],
+                      ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
                     }
               }
               className="absolute inset-0 -z-10 rounded-pill bg-surface shadow-sm"

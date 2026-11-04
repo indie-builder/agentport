@@ -519,6 +519,7 @@ function WikiPageEditor({
         }
         confirmLabel="发布"
         confirmDisabled={pending}
+        tone="default"
         onClose={() => setPublishTarget(null)}
         onConfirm={async () => {
           if (!publishTarget) return;

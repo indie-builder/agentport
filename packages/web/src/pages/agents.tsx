@@ -733,7 +733,7 @@ export function AgentsPage() {
                       </DropdownMenu>
                     </CardAction>
                     <div className="col-start-2 row-start-2 flex min-w-0 items-center gap-2">
-                      <StatusBadge className="max-w-full min-w-0">
+                      <StatusBadge className="max-w-full min-w-0 bg-chip">
                         <span className="block truncate" title={agentRole}>
                           {agentRole}
                         </span>
@@ -1205,7 +1205,7 @@ export function AgentDetailPage() {
           title={current.name}
           eyebrow={
             roleLabel ? (
-              <StatusBadge className="max-w-full whitespace-normal break-words">
+              <StatusBadge className="max-w-full whitespace-normal break-words bg-chip">
                 {roleLabel}
               </StatusBadge>
             ) : undefined

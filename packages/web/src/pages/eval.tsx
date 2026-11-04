@@ -456,6 +456,7 @@ export function EvalPage() {
       <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <PageSection
           title="用例维护"
+          divided={false}
           actions={
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -477,6 +478,7 @@ export function EvalPage() {
               {canManageEval ? (
                 <Button
                   variant="outline"
+                  size="sm"
                   disabled={!effectiveAgentId || importDataset.isPending}
                   aria-busy={importDataset.isPending}
                   onClick={() => importInputRef.current?.click()}
@@ -488,6 +490,7 @@ export function EvalPage() {
               {canReadEval ? (
                 <Button
                   variant="outline"
+                  size="sm"
                   disabled={!effectiveAgentId || exporting}
                   aria-busy={exporting}
                   onClick={() => void exportJson()}
@@ -499,6 +502,7 @@ export function EvalPage() {
               {canManageEval ? (
                 <Button
                   variant="outline"
+                  size="sm"
                   ref={createButtonRef}
                   disabled={!effectiveAgentId}
                   onClick={(event) => {

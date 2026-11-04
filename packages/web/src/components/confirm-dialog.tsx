@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { type ReactNode, useState } from 'react';
+import { cn } from '../lib/cn.js';
 import { toastError } from '../lib/toast.js';
 import { DialogShell } from './dialog-shell.js';
 import { Button } from './ui/button.js';
@@ -14,6 +15,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   children?: ReactNode;
   confirmDisabled?: boolean;
+  tone?: 'danger' | 'default';
   onConfirm: () => Promise<unknown>;
   finalFocus?: ComponentProps<typeof DialogShell>['finalFocus'];
 }
@@ -27,6 +29,7 @@ export function ConfirmDialog({
   confirmLabel = '删除',
   children,
   confirmDisabled = false,
+  tone = 'danger',
   onConfirm,
   finalFocus,
 }: ConfirmDialogProps) {
@@ -62,7 +65,12 @@ export function ConfirmDialog({
         finalFocus={finalFocus}
       >
         <div className="flex gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
+          <div
+            className={cn(
+              'flex size-10 shrink-0 items-center justify-center rounded-full',
+              tone === 'default' ? 'bg-sunken text-muted-foreground' : 'bg-danger-soft text-danger',
+            )}
+          >
             <AlertTriangle className="size-5" />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
@@ -75,7 +83,7 @@ export function ConfirmDialog({
             取消
           </Button>
           <Button
-            variant="destructive"
+            variant={tone === 'default' ? 'default' : 'destructive'}
             size="sm"
             aria-busy={pending}
             disabled={pending || confirmDisabled}

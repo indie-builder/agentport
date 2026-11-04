@@ -1946,13 +1946,13 @@ export function Composer({
           <InputGroupAddon align="block-end" className="justify-between gap-3 px-4 pb-3 pt-0">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs font-normal text-muted-foreground">
               {canAttach ? <AttachmentPicker disabled={attachmentsLocked} /> : null}
-              <span className="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
+              <span>Enter 发送 · Shift+Enter 换行</span>
               {lastRunId ? (
                 <Link
                   to="/runs/$runId"
                   params={{ runId: lastRunId }}
                   search={{ backTo: location.href }}
-                  className="inline-flex items-center underline-offset-2 hover:text-fg hover:underline"
+                  className="inline-flex items-center text-link underline underline-offset-2 hover:text-link/80"
                 >
                   查看本次运行
                 </Link>
@@ -2404,7 +2404,7 @@ export function MessagePane({
                             className={cn(
                               'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
                               turn.user &&
-                                'w-fit max-w-[85%] rounded-[var(--radius-bubble)] bg-selected px-4 py-3 text-fg shadow-[var(--shadow-bubble)]',
+                                'w-fit max-w-[85%] rounded-[var(--radius-bubble)] bg-selected px-4 py-3 text-fg',
                             )}
                           >
                             <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
@@ -2484,7 +2484,16 @@ export function MessagePane({
                                   <div className="flex min-w-0 items-start gap-1.5">
                                     <div className="min-w-0 flex-1">
                                       {runFooter}
-                                      {lastRun ? <RunMetricsLine run={lastRun} /> : null}
+                                      {lastRun ? (
+                                        <RunMetricsLine
+                                          run={lastRun}
+                                          {...(lastRun.endedAt
+                                            ? {
+                                                title: `完成于 ${formatDateTime(lastRun.endedAt)}`,
+                                              }
+                                            : {})}
+                                        />
+                                      ) : null}
                                     </div>
                                     {copyReply}
                                   </div>
@@ -2577,7 +2586,7 @@ export function MessagePane({
             // Keep the translucent hover; outline defaults to the opaque muted surface.
             className="hover:bg-hover motion-reduce:transition-none"
           >
-            <ArrowDown className="size-3" /> 回到底部
+            <ArrowDown className="size-3.5" /> 回到底部
           </MessageScrollerButton>
         ) : null}
         <ScrollToLatest userItem={appendedUser} />
@@ -2948,7 +2957,7 @@ function WelcomeState() {
           aria-hidden="true"
           width={916}
           height={637}
-          className="h-auto w-20 shrink-0 object-contain sm:w-24"
+          className="h-auto w-24 shrink-0 object-contain"
         />
         <h2 className="min-w-0 flex-1 text-2xl font-medium tracking-[-0.02em] text-fg">
           今天想完成什么？
@@ -3217,7 +3226,7 @@ function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
           params={{ runId: run.runId }}
           search={{ backTo: location.href }}
           aria-label={`查看详情：运行 ${shortId(run.runId)}`}
-          className="text-sm text-fg underline decoration-line-strong underline-offset-2 hover:text-fg"
+          className="text-link underline underline-offset-2 hover:text-link/80"
         >
           查看详情
         </Link>
