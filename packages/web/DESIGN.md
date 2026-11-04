@@ -10,26 +10,26 @@ colors:
   hover: "#F3F3F0"
   selected: "#EAE9E4"
   accent: "#EAE9E4"
-  accent-foreground: "#151515"
-  selected-foreground: "#151515"
+  accent-foreground: "#0b0b0b"
+  selected-foreground: "#0b0b0b"
   secondary: "#F3F3F0"
-  secondary-foreground: "#151515"
+  secondary-foreground: "#0b0b0b"
   line: "rgba(0, 0, 0, 0.10)"
   line-strong: "rgba(0, 0, 0, 0.20)"
   control-boundary: "rgba(0, 0, 0, 0.35)"
   input: "rgba(0, 0, 0, 0.10)"
   input-focus: "#BDBDBD"
   link: "#A8482B"
-  fg: "#151515"
-  muted-foreground: "#525252"
-  subtle: "#8A8A8A"
-  primary: "#151515"
-  primary-hover: "#151515"
+  fg: "#0b0b0b"
+  muted-foreground: "#52514e"
+  subtle: "#898781"
+  primary: "#0b0b0b"
+  primary-hover: "#0b0b0b"
   primary-foreground: "#FFFFFF"
   ring: "#D97757"
   button-primary: "#D97757"
   button-primary-hover: "#CC5A36"
-  button-primary-active: "#AD4724"
+  button-primary-active: "#c6613f"
   success: "#187646"
   success-soft: "#E9F3EC"
   warning: "#8A5600"
@@ -108,8 +108,8 @@ rounded:
   icon: "8px"
   tag: "6px"
   pill: "9999px"
-  composer: "20px"
-  bubble: "18px"
+  composer: "14px"
+  bubble: "12px"
   dialog: "16px"
   popover: "10px"
 spacing:
@@ -219,13 +219,13 @@ components:
 
 PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`，侧栏透明坐在画布上；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。工具、标题与正文是暖墨色，主操作与焦点用陶土 `clay`，状态只在需要时以小面积语义色或呼吸点出现。
 
-这套系统用陶土承担「可执行」与焦点，用暖灰阶梯承担层级：普通主操作、发送、登录共用 `#D97757` → `#CC5A36` → `#AD4724` 三态实底；正文链接用深陶土 `#A8482B`；Input / Textarea 聚焦用陶土微光（1px 陶土边 + 三层微光），Select / Combobox / InputGroup 同样用陶土微光（`.cds-focus-glow`），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。唯一的蓝色是运行图表首系列的数据蓝。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
+这套系统用陶土承担「可执行」与焦点，用暖灰阶梯承担层级：普通主操作、发送、登录共用 `#D97757` → `#CC5A36` → `#c6613f` 三态实底；正文链接用深陶土 `#A8482B`；Input / Textarea 聚焦用陶土微光（1px 陶土边 + 三层微光），Select / Combobox / InputGroup 同样用陶土微光（`.cds-focus-glow`），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。唯一的蓝色是运行图表首系列的数据蓝。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
 
-本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文只记录实现值，不把未覆盖的浏览器证据写成已验收，未覆盖项与规范差异见 Known Gaps 和对应任务记录。视觉令牌与参考项目 open-claude-ui（Claude CDS）对齐；暖灰不透明状态层、气泡 18px、链接/危险取更深对比度色、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等为有意适配，见 Do's 与 Known Gaps。
+本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文只记录实现值，不把未覆盖的浏览器证据写成已验收，未覆盖项与规范差异见 Known Gaps 和对应任务记录。视觉令牌与参考项目 open-claude-ui（Claude CDS）对齐；暖灰不透明状态层、链接/危险取更深对比度色、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等为有意适配，见 Do's 与 Known Gaps。
 
 **Key Characteristics:**
 - 平铺外壳：`canvas #FCFCFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。
-- 陶土动作三态：`#D97757` / `#CC5A36` / `#AD4724`，白字；hover/active 档对比度更高。
+- 陶土动作三态：`#D97757` / `#CC5A36` / `#c6613f`，白字；hover/active 档对比度更高。
 - 暖灰状态层：hover `#F3F3F0`，selected / accent `#EAE9E4`，chip `#F6F6F4`。
 - 输入默认发丝边 `rgba(0,0,0,.10)`；Input / Textarea 聚焦用陶土微光（`.cds-focus-glow`：1px 陶土边 + `--shadow-focus-glow`），Select / Combobox / InputGroup 同样用陶土微光，仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`，composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。
 - 正文链接与 `link` 变体用深陶土 `#A8482B`；卡片用 `--shadow-panel`，hover 上浮 1.5px 并换 `--shadow-panel-hover`。
@@ -238,7 +238,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Primary
 
-- **陶土动作（Clay Action）** (#D97757 / #CC5A36 / #AD4724)：`default` 与显式 `solid` 主操作、发送、登录共用的实底三态；焦点环 `ring` 同为陶土。它是唯一的主操作与焦点强信号，不用于正文。
+- **陶土动作（Clay Action）** (#D97757 / #CC5A36 / #c6613f)：`default` 与显式 `solid` 主操作、发送、登录共用的实底三态；焦点环 `ring` 同为陶土。它是唯一的主操作与焦点强信号，不用于正文。
 - **链接深陶土（Link Clay）** (#A8482B)：正文链接与 `link` 变体；白底 5.79:1、`selected` 4.76:1，保留装饰线下划线。
 
 ### Secondary
@@ -261,9 +261,9 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 - **输入聚焦线（Input Focus）** (#BDBDBD)：仅 SourceEditor 与 CodeMirror 搜索普通聚焦时替换默认边线（Select 触发器、Combobox、InputGroup 改用陶土微光，见上）；对白约 1.88:1，低于 3:1。
 - **Composer 聚焦（Composer Focus）**：composer 文本控制器真实聚焦时，InputGroup 外框保持 `input` 边线并换 `shadow-composer-focus`（1px 内环 + 外阴影），不叠加 2px 光环。
 - **强边界（Strong Boundary）** (`rgba(0, 0, 0, 0.35)`)：`control-boundary` 用于未选中 checkbox/radio 与 off 开关轨道；对白约 2.43:1、对 `selected` 约 2.00:1，低于 3:1，是 CDS 已接受的限制。`line-strong` (`rgba(0, 0, 0, 0.20)`) 只作较强分隔。
-- **正文墨（Text Ink）** (#151515)：正文、标题、选中项前景与普通图标。
-- **辅助灰（Helper Gray）** (#525252)：placeholder、描述、元信息、注释、表头次要信息；承载可读文字。
-- **装饰灰（Decorative Gray）** (#8A8A8A)：只用于装饰图标与禁用例外，不承载需要阅读的信息。
+- **正文墨（Text Ink）** (#0b0b0b)：正文、标题、选中项前景与普通图标。
+- **辅助灰（Helper Gray）** (#52514e)：placeholder、描述、元信息、注释、表头次要信息；承载可读文字。
+- **装饰灰（Decorative Gray）** (#898781)：只用于装饰图标与禁用例外，不承载需要阅读的信息。
 - **代码块（Code Block）** (#0D0D0C / #E6E6E4)：围栏/块级代码的深色面与浅色正文；行内 `code` 仍是浅 chip `#F6F6F6`，两种代码形态不互换。
 - **状态色**：success `#187646`、warning `#8A5600`、danger `#B42318`；浅底分别是 `#FBF3E4`、`#FCEBE9`。只在小面积表达结果。
 - **遮罩（Scrim）** (`rgb(0 0 0 / 0.4)`)：Dialog、Sheet 等模态遮罩。
@@ -272,7 +272,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 **The Flat-Shell Rule.** 应用外壳平铺全幅：根容器铺 `canvas #FCFCFB`，侧栏透明坐在画布上，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距、描边或悬浮阴影；分区只靠画布与表面的底色差异。
 
-**The Clay-Action Rule.** 主操作与焦点使用陶土：`default` 与显式 `solid` 共用 `#D97757` → `#CC5A36` → `#AD4724` 的实底三态与白字，焦点环 `ring` 同为 `#D97757`。链接用深陶土 `link #A8482B`；蓝色不是动作色。
+**The Clay-Action Rule.** 主操作与焦点使用陶土：`default` 与显式 `solid` 共用 `#D97757` → `#CC5A36` → `#c6613f` 的实底三态与白字，焦点环 `ring` 同为 `#D97757`。链接用深陶土 `link #A8482B`；蓝色不是动作色。
 
 **The Data-Blue Exception Rule.** `#2A78D6` 是系统中唯一的蓝色，只允许出现在 `chart-runs` 数据系列；失败用 `danger`。它不得蔓延到导航、按钮、焦点、徽章或状态。
 
@@ -371,7 +371,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ## Shapes
 
-形态是克制的圆角矩形：外壳本身平铺全幅、没有外框圆角；卡片与线程容器为 12px，Dialog 为 16px，Popover / Select / Combobox / DropdownMenu 为 10px，Composer 为 20px，用户消息气泡为 18px；常规按钮、输入、页签容器、菜单项与侧栏展开条目为 8px。共享 `Button` 的 `size="icon"` 32px / `icon-lg` 36px、紧凑 28/24px 图标按钮、小控件、页签项与侧栏折叠按钮实例均为 8px。徽章、标签与侧栏收起态 32×32 图标块为 6px；头像、胶囊按钮与模型选择器为 9999px。Checkbox 保持 4px。
+形态是克制的圆角矩形：外壳本身平铺全幅、没有外框圆角；卡片与线程容器为 12px，Dialog 为 16px，Popover / Select / Combobox / DropdownMenu 为 10px，Composer 为 14px，用户消息气泡为 12px；常规按钮、输入、页签容器、菜单项与侧栏展开条目为 8px。共享 `Button` 的 `size="icon"` 32px / `icon-lg` 36px、紧凑 28/24px 图标按钮、小控件、页签项与侧栏折叠按钮实例均为 8px。徽章、标签与侧栏收起态 32×32 图标块为 6px；头像、胶囊按钮与模型选择器为 9999px。Checkbox 保持 4px。
 
 边线宽度全部沿用既有值：1px border/outline、2px 页签指示线与焦点轮廓。只换颜色，不通过新增边框改变控件尺寸。容器用圆角裁切图片与内容，不使用斜切、硬投影或装饰性几何。
 
@@ -382,7 +382,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 暖墨与陶土工具，次要动作保持轻。
 
 - **Shape:** 常规高 32px、8px 圆角、13/20 500；紧凑 28px / 8px；大号 36px。图标按钮用 `size="icon"` 32px / `icon-lg` 36px，与 `icon-sm`（28px）、`icon-xs`（24px）同为 8px；侧栏折叠按钮实例也显式 8px。保留 1px 透明边框占位，尺寸不因换色变化。所有共享按钮带 `.cds-btn-squish`：active 时 `scale(0.975)`，使用 15 阶 `--btn-spring` 弹簧。
-- **Primary:** `default` 用 `button-primary` 陶土实底、白字，hover `#CC5A36`、active `#AD4724`；disabled 仅降透明度并禁止交互。
+- **Primary:** `default` 用 `button-primary` 陶土实底、白字，hover `#CC5A36`、active `#c6613f`；disabled 仅降透明度并禁止交互。
 - **Solid:** 发送、登录等显式动作与 `default` 共用同一陶土三态实底。
 - **Outline / Secondary / Ghost / Plain:** outline 白底、1px `line` 边线、`fg` 字，hover 与展开 `#F3F3F0`；secondary 用 `#F3F3F0` 底；ghost 透明，hover 与展开 `#F3F3F0`；plain 保持透明且不加 hover 底。取消、筛选与菜单触发器不因主操作改成陶土实底。
 - **Link:** `#A8482B` 深陶土文字，保留下划线 hover 与可访问名，不靠蓝色表明可点击。导航与下载入口用原生 `Link` / `<a>` 配 `buttonVariants`，保持链接语义与既有外观，不用 `Button` 强制 `role=button`。
@@ -390,20 +390,20 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Tabs
 
-- **Segmented:** 容器 `#F3F3F0`、8px、3px 内边距、高 32px；项为 8px 圆角、13/20，未选中 `#525252`、hover `fg`；当前项用 `#EAE9E4` 底 + `fg` + 1px `line` 边框，去掉小阴影。
+- **Segmented:** 容器 `#F3F3F0`、8px、3px 内边距、高 32px；项为 8px 圆角、13/20，未选中 `#52514e`、hover `fg`；当前项用 `#EAE9E4` 底 + `fg` + 1px `line` 边框，去掉小阴影。
 - **Resource segmented:** 资源页「内部 / 市场」用胶囊轨道：`sunken` 底、`rounded-pill`、`p-0.5`；当前项为 `surface` 白 thumb + `fg` + `shadow-sm`，非当前项 `muted-foreground`、hover `fg`。
 - **Line:** 列表透明、不铺底；当前项文字 `fg`，底部 2px `primary` 指示线保持原位置与宽度。
 - **Focus:** 页签项用单层 2px 陶土 `ring`，不改变容器尺寸。
 
 ### Inputs / Fields
 
-- **Style:** 白底、1px `input` `rgba(0,0,0,.10)` 发丝边、8px 圆角、高 32px、13/20；placeholder `#525252`。Input、Textarea、SourceEditor、Select 可编辑触发器、Combobox、InputGroup 与 CodeMirror 搜索输入共用同一默认边线与尺寸；不新增 hover 加深。共享 Input / Textarea 保持 13/20；对话 composer 文本区例外使用 14/22（`base`）。桌面窗口收窄（含 767px）时仍固定 13/20，不再切换 16px 移动端字号。
+- **Style:** 白底、1px `input` `rgba(0,0,0,.10)` 发丝边、8px 圆角、高 32px、13/20；placeholder `#52514e`。Input、Textarea、SourceEditor、Select 可编辑触发器、Combobox、InputGroup 与 CodeMirror 搜索输入共用同一默认边线与尺寸；不新增 hover 加深。共享 Input / Textarea 保持 13/20；对话 composer 文本区例外使用 14/22（`base`）。桌面窗口收窄（含 767px）时仍固定 13/20，不再切换 16px 移动端字号。
 - **Focus:** Input / Textarea 把既有 1px 发丝边换成陶土并叠 `--shadow-focus-glow` 三层微光（`.cds-focus-glow`）；Select 触发器、Combobox、InputGroup 同样用陶土微光（`.cds-focus-glow`）；仅 SourceEditor 与 CodeMirror 搜索把边线换成 `input-focus` `#BDBDBD`；composer 文本控制器聚焦时外框保持 `input` 边线并换 `shadow-composer-focus`（1px 内环 + 外阴影），均不叠加 2px 光环；InputGroup 由外框承担焦点，内部输入不再画第二层。
 - **Invalid / Disabled:** invalid 用 `danger` 边框优先，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点；错误边框不能代替焦点。只有真实禁用的输入才使用独立于输入边线的禁用背景与透明度（`control-boundary/50`），空内容只禁用发送按钮。未选中 checkbox/radio 用 `control-boundary`，checked/on 用 `primary` + 白色勾/点/thumb；off 开关轨道用 `control-boundary` 与白 thumb；Toggle 选中态是 `selected` + `fg`，不是深色实底。选中的 checkbox / radio / switch 聚焦时用单层 2px `outline` + 2px offset，不叠加 ring；未选中沿用各原语既有的单层焦点信号；普通字段标签由控件自身表达焦点，卡片式字段标签统一用外圈。真实浏览器已实测选中 Checkbox/Switch/Radio（`outline solid 2px`、`offset 2px`，无可见 ring）、普通标签、卡片标签、独立 invalid 控件，以及卡片 invalid 组合（3 个控件 border `rgb(180,35,24)`，内部 outline none / ring 0，外层 label 单层 2px ring）；forced-colors 系统轮廓保留。
 
 ### Menus / Popovers / Overlays
 
-- **Menu / Select / Combobox / Popover:** 白浮层、1px `line` ring、双环 overlay 阴影；菜单与浮层 10px 圆角（`--radius-popover`），菜单项 8px 圆角、`4px 6px` 内边距。浮层经 `.cds-overlay-enter` 以 `opacity` + `scale(.96)` → `1` 弹入（200ms）。普通文字 `fg`、描述 `muted-foreground`；hover 与键盘高亮用 `accent` `#EAE9E4` + `accent-foreground` `#151515`；危险项用 `danger`，不被普通 hover 覆盖。
+- **Menu / Select / Combobox / Popover:** 白浮层、1px `line` ring、双环 overlay 阴影；菜单与浮层 10px 圆角（`--radius-popover`），菜单项 8px 圆角、`4px 6px` 内边距。浮层经 `.cds-overlay-enter` 以 `opacity` + `scale(.96)` → `1` 弹入（200ms）。普通文字 `fg`、描述 `muted-foreground`；hover 与键盘高亮用 `accent` `#EAE9E4` + `accent-foreground` `#0b0b0b`；危险项用 `danger`，不被普通 hover 覆盖。
 - **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、1px `line` ring、overlay 阴影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。确认的主操作为陶土实底，取消为 outline，危险确认保持 destructive。Sheet 贴边展示，不设圆角。
 - **Tooltip / Toast:** Tooltip 保留既有反色（`fg` 底、白字），不做成白浮层；Toast 白底、1px `line`、overlay 阴影，操作按钮用显式 outline，关闭按钮白底中性 hover。Toast、操作按钮与关闭按钮的焦点都用单层 2px `ring` outline、offset 2；操作按钮只用该 outline，不叠加按钮基类 ring 与焦点阴影，视觉上不出现第二圈光环。
 
@@ -420,7 +420,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Messages / Code / Charts
 
-- **User message:** 右对齐 18px 胶囊、`selected` `#EAE9E4` 底、`fg` 文字、14/22、内边距 12px 16px、最大宽 85%；附件用中性 outline 徽章。助手正文在纯白上无气泡。
+- **User message:** 右对齐 12px 胶囊、`selected` `#EAE9E4` 底、`fg` 文字、14/22、内边距 12px 16px、最大宽 85%；附件用中性 outline 徽章。助手正文在纯白上无气泡。
 - **Message entrance:** 每轮消息以 `.message-fade-up` 入场（0.4s 上浮淡入）；减少动态效果时直接显示。
 - **Code / Shiki:** 围栏/块级代码为深色面 `code-block` `#0D0D0C`、12px 圆角、1px `white/10` 边线、12/20 等宽；Shiki 背景透明，浅色语法用 `code-block-fg` `#E6E6E4`，关键字/函数/链接用暖陶土调的浅色，注释、参数与标点用暖灰层次，复制反馈 2.5s 后衰减回初始态。行内 `code` 仍是浅 chip `#F6F6F6` 配 `fg`。深色代码块内选区用陶土半透明底配白字。
 - **CodeMirror:** selection 与 searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底 `fg`，真实可编辑搜索输入使用 `input` 默认边线与 `input-focus` 聚焦边线，按钮仍用 `line`。
@@ -428,7 +428,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Navigation
 
-- **Sidebar:** 透明底，坐在 `canvas #FCFCFB` 画布上；宽 224px / 收起 64px。条目高 32px；展开态 8px 圆角（`rounded-item`），收起态为 32×32 图标块、6px 圆角（`rounded-tag`）。普通文字 `fg`，分组与账号元信息 `muted-foreground`；hover `#F3F3F0`；当前项 `selected` `#EAE9E4` + `selected-foreground` `#151515`，保留 `aria-current`，不加彩色竖条。收起态状态只落在图标块上。工作分组不再包含记忆；进入个人模块后，同一主侧栏把工作 / 构建分组替换为「与专家协作 / 工作记录 / 账号」三组六项（个人记忆、记忆提案、我的分享、使用记录、个人资料、账号安全），当前项与折叠几何不变，不新增第二套导航。
+- **Sidebar:** 透明底，坐在 `canvas #FCFCFB` 画布上；宽 224px / 收起 64px。条目高 32px；展开态 8px 圆角（`rounded-item`），收起态为 32×32 图标块、6px 圆角（`rounded-tag`）。普通文字 `fg`，分组与账号元信息 `muted-foreground`；hover `#F3F3F0`；当前项 `selected` `#EAE9E4` + `selected-foreground` `#0b0b0b`，保留 `aria-current`，不加彩色竖条。收起态状态只落在图标块上。工作分组不再包含记忆；进入个人模块后，同一主侧栏把工作 / 构建分组替换为「与专家协作 / 工作记录 / 账号」三组六项（个人记忆、记忆提案、我的分享、使用记录、个人资料、账号安全），当前项与折叠几何不变，不新增第二套导航。
 - **New conversation:** 只在会话历史头部出现，32px ghost 图标按钮；侧栏不设新建会话条目。
 - **Account / personal entry:** 账号触发器保留紧凑 12px 标签与 8px 圆角；展开时头像与姓名靠左、按账号入口外观呈现，不套用导航选中行；展开与收起状态点击都进入同一「个人」模块（默认个人资料），不直接登出。个人资料只自助编辑显示姓名，username/businessId/角色只读；个人模块包含个人资料、个人记忆、记忆提案、账号安全、我的分享与使用记录；分享表格标题为「我的会话分享」。专家记忆、定时任务与平台凭据不迁入个人模块。登出保持独立动作，位于「返回工作区」与账号入口之间，不占页头。账号入口本身是链接，不再保留账号下拉菜单；通用菜单 hover/键盘高亮仍用 `accent` `#EAE9E4`。
 
@@ -437,7 +437,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 ### Do:
 
 - **Do** 保持外壳平铺全幅：`canvas #FCFCFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、外边距、外框圆角或描边。
-- **Do** 用 `button-primary` 陶土三态（`#D97757` / `#CC5A36` / `#AD4724`）承载 `default` 与 `solid`，配白字。
+- **Do** 用 `button-primary` 陶土三态（`#D97757` / `#CC5A36` / `#c6613f`）承载 `default` 与 `solid`，配白字。
 - **Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。
 - **Do** 用 `selected` / `accent` `#EAE9E4` 表示当前导航、选中页签、菜单高亮与用户消息。
 - **Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 陶土边 + `--shadow-focus-glow`），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 陶土 ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。
@@ -450,7 +450,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 - **Don't** 把 `#2A78D6` 或任何蓝色用于导航、按钮、焦点、徽章或状态。
 - **Don't** 给外壳加回渐变、外边距、圆角、描边或悬浮阴影，也不要把外壳白框铺到画布后面。
 - **Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。
-- **Don't** 用 `subtle` `#8A8A8A` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。
+- **Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。
 - **Don't** 给已经使用陶土微光或 `input-focus` 的输入再叠 2px ring；唯一例外是错误态用 2px outline 补焦点（边框表达错误，outline 表达焦点）。
 - **Don't** 在 CDS 双环 overlay、Composer 三态阴影、卡片 `--shadow-panel` 与陶土焦点微光之外再引入第二套阴影，或给表格加投影、给卡片叠加其它阴影。
 - **Don't** 重新引入深色主题、第二套主题提供器、品牌蓝别名或页面级硬编码色值。

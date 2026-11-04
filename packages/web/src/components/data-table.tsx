@@ -185,7 +185,7 @@ function ColumnRow({
         ref={setActivatorNodeRef}
         type="button"
         variant="ghost"
-        size="icon-xs"
+        size="icon-sm"
         {...attributes}
         {...listeners}
         aria-label={`拖动调整「${column.header}」顺序`}
@@ -201,7 +201,7 @@ function ColumnRow({
       <Button
         type="button"
         variant="ghost"
-        size="icon-xs"
+        size="icon-sm"
         aria-label={`上移「${column.header}」`}
         disabled={!onMoveUp}
         onClick={onMoveUp}
@@ -211,7 +211,7 @@ function ColumnRow({
       <Button
         type="button"
         variant="ghost"
-        size="icon-xs"
+        size="icon-sm"
         aria-label={`下移「${column.header}」`}
         disabled={!onMoveDown}
         onClick={onMoveDown}
@@ -506,7 +506,7 @@ export function DataTable<T extends RowData>({
                 >
                   <PopoverTrigger
                     render={
-                      <Button variant="ghost" size="icon-xs" aria-label="列设置" title="列设置">
+                      <Button variant="ghost" size="icon-sm" aria-label="列设置" title="列设置">
                         <Columns3 aria-hidden="true" />
                       </Button>
                     }
@@ -601,7 +601,7 @@ export function DataTable<T extends RowData>({
                                 <Button
                                   type="button"
                                   variant="ghost"
-                                  size="icon-xs"
+                                  size="icon-sm"
                                   data-row=""
                                   aria-label={`${expandedContent !== null ? (isOpen ? '收起' : '展开') : '打开'} ${rowName}`}
                                   aria-expanded={expandedContent !== null ? isOpen : undefined}

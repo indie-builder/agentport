@@ -48,11 +48,11 @@ export function MarkDownRenderer({
 }
 
 const CALLOUT_TONES = {
-  info: { line: 'border-line-strong', title: 'text-fg' },
-  neutral: { line: 'border-line', title: 'text-muted-foreground' },
-  success: { line: 'border-success', title: 'text-success' },
-  warning: { line: 'border-warning', title: 'text-warning' },
-  error: { line: 'border-danger', title: 'text-danger' },
+  info: 'text-fg',
+  neutral: 'text-muted-foreground',
+  success: 'text-success',
+  warning: 'text-warning',
+  error: 'text-danger',
 } as const;
 
 export function Callout({
@@ -67,8 +67,8 @@ export function Callout({
   if (props.visible === false) return null;
   const tone = CALLOUT_TONES[props.variant ?? 'neutral'];
   return (
-    <div className={cn('flex min-w-0 flex-col gap-1 border-l pl-3', tone.line)}>
-      <span className={cn('text-base font-medium', tone.title)}>{props.title}</span>
+    <div className="flex min-w-0 flex-col gap-1 border-l border-line pl-3">
+      <span className={cn('text-base font-medium', tone)}>{props.title}</span>
       <div className="min-w-0 text-base text-fg">
         <Markdown
           text={String(props.description ?? '')}

@@ -27,6 +27,7 @@ const USAGE = `用法: node scripts/visual-shots.mjs --route <path> [options]
   --base-url <url>        复用已有栈，跳过起环境/建库；只登录、截图、打开
   --wait-ms <n>           每页稳定等待毫秒，默认 1200
   --open / --no-open      截图后是否用系统默认程序打开，默认打开
+  --full                  截整页长图（按文档实际高度，不被视口截断）
   --keep                  保留环境与服务（调试用），不自动清理
   -h, --help              显示本帮助
 
@@ -61,6 +62,7 @@ function parseArgs(argv) {
     baseUrl: null,
     waitMs: 1200,
     open: true,
+    fullPage: false,
     keep: false,
     help: false,
   };
@@ -77,6 +79,10 @@ function parseArgs(argv) {
     }
     if (arg === '--no-open') {
       opts.open = false;
+      continue;
+    }
+    if (arg === '--full' || arg === '--full-page') {
+      opts.fullPage = true;
       continue;
     }
     if (arg === '--keep') {
@@ -258,13 +264,24 @@ function slugify(route) {
   return slug || 'root';
 }
 
-function buildBrowserProgram({ baseUrl, routes, viewports, waitMs, outDir, env, seed, spaceName }) {
+function buildBrowserProgram({
+  baseUrl,
+  routes,
+  viewports,
+  waitMs,
+  fullPage,
+  outDir,
+  env,
+  seed,
+  spaceName,
+}) {
   const firstPath = routes[0].split('?')[0];
   return `
 const base = ${JSON.stringify(baseUrl)};
 const routes = ${JSON.stringify(routes)};
 const viewports = ${JSON.stringify(viewports)};
 const waitMs = ${JSON.stringify(waitMs)};
+const fullPage = ${JSON.stringify(Boolean(fullPage))};
 const outDir = ${JSON.stringify(outDir)};
 const adminUser = ${JSON.stringify(env.ADMIN_USER)};
 const adminPassword = ${JSON.stringify(env.ADMIN_PASSWORD)};
@@ -362,10 +379,39 @@ try {
     for (const route of routes) {
       await page.goto(base + route, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(waitMs);
-      const path =
-        outDir + '/' + slugify(route) + '-' + viewport.width + 'x' + viewport.height + '.png';
-      await page.screenshot({ path });
-      shots.push(path);
+      if (fullPage) {
+        const rawH = await page.evaluate(() => {
+          const main = document.getElementById('main-content');
+          return Math.max(
+            document.documentElement.scrollHeight,
+            document.body.scrollHeight,
+            main ? main.scrollHeight + Math.round(main.getBoundingClientRect().top) : 0,
+            window.innerHeight,
+          );
+        });
+        const h = Math.min(Math.max(rawH | 0, viewport.height), 16000);
+        await page.cdp('Emulation.setDeviceMetricsOverride', {
+          width: viewport.width,
+          height: h,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await page.waitForTimeout(150);
+        const path = outDir + '/' + slugify(route) + '-' + viewport.width + 'x' + h + '-full.png';
+        await page.screenshot({ path });
+        shots.push(path);
+        await page.cdp('Emulation.setDeviceMetricsOverride', {
+          width: viewport.width,
+          height: viewport.height,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+      } else {
+        const path =
+          outDir + '/' + slugify(route) + '-' + viewport.width + 'x' + viewport.height + '.png';
+        await page.screenshot({ path });
+        shots.push(path);
+      }
     }
   }
 
@@ -382,13 +428,14 @@ try {
 `;
 }
 
-async function captureShots({ baseUrl, routes, viewports, waitMs, outDir, env, seed }) {
+async function captureShots({ baseUrl, routes, viewports, waitMs, fullPage, outDir, env, seed }) {
   mkdirSync(outDir, { recursive: true });
   const program = buildBrowserProgram({
     baseUrl,
     routes,
     viewports,
     waitMs,
+    fullPage,
     outDir,
     env,
     seed,
@@ -650,6 +697,7 @@ async function run(opts, env, state) {
     routes: opts.routes,
     viewports: opts.parsedViewports,
     waitMs: opts.waitMs,
+    fullPage: opts.fullPage,
     outDir: opts.outDir,
     env,
     seed: opts.seed,

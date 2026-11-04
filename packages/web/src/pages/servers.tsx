@@ -769,7 +769,7 @@ function ServerCard({
           </h2>
         </CardTitle>
         <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
-          {server.description || '暂无描述'}
+          {server.description}
         </CardDescription>
         <CardAction className="col-start-3">
           <DropdownMenu>

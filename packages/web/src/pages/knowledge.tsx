@@ -135,7 +135,7 @@ function KnowledgeCard({
 }) {
   return (
     <li className="min-w-0">
-      <Card className="relative h-full">
+      <Card className="relative h-full" interactive>
         {/* 覆盖整卡的可点击入口；操作菜单用 z-10 保持在它之上。 */}
         <Link
           to="/knowledge/$baseId"
@@ -205,7 +205,7 @@ function KnowledgeCard({
             </DropdownMenu>
           </CardAction>
           <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10">
-            {base.description || '暂无描述'}
+            {base.description}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-1 items-center">

@@ -340,7 +340,7 @@ export function StatusPage() {
         }
       />
 
-      <PageSection title="端点诊断">
+      <PageSection title="端点诊断" divided={false}>
         <div className="flex flex-wrap items-start gap-3 border-b pb-3">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <h3 className="text-sm font-medium text-fg">

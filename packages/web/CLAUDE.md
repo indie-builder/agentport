@@ -40,3 +40,12 @@
 
 - 按改动范围从根 `package.json` 选现有命令，不固定全套、不加新门禁：`pnpm --filter @agentport/web typecheck`、`pnpm --filter @agentport/web build`、`pnpm test:web`（有 web 测试时）、`pnpm lint:focus` / `pnpm lint:contract`；OpenUI 改动加 `pnpm openui:audit`。机械检查与门禁策略见 [DEV-WORKFLOW](../../docs/DEV-WORKFLOW.md) §5（不装钩子、不阻塞）。
 - 视觉、几何、焦点与 AX 结论以真实渲染证据为准：读 `getBoundingClientRect()`/计算样式或实际 AX 树，类名与截图不能替代。窄桌面检查无页面横向溢出、单一 `h1`、焦点与键盘可用。
+
+## UI 验收（硬性）
+
+任何改动一旦触及页面、组件、样式或设计令牌，交付前必须做真实渲染验收，不能只凭 typecheck/build、类名或代码推断宣称完成：
+
+- 用 `pnpm visual:shots --full --route <路径>`（或 `visual-check` 技能）起隔离临时库 + 真实登录，为每个受影响路由产出**整页长图**（full-page，一张长截图覆盖整页、不被视口截断；多视口时每个宽度各出一张长图）。
+- 逐页核对：无白屏/运行时报错、无页面级横向溢出、每个渲染状态恰好一个 h1、焦点与键盘路径可用、关键元素与文案在位、颜色/圆角/阴影/间距与 `DESIGN.md` + `styles.css` 令牌一致。
+- 交付回复附验收记录：代码根目录、commit、路由、视口、截图目录；未截图的路由明写「未做视觉验收」及原因。
+- 设计参考迁移/改版时，同屏对照参考项目对应界面。
