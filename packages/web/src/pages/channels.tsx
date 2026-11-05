@@ -64,12 +64,8 @@ export function ChannelsPage() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={<Hash className="size-5" />}
-          title="从第一个频道开始"
-          description={
-            canCreate
-              ? '频道让多人、多个智能体在同一个时间线里协作。'
-              : '管理员把你加入频道后，频道会出现在这里。'
-          }
+          title="频道让多人、多个智能体在同一时间线协作"
+          {...(canCreate ? {} : { description: '管理员把你加入频道后，频道会出现在这里。' })}
           action={
             canCreate ? (
               <Button variant="outline" onClick={() => setCreating(true)}>

@@ -24,17 +24,7 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
@@ -267,18 +257,36 @@ export function SkillsPage() {
         </>
       }
     >
-      {skills.isPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {skills.isPending ? <LoadingState rows={4} layout="list" /> : null}
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
       ) : null}
       {skills.data && skills.data.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
-          title="技能库为空"
+          title="技能是可复用的操作流程"
+          description={
+            canCreateSkill || canReadMarket
+              ? undefined
+              : '当前账号没有创建技能或访问市场的权限。'
+          }
           action={
-            <Button variant="outline" size="sm" onClick={openMarket}>
-              前往市场
-            </Button>
+            canCreateSkill ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(event) => {
+                  actionTriggerRef.current = event.currentTarget;
+                  setCreating(true);
+                }}
+              >
+                新建技能
+              </Button>
+            ) : canReadMarket ? (
+              <Button variant="outline" size="sm" onClick={openMarket}>
+                前往市场
+              </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -286,7 +294,6 @@ export function SkillsPage() {
         <PageNote
           icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的技能"
-          description="试试其他关键词或使用情况。"
           action={
             <Button
               variant="outline"
@@ -300,109 +307,76 @@ export function SkillsPage() {
       ) : null}
 
       {visibleSkills.length > 0 ? (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <ul className="-mx-6 divide-y divide-line border-y">
           {visibleSkills.map((skill) => (
-            <li key={skill.id} className="min-w-0">
-              <Card className="h-full">
-                <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
-                  <span className="row-span-2 flex size-10 shrink-0 items-center justify-center self-center rounded-item bg-muted text-muted-foreground">
-                    <Sparkles aria-hidden="true" />
+            <li
+              key={skill.id}
+              className="flex min-h-14 items-center gap-4 px-6 py-2 transition-colors duration-150 ease-out-soft hover:bg-hover"
+            >
+              <div className="min-w-0 flex-1">
+                <Button
+                  variant="ghost"
+                  className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium"
+                  onClick={(event) => {
+                    actionTriggerRef.current = event.currentTarget;
+                    setEditing(skill);
+                  }}
+                >
+                  <span className="truncate" title={skill.name}>
+                    {skill.name}
                   </span>
-                  <CardTitle className="col-start-2 min-w-0">
-                    <h2 className="min-w-0">
-                      <Button
-                        variant="ghost"
-                        className="h-auto w-full min-w-0 justify-start p-0 text-base font-medium"
-                        onClick={(event) => {
-                          actionTriggerRef.current = event.currentTarget;
-                          setEditing(skill);
-                        }}
+                </Button>
+                <p className="truncate text-sm text-muted-foreground">{skill.description}</p>
+              </div>
+              <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+                {skill.agentCount > 0 ? `${skill.agentCount} 个专家` : '未绑定'}
+              </span>
+              {skill.sourceId ? (
+                <span
+                  className="max-w-48 shrink-0 truncate text-sm text-muted-foreground"
+                  title={skill.sourceId}
+                >
+                  {skill.sourceId.split('/').slice(0, 2).join('/')}
+                </span>
+              ) : null}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`操作 ${skill.name}`}
+                      onClick={(event) => {
+                        actionTriggerRef.current = event.currentTarget;
+                      }}
+                    >
+                      <MoreHorizontal />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                  <DropdownMenuGroup>
+                    {canUpdateSkill ? (
+                      <DropdownMenuItem onClick={() => setEditing(skill)}>
+                        <Pencil /> 编辑
+                      </DropdownMenuItem>
+                    ) : null}
+                    {canReadSkillFiles ? (
+                      <DropdownMenuItem
+                        nativeButton={false}
+                        render={<a href={`/api/skills/${skill.id}/file`} />}
                       >
-                        <span className="truncate" title={skill.name}>
-                          {skill.name}
-                        </span>
-                      </Button>
-                    </h2>
-                  </CardTitle>
-                  <CardAction className="col-start-3">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`操作 ${skill.name}`}
-                            onClick={(event) => {
-                              actionTriggerRef.current = event.currentTarget;
-                            }}
-                          >
-                            <MoreHorizontal />
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-                        <DropdownMenuGroup>
-                          {canUpdateSkill ? (
-                            <DropdownMenuItem onClick={() => setEditing(skill)}>
-                              <Pencil /> 编辑
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canReadSkillFiles ? (
-                            <DropdownMenuItem
-                              nativeButton={false}
-                              render={<a href={`/api/skills/${skill.id}/file`} />}
-                            >
-                              <Download /> 导出 SKILL.md
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canDeleteSkill ? (
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onClick={() => setDeleting(skill)}
-                            >
-                              <Trash2 /> 删除
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </CardAction>
-                  <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10">
-                    {skill.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-1 flex-col gap-3">
-                  <Badge variant="secondary" className="max-w-full font-mono">
-                    <span className="truncate">{skill.slug}</span>
-                  </Badge>
-                  {skill.sourceId ? (
-                    <Badge variant="outline" className="max-w-full font-mono">
-                      <span className="truncate" title={skill.sourceId}>
-                        来自 {skill.sourceId.split('/').slice(0, 2).join('/')}
-                      </span>
-                    </Badge>
-                  ) : null}
-                </CardContent>
-                <CardFooter className="mt-auto justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    被 {skill.agentCount} 个专家使用
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={canUpdateSkill ? undefined : 'hidden'}
-                    aria-label={`编辑 ${skill.name}`}
-                    title={`编辑 ${skill.name}`}
-                    aria-haspopup="dialog"
-                    onClick={(event) => {
-                      actionTriggerRef.current = event.currentTarget;
-                      setEditing(skill);
-                    }}
-                  >
-                    编辑
-                  </Button>
-                </CardFooter>
-              </Card>
+                        <Download /> 导出 SKILL.md
+                      </DropdownMenuItem>
+                    ) : null}
+                    {canDeleteSkill ? (
+                      <DropdownMenuItem variant="destructive" onClick={() => setDeleting(skill)}>
+                        <Trash2 /> 删除
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </li>
           ))}
         </ul>
@@ -521,11 +495,7 @@ function MarketSkillsPage({
       }
     >
       {tooShort ? (
-        <PageNote
-          icon={<Sparkles aria-hidden="true" />}
-          title="至少输入 2 个字符"
-          description="再多输入一个字符即可搜索市场。"
-        />
+        <PageNote icon={<Sparkles aria-hidden="true" />} title="至少输入 2 个字符" />
       ) : null}
       {skills.isPending ? <LoadingState rows={8} layout="list" /> : null}
       {skills.isError ? (
@@ -546,7 +516,6 @@ function MarketSkillsPage({
         <PageNote
           icon={<BusinessIllustration name={term ? 'search' : 'tools'} size="compact" />}
           title={term ? '没有匹配的技能' : '榜单为空'}
-          description={term ? '试试其他关键词。' : 'skills.sh 暂时没有返回榜单数据。'}
           action={
             <Button
               variant="outline"

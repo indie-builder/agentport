@@ -90,7 +90,6 @@ export function EmptyState({
   icon,
   illustration,
   className,
-  bordered = true,
 }: {
   title: string;
   description?: string;
@@ -98,13 +97,11 @@ export function EmptyState({
   icon?: ReactNode;
   illustration?: ReactNode;
   className?: string;
-  bordered?: boolean;
 }) {
   return (
     <div
       className={cn(
         'flex flex-col items-center justify-center gap-2 rounded-card px-6 py-14 text-center',
-        bordered && 'border border-line',
         className,
       )}
     >

@@ -587,18 +587,6 @@ export function AgentsPage() {
           title="没有匹配的专家"
           action={
             <div className="flex flex-wrap items-center gap-2">
-              {canCreate ? (
-                <Button
-                  disabled={importing}
-                  onClick={(event) => {
-                    editorTriggerRef.current = event.currentTarget;
-                    setCreateRole(role || '通用助手');
-                    setCreating(true);
-                  }}
-                >
-                  新建专家
-                </Button>
-              ) : null}
               <Button
                 variant="outline"
                 size="sm"
@@ -765,7 +753,7 @@ export function AgentsPage() {
                         search={{ agent: agent.id }}
                         disabled={importing}
                         aria-label={`与 ${agent.name} 开始对话`}
-                        className={buttonVariants()}
+                        className={buttonVariants({ variant: 'secondary' })}
                       >
                         开始对话
                       </Link>
@@ -787,7 +775,7 @@ export function AgentsPage() {
                       </Button>
                     )}
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       aria-label={`查看 ${agent.name} 工牌`}
                       title="数字员工工牌"
                       onClick={(event) => {

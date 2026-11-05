@@ -22,7 +22,6 @@ import {
   Plug,
   Plus,
   RefreshCw,
-  Server as ServerIcon,
   Trash2,
   Upload,
   Wrench,
@@ -34,6 +33,7 @@ import { z } from 'zod';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock, JsonBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { PageNote } from '../components/page.js';
@@ -43,15 +43,6 @@ import { SourceEditor } from '../components/source-editor.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
@@ -94,7 +85,7 @@ import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
-import { formatDateTime, formatDuration, shortId } from '../lib/format.js';
+import { formatDateTime, formatDuration, formatRelative, shortId } from '../lib/format.js';
 import {
   connectorCatalogQuery,
   meQuery,
@@ -164,6 +155,11 @@ function detailOf(server: Server): string {
     case 'knowledge':
       return server.config.knowledgeBaseId;
   }
+}
+
+function toolCountOf(server: Server, lastTest: LastTest | null): number | null {
+  const result = lastTest?.result ?? null;
+  return result ? (result.ok ? result.tools.length : null) : (server.lastToolCount ?? null);
 }
 
 export function ServersPage() {
@@ -325,6 +321,154 @@ export function ServersPage() {
     { value: 'generated', label: kindMeta.generated.label },
   ];
 
+  const columns: DataColumn<Server>[] = [
+    {
+      id: 'name',
+      header: '名称',
+      locked: true,
+      width: 'minmax(160px,1.4fr)',
+      cell: (server) => {
+        const displayName = catalogNames.get(server.name) ?? server.name;
+        return (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <Button
+              variant="ghost"
+              className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal text-fg"
+              onClick={(event) => openEdit(server, event.currentTarget)}
+            >
+              <span className="break-words" title={displayName}>
+                {displayName}
+              </span>
+            </Button>
+            {displayName === server.name ? null : (
+              <code className="break-all font-mono text-xs text-muted-foreground">
+                {server.name}
+              </code>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'kind',
+      header: '来源',
+      width: '140px',
+      cell: (server) => (
+        <span className="text-sm text-muted-foreground">{kindMeta[server.kind].label}</span>
+      ),
+    },
+    {
+      id: 'address',
+      header: '地址',
+      width: 'minmax(180px,1.8fr)',
+      cell: (server) => {
+        const detail = detailOf(server);
+        return (
+          <code
+            className="block overflow-hidden text-ellipsis whitespace-nowrap font-mono text-sm text-muted-foreground"
+            title={detail}
+          >
+            {detail || '—'}
+          </code>
+        );
+      },
+    },
+    {
+      id: 'status',
+      header: '连通状态',
+      width: '150px',
+      cell: (server) => {
+        const lastTest = tested.get(server.id) ?? null;
+        const testing = test.isPending && test.variables?.id === server.id;
+        if (testing) {
+          return (
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+              测试中…
+            </span>
+          );
+        }
+        const result = lastTest?.result ?? null;
+        const testedAt = lastTest?.at ?? server.lastTestedAt ?? null;
+        if (!testedAt) return <span className="text-sm text-muted-foreground">未测试</span>;
+        const ok = result ? result.ok : server.lastTestOk === true;
+        return (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span
+              className={cn(
+                'flex items-center gap-1.5 text-sm',
+                ok ? 'text-success' : 'text-danger',
+              )}
+            >
+              {ok ? (
+                <CircleCheck className="size-3.5 shrink-0" aria-hidden="true" />
+              ) : (
+                <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
+              )}
+              {ok ? '试连成功' : '未能连接'}
+            </span>
+            <span
+              className="font-mono text-xs tabular-nums text-muted-foreground"
+              title={formatDateTime(testedAt)}
+            >
+              {formatRelative(testedAt)}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'tools',
+      header: '工具',
+      numeric: true,
+      width: '72px',
+      cell: (server) => toolCountOf(server, tested.get(server.id) ?? null) ?? '—',
+    },
+    {
+      id: 'agents',
+      header: '专家',
+      numeric: true,
+      width: '72px',
+      cell: (server) =>
+        agents.isPending || agents.isError ? '—' : (agentCounts.get(server.id) ?? 0),
+    },
+    {
+      id: 'actions',
+      header: '操作',
+      align: 'end',
+      width: '32px',
+      cell: (server) => (
+        <ServerActions
+          displayName={catalogNames.get(server.name) ?? server.name}
+          generated={server.kind === 'generated'}
+          testing={test.isPending && test.variables?.id === server.id}
+          testPending={test.isPending}
+          canTest={canTest}
+          canTools={canTools}
+          canTokens={canTokens}
+          canDelete={canDelete}
+          onTest={(trigger) => startTest(server, trigger)}
+          onCatalog={(trigger) => {
+            triggerRef.current = trigger;
+            setCatalogServer(server);
+          }}
+          onTools={(trigger) => {
+            triggerRef.current = trigger;
+            setToolServer(server);
+          }}
+          onConnection={(trigger) => {
+            triggerRef.current = trigger;
+            setConnection(server);
+          }}
+          onDelete={(trigger) => {
+            triggerRef.current = trigger;
+            setDeleting(server);
+          }}
+        />
+      ),
+    },
+  ];
+
   return (
     <ResourcePage
       section="servers"
@@ -387,7 +531,6 @@ export function ServersPage() {
         </>
       }
     >
-      {servers.isPending ? <LoadingState rows={4} layout="cards" /> : null}
       {servers.isError ? (
         <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
       ) : null}
@@ -398,8 +541,8 @@ export function ServersPage() {
       {servers.data && all.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
-          title="把外部服务接成专家可用的工具"
-          description="本地命令、远程 MCP 或 HTTP API 都可以。"
+          title="连接器把外部服务变成专家可调用的工具"
+          description={canCreate ? undefined : '当前账户没有创建连接器的权限。'}
           action={
             canCreate ? (
               <Button size="sm" onClick={(event) => openCreate(event.currentTarget)}>
@@ -414,7 +557,6 @@ export function ServersPage() {
         <PageNote
           icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的连接器"
-          description="换个关键词，或清除来源筛选。"
           action={
             <Button
               variant="outline"
@@ -429,55 +571,17 @@ export function ServersPage() {
         />
       ) : null}
 
-      {filtered.length > 0 ? (
-        <ul
-          aria-label="连接器列表"
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-        >
-          {filtered.map((server) => (
-            <li key={server.id} className="min-w-0">
-              <ServerCard
-                server={server}
-                displayName={catalogNames.get(server.name) ?? server.name}
-                agentCount={
-                  agents.isError
-                    ? '未知'
-                    : agents.isPending
-                      ? '加载中…'
-                      : (agentCounts.get(server.id) ?? 0)
-                }
-                lastTest={tested.get(server.id) ?? null}
-                testing={test.isPending && test.variables?.id === server.id}
-                testPending={test.isPending}
-                onTest={(trigger) => {
-                  startTest(server, trigger);
-                }}
-                onTools={(trigger) => {
-                  triggerRef.current = trigger;
-                  setToolServer(server);
-                }}
-                onConnection={(trigger) => {
-                  triggerRef.current = trigger;
-                  setConnection(server);
-                }}
-                onCatalog={(trigger) => {
-                  triggerRef.current = trigger;
-                  setCatalogServer(server);
-                }}
-                onEdit={(trigger) => openEdit(server, trigger)}
-                onDelete={(trigger) => {
-                  triggerRef.current = trigger;
-                  setDeleting(server);
-                }}
-                canTest={canTest}
-                canTools={canTools}
-                canTokens={canTokens}
-                canUpdate={canUpdate}
-                canDelete={canDelete}
-              />
-            </li>
-          ))}
-        </ul>
+      {servers.isPending || (servers.data && all.length > 0 && filtered.length > 0) ? (
+        <DataTable
+          rows={filtered}
+          columns={columns}
+          rowKey={(server) => server.id}
+          rowLabel={(server) => catalogNames.get(server.name) ?? server.name}
+          label="连接器列表"
+          loading={servers.isPending}
+          hideRowCount
+          onRowClick={(server) => setCatalogServer(server)}
+        />
       ) : null}
 
       {catalogOpen ? (
@@ -705,261 +809,91 @@ function TestEnvironmentDialog({
   );
 }
 
-function ServerCard({
-  server,
+function ServerActions({
   displayName,
-  agentCount,
-  lastTest,
+  generated,
   testing,
   testPending,
-  onTest,
-  onTools,
-  onConnection,
-  onCatalog,
-  onEdit,
-  onDelete,
   canTest,
   canTools,
   canTokens,
-  canUpdate,
   canDelete,
+  onTest,
+  onCatalog,
+  onTools,
+  onConnection,
+  onDelete,
 }: {
-  server: Server;
   displayName: string;
-  agentCount: number | '未知' | '加载中…';
-  lastTest: LastTest | null;
+  generated: boolean;
   testing: boolean;
   testPending: boolean;
-  onTest: (trigger: HTMLElement) => void;
-  onTools: (trigger: HTMLElement) => void;
-  onConnection: (trigger: HTMLElement) => void;
-  onCatalog: (trigger: HTMLElement) => void;
-  onEdit: (trigger: HTMLElement) => void;
-  onDelete: (trigger: HTMLElement) => void;
   canTest: boolean;
   canTools: boolean;
   canTokens: boolean;
-  canUpdate: boolean;
   canDelete: boolean;
+  onTest: (trigger: HTMLElement) => void;
+  onCatalog: (trigger: HTMLElement) => void;
+  onTools: (trigger: HTMLElement) => void;
+  onConnection: (trigger: HTMLElement) => void;
+  onDelete: (trigger: HTMLElement) => void;
 }) {
-  const generated = server.kind === 'generated';
-  const toolCount = lastTest?.result.ok
-    ? lastTest.result.tools.length
-    : (server.lastToolCount ?? '连接后确定');
-  // 菜单项随菜单卸载，关闭后只能把焦点还给菜单触发器。
-  const menuTriggerRef = useRef<HTMLButtonElement>(null);
-
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
-    <Card data-slot="server-card" className="h-full">
-      <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
-        <span className="row-span-2 flex size-10 shrink-0 items-center justify-center rounded-item bg-muted text-muted-foreground">
-          <ServerIcon aria-hidden="true" />
-        </span>
-        <CardTitle className="col-start-2 min-w-0">
-          <h2>
-            <Button
-              variant="ghost"
-              className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal"
-              onClick={(event) => onEdit(event.currentTarget)}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            ref={triggerRef}
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`操作 ${displayName}`}
+          >
+            <MoreHorizontal />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+        <DropdownMenuGroup>
+          {canTest ? (
+            <DropdownMenuItem
+              disabled={testPending}
+              onClick={() => triggerRef.current && onTest(triggerRef.current)}
             >
-              <span className="line-clamp-2 break-words" title={displayName}>
-                {displayName}
-              </span>
-            </Button>
-          </h2>
-        </CardTitle>
-        <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10 break-words">
-          {server.description}
-        </CardDescription>
-        <CardAction className="col-start-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  ref={menuTriggerRef}
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`操作 ${displayName}`}
-                >
-                  <MoreHorizontal />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-              <DropdownMenuGroup>
-                {canTest ? (
-                  <DropdownMenuItem
-                    disabled={testPending}
-                    onClick={() => menuTriggerRef.current && onTest(menuTriggerRef.current)}
-                  >
-                    <Plug /> {testing ? '测试中…' : '测试连接'}
-                  </DropdownMenuItem>
-                ) : null}
-                {generated && (canTools || canTokens) ? (
-                  <>
-                    {canTools ? (
-                      <DropdownMenuItem
-                        onClick={() => menuTriggerRef.current && onTools(menuTriggerRef.current)}
-                      >
-                        <Wrench /> 工具定义
-                      </DropdownMenuItem>
-                    ) : null}
-                    {canTokens ? (
-                      <DropdownMenuItem
-                        onClick={() =>
-                          menuTriggerRef.current && onConnection(menuTriggerRef.current)
-                        }
-                      >
-                        <KeyRound /> 连接信息
-                      </DropdownMenuItem>
-                    ) : null}
-                  </>
-                ) : null}
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                {canUpdate ? (
-                  <DropdownMenuItem
-                    onClick={() => menuTriggerRef.current && onEdit(menuTriggerRef.current)}
-                  >
-                    <Pencil /> 编辑
-                  </DropdownMenuItem>
-                ) : null}
-                {canDelete ? (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => menuTriggerRef.current && onDelete(menuTriggerRef.current)}
-                  >
-                    <Trash2 /> 删除
-                  </DropdownMenuItem>
-                ) : null}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <Badge variant="secondary">{kindMeta[server.kind].label}</Badge>
-          {/* 目录条目的人类可读名与 slug 不同，slug 作次信息；自定义连接器两者相同，不重复展示。 */}
-          {displayName !== server.name ? (
-            <Badge variant="secondary" className="max-w-full font-mono">
-              <span className="truncate">{server.name}</span>
-            </Badge>
+              <Plug /> {testing ? '测试中…' : '测试连接'}
+            </DropdownMenuItem>
           ) : null}
-        </div>
-        <code className="truncate font-mono text-xs text-muted-foreground" title={detailOf(server)}>
-          {detailOf(server) || '—'}
-        </code>
-        <TestSummary
-          state={lastTest}
-          server={server}
-          testing={testing}
-          serverName={displayName}
-          onOpen={(trigger) => onCatalog(trigger)}
-        />
-      </CardContent>
-      <CardFooter className="flex-wrap justify-between gap-2">
-        <span className="text-xs text-muted-foreground">
-          工具 {toolCount} · 绑定专家 {agentCount}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`编辑 ${displayName}`}
-          className={canUpdate ? undefined : 'hidden'}
-          onClick={(event) => onEdit(event.currentTarget)}
-        >
-          <Pencil data-icon="inline-start" /> 编辑
-        </Button>
-      </CardFooter>
-    </Card>
-  );
-}
-
-function TestSummary({
-  state,
-  server,
-  testing,
-  serverName,
-  onOpen,
-}: {
-  state: LastTest | null;
-  server: Server;
-  testing: boolean;
-  serverName: string;
-  onOpen: (trigger: HTMLElement) => void;
-}) {
-  if (testing) {
-    return (
-      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <LoaderCircle className="size-3 shrink-0 animate-spin" aria-hidden="true" />
-        测试中…
-      </span>
-    );
-  }
-  const result = state?.result ?? null;
-  const testedAt = state?.at ?? server.lastTestedAt ?? null;
-  if (!testedAt) return <span className="text-xs text-muted-foreground">未测试</span>;
-  const ok = result ? result.ok : server.lastTestOk === true;
-  // 刷新后没有本次页面的结果对象，只展示后端持久化的上次试连身份。
-  const environment = result
-    ? (result.runtimeEnvironment ?? null)
-    : (server.lastTestRuntimeEnvironment ?? null);
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="max-w-55 flex flex-col gap-0.5">
-        <div className="flex items-center gap-1.5">
-          {ok ? (
-            <CircleCheck className="size-3.5 shrink-0 text-success" />
-          ) : (
-            <CircleAlert className="size-3.5 shrink-0 text-danger" />
-          )}
-          <span className={cn('text-xs font-medium', ok ? 'text-success' : 'text-danger')}>
-            {ok ? '试连成功' : '未能连接'}
-          </span>
-          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-            {formatDateTime(testedAt)}
-          </span>
-        </div>
-        {result ? (
-          <div className="font-mono text-2xs tabular-nums text-muted-foreground">
-            耗时 {formatDuration(result.durationMs)}
-          </div>
+          <DropdownMenuItem onClick={() => triggerRef.current && onCatalog(triggerRef.current)}>
+            <Wrench /> 工具与测试
+          </DropdownMenuItem>
+          {generated && canTools ? (
+            <DropdownMenuItem onClick={() => triggerRef.current && onTools(triggerRef.current)}>
+              <Wrench /> 工具定义
+            </DropdownMenuItem>
+          ) : null}
+          {generated && canTokens ? (
+            <DropdownMenuItem
+              onClick={() => triggerRef.current && onConnection(triggerRef.current)}
+            >
+              <KeyRound /> 连接信息
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuGroup>
+        {canDelete ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => triggerRef.current && onDelete(triggerRef.current)}
+              >
+                <Trash2 /> 删除
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </>
         ) : null}
-        {environment ? (
-          <p
-            className="truncate font-mono text-2xs text-muted-foreground"
-            title={`${environment.environmentName} · ${environment.versionId} · ${environment.imageId}`}
-          >
-            环境 {environment.environmentName} · {shortId(environment.versionId)}
-          </p>
-        ) : null}
-        {/* 列出工具名：只给数量无法判断「连上了但工具没注册」这种情况。 */}
-        {result?.ok && result.tools.length > 0 ? (
-          <p
-            className="truncate font-mono text-2xs text-muted-foreground"
-            title={result.tools.map((tool) => tool.name).join(', ')}
-          >
-            {result.tools.map((tool) => tool.name).join(' · ')}
-          </p>
-        ) : null}
-        {result?.error ? (
-          <p className="truncate text-2xs text-danger" title={result.error}>
-            {result.error}
-          </p>
-        ) : null}
-      </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="self-start"
-        aria-label={`查看 ${serverName} 工具与测试详情`}
-        onClick={(event) => onOpen(event.currentTarget)}
-      >
-        查看工具与测试详情
-      </Button>
-    </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

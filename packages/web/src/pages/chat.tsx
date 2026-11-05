@@ -1095,7 +1095,7 @@ function ChatTopBar({
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <h1
           title={title}
-          className="min-w-0 max-w-[8em] truncate text-base font-medium tracking-[-0.01em] text-fg"
+          className="min-w-0 truncate text-base font-medium tracking-[-0.01em] text-fg"
         >
           {title}
         </h1>
