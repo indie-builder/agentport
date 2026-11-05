@@ -257,7 +257,7 @@ export function SkillsPage() {
         </>
       }
     >
-      {skills.isPending ? <LoadingState rows={4} layout="list" /> : null}
+      {skills.isPending ? <LoadingState rows={4} /> : null}
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
       ) : null}
