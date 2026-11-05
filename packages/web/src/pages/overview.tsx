@@ -457,7 +457,7 @@ export function RunTrendCard({ days }: { days: number }) {
                 </Collapsible>
               </div>
             ) : (
-              <EmptyState title="发起对话后生成趋势" bordered={false} />
+              <EmptyState title="发起对话后生成趋势" />
             )}
           </>
         )}
@@ -498,7 +498,7 @@ export function OverviewPage() {
       <PageHeader
         title="概况"
         actions={
-          <Link to="/chat" className={buttonVariants()}>
+          <Link to="/chat" className={buttonVariants({ variant: empty ? 'default' : 'secondary' })}>
             <Plus data-icon="inline-start" aria-hidden="true" /> 新建对话
           </Link>
         }

@@ -11,7 +11,6 @@ import {
   MoreHorizontal,
   PackagePlus,
   Pencil,
-  Puzzle,
   RefreshCw,
   Trash2,
   Upload,
@@ -25,18 +24,9 @@ import { DialogShell } from '../components/dialog-shell.js';
 import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card.js';
+import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
@@ -64,6 +54,23 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
 const maxPluginBytes = 4_194_304;
+
+const pluginSourceLabel = (plugin: PluginWithAgentCount): string =>
+  plugin.sourceId ? plugin.sourceId.slice(plugin.sourceId.indexOf('@') + 1) : '本地 ZIP';
+
+const pluginCapabilitySummary = (plugin: PluginWithAgentCount): string => {
+  const parts: string[] = [];
+  if (plugin.capabilities.skills.length > 0)
+    parts.push(`${plugin.capabilities.skills.length} 技能`);
+  if (plugin.capabilities.agents.length > 0) {
+    parts.push(`${plugin.capabilities.agents.length} 子智能体`);
+  }
+  if (plugin.capabilities.mcpServers.length > 0) {
+    parts.push(`${plugin.capabilities.mcpServers.length} MCP`);
+  }
+  if (plugin.capabilities.hasHooks) parts.push('hooks');
+  return parts.length > 0 ? parts.join(' · ') : '—';
+};
 
 const pluginFormSchema = pluginInputSchema.pick({ slug: true, name: true, description: true });
 
@@ -195,7 +202,7 @@ export function PluginsPage() {
         </>
       }
     >
-      {plugins.isPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {plugins.isPending ? <LoadingState rows={4} /> : null}
       {plugins.isError ? (
         <ErrorState error={plugins.error} onRetry={() => void plugins.refetch()} />
       ) : null}
@@ -203,7 +210,6 @@ export function PluginsPage() {
         <PageNote
           icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的插件"
-          description="试试其他关键词。"
           action={
             <Button
               variant="outline"
@@ -223,12 +229,24 @@ export function PluginsPage() {
       {plugins.data && plugins.data.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
-          title="还没有插件"
-          description="导入一个符合 Claude Code 官方目录结构的插件 ZIP。"
+          title="插件用文件目录扩展专家能力"
+          description={canImport || canInstall ? undefined : '当前账号没有导入或安装插件的权限。'}
           action={
             canImport ? (
               <Button variant="outline" size="sm" onClick={() => importInputRef.current?.click()}>
-                导入插件 ZIP
+                导入 ZIP
+              </Button>
+            ) : canInstall ? (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-haspopup="dialog"
+                onClick={(event) => {
+                  actionTriggerRef.current = event.currentTarget;
+                  setInstalling(true);
+                }}
+              >
+                安装插件
               </Button>
             ) : undefined
           }
@@ -236,129 +254,80 @@ export function PluginsPage() {
       ) : null}
 
       {visiblePlugins.length > 0 ? (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <ul className="divide-y divide-line border-y">
           {visiblePlugins.map((plugin) => (
-            <li key={plugin.id} className="min-w-0">
-              <Card className="h-full">
-                <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
-                  <span className="row-span-2 flex size-10 shrink-0 items-center justify-center self-center rounded-item bg-muted text-muted-foreground">
-                    <Puzzle aria-hidden="true" />
-                  </span>
-                  <CardTitle className="col-start-2 min-w-0">
-                    <h2 className="min-w-0">
-                      <Link
-                        to="/plugins/$pluginId"
-                        params={{ pluginId: plugin.id }}
-                        className={buttonVariants({
-                          variant: 'ghost',
-                          className:
-                            'h-auto w-full min-w-0 justify-start p-0 text-base font-medium',
-                        })}
+            <li
+              key={plugin.id}
+              className="flex min-h-14 items-center gap-4 py-2 transition-colors duration-150 ease-out-soft hover:bg-hover"
+            >
+              <div className="flex min-w-0 flex-1 flex-col">
+                <Link
+                  to="/plugins/$pluginId"
+                  params={{ pluginId: plugin.id }}
+                  title={plugin.name}
+                  className="block min-w-0 truncate rounded-sm text-base font-medium text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {plugin.name}
+                </Link>
+                {plugin.description ? (
+                  <p className="truncate text-sm text-muted-foreground">{plugin.description}</p>
+                ) : null}
+              </div>
+              <span
+                className="w-32 shrink-0 truncate text-sm text-muted-foreground"
+                title={pluginSourceLabel(plugin)}
+              >
+                {pluginSourceLabel(plugin)}
+              </span>
+              <span className="w-20 shrink-0 truncate font-mono text-sm text-muted-foreground">
+                {plugin.version || '—'}
+              </span>
+              <span className="w-44 shrink-0 truncate text-sm text-muted-foreground">
+                {pluginCapabilitySummary(plugin)}
+              </span>
+              <span className="w-24 shrink-0 text-right text-sm text-muted-foreground">
+                {plugin.agentCount} 个专家
+              </span>
+              <div className="flex w-8 shrink-0 justify-end">
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`操作 ${plugin.name}`}
+                        onClick={(event) => {
+                          actionTriggerRef.current = event.currentTarget;
+                        }}
                       >
-                        <span className="truncate" title={plugin.name}>
-                          {plugin.name}
-                        </span>
-                      </Link>
-                    </h2>
-                  </CardTitle>
-                  <CardAction className="col-start-3">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`操作 ${plugin.name}`}
-                            onClick={(event) => {
-                              actionTriggerRef.current = event.currentTarget;
-                            }}
-                          >
-                            <MoreHorizontal />
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-                        <DropdownMenuGroup>
-                          {canUpdate ? (
-                            <DropdownMenuItem onClick={() => setEditing(plugin)}>
-                              <Pencil /> 编辑
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canExport ? (
-                            <DropdownMenuItem
-                              nativeButton={false}
-                              render={<a href={`/api/plugins/${plugin.id}/export`} />}
-                            >
-                              <Download /> 导出 ZIP
-                            </DropdownMenuItem>
-                          ) : null}
-                          {canDelete ? (
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onClick={() => setDeleting(plugin)}
-                            >
-                              <Trash2 /> 删除
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </CardAction>
-                  <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10">
-                    {plugin.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-1 flex-col gap-3">
-                  <Badge variant="secondary" className="max-w-full font-mono">
-                    <span className="truncate">{plugin.runtimeName}</span>
-                  </Badge>
-                  {plugin.sourceId ? (
-                    <Badge variant="outline" className="max-w-full font-mono">
-                      <span className="truncate" title={plugin.sourceId}>
-                        来自 {plugin.sourceId.slice(plugin.sourceId.indexOf('@') + 1)}
-                      </span>
-                    </Badge>
-                  ) : null}
-                  <div className="flex flex-wrap gap-1.5">
-                    {plugin.capabilities.skills.length > 0 ? (
-                      <Badge variant="outline">{plugin.capabilities.skills.length} 个技能</Badge>
-                    ) : null}
-                    {plugin.capabilities.agents.length > 0 ? (
-                      <Badge variant="outline">
-                        {plugin.capabilities.agents.length} 个子智能体
-                      </Badge>
-                    ) : null}
-                    {plugin.capabilities.mcpServers.length > 0 ? (
-                      <Badge variant="outline">
-                        {plugin.capabilities.mcpServers.length} 个 MCP
-                      </Badge>
-                    ) : null}
-                    {plugin.capabilities.hasHooks ? (
-                      <Badge variant="outline">含 hooks</Badge>
-                    ) : null}
-                  </div>
-                </CardContent>
-                <CardFooter className="mt-auto justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    被 {plugin.agentCount} 个专家使用
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`编辑 ${plugin.name}`}
-                      className={canUpdate ? undefined : 'hidden'}
-                      aria-haspopup="dialog"
-                      onClick={(event) => {
-                        actionTriggerRef.current = event.currentTarget;
-                        setEditing(plugin);
-                      }}
-                    >
-                      编辑
-                    </Button>
-                  </div>
-                </CardFooter>
-              </Card>
+                        <MoreHorizontal />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                    <DropdownMenuGroup>
+                      {canUpdate ? (
+                        <DropdownMenuItem onClick={() => setEditing(plugin)}>
+                          <Pencil /> 编辑
+                        </DropdownMenuItem>
+                      ) : null}
+                      {canExport ? (
+                        <DropdownMenuItem
+                          nativeButton={false}
+                          render={<a href={`/api/plugins/${plugin.id}/export`} />}
+                        >
+                          <Download /> 导出 ZIP
+                        </DropdownMenuItem>
+                      ) : null}
+                      {canDelete ? (
+                        <DropdownMenuItem variant="destructive" onClick={() => setDeleting(plugin)}>
+                          <Trash2 /> 删除
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </li>
           ))}
         </ul>
@@ -572,15 +541,17 @@ function InstallPluginDialog({
                 <ErrorState error={native.error} onRetry={() => void native.refetch()} />
               ) : null}
               {native.data?.installed.length === 0 ? (
-                <EmptyState
-                  illustration={<BusinessIllustration name="tools" size="compact" />}
-                  title="没有已安装的插件"
-                  action={
-                    <Button variant="outline" size="sm" onClick={() => setTab('market')}>
-                      从市场安装
-                    </Button>
-                  }
-                />
+                <InlineEmpty>
+                  <span className="block">没有已安装的插件</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setTab('market')}
+                  >
+                    从市场安装
+                  </Button>
+                </InlineEmpty>
               ) : null}
               {native.data && native.data.installed.length > 0 ? (
                 <ul aria-label="已安装的插件" className="divide-y divide-line border-y">

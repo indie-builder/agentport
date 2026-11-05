@@ -6,7 +6,6 @@ import {
   CirclePause,
   CirclePlay,
   Download,
-  LibraryBig,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -16,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import {
@@ -32,18 +30,9 @@ import {
 import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
+import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
@@ -73,7 +62,7 @@ import { Textarea } from '../components/ui/textarea.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { formatRelative } from '../lib/format.js';
+import { formatDateTime, formatRelative } from '../lib/format.js';
 import {
   meQuery,
   useAgents,
@@ -111,8 +100,8 @@ const baseFormSchema = z.object({
 
 type BaseForm = z.infer<typeof baseFormSchema>;
 
-/** 列表只返回 base 本身；文档数在详情页看，不在卡片上为每个库多拉一页文档。 */
-function KnowledgeCard({
+/** 列表只返回 base 本身；文档数在详情页看，不在行上为每个库多拉一页文档。 */
+function KnowledgeRow({
   base,
   onRename,
   onSettings,
@@ -134,89 +123,82 @@ function KnowledgeCard({
   onDelete: (trigger: HTMLElement) => void;
 }) {
   return (
-    <li className="min-w-0">
-      <Card className="relative h-full" interactive>
-        {/* 覆盖整卡的可点击入口；操作菜单用 z-10 保持在它之上。 */}
-        <Link
-          to="/knowledge/$baseId"
-          params={{ baseId: base.id }}
-          aria-label={`查看知识库 ${base.name}`}
-          className="absolute inset-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        />
-        <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]!">
-          <span className="row-span-2 flex size-10 shrink-0 items-center justify-center self-center rounded-item bg-muted text-muted-foreground">
-            <LibraryBig aria-hidden="true" />
-          </span>
-          <CardTitle className="col-start-2 min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="min-w-0 truncate text-base font-medium" title={base.name}>
-                {base.name}
-              </h2>
-              <StatusBadge
-                className="shrink-0"
-                tone={base.status === 'active' ? 'success' : 'outline'}
-              >
-                {base.status === 'active' ? '启用' : '停用'}
-              </StatusBadge>
-            </div>
-          </CardTitle>
-          <CardAction className="relative z-10 col-start-3 row-span-2 row-start-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button variant="ghost" size="icon-sm" aria-label={`操作 ${base.name}`}>
-                    <MoreHorizontal />
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-                <DropdownMenuGroup>
-                  {canUpdate ? (
-                    <DropdownMenuItem onClick={(event) => onRename(event.currentTarget)}>
-                      <Pencil /> 重命名
-                    </DropdownMenuItem>
-                  ) : null}
-                  {canUpdate ? (
-                    <DropdownMenuItem onClick={(event) => onSettings(event.currentTarget)}>
-                      <Settings /> 设置
-                    </DropdownMenuItem>
-                  ) : null}
-                  {canUpdate ? (
-                    <DropdownMenuItem onClick={(event) => onToggleStatus(event.currentTarget)}>
-                      {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
-                      {base.status === 'active' ? '停用' : '启用'}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {canExport ? (
-                    <DropdownMenuItem onClick={(event) => onExport(event.currentTarget)}>
-                      <Download /> 导出知识包
-                    </DropdownMenuItem>
-                  ) : null}
-                  {canDelete ? (
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={(event) => onDelete(event.currentTarget)}
-                    >
-                      <Trash2 /> 删除
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </CardAction>
-          <CardDescription className="col-start-2 row-start-2 line-clamp-2 min-h-10">
-            {base.description}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-1 items-center">
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-            {base.slug}
-          </span>
-        </CardContent>
-        <CardFooter className="mt-auto">
-          <span className="text-xs text-muted-foreground">{formatRelative(base.updatedAt)}</span>
-        </CardFooter>
-      </Card>
+    <li className="relative min-w-0 transition-colors duration-150 ease-out-soft hover:bg-hover">
+      {/* 覆盖整行的可点击入口；操作菜单用 z-10 保持在它之上。 */}
+      <Link
+        to="/knowledge/$baseId"
+        params={{ baseId: base.id }}
+        aria-label={`查看知识库 ${base.name}`}
+        className="absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      />
+      <div className="flex min-h-14 items-center gap-4 px-6 py-2.5">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="min-w-0 truncate text-base font-medium text-fg" title={base.name}>
+              {base.name}
+            </h2>
+            <StatusBadge
+              className="shrink-0"
+              tone={base.status === 'active' ? 'success' : 'outline'}
+            >
+              {base.status === 'active' ? '启用' : '停用'}
+            </StatusBadge>
+          </div>
+          {base.description ? (
+            <p className="truncate text-sm text-muted-foreground">{base.description}</p>
+          ) : null}
+        </div>
+        <span
+          className="shrink-0 text-xs tabular-nums text-muted-foreground"
+          title={formatDateTime(base.updatedAt)}
+        >
+          {formatRelative(base.updatedAt)}
+        </span>
+        <div className="relative z-10 shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="ghost" size="icon" aria-label={`操作 ${base.name}`}>
+                  <MoreHorizontal />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+              <DropdownMenuGroup>
+                {canUpdate ? (
+                  <DropdownMenuItem onClick={(event) => onRename(event.currentTarget)}>
+                    <Pencil /> 重命名
+                  </DropdownMenuItem>
+                ) : null}
+                {canUpdate ? (
+                  <DropdownMenuItem onClick={(event) => onSettings(event.currentTarget)}>
+                    <Settings /> 设置
+                  </DropdownMenuItem>
+                ) : null}
+                {canUpdate ? (
+                  <DropdownMenuItem onClick={(event) => onToggleStatus(event.currentTarget)}>
+                    {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
+                    {base.status === 'active' ? '停用' : '启用'}
+                  </DropdownMenuItem>
+                ) : null}
+                {canExport ? (
+                  <DropdownMenuItem onClick={(event) => onExport(event.currentTarget)}>
+                    <Download /> 导出知识包
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete ? (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={(event) => onDelete(event.currentTarget)}
+                  >
+                    <Trash2 /> 删除
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
     </li>
   );
 }
@@ -448,7 +430,7 @@ export function KnowledgePage() {
           }
         />
       ) : null}
-      {initialPending ? <LoadingState rows={4} layout="cards" /> : null}
+      {initialPending ? <LoadingState rows={4} /> : null}
       {initialError ? (
         <ErrorState error={bases.error} onRetry={() => void bases.refetch()} />
       ) : null}
@@ -465,9 +447,8 @@ export function KnowledgePage() {
         />
       ) : null}
       {!bases.isPending && !bases.isError && baseItems.length === 0 ? (
-        <EmptyState
-          illustration={<BusinessIllustration name="knowledge" />}
-          title="还没有知识库"
+        <PageNote
+          title="知识库保存可检索的文档与 Wiki"
           action={
             canCreate ? (
               <Button
@@ -483,9 +464,9 @@ export function KnowledgePage() {
         />
       ) : null}
       {visible.length > 0 ? (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <ul className="divide-y divide-line border-y">
           {visible.map((base) => (
-            <KnowledgeCard
+            <KnowledgeRow
               key={base.id}
               base={base}
               onRename={(trigger) => {
@@ -538,8 +519,7 @@ export function KnowledgePage() {
         </div>
       ) : null}
       {filteredEmpty ? (
-        <EmptyState
-          illustration={<BusinessIllustration name="search" />}
+        <PageNote
           title="没有匹配的知识库"
           action={
             <Button variant="outline" size="sm" onClick={() => setQuery('')}>

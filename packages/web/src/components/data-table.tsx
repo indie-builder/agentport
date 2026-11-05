@@ -92,6 +92,7 @@ interface DataTableProps<T> {
   /** 首屏排序方向；只在挂载时生效，之后仍由用户点击调整。 */
   initialSorting?: SortingState;
   onRowClick?: (row: T) => void;
+  hideRowCount?: boolean;
   className?: string;
 }
 
@@ -278,6 +279,7 @@ export function DataTable<T extends RowData>({
   storageKey,
   initialSorting = [],
   onRowClick,
+  hideRowCount = false,
   className,
 }: DataTableProps<T>) {
   const tableId = useId();
@@ -424,9 +426,11 @@ export function DataTable<T extends RowData>({
       onDragEnd={onDragEnd}
     >
       <div className={cn('flex min-w-0 max-w-full flex-col', className)}>
-        <div className="pb-2 text-xs text-muted-foreground">
-          {loading ? '加载中…' : rows.length > 0 ? `${rows.length} 行` : null}
-        </div>
+        {hideRowCount ? null : (
+          <div className="pb-2 text-xs text-muted-foreground">
+            {loading ? '加载中…' : rows.length > 0 ? `${rows.length} 行` : null}
+          </div>
+        )}
         {/* Explicit roles preserve table semantics when CSS grid supplies the existing column widths. */}
         <Table
           role="table"

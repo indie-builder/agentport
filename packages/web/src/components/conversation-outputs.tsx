@@ -155,7 +155,7 @@ export function ConversationOutputs({
         {conversationId === null ? (
           <EmptyState
             illustration={<BusinessIllustration name="outputs" size="compact" />}
-            title="开始对话或打开已有会话后查看成果"
+            title="会话产生的成果会显示在这里"
           />
         ) : outputs.isPending ? (
           <LoadingState rows={4} />

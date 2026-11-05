@@ -364,8 +364,8 @@ export function MemoryReviews({
         items.length === 0 ? (
           <EmptyState
             illustration={<BusinessIllustration name="review" />}
-            title="让模型整理值得保存的记忆"
-            description="选择执行专家和来源会话，生成可采纳的记忆或规则提案。"
+            title="从对话梳理可采纳的记忆与规则提案"
+            description="选择执行专家和来源会话后生成。"
             action={
               canCreate ? (
                 <Button onClick={() => openCreate()} disabled={agents.isPending || agents.isError}>
