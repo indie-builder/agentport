@@ -312,10 +312,6 @@ export function DataTable<T extends RowData>({
                 sortFn: (a, b) => compareValues(sortValue(a.original), sortValue(b.original)),
               }
             : { enableSorting: false }),
-          cell: ({ row }) =>
-            col.cell
-              ? col.cell(row.original)
-              : String((row.original as Record<string, unknown>)[col.id] ?? ''),
         };
       }),
     [columns],
@@ -625,7 +621,12 @@ export function DataTable<T extends RowData>({
                                 </Button>
                               )}
                               <div className="min-w-0">
-                                <table.FlexRender cell={cell} />
+                                {source?.cell
+                                  ? source.cell(row.original)
+                                  : String(
+                                      (row.original as Record<string, unknown>)[cell.column.id] ??
+                                        '',
+                                    )}
                               </div>
                             </div>
                           </TableCell>
