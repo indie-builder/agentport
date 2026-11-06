@@ -713,8 +713,8 @@ export const agentRuns = pgTable(
     index('agent_runs_trigger_idx').on(t.trigger),
     // 模型代理每个请求都按 hash 查一次；只索引仍持有 token 的行。
     index('agent_runs_model_token_idx').on(t.modelTokenHash).where(isNotNull(t.modelTokenHash)),
-    // 列表与概览都按 started_at desc nulls last 排序；agentId 过滤时走复合索引。
     index('agent_runs_started_idx').on(t.startedAt.desc().nullsLast(), t.id.desc()),
+    index('agent_runs_recent_idx').on(t.startedAt.desc().nullsFirst()),
     index('agent_runs_agent_started_idx').on(
       t.agentId,
       t.startedAt.desc().nullsLast(),

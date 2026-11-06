@@ -1,0 +1,1 @@
+CREATE INDEX "agent_runs_recent_idx" ON "agent_runs" USING btree ("started_at" DESC NULLS FIRST);
