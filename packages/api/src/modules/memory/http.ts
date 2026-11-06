@@ -1,11 +1,11 @@
 import { PERSONAL_MEMORY_FILENAME } from '@agentport/shared';
 import type { Hono } from 'hono';
 import { requireUser } from '../../http/access.js';
-import { type AppContext, type HttpEnv, requestContext } from '../../http/context.js';
+import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { readPersonalMemory } from './personal.js';
 
-export function registerMemoryHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
+export function registerMemoryHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/me/memory/download',
     access({ kind: 'permission', permissionId: 'personal_memory.read' }),

@@ -1,5 +1,4 @@
 import { connect, createServer, type Socket } from 'node:net';
-import { Redis } from 'ioredis';
 
 /**
  * 回归“完成通知早于首个 XREAD”的测试支撑：
@@ -13,7 +12,7 @@ interface ParsedCommand {
   end: number;
 }
 
-/** 解析 ioredis 发出的 RESP 数组命令；数据不完整返回 null。 */
+/** 解析测试队列客户端发出的 RESP 数组命令；数据不完整返回 null。 */
 function parseCommand(buffer: Buffer): ParsedCommand | null {
   if (buffer.length === 0 || buffer[0] !== 0x2a) return null;
   const headerEnd = buffer.indexOf('\r\n');
@@ -85,7 +84,7 @@ export async function startXreadGate(redisUrl: string): Promise<XreadGate> {
         }
         const command = parseCommand(pending);
         if (!command) {
-          // 非 RESP 数组不该出现在 ioredis 连接上；原样转发避免卡死。
+          // 非 RESP 数组不该出现在队列客户端连接上；原样转发避免卡死。
           if (pending.length > 0 && pending[0] !== 0x2a) {
             upstream.write(pending);
             pending = Buffer.alloc(0);
@@ -143,29 +142,86 @@ export interface CommandWatch {
   close(): Promise<void>;
 }
 
+function monitorArgs(line: string): string[] {
+  const args: string[] = [];
+  let index = line.indexOf('"');
+  while (index >= 0) {
+    let value = '';
+    index += 1;
+    while (index < line.length && line[index] !== '"') {
+      if (line[index] === '\\' && index + 1 < line.length) {
+        const escaped = line[index + 1] as string;
+        if (escaped === 'x') {
+          value += String.fromCharCode(Number.parseInt(line.slice(index + 2, index + 4), 16));
+          index += 4;
+          continue;
+        }
+        value +=
+          escaped === 'n' ? '\n' : escaped === 'r' ? '\r' : escaped === 't' ? '\t' : escaped;
+        index += 2;
+        continue;
+      }
+      value += line[index];
+      index += 1;
+    }
+    args.push(value);
+    index = line.indexOf('"', index + 1);
+  }
+  return args;
+}
+
 export async function watchIsFinished(redisUrl: string, queueName: string): Promise<CommandWatch> {
-  const base = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
-  const monitor = await base.monitor();
+  const target = new URL(redisUrl);
+  const socket = connect({
+    host: target.hostname,
+    port: Number(target.port) || 6379,
+  });
+  socket.setEncoding('utf8');
+  const ready = Promise.withResolvers<void>();
   const seen = Promise.withResolvers<void>();
+  void seen.promise.catch(() => undefined);
   const suffix = `:${queueName}:`;
-  monitor.on('monitor', (_time: string, args: string[]) => {
-    // isFinished 的 KEYS = [completed, failed, jobId]，ARGV = [jobId, '1']；
-    // EVALSHA 首次未命中会改发 EVAL，两者键的位置一致。
-    const jobId = args[6];
-    if (
-      args[2] === '3' &&
-      args[3]?.endsWith(`${suffix}completed`) &&
-      args[4]?.endsWith(`${suffix}failed`) &&
-      args[5]?.endsWith(`:${jobId}`)
-    ) {
-      seen.resolve();
+  let buffer = '';
+  socket.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString();
+    for (let end = buffer.indexOf('\r\n'); end >= 0; end = buffer.indexOf('\r\n')) {
+      const line = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      if (!line.startsWith('+')) continue;
+      if (line === '+OK') {
+        ready.resolve();
+        continue;
+      }
+      const args = monitorArgs(line.slice(1));
+      const command = args[0]?.toLowerCase();
+      if (command !== 'evalsha' && command !== 'eval') continue;
+      // isFinished 的 KEYS = [completed, failed, jobId]，ARGV = [jobId, '1']；
+      // EVALSHA 首次未命中会改发 EVAL，两者键的位置一致。
+      const jobId = args[6];
+      if (
+        args[2] === '3' &&
+        args[3]?.endsWith(`${suffix}completed`) &&
+        args[4]?.endsWith(`${suffix}failed`) &&
+        args[5]?.endsWith(`:${jobId}`)
+      ) {
+        seen.resolve();
+      }
     }
   });
+  socket.on('error', (error) => {
+    ready.reject(error);
+    seen.reject(error);
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+  socket.write('MONITOR\r\n');
+  await ready.promise;
   return {
     isFinished: seen.promise,
     close: async () => {
-      monitor.disconnect();
-      base.disconnect();
+      socket.destroy();
     },
   };
 }

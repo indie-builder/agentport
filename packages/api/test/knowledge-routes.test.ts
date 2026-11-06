@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { loginCookie, request, startApp, type TestApp, testConfig } from './helpers.js';
 
@@ -526,7 +526,7 @@ describe('knowledge routes', () => {
         JSON.stringify({ type: 'reindex', baseId: base.id, chunksOnly: true }),
       ],
     );
-    const redis = new Redis(testConfig().REDIS_URL);
+    const redis = new RedisClient(testConfig().REDIS_URL);
     try {
       const running = await request(app, {
         method: 'POST',
@@ -550,7 +550,7 @@ describe('knowledge routes', () => {
       expect(finished.statusCode, finished.body).toBe(409);
     } finally {
       await redis.del(`knowledge:${runningJobId}:cancel`).catch(() => undefined);
-      await redis.quit();
+      redis.close();
     }
   });
 

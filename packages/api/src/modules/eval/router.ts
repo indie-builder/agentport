@@ -5,23 +5,10 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { importEvalCases, startEvalRun } from './use-cases.js';
+import { agentNotFound, importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
 const os = implement(evalContract).$context<RequestContext>();
 const evalRepo = repo.evalRepo;
-
-function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
-  return {
-    id: row.id,
-    agentId: row.agentId,
-    status: row.status,
-    total: row.total,
-    passed: row.passed,
-    error: row.error,
-    createdAt: row.createdAt.toISOString(),
-    finishedAt: row.finishedAt === null ? null : row.finishedAt.toISOString(),
-  };
-}
 
 function toEvalCase(row: repo.evalRepo.EvalCase) {
   return {
@@ -34,8 +21,6 @@ function toEvalCase(row: repo.evalRepo.EvalCase) {
     createdAt: row.createdAt.toISOString(),
   };
 }
-
-const agentNotFound = '智能体不存在，可能已被删除；请刷新后重新选择';
 
 async function authorizeEvalAgent(
   context: RequestContext,

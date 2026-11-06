@@ -12,7 +12,7 @@ import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { authorize, authorizeObject, requireUser } from '../../http/access.js';
-import type { AppContext, HttpEnv } from '../../http/context.js';
+import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { requireTrustedOrigin } from '../auth/origin.js';
@@ -32,7 +32,7 @@ const importQuerySchema = z
   })
   .strict();
 const subAgentFileParams = z.object({ id: z.string().min(1), childId: z.string().min(1) });
-export function registerAgentsHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
+export function registerAgentsHttp(app: Hono<HttpEnv>): void {
   app.post(
     '/api/import/agents',
     access({ kind: 'permission', permissionId: 'agents.import' }),

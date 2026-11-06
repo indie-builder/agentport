@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import { type Database, newId, schema } from '@agentport/db';
+import { type Database, newId, type repo, schema } from '@agentport/db';
 import {
   type EvalDatasetImportResult,
   type evalDatasetSchema,
@@ -10,7 +10,20 @@ import type { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
 import { getEvalQueue, getQueue } from '../../queue/producer.js';
 
-const agentNotFound = '智能体不存在，可能已被删除；请刷新后重新选择';
+export const agentNotFound = '智能体不存在，可能已被删除；请刷新后重新选择';
+
+export function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    status: row.status,
+    total: row.total,
+    passed: row.passed,
+    error: row.error,
+    createdAt: row.createdAt.toISOString(),
+    finishedAt: row.finishedAt === null ? null : row.finishedAt.toISOString(),
+  };
+}
 
 export async function importEvalCases(
   db: Database,

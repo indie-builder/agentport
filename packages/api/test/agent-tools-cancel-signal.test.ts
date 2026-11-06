@@ -1,6 +1,6 @@
 import { repo } from '@agentport/db';
 import { RUN_CANCEL_PAYLOAD, runCancelKey, runStreamKey } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import { getQueue } from '../src/queue/producer.js';
@@ -37,14 +37,14 @@ async function settledWithin(promise: Promise<void>, ms: number): Promise<boolea
 describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', () => {
   let app: TestApp;
   let cookie: string;
-  let redis: Redis;
+  let redis: RedisClient;
   const createdAgents: string[] = [];
   const runIds: string[] = [];
 
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    redis = new Redis(testConfig().REDIS_URL);
+    redis = new RedisClient(testConfig().REDIS_URL);
   });
 
   afterAll(async () => {
@@ -57,7 +57,7 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
       await redis.del(runCancelKey(runId), runStreamKey(runId)).catch(() => undefined);
     }
     await cleanup(app, { agentSlugs: createdAgents, runIds });
-    await redis.quit().catch(() => undefined);
+    redis.close();
     await app.close();
   });
 
@@ -113,21 +113,24 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
     await repo.chat.updateRun(app.db, runId, { status: 'running', startedAt: new Date() });
 
     const channel = runCancelKey(runId);
-    let received: string | undefined;
-    const signalled = new Promise<void>((resolve) => {
-      redis.on('message', (incoming, message) => {
+    const subscriber = new RedisClient(testConfig().REDIS_URL);
+    try {
+      let received: string | undefined;
+      const signalled = Promise.withResolvers<void>();
+      // 先等 SUBSCRIBE ack 再 abort，否则早到的 cancel 会被 pub/sub 丢掉。
+      await subscriber.subscribe(channel, (message, incoming) => {
         if (incoming !== channel) return;
         received = message;
-        resolve();
+        signalled.resolve();
       });
-    });
-    // 先等 SUBSCRIBE ack 再 abort，否则早到的 cancel 会被 pub/sub 丢掉。
-    await redis.subscribe(channel);
 
-    controller.abort();
-    await expect(pending).rejects.toThrow(/cancelled/);
-    expect(await settledWithin(signalled, 5_000)).toBe(true);
-    expect(received).toBe(RUN_CANCEL_PAYLOAD);
+      controller.abort();
+      await expect(pending).rejects.toThrow(/cancelled/);
+      expect(await settledWithin(signalled.promise, 5_000)).toBe(true);
+      expect(received).toBe(RUN_CANCEL_PAYLOAD);
+    } finally {
+      subscriber.close();
+    }
     expect(await redis.get(channel)).toBe(RUN_CANCEL_PAYLOAD);
     // 只发信号：终态要等 worker 停稳容器、写完消息与成果快照后自己落库。
     expect(await statusOf(runId)).toBe('running');

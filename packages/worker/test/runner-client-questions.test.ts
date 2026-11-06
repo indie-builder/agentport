@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { type NativeQuestion, type RunQuestion, runStreamKey } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { afterAll, describe, expect, it } from 'bun:test';
 import { buildMessageRows } from '../src/messages.js';
@@ -14,27 +14,14 @@ import {
   type SandboxQuestionCallbacks,
 } from '../src/runner-client.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
+import { probeBunRedis } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
 
 // 取消订阅是每个 run 的前置：必须指向本轮测试的独享 Redis，而不是开发实例。
 configureRunnerClient(process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9');
 
 async function probeRedis(): Promise<boolean> {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) return false;
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
-  try {
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
-  } catch {
-    return false;
-  } finally {
-    redis.disconnect();
-  }
+  return probeBunRedis(process.env.REDIS_URL);
 }
 
 const redisReady = await probeRedis();
@@ -479,7 +466,7 @@ describe('runInSandbox question flow', () => {
     const { runId, secret, originalQuestion } = await runWithNativeSecrets();
     const redisUrl = process.env.REDIS_URL;
     if (redisUrl === undefined) throw new Error('REDIS_URL is required');
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     const payloads = async (): Promise<string[]> => {
       const entries = (await redis.xrange(runStreamKey(runId), '-', '+')) as Array<
         [string, string[]]
@@ -522,7 +509,7 @@ describe('runInSandbox question flow', () => {
       }
     } finally {
       await redis.del(runStreamKey(runId));
-      redis.disconnect();
+      redis.close();
     }
   });
 

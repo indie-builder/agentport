@@ -11,6 +11,7 @@ import {
 import { Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
 
 const control = { captureCancelRead: false };
 
@@ -44,12 +45,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  const redis = bunRedisConnection(redisUrl);
   const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, {
-    connection: { url: redisUrl },
+    connection: redis.connection,
     prefix,
   });
   await queue.obliterate({ force: true }).catch(() => undefined);
   await queue.close();
+  await redis.close();
   await rm(knowledgeDir, { recursive: true, force: true });
   await dbHandle.client.close();
 });
@@ -93,8 +96,9 @@ describe('knowledge queue cancellation during final read', () => {
       chunkMarkdown: () => [],
       connectors: {},
     });
+    const redis = bunRedisConnection(redisUrl);
     const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl },
+      connection: redis.connection,
       prefix,
     });
     try {
@@ -116,6 +120,7 @@ describe('knowledge queue cancellation during final read', () => {
       for (const resolve of held) resolve(null);
       redisPrototype.get = originalGet;
       await queue.close();
+      await redis.close();
       await worker.close();
     }
   });

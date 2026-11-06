@@ -3,9 +3,9 @@ import { createDb, newId, schema } from '@agentport/db';
 import type { EvalRunJob } from '@agentport/shared';
 import { Queue, Worker } from 'bullmq';
 import { eq, inArray } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, describe, expect, it, mock } from 'bun:test';
+import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const publishRun = mock<() => Promise<void>>().mockResolvedValue(undefined);
@@ -26,20 +26,13 @@ async function probeInfra(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
   const { client } = createDb(databaseUrl);
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
   try {
     await client.unsafe('select 1');
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
+    return await probeBunRedis(redisUrl);
   } catch {
     return false;
   } finally {
     await client.close().catch(() => undefined);
-    await redis.quit().catch(() => undefined);
   }
 }
 
@@ -62,14 +55,19 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
 
   const agentIds: string[] = [];
   const evalRunIds: string[] = [];
-  const queues: { queue: Queue<EvalRunJob>; jobIds: string[] }[] = [];
+  const queues: {
+    queue: Queue<EvalRunJob>;
+    jobIds: string[];
+    close: () => Promise<string>;
+  }[] = [];
 
   /** 每个用例独占队列名：真实 worker 只消费 eval-runs，用例之间也不会互相抢 job。 */
   function makeQueue(): { queue: Queue<EvalRunJob>; jobIds: string[] } {
+    const redis = bunRedisConnection(redisUrl);
     const queue = new Queue<EvalRunJob>(`reconcile-eval-${randomUUID()}`, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: redis.connection,
     });
-    const handle = { queue, jobIds: [] as string[] };
+    const handle = { queue, jobIds: [] as string[], close: redis.close };
     queues.push(handle);
     return handle;
   }
@@ -112,12 +110,13 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
   }
 
   afterAll(async () => {
-    for (const { queue, jobIds } of queues) {
+    for (const { queue, jobIds, close } of queues) {
       for (const jobId of jobIds) {
         const job = await queue.getJob(jobId);
         await job?.remove().catch(() => undefined);
       }
       await queue.close();
+      await close();
     }
     if (evalRunIds.length > 0) {
       await db.delete(schema.auditLog).where(inArray(schema.auditLog.target, evalRunIds));
@@ -171,6 +170,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
+    const workerRedis = bunRedisConnection(redisUrl);
     // 唯一的真 worker：只消费这个测试队列，handler 里不接模型也不启沙盒。
     const worker = new Worker<EvalRunJob>(
       queue.name,
@@ -178,7 +178,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
         started();
         await gate;
       },
-      { connection: { url: redisUrl, maxRetriesPerRequest: null } },
+      { connection: workerRedis.connection },
     );
     worker.on('error', () => undefined);
 
@@ -207,6 +207,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     } finally {
       release();
       await worker.close();
+      await workerRedis.close();
     }
   }, 15_000);
 });

@@ -18,7 +18,6 @@ import type { AppContext, HttpEnv, RequestContext } from '../../http/context.js'
 import { requestContext } from '../../http/context.js';
 import { AppError, isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import type { NativeHttpDependencies } from './http.js';
 import { openUiActionContent } from './openui-actions.js';
 export const PREVIEW_MAX_BYTES = 1024 * 1024;
 export function isTextPreview(mediaType: string): boolean {
@@ -183,7 +182,7 @@ export const chatOutputsRouter = {
     }
   }),
 };
-export function registerChatOutputsHttp(app: Hono<HttpEnv>, _deps: NativeHttpDependencies): void {
+export function registerChatOutputsHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/conversations/:id/outputs/:runId/content',
     access({ kind: 'permission', permissionId: 'conversations.read' }),

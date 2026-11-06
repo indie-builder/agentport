@@ -109,7 +109,7 @@ export function closeHealth(): void {
   activeRedis.clear();
 }
 
-export function registerHealthHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
+export function registerHealthHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/health/metrics',
     access({ kind: 'permission', permissionId: 'operations.read' }),

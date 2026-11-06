@@ -15,11 +15,6 @@ export class AppError extends Error {
   readonly path?: string;
   readonly cause?: unknown;
 
-  /** Fastify 与插件按 statusCode 判断；与 status 保持同源。 */
-  get statusCode(): number {
-    return this.status;
-  }
-
   constructor(
     code: ErrorCode,
     message: string,

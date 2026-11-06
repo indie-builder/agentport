@@ -5,12 +5,13 @@ import type {
   KnowledgeFaqImportIssue,
   KnowledgeFaqImportResult,
   KnowledgeFaqTransferEntry,
+  knowledgeFaqInputSchema,
 } from '@agentport/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
 import type { Workbook as ExcelWorkbook } from 'exceljs';
 import ExcelJS from 'exceljs';
 import { Converter } from 'opencc-js';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../agents/package-zip.js';
 
 /** 批量导入/导出上限：完整处理或明确报错，不静默截断。 */
@@ -33,20 +34,7 @@ export type FaqImportIssue = KnowledgeFaqImportIssue;
 export type FaqImportRowStatus = KnowledgeFaqImportResult['status'];
 export type FaqImportOperation = KnowledgeFaqImportResult['operation'];
 
-/**
- * CRUD 入口只校验原始 JSON 类型；可清洗的空白/重复/超量数组交给 normalizeFaqEntry
- * 在同一边界统一清洗并执行归一化后的 50 条与长度硬限。
- */
-export const faqInputSchema = z.object({
-  question: z.string(),
-  similarQuestions: z.array(z.string()).default([]),
-  negativeQuestions: z.array(z.string()).default([]),
-  answers: z.array(z.string()),
-  answerStrategy: z.string().optional(),
-  isRecommended: z.boolean().optional(),
-});
-
-export type FaqInput = z.infer<typeof faqInputSchema>;
+export type FaqInput = z.infer<typeof knowledgeFaqInputSchema>;
 
 export const FAQ_COLUMNS = [
   'question',

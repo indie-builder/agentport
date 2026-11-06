@@ -9,7 +9,7 @@ import type {
   ChannelMember,
   ChannelMessage,
 } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
@@ -38,7 +38,7 @@ describe.skipIf(!ready)('channels', () => {
   let server: TestServer;
   let adminCookie: string;
   let baseUrl: string;
-  let redis: Redis;
+  let redis: RedisClient;
   let owner: TestAccount;
   let member: TestAccount;
   let viewer: TestAccount;
@@ -53,7 +53,7 @@ describe.skipIf(!ready)('channels', () => {
     adminCookie = await loginCookie(app);
     server = await listen(app);
     baseUrl = server.url;
-    redis = new Redis(testConfig().REDIS_URL);
+    redis = new RedisClient(testConfig().REDIS_URL);
     owner = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     member = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     viewer = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
@@ -81,7 +81,7 @@ describe.skipIf(!ready)('channels', () => {
     await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
     );
     await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
-    await redis.quit().catch(() => undefined);
+    redis.close();
     await app.close();
   });
 

@@ -2,11 +2,11 @@ import { fail, renderSkillMd } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { idParams } from '@agentport/shared';
 import type { Hono } from 'hono';
-import type { AppContext, HttpEnv } from '../../http/context.js';
+import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 
-export function registerSkillsHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
+export function registerSkillsHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/skills/:id/file',
     access({ kind: 'permission', permissionId: 'skills.read' }),

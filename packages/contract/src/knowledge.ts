@@ -1,6 +1,7 @@
 import {
   cronSchema,
   httpUrlSchema,
+  idParams,
   knowledgeBaseInputSchema,
   knowledgeBaseSchema,
   knowledgeBaseSettingsSchema,
@@ -12,6 +13,7 @@ import {
   knowledgeFaqImportIssueSchema,
   knowledgeFaqImportResponseSchema,
   knowledgeFaqImportResultSchema,
+  knowledgeFaqInputSchema,
   knowledgeFaqSchema,
   knowledgeJobSchema,
   knowledgeJobStatusSchema,
@@ -33,7 +35,6 @@ import { z } from 'zod';
 import { contractProcedure } from './base.js';
 import { contractErrors, problemSchema } from './errors.js';
 
-const idParams = z.object({ id: z.string().min(1) });
 const folderParams = z.object({ folderId: z.string().min(1) });
 const documentParams = z.object({ documentId: z.string().min(1) });
 const chunkParams = z.object({ chunkId: z.string().min(1) });
@@ -379,24 +380,15 @@ const faqListQuery = pageQuery.extend({
     .optional(),
 });
 
-const faqInputSchema = z.object({
-  question: z.string(),
-  similarQuestions: z.array(z.string()).default([]),
-  negativeQuestions: z.array(z.string()).default([]),
-  answers: z.array(z.string()),
-  answerStrategy: z.string().optional(),
-  isRecommended: z.boolean().optional(),
-});
-
 const faqCreateSchema = z.object({
   title: z.string().trim().min(1).max(300).optional(),
-  faq: faqInputSchema,
+  faq: knowledgeFaqInputSchema,
   folderId: z.string().min(1).nullable().default(null),
   tags: z.array(z.string().trim().min(1).max(64)).max(50).default([]),
 });
 const faqUpdateSchema = z.object({
   title: z.string().trim().min(1).max(300).optional(),
-  faq: faqInputSchema,
+  faq: knowledgeFaqInputSchema,
   folderId: z.string().min(1).nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(64)).max(50).optional(),
   expectedVersionId: z.string().min(1),

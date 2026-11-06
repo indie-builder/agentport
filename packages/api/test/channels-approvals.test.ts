@@ -3,7 +3,6 @@ import { repo } from '@agentport/db';
 import type { Channel, Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { RedisClient } from 'bun';
-import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   cleanup,
@@ -43,7 +42,7 @@ describe.skipIf(!ready)('channel approvals', () => {
   let listener: TestServer;
   let adminCookie: string;
   let baseUrl: string;
-  let redis: Redis;
+  let redis: RedisClient;
   let owner: TestAccount;
   let member: TestAccount;
   let viewer: TestAccount;
@@ -61,7 +60,7 @@ describe.skipIf(!ready)('channel approvals', () => {
     adminCookie = await loginCookie(app);
     listener = await listen(app);
     baseUrl = listener.url;
-    redis = new Redis(testConfig().REDIS_URL);
+    redis = new RedisClient(testConfig().REDIS_URL);
     owner = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     member = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     viewer = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
@@ -98,7 +97,7 @@ describe.skipIf(!ready)('channel approvals', () => {
     await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
     );
     await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
-    await redis.quit().catch(() => undefined);
+    redis.close();
     await app.close();
   });
 

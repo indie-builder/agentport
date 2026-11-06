@@ -7,7 +7,6 @@ import {
   sessionCleanupAckSchema,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { Redis } from 'ioredis';
 import pino from 'pino';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { waitFor } from './fixtures/native-test.js';
@@ -38,12 +37,12 @@ class FakeSessions {
 }
 
 const channels: SessionCleanupChannel[] = [];
-const connections: Redis[] = [];
+const connections: RedisClient[] = [];
 let currentChannel = SESSION_CLEANUP_REQUEST_CHANNEL;
 
 afterEach(async () => {
   await Promise.all(channels.splice(0).map((channel) => channel.close()));
-  for (const connection of connections.splice(0)) connection.disconnect();
+  for (const connection of connections.splice(0)) connection.close();
 });
 
 async function startChannel(sessions: FakeSessions): Promise<SessionCleanupChannel> {
@@ -75,20 +74,21 @@ async function send(
     typeof payload === 'object' && payload !== null && 'requestId' in payload
       ? String((payload as { requestId: unknown }).requestId)
       : randomUUID();
-  const subscriber = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
-  const publisher = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+  const subscriber = new RedisClient(REDIS_URL);
+  const publisher = new RedisClient(REDIS_URL);
   connections.push(subscriber, publisher);
   const channel = sessionCleanupAckChannel(requestId);
-  await subscriber.subscribe(channel);
+  let resolveAck!: (ack: SessionCleanupAck | null) => void;
   const ack = new Promise<SessionCleanupAck | null>((resolve) => {
-    const timer = setTimeout(() => resolve(null), options.timeoutMs ?? 2_000);
-    timer.unref();
-    subscriber.on('message', (received, message) => {
-      if (received !== channel) return;
-      clearTimeout(timer);
-      const parsed = sessionCleanupAckSchema.safeParse(JSON.parse(message));
-      resolve(parsed.success ? parsed.data : null);
-    });
+    resolveAck = resolve;
+  });
+  const timer = setTimeout(() => resolveAck(null), options.timeoutMs ?? 2_000);
+  timer.unref();
+  await subscriber.subscribe(channel, (message, received) => {
+    if (received !== channel) return;
+    clearTimeout(timer);
+    const parsed = sessionCleanupAckSchema.safeParse(JSON.parse(message));
+    resolveAck(parsed.success ? parsed.data : null);
   });
   await publisher.publish(options.requestChannel ?? currentChannel, JSON.stringify(payload));
   const result = await ack;

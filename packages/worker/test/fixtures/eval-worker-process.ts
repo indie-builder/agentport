@@ -4,6 +4,7 @@ import { Worker } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { runEvalJob } from '../../src/eval-job.js';
+import { bunRedisConnection } from './bun-redis.js';
 
 /**
  * 重启/重投测试的最小消费进程：装配生产 eval handler（runEvalJob）与真实 Redis/BullMQ。
@@ -29,6 +30,7 @@ const logger = {
   debug: () => undefined,
 } as unknown as Logger;
 
+const runRedis = bunRedisConnection(redisUrl);
 const runWorker = new Worker<AgentRunJob>(
   RUNS_QUEUE,
   async (job) => {
@@ -51,14 +53,15 @@ const runWorker = new Worker<AgentRunJob>(
     process.send?.({ type: 'ready' });
     await new Promise<void>(() => undefined);
   },
-  { connection: { url: redisUrl, maxRetriesPerRequest: null }, lockDuration: 1_000 },
+  { connection: runRedis.connection, lockDuration: 1_000 },
 );
 
+const evalRedis = bunRedisConnection(redisUrl);
 const evalWorker = new Worker(
   evalQueueName,
   (job) => runEvalJob({ db: dbHandle.db, logger, redisUrl, job }),
   {
-    connection: { url: redisUrl, maxRetriesPerRequest: null },
+    connection: evalRedis.connection,
     concurrency: 1,
     lockDuration: 1_000,
     stalledInterval: 500,
@@ -72,4 +75,8 @@ for (const worker of [runWorker, evalWorker]) {
   });
 }
 
-process.on('disconnect', () => process.exit(0));
+process.on('disconnect', () => {
+  void runRedis.close();
+  void evalRedis.close();
+  process.exit(0);
+});

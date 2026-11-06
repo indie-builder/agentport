@@ -1,11 +1,11 @@
 import { fail } from '@agentport/core';
 import type { Hono } from 'hono';
-import { type AppContext, type HttpEnv, requestContext } from '../../http/context.js';
+import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { contentDisposition, safeMediaType } from '../chat/outputs.js';
 import { resolveSharedFile } from './router.js';
 
-export function registerOutputSharesHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
+export function registerOutputSharesHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/public/output-shares/:id/download',
     access({

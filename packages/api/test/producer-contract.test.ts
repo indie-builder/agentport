@@ -8,7 +8,7 @@ import {
   runStreamKey,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { closeProducer, publishRun, requestRunCancel, subscribeRun } from '../src/queue/producer.js';
 import { infraReady, testConfig, unique, waitFor } from './helpers.js';
 
@@ -21,6 +21,10 @@ describe.skipIf(!ready)('producer shared stream contract', () => {
   afterEach(async () => {
     if (keys.length > 0) await redis.del(...keys.splice(0));
     await closeProducer();
+  });
+
+  afterAll(() => {
+    redis.close();
   });
 
   const runKey = (): { runId: string; key: string } => {

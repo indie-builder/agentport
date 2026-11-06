@@ -11,10 +11,11 @@ import {
   runCancelKey,
 } from '@agentport/shared';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { executeMemoryReview, type MemoryReviewQueryFn } from '../src/memory-review.js';
+import { probeBunRedis } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const mocks = (() => ({
@@ -166,21 +167,7 @@ async function probeDatabase(): Promise<boolean> {
 }
 
 async function probeRedis(): Promise<boolean> {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) return false;
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
-  try {
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
-  } catch {
-    return false;
-  } finally {
-    redis.disconnect();
-  }
+  return probeBunRedis(process.env.REDIS_URL);
 }
 
 const dbReady = await probeDatabase();
@@ -1092,11 +1079,11 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
       { queryFn },
     );
     await startedPromise;
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     try {
       await redis.publish(runCancelKey(seeded.runId), '1');
     } finally {
-      redis.disconnect();
+      redis.close();
     }
     await execution;
 

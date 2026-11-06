@@ -12,8 +12,8 @@ import {
   sessionCleanupAckChannel,
   sessionCleanupAckSchema,
 } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import pino from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { deleteAgentWithSandboxes } from '../../api/src/modules/runtime-deletion.js';
@@ -80,20 +80,24 @@ class FlakyProvider implements SandboxProvider {
 async function requestClose(targets: SessionCleanupTarget[]): Promise<void> {
   const requestId = randomUUID();
   const channel = sessionCleanupAckChannel(requestId);
-  const subscriber = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
-  const publisher = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+  const subscriber = new RedisClient(REDIS_URL);
+  const publisher = new RedisClient(REDIS_URL);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await subscriber.subscribe(channel);
+    let resolveAck!: (ack: SessionCleanupAck) => void;
+    let rejectAck!: (error: Error) => void;
     const ack = new Promise<SessionCleanupAck>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('close ack timeout')), 15_000);
-      timer.unref();
-      subscriber.on('message', (received, payload) => {
-        if (received !== channel) return;
-        clearTimeout(timer);
-        const parsed = sessionCleanupAckSchema.safeParse(JSON.parse(payload));
-        if (parsed.success) resolve(parsed.data);
-      });
+      resolveAck = resolve;
+      rejectAck = reject;
     });
+    await subscriber.subscribe(channel, (payload, received) => {
+      if (received !== channel) return;
+      if (timer !== undefined) clearTimeout(timer);
+      const parsed = sessionCleanupAckSchema.safeParse(JSON.parse(payload));
+      if (parsed.success) resolveAck(parsed.data);
+    });
+    timer = setTimeout(() => rejectAck(new Error('close ack timeout')), 15_000);
+    timer.unref();
     await publisher.publish(
       REQUEST_CHANNEL,
       JSON.stringify({ requestId, deadline: Date.now() + 15_000, targets }),
@@ -101,8 +105,9 @@ async function requestClose(targets: SessionCleanupTarget[]): Promise<void> {
     const result = await ack;
     if (!result.ok) throw new Error(result.error);
   } finally {
-    subscriber.disconnect();
-    publisher.disconnect();
+    if (timer !== undefined) clearTimeout(timer);
+    subscriber.close();
+    publisher.close();
   }
 }
 

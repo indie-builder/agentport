@@ -7,8 +7,8 @@ import {
   knowledgeCancelKey,
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
-import { Queue } from 'bullmq';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
+import { createBunRedisClient, Queue } from 'bullmq';
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   KnowledgeCancelled,
@@ -501,8 +501,9 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
       decrypt: () => ({}),
       connectors: { feed: connector },
     });
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
-    const redis = new Redis(redisUrl);
+    const connection = createBunRedisClient(new RedisClient(redisUrl));
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection, prefix });
+    const redis = new RedisClient(redisUrl);
     let released = false;
     try {
       // 锁住 sync run：claim 先成功锁住 job（尚未提交），再卡在 run；API 的 CAS 只能等 claim 提交。
@@ -546,8 +547,9 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
       if (!released) await locker.unsafe('rollback').catch(() => undefined);
       locker.release();
       await queue.close();
+      await connection.quit();
       await worker.close();
-      redis.disconnect();
+      redis.close();
     }
   }, 30_000);
 });

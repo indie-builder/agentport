@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SCHEDULE_TRIGGERS_QUEUE, type ScheduleTriggerJob } from '@agentport/shared';
-import { Queue } from 'bullmq';
+import { RedisClient } from 'bun';
+import { createBunRedisClient, Queue } from 'bullmq';
 import * as scheduleSyncModule from '../src/modules/ops/schedule-sync.js';
 import {
   afterAll,
@@ -56,6 +57,7 @@ describe.skipIf(!ready)('schedule routes', () => {
   let cookie: string;
   let agentId: string;
   let queue: Queue<ScheduleTriggerJob>;
+  let queueConnection: ReturnType<typeof createBunRedisClient>;
   let nextFromStrategy: () => number;
   let agentSlug: string;
   const scheduleIds: string[] = [];
@@ -112,8 +114,9 @@ describe.skipIf(!ready)('schedule routes', () => {
     cookie = await loginCookie(app);
     agentSlug = unique('sched-agent');
     agentId = (await createAgent(app, cookie, { slug: agentSlug })).json().id;
+    queueConnection = createBunRedisClient(new RedisClient(REDIS_URL));
     queue = new Queue<ScheduleTriggerJob>(SCHEDULE_TRIGGERS_QUEUE, {
-      connection: { url: REDIS_URL, maxRetriesPerRequest: null },
+      connection: queueConnection,
       prefix: PREFIX,
       settings: { repeatStrategy: () => nextFromStrategy() },
     });
@@ -133,6 +136,7 @@ describe.skipIf(!ready)('schedule routes', () => {
     if (queue) {
       await clearSchedulers().catch(() => undefined);
       await queue.close();
+      await queueConnection.quit();
     }
     if (app) {
       if (scheduleIds.length > 0) {

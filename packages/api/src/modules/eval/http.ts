@@ -5,26 +5,13 @@ import { evalRunExportSchema } from '@agentport/shared';
 import { asc, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { authorizeObject } from '../../http/access.js';
-import { type AppContext, type HttpEnv, requestContext } from '../../http/context.js';
+import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
+import { agentNotFound, toEvalRun } from './use-cases.js';
 
-const agentNotFound = '智能体不存在，可能已被删除；请刷新后重新选择';
 const EXPORT_CASE_LIMIT = 500;
 const EXPORT_RESULT_LIMIT = 500;
 const EXPORT_BYTE_LIMIT = 1024 * 1024;
-
-function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
-  return {
-    id: row.id,
-    agentId: row.agentId,
-    status: row.status,
-    total: row.total,
-    passed: row.passed,
-    error: row.error,
-    createdAt: row.createdAt.toISOString(),
-    finishedAt: row.finishedAt === null ? null : row.finishedAt.toISOString(),
-  };
-}
 
 function fileResponse(body: string, filename: string): Response {
   return new Response(body, {
@@ -38,7 +25,7 @@ function fileResponse(body: string, filename: string): Response {
   });
 }
 
-export function registerEvalHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
+export function registerEvalHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/eval/cases/export',
     access({ kind: 'permission', permissionId: 'eval.read' }),

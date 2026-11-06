@@ -1,25 +1,4 @@
-import {
-  agentsContract,
-  auditContract,
-  authContract,
-  authNativeContract,
-  channelsContract,
-  chatContract,
-  evalContract,
-  knowledgeContract,
-  marketContract,
-  memoryContract,
-  memoryReviewsContract,
-  opsContract,
-  outputSharesContract,
-  overviewContract,
-  personalContract,
-  pluginsContract,
-  runsContract,
-  runtimeEnvironmentsContract,
-  serversContract,
-  skillsContract,
-} from '@agentport/contract';
+import { apiContract } from '@agentport/contract';
 import { AppError } from '@agentport/core';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -104,48 +83,6 @@ export const apiRouter: {
   skills: skillsRouter,
 };
 
-export const apiContract: {
-  agents: typeof agentsContract;
-  audit: typeof auditContract;
-  auth: typeof authContract & typeof authNativeContract;
-  channels: typeof channelsContract;
-  chat: typeof chatContract;
-  eval: typeof evalContract;
-  knowledge: typeof knowledgeContract;
-  market: typeof marketContract;
-  memory: typeof memoryContract;
-  memoryReviews: typeof memoryReviewsContract;
-  ops: typeof opsContract;
-  outputShares: typeof outputSharesContract;
-  overview: typeof overviewContract;
-  personal: typeof personalContract;
-  plugins: typeof pluginsContract;
-  runs: typeof runsContract;
-  runtimeEnvironments: typeof runtimeEnvironmentsContract;
-  servers: typeof serversContract;
-  skills: typeof skillsContract;
-} = {
-  agents: agentsContract,
-  audit: auditContract,
-  auth: { ...authContract, ...authNativeContract },
-  channels: channelsContract,
-  chat: chatContract,
-  eval: evalContract,
-  knowledge: knowledgeContract,
-  market: marketContract,
-  memory: memoryContract,
-  memoryReviews: memoryReviewsContract,
-  ops: opsContract,
-  outputShares: outputSharesContract,
-  overview: overviewContract,
-  personal: personalContract,
-  plugins: pluginsContract,
-  runs: runsContract,
-  runtimeEnvironments: runtimeEnvironmentsContract,
-  servers: serversContract,
-  skills: skillsContract,
-};
-
 const JSON_BODY_LIMIT = 1_048_576;
 const KNOWLEDGE_UPLOAD_BODY_LIMIT = 48 * 1024 * 1024;
 
@@ -174,18 +111,18 @@ export function registerRoutes(
     }),
   );
   registerAuthRoutes(app, runtime);
-  registerAgentsHttp(app, runtime);
-  registerSkillsHttp(app, runtime);
-  registerPluginsHttp(app, runtime);
+  registerAgentsHttp(app);
+  registerSkillsHttp(app);
+  registerPluginsHttp(app);
   registerServersHttp(app, runtime);
-  registerKnowledgeHttp(app, runtime);
-  registerAuditHttp(app, runtime);
-  registerEvalHttp(app, runtime);
-  registerMemoryHttp(app, runtime);
-  registerOutputSharesHttp(app, runtime);
+  registerKnowledgeHttp(app);
+  registerAuditHttp(app);
+  registerEvalHttp(app);
+  registerMemoryHttp(app);
+  registerOutputSharesHttp(app);
   registerChatHttp(app, native);
   registerChannelsHttp(app, native);
-  registerRunsHttp(app, native);
+  registerRunsHttp(app);
   registerOpenApi(app, apiContract, { ...healthOpenAPIPaths, ...nativeOpenAPIPaths });
   const handler = createOpenAPIHandler(apiRouter);
   app.use('/api/*', (c, next) => {

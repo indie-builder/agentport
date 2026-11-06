@@ -14,6 +14,7 @@ import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
 import type { Config } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
@@ -471,7 +472,16 @@ const redisUrl = (() => {
   url.pathname = '/1';
   return url.toString();
 })();
-const connection = { url: redisUrl };
+async function obliterateQueue(): Promise<void> {
+  const redis = bunRedisConnection(redisUrl);
+  const queue = new Queue(SANDBOX_PROBES_QUEUE, { connection: redis.connection });
+  try {
+    await queue.obliterate({ force: true });
+  } finally {
+    await queue.close();
+    await redis.close();
+  }
+}
 
 function config(): Config {
   return loadConfig({
@@ -484,13 +494,9 @@ function config(): Config {
 }
 
 describe.skipIf(!ready)('registerSandboxProbe close', () => {
-  beforeAll(async () => {
-    await new Queue(SANDBOX_PROBES_QUEUE, { connection }).obliterate({ force: true });
-  });
+  beforeAll(obliterateQueue);
 
-  afterAll(async () => {
-    await new Queue(SANDBOX_PROBES_QUEUE, { connection }).obliterate({ force: true });
-  });
+  afterAll(obliterateQueue);
 
   it('reports cleanup failure instead of swallowing it', async () => {
     docker.destroyAll.mockRejectedValueOnce(new Error('rm failed'));

@@ -5,10 +5,11 @@ import { RunFailure } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent, ExecutionSettlement } from '@agentport/shared';
 import { runStreamKey } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import { and, eq, inArray } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, describe, expect, it } from 'bun:test';
+import { probeBunRedis } from './fixtures/bun-redis.js';
 import { persistRunMessages } from '../src/messages.js';
 import {
   closeRunnerClient,
@@ -22,21 +23,7 @@ import { testAccess } from './fixtures/access.js';
 const { agentOwnership, userSubject } = testAccess(import.meta.url);
 
 async function probeRedis(): Promise<boolean> {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) return false;
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
-  try {
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
-  } catch {
-    return false;
-  } finally {
-    redis.disconnect();
-  }
+  return probeBunRedis(process.env.REDIS_URL);
 }
 
 const redisUrl = process.env.REDIS_URL ?? '';
@@ -179,7 +166,7 @@ async function waitForLastEvent(
   runId: string,
   type: ChatEvent['type'],
 ): Promise<string | undefined> {
-  const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+  const redis = new RedisClient(redisUrl);
   try {
     const deadline = Date.now() + 2_000;
     while (Date.now() < deadline) {
@@ -192,7 +179,7 @@ async function waitForLastEvent(
     }
     return undefined;
   } finally {
-    redis.disconnect();
+    redis.close();
   }
 }
 
@@ -259,7 +246,7 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
       text: '完整回答',
     });
 
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     try {
       // 展示截断只是提示，不是终端错误：后续完整消息仍要能送达前端。
       const entries = (await redis.xrange(runStreamKey(runId), '-', '+')) as Array<
@@ -275,7 +262,7 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
       expect(payloads.at(-1)).toMatchObject({ type: 'assistant_text', text: '完整回答' });
     } finally {
       await redis.del(runStreamKey(runId));
-      redis.disconnect();
+      redis.close();
     }
   });
 
@@ -319,7 +306,7 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
 
     // 内部 error 只用于最终判失败；对外发布的是非终端提示，不能替成一条 error 中断 SSE。
     expect(await waitForLastEvent(runId, 'replay_truncated')).toBeDefined();
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     try {
       const entries = (await redis.xrange(runStreamKey(runId), '-', '+')) as Array<
         [string, string[]]
@@ -333,7 +320,7 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
       ]);
     } finally {
       await redis.del(runStreamKey(runId));
-      redis.disconnect();
+      redis.close();
     }
   });
 
@@ -359,9 +346,9 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
       message: expect.stringMatching(/保存上限/),
     });
 
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    redis.close();
   });
 });
 
@@ -406,9 +393,9 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     ]);
     expect(warnings).toEqual([]);
     expect(outcome.cleanupError).toBeUndefined();
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    redis.close();
   });
 
   it('reports no cleanupError when the sandbox stopped cleanly', async () => {
@@ -418,9 +405,9 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     expect(outcome.cleanupError).toBeUndefined();
     expect(outcome).not.toHaveProperty('cleanupError');
 
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    redis.close();
   });
 
   it('keeps an agent failure, its error and budget when cleanup fails', async () => {
@@ -445,9 +432,9 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     expect(isRetryable(outcome)).toBe(false);
     expect(outcome).toMatchObject({ costUsd: 0.5, turns: 2, sessionId: 'sdk-failed' });
 
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    redis.close();
   });
 
   it('keeps a timeout and its error when cleanup fails', async () => {
@@ -463,9 +450,9 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     expect(outcome.failure).toMatchObject({ reason: 'timeout' });
     expect(isRetryable(outcome)).toBe(false);
 
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    redis.close();
   });
 
   it('does not retry an uncertain execution when cleanup fails', async () => {
@@ -482,9 +469,9 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
     expect(outcome.cleanupError).toBe('docker rm -f fake failed');
     expect(isRetryable(outcome)).toBe(false);
 
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    redis.close();
   });
 });
 
@@ -560,9 +547,9 @@ describe.skipIf(!ready || !dbReady)('runInSandbox cleanup persistence', () => {
       sdkSessionId: 'sdk-cleanup',
     });
 
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    redis.close();
   });
 });
 
@@ -633,8 +620,8 @@ describe.skipIf(!ready || !dbReady)('runInSandbox byte overflow persistence', ()
       sdkSessionId: 'sdk-bytes',
     });
 
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    const redis = new RedisClient(redisUrl);
     await redis.del(runStreamKey(runId));
-    redis.disconnect();
+    redis.close();
   });
 });

@@ -1,7 +1,7 @@
 import { createDb, newId, schema } from '@agentport/db';
 import { type ChannelEvent, channelStreamKey } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import { eq, inArray } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import pino from 'pino';
 import { afterAll, describe, expect, it } from 'bun:test';
 import { publishChannelEventSafely } from '../src/channel-events.js';
@@ -18,14 +18,14 @@ const dbReady = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
-let redis: Redis | undefined;
+let redis: RedisClient | undefined;
 if (dbReady) {
   try {
-    redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, connectTimeout: 1_000 });
+    redis = new RedisClient(redisUrl, { connectionTimeout: 1_000 });
     await redis.ping();
     configureRunnerClient(redisUrl);
   } catch {
-    await redis?.quit().catch(() => undefined);
+    redis?.close();
     redis = undefined;
   }
 }
@@ -90,7 +90,7 @@ afterAll(async () => {
     await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
     await db.delete(schema.channels).where(inArray(schema.channels.id, channelIds));
   }
-  await redis?.quit().catch(() => undefined);
+  redis?.close();
   await client.close();
 });
 

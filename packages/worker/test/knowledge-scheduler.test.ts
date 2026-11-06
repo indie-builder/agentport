@@ -3,9 +3,9 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_JOBS_QUEUE } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import {
   type KnowledgeJobsQueueLike,
   type KnowledgeSchedulerQueue,
@@ -19,20 +19,13 @@ async function probeInfra(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
   const { client } = createDb(databaseUrl);
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
   try {
     await client.unsafe('select 1');
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
+    return await probeBunRedis(redisUrl);
   } catch {
     return false;
   } finally {
     await client.close().catch(() => undefined);
-    await redis.quit().catch(() => undefined);
   }
 }
 
@@ -46,6 +39,8 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
   /** 触发队列与 jobs 队列都用测试前缀：真实 worker 不会消费。 */
   let triggers: Queue<{ sourceId: string }>;
   let jobs: Queue<{ jobId: string }>;
+  let triggersRedis: ReturnType<typeof bunRedisConnection>;
+  let jobsRedis: ReturnType<typeof bunRedisConnection>;
   const logger = {
     info: () => undefined,
     warn: () => undefined,
@@ -95,12 +90,14 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
 
   beforeAll(async () => {
     ({ db, client } = createDb(process.env.DATABASE_URL ?? ''));
+    triggersRedis = bunRedisConnection(redisUrl);
     triggers = new Queue<{ sourceId: string }>('knowledge-sync-triggers', {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: triggersRedis.connection,
       prefix,
     });
+    jobsRedis = bunRedisConnection(redisUrl);
     jobs = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: jobsRedis.connection,
       prefix,
     });
     await db.insert(schema.servers).values({
@@ -143,6 +140,8 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
       await jobs?.obliterate({ force: true }).catch(() => undefined);
       await triggers?.close();
       await jobs?.close();
+      await triggersRedis?.close();
+      await jobsRedis?.close();
       if (db) {
         await db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.baseId, baseId));
         await db.delete(schema.knowledgeSources).where(eq(schema.knowledgeSources.baseId, baseId));

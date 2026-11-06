@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { ExecutionSettlement } from '@agentport/shared';
 import { runCancelKey } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, describe, expect, it } from 'bun:test';
+import { probeBunRedis } from './fixtures/bun-redis.js';
 import {
   acquireSessionSandbox,
   closeRunnerClient,
@@ -13,21 +14,7 @@ import {
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
 
 async function probeRedis(): Promise<boolean> {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) return false;
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
-  try {
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
-  } catch {
-    return false;
-  } finally {
-    redis.disconnect();
-  }
+  return probeBunRedis(process.env.REDIS_URL);
 }
 
 const redisUrl = process.env.REDIS_URL ?? '';
@@ -61,12 +48,12 @@ function input(runId: string, lease: SessionSandboxLease) {
 }
 
 async function requestCancel(runId: string): Promise<void> {
-  const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+  const redis = new RedisClient(redisUrl);
   try {
     await redis.set(runCancelKey(runId), '1', 'EX', 60);
     await redis.publish(runCancelKey(runId), '1');
   } finally {
-    redis.disconnect();
+    redis.close();
   }
 }
 

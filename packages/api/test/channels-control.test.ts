@@ -6,7 +6,7 @@ import {
   channelStreamKey,
   runCancelKey,
 } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import * as producerModule from '../src/queue/producer.js';
 import {
@@ -67,7 +67,7 @@ describe.skipIf(!ready)('channel control', () => {
   let server: TestServer;
   let adminCookie: string;
   let baseUrl: string;
-  let redis: Redis;
+  let redis: RedisClient;
   let owner: TestAccount;
   let member: TestAccount;
   let other: TestAccount;
@@ -83,7 +83,7 @@ describe.skipIf(!ready)('channel control', () => {
     adminCookie = await loginCookie(app);
     server = await listen(app);
     baseUrl = server.url;
-    redis = new Redis(testConfig().REDIS_URL);
+    redis = new RedisClient(testConfig().REDIS_URL);
     owner = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     member = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     other = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
@@ -127,7 +127,7 @@ describe.skipIf(!ready)('channel control', () => {
     );
     await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
     await app.client.unsafe('delete from audit_log where actor = $1', [owner.businessId]);
-    await redis.quit().catch(() => undefined);
+    redis.close();
     await closeProducer();
     await app.close();
   });
@@ -396,7 +396,7 @@ describe.skipIf(!ready)('channel control', () => {
     expect(stopped.statusCode, stopped.body).toBe(202);
     const [run] = await channelRuns(channel.id);
     expect(run?.status).toBe('running');
-    expect(await redis.exists(runCancelKey(runId))).toBe(1);
+    expect(await redis.exists(runCancelKey(runId))).toBe(true);
     await redis.del(runCancelKey(runId));
   });
 
@@ -429,7 +429,7 @@ describe.skipIf(!ready)('channel control', () => {
       // 本次只发出了 running 信号，不能依据陈旧快照补发频道终态。
       const [run] = await channelRuns(channel.id);
       expect(run?.status).toBe('running');
-      expect(await redis.exists(runCancelKey(runId))).toBe(1);
+      expect(await redis.exists(runCancelKey(runId))).toBe(true);
       const entries = (await redis.xrange(channelStreamKey(channel.id), '-', '+')) as Array<
         [string, string[]]
       >;
@@ -562,8 +562,8 @@ describe.skipIf(!ready)('channel control', () => {
         [channel.id],
       );
       expect(stored[0]?.archived_at).not.toBeNull();
-      expect(await redis.exists(runCancelKey(first.id))).toBe(0);
-      expect(await redis.exists(runCancelKey(second.id))).toBe(1);
+      expect(await redis.exists(runCancelKey(first.id))).toBe(false);
+      expect(await redis.exists(runCancelKey(second.id))).toBe(true);
       const failedAudit = await app.client.unsafe<{ status: string }[]>(
         "select status from audit_log where target = $1 and action = 'channel.closed'",
         [channel.id],
@@ -574,7 +574,7 @@ describe.skipIf(!ready)('channel control', () => {
       cancelState.failFor.clear();
       const retried = await call('POST', `/api/channels/${channel.id}/close`, owner.cookie);
       expect(retried.statusCode, retried.body).toBe(200);
-      expect(await redis.exists(runCancelKey(first.id))).toBe(1);
+      expect(await redis.exists(runCancelKey(first.id))).toBe(true);
     } finally {
       cancelState.failFor.clear();
       await redis.del(runCancelKey(first.id), runCancelKey(second.id));
@@ -615,8 +615,8 @@ describe.skipIf(!ready)('channel control', () => {
         [channel.id, agentId],
       );
       expect(binding[0]?.status).toBe('disconnected');
-      expect(await redis.exists(runCancelKey(first.id))).toBe(0);
-      expect(await redis.exists(runCancelKey(second.id))).toBe(1);
+      expect(await redis.exists(runCancelKey(first.id))).toBe(false);
+      expect(await redis.exists(runCancelKey(second.id))).toBe(true);
 
       cancelState.failFor.clear();
       const retried = await call(
@@ -625,7 +625,7 @@ describe.skipIf(!ready)('channel control', () => {
         owner.cookie,
       );
       expect(retried.statusCode, retried.body).toBe(204);
-      expect(await redis.exists(runCancelKey(first.id))).toBe(1);
+      expect(await redis.exists(runCancelKey(first.id))).toBe(true);
     } finally {
       cancelState.failFor.clear();
       await redis.del(runCancelKey(first.id), runCancelKey(second.id));
