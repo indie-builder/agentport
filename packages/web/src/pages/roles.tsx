@@ -488,9 +488,10 @@ export function RolesPage() {
   }
 
   return (
-    <Page>
+    <Page className="h-full min-h-0 [div:has(>&)]:h-full [div:has(>div>&)]:h-full">
       <PageHeader
         title="角色"
+        className="shrink-0"
         actions={
           canManage ? (
             <>
@@ -502,7 +503,7 @@ export function RolesPage() {
           ) : null
         }
       />
-      <PageToolbar>
+      <PageToolbar className="shrink-0">
         <SearchInput
           label="搜索权限"
           placeholder="搜索功能或权限…"
@@ -738,9 +739,9 @@ const PermissionMatrix = memo(function PermissionMatrix({
   onToggleGroup: (index: number, group: PermissionTreeGroup) => void;
 }) {
   return (
-    <section className="min-w-0 overflow-hidden rounded-card ring-1 ring-line">
+    <section className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-card ring-1 ring-line [&>[data-slot=table-container]]:h-full [&>[data-slot=table-container]]:overflow-auto">
       <Table aria-label="角色权限矩阵">
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-20">
           <TableRow className="hover:bg-transparent">
             <TableHead scope="col" className="sticky left-0 z-20 border-r border-line bg-sunken">
               功能

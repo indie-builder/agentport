@@ -131,7 +131,7 @@ function KnowledgeRow({
         aria-label={`查看知识库 ${base.name}`}
         className="absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       />
-      <div className="flex min-h-14 items-center gap-4 px-6 py-2.5">
+      <div className="flex min-h-14 items-center gap-4 py-2.5">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="min-w-0 truncate text-base font-medium text-fg" title={base.name}>

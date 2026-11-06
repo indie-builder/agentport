@@ -390,7 +390,7 @@ describe('个人记忆页', () => {
       updatedAt: null,
     });
     await mount();
-    expect(host.textContent).toContain('还没有个人记忆');
+    expect(host.textContent).toContain('个人记忆为空');
     // 空态不显示阅读态的「每轮会带入」说明，只保留空态标题与两个动作。
     expect(host.textContent).not.toContain('每轮对话会带入这些长期信息。');
     expect(
@@ -432,7 +432,10 @@ describe('个人记忆页', () => {
       content: '新偏好',
       expectedRevision: 2,
     });
-    await vi.waitFor(() => expect(host.textContent).toContain('已保存，下一轮对话会带入。'));
+    await vi.waitFor(() =>
+      expect(host.querySelector('[aria-live="polite"]')?.textContent).toBe('已保存'),
+    );
+    expect(host.textContent?.split('每轮对话会带入这些长期信息。')).toHaveLength(2);
     expect(document.getElementById('personal-memory-content')).toBeNull();
     await vi.waitFor(() => expect(host.textContent).toContain('新偏好'));
   });

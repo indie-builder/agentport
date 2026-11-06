@@ -493,16 +493,6 @@ export function StatusPage() {
         </PageSection>
       </div>
 
-      <PageNote
-        title="处置步骤"
-        description={
-          <>
-            见 <code className="font-mono text-muted-foreground">docs/RUNBOOK.md</code>
-            ；指标字段与观测入口见{' '}
-            <code className="font-mono text-muted-foreground">docs/OPERATIONS.md</code>。
-          </>
-        }
-      />
       <SmokeChecklist />
     </Page>
   );

@@ -138,6 +138,8 @@ describe('DataTable accessibility', () => {
 
   it('orders rows by the initial sort and keeps manual sorting working', async () => {
     const container = document.createElement('div');
+    container.tabIndex = -1;
+    const onRowClick = vi.fn();
     document.body.appendChild(container);
     const root = createRoot(container);
     const order = () =>
@@ -155,12 +157,20 @@ describe('DataTable accessibility', () => {
             rowKey: (row) => row.id,
             label: '运行列表',
             initialSorting: [{ id: 'startedAt', desc: true }],
-            onRowClick: () => {},
+            onRowClick,
           }),
         );
       });
       expect(direction()).toBe('descending');
       expect(order()).toEqual(['run_new', 'run_mid', 'run_old', 'run_queued']);
+      const row = container.querySelector<HTMLTableRowElement>('tbody tr');
+      const trigger = row?.querySelector<HTMLButtonElement>('button[data-row]');
+      if (!row || !trigger) throw new Error('Missing row action');
+      await act(async () => trigger.click());
+      expect(onRowClick).toHaveBeenLastCalledWith(runRows[1], trigger);
+      await act(async () => row.click());
+      expect(onRowClick).toHaveBeenCalledTimes(2);
+      expect(onRowClick).toHaveBeenLastCalledWith(runRows[1], trigger);
 
       const button = container.querySelector<HTMLButtonElement>(
         'button[aria-label="开始，按此列排序"]',
