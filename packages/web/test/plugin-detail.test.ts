@@ -283,7 +283,7 @@ describe('plugin detail', () => {
     const header = body().querySelector('[data-slot="page-header"]');
     expect(header?.textContent).not.toContain('演示插件的能力');
     expect(header?.nextElementSibling?.textContent).toBe('演示插件的能力');
-    expect(header?.nextElementSibling?.className).toContain('ps-11');
+    expect(header?.nextElementSibling?.className).toContain('ps-12');
   });
 
   it('never opens a Sheet or dialog for content, even with a file in the URL', () => {

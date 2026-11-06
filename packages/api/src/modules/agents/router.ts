@@ -68,7 +68,7 @@ function invalid(message: string) {
 function notFound() {
   return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
 }
-function toSummary(row: repo.AgentRow) {
+function toSummary(row: repo.AgentRow, serverIds?: string[]) {
   return {
     id: row.id,
     name: row.name,
@@ -82,6 +82,7 @@ function toSummary(row: repo.AgentRow) {
     uiFormat: row.uiFormat as Agent['uiFormat'],
     parentId: row.parentId,
     createdAt: row.createdAt.toISOString(),
+    ...(serverIds === undefined ? {} : { serverIds }),
   };
 }
 function assertSlugUnchanged(current: string, next: string | undefined): string | undefined {
@@ -92,8 +93,14 @@ function assertSlugUnchanged(current: string, next: string | undefined): string 
 const os = implement(agentsContract).$context<RequestContext>();
 export const agentsRouter = os.router({
   list: os.list.handler(async ({ context }) => {
-    const rows = await repo.listAgents(context.db, accessFilter(context, 'agents.read'));
-    return rows.map(toSummary);
+    const principal = requireUser(context);
+    const rows = await repo.listAgents(context.db, accessFilter(context, 'agents.read'), {
+      businessId: principal.businessId,
+      scopes: principal.grants
+        .filter((grant) => grant.permissionId === 'agents.config.read')
+        .map((grant) => grant.scope),
+    });
+    return rows.map((row) => toSummary(row, row.serverIds ?? undefined));
   }),
   create: os.create.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);

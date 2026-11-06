@@ -150,18 +150,26 @@ beforeEach(() => {
 
 describe('internal skill library empty state', () => {
   it('points to the market instead of restating that the list is empty', async () => {
-    await inspect(SkillsPage, (tree) => {
-      const note = required(
-        tree,
-        (node) => node.type === PageNote && node.props.title === '技能库为空',
-      );
-      expect(String(note.props.title)).not.toContain('暂无');
-      const action = required(
-        elements(note.props.action as ReactNode),
-        (node) => node.type === Button && node.props.children === '前往市场',
-      );
-      (action.props.onClick as () => void)();
+    client.setQueryData(['me'], {
+      ...allAccessMe,
+      grants: allAccessMe.grants.filter((grant) => grant.permissionId !== 'skills.create'),
     });
+    try {
+      await inspect(SkillsPage, (tree) => {
+        const note = required(
+          tree,
+          (node) => node.type === PageNote && node.props.title === '技能是可复用的操作流程',
+        );
+        expect(String(note.props.title)).not.toContain('暂无');
+        const action = required(
+          elements(note.props.action as ReactNode),
+          (node) => node.type === Button && node.props.children === '前往市场',
+        );
+        (action.props.onClick as () => void)();
+      });
+    } finally {
+      client.setQueryData(['me'], allAccessMe);
+    }
     expect(state.search.scope).toBe('market');
   });
 
@@ -184,9 +192,11 @@ describe('internal skill library empty state', () => {
     };
     state.search = { q: 'nomatch', usage: 'bound' };
     await inspect(SkillsPage, (tree) => {
-      expect(tree.some((node) => node.type === PageNote && node.props.title === '技能库为空')).toBe(
-        false,
-      );
+      expect(
+        tree.some(
+          (node) => node.type === PageNote && node.props.title === '技能是可复用的操作流程',
+        ),
+      ).toBe(false);
       expect(
         tree.some((node) => node.type === PageNote && node.props.title === '没有匹配的技能'),
       ).toBe(true);

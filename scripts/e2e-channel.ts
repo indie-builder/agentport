@@ -10,7 +10,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -29,9 +29,15 @@ import {
   type IsolatedDatabase,
 } from '../packages/worker/test/isolated-db.js';
 
+import {
+  parseExecutionContract,
+  parseRuntimeResource,
+  runtimeBuildTag,
+} from '../tests/support/execution-stack.js';
+
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-const IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
-const FAKE_PORT = Number(process.env.E2E_CHANNEL_FAKE_PORT ?? 4318);
+let IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
+let FAKE_PORT = Number(process.env.E2E_CHANNEL_FAKE_PORT ?? 4318);
 const REPLY_PREFIX = 'E2E-CHANNEL-REPLY';
 /** 慢响应标记：正文含它时假模型先吐半句、延迟后再收尾，供停止/刷新恢复用例观察。 */
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
@@ -44,6 +50,14 @@ const E2E_RUN_ARGS = process.argv.slice(2);
 // bun run 把分隔符 `--` 也原样带进来，而 e2e 会把它当成后面的 flag 是文件名。
 if (E2E_RUN_ARGS[0] === '--') E2E_RUN_ARGS.shift();
 const UI_PORT = Number(process.env.E2E_CHANNEL_UI_PORT ?? 3310);
+const EXECUTION_MODE = MODE === 'execution';
+const executionToken = randomBytes(32).toString('hex');
+const executionOutput = join(REPO, '.e2e', `execution-${executionToken.slice(0, 24)}`);
+let executionContract: ReturnType<typeof parseExecutionContract> | undefined;
+const executionTags = new Set<string>();
+const executionAbort = new AbortController();
+let executionSignalExitCode: number | undefined;
+let cleaningUp = false;
 const WEB_DIST = join(REPO, 'packages/web/dist');
 const ADMIN_USER = 'admin';
 const ADMIN_PASSWORD = 'e2e-channel-admin-password';
@@ -79,6 +93,7 @@ function run(
   args: string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): Promise<CommandResult> {
+  if (!cleaningUp) executionAbort.signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -127,6 +142,7 @@ async function pollUntil<T>(
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
   while (Date.now() < deadline) {
+    if (!cleaningUp) executionAbort.signal.throwIfAborted();
     try {
       const value = await check();
       if (value) return value;
@@ -199,6 +215,7 @@ function shellQuote(value: string): string {
 
 /** 浏览器 E2E 子进程：继承终端输出，失败码带回给调用方。 */
 function runBrowserE2e(env: Record<string, string>): Promise<number> {
+  executionAbort.signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(
       'node',
@@ -206,23 +223,49 @@ function runBrowserE2e(env: Record<string, string>): Promise<number> {
         join(REPO, 'node_modules/e2e/dist/cli/bin.js'),
         'run',
         'tests/support/auth.e2e.ts',
-        'tests/channels.e2e.ts',
+        ...(EXECUTION_MODE
+          ? ['tests/eval-execution.e2e.ts', 'tests/runtime-build.e2e.ts']
+          : ['tests/channels.e2e.ts']),
         '--reporter',
         'list',
+        ...(EXECUTION_MODE ? ['--output', executionOutput, '--no-cache'] : []),
         ...E2E_RUN_ARGS,
       ],
-      { cwd: REPO, env: { ...process.env, ...env }, stdio: 'inherit' },
+      {
+        cwd: REPO,
+        env: {
+          ...process.env,
+          ...env,
+          ...(EXECUTION_MODE
+            ? {
+                ANTHROPIC_BASE_URL: `http://127.0.0.1:${FAKE_PORT}`,
+                ANTHROPIC_AUTH_TOKEN: executionToken,
+                ANTHROPIC_API_KEY: '',
+              }
+            : {}),
+        },
+        stdio: 'inherit',
+        detached: EXECUTION_MODE,
+      },
     );
+    if (EXECUTION_MODE) browserProcess = child;
+    const interrupted = (): void => {
+      clearTimeout(timer);
+      reject(executionAbort.signal.reason);
+    };
+    executionAbort.signal.addEventListener('abort', interrupted, { once: true });
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       reject(new Error('浏览器 E2E 超过 30 分钟'));
     }, 1_800_000);
     child.once('error', (error) => {
       clearTimeout(timer);
+      executionAbort.signal.removeEventListener('abort', interrupted);
       reject(error);
     });
     child.once('close', (code) => {
       clearTimeout(timer);
+      executionAbort.signal.removeEventListener('abort', interrupted);
       resolve(code ?? 1);
     });
   });
@@ -236,6 +279,12 @@ async function runStackMode(databaseUrl: string, redisUrl: string, baseUrl: stri
     E2E_REDIS_URL: redisUrl,
     E2E_ADMIN_USER: ADMIN_USER,
     E2E_ADMIN_PASSWORD: ADMIN_PASSWORD,
+    ...(EXECUTION_MODE
+      ? {
+          E2E_EXECUTION_CONTRACT: join(runRoot, 'execution-contract.json'),
+          E2E_FAKE_MODEL_URL: `http://127.0.0.1:${FAKE_PORT}`,
+        }
+      : {}),
   };
   console.log('\n========== 浏览器 E2E 栈已就绪 ==========');
   for (const [key, value] of Object.entries(env)) {
@@ -258,7 +307,11 @@ async function runStackMode(databaseUrl: string, redisUrl: string, baseUrl: stri
     return;
   }
 
-  logStep('运行浏览器 E2E：tests/channels.e2e.ts');
+  logStep(
+    EXECUTION_MODE
+      ? '运行浏览器 E2E：eval-execution 与 runtime-build'
+      : '运行浏览器 E2E：tests/channels.e2e.ts',
+  );
   if (E2E_RUN_ARGS.length > 0) info(`透传 e2e 参数：${E2E_RUN_ARGS.join(' ')}`);
   const code = await runBrowserE2e(env);
   if (code !== 0) {
@@ -333,6 +386,23 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', async () => {
       const pathname = new URL(req.url ?? '/', 'http://fake').pathname;
+      if (EXECUTION_MODE && pathname === '/__e2e_execution') {
+        res.writeHead(
+          req.headers.authorization === `Bearer ${executionToken}` &&
+            executionContract !== undefined
+            ? 200
+            : 403,
+          { 'content-type': 'application/json' },
+        );
+        res.end(
+          JSON.stringify(
+            req.headers.authorization === `Bearer ${executionToken}`
+              ? (executionContract ?? null)
+              : null,
+          ),
+        );
+        return;
+      }
       requests.push({ path: pathname, at: Date.now() });
       if (pathname === '/v1/messages/count_tokens') {
         res.writeHead(200, { 'content-type': 'application/json' });
@@ -594,6 +664,7 @@ let redis: IsolatedRedis | null = null;
 let fake: FakeAnthropic | null = null;
 let apiProcess: ChildProcess | undefined;
 let workerProcess: ChildProcess | undefined;
+let browserProcess: ChildProcess | undefined;
 let apiTail = (): string => '';
 let workerTail = (): string => '';
 let runRoot = '';
@@ -602,10 +673,88 @@ let client: ReturnType<typeof createDb>['client'] | undefined;
 /** 浏览器用例失败时保留退出码；失败现场诊断在清理前按它触发。 */
 let browserE2eExitCode: number | null = null;
 
+async function stopExecutionProcess(child: ChildProcess | undefined, label: string): Promise<void> {
+  await stopChild(child, label);
+  const pid = child?.pid;
+  if (pid === undefined) return;
+  const alive = (): boolean => {
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return false;
+      throw error;
+    }
+  };
+  if (alive()) {
+    process.kill(-pid, 'SIGTERM');
+    const deadline = Date.now() + 10_000;
+    while (alive() && Date.now() < deadline) await delay(100);
+    if (alive()) process.kill(-pid, 'SIGKILL');
+    await pollUntil(`${label}进程组退出`, 10_000, async () => !alive());
+  }
+  info(`${label}进程组已停稳：pgid=${pid}`);
+}
+
+async function cleanupExecutionImages(): Promise<void> {
+  const resources = runRoot === '' ? '' : join(runRoot, 'runtime-resources.jsonl');
+  if (resources !== '' && existsSync(resources)) {
+    for (const line of (await readFile(resources, 'utf8')).split('\n').filter(Boolean)) {
+      const resource = parseRuntimeResource(JSON.parse(line));
+      if (resource.imageTag !== runtimeBuildTag(IMAGE, resource.versionId)) {
+        fail(`拒绝清理非本轮 tag：${resource.imageTag}`);
+      }
+      executionTags.add(resource.imageTag);
+    }
+  }
+  if (client !== undefined) {
+    const versions = await client.unsafe<
+      { id: string; environment_id: string; image_tag: string | null }[]
+    >(
+      `select v.id, v.environment_id, v.image_tag
+         from runtime_environment_versions v
+         join runtime_environments e on e.id = v.environment_id
+        where e.is_default = false`,
+    );
+    for (const version of versions) {
+      const imageTag = version.image_tag ?? runtimeBuildTag(IMAGE, version.id);
+      if (imageTag !== runtimeBuildTag(IMAGE, version.id)) fail(`非本轮构建 tag：${imageTag}`);
+      executionTags.add(imageTag);
+      info(
+        `回收数据库登记：${JSON.stringify({ environmentId: version.environment_id, versionId: version.id, imageTag })}`,
+      );
+    }
+  }
+  const errors: unknown[] = [];
+  for (const tag of executionTags) {
+    try {
+      const inspected = await run('docker', ['image', 'inspect', tag, '--format', '{{.Id}}']);
+      if (inspected.code === 0) {
+        const removed = await run('docker', ['image', 'rm', tag]);
+        if (removed.code !== 0) fail(`删除 ${tag} 失败：${removed.stderr}`);
+      } else if (!/No such image|No such object/i.test(inspected.stderr)) {
+        fail(`检查 ${tag} 失败：${inspected.stderr}`);
+      }
+      const absent = await run('docker', ['image', 'inspect', tag]);
+      assert(
+        absent.code !== 0 && /No such image|No such object/i.test(absent.stderr),
+        `精确 tag 已不存在：${tag}`,
+      );
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, '本轮镜像清理失败');
+}
+
 async function cleanup(): Promise<void> {
-  const keep = process.env.E2E_CHANNEL_KEEP === '1';
+  let imageCleanupError: unknown;
+  const keep = !EXECUTION_MODE && process.env.E2E_CHANNEL_KEEP === '1';
   sseAbort?.abort();
-  await stopChild(workerProcess, 'worker');
+  if (EXECUTION_MODE) {
+    await stopExecutionProcess(browserProcess, '本轮浏览器 E2E');
+    await stopExecutionProcess(workerProcess, '本轮 worker/构建');
+  } else await stopChild(workerProcess, 'worker');
   await stopChild(apiProcess, 'api');
   if (workerProcess?.pid !== undefined) {
     // 正常关停会自己停容器；这里只兜底清理本轮 worker 可能遗留的容器。
@@ -619,6 +768,13 @@ async function cleanup(): Promise<void> {
     ]).catch(() => ({ code: -1, stdout: '', stderr: '' }));
     for (const name of listed.stdout.split('\n').filter(Boolean)) {
       await run('docker', ['rm', '-f', name]).catch(() => undefined);
+    }
+  }
+  if (EXECUTION_MODE) {
+    try {
+      await cleanupExecutionImages();
+    } catch (error) {
+      imageCleanupError = error;
     }
   }
   await fake?.close().catch(() => undefined);
@@ -636,11 +792,13 @@ async function cleanup(): Promise<void> {
     await database?.close().catch(() => undefined);
     await stopRedisContainer(redis).catch(() => undefined);
   }
-  if (runRoot !== '' && !keep) {
+  if (runRoot !== '' && !keep && imageCleanupError === undefined) {
     await rm(runRoot, { recursive: true, force: true }).catch(() => undefined);
   } else if (runRoot !== '') {
     console.error(`保留临时目录：${runRoot}`);
   }
+  if (EXECUTION_MODE) await rm(executionOutput, { recursive: true, force: true });
+  if (imageCleanupError !== undefined) throw imageCleanupError;
 }
 
 const MAX_DIAGNOSTIC_ROWS = 50;
@@ -830,6 +988,9 @@ async function main(): Promise<void> {
   };
 
   const imageReady = await probeEntry();
+  if (EXECUTION_MODE && (!imageReady || process.env.E2E_CHANNEL_REBUILD_IMAGE === '1')) {
+    fail('execution 模式要求已构建的沙盒基座，不允许覆盖已有 tag');
+  }
   if (!imageReady || process.env.E2E_CHANNEL_REBUILD_IMAGE === '1') {
     info(
       imageReady
@@ -845,6 +1006,16 @@ async function main(): Promise<void> {
   assert(imageId !== null, `沙盒镜像可用：${IMAGE}`);
   assert(await probeEntry(), `镜像包含当前 supervisor：${requiredEntry}`);
   info(`image id: ${imageId}`);
+  if (EXECUTION_MODE) {
+    IMAGE = `agentport/e2e-${randomBytes(12).toString('hex')}:base`;
+    const tagged = await run('docker', ['tag', imageId ?? fail('缺少基座 image ID'), IMAGE]);
+    if (tagged.code !== 0) fail(tagged.stderr);
+    executionTags.add(IMAGE);
+    executionTags.add(
+      `${IMAGE.slice(0, IMAGE.lastIndexOf(':'))}:runtime-base-${imageId?.slice(7, 19)}`,
+    );
+    info(`本轮独享基座 tag：${IMAGE}`);
+  }
 
   logStep('启动隔离 PostgreSQL（随机库）与临时 Redis 容器');
   database = await createIsolatedDatabase('e2e_channel', adminDatabaseUrl);
@@ -857,7 +1028,8 @@ async function main(): Promise<void> {
   const created = createDb(database.url);
   client = created.client;
 
-  logStep(`启动假 Anthropic SSE（固定端口 ${FAKE_PORT}）`);
+  if (EXECUTION_MODE) FAKE_PORT = await freePort();
+  logStep(`启动假 Anthropic SSE（端口 ${FAKE_PORT}）`);
   fake = await startFakeAnthropic(FAKE_PORT);
   info(`http://127.0.0.1:${FAKE_PORT}`);
 
@@ -869,7 +1041,7 @@ async function main(): Promise<void> {
   info(`临时工作区：${workspacesDir}`);
 
   if (MODE !== 'assert') await ensureWebBuild();
-  const apiPort = MODE === 'assert' ? await freePort() : UI_PORT;
+  const apiPort = MODE === 'assert' || EXECUTION_MODE ? await freePort() : UI_PORT;
   const modelProxyPort = await freePort();
   const baseUrl = `http://127.0.0.1:${apiPort}`;
   const appSecret = randomBytes(32).toString('base64url');
@@ -957,6 +1129,7 @@ async function main(): Promise<void> {
   };
   workerProcess = spawn('bun', [join(REPO, 'packages/worker/src/index.ts')], {
     cwd: join(REPO, 'packages/worker'),
+    detached: EXECUTION_MODE,
     env: workerEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -990,6 +1163,31 @@ async function main(): Promise<void> {
     defaultEnvironment.image_id === imageId,
     `默认运行环境使用本次沙盒镜像（${defaultEnvironment.image_id}）`,
   );
+
+  if (EXECUTION_MODE) {
+    const inspectedRedis = await run('docker', ['inspect', '--format', '{{.Id}}', redis.name]);
+    if (inspectedRedis.code !== 0) fail(inspectedRedis.stderr);
+    executionContract = parseExecutionContract({
+      kind: 'e2e-channel-execution',
+      appUrl: baseUrl,
+      databaseUrl: database.url,
+      databaseName: database.name,
+      redisUrl: redis.url,
+      redisContainerId: inspectedRedis.stdout.trim(),
+      fakeModelUrl: `http://127.0.0.1:${FAKE_PORT}`,
+      sandboxImage: IMAGE,
+      ownerPid: process.pid,
+      workerPid: workerProcess.pid,
+      token: executionToken,
+    });
+    await writeFile(join(runRoot, 'execution-contract.json'), JSON.stringify(executionContract), {
+      flag: 'wx',
+      mode: 0o600,
+    });
+    info(
+      `本轮隔离资源：${JSON.stringify({ database: database.name, redisContainerId: executionContract.redisContainerId, workerPid: workerProcess.pid, appUrl: baseUrl })}`,
+    );
+  }
 
   // 浏览器模式到此栈已可用于真实页面；原有无浏览器断言继续走 assert 模式。
   if (MODE !== 'assert') {
@@ -1282,20 +1480,37 @@ run2: ${run2.id}
   console.log('全部断言通过');
 }
 
+if (EXECUTION_MODE) {
+  const interrupt = (signal: NodeJS.Signals): void => {
+    if (executionAbort.signal.aborted) return;
+    executionSignalExitCode = signal === 'SIGINT' ? 130 : 143;
+    process.exitCode = executionSignalExitCode;
+    executionAbort.abort(new Error(`execution 收到 ${signal}`));
+  };
+  process.on('SIGINT', interrupt);
+  process.on('SIGTERM', interrupt);
+}
+
 let mainError: unknown;
 try {
   await main();
 } catch (error) {
   mainError = error;
 } finally {
-  if (mainError !== undefined || browserE2eExitCode !== null) {
+  cleaningUp = true;
+  if (!executionAbort.signal.aborted && (mainError !== undefined || browserE2eExitCode !== null)) {
     await printFailureDiagnostics().catch((error: unknown) =>
       console.error(`失败现场诊断输出出错：${String(error)}`),
     );
   }
   console.log('\n==> 清理');
-  await cleanup();
-  console.log('清理完成');
+  try {
+    await cleanup();
+    console.log('清理完成');
+  } catch (error) {
+    console.error(`清理失败：${String(error)}`);
+    process.exitCode = 1;
+  }
 }
 
 if (mainError !== undefined) {
@@ -1304,3 +1519,4 @@ if (mainError !== undefined) {
   );
   process.exitCode = 1;
 }
+if (executionSignalExitCode !== undefined) process.exitCode = executionSignalExitCode;

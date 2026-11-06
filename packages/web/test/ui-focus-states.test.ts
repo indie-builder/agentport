@@ -419,7 +419,7 @@ describe('error and focus states stay distinguishable', () => {
       const classNames = probeClasses(name);
       // 默认输入边线等同 line，不新增 hover 加深。
       expect(winning(rules, classNames, {}, false, 'border-color')).toBe('var(--color-input)');
-      expect(winning(rules, classNames, {}, true, 'border-color')).toBe('var(--color-input-focus)');
+      expect(winning(rules, classNames, {}, true, 'border-color')).toBe('var(--color-subtle)');
       // 普通聚焦只换边线，不再叠 ring 或外轮廓。
       expect(ringVisible(rules, classNames, {}, true)).toBe(false);
       expect(outlineVisible(rules, classNames, {}, true)).toBe(false);

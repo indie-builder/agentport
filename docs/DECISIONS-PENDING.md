@@ -619,13 +619,19 @@
 
 **影响面**：`packages/core/src/tools.ts`、`packages/worker/src/index.ts`、`packages/sandbox/src/runner.ts`、`docs/SECURITY.md`；改变边界会触及原生 MCP 集成、凭据信任与功能语义。
 
-## D-77 ⏳ 技能市场安装按钮的 UX 缺口与未消费视觉令牌（2026-10-31，清理任务发现）
+## D-77 ✅ 技能市场安装按钮 UX 缺口已修复；视觉令牌保留（2026-11-06，本 PR 交付）
 
-**发现**：`packages/web/src/pages/skills.tsx` 的 `MarketSkillsPage` 接收 `canInstall` 却未消费，无权限用户仍看到可点击的安装入口，属按钮 UX 缺口；API 仍按 `market.install` 强制鉴权，不存在安全漏洞。`--shadow-composer` 在 `packages/web/src/styles.css` 与 `docs/DESIGN-SYSTEM.md` 有定义/规范，但当前组件未消费，属文档与实现未消费的冲突；按视觉规范保留，不作为死代码删除。
+**发现（2026-10-31）**：`packages/web/src/pages/skills.tsx` 的市场安装入口不感知 `market.install`，无权限用户仍看到可点击按钮。旧说明写“`MarketSkillsPage` 接收 `canInstall` 却未消费”；复核基线 `914c852` 中未传入 `canInstall`，旧条目描述不再对应当前实现。API 始终按 `market.install` 强制鉴权，不构成安全漏洞。
 
-**当前处理**：本轮代码清理不扩功能、不加门禁：不补安装按钮的禁用/隐藏与权限提示，也不删除视觉 token；API 强制权限与组件现有行为保持不变。是否补按钮反馈作为独立 UX 任务另行决定，不新建 LoopX todo。
+**修复**：页面用 `can(me.data, 'market.install')` 得出 `canInstall` 并传入 `MarketSkillsPage`；无权限时安装按钮禁用，显示“当前账户没有安装市场技能的权限”，按钮 `aria-label` 与 `title` 说明原因；有权限时行为不变。
 
-**影响面**：`packages/web/src/pages/skills.tsx`、`packages/web/src/styles.css`、`docs/DESIGN-SYSTEM.md`。
+**验证**：源码独立 Opus 审查 PASS。`/tmp/migration-acceptance-market-safe/evidence.json` 与 `cleanup.json` 记录：独享容器下 1440/1200/1024 三视口无权限按钮全部禁用、权限提示与 aria 可见、无横向溢出；真实无权限 `POST` 返回 403，未触发上游下载或技能创建；结束后按本次容器 ID 删除 Redis、删除临时库。真实有权限安装由 `/tmp/migration-acceptance-e2e-report.md`“市场安装”一节验收（201、持久化、重复 409、删除 204）。
+
+**状态**：源码修复与验收已完成，随本 PR 交付；合并状态以 GitHub 为准。
+
+**视觉令牌边界**：`--shadow-composer` 按 `docs/DESIGN-SYSTEM.md` 既有规范保留；令牌是否被某个组件消费不构成功能缺陷，本轮不删除 token，也不新增 UI 需求。
+
+**影响面**：`packages/web/src/pages/skills.tsx`；`packages/web/src/styles.css` 与 `docs/DESIGN-SYSTEM.md` 仅保留现状，不做改动。
 
 ## D-78 ⏳ overview 接口 p95/p99 尾部回归（2026-11-06，Bun 迁移合并前记录；同日定位更新）
 

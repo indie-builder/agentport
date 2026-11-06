@@ -10,8 +10,10 @@ const css = await readFile(
   join(dirname(fileURLToPath(import.meta.url)), '../src/styles.css'),
   'utf8',
 );
+const theme = /@theme\s*\{([\s\S]*?)^\}/m.exec(css);
+if (!theme) throw new Error('missing @theme block');
 const declarations = new Map<string, string>();
-for (const match of css.matchAll(/(--color-[a-z-]+):\s*([^;]+);/g)) {
+for (const match of theme[1].matchAll(/(--color-[a-z-]+):\s*([^;]+);/g)) {
   declarations.set(match[1], match[2].trim());
 }
 

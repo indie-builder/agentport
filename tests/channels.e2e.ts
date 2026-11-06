@@ -176,9 +176,18 @@ async function sendMention(screen: Screen, agentName: string, text: string): Pro
   await screen.getByRole('button', '发送消息').tap();
 }
 
-async function waitForReply(screen: Screen, expected: string): Promise<void> {
-  await expect(screen.getByText(expected, { exact: false })).toBeVisible({ timeout: 120_000 });
-  await expect(screen.getByText('空闲').first()).toBeVisible({ timeout: 60_000 });
+function channelReplyLocator(browser: Browser, promptLine: string) {
+  return browser
+    .locator('[data-message-id]')
+    .filter({ hasText: REPLY_PREFIX })
+    .filter({ hasText: promptLine });
+}
+
+async function waitForReply(screen: Screen, browser: Browser, promptLine: string): Promise<void> {
+  const reply = channelReplyLocator(browser, promptLine);
+  await expect(reply).toHaveCount(1, { timeout: 120_000 });
+  await expect(reply).toBeVisible({ timeout: 120_000 });
+  await expect(screen.getByText('空闲', { visible: true })).toBeVisible({ timeout: 60_000 });
 }
 
 async function latestRunStatus(channelId: string): Promise<string | undefined> {
@@ -217,14 +226,15 @@ test('binds an agent to a channel and shows it in the detail', { session: 'admin
   const channel = await createChannel(browser, 'bind');
 
   await app.open(`/channels/${channel.id}`);
-  await expect(screen.getByText('尚未绑定智能体')).toBeVisible();
+  await expect(screen.getByRole('heading', { name: /智能体\s*0/ })).toBeVisible();
 
   await screen.getByLabel('选择要绑定的智能体').tap();
-  await screen.getByRole('option', { name: agent.name }).tap();
+  await screen.getByRole('option', { name: agent.name, exact: false }).tap();
   await screen.getByRole('button', '绑定智能体').tap();
 
   await expect(screen.getByText('智能体已加入频道')).toBeVisible();
-  await expect(screen.getByText(agent.name).first()).toBeVisible();
+  await expect(screen.getByText(agent.name, { visible: true })).toBeVisible();
+  await expect(screen.getByText('空闲', { visible: true })).toBeVisible();
   const rows = await runFixture('channels', 'bindingCount', channel.id, agent.id);
   expect(rows[0]?.count).toBe('1');
 });
@@ -263,12 +273,11 @@ test('@ mentions an agent, streams a reply and returns to idle', { session: 'adm
   await bindAgent(browser, channel.id, agent.id);
 
   await app.open(`/channels/${channel.id}`);
-  const text = `E2E 主路径 ${uniqueSuffix()}`;
+  const text = `${SLOW_MARKER} E2E 主路径 ${uniqueSuffix()}`;
   await sendMention(screen, agent.name, text);
 
-  await expect(screen.getByText('运行中').first()).toBeVisible({ timeout: 60_000 });
-  await waitForReply(screen, `${REPLY_PREFIX} @${agent.name} ${text}`);
-  await expect(screen.getByText('空闲').first()).toBeVisible({ timeout: 60_000 });
+  await expect(screen.getByText('运行中', { visible: true })).toBeVisible({ timeout: 60_000 });
+  await waitForReply(screen, browser, `@${agent.name} ${text}`);
 });
 
 test('a second @ reuses the same channel lane', { session: 'admin' }, async ({
@@ -284,16 +293,25 @@ test('a second @ reuses the same channel lane', { session: 'admin' }, async ({
   await app.open(`/channels/${channel.id}`);
   const first = `E2E 复用第一条 ${uniqueSuffix()}`;
   await sendMention(screen, agent.name, first);
-  await waitForReply(screen, `${REPLY_PREFIX} @${agent.name} ${first}`);
+  await waitForReply(screen, browser, `@${agent.name} ${first}`);
 
   const second = `E2E 复用第二条 ${uniqueSuffix()}`;
   await sendMention(screen, agent.name, second);
-  await waitForReply(screen, `${REPLY_PREFIX} @${agent.name} ${second}`);
+  await waitForReply(screen, browser, `@${agent.name} ${second}`);
 
-  const runs = await runFixture('channels', 'runs', channel.id);
-  expect(runs.length).toBe(2);
-  expect(new Set(runs.map((run) => run.conversation_id)).size).toBe(1);
-  expect(runs.map((run) => run.status).join(',')).toBe('succeeded,succeeded');
+  await expect
+    .poll(
+      async () => {
+        const runs = await runFixture('channels', 'runs', channel.id);
+        return {
+          count: runs.length,
+          lanes: new Set(runs.map((run) => run.conversation_id)).size,
+          statuses: runs.map((run) => run.status).join(','),
+        };
+      },
+      { timeout: 60_000 },
+    )
+    .toEqual({ count: 2, lanes: 1, statuses: 'succeeded,succeeded' });
   const lanes = await runFixture('channels', 'laneCount', channel.id, agent.id);
   expect(lanes[0]?.count).toBe('1');
 });
@@ -375,7 +393,7 @@ test('reloads a running channel and recovers the streamed content', { session: '
   await expect(screen.getByText(REPLY_PREFIX, { exact: false }).first()).toBeVisible({
     timeout: 120_000,
   });
-  await expect(screen.getByText('空闲').first()).toBeVisible({ timeout: 60_000 });
+  await expect(screen.getByText('空闲', { visible: true })).toBeVisible({ timeout: 60_000 });
 });
 
 test('shows unread from another member and clears it after reading', { session: 'admin' }, async ({

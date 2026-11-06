@@ -155,16 +155,16 @@ async function click(element: HTMLElement): Promise<void> {
   await flush();
 }
 
-function serverCard(name: string): HTMLElement {
-  const card = [...document.querySelectorAll<HTMLElement>('[data-slot="server-card"]')].find(
-    (item) => item.textContent?.includes(name),
+function serverRow(name: string): HTMLElement {
+  const row = [...document.querySelectorAll<HTMLElement>('tbody tr[role="row"]')].find((item) =>
+    item.textContent?.includes(name),
   );
-  if (!card) throw new Error(`Missing server card: ${name}`);
-  return card;
+  if (!row) throw new Error(`Missing server row: ${name}`);
+  return row;
 }
 
 async function openTest(name: string): Promise<HTMLButtonElement> {
-  const trigger = serverCard(name).querySelector<HTMLButtonElement>(`[aria-label="操作 ${name}"]`);
+  const trigger = serverRow(name).querySelector<HTMLButtonElement>(`[aria-label="操作 ${name}"]`);
   if (!trigger) throw new Error(`Missing server menu: ${name}`);
   await act(async () => {
     trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
@@ -237,19 +237,19 @@ describe('server search', () => {
   it('matches a connector by its catalog display name as well as its slug', async () => {
     vi.spyOn(api, 'servers').mockResolvedValue([huggingFaceServer]);
     await mount([huggingFaceServer], { catalog: [huggingFaceCatalogItem] });
-    const cards = () => document.querySelectorAll('[data-slot="server-card"]');
+    const cards = () => document.querySelectorAll('tbody tr[role="row"]');
     expect(cards()).toHaveLength(1);
-    const card = serverCard('Hugging Face');
+    const card = serverRow('Hugging Face');
 
     state.search = { q: 'Hugging Face' };
     await render();
     expect(cards()).toHaveLength(1);
-    expect(serverCard('Hugging Face')).toBe(card);
+    expect(serverRow('Hugging Face')).toBe(card);
 
     state.search = { q: 'huggingface' };
     await render();
     expect(cards()).toHaveLength(1);
-    expect(serverCard('Hugging Face')).toBe(card);
+    expect(serverRow('Hugging Face')).toBe(card);
 
     state.search = { q: 'no-such-connector' };
     await render();
@@ -301,7 +301,7 @@ describe('server test environment identity', () => {
     expect(testServer).toHaveBeenNthCalledWith(3, generatedServer.id, null);
     expect(document.querySelector('[role="dialog"]')).toBeNull();
 
-    await click(button(`查看 ${httpServer.name} 工具与测试详情`));
+    await click(button(`打开 ${httpServer.name}`));
     const tools = dialog(`工具与试连「${httpServer.name}」`);
     expect(tools.textContent).toContain('http-tool');
     expect(tools.textContent).not.toContain(namedEnvironment.name);
@@ -342,7 +342,7 @@ describe('server test environment identity', () => {
     await click(button('开始测试', dialog(`测试 ${secondStdioServer.name}`)));
     expect(testServer).toHaveBeenNthCalledWith(2, secondStdioServer.id, otherEnvironment.id);
 
-    await click(button(`查看 ${stdioServer.name} 工具与测试详情`));
+    await click(button(`打开 ${stdioServer.name}`));
     const details = dialog(`工具与试连「${stdioServer.name}」`);
     await click(button('重新测试', details));
     const environmentDialog = dialog(`测试 ${stdioServer.name}`);
@@ -370,11 +370,11 @@ describe('server test environment identity', () => {
     });
     await mount([refreshed]);
 
-    const card = serverCard(stdioServer.name);
+    const card = serverRow(stdioServer.name);
     expect(card.textContent).toContain(`环境 ${namedEnvironment.name} · 1234abcd`);
     expect(card.textContent).not.toContain('未测试');
 
-    await click(button(`查看 ${stdioServer.name} 工具与测试详情`));
+    await click(button(`打开 ${stdioServer.name}`));
     const tools = dialog(`工具与试连「${stdioServer.name}」`);
     expect(tools.textContent).toContain(`环境 ${namedEnvironment.name} · 1234abcd`);
     expect(tools.textContent).toContain('重新测试后查看工具目录。');
@@ -459,7 +459,7 @@ describe('server test environment identity', () => {
     let environmentAttempts = 0;
     // 页面同时请求连接器目录，试连成功后还会刷新连接器列表；按 URL 区分，不能依赖调用顺序。
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.includes('/connector-catalog')) return Promise.resolve(Response.json([]));
       if (url.includes('/servers')) return Promise.resolve(Response.json([stdioServer]));
       if (url.includes('/runtime-environments')) {

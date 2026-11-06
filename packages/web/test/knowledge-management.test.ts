@@ -548,7 +548,7 @@ describe('knowledge library list', () => {
     );
     await mount('/knowledge');
     expect(document.querySelectorAll('h1')).toHaveLength(1);
-    expect(document.body.textContent).toContain('还没有知识库');
+    expect(document.body.textContent).toContain('知识库保存可检索的文档与 Wiki');
     expect(button('新建知识库')).toBeDefined();
   });
 
@@ -560,13 +560,13 @@ describe('knowledge library list', () => {
       ),
     );
     await mount('/knowledge');
-    const card = document.querySelector<HTMLElement>('[data-slot="card"]');
-    const links = card?.querySelectorAll<HTMLAnchorElement>('a[href="/knowledge/kb_1"]') ?? [];
-    expect(links).toHaveLength(1);
-    const link = links[0];
-    expect(link.getAttribute('aria-label')).toContain('产品手册');
-    expect(card?.textContent).toContain('产品手册');
-    expect(card?.textContent).toContain('内部知识');
+    const link = document.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
+    const row = link?.closest<HTMLElement>('li');
+    expect(row).not.toBeNull();
+    expect(row?.querySelectorAll('a[href="/knowledge/kb_1"]')).toHaveLength(1);
+    expect(link?.getAttribute('aria-label')).toContain('产品手册');
+    expect(row?.textContent).toContain('产品手册');
+    expect(row?.textContent).toContain('内部知识');
     expect(document.body.textContent).toContain('启用');
     expect(document.body.textContent).toContain('共 1 个知识库');
     expect(document.querySelectorAll('h1')).toHaveLength(1);
@@ -583,14 +583,16 @@ describe('knowledge library list', () => {
   it('covers the whole card with the detail link while keeping the action menu separate', async () => {
     baseHandlers();
     const router = await mount('/knowledge');
-    const card = document.querySelector<HTMLElement>('[data-slot="card"]');
-    const link = card?.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
-    // 覆盖整卡：入口是 Card 的直接子节点并铺满整卡，描述与页脚也在点击范围内，
+    const row = document
+      .querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]')
+      ?.closest<HTMLElement>('li');
+    const link = row?.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
+    // 覆盖整行：入口是行的直接子节点并铺满整行，描述也在点击范围内，
     // 而不是只有标题可点。
-    expect(link?.parentElement).toBe(card);
+    expect(link?.parentElement).toBe(row);
     expect(link?.className).toContain('absolute');
     expect(link?.className).toContain('inset-0');
-    expect(card?.querySelectorAll('a')).toHaveLength(1);
+    expect(row?.querySelectorAll('a')).toHaveLength(1);
 
     await openMenu('操作 产品手册');
     expect(document.querySelector('[role="menuitem"]')).not.toBeNull();

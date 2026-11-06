@@ -9,7 +9,7 @@
 
 项目自有技能放在 `.claude/skills/` 的真实目录，不写入 `.agents/skills/`，也不登记 `skills-lock.json`；它们不是上游 vendored，升级或重装上游技能时不得覆盖、删除。
 
-- `visual-check`：开发完成后的 UI 视觉抽查。`scripts/visual-shots.mjs` 默认起隔离临时库 + API/Web，登录后按多个桌面视口截图并打开，结束停服务、删临时库；`--base-url` 复用已有栈。截图产物在 `.visual/`（已 gitignore）。
+- `visual-check`：开发完成后的 UI 视觉抽查。`bun run visual:shots`（`scripts/visual-shots.mjs`）默认起隔离临时 PG 库、独享 Redis 容器与 API/Web，登录后按多个桌面视口截图并打开，结束停本工具启动的进程、删本次 Redis 容器与临时库；`--base-url` 复用已有栈且不创建/销毁服务，`--keep` 保留环境并打印手动清理命令。截图产物在 `.visual/`（已 gitignore）。
 
 ## 范围
 

@@ -351,7 +351,7 @@ describe('conversation outputs list', () => {
     await mount();
     await openWorkspace();
     expect(workspace().textContent).toContain('当前会话没有成果文件');
-    expect(workspace().textContent).not.toContain('开始对话或打开已有会话后查看成果');
+    expect(workspace().textContent).not.toContain('会话产生的成果会显示在这里');
 
     vi.mocked(api.outputs).mockRejectedValueOnce(new Error('outputs unavailable'));
     await act(async () => {
@@ -2256,7 +2256,7 @@ describe('output refresh and conversation isolation', () => {
     await act(async () => create.click());
     await flush();
     expect(router.state.location.search).toEqual({ agent: 'agent-a' });
-    expect(workspace().textContent).toContain('开始对话或打开已有会话后查看成果');
+    expect(workspace().textContent).toContain('会话产生的成果会显示在这里');
     expect(workspace().querySelector('pre')).toBeNull();
   });
 
@@ -2282,7 +2282,7 @@ describe('output refresh and conversation isolation', () => {
     await act(async () => option.click());
     await flush();
     expect(router.state.location.search).toEqual({ agent: 'agent-b' });
-    expect(workspace().textContent).toContain('开始对话或打开已有会话后查看成果');
+    expect(workspace().textContent).toContain('会话产生的成果会显示在这里');
     expect(workspace().querySelector('pre')).toBeNull();
   });
 

@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DataTable } from '../src/components/data-table.js';
 import { ErrorState } from '../src/components/states.js';
 import { Combobox } from '../src/components/ui/combobox.js';
 import { Field } from '../src/components/ui/field.js';
@@ -211,6 +212,13 @@ function required(tree: Element[], predicate: (node: Element) => boolean): Eleme
   if (!found) throw new Error('Missing expected control');
   return found;
 }
+function serverCell(tree: Element[], id: string): (row: Server) => ReactNode {
+  const table = required(tree, (node) => node.type === DataTable);
+  const columns = table.props.columns as Array<{ id: string; cell?: (row: Server) => ReactNode }>;
+  const column = columns.find((entry) => entry.id === id);
+  if (!column?.cell) throw new Error(`Missing server column: ${id}`);
+  return column.cell;
+}
 function text(tree: Element[]) {
   return tree
     .flatMap((node) =>
@@ -394,8 +402,7 @@ describe('resource async state regressions', () => {
         });
       let retry: (() => void) | undefined;
       inspect(queryClient, ServersPage, (tree) => {
-        const card = required(tree, (node) => node.props.server === server);
-        expect(card.props.agentCount).toBe(status === 'error' ? '未知' : '加载中…');
+        expect(serverCell(tree, 'agents')(server)).toBe(status === 'error' ? '未知' : '加载中…');
         if (status === 'error')
           retry = required(tree, (node) => node.type === ErrorState).props.onRetry as () => void;
       });
@@ -406,7 +413,7 @@ describe('resource async state regressions', () => {
           expect(queryClient.getQueryState(['agents'])?.status).toBe('success'),
         );
         inspect(queryClient, ServersPage, (tree) => {
-          expect(required(tree, (node) => node.props.server === server).props.agentCount).toBe(1);
+          expect(serverCell(tree, 'agents')(server)).toBe(1);
         });
       }
     },
@@ -433,8 +440,10 @@ describe('resource async state regressions', () => {
     inspect(queryClient, ServersPage, (tree, pass) => {
       if (pass === 0) {
         (
-          required(tree, (node) => (node.props.server as Server | undefined)?.id === stdioServer.id)
-            .props.onTest as (trigger: HTMLElement) => void
+          required(
+            elements(serverCell(tree, 'actions')(stdioServer)),
+            (node) => typeof node.props.onTest === 'function',
+          ).props.onTest as (trigger: HTMLElement) => void
         )(document.createElement('button'));
         return;
       }
@@ -451,15 +460,11 @@ describe('resource async state regressions', () => {
       confirmed = true;
       (dialog.props.onConfirm as (environmentId: string) => void)(namedEnvironment.id);
     });
-    await vi.waitFor(() =>
-      expect(fetchSpy).toHaveBeenCalledWith(
-        '/api/servers/server-stdio/test',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ runtimeEnvironmentId: namedEnvironment.id }),
-        }),
-      ),
-    );
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const request = fetchSpy.mock.calls[0]?.[0] as Request;
+    expect(request.url).toMatch(/\/api\/servers\/server-stdio\/test$/);
+    expect(request.method).toBe('POST');
+    expect(await request.clone().json()).toEqual({ runtimeEnvironmentId: namedEnvironment.id });
   });
 
   it('locks only the approval checkbox whose tool is being edited', () => {
@@ -469,9 +474,10 @@ describe('resource async state regressions', () => {
     inspect(queryClient, ServersPage, (tree, pass) => {
       if (pass === 0) {
         (
-          required(tree, (node) => node.props.server === server).props.onTools as (
-            trigger: unknown,
-          ) => void
+          required(
+            elements(serverCell(tree, 'actions')(server)),
+            (node) => typeof node.props.onTools === 'function',
+          ).props.onTools as (trigger: unknown) => void
         )({});
       } else
         dialog = required(

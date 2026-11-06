@@ -10,10 +10,13 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const LOG_DIR = join(ROOT, '.visual', 'logs');
 const API_PORT = 3000;
 const WEB_PORT = 5173;
+const REDIS_IMAGE =
+  'redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537';
 
 const USAGE = `用法: node scripts/visual-shots.mjs --route <path> [options]
 
-把开发完成的路由在多个视口下截图并打开。默认起隔离临时库与 API/Web，结束后清理。
+把开发完成的路由在多个视口下截图并打开。默认起隔离临时 PG 库、独享 Redis 容器与 API/Web。
+Redis 使用已缓存镜像与 loopback 随机端口，API 忽略外部 REDIS_URL；结束仅删除本次容器 ID。
 
 必填:
   --route <path>          要截图的路由，可重复；支持 query，如 /agents?q=x
@@ -24,7 +27,7 @@ const USAGE = `用法: node scripts/visual-shots.mjs --route <path> [options]
   --seed <mode>           none | minimal | dev-data，默认 minimal
                           minimal：库里没有数据时造 2 个 agent + 1 个频道
                           dev-data：调用 bun run dev:data（重，失败只提示不阻塞）
-  --base-url <url>        复用已有栈，跳过起环境/建库；只登录、截图、打开
+  --base-url <url>        复用已有栈，不创建或销毁 PG/Redis/应用服务；只登录、截图、打开
   --wait-ms <n>           每页稳定等待毫秒，默认 1200
   --open / --no-open      截图后是否用系统默认程序打开，默认打开
   --full                  截整页长图（按文档实际高度，不被视口截断）
@@ -191,6 +194,67 @@ function runPsql(args) {
     });
   }
   return result;
+}
+
+async function startRedis(state) {
+  const name = `pace_visual_redis_${randomBytes(8).toString('hex')}`;
+  const created = spawnSync(
+    'docker',
+    [
+      'create',
+      '--name',
+      name,
+      '--pull=never',
+      '-p',
+      '127.0.0.1::6379',
+      REDIS_IMAGE,
+      'redis-server',
+      '--save',
+      '',
+      '--appendonly',
+      'no',
+    ],
+    { encoding: 'utf8' },
+  );
+  const id = created.stdout?.trim();
+  if (/^[a-f0-9]{64}$/.test(id ?? '')) state.redisId = id;
+  if (created.status !== 0 || !state.redisId) {
+    fail(`创建独享 Redis 失败：${created.stderr?.trim() || created.error?.message || '未返回容器 ID'}`);
+  }
+  console.log(`[visual-shots] 独享 Redis：${name}，容器 ID ${state.redisId}`);
+  const started = spawnSync('docker', ['start', state.redisId], { encoding: 'utf8' });
+  if (started.status !== 0) fail(`启动独享 Redis 失败：${started.stderr?.trim()}`);
+  const mapped = spawnSync('docker', ['port', state.redisId, '6379/tcp'], { encoding: 'utf8' });
+  const match = /^127\.0\.0\.1:(\d+)$/.exec(mapped.stdout?.trim() ?? '');
+  if (mapped.status !== 0 || !match) {
+    fail(`读取独享 Redis 端口失败：${mapped.stderr?.trim() || mapped.stdout?.trim()}`);
+  }
+  state.redisUrl = `redis://127.0.0.1:${match[1]}/0`;
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const ready = spawnSync('docker', ['exec', state.redisId, 'redis-cli', 'ping'], {
+      encoding: 'utf8',
+    });
+    if (ready.status === 0 && ready.stdout.trim() === 'PONG') {
+      console.log(`[visual-shots] 独享 Redis 就绪：${state.redisUrl}`);
+      return;
+    }
+    await sleep(100);
+  }
+  fail(`独享 Redis 未就绪：${state.redisId}`);
+}
+
+function stopRedis(state) {
+  if (!state.redisId) return;
+  const removed = spawnSync('docker', ['rm', '-f', state.redisId], { encoding: 'utf8' });
+  if (removed.status !== 0) {
+    console.error(
+      `[visual-shots] 独享 Redis 清理失败：${removed.stderr?.trim()}\n手动执行：docker rm -f ${state.redisId}`,
+    );
+    process.exitCode = 1;
+  } else {
+    console.log(`[visual-shots] 已删除独享 Redis 容器 ${state.redisId}`);
+  }
 }
 
 function tailFile(path, lines = 25) {
@@ -544,30 +608,39 @@ function cleanupAll() {
   if (cleanedUp || !activeOpts || !activeState || activeOpts.keep) return;
   cleanedUp = true;
   stopServices(activeState.services);
+  stopRedis(activeState);
   if (activeState.dbName) dropDatabase(activeState);
 }
 
 function printKeepHint(state) {
-  if (!state.dbName) return;
+  if (!state.dbName && !state.redisId) return;
   console.log('\n[visual-shots] --keep 已保留环境：');
   for (const service of state.services) {
     console.log(`  ${service.label}: pid ${service.child.pid}, 日志 ${service.log}`);
+    console.log(`  手动停止 ${service.label}：kill -- -${service.child.pid}`);
   }
-  console.log(`  临时库：${state.dbName}`);
-  console.log('  手动停止：kill -- -<api pid> -<web pid>；然后执行');
-  console.log(
-    `  docker compose exec -T postgres psql -U ${state.dbUser} -d postgres -c 'DROP DATABASE IF EXISTS "${state.dbName}"'`,
-  );
+  if (state.redisId) {
+    console.log(`  独享 Redis：${state.redisUrl ?? '尚未就绪'}，容器 ID ${state.redisId}`);
+    console.log(`  手动删除 Redis：docker rm -f ${state.redisId}`);
+  }
+  if (state.dbName) {
+    console.log(`  临时库：${state.dbName}`);
+    console.log(
+      `  docker compose exec -T postgres psql -U ${state.dbUser} -d postgres -c 'DROP DATABASE IF EXISTS "${state.dbName}"'`,
+    );
+  }
 }
 
 process.on('SIGINT', () => {
   stopActiveChild();
   cleanupAll();
+  if (activeOpts?.keep) printKeepHint(activeState);
   process.exit(130);
 });
 process.on('SIGTERM', () => {
   stopActiveChild();
   cleanupAll();
+  if (activeOpts?.keep) printKeepHint(activeState);
   process.exit(143);
 });
 // 兜底：未捕获异常导致进程退出时也必须清掉服务与临时库。
@@ -580,7 +653,7 @@ async function main() {
     return;
   }
   const env = readDotEnv();
-  const state = { services: [], dbName: null, dbUser: null };
+  const state = { services: [], dbName: null, dbUser: null, redisId: null, redisUrl: null };
   activeOpts = opts;
   activeState = state;
 
@@ -606,6 +679,7 @@ async function run(opts, env, state) {
     if (!env.DATABASE_URL) fail('.env 缺少 DATABASE_URL');
     const baseDbUrl = new URL(env.DATABASE_URL);
     state.dbUser = decodeURIComponent(baseDbUrl.username);
+    await startRedis(state);
     // 随机后缀避免同秒并发跑出同名库。
     const dbName = `pace_visual_${opts.timestamp.replace(/-/g, '')}_${randomBytes(3).toString('hex')}`;
     if (!/^[a-z0-9_]+$/.test(dbName)) fail(`生成的库名不合法：${dbName}`);
@@ -642,7 +716,7 @@ async function run(opts, env, state) {
       ['run', '--filter', '@agentport/api', 'dev'],
       ROOT,
       apiLog,
-      { ...process.env, DATABASE_URL: tempUrl.toString() },
+      { ...process.env, DATABASE_URL: tempUrl.toString(), REDIS_URL: state.redisUrl },
     );
     const webChild = spawnDetached(
       'bun',
@@ -674,6 +748,7 @@ async function run(opts, env, state) {
       url.pathname = '/' + state.dbName;
       devDataEnv.DATABASE_URL = url.toString();
     }
+    if (state.redisUrl) devDataEnv.REDIS_URL = state.redisUrl;
     let devData;
     try {
       devData = await runForeground('bun', ['run', 'dev:data'], {

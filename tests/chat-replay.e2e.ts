@@ -231,7 +231,7 @@ test('missing terminal event is recovered from the persisted run without XADD ru
     // 指标来自终态（数据库），而不是补发的假事件。
     await expect(screen.getByText('完成', { exact: true }).first()).toBeVisible();
     await expect(screen.getByText('2 轮', { exact: true })).toBeVisible();
-    await expect(screen.getByText('$0.012', { exact: true })).toBeVisible();
+    await expect(screen.getByText('$0.0123', { exact: true })).toBeVisible();
   } finally {
     await restoreFetch(browser).catch(() => undefined);
     try {
