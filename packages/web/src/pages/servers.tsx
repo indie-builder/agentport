@@ -392,6 +392,9 @@ export function ServersPage() {
         const testedAt = lastTest?.at ?? server.lastTestedAt ?? null;
         if (!testedAt) return <span className="text-sm text-muted-foreground">未测试</span>;
         const ok = result ? result.ok : server.lastTestOk === true;
+        const environment = result
+          ? (result.runtimeEnvironment ?? null)
+          : (server.lastTestRuntimeEnvironment ?? null);
         return (
           <div className="flex min-w-0 flex-col gap-0.5">
             <span
@@ -413,6 +416,14 @@ export function ServersPage() {
             >
               {formatRelative(testedAt)}
             </span>
+            {environment ? (
+              <span
+                className="truncate font-mono text-xs text-muted-foreground"
+                title={`${environment.environmentName} · ${environment.versionId} · ${environment.imageId}`}
+              >
+                环境 {environment.environmentName} · {shortId(environment.versionId)}
+              </span>
+            ) : null}
           </div>
         );
       },
@@ -430,7 +441,7 @@ export function ServersPage() {
       numeric: true,
       width: '72px',
       cell: (server) =>
-        agents.isPending || agents.isError ? '—' : (agentCounts.get(server.id) ?? 0),
+        agents.isError ? '未知' : agents.isPending ? '加载中…' : (agentCounts.get(server.id) ?? 0),
     },
     {
       id: 'actions',

@@ -1,6 +1,17 @@
 import { AppError } from '@agentport/core';
 import type { AccessFilter, Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
-import { and, asc, eq, inArray, isNotNull, ne, or, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  ne,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -125,11 +136,24 @@ function agentDeletionWhere(input: AgentDeletionInput): SQL | undefined {
   );
 }
 
-export async function listAgents(db: Database, access: AccessFilter): Promise<AgentRow[]> {
+export async function listAgents(
+  db: Database,
+  access: AccessFilter,
+  configAccess?: AccessFilter,
+): Promise<Array<AgentRow & { serverIds: string[] | null }>> {
+  const configScope = configAccess ? agentReadScopeWhere(configAccess) : sql`false`;
   return db
-    .select()
+    .select({
+      ...getTableColumns(agents),
+      serverIds: sql<string[] | null>`case when ${configScope ?? sql`true`} then
+        coalesce(array_agg(${agentServers.serverId} order by ${agentServers.serverId})
+          filter (where ${agentServers.serverId} is not null), '{}'::text[])
+        else null end`,
+    })
     .from(agents)
+    .leftJoin(agentServers, eq(agentServers.agentId, agents.id))
     .where(agentReadScopeWhere(access))
+    .groupBy(agents.id)
     .orderBy(asc(agents.createdAt), asc(agents.id));
 }
 

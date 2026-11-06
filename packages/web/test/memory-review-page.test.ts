@@ -994,7 +994,7 @@ describe('记忆提案', () => {
     expect(router.state.location.pathname).toBe('/personal/reviews');
     expect(router.state.location.search).toEqual({});
     expect(window.location.pathname + window.location.search).toBe(router.state.location.pathname);
-    expect(host.textContent).toContain('让模型整理值得保存的记忆');
+    expect(host.textContent).toContain('从对话梳理可采纳的记忆与规则提案');
     expect(host.textContent).not.toContain('个人记忆内容（Markdown）');
   });
 

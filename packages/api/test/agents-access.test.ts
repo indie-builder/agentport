@@ -10,6 +10,7 @@ import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { AUTH_COOKIE } from '../src/modules/auth/types.js';
 import {
   cleanup,
+  createServer,
   expectProblem,
   infraReady,
   loginCookie,
@@ -43,6 +44,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
   const seeded: string[] = [];
   const customRoles: string[] = [];
   const agentSlugs: string[] = [];
+  const serverNames: string[] = [];
   let workspaces: string;
   let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
 
@@ -167,7 +169,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
 
   afterAll(async () => {
     await sessions.close();
-    await cleanup(app, { agentSlugs });
+    await cleanup(app, { agentSlugs, serverNames });
     for (const businessId of seeded) {
       await app.client.unsafe('delete from user_roles where business_id = $1', [businessId]);
       await app.client.unsafe('delete from "user" where business_id = $1', [businessId]);
@@ -181,8 +183,12 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     await rm(workspaces, { recursive: true, force: true });
   });
 
-  it('lists only readable summaries and keeps prompts and bindings out of the list', async () => {
-    const created = await createAs(owner1.cookie, { systemPrompt: 'TOP-SECRET-PROMPT' });
+  it('lists readable summaries with server IDs only within configuration read scope', async () => {
+    const server = await createServer(app, adminCookie, { track: serverNames });
+    const created = await createAs(owner1.cookie, {
+      systemPrompt: 'TOP-SECRET-PROMPT',
+      serverIds: [server.id],
+    });
     expect(created.statusCode, created.body).toBe(201);
     const agent = created.json<{ id: string }>();
 
@@ -205,12 +211,13 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       'ownerBusinessId',
       'parentId',
       'role',
+      'serverIds',
       'slug',
       'uiFormat',
     ]);
+    expect(item?.serverIds).toEqual([server.id]);
     for (const key of [
       'systemPrompt',
-      'serverIds',
       'skillIds',
       'subAgentIds',
       'pluginBindings',
@@ -249,6 +256,49 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       headers: { cookie: viewer.cookie },
     });
     expectProblem(strangerDetail, 'FORBIDDEN');
+
+    for (const [account, canMaintain] of [
+      [viewer, false],
+      [maintainer, true],
+    ] as const) {
+      const member = await request(app, {
+        method: 'PUT',
+        url: `/api/agents/${agent.id}/members/${account.businessId}`,
+        headers: { cookie: owner1.cookie },
+        payload: { canUse: true, canMaintain },
+      });
+      expect(member.statusCode, member.body).toBe(200);
+      const summaries = await request(app, {
+        method: 'GET',
+        url: '/api/agents',
+        headers: { cookie: account.cookie },
+      });
+      expect(summaries.statusCode, summaries.body).toBe(200);
+      const summary = summaries
+        .json<Array<Record<string, unknown>>>()
+        .find((row) => row.id === agent.id);
+      expect(summary).toBeTruthy();
+      if (canMaintain) expect(summary?.serverIds).toEqual([server.id]);
+      else expect(summary).not.toHaveProperty('serverIds');
+      expect(summaries.body).not.toContain('TOP-SECRET-PROMPT');
+    }
+
+    const demoted = await request(app, {
+      method: 'PUT',
+      url: `/api/agents/${agent.id}/members/${maintainer.businessId}`,
+      headers: { cookie: owner1.cookie },
+      payload: { canUse: true, canMaintain: false },
+    });
+    expect(demoted.statusCode, demoted.body).toBe(200);
+    const demotedList = await request(app, {
+      method: 'GET',
+      url: '/api/agents',
+      headers: { cookie: maintainer.cookie },
+    });
+    expect(demotedList.statusCode, demotedList.body).toBe(200);
+    expect(
+      demotedList.json<Array<Record<string, unknown>>>().find((row) => row.id === agent.id),
+    ).not.toHaveProperty('serverIds');
 
     const adminDetail = await request(app, {
       method: 'GET',

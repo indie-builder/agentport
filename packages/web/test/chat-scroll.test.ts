@@ -107,6 +107,14 @@ async function render(items: ChatItem[], hasOlder = false): Promise<void> {
 
 beforeEach(() => {
   scrollToEnd.mockReset();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   host = document.createElement('div');
   document.body.append(host);
@@ -118,6 +126,7 @@ afterEach(async () => {
     root.unmount();
   });
   host.remove();
+  vi.unstubAllGlobals();
 });
 
 test('补旧重新解析同一末尾用户消息时不回到底部，显式发送才回底', async () => {

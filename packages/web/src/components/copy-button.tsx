@@ -50,7 +50,7 @@ export function CopyButton({
       title={text}
       className={className}
     >
-      <span key={nonce} className="grid">
+      <span key={`icons-${nonce}`} className="grid">
         <Copy
           aria-hidden="true"
           data-icon={showLabel ? 'inline-start' : undefined}
@@ -69,7 +69,7 @@ export function CopyButton({
         />
       </span>
       {showLabel ? (
-        <span key={nonce} className={cn(copied && 'saved-check-decay')}>
+        <span key={`label-${nonce}`} className={cn(copied && 'saved-check-decay')}>
           {text}
         </span>
       ) : null}

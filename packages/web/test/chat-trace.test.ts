@@ -300,7 +300,16 @@ describe('per-turn execution trace', () => {
         },
       );
       expect(html).toContain('Connector refused the request');
-      expect(html).not.toContain('group-focus-within/turn:opacity-100');
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      const reason = [...container.querySelectorAll('p')].find(
+        (node) => node.textContent === 'Connector refused the request',
+      );
+      expect(reason).toBeDefined();
+      let wrapper = reason?.parentElement;
+      while (wrapper && !wrapper.className.includes('mt-1')) wrapper = wrapper.parentElement;
+      expect(wrapper?.className).toContain('opacity-100');
+      expect(wrapper?.className).not.toContain('opacity-0');
     },
   );
 

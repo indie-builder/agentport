@@ -111,6 +111,7 @@ export function SkillsPage() {
   const canImportSkill = can(me.data, 'skills.import');
   const canReadSkillFiles = can(me.data, 'skills.files.read');
   const canWriteSkillFiles = can(me.data, 'skills.files.write');
+  const canInstallMarket = can(me.data, 'market.install');
   const skills = useSkills();
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
@@ -178,10 +179,10 @@ export function SkillsPage() {
   }, [skills.data, query, sort, usage]);
 
   if (scope === 'market') {
-    return <MarketSkillsPage skills={skills} install={install} />;
+    return <MarketSkillsPage skills={skills} install={install} canInstall={canInstallMarket} />;
   }
   if (!canReadSkills && canReadMarket) {
-    return <MarketSkillsPage skills={skills} install={install} />;
+    return <MarketSkillsPage skills={skills} install={install} canInstall={canInstallMarket} />;
   }
 
   return (
@@ -414,9 +415,11 @@ export function SkillsPage() {
 function MarketSkillsPage({
   skills,
   install,
+  canInstall,
 }: {
   skills: ReturnType<typeof useSkills>;
   install: ReturnType<typeof useInstallMarketSkill>;
+  canInstall: boolean;
 }) {
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
@@ -497,6 +500,7 @@ function MarketSkillsPage({
       {tooShort ? (
         <PageNote icon={<Sparkles aria-hidden="true" />} title="至少输入 2 个字符" />
       ) : null}
+      {loaded && !canInstall ? <PageNote title="当前账户没有安装市场技能的权限" /> : null}
       {skills.isPending ? <LoadingState rows={8} layout="list" /> : null}
       {skills.isError ? (
         <ErrorState error={skills.error} onRetry={() => void skills.refetch()} />
@@ -559,9 +563,18 @@ function MarketSkillsPage({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={installed || install.isPending}
+                      disabled={installed || install.isPending || !canInstall}
                       aria-busy={pending}
-                      aria-label={installed ? `${item.name} 已安装` : `安装 ${item.name}`}
+                      aria-label={
+                        installed
+                          ? `${item.name} 已安装`
+                          : canInstall
+                            ? `安装 ${item.name}`
+                            : `${item.name} 无法安装：当前账户没有安装市场技能的权限`
+                      }
+                      title={
+                        !installed && !canInstall ? '当前账户没有安装市场技能的权限' : undefined
+                      }
                       className="transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft"
                       onClick={() => installSkill(item)}
                     >

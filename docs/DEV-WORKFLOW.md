@@ -81,7 +81,7 @@
 
 `.env` 不受 Git 管理。`.worktreeinclude` 只在建树时复制一次，来源可能是发起建树的那棵树，**复制结果不等于最新配置**。按以下单一规则：
 
-- **默认来源是主 checkout 的 `.env`（绝对路径）**：api/worker/db 只读工作树内的 `../../.env`（`--env-file-if-exists`），web 的 Vite 只读包内 `.env*` 且当前没有 env 用法，因此仓库根 `.env` 是唯一实际入口。`cp` 或显式注入都取自该来源；`.env.local` 只有出现真实加载需要时才另议，不作为第二优先级预先引入。主 checkout 的 `.env` 本身也可能是旧残留。
+- **默认来源是主 checkout 的 `.env`（绝对路径）**：api/worker 的 `dev`、worker 的 `maintenance` 与 db 的 `migrate` 显式读取工作树内的 `../../.env`（`bun --env-file=../../.env`）；api `start` 与 db `dev` 不加载 env，web 的 Vite 只读包内 `.env*` 且当前没有 env 用法，因此仓库根 `.env` 是唯一实际入口。`cp` 或显式注入都取自该来源；`.env.local` 只有出现真实加载需要时才另议，不作为第二优先级预先引入。主 checkout 的 `.env` 本身也可能是旧残留。
 - **用户最新明确决定优先于磁盘残留**：冲突时以用户最近一次明确说的为准，不以某份 `.env` 的内容反推决定；不能把「来自 main 的 `.env`」等同于用户决定。
 - **启动前核对改动过的关键项**（如 `ADMIN_USER`/`ADMIN_PASSWORD`/`ALLOW_WEAK_ADMIN_PASSWORD`、`CORS_ORIGINS`、镜像变量）；日志、回复与恢复信息不输出明文密码。
 - **服务可共用，登录态不能动**：各树代码/配置可以不同，但共用同一数据库。启动初始化只在 `platform_bootstrap` marker 不存在时执行一次：创建随机技术 ID、业务 ID 为 `bootstrap-admin` 的管理员；`ADMIN_PASSWORD` 不是账号实时密码，不会覆盖已有账户。调试、测试、样式验收不得改掉用户正在用的登录，需要时用独立库或显式临时配置，结束后不留在默认路径。

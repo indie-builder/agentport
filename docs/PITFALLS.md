@@ -4,6 +4,12 @@
 > 不限定类别：遇到值得留存、能避免以后重复犯错的教训就及时整理，运行、实现、沟通、测试只是例子。每条固定「现象 → 原因 → 规避」，不把任务流水账和已有操作说明复制进来。
 > 早期条目里的 `pnpm` 命令是当次事件的原始记录；现行命令用 Bun（`bun install`、`bun run <script>`），不要照抄历史命令。
 
+## 验收：临时脚本切 Redis 库号后清库仍会影响共享实例
+
+- **现象**：一次自写 UI 验收脚本从 `.env` 取得共享 Redis 地址，切到 db 13 后执行 `FLUSHDB`，影响范围未确认；此事故不能归因为既有 `visual-shots.mjs`。
+- **原因**：把同实例不同库号当成独享环境；同时核实既有截图入口虽建临时 PG 库，API 仍可能从 `.env` 或进程环境继承共享 `REDIS_URL`，原入口缺少 Redis 生命周期。
+- **规避**：使用补齐隔离后的 `visual:shots`：本轮独享 Redis 容器、loopback 随机端口，API 显式注入本轮 URL，清理只认成功创建返回的容器 ID；不换共享库号、不执行 `FLUSHDB`/`FLUSHALL`、不读真实 Redis 内容。复用模式 `--base-url` 不创建或销毁外部服务，需确认目标栈后再操作。
+
 ## 运行：宿主直跑 worker 时模型网关地址不能被改写成 host.docker.internal
 
 - **现象**：`bun run dev` 下真实对话全部失败，worker 日志反复出现 `model proxy request failed: other side closed`，但直接请求网关正常。

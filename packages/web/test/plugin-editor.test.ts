@@ -121,7 +121,19 @@ function button(text: string): HTMLButtonElement {
 
 async function openEditor() {
   mount();
-  await click(button('编辑'));
+  const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="操作 Demo 插件"]');
+  if (!trigger) throw new Error('Missing plugin menu');
+  await act(async () => {
+    trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+  });
+  await flush();
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (entry) => entry.textContent?.trim() === '编辑',
+  );
+  if (!item) throw new Error('Missing edit menu item');
+  await click(item);
   expect(document.body.textContent).toContain('编辑插件');
 }
 
@@ -187,7 +199,7 @@ describe('plugin editor dialog', () => {
   it('opens the detail page from the card title', async () => {
     mount();
 
-    const titleLink = document.querySelector<HTMLAnchorElement>('h2 a[href="/plugins/plugin"]');
+    const titleLink = document.querySelector<HTMLAnchorElement>('a[href="/plugins/plugin"]');
     expect(titleLink?.textContent).toContain('Demo 插件');
     expect(titleLink?.getAttribute('href')).toBe('/plugins/plugin');
     expect(document.body.textContent).not.toContain('编辑插件');
@@ -237,8 +249,7 @@ describe('plugin editor dialog', () => {
 
   it('blocks route changes and page unload while saving', async () => {
     state.saving = true;
-    mount();
-    await click(button('编辑'));
+    await openEditor();
 
     expect(state.blocker?.shouldBlockFn()).toBe(true);
     expect(state.blocker?.enableBeforeUnload).toBe(true);
@@ -258,8 +269,7 @@ describe('plugin editor dialog', () => {
 
   it('blocks closing while saving', async () => {
     state.saving = true;
-    mount();
-    await click(button('编辑'));
+    await openEditor();
 
     const close = document.querySelector<HTMLButtonElement>('button[aria-label="关闭"]');
     expect(close?.disabled).toBe(true);

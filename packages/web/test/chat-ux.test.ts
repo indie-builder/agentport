@@ -1235,7 +1235,7 @@ describe('chat shell layout', () => {
     const workspace = host.querySelector('aside[aria-label="会话成果"]');
     expect(workspace).not.toBeNull();
     expect(workspace?.querySelector('h2')?.textContent).toBe('会话成果');
-    expect(workspace?.textContent).toContain('开始对话或打开已有会话后查看成果');
+    expect(workspace?.textContent).toContain('会话产生的成果会显示在这里');
     expect(workspace?.textContent).not.toContain('当前会话没有成果文件');
     expect(workspace?.textContent).not.toMatch(/\.mcp\.json|CLAUDE\.md/);
     // 成果打开后头部仍属于消息列：标题、历史开关和成果开关都不进成果面板。
@@ -1509,9 +1509,7 @@ describe('conversation header menu', () => {
     expect(heading?.textContent).toBe('History');
     expect(heading?.getAttribute('title')).toBe('History');
     expect(heading?.className).toContain('truncate');
-    expect(heading?.className).toContain('max-w-[8em]');
-    expect(heading?.className).not.toContain('max-w-[10em]');
-    expect(heading?.className).not.toContain('lg:max-w-');
+    expect(heading?.className).not.toContain('max-w-');
     // 「…」紧跟标题，而不是被推到最右侧。
     expect(heading?.nextElementSibling?.contains(menuButton())).toBe(true);
   });

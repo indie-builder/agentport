@@ -48,14 +48,20 @@ describe('CopyButton feedback', () => {
 
     expect(writeText).toHaveBeenCalledWith('run-1');
     expect(host.querySelector('button')).toBe(button);
-    expect(copyIcon.classList.contains('opacity-0')).toBe(true);
-    expect(checkIcon.classList.contains('opacity-100')).toBe(true);
+    const copiedIcons = [...button.querySelectorAll('svg')];
+    const copiedCheck = copiedIcons.find((icon) => icon.classList.contains('text-success'));
+    const copiedCopy = copiedIcons.find((icon) => icon !== copiedCheck);
+    expect(copiedCopy?.classList.contains('opacity-0')).toBe(true);
+    expect(copiedCheck?.classList.contains('opacity-100')).toBe(true);
     expect(button.getAttribute('aria-label')).toBe('已复制');
 
-    await act(async () => vi.advanceTimersByTime(1500));
+    await act(async () => vi.advanceTimersByTime(2500));
 
-    expect(copyIcon.classList.contains('opacity-100')).toBe(true);
-    expect(checkIcon.classList.contains('opacity-0')).toBe(true);
+    const resetIcons = [...button.querySelectorAll('svg')];
+    const resetCheck = resetIcons.find((icon) => icon.classList.contains('text-success'));
+    const resetCopy = resetIcons.find((icon) => icon !== resetCheck);
+    expect(resetCopy?.classList.contains('opacity-100')).toBe(true);
+    expect(resetCheck?.classList.contains('opacity-0')).toBe(true);
     expect(button.getAttribute('aria-label')).toBe('复制编号');
   });
 
@@ -84,9 +90,9 @@ describe('CopyButton feedback', () => {
     expect(writeText).toHaveBeenLastCalledWith('B');
 
     // A 的旧计时器不能在切到 B 后把反馈提前收掉。
-    await act(async () => vi.advanceTimersByTime(750));
+    await act(async () => vi.advanceTimersByTime(2000));
     expect(button.getAttribute('aria-label')).toBe('已复制');
-    await act(async () => vi.advanceTimersByTime(750));
+    await act(async () => vi.advanceTimersByTime(500));
     expect(button.getAttribute('aria-label')).toBe('复制编号');
   });
 });
