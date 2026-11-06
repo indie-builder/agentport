@@ -33,7 +33,7 @@
 | `PLATFORM_MCP_TOKEN` | 未设置 | api | `/mcp` 平台端点的 Bearer token，≥16 字符；未设置则端点不注册 |
 | `RATE_LIMIT_DISABLED` | 未设置 | api | 值为 `1` 时关闭限流；仅用于测试/排障 |
 | `TRUST_PROXY` | 未设置 | api | 值为 `1` 时信任 `X-Forwarded-For`/`X-Forwarded-Proto`（反向代理之后必须开启，否则限流按代理 IP 计数） |
-| `DB_POOL_MAX` | `10` | api、worker | 每个进程的 Bun SQL 连接上限（`createDb` 传给 `new SQL(..., { max })`）；不是 node-postgres 连接池 |
+| `DB_POOL_MAX` | `10` | api、worker | 每个 `createDb()` 的 Bun SQL 连接上限（`createDb` 传给 `new SQL(..., { max })`）；worker 主池之外，`sandbox-probe` 另调一次 `createDb`。不是 node-postgres 连接池；连接预算按各池上限求和，见 §7 |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | 未设置 | worker | 仅 `SANDBOX_EGRESS=proxy` 时透传给沙盒，loopback 自动改写 |
 | `REDIS_PASSWORD` | `agentport-dev` | compose | redis 服务密码，同时拼进 api/worker 的 `REDIS_URL`；不是应用变量 |
 | `DOCKER_GID` | `0` | compose | worker 容器加入的组 GID，用于访问宿主 Docker socket |
@@ -548,7 +548,7 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 ## 7. 性能备注
 
 - **索引**（0009 迁移）：`agent_runs(started_at DESC NULLS LAST, id DESC)` 与 `agent_runs(agent_id, started_at DESC NULLS LAST, id DESC)` 服务 `/api/runs` 与概览的「最近运行」排序；`messages(run_id)` 服务 run trace 查询；`messages(conversation_id, created_at, id)` 让会话消息免排序。改动见 `packages/db/src/schema.ts`，重新生成用 `bun run db:generate`。
-- **连接上限可配**：`packages/db/src/client.ts` 的 `createDb()` 读 `DB_POOL_MAX`（默认 10），作为 Bun SQL 的 `max`；api 与 worker 各自独立一个连接集合。`/api/overview` 的 servers/agents 计数已并行，running/runs 聚合与最近运行也并行；单个请求仍会执行多条 SQL。
+- **连接上限与预算**：`packages/db/src/client.ts` 的 `createDb()` 读 `DB_POOL_MAX`（默认 10），作为 Bun SQL 的 `max`。api 一个池；worker 主入口一个池，启动的 `sandbox-probe` 又单独 `createDb` 一个池，因此单 API + 单 worker 按 `3 × DB_POOL_MAX` 计峰值预算（48 时为 144），这是上限预算，不是常驻实际连接。每进程副本、额外脚本与预留管理连接都要计入数据库 `max_connections`，按各池配置求和；Bun 可能在首次查询时启动整池，预算不能只按构造瞬间连接数算。原生 env 已支持调节，但当前没有部署容量、连接余量与目标并发证据，不推荐直接把默认值全局扩到 48；扩池在更高并发仍会遇边界，不是该有限池调度问题的一般修复。`/api/overview` 的 counts SQL 内含 servers/agents/running/runs 子查询，真正并行的是 counts、agents、recent 三条；单个请求仍会执行多条 SQL。
 - **会话列表**：`/api/conversations` 的 `lastMessage` 只返回截断到 280 字的 `text`，不再回传整块 jsonb；`limit` 上限 200。
 - **概览页**：`/api/overview` 已含 servers/agents 计数，前端不再额外请求 `/api/servers`、`/api/agents`；`/api/overview` 返回 404 时才回退到列表接口。
 - **本机基线（迁移前 Node/Fastify 环境，历史数据）**（20 次 curl，改前 → 改后，p50/p95）：`/api/overview` 8.0/9.7 → 6.9/8.8 ms；`/api/runs` 3.1/4.9 → 3.1/4.0 ms；`/api/conversations` 3.4/5.3 → 3.0/5.1 ms（响应 8009 → 6820 B）。数据量很小时数据库耗时不占主导，收益主要来自索引在数据增长后避免全表扫描 + 排序。
@@ -625,8 +625,8 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 
 ### 8.4 建议参数
 
-1. **先改读接口的查询形态**（收益最大、无配置风险）：`/api/overview` 的 counts（servers/agents/running/runs）合并成一条 SQL，其余两条重查询与它并行；`packages/api/src/modules/agents/router.ts` 的 4 条查询已是 1+3 并行，可只把首条列表查询与关联查询合并。预期 200 并发下 p95 从约 100 ms 降到 40–50 ms，吞吐约翻倍。
-2. **连接上限可配置（已实现）**：`packages/db/src/client.ts` 的 `createDb()` 读取 `DB_POOL_MAX`（默认 10），作为 Bun SQL 的 `max`。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍上限只是把压力更早推给 Postgres。worker 另有独立连接集合，扩容时一并计入。
+1. **读接口查询形态**（历史建议的现状）：`/api/overview` 的 counts（servers/agents/running/runs）已合并为一条 SQL 内的子查询，并与 agents、recent 两条查询并行（见 §7）；`/api/agents` 列表当前是一条列表查询。原建议预期的「200 并发下 p95 从约 100 ms 降到 40–50 ms、吞吐约翻倍」是迁移前 Node/Fastify 查询形态下的历史估计，不是当前 Bun 原生栈的验证结果；后续 SQL 优化须独立实测，不把该数值作为提速承诺。
+2. **连接上限可配置（已实现）**：`packages/db/src/client.ts` 的 `createDb()` 读取 `DB_POOL_MAX`（默认 10），作为 Bun SQL 的 `max`；池数量与总预算见 §7。当前没有部署容量、连接余量与目标并发证据，不推荐直接把默认值扩到 48；扩池在更高并发仍会遇边界，不是该有限池调度问题的一般修复。成本应按每个成功请求比较：同负载跨系列抽样估算 Bun pool48 相对 pool10 约 +5% 应用、+6% DB CPU-ms/请求（应用 1.97→2.07、DB 18.33→19.51），属近似抽样，不作严格因果。
 3. **读接口限流已落地**：压测当时 `global: false`，读接口完全不计流；现在 `hono-rate-limiter` 的 RedisStore 对 `/api/*` 统一按 600/min/IP 计数，静态资源、SPA 回退与 `/health/*` 不计入，登录、chat、`/mcp`、连接测试与评估发起仍保留各自的更低配额。单管理员场景下 chat 的 20 次/分仍偏紧（两次突发落在同一分钟就会 429，压测曾复现 2/10 被拒）；是否提到 60 次/分或改为按登录用户计数，等真实使用数据再定。
 4. **worker 并发按资源定**：每个沙盒受 `SANDBOX_MEMORY=1g` 上限约束，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是活跃沙盒按该上限占用的内存与更多宿主 CPU。以上是一次性容器压测数据；会话复用后，正常完成或成功取消的容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内热空闲并继续占用资源，实际容器总数可能高于活跃 run 数。本机未实测热空闲容器的内存，也不据此给出新的并发上限；扩容前按容器数（含热空闲）观察资源水位。同会话复用减少容器创建/启动，但不跳过每轮 SDK query 启动，不算 SDK 冷启动优化。
 5. **观测告警线**：当时的 node-postgres 池字段（`db.waiting`/`db.total`）已不存在；当前 `/health/metrics` 只给 `db.connected`、`db.pingMs` 与 `db.maxConnections`。继续用 `db.pingMs` 升高、队列 `waiting > 10` 和宿主连接数作为进入本次瓶颈区的信号，不要照抄旧字段名。

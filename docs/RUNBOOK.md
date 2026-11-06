@@ -384,7 +384,7 @@ curl -sS $AUTH http://localhost:3000/health/metrics | jq '.queue | {waiting, act
 
 ## 5. 数据库连接耗尽
 
-**症状**：接口间歇性 500 / 超时，`/health/metrics` 的 `db.waiting` 持续大于 5；日志出现 `remaining connection slots are reserved` 或 `too many clients`。
+**症状**：接口间歇性 500 / 超时；日志出现 `remaining connection slots are reserved` 或 `too many clients`。`/health/metrics` 的 `db` 只有 `connected`、`pingMs`、`maxConnections`，`db.pingMs` 明显升高、`db.connected` 为 false，且下方 `pg_stat_activity` 连接数接近 `max_connections`，才说明连接耗尽；`queue.waiting` 是 BullMQ 待处理任务数，不是数据库连接。
 
 ### 判断
 
@@ -401,7 +401,7 @@ docker compose exec -T postgres psql -U agentport -d agentport -c 'SHOW max_conn
 grep '^DB_POOL_MAX=' .env
 ```
 
-对照：api 与 worker **各自**建一个池，理论上限约为 `2 × DB_POOL_MAX`，再加迁移/备份连接。`total` 长期等于 `DB_POOL_MAX` 且 `waiting` 高，说明是池太小；`pg_stat_activity` 里大量 `idle in transaction` 则是代码层长事务。
+对照：api 一个池；worker 主入口一个池，`sandbox-probe` 另建一个池，故单 API + 单 worker 按 `3 × DB_POOL_MAX` 计上限预算（48 时为 144），这是上限而非常驻连接。每进程副本、额外脚本与管理预留都要计入 `max_connections`，按各池配置求和；`pg_stat_activity` 连接长期打满且请求排队表明连接或查询处理能力受限，结合慢查询记录中的执行耗时、`wait_event_type` / `wait_event` 与数据库 CPU、内存、IO 余量判断是扩池还是先优化查询；`now()-state_change` 表示当前状态持续时间，不能无条件当作 SQL 执行时长；大量 `idle in transaction` 则是代码层长事务。
 
 ### 处置
 
@@ -427,7 +427,7 @@ docker compose exec -T postgres psql -U agentport -d agentport -c \
   "SELECT count(*) FROM pg_stat_activity WHERE datname='agentport';"
 ```
 
-`waiting` 应回落到个位数，接口 p95 恢复。
+`db.connected` 应为 true、`db.pingMs` 回落到正常水平，`pg_stat_activity` 连接数保有余量、影响请求的锁等待等异常等待消退，接口 p95 恢复；`state='idle'` 且 `wait_event='ClientRead'` 表示连接正在等待客户端发送命令，持续时间长本身不代表故障
 
 ---
 

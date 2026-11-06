@@ -627,11 +627,15 @@
 
 **影响面**：`packages/web/src/pages/skills.tsx`、`packages/web/src/styles.css`、`docs/DESIGN-SYSTEM.md`。
 
-## D-78 ⏳ overview 接口 p95/p99 尾部回归（2026-11-06，Bun 迁移合并前记录）
+## D-78 ⏳ overview 接口 p95/p99 尾部回归（2026-11-06，Bun 迁移合并前记录；同日定位更新）
 
-**发现**：正式 ABBA 性能对照（6 轮、650 万成功请求、0 失败，两侧响应体逐字节一致，证据 `/tmp/pbm/summary-final.json`）显示 `/api/overview?days=7` 吞吐与 p50 持平，但 p95 约 1.30x、p99 约 1.38x 慢于迁移前 Node/Fastify。两侧瓶颈均在 PostgreSQL（约 6.8 核），服务端机制未定位。同轮 `/api/agents` 快 1.63x（p50 15.5→9.5ms、RSS 774→506MB），`/health/live` 快约 10%。
+**发现**：正式 ABBA 性能对照（主对照 6 轮、1,843,462 成功请求、0 失败，两侧响应体逐字节一致，证据 `/tmp/pbm/summary-final.json`，可用 `jq '[.endpoints[].sides[].requests]|add'` 复算；约 650 万是主对照加独立 health 附测的历史合计，不是同一个样本，`/tmp/pbm/health-summary.json` 仅能证明该附测存在，不据此重新推导精确合计）显示 `/api/overview?days=7` 吞吐与 p50 持平，但 p95 约 1.30x、p99 约 1.38x 慢于迁移前 Node/Fastify。两侧瓶颈均在 PostgreSQL（约 6.8 核），服务端机制未定位（定位更新见下）。同轮 `/api/agents` 快 1.63x（p50 15.5→9.5ms、RSS 774→506MB），`/health/live` 快约 10%。
 
-**当前处理**：按「已知未解释的尾部回归」记录后放行合并；复现 harness 保留在 `/tmp/pbm/HARNESS.md`（ABBA、容器与种子重建命令齐全）。若验收门槛包含 overview 尾部延迟或对外承诺性能不退化，需先定位再发布，不能以 agents 变快替代该端点结论。
+**定位更新（2026-11-06，合并版 `914c852` 对迁移前 `6cfa902`）**：同一 PostgreSQL 实例、交替顺序（ABBA）、c8 闭环负载各 6 轮复测 `/api/overview?days=7`，0 失败，两侧响应正文一致；p95 比为 1.245（范围 1.228–1.262），p99 比为 1.357（范围 1.327–1.387），尾部回归仍存在。原因收窄至 Bun SQL 1.4.3 在高查询需求、小连接池下的调度/容量边界：官方固定 tag `bun-v1.4.3` 的 `src/js/internal/sql/shared.ts` 按总需求与连接数给仍有 queryCount 的 ready connection 分配额度，不要求连接空闲后才接新查询，查询完成后也按剩余 queryCount 继续参与派发；`prepare:false` 使用 extended unnamed statement 且不流水线。源码与该负载下的局部排队形态相符，是首要机制，但现有证据不能断言全部增量都是纯连接池等待，也不能完全排除运行时、解码等贡献；未测试上游最新版本，不能宣称最新版仍未修复。
+
+**证据限制**：此前 pool10 的「等待 9.62→12.77 ms」来自已被 pool32 运行覆盖的客户端样本，不能从留存产物复算，不作为定量证据。客户端端到端耗时减去 PG 各阶段耗时的差值是残差，含排队、协议往返、序列化/解码、事件循环与 GC，不是纯池等待。pool32 下差距收敛有相当部分来自参照侧 pg 变慢，不能作为 Bun 显著变快的证据。`DB_POOL_MAX` 默认 10 与 `prepare:false` 保持不变；`prepare:true` 对照未修复该负载的尾部。
+
+**当前处理**：保留 pending，不标已解决。尾部回归未修复；验收门槛包含 overview 尾部延迟或对外承诺性能不退化时，仍需先解决再发布，不能以 agents 变快替代该端点结论。扩池只是容量/部署预算的可选调参，不是该有限池调度问题的一般修复，更高并发仍会撞边界。复现与源码证据已内联于本节，不依赖本机临时路径。
 
 **影响面**：`packages/api/src/modules/overview/router.ts`、底层 SQL 与连接参数（`prepare: false`、ISO 日期绑定）均在候选范围内；定位属独立性能任务。
 
