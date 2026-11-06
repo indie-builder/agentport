@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, repo } from '@agentport/db';
 import pino from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { executeRuntimeEnvironmentBuild } from '../src/runtime-environments/build.js';
 import { createRuntimeEnvironmentResolver } from '../src/runtime-environments/resolve.js';
 import { DockerSandboxProvider } from '../src/sandbox/docker.js';
@@ -21,7 +21,7 @@ import {
  * 不调模型，supervisor 启动到 ready 即可。基座与派生 tag 都独占，绝不覆盖 dev。
  */
 const BASE_IMAGE =
-  process.env.RUNTIME_ENV_LIFECYCLE_BASE ?? 'agentport/sandbox:runtime-env-bash-20261029';
+  process.env.RUNTIME_ENV_LIFECYCLE_BASE ?? process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const IDLE_TIMEOUT_MS = 1_500;
 const EVIDENCE_FILE = '/tmp/runtime-environment-lifecycle-docker.json';
 
@@ -104,8 +104,8 @@ interface ContainerEvidence {
 }
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
-const { db, pool } = dbHandle;
-const dbReady = await pool.query('select 1').then(
+const { db, client } = dbHandle;
+const dbReady = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -292,7 +292,7 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
           .deleteRuntimeEnvironment(db, environmentId)
           .catch(() => undefined);
       }
-      await pool.end().catch(() => undefined);
+      await client.close().catch(() => undefined);
       for (const tag of imageTagsToRemove) docker(['rmi', '-f', tag], 60_000);
       for (const id of imageIdsToRemove) docker(['rmi', '-f', id], 60_000);
       if (environmentRoot !== '') {

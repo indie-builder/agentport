@@ -25,18 +25,19 @@ describe('conversation list contract', () => {
     ];
     const fetch = mockFetch(Response.json(list));
     await expect(api.conversations('agent-a')).resolves.toEqual(list);
-    expect(fetch.mock.calls[0]?.[0]).toBe('/api/conversations?agentId=agent-a');
+    const url = new URL((fetch.mock.calls[0]?.[0] as Request).url);
+    expect(url.pathname + url.search).toBe('/api/conversations?agentId=agent-a');
   });
 
   it('surfaces a 404 as an error instead of pretending the list is unsupported', async () => {
-    mockFetch(Response.json({ code: 'NOT_FOUND', message: '路由不存在' }, { status: 404 }));
+    mockFetch(Response.json({ code: 'NOT_FOUND', message: '路由不存在', status: 404, requestId: '', retryable: false }, { status: 404 }));
     await expect(api.conversations()).rejects.toMatchObject({ status: 404 });
   });
 });
 
 describe('overview contract', () => {
   it('rejects a 404 instead of pretending the endpoint is unsupported', async () => {
-    mockFetch(Response.json({ code: 'NOT_FOUND', message: '路由不存在' }, { status: 404 }));
+    mockFetch(Response.json({ code: 'NOT_FOUND', message: '路由不存在', status: 404, requestId: '', retryable: false }, { status: 404 }));
     await expect(api.overview()).rejects.toMatchObject({ status: 404 });
   });
 });
@@ -47,15 +48,16 @@ describe('agent package transfer', () => {
     const blob = await api.exportAgent('agent-1');
     expect(blob).toBeInstanceOf(Blob);
     expect(await blob.text()).toBe('PK\u0003\u0004zip');
-    expect(fetch.mock.calls[0]?.[0]).toBe('/api/export/agents/agent-1');
-    expect(fetch.mock.calls[0]?.[1]?.credentials).toBe('include');
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/export/agents/agent-1');
+    expect(init?.credentials).toBe('include');
   });
 
   it('sends an expired session back to login on a ZIP download', async () => {
     const assign = vi.fn();
     vi.stubGlobal('location', { pathname: '/', search: '', hash: '', assign });
     sessionStorage.setItem('pace.chat.drafts', JSON.stringify({ '': 'unsent' }));
-    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
+    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效', status: 401, requestId: '', retryable: false }, { status: 401 }));
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     expect(assign).toHaveBeenCalledWith('/login?returnTo=%2F&reason=expired');
     // 401 只负责跳转；草稿要等同账户重新登录后继续可用。
@@ -71,7 +73,7 @@ describe('agent package transfer', () => {
       hash: '#top',
       assign,
     });
-    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
+    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效', status: 401, requestId: '', retryable: false }, { status: 401 }));
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     const path = assign.mock.calls[0]?.[0] as string;
     const url = new URL(path, 'http://app.local');
@@ -85,7 +87,7 @@ describe('agent package transfer', () => {
   it('keeps 403 responses as plain errors without a login redirect', async () => {
     const assign = vi.fn();
     vi.stubGlobal('location', { pathname: '/plugins/plugin_1', search: '', hash: '', assign });
-    mockFetch(Response.json({ code: 'FORBIDDEN', message: '没有权限' }, { status: 403 }));
+    mockFetch(Response.json({ code: 'FORBIDDEN', message: '没有权限', status: 403, requestId: '', retryable: false }, { status: 403 }));
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 403 });
     expect(assign).not.toHaveBeenCalled();
   });
@@ -93,13 +95,13 @@ describe('agent package transfer', () => {
   it('redirects from a path that merely starts with login, but not from the login page', async () => {
     const assign = vi.fn();
     vi.stubGlobal('location', { pathname: '/login-other', search: '', hash: '', assign });
-    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
+    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效', status: 401, requestId: '', retryable: false }, { status: 401 }));
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     expect(assign).toHaveBeenCalledOnce();
 
     assign.mockClear();
     vi.stubGlobal('location', { pathname: '/login', search: '', hash: '', assign });
-    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效' }, { status: 401 }));
+    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效', status: 401, requestId: '', retryable: false }, { status: 401 }));
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     expect(assign).not.toHaveBeenCalled();
   });
@@ -107,7 +109,13 @@ describe('agent package transfer', () => {
   it('keeps the Problem body when the ZIP export fails', async () => {
     mockFetch(
       Response.json(
-        { code: 'CONFLICT', message: '专家包超过 1 MiB', requestId: 'req-1' },
+        {
+          code: 'CONFLICT',
+          message: '专家包超过 1 MiB',
+          status: 409,
+          requestId: 'req-1',
+          retryable: false,
+        },
         { status: 409 },
       ),
     );
@@ -163,8 +171,8 @@ describe('agent package transfer', () => {
       type: 'application/zip',
     });
     await expect(api.importAgent(file, undefined, 'rte_default')).resolves.toEqual(result);
-    const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(url).toBe('/api/import/agents?runtimeEnvironmentId=rte_default');
+    const [path, init] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe('/api/import/agents?runtimeEnvironmentId=rte_default');
     expect(init?.method).toBe('POST');
     expect(init?.body).toBe(file);
     expect(init?.headers).toMatchObject({ 'content-type': 'application/zip' });
@@ -173,7 +181,16 @@ describe('agent package transfer', () => {
 
   it('reports an import Problem with its status and message', async () => {
     mockFetch(
-      Response.json({ code: 'INVALID_INPUT', message: '不是有效的 ZIP 包' }, { status: 400 }),
+      Response.json(
+        {
+          code: 'INVALID_INPUT',
+          message: '不是有效的 ZIP 包',
+          status: 400,
+          requestId: '',
+          retryable: false,
+        },
+        { status: 400 },
+      ),
     );
     const error = await api.importAgent(new Blob(['bad'])).catch((reason: unknown) => reason);
     expect(error).toBeInstanceOf(ApiError);
@@ -199,12 +216,16 @@ describe('agent package transfer', () => {
 
 describe('native fetch signal', () => {
   it('forwards the abort signal for audit and market searches', async () => {
-    const fetch = mockFetch(() => Promise.resolve(Response.json([])));
+    const fetch = mockFetch(() => Promise.resolve(Response.json({ items: [] })));
     const controller = new AbortController();
     await api.audit({ action: 'auth.' }, controller.signal);
     await api.marketSkills({ view: 'all-time', q: 'pdf' }, controller.signal);
-    expect(fetch.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
-    expect(fetch.mock.calls[1]?.[1]?.signal).toBe(controller.signal);
+    const auditRequest = fetch.mock.calls[0]?.[0] as Request;
+    const marketRequest = fetch.mock.calls[1]?.[0] as Request;
+    expect(auditRequest.signal.aborted).toBe(false);
+    controller.abort();
+    expect(auditRequest.signal.aborted).toBe(true);
+    expect(marketRequest.signal.aborted).toBe(true);
   });
 
   it('rethrows abort unchanged instead of reporting the API unreachable', async () => {

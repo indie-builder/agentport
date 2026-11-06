@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import {
   fetchBytes,
   fetchChecked,
@@ -16,9 +17,7 @@ function headersOf(init: RequestInit): Headers {
 }
 
 function mockFetch(handler: (url: string, init: RequestInit) => Promise<Response>): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+  stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const request = init ?? {};
       calls.push({ url, init: request });
@@ -28,7 +27,7 @@ function mockFetch(handler: (url: string, init: RequestInit) => Promise<Response
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreFetch();
   calls.length = 0;
 });
 

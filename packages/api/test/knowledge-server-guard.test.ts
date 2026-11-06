@@ -1,78 +1,77 @@
-import { createDb } from '@agentport/db';
-import Fastify, { type FastifyInstance } from 'fastify';
-import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createServer } from '../src/features/servers/repo.js';
-import { registerServerRoutes } from '../src/features/servers/routes.js';
-import { registerErrorHandler } from '../src/plugins/errors.js';
-import { testConfig, unique } from './helpers.js';
+import type { Server } from '@agentport/shared';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
-vi.mock('../src/plugins/audit.js', () => ({ writeAudit: vi.fn() }));
+const ready = await infraReady;
 
-const handle = createDb(
-  process.env.DATABASE_URL ??
-    'postgres://pace_knowledge:pace_knowledge_local@127.0.0.1:55432/pace_knowledge',
-);
-const config = testConfig();
-let app: FastifyInstance;
 const serverId = 'srv_kb_guard_test';
-let plainServerId: string;
+let plainServerId = '';
 
-beforeAll(async () => {
-  await handle.pool.query(
-    `insert into servers (id, name, kind, config) values ($1, $2, 'knowledge', $3)
-     on conflict (id) do nothing`,
-    [serverId, 'kb-guard-test', JSON.stringify({ knowledgeBaseId: 'kb_missing' })],
-  );
-  // 带加密 env 的普通连接器：列表必须能用同一密钥解密，否则 GET 会 500。
-  const plain = await createServer(
-    handle.db,
-    {
-      kind: 'stdio',
-      name: unique('guard-plain'),
-      description: '',
-      command: 'npx',
-      args: ['-y', 'server-everything'],
-      env: { API_TOKEN: 'guard-secret' },
-    },
-    config.APP_SECRET_KEY,
-  );
-  plainServerId = plain.id;
-  app = Fastify();
-  app.setValidatorCompiler(validatorCompiler);
-  app.setSerializerCompiler(serializerCompiler);
-  app.decorate('requireAuth', async () => undefined);
-  app.decorate('config', config);
-  app.decorate('db', handle.db);
-  registerErrorHandler(app);
-  await registerServerRoutes(app);
-  await app.ready();
-});
+describe.skipIf(!ready)('knowledge server is owned by the knowledge lifecycle', () => {
+  let app: TestApp;
+  let cookie: string;
+  const serverNames: string[] = [];
 
-afterAll(async () => {
-  await handle.pool.query('delete from servers where id = any($1::text[])', [
-    [serverId, plainServerId],
-  ]);
-  await app.close();
-  await handle.pool.end();
-});
+  beforeAll(async () => {
+    app = await startApp();
+    cookie = await loginCookie(app);
+    await app.client.unsafe(
+      `insert into servers (id, name, kind, config) values ($1, $2, 'knowledge', $3)
+       on conflict (id) do nothing`,
+      [serverId, 'kb-guard-test', JSON.stringify({ knowledgeBaseId: 'kb_missing' })],
+    );
+    // 带加密 env 的普通连接器：列表必须能用同一密钥解密，否则 GET 会 500。
+    const name = unique('guard-plain');
+    serverNames.push(name);
+    const created = await request(app, {
+      method: 'POST',
+      url: '/api/servers',
+      headers: { cookie },
+      payload: {
+        kind: 'stdio',
+        name,
+        description: '',
+        command: 'npx',
+        args: ['-y', 'server-everything'],
+        env: { API_TOKEN: 'guard-test-token' },
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    plainServerId = created.json<Server>().id;
+  });
 
-describe('knowledge server is owned by the knowledge lifecycle', () => {
+  afterAll(async () => {
+    if (!app) return;
+    await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array([serverId, plainServerId], 'TEXT')],
+    );
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array([serverId, plainServerId], 'TEXT')],
+    );
+    await app.close();
+  });
+
   it('lists ordinary connectors without knowledge servers', async () => {
-    const response = await app.inject({ method: 'GET', url: '/api/servers' });
+    const response = await request(app, {
+      method: 'GET',
+      url: '/api/servers',
+      headers: { cookie },
+    });
     expect(response.statusCode, response.body).toBe(200);
-    const rows = response.json() as Array<{ id: string }>;
+    const rows = response.json<Array<{ id: string }>>();
     expect(rows.some((row) => row.id === plainServerId)).toBe(true);
     expect(rows.some((row) => row.id === serverId)).toBe(false);
   });
 
   it('refuses to delete a knowledge server through the generic endpoint', async () => {
-    const response = await app.inject({ method: 'DELETE', url: `/api/servers/${serverId}` });
+    const response = await request(app, {
+      method: 'DELETE',
+      url: `/api/servers/${serverId}`,
+      headers: { cookie },
+    });
     expect(response.statusCode, response.body).toBe(403);
   });
 
   it('keeps the knowledge server in the database after the refused delete', async () => {
-    const { rows } = await handle.pool.query('select kind from servers where id = $1', [serverId]);
+    const rows = await app.client.unsafe('select kind from servers where id = $1', [serverId]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: 'knowledge' });
   });

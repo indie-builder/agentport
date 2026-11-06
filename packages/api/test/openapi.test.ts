@@ -1,11 +1,17 @@
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { expectProblem, infraReady, inject, loginCookie, startApp } from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import {
+  expectProblem,
+  infraReady,
+  loginCookie,
+  request,
+  startApp,
+  type TestApp,
+} from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('openapi', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
 
   beforeAll(async () => {
@@ -19,39 +25,42 @@ describe.skipIf(!ready)('openapi', () => {
 
   it('requires auth for the spec and every Scalar route', async () => {
     for (const url of ['/api/openapi.json', '/api/docs/', '/api/docs/openapi.json']) {
-      const res = await inject(app, { method: 'GET', url });
+      const res = await request(app, { method: 'GET', url });
       expect(expectProblem(res, 'UNAUTHORIZED'), url).toBeTruthy();
     }
   });
 
   it('GET /api/openapi.json serves the 3.1 document to a logged-in session', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: '/api/openapi.json',
       headers: { cookie },
     });
     expect(res.statusCode, res.body).toBe(200);
     const doc = res.json();
-    expect(doc.openapi).toBe('3.1.0');
-    expect(doc.paths).toHaveProperty('/api/servers');
+    expect(doc.openapi).toMatch(/^3\.1\./);
+    expect(doc.paths).toHaveProperty('/servers');
+    expect(doc.servers).toEqual([{ url: '/api' }]);
   });
 
   it('serves Scalar and the spec URL it fetches with the session cookie', async () => {
-    const res = await inject(app, { method: 'GET', url: '/api/docs/', headers: { cookie } });
+    const res = await request(app, { method: 'GET', url: '/api/docs/', headers: { cookie } });
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.headers.get('content-type')).toContain('text/html');
     // 内联初始化脚本必须被 CSP 放行，否则页面白屏。
-    expect(res.headers['content-security-policy']).toContain("script-src 'self' 'unsafe-inline'");
-    expect(res.body).toContain('Scalar.createApiReference');
-    // 页面用相对 URL 取 spec：浏览器同源请求会带上会话 cookie。
-    expect(res.body).toContain('./openapi.json');
+    expect(res.headers.get('content-security-policy')).toContain(
+      "script-src 'self' 'unsafe-inline'",
+    );
+    expect(res.body).toContain('createApiReference');
+    // 页面用同源 URL 取 spec：浏览器请求会带上会话 cookie。
+    expect(res.body).toContain('/api/openapi.json');
 
-    const spec = await inject(app, {
+    const spec = await request(app, {
       method: 'GET',
       url: '/api/docs/openapi.json',
       headers: { cookie },
     });
     expect(spec.statusCode, spec.body).toBe(200);
-    expect(spec.json().paths).toHaveProperty('/api/servers');
+    expect(spec.json().paths).toHaveProperty('/servers');
   });
 });

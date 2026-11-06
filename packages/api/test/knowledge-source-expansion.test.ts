@@ -3,10 +3,17 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decryptSecrets } from '@agentport/core';
-import type { FastifyInstance } from 'fastify';
 import { unzipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { infraReady, inject, injectZip, loginCookie, startApp, unique } from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import {
+  infraReady,
+  loginCookie,
+  request,
+  requestZip,
+  startApp,
+  type TestApp,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 const UUID = '01234567-89ab-cdef-0123-456789abcdef';
@@ -82,14 +89,14 @@ const sourcePayloads: Record<SourceType, Record<string, unknown>> = {
 };
 
 describe.skipIf(!ready)('knowledge source expansion', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   const baseIds: string[] = [];
   const profileIds: string[] = [];
 
   async function createBase(): Promise<string> {
-    const profile = await inject(app, {
+    const profile = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -103,7 +110,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     expect(profile.statusCode, profile.body).toBe(201);
     profileIds.push(profile.json<{ id: string }>().id);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -124,7 +131,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
   }
 
   async function createSource(baseId: string, type: SourceType, overrides = {}) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -142,12 +149,11 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -156,7 +162,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
   it('creates all nine source types, persists ranges, and never returns secrets', async () => {
     const baseId = await createBase();
     for (const type of SOURCE_TYPES) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/sources`,
         headers: { cookie },
@@ -212,7 +218,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     ];
     for (const [type, patch] of cases) {
       const source = await createSource(baseId, type);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/sources/${source.id}`,
         headers: { cookie },
@@ -226,7 +232,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     // Notion/语雀使用固定 origin，没有可改身份字段：普通 config PATCH 仍成功。
     for (const type of ['notion', 'yuque'] as const) {
       const source = await createSource(baseId, type);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/sources/${source.id}`,
         headers: { cookie },
@@ -238,7 +244,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
 
     // 凭证轮换不改变身份，允许覆盖且仍只以 hasSecret 暴露。
     const lark = await createSource(baseId, 'lark_wiki');
-    const rotated = await inject(app, {
+    const rotated = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${lark.id}`,
       headers: { cookie },
@@ -247,16 +253,16 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     expect(rotated.statusCode, rotated.body).toBe(200);
     expect(rotated.json()).toMatchObject({ hasSecret: true });
     expect(rotated.body).not.toContain('rotated-lark-secret');
-    const stored = await app.pool.query<{ secrets_encrypted: string; config: unknown }>(
+    const stored = await app.client.unsafe<{ secrets_encrypted: string; config: unknown }[]>(
       'select secrets_encrypted, config from knowledge_sources where id = $1',
       [lark.id],
     );
-    expect(stored.rows[0]?.secrets_encrypted ?? '').not.toContain('rotated-lark-secret');
+    expect(stored[0]?.secrets_encrypted ?? '').not.toContain('rotated-lark-secret');
     // 显式 secrets 是整体替换，不与旧凭证合并；缺省 secrets 才保留原值。
     expect(
-      decryptSecrets(stored.rows[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY),
+      decryptSecrets(stored[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY),
     ).toEqual({ appSecret: 'rotated-lark-secret' });
-    const clear = await inject(app, {
+    const clear = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${lark.id}`,
       headers: { cookie },
@@ -264,12 +270,12 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     });
     expect(clear.statusCode, clear.body).toBe(400);
     expect(clear.json()).toMatchObject({ code: 'INVALID_INPUT', path: 'secrets.appSecret' });
-    const retained = await app.pool.query<{ secrets_encrypted: string }>(
+    const retained = await app.client.unsafe<{ secrets_encrypted: string }[]>(
       'select secrets_encrypted from knowledge_sources where id = $1',
       [lark.id],
     );
     expect(
-      decryptSecrets(retained.rows[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY),
+      decryptSecrets(retained[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY),
     ).toEqual({ appSecret: 'rotated-lark-secret' });
   });
 
@@ -305,7 +311,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       ],
     ];
     for (const [type, overrides, message] of cases) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/sources`,
         headers: { cookie },
@@ -315,11 +321,11 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       expect(res.json()).toMatchObject({ code: 'INVALID_INPUT' });
       expect(res.json<{ message: string }>().message).toContain(message);
     }
-    const count = await app.pool.query<{ n: string }>(
+    const count = await app.client.unsafe<{ n: string }[]>(
       'select count(*)::text as n from knowledge_sources where base_id = $1',
       [baseId],
     );
-    expect(count.rows[0]?.n).toBe('0');
+    expect(count[0]?.n).toBe('0');
   });
 
   it('caps provider range IDs so the composed sourceId stays under the ZIP limit', async () => {
@@ -348,7 +354,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     };
     for (const type of SOURCE_TYPES) {
       const kind = (sourcePayloads[type].ranges as Array<{ kind: string }>)[0]?.kind ?? '';
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/sources`,
         headers: { cookie },
@@ -362,7 +368,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     }
 
     // 证据里的 480 字符 IMA KB ID 曾经能创建，直到导出才因 sourceId > 500 报 409。
-    const reproduced = await inject(app, {
+    const reproduced = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -370,14 +376,14 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     });
     expect(reproduced.statusCode, reproduced.body).toBe(400);
 
-    const count = await app.pool.query<{ n: string }>(
+    const count = await app.client.unsafe<{ n: string }[]>(
       'select count(*)::text as n from knowledge_sources where base_id = $1',
       [baseId],
     );
-    expect(count.rows[0]?.n).toBe('0');
+    expect(count[0]?.n).toBe('0');
 
     // 上限本身仍可创建：只挡住超出 provider 实际 ID 空间的值。
-    const atCap = await inject(app, {
+    const atCap = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -389,7 +395,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
   it('shares the same source validation on PATCH ranges and probe', async () => {
     const baseId = await createBase();
     const source = await createSource(baseId, 'notion');
-    const badPatch = await inject(app, {
+    const badPatch = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },
@@ -400,17 +406,17 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
 
     // 历史/绕过创建入口的破损配置：test 路由与创建共用同一校验，不入队探针。
     const brokenId = unique('ksrc_broken');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_sources (id, base_id, type, name, config)
        values ($1, $2, 'lark_wiki', 'broken', '{}'::jsonb)`,
       [brokenId, baseId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_source_ranges (id, source_id, kind, external_id)
        values ($1, $2, 'wiki_space', 'spc_broken')`,
       [unique('krng_broken'), brokenId],
     );
-    const probe = await inject(app, {
+    const probe = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${brokenId}/test`,
       headers: { cookie },
@@ -445,7 +451,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       },
     ];
     for (const mode of modes) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/sources`,
         headers: { cookie },
@@ -462,25 +468,26 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
   it('DB CHECK accepts all new enum values and rejects unknown ones', async () => {
     const baseId = await createBase();
     for (const type of SOURCE_TYPES) {
-      await expect(
-        app.pool.query(
-          'insert into knowledge_sources (id, base_id, type, name) values ($1, $2, $3, $4)',
-          [unique('ksrc_db'), baseId, type, type],
-        ),
-      ).resolves.toBeDefined();
+      await app.client.unsafe(
+        'insert into knowledge_sources (id, base_id, type, name) values ($1, $2, $3, $4)',
+        [unique('ksrc_db'), baseId, type, type],
+      );
     }
-    const unknownType = app.pool.query(
+    const unknownType = await app.client.unsafe(
       'insert into knowledge_sources (id, base_id, type, name) values ($1, $2, $3, $4)',
       [unique('ksrc_db'), baseId, 'unknown_source', 'unknown'],
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
     );
-    await expect(unknownType).rejects.toMatchObject({ code: '23514' });
+    expect(unknownType).toMatchObject({ errno: '23514' });
 
     const [source] = (
-      await app.pool.query<{ id: string }>(
+      await app.client.unsafe<{ id: string }[]>(
         'select id from knowledge_sources where base_id = $1 limit 1',
         [baseId],
       )
-    ).rows;
+    );
     const sourceId = source?.id ?? '';
     expect(sourceId).not.toBe('');
     const kinds = [
@@ -497,36 +504,36 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       'nextcloud_path',
     ];
     for (const kind of kinds) {
-      await expect(
-        app.pool.query(
-          'insert into knowledge_source_ranges (id, source_id, kind, external_id) values ($1, $2, $3, $4)',
-          [unique('krng_db'), sourceId, kind, unique('ext')],
-        ),
-      ).resolves.toBeDefined();
-    }
-    await expect(
-      app.pool.query(
+      await app.client.unsafe(
         'insert into knowledge_source_ranges (id, source_id, kind, external_id) values ($1, $2, $3, $4)',
-        [unique('krng_db'), sourceId, 'unknown_kind', 'ext'],
-      ),
-    ).rejects.toMatchObject({ code: '23514' });
+        [unique('krng_db'), sourceId, kind, unique('ext')],
+      );
+    }
+    const unknownKind = await app.client.unsafe(
+      'insert into knowledge_source_ranges (id, source_id, kind, external_id) values ($1, $2, $3, $4)',
+      [unique('krng_db'), sourceId, 'unknown_kind', 'ext'],
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(unknownKind).toMatchObject({ errno: '23514' });
 
     for (const type of SOURCE_TYPES) {
-      await expect(
-        app.pool.query(
-          `insert into knowledge_documents (id, base_id, title, source_type, mime_type)
-           values ($1, $2, $3, $4, 'text/markdown')`,
-          [unique('kdoc_db'), baseId, type, type],
-        ),
-      ).resolves.toBeDefined();
-    }
-    await expect(
-      app.pool.query(
+      await app.client.unsafe(
         `insert into knowledge_documents (id, base_id, title, source_type, mime_type)
-         values ($1, $2, 'unknown', 'unknown_source', 'text/markdown')`,
-        [unique('kdoc_db'), baseId],
-      ),
-    ).rejects.toMatchObject({ code: '23514' });
+         values ($1, $2, $3, $4, 'text/markdown')`,
+        [unique('kdoc_db'), baseId, type, type],
+      );
+    }
+    const unknownDocument = await app.client.unsafe(
+      `insert into knowledge_documents (id, base_id, title, source_type, mime_type)
+       values ($1, $2, 'unknown', 'unknown_source', 'text/markdown')`,
+      [unique('kdoc_db'), baseId],
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(unknownDocument).toMatchObject({ errno: '23514' });
   });
 
   it('round-trips all nine source types through the knowledge ZIP package', async () => {
@@ -553,7 +560,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       const original = Buffer.from(`# ${type}\n\n来源原件 ${type}\n`, 'utf8');
       const markdown = Buffer.from(`# ${type}\n\n来源正文 ${type}\n`, 'utf8');
       const mimeType = type === 'nextcloud' ? 'text/plain' : 'text/markdown';
-      const upload = await inject(app, {
+      const upload = await request(app, {
         method: 'PUT',
         url: `/api/knowledge/bases/${baseId}/documents/upload`,
         headers: { cookie },
@@ -575,7 +582,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
 
       await mkdir(join(knowledgeDir, 'docs', documentId, versionId), { recursive: true });
       await writeFile(join(knowledgeDir, 'docs', documentId, versionId, 'markdown.md'), markdown);
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into knowledge_document_versions
            (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
             size_bytes, source_revision, parse_status, page_map, images, embedding_profile_id, metadata)
@@ -598,14 +605,14 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
           }),
         ],
       );
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into knowledge_chunks
            (id, base_id, document_id, version_id, ordinal, parent_ordinal, index_role, kind,
             heading, content, search_text, enabled, edited_by_user, token_count, metadata)
          values ($1, $2, $3, $4, 0, null, 'parent', 'text', null, $5, '', true, false, 10, '{}'::jsonb)`,
         [chunkIds[0], baseId, documentId, versionId, `parent body ${type}`],
       );
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into knowledge_chunks
            (id, base_id, document_id, version_id, ordinal, parent_ordinal, index_role, kind,
             heading, content, search_text, enabled, edited_by_user, page_from, page_to, locator,
@@ -626,7 +633,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       // 真实连接 ID 参与 sourceId，模拟 worker 的 `<connectionId>:<leaf externalId>`。
       const sourceId = `${source.id}:${type}:item-1`;
       expect(sourceId.length).toBeLessThanOrEqual(500);
-      await app.pool.query(
+      await app.client.unsafe(
         `update knowledge_documents
             set source_type = $2, source_id = $3, source_connection_id = $4, source_path = $5,
                 source_url = null, mime_type = $6, size_bytes = $7, status = 'ready',
@@ -658,7 +665,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       });
     }
 
-    const exported = await injectZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
+    const exported = await requestZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
     expect(exported.statusCode, exported.body).toBe(200);
     const zip = exported.rawPayload;
     const entries = unzipSync(new Uint8Array(zip));
@@ -720,27 +727,27 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     }
 
     // 导出后删除原库及其内置 server，复用同一 embedding profile 导入新库。
-    const originalBase = await app.pool.query<{ slug: string }>(
+    const originalBase = await app.client.unsafe<{ slug: string }[]>(
       'select slug from knowledge_bases where id = $1',
       [baseId],
     );
-    await app.pool.query('delete from knowledge_bases where id = $1', [baseId]);
-    await app.pool.query('delete from servers where name = $1', [
-      `kb-${originalBase.rows[0]?.slug ?? ''}`,
+    await app.client.unsafe('delete from knowledge_bases where id = $1', [baseId]);
+    await app.client.unsafe('delete from servers where name = $1', [
+      `kb-${originalBase[0]?.slug ?? ''}`,
     ]);
-    const imported = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, zip);
+    const imported = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, zip);
     expect(imported.statusCode, imported.body).toBe(201);
     const result = imported.json<{ baseId: string }>();
     baseIds.push(result.baseId);
 
     // 来源凭证/游标/连接不随包迁移：新库没有 knowledge_sources，文档连接置空。
-    const sources = await app.pool.query<{ n: string }>(
+    const sources = await app.client.unsafe<{ n: string }[]>(
       'select count(*)::text as n from knowledge_sources where base_id = $1',
       [result.baseId],
     );
-    expect(sources.rows[0]?.n).toBe('0');
+    expect(sources[0]?.n).toBe('0');
 
-    const rows = await app.pool.query<{
+    const rows = await app.client.unsafe<{
       document_id: string;
       source_type: string;
       source_id: string;
@@ -754,7 +761,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       markdown_sha256: string;
       source_revision: string | null;
       version_metadata: Record<string, unknown>;
-    }>(
+    }[]>(
       `select d.id as document_id, d.source_type, d.source_id, d.source_path, d.mime_type,
               d.source_connection_id, d.current_version_id, d.metadata, v.id as version_id,
               v.blob_sha256, v.markdown_sha256, v.source_revision, v.metadata as version_metadata
@@ -763,8 +770,8 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
         where d.base_id = $1`,
       [result.baseId],
     );
-    expect(rows.rows).toHaveLength(SOURCE_TYPES.length);
-    for (const row of rows.rows) {
+    expect(rows).toHaveLength(SOURCE_TYPES.length);
+    for (const row of rows) {
       const type = row.source_type as SourceType;
       const fixture = fixtures.get(type)!;
       expect(row).toMatchObject({
@@ -786,7 +793,7 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       );
       expect(blob).toEqual(fixture.original);
 
-      const chunks = await app.pool.query<{
+      const chunks = await app.client.unsafe<{
         id: string;
         version_id: string;
         ordinal: number;
@@ -795,14 +802,14 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
         content: string;
         edited_by_user: boolean;
         locator: Record<string, unknown> | null;
-      }>(
+      }[]>(
         `select id, version_id, ordinal, parent_ordinal, index_role, content, edited_by_user, locator
            from knowledge_chunks where document_id = $1 order by ordinal`,
         [row.document_id],
       );
-      expect(chunks.rows.map((chunk) => chunk.id)).not.toContain(fixture.chunkIds[0]);
-      expect(chunks.rows.map((chunk) => chunk.id)).not.toContain(fixture.chunkIds[1]);
-      expect(chunks.rows).toMatchObject([
+      expect(chunks.map((chunk) => chunk.id)).not.toContain(fixture.chunkIds[0]);
+      expect(chunks.map((chunk) => chunk.id)).not.toContain(fixture.chunkIds[1]);
+      expect([...chunks]).toMatchObject([
         {
           version_id: row.current_version_id,
           ordinal: 0,

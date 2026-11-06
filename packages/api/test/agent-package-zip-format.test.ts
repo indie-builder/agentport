@@ -1,7 +1,7 @@
 import { AppError } from '@agentport/core';
 import { zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
-import { decodePackage } from '../src/features/agent-package-zip.js';
+import { describe, expect, it } from 'bun:test';
+import { decodePackage } from '../src/modules/agents/package-zip.js';
 
 /**
  * ZIP 结构专项：EOCD 的本盘/总条目数必须一致，注释里的伪签名不能影响 EOCD 定位，

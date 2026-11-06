@@ -3,7 +3,7 @@ import { waitClose } from './close-wait.js';
 /** 关停排空等待：先等在跑任务，再在关 Redis/PG 前给其余关闭有界时间。 */
 const SHUTDOWN_WAIT_MS = 10_000;
 const CLOSE_WAIT_MS = 5_000;
-const POOL_WAIT_MS = 2_000;
+const DATABASE_WAIT_MS = 2_000;
 
 export interface ShutdownStep {
   label: string;
@@ -13,7 +13,7 @@ export interface ShutdownStep {
 export interface ShutdownWaits {
   shutdownMs: number;
   closeMs: number;
-  poolMs: number;
+  databaseMs: number;
 }
 
 export interface ShutdownOptions {
@@ -27,7 +27,7 @@ export interface ShutdownOptions {
   steps: ShutdownStep[];
   /** 其余关闭之后按序执行的收尾，每步有界。 */
   finalSteps: ShutdownStep[];
-  pool: ShutdownStep;
+  database: ShutdownStep;
   waits?: ShutdownWaits;
 }
 
@@ -36,7 +36,7 @@ export async function runShutdown(options: ShutdownOptions): Promise<number> {
   const waits = options.waits ?? {
     shutdownMs: SHUTDOWN_WAIT_MS,
     closeMs: CLOSE_WAIT_MS,
-    poolMs: POOL_WAIT_MS,
+    databaseMs: DATABASE_WAIT_MS,
   };
   let failed = false;
 
@@ -68,10 +68,8 @@ export async function runShutdown(options: ShutdownOptions): Promise<number> {
     finalClosed = (await waitClose(attempt(step), waits.closeMs)) && finalClosed;
   }
 
-  // 仍有后台任务在用连接时不能 pool.end：提前关池会打断它正在跑的查询。
-  // 超时就直接退出，由进程回收连接。
   if (runsClosed && providerClosed && othersClosed && finalClosed) {
-    await waitClose(attempt(options.pool), waits.poolMs);
+    await waitClose(attempt(options.database), waits.databaseMs);
   }
   return failed ? 1 : 0;
 }

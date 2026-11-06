@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { connect } from 'node:net';
-import type { TestProject } from 'vitest/node';
 import { type BackendInfra, createIsolatedDatabase } from './isolated-db.js';
 
 // 与 docker-compose.yml 的 redis 使用同一 tag+digest；CI 预拉取的就是这个 tag。
@@ -166,7 +165,10 @@ export async function stopRedisContainer(redis: IsolatedRedis | null): Promise<v
   redis.stopped = true;
 }
 
-export default async function setup(project: TestProject): Promise<() => Promise<void>> {
+export default async function setup(): Promise<{
+  env: BackendInfra;
+  close(): Promise<void>;
+}> {
   const database = await createIsolatedDatabase('backend_test');
   let redis: IsolatedRedis | null = null;
   try {
@@ -185,35 +187,40 @@ export default async function setup(project: TestProject): Promise<() => Promise
 
   if (!database) {
     console.warn('backend tests: PostgreSQL unavailable, database-backed suites will skip');
+  } else {
+    console.info(`backend tests: PostgreSQL database ${database.name}`);
   }
-  project.provide('backendInfra', {
+  if (redis) console.info(`backend tests: Redis container ${redis.name}`);
+  const env = {
     DATABASE_URL: database?.url ?? UNAVAILABLE.DATABASE_URL,
     REDIS_URL: redis?.url ?? UNAVAILABLE.REDIS_URL,
-  });
+  };
 
   const missing = [...(database ? [] : ['PostgreSQL']), ...(redis ? [] : ['Redis'])];
 
-  // watch 会话开始时 globalSetup 只跑一次；会话内复用本轮资源，退出时 teardown 清理。
-  return async () => {
-    const results = await Promise.allSettled([
-      stopRedisContainer(redis),
-      database ? database.close() : Promise.resolve(),
-    ]);
-    const failures = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : [],
-    );
-    // 清理后仍缺基础设施就以非零退出：套件跳过不等于通过。
-    if (missing.length > 0) {
-      const missingError = new Error(
-        `backend tests: missing infrastructure (${missing.join(', ')}); dependent suites were skipped, not passed`,
+  return {
+    env,
+    async close() {
+      const results = await Promise.allSettled([
+        stopRedisContainer(redis),
+        database ? database.close() : Promise.resolve(),
+      ]);
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : [],
       );
-      if (failures.length > 0) {
-        throw new AggregateError([...failures, missingError], missingError.message);
+      // 清理后仍缺基础设施就以非零退出：套件跳过不等于通过。
+      if (missing.length > 0) {
+        const missingError = new Error(
+          `backend tests: missing infrastructure (${missing.join(', ')}); dependent suites were skipped, not passed`,
+        );
+        if (failures.length > 0) {
+          throw new AggregateError([...failures, missingError], missingError.message);
+        }
+        throw missingError;
       }
-      throw missingError;
-    }
-    if (failures.length > 0) {
-      throw new AggregateError(failures, 'backend tests: teardown failed');
-    }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'backend tests: teardown failed');
+      }
+    },
   };
 }

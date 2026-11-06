@@ -11,7 +11,8 @@ import {
   markReactive,
   type ParseResult,
 } from '@openuidev/lang-core';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, mock, test } from 'bun:test';
+import { waitFor } from './fixtures/wait-for.js';
 
 /**
  * 原生绑定语义必须真的能跑：`reactive()` 标记的字段写入 `$变量` 后，
@@ -55,7 +56,7 @@ describe('reactive bindings drive Query re-execution', () => {
     const store = createStore();
     store.initialize(result.stateDeclarations, {});
 
-    const callTool = vi.fn(async (name: string, args: Record<string, unknown>) => ({
+    const callTool = mock(async (name: string, args: Record<string, unknown>) => ({
       rows: [{ title: `${name}:${String(args.status)}` }],
     }));
     const manager = createQueryManager({ callTool } as never);
@@ -69,13 +70,13 @@ describe('reactive bindings drive Query re-execution', () => {
     });
 
     manager.evaluateQueries(queryNodes(result, ctx()));
-    await vi.waitFor(() => expect(callTool).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(callTool).toHaveBeenCalledTimes(1));
     expect(callTool).toHaveBeenLastCalledWith('list_tickets', { status: 'open' });
 
     // 用户改了 Select/Input：store 里写入新的 $status，渲染器会重新求值并调用 evaluateQueries。
     store.set('$status', 'closed');
     manager.evaluateQueries(queryNodes(result, ctx()));
-    await vi.waitFor(() => expect(callTool).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(callTool).toHaveBeenCalledTimes(2));
     expect(callTool).toHaveBeenLastCalledWith('list_tickets', { status: 'closed' });
     expect(manager.getResult('tickets')).toEqual({
       rows: [{ title: 'list_tickets:closed' }],

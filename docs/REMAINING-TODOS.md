@@ -26,9 +26,9 @@
    - 导出包已携带两个可移植 TodoWrite env 并保留输出风格，导入不执行外来 env；往返测试通过，未带出沙盒专有运行限制。
 
 1. ✅ **重跑全量回归 + 20 条用户故事验收（2026-10-24 完成）**
-   - 结果：`pnpm test` 965/965 全绿；E2E 42/43（唯一失败为真实对话在停 worker 时无消费者，属套件设计冲突）；真实模型 API 链路 6s 成功。HANDOFF 已更新。
+   - 结果：`bun run test` 965/965 全绿（当时入口）；E2E 42/43（唯一失败为真实对话在停 worker 时无消费者，属套件设计冲突）；真实模型 API 链路 6s 成功。HANDOFF 已更新。
 2. ✅ **修复后重做空库部署演练（2026-10-24 完成）**
-   - 结果：`pnpm run down --clean && pnpm run up` 从零建卷迁移启动，`pnpm smoke` = SMOKE OK。修正了 smoke 对空库 `tools/list` 的错误断言（空库返回 -32601 属 MCP 协议正确行为）。
+   - 结果：`bun run down --clean && bun run up` 从零建卷迁移启动，`bun run smoke` = SMOKE OK（当时入口）。修正了 smoke 对空库 `tools/list` 的错误断言（空库返回 -32601 属 MCP 协议正确行为）。
 3. ✅ **UI/UX 全页面独立审查（2026-10-24 完成 10/10）**
    - 原第 5–10 轮成果未留痕；本轮以当前代码重做：4 个 Opus 审查域并行覆盖 12 类页面与浮层，修 20 项（含 2 项 P0：收起态焦点隐形、技能支持文件草稿无保护），4 个 Sonnet 修复。
    - 验证：typecheck 全过、web 254/254、全量 965/965、build 通过、biome 0 error、lint:focus 通过；浏览器 320px 六页无溢出且各 1 个 h1。详见 docs/UI-UX-REVIEW.md。
@@ -37,8 +37,8 @@
 
 4. ✅ **真实部署验证安全项 + 收敛沙盒出站（2026-10-24 完成）**
    - 出站：`SANDBOX_EGRESS` 默认改 `open`（不隔离出站，明确写入文档）；`proxy` 未配 `HTTPS_PROXY`/`HTTP_PROXY` 时 `loadConfig` 直接抛错，worker 启动退出（fail-closed），删除原先静默降级 `open`。`none` 含义与启动警告不变。未实现出站代理本身。
-   - 自动化：`packages/worker/test/config.test.ts`（默认值 / proxy 缺代理抛错 / proxy 带代理通过）；`security.test.ts` 增加 `/` 与 `/health/live` 的 CSP、`/mcp/*` 无 CSP；`auth.test.ts` 已有 logout 后旧 cookie 401。
-   - 真实部署（运行中的 compose）：错误登录第 11 次 429（`RATE_LIMITED`）；`/` 与 `/health/live` 带 CSP、`/mcp/srv_missing` 404 且无 CSP；登录→logout→重放旧 cookie 401 `session expired or revoked`；`OPTIONS /api/servers` 伪造 Origin 无 `Access-Control-Allow-Origin`；容器内 `SANDBOX_EGRESS=proxy` 无代理启动 exit 1。
+   - 自动化：`packages/worker/test/config.test.ts`（默认值 / proxy 缺代理抛错 / proxy 带代理通过）；`security.test.ts` 增加 `/` 与 `/health/live` 的 CSP（2026-11-06 Hono 迁移后 CSP 全局生效，`/mcp` 不再例外，断言已同步）；`auth.test.ts` 已有 logout 后旧 cookie 401。
+   - 真实部署（运行中的 compose）：错误登录第 11 次 429（`RATE_LIMITED`）；`/` 与 `/health/live` 带 CSP（`/mcp/srv_missing` 当时无 CSP 为 Fastify 时代行为，现为全局 CSP）；登录→logout→重放旧 cookie 401 `session expired or revoked`；`OPTIONS /api/servers` 伪造 Origin 无 `Access-Control-Allow-Origin`；容器内 `SANDBOX_EGRESS=proxy` 无代理启动 exit 1。
    - 未覆盖：`SANDBOX_EGRESS=none` 下模型/MCP 的失败表现（行为未改动，仍仅有启动 warn）；限流 429 未进单测（vitest 全局 `RATE_LIMIT_DISABLED=1`），改由上述部署验证覆盖。
 5. ✅ **同步过时文档（2026-10-24 完成）**
    - README/DELIVERY 已按代码修正（600/min、D-17 已代理、4 种权限模式、/health 鉴权区分、规则/输出风格/记忆/技能资源/定时任务），并清理 DECISIONS/HANDOFF/CHANGELOG 残留 120/min。`rg '未代理|120/min|只有.*dontAsk|无鉴权'` 无命中。
@@ -53,7 +53,7 @@
 7. ✅ **清死代码与无效配置（2026-10-24 完成）**
    - 删除 `components/ui/{input-group,popover,table,message}.tsx` 中无外部引用的具名导出：`InputGroupText`/`InputGroupTextarea`、`PopoverHeader`/`PopoverTitle`/`PopoverDescription`、`TableFooter`/`TableCaption`、`MessageAvatar`/`MessageHeader`/`MessageFooter`（连同定义与随之未使用的 import），净删 123 行。
    - 删除 `docs/OPERATIONS.md` 中幻影配置 `AGENT_DEFAULT_MODEL`、`AGENT_MAX_BUDGET_USD`（`packages/api/src/config.ts` schema 从未解析，文档“仅校验”说法有误）。
-   - 验证：`pnpm -r typecheck` 全过；`pnpm test` 971/971；web 254/254；`biome check packages/*/src packages/*/test` 0 error；`pnpm build` 全过。
+   - 验证：`bun run typecheck` 全过；`bun run test` 971/971（当时入口）；web 254/254；`biome check packages/*/src packages/*/test` 0 error；`bun run build` 全过。
 8. **低优先/可延后**（已逐项复核；2026-10-24）
    - ✅ **分支 UI 支持从任意已持久化用户消息分支（2026-10-24 完成）**：每条用户消息下方常显图标按钮，走 API `fromMessageId`；`ChatItem` 用户项新增 `messageId`（`id` 是合成 `${message.id}:0`，不可作锚点）；运行详情重建步骤（空 `conversationId`）不带锚点、不显示按钮；新发/流式消息无持久化 id 不显示入口。验证：web 257/257、全量 974/974、320px 无横向溢出，浏览器实测点第一条消息分支后新会话 `branch_of_message_id=msg_vb_u1` 且仅复制 1 条消息。
    - ✅ **overview 查询合并（已完成，`f733d08`，2026-10-25）**：`/api/overview` 由 6 条 SQL 合并为 3 条并行查询；counts（servers/agents/running/runs）并成一条，另两条为智能体聚合与最近 20 条运行。

@@ -2,9 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { DbError } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { handleEvalJobFailed } from '../../worker/src/eval-job.js';
 import { EVAL_FAILURE_PUBLIC_MESSAGE, executeEvalRun } from '../../worker/src/eval-runner.js';
 import {
@@ -12,9 +11,10 @@ import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -38,7 +38,7 @@ interface RunBody {
  * eval_runs.error 必须是固定公开文案，list/detail/compare/export 的成功响应不得带出原文。
  */
 describe.skipIf(!ready)('eval error redaction', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -90,7 +90,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
     });
 
     const functionName = `eval_result_secret_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
-    await app.pool.query(`
+    await app.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin
         if new.eval_run_id = '${run.id}' then
@@ -100,7 +100,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
       end;
       $fn$
     `);
-    await app.pool.query(`
+    await app.client.unsafe(`
       create trigger ${functionName}
       before insert on eval_results
       for each row execute function ${functionName}()
@@ -119,8 +119,8 @@ describe.skipIf(!ready)('eval error redaction', () => {
     } catch (error) {
       fault = error;
     } finally {
-      await app.pool.query(`drop trigger if exists ${functionName} on eval_results`);
-      await app.pool.query(`drop function if exists ${functionName}()`);
+      await app.client.unsafe(`drop trigger if exists ${functionName} on eval_results`);
+      await app.client.unsafe(`drop function if exists ${functionName}()`);
     }
 
     expect(fault, 'the injected PostgreSQL failure must really happen').toBeTruthy();
@@ -137,13 +137,13 @@ describe.skipIf(!ready)('eval error redaction', () => {
       error: raw,
     });
 
-    const stored = await app.pool.query<{ error: string | null }>(
+    const stored = await app.client.unsafe<{ error: string | null }[]>(
       'select error from eval_runs where id = $1',
       [run.id],
     );
-    expect(stored.rows[0]?.error).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
+    expect(stored[0]?.error).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}`,
       headers: { cookie },
@@ -156,7 +156,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
       ]),
     );
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/eval/runs/${run.id}`,
       headers: { cookie },
@@ -165,7 +165,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
     expectNoSqlLeak(detail.body, secret);
     expect(detail.json<{ evalRun: RunBody }>().evalRun.error).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
 
-    const compare = await inject(app, {
+    const compare = await request(app, {
       method: 'GET',
       url: `/api/eval/runs/${run.id}/compare?head=${head.id}`,
       headers: { cookie },
@@ -174,7 +174,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
     expectNoSqlLeak(compare.body, secret);
     expect(compare.json<{ baseRun: RunBody }>().baseRun.error).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
 
-    const exported = await inject(app, {
+    const exported = await request(app, {
       method: 'GET',
       url: `/api/eval/runs/${run.id}/export`,
       headers: { cookie },
@@ -220,7 +220,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
     });
 
     const functionName = `eval_message_secret_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
-    await app.pool.query(`
+    await app.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin
         if new.content->>'text' = '${prompt}' then
@@ -230,7 +230,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
       end;
       $fn$
     `);
-    await app.pool.query(`
+    await app.client.unsafe(`
       create trigger ${functionName}
       before insert on messages
       for each row execute function ${functionName}()
@@ -238,20 +238,20 @@ describe.skipIf(!ready)('eval error redaction', () => {
     try {
       await executeEvalRun({ db: app.db, logger, redisUrl: 'redis://unused', evalRunId: run.id });
     } finally {
-      await app.pool.query(`drop trigger if exists ${functionName} on messages`);
-      await app.pool.query(`drop function if exists ${functionName}()`);
+      await app.client.unsafe(`drop trigger if exists ${functionName} on messages`);
+      await app.client.unsafe(`drop function if exists ${functionName}()`);
     }
 
     // 真实写入边界已把数据库异常原文收敛，持久化输出本身就是公开文案。
-    const stored = await app.pool.query<{ output: string }>(
+    const stored = await app.client.unsafe<{ output: string }[]>(
       'select output from eval_results where eval_run_id = $1',
       [run.id],
     );
-    expect(stored.rows).toHaveLength(1);
-    expect(stored.rows[0]?.output).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
-    expectNoSqlLeak(stored.rows[0]?.output ?? '', secret);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.output).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
+    expectNoSqlLeak(stored[0]?.output ?? '', secret);
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/eval/runs/${run.id}`,
       headers: { cookie },
@@ -262,7 +262,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
     expect(detailResults[0]?.output).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
     expectNoSqlLeak(detailResults[0]?.output ?? '', secret);
 
-    const compare = await inject(app, {
+    const compare = await request(app, {
       method: 'GET',
       url: `/api/eval/runs/${run.id}/compare?head=${head.id}`,
       headers: { cookie },
@@ -272,7 +272,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
     expect(row?.base?.output).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
     expectNoSqlLeak(row?.base?.output ?? '', secret);
 
-    const exported = await inject(app, {
+    const exported = await request(app, {
       method: 'GET',
       url: `/api/eval/runs/${run.id}/export`,
       headers: { cookie },

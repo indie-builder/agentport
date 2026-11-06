@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { KnowledgeCancelled } from '../src/knowledge/ingestion.js';
 import {
   runWikiGenerate,
@@ -224,7 +224,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (knowledgeDir) await rm(knowledgeDir, { recursive: true, force: true });
-  await dbHandle.pool.end();
+  await dbHandle.client.close();
 });
 
 describe('runWikiGenerate', () => {
@@ -232,8 +232,8 @@ describe('runWikiGenerate', () => {
 
   beforeEach(async () => {
     if (baseIds.length > 0) {
-      await dbHandle.pool.query('delete from knowledge_bases where id = any($1::text[])', [
-        baseIds,
+      await dbHandle.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        dbHandle.client.array(baseIds, 'TEXT'),
       ]);
       baseIds.length = 0;
     }

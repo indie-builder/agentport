@@ -8,7 +8,7 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeBaseSettings } from '@agentport/shared';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { ImageQueryFn } from '../src/knowledge/image-processing.js';
 import {
   type ChunkDraft,
@@ -148,7 +148,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => fixture.close(() => resolve()));
-  await dbHandle?.pool.end();
+  await dbHandle?.client.close();
   await isolated?.close();
 });
 
@@ -1765,8 +1765,8 @@ describe.skipIf(!ready)('runSync', () => {
   });
 
   it('filters stale detection to the current source in SQL while keeping every other status', async () => {
-    const pool = dbHandle?.pool;
-    if (!pool) throw new Error('database not initialized');
+    const client = dbHandle?.client;
+    if (!client) throw new Error('database not initialized');
     const fixtureBase = await makeBase();
     const connector: KnowledgeConnector = {
       async *sync({ onCheckpoint }) {
@@ -1827,7 +1827,7 @@ describe.skipIf(!ready)('runSync', () => {
       sourceType: 'gitlab',
       sourceId: () => 'json-null-0',
     });
-    await pool.query("update knowledge_documents set metadata = 'null'::jsonb where id = $1", [
+    await client.unsafe("update knowledge_documents set metadata = 'null'::jsonb where id = $1", [
       jsonNullId,
     ]);
     const nonReadyStatuses = ['pending', 'failed', 'disabled'] as const;
@@ -1863,11 +1863,11 @@ describe.skipIf(!ready)('runSync', () => {
       .set({ status: 'published' })
       .where(eq(schema.knowledgeWikiPages.id, wikiPage.id));
 
-    const spy = vi.spyOn(pool, 'query');
+    const spy = spyOn(client, 'unsafe');
     let documentCalls: Array<{
       text: string;
       values: unknown[];
-      result: Promise<{ rows: unknown[] }>;
+      result: Promise<unknown[]>;
     }> = [];
     try {
       const syncJob = await repo.knowledge.getJob(db, jobId);
@@ -1880,7 +1880,7 @@ describe.skipIf(!ready)('runSync', () => {
           return {
             text: typeof query === 'string' ? query : (query?.text ?? ''),
             values: (call[1] ?? []) as unknown[],
-            result: spy.mock.results[index]?.value as Promise<{ rows: unknown[] }>,
+            result: spy.mock.results[index]?.value as Promise<unknown[]>,
           };
         })
         .filter((call) => call.text.includes('order by "knowledge_documents"."created_at" desc'));
@@ -1895,7 +1895,7 @@ describe.skipIf(!ready)('runSync', () => {
       expect(call.values).toContain(sourceId);
     }
     const fetchedRows = await Promise.all(
-      documentCalls.map(async (call) => (await call.result).rows.length),
+      documentCalls.map(async (call) => (await call.result).length),
     );
     expect(fetchedRows).toEqual([201, 10]);
 

@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { runStreamKey } from '@agentport/shared';
 import { Redis } from 'ioredis';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
 import { eventFollowerCount, infraReady, testConfig, unique, waitFor } from './helpers.js';
 

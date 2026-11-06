@@ -1,5 +1,6 @@
 import { writePersonalMemoryProjection } from '@agentport/core';
-import { type Database, type DbPool, repo } from '@agentport/db';
+import { type Database, repo } from '@agentport/db';
+import type { SQL } from 'bun';
 
 /**
  * 每轮用户聊天运行前按 DB 最新个人偏好重写该用户的 `CLAUDE.md`。
@@ -9,12 +10,12 @@ import { type Database, type DbPool, repo } from '@agentport/db';
  */
 export async function projectPersonalMemory(
   db: Database,
-  pool: DbPool,
+  client: SQL,
   workspacesDir: string,
   businessId: string,
 ): Promise<void> {
   await repo.locks.withAdvisoryLock(
-    pool,
+    client,
     repo.locks.memoryTargetLockKey({ kind: 'personal' }, businessId),
     async () => {
       const row = await repo.userPreferences.get(db, businessId);

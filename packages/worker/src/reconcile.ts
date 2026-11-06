@@ -1,7 +1,8 @@
 import { DbError } from '@agentport/core';
 import { type createDb, schema } from '@agentport/db';
 import { type AgentRunJob, EVAL_RUNS_QUEUE, errorText, RUNS_QUEUE } from '@agentport/shared';
-import { Queue } from 'bullmq';
+import { createBunRedisClient, Queue } from 'bullmq';
+import { RedisClient } from 'bun';
 import { and, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { Effect, Result, Schedule } from 'effect';
 import type { Logger } from 'pino';
@@ -370,9 +371,10 @@ export function startReconciler(input: {
   redisUrl: string;
   cleanup: ReconcileCleanup;
 }): () => Promise<void> {
-  const queue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: { url: input.redisUrl } });
+  const connection = createBunRedisClient(new RedisClient(input.redisUrl));
+  const queue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection });
   queue.on('error', () => input.logger.warn('run queue connection failed'));
-  const evalQueue = new Queue(EVAL_RUNS_QUEUE, { connection: { url: input.redisUrl } });
+  const evalQueue = new Queue(EVAL_RUNS_QUEUE, { connection });
   evalQueue.on('error', () => input.logger.warn('eval queue connection failed'));
   let busy = false;
   let inFlight: Promise<void> = Promise.resolve();
@@ -399,5 +401,6 @@ export function startReconciler(input: {
     clearInterval(timer);
     await inFlight;
     await Promise.all([queue.close(), evalQueue.close()]);
+    await connection.quit();
   };
 }

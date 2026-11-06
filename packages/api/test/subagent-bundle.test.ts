@@ -1,16 +1,16 @@
 import type { Agent } from '@agentport/shared';
 import { AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import type { AgentSpec, ChildSpec, PackageSpec, SkillSpec } from './package-fixtures.js';
@@ -39,7 +39,7 @@ interface PortableTool {
 }
 
 describe.skipIf(!ready)('sub-agent packages (official files)', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
   const createdServers: string[] = [];
@@ -61,9 +61,9 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
 
   const auth = () => ({ cookie });
   const importPackage = (spec: PackageSpec) =>
-    injectZip(app, 'POST', '/api/import/agents', cookie, packageZip(spec));
+    requestZip(app, 'POST', '/api/import/agents', cookie, packageZip(spec));
   const exportFiles = async (id: string) => {
-    const res = await injectZip(app, 'GET', `/api/export/agents/${id}`, cookie);
+    const res = await requestZip(app, 'GET', `/api/export/agents/${id}`, cookie);
     expect(res.statusCode, res.body).toBe(200);
     return unzipPackage(res.rawPayload);
   };
@@ -90,32 +90,32 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
   const agentRow = async (
     slug: string,
   ): Promise<{ id: string; parent_id: string | null } | undefined> => {
-    const res = await app.pool.query<{ id: string; parent_id: string | null }>(
+    const res = await app.client.unsafe<{ id: string; parent_id: string | null }[]>(
       'select id, parent_id from agents where slug = $1',
       [slug],
     );
-    return res.rows[0];
+    return res[0];
   };
   const versionsOf = async (agentId: string) => {
-    const res = await app.pool.query<{ version: number; snapshot: Agent }>(
+    const res = await app.client.unsafe<{ version: number; snapshot: Agent }[]>(
       'select version, snapshot from agent_versions where agent_id = $1 order by version',
       [agentId],
     );
-    return res.rows;
+    return res;
   };
   const boundSkillSlugs = async (agentId: string): Promise<string[]> => {
-    const res = await app.pool.query<{ slug: string }>(
+    const res = await app.client.unsafe<{ slug: string }[]>(
       'select s.slug from agent_skills a join skills s on s.id = a.skill_id where a.agent_id = $1 order by s.slug',
       [agentId],
     );
-    return res.rows.map((row) => row.slug);
+    return res.map((row) => row.slug);
   };
   const boundServerNames = async (agentId: string): Promise<string[]> => {
-    const res = await app.pool.query<{ name: string }>(
+    const res = await app.client.unsafe<{ name: string }[]>(
       'select s.name from agent_servers a join servers s on s.id = a.server_id where a.agent_id = $1 order by s.name',
       [agentId],
     );
-    return res.rows.map((row) => row.name);
+    return res.map((row) => row.name);
   };
   const sorted = (values: string[]) => [...values].sort((a, b) => a.localeCompare(b));
 
@@ -203,17 +203,17 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     expect((await versionsOf(first?.id ?? ''))[0]?.snapshot.parentId).toBe(parent?.id);
     expect((await versionsOf(parent?.id ?? ''))[0]?.snapshot.subAgentIds).toHaveLength(2);
 
-    const tools = await app.pool.query<{ server_id: string; name: string }>(
+    const tools = await app.client.unsafe<{ server_id: string; name: string }[]>(
       'select server_id, name from api_tools where name = $1',
       ['list-a'],
     );
-    expect(tools.rows).toHaveLength(1);
-    expect(tools.rows[0]?.server_id).toBe(
+    expect(tools).toHaveLength(1);
+    expect(tools[0]?.server_id).toBe(
       (
-        await app.pool.query<{ id: string }>('select id from servers where name = $1', [
+        await app.client.unsafe<{ id: string }[]>('select id from servers where name = $1', [
           firstServer,
         ])
-      ).rows[0]?.id,
+      )[0]?.id,
     );
   });
 
@@ -223,7 +223,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     const childSlug = unique('bundle-skill-drift-child');
     createdSkills.push(skillSlug);
     createdAgents.push(parentSlug, childSlug);
-    const seeded = await inject(app, {
+    const seeded = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: auth(),
@@ -240,11 +240,11 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     expect(res.json<ImportResult>().warnings).toEqual([
       `已存在同名技能「${skillSlug}」，其内容与导入包不同，已保留原配置`,
     ]);
-    const stored = await app.pool.query<{ body: string }>(
+    const stored = await app.client.unsafe<{ body: string }[]>(
       'select body from skills where slug = $1',
       [skillSlug],
     );
-    expect(stored.rows[0]?.body).toBe('existing instructions');
+    expect(stored[0]?.body).toBe('existing instructions');
     expect(await boundSkillSlugs(res.json<ImportResult>().agent.id)).toEqual([]);
   });
 
@@ -257,7 +257,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     const oldChild = (
       await createAgent(app, cookie, { slug: oldChildSlug, track: createdAgents })
     ).json<Agent>();
-    const bound = await inject(app, {
+    const bound = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${oldParent.id}`,
       headers: auth(),
@@ -355,7 +355,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
       }).map(([name, content]) => ({ name, content })),
     );
     expectProblem(
-      await injectZip(app, 'POST', '/api/import/agents', cookie, tampered),
+      await requestZip(app, 'POST', '/api/import/agents', cookie, tampered),
       'INVALID_INPUT',
     );
     expect(await agentRow(slug)).toBeUndefined();
@@ -392,13 +392,16 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
       ...Object.entries(files).map(([name, content]) => ({ name, content })),
       { name: `.claude/agents/${childSlug}.md`, content: 'duplicate' },
     ]);
-    expectProblem(await injectZip(app, 'POST', '/api/import/agents', cookie, raw), 'INVALID_INPUT');
+    expectProblem(
+      await requestZip(app, 'POST', '/api/import/agents', cookie, raw),
+      'INVALID_INPUT',
+    );
 
     expect(await agentRow(parentSlug)).toBeUndefined();
-    const createdSkill = await app.pool.query('select body from skills where slug = $1', [
+    const createdSkill = await app.client.unsafe('select body from skills where slug = $1', [
       skillSlug,
     ]);
-    expect(createdSkill.rowCount).toBe(0);
+    expect(createdSkill).toHaveLength(0);
     expect(await agentRow(childSlug)).toBeUndefined();
   });
 
@@ -409,7 +412,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     const childSlug = unique('bundle-conflict-child');
     createdServers.push(existingName);
     createdAgents.push(parentSlug);
-    const existing = await inject(app, {
+    const existing = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: auth(),
@@ -434,8 +437,8 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     expect(res.body).toContain(existingName);
 
     expect(await agentRow(parentSlug)).toBeUndefined();
-    const fresh = await app.pool.query('select id from servers where name = $1', [freshName]);
-    expect(fresh.rowCount).toBe(0);
+    const fresh = await app.client.unsafe('select id from servers where name = $1', [freshName]);
+    expect(fresh).toHaveLength(0);
     expect(await agentRow(childSlug)).toBeUndefined();
   });
 
@@ -506,7 +509,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     });
 
     // 不改名导入：全部加后缀，源树不动。
-    const copy = await injectZip(
+    const copy = await requestZip(
       app,
       'POST',
       '/api/import/agents',
@@ -532,11 +535,11 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     expect(newChild?.parent_id).toBe(newRoot?.id);
     expect(newChild?.id).not.toBe(sourceChild?.id);
 
-    const disabled = await app.pool.query<{ enabled: boolean }>(
+    const disabled = await app.client.unsafe<{ enabled: boolean }[]>(
       'select enabled from agents where id = $1',
       [newChild?.id],
     );
-    expect(disabled.rows[0]?.enabled).toBe(false);
+    expect(disabled[0]?.enabled).toBe(false);
 
     expect(sorted(await boundServerNames(newRoot?.id ?? ''))).toEqual([serverName]);
     expect(sorted(await boundSkillSlugs(newRoot?.id ?? ''))).toEqual([skillSlug]);
@@ -562,13 +565,13 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     const body = res.json<ImportResult>();
     createdAgents.push(`${parentSlug}-kid`);
 
-    const audit = await app.pool.query<{ input_digest: string | null }>(
+    const audit = await app.client.unsafe<{ input_digest: string | null }[]>(
       "select input_digest from audit_log where action = 'agent.imported' and target = $1",
       [body.agent.id],
     );
-    expect(audit.rowCount).toBe(1);
-    expect(audit.rows[0]?.input_digest).not.toContain(prompt);
-    expect(audit.rows[0]?.input_digest).toMatch(/^[0-9a-f]{32}$/);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.input_digest).not.toContain(prompt);
+    expect(audit[0]?.input_digest).toMatch(/^[0-9a-f]{32}$/);
   });
 
   it('rejects more than 20 sub-agents per package', async () => {

@@ -1,14 +1,14 @@
 import type { AccessFilter, AccessScope } from '@agentport/shared';
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as agentsRepo from '../src/repo/agents.js';
 import * as chatRepo from '../src/repo/chat.js';
 import { agentRuns, agents, conversations } from '../src/schema.js';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -88,7 +88,7 @@ afterAll(async () => {
   if (createdAgents.length > 0) {
     await db.delete(agents).where(inArray(agents.id, createdAgents));
   }
-  await pool.end();
+  await client.close();
 });
 
 describe.skipIf(!ready)('short delete transactions', () => {

@@ -1,14 +1,14 @@
 import { createDb, newId, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { loadRunServerBindings } from '../src/server-bindings.js';
 import { testAccess } from './fixtures/access.js';
 
 const { agentOwnership } = testAccess(import.meta.url);
 
 const url = process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
-const { db, pool } = createDb(url);
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(url);
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -91,7 +91,7 @@ describe.skipIf(!ready)('run server bindings', () => {
       await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
     if (serverIds.length > 0)
       await db.delete(schema.servers).where(inArray(schema.servers.id, serverIds));
-    await pool.end();
+    await client.close();
   });
 
   it('keeps parent and each child server names strictly to their own bindings', async () => {

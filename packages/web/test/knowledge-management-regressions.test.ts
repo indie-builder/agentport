@@ -353,7 +353,10 @@ describe('知识管理真实路由回归', () => {
         HttpResponse.json({ content: '原正文', versionId: 'kdv_1', status: 'published' }),
       ),
       http.put('/api/knowledge/documents/kdoc_99/manual', () =>
-        HttpResponse.json({ code: 'CONFLICT', message: '正文版本已变化' }, { status: 409 }),
+        HttpResponse.json(
+          { code: 'CONFLICT', message: '正文版本已变化', status: 409, requestId: '', retryable: false },
+          { status: 409 },
+        ),
       ),
     );
     await mount(() =>

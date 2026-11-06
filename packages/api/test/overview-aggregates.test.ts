@@ -1,5 +1,5 @@
 import { recentUtcDays, utcWindowStart } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
 const DAY_MS = 86_400_000;
@@ -18,7 +18,7 @@ if (isolated) process.env.DATABASE_URL = isolated.url;
 
 // helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
-const { createAgent, createTestAccount, inject, loginCookie, setAgentMember, startApp, unique } =
+const { createAgent, createTestAccount, request, loginCookie, setAgentMember, startApp, unique } =
   helpers;
 const ready = await helpers.infraReady;
 // skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
@@ -43,7 +43,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
 
   async function seedAgent(): Promise<string> {
     const id = unique('overview-agent');
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into agents (id, slug, name, model, created_by, owner_business_id) values ($1, $1, $1, 'm', $2, $2)",
       [id, helpers.ADMIN_BUSINESS_ID],
     );
@@ -58,11 +58,11 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     latencyMs: number | null = 100,
   ): Promise<void> {
     const conversationId = unique('overview-conv');
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
       [conversationId, agentId, helpers.ADMIN_BUSINESS_ID],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs
         (id, conversation_id, agent_id, status, subject_kind, initiated_by, started_at, ended_at, latency_ms, cost_usd, input_tokens, output_tokens)
        values ($1, $2, $3, $4, 'user', $9, $5, $5, $8, 0.25, $6, $7)`,
@@ -71,7 +71,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
         conversationId,
         agentId,
         status,
-        startedAt,
+        startedAt?.toISOString() ?? null,
         tokens?.input ?? null,
         tokens?.output ?? null,
         latencyMs,
@@ -104,7 +104,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
   }
 
   function overview(days: number): Promise<OverviewBody> {
-    return inject(app, {
+    return request(app, {
       method: 'GET',
       url: `/api/overview?days=${days}`,
       headers: { cookie },
@@ -121,7 +121,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
   function timeseries(days?: number): Promise<TrendPoint[]> {
     const url =
       days === undefined ? '/api/overview/timeseries' : `/api/overview/timeseries?days=${days}`;
-    return inject(app, { method: 'GET', url, headers: { cookie } }).then((res) => {
+    return request(app, { method: 'GET', url, headers: { cookie } }).then((res) => {
       expect(res.statusCode, res.body).toBe(200);
       return res.json<TrendPoint[]>();
     });
@@ -162,7 +162,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     });
     expect(new Date(result.window.since).toISOString()).toBe(result.window.since);
     // Keep later window fixtures independent of this run without clearing shared data.
-    await app.pool.query('delete from agents where id = $1', [agentId]);
+    await app.client.unsafe('delete from agents where id = $1', [agentId]);
   });
 
   it('counts failed/timeout runs and input+output tokens inside the window only', async () => {
@@ -185,8 +185,9 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
       output: 100,
     });
     await seedRun(agentId, 'running', null, null);
-    await app.pool.query(
-      "insert into servers (id, name, kind, config) values ($1, $1, 'http', '{}')",
+    await app.client.unsafe(
+      `insert into servers (id, name, kind, config)
+       values ($1, $1, 'http', '{"url":"https://example.com"}')`,
       [unique('overview-server')],
     );
 
@@ -244,18 +245,20 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
   });
 
   it('counts only user-manageable servers, matching the server list', async () => {
-    await app.pool.query(
-      "insert into servers (id, name, kind, config) values ($1, $1, 'http', '{}')",
+    await app.client.unsafe(
+      `insert into servers (id, name, kind, config)
+       values ($1, $1, 'http', '{"url":"https://example.com"}')`,
       [unique('overview-server-list')],
     );
-    await app.pool.query(
-      "insert into servers (id, name, kind, config) values ($1, $1, 'knowledge', '{}')",
+    await app.client.unsafe(
+      `insert into servers (id, name, kind, config)
+       values ($1, $1, 'knowledge', '{"knowledgeBaseId":"kb_probe"}')`,
       [unique('overview-knowledge')],
     );
 
     const [body, list] = await Promise.all([
       overview(7),
-      inject(app, { method: 'GET', url: '/api/servers', headers: { cookie } }),
+      request(app, { method: 'GET', url: '/api/servers', headers: { cookie } }),
     ]);
     expect(list.statusCode, list.body).toBe(200);
     expect(body.counts.servers).toBe(list.json<unknown[]>().length);
@@ -277,7 +280,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
 
   it('defaults both overview endpoints to the same 7 UTC days', async () => {
     const [body, points] = await Promise.all([
-      inject(app, { method: 'GET', url: '/api/overview', headers: { cookie } }).then((res) => {
+      request(app, { method: 'GET', url: '/api/overview', headers: { cookie } }).then((res) => {
         expect(res.statusCode, res.body).toBe(200);
         return res.json<OverviewBody>();
       }),
@@ -359,11 +362,11 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
       costUsd: number,
     ): Promise<void> => {
       const conversationId = unique('scope-conv');
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
         [conversationId, agentId, initiatedBy],
       );
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into agent_runs
           (id, conversation_id, agent_id, status, subject_kind, initiated_by, started_at, ended_at, latency_ms, cost_usd, input_tokens, output_tokens)
          values ($1, $2, $3, 'succeeded', 'user', $4, now(), now(), 100, $5, $6, $7)`,
@@ -374,7 +377,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     await seedOwnRun(userB.businessId, 100, 50, 2.5);
 
     const overviewAs = async (headerCookie: string): Promise<OverviewBody> => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: '/api/overview?days=1',
         headers: { cookie: headerCookie },
@@ -401,8 +404,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     // B 不是专家创建者：专家列表不出现 A 的专家，统计也不串。
     expect(bBody.agents.find((agent) => agent.agentId === agentId)).toBeUndefined();
 
-    await app.pool.query('delete from agents where id = any($1::text[])', [
-      [agentId, emptyAgentId],
-    ]);
+    await app.client.unsafe('delete from agents where id = any($1::text[])', [app.client.array([agentId, emptyAgentId], 'TEXT')],
+    );
   });
 });

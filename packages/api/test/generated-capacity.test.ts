@@ -1,4 +1,5 @@
-import { expect, it } from 'vitest';
+import { expect, it } from 'bun:test';
+import { waitForAssertion } from './native.js';
 import { runMcpExecution, tryApprovalWait } from '../src/plugins/concurrency.js';
 
 /**
@@ -23,7 +24,7 @@ it('holds four upstream executions and starts the fifth only after one finishes'
     });
 
   const running = gates.slice(0, 4).map((_, index) => run(index));
-  await expect.poll(() => started).toEqual([0, 1, 2, 3]);
+  await waitForAssertion(() => expect(started).toEqual([0, 1, 2, 3]));
 
   // 第 5 个请求必须排队，不能提前打上游。
   const queued = run(4);
@@ -32,7 +33,7 @@ it('holds four upstream executions and starts the fifth only after one finishes'
 
   gates[0]?.resolve();
   await running[0];
-  await expect.poll(() => started).toEqual([0, 1, 2, 3, 4]);
+  await waitForAssertion(() => expect(started).toEqual([0, 1, 2, 3, 4]));
 
   for (const gate of gates.slice(1)) gate.resolve();
   await Promise.all([running[1], running[2], running[3], queued]);
@@ -49,7 +50,7 @@ it('refuses execution overflow without scheduling the extra task', async () => {
     }),
   );
   try {
-    await expect.poll(() => started.length).toBe(4);
+    await waitForAssertion(() => expect(started.length).toBe(4));
     await expect(
       runMcpExecution(async () => {
         started.push(99);
@@ -72,7 +73,7 @@ it('parks at most four approval waits; the fifth is refused instead of queued, a
     }).then((outcome) => outcome.accepted);
 
   const parked = [0, 1, 2, 3].map((index) => wait(index));
-  await expect.poll(() => accepted).toEqual([0, 1, 2, 3]);
+  await waitForAssertion(() => expect(accepted).toEqual([0, 1, 2, 3]));
 
   // 名额已满：同步返回 accepted:false，调用方走立即拒绝，不追加任何排队。
   const fifth = await wait(4);
@@ -83,7 +84,7 @@ it('parks at most four approval waits; the fifth is refused instead of queued, a
   gates[0]?.resolve();
   expect(await parked[0]).toBe(true);
   const afterCancel = wait(4);
-  await expect.poll(() => accepted).toEqual([0, 1, 2, 3, 4]);
+  await waitForAssertion(() => expect(accepted).toEqual([0, 1, 2, 3, 4]));
 
   for (const gate of gates.slice(1)) gate.resolve();
   expect(await afterCancel).toBe(true);

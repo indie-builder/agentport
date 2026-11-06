@@ -1,31 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { test } from '@e2e-dev/web';
 import { expect, type Locator, type Screen } from 'e2e';
-import { createDb, newId } from '../packages/db/dist/index.js';
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 会话历史搜索：真实页面、真实 API、数据库直写 fixture，不经过队列或模型。
- * DATABASE_URL 必须显式给出（无默认值），且与页面背后 API 指向同一个库。
+ * E2E_DATABASE_URL 必须显式给出（无默认值），且与页面背后 API 指向同一个库。
  * 历史侧栏默认折叠；搜索是跨全部专家的浮层入口「搜索全部会话」，不再按当前专家过滤。
  */
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required for chat history fixtures`);
-  return value;
-}
-const DATABASE_URL = requiredEnv('DATABASE_URL');
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function pool(): ReturnType<typeof createDb>['pool'] {
-  dbPromise ??= createDb(DATABASE_URL);
-  return dbPromise.pool;
-}
-
-test.afterAll(async () => {
-  const current = await dbPromise;
-  await current?.pool.end();
-});
-
 interface Fixture {
   agents: [string, string];
   names: [string, string];
@@ -39,92 +21,12 @@ interface Fixture {
  * 搜索浮层必须能同时找到标题与消息正文，并跨到另一位专家。
  */
 async function seed(): Promise<Fixture> {
-  const suffix = randomUUID().slice(0, 8);
-  const fixture: Fixture = {
-    agents: [newId('agent'), newId('agent')],
-    names: [`E2E 过滤 A ${suffix}`, `E2E 过滤 B ${suffix}`],
-    conversations: {
-      alpha: newId('conversation'),
-      beta: newId('conversation'),
-      gamma: newId('conversation'),
-    },
-    titles: {
-      alpha: `Alpha 项目 ${suffix}`,
-      beta: `Beta 计划 ${suffix}`,
-      gamma: `Gamma 话题 ${suffix}`,
-    },
-    bodies: {
-      alpha: `Alpha 正文关键词 ${suffix}`,
-      beta: `Beta 正文关键词 ${suffix}`,
-      gamma: `Gamma 正文关键词 ${suffix}`,
-    },
-  };
-  const [agentA, agentB] = fixture.agents;
-  const { alpha, beta, gamma } = fixture.conversations;
-  // seed 中途失败时调用方拿不到 fixture，cleanup 不会执行；用事务保证半成品不落库。
-  const client = await pool().connect();
-  try {
-    await client.query('begin');
-    await client.query(
-      `insert into agents (id, slug, name, model) values
-         ($1, $3, $5, 'test-model'), ($2, $4, $6, 'test-model')`,
-      [
-        agentA,
-        agentB,
-        `e2e-filter-a-${suffix}`,
-        `e2e-filter-b-${suffix}`,
-        fixture.names[0],
-        fixture.names[1],
-      ],
-    );
-    await client.query(
-      `insert into conversations (id, agent_id, title) values
-         ($1, $4, $5), ($2, $4, $6), ($3, $7, $8)`,
-      [
-        alpha,
-        beta,
-        gamma,
-        agentA,
-        fixture.titles.alpha,
-        fixture.titles.beta,
-        agentB,
-        fixture.titles.gamma,
-      ],
-    );
-    await client.query(
-      `insert into messages (id, conversation_id, role, content) values
-         ($1, $4, 'user', jsonb_build_object('type', 'text', 'text', $7::text)),
-         ($2, $5, 'user', jsonb_build_object('type', 'text', 'text', $8::text)),
-         ($3, $6, 'user', jsonb_build_object('type', 'text', 'text', $9::text))`,
-      [
-        newId('message'),
-        newId('message'),
-        newId('message'),
-        alpha,
-        beta,
-        gamma,
-        fixture.bodies.alpha,
-        fixture.bodies.beta,
-        fixture.bodies.gamma,
-      ],
-    );
-    await client.query('commit');
-  } catch (error) {
-    await client.query('rollback');
-    throw error;
-  } finally {
-    client.release();
-  }
-  return fixture;
+  return runFixture('chat-history-filter', 'seed');
 }
 
 /** 只删自己建的 agent：会话与消息随 agent 级联删除；审计行按自己的 id 另删。 */
 async function cleanup(fixture: Fixture): Promise<void> {
-  const client = pool();
-  await client.query('delete from audit_log where target = any($1::text[])', [
-    [...fixture.agents, ...Object.values(fixture.conversations)],
-  ]);
-  await client.query('delete from agents where id = any($1::text[])', [fixture.agents]);
+  return runFixture('chat-history-filter', 'cleanup', fixture);
 }
 
 /** 历史默认折叠：所有依赖历史列表的操作都先经过真实开关展开。 */

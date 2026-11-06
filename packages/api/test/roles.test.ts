@@ -1,15 +1,15 @@
 import { ACCESS_SCOPES, PERMISSIONS, type Role } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   adminCookie,
   createRole,
   expectProblem,
   grants,
   infraReady,
-  inject,
   mutateMatrix,
+  request,
   startAccessApp,
+  type TestApp,
   unique,
 } from './access-helpers.js';
 
@@ -21,7 +21,7 @@ interface Matrix {
 }
 
 describe.skipIf(!ready)('roles', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let admin: string;
 
   beforeAll(async () => {
@@ -34,14 +34,18 @@ describe.skipIf(!ready)('roles', () => {
   });
 
   const getMatrix = async (): Promise<Matrix> => {
-    const res = await inject(app, { method: 'GET', url: '/api/roles', headers: { cookie: admin } });
+    const res = await request(app, {
+      method: 'GET',
+      url: '/api/roles',
+      headers: { cookie: admin },
+    });
     expect(res.statusCode, res.body).toBe(200);
     return res.json<Matrix>();
   };
 
   /** 构造必然失效的 revision；并行写也不会命中。 */
   const putRaw = (expectedRevision: number, roles: unknown[]) =>
-    inject(app, {
+    request(app, {
       method: 'PUT',
       url: '/api/roles',
       headers: { cookie: admin },
@@ -77,7 +81,7 @@ describe.skipIf(!ready)('roles', () => {
     expect(adminRole?.grants).toHaveLength(PERMISSIONS.length);
     expect(adminRole?.grants.every((grant) => grant.scope === 'platform')).toBe(true);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: '/api/permissions',
       headers: { cookie: admin },

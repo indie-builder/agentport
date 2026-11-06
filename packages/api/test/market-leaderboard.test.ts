@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { parseLeaderboard } from '../src/features/market/leaderboard.js';
+import { describe, expect, it } from 'bun:test';
+import { parseLeaderboard } from '../src/modules/market/leaderboard.js';
 
 const row = (rank: number, owner: string, repo: string, skill: string, installs: string) => `
   <a class="group grid" href="/${owner}/${repo}/${skill}">

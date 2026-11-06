@@ -1,4 +1,4 @@
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { migrate } from 'drizzle-orm/bun-sql/migrator';
 import { createDb } from '../dist/client.js';
 
 const url = process.env.DATABASE_URL;
@@ -7,7 +7,10 @@ if (!url) {
   process.exit(1);
 }
 
-const { db, pool } = createDb(url);
-await migrate(db, { migrationsFolder: new URL('../migrations', import.meta.url).pathname });
-await pool.end();
+const { db, client } = createDb(url);
+try {
+  await migrate(db, { migrationsFolder: new URL('../migrations', import.meta.url).pathname });
+} finally {
+  await client.close();
+}
 console.log('migrations applied');

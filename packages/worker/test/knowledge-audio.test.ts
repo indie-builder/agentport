@@ -1,14 +1,13 @@
 import type { AsrProfile, AudioTranscript } from '@agentport/core';
-import { KnowledgeModelError, transcribeAudio } from '@agentport/core';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseKnowledgeAudio } from '../src/knowledge/audio.js';
+import { KnowledgeModelError } from '@agentport/core';
+import * as coreActual from '@agentport/core';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
-vi.mock('@agentport/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/core')>();
-  return { ...actual, transcribeAudio: vi.fn() };
-});
+const transcribe = mock();
+const coreSnapshot = { ...coreActual };
+mock.module('@agentport/core', () => ({ ...coreSnapshot, transcribeAudio: transcribe }));
 
-const transcribe = vi.mocked(transcribeAudio);
+const { parseKnowledgeAudio } = await import('../src/knowledge/audio.js');
 
 const ASR: AsrProfile = {
   endpointUrl: 'https://asr.example/v1/audio/transcriptions',

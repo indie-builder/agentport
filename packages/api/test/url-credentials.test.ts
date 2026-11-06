@@ -1,16 +1,16 @@
 import { maskUrlCredentials, type Server } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { packageFiles, sidecarOf, unzipPackage } from './package-fixtures.js';
@@ -22,7 +22,7 @@ const RAW_PASS = 'legacy-pass-9f3a';
 const RAW_URL = `https://${RAW_USER}:${RAW_PASS}@legacy.example.com/mcp`;
 
 describe.skipIf(!ready)('URL embedded credentials', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const serverNames: string[] = [];
   const agentSlugs: string[] = [];
@@ -47,7 +47,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     const name = unique(`legacy-${kind}`);
     serverNames.push(name);
     const id = `srv_${name}`;
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into servers (id, name, kind, description, config) values ($1, $2, $3, '', $4::jsonb)",
       [id, name, kind, JSON.stringify(config)],
     );
@@ -60,7 +60,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
   }
 
   const serverUrl = async (id: string): Promise<Server> => {
-    const res = await inject(app, { method: 'GET', url: `/api/servers/${id}`, headers: auth() });
+    const res = await request(app, { method: 'GET', url: `/api/servers/${id}`, headers: auth() });
     expect(res.statusCode, res.body).toBe(200);
     return res.json<Server>();
   };
@@ -68,7 +68,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
   it('masks a legacy http URL on read and never rewrites the stored value', async () => {
     const { id } = await seedLegacy('http', { url: RAW_URL });
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/servers/${id}`,
       headers: auth(),
@@ -82,14 +82,14 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     expect(body.url).toBe(maskUrlCredentials(RAW_URL));
     expect(body.url).toContain('legacy.example.com');
 
-    const list = await inject(app, { method: 'GET', url: '/api/servers', headers: auth() });
+    const list = await request(app, { method: 'GET', url: '/api/servers', headers: auth() });
     expect(list.body).not.toContain(RAW_PASS);
 
-    const stored = await app.pool.query(
+    const stored = await app.client.unsafe(
       'select config->>$$url$$ as url from servers where id = $1',
       [id],
     );
-    expect(stored.rows[0]?.url).toBe(RAW_URL);
+    expect(stored[0]?.url).toBe(RAW_URL);
   });
 
   it('masks a legacy generated baseUrl on read', async () => {
@@ -99,7 +99,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     const body = await serverUrl(id);
     if (body.kind !== 'generated') throw new Error('unexpected kind');
     expect(body.baseUrl).toBe(maskUrlCredentials(rawBase));
-    const list = await inject(app, { method: 'GET', url: '/api/servers', headers: auth() });
+    const list = await request(app, { method: 'GET', url: '/api/servers', headers: auth() });
     expect(list.body).not.toContain(RAW_USER);
     expect(list.body).not.toContain(RAW_PASS);
   });
@@ -108,7 +108,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     const { id } = await seedLegacy('http', { url: RAW_URL });
     const agentId = await bindAgent(id);
 
-    const files = await inject(app, {
+    const files = await request(app, {
       method: 'GET',
       url: `/api/agents/${agentId}/files`,
       headers: auth(),
@@ -118,7 +118,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     expect(files.body).not.toContain(RAW_PASS);
     expect(files.body).toContain('legacy.example.com');
 
-    const exported = await injectZip(app, 'GET', `/api/export/agents/${agentId}`, cookie);
+    const exported = await requestZip(app, 'GET', `/api/export/agents/${agentId}`, cookie);
     expect(exported.statusCode).toBe(200);
     const entries = unzipPackage(exported.rawPayload);
     const raw = [...entries.values()].join('\n');
@@ -135,7 +135,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     const { id } = await seedLegacy('generated', { baseUrl: rawBase, mcpToken: unique('token') });
     const agentId = await bindAgent(id);
 
-    const exported = await injectZip(app, 'GET', `/api/export/agents/${agentId}`, cookie);
+    const exported = await requestZip(app, 'GET', `/api/export/agents/${agentId}`, cookie);
     const entries = unzipPackage(exported.rawPayload);
     const raw = [...entries.values()].join('\n');
     expect(raw).not.toContain(RAW_USER);
@@ -149,7 +149,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
   it('rejects legacy credential URLs before connection testing without echoing them', async () => {
     const raw = `http://${RAW_USER}:${RAW_PASS}@127.0.0.1:9/mcp`;
     const { id } = await seedLegacy('http', { url: raw });
-    const tested = await inject(app, {
+    const tested = await request(app, {
       method: 'POST',
       url: `/api/servers/${id}/test`,
       headers: auth(),
@@ -165,7 +165,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     for (const kind of ['http', 'generated'] as const) {
       const name = unique(`new-${kind}`);
       serverNames.push(name);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/servers',
         headers: auth(),
@@ -173,15 +173,15 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
       });
       expectProblem(res, 'INVALID_INPUT');
       expect(res.body).not.toContain(RAW_PASS);
-      const rows = await app.pool.query('select id from servers where name = $1', [name]);
-      expect(rows.rowCount).toBe(0);
+      const rows = await app.client.unsafe('select id from servers where name = $1', [name]);
+      expect(rows).toHaveLength(0);
     }
   });
 
   it('rejects userinfo on PATCH and keeps the stored URL', async () => {
     const name = unique('patch-http');
     serverNames.push(name);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: auth(),
@@ -190,7 +190,7 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     expect(created.statusCode, created.body).toBe(201);
     const { id } = created.json<Server>();
 
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${id}`,
       headers: auth(),
@@ -225,14 +225,14 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
         2,
       )}\n`,
     });
-    const res = await injectZip(app, 'POST', '/api/import/agents', cookie, zip);
+    const res = await requestZip(app, 'POST', '/api/import/agents', cookie, zip);
     expectProblem(res, 'INVALID_INPUT');
     expect(res.body).not.toContain(RAW_USER);
     expect(res.body).not.toContain(RAW_PASS);
 
-    const agents = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+    const agents = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(agents.body).not.toContain(slug);
-    const servers = await inject(app, { method: 'GET', url: '/api/servers', headers: auth() });
+    const servers = await request(app, { method: 'GET', url: '/api/servers', headers: auth() });
     expect(servers.body).not.toContain(serverName);
   });
 });

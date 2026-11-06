@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MessageAttachment } from '@agentport/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { conversationInputsMount, promptWithAttachments } from '../src/attachments.js';
 
 const attachment = (overrides: Partial<MessageAttachment> = {}): MessageAttachment => ({

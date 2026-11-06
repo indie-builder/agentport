@@ -84,10 +84,7 @@ function classifyFetchFailure(
   // 调用方取消是控制流，不是模型故障；必须优先于请求超时判断。
   if (signal?.aborted) throw err;
   if (timeout.aborted) throw new KnowledgeModelError('timeout', `请求超时: ${url}`);
-  if (
-    err instanceof Error &&
-    /unexpected redirect/.test(err.cause instanceof Error ? err.cause.message : err.message)
-  ) {
+  if (err instanceof Error && (err as Error & { code?: unknown }).code === 'UnexpectedRedirect') {
     throw new KnowledgeModelError('bad_response', `端点返回重定向: ${url}`);
   }
   throw new KnowledgeModelError('unavailable', `无法连接模型端点: ${url}`);

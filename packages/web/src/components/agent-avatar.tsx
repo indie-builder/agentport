@@ -1,4 +1,4 @@
-import type { Agent } from '@agentport/shared';
+import type { AgentSummary } from '@agentport/shared';
 import backendEngineer from '../assets/agents/backend-engineer.png';
 import contentOps from '../assets/agents/content-ops.png';
 import createBackend from '../assets/agents/create-backend.png';
@@ -83,9 +83,9 @@ const occupationAvatars: Record<string, string> = {
   数字分身: digitalTwin,
 };
 
-export function agentAvatar(
-  agent: Pick<Agent, 'name' | 'description'> & { role?: string | null; slug?: string | null },
-): string {
+export type AgentDisplay = Pick<AgentSummary, 'name' | 'description' | 'role' | 'slug'>;
+
+export function agentAvatar(agent: AgentDisplay): string {
   const occupation = agent.role ? occupationAvatars[agent.role] : undefined;
   if (occupation) return occupation;
   const slug = agent.slug ?? '';
@@ -95,13 +95,7 @@ export function agentAvatar(
 }
 
 /** 圆形插画头像；尺寸由外部用 size-* 决定，默认 40px。 */
-export function AgentAvatar({
-  agent,
-  className,
-}: {
-  agent: Pick<Agent, 'name' | 'description'> & { role?: string | null; slug?: string | null };
-  className?: string;
-}) {
+export function AgentAvatar({ agent, className }: { agent: AgentDisplay; className?: string }) {
   return (
     <img
       src={agentAvatar(agent)}

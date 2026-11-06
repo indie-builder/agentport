@@ -1,5 +1,5 @@
 import type { ChatEvent } from '@agentport/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { createStreamBlockIds } from '../src/runner-client.js';
 
 /**

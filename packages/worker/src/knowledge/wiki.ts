@@ -132,7 +132,7 @@ async function searchBase(
     order by rank desc, c.id
     limit ${limit}
   `);
-  return result.rows.map((row) => ({
+  return result.map((row) => ({
     chunkId: row.chunk_id,
     documentId: row.document_id,
     versionId: row.version_id,

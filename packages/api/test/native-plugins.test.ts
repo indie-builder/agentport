@@ -1,21 +1,21 @@
 import type { NativePluginAction, NativePluginOutput } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { zipSync } from 'fflate';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const calls: NativePluginAction[] = [];
 let result: NativePluginOutput = { ok: false, error: 'not configured' };
 
-vi.mock('../src/features/plugins/native.js', () => ({
+mock.module('../src/modules/plugins/native.js', () => ({
   runNativePluginAction: async (_url: string, _logger: unknown, action: NativePluginAction) => {
     calls.push(action);
     return result;
@@ -43,17 +43,16 @@ function installOutput(pluginId: string): NativePluginOutput {
 }
 
 describe.skipIf(!ready)('native plugin routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const pluginIds: string[] = [];
 
   const auth = () => ({ cookie });
 
-  /** 真实 pool.query 直通 spy：只收集发往 plugins 的 SELECT，用于验证查询次数与投影。 */
   async function capturePluginQueries<T>(
     run: () => Promise<T>,
   ): Promise<{ value: T; queries: string[] }> {
-    const spy = vi.spyOn(app.pool, 'query');
+    const spy = spyOn(app.client, 'unsafe');
     try {
       const value = await run();
       return {
@@ -82,7 +81,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
       ['/api/plugins/install', { marketplace: 'owner/repo', plugin: 'demo' }],
       ['/api/plugins/native/import', { pluginId: 'demo@repo' }],
     ] as const) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: payload === undefined ? 'GET' : 'POST',
         url,
         ...(payload === undefined ? {} : { payload }),
@@ -94,7 +93,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
 
   afterAll(async () => {
     if (pluginIds.length > 0) {
-      await app.pool.query('delete from plugins where id = any($1::text[])', [pluginIds]);
+      await app.client.unsafe('delete from plugins where id = any($1::text[])', [app.client.array(pluginIds, 'TEXT')]);
     }
     await cleanup(app, {});
     await app.close();
@@ -105,7 +104,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
     const sourceId = `${local}@repo`;
     result = installOutput(sourceId);
 
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: '/api/plugins/install',
       headers: auth(),
@@ -127,7 +126,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
     calls.length = 0;
     // 第二次：仍由官方 CLI 安装（命中缓存，不需重新下载），拿回同一 pluginId 后复用库记录。
     result = installOutput(sourceId);
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'POST',
       url: '/api/plugins/install',
       headers: auth(),
@@ -141,7 +140,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
   it('does not reuse a same-tail plugin from another marketplace', async () => {
     const local = unique('tail');
     result = installOutput(`${local}@owner-a-repo`);
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: '/api/plugins/install',
       headers: auth(),
@@ -156,7 +155,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
     // 不能直接复用旧记录；运行时命名空间相同，落库按冲突拒绝。
     const otherId = `${local}@owner-b-repo`;
     result = installOutput(otherId);
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'POST',
       url: '/api/plugins/install',
       headers: auth(),
@@ -164,19 +163,19 @@ describe.skipIf(!ready)('native plugin routes', () => {
     });
     expectProblem(second, 'CONFLICT');
     expect(calls).toEqual([{ action: 'install', marketplace: 'owner-b/repo', plugin: local }]);
-    const rows = await app.pool.query('select id from plugins where source_id = $1', [otherId]);
-    expect(rows.rowCount).toBe(0);
-    const kept = await app.pool.query('select source_id from plugins where id = $1', [
+    const rows = await app.client.unsafe('select id from plugins where source_id = $1', [otherId]);
+    expect(rows).toHaveLength(0);
+    const kept = await app.client.unsafe('select source_id from plugins where id = $1', [
       existing.plugin.id,
     ]);
-    expect(kept.rows[0]?.source_id).toBe(existing.plugin.sourceId);
+    expect(kept[0]?.source_id).toBe(existing.plugin.sourceId);
   });
 
   it('lists cached plugins with whether they are already imported', async () => {
     const local = unique('listed');
     const cachedOnly = unique('other');
     result = installOutput(`${local}@repo`);
-    const installed = await inject(app, {
+    const installed = await request(app, {
       method: 'POST',
       url: '/api/plugins/native/import',
       headers: auth(),
@@ -192,7 +191,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
         { pluginId: `${cachedOnly}@repo`, version: '0.1.0' },
       ],
     };
-    const list = await inject(app, { method: 'GET', url: '/api/plugins/native', headers: auth() });
+    const list = await request(app, { method: 'GET', url: '/api/plugins/native', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
     expect(list.json()).toEqual({
       installed: [
@@ -207,7 +206,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
     const local = unique('market');
     const importedId = `${local}@owner-a-repo`;
     result = installOutput(importedId);
-    const seed = await inject(app, {
+    const seed = await request(app, {
       method: 'POST',
       url: '/api/plugins/native/import',
       headers: auth(),
@@ -225,7 +224,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
       ],
     };
     const { value: list, queries } = await capturePluginQueries(() =>
-      inject(app, { method: 'GET', url: '/api/plugins/native', headers: auth() }),
+      request(app, { method: 'GET', url: '/api/plugins/native', headers: auth() }),
     );
     expect(list.statusCode, list.body).toBe(200);
     // 同名不同市场是不同来源；同 ID 的不同版本重复项保持原序，命中按完整 ID 判定。
@@ -246,7 +245,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
   it('returns an empty list without querying plugins', async () => {
     result = { ok: true, installed: [] };
     const { value: list, queries } = await capturePluginQueries(() =>
-      inject(app, { method: 'GET', url: '/api/plugins/native', headers: auth() }),
+      request(app, { method: 'GET', url: '/api/plugins/native', headers: auth() }),
     );
     expect(list.statusCode, list.body).toBe(200);
     expect(list.json()).toEqual({ installed: [] });
@@ -259,7 +258,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
     const sourceId = `${local}@repo`;
     result = installOutput(sourceId);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/plugins/native/import',
       headers: auth(),
@@ -272,7 +271,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
     expect(calls).toEqual([{ action: 'read', pluginId: sourceId }]);
 
     calls.length = 0;
-    const again = await inject(app, {
+    const again = await request(app, {
       method: 'POST',
       url: '/api/plugins/native/import',
       headers: auth(),
@@ -294,7 +293,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
       ],
     };
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/plugins/install',
       headers: auth(),
@@ -302,17 +301,17 @@ describe.skipIf(!ready)('native plugin routes', () => {
     });
     expectProblem(res, 'INVALID_INPUT');
 
-    const rows = await app.pool.query('select id from plugins where source_id like $1', [
+    const rows = await app.client.unsafe('select id from plugins where source_id like $1', [
       `${local}@%`,
     ]);
-    expect(rows.rowCount).toBe(0);
+    expect(rows).toHaveLength(0);
   });
 
   it('returns 503 when the worker reports the sandbox unavailable and leaves no row', async () => {
     const local = unique('unavailable');
     result = { ok: false, error: '无法启动沙盒：Docker 不可达' };
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/plugins/native/import',
       headers: auth(),
@@ -320,16 +319,16 @@ describe.skipIf(!ready)('native plugin routes', () => {
     });
     expectProblem(res, 'SERVICE_UNAVAILABLE');
 
-    const rows = await app.pool.query('select id from plugins where source_id like $1', [
+    const rows = await app.client.unsafe('select id from plugins where source_id like $1', [
       `${local}@%`,
     ]);
-    expect(rows.rowCount).toBe(0);
+    expect(rows).toHaveLength(0);
   });
 
   it('does not reuse a different source whose runtime name collides', async () => {
     const local = unique('collision');
     // 占住 runtime name，模拟 ZIP 导入或其他市场已有同名插件。
-    const existing = await inject(app, {
+    const existing = await request(app, {
       method: 'POST',
       url: `/api/plugins/import?slug=${encodeURIComponent(local)}`,
       headers: { ...auth(), 'content-type': 'application/zip' },
@@ -344,16 +343,16 @@ describe.skipIf(!ready)('native plugin routes', () => {
     pluginIds.push(existing.json<{ plugin: { id: string } }>().plugin.id);
 
     result = installOutput(`${local}@other-market`);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/plugins/install',
       headers: auth(),
       payload: { marketplace: 'owner/other-market', plugin: local },
     });
     expectProblem(res, 'CONFLICT');
-    const rows = await app.pool.query('select id from plugins where source_id = $1', [
+    const rows = await app.client.unsafe('select id from plugins where source_id = $1', [
       `${local}@other-market`,
     ]);
-    expect(rows.rowCount).toBe(0);
+    expect(rows).toHaveLength(0);
   });
 });

@@ -289,7 +289,7 @@ export async function createAgent(
 function isSerializationFailure(err: unknown): boolean {
   let cause: unknown = err;
   for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if ('code' in cause && cause.code === '40001') return true;
+    if ('errno' in cause && cause.errno === '40001') return true;
     cause = 'cause' in cause ? cause.cause : undefined;
   }
   return false;

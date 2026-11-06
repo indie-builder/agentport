@@ -4,36 +4,38 @@ import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 /**
  * 结果持久化跑批的真实数据库契约：只用随机隔离库证明 repo 事务与批次收口，
  * 队列仍用 mock（不在本套件启动真实 worker / 模型）。
  */
-const mocks = vi.hoisted(() => ({
-  queueAdd: vi.fn(),
-  waitUntilReady: vi.fn(async () => undefined),
-  waitUntilFinished: vi.fn(async () => undefined),
-  checkAccess: vi.fn(async () => ({
+const mocks = {
+  queueAdd: mock(),
+  waitUntilReady: mock(async () => undefined),
+  waitUntilFinished: mock(async () => undefined),
+  checkAccess: mock(async () => ({
     denial: null,
     grants: [{ permissionId: 'eval.read' as const, scope: 'owned_agents' as const }],
   })),
+};
+
+const runAccessActual = await import('../src/run-access.js');
+mock.module('../src/run-access.js', () => ({
+  ...runAccessActual,
+  loadUserAgentAccess: mocks.checkAccess,
 }));
 
-vi.mock('../src/run-access.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/run-access.js')>();
-  return { ...actual, loadUserAgentAccess: mocks.checkAccess };
-});
-
-vi.mock('bullmq', () => ({
+mock.module('bullmq', () => ({
+  createBunRedisClient: () => ({ quit: async () => undefined }),
   Queue: class {
     add = mocks.queueAdd;
-    close = vi.fn(async () => undefined);
+    close = mock(async () => undefined);
   },
   QueueEvents: class {
-    on = vi.fn();
-    close = vi.fn(async () => undefined);
+    on = mock();
+    close = mock(async () => undefined);
     waitUntilReady = mocks.waitUntilReady;
   },
   UnrecoverableError: class UnrecoverableError extends Error {},
@@ -114,7 +116,7 @@ function expectNoSqlLeak(text: string, secret: string): void {
 describe.skipIf(isolated === null)('eval result persistence against a real database', () => {
   beforeAll(async () => {
     // 定向故障：只有 name=fault 的结果插入失败，其他用例仍走真实 repo 事务。
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create or replace function eval_result_write_fault() returns trigger language plpgsql as $fn$
       begin
         if new.case_snapshot->>'name' = 'fault' then
@@ -124,7 +126,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       end;
       $fn$
     `);
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create trigger eval_result_write_fault
       before insert on eval_results
       for each row execute function eval_result_write_fault()
@@ -142,7 +144,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
   });
 
   afterAll(async () => {
-    await dbHandle.pool.end();
+    await dbHandle.client.close();
     await isolated?.close();
   });
 
@@ -211,7 +213,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       { name: 'message-fault', prompt, expectation: 'reply:never' },
     ]);
     const functionName = `eval_message_fault_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin
         if new.content->>'text' = '${prompt}' then
@@ -221,7 +223,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       end;
       $fn$
     `);
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create trigger ${functionName}
       before insert on messages
       for each row execute function ${functionName}()
@@ -229,8 +231,8 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     try {
       await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
     } finally {
-      await dbHandle.pool.query(`drop trigger if exists ${functionName} on messages`);
-      await dbHandle.pool.query(`drop function if exists ${functionName}()`);
+      await dbHandle.client.unsafe(`drop trigger if exists ${functionName} on messages`);
+      await dbHandle.client.unsafe(`drop function if exists ${functionName}()`);
     }
 
     // 用例在准入写入时失败，没走到队列。
@@ -272,11 +274,11 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       ownerBusinessId: evalBusinessId,
     });
 
-    const client = await dbHandle.pool.connect();
+    const client = await dbHandle.client.reserve();
     let settled = false;
     try {
-      await client.query('begin');
-      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`agent:${childId}`]);
+      await client.unsafe('begin');
+      await client.unsafe('select pg_advisory_xact_lock(hashtext($1))', [`agent:${childId}`]);
       const pending = executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId }).then(
         () => {
           settled = true;
@@ -284,10 +286,10 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       );
       await delay(200);
       expect(settled, 'eval admission did not wait for the child memory lock').toBe(false);
-      await client.query('commit');
+      await client.unsafe('commit');
       await pending;
     } finally {
-      await client.query('rollback').catch(() => undefined);
+      await client.unsafe('rollback').catch(() => undefined);
       client.release();
     }
 
@@ -300,7 +302,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       { name: 'alpha', prompt: 'prompt-alpha', expectation: 'reply:prompt-alpha' },
     ]);
     const functionName = 'eval_finish_fault';
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin
         if new.id = '${evalRunId}' and new.status = 'succeeded' then
@@ -310,7 +312,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       end;
       $fn$
     `);
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create trigger ${functionName}
       before update on eval_runs
       for each row execute function ${functionName}()
@@ -328,8 +330,8 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       ).rejects.toThrow('Failed query');
       expect(inspect(thrown, { depth: 8 })).toContain(FINISH_SECRET);
     } finally {
-      await dbHandle.pool.query(`drop trigger if exists ${functionName} on eval_runs`);
-      await dbHandle.pool.query(`drop function if exists ${functionName}()`);
+      await dbHandle.client.unsafe(`drop trigger if exists ${functionName} on eval_runs`);
+      await dbHandle.client.unsafe(`drop function if exists ${functionName}()`);
     }
 
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);

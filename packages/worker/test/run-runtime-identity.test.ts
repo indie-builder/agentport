@@ -7,30 +7,31 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import { chatEventSchema, RUNS_QUEUE } from '@agentport/shared';
 import type { UserPromptSubmitHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { createPersonalMemoryHook } from '../../sandbox/src/memory-permissions.js';
 import { SandboxCleanupError } from '../src/sandbox/provider.js';
 import { testAccess } from './fixtures/access.js';
 
 const { TEST_BUSINESS_ID } = testAccess(import.meta.url);
+let caseSequence = 0;
 
-const mocks = vi.hoisted(() => ({
+const mocks = (() => ({
   sdkFailure: 'throw' as 'throw' | 'abort',
   sdkSynthetic: false,
   stdinLines: [] as string[],
-  acquire: vi.fn(),
-  run: vi.fn(),
-  start: vi.fn(),
-  release: vi.fn(),
-  publishRun: vi.fn(async () => undefined),
-  publishChannelEvent: vi.fn(async () => undefined),
-  isRetryable: vi.fn(() => false),
-  checkAccess: vi.fn(),
+  acquire: mock(),
+  run: mock(),
+  start: mock(),
+  release: mock(),
+  publishRun: mock(async () => undefined),
+  publishChannelEvent: mock(async () => undefined),
+  isRetryable: mock(() => false),
+  checkAccess: mock(),
   processors: new Map<string, (job: unknown) => Promise<void>>(),
-  dbHandles: [] as Array<{ pool: { end(): Promise<void> } }>,
-}));
+  dbHandles: [] as Array<{ client: { close(): Promise<void> } }>,
+}))();
 
-vi.mock('node:readline', () => ({
+mock.module('node:readline', () => ({
   createInterface: () => ({
     close() {},
     async *[Symbol.asyncIterator]() {
@@ -39,8 +40,9 @@ vi.mock('node:readline', () => ({
   }),
 }));
 
-vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>()),
+const sdkActual = await import('@anthropic-ai/claude-agent-sdk');
+mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+  ...sdkActual,
   query: ({ options }: { options: { abortController: AbortController } }) =>
     Object.assign(
       (async function* () {
@@ -66,35 +68,33 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
     ),
 }));
 
-vi.mock('../src/channel-events.js', () => ({
+mock.module('../src/channel-events.js', () => ({
   publishChannelEventSafely: mocks.publishChannelEvent,
 }));
 
-vi.mock('../src/run-access.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/run-access.js')>();
-  return { ...actual, checkQueuedRunAccess: mocks.checkAccess };
-});
+const runAccessActual = await import('../src/run-access.js');
+mock.module('../src/run-access.js', () => ({
+  ...runAccessActual,
+  checkQueuedRunAccess: mocks.checkAccess,
+}));
 
-vi.mock('@agentport/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/db')>();
-  return {
-    ...actual,
-    createDb: (...args: Parameters<typeof actual.createDb>) => {
-      const handle = actual.createDb(...args);
-      mocks.dbHandles.push(handle);
-      return handle;
-    },
-  };
-});
+const dbActual = await import('@agentport/db');
+const actualCreateDb = dbActual.createDb;
+mock.module('@agentport/db', () => ({
+  ...dbActual,
+  createDb: (...args: Parameters<typeof dbActual.createDb>) => {
+    const handle = actualCreateDb(...args);
+    mocks.dbHandles.push(handle);
+    return handle;
+  },
+}));
 
 // 进程级守卫会把测试里任何未处理异常变成 process.exit；这里只验证 run 流程。
-vi.mock('@agentport/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/core')>();
-  return { ...actual, installProcessGuards: () => undefined };
-});
+const coreActual = await import('@agentport/core');
+mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
 
-vi.mock('bullmq', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('bullmq')>();
+const bullmqActual = await import('bullmq');
+mock.module('bullmq', () => {
   class Worker {
     constructor(name: string, processor: (job: unknown) => Promise<void>) {
       mocks.processors.set(name, processor);
@@ -104,14 +104,18 @@ vi.mock('bullmq', async (importOriginal) => {
     }
     async close(): Promise<void> {}
   }
-  return { ...actual, Worker };
+  return { ...bullmqActual, Worker };
 });
 
-vi.mock('../src/sandbox/session-cleanup.js', () => ({
+const sessionCleanupActual = await import('../src/sandbox/session-cleanup.js');
+mock.module('../src/sandbox/session-cleanup.js', () => ({
+  ...sessionCleanupActual,
   startSessionCleanupChannel: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/sandbox/docker.js', () => ({
+const dockerActual = await import('../src/sandbox/docker.js');
+mock.module('../src/sandbox/docker.js', () => ({
+  ...dockerActual,
   DockerSandboxProvider: class {
     async destroyAll(): Promise<void> {}
     async ensureImage(): Promise<void> {}
@@ -119,21 +123,24 @@ vi.mock('../src/sandbox/docker.js', () => ({
   resolveLocalImageId: async () => `sha256:${'a'.repeat(64)}`,
 }));
 
-vi.mock('../src/sandbox/sessions.js', () => ({
+const sessionsActual = await import('../src/sandbox/sessions.js');
+mock.module('../src/sandbox/sessions.js', () => ({
+  ...sessionsActual,
   SessionSandboxes: class {
     async cleanup(): Promise<void> {}
     async close(): Promise<void> {}
   },
 }));
 
-vi.mock('../src/runner-client.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/runner-client.js')>();
+const runnerClientActual = await import('../src/runner-client.js');
+const actualRunnerClient = { ...runnerClientActual };
+mock.module('../src/runner-client.js', () => {
   // 保留真实分类，避免测试自证一个恒假的 isRetryable。
-  mocks.isRetryable.mockImplementation(actual.isRetryable);
+  mocks.isRetryable.mockImplementation(actualRunnerClient.isRetryable);
   return {
-    ...actual,
-    configureRunnerClient: vi.fn(),
-    closeRunnerClient: vi.fn(),
+    ...runnerClientActual,
+    configureRunnerClient: mock(),
+    closeRunnerClient: mock(),
     acquireSessionSandbox: mocks.acquire,
     runInSandbox: mocks.run,
     publishRun: mocks.publishRun,
@@ -141,57 +148,61 @@ vi.mock('../src/runner-client.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/runtime-environments/default.js', () => ({
+mock.module('../src/runtime-environments/default.js', () => ({
   ensureDefaultEnvironment: async () => undefined,
   startDefaultEnvironmentRetry: () => async () => undefined,
 }));
 
-vi.mock('../src/runtime-environments/build.js', () => ({
+mock.module('../src/runtime-environments/build.js', () => ({
   startRuntimeEnvironmentBuildWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/runtime-environments/reconcile.js', () => ({
+mock.module('../src/runtime-environments/reconcile.js', () => ({
   startRuntimeEnvironmentBuildReconciler: () => () => undefined,
 }));
 
-vi.mock('../src/reconcile.js', () => ({
+const reconcileActual = await import('../src/reconcile.js');
+mock.module('../src/reconcile.js', () => ({
+  ...reconcileActual,
   startReconciler: () => () => undefined,
 }));
 
-vi.mock('../src/knowledge/queue.js', () => ({
+mock.module('../src/knowledge/queue.js', () => ({
   startKnowledgeWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/knowledge/reconcile.js', () => ({
+mock.module('../src/knowledge/reconcile.js', () => ({
   startKnowledgeReconciler: () => () => undefined,
 }));
 
-vi.mock('../src/knowledge/scheduler.js', () => ({
+mock.module('../src/knowledge/scheduler.js', () => ({
   startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-vi.mock('../src/scheduler.js', () => ({
+mock.module('../src/scheduler.js', () => ({
   startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-vi.mock('../src/maintenance.js', () => ({
+mock.module('../src/maintenance.js', () => ({
   startMaintenanceWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/sandbox-probe.js', () => ({
+mock.module('../src/sandbox-probe.js', () => ({
   registerSandboxProbe: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/native-plugins.js', () => ({
+mock.module('../src/native-plugins.js', () => ({
   registerNativePlugins: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/eval-runner.js', () => ({
+mock.module('../src/eval-runner.js', () => ({
   executeEvalRun: async () => undefined,
   closeEvalRunQueue: async () => undefined,
+  evalFailureDiagnostics: () => ({}),
+  publicEvalFailureMessage: () => '',
 }));
 
-vi.mock('../src/model-proxy.js', () => ({
+mock.module('../src/model-proxy.js', () => ({
   startModelProxy: async () => null,
 }));
 
@@ -335,10 +346,10 @@ describe('run runtime environment identity persistence', () => {
 
   afterAll(async () => {
     if (triggerName !== '') {
-      await dbHandle.pool.query(`drop trigger if exists "${triggerName}" on agent_runs`);
+      await dbHandle.client.unsafe(`drop trigger if exists "${triggerName}" on agent_runs`);
     }
     if (functionName !== '') {
-      await dbHandle.pool.query(`drop function if exists "${functionName}"()`);
+      await dbHandle.client.unsafe(`drop function if exists "${functionName}"()`);
     }
     for (const id of cleanupRuns) {
       await db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, id));
@@ -357,7 +368,7 @@ describe('run runtime environment identity persistence', () => {
       await db.delete(schema.userPreferences).where(eq(schema.userPreferences.businessId, id));
     }
     await rm(workdir, { recursive: true, force: true });
-    for (const handle of mocks.dbHandles) await handle.pool.end();
+    for (const handle of mocks.dbHandles) await handle.client.close();
   });
 
   it('does not start the run and releases the lease when identity persistence fails', async () => {
@@ -415,13 +426,13 @@ describe('run runtime environment identity persistence', () => {
     const suffix = runId.replaceAll(/[^a-zA-Z0-9_]/g, '_');
     functionName = `fault_rt_identity_${suffix}`;
     triggerName = `fault_rt_identity_${suffix}`;
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create function "${functionName}"() returns trigger language plpgsql as $$
       begin
         raise exception 'fault injection: runtime identity update failed';
       end $$;
     `);
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create trigger "${triggerName}"
       before update of runtime_environment_id, runtime_environment_name,
         runtime_environment_version_id, runtime_environment_image_id
@@ -1224,10 +1235,7 @@ describe('run runtime environment identity persistence', () => {
         mocks.sdkFailure = scenario.sdk;
         mocks.sdkSynthetic = scenario.synthetic;
         mocks.run.mockImplementation(async (input) => {
-          const actual =
-            await vi.importActual<typeof import('../src/runner-client.js')>(
-              '../src/runner-client.js',
-            );
+          const actual = actualRunnerClient;
           actual.configureRunnerClient(process.env.REDIS_URL ?? '');
           try {
             return await actual.runInSandbox({
@@ -1241,13 +1249,12 @@ describe('run runtime environment identity persistence', () => {
                   // 容器边界：把 worker 交给 sandbox 的 env 原样注入 runner 进程。
                   const previousEnv = { ...process.env };
                   Object.assign(process.env, env);
-                  const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+                  const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => {
                     onEvent(chatEventSchema.parse(JSON.parse(String(chunk))));
                     return true;
                   });
                   try {
-                    vi.resetModules();
-                    await import('../../sandbox/src/runner.js');
+                    await import(`../../sandbox/src/runner.js?case=${caseSequence++}`);
                   } finally {
                     stdout.mockRestore();
                     for (const key of Object.keys(env)) {

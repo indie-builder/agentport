@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { searchKnowledge } from '../../api/src/features/knowledge/retrieval.js';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { searchKnowledge } from '../../api/src/modules/knowledge/retrieval.js';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import {
   type ChunkDraft,
@@ -121,7 +121,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => fixture.close(() => resolve()));
-  await dbHandle?.pool.end();
+  await dbHandle?.client.close();
   await isolated?.close();
 });
 

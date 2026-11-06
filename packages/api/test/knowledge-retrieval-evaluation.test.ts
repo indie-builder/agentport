@@ -2,15 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { KnowledgeFaq } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  type FastifyInstance,
-  infraReady,
-  inject,
-  loginCookie,
-  startApp,
-  unique,
-} from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -22,7 +15,7 @@ const faq: KnowledgeFaq = {
 };
 
 describe.skipIf(!ready)('retrieval evaluation route', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   const baseIds: string[] = [];
@@ -32,7 +25,7 @@ describe.skipIf(!ready)('retrieval evaluation route', () => {
   let chunkId = '';
 
   async function createBase() {
-    const profile = await inject(app, {
+    const profile = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -45,7 +38,7 @@ describe.skipIf(!ready)('retrieval evaluation route', () => {
     });
     expect(profile.statusCode, profile.body).toBe(201);
     profileIds.push(profile.json<{ id: string }>().id);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -65,7 +58,7 @@ describe.skipIf(!ready)('retrieval evaluation route', () => {
     app = await startApp({ KNOWLEDGE_DIR: knowledgeDir });
     cookie = await loginCookie(app);
     baseId = await createBase();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs`,
       headers: { cookie },
@@ -73,24 +66,24 @@ describe.skipIf(!ready)('retrieval evaluation route', () => {
     });
     expect(created.statusCode, created.body).toBe(202);
     faqId = created.json<{ documentId: string }>().documentId;
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/faqs/${faqId}`,
       headers: { cookie },
     });
     const versionId = detail.json<{ draftVersion: { id: string } }>().draftVersion.id;
     chunkId = `kchk_eval${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text)
        values ($1, $2, $3, $4, 0, 'text', 'eval keyword marker', 'eval keyword marker')`,
       [chunkId, baseId, faqId, versionId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_jobs set status = 'succeeded', ended_at = now() where document_id = $1`,
       [faqId],
     );
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${faqId}/publish`,
       headers: { cookie },
@@ -101,19 +94,18 @@ describe.skipIf(!ready)('retrieval evaluation route', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
   });
 
   it('runs every case through the same search and reports Recall/MRR', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/retrieval-evaluations`,
       headers: { cookie },
@@ -158,7 +150,7 @@ describe.skipIf(!ready)('retrieval evaluation route', () => {
 
   it('rejects cross-base targets, empty expectations and unknown bases', async () => {
     const otherBase = await createBase();
-    const crossBase = await inject(app, {
+    const crossBase = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${otherBase}/retrieval-evaluations`,
       headers: { cookie },
@@ -169,7 +161,7 @@ describe.skipIf(!ready)('retrieval evaluation route', () => {
     expect(crossBase.statusCode, crossBase.body).toBe(400);
     expect(crossBase.json<{ code: string }>().code).toBe('INVALID_INPUT');
 
-    const empty = await inject(app, {
+    const empty = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${otherBase}/retrieval-evaluations`,
       headers: { cookie },
@@ -177,7 +169,7 @@ describe.skipIf(!ready)('retrieval evaluation route', () => {
     });
     expect(empty.statusCode, empty.body).toBe(400);
 
-    const missingBase = await inject(app, {
+    const missingBase = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases/kb_missing/retrieval-evaluations',
       headers: { cookie },

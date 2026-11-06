@@ -4,8 +4,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createDb, newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { startRedisContainer, stopRedisContainer } from '../../worker/test/global-setup.js';
 import { createIsolatedDatabase, type IsolatedDatabase } from '../../worker/test/isolated-db.js';
 import {
@@ -15,9 +14,10 @@ import {
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
   waitFor,
 } from './helpers.js';
@@ -38,7 +38,7 @@ const REDIS_URL = isolated?.url ?? 'redis://127.0.0.1:1/8';
  * `closeIdle` 观察顺序、失败与锁内准入。
  */
 describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   // 无 worker / 不 ACK 用例会持共享库绑定锁等满 ACK 预算；独享库避免同轮其它套件的删除
   // 被锁等待拖成 5s 控制查询超时。
   let isolatedDb: IsolatedDatabase | null = null;
@@ -189,7 +189,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
    * 否则会选中 Docker 另库或同库其它测试的 xact lock。
    */
   async function deletingBackendPid(): Promise<number | null> {
-    const result = await app.pool.query<{ pid: number }>(
+    const result = await app.client.unsafe<{ pid: number }[]>(
       `select l.pid from pg_locks l
          join pg_stat_activity a on a.pid = l.pid
        where l.locktype = 'advisory' and l.granted
@@ -201,39 +201,39 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
        limit 1`,
       [repo.locks.AGENT_BINDINGS_LOCK_KEY],
     );
-    return result.rows[0]?.pid ?? null;
+    return result[0]?.pid ?? null;
   }
 
   async function backendActivity(pid: number) {
-    const result = await app.pool.query<{ state: string | null; xact_start: Date | null }>(
+    const result = await app.client.unsafe<{ state: string | null; xact_start: Date | null }[]>(
       `select state, xact_start from pg_stat_activity
         where pid = $1
           and datid = (select oid from pg_database where datname = current_database())`,
       [pid],
     );
-    return result.rows[0];
+    return result[0];
   }
 
   /** 只终止当前数据库的连接；返回后端是否真的被终止。 */
   async function terminateBackend(pid: number): Promise<boolean> {
-    const result = await app.pool.query<{ terminated: boolean }>(
+    const result = await app.client.unsafe<{ terminated: boolean }[]>(
       `select pg_terminate_backend(pid) as terminated from pg_stat_activity
         where pid = $1
           and datid = (select oid from pg_database where datname = current_database())`,
       [pid],
     );
-    return result.rows[0]?.terminated === true;
+    return result[0]?.terminated === true;
   }
 
   const deleteConversation = (conversationId: string) =>
-    inject(app, {
+    request(app, {
       method: 'DELETE',
       url: `/api/conversations/${conversationId}`,
       headers: auth(),
     });
 
   const deleteAgent = (agentId: string) =>
-    inject(app, { method: 'DELETE', url: `/api/agents/${agentId}`, headers: auth() });
+    request(app, { method: 'DELETE', url: `/api/agents/${agentId}`, headers: auth() });
 
   it('removes the session sandbox only after the worker confirms, leaving other sessions intact', async () => {
     const agent = await newAgent('lifecycle-conv');
@@ -388,7 +388,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     expect(settled).toBe(false);
 
     let admissionSettled = false;
-    const admission = inject(app, {
+    const admission = request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -414,31 +414,33 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     // pg_locks 是集群级视图；Docker 套件在另一隔离库持同一绑定键，不能选成本轮删除连接。
     const other = await createIsolatedDatabase('api_delete_lifecycle_other');
     if (other === null) throw new Error('cannot create an isolated database for the boundary test');
-    const otherPool = createDb(other.url).pool;
-    const own = await app.pool.connect();
+    const otherClient = createDb(other.url).client;
+    const own = await app.client.reserve();
     try {
-      await otherPool.query('select pg_advisory_lock(hashtext($1))', [
+      await otherClient.unsafe('select pg_advisory_lock(hashtext($1))', [
         repo.locks.AGENT_BINDINGS_LOCK_KEY,
       ]);
-      const foreign = await otherPool.query<{ pid: number }>('select pg_backend_pid() as pid');
-      expect(foreign.rows[0]?.pid).toBeGreaterThan(0);
+      const foreign = await otherClient.unsafe<{ pid: number }[]>(
+        'select pg_backend_pid() as pid',
+      );
+      expect(foreign[0]?.pid).toBeGreaterThan(0);
 
       // 本库无人持锁：集群里只有另一库的连接持同一键，必须返回 null 而不是它。
       expect(await deletingBackendPid()).toBeNull();
 
-      await own.query('select pg_advisory_lock(hashtext($1))', [
+      await own.unsafe('select pg_advisory_lock(hashtext($1))', [
         repo.locks.AGENT_BINDINGS_LOCK_KEY,
       ]);
-      const ownPid = await own.query<{ pid: number }>('select pg_backend_pid() as pid');
+      const ownPid = await own.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
       // 本库自己的空闲 session 锁仍能被精确选中。
-      expect(await deletingBackendPid()).toBe(Number(ownPid.rows[0]?.pid));
+      expect(await deletingBackendPid()).toBe(Number(ownPid[0]?.pid));
     } finally {
-      const unlocked = await own.query('select pg_advisory_unlock_all()').then(
+      const unlocked = await own.unsafe('select pg_advisory_unlock_all()').then(
         () => true,
         () => false,
       );
       own.release(unlocked ? undefined : true);
-      await otherPool.end();
+      await otherClient.close();
       await other?.close();
     }
   });
@@ -458,7 +460,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     const deletion = deleteConversation(conversationId);
     expect(await waitFor(() => fake.calls.length === 1)).toBe(true);
     let admissionSettled = false;
-    const admission = inject(app, {
+    const admission = request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -526,7 +528,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     const deletion = deleteConversation(conversationId);
     expect(await waitFor(() => fake.calls.length === 1)).toBe(true);
     try {
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into agent_runs
            (id, conversation_id, agent_id, status, subject_kind, initiated_by, sandbox_id)
          values ($1, $2, $3, 'succeeded', 'user', $4, 'sandbox-after')`,
@@ -554,13 +556,13 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     fake.hold = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const deletion = inject(app, {
+    const deletion = request(app, {
       method: 'DELETE',
       url: `/api/conversations/${conversationId}`,
       headers: { cookie: owner.cookie },
     });
     expect(await waitFor(() => fake.calls.length === 1)).toBe(true);
-    await app.pool.query('update conversations set created_by = $1 where id = $2', [
+    await app.client.unsafe('update conversations set created_by = $1 where id = $2', [
       'someone-else',
       conversationId,
     ]);

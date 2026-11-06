@@ -26,28 +26,26 @@ jobs:
       DATABASE_URL: postgres://agentport:agentport@localhost:5432/agentport
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: pnpm/action-setup@v6.1.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 12.16.1
+          bun-version: 1.4.3
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24.22.2
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec biome ci .
-      - run: pnpm lint:focus
-      - run: pnpm lint:contract
+      - run: bun install --frozen-lockfile
+      - run: bun run biome ci .
+      - run: bun run lint:focus
+      - run: bun run lint:contract
       # globalSetup 用 docker create --pull=never 启动临时 Redis，只需镜像先在本地。
-      # openui:check 会经根 Vitest 入口间接跑契约测试（scripts/check-openui.mjs），
-      # 因此必须在任何 Vitest 入口之前准备好镜像，不能等到 pnpm test。
       # tag 必须与 packages/worker/test/global-setup.ts 的 REDIS_IMAGE 一致。
       - name: Prepare test Redis image
         run: docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
-      - run: pnpm openui:check
-      - run: pnpm typecheck
-      - run: pnpm build
-      - run: pnpm db:migrate
-      - run: pnpm test
+      - run: bun run openui:check
+      - run: bun run typecheck
+      - run: bun run build
+      - run: bun run db:migrate
+      - run: bun run test
+      - run: bun run test:web
 
   e2e:
     runs-on: ubuntu-latest
@@ -72,6 +70,8 @@ jobs:
     env:
       DATABASE_URL: postgres://agentport:agentport@localhost:5432/agentport
       REDIS_URL: redis://localhost:6379
+      E2E_DATABASE_URL: postgres://agentport:agentport@localhost:5432/agentport
+      E2E_REDIS_URL: redis://localhost:6379
       # 固定值即可：只服务本次 job 的一次性数据库。
       APP_SECRET_KEY: ci-app-secret-key-0123456789abcdef
       JWT_SECRET: ci-jwt-secret-key-0123456789abcdef
@@ -83,29 +83,28 @@ jobs:
       E2E_WORKER_PAUSED: '1'
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: pnpm/action-setup@v6.1.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 12.16.1
+          bun-version: 1.4.3
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24.22.2
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm db:migrate
-      - run: pnpm exec e2e-web install chromium --with-deps
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run db:migrate
+      - run: bun run e2e-web install chromium --with-deps
       # 只启动 API：web 由 e2e 自己拉起（CI 下 reuseExisting 会被拒绝，
       # 预先启动会在 5173 上撞车并报 APP_ALREADY_RUNNING）。
       - name: Start api
         run: |
-          pnpm --filter @agentport/api dev > dev.log 2>&1 &
+          bun run --filter @agentport/api dev > dev.log 2>&1 &
           for _ in $(seq 1 90); do
             if curl -fsS http://localhost:3000/health/ready >/dev/null 2>&1; then break; fi
             sleep 2
           done
           curl -fsS http://localhost:3000/health/ready
       # e2e 是唯一的主套件（Playwright 已退役）。
-      - run: pnpm exec e2e run --reporter=list,junit
+      - run: bun run e2e run --reporter=list,junit
       - if: failure()
         uses: actions/upload-artifact@v7.0.2
         with:

@@ -1,7 +1,7 @@
 # Agentport · 智能体平台 · 项目简报
 
 > 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
-> 最后更新：2026-10-31 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Node 24 LTS 24.22.2、pnpm 12.16.1 等）；其余结论保持原样。
+> 最后更新：2026-11-06 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Bun 1.4.3、Hono 4.13、oRPC 1.16、Drizzle 0.45 bun-sql 等）；原始诉求与历史决策保持原样。
 > 项目名：**Agentport**（仓库与包名保持 `agentport`；对外展示名 **PACE**，见 [USER-STORIES.md](USER-STORIES.md)）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
@@ -40,7 +40,7 @@
 ### 1.3 三端划分
 
 1. **前端**：Shadcn + Tailwind CSS，全部使用最新版本。
-2. **后端**：Fastify + Zod。
+2. **后端**：Fastify + Zod。（后续已调整为 Bun + Hono + oRPC，见 §3）
 3. **智能体**：Claude Agent SDK（Anthropic 官方）。
 4. **数据层**：需要 ORM，要求轻量、当前热门。
 5. **完整度**：技术栈要补齐，包括日志等，不能是临时项目。
@@ -104,18 +104,19 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 ## 3. 技术栈
 
-包版本于 2026-10-31 通过 npm registry 核对，只取 stable / LTS 标签；镜像 tag/digest 以 `Dockerfile`、`docker-compose.yml` 与 CI 的实际引用为准。以根 `package.json`、各包 `package.json`、`pnpm-workspace.yaml` 的 catalog 与 `pnpm-lock.yaml` 的实际解析结果为准。
+包版本于 2026-11-06 按根 `package.json`、各包 `package.json`、workspace catalog 与 `bun.lock` 的实际解析结果核对，只取 stable / LTS 标签；镜像 tag/digest 以 `Dockerfile`、`docker-compose.yml` 与 CI 的实际引用为准。
 
 ### 3.1 语言与工程
 
 | 用途 | 选型 | 版本 | 备注 |
 |---|---|---|---|
 | 语言 | TypeScript | 7.0.2 | 当前 stable |
-| 运行时 | Node.js | 24 LTS | 要求 24 的最新补丁版本（当前 24.22.2）；`engines` 为 `>=24.22.2 <25`，容器镜像用 `node:24-alpine` |
-| 包管理 | pnpm workspace | 12.16.1 | `packageManager` 字段与本地版本一致 |
+| 运行时 | Bun | 1.4.3 | `packageManager` 与 `engines.bun` 固定；api/worker/sandbox 都用 `bun` 启动 |
+| 运行时基座 | Node.js | 24 LTS | 要求 24 的最新补丁版本（当前 24.22.2）；`engines` 为 `>=24.22.2 <25`，容器镜像 `node:24-alpine` 只作基座并复制 Bun 二进制 |
+| 包管理 | Bun workspaces | 1.4.3 | 锁文件 `bun.lock`；脚本用 `bun run <script>` |
 | Lint + 格式化 | Biome | 2.6.4 | 替代 ESLint + Prettier |
-| 开发运行 | tsx | 4.23.15 | watch 模式 |
-| 生产构建 | tsc | 7.0.2 | Node 直接运行 `dist`，不引入打包器 |
+| 开发运行 | nodemon 3.1.14，由 Bun 执行 | 3.1.14 | api/worker 的 watch 包装；Bun 原生 watch 不等待 async 清理，故保留 nodemon，仅开发依赖 |
+| 生产构建 | tsc | 7.0.2 | Bun 直接运行 `dist`，不引入打包器 |
 
 ### 3.2 前端
 
@@ -141,32 +142,32 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 提示 | sonner | 2.0.8 |
 | 图标 | lucide-react | 1.66.0 |
 | 流式 | 原生 `EventSource` | 无需额外库 |
-| 本地访问 | Portless（开发期 `pnpm dev` 分配域名） | 0.15.12 |
+| 本地访问 | Portless（开发期 `bun run dev` 分配域名） | 0.15.12 |
 
 ### 3.3 后端
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| HTTP 框架 | Fastify | 5.12.7（6.x 仍为 alpha，不用） |
-| Schema 校验 + 类型推导 | zod 4 + fastify-type-provider-zod | 4.6.7 / 7.0.0 |
-| ORM | Drizzle ORM | 0.45.4 |
+| HTTP 框架 | Hono（入口 `Bun.serve`） | 4.13.16 |
+| RPC 契约 | oRPC contract-first | @orpc/contract / server / openapi / zod 1.16.1 |
+| Schema 校验 + 类型推导 | zod 4 + oRPC contract input | 4.6.7 |
+| ORM | Drizzle ORM（`drizzle-orm/bun-sql`） | 0.45.4 |
 | 迁移工具 | drizzle-kit | 0.31.11 |
 | 数据库 | PostgreSQL | 镜像 `pgvector/pgvector:pg18`（基于 PostgreSQL 18，内置 vector 扩展） |
-| PG 驱动 | pg | 8.23.1 |
-| 连接池 | pg 内置 Pool | — |
+| PG 驱动 | Bun 原生 `SQL`（`createDb()` 返回 `{ db, client }`） | Bun 1.4.3 内置 |
+| 连接上限 | Bun SQL `max`（`DB_POOL_MAX`，默认 10） | — |
 | 日志 | pino | 10.4.0 |
 | 日志美化（dev） | pino-pretty | 13.2.0 |
 | 日志落文件 | 未引入（stdout + 容器日志） | — |
-| 安全头 | @fastify/helmet | 13.2.0 |
-| CORS | @fastify/cors | 11.3.1 |
-| 限流 | @fastify/rate-limit | 11.2.1 |
-| 限流存储 | `@fastify/rate-limit` 内置 Redis store（ioredis） | —（未装 rate-limit-redis） |
-| 压缩 | @fastify/compress | 9.3.0 |
-| 静态托管 | @fastify/static | 10.1.8 |
+| 安全头 | `hono/secure-headers` | 4.13.16 |
+| CORS | `hono/cors` | 4.13.16 |
+| 限流 | `hono-rate-limiter` + RedisStore | 0.5.4 |
+| 压缩 | `hono/compress` | 4.13.16 |
+| 静态托管 | `hono/bun` 的 `serveStatic` | 4.13.16 |
 | 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.15 |
-| API 文档 | @fastify/swagger + `@scalar/fastify-api-reference`（已接入，需登录访问） | 9.9.2 / 1.76.4 |
-| 过载保护 | 未接入（无 `@fastify/under-pressure` 依赖；`/health/live`、`/health/ready` 由 `routes/health.ts` 自行实现） | — |
-| Redis 客户端 | ioredis | 6.0.0 |
+| API 文档 | oRPC OpenAPI 3.1.1 + `@scalar/hono-api-reference`（`/api/openapi.json`、`/api/docs`，需登录） | 0.12.18 |
+| 过载保护 | 未接入；`/health/live`、`/health/ready` 由 `http/health.ts` 自行实现 | — |
+| Redis 客户端 | Bun 原生 `RedisClient`；BullMQ 用官方 `createBunRedisClient` | Bun 1.4.3 内置 |
 | 队列 | BullMQ | 6.5.3 |
 | 队列面板 | 不接（见 D-15） | — |
 | 队列遥测 | 不接 | — |
@@ -202,12 +203,13 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| 单元/集成测试 | Vitest | 5.0.5 |
-| 覆盖率 | 未配置（无 `@vitest/coverage-v8` 直接依赖与 coverage 配置） | — |
+| 后端单元/集成测试 | `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate`） | Bun 1.4.3 |
+| 前端单元测试 | Vitest（`bun run test:web`，jsdom） | 5.0.5 |
+| 覆盖率 | 未配置 | — |
 | E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.22.0 / 0.15.4 |
-| 集成测试 | 本地/CI service containers（未用 testcontainers） | — |
+| 集成测试 | 本地/CI service containers（未用 testcontainers）；每轮随机 PostgreSQL 库 + 临时 Redis 容器 | — |
 | 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
-| CI | GitHub Actions | — |
+| CI | GitHub Actions（`workflow_dispatch`，手动触发） | — |
 
 ---
 
@@ -215,11 +217,11 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 ### 4.1 仓库布局
 
-**包管理：pnpm workspace（已确认）。** 分层原则：**代码按依赖方向分层，进程按部署单元拆分**。层只能向下依赖，不能反向；进程之间只通过 PostgreSQL / Redis / HTTP 通信，不共享内存对象。
+**包管理：Bun workspaces（`bun.lock`）。** 分层原则：**代码按依赖方向分层，进程按部署单元拆分**。层只能向下依赖，不能反向；进程之间只通过 PostgreSQL / Redis / HTTP 通信，不共享内存对象。
 
 ```
 <repo>/
-├─ package.json  pnpm-workspace.yaml  biome.json  tsconfig.base.json
+├─ package.json  bun.lock  biome.json  tsconfig.base.json
 ├─ .env.example  Dockerfile  docker-compose.yml
 ├─ docs/PROJECT-BRIEF.md           # 本文件
 ├─ data/                            # gitignore
@@ -228,7 +230,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
    ├─ core/       @agentport/core        # L1 领域逻辑：渲染工作区、MCP 定义、任务模型
    ├─ db/         @agentport/db          # L2 Drizzle schema + 迁移 + repo
    ├─ web/        @agentport/web         # L3 React SPA
-   ├─ api/        @agentport/api         # L3 Fastify 主进程
+   ├─ api/        @agentport/api         # L3 Bun.serve + Hono + oRPC 主进程
    ├─ worker/     @agentport/worker      # L3 BullMQ 消费者 + 沙盒生命周期
    └─ sandbox/    @agentport/sandbox     # L3 沙盒 runner/supervisor（镜像由根 Dockerfile 的 sandbox target 产出）
 ```
@@ -261,14 +263,14 @@ shared  ◀── web
 **MQ 的层定位**：BullMQ 是 `worker` 与 `api` 之间的**传输层**，不是业务层。业务层只定义「任务是什么」（`core` 里的 `AgentRunJob` 类型），`api` 负责生产、`worker` 负责消费。两边共享的只有 `shared` 里的 job schema，避免 producer/consumer 字段漂移。
 
 **不引入的东西（明确记录）**：
-- 不引入 monorepo 构建编排工具（Turborepo / Nx）。包只有 7 个，依赖方向是线性的，`pnpm -r` 足够。等构建时间成为问题时再评估。
+- 不引入 monorepo 构建编排工具（Turborepo / Nx）。包只有 8 个，依赖方向是线性的，`bun run --filter './packages/*'` 足够。等构建时间成为问题时再评估。
 - 不做独立的消息总线抽象层。BullMQ 直接用在 worker 里，换队列实现是极小概率事件。
 
 
 ### 4.2 运行时拓扑
 
 ```
-浏览器 ──HTTP/SSE──▶ api (Fastify)
+浏览器 ──HTTP/SSE──▶ api (Bun.serve + Hono + oRPC)
                        │
                        ├─▶ PostgreSQL      配置、会话、消息、审计、知识索引（pgvector）
                        ├─▶ Redis           BullMQ 队列、限流、缓存
@@ -664,7 +666,7 @@ interface SandboxProvider {
 | 工具输出注入 | 不放任文本直接进 system prompt；限制 `MAX_MCP_OUTPUT_TOKENS`；出站 allowlist |
 | Agent 越权 | 内置工具默认禁用（Bash 例外）；Bash 在容器内运行且受只读挂载约束；`maxTurns` / `maxBudgetUsd` / 自建超时；沙盒只读挂载 |
 | 沙盒逃逸 | Docker 起步；需要更强隔离时切换 microsandbox |
-| 依赖供应链 | pnpm lockfile + CI 内 `pnpm audit`；镜像固定 digest |
+| 依赖供应链 | `bun.lock`；镜像固定 digest；CI 不自动跑依赖审计 |
 
 ---
 
@@ -693,7 +695,7 @@ interface SandboxProvider {
 
 ### 9.2 关联字段
 
-- 每个请求：`reqId`（Fastify 自动生成），日志中带 `reqId`。
+- 每个请求：`requestId`（Hono `requestId()` 中间件生成），日志中带 `requestId`。
 - 每次 agent 运行：`runId`、`sessionId`、`agentId`、`turn`、`toolName`、`durationMs`。
 - 追溯一轮对话：按 `runId` 过滤即可。
 
@@ -710,8 +712,8 @@ interface SandboxProvider {
 ### 9.4 健康与保护
 
 - `GET /health/live`：进程存活。
-- `GET /health/ready`：DB 可读 + 迁移已应用 + Redis ping。
-- `@fastify/under-pressure`：不接入（无该依赖）；过载由容器内存上限与队列并发控制约束。
+- `GET /health/ready`：DB 查询 + Redis ping；不校验迁移是否已应用。
+- 过载保护：未接入（无 under-pressure 依赖）；过载由容器内存上限与队列并发控制约束。
 - BullMQ 面板：不接（D-15）；队列状态看 `/health/metrics` 与 `/api/runs`。
 
 ### 9.5 OpenTelemetry
@@ -727,7 +729,7 @@ interface SandboxProvider {
 
 | 服务 | 镜像 | 端口 | 说明 |
 |---|---|---|---|
-| `api` | 本仓库 Dockerfile | 3000 | Fastify，含 `/mcp/:serverId` |
+| `api` | 本仓库 Dockerfile | 3000 | Bun.serve + Hono + oRPC，含 `/mcp/:serverId` |
 | `worker` | 同一镜像，入口不同 | — | BullMQ 消费者 + 沙盒管理 |
 | `postgres` | `pgvector/pgvector:pg18` | 5432 | 持久卷；PG18 + vector 扩展，知识检索依赖 |
 | `redis` | `redis:8.10.3-alpine`（tag/digest 见 `docker-compose.yml` 与 CI） | 6379（仅绑定 127.0.0.1） | AOF 持久化 + 密码 |
@@ -736,14 +738,14 @@ interface SandboxProvider {
 
 ### 10.2 本地开发
 
-- `pnpm dev`：并发启动 api（tsx watch）、worker、web（Vite）。
+- `bun run dev`：并发启动 api（nodemon 3.1.14 由 Bun 执行）、worker、web（Vite）。
 - 数据库与 Redis 用 `docker compose up -d postgres redis`。
-- 迁移：改 schema 后 `pnpm db:generate`；应用迁移用 `pnpm db:migrate`，**启动时不会自动执行**。
+- 迁移：改 schema 后 `bun run db:generate`；应用迁移用 `bun run db:migrate`，**启动时不会自动执行**。
 
 ### 10.3 镜像构建注意
 
 - Agent SDK 通过 optionalDependencies 分发平台原生 CLI。Docker 构建时**不能** `--omit=optional`，否则运行时报 `Native CLI binary for <platform> not found`。
-- 多平台构建（arm64 / amd64）要在对应架构上分别安装依赖，或在 CI 用 buildx + 目标平台执行 `pnpm install`。
+- 多平台构建（arm64 / amd64）要在对应架构上分别安装依赖，或在 CI 用 buildx + 目标平台执行 `bun install --frozen-lockfile`。
 - 沙盒镜像与主应用镜像**分别构建**：主应用镜像不含沙盒运行时，沙盒镜像不含业务代码。
 
 ---
@@ -813,7 +815,7 @@ cd ~/Documents/myself/agentport
 
 # 3. 同步修改
 #    - package.json: name → @agentport/api | web | worker | shared | core | db
-#    - pnpm-workspace.yaml: 无需改（使用 packages/*）
+#    - bun.lock: 无需改（workspace 使用 packages/*）
 #    - docker-compose.yml: name: agentport；服务名 postgres / redis / api / worker
 #    - Dockerfile: 镜像 tag agentport/api:dev；沙盒镜像 agentport/sandbox:dev
 #    - docs/PROJECT-BRIEF.md: 已更新
@@ -826,12 +828,12 @@ cd ~/Documents/myself/agentport
 
 ## 15. M0 落地记录（2026-10-20）
 
-以下是在实际搭建中**验证过的事实**与**踩到的坑**，后续开发以此为准。
+以下是在实际搭建中**验证过的事实**与**踩到的坑**，保留当次记录；其中包管理、Redis 客户端与开发运行已迁移到 Bun，现行事实见 §3 与 [OPERATIONS](OPERATIONS.md)。
 
 ### 15.1 已验证可用
 
 - `docker compose up -d postgres redis` → 两个容器均 healthy。
-- `pnpm -r typecheck` / `pnpm -r build` / `biome ci` 全部通过。
+- 当时用 pnpm 的等价入口跑过 `typecheck` / `build` / `biome ci`；现行命令为 `bun run typecheck` / `bun run build` / `biome ci`。
 - `GET /health/live` → `{"status":"ok"}`；`GET /health/ready` → `{"status":"ok","db":"ok"}`。
 - Worker 启动后成功连接 Redis 并注册 `agent-runs` 队列。
 - Drizzle 生成了 8 张表的首个迁移并成功应用。
@@ -842,21 +844,22 @@ cd ~/Documents/myself/agentport
 |---|---|---|
 | PostgreSQL 18 镜像的数据目录 | 挂载 `/var/lib/postgresql/data` 会导致容器无限重启；18+ 要求挂载 `/var/lib/postgresql` | compose 已改为后者 |
 | `redis:8-alpine` | 实际可用（`docker pull` 成功，容器 healthy）；此前 `docker manifest inspect` 因网络超时误判 | 当时维持该标签；当前配置为 8.10.3（见 §10.1） |
-| npm 官方源 | 本机经代理访问 registry.npmjs.org 极慢（15s+），导致 `pnpm install` 长时间无输出 | 根目录 `.npmrc` 固定 `registry=https://registry.npmmirror.com` |
-| pnpm 12 的 build script 审批 | pnpm 11 起移除 `onlyBuiltDependencies`、`ignoredBuiltDependencies` 等旧键，统一由 `allowBuilds` 的 `true`/`false` 决定（https://pnpm.io/settings/build#allowbuilds） | 已用 `pnpm approve-builds --all`，配置写入 `pnpm-workspace.yaml` 的 `allowBuilds`（见 OPERATIONS §2.1） |
-| BullMQ 6 在 ESM 下 | 不自动加载 ioredis，报 "could not load the optional 'ioredis' package" | worker 包显式依赖 `ioredis@6.0.0` |
+| npm 官方源 | 本机经代理访问 registry.npmjs.org 极慢（15s+），导致安装长时间无输出 | 根目录 `.npmrc` 固定 `registry=https://registry.npmmirror.com` |
+| 安装脚本审批 | 当次 pnpm 用 `allowBuilds` 管理生命周期脚本 | 迁移后由 Bun 的 `trustedDependencies` 放行 `esbuild` 与 `msgpackr-extract`（见 OPERATIONS §2.1） |
+| BullMQ 6 在 ESM 下 | 当时不自动加载 ioredis，报 "could not load the optional 'ioredis' package" | 迁移后队列连接用官方 `createBunRedisClient`，生产不再依赖 ioredis |
 | TypeScript `-b --noEmit` | 与 project references 冲突（TS6310） | 各包 typecheck 统一为 `tsc -b`，无 `--noEmit` |
-| tsx 与 env | `--env-file-if-exists` 在 tsx 下不生效 | 该参数交给 tsx 传参即可；migrate 脚本用 Node 原生 `--env-file-if-exists` |
+| 开发运行与 env | 当时 `--env-file-if-exists` 在 tsx 下不生效 | 现由 nodemon 调用 Bun 并透传 `--env-file`；migrate 脚本用 Bun `--env-file` |
 | Biome 2.5（历史记录） | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`），当前版本 2.6.4 |
 
-### 15.3 起步命令
+### 15.3 现行起步命令
 
 ```bash
-pnpm install
+bun install
+bun run build          # db:migrate 读取 packages/db/dist
 docker compose up -d postgres redis
 cp .env.example .env   # 填写 APP_SECRET_KEY / JWT_SECRET / ADMIN_PASSWORD
-pnpm db:migrate
-pnpm dev
+bun run db:migrate
+bun run dev
 ```
 
 > `.env` 中的 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 二选一；本机当前使用 `ANTHROPIC_AUTH_TOKEN`，Agent SDK 会作为 Bearer token 发送。
@@ -935,15 +938,15 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 | `permissionMode: 'dontAsk'` 会拒绝未预批准的一切 | 仅靠 `allowedTools` 不够 | 用精确 allow 规则 + `disallowedTools` 移除内置工具；显式dontAsk保持拒绝语义。原生提问接入采用default与专用canUseTool，进展及验收见D-68 |
 | 容器内 `127.0.0.1` 指向容器自身 | 本机代理 `ANTHROPIC_BASE_URL=http://127.0.0.1:3425` 在容器里 ECONNREFUSED | worker 把 loopback 改写成 `host.docker.internal`，并加 `--add-host host.docker.internal:host-gateway`（Linux 必需） |
 | generated server 的测试连错地址 | 测试按钮连上游 baseUrl，返回 `Error POSTing to endpoint` | 改为连平台自己的 `/mcp/:id` 并带 `mcpToken`；新增 `SELF_URL` 配置 |
-| 改了 schema 忘记重新生成迁移 | `column "path_template" does not exist` | 改 `schema.ts` 后必须 `pnpm db:generate`；SQLite/Postgres 迁移文件不通用 |
+| 改了 schema 忘记重新生成迁移 | `column "path_template" does not exist` | 改 `schema.ts` 后必须 `bun run db:generate`；SQLite/Postgres 迁移文件不通用 |
 | 对话 ID 前缀写错 | conversation 用成了 `msg_` | 修成 `conv_`；`newId()` 的实体参数现在受类型约束 |
 | `biome check` 在并行 lane 之后失败 | 格式不一致 | 统一跑 `biome check --write .` 一次 |
 
 ### 16.4 当时未完成、后续循环已补齐
 
 1. ~~审计写入~~：已覆盖登录、server/agent/skill/tool、运行起止与审批、评估、维护（见 OPERATIONS §6）。
-2. ~~Redis 限流~~：`@fastify/rate-limit` 使用 ioredis Redis store，无 `rate-limit-redis` 依赖。
-3. ~~测试~~：14 个 vitest 文件、82 个用例；当时 E2E 用 Playwright，现已统一为 `e2e`（`e2e` + `@e2e-dev/web`，见 `e2e.config.ts`）。
+2. ~~Redis 限流~~：已接入；当时用 `@fastify/rate-limit`，现为 `hono-rate-limiter` + RedisStore。
+3. ~~测试~~：当时 14 个 Vitest 文件、82 个用例；后端现用 `bun:test`，E2E 已统一为 `e2e`（`e2e` + `@e2e-dev/web`，见 `e2e.config.ts`）。
 4. ~~CI~~：`.github/workflows/ci.yml` 已创建。
 5. ~~server 编辑 UI~~：servers 页已支持编辑（PATCH + 乐观锁）。
 6. **沙盒网络**：仍为 `bridge` + `host.docker.internal`，默认 `SANDBOX_EGRESS=open`（不隔离出站）；`proxy` 必须配代理，否则 worker 启动 fail-closed；生产建议接受控出站代理。

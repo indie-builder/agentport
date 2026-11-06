@@ -1,15 +1,15 @@
 import type { Agent, Server, Skill, WorkspaceFiles } from '@agentport/shared';
 import { AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { sidecarOf, unzipPackage } from './package-fixtures.js';
@@ -31,7 +31,7 @@ const ALLOWED_SIDECAR_CHILD_KEYS = [
 ];
 
 describe.skipIf(!ready)('subagent export', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const serverNames: string[] = [];
@@ -63,7 +63,7 @@ describe.skipIf(!ready)('subagent export', () => {
       extra: Record<string, unknown>,
     ): Promise<Agent> => {
       agentSlugs.push(slug);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/agents',
         headers: auth(),
@@ -74,7 +74,7 @@ describe.skipIf(!ready)('subagent export', () => {
     };
     const createSkill = async (slug: string): Promise<Skill> => {
       skillSlugs.push(slug);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/skills',
         headers: auth(),
@@ -84,7 +84,7 @@ describe.skipIf(!ready)('subagent export', () => {
       return res.json<Skill>();
     };
     const createServer = async (payload: Record<string, unknown>): Promise<Server> => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/servers',
         headers: auth(),
@@ -99,7 +99,7 @@ describe.skipIf(!ready)('subagent export', () => {
       serverId: string,
       payload: Record<string, unknown>,
     ): Promise<{ id: string }> => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/servers/${serverId}/tools`,
         headers: auth(),
@@ -107,7 +107,7 @@ describe.skipIf(!ready)('subagent export', () => {
       });
       expect(res.statusCode, res.body).toBe(201);
       const tool = res.json<{ id: string }>();
-      const patched = await inject(app, {
+      const patched = await request(app, {
         method: 'PATCH',
         url: `/api/servers/${serverId}/tools/${tool.id}`,
         headers: auth(),
@@ -132,11 +132,11 @@ describe.skipIf(!ready)('subagent export', () => {
     });
     // 固定 id 顺序（子 a < 父 b），否则 uuidv7 同毫秒的随机位会让顺序断言偶然通过。
     const fixedServerId = (suffix: string) => `srv_${suffix.padStart(26, '0')}`;
-    await app.pool.query('update servers set id = $1 where id = $2', [
+    await app.client.unsafe('update servers set id = $1 where id = $2', [
       fixedServerId('a'),
       childServer.id,
     ]);
-    await app.pool.query('update servers set id = $1 where id = $2', [
+    await app.client.unsafe('update servers set id = $1 where id = $2', [
       fixedServerId('b'),
       rootServer.id,
     ]);
@@ -199,7 +199,7 @@ describe.skipIf(!ready)('subagent export', () => {
   });
 
   const exportPackage = (id: string, headers: Record<string, string> = auth()) =>
-    injectZip(app, 'GET', `/api/export/agents/${id}`, headers.cookie ?? '');
+    requestZip(app, 'GET', `/api/export/agents/${id}`, headers.cookie ?? '');
 
   it('exports root and children as official files with name references', async () => {
     const res = await exportPackage(parent.id);
@@ -319,7 +319,7 @@ describe.skipIf(!ready)('subagent export', () => {
   });
 
   it('renders the root workspace with enabled child resources but not disabled child resources', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/agents/${parent.id}/files`,
       headers: auth(),
@@ -366,7 +366,7 @@ describe.skipIf(!ready)('subagent export', () => {
   it('rejects more than 20 direct children without truncating', async () => {
     const rootSlug = unique('exp-many-children');
     agentSlugs.push(rootSlug);
-    const createdRoot = await inject(app, {
+    const createdRoot = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -378,7 +378,7 @@ describe.skipIf(!ready)('subagent export', () => {
     const idPrefix = `agt_${unique('many')}_`;
     const slugPrefix = unique('exp-child-bulk');
     for (let index = 1; index <= 21; index += 1) agentSlugs.push(`${slugPrefix}-${index}`);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agents (id, slug, name, model, system_prompt_md, parent_id, created_by, owner_business_id)
        select $1 || g, $2 || '-' || g, 'Bulk child ' || g, 'claude-sonnet-5-5', 'bulk', $3, 'bootstrap-admin', 'bootstrap-admin'
        from generate_series(1, 21) g`,
@@ -394,7 +394,7 @@ describe.skipIf(!ready)('subagent export', () => {
   it('rejects more than 100 union resources without truncating', async () => {
     const resourceSlug = unique('exp-many-skills');
     agentSlugs.push(resourceSlug);
-    const createdRoot = await inject(app, {
+    const createdRoot = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -405,13 +405,13 @@ describe.skipIf(!ready)('subagent export', () => {
 
     const skillPrefix = unique('exp-bulk-skill');
     for (let index = 1; index <= 101; index += 1) skillSlugs.push(`${skillPrefix}-${index}`);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into skills (id, slug, name, description, body)
        select $1 || g, $2 || '-' || g, 'Bulk skill ' || g, 'bulk', ''
        from generate_series(1, 101) g`,
       [`skl_${unique('bulk')}_`, skillPrefix],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_skills (agent_id, skill_id)
        select $1, id from skills where slug like $2`,
       [root.id, `${skillPrefix}-%`],

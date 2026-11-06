@@ -2,16 +2,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { FastifyInstance } from 'fastify';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import {
   expectProblem,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -101,7 +101,7 @@ function replaceOriginal(
   version.blobSha256 = sha256(replacement);
 }
 
-let app: FastifyInstance;
+let app: TestApp;
 let cookie = '';
 let knowledgeDir = '';
 let embeddingProfileId = '';
@@ -117,7 +117,7 @@ beforeAll(async () => {
   app = await startApp({ KNOWLEDGE_DIR: knowledgeDir });
   cookie = await loginCookie(app);
 
-  const embedding = await inject(app, {
+  const embedding = await request(app, {
     method: 'POST',
     url: '/api/knowledge/model-profiles',
     headers: { cookie },
@@ -132,7 +132,7 @@ beforeAll(async () => {
   embeddingProfileId = embedding.json<{ id: string }>().id;
   profileIds.push(embeddingProfileId);
 
-  const asr = await inject(app, {
+  const asr = await request(app, {
     method: 'POST',
     url: '/api/knowledge/model-profiles',
     headers: { cookie },
@@ -162,19 +162,18 @@ afterEach(async () => {
 
 afterAll(async () => {
   if (baseIds.length > 0) {
-    await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+    await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
   }
   if (profileIds.length > 0) {
-    await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-      profileIds,
-    ]);
+    await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+    );
   }
   await app.close();
   await rm(knowledgeDir, { recursive: true, force: true });
 });
 
 async function createBase(): Promise<string> {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/knowledge/bases',
     headers: { cookie },
@@ -193,7 +192,7 @@ async function createBase(): Promise<string> {
 
 async function seedAudioLibrary(): Promise<string> {
   const baseId = await createBase();
-  const upload = await inject(app, {
+  const upload = await request(app, {
     method: 'PUT',
     url: `/api/knowledge/bases/${baseId}/documents/upload`,
     headers: { cookie },
@@ -210,7 +209,7 @@ async function seedAudioLibrary(): Promise<string> {
   const versionDir = join(knowledgeDir, 'docs', documentId, versionId);
   await mkdir(versionDir, { recursive: true });
   await writeFile(join(versionDir, 'markdown.md'), MARKDOWN, 'utf8');
-  await app.pool.query(
+  await app.client.unsafe(
     `insert into knowledge_document_versions
        (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
         size_bytes, parse_status, page_map, images, embedding_profile_id, metadata)
@@ -226,7 +225,7 @@ async function seedAudioLibrary(): Promise<string> {
     ],
   );
   for (const [ordinal, locator] of TIME_LOCATORS.entries()) {
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, heading, content, search_text,
           enabled, edited_by_user, page_from, page_to, locator, token_count, metadata)
@@ -243,7 +242,7 @@ async function seedAudioLibrary(): Promise<string> {
       ],
     );
   }
-  await app.pool.query(
+  await app.client.unsafe(
     "update knowledge_documents set status = 'ready', current_version_id = $2 where id = $1",
     [documentId, versionId],
   );
@@ -251,33 +250,32 @@ async function seedAudioLibrary(): Promise<string> {
 }
 
 async function exportPackage(baseId: string): Promise<Buffer> {
-  const res = await injectZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
+  const res = await requestZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
   expect(res.statusCode, res.body).toBe(200);
   return res.rawPayload;
 }
 
 async function importPackage(archive: Buffer) {
-  return injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
+  return requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
 }
 
 async function deleteBaseBySlug(slug: string): Promise<void> {
-  const rows = await app.pool.query<{ id: string; server_id: string }>(
+  const rows = await app.client.unsafe<{ id: string; server_id: string }[]>(
     'select id, server_id from knowledge_bases where slug = $1',
     [slug],
   );
-  if (rows.rows.length === 0) return;
-  await app.pool.query('delete from knowledge_bases where slug = $1', [slug]);
-  await app.pool.query('delete from servers where id = any($1::text[])', [
-    rows.rows.map((row) => row.server_id),
-  ]);
+  if (rows.length === 0) return;
+  await app.client.unsafe('delete from knowledge_bases where slug = $1', [slug]);
+  await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array(rows.map((row) => row.server_id), 'TEXT')],
+  );
 }
 
 async function baseCountBySlug(slug: string): Promise<number> {
-  const rows = await app.pool.query<{ count: number }>(
+  const rows = await app.client.unsafe<{ count: number }[]>(
     'select count(*)::int as count from knowledge_bases where slug = $1',
     [slug],
   );
-  return rows.rows[0]!.count;
+  return rows[0]!.count;
 }
 
 describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
@@ -304,54 +302,54 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     expect(imported.statusCode, imported.body).toBe(201);
     const { baseId } = imported.json<{ baseId: string }>();
 
-    const base = await app.pool.query<{ asrProfileId: string | null }>(
+    const base = await app.client.unsafe<{ asrProfileId: string | null }[]>(
       'select asr_profile_id as "asrProfileId" from knowledge_bases where id = $1',
       [baseId],
     );
-    expect(base.rows[0]!.asrProfileId).toBe(asrProfileId);
+    expect(base[0]!.asrProfileId).toBe(asrProfileId);
 
-    const versions = await app.pool.query<{
+    const versions = await app.client.unsafe<{
       id: string;
       metadata: Record<string, unknown>;
       mimeType: string;
-    }>(
+    }[]>(
       `select id, metadata, mime_type as "mimeType" from knowledge_document_versions
        where document_id in (select id from knowledge_documents where base_id = $1)`,
       [baseId],
     );
-    expect(versions.rows).toHaveLength(1);
-    expect(versions.rows[0]!.metadata.audio).toEqual(AUDIO_METADATA);
-    expect(versions.rows[0]!.mimeType).toBe('audio/mpeg');
+    expect(versions).toHaveLength(1);
+    expect(versions[0]!.metadata.audio).toEqual(AUDIO_METADATA);
+    expect(versions[0]!.mimeType).toBe('audio/mpeg');
 
-    const chunks = await app.pool.query<{ locator: Record<string, unknown>; embedding: unknown }>(
+    const chunks = await app.client.unsafe<{ locator: Record<string, unknown>; embedding: unknown }[]>(
       'select locator, embedding from knowledge_chunks where version_id = $1 order by ordinal',
-      [versions.rows[0]!.id],
+      [versions[0]!.id],
     );
-    expect(chunks.rows.map((chunk) => chunk.locator)).toEqual(TIME_LOCATORS);
-    expect(chunks.rows.every((chunk) => chunk.embedding === null)).toBe(true);
+    expect(chunks.map((chunk) => chunk.locator)).toEqual(TIME_LOCATORS);
+    expect(chunks.every((chunk) => chunk.embedding === null)).toBe(true);
 
-    const content = await inject(app, {
+    const content = await request(app, {
       method: 'GET',
-      url: `/api/knowledge/versions/${versions.rows[0]!.id}/content`,
+      url: `/api/knowledge/versions/${versions[0]!.id}/content`,
       headers: { cookie },
     });
     expect(content.statusCode, content.body).toBe(200);
-    expect(content.headers['content-type']).toBe('audio/mpeg');
-    expect(content.headers['x-content-type-options']).toBe('nosniff');
+    expect(content.headers.get('content-type')).toBe('audio/mpeg');
+    expect(content.headers.get('x-content-type-options')).toBe('nosniff');
     expect(content.rawPayload.equals(MP3)).toBe(true);
 
-    const jobs = await app.pool.query<{ count: number }>(
+    const jobs = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from knowledge_jobs where base_id = $1',
       [baseId],
     );
-    expect(jobs.rows[0]!.count).toBe(0);
+    expect(jobs[0]!.count).toBe(0);
   });
 
   it('FORM 开头的 Markdown 原件不误判为音频，导出导入保留原件与正文', async () => {
     const baseId = await createBase();
     const original = Buffer.from('FORM is important\n');
     const markdown = '正文第一段\n\nFORM 只是正文里的普通文字';
-    const upload = await inject(app, {
+    const upload = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/bases/${baseId}/documents/upload`,
       headers: { cookie },
@@ -368,7 +366,7 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     const versionDir = join(knowledgeDir, 'docs', documentId, versionId);
     await mkdir(versionDir, { recursive: true });
     await writeFile(join(versionDir, 'markdown.md'), markdown, 'utf8');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id, metadata)
@@ -382,7 +380,7 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
         embeddingProfileId,
       ],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       "update knowledge_documents set status = 'ready', current_version_id = $2 where id = $1",
       [documentId, versionId],
     );
@@ -394,25 +392,25 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     expect(imported.statusCode, imported.body).toBe(201);
     const importedBaseId = imported.json<{ baseId: string }>().baseId;
     try {
-      const version = await app.pool.query<{ id: string; metadata: Record<string, unknown> }>(
+      const version = await app.client.unsafe<{ id: string; metadata: Record<string, unknown> }[]>(
         `select v.id, v.metadata from knowledge_document_versions v
          join knowledge_documents d on d.id = v.document_id where d.base_id = $1`,
         [importedBaseId],
       );
-      expect(version.rows).toHaveLength(1);
-      expect(version.rows[0]!.metadata.audio).toBeUndefined();
+      expect(version).toHaveLength(1);
+      expect(version[0]!.metadata.audio).toBeUndefined();
 
-      const content = await inject(app, {
+      const content = await request(app, {
         method: 'GET',
-        url: `/api/knowledge/versions/${version.rows[0]!.id}/content`,
+        url: `/api/knowledge/versions/${version[0]!.id}/content`,
         headers: { cookie },
       });
       expect(content.statusCode, content.body).toBe(200);
       expect(content.rawPayload.equals(original)).toBe(true);
 
-      const body = await inject(app, {
+      const body = await request(app, {
         method: 'GET',
-        url: `/api/knowledge/versions/${version.rows[0]!.id}/markdown`,
+        url: `/api/knowledge/versions/${version[0]!.id}/markdown`,
         headers: { cookie },
       });
       expect(body.statusCode, body.body).toBe(200);
@@ -426,53 +424,53 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     const imported = await importPackage(exported);
     expect(imported.statusCode, imported.body).toBe(201);
     const { baseId } = imported.json<{ baseId: string }>();
-    const document = await app.pool.query<{ id: string }>(
+    const document = await app.client.unsafe<{ id: string }[]>(
       'select id from knowledge_documents where base_id = $1',
       [baseId],
     );
-    const copy = await inject(app, {
+    const copy = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
-      payload: { documentIds: [document.rows[0]!.id], action: 'copy' },
+      payload: { documentIds: [document[0]!.id], action: 'copy' },
     });
     expect(copy.statusCode, copy.body).toBe(200);
     const result = copy.json<{ results: Array<{ status: string; newDocumentId?: string }> }>();
     expect(result.results[0]?.status).toBe('succeeded');
     const newDocumentId = result.results[0]!.newDocumentId!;
 
-    const version = await app.pool.query<{ id: string; metadata: Record<string, unknown> }>(
+    const version = await app.client.unsafe<{ id: string; metadata: Record<string, unknown> }[]>(
       `select v.id, v.metadata from knowledge_document_versions v
        join knowledge_documents d on d.current_version_id = v.id
        where d.id = $1`,
       [newDocumentId],
     );
-    expect(version.rows[0]!.metadata.audio).toEqual(AUDIO_METADATA);
-    const chunks = await app.pool.query<{ locator: Record<string, unknown> }>(
+    expect(version[0]!.metadata.audio).toEqual(AUDIO_METADATA);
+    const chunks = await app.client.unsafe<{ locator: Record<string, unknown> }[]>(
       'select locator from knowledge_chunks where version_id = $1 order by ordinal',
-      [version.rows[0]!.id],
+      [version[0]!.id],
     );
-    expect(chunks.rows.map((chunk) => chunk.locator)).toEqual(TIME_LOCATORS);
+    expect(chunks.map((chunk) => chunk.locator)).toEqual(TIME_LOCATORS);
   });
 
   it('人工派生版清空 segment map，回退到音频原版时 metadata 与时码仍在', async () => {
     const imported = await importPackage(exported);
     expect(imported.statusCode, imported.body).toBe(201);
     const { baseId } = imported.json<{ baseId: string }>();
-    const document = await app.pool.query<{ id: string; currentVersionId: string }>(
+    const document = await app.client.unsafe<{ id: string; currentVersionId: string }[]>(
       'select id, current_version_id as "currentVersionId" from knowledge_documents where base_id = $1',
       [baseId],
     );
-    const documentId = document.rows[0]!.id;
-    const originalVersionId = document.rows[0]!.currentVersionId;
-    const chunk = await app.pool.query<{ id: string }>(
+    const documentId = document[0]!.id;
+    const originalVersionId = document[0]!.currentVersionId;
+    const chunk = await app.client.unsafe<{ id: string }[]>(
       'select id from knowledge_chunks where version_id = $1 order by ordinal limit 1',
       [originalVersionId],
     );
 
-    const edited = await inject(app, {
+    const edited = await request(app, {
       method: 'PATCH',
-      url: `/api/knowledge/chunks/${chunk.rows[0]!.id}`,
+      url: `/api/knowledge/chunks/${chunk[0]!.id}`,
       headers: { cookie },
       payload: { expectedVersionId: originalVersionId, content: '修改后的第一段' },
     });
@@ -480,29 +478,29 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     const manualVersionId = edited.json<{ document: { currentVersionId: string } }>().document
       .currentVersionId;
     expect(manualVersionId).not.toBe(originalVersionId);
-    const manual = await app.pool.query<{ metadata: Record<string, unknown> }>(
+    const manual = await app.client.unsafe<{ metadata: Record<string, unknown> }[]>(
       'select metadata from knowledge_document_versions where id = $1',
       [manualVersionId],
     );
-    expect(manual.rows[0]!.metadata.audio).toEqual({ ...AUDIO_METADATA, segments: [] });
+    expect(manual[0]!.metadata.audio).toEqual({ ...AUDIO_METADATA, segments: [] });
 
-    const rolledBack = await inject(app, {
+    const rolledBack = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${documentId}/rollback`,
       headers: { cookie },
       payload: { versionId: originalVersionId, expectedVersionId: manualVersionId },
     });
     expect(rolledBack.statusCode, rolledBack.body).toBe(200);
-    const restored = await app.pool.query<{ metadata: Record<string, unknown> }>(
+    const restored = await app.client.unsafe<{ metadata: Record<string, unknown> }[]>(
       'select metadata from knowledge_document_versions where id = $1',
       [originalVersionId],
     );
-    expect(restored.rows[0]!.metadata.audio).toEqual(AUDIO_METADATA);
-    const chunks = await app.pool.query<{ locator: Record<string, unknown> }>(
+    expect(restored[0]!.metadata.audio).toEqual(AUDIO_METADATA);
+    const chunks = await app.client.unsafe<{ locator: Record<string, unknown> }[]>(
       'select locator from knowledge_chunks where version_id = $1 order by ordinal',
       [originalVersionId],
     );
-    expect(chunks.rows.map((row) => row.locator)).toEqual(TIME_LOCATORS);
+    expect(chunks.map((row) => row.locator)).toEqual(TIME_LOCATORS);
   });
 
   it('缺少启用 ASR profile 或模型不符时整包 409，不落库', async () => {
@@ -522,7 +520,7 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     expectProblem(mismatchRes, 'CONFLICT');
     expect(await baseCountBySlug(exportedManifest.base.slug)).toBe(0);
 
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/model-profiles/${asrProfileId}`,
       headers: { cookie },
@@ -534,7 +532,7 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
       expect(disabledRes.statusCode, disabledRes.body).toBe(409);
       expect(await baseCountBySlug(exportedManifest.base.slug)).toBe(0);
     } finally {
-      await app.pool.query('update knowledge_model_profiles set enabled = true where id = $1', [
+      await app.client.unsafe('update knowledge_model_profiles set enabled = true where id = $1', [
         asrProfileId,
       ]);
     }
@@ -548,28 +546,28 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     const imported = await importPackage(detached);
     expect(imported.statusCode, imported.body).toBe(201);
     const { baseId } = imported.json<{ baseId: string }>();
-    const base = await app.pool.query<{ asrProfileId: string | null }>(
+    const base = await app.client.unsafe<{ asrProfileId: string | null }[]>(
       'select asr_profile_id as "asrProfileId" from knowledge_bases where id = $1',
       [baseId],
     );
-    expect(base.rows[0]!.asrProfileId).toBeNull();
+    expect(base[0]!.asrProfileId).toBeNull();
 
-    const version = await app.pool.query<{ id: string; metadata: Record<string, unknown> }>(
+    const version = await app.client.unsafe<{ id: string; metadata: Record<string, unknown> }[]>(
       `select v.id, v.metadata from knowledge_document_versions v
        join knowledge_documents d on d.id = v.document_id where d.base_id = $1`,
       [baseId],
     );
-    expect(version.rows[0]!.metadata.audio).toEqual(AUDIO_METADATA);
-    const chunks = await app.pool.query<{ count: number }>(
+    expect(version[0]!.metadata.audio).toEqual(AUDIO_METADATA);
+    const chunks = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from knowledge_chunks where version_id = $1',
-      [version.rows[0]!.id],
+      [version[0]!.id],
     );
-    expect(chunks.rows[0]!.count).toBe(2);
-    const jobs = await app.pool.query<{ count: number }>(
+    expect(chunks[0]!.count).toBe(2);
+    const jobs = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from knowledge_jobs where base_id = $1',
       [baseId],
     );
-    expect(jobs.rows[0]!.count).toBe(0);
+    expect(jobs[0]!.count).toBe(0);
   });
 
   it('metadata.audio 偏移越界或重叠时拒绝导入', async () => {
@@ -621,7 +619,7 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
 
   it('pending 音频按待处理语义导回，不自动创建转录任务', async () => {
     const baseId = await createBase();
-    const upload = await inject(app, {
+    const upload = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/bases/${baseId}/documents/upload`,
       headers: { cookie },
@@ -641,25 +639,25 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     const imported = await importPackage(archive);
     expect(imported.statusCode, imported.body).toBe(201);
     const { baseId: importedBaseId } = imported.json<{ baseId: string }>();
-    const document = await app.pool.query<{
+    const document = await app.client.unsafe<{
       status: string;
       currentVersionId: string | null;
       mimeType: string;
-    }>(
+    }[]>(
       `select status, current_version_id as "currentVersionId", mime_type as "mimeType"
        from knowledge_documents where base_id = $1`,
       [importedBaseId],
     );
-    expect(document.rows[0]).toMatchObject({
+    expect(document[0]).toMatchObject({
       status: 'pending',
       currentVersionId: null,
       mimeType: 'audio/mpeg',
     });
-    const jobs = await app.pool.query<{ count: number }>(
+    const jobs = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from knowledge_jobs where base_id = $1',
       [importedBaseId],
     );
-    expect(jobs.rows[0]!.count).toBe(0);
+    expect(jobs[0]!.count).toBe(0);
     await deleteBaseBySlug(manifest.base.slug);
   });
 });

@@ -1,0 +1,3 @@
+[test]
+root = "./packages"
+preload = ["./packages/worker/test/setup-env.ts"]

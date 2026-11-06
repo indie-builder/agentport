@@ -26,18 +26,17 @@
     "dev": "tsc -b --watch --preserveWatchOutput",
     "typecheck": "tsc -b",
     "generate": "drizzle-kit generate",
-    "migrate": "node --env-file-if-exists=../../.env scripts/migrate.js"
+    "migrate": "bun --env-file=../../.env scripts/migrate.js"
   },
   "dependencies": {
     "@agentport/core": "workspace:*",
     "@agentport/shared": "workspace:*",
     "better-auth": "1.7.15",
     "drizzle-orm": "catalog:",
-    "pg": "8.23.1",
     "typeid-js": "1.2.0"
   },
   "devDependencies": {
-    "@types/pg": "8.23.1",
+    "@types/bun": "catalog:",
     "drizzle-kit": "0.31.11"
   }
 }

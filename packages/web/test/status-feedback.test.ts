@@ -11,9 +11,10 @@ import { StatusPage } from '../src/pages/status.js';
  */
 
 const metrics: HealthMetrics = {
-  process: { uptimeSeconds: 120, memoryRssBytes: 1024, nodeVersion: 'v24' },
+  process: { uptimeSeconds: 120, memoryRssBytes: 1024, bunVersion: '1.4.3' },
   queue: { waiting: 3, active: 1, completed: 0, failed: 0, delayed: 0 },
-  db: { total: 4, idle: 2, waiting: 0 },
+  knowledgeQueue: null,
+  db: { connected: true, pingMs: 2, maxConnections: 10 },
   redis: { pingMs: 2 },
 };
 
@@ -128,7 +129,7 @@ describe('status metrics failure feedback', () => {
     ] as const;
     metricsFetches = [async () => json(metrics)];
     await mount();
-    await waitFor(() => expect(container.textContent).toContain('v24'));
+    await waitFor(() => expect(container.textContent).toContain('1.4.3'));
     // 同一页面重复刷新即可验证三种事实，无需重挂载。
     for (const [queue, message] of cases) {
       metricsFetches = [async () => json({ ...metrics, queue: { ...queueCounts, ...queue } })];
@@ -151,7 +152,7 @@ describe('status metrics failure feedback', () => {
     ];
 
     await mount();
-    await waitFor(() => expect(container.textContent).toContain('v24'));
+    await waitFor(() => expect(container.textContent).toContain('1.4.3'));
     expect(container.textContent).not.toContain('队列积压');
     expect(container.textContent).not.toContain('注意');
   });
@@ -189,14 +190,14 @@ describe('status metrics failure feedback', () => {
     ];
 
     await mount();
-    await waitFor(() => expect(container.textContent).toContain('v24'));
+    await waitFor(() => expect(container.textContent).toContain('1.4.3'));
     expect(container.textContent).toContain('3');
     expect(container.textContent).toContain('PONG');
 
     await click('刷新');
     await waitFor(() => expect(container.textContent).toContain('指标刷新失败'));
     expect(container.textContent).toContain('以下保留上次成功读取的指标。');
-    expect(container.textContent).toContain('v24');
+    expect(container.textContent).toContain('1.4.3');
     expect(container.textContent).toContain('PONG');
     expect(container.textContent).toContain('注意');
     expect(button('重试').disabled).toBe(false);
@@ -207,7 +208,7 @@ describe('status metrics failure feedback', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(button('重试').disabled).toBe(true);
-    expect(container.textContent).toContain('v24');
+    expect(container.textContent).toContain('1.4.3');
     expect(container.textContent).toContain('指标刷新失败');
 
     retry.resolve(

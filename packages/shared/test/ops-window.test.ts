@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { recentUtcDays, utcWindowStart } from '../src/ops.js';
 
 describe('UTC 统计窗口', () => {

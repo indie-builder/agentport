@@ -1,6 +1,6 @@
 import { createDb, newId, schema } from '@agentport/db';
 import { and, eq, inArray } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { checkQueuedRunAccess, checkUserAgentAccess } from '../src/run-access.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
@@ -62,7 +62,7 @@ afterAll(async () => {
     await db.delete(schema.roles).where(eq(schema.roles.id, roleId));
     await db.delete(schema.authUsers).where(eq(schema.authUsers.id, userId));
   }
-  await dbHandle.pool.end();
+  await dbHandle.client.close();
   await isolated?.close();
 });
 

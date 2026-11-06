@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import type { SpawnFn } from '../src/runtime-environments/build.js';
 import { verifyRuntimeEnvironmentImage } from '../src/runtime-environments/verify.js';
 
@@ -82,14 +82,14 @@ describe('verifyRuntimeEnvironmentImage', () => {
     expect(flag('--workdir')).toBe('/app');
     expect(flag('--cap-drop')).toBe('ALL');
     expect(flag('--security-opt')).toBe('no-new-privileges');
-    expect(flag('--entrypoint')).toBe('node');
+    expect(flag('--entrypoint')).toBe('bun');
     expect(run).toContain('--read-only');
     expect(run).toContain('--rm');
     expect(run).toContain('/home/node/.claude:rw,noexec,nosuid,size=64m,uid=1000,gid=1000');
     expect(run.at(-3)).toBe(IMAGE_ID);
     expect(run.at(-2)).toBe('-e');
     const script = run.at(-1) ?? '';
-    expect(script).toContain("'--check'");
+    expect(script).not.toContain("'--check'");
     expect(script).toContain('command -v bash');
     expect(script).toContain('session-supervisor.js');
     expect(script).toContain('stdin closed before the probe task arrived');

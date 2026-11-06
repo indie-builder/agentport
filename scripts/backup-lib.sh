@@ -193,7 +193,7 @@ resolve_workspaces() {
     fi
   fi
 
-  # 宿主直跑（pnpm dev）时的 WORKSPACES_DIR；放在 compose 探测之后，
+  # 宿主直跑（bun run dev）时的 WORKSPACES_DIR；放在 compose 探测之后，
   # 避免 .env 里的 ./data/workspaces 抢走 compose 命名卷的数据。
   for cand in "${WORKSPACES_DIR:-}" "$ROOT/data/workspaces"; do
     [ -n "$cand" ] || continue

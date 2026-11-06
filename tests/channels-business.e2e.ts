@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
-import { createDb } from '../packages/db/dist/index.js';
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 频道真实业务回归：真实 agentport 库、真实 Redis 逻辑库 3、真实模型网关。
  * 数据不清理：频道与消息就是本轮业务产物，报告里给可回滚 SQL。
  *
- * 运行前提（环境变量）：DATABASE_URL、E2E_APP_URL、E2E_ADMIN_USER、E2E_ADMIN_PASSWORD。
+ * 运行前提（环境变量）：E2E_DATABASE_URL、E2E_APP_URL、E2E_ADMIN_USER、E2E_ADMIN_PASSWORD。
  * API 用独立端口并以 WEB_DIST 托管已构建的 packages/web/dist；worker 独立进程且与 API
  * 共用同一 REDIS_URL（本文件按 db 3 隔离）。如果真实库的默认运行环境仍指向缺少
  * `dist/session-supervisor.js` 的旧沙盒镜像，run 会以 infra 失败；需要临时把默认运行
@@ -18,17 +18,7 @@ import { createDb } from '../packages/db/dist/index.js';
  * （唯一另一个模型可用的已启用行；另一个业务名 `Knowledge expert` 的模型 `test`
  * 在真实网关返回 404）。
  */
-const DATABASE_URL = process.env.DATABASE_URL;
 const BASE_URL = process.env.E2E_APP_URL ?? 'http://127.0.0.1:3401';
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function db() {
-  if (!dbPromise) {
-    if (!DATABASE_URL) throw new Error('DATABASE_URL is required');
-    dbPromise = createDb(DATABASE_URL);
-  }
-  return dbPromise;
-}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`断言失败：${message}`);
@@ -44,12 +34,6 @@ function uniqueSuffix(): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-async function query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
-  const { pool } = db();
-  const result = await pool.query<T>(sql, params);
-  return result.rows;
 }
 
 interface Account {
@@ -252,12 +236,10 @@ async function ensureState(): Promise<State> {
   const ops = await createAccount(suffix, 'ops', `运营-${suffix}`, roleIds);
   const viewer = await createAccount(suffix, 'viewer', `观察者-${suffix}`, roleIds);
 
-  const agents = await query<AgentRef>(
-    `select id, name, model from agents
-      where enabled
-        and id = any($1::text[])`,
-    [['agt_01m5yncjsyf24vnsjqnz7g6e5f', 'agt_01m610yc53fqabc8gvtvass2ea']],
-  );
+  const agents = await runFixture('channels-business', 'enabledAgents', [
+    'agt_01m5yncjsyf24vnsjqnz7g6e5f',
+    'agt_01m610yc53fqabc8gvtvass2ea',
+  ]);
   assert(agents.length === 2, `绑定 2 个真实已启用智能体（实际 ${agents.length}）`);
   const primary = agents.find((agent) => agent.name === '我的分身');
   assert(primary !== undefined, '主智能体「我的分身」存在');
@@ -361,59 +343,21 @@ function readFailureEvidence(reply: string): string[] {
 
 /** 该 run 在 lane 里的用户消息正文（频道注入会拼在触发消息前面）。 */
 async function laneUserMessages(runId: string): Promise<string[]> {
-  const rows = await query<{ content: string }>(
-    `select content->>'text' as content from messages where run_id = $1 and role = 'user' order by created_at asc`,
-    [runId],
-  );
-  return rows.map((row) => row.content);
+  return runFixture('channels-business', 'laneUserMessages', runId);
 }
 
 async function latestRunForTrigger(
   triggerMessageId: string,
 ): Promise<{ id: string; status: string; agent_id: string; conversation_id: string } | undefined> {
-  const rows = await query<{
-    id: string;
-    status: string;
-    agent_id: string;
-    conversation_id: string;
-  }>(
-    `select id, status, agent_id, conversation_id
-       from agent_runs
-      where channel_trigger_message_id = $1
-      order by created_at desc
-      limit 1`,
-    [triggerMessageId],
-  );
-  return rows[0];
+  return runFixture('channels-business', 'latestRunForTrigger', triggerMessageId);
 }
 
 async function messageByBody(channelId: string, body: string) {
-  const rows = await query<{
-    id: string;
-    seq: number;
-    kind: string;
-    agent_id: string | null;
-    run_id: string | null;
-    body: string;
-  }>(
-    `select id, seq, kind, agent_id, run_id, body
-       from channel_messages
-      where channel_id = $1 and body = $2
-      order by seq desc
-      limit 1`,
-    [channelId, body],
-  );
-  return rows[0];
+  return runFixture('channels-business', 'messageByBody', channelId, body);
 }
 
 async function agentMessagesForRun(channelId: string, runId: string) {
-  return query<{ id: string; seq: number; agent_id: string | null; body: string }>(
-    `select id, seq, agent_id, body
-       from channel_messages
-      where channel_id = $1 and run_id = $2 and kind = 'agent'
-      order by seq asc`,
-    [channelId, runId],
-  );
+  return runFixture('channels-business', 'agentMessagesForRun', channelId, runId);
 }
 
 async function waitRunSettled(triggerMessageId: string, timeoutMs = 600_000) {
@@ -475,10 +419,7 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
       );
     }
 
-    const members = await query<{ business_id: string; role: string }>(
-      'select business_id, role from channel_members where channel_id = $1 order by role',
-      [ctx.channelId],
-    );
+    const members = await runFixture('channels-business', 'members', ctx.channelId);
     expect(members.map((row) => `${row.business_id}:${row.role}`).sort()).toEqual(
       [
         `${ctx.pm.businessId}:owner`,
@@ -486,10 +427,7 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
         `${ctx.viewer.businessId}:viewer`,
       ].sort(),
     );
-    const bindings = await query<{ agent_id: string; status: string }>(
-      'select agent_id, status from channel_agent_bindings where channel_id = $1 order by agent_id',
-      [ctx.channelId],
-    );
+    const bindings = await runFixture('channels-business', 'bindings', ctx.channelId);
     expect(bindings.length).toBe(2);
     assert(
       bindings.every((row) => row.status === 'active'),
@@ -519,10 +457,7 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
 
     // 运行中由运营补一条不带 @ 的上下文：必须进入时间线，但不能唤醒任何智能体。
     const context = `补充上下文 ${ctx.suffix}：上周拉新渠道里，内容合作带来的线索占比最高，但首单转化偏低；客服响应时长是另一个已知问题。`;
-    const runsBefore = await query<{ count: string }>(
-      'select count(*)::text as count from agent_runs where channel_id = $1',
-      [ctx.channelId],
-    );
+    const runsBefore = await runFixture('channels-business', 'runCount', ctx.channelId);
     const posted = await nodeApi<{ id: string; seq: number }>(
       ctx.ops,
       'POST',
@@ -534,14 +469,12 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
       `运营插话返回 201（实际 ${posted.status}）`,
     );
     ctx.contextMessageId = posted.json.id;
-    const runsAfter = await query<{ count: string }>(
-      'select count(*)::text as count from agent_runs where channel_id = $1',
-      [ctx.channelId],
-    );
+    const runsAfter = await runFixture('channels-business', 'runCount', ctx.channelId);
     expect(runsAfter[0]?.count).toBe(runsBefore[0]?.count);
-    const contextWoke = await query<{ count: string }>(
-      'select count(*)::text as count from agent_runs where channel_trigger_message_id = $1',
-      [ctx.contextMessageId],
+    const contextWoke = await runFixture(
+      'channels-business',
+      'triggerRunCount',
+      ctx.contextMessageId,
     );
     expect(contextWoke[0]?.count).toBe('0');
     await expect(screen.getByText(context)).toBeVisible({ timeout: 30_000 });
@@ -662,14 +595,8 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
       `  引用检查：回复提及 REV-2026-11=${ctx.secondReply.includes('REV-2026-11')}，提及首个回复片段=${ctx.secondReply.includes(ctx.firstReplyFragment)}`,
     );
 
-    const firstRun = await query<{ conversation_id: string }>(
-      'select conversation_id from agent_runs where id = $1',
-      [ctx.firstRunId],
-    );
-    const secondRun = await query<{ conversation_id: string }>(
-      'select conversation_id from agent_runs where id = $1',
-      [ctx.secondRunId],
-    );
+    const firstRun = await runFixture('channels-business', 'runConversation', ctx.firstRunId);
+    const secondRun = await runFixture('channels-business', 'runConversation', ctx.secondRunId);
     expect(secondRun[0]?.conversation_id).not.toBe(firstRun[0]?.conversation_id);
     console.log(
       `  运行 ID：${run.id}；回复长度：${reply.body.length} 字；耗时：${Date.now() - started}ms`,
@@ -841,20 +768,13 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
 
   test.afterAll(async () => {
     if (state !== undefined) {
-      const runs = await query<{ id: string; status: string; agent_id: string }>(
-        'select id, status, agent_id from agent_runs where channel_id = $1 order by created_at asc',
-        [state.channelId],
-      );
-      const counts = await query<{ kind: string; count: string }>(
-        'select kind, count(*)::text as count from channel_messages where channel_id = $1 group by kind order by kind',
-        [state.channelId],
-      );
+      const runs = await runFixture('channels-business', 'runs', state.channelId);
+      const counts = await runFixture('channels-business', 'messageCounts', state.channelId);
       console.log(
         `\n[产物汇总] channel=${state.channelId} name=${state.channelName}\n  messages=${JSON.stringify(
           Object.fromEntries(counts.map((row) => [row.kind, row.count])),
         )}\n  runs=${JSON.stringify(runs)}`,
       );
     }
-    await dbPromise?.pool.end();
   });
 });

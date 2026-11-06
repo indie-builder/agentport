@@ -25,6 +25,3 @@ playwright-report
 **/*.log
 # tsc -b 的增量状态指向宿主路径；复制进镜像会让构建跳过实际编译。
 **/*.tsbuildinfo
-
-# 旧版沙盒构建留下的 shared 暂存目录；现在由 pnpm deploy 生成。
-packages/sandbox/shared

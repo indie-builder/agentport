@@ -1,17 +1,17 @@
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getEvalQueue } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
   queueIdle,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -33,7 +33,7 @@ interface EvalResultBody {
 }
 
 describe.skipIf(!ready)('eval run case snapshots', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
   const submittedRuns: string[] = [];
@@ -61,7 +61,7 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
     ).json<Agent>();
 
   async function createCase(agentId: string, name: string): Promise<SnapshotCase> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/eval/cases',
       headers: { cookie },
@@ -82,7 +82,7 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
   }
 
   async function submitRun(agentId: string): Promise<string> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/eval/runs',
       headers: { cookie },
@@ -99,7 +99,7 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
   }
 
   async function storedRun(evalRunId: string): Promise<{ total: number; cases: SnapshotCase[] }> {
-    const { rows } = await app.pool.query<{ total: number; case_snapshot: SnapshotCase[] }>(
+    const rows = await app.client.unsafe<{ total: number; case_snapshot: SnapshotCase[] }[]>(
       'select total, case_snapshot from eval_runs where id = $1',
       [evalRunId],
     );
@@ -118,7 +118,7 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
     expect(admitted.total).toBe(2);
     expect(admitted.cases).toEqual([picked(alpha), picked(beta)]);
 
-    const edited = await inject(app, {
+    const edited = await request(app, {
       method: 'PATCH',
       url: `/api/eval/cases/${alpha.id}`,
       headers: { cookie },
@@ -126,7 +126,7 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
     });
     expect(edited.statusCode, edited.body).toBe(200);
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/eval/cases/${beta.id}`,
       headers: { cookie },
@@ -139,7 +139,7 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
     expect(later.total).toBe(2);
     expect(later.cases).toEqual([picked(alpha), picked(beta)]);
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}`,
       headers: { cookie },
@@ -161,14 +161,14 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
     const beta = await createCase(agent.id, 'beta');
     const runId = await submitRun(agent.id);
 
-    const edited = await inject(app, {
+    const edited = await request(app, {
       method: 'PATCH',
       url: `/api/eval/cases/${alpha.id}`,
       headers: { cookie },
       payload: { name: 'alpha edited', prompt: 'changed prompt', expectation: 'changed' },
     });
     expect(edited.statusCode, edited.body).toBe(200);
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/eval/cases/${beta.id}`,
       headers: { cookie },
@@ -195,7 +195,7 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
       caseSnapshot: picked(beta),
     });
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/eval/runs/${runId}`,
       headers: { cookie },
@@ -231,10 +231,10 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
       output: 'ok',
     });
 
-    await app.pool.query('update eval_results set case_snapshot = null where eval_run_id = $1', [
+    await app.client.unsafe('update eval_results set case_snapshot = null where eval_run_id = $1', [
       run.id,
     ]);
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/eval/runs/${run.id}`,
       headers: { cookie },

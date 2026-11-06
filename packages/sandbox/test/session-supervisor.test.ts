@@ -1,7 +1,7 @@
 import { PassThrough, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import type { SupervisorInput, SupervisorOutput } from '@agentport/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { runSupervisor } from '../src/session-supervisor.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/session-child.mjs', import.meta.url));

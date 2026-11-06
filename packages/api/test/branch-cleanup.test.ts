@@ -2,8 +2,7 @@ import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { startRedisContainer, stopRedisContainer } from '../../worker/test/global-setup.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
@@ -12,9 +11,10 @@ import {
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
@@ -40,7 +40,7 @@ class ProbeCloser extends FakeSessionCloser {
 }
 
 describe.skipIf(!isolated)('branch rollback cleanup', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let responder: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   let closer: ProbeCloser;
@@ -82,7 +82,7 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
     ).json<Agent>();
 
   const post = (payload: Record<string, unknown>) =>
-    inject(app, { method: 'POST', url: '/api/chat', headers: { cookie }, payload });
+    request(app, { method: 'POST', url: '/api/chat', headers: { cookie }, payload });
 
   const attachment = (filename: string, content: string) => ({
     filename,
@@ -122,11 +122,11 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
     expect(created.statusCode, created.body).toBe(202);
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
       [runId],
     );
-    await app.pool.query('update conversations set sdk_session_id = $1 where id = $2', [
+    await app.client.unsafe('update conversations set sdk_session_id = $1 where id = $2', [
       '88888888-9999-4aaa-8bbb-cccccccccccc',
       conversationId,
     ]);
@@ -141,7 +141,7 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
   };
 
   const branch = (conversationId: string) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: `/api/conversations/${conversationId}/branch`,
       headers: { cookie },
@@ -149,11 +149,11 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
     });
 
   const branchesOf = async (conversationId: string): Promise<number> => {
-    const rows = await app.pool.query<{ count: number }>(
+    const rows = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from conversations where parent_id = $1',
       [conversationId],
     );
-    return rows.rows[0]?.count ?? 0;
+    return rows[0]?.count ?? 0;
   };
 
   it('keeps the branch row and runtime files when the close acknowledgement fails', async () => {

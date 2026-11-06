@@ -1,6 +1,6 @@
 import { connectorCatalogSchema } from '@agentport/shared';
-import { describe, expect, it } from 'vitest';
-import { connectorCatalog } from '../src/features/servers/connector-catalog-data.js';
+import { describe, expect, it } from 'bun:test';
+import { connectorCatalog } from '../src/modules/servers/connector-catalog-data.js';
 
 describe('connector catalog seed', () => {
   it('validates against the shared schema', () => {

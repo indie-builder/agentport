@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import { type NativeQuestion, type RunQuestion, runStreamKey } from '@agentport/shared';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { buildMessageRows } from '../src/messages.js';
 import {
   closeRunnerClient,
@@ -14,6 +14,7 @@ import {
   type SandboxQuestionCallbacks,
 } from '../src/runner-client.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
+import { waitFor } from './fixtures/native-test.js';
 
 // 取消订阅是每个 run 的前置：必须指向本轮测试的独享 Redis，而不是开发实例。
 configureRunnerClient(process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9');
@@ -490,11 +491,10 @@ describe('runInSandbox question flow', () => {
     };
     try {
       // 发布是异步的：等到最后的瞬时事件 error 入流，再核对全部事件。
-      await expect
-        .poll(async () => (await payloads()).join('').includes('"type":"error"'), {
-          timeout: 3_000,
-        })
-        .toBe(true);
+      await waitFor(
+        async () => expect((await payloads()).join('').includes('"type":"error"')).toBe(true),
+        { timeout: 3_000 },
+      );
       const published = (await payloads()).map(
         (payload) =>
           JSON.parse(payload) as {

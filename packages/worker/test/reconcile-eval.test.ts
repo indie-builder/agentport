@@ -2,7 +2,8 @@ import { createDb, newId, schema } from '@agentport/db';
 import type { Queue } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
+import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 
 const { EVAL_LOST_ERROR, reconcileOrphanedEvalRuns } = await import('../src/reconcile.js');
 
@@ -12,7 +13,7 @@ const FRESH_MS = 30 * 60_000;
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
 type Db = typeof db;
-const ready = await dbHandle.pool.query('select 1').then(
+const ready = await dbHandle.client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -68,9 +69,9 @@ async function seedEval(
 /** 只 mock BullMQ 的 getJob 边界；null 代表队列里没有这个 job。 */
 function fakeQueue(behavior: (evalRunId: string) => string | null | Error): {
   queue: Pick<Queue, 'getJob'>;
-  getJob: ReturnType<typeof vi.fn>;
+  getJob: ReturnType<typeof mock>;
 } {
-  const getJob = vi.fn(async (evalRunId: string) => {
+  const getJob = mock(async (evalRunId: string) => {
     if (!ownedEvalIds.has(evalRunId)) return { getState: async () => 'waiting' };
     const result = behavior(evalRunId);
     if (result instanceof Error) throw result;
@@ -107,7 +108,7 @@ const RUNNING = { status: 'running', error: null, finishedAt: null };
 const LOST = { status: 'failed', error: EVAL_LOST_ERROR, finishedAt: expect.any(Date) };
 
 describe.skipIf(!ready)('reconcileOrphanedEvalRuns queue probe', () => {
-  afterAll(() => dbHandle.pool.end());
+  afterAll(() => dbHandle.client.close());
 
   beforeEach(() => {
     ownedEvalIds.clear();
@@ -209,7 +210,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns queue probe', () => {
         });
         return undefined;
       });
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      jest.useFakeTimers();
       try {
         let settled = false;
         const pending = reconcileOrphanedEvalRuns(tx, logger, queue).then((count) => {
@@ -217,7 +218,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns queue probe', () => {
           return count;
         });
         await probing;
-        await vi.advanceTimersByTimeAsync(20_001);
+        await advanceTimersByTimeAsync(20_001);
         expect(settled).toBe(true);
         expect(await pending).toBe(0);
         expect(await statusOf(tx, fixture.evalRunId)).toMatchObject(RUNNING);
@@ -226,7 +227,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns queue probe', () => {
         expect(await statusOf(tx, fixture.evalRunId)).toMatchObject(RUNNING);
       } finally {
         release?.();
-        vi.useRealTimers();
+        jest.useRealTimers();
       }
       expect(await reconcileOrphanedEvalRuns(tx, logger, queue)).toBe(0);
       expect(await statusOf(tx, fixture.evalRunId)).toMatchObject(RUNNING);

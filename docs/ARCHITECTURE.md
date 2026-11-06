@@ -7,39 +7,41 @@
 代码按依赖方向分层，进程按部署单元拆分。层只能向下依赖。
 
 ```
-                 ┌──────────────┐
-                 │    shared    │  zod schema、共享类型、事件契约
-                 └──────┬───────┘
-                        │
-                 ┌──────▼───────┐
+                 ┌──────────────┐   ┌──────────────┐
+                 │    shared    │◀──│   contract   │  oRPC HTTP 契约
+                 └──────┬───────┘   └──────┬───────┘
+                        │                  │
+                 ┌──────▼───────┐          │
                  │     core     │  工作区渲染、密钥加解密、MCP 条目
-                 └──────┬───────┘
-                        │
-                 ┌──────▼───────┐
+                 └──────┬───────┘          │
+                        │                  │
+                 ┌──────▼───────┐          │
                  │      db      │  Drizzle schema、repo、迁移
-                 └───┬──────┬───┘
-                     │      │
-              ┌──────▼─┐  ┌─▼──────┐
-              │  api   │  │ worker │      两者互不 import
-              └────────┘  └────────┘
+                 └───┬──────┬───┘          │
+                     │      │              │
+              ┌──────▼─┐  ┌─▼──────┐       │
+              │  api   │  │ worker │       │
+              └────────┘  └────────┘       │
+                   ▲────────────────────────┘
 
-  web ──▶ shared、core 的纯函数子路径（workspace / tools / plugin-display）
-  sandbox ── 同一 workspace 的 runner；镜像内由 pnpm deploy 自包含
+  web ──▶ shared、contract 与 core 的纯函数子路径（workspace / tools / plugin-display）
+  sandbox ── 同一 workspace 的 runner；镜像内由生产依赖安装与 dist 复制自包含
 ```
 
 | 包 | 职责 | 不做什么 |
 |---|---|---|
 | `shared` | `agentInputSchema`、`serverInputSchema`、`chatEventSchema`、`agentRunJobSchema` 等 | 不 import 其他包（zod 除外） |
+| `contract` | oRPC procedure 的 method、path、input/output 与 `access` 元数据 | 不含实现、DB、文件、队列或服务端状态 |
 | `core` | `renderWorkspace()`、`encryptSecrets()` / `decryptSecrets()`、`parseMcpJson()`、`embedTexts()` / `rerankDocuments()` / `segmentForSearch()`、`writePersonalMemoryProjection()` | 不碰数据库、不启动进程；纯函数模块不做 I/O，`outputs.ts` / `attachments.ts` / `personal-memory.ts` 只在调用方传入的根内读写宿主文件；`knowledge-models.ts` 只发 HTTP |
-| `db` | 表定义、repo、TypeID 生成、迁移 | 不含 HTTP 或业务编排 |
-| `api` | 路由、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不渲染每轮定义；宿主文件只经既有记忆/附件/成果入口读写投影 |
+| `db` | 表定义、repo、TypeID 生成、迁移；`createDb()` 返回 `{ db, client }`，Drizzle 走 `bun-sql` | 不含 HTTP 或业务编排 |
+| `api` | `Bun.serve` + Hono 入口、oRPC 过程、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不渲染每轮定义；宿主文件只经既有记忆/附件/成果入口读写投影 |
 | `worker` | 消费队列、每轮渲染定义到会话工作区、管理会话沙盒（复用/空闲回收）、回传事件、维护任务 | 不承业务 REST；唯一 HTTP 监听是模型凭证代理 |
 | `sandbox` | 容器内 supervisor 常驻；每轮启动新 runner query，读任务并逐行输出 NDJSON 事件 | 不含业务代码与智能体定义 |
-| `web` | SPA；生产由 api 托管静态产物 | 不 import db/api/worker，也不 import core 根入口（根入口含 `node:crypto` 模块）；仅引用 core 的纯函数子路径 `workspace`、`tools`、`plugin-display` |
+| `web` | SPA；生产由 api 托管静态产物 | 不 import db/api/worker，也不 import core 根入口（根入口含 `node:crypto` 模块）；引用 `contract` 与 core 的纯函数子路径 `workspace`、`tools`、`plugin-display` |
 
 进程之间只通过 PostgreSQL、Redis、HTTP 通信，不共享内存对象。
 
-**关停顺序**（api）：收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`；关停与超时竞速，超时后强制关闭残留 socket。compose 的 `stop_grace_period` 为 30s。worker 关停时由会话沙盒管理器 `close()` 收口 active/idle/pending 容器；stdin EOF 让 supervisor 收尾退出，容器以 `--rm` 删除。稳定的会话工作区与成果根不随 run 或关停删除；仍为 running 的 run 由 reconciler 收敛。
+**关停顺序**（api）：收到 SIGTERM 后停止接收新请求、关闭队列 producer 与 SSE 订阅，再执行 `runtime.close()`；关停与超时竞速，超时后强制关闭残留连接。compose 的 `stop_grace_period` 为 30s。worker 关停时由会话沙盒管理器 `close()` 收口 active/idle/pending 容器；stdin EOF 让 supervisor 收尾退出，容器以 `--rm` 删除。稳定的会话工作区与成果根不随 run 或关停删除；仍为 running 的 run 由 reconciler 收敛。
 
 ### 1.1 前端页面地图
 
@@ -59,13 +61,32 @@
 ### 1.2 状态与副作用库的职责边界
 
 - **客户端状态**：Zustand 统一管理跨组件、非服务端的交互状态，按业务域复用现有 store；服务端数据归 TanStack Query，可导航状态归 TanStack Router，平台表单归 RHF/`useZodForm`，生成式表单归 OpenUI 官方运行时，组件私有临时状态留本地。细则见 [packages/web/CLAUDE.md](../packages/web/CLAUDE.md#状态与复用)。
-- **任务/请求内副作用**：Effect 只管单个任务内的类型化错误、取消/超时、资源释放与并发。Fastify 请求生命周期、BullMQ 分发与重试、`SessionSandboxes` 容器生命周期、Claude Agent SDK 唯一执行循环各自负责，Effect 不接管，也不做全仓机械改写。公共契约在 `packages/core/src/effect-runtime.ts`（`DbError` / `RunFailure` / `runProgram`）；api/worker 按各自语义用 `Effect.runPromiseExit` / `Effect.runPromise` 进入，边界细则见各包规则。
+- **任务/请求内副作用**：Effect 只管单个任务内的类型化错误、取消/超时、资源释放与并发。Hono 请求生命周期与 oRPC 过程、BullMQ 分发与重试、`SessionSandboxes` 容器生命周期、Claude Agent SDK 唯一执行循环各自负责，Effect 不接管，也不做全仓机械改写。公共契约在 `packages/core/src/effect-runtime.ts`（`DbError` / `RunFailure` / `runProgram`）；api/worker 按各自语义用 `Effect.runPromiseExit` / `Effect.runPromise` 进入，边界细则见各包规则。
+
+### 1.3 API 组织与 HTTP 契约
+
+API 按 HTTP 业务域组织，不引入 DDD 分层。领域只是代码归属，不是聚合边界：
+
+```
+packages/contract/src/<domain>.ts     oRPC 契约：method、path、input/output、access、rateLimit
+packages/api/src/modules/<domain>/
+  router.ts                           契约的薄适配：授权、对象范围、状态转换、错误
+  use-cases.ts                        仅真实多步编排才存在
+  http.ts                             原生 HTTP 边界：auth、MCP、SSE、文件与 ZIP
+packages/api/src/http/                Hono 与 oRPC 适配：context、orpc、middleware、access、errors、security、health
+packages/api/src/routes/index.ts      把契约 router 挂到 /api
+```
+
+- 契约路径不带 `/api`，根入口统一加前缀；对外 REST 方法与路径不变，不做 `/v1` 迁移。契约同时生成 OpenAPI 3.1.1 文档（`GET /api/openapi.json`）与需登录的 Scalar 页面 `/api/docs`；MCP 端点不在 REST JSON 契约内。
+- `router.ts` 不承载通用机制。同一职责只留一处：SQL、事务、CAS 与 `AccessFilter` 在 `@agentport/db`；渲染、错误分类与纯函数在 `@agentport/core`。
+- 不要求每个领域固定 `router.ts`、`http.ts`、`use-cases.ts` 文件组合，也不新增聚合根、仓储接口、`DomainError` 或通用状态机。
+- 原生边界直接读写 `Request`/`Response`，不为了统一而塞进 oRPC；反过来，业务 CRUD 也不绕过契约手写 REST 路由。
 
 ## 2. 运行时拓扑
 
 ```
 ┌──────────┐   HTTP / SSE    ┌──────────────────────────────┐
-│ 浏览器    │ ───────────────▶│ api (Fastify, :3000)         │
+│ 浏览器    │ ───────────────▶│ api (Bun + Hono + oRPC, :3000)│
 │ (SPA)    │◀─────────────── │  /api/*  /mcp  /mcp/:id      │
 └──────────┘                 │  /health/*  静态托管 web       │
                              └───┬───────────┬───────────┬──┘
@@ -93,11 +114,11 @@
 
 要点：
 
-- **api 与 worker 共用镜像**（根 `Dockerfile` 的 `runtime` target），默认入口 `api/dist/index.js`；compose 用 `command` 覆盖为 `worker/dist/index.js`。沙盒基座镜像由同一 Dockerfile 的 `sandbox` target 产出，构建上下文同为仓库根；它是命名运行环境构建的固定基座，会话容器实际使用环境线上版本记录的本地 image ID。
+- **api 与 worker 共用镜像**（根 `Dockerfile` 的 `runtime` target），默认入口 `bun packages/api/dist/index.js`；compose 用 `command` 覆盖为 `bun packages/worker/dist/index.js`。沙盒基座镜像由同一 Dockerfile 的 `sandbox` target 产出，构建上下文同为仓库根；它是命名运行环境构建的固定基座，会话容器实际使用环境线上版本记录的本地 image ID。
 - **web 没有独立生产容器**：`WEB_DIST=/app/web`，由 api 静态托管；SPA 路由回退到 `index.html`，`/api`、`/mcp`、`/health` 未命中仍返回 JSON 404。
 - **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。同一会话短期复用一个容器，空闲 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收；试连与 native plugin 动作仍走一次性容器。容器镜像来自所属运行环境创建时解析的线上版本，存活容器不随发布/回退替换。
 - **沙盒网络模式**：`open` / `proxy` 使用 `bridge`，并加 `--add-host host.docker.internal:host-gateway`；`none` 使用 `--network none`。
-- **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数；知识任务使用独立队列 `knowledge-jobs`。
+- **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数。BullMQ 连接统一用官方 `createBunRedisClient(new RedisClient(...))`，业务 Redis 直接用 Bun `RedisClient`。9 个队列是 `agent-runs`、`eval-runs`、`knowledge-jobs`、`knowledge-sync-triggers`、`schedule-triggers`、`runtime-environment-builds`、`sandbox-probes`、`native-plugins`、`maintenance`。
 - **知识存储另挂 `knowledgedata:/knowledge`**：api 与 worker 共卷，原件与解析产物不进数据库、不进工作区。
 
 ### 2.1 命名运行环境
@@ -158,7 +179,7 @@
 
 账户级状态撤销（2026-10-31）：显式退出由 `logoutAccount` 同时清 Query 与聊天 store（草稿、消息、附件、run/成果引用等），并同步递增 `accountEpoch`；`/me` 确认业务身份时同身份不清稿，换人或无归属先 reset。已挂载的聊天页订阅该信号同步 `closeStream()`（递增 generation、关闭 EventSource、清重试计时器），晚到发送、恢复与 SSE 事件不能写回新账户；401 与改密重登仍只清 Query 并保留草稿。
 
-会话串行与范围：同一会话的 run 通过 lease 串行执行，lease 持续到消息与本轮成果发布完成；不同会话相互独立。首版仍是现有单 worker 的进程内管理，不包含多 worker 路由、容器池、快照或新 provider；空闲容器计入资源占用，但不计入 `AGENT_MAX_CONCURRENT` 的同时执行数。容器复用只省创建/启动（缓存镜像基线约 122ms/次），不跳过每轮 SDK query 启动，不算也不承诺 SDK 冷启动优化。实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核。最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK + 本地假 Anthropic SSE 4 例，均从当前源码独立临时编译）；真实付费模型与浏览器全链路未测，不据此声称生产可用或多 worker 支持。
+会话串行与范围：同一会话的 run 通过 lease 串行执行，lease 持续到消息与本轮成果发布完成；不同会话相互独立。首版仍是现有单 worker 的进程内管理，不包含多 worker 路由、容器池、快照或新 provider；空闲容器计入资源占用，但不计入 `AGENT_MAX_CONCURRENT` 的同时执行数。容器复用只省创建/启动（缓存镜像基线约 122ms/次），不跳过每轮 SDK query 启动，不算也不承诺 SDK 冷启动优化。实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核。当时的旧 Vitest 入口 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK + 本地假 Anthropic SSE 4 例，均从当前源码独立临时编译）；该数字不代表迁移到 `bun:test` 后的当前结果。真实付费模型与浏览器全链路未测，不据此声称生产可用或多 worker 支持。
 
 ### 3.1 原生任务清单进度（TodoWrite）
 
@@ -180,7 +201,7 @@
 
 边界：当前模型没有删除工具，多文件中的单文件删除不作为支持路径；二进制仅 PNG/JPEG/GIF/WebP 图片与 PDF 有预览（PDF 为浏览器原生查看器 + header 门槛，不是结构或安全完整验证），Office 无预览；HTML/SVG 只按源码展示；正文超过 1MiB 只下载。成果正文是交付内容，不套用聊天的密钥脱敏；路径逃逸、符号/硬链接和跨会话读取在存储与 API 边界拒绝。
 
-实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见任务记录与 D-67。成果查看不代表成果质量自动通过。
+实现状态（2026-10-28）：真实两轮12/12、分支8/8、停止后保留2/2、浏览器预览/下载与反馈挂引用通过；当时旧 Vitest 入口串行后端1824/1824、Web905/905、API9/9、typecheck/build通过，独立评审通过。Office/PDF不预览、无删除工具、成果内容不做聊天脱敏；详见任务记录与 D-67。成果查看不代表成果质量自动通过。
 
 后续更新（2026-10-30）：新增认证 `outputs/:runId?path=` 元数据接口（响应只含 `{ file }`，handler 仍整份读取所选文件校验 manifest 成员，不回正文）与 PNG/JPEG/GIF/WebP 图片预览；会话成果面板与公开分享页共用 `BlobImage`，解码成功才显示，损坏字节保留原件下载；公开页只替换 image 为共享组件，PDF 行为随后续 PDF 任务改为共享 `BlobPdf`。三轮 Opus review 与最终浏览器验收通过；源码 `e4d414d` 已由 PR #121 合入 `main` `70e28e2`。详见任务记录。
 
@@ -227,7 +248,7 @@ M3 只给 `approval_requests` 增加 `channel_id`（可空，FK `channels` casca
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
-前两个方向共用 MCP 协议与同一个 Node 适配器，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。
+前两个方向共用 MCP 协议与同一个 MCP handler，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。
 
 | 维度 | HTTP → MCP（`/mcp/:serverId`，generated） | 平台 → MCP（`/mcp`） | 内置知识 MCP（`/mcp/:serverId`，knowledge） |
 |---|---|---|---|
@@ -238,11 +259,11 @@ M3 只给 `approval_requests` 增加 `channel_id`（可空，FK `channels` casca
 | 执行位置 | api 进程内 `fetch` | worker + 沙盒（与浏览器发起的对话同一条链路） | api 进程内 `retrieval.ts` + 文件读取 |
 | 工具定义变更 | 下一次请求重建 handler，立即生效 | 下一次请求重建 handler，立即生效 | 由代码固定，不随用户配置变化 |
 | 超时 | 上游 HTTP 超时由 fetch/运行环境决定 | 默认取 agent `timeoutMs`，上限 30 分钟 | 同一次 MCP 请求 |
-| 主要代码 | `features/servers/mcp-endpoint.ts`、`generated.ts` | `features/servers/agent-tools-endpoint.ts`、`agent-tools.ts`、`agent-invoker.ts` | `features/servers/mcp-endpoint.ts`（kind 分支）、`features/knowledge/mcp.ts`、`retrieval.ts` |
+| 主要代码 | `modules/servers/mcp-endpoint.ts`、`generated.ts` | `modules/servers/agent-tools-endpoint.ts`、`agent-tools.ts`、`agent-invoker.ts` | `modules/servers/mcp-endpoint.ts`（kind 分支）、`modules/knowledge/mcp.ts`、`retrieval.ts` |
 
 共同点：
 
-- 都使用 `createMcpHandler()` + `toNodeHandler()`，由适配器直接读写原始 req/res，Fastify 不再参与响应。
+- 都使用 `createMcpHandler()`，由 `modules/servers/http.ts` 在 Hono 上挂载并把原始 `Request` 交给 handler。MCP 不经过 oRPC，Hono 只负责接入。
 - 每个 HTTP 请求重建实例，避免跨调用复用。
 - 都使用常量时间比较 Bearer token。
 - `/mcp/:serverId` 先校验请求头 `x-agentport-run-id` 对应 run 的短期 token（且该智能体必须绑定此 server），失败再回退长期 `mcpToken`；`kind='knowledge'` 没有长期 token 回退。
@@ -318,9 +339,9 @@ data/workspaces/<agent-slug>/
 | `packages/core/src/openui-prompt.ts` | 从官方 CLI 生成的 `generated/openui.spec.json` 生成提示词，按工具目录缓存；不导入浏览器组件 |
 | `packages/core/src/openui-response.ts` | 流结束后用官方解析器与 `mergeStatements` 合并对应段，保存完整混合响应；缺基线/非法程序保留原文并提供诊断 |
 | `packages/db/src/repo/openui.ts` | OpenUI 工具目录（提示词与执行桥同源）、消息状态原子更新、会话级审批 |
-| `packages/api/src/features/chat/openui-state.ts` | `PUT /api/conversations/:conversationId/messages/:messageId/openui-state`：按 blockKey 合并表单/绑定快照 |
-| `packages/api/src/features/chat/openui-actions.ts` | 动作回传协议：`continue_conversation` 存成 `[{type:'text'},{type:'openui_action',…}]`，`open_url` 不入库 |
-| `packages/api/src/features/chat/openui-tools.ts` | `POST /api/chat/:conversationId/openui/tools/:toolName`：Query/Mutation 执行桥；`POST /api/chat/:conversationId/openui/approvals/:approvalId/approve`：会话级批准 |
+| `packages/api/src/modules/chat/openui-state.ts` | `PUT /api/conversations/:conversationId/messages/:messageId/openui-state`：按 blockKey 合并表单/绑定快照 |
+| `packages/api/src/modules/chat/openui-actions.ts` | 动作回传协议：`continue_conversation` 存成 `[{type:'text'},{type:'openui_action',…}]`，`open_url` 不入库 |
+| `packages/api/src/modules/chat/openui-tools.ts` | `POST /api/chat/:conversationId/openui/tools/:toolName`：Query/Mutation 执行桥；`POST /api/chat/:conversationId/openui/approvals/:approvalId/approve`：会话级批准 |
 | `packages/worker/src/openui-action.ts` | 将已校验动作上下文/表单值完整追加给模型；大小应在 API 边界拒绝，不能在 worker 静默省略 |
 | `packages/web/src/openui/library.tsx` | 真实 Zod/reactive 定义配上 shadcn 组件实现，官方 CLI 和浏览器共享同一个 library |
 | `packages/web/src/openui/renderer.tsx`、`components/openui-message.tsx` | 按围栏分段、状态恢复、原生工具错误/重试及完整动作回传 |
@@ -335,7 +356,7 @@ data/workspaces/<agent-slug>/
 - **工具目录单一来源**：`repo.openui.listOpenUiTools(agentId)` 同时喂提示词（worker 渲染 CLAUDE.md）和执行桥（API 校验）。只收已绑定且启用的 http / generated server 工具；stdio 由用户提供任意命令，仅沙盒内可见。http server 的目录来自最近一次「测试连接」写入 `servers.config.toolCatalog` 的快照——worker 没有 MCP client。
 - **审批与会话绑定**：生成式UI的工具需要批准时返回202与approvalId，由当前UI段提供批准及重试；会话级批准8小时有效，重放不能续期，过期须重新请求并批准。Query可显式重试，Mutation不自动重放。它与run级审批分开：`approval_requests.run_id` 可空，UI来源使用 `conversation_id/message_id/source` 和会话工具部分唯一索引；run审批行为不变。
 - 提示词进 CLAUDE.md 而不是 `.claude/rules/`：该段位于成对、末尾锚定的 `agentport:generated:start/end` 生成区内，不污染用户可编辑正文；导出→导入按生成区解析，用户同名标题与标记正文逐字保留。
-- `pnpm-workspace.yaml` 的 `allowBuilds` 明确拒绝 `@openuidev/lang-core` 的构建脚本：否则每次 `pnpm install --frozen-lockfile` 因 `ERR_PNPM_IGNORED_BUILDS` 失败；该脚本只发匿名安装遥测。`.npmrc` 的变量**不会**作为进程环境传给 postinstall，因此不靠它关闭遥测。
+- Bun 默认不执行未列入根 `package.json` `trustedDependencies` 的生命周期脚本；当前只放行 `esbuild` 与 `msgpackr-extract`。`@openuidev/lang-core` 的 postinstall 只发匿名安装遥测，因此不加白名单。新增带安装脚本的依赖时显式补决定，不让脚本静默运行。
 
 
 | 官方文件/能力 | 加载方式 | 本项目当前状态 |
@@ -355,7 +376,7 @@ data/workspaces/<agent-slug>/
 
 详情接口返回插件库实际保存的完整文件。前端 `/plugins/$pluginId` 是只读详情页：紧凑身份头（名称、版本、简介、导出）下用页内「简介 / 内容」两个 Tabs 切换，不使用抽屉、Sheet 或弹层，页面恰好一个 `h1`。简介页签只展示根 README；无 README 时给简洁空态并指向内容页签，不编写介绍、不拿首个技能冒充说明。内容页签在页内展示真实完整目录树与当前正文：桌面左右可拖动分栏，窄屏目录在同一页内折叠；默认文件为 README → 技能 `SKILL.md` → 首个真实文件。目录树用真实文件/目录名，目录优先、可折叠，只有当前文件铺选中底色，技能目录内 `SKILL.md` 优先，manifest、hooks、MCP、支持文件、空文件全部可达。URL 用 `tab=intro|content`、`file`、`mode=read|source`，默认 `intro` 且无 `file`；切换页签、选择文件与模式进入历史，刷新和前后退可恢复，切到简介保留 `file`/`mode`，切回内容恢复上次选择与滚动位置，失效文件给说明并回退。点击 README 或正文内真实文件链接切到内容页签并定位对应文件。正文显示实际路径 breadcrumb 与 frontmatter 语义名称，Markdown 默认阅读并可切源码，其余文件直接源码并可复制。展示解析只读取 frontmatter 的名称、描述和正文，不改变保存内容或运行定义；Markdown 静态渲染，HTML 作为文本，只有插件内真实存在的相对文件链接可点击。内容区按真实文件路径展示，不另建能力索引；多来源文件在目录树中各自可达。详情是插件库快照，专家运行时仍独立复制并按授权裁剪。
 
-会话恢复、预算、取消信号、消息流、宿主 callbacks 等还有 SDK 运行时参数，不能声称全部都可写入 settings.json。模型推理深度只保留官方 `effort`；`maxThinkingTokens` 已从定义、API、专家包与沙箱任务移除，旧字段明确拒绝，因为当前模型自适应思考、CLI 不执行数值上限。删列迁移 0042 尚未应用到共享数据库，部署需正常执行 `pnpm db:migrate`。`~/.claude/` 的认证、缓存、会话记录等宿主状态不属于可分享项目定义，不复制进用户工作区包。
+会话恢复、预算、取消信号、消息流、宿主 callbacks 等还有 SDK 运行时参数，不能声称全部都可写入 settings.json。模型推理深度只保留官方 `effort`；`maxThinkingTokens` 已从定义、API、专家包与沙箱任务移除，旧字段明确拒绝，因为当前模型自适应思考、CLI 不执行数值上限。删列迁移 0042 尚未应用到共享数据库，部署需正常执行 `bun run db:migrate`。`~/.claude/` 的认证、缓存、会话记录等宿主状态不属于可分享项目定义，不复制进用户工作区包。
 
 会话上下文不再拼接历史文本：每个 conversation 的 SDK transcript 持久化在 `WORKSPACES_DIR/<slug>/sdk-sessions/<conversationId>/`，容器只挂这一个目录到 `/home/node/.claude`；续聊传 `resume`，从某条用户消息分支时先复制来源 transcript 再用官方 `forkSession` 截断，成功后写回新 session id。fork 会给消息换新 uuid，映射由 **worker 从宿主 transcript 的 `forkedFrom` 字段计算**（不按位置对齐，压缩过的会话顺序会变），并与消息同事务写库；resume 事件只携带新 session id。transcript 缺失时该轮以 infra 失败，不回退成文本上下文。该目录属于运行时持久数据，随备份保存，但不是可分享定义包的一部分。从历史点复制会话时，来源读取、分支会话行与复制消息在同一个 `db.transaction` 内提交；后续批次失败不会留下半成品分支。
 
@@ -436,7 +457,7 @@ data/workspaces/<agent-slug>/
 | `$KNOWLEDGE_DIR/blobs/<前2位>/<sha256>` | 原件，按内容寻址、只读 | 上传/抓取先写临时文件再原子 rename；同内容复用 |
 | `$KNOWLEDGE_DIR/docs/<documentId>/<versionId>/` | `markdown.md` 与 `images/` | 解析产物；版本删除后目录不会立即消失，等 cleanup 任务回收 |
 | `$KNOWLEDGE_DIR/wiki-sdk/<jobId>/` | Wiki 生成时的平台私有临时 cwd（同时作 HOME / `CLAUDE_CONFIG_DIR`） | 不是 Claude 官方目录约定，也不进入专家工作区或导出包；任务结束即删除 |
-| `knowledgedata:/knowledge` | 上述目录的 compose 命名卷 | api 与 worker 必须同卷；随 `pnpm backup` 归档为 `knowledge/` |
+| `knowledgedata:/knowledge` | 上述目录的 compose 命名卷 | api 与 worker 必须同卷；随 `bun run backup` 归档为 `knowledge/` |
 
 `knowledge_documents` 增 `content_kind`（document/faq/wiki）、`source_connection_id` 与 `disabled_reason`；`knowledge_document_source_ranges` 以 `(document_id,range_id)` 联合主键记录真实范围归属。模型 profile 的 `kind` 为 `embedding/rerank/asr`；ASR 行维度为 null、固定 openai 转录协议且不允许图片输入，知识库用 `asr_profile_id` 外键绑定，删除被引用 profile 走 `RESTRICT`。音频不新增表/版本列：转录事实只存版本的 `metadata.audio`（协议、profile 名与 model 快照、真实 duration、段级 UTF-16 偏移与毫秒时码），原件仍走既有 blob。关键 schema 事实：`knowledge_chunks.search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用不写），`embedding vector(1024)` 由 `customType` 映射；GIN 全文索引与 HNSW 向量部分索引（`WHERE enabled AND embedding IS NOT NULL`）在迁移里手写。embedding profile 的 `dimensions` 由 schema 的 check 约束固定为 1024。chunk、版本、Wiki、任务等业务实体都用 `newId()` 生成 TypeID（`kb_`、`kdoc_`、`kchk_`、`kjob_`…，见 `packages/db/src/id.ts`）。`insertChunks` 按 500 行分批执行 `INSERT`，避免单条语句超过 PostgreSQL 绑定参数上限；返回顺序与输入一致。
 
@@ -594,12 +615,13 @@ worker 在 run 完成时传 `dedupeKey: aud_<runId 去掉前缀>`，因此 BullM
 runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`agentRunJobSchema`），所以该包是
 **镜像的运行时依赖**。镜像不再从宿主复制 `dist` 或维护独立 manifest：
 
-- 根 Dockerfile 的 build stage 安装 workspace 依赖并执行 `pnpm -r build`，再用 `pnpm --filter @agentport/sandbox deploy --prod /out/sandbox` 生成自包含目录（dist、生产依赖与 workspace 包，含 shared 的 dist）。
-- `sandbox` target 只复制 deploy 结果并验证 `dist/runner.js` 与 Agent SDK 原生 CLI 可执行；`git` 仅为官方插件市场安装保留，`poppler-utils` 供官方长 PDF 分页读取，`bash` 是官方 CLI 执行 Bash 工具所需的真实 shell（缺失会报 `No suitable shell found`）。
+- 根 Dockerfile 基于 `node:24-alpine` 并复制 Bun 1.4.3 二进制；build stage 用 `bun install --frozen-lockfile` 安装 workspace 依赖，再执行 `bun run build`。
+- `runtime` target 用 `bun install --production --frozen-lockfile --filter @agentport/api --filter @agentport/worker` 安装生产依赖，再复制各包的 `dist`；容器入口是 `bun packages/api/dist/index.js` 与 `bun packages/worker/dist/index.js`。
+- `sandbox` target 单独安装 `@agentport/sandbox` 的生产依赖并复制 sandbox 与 shared 的 `dist`，验证 `dist/runner.js` 与 Agent SDK 原生 CLI 可执行；`git` 仅为官方插件市场安装保留，`poppler-utils` 供官方长 PDF 分页读取，`bash` 是官方 CLI 执行 Bash 工具所需的真实 shell（缺失会报 `No suitable shell found`）。
 - 命名运行环境以该 target 的本地镜像为基座：构建时只发送冻结 Dockerfile，基座固定为 image ID 派生的不可变 tag，产物是独立版本、默认复用 BuildKit 缓存；`docker-cli`/`buildx` 只装进 worker 的 `runtime` target，不进沙盒基座。
 - api、worker、sandbox 三个镜像都从仓库根 context 构建；沙盒命令是 `docker build --target sandbox -t agentport/sandbox:dev .`，CI 与 release 同样使用根 context + target。
 - 根 `.dockerignore` 排除 `.git`、docs、data、`node_modules`、`dist` 等；旧版 `packages/sandbox/shared` 暂存目录、`package.shared.json`/`package.docker.json` 与 `packages/sandbox/.dockerignore` 均已删除。
-- 步骤见 [OPERATIONS.md §2.2.1](OPERATIONS.md#221-手动构建沙盒镜像)；`pnpm run up --rebuild` 与 `pnpm --filter @agentport/sandbox image` 都走这条路径。
+- 步骤见 [OPERATIONS.md §2.2.1](OPERATIONS.md#221-手动构建沙盒镜像)；`bun run up --rebuild` 与 `bun run --filter @agentport/sandbox image` 都走这条路径。
 
 更细的选择理由（为什么 PostgreSQL、为什么 v2 MCP 包线、为什么不用 microsandbox 起步）见 `PROJECT-BRIEF.md` 与 `DECISIONS-PENDING.md`。
 

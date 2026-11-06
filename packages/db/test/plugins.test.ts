@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import { updateAgent } from '../src/repo/agents.js';
@@ -7,8 +7,8 @@ import * as pluginsRepo from '../src/repo/plugins.js';
 import { agents, plugins } from '../src/schema.js';
 
 const url = process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
-const { db, pool } = createDb(url);
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(url);
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -22,7 +22,7 @@ describe.skipIf(!ready)('plugin repo', () => {
     // 删插件级联清掉文件与绑定；删 agent 兜底。
     if (pluginId) await db.delete(plugins).where(eq(plugins.id, pluginId));
     await db.delete(agents).where(eq(agents.id, agentId));
-    await pool.end();
+    await client.close();
   });
 
   it('creates with files and exposes them by plugin id', async () => {
@@ -101,8 +101,9 @@ describe.skipIf(!ready)('plugin repo', () => {
     );
     try {
       expect(zip.sourceId).toBeNull();
-      await expect(
-        pluginsRepo.createPluginWithFiles(
+      let error: unknown;
+      try {
+        await pluginsRepo.createPluginWithFiles(
           db,
           {
             slug: `${slug}-dup`,
@@ -111,8 +112,14 @@ describe.skipIf(!ready)('plugin repo', () => {
             sourceId,
           },
           [],
-        ),
-      ).rejects.toMatchObject({ cause: { code: '23505' } });
+        );
+      } catch (caught) {
+        error = caught;
+      }
+      const code = error as
+        | { errno?: string; code?: string; cause?: { errno?: string; code?: string } }
+        | undefined;
+      expect(code?.errno ?? code?.code ?? code?.cause?.errno ?? code?.cause?.code).toBe('23505');
     } finally {
       await db.delete(plugins).where(eq(plugins.id, zip.id));
     }

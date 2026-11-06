@@ -6,39 +6,39 @@ import { Queue } from 'bullmq';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  processScheduleTrigger,
-  type ScheduleTriggerJobLike,
-  startScheduleScheduler,
-} from '../src/scheduler.js';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { waitFor } from './fixtures/native-test.js';
+import type { ScheduleTriggerJobLike } from '../src/scheduler.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-const access = vi.hoisted(() => ({ check: vi.fn() }));
-vi.mock('../src/run-access.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/run-access.js')>();
-  return { ...actual, checkUserAgentAccess: access.check };
-});
+const access = { check: mock() };
+const runAccessActual = await import('../src/run-access.js');
+mock.module('../src/run-access.js', () => ({
+  ...runAccessActual,
+  checkUserAgentAccess: access.check,
+}));
+
+const { processScheduleTrigger, startScheduleScheduler } = await import('../src/scheduler.js');
 
 async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
-  const { pool } = createDb(databaseUrl);
+  const { client } = createDb(databaseUrl);
   const redis = new Redis(redisUrl, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     retryStrategy: () => null,
   });
   try {
-    await pool.query('select 1');
+    await client.unsafe('select 1');
     await redis.connect();
     // 不需要检查消费者：本套件全程使用独立 prefix（见下方 `prefix`），真实 worker 看不到。
     return (await redis.ping()) === 'PONG';
   } catch {
     return false;
   } finally {
-    await pool.end().catch(() => undefined);
+    await client.close().catch(() => undefined);
     await redis.quit().catch(() => undefined);
   }
 }
@@ -56,7 +56,7 @@ const databaseUrl = isolated?.url ?? process.env.DATABASE_URL ?? '';
 
 describe.skipIf(!ready)('schedule scheduler against live redis and postgres', () => {
   let db: ReturnType<typeof createDb>['db'];
-  let pool: ReturnType<typeof createDb>['pool'];
+  let client: ReturnType<typeof createDb>['client'];
   let schedulerQueue: Queue<ScheduleTriggerJob>;
   const logger = {
     info: () => undefined,
@@ -162,7 +162,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
   beforeAll(async () => {
     const handle = createDb(databaseUrl);
     db = handle.db;
-    pool = handle.pool;
+    client = handle.client;
     schedulerQueue = new Queue<ScheduleTriggerJob>(SCHEDULE_TRIGGERS_QUEUE, {
       connection: { url: redisUrl, maxRetriesPerRequest: null },
       prefix,
@@ -206,7 +206,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
     await runsQueue.close();
     await schedulerQueue.close();
     await db.delete(schema.agents).where(inArray(schema.agents.id, [agentId, disabledAgentId]));
-    await pool.end();
+    await client.close();
     await isolated?.close();
   });
 
@@ -301,7 +301,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
         // 同 cron 已存在，启动对账不能重置刚 promote 的这一轮。
         await scheduler.sync();
 
-        await vi.waitFor(
+        await waitFor(
           async () => {
             expect(await lastRunAtOf(scheduleId)).not.toBeNull();
           },

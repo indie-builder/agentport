@@ -10,7 +10,7 @@ import { Queue, Worker } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type IsolatedRedis, startRedisContainer, stopRedisContainer } from './global-setup.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
@@ -81,7 +81,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
   });
 
   afterAll(async () => {
-    await dbHandle.pool.end();
+    await dbHandle.client.close();
     await isolated?.close();
     await stopRedisContainer(redisContainer);
   });
@@ -373,7 +373,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     const finishSecret = `sk-live-eval-finish-${randomUUID()}`;
     const settleSecret = `sk-live-eval-settle-${randomUUID()}`;
     const functionName = `eval_settle_fault_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin
         if new.id = '${evalRunId}' then
@@ -387,7 +387,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       end;
       $fn$
     `);
-    await dbHandle.pool.query(`
+    await dbHandle.client.unsafe(`
       create trigger ${functionName}
       before update on eval_runs
       for each row execute function ${functionName}()
@@ -430,8 +430,8 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       await delay(200);
     } finally {
       process.off('unhandledRejection', onUnhandled);
-      await dbHandle.pool.query(`drop trigger if exists ${functionName} on eval_runs`);
-      await dbHandle.pool.query(`drop function if exists ${functionName}()`);
+      await dbHandle.client.unsafe(`drop trigger if exists ${functionName} on eval_runs`);
+      await dbHandle.client.unsafe(`drop function if exists ${functionName}()`);
     }
 
     expect(unhandled).toEqual([]);

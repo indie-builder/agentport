@@ -3,17 +3,17 @@ import { mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
 import { type Agent, conversationSummarySchema } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
@@ -22,7 +22,7 @@ import { FakeSessionCloser, startSessionCleanupResponder } from './session-clean
 const ready = await infraReady;
 
 describe.skipIf(!ready)('conversations', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const agentSlugs: string[] = [];
@@ -39,9 +39,8 @@ describe.skipIf(!ready)('conversations', () => {
     await sessions.close();
     await cleanup(app, { agentSlugs });
     if (conversationIds.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [
-        conversationIds,
-      ]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(conversationIds, 'TEXT')],
+      );
     }
     await app.close();
   });
@@ -66,10 +65,10 @@ describe.skipIf(!ready)('conversations', () => {
   };
 
   const rename = (id: string, payload: unknown, headers: Record<string, string> = auth()) =>
-    inject(app, { method: 'PATCH', url: `/api/conversations/${id}`, headers, payload });
+    request(app, { method: 'PATCH', url: `/api/conversations/${id}`, headers, payload });
 
   const remove = (id: string, headers: Record<string, string> = auth()) =>
-    inject(app, { method: 'DELETE', url: `/api/conversations/${id}`, headers });
+    request(app, { method: 'DELETE', url: `/api/conversations/${id}`, headers });
 
   it('requires auth', async () => {
     const agent = await newAgent();
@@ -103,7 +102,7 @@ describe.skipIf(!ready)('conversations', () => {
       role: 'user',
       content: { type: 'text', text: '保留我' },
     });
-    const before = await inject(app, {
+    const before = await request(app, {
       method: 'GET',
       url: `/api/conversations/${id}`,
       headers: auth(),
@@ -126,7 +125,7 @@ describe.skipIf(!ready)('conversations', () => {
     expect(row?.agentId).toBe(agent.id);
     expect(row?.title).toBe('会议 ✨');
 
-    const after = await inject(app, {
+    const after = await request(app, {
       method: 'GET',
       url: `/api/conversations/${id}`,
       headers: auth(),
@@ -151,7 +150,7 @@ describe.skipIf(!ready)('conversations', () => {
       },
     ]);
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/conversations?agentId=${agent.id}`,
       headers: auth(),
@@ -168,19 +167,19 @@ describe.skipIf(!ready)('conversations', () => {
       createdAt: expect.any(String),
     });
 
-    const runCount = await app.pool.query<{ count: string }>(
+    const runCount = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from agent_runs where conversation_id = $1',
       [id],
     );
-    expect(runCount.rows[0]?.count).toBe('0');
+    expect(runCount[0]?.count).toBe('0');
 
-    const audit = await app.pool.query<{ action: string; input_digest: string | null }>(
+    const audit = await app.client.unsafe<{ action: string; input_digest: string | null }[]>(
       "select action, input_digest from audit_log where action = 'conversation.renamed' and target = $1",
       [id],
     );
-    expect(audit.rows).toHaveLength(1);
+    expect(audit).toHaveLength(1);
     // 审计只记字段名，不落标题原文。
-    expect(audit.rows[0]?.input_digest).toBe(
+    expect(audit[0]?.input_digest).toBe(
       createHash('sha256')
         .update(JSON.stringify({ fields: ['title'] }))
         .digest('hex')
@@ -204,7 +203,7 @@ describe.skipIf(!ready)('conversations', () => {
       turns: 3,
       costUsd: '0.0250',
     });
-    await app.pool.query(
+    await app.client.unsafe(
       'update agent_runs set input_tokens = 120, output_tokens = 80 where id = $1',
       [run.id],
     );
@@ -229,7 +228,7 @@ describe.skipIf(!ready)('conversations', () => {
     });
 
     const body = (
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/conversations/${id}`,
         headers: auth(),
@@ -252,7 +251,7 @@ describe.skipIf(!ready)('conversations', () => {
   it('returns only public fields with ISO dates, preserving content, UI snapshots and pagination', async () => {
     const agent = await newAgent();
     const id = await newConversation(agent.id, '公开边界');
-    await app.pool.query(
+    await app.client.unsafe(
       `update conversations
          set sdk_session_id = $2, fork_from_sdk_message_uuid = $3
        where id = $1`,
@@ -274,7 +273,7 @@ describe.skipIf(!ready)('conversations', () => {
       '2026-10-30T12:00:02.456Z',
       '2026-10-30T12:00:03.789Z',
     ];
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into messages
          (id, conversation_id, role, sender_business_id, content, sdk_message_uuid,
           ui_format, ui_program, ui_state, created_at)
@@ -301,7 +300,7 @@ describe.skipIf(!ready)('conversations', () => {
       ],
     );
 
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'GET',
       url: `/api/conversations/${id}?limit=2`,
       headers: auth(),
@@ -360,7 +359,7 @@ describe.skipIf(!ready)('conversations', () => {
     expect(assistant).not.toHaveProperty('senderBusinessId');
     expect(firstBody.messages[1]?.createdAt).toBe(createdTimes[2]);
 
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'GET',
       url: `/api/conversations/${id}?limit=2&before=${messageIds[1] ?? ''}`,
       headers: auth(),
@@ -423,19 +422,19 @@ describe.skipIf(!ready)('conversations', () => {
     expect(res.statusCode, res.body).toBe(204);
     expect(await repo.chat.getConversation(app.db, id)).toBeNull();
 
-    const leftovers = await app.pool.query<{ messages: string; runs: string }>(
+    const leftovers = await app.client.unsafe<{ messages: string; runs: string }[]>(
       `select
         (select count(*) from messages where id = $1) as messages,
         (select count(*) from agent_runs where id = $2) as runs`,
       [message.id, run.id],
     );
-    expect(leftovers.rows[0]).toEqual({ messages: '0', runs: '0' });
+    expect(leftovers[0]).toEqual({ messages: '0', runs: '0' });
 
-    const audit = await app.pool.query<{ action: string }>(
+    const audit = await app.client.unsafe<{ action: string }[]>(
       "select action from audit_log where action = 'conversation.deleted' and target = $1",
       [id],
     );
-    expect(audit.rows).toHaveLength(1);
+    expect(audit).toHaveLength(1);
   });
 
   it('removes only the deleted conversation session sandbox', async () => {
@@ -483,7 +482,7 @@ describe.skipIf(!ready)('conversations', () => {
       content: { type: 'text', text: '分支点' },
       sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
     });
-    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+    await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
       parentId,
       '66666666-7777-4888-8999-000000000000',
     ]);

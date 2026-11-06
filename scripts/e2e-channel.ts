@@ -3,7 +3,7 @@
  * 频道模式真实链路验证：HTTP → BullMQ → worker → Docker 沙盒 → Claude Agent SDK
  * → 事件回流 → 频道时间线。只有 Anthropic 模型端点是本地假 SSE，其余全部是真实进程与容器。
  *
- * 用法：pnpm e2e:channel
+ * 用法：bun run e2e:channel
  * 可选环境变量：SANDBOX_IMAGE（默认 agentport/sandbox:dev）、E2E_CHANNEL_FAKE_PORT（默认 4318）。
  */
 
@@ -39,9 +39,9 @@ const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
 const SLOW_DELAY_MS = Number(process.env.E2E_CHANNEL_FAKE_SLOW_MS ?? 15_000);
 /** assert = 原有 HTTP 全链路；stack = 起栈常驻；ui = 起栈后跑浏览器 E2E 再清理。 */
 const MODE = process.env.E2E_CHANNEL_MODE ?? 'assert';
-/** `pnpm e2e:channel:ui -- --grep "second @"` 里 `--` 之后的参数原样转给 `e2e run`。 */
+/** `bun run e2e:channel:ui -- --grep "second @"` 里 `--` 之后的参数原样转给 `e2e run`。 */
 const E2E_RUN_ARGS = process.argv.slice(2);
-// pnpm 把分隔符 `--` 也原样带进来，而 e2e 会把它当成后面的 flag 是文件名。
+// bun run 把分隔符 `--` 也原样带进来，而 e2e 会把它当成后面的 flag 是文件名。
 if (E2E_RUN_ARGS[0] === '--') E2E_RUN_ARGS.shift();
 const UI_PORT = Number(process.env.E2E_CHANNEL_UI_PORT ?? 3310);
 const WEB_DIST = join(REPO, 'packages/web/dist');
@@ -186,7 +186,9 @@ async function ensureWebBuild(): Promise<void> {
     return;
   }
   logStep('构建 web 静态产物');
-  const built = await run('pnpm', ['--filter', '@agentport/web', 'build'], { timeoutMs: 600_000 });
+  const built = await run('bun', ['run', '--filter', '@agentport/web', 'build'], {
+    timeoutMs: 600_000,
+  });
   if (built.code !== 0) fail(`构建 web 失败：${built.stderr.trim().slice(-2000)}`);
   if (!existsSync(index)) fail(`web 构建完成但缺少 ${index}`);
 }
@@ -199,10 +201,9 @@ function shellQuote(value: string): string {
 function runBrowserE2e(env: Record<string, string>): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(
-      'pnpm',
+      'node',
       [
-        'exec',
-        'e2e',
+        join(REPO, 'node_modules/e2e/dist/cli/bin.js'),
         'run',
         'tests/support/auth.e2e.ts',
         'tests/channels.e2e.ts',
@@ -228,10 +229,11 @@ function runBrowserE2e(env: Record<string, string>): Promise<number> {
 }
 
 /** 打印可直接 source 的环境；stack 模式阻塞到 Ctrl-C，ui 模式跑完用例后返回。 */
-async function runStackMode(databaseUrl: string, baseUrl: string): Promise<void> {
+async function runStackMode(databaseUrl: string, redisUrl: string, baseUrl: string): Promise<void> {
   const env = {
     E2E_APP_URL: baseUrl,
-    DATABASE_URL: databaseUrl,
+    E2E_DATABASE_URL: databaseUrl,
+    E2E_REDIS_URL: redisUrl,
     E2E_ADMIN_USER: ADMIN_USER,
     E2E_ADMIN_PASSWORD: ADMIN_PASSWORD,
   };
@@ -596,7 +598,7 @@ let apiTail = (): string => '';
 let workerTail = (): string => '';
 let runRoot = '';
 let sseAbort: AbortController | undefined;
-let pool: ReturnType<typeof createDb>['pool'] | undefined;
+let client: ReturnType<typeof createDb>['client'] | undefined;
 /** 浏览器用例失败时保留退出码；失败现场诊断在清理前按它触发。 */
 let browserE2eExitCode: number | null = null;
 
@@ -620,7 +622,7 @@ async function cleanup(): Promise<void> {
     }
   }
   await fake?.close().catch(() => undefined);
-  await pool?.end().catch(() => undefined);
+  await client?.close().catch(() => undefined);
   if (keep) {
     if (database !== null) {
       console.error(`保留临时库：${database.name}（用 .env 的管理连接、库名换成本库即可复查）`);
@@ -720,16 +722,16 @@ async function printFailureDiagnostics(): Promise<void> {
     }
   }
 
-  if (pool !== undefined) {
+  if (client !== undefined) {
     try {
-      const runs = await pool.query<DiagnosticRunRow>(
+      const runs = await client.unsafe<DiagnosticRunRow[]>(
         `select id, status, trigger, conversation_id, agent_id, channel_id,
                 channel_trigger_message_id, started_at, ended_at, error
            from agent_runs
           order by created_at asc`,
       );
-      console.log(`\n[agent_runs] ${runs.rows.length} 行`);
-      for (const row of runs.rows) {
+      console.log(`\n[agent_runs] ${runs.length} 行`);
+      for (const row of runs) {
         console.log(
           `  ${row.id} status=${row.status} trigger=${row.trigger} conversation=${
             row.conversation_id
@@ -741,23 +743,23 @@ async function printFailureDiagnostics(): Promise<void> {
         );
       }
 
-      const counts = await pool.query<{ messages: string; channel_messages: string }>(
+      const counts = await client.unsafe<{ messages: string; channel_messages: string }[]>(
         `select (select count(*) from messages)::text as messages,
                 (select count(*) from channel_messages)::text as channel_messages`,
       );
       console.log(
-        `\n[messages] ${counts.rows[0]?.messages ?? '?'} 行；[channel_messages] ${
-          counts.rows[0]?.channel_messages ?? '?'
+        `\n[messages] ${counts[0]?.messages ?? '?'} 行；[channel_messages] ${
+          counts[0]?.channel_messages ?? '?'
         } 行（明细最多 ${MAX_DIAGNOSTIC_ROWS} 行）`,
       );
 
-      const channelMessages = await pool.query<DiagnosticChannelMessageRow>(
+      const channelMessages = await client.unsafe<DiagnosticChannelMessageRow[]>(
         `select channel_id, seq, kind, agent_id, run_id, body, created_at
            from channel_messages
           order by seq asc
           limit ${MAX_DIAGNOSTIC_ROWS}`,
       );
-      for (const row of channelMessages.rows) {
+      for (const row of channelMessages) {
         console.log(
           `  channel_message seq=${row.seq} kind=${row.kind} channel=${row.channel_id} agent=${
             row.agent_id ?? '-'
@@ -767,13 +769,13 @@ async function printFailureDiagnostics(): Promise<void> {
         );
       }
 
-      const laneMessages = await pool.query<DiagnosticLaneMessageRow>(
+      const laneMessages = await client.unsafe<DiagnosticLaneMessageRow[]>(
         `select conversation_id, role, run_id, channel_message_id, content, created_at
            from messages
           order by created_at asc
           limit ${MAX_DIAGNOSTIC_ROWS}`,
       );
-      for (const row of laneMessages.rows) {
+      for (const row of laneMessages) {
         console.log(
           `  message at=${stamp(row.created_at)} conversation=${row.conversation_id} role=${
             row.role
@@ -853,7 +855,7 @@ async function main(): Promise<void> {
   info(`临时 Redis：${new URL(redis.url).host} db=${redisDbOf(redis.url)}`);
 
   const created = createDb(database.url);
-  pool = created.pool;
+  client = created.client;
 
   logStep(`启动假 Anthropic SSE（固定端口 ${FAKE_PORT}）`);
   fake = await startFakeAnthropic(FAKE_PORT);
@@ -904,11 +906,11 @@ async function main(): Promise<void> {
     SANDBOX_IMAGE: IMAGE,
     WEB_DIST,
   };
-  apiProcess = spawn(
-    process.execPath,
-    ['--import', 'tsx', join(REPO, 'packages/api/src/index.ts')],
-    { cwd: join(REPO, 'packages/api'), env: apiEnv, stdio: ['ignore', 'pipe', 'pipe'] },
-  );
+  apiProcess = spawn('bun', [join(REPO, 'packages/api/src/index.ts')], {
+    cwd: join(REPO, 'packages/api'),
+    env: apiEnv,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   const apiCapture = captureOutput(apiProcess);
   const apiLogs = (): string => apiCapture.tail(100);
   apiTail = apiLogs;
@@ -953,11 +955,11 @@ async function main(): Promise<void> {
     AGENT_MAX_CONCURRENT: '1',
     AGENT_TIMEOUT_MS: '120000',
   };
-  workerProcess = spawn(
-    process.execPath,
-    ['--import', 'tsx', join(REPO, 'packages/worker/src/index.ts')],
-    { cwd: join(REPO, 'packages/worker'), env: workerEnv, stdio: ['ignore', 'pipe', 'pipe'] },
-  );
+  workerProcess = spawn('bun', [join(REPO, 'packages/worker/src/index.ts')], {
+    cwd: join(REPO, 'packages/worker'),
+    env: workerEnv,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   const workerCapture = captureOutput(workerProcess);
   const workerLogs = (): string => workerCapture.tail(140);
   workerTail = workerLogs;
@@ -975,14 +977,14 @@ async function main(): Promise<void> {
   info('worker 已启动');
 
   const defaultEnvironment = await pollUntil('默认运行环境登记', 30_000, async () => {
-    const result = await created.pool.query<{ image_id: string }>(
+    const result = await created.client.unsafe<{ image_id: string }[]>(
       `select v.image_id
          from runtime_environments e
          join runtime_environment_versions v on v.id = e.online_version_id
         where e.is_default = true
         limit 1`,
     );
-    return result.rows[0] ?? null;
+    return result[0] ?? null;
   });
   assert(
     defaultEnvironment.image_id === imageId,
@@ -991,7 +993,7 @@ async function main(): Promise<void> {
 
   // 浏览器模式到此栈已可用于真实页面；原有无浏览器断言继续走 assert 模式。
   if (MODE !== 'assert') {
-    await runStackMode(database.url, baseUrl);
+    await runStackMode(database.url, redis.url, baseUrl);
     return;
   }
 
@@ -1134,7 +1136,7 @@ async function main(): Promise<void> {
   assert(finished2.status === 'succeeded', `第二次 run 终态 succeeded（实际 ${finished2.status}）`);
 
   logStep('数据库与 HTTP 断言');
-  const runs = await created.pool.query<RunRow>(
+  const runs = await created.client.unsafe<RunRow[]>(
     `select id, conversation_id, agent_id, status, trigger, channel_id,
             channel_trigger_message_id, initiated_by, error
        from agent_runs
@@ -1142,8 +1144,8 @@ async function main(): Promise<void> {
       order by created_at asc`,
     [channel.id],
   );
-  assert(runs.rows.length === 2, `agent_runs 有两条频道 run（实际 ${runs.rows.length}）`);
-  const [run1, run2] = runs.rows;
+  assert(runs.length === 2, `agent_runs 有两条频道 run（实际 ${runs.length}）`);
+  const [run1, run2] = runs;
   assert(run1 !== undefined && run2 !== undefined, '两条 run 行都存在');
   assert(run1.trigger === 'channel', `第一条 run trigger=channel（实际 ${run1.trigger}）`);
   assert(run1.channel_id === channel.id, '第一条 run channel_id 正确');
@@ -1155,25 +1157,25 @@ async function main(): Promise<void> {
   assert(run1.status === 'succeeded', `第一条 run 状态 succeeded（实际 ${run1.status}）`);
   assert(run2.status === 'succeeded', `第二条 run 状态 succeeded（实际 ${run2.status}）`);
 
-  const conversations = await created.pool.query<{ id: string }>(
+  const conversations = await created.client.unsafe<{ id: string }[]>(
     `select id from conversations where channel_id = $1 and agent_id = $2`,
     [channel.id, agent.id],
   );
   assert(
-    conversations.rows.length === 1,
-    `conversations(channel_id, agent_id) 只有一条 lane（实际 ${conversations.rows.length}）`,
+    conversations.length === 1,
+    `conversations(channel_id, agent_id) 只有一条 lane（实际 ${conversations.length}）`,
   );
   assert(
-    conversations.rows[0]?.id === run1.conversation_id,
+    conversations[0]?.id === run1.conversation_id,
     'lane conversation 就是两次 run 使用的会话',
   );
 
-  const binding = await created.pool.query<{ conversation_id: string | null }>(
+  const binding = await created.client.unsafe<{ conversation_id: string | null }[]>(
     `select conversation_id from channel_agent_bindings where channel_id = $1 and agent_id = $2`,
     [channel.id, agent.id],
   );
   assert(
-    binding.rows[0]?.conversation_id === run1.conversation_id,
+    binding[0]?.conversation_id === run1.conversation_id,
     '绑定上的 conversation_id 指向同一 lane',
   );
 

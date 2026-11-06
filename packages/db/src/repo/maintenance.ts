@@ -40,7 +40,7 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
       where rn > ${keep}
     )
   `);
-  return result.rowCount ?? 0;
+  return (result as typeof result & { count: number }).count;
 }
 
 /** 删除超过 N 天已结束的 run，以及按 run_id 关联的 messages；单语句保证原子。 */
@@ -51,8 +51,7 @@ export async function pruneRuns(
 ): Promise<PruneRunsResult> {
   const days = positive(olderThanDays, 'olderThanDays');
   const retained = options.retainedMessageIds ?? [];
-  // 模板直接插入数组会展开成占位符列表；sql.param 保持单参数由 pg 序列化为 text[]。
-  const retainedMessages = sql`${messages.id} = any(${sql.param(retained)}::text[])`;
+  const retainedMessages = sql`${messages.id} = any(${sql.param(db.$client.array(retained, 'TEXT'))}::text[])`;
   const result = await db.execute(sql`
     with doomed as (
       select ${agentRuns.id} as id
@@ -102,7 +101,7 @@ export async function pruneRuns(
       (select count(*)::int from deleted) as messages,
       (select count(*)::int from pruned) as runs
   `);
-  const row = result.rows[0];
+  const row = result[0];
   return { runs: Number(row?.runs ?? 0), messages: Number(row?.messages ?? 0) };
 }
 
@@ -121,7 +120,7 @@ export async function pruneOrphanMessages(
     delete from ${messages}
     where ${messages.runId} is null
       and ${messages.createdAt} < now() - make_interval(days => ${days})
-      and not (${messages.id} = any(${sql.param(retained)}::text[]))
+      and not (${messages.id} = any(${sql.param(db.$client.array(retained, 'TEXT'))}::text[]))
       and coalesce(
         case
           when jsonb_typeof(${messages.content}->'attachments') = 'array'
@@ -135,5 +134,5 @@ export async function pruneOrphanMessages(
         where c.id = ${messages.conversationId} and c.branch_of_message_id is not null
       )
   `);
-  return result.rowCount ?? 0;
+  return (result as typeof result & { count: number }).count;
 }

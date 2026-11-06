@@ -4,13 +4,11 @@ import { join } from 'node:path';
 import { personalMemoryDir } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, MEMORY_FILE_MAX_BYTES } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { buildApp } from '../src/app.js';
-import { decodePackage } from '../src/features/agent-package-zip.js';
-import { readMemoryFile, writeMemoryFile } from '../src/features/agents/memory-files.js';
-import { registerMemoryChangeRoutes } from '../src/features/memory/changes.js';
-import { memorySha256, writeMemoryJournal } from '../src/features/memory/journal.js';
+import { readMemoryFile, writeMemoryFile } from '../src/modules/agents/memory-files.js';
+import { decodePackage } from '../src/modules/agents/package-zip.js';
+import { memorySha256, writeMemoryJournal } from '../src/modules/memory/journal.js';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -18,9 +16,10 @@ import {
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   setAgentMember,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
@@ -36,38 +35,33 @@ interface AgentRef {
 }
 
 describe.skipIf(!ready)('memory changes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let root: string;
   let releaseLock: (() => Promise<void>) | undefined;
   const agentSlugs: string[] = [];
 
-  async function acquireMemoryLock(pool: FastifyInstance['pool']): Promise<() => Promise<void>> {
-    const client = await pool.connect();
+  async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
+    const reserved = await client.reserve();
     // 等锁可能超过连接默认的 statement_timeout。
-    await client.query('set statement_timeout = 0');
-    await client.query('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
+    await reserved.unsafe('set statement_timeout = 0');
+    await reserved.unsafe('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
     return async () => {
-      await client.query('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
-      client.release();
+      await reserved.unsafe('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
+      reserved.release();
     };
   }
 
   beforeAll(async () => {
     root = await mkdtemp(join(await realpath(tmpdir()), 'memory-changes-'));
     app = await buildApp(testConfig({ WORKSPACES_DIR: root }));
-    // 路由已由 buildApp 注册；仅在未注册时手动挂载，避免重复声明。
-    if (!app.hasRoute({ method: 'GET', url: '/api/agents/:id/memory/:name/versions' })) {
-      registerMemoryChangeRoutes(app);
-    }
-    await app.ready();
-    releaseLock = await acquireMemoryLock(app.pool);
+    releaseLock = await acquireMemoryLock(app.client);
     cookie = await loginCookie(app);
   }, 60_000);
 
   beforeEach(async () => {
-    await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
-    await app.pool.query('delete from user_preferences where business_id = $1', [
+    await app.client.unsafe('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await app.client.unsafe('delete from user_preferences where business_id = $1', [
       ADMIN_BUSINESS_ID,
     ]);
     await rm(personalMemoryDir(root, ADMIN_BUSINESS_ID), { recursive: true, force: true });
@@ -75,10 +69,10 @@ describe.skipIf(!ready)('memory changes', () => {
 
   afterAll(async () => {
     try {
-      await app.pool.query('delete from memory_changes where business_id = $1', [
+      await app.client.unsafe('delete from memory_changes where business_id = $1', [
         ADMIN_BUSINESS_ID,
       ]);
-      await app.pool.query('delete from user_preferences where business_id = $1', [
+      await app.client.unsafe('delete from user_preferences where business_id = $1', [
         ADMIN_BUSINESS_ID,
       ]);
       await cleanup(app, { agentSlugs });
@@ -100,7 +94,7 @@ describe.skipIf(!ready)('memory changes', () => {
   }
 
   function rollback(changeId: string, headers: Record<string, string> = auth()) {
-    return inject(app, {
+    return request(app, {
       method: 'POST',
       url: `/api/memory/changes/${changeId}/rollback`,
       headers,
@@ -137,11 +131,14 @@ describe.skipIf(!ready)('memory changes', () => {
   it('requires auth for versions and rollback', async () => {
     const agentId = unique('agent');
     expectProblem(
-      await inject(app, { method: 'GET', url: `/api/agents/${agentId}/memory/MEMORY.md/versions` }),
+      await request(app, {
+        method: 'GET',
+        url: `/api/agents/${agentId}/memory/MEMORY.md/versions`,
+      }),
       'UNAUTHORIZED',
     );
     expectProblem(
-      await inject(app, { method: 'GET', url: `/api/agents/${agentId}/rules/style/versions` }),
+      await request(app, { method: 'GET', url: `/api/agents/${agentId}/rules/style/versions` }),
       'UNAUTHORIZED',
     );
     expectProblem(await rollback(unique('mch'), {}), 'UNAUTHORIZED');
@@ -149,7 +146,7 @@ describe.skipIf(!ready)('memory changes', () => {
 
   it('rolls back a personal memory change and keeps the original ledger row', async () => {
     const put = (content: string, expectedRevision: number) =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: '/api/me/memory',
         headers: auth(),
@@ -182,10 +179,10 @@ describe.skipIf(!ready)('memory changes', () => {
     expect(reverse.id).toMatch(/^mch_/);
     expect(reverse.id).not.toBe(secondChangeId);
 
-    const current = await inject(app, { method: 'GET', url: '/api/me/memory', headers: auth() });
+    const current = await request(app, { method: 'GET', url: '/api/me/memory', headers: auth() });
     expect(current.json()).toMatchObject({ content: 'one', revision: 3 });
 
-    const versions = await inject(app, {
+    const versions = await request(app, {
       method: 'GET',
       url: '/api/me/memory/versions',
       headers: auth(),
@@ -212,7 +209,7 @@ describe.skipIf(!ready)('memory changes', () => {
       after: { content: 'v1', globs: null, index: null },
     });
 
-    const versions = await inject(app, {
+    const versions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/MEMORY.md/versions`,
       headers: auth(),
@@ -222,7 +219,7 @@ describe.skipIf(!ready)('memory changes', () => {
       { id: changeId },
     ]);
 
-    const otherFile = await inject(app, {
+    const otherFile = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/NOTES.md/versions`,
       headers: auth(),
@@ -265,7 +262,7 @@ describe.skipIf(!ready)('memory changes', () => {
       after: { content: 'other rule', globs: '', index: null },
     });
 
-    const versions = await inject(app, {
+    const versions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/rules/style/versions`,
       headers: auth(),
@@ -279,19 +276,19 @@ describe.skipIf(!ready)('memory changes', () => {
     const reversed = await rollback(changeId);
     expect(reversed.statusCode, reversed.body).toBe(200);
     const reverseId = reversed.json<{ id: string }>().id;
-    const deleted = await app.pool.query<{ count: number }>(
+    const deleted = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from agent_rules where agent_id = $1 and slug = $2',
       [agent.id, 'style'],
     );
-    expect(deleted.rows[0]?.count).toBe(0);
+    expect(deleted[0]?.count).toBe(0);
 
     const restored = await rollback(reverseId);
     expect(restored.statusCode, restored.body).toBe(200);
-    const rule = await app.pool.query<{ content: string; globs: string }>(
+    const rule = await app.client.unsafe<{ content: string; globs: string }[]>(
       'select content, globs from agent_rules where agent_id = $1 and slug = $2',
       [agent.id, 'style'],
     );
-    expect(rule.rows[0]).toEqual({ content: 'v1', globs: 'src/**' });
+    expect(rule[0]).toEqual({ content: 'v1', globs: 'src/**' });
 
     // 手工删除规则后，历史 after 已不存在，不能再回滚。
     await repo.rules.deleteRule(app.db, agent.id, 'style');
@@ -314,13 +311,13 @@ describe.skipIf(!ready)('memory changes', () => {
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     const runId = unique('change-run');
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by) values ($1, $2, $3, 'queued', 'user', 'bootstrap-admin')",
       [runId, conversation.id, agent.id],
     );
 
     expectProblem(await rollback(changeId), 'CONFLICT');
-    await app.pool.query("update agent_runs set status = 'succeeded' where id = $1", [runId]);
+    await app.client.unsafe("update agent_runs set status = 'succeeded' where id = $1", [runId]);
     const ok = await rollback(changeId);
     expect(ok.statusCode, ok.body).toBe(200);
   });
@@ -328,7 +325,7 @@ describe.skipIf(!ready)('memory changes', () => {
   it('returns 404 for a missing change or agent', async () => {
     expectProblem(await rollback(unique('mch')), 'NOT_FOUND');
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/agents/${unique('missing')}/memory/MEMORY.md/versions`,
         headers: auth(),
@@ -352,11 +349,11 @@ describe.skipIf(!ready)('memory changes', () => {
     });
 
     expectProblem(await rollback(changeId), 'CONFLICT');
-    const rule = await app.pool.query<{ content: string; globs: string }>(
+    const rule = await app.client.unsafe<{ content: string; globs: string }[]>(
       'select content, globs from agent_rules where agent_id = $1 and slug = $2',
       [agent.id, 'style'],
     );
-    expect(rule.rows[0]).toEqual({ content: 'new', globs: 'lib/**' });
+    expect(rule[0]).toEqual({ content: 'new', globs: 'lib/**' });
   });
 
   it('records a manual same-content save when the file has no matching change', async () => {
@@ -364,7 +361,7 @@ describe.skipIf(!ready)('memory changes', () => {
     // 文件被平台外的手工改动写过，账本里没有对应记录。
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', '外部内容');
     const put = () =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/MEMORY.md`,
         headers: auth(),
@@ -373,20 +370,20 @@ describe.skipIf(!ready)('memory changes', () => {
 
     const first = await put();
     expect(first.statusCode, first.body).toBe(200);
-    const rows = await app.pool.query<{ before_content: string; after_content: string }>(
+    const rows = await app.client.unsafe<{ before_content: string; after_content: string }[]>(
       "select before->>'content' as before_content, after->>'content' as after_content from memory_changes where agent_id = $1 and target->>'kind' = 'agent_memory'",
       [agent.id],
     );
-    expect(rows.rows).toEqual([{ before_content: '外部内容', after_content: '外部内容' }]);
+    expect(rows).toEqual([{ before_content: '外部内容', after_content: '外部内容' }]);
 
     // 最近一次已应用变更的 after 与当前一致时不再重复记账。
     const second = await put();
     expect(second.statusCode, second.body).toBe(200);
-    const again = await app.pool.query<{ count: number }>(
+    const again = await app.client.unsafe<{ count: number }[]>(
       "select count(*)::int as count from memory_changes where agent_id = $1 and target->>'kind' = 'agent_memory'",
       [agent.id],
     );
-    expect(again.rows[0]?.count).toBe(1);
+    expect(again[0]?.count).toBe(1);
   });
 
   it('recomputes a manual theme save against the index restored from a mixed journal', async () => {
@@ -416,7 +413,7 @@ describe.skipIf(!ready)('memory changes', () => {
       ],
     });
 
-    const written = await inject(app, {
+    const written = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/B.md`,
       headers: auth(),
@@ -429,18 +426,18 @@ describe.skipIf(!ready)('memory changes', () => {
       '# 索引\n- [B.md](B.md)\n',
     );
     const [change] = (
-      await app.pool.query<{ index_content: string }>(
+      await app.client.unsafe<{ index_content: string }[]>(
         "select after->'index'->>'content' as index_content from memory_changes where agent_id = $1 and target->>'name' = 'B.md'",
         [agent.id],
       )
-    ).rows;
+    );
     expect(change?.index_content).toBe('# 索引\n- [B.md](B.md)\n');
   });
 
   it('does not record a version when MEMORY.md is saved unchanged after a theme change', async () => {
     const agent = await newAgent();
     const put = (name: string, content: string) =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/${name}`,
         headers: auth(),
@@ -450,11 +447,11 @@ describe.skipIf(!ready)('memory changes', () => {
     const index = '- [deploy.md](deploy.md)\n';
     const count = async () =>
       (
-        await app.pool.query<{ count: number }>(
+        await app.client.unsafe<{ count: number }[]>(
           'select count(*)::int as count from memory_changes where agent_id = $1',
           [agent.id],
         )
-      ).rows[0]?.count ?? -1;
+      )[0]?.count ?? -1;
     const before = await count();
 
     // 最近一条记录是主题变更，其 after.index.content 正是当前 MEMORY.md 正文。
@@ -466,7 +463,7 @@ describe.skipIf(!ready)('memory changes', () => {
   it('rejects unchanged MEMORY.md saves that are already above the index limits', async () => {
     const agent = await newAgent();
     const put = (content: string) =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/MEMORY.md`,
         headers: auth(),
@@ -474,11 +471,11 @@ describe.skipIf(!ready)('memory changes', () => {
       });
     const count = async () =>
       (
-        await app.pool.query<{ count: number }>(
+        await app.client.unsafe<{ count: number }[]>(
           'select count(*)::int as count from memory_changes where agent_id = $1',
           [agent.id],
         )
-      ).rows[0]?.count ?? -1;
+      )[0]?.count ?? -1;
 
     const tooManyLines = Array.from(
       { length: 201 },
@@ -504,7 +501,7 @@ describe.skipIf(!ready)('memory changes', () => {
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', oversized);
     await writeMemoryFile(root, agent.slug, 'keep.md', '# 保留\n');
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}/memory/keep.md`,
       headers: auth(),
@@ -516,7 +513,7 @@ describe.skipIf(!ready)('memory changes', () => {
 
   it('records manual MEMORY.md and rule writes as applied versions', async () => {
     const agent = await newAgent();
-    const memoryWrite = await inject(app, {
+    const memoryWrite = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
       headers: auth(),
@@ -524,7 +521,7 @@ describe.skipIf(!ready)('memory changes', () => {
     });
     expect(memoryWrite.statusCode, memoryWrite.body).toBe(200);
 
-    const memoryVersions = await inject(app, {
+    const memoryVersions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/MEMORY.md/versions`,
       headers: auth(),
@@ -541,14 +538,14 @@ describe.skipIf(!ready)('memory changes', () => {
       },
     ]);
 
-    const ruleWrite = await inject(app, {
+    const ruleWrite = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/rules/style`,
       headers: auth(),
       payload: { content: 'manual rule', globs: 'src/**' },
     });
     expect(ruleWrite.statusCode, ruleWrite.body).toBe(200);
-    const ruleVersions = await inject(app, {
+    const ruleVersions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/rules/style/versions`,
       headers: auth(),
@@ -573,7 +570,7 @@ describe.skipIf(!ready)('memory changes', () => {
   it('records theme writes and adds the index link in the same change', async () => {
     const agent = await newAgent();
     const put = (name: string, content: string) =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/${name}`,
         headers: auth(),
@@ -586,11 +583,11 @@ describe.skipIf(!ready)('memory changes', () => {
       content: '- [deploy.md](deploy.md)\n',
     });
 
-    const rows = await app.pool.query<{ before: unknown; after: unknown }>(
+    const rows = await app.client.unsafe<{ before: unknown; after: unknown }[]>(
       "select before, after from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
       [agent.id],
     );
-    expect(rows.rows).toEqual([
+    expect(rows).toEqual([
       {
         before: { content: null, globs: null, index: { content: null } },
         after: {
@@ -603,7 +600,7 @@ describe.skipIf(!ready)('memory changes', () => {
 
     // 第二个主题后，版本列表仍按文件名在 LIMIT 前收窄，MEMORY.md 能看到伴随索引变更。
     expect((await put('ops.md', '运维')).statusCode).toBe(200);
-    const themeVersions = await inject(app, {
+    const themeVersions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/deploy.md/versions?limit=1`,
       headers: auth(),
@@ -614,7 +611,7 @@ describe.skipIf(!ready)('memory changes', () => {
         target: { kind: 'agent_memory', agentId: agent.id, name: 'deploy.md' },
       }),
     ]);
-    const indexVersions = await inject(app, {
+    const indexVersions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/MEMORY.md/versions`,
       headers: auth(),
@@ -629,14 +626,14 @@ describe.skipIf(!ready)('memory changes', () => {
 
   it('keeps the index unchanged when deleting a theme and records both snapshots', async () => {
     const agent = await newAgent();
-    await inject(app, {
+    await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/deploy.md`,
       headers: auth(),
       payload: { content: '# 部署\n' },
     });
     const indexBeforeDelete = '- [deploy.md](deploy.md)\n';
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}/memory/deploy.md`,
       headers: auth(),
@@ -644,11 +641,11 @@ describe.skipIf(!ready)('memory changes', () => {
     expect(removed.statusCode, removed.body).toBe(204);
     expect(await readMemoryFile(root, agent.slug, 'deploy.md')).toBeNull();
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(indexBeforeDelete);
-    const rows = await app.pool.query<{ before: unknown; after: unknown }>(
+    const rows = await app.client.unsafe<{ before: unknown; after: unknown }[]>(
       "select before, after from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md' order by created_at desc limit 1",
       [agent.id],
     );
-    expect(rows.rows[0]).toEqual({
+    expect(rows[0]).toEqual({
       before: {
         content: '# 部署\n',
         globs: null,
@@ -660,7 +657,7 @@ describe.skipIf(!ready)('memory changes', () => {
 
   it('rolls back a created theme and its index as one change', async () => {
     const agent = await newAgent();
-    const put = await inject(app, {
+    const put = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/deploy.md`,
       headers: auth(),
@@ -668,11 +665,11 @@ describe.skipIf(!ready)('memory changes', () => {
     });
     expect(put.statusCode, put.body).toBe(200);
     const [change] = (
-      await app.pool.query<{ id: string }>(
+      await app.client.unsafe<{ id: string }[]>(
         "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
         [agent.id],
       )
-    ).rows;
+    );
     if (!change) throw new Error('theme write did not record a change');
 
     const reversed = await rollback(change.id);
@@ -689,7 +686,7 @@ describe.skipIf(!ready)('memory changes', () => {
   it('rolls back a theme update without requiring an unchanged later index', async () => {
     const agent = await newAgent();
     const put = (name: string, content: string) =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/${name}`,
         headers: auth(),
@@ -698,11 +695,11 @@ describe.skipIf(!ready)('memory changes', () => {
     await put('deploy.md', 'v1');
     await put('deploy.md', 'v2');
     const [second] = (
-      await app.pool.query<{ id: string }>(
+      await app.client.unsafe<{ id: string }[]>(
         "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md' order by created_at desc limit 1",
         [agent.id],
       )
-    ).rows;
+    );
     if (!second) throw new Error('theme update did not record a change');
     // 该版本只改主题正文，索引在前后的快照相同。
     await put('ops.md', '运维');
@@ -724,7 +721,7 @@ describe.skipIf(!ready)('memory changes', () => {
     const lines = Array.from({ length: 201 }, (_, index) => `- [t${index}](t${index}.md)`).join(
       '\n',
     );
-    const tooManyLines = await inject(app, {
+    const tooManyLines = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
       headers: auth(),
@@ -733,7 +730,7 @@ describe.skipIf(!ready)('memory changes', () => {
     expectProblem(tooManyLines, 'INVALID_INPUT');
     expect(await readMemoryFile(root, agent.slug, 'MEMORY.md')).toBeNull();
 
-    const tooLarge = await inject(app, {
+    const tooLarge = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/topic.md`,
       headers: auth(),
@@ -746,7 +743,7 @@ describe.skipIf(!ready)('memory changes', () => {
   it('downloads only the native memory files and re-imports them into another agent', async () => {
     const agent = await newAgent();
     const put = (id: string, name: string, content: string) =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${id}/memory/${name}`,
         headers: auth(),
@@ -756,7 +753,7 @@ describe.skipIf(!ready)('memory changes', () => {
     expect((await put(agent.id, 'deploy.md', '# 部署\n使用蓝绿发布。')).statusCode).toBe(200);
 
     expectProblem(
-      await inject(app, { method: 'GET', url: `/api/agents/${agent.id}/memory/download` }),
+      await request(app, { method: 'GET', url: `/api/agents/${agent.id}/memory/download` }),
       'UNAUTHORIZED',
     );
 
@@ -764,7 +761,7 @@ describe.skipIf(!ready)('memory changes', () => {
     // 范围不符统一按对象不存在返回，避免泄露其他用户的对象。
     const maintainer = await createTestAccount(app, cookie, { systemKeys: ['maintainer'] });
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/agents/${agent.id}/memory/download`,
         headers: { cookie: maintainer.cookie },
@@ -776,24 +773,24 @@ describe.skipIf(!ready)('memory changes', () => {
       canUse: false,
       canMaintain: true,
     });
-    const memberDownload = await inject(app, {
+    const memberDownload = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/download`,
       headers: { cookie: maintainer.cookie },
     });
     expect(memberDownload.statusCode, memberDownload.body).toBe(200);
 
-    const download = await inject(app, {
+    const download = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/download`,
       headers: auth(),
     });
     expect(download.statusCode, download.body).toBe(200);
-    expect(download.headers['content-type']).toContain('application/zip');
-    expect(download.headers['content-disposition']).toBe(
+    expect(download.headers.get('content-type')).toContain('application/zip');
+    expect(download.headers.get('content-disposition')).toBe(
       `attachment; filename="${agent.slug}-memory.zip"`,
     );
-    expect(download.headers['cache-control']).toBe('no-store');
+    expect(download.headers.get('cache-control')).toBe('no-store');
     const files = decodePackage(download.rawPayload);
     expect([...files.keys()].sort()).toEqual(['MEMORY.md', 'deploy.md']);
     expect(files.get('MEMORY.md')).toBe('# 索引\n- [deploy.md](deploy.md)\n');
@@ -811,7 +808,7 @@ describe.skipIf(!ready)('memory changes', () => {
     expect((await readMemoryFile(root, copy.slug, 'MEMORY.md'))?.content).toBe(
       '# 索引\n- [deploy.md](deploy.md)\n',
     );
-    const again = await inject(app, {
+    const again = await request(app, {
       method: 'GET',
       url: `/api/agents/${copy.id}/memory/download`,
       headers: auth(),
@@ -822,7 +819,7 @@ describe.skipIf(!ready)('memory changes', () => {
 
     const empty = await newAgent();
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/agents/${empty.id}/memory/download`,
         headers: auth(),
@@ -837,7 +834,7 @@ describe.skipIf(!ready)('memory changes', () => {
     await mkdir(dir, { recursive: true });
     await symlink('/private/secret.md', join(dir, 'topic.md'));
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/agents/${agent.id}/memory/download`,
         headers: auth(),
@@ -851,7 +848,7 @@ describe.skipIf(!ready)('memory changes', () => {
       await writeMemoryFile(root, agent.slug, `big-${index}.md`, 'x'.repeat(200_000));
     }
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/agents/${agent.id}/memory/download`,
         headers: auth(),
@@ -863,14 +860,13 @@ describe.skipIf(!ready)('memory changes', () => {
   it('restores both files when a manual theme write cannot commit the ledger', async () => {
     const agent = await newAgent();
     const put = () =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/deploy.md`,
         headers: auth(),
         payload: { content: '# 部署\n' },
       });
-    const spy = vi
-      .spyOn(app.db, 'transaction')
+    const spy = spyOn(app.db, 'transaction')
       .mockRejectedValueOnce(new Error('injected database commit failure') as never);
     let failed: Awaited<ReturnType<typeof put>>;
     try {
@@ -888,27 +884,27 @@ describe.skipIf(!ready)('memory changes', () => {
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(
       '- [deploy.md](deploy.md)\n',
     );
-    const rows = await app.pool.query<{ count: number }>(
+    const rows = await app.client.unsafe<{ count: number }[]>(
       "select count(*)::int as count from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
       [agent.id],
     );
-    expect(rows.rows[0]?.count).toBe(1);
+    expect(rows[0]?.count).toBe(1);
   });
   it('converges a retried rollback on the existing reverse change', async () => {
     const agent = await newAgent();
     const link = '- [deploy.md](deploy.md)\n';
-    await inject(app, {
+    await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/deploy.md`,
       headers: auth(),
       payload: { content: '# 部署\n' },
     });
     const [change] = (
-      await app.pool.query<{ id: string }>(
+      await app.client.unsafe<{ id: string }[]>(
         "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
         [agent.id],
       )
-    ).rows;
+    );
     if (!change) throw new Error('theme write did not record a change');
     const reversed = await rollback(change.id);
     expect(reversed.statusCode, reversed.body).toBe(200);
@@ -964,7 +960,7 @@ describe.skipIf(!ready)('memory changes', () => {
       ],
     });
 
-    const retried = await inject(app, {
+    const retried = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
       headers: auth(),
@@ -972,11 +968,11 @@ describe.skipIf(!ready)('memory changes', () => {
     });
     expect(retried.statusCode, retried.body).toBe(200);
 
-    const rows = await app.pool.query<{ id: string; before: unknown; after: unknown }>(
+    const rows = await app.client.unsafe<{ id: string; before: unknown; after: unknown }[]>(
       'select id, before, after from memory_changes where agent_id = $1',
       [agent.id],
     );
-    expect(rows.rows).toEqual([
+    expect(rows).toEqual([
       {
         id: operationId,
         before: { content: null, globs: null, index: null },
@@ -991,7 +987,7 @@ describe.skipIf(!ready)('memory changes', () => {
   it('does not repeat a committed manual change after only the index changed externally', async () => {
     const agent = await newAgent();
     const put = () =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/deploy.md`,
         headers: auth(),
@@ -1000,11 +996,11 @@ describe.skipIf(!ready)('memory changes', () => {
     const first = await put();
     expect(first.statusCode, first.body).toBe(200);
     const [change] = (
-      await app.pool.query<{ id: string }>(
+      await app.client.unsafe<{ id: string }[]>(
         "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
         [agent.id],
       )
-    ).rows;
+    );
     if (!change) throw new Error('theme write did not record a change');
 
     // 账本已提交但清日志失败：残留日志与已提交行使用同一稳定身份。
@@ -1038,11 +1034,11 @@ describe.skipIf(!ready)('memory changes', () => {
 
     const retried = await put();
     expect(retried.statusCode, retried.body).toBe(200);
-    const duplicated = await app.pool.query<{ count: number }>(
+    const duplicated = await app.client.unsafe<{ count: number }[]>(
       "select count(*)::int as count from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md' and before->>'content' is null",
       [agent.id],
     );
-    expect(duplicated.rows[0]?.count).toBe(1);
+    expect(duplicated[0]?.count).toBe(1);
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(
       '- [deploy.md](deploy.md)\n- [notes.md](notes.md)\n',
     );
@@ -1072,7 +1068,7 @@ describe.skipIf(!ready)('memory changes', () => {
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', '第三方内容');
 
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/MEMORY.md`,
         headers: auth(),

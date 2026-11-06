@@ -1,7 +1,8 @@
 import { DbError, runProgram } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import { type AgentRunJob, judge, RUNS_QUEUE, runEnqueueOptions } from '@agentport/shared';
-import { Queue, QueueEvents, UnrecoverableError } from 'bullmq';
+import { createBunRedisClient, Queue, QueueEvents, UnrecoverableError } from 'bullmq';
+import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
@@ -46,15 +47,22 @@ export function evalFailureDiagnostics(error: unknown): {
 
 let runQueue: Queue<AgentRunJob> | undefined;
 let runQueueEvents: QueueEvents | undefined;
+let connection: ReturnType<typeof createBunRedisClient> | undefined;
+
+function getConnection(redisUrl: string) {
+  connection ??= createBunRedisClient(new RedisClient(redisUrl));
+  return connection;
+}
 
 function getRunQueue(redisUrl: string): Queue<AgentRunJob> {
-  if (!runQueue) runQueue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: { url: redisUrl } });
+  if (!runQueue)
+    runQueue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: getConnection(redisUrl) });
   return runQueue;
 }
 
 function getRunQueueEvents(redisUrl: string): QueueEvents {
   if (!runQueueEvents) {
-    runQueueEvents = new QueueEvents(RUNS_QUEUE, { connection: { url: redisUrl } });
+    runQueueEvents = new QueueEvents(RUNS_QUEUE, { connection: getConnection(redisUrl) });
     runQueueEvents.on('error', (error) => {
       process.stderr.write(`[eval-queue] redis error: ${error.message}\n`);
     });
@@ -64,6 +72,8 @@ function getRunQueueEvents(redisUrl: string): QueueEvents {
 
 export async function closeEvalRunQueue(): Promise<void> {
   await Promise.allSettled([runQueue?.close(), runQueueEvents?.close()]);
+  await connection?.quit();
+  connection = undefined;
   runQueue = undefined;
   runQueueEvents = undefined;
 }

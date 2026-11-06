@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { KNOWLEDGE_IMAGE_MAX_BYTES, type KnowledgeImageProcessing } from '@agentport/shared';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { assertUsableImage, describeKnowledgeImage } from '../src/knowledge/image-processing.js';
 
 const TINY_PNG = Buffer.from(

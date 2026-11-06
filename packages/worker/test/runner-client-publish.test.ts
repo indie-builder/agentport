@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { runStreamKey } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import { closeRunnerClient, configureRunnerClient, publishRun } from '../src/runner-client.js';
 
 async function probeRedis(): Promise<boolean> {
@@ -41,18 +42,20 @@ describe.skipIf(!ready)('publishRun', () => {
     configureRunnerClient(redisUrl);
     const runId = `run-publish-${randomUUID()}`;
     const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
-    const pipeline = vi.spyOn(Redis.prototype, 'pipeline');
+    const send = spyOn(RedisClient.prototype, 'send');
+    const expire = spyOn(RedisClient.prototype, 'expire');
     try {
       await publishRun(runId, { type: 'run_started', runId, conversationId: 'c1' }, logger);
 
-      // XADD 与 TTL 必须合并为一次 pipeline，而不是两次往返。
-      expect(pipeline).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(expire).toHaveBeenCalledTimes(1);
       expect(await redis.xlen(runStreamKey(runId))).toBe(1);
       const ttl = await redis.ttl(runStreamKey(runId));
       expect(ttl).toBeGreaterThan(0);
       expect(ttl).toBeLessThanOrEqual(3600);
     } finally {
-      pipeline.mockRestore();
+      send.mockRestore();
+      expire.mockRestore();
       await redis.del(runStreamKey(runId));
       redis.disconnect();
     }

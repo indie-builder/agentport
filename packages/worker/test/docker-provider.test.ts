@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, jest, mock, spyOn } from 'bun:test';
+import { advanceTimersByTimeAsync, waitFor } from './fixtures/native-test.js';
 
 interface Reply {
   exitCode: number;
@@ -11,7 +12,7 @@ interface Reply {
 }
 
 // 只验证 docker CLI 参数与生命周期；容器真跑由 sandbox 镜像测试覆盖。
-const state = vi.hoisted(() => ({
+const state = (() => ({
   commands: [] as string[][],
   kills: [] as string[][],
   startError: false,
@@ -29,12 +30,12 @@ const state = vi.hoisted(() => ({
     >
   >,
   reply: (_args: string[]): Reply => ({ exitCode: 0 }),
-}));
+}))();
 
-vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
+const childProcessActual = await import('node:child_process');
+mock.module('node:child_process', () => {
   return {
-    ...actual,
+    ...childProcessActual,
     spawn: (command: string, args: string[]) => {
       state.commands.push([command, ...args]);
       const child = new EventEmitter() as EventEmitter & {
@@ -83,7 +84,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 afterEach(() => {
-  vi.useRealTimers();
+  jest.useRealTimers();
   state.commands = [];
   state.kills = [];
   state.children = {};
@@ -258,13 +259,12 @@ describe('docker sandbox provider', () => {
           : { exitCode: 0 };
     const controller = new AbortController();
     const creating = provider.create(createOptions({ signal: controller.signal }));
-    await vi.waitFor(() => expect(state.children.pull?.length).toBe(1));
+    await waitFor(() => expect(state.children.pull?.length).toBe(1));
     // 旧实现按 1s 猜测容器何时出现；取消必须与这个猜测无关。
     await new Promise((resolve) => setTimeout(resolve, 1_100));
 
-    const rejected = expect(creating).rejects.toMatchObject({ name: 'AbortError' });
     controller.abort();
-    await rejected;
+    await expect(creating).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(state.kills).toContainEqual(['docker', 'pull', 'sandbox:test']);
     expect(state.commands.some((command) => command[1] === 'create')).toBe(false);
@@ -278,21 +278,20 @@ describe('docker sandbox provider', () => {
     const creating = provider.create(
       createOptions({ name: 'pace-cancel', signal: controller.signal }),
     );
-    await vi.waitFor(() => expect(state.children.create?.length).toBe(1));
+    await waitFor(() => expect(state.children.create?.length).toBe(1));
 
-    const rejected = expect(creating).rejects.toMatchObject({ name: 'AbortError' });
     controller.abort();
     // create 请求已交给 daemon：不能杀掉客户端冒充清理。
     expect(state.kills.some((command) => command[1] === 'create')).toBe(false);
     state.children.create?.[0]?.emit('close', 0, null);
-    await rejected;
+    await expect(creating).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(state.commands.some((command) => command[1] === 'start')).toBe(false);
     expect(state.commands).toContainEqual(['docker', 'rm', '-f', 'pace-cancel']);
   });
 
   it('waits for an in-flight create without killing it after the old 30s budget', async () => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     const provider = await makeProvider();
     state.reply = (args) =>
       args[0] === 'create' ? { exitCode: 0, holdOpen: true } : { exitCode: 0 };
@@ -308,9 +307,9 @@ describe('docker sandbox provider', () => {
           settled = { status: 'rejected', reason };
         },
       );
-    await vi.waitFor(() => expect(state.children.create?.length).toBe(1));
+    await waitFor(() => expect(state.children.create?.length).toBe(1));
 
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advanceTimersByTimeAsync(30_000);
     // create 已交给 daemon：不能杀 CLI，也不能假装创建已结束。
     expect(state.kills.some((command) => command[1] === 'create')).toBe(false);
     expect(settled).toBeUndefined();
@@ -381,8 +380,7 @@ describe('docker sandbox provider', () => {
     // 有限超时：第一次取 deadline，第二次进入轮询，之后时间越界退出。
     const start = Date.now();
     let clockCalls = 0;
-    const clock = vi
-      .spyOn(Date, 'now')
+    const clock = spyOn(Date, 'now')
       .mockImplementation(() => (clockCalls++ < 2 ? start : start + 20_000));
 
     try {
@@ -530,15 +528,14 @@ describe('docker sandbox provider', () => {
     const creating = provider.create(
       createOptions({ name: 'pace-abort-rm', signal: controller.signal }),
     );
-    await vi.waitFor(() => expect(state.children.create?.length).toBe(1));
+    await waitFor(() => expect(state.children.create?.length).toBe(1));
 
-    const rejected = expect(creating).rejects.toMatchObject({
+    controller.abort();
+    state.children.create?.[0]?.emit('close', 0, null);
+    await expect(creating).rejects.toMatchObject({
       name: 'SandboxCleanupError',
       sandboxId: 'pace-abort-rm',
     });
-    controller.abort();
-    state.children.create?.[0]?.emit('close', 0, null);
-    await rejected;
 
     // 清理失败不能丢弃跟踪；shutdown 用 stop 0 + rm 再试。
     state.commands = [];
@@ -559,11 +556,11 @@ describe('docker sandbox provider', () => {
           ? { exitCode: 0, holdOpen: true }
           : { exitCode: 0 };
     const creating = provider.create(createOptions({ name: 'pace-pending' }));
-    await vi.waitFor(() => expect(state.children.pull?.length).toBe(1));
+    const creatingError = creating.catch((error: unknown) => error);
+    await waitFor(() => expect(state.children.pull?.length).toBe(1));
 
-    const rejected = expect(creating).rejects.toMatchObject({ name: 'AbortError' });
     await expect(provider.destroyAll()).resolves.toBeUndefined();
-    await rejected;
+    expect(await creatingError).toMatchObject({ name: 'AbortError' });
 
     expect(state.commands.some((command) => command[1] === 'create')).toBe(false);
   });
@@ -585,11 +582,10 @@ describe('docker sandbox provider', () => {
           ? { exitCode: 0, holdOpen: true }
           : { exitCode: 0 };
     const creating = provider.create(createOptions({ name: 'pace-closing' }));
-    await vi.waitFor(() => expect(state.children.pull?.length).toBe(1));
+    await waitFor(() => expect(state.children.pull?.length).toBe(1));
 
-    const rejected = expect(creating).rejects.toMatchObject({ name: 'AbortError' });
     closing.abort();
-    await rejected;
+    await expect(creating).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(state.commands.some((command) => command[1] === 'create')).toBe(false);
     await expect(provider.create(createOptions({ name: 'pace-late' }))).rejects.toMatchObject({

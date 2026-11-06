@@ -1,6 +1,7 @@
 import { type createDb, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
-import { Queue, Worker } from 'bullmq';
+import { createBunRedisClient, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 
 /**
@@ -181,7 +182,7 @@ export function startKnowledgeScheduler(input: {
   /** 测试用独立键前缀，避免对账删到同机真实 scheduler。 */
   prefix?: string;
 }): KnowledgeScheduler {
-  const connection = { url: input.redisUrl, maxRetriesPerRequest: null };
+  const connection = createBunRedisClient(new RedisClient(input.redisUrl));
   const options = {
     connection,
     ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
@@ -224,6 +225,7 @@ export function startKnowledgeScheduler(input: {
       await worker.close();
       await jobsQueue.close();
       await queue.close();
+      await connection.quit();
     },
   };
 }

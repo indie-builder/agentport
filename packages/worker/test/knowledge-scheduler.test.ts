@@ -5,7 +5,7 @@ import { Queue } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import {
   type KnowledgeJobsQueueLike,
   type KnowledgeSchedulerQueue,
@@ -18,20 +18,20 @@ async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
-  const { pool } = createDb(databaseUrl);
+  const { client } = createDb(databaseUrl);
   const redis = new Redis(redisUrl, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     retryStrategy: () => null,
   });
   try {
-    await pool.query('select 1');
+    await client.unsafe('select 1');
     await redis.connect();
     return (await redis.ping()) === 'PONG';
   } catch {
     return false;
   } finally {
-    await pool.end().catch(() => undefined);
+    await client.close().catch(() => undefined);
     await redis.quit().catch(() => undefined);
   }
 }
@@ -42,7 +42,7 @@ const prefix = `knowledge-sched-${randomUUID().slice(0, 8)}`;
 
 describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgres', () => {
   let db: ReturnType<typeof createDb>['db'];
-  let pool: ReturnType<typeof createDb>['pool'];
+  let client: ReturnType<typeof createDb>['client'];
   /** 触发队列与 jobs 队列都用测试前缀：真实 worker 不会消费。 */
   let triggers: Queue<{ sourceId: string }>;
   let jobs: Queue<{ jobId: string }>;
@@ -94,7 +94,7 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
   }
 
   beforeAll(async () => {
-    ({ db, pool } = createDb(process.env.DATABASE_URL ?? ''));
+    ({ db, client } = createDb(process.env.DATABASE_URL ?? ''));
     triggers = new Queue<{ sourceId: string }>('knowledge-sync-triggers', {
       connection: { url: redisUrl, maxRetriesPerRequest: null },
       prefix,
@@ -153,7 +153,7 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
         await db.delete(schema.servers).where(eq(schema.servers.id, serverId));
       }
     } finally {
-      if (pool) await pool.end();
+      await client.close();
     }
   });
 

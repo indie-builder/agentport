@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   NATIVE_PLUGIN_TIMEOUT_MS,
   NATIVE_PLUGIN_WAIT_TIMEOUT_MS,

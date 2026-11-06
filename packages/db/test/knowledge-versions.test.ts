@@ -1,21 +1,16 @@
 import { randomBytes } from 'node:crypto';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { drizzle } from 'drizzle-orm/bun-sql';
+import { afterAll, afterEach, describe, expect, it } from 'bun:test';
+import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 import { schema } from '../src/schema.js';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL ?? '',
-  max: 4,
-  statement_timeout: 15_000,
-  connectionTimeoutMillis: 5_000,
-});
-// 事务走独立连接，pool.query 探针看不到 BEGIN/COMMIT，必须用 Drizzle logger。
+const { client } = createDb(process.env.DATABASE_URL ?? '');
+// 事务走独立连接，client.unsafe 探针看不到 BEGIN/COMMIT，必须用 Drizzle logger。
 const logged: string[] = [];
-const db = drizzle(pool, { schema, logger: { logQuery: (query) => logged.push(query) } });
-const ready = await pool.query('select 1').then(
+const db = drizzle(client, { schema, logger: { logQuery: (query) => logged.push(query) } });
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -25,17 +20,17 @@ let profileId = '';
 let baseId = '';
 
 afterEach(async () => {
-  if (baseId) await pool.query('delete from knowledge_bases where id = $1', [baseId]);
+  if (baseId) await client.unsafe('delete from knowledge_bases where id = $1', [baseId]);
   if (profileId)
-    await pool.query('delete from knowledge_model_profiles where id = $1', [profileId]);
-  if (serverId) await pool.query('delete from servers where id = $1', [serverId]);
+    await client.unsafe('delete from knowledge_model_profiles where id = $1', [profileId]);
+  if (serverId) await client.unsafe('delete from servers where id = $1', [serverId]);
   baseId = '';
   profileId = '';
   serverId = '';
 });
 
 afterAll(async () => {
-  await pool.end();
+  await client.close();
 });
 
 async function seedDocument(): Promise<{ documentId: string }> {
@@ -84,9 +79,11 @@ async function seedDocument(): Promise<{ documentId: string }> {
 
 /** Drizzle 0.45 把 pg 错误包成 DrizzleQueryError，code 在 cause 上。 */
 function pgCode(error: unknown): string | undefined {
-  const direct = (error as { code?: string }).code;
-  if (direct) return direct;
-  return (error as { cause?: { code?: string } }).cause?.code;
+  const direct = error as { code?: string; errno?: string };
+  if (direct.errno) return direct.errno;
+  if (direct.code) return direct.code;
+  const cause = (error as { cause?: { code?: string; errno?: string } }).cause;
+  return cause?.errno ?? cause?.code;
 }
 
 function versionInput(

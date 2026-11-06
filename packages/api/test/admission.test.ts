@@ -1,7 +1,7 @@
 import { repo } from '@agentport/db';
-import { expect, it, vi } from 'vitest';
+import { expect, it, spyOn } from 'bun:test';
 import { getQueue } from '../src/queue/producer.js';
-import { cleanup, createAgent, inject, loginCookie, startApp } from './helpers.js';
+import { cleanup, createAgent, loginCookie, request, startApp } from './helpers.js';
 
 it('rejects overloaded chat with 503 before creating a run', async () => {
   const app = await startApp();
@@ -11,10 +11,10 @@ it('rejects overloaded chat with 503 before creating a run', async () => {
   const agent = (
     await createAgent(app, cookie, { slug: 'admission-full', track: createdAgents })
   ).json<{ id: string }>();
-  const waiting = vi.spyOn(getQueue(), 'getWaitingCount').mockResolvedValue(101);
-  const create = vi.spyOn(repo.chat, 'createRun');
+  const waiting = spyOn(getQueue(), 'getWaitingCount').mockResolvedValue(101);
+  const create = spyOn(repo.chat, 'createRun');
   try {
-    const result = await inject(app, {
+    const result = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: { cookie },

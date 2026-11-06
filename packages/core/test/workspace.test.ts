@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { parseMarkdownFrontmatter } from '../src/markdown-frontmatter.js';
 import { renderRuleMd, renderWorkspace } from '../src/workspace.js';
 

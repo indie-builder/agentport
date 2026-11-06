@@ -8,7 +8,7 @@ import { runStreamKey } from '@agentport/shared';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { persistRunMessages } from '../src/messages.js';
 import {
   closeRunnerClient,
@@ -41,8 +41,8 @@ async function probeRedis(): Promise<boolean> {
 
 const redisUrl = process.env.REDIS_URL ?? '';
 const ready = await probeRedis();
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const dbReady = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const dbReady = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -201,7 +201,7 @@ afterAll(async () => {
     // 删 agent 级联清掉会话、run、消息。
     await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
   }
-  await pool.end();
+  await client.close();
   await closeRunnerClient();
 });
 

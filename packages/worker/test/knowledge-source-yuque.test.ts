@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { probeYuque, readYuque } from '../src/knowledge/source-yuque.js';
 import type { SourceConfig } from '../src/knowledge/sources.js';
 
@@ -27,9 +28,7 @@ let calls: Call[] = [];
 
 function installFetch(handler: Handler): void {
   calls = [];
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  stubFetch(mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       const call: Call = {
         method: request.method,
@@ -45,7 +44,7 @@ function installFetch(handler: Handler): void {
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreFetch();
 });
 
 function json(value: unknown, status = 200): Response {

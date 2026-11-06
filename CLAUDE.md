@@ -21,10 +21,10 @@
 
 ## 优先级（冲突时自上而下裁决）
 
-0. **官方最佳实践优先。** 项目引用的每个技术栈（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest…）如果官方文档给出了做法，**以官方为准**。用户的口头偏好、我的判断、项目历史习惯，都不高于官方文档。用户明确说过「我可能说的也不对」——遇到分歧先去查官方文档，再决定；涉及 Claude Agent SDK / Claude Code 时同时核对已安装的 `sdk.d.ts`（见「智能体运行底座」）。
+0. **官方最佳实践优先。** 项目引用的每个技术栈（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Bun、Hono、oRPC、Bun test、Vitest…）如果官方文档给出了做法，**以官方为准**。用户的口头偏好、我的判断、项目历史习惯，都不高于官方文档。用户明确说过「我可能说的也不对」——遇到分歧先去查官方文档，再决定；涉及 Claude Agent SDK / Claude Code 时同时核对已安装的 `sdk.d.ts`（见「智能体运行底座」）。
 1. **并行优先。** 任何可拆的工作都必须并行；串行只在存在真实依赖时允许，并且必须说明依赖是什么。
 2. **UI 基准优先。** 布局几何与信息表达以 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) 当前工程规约为准（含 2026-10-30 用户批准的布局契约）；配色、字体、圆角、阴影、组件外观与状态等视觉数值以 [packages/web/DESIGN.md](packages/web/DESIGN.md)（impeccable）为准，沿用 Claude Design System（CDS，参考 open-claude-ui，仅亮色）；OpenUI 桌面基准仅保留为历史参考；任何技术选型、库默认样式、动效偏好都不得改动这套视觉数值。前端实现细节见 [packages/web/CLAUDE.md](packages/web/CLAUDE.md)。
-3. **技术栈优先。** 功能实现必须走项目已选定的库与官方原生能力（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Fastify、Vitest 等），不允许手写等价实现；具体栈、包职责与用法见各模块规则与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+3. **技术栈优先。** 功能实现必须走项目已选定的库与官方原生能力（shadcn/ui、Base UI、Tailwind、TanStack、Drizzle、Bun、Hono、oRPC、Bun test、Vitest 等），不允许手写等价实现；具体栈、包职责与用法见各模块规则与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 4. **零死代码。** 无人引用的组件、导出、样式、依赖、注释掉的代码块一律删除；不保留「以后可能用」的占位实现。删之前用 grep 确认引用，删之后跑 typecheck / 构建确认没断。**但用户明确要求保留的元素/入口不属于死代码，不得删除；受保护清单见各模块 `CLAUDE.md` 与 [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md)。**
 5. 其余按本文件后续条款执行。
 
@@ -33,7 +33,7 @@
 - **三赢：UX / DX / AX 同时提升。** 任何设计或技术决策，都要选能同时提升**用户体验（UX）、开发者体验（DX）、智能体体验（AX）**且不牺牲其一换另一个的最优解，并且**不破坏任何现有功能**（"Make the best decision that will elevate all three: the user experience (UX), developer experience (DX), and agent experience (AX) always, without breaking anything."）。逐条问「这对 UX / DX / AX 各是加分还是减分」，若某方案提升一个却伤害另一个，继续找更优解。
 - **个人项目不考虑向后兼容。** 永远按当前最佳实践设计，不为旧数据、旧格式、旧接口保留兼容层、迁移分支或双写路径；字段、表结构、接口可以直接改到最干净的样子，旧数据不迁移、不做兜底。需要重置时直接重建库或用脚本一次性重灌。判断「要不要兼容」的答案默认是否。
 - **不为理论风险加防护。** 加代码防假设性的竞态条件或安全边界之前，先用「10 岁小孩能听懂」的话说明三件事并**等用户明确同意**：① 到底会出什么问题；② 这有多大概率发生；③ 多加的代码带来多少复杂度。不得悄悄扩大范围去防只存在于理论中的问题（"Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness."）。真实可发生的边界（信任边界校验、防数据丢失、安全、无障碍）不在其列，照常做。
-- **入口校验一次。** 外部数据在入口信任边界完成校验，内部使用校验后确定的类型，不逐层重复校验或判断。后端入口按 [packages/api/CLAUDE.md](packages/api/CLAUDE.md) 的 Fastify schema 规则执行。
+- **入口校验一次。** 外部数据在入口信任边界完成校验，内部使用校验后确定的类型，不逐层重复校验或判断。后端入口按 [packages/api/CLAUDE.md](packages/api/CLAUDE.md) 的 oRPC 契约规则执行。
 - **保持直接控制流。** 仅在需要恢复、清理或转换错误时使用 `try/catch`，其余错误交由现有统一机制处理。保留必要错误处理，不吞错。
 
 ## 能力选型（硬性：先看现有 → 原生/已装依赖 → 主流开源 → 最后才自研）
@@ -62,7 +62,8 @@
 |---|---|---|
 | 根（始终加载） | `CLAUDE.md` | 所有任务 |
 | `web` | [packages/web/CLAUDE.md](packages/web/CLAUDE.md) | 页面、组件、样式、路由、前端状态与 DESIGN-SYSTEM 实现 |
-| `api` | [packages/api/CLAUDE.md](packages/api/CLAUDE.md) | 路由、校验、鉴权、错误、SSE、队列生产 |
+| `api` | [packages/api/CLAUDE.md](packages/api/CLAUDE.md) | 业务模块、oRPC 适配、鉴权、错误、SSE、队列生产 |
+| `contract` | [packages/contract/CLAUDE.md](packages/contract/CLAUDE.md) | oRPC procedure 的 method、path、input/output 与 access 元数据 |
 | `worker` | [packages/worker/CLAUDE.md](packages/worker/CLAUDE.md) | 队列消费、会话工作区渲染、沙盒生命周期、事件回传 |
 | `core` | [packages/core/CLAUDE.md](packages/core/CLAUDE.md) | 工作区渲染、密钥加解密、MCP 条目、领域纯函数 |
 | `db` | [packages/db/CLAUDE.md](packages/db/CLAUDE.md) | Drizzle schema、repo、迁移、TypeID 生成 |
@@ -93,8 +94,9 @@
 
 ## 后端
 
-- **路由与入口规则见模块。** Fastify × Zod schema 校验、`requireAuth`、typed app、错误返回形状见 [packages/api/CLAUDE.md](packages/api/CLAUDE.md) 与 [docs/VALIDATION.md](docs/VALIDATION.md)。
-- **数据库变更见模块。** Drizzle schema、`pnpm db:generate` + `pnpm db:migrate` 与同步 `docs/` 的要求见 [packages/db/CLAUDE.md](packages/db/CLAUDE.md)。
+- **运行时与包管理统一 Bun 1.4.3（`bun.lock`）。** 安装依赖用 `bun install --frozen-lockfile`，项目脚本用 `bun run <script>`；Node.js 24 只用于镜像基座与尚未迁移的 `node` 脚本，不新增 pnpm/npm 用法。
+- **路由与入口规则见模块。** oRPC 契约、Hono 根入口、`access` 元数据、`requireAuth` 与错误返回形状见 [packages/api/CLAUDE.md](packages/api/CLAUDE.md) 与 [docs/VALIDATION.md](docs/VALIDATION.md)。
+- **数据库变更见模块。** Drizzle schema、`bun run db:generate` + `bun run db:migrate` 与同步 `docs/` 的要求见 [packages/db/CLAUDE.md](packages/db/CLAUDE.md)。
 - **业务实体 ID：** 常规业务实体主键统一使用 TypeID；生成入口与命名空间规则见 [packages/db/CLAUDE.md](packages/db/CLAUDE.md)，完整约定见 [ID 约定](docs/PROJECT-BRIEF.md#162-id-约定)。其他包按该规范使用，不各自实现 ID 生成。
 
 ## 测试
@@ -103,7 +105,7 @@
 - TDD 只在获准的测试范围内作红/绿步骤参考，不强制、不因已有实现重建测试。
 - E2E 统一使用 `e2e`（`e2e` + `@e2e-dev/web`），不新增其他 E2E 框架的用例。
 - 登录等共享前置用 `test.setup` + session，不要在每条用例里重复登录。
-- 单元/集成测试用 Vitest；backend 项目由 globalSetup 每轮创建已迁移的随机 PostgreSQL database 和独享临时 Redis 容器，并在测试模块导入前注入连接串，默认不需要停开发 worker。Docker/PostgreSQL 不可用时依赖对应基础设施的套件跳过，不回落共享库；watch 会话内复用本轮资源并在退出时清理，热重跑不重建（见 `docs/OPERATIONS.md`）。
+- 后端单元/集成测试用 `bun:test`，入口是 `bun run test`（`scripts/test-backend.ts`，`--isolate`，排除 web）；前端测试用 Vitest（`bun run test:web`）。backend 由 globalSetup 每轮创建已迁移的随机 PostgreSQL database 和独享临时 Redis 容器，由 `scripts/test-backend.ts` 在 spawn 测试进程时注入连接串，默认不需要停开发 worker。Docker/PostgreSQL 不可用时依赖对应基础设施的套件跳过，不回落共享库；watch 会话内复用本轮资源并在退出时清理，热重跑不重建（见 `docs/OPERATIONS.md`）。
 
 ## 技能与插件维护
 

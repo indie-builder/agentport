@@ -3,11 +3,18 @@ import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
-import type { FastifyInstance } from 'fastify';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
-import { infraReady, inject, injectZip, loginCookie, testConfig, unique } from './helpers.js';
+import {
+  infraReady,
+  loginCookie,
+  request,
+  requestZip,
+  type TestApp,
+  testConfig,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -103,7 +110,7 @@ function rewritePackage(
 }
 
 describe.skipIf(!ready)('knowledge package import/export', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   let profileId = '';
@@ -120,7 +127,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
   beforeAll(async () => {
     knowledgeDir = await mkdtemp(join(tmpdir(), 'knowledge-package-'));
     app = await buildApp(testConfig({ KNOWLEDGE_DIR: knowledgeDir }));
-    await app.ready();
     cookie = await loginCookie(app);
     const profile = await createProfile();
     profileId = profile.id;
@@ -130,19 +136,18 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
   });
 
   async function createProfile(): Promise<{ id: string; name: string }> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -160,7 +165,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
   }
 
   async function createBase(embeddingProfileId: string): Promise<string> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -174,7 +179,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
 
   async function seedLibrary(): Promise<void> {
     baseId = await createBase(profileId);
-    const folder = await inject(app, {
+    const folder = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/folders`,
       headers: { cookie },
@@ -183,7 +188,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(folder.statusCode, folder.body).toBe(201);
     const folderId = folder.json<{ id: string }>().id;
 
-    const tag = await inject(app, {
+    const tag = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/tags`,
       headers: { cookie },
@@ -192,7 +197,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(tag.statusCode, tag.body).toBe(201);
 
     const original = Buffer.from('# 访问令牌\n\n访问令牌需要定期轮换。', 'utf8');
-    const upload = await inject(app, {
+    const upload = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/bases/${baseId}/documents/upload`,
       headers: { cookie },
@@ -206,7 +211,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(upload.statusCode, upload.body).toBe(202);
     documentId = upload.json<{ documentId: string }>().documentId;
 
-    const patch = await inject(app, {
+    const patch = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/documents/${documentId}`,
       headers: { cookie },
@@ -222,7 +227,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       join(knowledgeDir, 'docs', documentId, versionId, 'images', IMAGE_NAME),
       TINY_PNG,
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, source_revision, parse_status, page_map, images, embedding_profile_id)
@@ -244,7 +249,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     for (let index = 0; index < 250; index += 1) {
       const id = `kchk_${randomUUID().replace(/-/g, '')}`;
       if (index === 0) chunkId = id;
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into knowledge_chunks
            (id, base_id, document_id, version_id, folder_id, ordinal, kind, heading, content,
             search_text, enabled, edited_by_user, page_from, page_to, token_count, metadata)
@@ -261,12 +266,12 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
         ],
       );
     }
-    await app.pool.query(
+    await app.client.unsafe(
       "update knowledge_documents set status = 'ready', current_version_id = $2 where id = $1",
       [documentId, versionId],
     );
 
-    const page = await inject(app, {
+    const page = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/wiki-pages`,
       headers: { cookie },
@@ -274,34 +279,34 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     });
     expect(page.statusCode, page.body).toBe(201);
     wikiPageId = page.json<{ id: string }>().id;
-    const edited = await inject(app, {
+    const edited = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${wikiPageId}`,
       headers: { cookie },
       payload: { markdown: '# 令牌轮换\n\n来源：访问令牌文档。' },
     });
     expect(edited.statusCode, edited.body).toBe(200);
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_wiki_versions set source_chunk_ids = $2::jsonb where page_id = $1`,
       [wikiPageId, JSON.stringify([chunkId])],
     );
-    const draft = await app.pool.query<{ id: string }>(
+    const draft = await app.client.unsafe<{ id: string }[]>(
       'select id from knowledge_wiki_versions where page_id = $1 order by version desc limit 1',
       [wikiPageId],
     );
-    const published = await inject(app, {
+    const published = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${wikiPageId}/publish`,
       headers: { cookie },
-      payload: { versionId: draft.rows[0]!.id },
+      payload: { versionId: draft[0]!.id },
     });
     expect(published.statusCode, published.body).toBe(200);
   }
 
   it('未登录不能导出或导入', async () => {
-    const exported = await inject(app, { method: 'GET', url: '/api/knowledge/bases/x/export' });
+    const exported = await request(app, { method: 'GET', url: '/api/knowledge/bases/x/export' });
     expect(exported.statusCode).toBe(401);
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases/import',
       headers: { 'content-type': 'application/zip' },
@@ -311,9 +316,9 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
   });
 
   it('导出 manifest、原件、Markdown、人工 chunk 与 Wiki 引用，且不含向量', async () => {
-    const res = await injectZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
+    const res = await requestZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-type']).toContain('application/zip');
+    expect(res.headers.get('content-type')).toContain('application/zip');
     exported = res.rawPayload;
 
     const manifest = readManifest(exported);
@@ -365,7 +370,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     const moved = `${source}.moved`;
     await rename(source, moved);
     try {
-      const res = await injectZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
+      const res = await requestZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
       expect(res.statusCode, res.body).toBe(409);
       expect(res.json<{ message: string }>().message).toContain(IMAGE_NAME);
     } finally {
@@ -375,7 +380,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
 
   it('导入还原到新库：新 ID、文件夹/标签/人工 chunk/Wiki 引用，embedding 为空但可关键词检索和重建', async () => {
     // 移除原库避免 slug 冲突；导出的 ZIP 已保存在内存里。
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/bases/${baseId}`,
       headers: { cookie },
@@ -383,7 +388,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(removed.statusCode, removed.body).toBe(204);
     baseIds.length = 0;
 
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, exported);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, exported);
     expect(res.statusCode, res.body).toBe(201);
     const result = res.json<{
       baseId: string;
@@ -399,14 +404,14 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       wikiPages: 1,
     });
 
-    const base = await inject(app, {
+    const base = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${result.baseId}`,
       headers: { cookie },
     });
     expect(base.json<{ embeddingProfileId: string }>().embeddingProfileId).toBe(profileId);
 
-    const folders = await inject(app, {
+    const folders = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${result.baseId}/folders`,
       headers: { cookie },
@@ -415,7 +420,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       '/runbooks',
     ]);
 
-    const docs = await inject(app, {
+    const docs = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${result.baseId}/documents`,
       headers: { cookie },
@@ -435,12 +440,12 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(imported.folderId).not.toBeNull();
     expect(imported.tags).toEqual(['ops']);
 
-    const importedVersion = await app.pool.query<{
+    const importedVersion = await app.client.unsafe<{
       id: string;
       images: Array<{ name: string; sha256: string; mimeType: string; page: number }>;
-    }>('select id, images from knowledge_document_versions where document_id = $1', [imported.id]);
-    expect(importedVersion.rows[0]!.id).not.toBe(versionId);
-    expect(importedVersion.rows[0]!.images).toEqual([
+    }[]>('select id, images from knowledge_document_versions where document_id = $1', [imported.id]);
+    expect(importedVersion[0]!.id).not.toBe(versionId);
+    expect(importedVersion[0]!.images).toEqual([
       {
         name: IMAGE_NAME,
         sha256: sha256(TINY_PNG),
@@ -450,23 +455,23 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       },
     ]);
     const restored = await readFile(
-      join(knowledgeDir, 'docs', imported.id, importedVersion.rows[0]!.id, 'images', IMAGE_NAME),
+      join(knowledgeDir, 'docs', imported.id, importedVersion[0]!.id, 'images', IMAGE_NAME),
     );
     expect(restored).toEqual(TINY_PNG);
 
-    const chunks = await app.pool.query<{
+    const chunks = await app.client.unsafe<{
       id: string;
       embedding: string | null;
       edited_by_user: boolean;
-    }>(
+    }[]>(
       'select id, embedding::text, edited_by_user from knowledge_chunks where document_id = $1 order by ordinal limit 1',
       [imported.id],
     );
-    expect(chunks.rows[0]!.embedding).toBeNull();
-    expect(chunks.rows[0]!.edited_by_user).toBe(true);
-    expect(chunks.rows[0]!.id).not.toBe(chunkId);
+    expect(chunks[0]!.embedding).toBeNull();
+    expect(chunks[0]!.edited_by_user).toBe(true);
+    expect(chunks[0]!.id).not.toBe(chunkId);
 
-    const search = await inject(app, {
+    const search = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${result.baseId}/search?q=${encodeURIComponent('令牌')}&rerank=false`,
       headers: { cookie },
@@ -474,7 +479,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(search.statusCode, search.body).toBe(200);
     expect(search.json<{ hits: unknown[] }>().hits.length).toBeGreaterThan(0);
 
-    const rebuild = await inject(app, {
+    const rebuild = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${result.baseId}/rebuild`,
       headers: { cookie },
@@ -482,7 +487,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     });
     expect(rebuild.statusCode, rebuild.body).toBe(202);
 
-    const pages = await inject(app, {
+    const pages = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${result.baseId}/wiki-pages`,
       headers: { cookie },
@@ -491,7 +496,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(page.id).not.toBe(wikiPageId);
     expect(page.status).toBe('published');
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -501,18 +506,18 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       versions: Array<{ id: string; markdown: string; sourceChunkIds: string[] }>;
     }>();
     expect(wiki.versions[0]!.markdown).toContain('来源：访问令牌文档。');
-    expect(wiki.versions[0]!.sourceChunkIds).toEqual([chunks.rows[0]!.id]);
+    expect(wiki.versions[0]!.sourceChunkIds).toEqual([chunks[0]!.id]);
     expect(wiki.currentVersionId).toBe(wiki.versions[0]!.id);
 
-    const sources = await app.pool.query(
+    const sources = await app.client.unsafe(
       'select document_id, version_id, chunk_id, stale from knowledge_wiki_sources where page_id = $1',
       [page.id],
     );
-    expect(sources.rows).toEqual([
+    expect(sources).toEqual([
       {
         document_id: imported.id,
         version_id: imported.currentVersionId,
-        chunk_id: chunks.rows[0]!.id,
+        chunk_id: chunks[0]!.id,
         stale: false,
       },
     ]);
@@ -524,11 +529,11 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     const target = manifest.documents[0]!.versions[0]!.markdownPath!;
     files[target]![0] = files[target]![0]! ^ 0xff;
 
-    const before = await app.pool.query<{ count: string }>(
+    const before = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_bases where embedding_profile_id = $1',
       [profileId],
     );
-    const res = await injectZip(
+    const res = await requestZip(
       app,
       'POST',
       '/api/knowledge/bases/import',
@@ -536,11 +541,11 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       Buffer.from(zipSync(files, { level: 6 })),
     );
     expect(res.statusCode, res.body).toBe(400);
-    const after = await app.pool.query<{ count: string }>(
+    const after = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_bases where embedding_profile_id = $1',
       [profileId],
     );
-    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+    expect(after[0]?.count).toBe(before[0]?.count);
   });
 
   it('图片 sha256 与清单不符时拒绝导入，且不落半库', async () => {
@@ -548,17 +553,17 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       const image = manifest.documents[0]!.versions[0]!.images[0]!;
       image.sha256 = '0'.repeat(64);
     });
-    const before = await app.pool.query<{ count: string }>(
+    const before = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_bases where embedding_profile_id = $1',
       [profileId],
     );
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
     expect(res.statusCode, res.body).toBe(400);
-    const after = await app.pool.query<{ count: string }>(
+    const after = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_bases where embedding_profile_id = $1',
       [profileId],
     );
-    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+    expect(after[0]?.count).toBe(before[0]?.count);
   });
 
   it('清单登记了图片但 ZIP 缺少该文件时拒绝导入', async () => {
@@ -568,7 +573,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       delete files[image.path];
       manifest.files = manifest.files.filter((file) => file.path !== image.path);
     });
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
     expect(res.statusCode, res.body).toBe(400);
     expect(res.json<{ code: string }>().code).toBe('INVALID_INPUT');
   });
@@ -586,7 +591,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       );
       image.path = outside;
     });
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
     expect(res.statusCode, res.body).toBe(400);
     expect(res.json<{ code: string }>().code).toBe('INVALID_INPUT');
   });
@@ -594,7 +599,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
   it('路径穿越条目被拒绝', async () => {
     const files = unzipSync(new Uint8Array(exported));
     files['../escape'] = new TextEncoder().encode('x');
-    const res = await injectZip(
+    const res = await requestZip(
       app,
       'POST',
       '/api/knowledge/bases/import',
@@ -609,25 +614,25 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     const mutated = rewriteManifest(exported, (manifest) => {
       manifest.base.embeddingProfileName = 'missing-profile';
     });
-    const before = await app.pool.query<{ count: string }>(
+    const before = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_bases where embedding_profile_id = $1',
       [profileId],
     );
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
     expect(res.statusCode, res.body).toBe(409);
     expect(res.json<{ message: string }>().message).toContain('missing-profile');
-    const after = await app.pool.query<{ count: string }>(
+    const after = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_bases where embedding_profile_id = $1',
       [profileId],
     );
-    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+    expect(after[0]?.count).toBe(before[0]?.count);
   });
 
   it('声明体积超过单文件上限时拒绝导入', async () => {
     const mutated = rewriteManifest(exported, (manifest) => {
       manifest.documents[0]!.versions[0]!.sizeBytes = 32 * 1024 * 1024 + 1;
     });
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
     expect(res.statusCode, res.body).toBe(400);
   });
 
@@ -644,7 +649,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
         chunks: version.chunks.map((chunk) => ({ ...chunk, id: randomUUID() })),
       });
     });
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
     expect(res.statusCode, res.body).toBe(201);
     const result = res.json<{ baseId: string; counts: Record<string, number> }>();
     baseIds.push(result.baseId);
@@ -718,24 +723,24 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
         mutate(manifest);
       });
       const expected = message(readManifest(mutated));
-      const before = await app.pool.query<{ count: string }>(
+      const before = await app.client.unsafe<{ count: string }[]>(
         'select count(*) from knowledge_bases where embedding_profile_id = $1',
         [profileId],
       );
       const docsBefore = (await readdir(join(knowledgeDir, 'docs'))).sort();
 
-      const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
+      const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
       expect(res.statusCode, res.body).toBe(400);
       expect(res.json<{ code: string; message: string }>()).toMatchObject({
         code: 'INVALID_INPUT',
         message: expected,
       });
 
-      const after = await app.pool.query<{ count: string }>(
+      const after = await app.client.unsafe<{ count: string }[]>(
         'select count(*) from knowledge_bases where embedding_profile_id = $1',
         [profileId],
       );
-      expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+      expect(after[0]?.count).toBe(before[0]?.count);
       expect((await readdir(join(knowledgeDir, 'docs'))).sort()).toEqual(docsBefore);
     },
   );
@@ -750,7 +755,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
   }> {
     const newBaseId = await createBase(profileId);
     const original = Buffer.from('# 被引用的文档\n', 'utf8');
-    const upload = await inject(app, {
+    const upload = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/bases/${newBaseId}/documents/upload`,
       headers: { cookie },
@@ -765,25 +770,25 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
 
     const newVersionId = `kdv_${randomUUID().replace(/-/g, '')}`;
     const newChunkId = `kchk_${randomUUID().replace(/-/g, '')}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id)
        values ($1, $2, 1, $3, $3, 'cited.md', 'text/markdown', $4, 'parsed', '[]', '[]', $5)`,
       [newVersionId, newDocumentId, sha256(original), original.length, profileId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text)
        values ($1, $2, $3, $4, 0, 'text', '被引用的正文', '被引用 正文')`,
       [newChunkId, newBaseId, newDocumentId, newVersionId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       "update knowledge_documents set status = 'ready', current_version_id = $2 where id = $1",
       [newDocumentId, newVersionId],
     );
 
-    const page = await inject(app, {
+    const page = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${newBaseId}/wiki-pages`,
       headers: { cookie },
@@ -810,13 +815,13 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
   }
 
   async function exportBase(targetBaseId: string): Promise<Buffer> {
-    const res = await injectZip(app, 'GET', `/api/knowledge/bases/${targetBaseId}/export`, cookie);
+    const res = await requestZip(app, 'GET', `/api/knowledge/bases/${targetBaseId}/export`, cookie);
     expect(res.statusCode, res.body).toBe(200);
     return res.rawPayload;
   }
 
   async function deleteBase(targetBaseId: string): Promise<void> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/bases/${targetBaseId}`,
       headers: { cookie },
@@ -831,12 +836,12 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     archive: Buffer,
     originalChunkId: string,
   ): Promise<void> {
-    const imported = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
+    const imported = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
     expect(imported.statusCode, imported.body).toBe(201);
     const result = imported.json<{ baseId: string }>();
     baseIds.push(result.baseId);
 
-    const pages = await inject(app, {
+    const pages = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${result.baseId}/wiki-pages`,
       headers: { cookie },
@@ -844,7 +849,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     const page = pages.json<{ items: Array<{ id: string; status: string }> }>().items[0]!;
     expect(page.status).toBe('stale');
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -856,13 +861,13 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     // 失效引用保留原身份，但不指向任何导入后的 chunk。
     expect(version.sourceChunkIds).toEqual([originalChunkId]);
     expect(
-      await app.pool.query('select id from knowledge_chunks where id = $1', [originalChunkId]),
-    ).toMatchObject({ rows: [] });
+      await app.client.unsafe('select id from knowledge_chunks where id = $1', [originalChunkId]),
+    ).toEqual([]);
   }
 
   it('删除被 Wiki 引用的 chunk 后导出：旧版留存，Wiki 标 stale 且引用仍可追溯到历史版本', async () => {
     const seeded = await seedReferencedWiki();
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/chunks/${seeded.chunkId}`,
       headers: { cookie },
@@ -887,27 +892,27 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     ]);
 
     await deleteBase(seeded.baseId);
-    const importRes = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
+    const importRes = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
     expect(importRes.statusCode, importRes.body).toBe(201);
     const imported = importRes.json<{ baseId: string }>();
     baseIds.push(imported.baseId);
-    const versions = await app.pool.query<{ source_chunk_ids: string[] }>(
+    const versions = await app.client.unsafe<{ source_chunk_ids: string[] }[]>(
       `select v.source_chunk_ids from knowledge_wiki_versions v
        join knowledge_wiki_pages p on p.id = v.page_id
        where p.base_id = $1 order by v.version desc limit 1`,
       [imported.baseId],
     );
-    expect(versions.rows[0]!.source_chunk_ids).toHaveLength(1);
-    expect(versions.rows[0]!.source_chunk_ids[0]).not.toBe(seeded.chunkId);
-    const importedChunk = await app.pool.query('select 1 from knowledge_chunks where id = $1', [
-      versions.rows[0]!.source_chunk_ids[0],
+    expect(versions[0]!.source_chunk_ids).toHaveLength(1);
+    expect(versions[0]!.source_chunk_ids[0]).not.toBe(seeded.chunkId);
+    const importedChunk = await app.client.unsafe('select 1 from knowledge_chunks where id = $1', [
+      versions[0]!.source_chunk_ids[0],
     ]);
-    expect(importedChunk.rowCount).toBe(1);
+    expect(importedChunk).toHaveLength(1);
   });
 
   it('删除被 Wiki 引用的整篇文档后导出再导入：历史引用显式失效仍可恢复', async () => {
     const seeded = await seedReferencedWiki();
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/documents/${seeded.documentId}`,
       headers: { cookie },
@@ -930,7 +935,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
   it('未声明的失效引用仍被拒绝：sourceChunkIds 指向包外 chunk 时导入失败', async () => {
     const seeded = await seedReferencedWiki();
     // 删除整篇文档才会让所有版本与 chunk 一起消失，产生真正的失效引用。
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/documents/${seeded.documentId}`,
       headers: { cookie },
@@ -945,7 +950,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       version.unresolvedSourceChunkIds = [];
     });
     await deleteBase(seeded.baseId);
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, forged);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, forged);
     expect(res.statusCode, res.body).toBe(400);
     expect(res.json<{ code: string }>().code).toBe('INVALID_INPUT');
   });

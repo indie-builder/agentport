@@ -2,9 +2,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Agent } from '@agentport/shared';
 import { chatEventSchema, RUN_CANCEL_PAYLOAD, runCancelKey } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildMessageRows } from '../../worker/src/messages.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
@@ -12,10 +11,11 @@ import {
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
   queueIdle,
+  request,
   startApp,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
@@ -24,7 +24,7 @@ import {
 const ready = (await infraReady) && (await queueIdle);
 
 describe.skipIf(!ready)('chat', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let testRedis: Redis;
   const createdAgents: string[] = [];
@@ -62,7 +62,7 @@ describe.skipIf(!ready)('chat', () => {
 
   it('POST /api/chat creates a run and returns 202', async () => {
     const agent = await newAgent();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -74,7 +74,7 @@ describe.skipIf(!ready)('chat', () => {
     expect(body.conversationId.startsWith('conv_')).toBe(true);
     runIds.push(body.runId);
 
-    const conversation = await inject(app, {
+    const conversation = await request(app, {
       method: 'GET',
       url: `/api/conversations/${body.conversationId}`,
       headers: auth(),
@@ -91,7 +91,7 @@ describe.skipIf(!ready)('chat', () => {
 
   it('persists parentToolUseId on messages produced inside a sub-agent', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -124,13 +124,13 @@ describe.skipIf(!ready)('chat', () => {
       { type: 'tool_result', toolUseId: 'toolu_parent', content: 'done' },
     ]);
     for (const [index, row] of buildMessageRows(events).entries()) {
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into messages (id, conversation_id, role, content, run_id) values ($1, $2, $3, $4, $5)',
         [`msg_parent_test_${index}`, conversationId, row.role, JSON.stringify(row.content), runId],
       );
     }
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/conversations/${conversationId}`,
       headers: auth(),
@@ -144,7 +144,7 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   it('POST /api/chat returns 404 for an unknown agent', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -154,7 +154,7 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   it('GET /api/chat/:runId/events returns 404 for an unknown run', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: '/api/chat/run_missing/events',
       headers: auth(),
@@ -164,7 +164,7 @@ describe.skipIf(!ready)('chat', () => {
 
   it('does not put conversation history in the queue job', async () => {
     const agent = await newAgent();
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -172,16 +172,16 @@ describe.skipIf(!ready)('chat', () => {
     });
     const firstBody = first.json<{ runId: string; conversationId: string }>();
     runIds.push(firstBody.runId);
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into messages (id, conversation_id, role, content) values ('msg_history_test', $1, 'assistant', $2)",
       [firstBody.conversationId, JSON.stringify({ type: 'text', text: 'noted' })],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
       [firstBody.runId],
     );
 
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -207,7 +207,7 @@ describe.skipIf(!ready)('chat', () => {
 
   it('branches a conversation up to the given message', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -216,7 +216,7 @@ describe.skipIf(!ready)('chat', () => {
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
     // 分支要求线上消息都有 SDK uuid：这里模拟已完成的一轮 assistant 输出。
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into messages (id, conversation_id, role, content, sdk_message_uuid) values ('msg_branch_test', $1, 'assistant', $2, $3)",
       [
         conversationId,
@@ -224,7 +224,7 @@ describe.skipIf(!ready)('chat', () => {
         '7a1c2b3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d',
       ],
     );
-    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+    await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
       conversationId,
       '11111111-2222-4333-8444-555555555555',
     ]);
@@ -240,7 +240,7 @@ describe.skipIf(!ready)('chat', () => {
     await mkdir(sessionsDir, { recursive: true });
     await writeFile(join(sessionsDir, '11111111-2222-4333-8444-555555555555.jsonl'), '');
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/conversations/${conversationId}`,
       headers: auth(),
@@ -249,7 +249,7 @@ describe.skipIf(!ready)('chat', () => {
     const userMessage = messages.find((message) => message.role === 'user');
     expect(userMessage).toBeDefined();
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/conversations/${conversationId}/branch`,
       headers: auth(),
@@ -270,7 +270,7 @@ describe.skipIf(!ready)('chat', () => {
     expect(branch.branchOfMessageId).toBe(userMessage?.id);
     expect(branch.id).not.toBe(conversationId);
 
-    const branchDetail = await inject(app, {
+    const branchDetail = await request(app, {
       method: 'GET',
       url: `/api/conversations/${branch.id as string}`,
       headers: auth(),
@@ -281,7 +281,7 @@ describe.skipIf(!ready)('chat', () => {
 
   it('inherits approvals from the previous run in the same conversation', async () => {
     const agent = await newAgent();
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -292,23 +292,23 @@ describe.skipIf(!ready)('chat', () => {
 
     const serverName = unique('inherit-srv');
     createdServers.push(serverName);
-    const server = await inject(app, {
+    const server = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: auth(),
       payload: { name: serverName, kind: 'generated', baseUrl: 'https://example.com' },
     });
     const serverId = server.json<{ id: string }>().id;
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into approval_requests (id, run_id, server_id, tool_name, approved_at) values ($1, $2, $3, $4, now())',
       [unique('apr'), firstBody.runId, serverId, 'approved-tool'],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'failed', ended_at = now() where id = $1",
       [firstBody.runId],
     );
 
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -322,7 +322,7 @@ describe.skipIf(!ready)('chat', () => {
     const secondBody = second.json<{ runId: string }>();
     runIds.push(secondBody.runId);
 
-    const approvals = await inject(app, {
+    const approvals = await request(app, {
       method: 'GET',
       url: `/api/runs/${secondBody.runId}/approvals`,
       headers: auth(),
@@ -331,16 +331,16 @@ describe.skipIf(!ready)('chat', () => {
       items: [{ toolName: 'approved-tool', approvedAt: expect.any(String) }],
     });
 
-    const audit = await app.pool.query<{ action: string }>(
+    const audit = await app.client.unsafe<{ action: string }[]>(
       "select action from audit_log where action = 'agent.run.approvals_inherited' and target = $1",
       [secondBody.runId],
     );
-    expect(audit.rows).toHaveLength(1);
+    expect(audit).toHaveLength(1);
   });
 
   it('POST /api/conversations/:id/branch rejects an unknown branch point', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -349,7 +349,7 @@ describe.skipIf(!ready)('chat', () => {
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/conversations/${conversationId}/branch`,
       headers: auth(),
@@ -360,7 +360,7 @@ describe.skipIf(!ready)('chat', () => {
 
   it('cancel is idempotent for an already terminal run', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -368,13 +368,13 @@ describe.skipIf(!ready)('chat', () => {
     });
     const { runId } = created.json<{ runId: string }>();
     runIds.push(runId);
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'cancelled', ended_at = now() where id = $1",
       [runId],
     );
 
     for (let i = 0; i < 2; i += 1) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/chat/${runId}/cancel`,
         headers: auth(),
@@ -383,32 +383,32 @@ describe.skipIf(!ready)('chat', () => {
       expect(res.json()).toEqual({ ok: true });
     }
 
-    const row = await app.pool.query<{ status: string }>(
+    const row = await app.client.unsafe<{ status: string }[]>(
       'select status from agent_runs where id = $1',
       [runId],
     );
-    expect(row.rows[0]?.status).toBe('cancelled');
+    expect(row[0]?.status).toBe('cancelled');
   });
 
   const cancelAuditCount = async (runId: string): Promise<number> => {
-    const res = await app.pool.query<{ count: string }>(
+    const res = await app.client.unsafe<{ count: string }[]>(
       "select count(*) from audit_log where action = 'agent.run.cancelled' and target = $1",
       [runId],
     );
-    return Number(res.rows[0]?.count);
+    return Number(res[0]?.count);
   };
 
   const runStatus = async (runId: string): Promise<string | undefined> => {
-    const row = await app.pool.query<{ status: string }>(
+    const row = await app.client.unsafe<{ status: string }[]>(
       'select status from agent_runs where id = $1',
       [runId],
     );
-    return row.rows[0]?.status;
+    return row[0]?.status;
   };
 
   it('cancel of a queued run removes the waiting job so it never reaches a worker', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -418,7 +418,7 @@ describe.skipIf(!ready)('chat', () => {
     runIds.push(runId);
     expect(await getQueue().getJob(runId)).toBeDefined();
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/chat/${runId}/cancel`,
       headers: auth(),
@@ -431,7 +431,7 @@ describe.skipIf(!ready)('chat', () => {
 
   it('second cancel of a queued run is idempotent and leaves no job behind', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -441,7 +441,7 @@ describe.skipIf(!ready)('chat', () => {
     runIds.push(runId);
 
     for (let i = 0; i < 2; i += 1) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/chat/${runId}/cancel`,
         headers: auth(),
@@ -457,7 +457,7 @@ describe.skipIf(!ready)('chat', () => {
 
   it('cancel of a running run keeps the queued job untouched and leaves the terminal state to the worker', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -466,9 +466,9 @@ describe.skipIf(!ready)('chat', () => {
     const { runId } = created.json<{ runId: string }>();
     runIds.push(runId);
     // 直接把 DB 状态改成 running：模拟 worker 已领取，job 不再是 waiting。
-    await app.pool.query("update agent_runs set status = 'running' where id = $1", [runId]);
+    await app.client.unsafe("update agent_runs set status = 'running' where id = $1", [runId]);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/chat/${runId}/cancel`,
       headers: auth(),

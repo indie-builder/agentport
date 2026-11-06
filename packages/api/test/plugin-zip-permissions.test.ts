@@ -5,10 +5,17 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { renderPlugin, WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from '@agentport/core';
 import type { Plugin } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { infraReady, inject, injectZip, loginCookie, startApp, unique } from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import {
+  infraReady,
+  loginCookie,
+  request,
+  requestZip,
+  startApp,
+  type TestApp,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 const ENCODER = new TextEncoder();
@@ -41,7 +48,7 @@ function plainZip(files: Record<string, string>): Buffer {
 }
 
 describe.skipIf(!ready)('plugin ZIP executable permissions', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const slugs: string[] = [];
 
@@ -52,14 +59,14 @@ describe.skipIf(!ready)('plugin ZIP executable permissions', () => {
 
   afterAll(async () => {
     if (slugs.length > 0) {
-      await app.pool.query('delete from plugins where slug = any($1::text[])', [slugs]);
+      await app.client.unsafe('delete from plugins where slug = any($1::text[])', [app.client.array(slugs, 'TEXT')]);
     }
     await app.close();
   });
 
   async function importPlugin(slug: string, archive: Buffer): Promise<Plugin> {
     slugs.push(slug);
-    const res = await injectZip(app, 'POST', `/api/plugins/import?slug=${slug}`, cookie, archive);
+    const res = await requestZip(app, 'POST', `/api/plugins/import?slug=${slug}`, cookie, archive);
     expect(res.statusCode, res.body).toBe(201);
     return res.json<{ plugin: Plugin }>().plugin;
   }
@@ -112,11 +119,11 @@ describe.skipIf(!ready)('plugin ZIP executable permissions', () => {
       ]),
     );
 
-    const exported = await injectZip(app, 'GET', `/api/plugins/${plugin.id}/export`, cookie);
+    const exported = await requestZip(app, 'GET', `/api/plugins/${plugin.id}/export`, cookie);
     expect(exported.statusCode, exported.body).toBe(200);
 
     // 导出包沿用原 manifest 名称；删掉原行后同 slug 再导入，才能验证真实往返。
-    const deleted = await inject(app, {
+    const deleted = await request(app, {
       method: 'DELETE',
       url: `/api/plugins/${plugin.id}`,
       headers: { cookie },

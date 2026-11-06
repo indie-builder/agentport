@@ -1,13 +1,13 @@
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 
 /**
  * 分支复制的是已合并的 canonical 程序与段状态。blockKey 是段序号（s0/s1），
  * 与消息 id 无关，所以新消息 id 下无需重写 key。
  */
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -22,7 +22,7 @@ describe.skipIf(!ready)('branch copies OpenUI snapshots', () => {
     if (agentIds.length > 0) {
       await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
     }
-    await pool.end();
+    await client.close();
   });
 
   it('keeps uiProgram and per-segment state under the new message id', async () => {

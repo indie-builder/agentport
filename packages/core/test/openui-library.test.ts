@@ -7,7 +7,7 @@ import {
   markReactive,
 } from '@openuidev/lang-core';
 import { openuiChatLibrary } from '@openuidev/react-ui/genui-lib';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'bun:test';
 
 /**
  * shared 的真实 Zod 定义必须与官方 chat 库逐字节等价——默认值、约束、

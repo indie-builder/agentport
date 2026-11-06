@@ -1,5 +1,4 @@
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cookieOf,
   createAccount,
@@ -9,7 +8,7 @@ import {
   login,
   unique,
 } from './access-helpers.js';
-import { infraReady, inject, loginCookie, startApp } from './helpers.js';
+import { infraReady, loginCookie, request, startApp, type TestApp } from './helpers.js';
 
 const ready = await infraReady;
 const PASSWORD = 'test-password-123';
@@ -31,7 +30,7 @@ interface Profile {
 }
 
 describe.skipIf(!ready)('knowledge model profile selection', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let admin: string;
   let reader: string;
   let creator: string;
@@ -46,7 +45,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
   let baseId = '';
 
   const createProfile = async (input: Record<string, unknown>): Promise<Profile> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie: admin },
@@ -148,7 +147,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
 
     profiles.asr = await createProfile({ kind: 'asr', name: 'asr', model: 'whisper-1' });
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie: admin },
@@ -165,26 +164,25 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
   });
 
   it('requires login and rejects an unknown view', async () => {
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: '/api/knowledge/model-profiles?view=selection',
       }),
       'UNAUTHORIZED',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: '/api/knowledge/model-profiles?view=all',
         headers: { cookie: manager },
@@ -195,7 +193,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
 
   it('serves the selection projection with read, and the management list only with manage', async () => {
     for (const cookie of [reader, creator, updater, manager]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: '/api/knowledge/model-profiles?view=selection',
         headers: { cookie },
@@ -205,7 +203,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
 
     for (const cookie of [reader, creator, updater]) {
       expectProblem(
-        await inject(app, {
+        await request(app, {
           method: 'GET',
           url: '/api/knowledge/model-profiles',
           headers: { cookie },
@@ -214,7 +212,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
       );
     }
 
-    const managed = await inject(app, {
+    const managed = await request(app, {
       method: 'GET',
       url: '/api/knowledge/model-profiles',
       headers: { cookie: manager },
@@ -235,12 +233,12 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
       '/api/knowledge/wiki-pages/missing/diff?fromVersionId=a&toVersionId=b',
       '/api/knowledge/sources/missing/runs/missing/items',
     ]) {
-      const response = await inject(app, { method: 'GET', url, headers: { cookie: reader } });
+      const response = await request(app, { method: 'GET', url, headers: { cookie: reader } });
       expect([200, 404]).toContain(response.statusCode);
-      expectProblem(await inject(app, { method: 'GET', url }), 'UNAUTHORIZED');
+      expectProblem(await request(app, { method: 'GET', url }), 'UNAUTHORIZED');
     }
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/knowledge/bases/${baseId}/faqs/export`,
         headers: { cookie: reader },
@@ -261,7 +259,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
       ['/api/knowledge/sources/missing/test', undefined],
     ] as const) {
       expectProblem(
-        await inject(app, {
+        await request(app, {
           method: 'POST',
           url,
           headers: { cookie: reader },
@@ -273,7 +271,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
   });
 
   it('keeps create and update writes on their original permissions', async () => {
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie: creator },
@@ -287,7 +285,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
     baseIds.push(created.json<{ id: string }>().id);
 
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/bases/${baseId}`,
         headers: { cookie: creator },
@@ -297,7 +295,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
     );
 
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: '/api/knowledge/bases',
         headers: { cookie: updater },
@@ -310,7 +308,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
       'FORBIDDEN',
     );
 
-    const updated = await inject(app, {
+    const updated = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/bases/${baseId}`,
       headers: { cookie: updater },
@@ -320,7 +318,7 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
   });
 
   it('returns exactly five fields including disabled profiles and computed image capability', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: '/api/knowledge/model-profiles?view=selection',
       headers: { cookie: reader },

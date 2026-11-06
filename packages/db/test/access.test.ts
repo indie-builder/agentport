@@ -9,7 +9,7 @@ import {
 } from '@agentport/shared';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
@@ -38,14 +38,14 @@ import {
 const isolated = await createIsolatedDatabase('db_access', process.env.DATABASE_URL ?? '');
 const url =
   isolated?.url ?? process.env.DATABASE_URL ?? 'postgres://unreachable@127.0.0.1:1/unavailable';
-const { db, pool } = createDb(url);
+const { db, client } = createDb(url);
 const ready =
   isolated !== null &&
-  (await pool.query('select 1').then(
+  (await client.unsafe('select 1').then(
     () => true,
     () => false,
   ));
-if (!ready) await pool.end();
+if (!ready) await client.close();
 
 const suffix = randomUUID().slice(0, 8);
 const bid = (label: string) => `rbac-${suffix}-${label}`;
@@ -335,7 +335,7 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
   afterAll(async () => {
     // 隔离库每轮重建：先断连接，再删本套件创建的库。
     try {
-      await pool.end();
+      await client.close();
     } finally {
       await isolated?.close();
     }
@@ -682,7 +682,7 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
       expect([secondRound.first, secondRound.second].filter(Boolean)).toHaveLength(1);
       expect(await activeAdminIds()).toHaveLength(1);
     } finally {
-      await secondConnection.pool.end();
+      await secondConnection.client.close();
     }
   });
 

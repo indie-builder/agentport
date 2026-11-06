@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
-import { createDb, newId } from '../packages/db/dist/index.js';
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 频道模式浏览器回归：真实页面、真实 API/worker/Docker 沙盒，模型端点由
@@ -11,21 +11,9 @@ import { createDb, newId } from '../packages/db/dist/index.js';
  *
  * 入口：`pnpm e2e:channel:ui`（起隔离栈 → 跑本文件 → 清理）。
  */
-const DATABASE_URL = process.env.DATABASE_URL;
 const REPLY_PREFIX = 'E2E-CHANNEL-REPLY';
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
 const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
-
-function dbUrl(): string {
-  if (!DATABASE_URL) throw new Error('DATABASE_URL is required for channel e2e fixtures');
-  return DATABASE_URL;
-}
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function db() {
-  dbPromise ??= createDb(dbUrl());
-  return dbPromise;
-}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -39,12 +27,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
-  const { pool } = await db();
-  const result = await pool.query<T>(sql, params);
-  return result.rows;
-}
-
 interface Created {
   channels: string[];
   agents: string[];
@@ -56,40 +38,11 @@ const created: Created = { channels: [], agents: [], accounts: [], servers: [] }
 
 /** 只删本文件建的频道/智能体/账户/连接器；成员、绑定、消息、run、审批随外键级联。 */
 test.afterEach(async () => {
-  if (
-    created.channels.length === 0 &&
-    created.agents.length === 0 &&
-    created.accounts.length === 0 &&
-    created.servers.length === 0
-  ) {
-    return;
-  }
-  const { pool } = await db();
-  const targets = [...created.channels, ...created.agents, ...created.servers];
-  if (targets.length > 0) {
-    await pool.query('delete from audit_log where target = any($1::text[])', [targets]);
-  }
-  if (created.servers.length > 0) {
-    await pool.query('delete from servers where id = any($1::text[])', [created.servers]);
-  }
-  if (created.channels.length > 0) {
-    await pool.query('delete from channels where id = any($1::text[])', [created.channels]);
-  }
-  if (created.agents.length > 0) {
-    await pool.query('delete from agents where id = any($1::text[])', [created.agents]);
-  }
-  if (created.accounts.length > 0) {
-    await pool.query('delete from "user" where business_id = any($1::text[])', [created.accounts]);
-  }
+  await runFixture('channels', 'cleanup', created);
   created.channels.length = 0;
   created.agents.length = 0;
   created.accounts.length = 0;
   created.servers.length = 0;
-});
-
-test.afterAll(async () => {
-  const current = await dbPromise;
-  await current?.pool.end();
 });
 
 interface ApiResponse {
@@ -229,11 +182,7 @@ async function waitForReply(screen: Screen, expected: string): Promise<void> {
 }
 
 async function latestRunStatus(channelId: string): Promise<string | undefined> {
-  const rows = await query<{ status: string }>(
-    `select status from agent_runs where channel_id = $1 order by created_at desc, id desc limit 1`,
-    [channelId],
-  );
-  return rows[0]?.status;
+  return runFixture('channels', 'latestRunStatus', channelId);
 }
 
 test('creates a channel from the list and opens its detail', { session: 'admin' }, async ({
@@ -276,10 +225,7 @@ test('binds an agent to a channel and shows it in the detail', { session: 'admin
 
   await expect(screen.getByText('智能体已加入频道')).toBeVisible();
   await expect(screen.getByText(agent.name).first()).toBeVisible();
-  const rows = await query<{ count: string }>(
-    'select count(*)::text as count from channel_agent_bindings where channel_id = $1 and agent_id = $2',
-    [channel.id, agent.id],
-  );
+  const rows = await runFixture('channels', 'bindingCount', channel.id, agent.id);
   expect(rows[0]?.count).toBe('1');
 });
 
@@ -301,10 +247,7 @@ test('a message without @ does not wake an agent', { session: 'admin' }, async (
   await expect(screen.getByText(body)).toBeVisible();
   // 给可能的误入队留出窗口，再确认没有 run。
   await new Promise((resolve) => setTimeout(resolve, 3_000));
-  const rows = await query<{ count: string }>(
-    'select count(*)::text as count from agent_runs where channel_id = $1',
-    [channel.id],
-  );
+  const rows = await runFixture('channels', 'runCount', channel.id);
   expect(rows[0]?.count).toBe('0');
   await expect(screen.getByText('运行中')).toHaveCount(0);
 });
@@ -347,17 +290,11 @@ test('a second @ reuses the same channel lane', { session: 'admin' }, async ({
   await sendMention(screen, agent.name, second);
   await waitForReply(screen, `${REPLY_PREFIX} @${agent.name} ${second}`);
 
-  const runs = await query<{ conversation_id: string; status: string }>(
-    `select conversation_id, status from agent_runs where channel_id = $1 order by created_at asc`,
-    [channel.id],
-  );
+  const runs = await runFixture('channels', 'runs', channel.id);
   expect(runs.length).toBe(2);
   expect(new Set(runs.map((run) => run.conversation_id)).size).toBe(1);
   expect(runs.map((run) => run.status).join(',')).toBe('succeeded,succeeded');
-  const lanes = await query<{ count: string }>(
-    'select count(*)::text as count from conversations where channel_id = $1 and agent_id = $2',
-    [channel.id, agent.id],
-  );
+  const lanes = await runFixture('channels', 'laneCount', channel.id, agent.id);
   expect(lanes[0]?.count).toBe('1');
 });
 
@@ -388,39 +325,15 @@ test('approves a pending tool approval from the channel', { session: 'admin' }, 
   const channel = await createChannel(browser, 'approve');
   await bindAgent(browser, channel.id, agent.id);
 
-  const channelRows = await query<{ created_by: string }>(
-    'select created_by from channels where id = $1',
-    [channel.id],
-  );
-  const adminBusinessId = channelRows[0]?.created_by;
-  assert(adminBusinessId !== undefined, '频道缺少创建者');
-  const conversationId = newId('conversation');
-  const runId = newId('run');
-  const serverId = newId('server');
-  const approvalId = newId('approval');
   const serverName = `E2E 审批服务 ${uniqueSuffix()}`;
-  created.servers.push(serverId);
-
-  await query(
-    `insert into conversations (id, agent_id, channel_id, created_by)
-       values ($1, $2, $3, $4)`,
-    [conversationId, agent.id, channel.id, adminBusinessId],
-  );
-  await query(
-    `insert into agent_runs
-         (id, conversation_id, agent_id, channel_id, status, trigger, subject_kind, initiated_by, started_at)
-       values ($1, $2, $3, $4, 'running', 'channel', 'user', $5, now())`,
-    [runId, conversationId, agent.id, channel.id, adminBusinessId],
-  );
-  await query(`insert into servers (id, name, kind, config) values ($1, $2, 'http', '{}'::jsonb)`, [
-    serverId,
+  const { serverId, approvalId } = await runFixture(
+    'channels',
+    'pendingApproval',
+    channel.id,
+    agent.id,
     serverName,
-  ]);
-  await query(
-    `insert into approval_requests (id, run_id, channel_id, server_id, tool_name)
-       values ($1, $2, $3, $4, 'e2e_tool')`,
-    [approvalId, runId, channel.id, serverId],
   );
+  created.servers.push(serverId);
 
   await app.open(`/channels/${channel.id}`);
   await expect(screen.getByText(/需要批准：/)).toBeVisible({ timeout: 60_000 });
@@ -431,10 +344,7 @@ test('approves a pending tool approval from the channel', { session: 'admin' }, 
   await expect
     .poll(
       async () => {
-        const rows = await query<{ approved_at: Date | null }>(
-          'select approved_at from approval_requests where id = $1',
-          [approvalId],
-        );
+        const rows = await runFixture('channels', 'approval', approvalId);
         return rows[0]?.approved_at != null;
       },
       { timeout: 30_000 },

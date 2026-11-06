@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-import { createDb } from '@agentport/db';
 import {
   type AccessScope,
   type ErrorCode,
@@ -10,101 +8,44 @@ import {
   problemSchema,
   type Role,
 } from '@agentport/shared';
-import Fastify, {
-  type FastifyInstance,
-  type InjectOptions,
-  type LightMyRequestResponse,
-} from 'fastify';
-import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
-import { Redis } from 'ioredis';
-import { expect } from 'vitest';
-import { type Config, loadConfig } from '../src/config.js';
-import { registerAccountRoutes } from '../src/features/auth/accounts.js';
-import { registerAuth } from '../src/features/auth/routes.js';
-import { AUTH_COOKIE } from '../src/features/auth/types.js';
-import { registerAccess } from '../src/plugins/access.js';
-import { registerErrorHandler } from '../src/plugins/errors.js';
+import { expect } from 'bun:test';
+import { AUTH_COOKIE } from '../src/modules/auth/types.js';
+import {
+  infraReady,
+  request,
+  startApp,
+  type TestApp,
+  type TestResponse,
+  testConfig,
+  unique,
+} from './helpers.js';
 
-const SUFFIX = randomBytes(4).toString('hex');
-let counter = 0;
-
-export function testConfig(overrides: Partial<Record<string, string>> = {}): Config {
-  return loadConfig({ ...process.env, ...overrides });
-}
-
-export function unique(prefix: string): string {
-  counter += 1;
-  return `${prefix}-${SUFFIX}-${counter.toString(36)}`;
-}
-
-async function probeInfra(config: Config): Promise<boolean> {
-  const { pool } = createDb(config.DATABASE_URL);
-  const redis = new Redis(config.REDIS_URL, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
-  try {
-    await pool.query('select 1');
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
-  } catch {
-    return false;
-  } finally {
-    await pool.end().catch(() => undefined);
-    await redis.quit().catch(() => undefined);
-  }
-}
-
-export const infraReady: Promise<boolean> = probeInfra(testConfig());
+export type { TestApp, TestResponse };
+export { infraReady, request, testConfig, unique };
 
 /**
- * 只注册认证/授权/账户角色路由的最小 app：其他领域路由尚未声明 config.access 时，
- * 全量 app 会被 onRoute 校验拒绝，本单元用最小 app 独立验证。
+ * 认证/授权测试只需要完整 app：新架构下访问控制由 contract meta 与 http/access 统一执行，
+ * 不再需要另拼一个最小 Fastify 实例。
  */
 export async function startAccessApp(
   overrides: Partial<Record<string, string>> = {},
-  extend?: (app: FastifyInstance) => void,
-): Promise<FastifyInstance> {
-  const config = testConfig(overrides);
-  const app = Fastify({ logger: false });
-  app.setValidatorCompiler(validatorCompiler);
-  app.setSerializerCompiler(serializerCompiler);
-
-  const { db, pool } = createDb(config.DATABASE_URL);
-  app.decorate('db', db);
-  app.decorate('pool', pool);
-  app.decorate('config', config);
-  app.addHook('onClose', async () => {
-    await pool.end();
-  });
-
-  registerErrorHandler(app);
-  registerAccess(app);
-  await registerAuth(app);
-  registerAccountRoutes(app);
-  extend?.(app);
-  await app.ready();
-  return app;
+): Promise<TestApp> {
+  return startApp(overrides);
 }
 
-export function inject(app: FastifyInstance, opts: InjectOptions): Promise<LightMyRequestResponse> {
-  return app.inject(opts);
-}
-
-export function cookieOf(res: LightMyRequestResponse): string {
+export function cookieOf(res: TestResponse): string {
   const cookie = res.cookies.find((entry) => entry.name === AUTH_COOKIE);
   if (!cookie?.value) throw new Error(`no auth cookie in response: ${res.statusCode} ${res.body}`);
   return `${cookie.name}=${cookie.value}`;
 }
 
 export function login(
-  app: FastifyInstance,
+  app: TestApp,
   username: string,
   password: string,
   headers: Record<string, string> = {},
-): Promise<LightMyRequestResponse> {
-  return inject(app, {
+): Promise<TestResponse> {
+  return request(app, {
     method: 'POST',
     url: '/api/auth/login',
     headers,
@@ -112,7 +53,7 @@ export function login(
   });
 }
 
-export async function adminCookie(app: FastifyInstance): Promise<string> {
+export async function adminCookie(app: TestApp): Promise<string> {
   const config = testConfig();
   const res = await login(app, config.ADMIN_USER, config.ADMIN_PASSWORD);
   if (res.statusCode !== 200) throw new Error(`admin login failed: ${res.statusCode} ${res.body}`);
@@ -120,7 +61,7 @@ export async function adminCookie(app: FastifyInstance): Promise<string> {
 }
 
 export async function createAccount(
-  app: FastifyInstance,
+  app: TestApp,
   cookie: string,
   input: {
     businessId?: string;
@@ -131,7 +72,7 @@ export async function createAccount(
     restore?: boolean;
   } = {},
 ): Promise<{
-  res: LightMyRequestResponse;
+  res: TestResponse;
   statusCode: number;
   body: string;
   account: {
@@ -142,7 +83,7 @@ export async function createAccount(
     roles: { id: string; name: string; systemKey: string | null }[];
   };
 }> {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/accounts',
     headers: { cookie },
@@ -162,7 +103,7 @@ type Matrix = { revision: number; roles: Role[] };
 
 /** 角色矩阵是全局 revision；并行测试按 409 重读后重试，不放松服务端原子性。 */
 export async function mutateMatrix(
-  app: FastifyInstance,
+  app: TestApp,
   cookie: string,
   transform: (current: Matrix) => {
     id?: string;
@@ -171,10 +112,14 @@ export async function mutateMatrix(
   }[],
 ): Promise<Matrix> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const current = await inject(app, { method: 'GET', url: '/api/roles', headers: { cookie } });
+    const current = await request(app, {
+      method: 'GET',
+      url: '/api/roles',
+      headers: { cookie },
+    });
     expect(current.statusCode, current.body).toBe(200);
     const matrix = current.json<Matrix>();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PUT',
       url: '/api/roles',
       headers: { cookie },
@@ -191,7 +136,7 @@ export async function mutateMatrix(
 }
 
 export async function createRole(
-  app: FastifyInstance,
+  app: TestApp,
   cookie: string,
   name: string,
   grants: { permissionId: PermissionId; scope: AccessScope }[],
@@ -213,7 +158,7 @@ export function grants(...values: [PermissionId, AccessScope][]): PermissionGran
   return values.map(([permissionId, scope]) => ({ permissionId, scope }));
 }
 
-export function expectProblem(res: LightMyRequestResponse, code: ErrorCode): Problem {
+export function expectProblem(res: TestResponse, code: ErrorCode): Problem {
   const body = problemSchema.parse(res.json());
   expect(res.statusCode).toBe(errorCode[code]);
   expect(body).toMatchObject({ code, status: res.statusCode });

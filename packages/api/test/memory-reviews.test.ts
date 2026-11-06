@@ -1,20 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import * as fsModule from 'node:fs/promises';
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { personalMemoryDir, personalMemoryPath } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, AGENT_MEMORY_MAX_LINES } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { buildApp } from '../src/app.js';
-import { readMemoryFile, writeMemoryFile } from '../src/features/agents/memory-files.js';
-import { registerMemoryChangeRoutes } from '../src/features/memory/changes.js';
-import { memorySha256, writeMemoryJournal } from '../src/features/memory/journal.js';
-import {
-  MEMORY_REVIEW_MAX_BYTES,
-  registerMemoryReviewRoutes,
-} from '../src/features/memory-reviews/routes.js';
+import { readMemoryFile, writeMemoryFile } from '../src/modules/agents/memory-files.js';
+import { memorySha256, writeMemoryJournal } from '../src/modules/memory/journal.js';
+import { MEMORY_REVIEW_MAX_BYTES } from '../src/modules/memory-reviews/router.js';
 import { closeProducer, getQueue } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -23,8 +19,9 @@ import {
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
@@ -32,7 +29,7 @@ import {
 const ready = await infraReady;
 
 // 故障注入只影响本文件的写入投影；其他 fs 操作继续走真实实现。
-const fsFaults = vi.hoisted(() => ({
+const fsFaults = ({
   failRename: false,
   /** 第 N 次 rename 失败（1 起算）；0 表示不按次数失败。 */
   failRenameAt: 0,
@@ -42,9 +39,10 @@ const fsFaults = vi.hoisted(() => ({
   failUnlink: false,
   renameCalls: 0,
   gate: null as null | { entered: () => void; release: Promise<void> },
-}));
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
+});
+const realFs = { ...fsModule };
+mock.module('node:fs/promises', () => {
+  const actual = realFs;
   return {
     ...actual,
     unlink: async (...args: Parameters<typeof actual.unlink>) => {
@@ -85,7 +83,7 @@ interface JobRecord {
 }
 
 describe.skipIf(!ready)('memory reviews', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let root: string;
   let addSpy: { mockRestore: () => void };
@@ -94,31 +92,23 @@ describe.skipIf(!ready)('memory reviews', () => {
   const jobs: JobRecord[] = [];
   let messageSeq = 0;
 
-  async function acquireMemoryLock(pool: FastifyInstance['pool']): Promise<() => Promise<void>> {
-    const client = await pool.connect();
+  async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
+    const reserved = await client.reserve();
     // 等锁可能超过连接默认的 statement_timeout。
-    await client.query('set statement_timeout = 0');
-    await client.query('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
+    await reserved.unsafe('set statement_timeout = 0');
+    await reserved.unsafe('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
     return async () => {
-      await client.query('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
-      client.release();
+      await reserved.unsafe('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
+      reserved.release();
     };
   }
 
   beforeAll(async () => {
     root = await mkdtemp(join(await realpath(tmpdir()), 'memory-reviews-'));
     app = await buildApp(testConfig({ WORKSPACES_DIR: root }));
-    // 路由已由 buildApp 注册；仅在未注册时手动挂载，避免重复声明。
-    if (!app.hasRoute({ method: 'POST', url: '/api/memory-reviews' })) {
-      registerMemoryReviewRoutes(app);
-    }
-    if (!app.hasRoute({ method: 'GET', url: '/api/agents/:id/memory/:name/versions' })) {
-      registerMemoryChangeRoutes(app);
-    }
-    await app.ready();
-    releaseLock = await acquireMemoryLock(app.pool);
+    releaseLock = await acquireMemoryLock(app.client);
     cookie = await loginCookie(app);
-    addSpy = vi.spyOn(getQueue(), 'add').mockImplementation((async (
+    addSpy = spyOn(getQueue(), 'add').mockImplementation((async (
       name: string,
       data: JobRecord['data'],
       options: JobRecord['options'],
@@ -129,8 +119,8 @@ describe.skipIf(!ready)('memory reviews', () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await app.pool.query('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
-    await app.pool.query('delete from user_preferences where business_id = $1', [
+    await app.client.unsafe('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await app.client.unsafe('delete from user_preferences where business_id = $1', [
       ADMIN_BUSINESS_ID,
     ]);
     await rm(personalMemoryDir(root, ADMIN_BUSINESS_ID), { recursive: true, force: true });
@@ -146,13 +136,13 @@ describe.skipIf(!ready)('memory reviews', () => {
   afterAll(async () => {
     try {
       addSpy.mockRestore();
-      await app.pool.query('delete from memory_reviews where business_id = $1', [
+      await app.client.unsafe('delete from memory_reviews where business_id = $1', [
         ADMIN_BUSINESS_ID,
       ]);
-      await app.pool.query('delete from memory_changes where business_id = $1', [
+      await app.client.unsafe('delete from memory_changes where business_id = $1', [
         ADMIN_BUSINESS_ID,
       ]);
-      await app.pool.query('delete from user_preferences where business_id = $1', [
+      await app.client.unsafe('delete from user_preferences where business_id = $1', [
         ADMIN_BUSINESS_ID,
       ]);
       await cleanup(app, { agentSlugs });
@@ -192,14 +182,14 @@ describe.skipIf(!ready)('memory reviews', () => {
     const id = unique('review-msg');
     // 显式递增时间，避免同一毫秒内插入时按 id 排序打乱起止边界。
     const createdAt = new Date(Date.now() + messageSeq++ * 1000);
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into messages (id, conversation_id, role, content, created_at) values ($1, $2, $3, $4::jsonb, $5)',
       [
         id,
         conversationId,
         role,
         JSON.stringify(role === 'tool' ? { type: 'tool' } : { type: 'text', text }),
-        createdAt,
+        createdAt.toISOString(),
       ],
     );
     return id;
@@ -223,7 +213,7 @@ describe.skipIf(!ready)('memory reviews', () => {
   }
 
   function postReview(body: unknown, key: string | null = randomUUID()) {
-    return inject(app, {
+    return request(app, {
       method: 'POST',
       url: '/api/memory-reviews',
       headers: {
@@ -239,7 +229,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     proposedContent: string | null,
     evidence: { messageId: string; quote: string; kind?: string },
   ) {
-    await app.pool.query('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
+    await app.client.unsafe('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
       runId,
       JSON.stringify({
         summary: '生成的提案',
@@ -248,14 +238,14 @@ describe.skipIf(!ready)('memory reviews', () => {
           proposedContent === null ? [] : [{ ...evidence, kind: evidence.kind ?? 'user_fact' }],
       }),
     ]);
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'succeeded', ended_at = now(), cost_usd = '0.0123' where id = $1",
       [runId],
     );
   }
 
   function applyReview(runId: string) {
-    return inject(app, {
+    return request(app, {
       method: 'POST',
       url: `/api/memory-reviews/${runId}/apply`,
       headers: auth(),
@@ -263,7 +253,7 @@ describe.skipIf(!ready)('memory reviews', () => {
   }
 
   function rejectReview(runId: string) {
-    return inject(app, {
+    return request(app, {
       method: 'PATCH',
       url: `/api/memory-reviews/${runId}`,
       headers: auth(),
@@ -272,7 +262,7 @@ describe.skipIf(!ready)('memory reviews', () => {
   }
 
   function rollbackChange(changeId: string) {
-    return inject(app, {
+    return request(app, {
       method: 'POST',
       url: `/api/memory/changes/${changeId}/rollback`,
       headers: auth(),
@@ -291,7 +281,7 @@ describe.skipIf(!ready)('memory reviews', () => {
   }
 
   function saveMemory(agent: AgentRef, content: string) {
-    return inject(app, {
+    return request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
       headers: auth(),
@@ -319,31 +309,31 @@ describe.skipIf(!ready)('memory reviews', () => {
 
   async function manualChangeId(agent: AgentRef): Promise<string> {
     const [change] = (
-      await app.pool.query<{ id: string }>(
+      await app.client.unsafe<{ id: string }[]>(
         "select id from memory_changes where agent_id = $1 and target->>'name' = 'MEMORY.md'",
         [agent.id],
       )
-    ).rows;
+    );
     if (!change) throw new Error('manual write did not record a change');
     return change.id;
   }
 
   async function reviewChangeCount(runId: string): Promise<number> {
-    const result = await app.pool.query<{ count: number }>(
+    const result = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from memory_changes where source_review_run_id = $1',
       [runId],
     );
-    return result.rows[0]?.count ?? -1;
+    return result[0]?.count ?? -1;
   }
 
   function getReview(runId: string) {
-    return inject(app, { method: 'GET', url: `/api/memory-reviews/${runId}`, headers: auth() });
+    return request(app, { method: 'GET', url: `/api/memory-reviews/${runId}`, headers: auth() });
   }
 
   it('requires auth for every endpoint', async () => {
     const runId = unique('run');
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: '/api/memory-reviews',
         headers: { 'idempotency-key': randomUUID() },
@@ -355,17 +345,20 @@ describe.skipIf(!ready)('memory reviews', () => {
       }),
       'UNAUTHORIZED',
     );
-    expectProblem(await inject(app, { method: 'GET', url: '/api/memory-reviews' }), 'UNAUTHORIZED');
     expectProblem(
-      await inject(app, { method: 'GET', url: `/api/memory-reviews/${runId}` }),
+      await request(app, { method: 'GET', url: '/api/memory-reviews' }),
       'UNAUTHORIZED',
     );
     expectProblem(
-      await inject(app, { method: 'POST', url: `/api/memory-reviews/${runId}/apply` }),
+      await request(app, { method: 'GET', url: `/api/memory-reviews/${runId}` }),
       'UNAUTHORIZED',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, { method: 'POST', url: `/api/memory-reviews/${runId}/apply` }),
+      'UNAUTHORIZED',
+    );
+    expectProblem(
+      await request(app, {
         method: 'PATCH',
         url: `/api/memory-reviews/${runId}`,
         payload: { decision: 'rejected' },
@@ -399,11 +392,11 @@ describe.skipIf(!ready)('memory reviews', () => {
     const missingKey = await postReview(body, null);
     expectProblem(missingKey, 'INVALID_INPUT');
 
-    const runs = await app.pool.query<{ count: number }>(
+    const runs = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from agent_runs where id = $1',
       [runId],
     );
-    expect(runs.rows[0]?.count).toBe(1);
+    expect(runs[0]?.count).toBe(1);
     expect(jobs).toHaveLength(1);
     expect(jobs[0]).toMatchObject({
       name: 'run',
@@ -433,7 +426,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
 
     const scoped = (scope: string, payload: unknown, idempotencyKey = randomUUID()) =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/memory-reviews?scope=${encodeURIComponent(scope)}`,
         headers: { ...auth(), 'idempotency-key': idempotencyKey },
@@ -555,7 +548,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     expectProblem(missingModel, 'AGENT_NOT_FOUND');
 
-    await app.pool.query('update agents set enabled = false where id = $1', [owner.id]);
+    await app.client.unsafe('update agents set enabled = false where id = $1', [owner.id]);
     const disabledModel = await postReview(
       reviewBody({
         modelAgentId: owner.id,
@@ -564,18 +557,18 @@ describe.skipIf(!ready)('memory reviews', () => {
       }),
     );
     expectProblem(disabledModel, 'AGENT_DISABLED');
-    await app.pool.query('update agents set enabled = true where id = $1', [owner.id]);
+    await app.client.unsafe('update agents set enabled = true where id = $1', [owner.id]);
   });
 
   it('creates a review run without writing messages or touching the SDK session', async () => {
     const agent = await newAgent();
     const conversationId = await newConversation(agent.id);
     const messageId = await seedMessage(conversationId, 'user', '请记住我喜欢简短回答');
-    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+    await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
       conversationId,
       'sdk-session-before',
     ]);
-    const beforeCount = await app.pool.query<{ count: number }>(
+    const beforeCount = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from messages where conversation_id = $1',
       [conversationId],
     );
@@ -591,31 +584,31 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(response.statusCode, response.body).toBe(202);
     const runId = response.json<{ runId: string }>().runId;
 
-    const afterCount = await app.pool.query<{ count: number }>(
+    const afterCount = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from messages where conversation_id = $1',
       [conversationId],
     );
-    expect(afterCount.rows[0]?.count).toBe(beforeCount.rows[0]?.count);
-    const conversation = await app.pool.query<{ sdk_session_id: string | null }>(
+    expect(afterCount[0]?.count).toBe(beforeCount[0]?.count);
+    const conversation = await app.client.unsafe<{ sdk_session_id: string | null }[]>(
       'select sdk_session_id from conversations where id = $1',
       [conversationId],
     );
-    expect(conversation.rows[0]?.sdk_session_id).toBe('sdk-session-before');
+    expect(conversation[0]?.sdk_session_id).toBe('sdk-session-before');
 
-    const run = await app.pool.query<{
+    const run = await app.client.unsafe<{
       agent_id: string;
       conversation_id: string;
       trigger: string;
       status: string;
-    }>('select agent_id, conversation_id, trigger, status from agent_runs where id = $1', [runId]);
-    expect(run.rows[0]).toMatchObject({
+    }[]>('select agent_id, conversation_id, trigger, status from agent_runs where id = $1', [runId]);
+    expect(run[0]).toMatchObject({
       agent_id: agent.id,
       conversation_id: conversationId,
       trigger: 'review',
       status: 'queued',
     });
 
-    const filtered = await inject(app, {
+    const filtered = await request(app, {
       method: 'GET',
       url: `/api/runs?agentId=${encodeURIComponent(agent.id)}&trigger=review`,
       headers: auth(),
@@ -625,15 +618,15 @@ describe.skipIf(!ready)('memory reviews', () => {
       { id: runId, trigger: 'review' },
     ]);
 
-    const review = await app.pool.query<{
+    const review = await app.client.unsafe<{
       model_agent_id: string;
       target: unknown;
       before: unknown;
       instruction: string;
-    }>('select model_agent_id, target, before, instruction from memory_reviews where run_id = $1', [
+    }[]>('select model_agent_id, target, before, instruction from memory_reviews where run_id = $1', [
       runId,
     ]);
-    expect(review.rows[0]).toMatchObject({
+    expect(review[0]).toMatchObject({
       model_agent_id: agent.id,
       target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
       before: { content: null, globs: null, index: null },
@@ -685,7 +678,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(review.sources[0]).not.toHaveProperty('text');
     expect(JSON.stringify(review.sources)).not.toContain('回答先给结论');
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/memory-reviews?conversationId=${encodeURIComponent(conversationId)}`,
       headers: auth(),
@@ -695,7 +688,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       list.json<{ items: Array<{ runId: string; sources: unknown[] }> }>().items,
     ).toMatchObject([{ runId, sources: [{ conversationId }] }]);
 
-    const byAgent = await inject(app, {
+    const byAgent = await request(app, {
       method: 'GET',
       url: `/api/memory-reviews?agentId=${encodeURIComponent(agent.id)}`,
       headers: auth(),
@@ -706,7 +699,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     ).toContain(runId);
 
     const old = new Date(0).toISOString();
-    const empty = await inject(app, {
+    const empty = await request(app, {
       method: 'GET',
       url: `/api/memory-reviews?conversationId=${encodeURIComponent(conversationId)}&before=${encodeURIComponent(old)}`,
       headers: auth(),
@@ -751,7 +744,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(await readFile(personalMemoryPath(root, ADMIN_BUSINESS_ID), 'utf8')).toBe(
       '回答先给结论。',
     );
-    const personal = await inject(app, { method: 'GET', url: '/api/me/memory', headers: auth() });
+    const personal = await request(app, { method: 'GET', url: '/api/me/memory', headers: auth() });
     expect(personal.json()).toMatchObject({ content: '回答先给结论。', revision: 1 });
     const personalDetail = await getReview(personalRunId);
     expect(personalDetail.json()).toMatchObject({
@@ -775,11 +768,11 @@ describe.skipIf(!ready)('memory reviews', () => {
       messageId: memoryMessage,
       quote: '记住这个约定',
     });
-    const stored = await app.pool.query<{ business_id: string; run_id: string }>(
+    const stored = await app.client.unsafe<{ business_id: string; run_id: string }[]>(
       'select business_id, run_id from memory_reviews where run_id = $1',
       [memoryRunId],
     );
-    expect(stored.rows[0]).toEqual({ business_id: ADMIN_BUSINESS_ID, run_id: memoryRunId });
+    expect(stored[0]).toEqual({ business_id: ADMIN_BUSINESS_ID, run_id: memoryRunId });
     const memoryApply = await applyReview(memoryRunId);
     expect(memoryApply.statusCode, memoryApply.body).toBe(200);
     expect(memoryApply.json()).toMatchObject({
@@ -815,11 +808,11 @@ describe.skipIf(!ready)('memory reviews', () => {
       before: { content: '旧规则', globs: 'src/**', index: null },
       after: { content: '新规则正文', globs: 'src/**', index: null },
     });
-    const rule = await app.pool.query<{ content: string; globs: string }>(
+    const rule = await app.client.unsafe<{ content: string; globs: string }[]>(
       'select content, globs from agent_rules where agent_id = $1 and slug = $2',
       [ruleAgent.id, 'style'],
     );
-    expect(rule.rows[0]).toEqual({ content: '新规则正文', globs: 'src/**' });
+    expect(rule[0]).toEqual({ content: '新规则正文', globs: 'src/**' });
   });
 
   it('rejects an agent memory proposal above the MEMORY.md index limits without writing', async () => {
@@ -879,7 +872,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '新偏好', { messageId, quote: '旧偏好' });
 
-    const edited = await inject(app, {
+    const edited = await request(app, {
       method: 'PUT',
       url: '/api/me/memory',
       headers: auth(),
@@ -890,13 +883,13 @@ describe.skipIf(!ready)('memory reviews', () => {
     expectProblem(await applyReview(runId), 'CONFLICT');
     const detail = await getReview(runId);
     expect(detail.json()).toMatchObject({ decision: 'pending', appliedChangeId: null });
-    const changes = await app.pool.query<{ count: number }>(
+    const changes = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from memory_changes where source_review_run_id = $1',
       [runId],
     );
-    expect(changes.rows[0]?.count).toBe(0);
+    expect(changes[0]?.count).toBe(0);
     expect(
-      await inject(app, { method: 'GET', url: '/api/me/memory', headers: auth() }).then((r) =>
+      await request(app, { method: 'GET', url: '/api/me/memory', headers: auth() }).then((r) =>
         r.json<{ content: string }>(),
       ),
     ).toMatchObject({ content: '用户手动改过' });
@@ -923,13 +916,13 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(second.statusCode, second.body).toBe(200);
     expect(second.json()).toMatchObject({ id: changeId });
 
-    const changes = await app.pool.query<{ count: number }>(
+    const changes = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from memory_changes where source_review_run_id = $1',
       [runId],
     );
-    expect(changes.rows[0]?.count).toBe(1);
+    expect(changes[0]?.count).toBe(1);
 
-    const rejectedAfterApplied = await inject(app, {
+    const rejectedAfterApplied = await request(app, {
       method: 'PATCH',
       url: `/api/memory-reviews/${runId}`,
       headers: auth(),
@@ -949,7 +942,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const runId2 = created2.json<{ runId: string }>().runId;
     await completeReview(runId2, '不建议写入', { messageId: messageId2, quote: '另一条偏好' });
 
-    const rejected = await inject(app, {
+    const rejected = await request(app, {
       method: 'PATCH',
       url: `/api/memory-reviews/${runId2}`,
       headers: auth(),
@@ -976,13 +969,13 @@ describe.skipIf(!ready)('memory reviews', () => {
     await completeReview(runId, '记忆内容', { messageId, quote: '记忆内容' });
 
     const activeRunId = unique('active-run');
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by) values ($1, $2, $3, 'queued', 'user', 'bootstrap-admin')",
       [activeRunId, conversationId, target.id],
     );
     expectProblem(await applyReview(runId), 'CONFLICT');
 
-    await app.pool.query("update agent_runs set status = 'cancelled' where id = $1", [activeRunId]);
+    await app.client.unsafe("update agent_runs set status = 'cancelled' where id = $1", [activeRunId]);
     expect((await applyReview(runId)).statusCode).toBe(200);
   });
 
@@ -1001,11 +994,11 @@ describe.skipIf(!ready)('memory reviews', () => {
       );
       expectProblem(response, 'INVALID_INPUT');
     }
-    const rulesAfterReject = await app.pool.query<{ count: number }>(
+    const rulesAfterReject = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from agent_rules where agent_id = $1',
       [agent.id],
     );
-    expect(rulesAfterReject.rows[0]?.count).toBe(0);
+    expect(rulesAfterReject[0]?.count).toBe(0);
 
     // 绕过入口直接改库：apply 必须重新校验，不能写规则行。
     const created = await postReview(
@@ -1017,21 +1010,21 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '新规则正文', { messageId, quote: '新规则' });
-    await app.pool.query('update memory_reviews set target = $2::jsonb where run_id = $1', [
+    await app.client.unsafe('update memory_reviews set target = $2::jsonb where run_id = $1', [
       runId,
       JSON.stringify({ kind: 'agent_rule', agentId: agent.id, slug: '../../../_user/CLAUDE' }),
     ]);
     expectProblem(await applyReview(runId), 'INVALID_INPUT');
-    const rulesAfterApply = await app.pool.query<{ count: number }>(
+    const rulesAfterApply = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from agent_rules where agent_id = $1',
       [agent.id],
     );
-    expect(rulesAfterApply.rows[0]?.count).toBe(0);
-    const changes = await app.pool.query<{ count: number }>(
+    expect(rulesAfterApply[0]?.count).toBe(0);
+    const changes = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from memory_changes where source_review_run_id = $1',
       [runId],
     );
-    expect(changes.rows[0]?.count).toBe(0);
+    expect(changes[0]?.count).toBe(0);
   });
 
   it('refuses to apply when the rule globs changed after the review', async () => {
@@ -1061,16 +1054,16 @@ describe.skipIf(!ready)('memory reviews', () => {
       globs: 'lib/**',
     });
     expectProblem(await applyReview(runId), 'CONFLICT');
-    const rule = await app.pool.query<{ content: string; globs: string }>(
+    const rule = await app.client.unsafe<{ content: string; globs: string }[]>(
       'select content, globs from agent_rules where agent_id = $1 and slug = $2',
       [target.id, 'style'],
     );
-    expect(rule.rows[0]).toEqual({ content: '旧规则', globs: 'lib/**' });
-    const changes = await app.pool.query<{ count: number }>(
+    expect(rule[0]).toEqual({ content: '旧规则', globs: 'lib/**' });
+    const changes = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from memory_changes where source_review_run_id = $1',
       [runId],
     );
-    expect(changes.rows[0]?.count).toBe(0);
+    expect(changes[0]?.count).toBe(0);
   });
 
   it('serializes concurrent applies on the same baseline so only one wins', async () => {
@@ -1103,11 +1096,11 @@ describe.skipIf(!ready)('memory reviews', () => {
     const statuses = responses.map((response) => response.statusCode).sort();
     expect(statuses).toEqual([200, 409]);
 
-    const applied = await app.pool.query<{ count: number }>(
+    const applied = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from memory_changes where source_review_run_id in ($1, $2)',
       [first, second],
     );
-    expect(applied.rows[0]?.count).toBe(1);
+    expect(applied[0]?.count).toBe(1);
   });
 
   it('serializes memory apply and chat admission on the agent lock', async () => {
@@ -1133,12 +1126,12 @@ describe.skipIf(!ready)('memory reviews', () => {
     const holdLock = async (): Promise<{
       release: () => Promise<void>;
     }> => {
-      const client = await app.pool.connect();
-      await client.query('set statement_timeout = 0');
-      await client.query('select pg_advisory_lock(hashtext($1))', [`agent:${target.id}`]);
+      const client = await app.client.reserve();
+      await client.unsafe('set statement_timeout = 0');
+      await client.unsafe('select pg_advisory_lock(hashtext($1))', [`agent:${target.id}`]);
       return {
         release: async () => {
-          await client.query('select pg_advisory_unlock(hashtext($1))', [`agent:${target.id}`]);
+          await client.unsafe('select pg_advisory_unlock(hashtext($1))', [`agent:${target.id}`]);
           client.release();
         },
       };
@@ -1210,8 +1203,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const { agent, runId } = await reviewForMemory('记住这个约定');
 
     // 文件先落盘、账本事务失败：同一把锁内把原文件（这里是不存在）恢复回去。
-    const spy = vi
-      .spyOn(app.db, 'transaction')
+    const spy = spyOn(app.db, 'transaction')
       .mockRejectedValueOnce(new Error('injected database commit failure') as never);
     let failed: Awaited<ReturnType<typeof applyReview>>;
     try {
@@ -1251,8 +1243,7 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     // 准备原文件占第 1 次 rename；第 2 次写日志、第 3 次落提案、第 4 次恢复原文件时失败。
     fsFaults.failRenameAt = 4;
-    const spy = vi
-      .spyOn(app.db, 'transaction')
+    const spy = spyOn(app.db, 'transaction')
       .mockRejectedValueOnce(new Error('injected database commit failure') as never);
     let failed: Awaited<ReturnType<typeof applyReview>>;
     try {
@@ -1298,7 +1289,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const { agent, runId } = await reviewForMemory('记住这个约定');
 
     // 手工写入与提案相同的内容：没有日志，不能当成上次 apply 已落盘。
-    const manual = await inject(app, {
+    const manual = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
       headers: auth(),
@@ -1439,11 +1430,11 @@ describe.skipIf(!ready)('memory reviews', () => {
     }
     expect(reversed.statusCode, reversed.body).toBe(200);
     expect(reversed.json()).toMatchObject({ reversesChangeId: change.id });
-    const rows = await app.pool.query<{ count: number }>(
+    const rows = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from memory_changes where reverses_change_id = $1',
       [change.id],
     );
-    expect(rows.rows[0]?.count).toBe(1);
+    expect(rows[0]?.count).toBe(1);
     expect(await journalExists(agent, change.id)).toBe(true);
   });
 
@@ -1515,7 +1506,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       ],
     });
 
-    const saved = await inject(app, {
+    const saved = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
       headers: auth(),
@@ -1566,7 +1557,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     expect(await journalExists(agent, runId)).toBe(true);
 
-    const saved = await inject(app, {
+    const saved = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
       headers: auth(),
@@ -1611,7 +1602,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const pendingMessage = '存在未完成的记忆写入，请先重试原操作或重新生成';
 
     const put = () =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/agents/${agent.id}/memory/MEMORY.md`,
         headers: auth(),
@@ -1621,7 +1612,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     expectProblem(saved, 'CONFLICT');
     expect(saved.json<{ message: string }>().message).toBe(pendingMessage);
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
       headers: auth(),
@@ -1678,11 +1669,11 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
     expectProblem(await applyReview(runId), 'CONFLICT');
     expect(await reviewChangeCount(runId)).toBe(0);
-    const rule = await app.pool.query<{ content: string }>(
+    const rule = await app.client.unsafe<{ content: string }[]>(
       'select content from agent_rules where agent_id = $1 and slug = $2',
       [target.id, 'style'],
     );
-    expect(rule.rows[0]?.content).toBe('新规则正文');
+    expect(rule[0]?.content).toBe('新规则正文');
   });
 
   it('holds the target lock across the file projection so reads stay free and admission waits', async () => {
@@ -1709,7 +1700,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       // 版本列表只读，不取目标锁，不会被正在进行的 apply 挡住。
       expect(
         await Promise.race([
-          inject(app, {
+          request(app, {
             method: 'GET',
             url: `/api/agents/${agent.id}/memory/MEMORY.md/versions`,
             headers: auth(),
@@ -1744,7 +1735,7 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     const [applied, rejected] = await Promise.all([
       applyReview(runId),
-      inject(app, {
+      request(app, {
         method: 'PATCH',
         url: `/api/memory-reviews/${runId}`,
         headers: auth(),
@@ -1845,14 +1836,14 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     expect(await reviewChangeCount(runId)).toBe(1);
 
-    const themeVersions = await inject(app, {
+    const themeVersions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/deploy.md/versions`,
       headers: auth(),
     });
     expect(themeVersions.json()).toMatchObject({ items: [{ id: change.id }] });
     // 改变伴随索引的主题变更也出现在 MEMORY.md 历史里。
-    const indexVersions = await inject(app, {
+    const indexVersions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/MEMORY.md/versions`,
       headers: auth(),
@@ -1908,8 +1899,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect((await getReview(runId)).json()).toMatchObject({ decision: 'pending' });
     expect(await reviewChangeCount(runId)).toBe(0);
 
-    const spy = vi
-      .spyOn(app.db, 'transaction')
+    const spy = spyOn(app.db, 'transaction')
       .mockRejectedValueOnce(new Error('injected database commit failure') as never);
     let commitFailed: Awaited<ReturnType<typeof applyReview>>;
     try {
@@ -1937,7 +1927,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', indexBefore);
 
     // 创建审核时索引尚不存在；这里把基线改成手动写入的索引后再模拟半落盘。
-    await app.pool.query('update memory_reviews set before = $2::jsonb where run_id = $1', [
+    await app.client.unsafe('update memory_reviews set before = $2::jsonb where run_id = $1', [
       runId,
       JSON.stringify({ content: null, globs: null, index: { content: indexBefore } }),
     ]);
@@ -1996,7 +1986,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
     await writeMemoryFile(root, second.agent.slug, 'MEMORY.md', opsIndexAfter);
     await writeMemoryFile(root, second.agent.slug, 'ops.md', 'ops');
-    await app.pool.query('update memory_reviews set before = $2::jsonb where run_id = $1', [
+    await app.client.unsafe('update memory_reviews set before = $2::jsonb where run_id = $1', [
       second.runId,
       JSON.stringify({
         content: null,
@@ -2025,7 +2015,7 @@ describe.skipIf(!ready)('memory reviews', () => {
 
   it('re-validates persisted proposal evidence before applying', async () => {
     const { agent, runId, messageId } = await themeReview('deploy.md', 'body');
-    await app.pool.query('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
+    await app.client.unsafe('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
       runId,
       JSON.stringify({
         summary: '只有助手建议',
@@ -2037,7 +2027,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(await readMemoryFile(root, agent.slug, 'deploy.md')).toBeNull();
     expect(await reviewChangeCount(runId)).toBe(0);
 
-    await app.pool.query('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
+    await app.client.unsafe('update memory_reviews set proposal = $2::jsonb where run_id = $1', [
       runId,
       JSON.stringify({
         summary: '引用不连续',

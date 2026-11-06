@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { captureOutputDraft } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { persistRunMessages } from '../src/messages.js';
 import {
   lastMessageIdOfRun,
@@ -21,8 +21,8 @@ import { testAccess } from './fixtures/access.js';
 
 const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const dbReady = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const dbReady = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -30,7 +30,7 @@ const agentIds: string[] = [];
 
 afterAll(async () => {
   if (dbReady) await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
-  await pool.end();
+  await client.close();
 });
 
 let root: string;
@@ -257,7 +257,7 @@ describe('publishing run outputs', () => {
     async (reason) => {
       const { hostPath } = await prepareRunOutputs(identity);
       await writeFile(join(hostPath, 'note.md'), 'pending');
-      const transaction = vi.fn(async () => {
+      const transaction = mock(async () => {
         if (reason === 'database write failed') throw new Error(reason);
         return { written: false, messages: [] };
       });

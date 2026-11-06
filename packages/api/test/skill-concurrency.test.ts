@@ -1,20 +1,20 @@
 import type { Skill } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('skill update concurrency', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdSkills: string[] = [];
 
@@ -31,7 +31,7 @@ describe.skipIf(!ready)('skill update concurrency', () => {
   const createSkill = async (): Promise<Skill> => {
     const slug = unique('stale-skill');
     createdSkills.push(slug);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: { cookie },
@@ -42,7 +42,7 @@ describe.skipIf(!ready)('skill update concurrency', () => {
   };
 
   const patch = (id: string, payload: Record<string, unknown>) =>
-    inject(app, {
+    request(app, {
       method: 'PATCH',
       url: `/api/skills/${id}`,
       headers: { cookie },
@@ -50,7 +50,11 @@ describe.skipIf(!ready)('skill update concurrency', () => {
     });
 
   const get = async (id: string): Promise<Skill> => {
-    const res = await inject(app, { method: 'GET', url: `/api/skills/${id}`, headers: { cookie } });
+    const res = await request(app, {
+      method: 'GET',
+      url: `/api/skills/${id}`,
+      headers: { cookie },
+    });
     expect(res.statusCode, res.body).toBe(200);
     return res.json<Skill>();
   };
@@ -169,7 +173,7 @@ describe.skipIf(!ready)('skill update concurrency', () => {
 
   it('requires auth to update', async () => {
     const skill = await createSkill();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: `/api/skills/${skill.id}`,
       payload: { name: 'Anon', expectedUpdatedAt: skill.updatedAt },

@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../client.js';
 import { newId } from '../id.js';
 import * as chat from '../repo/chat.js';
@@ -7,7 +7,7 @@ import * as evalRepo from '../repo/eval.js';
 import * as maintenance from '../repo/maintenance.js';
 import { agentRuns, agents, conversations } from '../schema.js';
 
-const { db, pool } = createDb(
+const { db, client } = createDb(
   process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport',
 );
 const agentId = newId('agent');
@@ -33,7 +33,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.delete(agents).where(eq(agents.id, agentId));
-  await pool.end();
+  await client.close();
 });
 
 describe('history integrity', () => {
@@ -77,7 +77,7 @@ describe('history integrity', () => {
       '11111111-2222-4333-8444-555555555555',
     );
     await maintenance.pruneRuns(db, 36_500);
-    await pool.query('delete from conversations where id = $1', [conversationId]);
+    await client.unsafe('delete from conversations where id = $1', [conversationId]);
     await maintenance.pruneOrphanMessages(db, 36_500);
     expect((await chat.listMessages(db, branchId)).map((row) => row.content)).toEqual([
       { text: 'keep this' },
@@ -231,7 +231,7 @@ describe('history integrity', () => {
     await chat.insertMessages(db, sourceRows);
 
     // 标记消息落在第 501 条，让触发失败发生在第二批插入而不是第一批。
-    await pool.query(`
+    await client.unsafe(`
       create or replace function messages_branch_rollback_probe() returns trigger
       language plpgsql as $$
       begin
@@ -241,7 +241,7 @@ describe('history integrity', () => {
         return new;
       end $$
     `);
-    await pool.query(`
+    await client.unsafe(`
       create trigger messages_branch_rollback_probe
       before insert on messages
       for each row execute function messages_branch_rollback_probe()
@@ -254,17 +254,17 @@ describe('history integrity', () => {
         cause: { message: expect.stringMatching(/injected branch rollback failure/) },
       });
     } finally {
-      await pool.query('drop trigger if exists messages_branch_rollback_probe on messages');
-      await pool.query('drop function if exists messages_branch_rollback_probe()');
+      await client.unsafe('drop trigger if exists messages_branch_rollback_probe on messages');
+      await client.unsafe('drop function if exists messages_branch_rollback_probe()');
     }
 
-    const leftovers = await pool.query<{ conversations: string; messages: string }>(
+    const leftovers = await client.unsafe<{ conversations: string; messages: string }[]>(
       `select
         (select count(*) from conversations where id = $1) as conversations,
         (select count(*) from messages where conversation_id = $1) as messages`,
       [branchId],
     );
-    expect(leftovers.rows[0]).toEqual({ conversations: '0', messages: '0' });
+    expect(leftovers[0]).toEqual({ conversations: '0', messages: '0' });
 
     // 源会话不受影响：消息完整、SDK 状态未变。
     const sourceAfter = await chat.listMessages(db, conv);
@@ -305,7 +305,7 @@ describe('history integrity', () => {
     });
     await evalRepo.finishEvalRun(db, evalRunId, { status: 'succeeded', passed: 1 });
     await evalRepo.deleteCase(db, caseId);
-    await pool.query('delete from agent_runs where id = $1', [runId]);
+    await client.unsafe('delete from agent_runs where id = $1', [runId]);
     const detail = await evalRepo.getRunDetail(db, evalRunId);
     expect(detail?.evalRun).toMatchObject({ total: 1, passed: 1 });
     expect(detail?.results).toHaveLength(1);
@@ -352,15 +352,22 @@ describe('database trust boundaries', () => {
       agentId,
     ],
   ])('rejects unsupported %s values', async (_name, query, parentId) => {
-    const client = await pool.connect();
+    const txClient = await client.reserve();
     try {
-      await client.query('begin');
-      await expect(
-        client.query(query, parentId === null ? [newId('message')] : [newId('message'), parentId]),
-      ).rejects.toMatchObject({ code: '23514' });
+      await txClient.unsafe('begin');
+      let error: unknown;
+      try {
+        await txClient.unsafe(
+          query,
+          parentId === null ? [newId('message')] : [newId('message'), parentId],
+        );
+      } catch (caught) {
+        error = caught;
+      }
+      expect((error as { errno?: string; code?: string } | undefined)?.errno).toBe('23514');
     } finally {
-      await client.query('rollback');
-      client.release();
+      await txClient.unsafe('rollback');
+      txClient.release();
     }
   });
 });

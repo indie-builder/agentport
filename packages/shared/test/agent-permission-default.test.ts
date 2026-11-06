@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { agentInputSchema } from '../src/agent.js';
 
 const base = { slug: 'permission-default', name: 'Permission default' };

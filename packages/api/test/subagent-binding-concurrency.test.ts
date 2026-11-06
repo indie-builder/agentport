@@ -1,15 +1,16 @@
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import type { PoolClient } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
+  type TestResponse,
   unique,
   waitFor,
 } from './helpers.js';
@@ -19,7 +20,7 @@ const ready = await infraReady;
 const BINDING_LOCK = "select pg_advisory_xact_lock(hashtext('agentport.subagent-bindings'))";
 
 describe.skipIf(!ready)('sub-agent binding concurrency', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdSlugs: string[] = [];
   const createdIds: string[] = [];
@@ -31,7 +32,7 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
 
   afterAll(async () => {
     if (createdIds.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [createdIds]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(createdIds, 'TEXT')]);
     }
     await cleanup(app, { agentSlugs: createdSlugs });
     await app.close();
@@ -45,16 +46,20 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
   };
 
   const patch = (id: string, payload: Record<string, unknown>) =>
-    inject(app, { method: 'PATCH', url: `/api/agents/${id}`, headers: { cookie }, payload });
+    request(app, { method: 'PATCH', url: `/api/agents/${id}`, headers: { cookie }, payload });
 
   const get = async (id: string): Promise<Agent> => {
-    const res = await inject(app, { method: 'GET', url: `/api/agents/${id}`, headers: { cookie } });
+    const res = await request(app, {
+      method: 'GET',
+      url: `/api/agents/${id}`,
+      headers: { cookie },
+    });
     expect(res.statusCode, res.body).toBe(200);
     return res.json<Agent>();
   };
 
   const versions = async (id: string): Promise<number[]> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/agents/${id}/versions`,
       headers: { cookie },
@@ -66,19 +71,19 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
   /** 占住全局绑定锁和目标行锁，等两个请求都进入 pg 等待图再放行。 */
   const race = async (
     lockRowId: string,
-    start: () => Promise<[LightMyRequestResponse, LightMyRequestResponse]>,
-  ): Promise<[LightMyRequestResponse, LightMyRequestResponse]> => {
-    const client = await app.pool.connect();
+    start: () => Promise<[TestResponse, TestResponse]>,
+  ): Promise<[TestResponse, TestResponse]> => {
+    const client = await app.client.reserve();
     try {
-      await client.query('begin');
-      const { rows } = await client.query<{ pid: number }>('select pg_backend_pid() as pid');
+      await client.unsafe('begin');
+      const rows = await client.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
       const holder = rows[0]?.pid;
       if (holder === undefined) throw new Error('no backend pid');
-      await client.query(BINDING_LOCK);
-      await client.query('select id from agents where id = $1 for update', [lockRowId]);
+      await client.unsafe(BINDING_LOCK);
+      await client.unsafe('select id from agents where id = $1 for update', [lockRowId]);
       const both = start();
       const queued = await waitFor(async () => {
-        const waiting = await app.pool.query<{ n: number }>(
+        const waiting = await app.client.unsafe<{ n: number }[]>(
           `with recursive blocked(pid) as (
              select a.pid from pg_stat_activity a
              where a.datname = current_database() and $1 = any(pg_blocking_pids(a.pid))
@@ -89,13 +94,13 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
            ) select count(*)::int as n from blocked`,
           [holder],
         );
-        return (waiting.rows[0]?.n ?? 0) >= 2;
+        return (waiting[0]?.n ?? 0) >= 2;
       });
       expect(queued, 'both requests never entered the lock graph').toBe(true);
-      await client.query('commit');
+      await client.unsafe('commit');
       return await both;
     } finally {
-      await client.query('rollback').catch(() => undefined);
+      await client.unsafe('rollback').catch(() => undefined);
       client.release();
     }
   };
@@ -128,7 +133,7 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
     expect(await versions(winner.id)).toEqual([2, 1]);
     expect(await versions(loser.id)).toEqual([1]);
 
-    const snapshot = await inject(app, {
+    const snapshot = await request(app, {
       method: 'GET',
       url: `/api/agents/${winner.id}/versions/2`,
       headers: { cookie },
@@ -177,7 +182,7 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
     const [patched, created] = await race(child.id, () =>
       Promise.all([
         patch(owner.id, { subAgentIds: [child.id] }),
-        inject(app, {
+        request(app, {
           method: 'POST',
           url: '/api/agents',
           headers: { cookie },
@@ -205,7 +210,7 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
       expect((await get(owner.id)).subAgentIds).toEqual([]);
     } else {
       expect(childAfter.parentId).toBe(owner.id);
-      const list = await inject(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
+      const list = await request(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
       expect(list.statusCode, list.body).toBe(200);
       expect(list.json<Agent[]>().some((agent) => agent.slug === slug)).toBe(false);
     }
@@ -213,7 +218,7 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
 
   /** 外部连接执行到一半的语句，卡在 holder 后面；同时验明卡的是哪条 SQL。 */
   const blockedOn = async (holder: number, pattern: RegExp): Promise<boolean> => {
-    const { rows } = await app.pool.query<{ query: string }>(
+    const rows = await app.client.unsafe<{ query: string }[]>(
       `select a.query from pg_stat_activity a
        where a.datname = current_database()
          and a.wait_event_type = 'Lock'
@@ -224,14 +229,14 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
   };
 
   const backendPid = async (client: PoolClient): Promise<number> => {
-    const { rows } = await client.query<{ pid: number }>('select pg_backend_pid() as pid');
+    const rows = await client.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
     const pid = rows[0]?.pid;
     if (pid === undefined) throw new Error('no backend pid');
     return pid;
   };
 
   const childExists = async (id: string): Promise<boolean> => {
-    const { rows } = await app.pool.query<{ n: number }>(
+    const rows = await app.client.unsafe<{ n: number }[]>(
       'select count(*)::int as n from agents where id = $1',
       [id],
     );
@@ -244,21 +249,21 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
     const before = await get(parent.id);
     const versionsBefore = await versions(parent.id);
 
-    const client = await app.pool.connect();
-    let pending: Promise<LightMyRequestResponse> | undefined;
+    const client = await app.client.reserve();
+    let pending: Promise<TestResponse> | undefined;
     try {
-      await client.query('begin');
+      await client.unsafe('begin');
       const pid = await backendPid(client);
       // 只锁父行、不拿 advisory 锁：请求必须走完仓储校验才会停在这里。
-      await client.query('select id from agents where id = $1 for update', [parent.id]);
+      await client.unsafe('select id from agents where id = $1 for update', [parent.id]);
 
       pending = patch(parent.id, { subAgentIds: [child.id], name: 'renamed-during-delete' });
       // 卡在父行 UPDATE 上，证明绑定校验已通过、已经进入写事务。
       const reached = await waitFor(() => blockedOn(pid, /^update "agents"/));
       expect(reached, 'patch never reached the parent row update').toBe(true);
 
-      await app.pool.query('delete from agents where id = $1', [child.id]);
-      await client.query('commit');
+      await app.client.unsafe('delete from agents where id = $1', [child.id]);
+      await client.unsafe('commit');
 
       const res = await pending;
       pending = undefined;
@@ -271,7 +276,7 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
       expect(await versions(parent.id)).toEqual(versionsBefore);
       expect(await childExists(child.id)).toBe(false);
     } finally {
-      await client.query('rollback').catch(() => undefined);
+      await client.unsafe('rollback').catch(() => undefined);
       await pending?.catch(() => undefined);
       client.release();
     }
@@ -282,18 +287,18 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
     const slug = unique('reserved-root');
     createdSlugs.push(slug);
 
-    const client = await app.pool.connect();
-    let pending: Promise<LightMyRequestResponse> | undefined;
+    const client = await app.client.reserve();
+    let pending: Promise<TestResponse> | undefined;
     try {
-      await client.query('begin');
+      await client.unsafe('begin');
       const pid = await backendPid(client);
       // 未提交的同 slug 行把请求的 INSERT 挡在唯一索引上，但请求先完成校验。
-      await client.query(
+      await client.unsafe(
         `insert into agents (id, slug, name, model, system_prompt_md, created_by, owner_business_id) values ($1, $2, $3, $4, '', 'bootstrap-admin', 'bootstrap-admin')`,
         [unique('reservation'), slug, `Reservation ${slug}`, 'claude-sonnet-5-5'],
       );
 
-      pending = inject(app, {
+      pending = request(app, {
         method: 'POST',
         url: '/api/agents',
         headers: { cookie },
@@ -307,15 +312,15 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
       const reached = await waitFor(() => blockedOn(pid, /^insert into "agents"/));
       expect(reached, 'create never reached the root insert').toBe(true);
 
-      await app.pool.query('delete from agents where id = $1', [child.id]);
-      await client.query('rollback');
+      await app.client.unsafe('delete from agents where id = $1', [child.id]);
+      await client.unsafe('rollback');
 
       const res = await pending;
       pending = undefined;
       expectProblem(res, 'INVALID_INPUT');
       expect(res.json<{ message: string }>().message).toContain('选中的子智能体已被删除');
 
-      const { rows } = await app.pool.query<{ agents: number; versions: number }>(
+      const rows = await app.client.unsafe<{ agents: number; versions: number }[]>(
         `select count(distinct a.id)::int as agents, count(v.id)::int as versions
          from agents a left join agent_versions v on v.agent_id = a.id
          where a.slug = $1`,
@@ -324,7 +329,7 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
       expect(rows[0]).toEqual({ agents: 0, versions: 0 });
       expect(await childExists(child.id)).toBe(false);
     } finally {
-      await client.query('rollback').catch(() => undefined);
+      await client.unsafe('rollback').catch(() => undefined);
       await pending?.catch(() => undefined);
       client.release();
     }

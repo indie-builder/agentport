@@ -1,11 +1,10 @@
-import type { AddressInfo } from 'node:net';
 import { hashMcpToken } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { Channel, Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { FastifyInstance } from 'fastify';
+import { RedisClient } from 'bun';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   cleanup,
   createAgent,
@@ -13,13 +12,15 @@ import {
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
   type TestAccount,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -38,7 +39,8 @@ interface ApprovalItem {
 }
 
 describe.skipIf(!ready)('channel approvals', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let listener: TestServer;
   let adminCookie: string;
   let baseUrl: string;
   let redis: Redis;
@@ -57,8 +59,8 @@ describe.skipIf(!ready)('channel approvals', () => {
     // 审批不挂起：调用立即落 pending 行并返回拒绝文本，事件与行都能立刻断言。
     app = await startApp({ APPROVAL_WAIT_MS: '0' });
     adminCookie = await loginCookie(app);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    listener = await listen(app);
+    baseUrl = listener.url;
     redis = new Redis(testConfig().REDIS_URL);
     owner = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     member = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
@@ -78,9 +80,9 @@ describe.skipIf(!ready)('channel approvals', () => {
   });
 
   afterAll(async () => {
+    await listener.close();
     if (channelIds.length > 0) {
-      await app.pool
-        .query('delete from channels where id = any($1::text[])', [channelIds])
+      await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(channelIds, 'TEXT')])
         .catch(() => undefined);
     }
     await cleanup(app, { serverNames, agentSlugs });
@@ -91,12 +93,11 @@ describe.skipIf(!ready)('channel approvals', () => {
       channelAdmin.businessId,
       outsider.businessId,
     ];
-    await app.pool.query('delete from audit_log where actor = any($1::text[])', [businessIds]);
-    await app.pool.query('delete from audit_log where target = any($1::text[])', [channelIds]);
-    await app.pool.query('delete from user_roles where business_id = any($1::text[])', [
-      businessIds,
-    ]);
-    await app.pool.query('delete from "user" where business_id = any($1::text[])', [businessIds]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(channelIds, 'TEXT')]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
+    );
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
     await redis.quit().catch(() => undefined);
     await app.close();
   });
@@ -107,7 +108,7 @@ describe.skipIf(!ready)('channel approvals', () => {
     cookie: string,
     payload?: Record<string, unknown>,
   ) =>
-    inject(app, {
+    request(app, {
       method,
       url,
       headers: { cookie },
@@ -154,11 +155,11 @@ describe.skipIf(!ready)('channel approvals', () => {
   ): Promise<string> => {
     const conversationId = unique('approval-conv');
     const runId = unique('approval-run');
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
       [conversationId, agentId, trigger.businessId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs
          (id, conversation_id, agent_id, channel_id, trigger, status, subject_kind, initiated_by)
        values ($1, $2, $3, $4, 'channel', $5, 'user', $6)`,
@@ -190,21 +191,21 @@ describe.skipIf(!ready)('channel approvals', () => {
   const approvalState = async (
     approvalId: string,
   ): Promise<{ approved_at: Date | null; approved_by_business_id: string | null } | undefined> => {
-    const res = await app.pool.query<{
+    const res = await app.client.unsafe<{
       approved_at: Date | null;
       approved_by_business_id: string | null;
-    }>('select approved_at, approved_by_business_id from approval_requests where id = $1', [
+    }[]>('select approved_at, approved_by_business_id from approval_requests where id = $1', [
       approvalId,
     ]);
-    return res.rows[0];
+    return res[0];
   };
 
   const approvedAuditCount = async (runId: string): Promise<number> => {
-    const res = await app.pool.query<{ count: number }>(
+    const res = await app.client.unsafe<{ count: number }[]>(
       "select count(*)::int as count from audit_log where action = 'agent.run.approved' and target = $1",
       [runId],
     );
-    return res.rows[0]?.count ?? 0;
+    return res[0]?.count ?? 0;
   };
 
   it('lists pending approvals for every real member including viewer and hides non-members', async () => {
@@ -216,12 +217,12 @@ describe.skipIf(!ready)('channel approvals', () => {
     });
     // 已决定、已过期、run 已终态的审批都不在列表里。
     const expired = await requestApproval(runId, { toolName: 'past-tool' });
-    await app.pool.query(
+    await app.client.unsafe(
       "update approval_requests set expires_at = now() - interval '1 minute' where id = $1",
       [expired.id],
     );
     const decided = await requestApproval(runId, { toolName: 'decided-tool' });
-    await app.pool.query('update approval_requests set approved_at = now() where id = $1', [
+    await app.client.unsafe('update approval_requests set approved_at = now() where id = $1', [
       decided.id,
     ]);
     const terminalRun = await seedRun(channel.id, owner, 'succeeded');
@@ -285,7 +286,7 @@ describe.skipIf(!ready)('channel approvals', () => {
     const channel = await setupChannel();
     const runningRun = await seedRun(channel.id, owner);
     const expired = await requestApproval(runningRun, { toolName: 'expired' });
-    await app.pool.query(
+    await app.client.unsafe(
       "update approval_requests set expires_at = now() - interval '1 second' where id = $1",
       [expired.id],
     );
@@ -356,11 +357,11 @@ describe.skipIf(!ready)('channel approvals', () => {
       hashMcpToken(token),
       new Date(Date.now() + 60_000),
     );
-    const row = await app.pool.query<{ token: string }>(
+    const row = await app.client.unsafe<{ token: string }[]>(
       "select config->>'mcpToken' as token from servers where id = $1",
       [server.id],
     );
-    const serverToken = row.rows[0]?.token ?? '';
+    const serverToken = row[0]?.token ?? '';
     expect(serverToken).not.toBe('');
 
     const callTool = async (): Promise<{
@@ -385,12 +386,11 @@ describe.skipIf(!ready)('channel approvals', () => {
     expect(denied.isError).toBe(true);
     expect(denied.content[0]?.text).toContain(`需要批准：${toolName}`);
 
-    const [approval] = await app.pool
-      .query<{ id: string; channel_id: string }>(
+    const [approval] = await app.client.unsafe<{ id: string; channel_id: string }[]>(
         'select id, channel_id from approval_requests where run_id = $1 and tool_name = $2',
         [runId, toolName],
       )
-      .then((res) => res.rows);
+      .then((res) => res);
     if (!approval) throw new Error('approval row was not persisted');
     expect(approval.channel_id).toBe(channel.id);
 
@@ -407,15 +407,25 @@ describe.skipIf(!ready)('channel approvals', () => {
     });
 
     // 发布失败只影响实时提示：调用照常返回审批文本，审批行仍 pending。
-    const pipeline = vi.spyOn(Redis.prototype, 'pipeline').mockImplementationOnce(() => {
-      throw new Error('redis down');
+    const originalSend = RedisClient.prototype.send;
+    let failed = false;
+    const publishSpy = spyOn(RedisClient.prototype, 'send').mockImplementation(function (
+      this: RedisClient,
+      command: string,
+      args: string[],
+    ) {
+      if (!failed && command === 'XADD' && String(args[0]).includes(channel.id)) {
+        failed = true;
+        return Promise.reject(new Error('redis down'));
+      }
+      return originalSend.call(this, command, args);
     });
     try {
       const afterFailure = await callTool();
       expect(afterFailure.isError).toBe(true);
       expect(afterFailure.content[0]?.text).toContain(`需要批准：${toolName}`);
     } finally {
-      pipeline.mockRestore();
+      publishSpy.mockRestore();
     }
     expect((await approvalState(approval.id))?.approved_at).toBeNull();
   });

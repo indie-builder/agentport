@@ -1,23 +1,23 @@
 import { newId } from '@agentport/db';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   createAgent,
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   seedRun,
   setAgentMember,
   startApp,
   type TestAccount,
+  type TestApp,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let admin: string;
   let adminBusinessId: string;
   let agentId: string;
@@ -46,7 +46,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       Object.assign(slot, await createTestAccount(app, admin, { systemKeys }));
     }
 
-    const me = await inject(app, {
+    const me = await request(app, {
       method: 'GET',
       url: '/api/auth/me',
       headers: { cookie: admin },
@@ -94,14 +94,14 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
   it('每条 /api 路由都有 access 声明，未登录返回 401，公开分享不要求登录', async () => {
     // beforeAll 的 startApp 会在 onRoute 校验缺声明时直接失败。
     expect(app).toBeDefined();
-    expectProblem(await inject(app, { method: 'GET', url: '/api/runs' }), 'UNAUTHORIZED');
-    const share = await inject(app, { method: 'GET', url: '/api/public/output-shares/missing' });
+    expectProblem(await request(app, { method: 'GET', url: '/api/runs' }), 'UNAUTHORIZED');
+    const share = await request(app, { method: 'GET', url: '/api/public/output-shares/missing' });
     expect(share.statusCode).toBe(404);
-    expect((await inject(app, { method: 'GET', url: '/health/live' })).statusCode).toBe(200);
+    expect((await request(app, { method: 'GET', url: '/health/live' })).statusCode).toBe(200);
   });
 
   it('两个人各自的会话与运行互相不可见，列表按账户过滤', async () => {
-    const listA = await inject(app, {
+    const listA = await request(app, {
       method: 'GET',
       url: '/api/conversations',
       headers: { cookie: userA.cookie },
@@ -111,7 +111,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     expect(ids).toContain(conversationA);
     expect(ids).not.toContain(conversationB);
 
-    const own = await inject(app, {
+    const own = await request(app, {
       method: 'GET',
       url: `/api/conversations/${conversationA}`,
       headers: { cookie: userA.cookie },
@@ -119,7 +119,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     expect(own.statusCode, own.body).toBe(200);
 
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/conversations/${conversationA}`,
         headers: { cookie: userB.cookie },
@@ -127,7 +127,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'PATCH',
         url: `/api/conversations/${conversationA}`,
         headers: { cookie: userB.cookie },
@@ -136,7 +136,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/conversations/${conversationA}`,
         headers: { cookie: userB.cookie },
@@ -144,7 +144,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/conversations/${conversationA}/outputs`,
         headers: { cookie: userB.cookie },
@@ -152,7 +152,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/conversations/${conversationA}/attachments/${newId('attachment')}/download`,
         headers: { cookie: userB.cookie },
@@ -160,7 +160,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
 
-    const ownRun = await inject(app, {
+    const ownRun = await request(app, {
       method: 'GET',
       url: `/api/runs/${runA}`,
       headers: { cookie: userA.cookie },
@@ -173,12 +173,12 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       `/api/chat/${runA}/events`,
     ]) {
       expectProblem(
-        await inject(app, { method: 'GET', url: path, headers: { cookie: userB.cookie } }),
+        await request(app, { method: 'GET', url: path, headers: { cookie: userB.cookie } }),
         'NOT_FOUND',
       );
     }
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: `/api/chat/${runA}/cancel`,
         headers: { cookie: userB.cookie },
@@ -186,7 +186,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: `/api/runs/${runA}/approve`,
         headers: { cookie: userB.cookie },
@@ -197,7 +197,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
 
     // 维护人员能维护该专家，但不能借此读别人的私有正文。
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/conversations/${conversationA}`,
         headers: { cookie: maintainer.cookie },
@@ -205,7 +205,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/runs/${runA}`,
         headers: { cookie: maintainer.cookie },
@@ -216,14 +216,14 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
 
   it('服务发起的运行只有平台范围可读', async () => {
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/runs/${serviceRun}`,
         headers: { cookie: userA.cookie },
       }),
       'NOT_FOUND',
     );
-    const adminRead = await inject(app, {
+    const adminRead = await request(app, {
       method: 'GET',
       url: `/api/runs/${serviceRun}`,
       headers: { cookie: admin },
@@ -231,29 +231,29 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     expect(adminRead.statusCode, adminRead.body).toBe(200);
 
     // 管理员跨用户读取（run 属 A）必须落审计，且不写正文。
-    await inject(app, {
+    await request(app, {
       method: 'GET',
       url: `/api/runs/${runA}`,
       headers: { cookie: admin },
     });
-    const audit = await app.pool.query<{
+    const audit = await app.client.unsafe<{
       actor: string;
       actor_kind: string;
       subject_business_id: string | null;
-    }>(
+    }[]>(
       `select actor, actor_kind, subject_business_id from audit_log
         where action = 'access.cross_user.runs.read' and target = $1 and actor = $2`,
       [runA, adminBusinessId],
     );
     expect(
-      audit.rows.some(
+      audit.some(
         (row) => row.actor_kind === 'user' && row.subject_business_id === userA.businessId,
       ),
     ).toBe(true);
   });
 
   it('被授权使用专家才能发起运行，撤权后新运行被拒', async () => {
-    const asA = await inject(app, {
+    const asA = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: { cookie: userA.cookie },
@@ -264,7 +264,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
 
     // 未获成员授权的维护人员可以维护别的专家，但不能使用这个专家。
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: '/api/chat',
         headers: { cookie: otherMaintainer.cookie },
@@ -274,14 +274,14 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     );
 
     // 撤销 canUse 后，既有会话仍在本人列表里，但不能再发起新运行。
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agentId}/members/${encodeURIComponent(userA.businessId)}`,
       headers: { cookie: admin },
     });
     expect(removed.statusCode, removed.body).toBe(200);
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: '/api/chat',
         headers: { cookie: userA.cookie },
@@ -290,14 +290,14 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
     // 已准入的私有会话仍按本人 O 可读，不因专家撤权而变成他人可读。
-    const stillOwn = await inject(app, {
+    const stillOwn = await request(app, {
       method: 'GET',
       url: `/api/conversations/${createdConversation}`,
       headers: { cookie: userA.cookie },
     });
     expect(stillOwn.statusCode, stillOwn.body).toBe(200);
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/conversations/${createdConversation}`,
         headers: { cookie: userB.cookie },
@@ -307,7 +307,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
   });
 
   it('评估资料按专家范围隔离：维护人可管理自己维护的专家，看不到别人的', async () => {
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/eval/cases',
       headers: { cookie: maintainer.cookie },
@@ -315,7 +315,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     });
     expect(created.statusCode, created.body).toBe(201);
 
-    const ownCases = await inject(app, {
+    const ownCases = await request(app, {
       method: 'GET',
       url: `/api/eval/cases?agentId=${encodeURIComponent(agentId)}`,
       headers: { cookie: maintainer.cookie },
@@ -323,7 +323,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     expect(ownCases.statusCode, ownCases.body).toBe(200);
     expect(ownCases.json<Array<{ agentId: string }>>()).toHaveLength(1);
 
-    const otherCases = await inject(app, {
+    const otherCases = await request(app, {
       method: 'GET',
       url: `/api/eval/cases?agentId=${encodeURIComponent(agentId)}`,
       headers: { cookie: otherMaintainer.cookie },
@@ -333,7 +333,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
 
     // 普通用户没有评估权限：功能级拒绝是 403，而不是空列表。
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: '/api/eval/cases',
         headers: { cookie: userB.cookie },
@@ -346,7 +346,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     const target = cases[0];
     expect(target).toBeDefined();
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/eval/cases/${target?.id}`,
         headers: { cookie: otherMaintainer.cookie },

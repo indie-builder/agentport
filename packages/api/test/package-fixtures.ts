@@ -18,7 +18,7 @@ import {
   AGENT_PACKAGE_SIDECAR_VERSION,
 } from '@agentport/shared';
 import { unzipSync, zipSync } from 'fflate';
-import { encodePackage } from '../src/features/agent-package-zip.js';
+import { encodePackage } from '../src/modules/agents/package-zip.js';
 
 export interface SkillSpec {
   slug: string;
@@ -229,7 +229,6 @@ export function rawZip(entries: RawZipEntry[]): Buffer {
   return Buffer.from(zipSync(data));
 }
 
-/** @fastify/compress 可能压缩二进制响应，这里统一解出条目内容。 */
 export function unzipPackage(body: Buffer | Uint8Array): Map<string, string> {
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const result = new Map<string, string>();

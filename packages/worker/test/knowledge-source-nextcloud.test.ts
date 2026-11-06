@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { probeNextcloud, readNextcloud } from '../src/knowledge/source-nextcloud.js';
 import { SourceAuthError, type SourceConfig } from '../src/knowledge/sources.js';
 
@@ -80,7 +81,7 @@ function multistatus(body: string): string {
 
 beforeEach(() => {
   calls = [];
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+  stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(
       typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
     );
@@ -95,7 +96,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreFetch();
 });
 
 function config(path = '/Documents', username = 'alice'): SourceConfig {

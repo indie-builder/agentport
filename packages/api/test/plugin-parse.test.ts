@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { encodePackage } from '../../api/src/features/agent-package-zip.js';
-import { type PluginImportFile, parsePluginFiles } from '../src/features/plugins/parse.js';
+import { describe, expect, it } from 'bun:test';
+import { encodePackage } from '../src/modules/agents/package-zip.js';
+import { type PluginImportFile, parsePluginFiles } from '../src/modules/plugins/parse.js';
 
 const file = (path: string, content = 'x'): PluginImportFile => ({
   path,

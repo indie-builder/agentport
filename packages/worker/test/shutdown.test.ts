@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { closeSessionRuntime } from '../src/sandbox/session-cleanup.js';
 import { runShutdown, type ShutdownOptions, type ShutdownStep } from '../src/shutdown.js';
 
@@ -33,8 +33,8 @@ function options(h: Harness, overrides: Partial<ShutdownOptions> = {}): Shutdown
     provider: h.step('sandbox provider'),
     steps: [h.step('maintenance worker'), h.step('sandbox probe')],
     finalSteps: [h.step('eval queue'), h.step('model proxy')],
-    pool: h.step('postgres pool'),
-    waits: { shutdownMs: 1_000, closeMs: 1_000, poolMs: 1_000 },
+    database: h.step('postgres pool'),
+    waits: { shutdownMs: 1_000, closeMs: 1_000, databaseMs: 1_000 },
     ...overrides,
   };
 }
@@ -117,7 +117,7 @@ describe('runShutdown', () => {
     const run = runShutdown(
       options(h, {
         provider: h.step('sandbox provider', () => held),
-        waits: { shutdownMs: 5, closeMs: 5, poolMs: 5 },
+        waits: { shutdownMs: 5, closeMs: 5, databaseMs: 5 },
       }),
     ).finally(() => {
       settled = true;
@@ -139,7 +139,7 @@ describe('runShutdown', () => {
     const failure = new Error('pool end failed');
     const code = await runShutdown(
       options(h, {
-        pool: h.step('postgres pool', async () => {
+        database: h.step('postgres pool', async () => {
           throw failure;
         }),
       }),
@@ -166,7 +166,7 @@ describe('runShutdown', () => {
       options(h, {
         workers: [h.step('main worker', () => new Promise(() => {})), h.step('eval worker')],
         steps: [h.step('maintenance worker', () => new Promise(() => {}))],
-        waits: { shutdownMs: 5, closeMs: 5, poolMs: 5 },
+        waits: { shutdownMs: 5, closeMs: 5, databaseMs: 5 },
       }),
     );
 
@@ -182,7 +182,7 @@ describe('runShutdown', () => {
     const code = await runShutdown(
       options(h, {
         workers: [h.step('main worker', () => new Promise(() => {})), h.step('eval worker')],
-        waits: { shutdownMs: 5, closeMs: 5, poolMs: 5 },
+        waits: { shutdownMs: 5, closeMs: 5, databaseMs: 5 },
       }),
     );
 
@@ -209,7 +209,7 @@ describe('runShutdown', () => {
             ),
             h.step('eval worker'),
           ],
-          waits: { shutdownMs: 5, closeMs: 5, poolMs: 5 },
+          waits: { shutdownMs: 5, closeMs: 5, databaseMs: 5 },
         }),
       );
       // 让首轮等待超时后的 rejection 全部落地，再断言没有漏成 unhandled。

@@ -1,7 +1,7 @@
 import { Bot } from 'lucide-react';
 import type { FocusEventHandler, Ref } from 'react';
 import { cn } from '../lib/cn.js';
-import { AgentAvatar } from './agent-avatar.js';
+import { AgentAvatar, type AgentDisplay } from './agent-avatar.js';
 import { Button } from './ui/button.js';
 import {
   Combobox,
@@ -12,13 +12,6 @@ import {
   ComboboxList,
   ComboboxTrigger,
 } from './ui/combobox.js';
-
-type AgentPickerAgent = {
-  name: string;
-  description: string;
-  role?: string | null;
-  slug?: string | null;
-};
 
 /** 专家选择：欢迎态与历史面板共用；触发器是头像+名称+箭头的按钮，弹层内搜索。 */
 export function AgentPicker({
@@ -37,9 +30,9 @@ export function AgentPicker({
   ariaInvalid,
   ariaDescribedby,
 }: {
-  agent: AgentPickerAgent | null;
+  agent: AgentDisplay | null;
   agentId?: string | null;
-  agentOptions: Array<{ value: string; label: string; agent?: AgentPickerAgent }>;
+  agentOptions: Array<{ value: string; label: string; agent?: AgentDisplay }>;
   onSwitchAgent: (id: string) => void;
   triggerVariant?: 'ghost' | 'field';
   placeholder?: string;

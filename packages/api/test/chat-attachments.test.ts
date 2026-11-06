@@ -1,18 +1,18 @@
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { getQueue } from '../src/queue/producer.js';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
   queueIdle,
+  request,
   startApp,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
@@ -32,7 +32,7 @@ const inputsDir = (slug: string, conversationId: string): string =>
 const filesIn = async (dir: string): Promise<string[]> => readdir(dir).catch(() => [] as string[]);
 
 describe.skipIf(!ready)('chat attachments', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const agentSlugs: string[] = [];
@@ -65,10 +65,10 @@ describe.skipIf(!ready)('chat attachments', () => {
     ).json<Agent>();
 
   const post = (payload: Record<string, unknown>) =>
-    inject(app, { method: 'POST', url: '/api/chat', headers: { cookie }, payload });
+    request(app, { method: 'POST', url: '/api/chat', headers: { cookie }, payload });
 
   const detail = async (conversationId: string) => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/conversations/${conversationId}`,
       headers: { cookie },
@@ -83,7 +83,7 @@ describe.skipIf(!ready)('chat attachments', () => {
   };
 
   const finishRun = async (runId: string): Promise<void> => {
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
       [runId],
     );
@@ -203,11 +203,11 @@ describe.skipIf(!ready)('chat attachments', () => {
     const agent = await newAgent();
     const res = await post({ agentId: agent.id, message: 'hi', attachments: build() });
     expectProblem(res, 'INVALID_INPUT');
-    const conversations = await app.pool.query(
+    const conversations = await app.client.unsafe(
       'select count(*)::int as count from conversations where agent_id = $1',
       [agent.id],
     );
-    expect(conversations.rows[0]?.count).toBe(0);
+    expect(conversations[0]?.count).toBe(0);
   });
 
   it('rejects attachments combined with an OpenUI action', async () => {
@@ -245,18 +245,18 @@ describe.skipIf(!ready)('chat attachments', () => {
     expect(await filesIn(inputsDir(agent.slug, conversationId))).toEqual(before);
     const saved = await detail(conversationId);
     expect(saved.messages.filter((message) => message.role === 'user')).toHaveLength(1);
-    const runs = await app.pool.query(
+    const runs = await app.client.unsafe(
       'select count(*)::int as count from agent_runs where conversation_id = $1',
       [conversationId],
     );
-    expect(runs.rows[0]?.count).toBe(1);
+    expect(runs[0]?.count).toBe(1);
   });
 
   it('deletes the new conversation and files when admission fails', async () => {
     const agent = await newAgent();
     // 只对本用例的消息失败：messages 表是全库共享的，不能影响并行文件。
     const marker = unique('attach-admission-fail');
-    await app.pool.query(`
+    await app.client.unsafe(`
       create or replace function messages_attachment_admission_probe() returns trigger
       language plpgsql as $$
       begin
@@ -266,7 +266,7 @@ describe.skipIf(!ready)('chat attachments', () => {
         return new;
       end $$
     `);
-    await app.pool.query(`
+    await app.client.unsafe(`
       create trigger messages_attachment_admission_probe
       before insert on messages
       for each row execute function messages_attachment_admission_probe()
@@ -280,18 +280,18 @@ describe.skipIf(!ready)('chat attachments', () => {
         attachments: [attachment('boom.txt')],
       });
     } finally {
-      await app.pool.query(
+      await app.client.unsafe(
         'drop trigger if exists messages_attachment_admission_probe on messages',
       );
-      await app.pool.query('drop function if exists messages_attachment_admission_probe()');
+      await app.client.unsafe('drop function if exists messages_attachment_admission_probe()');
     }
 
     expectProblem(res, 'INTERNAL_ERROR');
-    const conversations = await app.pool.query(
+    const conversations = await app.client.unsafe(
       'select count(*)::int as count from conversations where agent_id = $1',
       [agent.id],
     );
-    expect(conversations.rows[0]?.count).toBe(0);
+    expect(conversations[0]?.count).toBe(0);
     const dirs = await filesIn(
       join(testConfig().WORKSPACES_DIR, agent.slug, 'conversation-inputs'),
     );
@@ -308,7 +308,7 @@ describe.skipIf(!ready)('chat attachments', () => {
   it('keeps messages and files when enqueue fails', async () => {
     const agent = await newAgent();
     const queue = getQueue();
-    const add = vi.spyOn(queue, 'add').mockRejectedValueOnce(new Error('redis down'));
+    const add = spyOn(queue, 'add').mockRejectedValueOnce(new Error('redis down'));
     let res: Awaited<ReturnType<typeof post>>;
     try {
       res = await post({
@@ -321,14 +321,14 @@ describe.skipIf(!ready)('chat attachments', () => {
     }
     expectProblem(res, 'SERVICE_UNAVAILABLE');
 
-    const runs = await app.pool.query<{
+    const runs = await app.client.unsafe<{
       id: string;
       conversation_id: string;
       status: string;
-    }>('select id, conversation_id, status from agent_runs where agent_id = $1', [agent.id]);
-    expect(runs.rows).toHaveLength(1);
-    expect(runs.rows[0]?.status).toBe('failed');
-    const conversationId = runs.rows[0]?.conversation_id ?? '';
+    }[]>('select id, conversation_id, status from agent_runs where agent_id = $1', [agent.id]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.status).toBe('failed');
+    const conversationId = runs[0]?.conversation_id ?? '';
 
     const saved = await detail(conversationId);
     const user = saved.messages.find((message) => message.role === 'user');
@@ -356,22 +356,22 @@ describe.skipIf(!ready)('chat attachments', () => {
     const attachmentId = metadata[0]?.id ?? '';
     const url = `/api/conversations/${conversationId}/attachments/${attachmentId}/download`;
 
-    const res = await inject(app, { method: 'GET', url, headers: { cookie } });
+    const res = await request(app, { method: 'GET', url, headers: { cookie } });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.rawPayload.toString()).toBe(content);
-    expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(res.headers['content-type']).toContain('text/plain');
-    expect(res.headers['content-disposition']).toContain("filename*=UTF-8''");
-    expect(res.headers['content-disposition']).not.toContain(testConfig().WORKSPACES_DIR);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-type')).toContain('text/plain');
+    expect(res.headers.get('content-disposition')).toContain("filename*=UTF-8''");
+    expect(res.headers.get('content-disposition')).not.toContain(testConfig().WORKSPACES_DIR);
 
-    const anonymous = await inject(app, { method: 'GET', url });
+    const anonymous = await request(app, { method: 'GET', url });
     expect(anonymous.statusCode).toBe(401);
 
     const other = await post({ agentId: agent.id, message: 'other conversation' });
     const otherId = other.json<{ runId: string; conversationId: string }>().conversationId;
     runIds.push(other.json<{ runId: string }>().runId);
-    const cross = await inject(app, {
+    const cross = await request(app, {
       method: 'GET',
       url: `/api/conversations/${otherId}/attachments/${attachmentId}/download`,
       headers: { cookie },
@@ -379,7 +379,7 @@ describe.skipIf(!ready)('chat attachments', () => {
     expect(cross.statusCode).toBe(404);
     expect(cross.body).not.toContain(testConfig().WORKSPACES_DIR);
 
-    const unknown = await inject(app, {
+    const unknown = await request(app, {
       method: 'GET',
       url: `/api/conversations/${conversationId}/attachments/00000000-0000-4000-8000-000000000000/download`,
       headers: { cookie },
@@ -397,7 +397,7 @@ describe.skipIf(!ready)('chat attachments', () => {
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
     await finishRun(runId);
-    await app.pool.query('update conversations set sdk_session_id = $1 where id = $2', [
+    await app.client.unsafe('update conversations set sdk_session_id = $1 where id = $2', [
       '66666666-7777-4888-8999-000000000000',
       conversationId,
     ]);
@@ -406,7 +406,7 @@ describe.skipIf(!ready)('chat attachments', () => {
       recursive: true,
     });
 
-    const branched = await inject(app, {
+    const branched = await request(app, {
       method: 'POST',
       url: `/api/conversations/${conversationId}/branch`,
       headers: { cookie },
@@ -426,7 +426,7 @@ describe.skipIf(!ready)('chat attachments', () => {
       await filesIn(inputsDir(agent.slug, conversationId)),
     );
 
-    const deleted = await inject(app, {
+    const deleted = await request(app, {
       method: 'DELETE',
       url: `/api/conversations/${conversationId}`,
       headers: { cookie },
@@ -434,7 +434,7 @@ describe.skipIf(!ready)('chat attachments', () => {
     expect(deleted.statusCode, deleted.body).toBe(204);
     expect(await filesIn(inputsDir(agent.slug, conversationId))).toEqual([]);
 
-    const download = await inject(app, {
+    const download = await request(app, {
       method: 'GET',
       url: `/api/conversations/${branchId}/attachments/${branchAttachments[0]?.id}/download`,
       headers: { cookie },
@@ -453,7 +453,7 @@ describe.skipIf(!ready)('chat attachments', () => {
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
     await finishRun(runId);
-    await app.pool.query('update conversations set sdk_session_id = $1 where id = $2', [
+    await app.client.unsafe('update conversations set sdk_session_id = $1 where id = $2', [
       '77777777-8888-4999-8aaa-bbbbbbbbbbbb',
       conversationId,
     ]);
@@ -463,18 +463,18 @@ describe.skipIf(!ready)('chat attachments', () => {
     });
     await rm(inputsDir(agent.slug, conversationId), { recursive: true, force: true });
 
-    const branched = await inject(app, {
+    const branched = await request(app, {
       method: 'POST',
       url: `/api/conversations/${conversationId}/branch`,
       headers: { cookie },
       payload: {},
     });
     expectProblem(branched, 'CONFLICT');
-    const leftovers = await app.pool.query(
+    const leftovers = await app.client.unsafe(
       'select count(*)::int as count from conversations where parent_id = $1',
       [conversationId],
     );
-    expect(leftovers.rows[0]?.count).toBe(0);
+    expect(leftovers[0]?.count).toBe(0);
   });
 
   it('keeps attachment messages queryable and downloadable after their run is pruned', async () => {
@@ -488,14 +488,14 @@ describe.skipIf(!ready)('chat attachments', () => {
     runIds.push(runId);
     await finishRun(runId);
     // pruneRuns 会删除 run；messages.run_id 由外键置空，消息与附件必须保留。
-    await app.pool.query('delete from agent_runs where id = $1', [runId]);
+    await app.client.unsafe('delete from agent_runs where id = $1', [runId]);
 
     const saved = await detail(conversationId);
     const metadata = (saved.messages.find((message) => message.role === 'user')?.content
       .attachments ?? []) as Array<{ id: string }>;
     expect(metadata).toHaveLength(1);
 
-    const download = await inject(app, {
+    const download = await request(app, {
       method: 'GET',
       url: `/api/conversations/${conversationId}/attachments/${metadata[0]?.id}/download`,
       headers: { cookie },
@@ -516,7 +516,7 @@ describe.skipIf(!ready)('chat attachments', () => {
     await finishRun(runId);
     expect(await filesIn(inputsDir(agent.slug, conversationId))).toHaveLength(1);
 
-    const deleted = await inject(app, {
+    const deleted = await request(app, {
       method: 'DELETE',
       url: `/api/conversations/${conversationId}`,
       headers: { cookie },
@@ -537,7 +537,7 @@ describe.skipIf(!ready)('chat attachments', () => {
     await finishRun(runId);
     expect(await filesIn(inputsDir(agent.slug, conversationId))).toHaveLength(1);
 
-    const deleted = await inject(app, {
+    const deleted = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}`,
       headers: { cookie },

@@ -4,21 +4,21 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { newId, repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import {
-  type FastifyInstance,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('knowledge management routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   const baseIds: string[] = [];
@@ -32,13 +32,12 @@ describe.skipIf(!ready)('knowledge management routes', () => {
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
       baseIds.length = 0;
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
       profileIds.length = 0;
     }
   });
@@ -49,7 +48,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
   });
 
   async function createBase(): Promise<string> {
-    const profile = await inject(app, {
+    const profile = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -64,7 +63,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const profileId = profile.json<{ id: string }>().id;
     profileIds.push(profileId);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -117,11 +116,11 @@ describe.skipIf(!ready)('knowledge management routes', () => {
   ) {
     // 版本 profile 必须与所属库一致，否则发布守卫会拒绝切指针。
     const [baseRow] = (
-      await app.pool.query<{ embedding_profile_id: string }>(
+      await app.client.unsafe<{ embedding_profile_id: string }[]>(
         'select embedding_profile_id from knowledge_bases where id = $1',
         [baseId],
       )
-    ).rows;
+    );
     const profileId = baseRow!.embedding_profile_id;
     const document = await repo.knowledge.createDocument(app.db, {
       baseId,
@@ -199,7 +198,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
         },
       },
     });
-    await app.pool.query(`update knowledge_jobs set status = 'succeeded' where id = $1`, [job.id]);
+    await app.client.unsafe(`update knowledge_jobs set status = 'succeeded' where id = $1`, [job.id]);
     const version = await repo.knowledge.createVersion(app.db, {
       documentId: input.documentId,
       blobSha256: blobSha,
@@ -242,7 +241,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     await writeMarkdown(seeded.document.id, v2.id, '第二版');
     await repo.knowledge.setCurrentVersion(app.db, seeded.document.id, v2.id);
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${seeded.document.id}/versions`,
       headers: { cookie },
@@ -267,7 +266,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     expect(typeof items[0]!.createdAt).toBe('string');
 
-    const rollback = await inject(app, {
+    const rollback = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${seeded.document.id}/rollback`,
       headers: { cookie },
@@ -276,7 +275,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(rollback.statusCode, rollback.body).toBe(200);
     expect(rollback.json()).toMatchObject({ currentVersionId: seeded.version.id });
 
-    const stale = await inject(app, {
+    const stale = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${seeded.document.id}/rollback`,
       headers: { cookie },
@@ -286,7 +285,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(stale.json()).toMatchObject({ code: 'CONFLICT_STALE' });
 
     const other = await seedDocument(baseId);
-    const foreign = await inject(app, {
+    const foreign = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${seeded.document.id}/rollback`,
       headers: { cookie },
@@ -295,11 +294,11 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(foreign.statusCode, foreign.body).toBe(404);
     expect(foreign.json()).toMatchObject({ code: 'NOT_FOUND' });
 
-    const remaining = await app.pool.query<{ count: string }>(
+    const remaining = await app.client.unsafe<{ count: string }[]>(
       'select count(*)::text as count from knowledge_document_versions where document_id = $1',
       [seeded.document.id],
     );
-    expect(remaining.rows[0]?.count).toBe('2');
+    expect(remaining[0]?.count).toBe('2');
   });
 
   it('chunk add/update/delete create new versions and keep old chunks immutable', async () => {
@@ -309,7 +308,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const firstChunk = oldChunks.items[0]!;
     expect(firstChunk.pageFrom).toBe(1);
 
-    const added = await inject(app, {
+    const added = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${seeded.document.id}/chunks`,
       headers: { cookie },
@@ -346,7 +345,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     );
     expect(markdown).toContain('新增段');
 
-    const stale = await inject(app, {
+    const stale = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/chunks/${addedBody.chunk.id}`,
       headers: { cookie },
@@ -354,7 +353,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     expect(stale.statusCode, stale.body).toBe(409);
 
-    const updated = await inject(app, {
+    const updated = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/chunks/${addedBody.chunk.id}`,
       headers: { cookie },
@@ -381,7 +380,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(updatedBody.chunk.locator).toBeNull();
     expect(updatedBody.chunk.metadata.originalChunkId).toBe(addedBody.chunk.id);
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/chunks/${updatedBody.chunk.id}`,
       headers: { cookie },
@@ -399,7 +398,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
   it('manual draft stays out of the current pointer until publish', async () => {
     const baseId = await createBase();
     const profileId = profileIds.at(-1)!;
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/manual`,
       headers: { cookie },
@@ -407,11 +406,11 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     expect(created.statusCode, created.body).toBe(202);
     const documentId = created.json<{ documentId: string }>().documentId;
-    const initialJob = await app.pool.query<{ payload: { publish?: string } }>(
+    const initialJob = await app.client.unsafe<{ payload: { publish?: string } }[]>(
       'select payload from knowledge_jobs where id = $1',
       [created.json<{ jobId: string }>().jobId],
     );
-    expect(initialJob.rows[0]?.payload.publish).toBe('draft');
+    expect(initialJob[0]?.payload.publish).toBe('draft');
     expect(documentId).toMatch(/^kdoc_/);
 
     const published = await seedDocument(baseId, {
@@ -422,7 +421,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     const targetId = published.document.id;
 
-    const readPublished = await inject(app, {
+    const readPublished = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${targetId}/manual`,
       headers: { cookie },
@@ -434,18 +433,18 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       content: '已发布正文',
     });
 
-    const draft = await inject(app, {
+    const draft = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${targetId}/manual`,
       headers: { cookie },
       payload: { content: '草稿正文', expectedVersionId: published.version.id },
     });
     expect(draft.statusCode, draft.body).toBe(202);
-    const draftJob = await app.pool.query<{ payload: { publish?: string } }>(
+    const draftJob = await app.client.unsafe<{ payload: { publish?: string } }[]>(
       'select payload from knowledge_jobs where id = $1',
       [draft.json<{ jobId: string }>().jobId],
     );
-    expect(draftJob.rows[0]?.payload.publish).toBe('draft');
+    expect(draftJob[0]?.payload.publish).toBe('draft');
 
     const draftVersion = await seedDraftVersion({
       baseId,
@@ -455,7 +454,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       profileId,
     });
 
-    const readDraft = await inject(app, {
+    const readDraft = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${targetId}/manual`,
       headers: { cookie },
@@ -467,7 +466,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       content: '草稿正文',
     });
 
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${targetId}/publish`,
       headers: { cookie },
@@ -479,7 +478,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       status: 'ready',
     });
 
-    const afterPublish = await inject(app, {
+    const afterPublish = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${targetId}/manual`,
       headers: { cookie },
@@ -502,7 +501,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const documentId = published.document.id;
 
     // 窗口 A 打开编辑器时读到线上版本 P。
-    const readByA = await inject(app, {
+    const readByA = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -516,7 +515,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
 
     // 窗口 B 基于同一版本保存，真实摄取任务成功产出草稿 D。
-    const savedByB = await inject(app, {
+    const savedByB = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -532,11 +531,11 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
 
     // 窗口 A 仍持有旧读，基于 P 再保存不得覆盖 D，也不得新增任务或版本。
-    const jobsBefore = await app.pool.query<{ count: string }>(
+    const jobsBefore = await app.client.unsafe<{ count: string }[]>(
       'select count(*)::text as count from knowledge_jobs where document_id = $1',
       [documentId],
     );
-    const staleSave = await inject(app, {
+    const staleSave = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -545,23 +544,23 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(staleSave.statusCode, staleSave.body).toBe(409);
     expect(staleSave.json()).toMatchObject({ code: 'CONFLICT_STALE' });
 
-    const jobsAfter = await app.pool.query<{ count: string }>(
+    const jobsAfter = await app.client.unsafe<{ count: string }[]>(
       'select count(*)::text as count from knowledge_jobs where document_id = $1',
       [documentId],
     );
-    expect(jobsAfter.rows[0]?.count).toBe(jobsBefore.rows[0]?.count);
-    const versionsAfter = await app.pool.query<{ count: string }>(
+    expect(jobsAfter[0]?.count).toBe(jobsBefore[0]?.count);
+    const versionsAfter = await app.client.unsafe<{ count: string }[]>(
       'select count(*)::text as count from knowledge_document_versions where document_id = $1',
       [documentId],
     );
-    expect(versionsAfter.rows[0]?.count).toBe('2');
-    const currentAfter = await app.pool.query<{ current_version_id: string }>(
+    expect(versionsAfter[0]?.count).toBe('2');
+    const currentAfter = await app.client.unsafe<{ current_version_id: string }[]>(
       'select current_version_id from knowledge_documents where id = $1',
       [documentId],
     );
-    expect(currentAfter.rows[0]?.current_version_id).toBe(baseVersionId);
+    expect(currentAfter[0]?.current_version_id).toBe(baseVersionId);
 
-    const readAfterStale = await inject(app, {
+    const readAfterStale = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -574,7 +573,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
 
     // 基于编辑器当前拿到的草稿 D 继续保存仍可入队。
-    const savedByDraft = await inject(app, {
+    const savedByDraft = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -590,7 +589,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const second = await seedDocument(baseId, { title: '二' });
     const foreign = await seedDocument(otherBaseId, { title: '外' });
 
-    const tagged = await inject(app, {
+    const tagged = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -609,7 +608,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(tagResults[1]?.code).toBe('INVALID_INPUT');
     expect(tagResults[2]?.code).toBe('NOT_FOUND');
 
-    const copied = await inject(app, {
+    const copied = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -617,14 +616,14 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     const newDocumentId = copied.json<{ results: Array<{ newDocumentId: string }> }>().results[0]!
       .newDocumentId;
-    const copyRow = await app.pool.query<{
+    const copyRow = await app.client.unsafe<{
       source_type: string;
       source_connection_id: string | null;
       title: string;
-    }>('select source_type, source_connection_id, title from knowledge_documents where id = $1', [
+    }[]>('select source_type, source_connection_id, title from knowledge_documents where id = $1', [
       newDocumentId,
     ]);
-    expect(copyRow.rows[0], copied.body).toMatchObject({
+    expect(copyRow[0], copied.body).toMatchObject({
       source_type: 'manual',
       source_connection_id: null,
       title: first.document.title,
@@ -632,15 +631,15 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const copyChunks = await repo.knowledge.listChunkSummaries(
       app.db,
       (
-        await app.pool.query<{ current_version_id: string }>(
+        await app.client.unsafe<{ current_version_id: string }[]>(
           'select current_version_id from knowledge_documents where id = $1',
           [newDocumentId],
         )
-      ).rows[0]!.current_version_id,
+      )[0]!.current_version_id,
     );
     expect(copyChunks.items.map((chunk) => chunk.content)).toEqual(['第一段', '第二段']);
 
-    const moved = await inject(app, {
+    const moved = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -651,7 +650,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     // 人工编辑过的文档：未确认时逐项失败，确认后才入队。
     const edited = await repo.knowledge.listChunks(app.db, second.version.id);
     await repo.knowledge.patchChunk(app.db, edited.items[0]!.id, { editedByUser: true });
-    const blocked = await inject(app, {
+    const blocked = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -660,7 +659,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(
       blocked.json<{ results: Array<{ status: string; code?: string }> }>().results[0],
     ).toMatchObject({ status: 'failed', code: 'CONFLICT' });
-    const confirmed = await inject(app, {
+    const confirmed = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -674,17 +673,17 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       confirmed.json<{ results: Array<{ status: string; jobId?: string }> }>().results[0],
     ).toMatchObject({ status: 'succeeded', jobId: expect.stringMatching(/^kjob_/) });
 
-    const deleted = await inject(app, {
+    const deleted = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
       payload: { documentIds: [first.document.id], action: 'delete' },
     });
     expect(deleted.statusCode, deleted.body).toBe(200);
-    const gone = await app.pool.query('select 1 from knowledge_documents where id = $1', [
+    const gone = await app.client.unsafe('select 1 from knowledge_documents where id = $1', [
       first.document.id,
     ]);
-    expect(gone.rowCount).toBe(0);
+    expect(gone).toHaveLength(0);
   });
 
   it('copies version images one by one and fails the copy before creating it when one is missing', async () => {
@@ -699,7 +698,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       'fig-2.png': Buffer.from('second-image'),
     });
 
-    const copied = await inject(app, {
+    const copied = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -727,13 +726,13 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     await writeImages(missing.document.id, missing.version.id, {
       'fig-1.png': Buffer.from('only-image'),
     });
-    const beforeDocuments = await app.pool.query<{ id: string }>(
+    const beforeDocuments = await app.client.unsafe<{ id: string }[]>(
       'select id from knowledge_documents where base_id = $1 order by id',
       [baseId],
     );
     const beforeDirs = (await readdir(join(knowledgeDir, 'docs'))).sort();
 
-    const failed = await inject(app, {
+    const failed = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -745,12 +744,12 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     ).toMatchObject({ status: 'failed', code: 'CONFLICT' });
 
     // 失败不建副本、不留预分配目录，源版本图片仍可读。
-    const afterDocuments = await app.pool.query<{ id: string }>(
+    const afterDocuments = await app.client.unsafe<{ id: string }[]>(
       'select id from knowledge_documents where base_id = $1 order by id',
       [baseId],
     );
-    expect(afterDocuments.rows.map((row) => row.id)).toEqual(
-      beforeDocuments.rows.map((row) => row.id),
+    expect(afterDocuments.map((row) => row.id)).toEqual(
+      beforeDocuments.map((row) => row.id),
     );
     expect((await readdir(join(knowledgeDir, 'docs'))).sort()).toEqual(beforeDirs);
     expect(
@@ -767,7 +766,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       recursive: true,
     });
     const emptyDirs = (await readdir(join(knowledgeDir, 'docs'))).sort();
-    const emptyFailed = await inject(app, {
+    const emptyFailed = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -800,7 +799,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     const [chunk] = (await repo.knowledge.listChunks(app.db, source.version.id)).items;
 
-    const edited = await inject(app, {
+    const edited = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/chunks/${chunk!.id}`,
       headers: { cookie },
@@ -838,7 +837,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       'fig-1.png': Buffer.from('present'),
     });
     const [brokenChunk] = (await repo.knowledge.listChunks(app.db, broken.version.id)).items;
-    const rejected = await inject(app, {
+    const rejected = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/chunks/${brokenChunk!.id}`,
       headers: { cookie },
@@ -864,7 +863,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       recursive: true,
     });
     const [emptyChunk] = (await repo.knowledge.listChunks(app.db, empty.version.id)).items;
-    const emptyRejected = await inject(app, {
+    const emptyRejected = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/chunks/${emptyChunk!.id}`,
       headers: { cookie },
@@ -888,7 +887,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
   it('directory upload creates a real folder tree and rejects traversal paths', async () => {
     const baseId = await createBase();
     for (const relativePath of ['a/notes.md', 'b/notes.md']) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PUT',
         url: `/api/knowledge/bases/${baseId}/documents/upload`,
         headers: { cookie },
@@ -901,24 +900,24 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       });
       expect(res.statusCode, res.body).toBe(202);
     }
-    const folders = await app.pool.query<{ path: string }>(
+    const folders = await app.client.unsafe<{ path: string }[]>(
       'select path from knowledge_folders where base_id = $1 order by path',
       [baseId],
     );
-    expect(folders.rows.map((row) => row.path)).toEqual(['/a', '/b']);
-    const documents = await app.pool.query<{ title: string; folder_id: string }>(
+    expect(folders.map((row) => row.path)).toEqual(['/a', '/b']);
+    const documents = await app.client.unsafe<{ title: string; folder_id: string }[]>(
       `select d.title, f.path as folder_id from knowledge_documents d
        join knowledge_folders f on f.id = d.folder_id
        where d.base_id = $1 order by f.path`,
       [baseId],
     );
-    expect(documents.rows).toEqual([
+    expect(documents).toEqual([
       { title: 'notes', folder_id: '/a' },
       { title: 'notes', folder_id: '/b' },
     ]);
 
     for (const relativePath of ['../escape.md', '/abs.md', 'a//b.md', 'a\\b.md']) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PUT',
         url: `/api/knowledge/bases/${baseId}/documents/upload`,
         headers: { cookie },
@@ -935,7 +934,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
 
   it('sync items are paginated per run and reject runs from another source', async () => {
     const baseId = await createBase();
-    const source = await inject(app, {
+    const source = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -950,11 +949,11 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(source.statusCode, source.body).toBe(201);
     const sourceId = source.json<{ id: string }>().id;
     const runId = 'ksyn_management_test';
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_sync_runs (id, source_id, status) values ($1, $2, 'succeeded')`,
       [runId, sourceId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_sync_items
          (id, sync_run_id, source_id, external_id, status, code, message, retryable)
        values
@@ -963,7 +962,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       [runId, sourceId],
     );
 
-    const items = await inject(app, {
+    const items = await request(app, {
       method: 'GET',
       url: `/api/knowledge/sources/${sourceId}/runs/${runId}/items?status=failed`,
       headers: { cookie },
@@ -973,7 +972,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       expect.objectContaining({ externalId: 'item-a' }),
     ]);
 
-    const otherSource = await inject(app, {
+    const otherSource = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -986,7 +985,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       },
     });
     const otherSourceId = otherSource.json<{ id: string }>().id;
-    const wrong = await inject(app, {
+    const wrong = await request(app, {
       method: 'GET',
       url: `/api/knowledge/sources/${otherSourceId}/runs/${runId}/items`,
       headers: { cookie },
@@ -997,7 +996,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
   it('probe job result is visible on the job detail', async () => {
     const baseId = await createBase();
     const jobId = 'kjob_probe_result';
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_jobs (id, type, base_id, status, payload, result, ended_at)
        values ($1, 'source_probe', $2, 'succeeded', $3::jsonb, $4::jsonb, now())`,
       [
@@ -1007,7 +1006,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
         JSON.stringify({ ok: false, checks: [{ rangeId: 'krng_a', ok: false, code: 'AUTH' }] }),
       ],
     );
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/jobs/${jobId}`,
       headers: { cookie },
@@ -1097,9 +1096,9 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       position: 3,
     });
 
-    const exported = await injectZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
+    const exported = await requestZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
     expect(exported.statusCode, exported.body).toBe(200);
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/bases/${baseId}`,
       headers: { cookie },
@@ -1108,7 +1107,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const index = baseIds.indexOf(baseId);
     if (index >= 0) baseIds.splice(index, 1);
 
-    const imported = await injectZip(
+    const imported = await requestZip(
       app,
       'POST',
       '/api/knowledge/bases/import',
@@ -1119,26 +1118,26 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const importedBaseId = imported.json<{ baseId: string }>().baseId;
     baseIds.push(importedBaseId);
 
-    const faqRows = await app.pool.query<{ content_kind: string; faq: typeof faq }>(
+    const faqRows = await app.client.unsafe<{ content_kind: string; faq: typeof faq }[]>(
       `select d.content_kind, v.faq from knowledge_documents d
        join knowledge_document_versions v on v.document_id = d.id and v.id = d.current_version_id
        where d.base_id = $1`,
       [importedBaseId],
     );
-    expect(faqRows.rows[0]).toEqual({ content_kind: 'faq', faq });
+    expect(faqRows[0]).toEqual({ content_kind: 'faq', faq });
 
-    const wikiRows = await app.pool.query<{
+    const wikiRows = await app.client.unsafe<{
       slug: string;
       parent_slug: string | null;
       position: number;
-    }>(
+    }[]>(
       `select p.slug, parent.slug as parent_slug, p.position
        from knowledge_wiki_pages p
        left join knowledge_wiki_pages parent on parent.id = p.parent_id
        where p.base_id = $1 order by p.slug`,
       [importedBaseId],
     );
-    expect(wikiRows.rows).toEqual([
+    expect(wikiRows).toEqual([
       { slug: 'child', parent_slug: 'parent', position: 3 },
       { slug: 'parent', parent_slug: null, position: 0 },
     ]);
@@ -1150,9 +1149,9 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const documentId = seeded.document.id;
     const docDir = join(knowledgeDir, 'docs', documentId);
     await chmod(docDir, 0o555);
-    let response: Awaited<ReturnType<typeof inject>>;
+    let response: Awaited<ReturnType<typeof request>>;
     try {
-      response = await inject(app, {
+      response = await request(app, {
         method: 'POST',
         url: `/api/knowledge/documents/${documentId}/chunks`,
         headers: { cookie },
@@ -1163,14 +1162,14 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     }
     expect(response.statusCode, response.body).toBe(500);
 
-    const row = await app.pool.query<{ current_version_id: string; status: string }>(
+    const row = await app.client.unsafe<{ current_version_id: string; status: string }[]>(
       'select current_version_id, status from knowledge_documents where id = $1',
       [documentId],
     );
-    expect(row.rows[0]).toEqual({ current_version_id: seeded.version.id, status: 'ready' });
+    expect(row[0]).toEqual({ current_version_id: seeded.version.id, status: 'ready' });
     const chunks = await repo.knowledge.listChunkSummaries(app.db, seeded.version.id);
     expect(chunks.items.map((chunk) => chunk.content)).toEqual(['第一段', '第二段']);
-    const markdown = await inject(app, {
+    const markdown = await request(app, {
       method: 'GET',
       url: `/api/knowledge/versions/${seeded.version.id}/markdown`,
       headers: { cookie },
@@ -1184,7 +1183,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const seeded = await seedDocument(baseId, { contents: ['第一段', '第二段'] });
     const initial = await repo.knowledge.listChunks(app.db, seeded.version.id);
     const disabled = initial.items[0]!;
-    const toggled = await inject(app, {
+    const toggled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/chunks/${disabled.id}`,
       headers: { cookie },
@@ -1193,7 +1192,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(toggled.statusCode, toggled.body).toBe(200);
     const versionId = toggled.json<{ document: { currentVersionId: string } }>().document
       .currentVersionId;
-    const added = await inject(app, {
+    const added = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${seeded.document.id}/chunks`,
       headers: { cookie },
@@ -1213,7 +1212,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
   it('manual disable writes manual reason and explicit enable clears it', async () => {
     const baseId = await createBase();
     const seeded = await seedDocument(baseId, { sourceType: 'manual' });
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/documents/${seeded.document.id}`,
       headers: { cookie },
@@ -1221,14 +1220,14 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     expect(disabled.statusCode, disabled.body).toBe(200);
     expect(disabled.json()).toMatchObject({ status: 'disabled', disabledReason: 'manual' });
-    const blocked = await inject(app, {
+    const blocked = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${seeded.document.id}/reprocess`,
       headers: { cookie },
       payload: { confirmOverwriteManualChunks: true },
     });
     expect(blocked.statusCode, blocked.body).toBe(409);
-    const enabled = await inject(app, {
+    const enabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/documents/${seeded.document.id}`,
       headers: { cookie },
@@ -1240,7 +1239,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
 
   it('explicit enable still requires valid source authorization', async () => {
     const baseId = await createBase();
-    const source = await inject(app, {
+    const source = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -1278,7 +1277,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     // seedDocument 切版时范围还没挂上，这里补一次发布。
     await repo.knowledge.setCurrentVersion(app.db, seeded.document.id, seeded.version.id);
 
-    const revoked = await inject(app, {
+    const revoked = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${sourceBody.id}`,
       headers: { cookie },
@@ -1289,27 +1288,27 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       seeded.document.id,
     );
 
-    const blocked = await inject(app, {
+    const blocked = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/documents/${seeded.document.id}`,
       headers: { cookie },
       payload: { status: 'ready' },
     });
     expect(blocked.statusCode, blocked.body).toBe(409);
-    const stillDisabled = await app.pool.query<{ status: string; disabled_reason: string | null }>(
+    const stillDisabled = await app.client.unsafe<{ status: string; disabled_reason: string | null }[]>(
       'select status, disabled_reason from knowledge_documents where id = $1',
       [seeded.document.id],
     );
-    expect(stillDisabled.rows[0]).toEqual({ status: 'disabled', disabled_reason: 'source' });
+    expect(stillDisabled[0]).toEqual({ status: 'disabled', disabled_reason: 'source' });
 
-    const restored = await inject(app, {
+    const restored = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${sourceBody.id}`,
       headers: { cookie },
       payload: { status: 'active' },
     });
     expect(restored.statusCode, restored.body).toBe(200);
-    const enabled = await inject(app, {
+    const enabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/documents/${seeded.document.id}`,
       headers: { cookie },
@@ -1326,14 +1325,14 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     await repo.knowledge.patchChunk(app.db, chunks.items[0]!.id, { editedByUser: true });
 
     async function payloadOf(jobId: string): Promise<Record<string, unknown>> {
-      const rows = await app.pool.query<{ payload: Record<string, unknown> }>(
+      const rows = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
         'select payload from knowledge_jobs where id = $1',
         [jobId],
       );
-      return rows.rows[0]!.payload;
+      return rows[0]!.payload;
     }
 
-    const reprocessed = await inject(app, {
+    const reprocessed = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${seeded.document.id}/reprocess`,
       headers: { cookie },
@@ -1347,7 +1346,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       confirmOverwriteManualChunks: true,
     });
 
-    const rebuilt = await inject(app, {
+    const rebuilt = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/rebuild`,
       headers: { cookie },
@@ -1361,7 +1360,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       confirmOverwriteManualChunks: true,
     });
 
-    const batch = await inject(app, {
+    const batch = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -1409,7 +1408,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       contentKind: 'wiki',
     });
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/documents`,
       headers: { cookie },
@@ -1425,7 +1424,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       expect.objectContaining({ id: wikiIndex.id }),
     );
 
-    const manual = await inject(app, {
+    const manual = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${faq.id}/manual`,
       headers: { cookie },
@@ -1554,9 +1553,9 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     await writeMarkdown(faqDocument.id, faqVersion.id, '导入问题');
 
-    const exported = await injectZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
+    const exported = await requestZip(app, 'GET', `/api/knowledge/bases/${baseId}/export`, cookie);
     expect(exported.statusCode, exported.body).toBe(200);
-    await inject(app, {
+    await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/bases/${baseId}`,
       headers: { cookie },
@@ -1564,7 +1563,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const index = baseIds.indexOf(baseId);
     if (index >= 0) baseIds.splice(index, 1);
 
-    const imported = await injectZip(
+    const imported = await requestZip(
       app,
       'POST',
       '/api/knowledge/bases/import',
@@ -1575,40 +1574,40 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const importedBaseId = imported.json<{ baseId: string }>().baseId;
     baseIds.push(importedBaseId);
 
-    const importedPage = await app.pool.query<{ id: string; current_version_id: string }>(
+    const importedPage = await app.client.unsafe<{ id: string; current_version_id: string }[]>(
       'select id, current_version_id from knowledge_wiki_pages where base_id = $1',
       [importedBaseId],
     );
-    expect(importedPage.rows[0]?.id).not.toBe(page.id);
+    expect(importedPage[0]?.id).not.toBe(page.id);
 
-    const importedRows = await app.pool.query<{
+    const importedRows = await app.client.unsafe<{
       content_kind: string;
       metadata: Record<string, unknown>;
       version_metadata: Record<string, unknown>;
-    }>(
+    }[]>(
       `select d.content_kind, d.metadata, v.metadata as version_metadata
        from knowledge_documents d
        join knowledge_document_versions v on v.document_id = d.id
        where d.base_id = $1`,
       [importedBaseId],
     );
-    const wikiRow = importedRows.rows.find((row) => row.content_kind === 'wiki')!;
-    expect(wikiRow.metadata.wikiPageId).toBe(importedPage.rows[0]!.id);
+    const wikiRow = importedRows.find((row) => row.content_kind === 'wiki')!;
+    expect(wikiRow.metadata.wikiPageId).toBe(importedPage[0]!.id);
     expect(wikiRow.version_metadata).toEqual({
-      wikiPageId: importedPage.rows[0]!.id,
-      wikiVersionId: importedPage.rows[0]!.current_version_id,
+      wikiPageId: importedPage[0]!.id,
+      wikiVersionId: importedPage[0]!.current_version_id,
     });
-    const faqRow = importedRows.rows.find((row) => row.content_kind === 'faq')!;
+    const faqRow = importedRows.find((row) => row.content_kind === 'faq')!;
     expect(faqRow.version_metadata).toEqual({ publication: 'draft' });
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${importedBaseId}/documents`,
       headers: { cookie },
     });
     expect(list.json<{ items: unknown[] }>().items).toEqual([]);
 
-    const search = await inject(app, {
+    const search = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${importedBaseId}/search?q=${encodeURIComponent('索引内容')}&kinds=wiki`,
       headers: { cookie },
@@ -1616,23 +1615,23 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(search.statusCode, search.body).toBe(200);
     expect(
       search.json<{ hits: Array<{ target: { kind: string; id: string } }> }>().hits[0],
-    ).toMatchObject({ target: { kind: 'wiki', id: importedPage.rows[0]!.id } });
+    ).toMatchObject({ target: { kind: 'wiki', id: importedPage[0]!.id } });
 
-    const wikiRead = await inject(app, {
+    const wikiRead = await request(app, {
       method: 'GET',
-      url: `/api/knowledge/wiki-pages/${importedPage.rows[0]!.id}`,
+      url: `/api/knowledge/wiki-pages/${importedPage[0]!.id}`,
       headers: { cookie },
     });
     expect(wikiRead.statusCode, wikiRead.body).toBe(200);
     expect(wikiRead.json()).toMatchObject({
-      currentVersionId: importedPage.rows[0]!.current_version_id,
+      currentVersionId: importedPage[0]!.current_version_id,
     });
   });
 
   it('management search accepts the FAQ policy fields and returns the shared wire', async () => {
     const baseId = await createBase();
     await seedDocument(baseId, { contents: ['检索词 alpha'] });
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url:
         `/api/knowledge/bases/${baseId}/search?q=alpha` +
@@ -1653,18 +1652,18 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const suffix = unique('blockjobs').replace(/-/g, '_');
     const fn = `${suffix}_fn`;
     const trigger = `${suffix}_trg`;
-    await app.pool.query(
+    await app.client.unsafe(
       `create function ${fn}() returns trigger language plpgsql as $$
        begin raise exception 'knowledge job insert blocked for test'; end $$`,
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `create trigger ${trigger} before insert on knowledge_jobs
        for each row when (new.document_id = '${documentId}')
        execute function ${fn}()`,
     );
     return async () => {
-      await app.pool.query(`drop trigger if exists ${trigger} on knowledge_jobs`);
-      await app.pool.query(`drop function if exists ${fn}()`);
+      await app.client.unsafe(`drop trigger if exists ${trigger} on knowledge_jobs`);
+      await app.client.unsafe(`drop function if exists ${fn}()`);
     };
   }
 
@@ -1672,9 +1671,9 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const baseId = await createBase();
     const seeded = await seedDocument(baseId, { contents: ['第一段'] });
     const restore = await blockJobInserts(seeded.document.id);
-    let response: Awaited<ReturnType<typeof inject>>;
+    let response: Awaited<ReturnType<typeof request>>;
     try {
-      response = await inject(app, {
+      response = await request(app, {
         method: 'POST',
         url: `/api/knowledge/documents/${seeded.document.id}/chunks`,
         headers: { cookie },
@@ -1685,14 +1684,14 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     }
     expect(response.statusCode, response.body).toBe(500);
 
-    const row = await app.pool.query<{ current_version_id: string }>(
+    const row = await app.client.unsafe<{ current_version_id: string }[]>(
       'select current_version_id from knowledge_documents where id = $1',
       [seeded.document.id],
     );
-    const committedVersionId = row.rows[0]!.current_version_id;
+    const committedVersionId = row[0]!.current_version_id;
     expect(committedVersionId).not.toBe(seeded.version.id);
     // 指针已切到新版本：它的正文文件必须可读，不能因后续任务失败被清理。
-    const markdown = await inject(app, {
+    const markdown = await request(app, {
       method: 'GET',
       url: `/api/knowledge/versions/${committedVersionId}/markdown`,
       headers: { cookie },
@@ -1705,28 +1704,28 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const baseId = await createBase();
     const seeded = await seedDocument(baseId, { origin: 'manual', sourceType: 'manual' });
     const documentId = seeded.document.id;
-    await app.pool.query('update knowledge_documents set content_hash = $1 where id = $2', [
+    await app.client.unsafe('update knowledge_documents set content_hash = $1 where id = $2', [
       'published-hash',
       documentId,
     ]);
     const sha = (content: string) => createHash('sha256').update(content).digest('hex');
 
     async function payloadOf(jobId: string): Promise<Record<string, unknown>> {
-      const rows = await app.pool.query<{ payload: Record<string, unknown> }>(
+      const rows = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
         'select payload from knowledge_jobs where id = $1',
         [jobId],
       );
-      return rows.rows[0]!.payload;
+      return rows[0]!.payload;
     }
 
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
       payload: { content: '草稿 A', expectedVersionId: seeded.version.id },
     });
     expect(first.statusCode, first.body).toBe(202);
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -1751,18 +1750,18 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       input: { blobSha256: sha('草稿 B') },
     });
 
-    const kept = await app.pool.query<{ content_hash: string }>(
+    const kept = await app.client.unsafe<{ content_hash: string }[]>(
       'select content_hash from knowledge_documents where id = $1',
       [documentId],
     );
-    expect(kept.rows[0]?.content_hash).toBe('published-hash');
+    expect(kept[0]?.content_hash).toBe('published-hash');
 
     // 重试必须沿用同一快照，而不是重新读取运行时的文档指针。
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_jobs set status = 'failed', ended_at = now() where id = $1`,
       [firstJobId],
     );
-    const retried = await inject(app, {
+    const retried = await request(app, {
       method: 'POST',
       url: `/api/knowledge/jobs/${firstJobId}/retry`,
       headers: { cookie },
@@ -1778,9 +1777,9 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
 
     const restore = await blockJobInserts(documentId);
-    let blocked: Awaited<ReturnType<typeof inject>>;
+    let blocked: Awaited<ReturnType<typeof request>>;
     try {
-      blocked = await inject(app, {
+      blocked = await request(app, {
         method: 'PUT',
         url: `/api/knowledge/documents/${documentId}/manual`,
         headers: { cookie },
@@ -1790,16 +1789,16 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       await restore();
     }
     expect(blocked.statusCode, blocked.body).toBe(500);
-    const afterFailure = await app.pool.query<{ content_hash: string }>(
+    const afterFailure = await app.client.unsafe<{ content_hash: string }[]>(
       'select content_hash from knowledge_documents where id = $1',
       [documentId],
     );
-    expect(afterFailure.rows[0]?.content_hash).toBe('published-hash');
+    expect(afterFailure[0]?.content_hash).toBe('published-hash');
   });
 
   it('batch copy preserves document and chunk state without inheriting source authorization', async () => {
     const baseId = await createBase();
-    const source = await inject(app, {
+    const source = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -1838,7 +1837,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     );
     await repo.knowledge.setCurrentVersion(app.db, seeded.document.id, seeded.version.id);
     const initial = await repo.knowledge.listChunks(app.db, seeded.version.id);
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/chunks/${initial.items[1]!.id}`,
       headers: { cookie },
@@ -1847,7 +1846,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(disabled.statusCode, disabled.body).toBe(200);
     const versionId = disabled.json<{ document: { currentVersionId: string } }>().document
       .currentVersionId;
-    const docDisabled = await inject(app, {
+    const docDisabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/documents/${seeded.document.id}`,
       headers: { cookie },
@@ -1855,7 +1854,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     expect(docDisabled.statusCode, docDisabled.body).toBe(200);
 
-    const copied = await inject(app, {
+    const copied = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -1865,18 +1864,18 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const result = copied.json<{ results: Array<{ status: string; newDocumentId?: string }> }>()
       .results[0]!;
     expect(result.status).toBe('succeeded');
-    const copyRow = await app.pool.query<{
+    const copyRow = await app.client.unsafe<{
       status: string;
       disabled_reason: string | null;
       source_type: string;
       source_connection_id: string | null;
       current_version_id: string;
-    }>(
+    }[]>(
       `select status, disabled_reason, source_type, source_connection_id, current_version_id
        from knowledge_documents where id = $1`,
       [result.newDocumentId],
     );
-    expect(copyRow.rows[0]).toMatchObject({
+    expect(copyRow[0]).toMatchObject({
       status: 'disabled',
       disabled_reason: 'manual',
       source_type: 'manual',
@@ -1884,7 +1883,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     const copyChunks = await repo.knowledge.listChunkSummaries(
       app.db,
-      copyRow.rows[0]!.current_version_id,
+      copyRow[0]!.current_version_id,
     );
     expect(copyChunks.items.map((chunk) => [chunk.content, chunk.enabled])).toEqual([
       ['启用段', true],
@@ -1909,15 +1908,15 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     const countDocs = async () =>
       (
-        await app.pool.query<{ count: string }>(
+        await app.client.unsafe<{ count: string }[]>(
           'select count(*)::text as count from knowledge_documents where base_id = $1',
           [baseId],
         )
-      ).rows[0]!.count;
+      )[0]!.count;
     const dirsBefore = (await readdir(join(knowledgeDir, 'docs'))).length;
     const before = await countDocs();
 
-    const copied = await inject(app, {
+    const copied = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -1934,7 +1933,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const imagesDir = join(knowledgeDir, 'docs', seeded.document.id, seeded.version.id, 'images');
     await mkdir(imagesDir, { recursive: true });
     await writeFile(join(imagesDir, 'fig-1.png'), Buffer.from('png'));
-    const ok = await inject(app, {
+    const ok = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,
       headers: { cookie },
@@ -1943,20 +1942,20 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const okResult = ok.json<{ results: Array<{ status: string; newDocumentId?: string }> }>()
       .results[0]!;
     expect(okResult).toMatchObject({ status: 'succeeded' });
-    const copiedVersion = await app.pool.query<{ current_version_id: string; images: unknown[] }>(
+    const copiedVersion = await app.client.unsafe<{ current_version_id: string; images: unknown[] }[]>(
       `select d.current_version_id, v.images
        from knowledge_documents d join knowledge_document_versions v on v.id = d.current_version_id
        where d.id = $1`,
       [okResult.newDocumentId],
     );
-    expect(copiedVersion.rows[0]?.images).toHaveLength(1);
+    expect(copiedVersion[0]?.images).toHaveLength(1);
     expect(
       await readFile(
         join(
           knowledgeDir,
           'docs',
           okResult.newDocumentId!,
-          copiedVersion.rows[0]!.current_version_id,
+          copiedVersion[0]!.current_version_id,
           'images',
           'fig-1.png',
         ),
@@ -2034,19 +2033,19 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       await writeMarkdown(document.id, version.id, '内部块');
       await repo.knowledge.setCurrentVersion(app.db, document.id, version.id);
 
-      const add = await inject(app, {
+      const add = await request(app, {
         method: 'POST',
         url: `/api/knowledge/documents/${document.id}/chunks`,
         headers: { cookie },
         payload: { expectedVersionId: version.id, content: '越权新增' },
       });
-      const update = await inject(app, {
+      const update = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/chunks/${chunk!.id}`,
         headers: { cookie },
         payload: { expectedVersionId: version.id, content: '越权修改' },
       });
-      const remove = await inject(app, {
+      const remove = await request(app, {
         method: 'DELETE',
         url: `/api/knowledge/chunks/${chunk!.id}`,
         headers: { cookie },
@@ -2056,11 +2055,11 @@ describe.skipIf(!ready)('knowledge management routes', () => {
         expect(res.statusCode, `${contentKind}: ${res.body}`).toBe(409);
         expect(res.json()).toMatchObject({ code: 'CONFLICT' });
       }
-      const pointer = await app.pool.query<{ current_version_id: string }>(
+      const pointer = await app.client.unsafe<{ current_version_id: string }[]>(
         'select current_version_id from knowledge_documents where id = $1',
         [document.id],
       );
-      expect(pointer.rows[0]?.current_version_id).toBe(version.id);
+      expect(pointer[0]?.current_version_id).toBe(version.id);
       const versions = await repo.knowledge.listVersions(app.db, document.id);
       expect(versions.items).toHaveLength(1);
     }
@@ -2081,7 +2080,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     }
 
     const v2 = await addDraft('线上 v2', seeded.version.id);
-    const publishV2 = await inject(app, {
+    const publishV2 = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${documentId}/publish`,
       headers: { cookie },
@@ -2090,14 +2089,14 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(publishV2.statusCode, publishV2.body).toBe(200);
 
     const v3 = await addDraft('线上 v3', v2.id);
-    const publishV3 = await inject(app, {
+    const publishV3 = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${documentId}/publish`,
       headers: { cookie },
       payload: { versionId: v3.id, expectedVersionId: v2.id },
     });
     expect(publishV3.statusCode, publishV3.body).toBe(200);
-    const afterV3 = await inject(app, {
+    const afterV3 = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -2108,14 +2107,14 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       content: '线上 v3',
     });
 
-    const rollback = await inject(app, {
+    const rollback = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${documentId}/rollback`,
       headers: { cookie },
       payload: { versionId: seeded.version.id, expectedVersionId: v3.id },
     });
     expect(rollback.statusCode, rollback.body).toBe(200);
-    const afterRollback = await inject(app, {
+    const afterRollback = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -2127,7 +2126,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
 
     const v4 = await addDraft('未发布 v4', seeded.version.id);
-    const beforePublish = await inject(app, {
+    const beforePublish = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },
@@ -2137,7 +2136,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       versionId: v4.id,
       content: '未发布 v4',
     });
-    const saveAgain = await inject(app, {
+    const saveAgain = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${documentId}/manual`,
       headers: { cookie },

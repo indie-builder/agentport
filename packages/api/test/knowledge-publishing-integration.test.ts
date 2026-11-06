@@ -6,20 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
 import type { KnowledgeFaq, KnowledgeFaqTransferEntry } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { knowledgeConnectors } from '../../worker/src/knowledge/connector-adapter.js';
 import type { KnowledgeDeps } from '../../worker/src/knowledge/ingestion.js';
 import { createParsingAdapter } from '../../worker/src/knowledge/parsing-adapter.js';
 import { dispatchKnowledgeJob } from '../../worker/src/knowledge/queue.js';
-import { buildKnowledgeServer } from '../src/features/knowledge/mcp.js';
-import {
-  type FastifyInstance,
-  infraReady,
-  inject,
-  loginCookie,
-  startApp,
-  unique,
-} from './helpers.js';
+import { buildKnowledgeServer } from '../src/modules/knowledge/mcp.js';
+import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
 /** 2026 现代协议入口；每个请求自带版本/方法/工具名头，无需 initialize 会话。 */
@@ -247,7 +240,7 @@ interface AsrLatch {
 describe.skipIf(!ready)(
   'knowledge publishing integration (REST + worker + DB + search/MCP)',
   () => {
-    let app: FastifyInstance;
+    let app: TestApp;
     let cookie = '';
     let knowledgeDir = '';
     let fixture: Server;
@@ -319,7 +312,7 @@ describe.skipIf(!ready)(
       }
       if (path === '/asr-transcriptions') {
         asrCalls += 1;
-        const contentType = request.headers['content-type'] ?? '';
+        const contentType = String(request.headers['content-type'] ?? '');
         if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
           respond(400, { error: 'expected multipart/form-data' });
           return;
@@ -424,12 +417,11 @@ describe.skipIf(!ready)(
 
     afterAll(async () => {
       if (baseIds.length > 0) {
-        await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+        await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
       }
       if (profileIds.length > 0) {
-        await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-          profileIds,
-        ]);
+        await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+        );
       }
       await app.close();
       await new Promise<void>((resolve) => fixture.close(() => resolve()));
@@ -437,7 +429,7 @@ describe.skipIf(!ready)(
     });
 
     async function createEmbeddingProfile(): Promise<string> {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/knowledge/model-profiles',
         headers: { cookie },
@@ -456,7 +448,7 @@ describe.skipIf(!ready)(
 
     async function createAsrProfile(): Promise<{ id: string; name: string }> {
       const name = unique('integration-asr');
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/knowledge/model-profiles',
         headers: { cookie },
@@ -475,7 +467,7 @@ describe.skipIf(!ready)(
     async function createBase(
       options: { asrProfileId?: string } = {},
     ): Promise<{ id: string; serverId: string }> {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/knowledge/bases',
         headers: { cookie },
@@ -535,7 +527,7 @@ describe.skipIf(!ready)(
     ) {
       const params = new URLSearchParams({ q, limit: '10', rerank: 'false' });
       for (const kind of kinds) params.append('kinds', kind);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/bases/${baseId}/search?${params.toString()}`,
         headers: { cookie },
@@ -545,7 +537,7 @@ describe.skipIf(!ready)(
     }
 
     async function faqSearch(baseId: string, q: string) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/faqs/test`,
         headers: { cookie },
@@ -623,7 +615,7 @@ describe.skipIf(!ready)(
     }
 
     async function manualDetail(documentId: string) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/documents/${documentId}/manual`,
         headers: { cookie },
@@ -633,7 +625,7 @@ describe.skipIf(!ready)(
     }
 
     async function faqDetail(documentId: string): Promise<FaqDetail> {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/faqs/${documentId}`,
         headers: { cookie },
@@ -643,7 +635,7 @@ describe.skipIf(!ready)(
     }
 
     async function documentVersions(documentId: string): Promise<VersionsPayload> {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/documents/${documentId}/versions?limit=50`,
         headers: { cookie },
@@ -653,7 +645,7 @@ describe.skipIf(!ready)(
     }
 
     async function documentState(documentId: string) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/documents/${documentId}`,
         headers: { cookie },
@@ -664,7 +656,7 @@ describe.skipIf(!ready)(
 
     /** 真实 base64 上传入口；音频字节固定为现 core 已认作合法的 tone.wav。 */
     async function uploadAudio(baseId: string, filename: string) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PUT',
         url: `/api/knowledge/bases/${baseId}/documents/upload`,
         headers: { cookie },
@@ -682,7 +674,7 @@ describe.skipIf(!ready)(
       baseId: string,
       input: { items: KnowledgeFaqTransferEntry[]; mode: 'append' | 'replace'; dryRun: boolean },
     ) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/faqs/import`,
         headers: { cookie },
@@ -705,11 +697,11 @@ describe.skipIf(!ready)(
     }
 
     async function writeSnapshot(baseId: string) {
-      const counts = await app.pool.query<{
+      const counts = await app.client.unsafe<{
         documents: string;
         versions: string;
         jobs: string;
-      }>(
+      }[]>(
         `select
          (select count(*) from knowledge_documents where base_id = $1) as documents,
          (select count(*) from knowledge_document_versions v
@@ -719,16 +711,16 @@ describe.skipIf(!ready)(
         [baseId],
       );
       return {
-        documents: Number(counts.rows[0]?.documents ?? 0),
-        versions: Number(counts.rows[0]?.versions ?? 0),
-        jobs: Number(counts.rows[0]?.jobs ?? 0),
+        documents: Number(counts[0]?.documents ?? 0),
+        versions: Number(counts[0]?.versions ?? 0),
+        jobs: Number(counts[0]?.jobs ?? 0),
         files: await recursiveFileCount(knowledgeDir),
         embeddingCalls,
       };
     }
 
     async function wikiIndexJobId(baseId: string, pageId: string): Promise<string> {
-      const row = await app.pool.query<{ id: string }>(
+      const row = await app.client.unsafe<{ id: string }[]>(
         `select j.id
        from knowledge_jobs j
        join knowledge_documents d on d.id = j.document_id
@@ -739,7 +731,7 @@ describe.skipIf(!ready)(
        limit 1`,
         [baseId, pageId],
       );
-      const id = row.rows[0]?.id;
+      const id = row[0]?.id;
       if (!id) throw new Error(`wiki index job missing for page ${pageId}`);
       return id;
     }
@@ -749,7 +741,7 @@ describe.skipIf(!ready)(
       content: string,
       title = '手写集成稿',
     ): Promise<{ documentId: string; jobId: string; versionId: string }> {
-      const created = await inject(app, {
+      const created = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/documents/manual`,
         headers: { cookie },
@@ -770,7 +762,7 @@ describe.skipIf(!ready)(
       versionId: string,
       expectedVersionId: string | null,
     ) {
-      const response = await inject(app, {
+      const response = await request(app, {
         method: 'POST',
         url: `/api/knowledge/documents/${documentId}/publish`,
         headers: { cookie },
@@ -812,7 +804,7 @@ describe.skipIf(!ready)(
       );
       await publishManual(first.documentId, first.versionId, null);
 
-      const update = await inject(app, {
+      const update = await request(app, {
         method: 'PUT',
         url: `/api/knowledge/documents/${first.documentId}/manual`,
         headers: { cookie },
@@ -844,7 +836,7 @@ describe.skipIf(!ready)(
       ).toContain(first.documentId);
       expect((await search(base.id, 'alphamarker', ['document'])).hits).toHaveLength(0);
 
-      const rollback = await inject(app, {
+      const rollback = await request(app, {
         method: 'POST',
         url: `/api/knowledge/documents/${first.documentId}/rollback`,
         headers: { cookie },
@@ -863,7 +855,7 @@ describe.skipIf(!ready)(
 
     it('FAQ create and update index their own draft versions, then publish exposes the similar-question match', async () => {
       const base = await createBase();
-      const created = await inject(app, {
+      const created = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/faqs`,
         headers: { cookie },
@@ -877,7 +869,7 @@ describe.skipIf(!ready)(
       await runJob(jobId);
       expect((await repo.knowledge.getJob(app.db, jobId))?.status).toBe('succeeded');
 
-      const updated = await inject(app, {
+      const updated = await request(app, {
         method: 'PUT',
         url: `/api/knowledge/faqs/${documentId}`,
         headers: { cookie },
@@ -896,7 +888,7 @@ describe.skipIf(!ready)(
       const beforePublish = await faqSearch(base.id, 'forgot my access key help');
       expect(beforePublish.hits).toHaveLength(0);
 
-      const published = await inject(app, {
+      const published = await request(app, {
         method: 'POST',
         url: `/api/knowledge/faqs/${documentId}/publish`,
         headers: { cookie },
@@ -964,7 +956,7 @@ describe.skipIf(!ready)(
           expectedVersionId: result.expectedVersionId ?? null,
         });
       }
-      const appendPublished = await inject(app, {
+      const appendPublished = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/faqs/batch`,
         headers: { cookie },
@@ -984,7 +976,7 @@ describe.skipIf(!ready)(
           { ...importAppendItems[0], answers: ['second replacement answer'] },
         ],
       });
-      const failedReplace = await inject(app, {
+      const failedReplace = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/faqs/import`,
         headers: { cookie },
@@ -1025,7 +1017,7 @@ describe.skipIf(!ready)(
           expectedVersionId: result.expectedVersionId ?? null,
         });
       }
-      const replacePublished = await inject(app, {
+      const replacePublished = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/faqs/batch`,
         headers: { cookie },
@@ -1039,16 +1031,16 @@ describe.skipIf(!ready)(
 
       expect((await faqSearch(base.id, 'importappendone marker question')).hits).toHaveLength(0);
       expect((await faqSearch(base.id, 'replacenewone marker question')).hits).toHaveLength(1);
-      const remaining = await app.pool.query<{ count: string }>(
+      const remaining = await app.client.unsafe<{ count: string }[]>(
         "select count(*) from knowledge_documents where base_id = $1 and content_kind = 'faq'",
         [base.id],
       );
-      expect(Number(remaining.rows[0]?.count ?? 0)).toBe(2);
+      expect(Number(remaining[0]?.count ?? 0)).toBe(2);
     });
 
     async function publishWikiDraft(baseId: string, pageId?: string) {
       if (!pageId) {
-        const created = await inject(app, {
+        const created = await request(app, {
           method: 'POST',
           url: `/api/knowledge/bases/${baseId}/wiki-pages`,
           headers: { cookie },
@@ -1057,7 +1049,7 @@ describe.skipIf(!ready)(
         expect(created.statusCode, created.body).toBe(201);
         pageId = created.json<{ id: string }>().id;
       }
-      const saved = await inject(app, {
+      const saved = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/wiki-pages/${pageId}`,
         headers: { cookie },
@@ -1067,7 +1059,7 @@ describe.skipIf(!ready)(
       const versions = await repo.knowledge.listWikiVersions(app.db, pageId, { limit: 1 });
       const versionId = versions.items[0]?.id;
       if (!versionId) throw new Error('wiki draft missing');
-      const published = await inject(app, {
+      const published = await request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${pageId}/publish`,
         headers: { cookie },
@@ -1167,7 +1159,7 @@ describe.skipIf(!ready)(
     it('Wiki indexing uses the execution pointer when the same publication was indexed after enqueue', async () => {
       const base = await createBase();
       const first = await publishWikiDraft(base.id);
-      const repeated = await inject(app, {
+      const repeated = await request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${first.pageId}/publish`,
         headers: { cookie },
@@ -1196,7 +1188,7 @@ describe.skipIf(!ready)(
       await repo.knowledge.updateDocument(app.db, index.documentId, {
         metadata: { ...document?.metadata, wikiVersionId: 'kwv_mutable_metadata_must_not_be_used' },
       });
-      const rebuilt = await inject(app, {
+      const rebuilt = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/rebuild`,
         headers: { cookie },
@@ -1223,7 +1215,7 @@ describe.skipIf(!ready)(
 
     it('manual wiki publishes through a real ingest job and source-backed wiki disappears after revocation', async () => {
       const base = await createBase();
-      const page = await inject(app, {
+      const page = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/wiki-pages`,
         headers: { cookie },
@@ -1232,14 +1224,14 @@ describe.skipIf(!ready)(
       expect(page.statusCode, page.body).toBe(201);
       const pageId = page.json<{ id: string }>().id;
 
-      const draft = await inject(app, {
+      const draft = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/wiki-pages/${pageId}`,
         headers: { cookie },
         payload: { markdown: '# Wiki\n\nwikimarker manual published page' },
       });
       expect(draft.statusCode, draft.body).toBe(200);
-      const pageDetail = await inject(app, {
+      const pageDetail = await request(app, {
         method: 'GET',
         url: `/api/knowledge/wiki-pages/${pageId}`,
         headers: { cookie },
@@ -1248,7 +1240,7 @@ describe.skipIf(!ready)(
       const wikiVersionId = pageDetail.json<{ versions: Array<{ id: string }> }>().versions[0]?.id;
       if (!wikiVersionId) throw new Error('wiki draft version missing');
 
-      const publish = await inject(app, {
+      const publish = await request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${pageId}/publish`,
         headers: { cookie },
@@ -1284,7 +1276,7 @@ describe.skipIf(!ready)(
       expect(crossBase.text).toContain('BASE_MISMATCH');
 
       // 真实来源 + 真实同步：从 RSS/HTML fixture 摄取文档，再让 Wiki 版本引用真实 chunk。
-      const source = await inject(app, {
+      const source = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/sources`,
         headers: { cookie },
@@ -1299,7 +1291,7 @@ describe.skipIf(!ready)(
       expect(source.statusCode, source.body).toBe(201);
       const sourceId = source.json<{ id: string }>().id;
 
-      const sync = await inject(app, {
+      const sync = await request(app, {
         method: 'POST',
         url: `/api/knowledge/sources/${sourceId}/sync`,
         headers: { cookie },
@@ -1308,36 +1300,36 @@ describe.skipIf(!ready)(
       const syncJobId = sync.json<{ jobId: string }>().jobId;
       await runJob(syncJobId);
       const syncPayload = await jobPayload(syncJobId);
-      const syncRun = await app.pool.query<{ status: string; stats: Record<string, number> }>(
+      const syncRun = await app.client.unsafe<{ status: string; stats: Record<string, number> }[]>(
         'select status, stats from knowledge_sync_runs where id = $1',
         [syncPayload.syncRunId],
       );
-      expect(syncRun.rows[0]).toMatchObject({
+      expect(syncRun[0]).toMatchObject({
         status: 'succeeded',
         stats: { listed: 1, created: 1, updated: 0, disabled: 0, failed: 0 },
       });
 
-      const sourceDocument = await app.pool.query<{
+      const sourceDocument = await app.client.unsafe<{
         id: string;
         current_version_id: string;
-      }>(
+      }[]>(
         `select id, current_version_id from knowledge_documents
        where base_id = $1 and source_connection_id = $2
        order by created_at desc limit 1`,
         [base.id, sourceId],
       );
-      const sourceDocumentId = sourceDocument.rows[0]?.id;
+      const sourceDocumentId = sourceDocument[0]?.id;
       if (!sourceDocumentId) throw new Error('synced source document missing');
-      const sourceChunk = await app.pool.query<{ id: string }>(
+      const sourceChunk = await app.client.unsafe<{ id: string }[]>(
         `select id from knowledge_chunks
        where document_id = $1 and version_id = $2 and enabled and index_role = 'leaf'
        order by ordinal limit 1`,
-        [sourceDocumentId, sourceDocument.rows[0]?.current_version_id],
+        [sourceDocumentId, sourceDocument[0]?.current_version_id],
       );
-      const sourceChunkId = sourceChunk.rows[0]?.id;
+      const sourceChunkId = sourceChunk[0]?.id;
       if (!sourceChunkId) throw new Error('synced source chunk missing');
 
-      const derivedPage = await inject(app, {
+      const derivedPage = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/wiki-pages`,
         headers: { cookie },
@@ -1352,7 +1344,7 @@ describe.skipIf(!ready)(
         generatedBy: 'manual',
       });
       if (!saved) throw new Error('derived wiki draft missing');
-      const derivedPublish = await inject(app, {
+      const derivedPublish = await request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${derivedPageId}/publish`,
         headers: { cookie },
@@ -1372,7 +1364,7 @@ describe.skipIf(!ready)(
       });
       expect(derivedRead.isError).toBe(false);
 
-      const revoked = await inject(app, {
+      const revoked = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/sources/${sourceId}`,
         headers: { cookie },
@@ -1463,13 +1455,13 @@ describe.skipIf(!ready)(
       expect(readJson.citations[0]?.locator).toEqual(AUDIO_CHUNK_LOCATOR);
 
       // 原件下载必须是上传的同一份字节，且只对应这个精确发布版本。
-      const download = await inject(app, {
+      const download = await request(app, {
         method: 'GET',
         url: `/api/knowledge/versions/${version.id}/content`,
         headers: { cookie },
       });
       expect(download.statusCode, download.body).toBe(200);
-      expect(download.headers['content-type']).toBe('audio/wav');
+      expect(download.headers.get('content-type')).toBe('audio/wav');
       expect(createHash('sha256').update(download.rawPayload).digest('hex')).toBe(TONE_WAV_SHA256);
     });
 
@@ -1523,7 +1515,7 @@ describe.skipIf(!ready)(
       if (!currentVersionId) throw new Error('audio version missing');
       const asrBeforeReprocess = asrCalls;
 
-      const reprocess = await inject(app, {
+      const reprocess = await request(app, {
         method: 'POST',
         url: `/api/knowledge/documents/${uploaded.documentId}/reprocess`,
         headers: { cookie },
@@ -1539,7 +1531,7 @@ describe.skipIf(!ready)(
         (err: unknown) => err,
       );
       await latch.reached;
-      const unbound = await inject(app, {
+      const unbound = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/bases/${base.id}`,
         headers: { cookie },
@@ -1567,7 +1559,7 @@ describe.skipIf(!ready)(
       expect(retainedHit?.locator).toEqual(AUDIO_CHUNK_LOCATOR);
 
       // 重新绑定后只补向量：不重新解析/转录，也不新建版本。
-      const rebound = await inject(app, {
+      const rebound = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/bases/${base.id}`,
         headers: { cookie },
@@ -1576,7 +1568,7 @@ describe.skipIf(!ready)(
       expect(rebound.statusCode, rebound.body).toBe(200);
       const asrBeforeRebuild = asrCalls;
       const embeddingBeforeRebuild = embeddingCalls;
-      const rebuild = await inject(app, {
+      const rebuild = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/rebuild`,
         headers: { cookie },

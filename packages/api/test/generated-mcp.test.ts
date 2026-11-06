@@ -4,24 +4,26 @@ import type { AddressInfo } from 'node:net';
 import { hashMcpToken } from '@agentport/core';
 import type { Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   seedRun,
   startApp,
+  type TestApp,
   unique,
   waitFor,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('generated MCP endpoint', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let listener: TestServer;
   let cookie: string;
   let baseUrl: string;
   let server: Server;
@@ -43,15 +45,14 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     app = await startApp({ APPROVAL_WAIT_MS: '0' });
     cookie = await loginCookie(app);
     // MCP client 走真实 HTTP，app.inject 无法承载 StreamableHTTP 会话，因此临时监听端口。
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    listener = await listen(app);
+    baseUrl = listener.url;
     await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
     const upstreamUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
 
     const name = unique('mcp');
     createdServers.push(name);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -59,7 +60,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     });
     expect(res.statusCode).toBe(201);
     server = res.json<Server>();
-    await inject(app, {
+    await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/tools`,
       headers: { cookie },
@@ -74,15 +75,16 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     });
 
     // mcpToken 是给沙盒/外部 host 的凭据，刻意不出现在 API 响应里。
-    const row = await app.pool.query<{ token: string }>(
+    const row = await app.client.unsafe<{ token: string }[]>(
       "select config->>'mcpToken' as token from servers where id = $1",
       [server.id],
     );
-    token = row.rows[0]?.token ?? '';
+    token = row[0]?.token ?? '';
     expect(token).not.toBe('');
   });
 
   afterAll(async () => {
+    await listener.close();
     await cleanup(app, { serverNames: createdServers, agentSlugs: createdAgents, runIds });
     await app.close();
     await new Promise<void>((resolve, reject) =>
@@ -126,7 +128,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   });
 
   it('rejects a tool requiring approval until the run approves it', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/tools`,
       headers: { cookie },
@@ -179,7 +181,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
 
     // 拒绝时 MCP 端点写入结构化审批请求，UI 不再依赖错误文本。
     // 立即拒绝（wait=0）没有等待窗口：waiting 为 false、没有截止时间。
-    const pending = await inject(app, {
+    const pending = await request(app, {
       method: 'GET',
       url: `/api/runs/${runId}/approvals`,
       headers: { cookie },
@@ -206,7 +208,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     ]);
 
     // 缺少 serverId 的旧式请求不再被接受。
-    const legacy = await inject(app, {
+    const legacy = await request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: { cookie },
@@ -214,7 +216,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     });
     expect(legacy.statusCode).toBe(400);
 
-    const approve = await inject(app, {
+    const approve = await request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: { cookie },
@@ -235,7 +237,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     // 用已监听的真实端口做 SELF_URL：测试连接会以 MCP client 连回平台自身。
     const testServer = await startApp({ SELF_URL: baseUrl });
     try {
-      const res = await inject(testServer, {
+      const res = await request(testServer, {
         method: 'POST',
         url: `/api/servers/${server.id}/test`,
         headers: { cookie },
@@ -271,12 +273,11 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   it('suspends the call and resumes it after approval when a wait is configured', async () => {
     // 配置在 startApp 时读取；这一步需要新实例。
     const waiting = await startApp({ APPROVAL_WAIT_MS: '5000' });
+    const waitingServer = await listen(waiting);
     try {
-      await waiting.listen({ port: 0, host: '127.0.0.1' });
-      const address = waiting.server.address() as AddressInfo;
-      const url = `http://127.0.0.1:${address.port}`;
+      const url = waitingServer.url;
 
-      const toolRes = await inject(waiting, {
+      const toolRes = await request(waiting, {
         method: 'POST',
         url: `/api/servers/${server.id}/tools`,
         headers: { cookie },
@@ -314,7 +315,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
 
         // 调用应挂起：等请求落库，确认它带未来截止时间并可等待，再批准同一次调用。
         const seeded = await waitFor(async () => {
-          const res = await inject(waiting, {
+          const res = await request(waiting, {
             method: 'GET',
             url: `/api/runs/${runId}/approvals`,
             headers: { cookie },
@@ -323,7 +324,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
         });
         expect(seeded).toBe(true);
         const pendingApproval = (
-          await inject(waiting, {
+          await request(waiting, {
             method: 'GET',
             url: `/api/runs/${runId}/approvals`,
             headers: { cookie },
@@ -332,7 +333,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
         expect(pendingApproval?.waiting).toBe(true);
         expect(new Date(pendingApproval?.expiresAt ?? 0).getTime()).toBeGreaterThan(Date.now());
 
-        const approve = await inject(waiting, {
+        const approve = await request(waiting, {
           method: 'POST',
           url: `/api/runs/${runId}/approve`,
           headers: { cookie },
@@ -348,6 +349,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
         await client.close();
       }
     } finally {
+      await waitingServer.close();
       await waiting.close();
     }
   });
@@ -355,12 +357,11 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   it('times out before the upstream call and records an expired request', async () => {
     // 100ms < 轮询间隔：调用在第一次轮询前就到截止，不会碰上游。
     const waiting = await startApp({ APPROVAL_WAIT_MS: '100' });
+    const waitingServer = await listen(waiting);
     try {
-      await waiting.listen({ port: 0, host: '127.0.0.1' });
-      const address = waiting.server.address() as AddressInfo;
-      const url = `http://127.0.0.1:${address.port}`;
+      const url = waitingServer.url;
 
-      const toolRes = await inject(waiting, {
+      const toolRes = await request(waiting, {
         method: 'POST',
         url: `/api/servers/${server.id}/tools`,
         headers: { cookie },
@@ -401,7 +402,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       }
 
       const items = (
-        await inject(waiting, {
+        await request(waiting, {
           method: 'GET',
           url: `/api/runs/${runId}/approvals`,
           headers: { cookie },
@@ -411,6 +412,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       expect(new Date(items[0]?.expiresAt ?? 0).getTime()).toBeLessThanOrEqual(Date.now());
       expect(items[0]?.waiting).toBe(false);
     } finally {
+      await waitingServer.close();
       await waiting.close();
     }
   });
@@ -447,14 +449,14 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     expect((await call(runToken)).status).toBe(200);
 
     // 过期即拒绝。
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set mcp_token_expires_at = now() - interval '1 second' where id = $1",
       [runId],
     );
     expect((await call(runToken)).status).toBe(401);
 
     // run 结束后 worker 清空 hash，token 立即失效。
-    await app.pool.query(
+    await app.client.unsafe(
       'update agent_runs set mcp_token_hash = null, mcp_token_expires_at = null where id = $1',
       [runId],
     );
@@ -503,13 +505,13 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     }
 
     // 不受信的 run header 不应产生任何审批记录，也不会让审批工具通过。
-    const rows = await app.pool.query<{ count: number }>(
+    const rows = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from approval_requests where run_id = $1',
       [runId],
     );
-    expect(rows.rows[0]?.count).toBe(0);
+    expect(rows[0]?.count).toBe(0);
 
-    const approve = await inject(app, {
+    const approve = await request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: { cookie },

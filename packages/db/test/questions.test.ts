@@ -1,21 +1,17 @@
 import { QUESTION_LIMITS } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
-import { afterAll, describe, expect, it } from 'vitest';
+import { drizzle } from 'drizzle-orm/bun-sql';
+import { afterAll, describe, expect, it } from 'bun:test';
+import { waitFor } from './fixtures/wait-for.js';
+import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';
 import * as questions from '../src/repo/questions.js';
 import { agents, schema } from '../src/schema.js';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL ?? '',
-  max: 4,
-  statement_timeout: 15_000,
-  connectionTimeoutMillis: 5_000,
-});
-const db = drizzle(pool, { schema });
-const ready = await pool.query('select 1').then(
+const { client } = createDb(process.env.DATABASE_URL ?? '');
+const db = drizzle(client, { schema });
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -77,7 +73,7 @@ async function create(runId: string, requestId = 'req-1') {
 describe.skipIf(!ready)('run questions repo', () => {
   afterAll(async () => {
     for (const agentId of agentIds) await db.delete(agents).where(eq(agents.id, agentId));
-    await pool.end();
+    await client.close();
   });
 
   it('creates and lists pending questions in creation order', async () => {
@@ -336,25 +332,25 @@ describe.skipIf(!ready)('run questions repo', () => {
   it('does not overwrite a close queued ahead of an overlapping answer', async () => {
     const runId = await seedRun();
     await create(runId);
-    const blocker = await pool.connect();
+    const blocker = await client.reserve();
     const waiting = async () => {
-      const result = await pool.query<{ count: string }>(
+      const result = await client.unsafe<{ count: string }[]>(
         `select count(*) from pg_stat_activity
          where datname = current_database() and wait_event_type = 'Lock'
            and query like '%run_questions%'`,
       );
-      return Number(result.rows[0]?.count);
+      return Number(result[0]?.count);
     };
     let operations: Promise<PromiseSettledResult<unknown>[]> | undefined;
     try {
-      await blocker.query('begin');
-      await blocker.query('select id from run_questions where run_id = $1 for update', [runId]);
+      await blocker.unsafe('begin');
+      await blocker.unsafe('select id from run_questions where run_id = $1 for update', [runId]);
       const closing = questions.closeQuestions(db, runId, 'cancelled');
-      await expect.poll(waiting).toBe(1);
+      await waitFor(async () => expect(await waiting()).toBe(1));
       const answering = questions.respondToQuestion(db, runId, 'req-1', { decline: true });
       operations = Promise.allSettled([closing, answering]);
-      await expect.poll(waiting).toBe(2);
-      await blocker.query('commit');
+      await waitFor(async () => expect(await waiting()).toBe(2));
+      await blocker.unsafe('commit');
       const result = await operations;
       expect(result[0]).toMatchObject({ status: 'fulfilled', value: [{ status: 'closed' }] });
       expect(result[1]).toMatchObject({ status: 'rejected', reason: { code: 'CONFLICT' } });
@@ -362,7 +358,7 @@ describe.skipIf(!ready)('run questions repo', () => {
         { status: 'closed', answers: null, closeReason: 'cancelled' },
       ]);
     } finally {
-      await blocker.query('rollback');
+      await blocker.unsafe('rollback');
       blocker.release();
       await operations;
     }

@@ -1,19 +1,19 @@
+import * as fsModule from 'node:fs/promises';
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { personalMemoryDir, personalMemoryPath } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { type MemoryReviewTarget, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { buildApp } from '../src/app.js';
-import { registerPersonalMemoryRoutes } from '../src/features/memory/routes.js';
 import {
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
+  type TestApp,
   testConfig,
 } from './helpers.js';
 
@@ -24,9 +24,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 // 故障注入只影响投影写入；其他 fs 操作继续走真实实现。
-const fsFaults = vi.hoisted(() => ({ failRename: false, failWriteFile: false }));
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
+const fsFaults = { failRename: false, failWriteFile: false };
+const realFs = { ...fsModule };
+mock.module('node:fs/promises', () => {
+  const actual = realFs;
   return {
     ...actual,
     rename: async (...args: Parameters<typeof actual.rename>) => {
@@ -41,7 +42,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 describe.skipIf(!ready)('personal memory', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let businessId: string;
   let root: string;
@@ -49,11 +50,6 @@ describe.skipIf(!ready)('personal memory', () => {
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'personal-memory-'));
     app = await buildApp(testConfig({ WORKSPACES_DIR: root }));
-    // 路由已由 buildApp 注册；仅在未注册时手动挂载，避免重复声明。
-    if (!app.hasRoute({ method: 'GET', url: '/api/me/memory' })) {
-      registerPersonalMemoryRoutes(app);
-    }
-    await app.ready();
     // 独立账号：并行测试文件也会以管理员身份写记忆，按 business_id 筛全表会串数据。
     const account = await createTestAccount(app, await loginCookie(app), { systemKeys: ['user'] });
     cookie = account.cookie;
@@ -61,15 +57,15 @@ describe.skipIf(!ready)('personal memory', () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await app.pool.query('delete from memory_changes where business_id = $1', [businessId]);
-    await app.pool.query('delete from user_preferences where business_id = $1', [businessId]);
+    await app.client.unsafe('delete from memory_changes where business_id = $1', [businessId]);
+    await app.client.unsafe('delete from user_preferences where business_id = $1', [businessId]);
     await rm(personalMemoryDir(root, businessId), { recursive: true, force: true });
   });
 
   afterAll(async () => {
     try {
-      await app.pool.query('delete from memory_changes where business_id = $1', [businessId]);
-      await app.pool.query('delete from user_preferences where business_id = $1', [businessId]);
+      await app.client.unsafe('delete from memory_changes where business_id = $1', [businessId]);
+      await app.client.unsafe('delete from user_preferences where business_id = $1', [businessId]);
     } finally {
       await app.close();
       await rm(root, { recursive: true, force: true });
@@ -78,19 +74,19 @@ describe.skipIf(!ready)('personal memory', () => {
 
   const auth = () => ({ cookie });
   const put = (payload: unknown, headers: Record<string, string> = auth()) =>
-    inject(app, { method: 'PUT', url: '/api/me/memory', headers, payload });
+    request(app, { method: 'PUT', url: '/api/me/memory', headers, payload });
   const get = (headers: Record<string, string> = auth()) =>
-    inject(app, { method: 'GET', url: '/api/me/memory', headers });
+    request(app, { method: 'GET', url: '/api/me/memory', headers });
 
   it('requires auth for every endpoint', async () => {
     expectProblem(await get({}), 'UNAUTHORIZED');
     expectProblem(await put({ content: 'x', expectedRevision: 0 }, {}), 'UNAUTHORIZED');
     expectProblem(
-      await inject(app, { method: 'GET', url: '/api/me/memory/download' }),
+      await request(app, { method: 'GET', url: '/api/me/memory/download' }),
       'UNAUTHORIZED',
     );
     expectProblem(
-      await inject(app, { method: 'GET', url: '/api/me/memory/versions' }),
+      await request(app, { method: 'GET', url: '/api/me/memory/versions' }),
       'UNAUTHORIZED',
     );
   });
@@ -128,18 +124,18 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(dir.mode & 0o777).toBe(0o700);
 
     const [row] = (
-      await app.pool.query<{
+      await app.client.unsafe<{
         target: unknown;
         before: unknown;
         after: unknown;
         source_review_run_id: string | null;
         state: string;
         business_id: string;
-      }>(
+      }[]>(
         'select target, before, after, source_review_run_id, state, business_id from memory_changes where id = $1',
         [body.changeId],
       )
-    ).rows;
+    );
     expect(row).toMatchObject({
       target: { kind: 'personal' },
       before: { content: '', globs: null, index: null },
@@ -159,11 +155,11 @@ describe.skipIf(!ready)('personal memory', () => {
     const row = await repo.userPreferences.get(app.db, businessId);
     expect(row).toMatchObject({ content: 'first', revision: 1 });
     expect(
-      await app.pool.query(
+      await app.client.unsafe(
         'select count(*)::int as count from memory_changes where business_id = $1',
         [businessId],
       ),
-    ).toMatchObject({ rows: [{ count: 1 }] });
+    ).toEqual([{ count: 1 }]);
   });
 
   it('saves exactly 9000 characters and rejects one more, counting Unicode code points', async () => {
@@ -188,13 +184,13 @@ describe.skipIf(!ready)('personal memory', () => {
   it('downloads the stored content as a CLAUDE.md attachment', async () => {
     const content = '# 偏好\n\n用中文回答。\n';
     await put({ content, expectedRevision: 0 });
-    const response = await inject(app, {
+    const response = await request(app, {
       method: 'GET',
       url: '/api/me/memory/download',
       headers: auth(),
     });
     expect(response.statusCode, response.body).toBe(200);
-    expect(response.headers['content-disposition']).toBe('attachment; filename="CLAUDE.md"');
+    expect(response.headers.get('content-disposition')).toBe('attachment; filename="CLAUDE.md"');
     expect(response.body).toBe(content);
   });
 
@@ -202,7 +198,7 @@ describe.skipIf(!ready)('personal memory', () => {
     await put({ content: 'one', expectedRevision: 0 });
     await put({ content: 'two', expectedRevision: 1 });
 
-    const all = await inject(app, {
+    const all = await request(app, {
       method: 'GET',
       url: '/api/me/memory/versions',
       headers: auth(),
@@ -215,7 +211,7 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(items.map((item) => item.after.content)).toEqual(['two', 'one']);
     expect(items[0]?.target).toEqual({ kind: 'personal' });
 
-    const limited = await inject(app, {
+    const limited = await request(app, {
       method: 'GET',
       url: '/api/me/memory/versions?limit=1',
       headers: auth(),
@@ -223,7 +219,7 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(limited.json()).toMatchObject({ items: [{ after: { content: 'two' } }] });
 
     const future = new Date(Date.now() + 60_000).toISOString();
-    const after = await inject(app, {
+    const after = await request(app, {
       method: 'GET',
       url: `/api/me/memory/versions?before=${encodeURIComponent(future)}`,
       headers: auth(),
@@ -233,7 +229,7 @@ describe.skipIf(!ready)('personal memory', () => {
     });
 
     const old = new Date(0).toISOString();
-    const none = await inject(app, {
+    const none = await request(app, {
       method: 'GET',
       url: `/api/me/memory/versions?before=${encodeURIComponent(old)}`,
       headers: auth(),
@@ -259,7 +255,7 @@ describe.skipIf(!ready)('personal memory', () => {
       after: { content: 'expert rule', globs: null, index: null },
     });
 
-    const page = await inject(app, {
+    const page = await request(app, {
       method: 'GET',
       url: '/api/me/memory/versions?limit=1',
       headers: auth(),
@@ -270,7 +266,7 @@ describe.skipIf(!ready)('personal memory', () => {
     });
 
     await put({ content: 'two', expectedRevision: 1 });
-    const recent = await inject(app, {
+    const recent = await request(app, {
       method: 'GET',
       url: `/api/me/memory/versions?before=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}&limit=1`,
       headers: auth(),
@@ -279,7 +275,7 @@ describe.skipIf(!ready)('personal memory', () => {
       items: [{ target: { kind: 'personal' }, after: { content: 'two' } }],
     });
 
-    const all = await inject(app, {
+    const all = await request(app, {
       method: 'GET',
       url: '/api/me/memory/versions',
       headers: auth(),
@@ -304,9 +300,9 @@ describe.skipIf(!ready)('personal memory', () => {
         after: { content, globs: null, index: null },
       });
       // 显式时间戳：分页断言不依赖保存顺序或执行速度。
-      await app.pool.query('update memory_changes set created_at = $2 where id = $1', [
+      await app.client.unsafe('update memory_changes set created_at = $2 where id = $1', [
         row.id,
-        createdAt,
+        createdAt.toISOString(),
       ]);
       return row.id;
     };
@@ -321,7 +317,7 @@ describe.skipIf(!ready)('personal memory', () => {
     const three = await insertAt('three', at(4), { kind: 'personal' });
 
     const page = (before?: Date) =>
-      inject(app, {
+      request(app, {
         method: 'GET',
         url: `/api/me/memory/versions?limit=1${
           before === undefined ? '' : `&before=${encodeURIComponent(before.toISOString())}`
@@ -387,11 +383,11 @@ describe.skipIf(!ready)('personal memory', () => {
     });
     // 文件仍是旧投影；下一轮运行前 worker 会按数据库重建。
     expect(await readFile(personalMemoryPath(root, businessId), 'utf8')).toBe('one');
-    const changes = await app.pool.query<{ after: { content: string } }>(
+    const changes = await app.client.unsafe<{ after: { content: string } }[]>(
       'select after from memory_changes where business_id = $1 order by created_at',
       [businessId],
     );
-    expect(changes.rows.map((row) => row.after.content)).toEqual(['one', 'two']);
+    expect(changes.map((row) => row.after.content)).toEqual(['one', 'two']);
   });
 
   it('keeps the committed database when the temporary projection cannot be written', async () => {
@@ -408,17 +404,17 @@ describe.skipIf(!ready)('personal memory', () => {
       revision: 1,
     });
     expect(
-      await app.pool.query(
+      await app.client.unsafe(
         'select count(*)::int as count from memory_changes where business_id = $1',
         [businessId],
       ),
-    ).toMatchObject({ rows: [{ count: 1 }] });
+    ).toEqual([{ count: 1 }]);
   });
 
   it('serializes saves on the user advisory lock while reads stay lock-free', async () => {
-    const client = await app.pool.connect();
-    await client.query('set statement_timeout = 0');
-    await client.query('select pg_advisory_lock(hashtext($1))', [`user:${businessId}`]);
+    const client = await app.client.reserve();
+    await client.unsafe('set statement_timeout = 0');
+    await client.unsafe('select pg_advisory_lock(hashtext($1))', [`user:${businessId}`]);
     let save: Promise<Awaited<ReturnType<typeof put>>> | undefined;
     try {
       save = put({ content: 'locked', expectedRevision: 0 });
@@ -428,7 +424,7 @@ describe.skipIf(!ready)('personal memory', () => {
       expect((await get()).statusCode).toBe(200);
       expect(
         (
-          await inject(app, {
+          await request(app, {
             method: 'GET',
             url: '/api/me/memory/versions',
             headers: auth(),
@@ -436,7 +432,7 @@ describe.skipIf(!ready)('personal memory', () => {
         ).statusCode,
       ).toBe(200);
     } finally {
-      await client.query('select pg_advisory_unlock(hashtext($1))', [`user:${businessId}`]);
+      await client.unsafe('select pg_advisory_unlock(hashtext($1))', [`user:${businessId}`]);
       client.release();
     }
     expect((await save)?.statusCode).toBe(200);

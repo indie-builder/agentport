@@ -12,7 +12,7 @@ import {
 import { Queue, QueueEvents } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { KnowledgeCancelled, type KnowledgeConnector } from '../src/knowledge/ingestion.js';
 import { KNOWLEDGE_TIMEOUT_MS, startKnowledgeWorker } from '../src/knowledge/queue.js';
 import { type KnowledgeQueueLike, reconcileKnowledgeJobs } from '../src/knowledge/reconcile.js';
@@ -45,7 +45,7 @@ afterAll(async () => {
   await queue.obliterate({ force: true }).catch(() => undefined);
   await queue.close();
   await rm(knowledgeDir, { recursive: true, force: true });
-  await dbHandle.pool.end();
+  await dbHandle.client.close();
 });
 
 async function seedJob(): Promise<{ jobId: string; documentId: string; baseId: string }> {
@@ -1237,7 +1237,7 @@ describe('knowledge worker queue', () => {
 });
 
 // 对账扫描整表，必须独占随机库，不能碰共享库中其他套件的 queued/running 行。
-describe('knowledge redelivery after a stalled job', () => {
+describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled job', () => {
   const redeliveryPrefix = `knowledge-redelivery-${randomUUID().slice(0, 8)}`;
   let isolated: Awaited<ReturnType<typeof createIsolatedDatabase>> = null;
   let dbHandle!: ReturnType<typeof createDb>;
@@ -1300,9 +1300,7 @@ describe('knowledge redelivery after a stalled job', () => {
     });
   });
 
-  beforeEach(async (ctx) => {
-    // 建库失败时整套跳过，而不是让队列/连接在用例里报空。
-    if (!isolated) ctx.skip('PostgreSQL unavailable');
+  beforeEach(async () => {
     await queue.obliterate({ force: true });
   });
 
@@ -1317,7 +1315,7 @@ describe('knowledge redelivery after a stalled job', () => {
       await queue.obliterate({ force: true }).catch(() => undefined);
       await queue.close();
     }
-    if (dbHandle) await dbHandle.pool.end();
+    if (dbHandle) await dbHandle.client.close();
     await isolated?.close();
   });
 

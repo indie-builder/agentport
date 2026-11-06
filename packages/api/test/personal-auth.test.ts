@@ -1,16 +1,16 @@
 import { auditLog, authSessions, authUsers } from '@agentport/db';
 import { and, desc, eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   adminCookie,
   cookieOf,
   createAccount,
   expectProblem,
   infraReady,
-  inject,
   login,
+  request,
   startAccessApp,
+  type TestApp,
 } from './access-helpers.js';
 
 const ready = await infraReady;
@@ -29,7 +29,7 @@ type PersonalSessionBody = {
   }[];
 };
 
-async function accountAndCookie(app: FastifyInstance, admin: string, name: string) {
+async function accountAndCookie(app: TestApp, admin: string, name: string) {
   const created = await createAccount(app, admin, { name, roleIds: [] });
   expect(created.statusCode, created.body).toBe(201);
   const signIn = await login(app, created.account.username, TEST_PASSWORD);
@@ -37,7 +37,7 @@ async function accountAndCookie(app: FastifyInstance, admin: string, name: strin
   return { account: created.account, cookie: cookieOf(signIn) };
 }
 
-async function authUserId(app: FastifyInstance, businessId: string): Promise<string> {
+async function authUserId(app: TestApp, businessId: string): Promise<string> {
   const [row] = await app.db
     .select({ id: authUsers.id })
     .from(authUsers)
@@ -46,12 +46,12 @@ async function authUserId(app: FastifyInstance, businessId: string): Promise<str
   return row.id;
 }
 
-async function listSessions(app: FastifyInstance, cookie: string) {
-  return inject(app, { method: 'GET', url: '/api/me/sessions', headers: { cookie } });
+async function listSessions(app: TestApp, cookie: string) {
+  return request(app, { method: 'GET', url: '/api/me/sessions', headers: { cookie } });
 }
 
 describe.skipIf(!ready)('personal profile and session routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
 
   beforeAll(async () => {
     app = await startAccessApp();
@@ -65,7 +65,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
     const admin = await adminCookie(app);
     const { account, cookie } = await accountAndCookie(app, admin, '初始姓名');
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: '/api/me/profile',
       headers: { cookie },
@@ -79,7 +79,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
     });
     expect(res.body).not.toMatch(/"token"|"userId"|"cookie"/i);
 
-    const me = await inject(app, { method: 'GET', url: '/api/auth/me', headers: { cookie } });
+    const me = await request(app, { method: 'GET', url: '/api/auth/me', headers: { cookie } });
     expect(me.json()).toMatchObject({
       authenticated: true,
       user: { businessId: account.businessId, username: account.username, name: '新姓名' },
@@ -110,7 +110,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
       { name: '' },
       { name: '   ' },
     ]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PATCH',
         url: '/api/me/profile',
         headers: { cookie },
@@ -120,21 +120,21 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
       expectProblem(res, 'INVALID_INPUT');
     }
 
-    const unchanged = await inject(app, {
+    const unchanged = await request(app, {
       method: 'GET',
       url: '/api/auth/me',
       headers: { cookie },
     });
     expect(unchanged.json()).toMatchObject({ user: { name: '只读身份' } });
 
-    const anonymous = await inject(app, {
+    const anonymous = await request(app, {
       method: 'PATCH',
       url: '/api/me/profile',
       payload: { name: '匿名' },
     });
     expectProblem(anonymous, 'UNAUTHORIZED');
 
-    const evil = await inject(app, {
+    const evil = await request(app, {
       method: 'PATCH',
       url: '/api/me/profile',
       headers: { cookie, origin: 'https://evil.example' },
@@ -149,7 +149,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
     const admin = await adminCookie(app);
     const { account, cookie } = await accountAndCookie(app, admin, '停用个人');
 
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/accounts/${encodeURIComponent(account.businessId)}/status`,
       headers: { cookie: admin },
@@ -157,7 +157,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
     });
     expect(disabled.statusCode, disabled.body).toBe(200);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: '/api/me/profile',
       headers: { cookie },
@@ -180,7 +180,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
       expect(signIn.statusCode, signIn.body).toBe(200);
       const cookie = cookieOf(signIn);
 
-      const res = await inject(wildcard, {
+      const res = await request(wildcard, {
         method: 'PATCH',
         url: '/api/me/profile',
         headers: { cookie, origin: PREVIEW_ORIGIN },
@@ -206,7 +206,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
 
     const first = await listSessions(app, a.cookie);
     expect(first.statusCode, first.body).toBe(200);
-    expect(first.headers['cache-control']).toBe('no-store');
+    expect(first.headers.get('cache-control')).toBe('no-store');
     expect(first.body).not.toMatch(/"token"|"userId"|"cookie"/i);
     const firstBody = first.json<PersonalSessionBody>();
     expect(firstBody.items).toHaveLength(2);
@@ -242,7 +242,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
       bBody.items.find((item) => item.current)?.id,
     );
 
-    const anonymous = await inject(app, { method: 'GET', url: '/api/me/sessions' });
+    const anonymous = await request(app, { method: 'GET', url: '/api/me/sessions' });
     expectProblem(anonymous, 'UNAUTHORIZED');
   });
 
@@ -262,35 +262,35 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
     const bSessions = (await listSessions(app, b.cookie)).json<PersonalSessionBody>();
     const otherUserSessionId = bSessions.items[0]?.id;
 
-    const current = await inject(app, {
+    const current = await request(app, {
       method: 'DELETE',
       url: `/api/me/sessions/${encodeURIComponent(currentId ?? '')}`,
       headers: { cookie: a.cookie },
     });
     expectProblem(current, 'CONFLICT');
 
-    const foreign = await inject(app, {
+    const foreign = await request(app, {
       method: 'DELETE',
       url: `/api/me/sessions/${encodeURIComponent(otherUserSessionId ?? '')}`,
       headers: { cookie: a.cookie },
     });
     expectProblem(foreign, 'NOT_FOUND');
 
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'DELETE',
       url: '/api/me/sessions/does-not-exist',
       headers: { cookie: a.cookie },
     });
     expectProblem(missing, 'NOT_FOUND');
 
-    const evil = await inject(app, {
+    const evil = await request(app, {
       method: 'DELETE',
       url: `/api/me/sessions/${encodeURIComponent(otherId ?? '')}`,
       headers: { cookie: a.cookie, origin: 'https://evil.example' },
     });
     expectProblem(evil, 'FORBIDDEN');
 
-    const revoked = await inject(app, {
+    const revoked = await request(app, {
       method: 'DELETE',
       url: `/api/me/sessions/${encodeURIComponent(otherId ?? '')}`,
       headers: { cookie: a.cookie },
@@ -327,14 +327,14 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
     const body = expectProblem(listed, 'FORBIDDEN');
     expect(body.message).toBe('请重新登录后管理登录会话');
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: '/api/me/sessions/anything',
       headers: { cookie: stale.cookie },
     });
     expect(expectProblem(removed, 'FORBIDDEN').message).toBe('请重新登录后管理登录会话');
 
-    const me = await inject(app, {
+    const me = await request(app, {
       method: 'GET',
       url: '/api/auth/me',
       headers: { cookie: stale.cookie },

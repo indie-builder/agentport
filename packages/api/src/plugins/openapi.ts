@@ -1,13 +1,14 @@
-import fastifySwagger from '@fastify/swagger';
-import fastifyApiReference from '@scalar/fastify-api-reference';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { jsonSchemaTransform } from 'fastify-type-provider-zod';
-import { errorHandler } from './errors.js';
+import { problemSchema } from '@agentport/shared';
+import type { AnyContractRouter } from '@orpc/contract';
+import { OpenAPIGenerator, type OpenAPIGeneratorGenerateOptions } from '@orpc/openapi';
+import { ZodToJsonSchemaConverter } from '@orpc/zod/zod4';
+import { Scalar } from '@scalar/hono-api-reference';
+import type { Hono } from 'hono';
+import { type HttpEnv, requestContext } from '../http/context.js';
+import { access } from '../http/middleware.js';
+import { nativeOpenAPISchemas } from '../http/native-openapi.js';
+import { AUTH_COOKIE } from '../modules/auth/types.js';
 
-/** 版本跟随根 package.json；独立发版前不必为它引入运行时读文件的复杂度。 */
-const API_VERSION = '0.13.0';
-
-/** Scalar 的初始化脚本是内联的；Helmet 的全局 CSP 会把它拦掉，导致白屏。 */
 const DOCS_CSP = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -16,45 +17,67 @@ const DOCS_CSP = [
   "frame-ancestors 'self'",
   "img-src 'self' data:",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+  "connect-src 'self' https://cdn.jsdelivr.net",
 ].join('; ');
 
-/**
- * 文档路由必须早于业务路由注册：@fastify/swagger 只收集注册在它之后的路由。
- * Scalar 通过 hasPlugin('@fastify/swagger') 自动取文档，不需要额外配置源。
- */
-export async function registerOpenApi(app: FastifyInstance): Promise<void> {
-  // requireAuth 由 registerAuth（业务路由阶段）decorate；文档路由先注册，故请求时再取。
-  const requireAuth = (request: FastifyRequest, reply: FastifyReply) =>
-    app.requireAuth(request, reply);
-
-  await app.register(fastifySwagger, {
-    openapi: {
-      openapi: '3.1.0',
-      info: { title: 'Agentport API', version: API_VERSION },
+export function registerOpenApi(
+  app: Hono<HttpEnv>,
+  contract: AnyContractRouter,
+  paths: OpenAPIGeneratorGenerateOptions['paths'] = {},
+): void {
+  const converter = new ZodToJsonSchemaConverter();
+  const generator = new OpenAPIGenerator({ schemaConverters: [converter] });
+  const [, errorSchema] = converter.convert(problemSchema, { strategy: 'output' });
+  let document: ReturnType<typeof generator.generate> | undefined;
+  app.use('/api/docs/*', access({ kind: 'authenticated' }));
+  app.on(
+    'GET',
+    ['/api/openapi.json', '/api/docs/openapi.json'],
+    access({ kind: 'authenticated' }),
+    async (c) => {
+      document ??= generator
+        .generate(contract, {
+          info: { title: 'Agentport API', version: '0.14.0' },
+          servers: [{ url: '/api' }],
+          paths,
+          components: {
+            schemas: nativeOpenAPISchemas,
+            securitySchemes: {
+              sessionCookie: { type: 'apiKey', in: 'cookie', name: AUTH_COOKIE },
+              shareToken: {
+                type: 'http',
+                scheme: 'bearer',
+                description: '分享链接 token，独立于用户登录会话。',
+              },
+            },
+          },
+          externalDocs: {
+            url: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports',
+            description:
+              '/mcp 与 /mcp/{serverId} 是 MCP Streamable HTTP 传输，不属于 REST JSON 契约。平台端点使用 PLATFORM_MCP_TOKEN，连接器端点使用自身 Bearer/run token；知识 MCP 经同一连接器端点暴露。',
+          },
+          customErrorResponseBodySchema: (errors) =>
+            errors.length === 0
+              ? errorSchema
+              : { ...errorSchema, anyOf: errors.map(([, , , schema]) => schema) },
+        })
+        .catch((error) => {
+          document = undefined;
+          throw error;
+        });
+      return c.json(await document);
     },
-    transform: jsonSchemaTransform,
-  });
-
-  // 文档路由放在独立作用域：先装统一错误出口，401 才会渲染成 Problem；
-  // 与 registerRoutes 在根作用域安装的是同一个实现，互不覆盖。
-  await app.register(async (docs) => {
-    docs.setErrorHandler(errorHandler);
-
-    docs.get('/api/openapi.json', { preHandler: requireAuth }, async () => app.swagger());
-
-    // Scalar 页面与其 `./openapi.json` 都由浏览器同源请求，带得上会话 cookie。
-    await docs.register(fastifyApiReference, {
-      routePrefix: '/api/docs',
-      hooks: { preHandler: requireAuth },
-    });
-  });
-
-  app.addHook('onSend', async (request, reply, payload) => {
-    if (request.url.startsWith('/api/docs')) {
-      reply.header('content-security-policy', DOCS_CSP);
-    }
-    return payload;
-  });
+  );
+  app.on(
+    'GET',
+    ['/api/docs', '/api/docs/'],
+    access({ kind: 'authenticated' }),
+    async (c, next) => {
+      requestContext(c).responseHeaders.set('content-security-policy', DOCS_CSP);
+      await next();
+    },
+    Scalar({ url: '/api/openapi.json' }),
+  );
 }

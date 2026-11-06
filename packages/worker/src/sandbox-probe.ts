@@ -18,7 +18,8 @@ import {
   sandboxProbeOutputSchema,
   sandboxProbeTaskSchema,
 } from '@agentport/shared';
-import { Worker } from 'bullmq';
+import { createBunRedisClient, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import pino, { type Logger } from 'pino';
 import type { Config } from './config.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
@@ -179,7 +180,7 @@ export async function runSandboxProbe(
       // 试连不跑模型：不给任何模型凭证，只留一个可写 HOME。
       env: { HOME: '/tmp' },
       name: `agentport-probe-${randomBytes(4).toString('hex')}`,
-      entrypoint: 'node',
+      entrypoint: 'bun',
       command: ['dist/probe.js'],
       signal: createAbort.signal,
     });
@@ -321,6 +322,7 @@ export async function registerSandboxProbe(
     closing: closing.signal,
   };
 
+  const connection = createBunRedisClient(new RedisClient(config.REDIS_URL));
   const worker = new Worker<SandboxProbeJob>(
     SANDBOX_PROBES_QUEUE,
     async (job) => {
@@ -334,16 +336,16 @@ export async function registerSandboxProbe(
         parsed.data.runtimeEnvironmentId ?? null,
       );
     },
-    { connection: { url: config.REDIS_URL }, concurrency: config.AGENT_MAX_CONCURRENT },
+    { connection, concurrency: config.AGENT_MAX_CONCURRENT },
   );
 
   return {
     close: async () => {
       // 先停新任务并取消进行中的拉取/创建，再并行等消费者与容器清理收尾。
       closing.abort();
-      const closed = worker.close();
+      const closed = worker.close().finally(() => connection.quit());
       const results = await Promise.allSettled([closed, provider.destroyAll?.()]);
-      await handle.pool.end();
+      await handle.client.close();
       const failures = results.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : [],
       );

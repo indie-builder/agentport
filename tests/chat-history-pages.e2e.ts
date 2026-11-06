@@ -1,34 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { createDb, newId } from '../packages/db/dist/index.js';
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 会话历史分页的真实浏览器验收：真实页面、真实 API、数据库直写 fixture，
- * 不经过队列或模型。DATABASE_URL 必须显式给出，并且与页面背后的 API 指向同一个库。
+ * 不经过队列或模型。E2E_DATABASE_URL 必须显式给出，并且与页面背后的 API 指向同一个库。
  */
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) throw new Error('DATABASE_URL is required for chat history fixtures');
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function db() {
-  dbPromise ??= createDb(DATABASE_URL);
-  return dbPromise;
-}
-
-test.afterAll(async () => {
-  const current = await dbPromise;
-  await current?.pool.end();
-});
-
-/** 所有消息共用 created_at，顺序由 (created_at, id) 的次级排序决定。 */
-const TIES = new Date('2026-10-22T00:00:00.000Z');
-/** 后写入的消息必须排在 TIES 之后，才能成为最新一页窗口的新成员。 */
-const LATER = new Date('2026-10-22T00:00:01.000Z');
-
-/** 第 index 条消息（0 起）的 id 与文本都用同一个序号，id 按字典序与序号同序。 */
-const messageId = (conversationId: string, index: number): string =>
-  `${conversationId}_m${String(index + 1).padStart(3, '0')}`;
 
 async function createAgent(browser: Browser): Promise<{ id: string }> {
   const slug = `e2e-chat-history-${randomUUID().slice(0, 8)}`;
@@ -43,24 +21,8 @@ async function createAgent(browser: Browser): Promise<{ id: string }> {
   }, slug);
 }
 
-async function createConversation(agentId: string, count: number, prefix: string): Promise<string> {
-  const id = newId('conversation');
-  const { pool } = await db();
-  await pool.query('insert into conversations (id, agent_id, title) values ($1, $2, $3)', [
-    id,
-    agentId,
-    `E2E ${prefix}`,
-  ]);
-  await pool.query(
-    `insert into messages (id, conversation_id, role, content, created_at)
-     select $1 || '_m' || lpad(g::text, 3, '0'), $1,
-       case when g % 2 = 1 then 'user' else 'assistant' end,
-       jsonb_build_object('type', 'text', 'text', $3 || lpad((g - 1)::text, 3, '0')),
-       $2
-     from generate_series(1, $4::int) as g`,
-    [id, TIES, prefix, count],
-  );
-  return id;
+async function createConversation(agentId: string, count: number, prefix: string) {
+  return runFixture('chat-history-pages', 'createConversation', agentId, count, prefix);
 }
 
 /** 直写更晚的消息，模拟另一个标签页落库；不经过模型或队列。 */
@@ -70,26 +32,19 @@ async function appendMessages(
   count: number,
   prefix: string,
 ): Promise<void> {
-  // messageId 的序号是 index + 1，文本序号是 index。
-  const { pool } = await db();
-  await pool.query(
-    `insert into messages (id, conversation_id, role, content, created_at)
-     select $1 || '_m' || lpad(g::text, 3, '0'), $1,
-       case when g % 2 = 1 then 'user' else 'assistant' end,
-       jsonb_build_object('type', 'text', 'text', $3 || lpad((g - 1)::text, 3, '0')),
-       $2
-     from generate_series($4::int, $5::int) as g`,
-    [conversationId, LATER, prefix, firstIndex + 1, firstIndex + count],
+  return runFixture(
+    'chat-history-pages',
+    'appendMessages',
+    conversationId,
+    firstIndex,
+    count,
+    prefix,
   );
 }
 
 /** 只删自己建的专家：会话与消息随 agent 级联删除；重命名审计行按会话 id 另删。 */
 async function cleanup(agentId: string, conversationId?: string): Promise<void> {
-  const { pool } = await db();
-  await pool.query('delete from audit_log where target = any($1::text[])', [
-    conversationId ? [agentId, conversationId] : [agentId],
-  ]);
-  await pool.query('delete from agents where id = $1', [agentId]);
+  return runFixture('chat-history-pages', 'cleanup', agentId, conversationId);
 }
 
 interface ViewportMeasure {
@@ -245,7 +200,11 @@ test('chat history pages older messages without losing the visible position', {
   await app.open('/chat');
   const agent = await createAgent(browser);
   try {
-    const conversation = await createConversation(agent.id, 125, 'history-message-');
+    const { id: conversation, messageIds } = await createConversation(
+      agent.id,
+      125,
+      'history-message-',
+    );
     await openConversation(app, agent.id, conversation);
 
     // 首屏只有最新 50 条：075–124；更早的 074、000 不在 DOM 里。
@@ -277,8 +236,10 @@ test('chat history pages older messages without losing the visible position', {
       nextBefore: string | null;
     }>();
     // 游标是已加载历史里最老的一条（075）；第二页返回 025–074，nextBefore 指向 025。
-    expect(firstBody.messages.at(-1)?.id).toBe(messageId(conversation, 74));
-    expect(firstBody.nextBefore).toBe(messageId(conversation, 25));
+    expect(firstBody.messages.at(-1)?.id).toBe(messageIds[74]);
+    const pageTwoCursor = messageIds[25];
+    if (pageTwoCursor === undefined) throw new Error('fixture 缺少第二页游标');
+    expect(firstBody.nextBefore).toBe(pageTwoCursor);
 
     // 第二页 025–074 拼在已加载历史之前，000 仍未加载。
     await expect(screen.getByText('history-message-025', { exact: true })).toHaveCount(1);
@@ -323,9 +284,7 @@ test('chat history pages older messages without losing the visible position', {
     expect(lastAnchorBefore.id).not.toBeNull();
     expect(lastAnchorBefore.visible).toBe(true);
     const lastResponse = browser.waitForResponse(
-      new RegExp(
-        `/api/conversations/${conversation}\\?limit=50&before=${messageId(conversation, 25)}`,
-      ),
+      new RegExp(`/api/conversations/${conversation}\\?limit=50&before=${messageIds[25]}`),
     );
     await last.tap();
     const lastPage = await lastResponse;
@@ -335,7 +294,7 @@ test('chat history pages older messages without losing the visible position', {
       nextBefore: string | null;
     }>();
     expect(lastBody.messages).toHaveLength(25);
-    expect(lastBody.messages[0]?.id).toBe(messageId(conversation, 0));
+    expect(lastBody.messages[0]?.id).toBe(messageIds[0]);
     expect(lastBody.nextBefore).toBeNull();
 
     // 三页拼完：000–124 各出现一次，入口消失；025 的相对位置仍保持不变。
@@ -378,7 +337,7 @@ test('chat history pagination works at a 390px viewport', { session: 'admin' }, 
   await app.open('/chat');
   const agent = await createAgent(browser);
   try {
-    const conversation = await createConversation(agent.id, 60, 'mobile-history-');
+    const { id: conversation } = await createConversation(agent.id, 60, 'mobile-history-');
     await openConversation(app, agent.id, conversation);
 
     // 首屏 010–059；000 与 009 尚未加载。
@@ -405,8 +364,8 @@ test('switching conversations in the history panel drops the old messages', {
   await app.open('/chat');
   const agent = await createAgent(browser);
   try {
-    const first = await createConversation(agent.id, 3, 'switch-a-');
-    const second = await createConversation(agent.id, 3, 'switch-b-');
+    const { id: first } = await createConversation(agent.id, 3, 'switch-a-');
+    const { id: second } = await createConversation(agent.id, 3, 'switch-b-');
 
     await openConversation(app, agent.id, first);
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(1);
@@ -438,7 +397,7 @@ test('renaming the open conversation keeps the loaded history and pages older on
   const agent = await createAgent(browser);
   let conversation: string | undefined;
   try {
-    conversation = await createConversation(agent.id, 60, 'refresh-');
+    conversation = (await createConversation(agent.id, 60, 'refresh-')).id;
     await openConversation(app, agent.id, conversation);
     await expect(screen.getByText('refresh-059', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('refresh-010', { exact: true })).toHaveCount(1);

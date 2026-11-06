@@ -148,14 +148,18 @@ const serverIdFields = {
   lastTestRuntimeEnvironment: resolvedRuntimeEnvironmentSchema.nullable().optional(),
 };
 
+const maskedHttpUrlSchema = z
+  .url({ protocol: /^https?$/ })
+  .refine((value) => maskUrlCredentials(value) === value, 'URL凭证必须脱敏');
+
 /**
  * 读形状包含平台内置的 `knowledge`；写形状（serverInputSchema）不含它，
  * 用户无法通过创建/导入伪造内置知识连接。`knowledge` 的 config 由平台写入。
  */
 export const serverSchema = z.discriminatedUnion('kind', [
   stdioServerSchema.extend(serverIdFields),
-  httpServerSchema.extend(serverIdFields),
-  generatedServerSchema.extend(serverIdFields),
+  httpServerSchema.extend({ ...serverIdFields, url: maskedHttpUrlSchema }),
+  generatedServerSchema.extend({ ...serverIdFields, baseUrl: maskedHttpUrlSchema }),
   knowledgeServerSchema.extend(serverIdFields),
 ]);
 

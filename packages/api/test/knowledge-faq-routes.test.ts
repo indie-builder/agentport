@@ -2,16 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { KnowledgeFaq, KnowledgeFaqTransferEntry } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseFaqImport, serializeFaqExport } from '../src/features/knowledge/faq.js';
-import {
-  type FastifyInstance,
-  infraReady,
-  inject,
-  loginCookie,
-  startApp,
-  unique,
-} from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { parseFaqImport, serializeFaqExport } from '../src/modules/knowledge/faq.js';
+import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -37,14 +30,14 @@ const itemA: KnowledgeFaqTransferEntry = { ...faqA, enabled: true };
 const itemB: KnowledgeFaqTransferEntry = { ...faqB, enabled: false };
 
 describe.skipIf(!ready)('knowledge FAQ routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   const baseIds: string[] = [];
   const profileIds: string[] = [];
 
   async function createProfile() {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -62,7 +55,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
   }
 
   async function createBase() {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -79,7 +72,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
   }
 
   async function createFaq(baseId: string, entry: KnowledgeFaqTransferEntry) {
-    return inject(app, {
+    return request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs`,
       headers: { cookie },
@@ -95,7 +88,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
   };
 
   async function detail(documentId: string): Promise<Detail> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -110,7 +103,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const draftVersionId = versionId || body.draftVersion?.id;
     expect(draftVersionId, 'draft version missing').toBeTruthy();
     const chunkId = `kchk_faq${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text, metadata)
        values ($1, $2, $3, $4, 0, 'text', $5, $5, $6::jsonb)`,
@@ -123,7 +116,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
         JSON.stringify({ answerOrdinal: 0, faqRole: 'standard' }),
       ],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_jobs set status = 'succeeded', ended_at = now()
        where document_id = $1 and ($2::text is null or id = $2)`,
       [documentId, jobId ?? null],
@@ -132,7 +125,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
   }
 
   async function searchFaq(baseId: string, q: string, extra: Record<string, unknown> = {}) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/test`,
       headers: { cookie },
@@ -153,19 +146,18 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
   });
 
   it('requires auth on every FAQ route', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseIds[0] ?? 'kb_x'}/faqs`,
     });
@@ -184,11 +176,11 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(body.draftVersion?.faq).toEqual(faqA);
     expect(body.faq).toEqual(faqA);
 
-    const job = await app.pool.query<{ type: string; payload: Record<string, unknown> }>(
+    const job = await app.client.unsafe<{ type: string; payload: Record<string, unknown> }[]>(
       'select type, payload from knowledge_jobs where id = $1',
       [jobId],
     );
-    expect(job.rows[0]).toMatchObject({
+    expect(job[0]).toMatchObject({
       type: 'ingest',
       payload: { publish: 'draft', versionId: body.draftVersion?.id },
     });
@@ -213,7 +205,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const first = await detail(documentId);
     const firstVersionId = first.draftVersion?.id ?? '';
 
-    const missingExpected = await inject(app, {
+    const missingExpected = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -221,7 +213,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     });
     expect(missingExpected.statusCode, missingExpected.body).toBe(400);
 
-    const stale = await inject(app, {
+    const stale = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -235,7 +227,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       answerStrategy: 'random',
       isRecommended: false,
     };
-    const updated = await inject(app, {
+    const updated = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -247,14 +239,14 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(afterUpdate.draftVersion?.faq).toEqual(updatedFaq);
 
     const versionId = afterUpdate.draftVersion?.id ?? '';
-    const updateJob = await app.pool.query<{ payload: { versionId?: string } }>(
+    const updateJob = await app.client.unsafe<{ payload: { versionId?: string } }[]>(
       'select payload from knowledge_jobs where document_id = $1 order by created_at desc limit 1',
       [documentId],
     );
     // 更新必须创建指向新草稿版本的任务，不能只让 worker 取 latest。
-    expect(updateJob.rows[0]?.payload.versionId).toBe(versionId);
+    expect(updateJob[0]?.payload.versionId).toBe(versionId);
     await finishFaqJob(documentId, versionId);
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${documentId}/publish`,
       headers: { cookie },
@@ -271,7 +263,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(hits.hits[0]).toMatchObject({ target: { kind: 'faq', id: documentId } });
     expect(hits.degraded).toBe(true);
 
-    const recommended = await inject(app, {
+    const recommended = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/faqs?isRecommended=false`,
       headers: { cookie },
@@ -279,14 +271,14 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(
       recommended.json<{ items: Array<{ id: string }> }>().items.map((item) => item.id),
     ).toEqual([documentId]);
-    const recommendedTrue = await inject(app, {
+    const recommendedTrue = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/faqs?isRecommended=true`,
       headers: { cookie },
     });
     expect(recommendedTrue.json<{ items: unknown[] }>().items).toEqual([]);
 
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/faqs/${documentId}/status`,
       headers: { cookie },
@@ -296,7 +288,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(disabled.json()).toMatchObject({ status: 'disabled', disabledReason: 'manual' });
     expect((await searchFaq(baseId, 'faq')).hits).toEqual([]);
 
-    const enabled = await inject(app, {
+    const enabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/faqs/${documentId}/status`,
       headers: { cookie },
@@ -315,7 +307,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(versionId).toBeTruthy();
 
     // 失败任务会留下 partial chunks：有块但 job 未成功时仍拒绝发布。
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text, metadata)
        values ($1, $2, $3, $4, 0, 'text', 'partial', 'partial', '{}'::jsonb)`,
@@ -326,7 +318,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
         versionId,
       ],
     );
-    const notReady = await inject(app, {
+    const notReady = await request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${documentId}/publish`,
       headers: { cookie },
@@ -335,11 +327,11 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(notReady.statusCode, notReady.body).toBe(409);
     expect(notReady.json<{ code: string }>().code).toBe('CONFLICT');
 
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_jobs set status = 'failed', ended_at = now() where document_id = $1`,
       [documentId],
     );
-    const failed = await inject(app, {
+    const failed = await request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${documentId}/publish`,
       headers: { cookie },
@@ -347,11 +339,11 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     });
     expect(failed.statusCode, failed.body).toBe(409);
 
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_jobs set status = 'succeeded', ended_at = now() where document_id = $1`,
       [documentId],
     );
-    const ready = await inject(app, {
+    const ready = await request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${documentId}/publish`,
       headers: { cookie },
@@ -374,13 +366,13 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const otherBody = other.json<{ documentId: string; jobId: string }>();
     const otherDraft = await detail(otherBody.documentId);
     await finishFaqJob(otherBody.documentId, otherDraft.draftVersion?.id ?? '', otherBody.jobId);
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_document_versions
          set metadata = metadata || jsonb_build_object('indexingJobId', $2::text)
        where id = $1`,
       [versionId, otherBody.jobId],
     );
-    const foreign = await inject(app, {
+    const foreign = await request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${documentId}/publish`,
       headers: { cookie },
@@ -389,18 +381,18 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(foreign.statusCode, foreign.body).toBe(409);
 
     // 任务归属正确但输入快照与版本不一致，同样拒绝。
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_document_versions
          set metadata = metadata || jsonb_build_object('indexingJobId', $2::text)
        where id = $1`,
       [versionId, jobId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_jobs set payload = jsonb_set(payload, '{input,blobSha256}', '"deadbeef"')
        where id = $1`,
       [jobId],
     );
-    const mismatched = await inject(app, {
+    const mismatched = await request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${documentId}/publish`,
       headers: { cookie },
@@ -413,7 +405,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
   it('dry-runs, imports drafts, publishes the batch and roundtrips export', async () => {
     const baseId = await createBase();
     const content = serializeFaqExport('json', [itemA, itemB]);
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -438,7 +430,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     });
     expect(body.results.map((result) => result.operation)).toEqual(['add', 'add']);
 
-    const draftExport = await inject(app, {
+    const draftExport = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/faqs/export?format=csv&version=draft`,
       headers: { cookie },
@@ -447,7 +439,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const exported = await parseFaqImport({ format: 'csv', content: draftExport.body });
     expect(exported.map((row) => row.entry)).toEqual(expect.arrayContaining([itemA, itemB]));
 
-    const publishedEmpty = await inject(app, {
+    const publishedEmpty = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/faqs/export?format=json&version=published`,
       headers: { cookie },
@@ -459,7 +451,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       const versionId = await finishFaqJob(result.documentId, '', result.jobId);
       items.push({ documentId: result.documentId, versionId, expectedVersionId: null });
     }
-    const batch = await inject(app, {
+    const batch = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/batch`,
       headers: { cookie },
@@ -477,7 +469,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       currentVersionId: items[1]?.versionId,
     });
 
-    const publishedExport = await inject(app, {
+    const publishedExport = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/faqs/export?format=json&version=published`,
       headers: { cookie },
@@ -486,7 +478,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(JSON.parse(publishedExport.body).items).toHaveLength(2);
 
     // 同一内容再次 append：全部 skipped，不产生新草稿。
-    const repeated = await inject(app, {
+    const repeated = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -513,7 +505,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       ],
     });
 
-    const dryRun = await inject(app, {
+    const dryRun = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -529,7 +521,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       dryRun.json<{ results: Array<{ status: string; issues: unknown[] }> }>().results,
     ).toEqual([expect.objectContaining({ status: 'success', issues: [] })]);
 
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -555,7 +547,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const baseId = await createBase();
     expect((await createFaq(baseId, faqA)).statusCode).toBe(202);
     const content = serializeFaqExport('json', [itemB, { ...itemA, answers: ['新答案'] }]);
-    const dryRun = await inject(app, {
+    const dryRun = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -568,14 +560,14 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       importBatchId: null,
       counts: { total: 2, success: 1, failed: 1 },
     });
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/faqs`,
       headers: { cookie },
     });
     expect(list.json<{ items: unknown[] }>().items).toHaveLength(1);
 
-    const real = await inject(app, {
+    const real = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -583,7 +575,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     });
     expect(real.statusCode, real.body).toBe(200);
     expect(real.json()).toMatchObject({ committed: false, counts: { failed: 1 } });
-    const after = await inject(app, {
+    const after = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/faqs`,
       headers: { cookie },
@@ -597,14 +589,14 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const { documentId } = created.json<{ documentId: string }>();
     const first = await detail(documentId);
     await finishFaqJob(documentId, first.draftVersion?.id ?? '');
-    await inject(app, {
+    await request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${documentId}/publish`,
       headers: { cookie },
       payload: { versionId: first.draftVersion?.id, expectedVersionId: null },
     });
 
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -620,7 +612,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       importBatchId: string;
       results: Array<{ documentId: string; jobId: string }>;
     }>();
-    const stillThere = await inject(app, {
+    const stillThere = await request(app, {
       method: 'GET',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -632,7 +624,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       '',
       body.results[0]?.jobId,
     );
-    const wrongBatch = await inject(app, {
+    const wrongBatch = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/batch`,
       headers: { cookie },
@@ -645,7 +637,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(wrongBatch.statusCode, wrongBatch.body).toBe(409);
     expect((await detail(documentId)).document.currentVersionId).toBe(first.draftVersion?.id);
 
-    const published = await inject(app, {
+    const published = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/batch`,
       headers: { cookie },
@@ -656,7 +648,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       },
     });
     expect(published.statusCode, published.body).toBe(200);
-    const old = await inject(app, {
+    const old = await request(app, {
       method: 'GET',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -679,7 +671,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(rejected.statusCode, rejected.body).toBe(400);
     expect(rejected.json<{ code: string }>().code).toBe('INVALID_INPUT');
 
-    const real = await inject(app, {
+    const real = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -695,17 +687,17 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       committed: false,
       counts: { total: 2, failed: 1 },
     });
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/faqs`,
       headers: { cookie },
     });
     expect(list.json<{ items: unknown[] }>().items).toHaveLength(0);
-    const jobs = await app.pool.query<{ count: number }>(
+    const jobs = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from knowledge_jobs where base_id = $1',
       [baseId],
     );
-    expect(jobs.rows[0]?.count).toBe(0);
+    expect(jobs[0]?.count).toBe(0);
   });
 
   it('applies the shared cleaning rules to FAQ create and update', async () => {
@@ -736,7 +728,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       isRecommended: faqA.isRecommended,
     });
 
-    const updated = await inject(app, {
+    const updated = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -794,7 +786,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const first = await detail(documentId);
     expect(first.draftVersion?.faq).toEqual(expected);
 
-    const updated = await inject(app, {
+    const updated = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -807,7 +799,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect((await detail(documentId)).draftVersion?.faq).toEqual(expected);
 
     const importBase = await createBase();
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${importBase}/faqs/import`,
       headers: { cookie },
@@ -834,7 +826,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const { documentId } = created.json<{ documentId: string }>();
     const draft = await detail(documentId);
 
-    const badQuestion = await inject(app, {
+    const badQuestion = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs`,
       headers: { cookie },
@@ -843,7 +835,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(badQuestion.statusCode, badQuestion.body).toBe(400);
     expect(badQuestion.json<{ code: string }>().code).toBe('INVALID_INPUT');
 
-    const badAnswer = await inject(app, {
+    const badAnswer = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -856,7 +848,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect((await detail(documentId)).draftVersion?.faq).toEqual(faqA);
 
     const importBase = await createBase();
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${importBase}/faqs/import`,
       headers: { cookie },
@@ -877,7 +869,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       committed: false,
       counts: { total: 2, failed: 2 },
     });
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${importBase}/faqs`,
       headers: { cookie },
@@ -888,7 +880,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
   it('uses document status for published import entries in export and append dedupe', async () => {
     const baseId = await createBase();
     const content = serializeFaqExport('json', [itemA]);
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -901,7 +893,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     }>();
     const [result] = body.results;
     const versionId = await finishFaqJob(result?.documentId ?? '', '', result?.jobId);
-    const published = await inject(app, {
+    const published = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/batch`,
       headers: { cookie },
@@ -912,7 +904,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       },
     });
     expect(published.statusCode, published.body).toBe(200);
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/faqs/${result?.documentId}/status`,
       headers: { cookie },
@@ -920,13 +912,13 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     });
     expect(disabled.statusCode, disabled.body).toBe(200);
     // 模拟发布路径只改指针、没把 metadata 改成 published 的情况：仍以真实指针为准。
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_document_versions set metadata = metadata || '{"publication":"draft"}'::jsonb where id = $1`,
       [versionId],
     );
 
     for (const version of ['published', 'draft']) {
-      const exported = await inject(app, {
+      const exported = await request(app, {
         method: 'GET',
         url: `/api/knowledge/bases/${baseId}/faqs/export?format=json&version=${version}`,
         headers: { cookie },
@@ -935,7 +927,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       expect(JSON.parse(exported.body).items).toEqual([{ ...itemA, enabled: false }]);
     }
 
-    const again = await inject(app, {
+    const again = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -971,7 +963,7 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       'true',
     ]);
     const content = Buffer.from(await workbook.xlsx.writeBuffer()).toString('base64');
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },

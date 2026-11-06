@@ -1,26 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
-import { createDb, newId } from '../packages/db/dist/index.js';
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 专家推理默认值的真实浏览器验收：真实页面、真实 API、数据库直写 fixture。
- * DATABASE_URL 必须显式给出，且与页面背后的 API 指向同一个库。
+ * E2E_DATABASE_URL 必须显式给出，且与页面背后的 API 指向同一个库。
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? '';
-if (!DATABASE_URL) throw new Error('DATABASE_URL is required for agent defaults fixtures');
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function db() {
-  dbPromise ??= createDb(DATABASE_URL);
-  return dbPromise;
-}
-
-test.afterAll(async () => {
-  const current = await dbPromise;
-  await current?.pool.end();
-});
-
 interface Fixture {
   id: string;
   slug: string;
@@ -31,12 +17,7 @@ interface Fixture {
 const created: Fixture[] = [];
 
 test.afterEach(async () => {
-  const { pool } = await db();
-  const ids = created.map((fixture) => fixture.id);
-  if (ids.length > 0) {
-    await pool.query('delete from audit_log where target = any($1::text[])', [ids]);
-    await pool.query('delete from agents where id = any($1::text[])', [ids]);
-  }
+  await runFixture('agent-defaults', 'cleanup', created);
   created.length = 0;
 });
 
@@ -49,40 +30,13 @@ interface SeedOptions {
 }
 
 async function seed(effort: string | null, options: SeedOptions = {}): Promise<Fixture> {
-  const suffix = randomUUID().slice(0, 8);
-  const fixture: Fixture = {
-    id: newId('agent'),
-    slug: `e2e-defaults-${suffix}`,
-    name: options.name ?? `E2E 默认值 ${suffix}`,
-    description: options.description ?? '',
-  };
-  const { pool } = await db();
-  // RBAC NOT NULL：夹具归属首次初始化的 bootstrap 管理员业务身份。
-  await pool.query(
-    `insert into agents (id, slug, name, role, description, enabled, model, effort, created_by, owner_business_id, created_at)
-     values ($1, $2, $3, $4, $5, $6, 'test-model', $7, 'bootstrap-admin', 'bootstrap-admin', $8)`,
-    [
-      fixture.id,
-      fixture.slug,
-      fixture.name,
-      options.role ?? '通用助手',
-      fixture.description,
-      options.enabled ?? true,
-      effort,
-      options.createdAt ?? new Date(),
-    ],
-  );
-  created.push(fixture);
-  return fixture;
+  const value = await runFixture('agent-defaults', 'seed', effort, options);
+  created.push(value);
+  return value;
 }
 
 async function stored(id: string) {
-  const { pool } = await db();
-  const { rows } = await pool.query<{ effort: string | null }>(
-    'select effort from agents where id = $1',
-    [id],
-  );
-  return rows[0];
+  return runFixture('agent-defaults', 'stored', id);
 }
 
 async function freshAgent(browser: Browser, id: string) {
@@ -256,9 +210,7 @@ test('removed fixed thinking budget is rejected without writing', {
   expect(result.patchValues).toEqual([400, 400]);
   expect(result.createStatuses).toEqual([400, 400]);
   expect(await stored(fixture.id)).toEqual({ effort: 'high' });
-  const { pool } = await db();
-  const rows = await pool.query('select id from agents where name = $1', ['Legacy thinking']);
-  expect(rows.rows).toEqual([]);
+  expect(await runFixture('agent-defaults', 'legacyThinking')).toEqual([]);
 });
 
 test('expert cards and employee badge', { session: 'admin' }, async ({ app, screen, browser }) => {

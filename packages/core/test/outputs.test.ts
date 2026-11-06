@@ -14,9 +14,33 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fsActual from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import { AppError } from '../src/errors.js';
-import {
+
+/** 只在用例显式打开时注入一次 rename 失败；其余测试走真实实现。 */
+const actualRename = fsActual.rename;
+const renameFault = {
+  match: null as null | ((from: string, to: string) => boolean),
+  injected: 0,
+};
+
+mock.module('node:fs/promises', () => ({
+  ...fsActual,
+  rename: async (
+    from: Parameters<typeof fsActual.rename>[0],
+    to: Parameters<typeof fsActual.rename>[1],
+  ) => {
+    if (renameFault.match?.(String(from), String(to))) {
+      renameFault.match = null;
+      renameFault.injected += 1;
+      throw Object.assign(new Error('injected rename failure'), { code: 'EIO' });
+    }
+    await actualRename(from, to);
+  },
+}));
+
+const {
   captureOutputDraft,
   copyConversationOutputs,
   listOutputFiles,
@@ -28,31 +52,7 @@ import {
   removeConversationOutputs,
   setOutputDraftBlocked,
   sha256Hex,
-} from '../src/outputs.js';
-
-/** 只在用例显式打开时注入一次 rename 失败；其余测试走真实实现。 */
-const renameFault = vi.hoisted(() => ({
-  match: null as null | ((from: string, to: string) => boolean),
-  injected: 0,
-}));
-
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
-  return {
-    ...actual,
-    rename: async (
-      from: Parameters<typeof actual.rename>[0],
-      to: Parameters<typeof actual.rename>[1],
-    ) => {
-      if (renameFault.match?.(String(from), String(to))) {
-        renameFault.match = null;
-        renameFault.injected += 1;
-        throw Object.assign(new Error('injected rename failure'), { code: 'EIO' });
-      }
-      await actual.rename(from, to);
-    },
-  };
-});
+} = await import('../src/outputs.js');
 
 const slug = 'agent-a';
 const conversationId = 'conv_1';
@@ -63,14 +63,14 @@ const sha256 = (data: Buffer | string) => createHash('sha256').update(data).dige
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'outputs-test-'));
-  vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(new Date('2026-10-28T00:00:00.000Z'));
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-10-28T00:00:00.000Z'));
 });
 
 afterEach(async () => {
   renameFault.match = null;
   renameFault.injected = 0;
-  vi.useRealTimers();
+  jest.useRealTimers();
   await rm(root, { recursive: true, force: true });
 });
 

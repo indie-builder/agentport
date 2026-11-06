@@ -4,16 +4,16 @@ import type {
   RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
 import { DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { getRuntimeEnvironmentBuildQueue } from '../src/queue/producer.js';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -25,7 +25,7 @@ function imageId(seed: string): string {
 }
 
 describe.skipIf(!ready)('runtime environments', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const envIds: string[] = [];
   const agentSlugs: string[] = [];
@@ -41,18 +41,15 @@ describe.skipIf(!ready)('runtime environments', () => {
         await cleanup(app, { agentSlugs });
         if (envIds.length > 0) {
           // 复合外键：先清线上指针，再删版本，最后删环境。
-          await app.pool.query(
-            'update runtime_environments set online_version_id = null where id = any($1::text[])',
-            [envIds],
+          await app.client.unsafe(
+            'update runtime_environments set online_version_id = null where id = any($1::text[])', [app.client.array(envIds, 'TEXT')],
           );
-          await app.pool.query(
-            'delete from runtime_environment_versions where environment_id = any($1::text[])',
-            [envIds],
+          await app.client.unsafe(
+            'delete from runtime_environment_versions where environment_id = any($1::text[])', [app.client.array(envIds, 'TEXT')],
           );
-          await app.pool.query('delete from runtime_environments where id = any($1::text[])', [
-            envIds,
-          ]);
-          await app.pool.query('delete from audit_log where target = any($1::text[])', [envIds]);
+          await app.client.unsafe('delete from runtime_environments where id = any($1::text[])', [app.client.array(envIds, 'TEXT')],
+          );
+          await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(envIds, 'TEXT')]);
         }
       }
     } finally {
@@ -65,7 +62,7 @@ describe.skipIf(!ready)('runtime environments', () => {
   async function createEnv(
     overrides: { name?: string; dockerfile?: string } = {},
   ): Promise<RuntimeEnvironment> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/runtime-environments',
       headers: auth(),
@@ -78,7 +75,7 @@ describe.skipIf(!ready)('runtime environments', () => {
   }
 
   async function queueBuild(envId: string): Promise<RuntimeEnvironmentVersion> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/runtime-environments/${envId}/versions`,
       headers: auth(),
@@ -88,7 +85,7 @@ describe.skipIf(!ready)('runtime environments', () => {
   }
 
   async function markReady(versionId: string, seed: string): Promise<void> {
-    await app.pool.query(
+    await app.client.unsafe(
       `update runtime_environment_versions
           set status = 'ready', image_tag = $2, image_id = $3, finished_at = now()
         where id = $1`,
@@ -97,7 +94,7 @@ describe.skipIf(!ready)('runtime environments', () => {
   }
 
   async function publish(envId: string, versionId: string) {
-    return inject(app, {
+    return request(app, {
       method: 'PUT',
       url: `/api/runtime-environments/${envId}/online-version`,
       headers: auth(),
@@ -106,7 +103,7 @@ describe.skipIf(!ready)('runtime environments', () => {
   }
 
   it('requires authentication', async () => {
-    const res = await inject(app, { method: 'GET', url: '/api/runtime-environments' });
+    const res = await request(app, { method: 'GET', url: '/api/runtime-environments' });
     expectProblem(res, 'UNAUTHORIZED');
   });
 
@@ -119,7 +116,7 @@ describe.skipIf(!ready)('runtime environments', () => {
       dockerfile: DEFAULT_RUNTIME_DOCKERFILE,
     });
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: '/api/runtime-environments',
       headers: auth(),
@@ -127,7 +124,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     expect(list.statusCode, list.body).toBe(200);
     expect(list.json<RuntimeEnvironment[]>().some((env) => env.id === created.id)).toBe(true);
 
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/runtime-environments/${created.id}`,
       headers: auth(),
@@ -139,14 +136,14 @@ describe.skipIf(!ready)('runtime environments', () => {
       dockerfile: 'FROM scratch\n',
     });
 
-    const deleted = await inject(app, {
+    const deleted = await request(app, {
       method: 'DELETE',
       url: `/api/runtime-environments/${created.id}`,
       headers: auth(),
     });
     expect(deleted.statusCode, deleted.body).toBe(204);
 
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${created.id}`,
       headers: auth(),
@@ -168,7 +165,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     });
 
     // 草稿后续修改不影响已经冻结的版本快照。
-    await inject(app, {
+    await request(app, {
       method: 'PATCH',
       url: `/api/runtime-environments/${env.id}`,
       headers: auth(),
@@ -176,7 +173,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     });
     await markReady(version.id, 'a');
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${env.id}/versions/${version.id}`,
       headers: auth(),
@@ -189,7 +186,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     });
 
     // 构建成功只产生 ready 版本，不改线上指针。
-    const beforePublish = await inject(app, {
+    const beforePublish = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${env.id}`,
       headers: auth(),
@@ -208,7 +205,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     await markReady(first.id, 'b');
     await markReady(second.id, 'c');
 
-    const versions = await inject(app, {
+    const versions = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${env.id}/versions`,
       headers: auth(),
@@ -239,7 +236,7 @@ describe.skipIf(!ready)('runtime environments', () => {
 
     const envB = await createEnv();
     const failedVersion = await queueBuild(envB.id);
-    await app.pool.query(
+    await app.client.unsafe(
       `update runtime_environment_versions
           set status = 'failed', error = 'base image missing', finished_at = now()
         where id = $1`,
@@ -251,7 +248,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     // 跨环境版本不能挂到别的环境上。
     expectProblem(await publish(envA.id, failedVersion.id), 'NOT_FOUND');
 
-    const envAfter = await inject(app, {
+    const envAfter = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${envA.id}`,
       headers: auth(),
@@ -261,11 +258,11 @@ describe.skipIf(!ready)('runtime environments', () => {
 
   it('blocks deleting the default, bound and building environments', async () => {
     const defaultEnv = await createEnv();
-    await app.pool.query('update runtime_environments set is_default = true where id = $1', [
+    await app.client.unsafe('update runtime_environments set is_default = true where id = $1', [
       defaultEnv.id,
     ]);
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/runtime-environments/${defaultEnv.id}`,
         headers: auth(),
@@ -279,7 +276,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     await publish(boundEnv.id, version.id);
     const slug = unique('rtenv-agent');
     agentSlugs.push(slug);
-    const agent = await inject(app, {
+    const agent = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -287,7 +284,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     });
     expect(agent.statusCode, agent.body).toBe(201);
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/runtime-environments/${boundEnv.id}`,
         headers: auth(),
@@ -298,7 +295,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     const buildingEnv = await createEnv();
     await queueBuild(buildingEnv.id);
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/runtime-environments/${buildingEnv.id}`,
         headers: auth(),
@@ -311,7 +308,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     const slug = unique('rtenv-bind');
     agentSlugs.push(slug);
 
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -320,7 +317,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     expectProblem(missing, 'INVALID_INPUT');
 
     const offline = await createEnv();
-    const noOnline = await inject(app, {
+    const noOnline = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -331,7 +328,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     const version = await queueBuild(offline.id);
     await markReady(version.id, 'f');
     await publish(offline.id, version.id);
-    const bound = await inject(app, {
+    const bound = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -341,7 +338,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     const agent = bound.json<{ id: string; runtimeEnvironmentId: string | null }>();
     expect(agent.runtimeEnvironmentId).toBe(offline.id);
 
-    const unbound = await inject(app, {
+    const unbound = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -350,7 +347,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     expect(unbound.statusCode, unbound.body).toBe(200);
     expect(unbound.json<{ runtimeEnvironmentId: string | null }>().runtimeEnvironmentId).toBeNull();
 
-    const rebindMissing = await inject(app, {
+    const rebindMissing = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -362,12 +359,11 @@ describe.skipIf(!ready)('runtime environments', () => {
   it('marks the version failed with a readable error when enqueueing fails', async () => {
     const env = await createEnv();
     const queue = getRuntimeEnvironmentBuildQueue();
-    const add = vi
-      .spyOn(queue, 'add')
+    const add = spyOn(queue, 'add')
       .mockRejectedValueOnce(new Error('redis://:secret@127.0.0.1:1 refused'));
-    let res: Awaited<ReturnType<typeof inject>>;
+    let res: Awaited<ReturnType<typeof request>>;
     try {
-      res = await inject(app, {
+      res = await request(app, {
         method: 'POST',
         url: `/api/runtime-environments/${env.id}/versions`,
         headers: auth(),
@@ -380,7 +376,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     expect(res.body).not.toContain('redis://');
 
     // 不能留下永远 queued 的假构建。
-    const versions = await inject(app, {
+    const versions = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${env.id}/versions`,
       headers: auth(),
@@ -391,7 +387,7 @@ describe.skipIf(!ready)('runtime environments', () => {
     expect(failed.error).toContain('入队失败');
     expect(failed.imageId).toBeNull();
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${env.id}/versions/${failed.id}`,
       headers: auth(),

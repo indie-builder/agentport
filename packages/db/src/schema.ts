@@ -32,14 +32,8 @@ import {
   timestamp,
   unique,
   uniqueIndex,
+  vector,
 } from 'drizzle-orm/pg-core';
-
-/** pgvector 列：drizzle 无原生类型，写入时转 `[a,b]` 字面量，读取时还原数组。 */
-const vector = customType<{ data: number[]; driverData: string }>({
-  dataType: () => 'vector(1024)',
-  toDriver: (value) => `[${value.join(',')}]`,
-  fromDriver: (value) => JSON.parse(value as string) as number[],
-});
 
 /** 由 search_text 派生的 tsvector；应用不写这一列。 */
 const tsvector = customType<{ data: string }>({
@@ -1506,7 +1500,7 @@ export const knowledgeChunks = pgTable(
     searchVector: tsvector('search_vector').generatedAlwaysAs(
       sql`to_tsvector('simple', search_text)`,
     ),
-    embedding: vector('embedding'),
+    embedding: vector('embedding', { dimensions: 1024 }),
     enabled: boolean('enabled').notNull().default(true),
     editedByUser: boolean('edited_by_user').notNull().default(false),
     pageFrom: integer('page_from'),

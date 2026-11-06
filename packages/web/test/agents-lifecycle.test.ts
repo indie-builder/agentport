@@ -288,6 +288,12 @@ beforeEach(() => {
   client.setQueryData(['servers'], []);
   client.setQueryData(['skills'], []);
   client.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    }),
+  );
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -1081,7 +1087,10 @@ describe('expert file tool permissions', () => {
       };
       // agentsQuery 在模块加载时已捕获原始 api.agents，只有 fetch 层能影响重载读取。
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-        const path = String(input).split('?')[0];
+        const path = new URL(
+          input instanceof Request ? input.url : String(input),
+          'http://localhost',
+        ).pathname;
         if (path === '/api/agents') return Response.json([store.current]);
         if (path === '/api/runtime-environments') {
           return Response.json([defaultEnvironment, namedEnvironment]);

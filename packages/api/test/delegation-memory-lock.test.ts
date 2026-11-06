@@ -3,19 +3,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import type { PoolClient } from 'pg';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
   queueIdle,
+  request,
   seedRun,
   startApp,
+  type TestApp,
+  type TestResponse,
   unique,
   waitFor,
 } from './helpers.js';
@@ -26,7 +27,7 @@ const ready = await infraReady;
 const MEMORY_TEST_LOCK = 'agentport.memory-tests';
 
 describe.skipIf(!ready)('delegation memory occupancy', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let workspaces: string;
   let releaseLock: (() => Promise<void>) | undefined;
@@ -35,14 +36,14 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
   const runIds: string[] = [];
   const scheduleIds: string[] = [];
 
-  async function acquireMemoryLock(pool: FastifyInstance['pool']): Promise<() => Promise<void>> {
-    const client = await pool.connect();
+  async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
+    const reserved = await client.reserve();
     // 等锁可能超过连接默认的 statement_timeout。
-    await client.query('set statement_timeout = 0');
-    await client.query('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
+    await reserved.unsafe('set statement_timeout = 0');
+    await reserved.unsafe('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
     return async () => {
-      await client.query('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
-      client.release();
+      await reserved.unsafe('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
+      reserved.release();
     };
   }
 
@@ -52,21 +53,21 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     app = await startApp({ WORKSPACES_DIR: workspaces });
     // 有 worker 消费时排队 run 会被真实执行，chat 准入断言失去意义。
     expect(await queueIdle, 'worker must be stopped before admission tests').toBe(true);
-    releaseLock = await acquireMemoryLock(app.pool);
+    releaseLock = await acquireMemoryLock(app.client);
     cookie = await loginCookie(app);
   }, 60_000);
 
   afterEach(async () => {
     if (runIds.length > 0) {
-      await app.pool.query('delete from agent_runs where id = any($1::text[])', [runIds]);
+      await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [app.client.array(runIds, 'TEXT')]);
       runIds.length = 0;
     }
     if (scheduleIds.length > 0) {
-      await app.pool.query('delete from agent_schedules where id = any($1::text[])', [scheduleIds]);
+      await app.client.unsafe('delete from agent_schedules where id = any($1::text[])', [app.client.array(scheduleIds, 'TEXT')]);
       scheduleIds.length = 0;
     }
     // 每次清理本用例产生的运行，避免下一条用例看到残留占用。
-    await app.pool.query('delete from agent_runs where agent_id = any($1::text[])', [agentIds]);
+    await app.client.unsafe('delete from agent_runs where agent_id = any($1::text[])', [app.client.array(agentIds, 'TEXT')]);
   });
 
   afterAll(async () => {
@@ -87,7 +88,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
   };
 
   const bind = async (parentId: string, subAgentIds: string[]): Promise<void> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${parentId}`,
       headers: { cookie },
@@ -97,10 +98,10 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
   };
 
   const patch = (id: string, payload: Record<string, unknown>) =>
-    inject(app, { method: 'PATCH', url: `/api/agents/${id}`, headers: { cookie }, payload });
+    request(app, { method: 'PATCH', url: `/api/agents/${id}`, headers: { cookie }, payload });
 
   const putMemory = (agentId: string, content = 'note') =>
-    inject(app, {
+    request(app, {
       method: 'PUT',
       url: `/api/agents/${agentId}/memory/MEMORY.md`,
       headers: { cookie },
@@ -115,7 +116,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
   const insertSchedule = async (agentId: string): Promise<string> => {
     const id = newId('schedule');
     scheduleIds.push(id);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_schedules
          (id, agent_id, name, created_by, execute_as_business_id, cron, prompt, enabled)
        values ($1, $2, $3,
@@ -128,7 +129,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
   };
 
   const backendPid = async (client: PoolClient): Promise<number> => {
-    const { rows } = await client.query<{ pid: number }>('select pg_backend_pid() as pid');
+    const rows = await client.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
     const pid = rows[0]?.pid;
     if (pid === undefined) throw new Error('no backend pid');
     return pid;
@@ -136,7 +137,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
 
   /** 等待图里的明确信号：某后端确实卡在 holder 的锁上，且卡的是指定语句。 */
   const blockedOn = async (holder: number, pattern: RegExp): Promise<boolean> => {
-    const { rows } = await app.pool.query<{ query: string }>(
+    const rows = await app.client.unsafe<{ query: string }[]>(
       `select a.query from pg_stat_activity a
        where a.datname = current_database()
          and a.wait_event_type = 'Lock'
@@ -165,7 +166,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     expectProblem(await patch(child.id, { enabled: false }), 'CONFLICT');
     expectProblem(await patch(parent.id, { subAgentIds: [] }), 'CONFLICT');
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/agents/${child.id}`,
         headers: { cookie },
@@ -173,7 +174,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
       'CONFLICT',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/agents/${parent.id}`,
         headers: { cookie },
@@ -182,7 +183,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     );
     expect(
       (
-        await inject(app, {
+        await request(app, {
           method: 'DELETE',
           url: `/api/agents/${unrelated.id}`,
           headers: { cookie },
@@ -203,7 +204,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     expect((await patch(child.id, { name: 'child-renamed' })).statusCode).toBe(200);
     expectProblem(await patch(child.id, { enabled: false }), 'CONFLICT');
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/agents/${parent.id}`,
         headers: { cookie },
@@ -218,7 +219,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     const slug = unique('deleg-created');
     createdSlugs.push(slug);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: { cookie },
@@ -261,12 +262,12 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     await bind(parent.id, [child.id]);
     const scheduleId = await insertSchedule(parent.id);
 
-    const client = await app.pool.connect();
+    const client = await app.client.reserve();
     let pending: Promise<'claimed' | 'duplicate' | 'agent_disabled'> | undefined;
     try {
-      await client.query('begin');
+      await client.unsafe('begin');
       const holder = await backendPid(client);
-      await client.query('select pg_advisory_xact_lock(hashtext($1))', [`agent:${child.id}`]);
+      await client.unsafe('select pg_advisory_xact_lock(hashtext($1))', [`agent:${child.id}`]);
       pending = repo.ops.claimScheduleTrigger(app.db, {
         scheduleId,
         runId: newId('run'),
@@ -276,10 +277,10 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
       });
       const blocked = await waitFor(() => blockedOn(holder, /pg_advisory_xact_lock/));
       expect(blocked, 'claim never entered the child memory lock').toBe(true);
-      await client.query('commit');
+      await client.unsafe('commit');
       expect(await pending).toBe('claimed');
     } finally {
-      await client.query('rollback').catch(() => undefined);
+      await client.unsafe('rollback').catch(() => undefined);
       client.release();
       await pending?.catch(() => undefined);
     }
@@ -290,12 +291,12 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     const child = await newAgent('deleg-chat-child');
     await bind(parent.id, [child.id]);
 
-    const client = await app.pool.connect();
-    let pending: Promise<LightMyRequestResponse> | undefined;
+    const client = await app.client.reserve();
+    let pending: Promise<TestResponse> | undefined;
     try {
       const holder = await backendPid(client);
-      await client.query('select pg_advisory_lock(hashtext($1))', [`agent:${child.id}`]);
-      pending = inject(app, {
+      await client.unsafe('select pg_advisory_lock(hashtext($1))', [`agent:${child.id}`]);
+      pending = request(app, {
         method: 'POST',
         url: '/api/chat',
         headers: { cookie },
@@ -304,13 +305,13 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
       const blocked = await waitFor(() => blockedOn(holder, /pg_advisory_xact_lock/));
       expect(blocked, 'chat admission never entered the child memory lock').toBe(true);
 
-      await client.query('select pg_advisory_unlock(hashtext($1))', [`agent:${child.id}`]);
+      await client.unsafe('select pg_advisory_unlock(hashtext($1))', [`agent:${child.id}`]);
       const res = await pending;
       pending = undefined;
       expect(res.statusCode, res.body).toBe(202);
       const { runId } = res.json<{ runId: string }>();
       runIds.push(runId);
-      const { rows } = await app.pool.query<{ status: string; trigger: string }>(
+      const rows = await app.client.unsafe<{ status: string; trigger: string }[]>(
         'select status, trigger from agent_runs where id = $1',
         [runId],
       );
@@ -321,7 +322,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
         .then((job) => job?.remove())
         .catch(() => undefined);
     } finally {
-      await client.query('select pg_advisory_unlock_all()').catch(() => undefined);
+      await client.unsafe('select pg_advisory_unlock_all()').catch(() => undefined);
       client.release();
       await pending?.catch(() => undefined);
     }
@@ -333,12 +334,12 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     await bind(parent.id, [child.id]);
     const { runId } = await seedRun(app, child.id);
     runIds.push(runId);
-    await app.pool.query("update agent_runs set trigger = 'review' where id = $1", [runId]);
+    await app.client.unsafe("update agent_runs set trigger = 'review' where id = $1", [runId]);
 
     // 审核 run 不挂可写目录，不占记忆，也不阻止改变委派集合。
     expect((await putMemory(child.id)).statusCode).toBe(200);
     expect((await patch(parent.id, { subAgentIds: [] })).statusCode).toBe(200);
-    const after = await inject(app, {
+    const after = await request(app, {
       method: 'GET',
       url: `/api/agents/${parent.id}`,
       headers: { cookie },

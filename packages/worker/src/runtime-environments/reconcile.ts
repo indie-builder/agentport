@@ -1,5 +1,6 @@
 import { RUNTIME_ENVIRONMENT_BUILDS_QUEUE } from '@agentport/shared';
-import { Queue } from 'bullmq';
+import { createBunRedisClient, Queue } from 'bullmq';
+import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import {
   RUNTIME_ENVIRONMENT_BUILD_JOB,
@@ -115,8 +116,9 @@ export function startRuntimeEnvironmentBuildReconciler(input: {
   redisUrl: string;
   prefix?: string;
 }): () => Promise<void> {
+  const connection = createBunRedisClient(new RedisClient(input.redisUrl));
   const queue = new Queue<{ versionId: string }>(RUNTIME_ENVIRONMENT_BUILDS_QUEUE, {
-    connection: { url: input.redisUrl, maxRetriesPerRequest: null },
+    connection,
     ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
   });
   queue.on('error', () => input.logger.warn('runtime environment build queue connection failed'));
@@ -143,5 +145,6 @@ export function startRuntimeEnvironmentBuildReconciler(input: {
     clearInterval(timer);
     await inFlight;
     await queue.close();
+    await connection.quit();
   };
 }

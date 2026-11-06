@@ -1,13 +1,13 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // 并发与负载测试。只创建 slug 以 loadtest- 开头的数据，开始与结束各清理一次。
-// 用法：node scripts/loadtest.mjs
+// 用法：bun scripts/loadtest.mjs
 // 环境变量：BASE_URL（默认 http://localhost:3000）、ADMIN_USER、ADMIN_PASSWORD。
 // 可选：PLATFORM_MCP_TOKEN（MCP 测试）、DATABASE_URL（清理；默认读 .env）。
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
 import http from 'node:http';
-import { createRequire } from 'node:module';
+import { SQL } from 'bun';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,7 +26,7 @@ const READ_CONCURRENCY = 50;
 const READ_ROUNDS = 20;
 
 if (!ADMIN_PASSWORD) {
-  console.error('缺少 ADMIN_PASSWORD。用法：ADMIN_PASSWORD=... node scripts/loadtest.mjs');
+  console.error('缺少 ADMIN_PASSWORD。用法：ADMIN_PASSWORD=... bun scripts/loadtest.mjs');
   process.exit(1);
 }
 
@@ -103,7 +103,7 @@ function summarize(label, samples, rss, startedAt = performance.now(), extra = '
   for (const sample of samples) {
     if (!sample.ok) statuses[sample.status || 'network'] = (statuses[sample.status || 'network'] ?? 0) + 1;
   }
-  const db = rss?.peakDbWaiting ? ` dbWait=${rss.peakDbWaiting}/${rss.peakDbTotal}` : '';
+  const db = rss?.maxDbPingMs === null || rss?.maxDbPingMs === undefined ? '' : ` dbPing=${ms(rss.maxDbPingMs)}ms dbMax=${rss.dbMaxConnections}`;
   const line = [
     label.padEnd(24),
     String(samples.length).padStart(5),
@@ -128,7 +128,7 @@ function summarize(label, samples, rss, startedAt = performance.now(), extra = '
   };
 }
 
-function createSampler(intervalMs = 100) {
+function createSampler(cookie, intervalMs = 100) {
   let timer;
   let startRss = null;
   let maxRss = null;
@@ -136,14 +136,14 @@ function createSampler(intervalMs = 100) {
   let last = null;
   let samples = 0;
   let busy = false;
-  let peakDbWaiting = 0;
-  let peakDbTotal = 0;
+  let maxDbPingMs = null;
+  let dbMaxConnections = null;
   let peakQueue = { waiting: 0, active: 0 };
   const take = async () => {
     if (busy) return;
     busy = true;
     try {
-      const res = await request('GET', '/health/metrics', { timeoutMs: 3_000 });
+      const res = await request('GET', '/health/metrics', { headers: { Cookie: cookie }, timeoutMs: 3_000 });
       const metrics = JSON.parse(res.text);
       last = metrics;
       const rss = metrics.process?.memoryRssBytes ?? null;
@@ -153,8 +153,10 @@ function createSampler(intervalMs = 100) {
         samples += 1;
       }
       if (metrics.db) {
-        peakDbWaiting = Math.max(peakDbWaiting, metrics.db.waiting ?? 0);
-        peakDbTotal = Math.max(peakDbTotal, metrics.db.total ?? 0);
+        if (metrics.db.pingMs !== null) {
+          maxDbPingMs = maxDbPingMs === null ? metrics.db.pingMs : Math.max(maxDbPingMs, metrics.db.pingMs);
+        }
+        dbMaxConnections = metrics.db.maxConnections;
       }
       if (metrics.queue) {
         peakQueue.waiting = Math.max(peakQueue.waiting, metrics.queue.waiting ?? 0);
@@ -176,7 +178,7 @@ function createSampler(intervalMs = 100) {
       clearInterval(timer);
       await take();
       endRss = last?.process?.memoryRssBytes ?? null;
-      return { startRss, maxRss, endRss, samples, peakDbWaiting, peakDbTotal, peakQueue };
+      return { startRss, maxRss, endRss, samples, maxDbPingMs, dbMaxConnections, peakQueue };
     },
     get last() {
       return last;
@@ -185,14 +187,7 @@ function createSampler(intervalMs = 100) {
 }
 
 // ---- DB 清理：只用 slug 前缀圈定自己创建的数据 ----
-let Pool = null;
-try {
-  Pool = createRequire(join(ROOT, 'packages/db/package.json'))('pg').Pool;
-} catch {
-  Pool = null;
-}
-
-const hasDb = Boolean(Pool && DATABASE_URL);
+const hasDb = Boolean(DATABASE_URL);
 const CLEANUP_SQL = [
   `delete from audit_log where target in (
      select id from agent_runs where agent_id in (select id from agents where slug like '${PREFIX}%')
@@ -210,16 +205,16 @@ const CLEANUP_SQL = [
 
 async function cleanup(label) {
   if (!hasDb) {
-    console.log(`[cleanup:${label}] 跳过（无可用的 pg / DATABASE_URL）`);
+    console.log(`[cleanup:${label}] 跳过（无可用的 DATABASE_URL）`);
     return null;
   }
-  const pool = new Pool({ connectionString: DATABASE_URL, max: 1 });
+  const client = new SQL(DATABASE_URL, { max: 1 });
   const counts = {};
   try {
     for (const sql of CLEANUP_SQL) {
       const table = /from (\w+)/.exec(sql)?.[1] ?? sql;
-      const result = await pool.query(sql);
-      counts[table] = (counts[table] ?? 0) + (result.rowCount ?? 0);
+      const result = await client.unsafe(sql);
+      counts[table] = (counts[table] ?? 0) + result.count;
     }
     // worker 的工作区目录（WORKSPACES_DIR 相对 worker 的 cwd）。
     const workspaces = join(ROOT, 'packages/worker/data/workspaces');
@@ -235,7 +230,7 @@ async function cleanup(label) {
     console.error(`[cleanup:${label}] 失败：${err.message}`);
     return null;
   } finally {
-    await pool.end().catch(() => undefined);
+    await client.close();
   }
 }
 
@@ -272,7 +267,7 @@ async function login() {
 async function readTest(cookie) {
   const results = [];
   for (const path of ['/api/overview', '/api/runs', '/api/agents']) {
-    const sampler = createSampler(100);
+    const sampler = createSampler(cookie, 100);
     await sampler.start();
     const startedAt = performance.now();
     const samples = [];
@@ -295,7 +290,7 @@ async function rampTest(cookie) {
   const results = [];
   for (const concurrency of [100, 200]) {
     for (const path of ['/api/overview', '/api/agents']) {
-      const sampler = createSampler(100);
+      const sampler = createSampler(cookie, 100);
       await sampler.start();
       const startedAt = performance.now();
       const samples = [];
@@ -316,7 +311,7 @@ async function rampTest(cookie) {
   for (const path of ['/health/live', '/api/runs']) {
     const concurrency = 200;
     const samples = [];
-    const sampler = createSampler(100);
+    const sampler = createSampler(cookie, 100);
     await sampler.start();
     const startedAt = performance.now();
     for (let round = 0; round < 10; round += 1) {
@@ -341,7 +336,7 @@ async function writeTest(cookie) {
     description: 'loadtest',
     body: 'loadtest',
   });
-  const sampler = createSampler(100);
+  const sampler = createSampler(cookie, 100);
   await sampler.start();
   const startedAt = performance.now();
   const samples = await Promise.all(
@@ -415,7 +410,7 @@ async function sseTest(cookie, agentId) {
     remaining: Number(post.headers['x-ratelimit-remaining'] ?? 0),
     resetSeconds: Number(post.headers['x-ratelimit-reset'] ?? 60),
   };
-  const sampler = createSampler(100);
+  const sampler = createSampler(cookie, 100);
   await sampler.start();
   const results = await Promise.all(
     Array.from({ length: 20 }, () => sse(`/api/chat/${runId}/events`, cookie, 60_000)),
@@ -457,9 +452,9 @@ async function sseTest(cookie, agentId) {
 }
 
 // ---- 4. MCP 端点 ----
-async function mcpTest() {
+async function mcpTest(cookie) {
   if (!PLATFORM_MCP_TOKEN) return { skipped: 'PLATFORM_MCP_TOKEN 未设置' };
-  const sampler = createSampler(100);
+  const sampler = createSampler(cookie, 100);
   await sampler.start();
   const startedAt = performance.now();
   const samples = await Promise.all(
@@ -492,7 +487,7 @@ async function queueTest(cookie, agentId, chatBudget) {
     console.log(`等待 chat 限流窗口重置（${waitMs}ms，剩余 ${chatBudget.remaining}/20）...`);
     await sleep(waitMs);
   }
-  const sampler = createSampler(150);
+  const sampler = createSampler(cookie, 150);
   await sampler.start();
   const posts = await Promise.all(
     Array.from({ length: 10 }, async (_, index) => {
@@ -531,7 +526,7 @@ async function queueTest(cookie, agentId, chatBudget) {
   while (Date.now() < deadline) {
     const [list, metrics] = await Promise.all([
       request('GET', '/api/runs?limit=200', { headers: { Cookie: cookie } }).catch(() => null),
-      request('GET', '/health/metrics', { timeoutMs: 3_000 }).catch(() => null),
+      request('GET', '/health/metrics', { headers: { Cookie: cookie }, timeoutMs: 3_000 }).catch(() => null),
     ]);
     if (metrics?.status === 200) {
       const queue = JSON.parse(metrics.text).queue;
@@ -609,7 +604,7 @@ async function createTestAgent(cookie) {
 }
 
 async function main() {
-  console.log(`BASE_URL=${BASE_URL} node=${process.version} prefix=${PREFIX}${RUN_ID}-`);
+  console.log(`BASE_URL=${BASE_URL} bun=${Bun.version} prefix=${PREFIX}${RUN_ID}-`);
 
   const ready = await request('GET', '/health/ready', { timeoutMs: 3_000 }).catch((err) => {
     console.error(`API 未启动或不可达（${BASE_URL}）：${err.message}`);
@@ -633,7 +628,7 @@ async function main() {
 
   const agentId = await createTestAgent(cookie);
   summary.sse = await sseTest(cookie, agentId);
-  summary.mcp = await mcpTest();
+  summary.mcp = await mcpTest(cookie);
   summary.queue = await queueTest(cookie, agentId, summary.sse.chatBudget);
 
   await cleanup('after');

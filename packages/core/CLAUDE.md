@@ -33,4 +33,4 @@
 
 ## 验证
 
-纯函数与存储改动跑 `pnpm --filter @agentport/core typecheck` 与 `packages/core/test` 对应套件；路径/产出规则变更要覆盖拒绝逃逸与原子发布行为。
+纯函数与存储改动跑 `bun run --filter @agentport/core typecheck` 与 `packages/core/test` 对应套件；路径/产出规则变更要覆盖拒绝逃逸与原子发布行为。

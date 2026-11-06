@@ -13,24 +13,22 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { PERSONAL_MEMORY_FILENAME } from '@agentport/shared';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  personalMemoryDir,
-  personalMemoryPath,
-  writePersonalMemoryProjection,
-} from '../src/personal-memory.js';
+import * as fsActual from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-const fsFaults = vi.hoisted(() => ({ failRename: false }));
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
-  return {
-    ...actual,
-    rename: async (...args: Parameters<typeof actual.rename>) => {
-      if (fsFaults.failRename) throw new Error('injected rename failure');
-      return actual.rename(...args);
-    },
-  };
-});
+const actualRename = fsActual.rename;
+const fsFaults = { failRename: false };
+mock.module('node:fs/promises', () => ({
+  ...fsActual,
+  rename: async (...args: Parameters<typeof fsActual.rename>) => {
+    if (fsFaults.failRename) throw new Error('injected rename failure');
+    return actualRename(...args);
+  },
+}));
+
+const { personalMemoryDir, personalMemoryPath, writePersonalMemoryProjection } = await import(
+  '../src/personal-memory.js'
+);
 
 let root = '';
 

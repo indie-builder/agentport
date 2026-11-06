@@ -1,6 +1,8 @@
 # 首次部署实测记录（2026-10-20）
 
-从零（无 `.env`、无数据卷、无 api/sandbox 镜像）执行 `pnpm run up`，在 macOS + Docker Desktop 上做的一次完整演练。
+> 本文保留当次演练的原始命令与数据。包管理器已迁移到 Bun；现行入口见 [README](../README.md) 与 [OPERATIONS](OPERATIONS.md)：`bun install`、`bun run up`、`bun run smoke`。
+
+从零（无 `.env`、无数据卷、无 api/sandbox 镜像）执行 `pnpm run up`，在 macOS + Docker Desktop 上做的一次完整演练；当次包管理器是 pnpm，现行命令见文首说明。
 
 ## 结论
 
@@ -62,8 +64,8 @@ docker run --rm -v agentport_workspaces:/w alpine chown -R 1000:1000 /w
 
 ## 给下一位用户的建议
 
-1. 先 `pnpm backup`（有数据时），再 `pnpm down --clean`。
-2. 执行 `pnpm run up` 前准备好 `.env`（至少模型凭据），其余由脚本完成。
+1. 先 `bun run backup`（有数据时），再 `bun run down --clean`。
+2. 执行 `bun run up` 前准备好 `.env`（至少模型凭据），其余由脚本完成。
 3. （历史）`UP FAIL: 冒烟测试失败` + `Method not found` 属于已修复的问题 1；现在空库冒烟应直接通过。
 4. 首次对话前可确认工作区卷属主：`docker run --rm -v agentport_workspaces:/w alpine ls -ld /w`，`up.sh` 已自动 chown 到 1000。
-5. 需要完整验证时运行 `pnpm test:e2e`，按 [OPERATIONS.md §9.2](OPERATIONS.md#92-后端集成测试与-e2e) 准备 API/数据库/凭据，web 由 E2E 自动启动或复用；真实对话链路需要模型凭据。
+5. 需要完整验证时运行 `bun run test:e2e`，按 [OPERATIONS.md §9.2](OPERATIONS.md#92-后端集成测试与-e2e) 准备 API/数据库/凭据，web 由 E2E 自动启动或复用；真实对话链路需要模型凭据。

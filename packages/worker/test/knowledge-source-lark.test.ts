@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import { parseDocument } from '../src/knowledge/parsing.js';
 import {
@@ -57,9 +58,7 @@ function sha256(value: Uint8Array): string {
 }
 
 function mockFetch(): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+  stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input));
       const request = init ?? {};
       const headers = new Headers(request.headers);
@@ -214,7 +213,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreFetch();
 });
 
 describe('Lark wiki and drive', () => {

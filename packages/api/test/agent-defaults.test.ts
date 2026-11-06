@@ -1,13 +1,13 @@
 import type { Agent, WorkspaceFiles } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { sidecarOf, unzipPackage } from './package-fixtures.js';
@@ -15,7 +15,7 @@ import { sidecarOf, unzipPackage } from './package-fixtures.js';
 const ready = await infraReady;
 
 describe.skipIf(!ready)('agent reasoning defaults', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const agentIds: string[] = [];
@@ -27,7 +27,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
 
   afterAll(async () => {
     if (agentIds.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [agentIds]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(agentIds, 'TEXT')]);
     }
     await cleanup(app, { agentSlugs });
     await app.close();
@@ -38,7 +38,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
   const create = async (extra: Record<string, unknown> = {}): Promise<Agent> => {
     const slug = unique('defaults');
     agentSlugs.push(slug);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -51,10 +51,10 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
   };
 
   const patch = (id: string, payload: Record<string, unknown>) =>
-    inject(app, { method: 'PATCH', url: `/api/agents/${id}`, headers: auth(), payload });
+    request(app, { method: 'PATCH', url: `/api/agents/${id}`, headers: auth(), payload });
 
   const stored = async (id: string) => {
-    const { rows } = await app.pool.query<{ effort: string | null }>(
+    const rows = await app.client.unsafe<{ effort: string | null }[]>(
       'select effort from agents where id = $1',
       [id],
     );
@@ -62,7 +62,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
   };
 
   const versionCount = async (id: string) => {
-    const { rows } = await app.pool.query<{ count: string }>(
+    const rows = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from agent_versions where agent_id = $1',
       [id],
     );
@@ -70,7 +70,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
   };
 
   const latestSnapshot = async (id: string) => {
-    const { rows } = await app.pool.query<{ snapshot: Agent }>(
+    const rows = await app.client.unsafe<{ snapshot: Agent }[]>(
       'select snapshot from agent_versions where agent_id = $1 order by version desc limit 1',
       [id],
     );
@@ -101,7 +101,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
 
   it('rejects null on create for effort and other fields', async () => {
     for (const field of ['effort', 'maxTurns']) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/agents',
         headers: auth(),
@@ -114,7 +114,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
   it('rejects the removed fixed thinking budget without writing or versioning', async () => {
     const slug = unique('defaults-thinking');
     for (const value of [2048, null]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/agents',
         headers: auth(),
@@ -122,8 +122,8 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
       });
       expect(res.statusCode, `create ${String(value)}: ${res.body}`).toBe(400);
     }
-    const created = await app.pool.query('select id from agents where slug = $1', [slug]);
-    expect(created.rows).toEqual([]);
+    const created = await app.client.unsafe('select id from agents where slug = $1', [slug]);
+    expect(created).toEqual([]);
 
     const agent = await create({ effort: 'high' });
     const versions = await versionCount(agent.id);
@@ -142,7 +142,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
     expect(bind.statusCode, bind.body).toBe(200);
 
     const files = async (): Promise<WorkspaceFiles> => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/agents/${parent.id}/files`,
         headers: auth(),
@@ -168,7 +168,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
   it('omits cleared effort from export and round-trips configured values', async () => {
     const agent = await create({ effort: 'xhigh' });
     const exportPackage = async (id: string) => {
-      const res = await injectZip(app, 'GET', `/api/export/agents/${id}`, cookie);
+      const res = await requestZip(app, 'GET', `/api/export/agents/${id}`, cookie);
       expect(res.statusCode, res.body).toBe(200);
       return { zip: res.rawPayload, files: unzipPackage(res.rawPayload) };
     };
@@ -176,7 +176,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
     const exported = await exportPackage(agent.id);
     expect(sidecarOf(exported.files).agent).toMatchObject({ effort: 'xhigh' });
 
-    const imported = await injectZip(app, 'POST', '/api/import/agents', cookie, exported.zip);
+    const imported = await requestZip(app, 'POST', '/api/import/agents', cookie, exported.zip);
     expect(imported.statusCode, imported.body).toBe(201);
     const created = imported.json<{ agent: Agent }>().agent;
     agentSlugs.push(created.slug);
@@ -188,7 +188,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
     expect(cleared.statusCode, cleared.body).toBe(200);
     const clearedPackage = await exportPackage(agent.id);
     expect(sidecarOf(clearedPackage.files).agent).not.toHaveProperty('effort');
-    const reimported = await injectZip(
+    const reimported = await requestZip(
       app,
       'POST',
       '/api/import/agents',

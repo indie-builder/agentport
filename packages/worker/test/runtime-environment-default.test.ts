@@ -1,5 +1,6 @@
 import type { Logger } from 'pino';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { waitFor } from './fixtures/native-test.js';
 import {
   type DefaultEnvironmentDeps,
   ensureDefaultEnvironment,
@@ -107,7 +108,7 @@ describe('startDefaultEnvironmentRetry', () => {
     });
 
     const stop = startDefaultEnvironmentRetry(deps, 5);
-    await vi.waitFor(() => expect(registered).toHaveLength(1));
+    await waitFor(() => expect(registered).toHaveLength(1));
     await stop();
 
     expect(pulls).toBe(2);

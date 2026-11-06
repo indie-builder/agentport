@@ -1,5 +1,5 @@
 import { KnowledgeModelError } from '@agentport/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { isRetryableKnowledgeError } from '../src/knowledge/ingestion.js';
 import { KnowledgeParseError } from '../src/knowledge/parsing.js';
 

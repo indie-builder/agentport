@@ -928,7 +928,16 @@ describe('knowledge document inspection', () => {
     documentHandlers();
     server.use(
       http.patch('/api/knowledge/chunks/kchk_1', () =>
-        HttpResponse.json({ code: 'CONFLICT', message: '分块已被其他修改更新' }, { status: 409 }),
+        HttpResponse.json(
+          {
+            code: 'CONFLICT',
+            message: '分块已被其他修改更新',
+            status: 409,
+            requestId: '',
+            retryable: false,
+          },
+          { status: 409 },
+        ),
       ),
     );
     await mount('/knowledge/kb_1');
@@ -990,7 +999,16 @@ describe('knowledge document inspection', () => {
     documentHandlers();
     server.use(
       http.patch('/api/knowledge/chunks/kchk_1', () =>
-        HttpResponse.json({ code: 'CONFLICT', message: '分块已被其他修改更新' }, { status: 409 }),
+        HttpResponse.json(
+          {
+            code: 'CONFLICT',
+            message: '分块已被其他修改更新',
+            status: 409,
+            requestId: '',
+            retryable: false,
+          },
+          { status: 409 },
+        ),
       ),
     );
     await mount('/knowledge/kb_1');
@@ -1013,7 +1031,16 @@ describe('knowledge document inspection', () => {
     let reloaded = false;
     server.use(
       http.patch('/api/knowledge/chunks/kchk_1', () =>
-        HttpResponse.json({ code: 'CONFLICT', message: '分块已被其他修改更新' }, { status: 409 }),
+        HttpResponse.json(
+          {
+            code: 'CONFLICT',
+            message: '分块已被其他修改更新',
+            status: 409,
+            requestId: '',
+            retryable: false,
+          },
+          { status: 409 },
+        ),
       ),
       http.get('/api/knowledge/documents/kdoc_1/chunks', () =>
         HttpResponse.json({
@@ -2841,7 +2868,13 @@ describe('knowledge wiki versions', () => {
       ),
       http.patch('/api/knowledge/wiki-pages/kwp_1', () =>
         HttpResponse.json(
-          { code: 'CONFLICT', message: 'Wiki 页面已被修改，请刷新后重试' },
+          {
+            code: 'CONFLICT',
+            message: 'Wiki 页面已被修改，请刷新后重试',
+            status: 409,
+            requestId: '',
+            retryable: false,
+          },
           { status: 409 },
         ),
       ),
@@ -3271,6 +3304,7 @@ describe('knowledge UX guards', () => {
     hasSecret: true,
     embeddingProtocol: 'openai',
     imageInputEnabled: false,
+    supportsImageVectors: false,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   };
@@ -3510,6 +3544,7 @@ describe('knowledge UX guards', () => {
       hasSecret: false,
       embeddingProtocol: 'openai',
       imageInputEnabled: false,
+      supportsImageVectors: false,
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
     };
@@ -4364,7 +4399,16 @@ describe('knowledge document versions and manual drafts', () => {
       ),
       detailsHandler(),
       http.put('/api/knowledge/documents/kdoc_1/manual', () =>
-        HttpResponse.json({ code: 'CONFLICT_STALE', message: '正文已被修改' }, { status: 409 }),
+        HttpResponse.json(
+          {
+            code: 'CONFLICT_STALE',
+            message: '正文已被修改',
+            status: 409,
+            requestId: '',
+            retryable: false,
+          },
+          { status: 409 },
+        ),
       ),
     );
     await mount('/knowledge/kb_1');
@@ -4904,9 +4948,9 @@ describe('knowledge search URL state and diagnostics', () => {
     });
     await flush();
     const params = new URL(searchUrl, 'http://localhost').searchParams;
-    expect(params.getAll('folders')).toEqual(['kf_1']);
-    expect(params.getAll('tags')).toEqual(['流程']);
-    expect(params.getAll('kinds')).toEqual(['faq']);
+    expect(params.getAll('folders[0]')).toEqual(['kf_1']);
+    expect(params.getAll('tags[0]')).toEqual(['流程']);
+    expect(params.getAll('kinds[0]')).toEqual(['faq']);
     expect(params.get('rerank')).toBe('false');
     expect(params.get('minVectorScore')).toBe('0.5');
     expect(params.get('onlyRecommended')).toBe('true');

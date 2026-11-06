@@ -1,7 +1,7 @@
 import { NATIVE_PLUGINS_QUEUE, type NativePluginAction } from '@agentport/shared';
 import { type Job, Queue, Worker } from 'bullmq';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { runNativePluginAction } from '../src/features/plugins/native.js';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { runNativePluginAction } from '../src/modules/plugins/native.js';
 import { infraReady } from './helpers.js';
 import {
   type CommandWatch,

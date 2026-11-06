@@ -1,13 +1,14 @@
-import type { AddressInfo } from 'node:net';
 import { newId, repo } from '@agentport/db';
 import { runEnqueueOptions } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import Fastify, { type FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
-import type { AgentInvoker } from '../src/features/servers/agent-tools.js';
-import { registerAgentToolsEndpoint } from '../src/features/servers/agent-tools-endpoint.js';
+import type { AgentInvoker } from '../src/modules/servers/agent-tools.js';
+import { registerServersHttp } from '../src/modules/servers/http.js';
 import { getQueue } from '../src/queue/producer.js';
+import type { AppRuntime } from '../src/types.js';
+import { contextApp } from './hono-app.js';
+import { listen, type TestServer } from './server.js';
 
 // 每次运行建独立库：只验证取消路径，也能并跑多条回归。
 const isolated = await createIsolatedDatabase(
@@ -50,7 +51,7 @@ interface Call {
  * 收到中止就取消 run、清掉队列 job 再抛错。
  * 端点的责任只是把客户端的 signal 传到这里。
  */
-function stubInvoker(app: FastifyInstance, agentId: string) {
+function stubInvoker(app: { db: AppRuntime['db'] }, agentId: string) {
   const calls: Call[] = [];
   const pending = new Set<() => void>();
   const invoker: AgentInvoker = {
@@ -106,8 +107,8 @@ function stubInvoker(app: FastifyInstance, agentId: string) {
 }
 
 describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation', () => {
-  let app: FastifyInstance;
-  let platform: FastifyInstance;
+  let app: AppRuntime;
+  let platform: TestServer;
   let cookie: string;
   let toolName: string;
   let agentId: string;
@@ -126,11 +127,11 @@ describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation
     return client;
   };
   const runStatus = async (runId: string): Promise<string | undefined> => {
-    const rows = await app.pool.query<{ status: string }>(
+    const rows = await app.client.unsafe<{ status: string }[]>(
       'select status from agent_runs where id = $1',
       [runId],
     );
-    return rows.rows[0]?.status;
+    return rows[0]?.status;
   };
   /** 等下一次 invoke 真的进到桩里；只按总数等待会拿到上一个用例的调用。 */
   const nextCall = async (): Promise<Call> => {
@@ -151,16 +152,25 @@ describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation
       id: string;
     }>().id;
 
-    // 独立 Fastify：端点只依赖 PLATFORM_MCP_TOKEN 与 app.db，不需要认证/cookie 链路。
     stub = stubInvoker(app, agentId);
-    platform = Fastify({ logger: false });
-    platform.decorate('db', app.db);
-    registerAgentToolsEndpoint(platform, stub.invoker);
-    await platform.listen({ port: 0, host: '127.0.0.1' });
-    platformUrl = `http://127.0.0.1:${(platform.server.address() as AddressInfo).port}/mcp`;
+    const platformApp = contextApp(app);
+    registerServersHttp(platformApp as never, {
+      db: app.db,
+      client: app.client,
+      config: app.config,
+      log: app.log,
+      auth: app.auth,
+      invoker: stub.invoker,
+    });
+    platform = await listen({ app: platformApp as never });
+    platformUrl = `${platform.url}/mcp`;
   });
 
   afterAll(async () => {
+    if (!app) {
+      await isolated?.close();
+      return;
+    }
     try {
       stub.releaseAll();
       runIds.push(...stub.calls.map((call) => call.runId));

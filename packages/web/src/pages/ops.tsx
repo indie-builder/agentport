@@ -10,8 +10,8 @@ import { CircleAlert, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
-import { BusinessIllustration } from '../components/business-illustration.js';
 import { AgentPicker } from '../components/agent-picker.js';
+import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
@@ -686,12 +686,6 @@ function ScheduleDialog({
     else finish();
   };
 
-  const pickerAgent = (agent: AgentSummary) => ({
-    name: agent.name,
-    description: agent.description,
-    role: agent.role ?? null,
-    slug: agent.slug ?? null,
-  });
   const selectedAgent = agents.find((agent) => agent.id === watched.agentId);
   const agentOptions = [
     ...(schedule && !agents.some((agent) => agent.id === schedule.agentId)
@@ -700,7 +694,7 @@ function ScheduleDialog({
     ...agents.map((agent) => ({
       value: agent.id,
       label: agent.name,
-      agent: pickerAgent(agent),
+      agent,
     })),
   ];
 
@@ -877,7 +871,7 @@ function ScheduleDialog({
                       render={({ field }) => (
                         <AgentPicker
                           triggerVariant="field"
-                          agent={selectedAgent ? pickerAgent(selectedAgent) : null}
+                          agent={selectedAgent ?? null}
                           agentId={field.value}
                           agentOptions={agentOptions}
                           onSwitchAgent={(id) => field.onChange(id)}
@@ -910,7 +904,9 @@ function ScheduleDialog({
             </FieldGroup>
 
             <FieldSet className="w-full gap-5 @min-[800px]:self-start @min-[800px]:border-l @min-[800px]:border-line @min-[800px]:pl-6">
-              <FieldLegend className="mb-0 flex h-8 items-center text-base font-medium">执行计划</FieldLegend>
+              <FieldLegend className="mb-0 flex h-8 items-center text-base font-medium">
+                执行计划
+              </FieldLegend>
               <FieldGroup className="gap-5">
                 <div
                   className={cn(

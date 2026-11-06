@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { renderOutputStyleMd, renderWorkspace } from '../src/workspace.js';
 
 const agent = { slug: 'a', name: 'A', model: 'm', systemPrompt: 'p', maxTurns: 5 };

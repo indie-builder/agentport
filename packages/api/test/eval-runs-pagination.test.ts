@@ -1,16 +1,16 @@
 import { newId } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -33,7 +33,7 @@ interface EvalRunPageBody {
 }
 
 describe.skipIf(!ready)('eval run list pagination', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -55,7 +55,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
   // 直接落已收口的跑批：同一智能体只允许一个 running，且原始 SQL 才能控制微秒时间。
   const seedRun = async (agentId: string, createdAt: string, total: number, error?: string) => {
     const id = newId('evalRun');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into eval_runs
          (id, agent_id, created_by, status, total, passed, error, created_at, claimed_at, case_snapshot)
        values ($1, $2, $3, 'succeeded', $4, 0, $5, $6, now(), $7)`,
@@ -77,7 +77,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     const older = await seedRun(agent.id, '2026-02-01T00:00:00.100001Z', 1);
     const newer = await seedRun(agent.id, '2026-02-01T00:00:00.100002Z', 2, 'boom');
 
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}&limit=1`,
       headers: { cookie },
@@ -99,7 +99,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
       'total',
     ]);
 
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}&limit=1&cursor=${newer}`,
       headers: { cookie },
@@ -116,28 +116,28 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     const run = await seedRun(agent.id, '2026-02-02T00:00:00.000001Z', 1);
     const otherRun = await seedRun(other.id, '2026-02-02T00:00:00.000002Z', 1);
 
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}&cursor=evalRun_missing`,
       headers: { cookie },
     });
     expectProblem(missing, 'INVALID_INPUT');
 
-    const crossAgent = await inject(app, {
+    const crossAgent = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}&cursor=${otherRun}`,
       headers: { cookie },
     });
     expectProblem(crossAgent, 'INVALID_INPUT');
 
-    const tooLarge = await inject(app, {
+    const tooLarge = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}&limit=101`,
       headers: { cookie },
     });
     expectProblem(tooLarge, 'INVALID_INPUT');
 
-    const zero = await inject(app, {
+    const zero = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}&limit=0`,
       headers: { cookie },
@@ -145,7 +145,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     expectProblem(zero, 'INVALID_INPUT');
 
     // 没有 agent 筛选时，别的智能体的游标也是合法游标。
-    const unfiltered = await inject(app, {
+    const unfiltered = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?cursor=${otherRun}&limit=100`,
       headers: { cookie },
@@ -163,7 +163,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     const second = await seedRun(agent.id, '2026-02-03T00:00:00.000002Z', 2);
     await seedRun(other.id, '2026-02-03T00:00:00.000003Z', 3);
 
-    const page = await inject(app, {
+    const page = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?agentId=${agent.id}&cursor=${second}&limit=50`,
       headers: { cookie },

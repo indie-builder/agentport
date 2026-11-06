@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { ChatEvent, SandboxTaskInput } from '@agentport/shared';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { renderWorkspace, type WorkspaceAgent } from '../../core/src/workspace.js';
 import { type DockerSandboxOptions, DockerSandboxProvider } from '../src/sandbox/docker.js';
@@ -181,8 +181,8 @@ async function compileCurrentSources(
   );
 
   const before = { shared: sourceDigest(sources.shared), sandbox: sourceDigest(sources.sandbox) };
-  const command = ['exec', 'tsc', '-b', sandboxConfig, '--force'];
-  const compiled = await run('pnpm', command, 180_000, REPO_ROOT);
+  const command = ['run', 'tsc', '-b', sandboxConfig, '--force'];
+  const compiled = await run('bun', command, 180_000, REPO_ROOT);
   if (compiled.code !== 0) {
     const output = `${compiled.stdout}${compiled.stderr}`.trim();
     throw new Error(`compiling current shared/sandbox sources failed: ${output}`);
@@ -212,7 +212,7 @@ async function compileCurrentSources(
       {
         suite: 'session-sandbox-sdk',
         compiledAt: new Date().toISOString(),
-        command: `pnpm ${command.join(' ')}`,
+        command: `bun ${command.join(' ')}`,
         repoRoot: REPO_ROOT,
         sourceDigest: after,
         artifacts: Object.fromEntries(
@@ -902,7 +902,7 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     const image = await run('docker', ['image', 'inspect', IMAGE, '--format', '{{.Id}}'], 10_000);
     if (image.code !== 0) {
       throw new Error(
-        `sandbox image ${IMAGE} is missing; build it with pnpm --filter @agentport/sandbox image`,
+        `sandbox image ${IMAGE} is missing; build it with bun run --filter @agentport/sandbox image`,
       );
     }
 
@@ -934,10 +934,10 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
         'run',
         '--rm',
         '--entrypoint',
-        'node',
+        'bun',
         IMAGE,
         '-e',
-        "const fs=require('node:fs');const name=fs.readdirSync('/app/node_modules/.pnpm').find((entry)=>entry.startsWith('@anthropic-ai+claude-agent-sdk@'));process.stdout.write(JSON.parse(fs.readFileSync('/app/node_modules/.pnpm/'+name+'/node_modules/@anthropic-ai/claude-agent-sdk/package.json','utf8')).version)",
+        "const fs=require('node:fs');const path=require('node:path');const base=require('node:module').createRequire('/app/packages/sandbox/package.json');process.stdout.write(JSON.parse(fs.readFileSync(path.join(path.dirname(base.resolve('@anthropic-ai/claude-agent-sdk')),'package.json'),'utf8')).version)",
       ],
       30_000,
     );
@@ -946,17 +946,16 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
     }
     expect(sdk.stdout.trim()).toBe(SDK_VERSION);
 
-    // 镜像里的 pnpm store 路径含构建哈希；运行时解析一次，避免写死路径。
     const sharedDir = await run(
       'docker',
       [
         'run',
         '--rm',
         '--entrypoint',
-        'node',
+        'bun',
         IMAGE,
         '-e',
-        "process.stdout.write(require('node:fs').realpathSync('/app/node_modules/@agentport/shared'))",
+        "const base=require('node:module').createRequire('/app/packages/sandbox/package.json');process.stdout.write(require('node:path').dirname(require('node:path').dirname(base.resolve('@agentport/shared'))))",
       ],
       30_000,
     );

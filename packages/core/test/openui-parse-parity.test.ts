@@ -7,7 +7,7 @@ import {
   markReactive,
 } from '@openuidev/lang-core';
 import { openuiChatLibrary } from '@openuidev/react-ui/genui-lib';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'bun:test';
 
 /**
  * 行为对照：同一段程序，用本地真实 Zod 定义解析与官方库解析必须得到同一棵树。

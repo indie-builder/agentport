@@ -19,4 +19,4 @@
 
 ## 验证
 
-契约改动跑 `pnpm --filter @agentport/shared typecheck`，并按受影响使用方补跑 `packages/{api,worker,sandbox}/test` 中对应套件。
+契约改动跑 `bun run --filter @agentport/shared typecheck`，并按受影响使用方补跑 `packages/{api,worker,sandbox}/test` 中对应套件。

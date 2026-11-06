@@ -1,16 +1,16 @@
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -42,7 +42,7 @@ interface ComparisonRow {
 }
 
 describe.skipIf(!ready)('eval run comparison', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -100,7 +100,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
     options: { caseId: string | null; snapshot?: Snapshot; passed: boolean; output?: string },
   ): Promise<void> {
     if (options.caseId === null) {
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into eval_results (id, eval_run_id, passed, output) values ($1, $2, $3, $4)',
         [newId('evalResult'), evalRunId, options.passed, options.output ?? ''],
       );
@@ -118,7 +118,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
   }
 
   const compare = (base: string, head: string, headers: Record<string, string> = { cookie }) =>
-    inject(app, {
+    request(app, {
       method: 'GET',
       url: `/api/eval/runs/${base}/compare?head=${head}`,
       headers,
@@ -190,7 +190,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
     const agent = await newAgent();
     const finished = await newRun(agent.id);
     const running = await newRun(agent.id, { status: 'succeeded' });
-    await app.pool.query(
+    await app.client.unsafe(
       "update eval_runs set status = 'running', finished_at = null where id = $1",
       [running],
     );
@@ -315,9 +315,9 @@ describe.skipIf(!ready)('eval run comparison', () => {
     await record(base, { caseId: kase.id, snapshot: kase, passed: true });
     // case_id 为空的重复结果不受唯一键约束，快照 id 却相同。
     for (const passed of [true, false]) {
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into eval_results (id, eval_run_id, case_snapshot, passed, output) values ($1, $2, $3, $4, $5)',
-        [newId('evalResult'), head, kase, passed, ''],
+        [newId('evalResult'), head, JSON.stringify(kase), passed, ''],
       );
     }
 
@@ -330,15 +330,13 @@ describe.skipIf(!ready)('eval run comparison', () => {
   it('does not mutate either run', async () => {
     const { base, head } = await pair({ basePassed: false, headPassed: true });
     const snapshot = async () => {
-      const runs = await app.pool.query(
-        'select * from eval_runs where id = any($1::text[]) order by id',
-        [[base, head]],
+      const runs = await app.client.unsafe(
+        'select * from eval_runs where id = any($1::text[]) order by id', [app.client.array([base, head], 'TEXT')],
       );
-      const results = await app.pool.query(
-        'select * from eval_results where eval_run_id = any($1::text[]) order by id',
-        [[base, head]],
+      const results = await app.client.unsafe(
+        'select * from eval_results where eval_run_id = any($1::text[]) order by id', [app.client.array([base, head], 'TEXT')],
       );
-      return { runs: runs.rows, results: results.rows };
+      return { runs: runs, results: results };
     };
 
     const before = await snapshot();

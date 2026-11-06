@@ -1,16 +1,16 @@
 import { newId } from '@agentport/db';
 import { type Agent, DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   createServer,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
@@ -29,7 +29,7 @@ interface WorkspaceFiles {
  * 这里只验证行为，不再把「普通字段不预读」当作契约。
  */
 describe.skipIf(!ready)('agents', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const createdAgents: string[] = [];
@@ -41,17 +41,17 @@ describe.skipIf(!ready)('agents', () => {
     const name = unique('env');
     const versionId = newId('runtimeEnvironmentVersion');
     createdEnvironments.push(id);
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into runtime_environments (id, name, dockerfile) values ($1, $2, $3)',
       [id, name, DEFAULT_RUNTIME_DOCKERFILE],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into runtime_environment_versions
          (id, environment_id, dockerfile, base_image_id, status, image_tag, image_id, finished_at)
        values ($1, $2, $3, $4, 'ready', $4, $5, now())`,
       [versionId, id, DEFAULT_RUNTIME_DOCKERFILE, name, `sha256:${'a'.repeat(64)}`],
     );
-    await app.pool.query('update runtime_environments set online_version_id = $2 where id = $1', [
+    await app.client.unsafe('update runtime_environments set online_version_id = $2 where id = $1', [
       id,
       versionId,
     ]);
@@ -70,14 +70,14 @@ describe.skipIf(!ready)('agents', () => {
     await cleanup(app, { agentSlugs: createdAgents, serverNames: createdServers });
     for (const id of createdEnvironments) {
       // 先断开线上指针，复合外键才允许删除版本。
-      await app.pool.query(
+      await app.client.unsafe(
         'update runtime_environments set online_version_id = null where id = $1',
         [id],
       );
-      await app.pool.query('delete from runtime_environment_versions where environment_id = $1', [
+      await app.client.unsafe('delete from runtime_environment_versions where environment_id = $1', [
         id,
       ]);
-      await app.pool.query('delete from runtime_environments where id = $1', [id]);
+      await app.client.unsafe('delete from runtime_environments where id = $1', [id]);
     }
     await app.close();
   });
@@ -108,7 +108,7 @@ describe.skipIf(!ready)('agents', () => {
   it('preserves canonical roles through list, partial updates, versions and rollback', async () => {
     const slug = unique('role');
     createdAgents.push(slug);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -119,7 +119,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(agent.role).toBe('前端工程师');
 
     // 列表摘要只含业务字段；岗位等配置必须在详情里读。
-    const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+    const list = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
     const summary = list
       .json<Array<Record<string, unknown>>>()
@@ -137,7 +137,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(new Date(String(summary.createdAt)).toISOString()).toBe(summary.createdAt);
     expect(summary).not.toHaveProperty('systemPrompt');
 
-    const changed = await inject(app, {
+    const changed = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -146,7 +146,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(changed.statusCode, changed.body).toBe(200);
     expect(changed.json<Agent>().role).toBe('数据分析师');
 
-    const renamed = await inject(app, {
+    const renamed = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -158,7 +158,7 @@ describe.skipIf(!ready)('agents', () => {
       role: '数据分析师',
     });
 
-    const version = await inject(app, {
+    const version = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/versions/3`,
       headers: auth(),
@@ -169,7 +169,7 @@ describe.skipIf(!ready)('agents', () => {
       role: '数据分析师',
     });
 
-    const rolledBack = await inject(app, {
+    const rolledBack = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
       headers: auth(),
@@ -185,7 +185,7 @@ describe.skipIf(!ready)('agents', () => {
       const slug = unique('invalid-role');
       createdAgents.push(slug);
       const agent = method === 'PATCH' ? (await newAgent(slug)).json<Agent>() : undefined;
-      const res = await inject(app, {
+      const res = await request(app, {
         method,
         url: agent ? `/api/agents/${agent.id}` : '/api/agents',
         headers: auth(),
@@ -193,7 +193,7 @@ describe.skipIf(!ready)('agents', () => {
           ? { role: '随意输入的岗位' }
           : { slug, name: 'Invalid role', role: '随意输入的岗位' },
       });
-      expect(expectProblem(res, 'INVALID_INPUT').path).toBe('/role');
+      expect(expectProblem(res, 'INVALID_INPUT').path).toBe('/body/role');
     },
   );
 
@@ -202,20 +202,20 @@ describe.skipIf(!ready)('agents', () => {
     { label: 'unsupported', role: '历史自定义岗位' },
   ])('keeps the current role when rolling back a $label snapshot role', async ({ role }) => {
     const agent = (await newAgent(unique('historical-role'))).json<Agent>();
-    const changed = await inject(app, {
+    const changed = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
       payload: { name: 'Current name', role: '数据分析师' },
     });
     expect(changed.statusCode, changed.body).toBe(200);
-    const updated = await app.pool.query(
+    const updated = await app.client.unsafe(
       "update agent_versions set snapshot = (snapshot - 'role') || $2::jsonb where agent_id = $1 and version = 1",
       [agent.id, JSON.stringify(role === undefined ? {} : { role })],
     );
-    expect(updated.rowCount).toBe(1);
+    expect(updated.count).toBe(1);
 
-    const rolledBack = await inject(app, {
+    const rolledBack = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
       headers: auth(),
@@ -229,7 +229,7 @@ describe.skipIf(!ready)('agents', () => {
     const environment = await createEnvironment();
     const slug = unique('rollback-env');
     createdAgents.push(slug);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -244,7 +244,7 @@ describe.skipIf(!ready)('agents', () => {
     const agent = created.json<Agent>();
     expect(agent.runtimeEnvironmentId).toBe(environment.id);
 
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -253,7 +253,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(patched.statusCode, patched.body).toBe(200);
     expect(patched.json<Agent>().runtimeEnvironmentId).toBeNull();
 
-    const rolledBack = await inject(app, {
+    const rolledBack = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
       headers: auth(),
@@ -267,7 +267,7 @@ describe.skipIf(!ready)('agents', () => {
     const environment = await createEnvironment();
     const slug = unique('rollback-missing-env');
     createdAgents.push(slug);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -281,22 +281,22 @@ describe.skipIf(!ready)('agents', () => {
     expect(created.statusCode, created.body).toBe(201);
     const agent = created.json<Agent>();
 
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
       payload: { runtimeEnvironmentId: null },
     });
     expect(patched.statusCode, patched.body).toBe(200);
-    await app.pool.query('update runtime_environments set online_version_id = null where id = $1', [
+    await app.client.unsafe('update runtime_environments set online_version_id = null where id = $1', [
       environment.id,
     ]);
-    await app.pool.query('delete from runtime_environment_versions where environment_id = $1', [
+    await app.client.unsafe('delete from runtime_environment_versions where environment_id = $1', [
       environment.id,
     ]);
-    await app.pool.query('delete from runtime_environments where id = $1', [environment.id]);
+    await app.client.unsafe('delete from runtime_environments where id = $1', [environment.id]);
 
-    const rolledBack = await inject(app, {
+    const rolledBack = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
       headers: auth(),
@@ -305,7 +305,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(expectProblem(rolledBack, 'INVALID_INPUT').message).toContain('运行环境');
 
     // 不能悄悄回落默认环境：拒绝后当前绑定保持不变。
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -318,7 +318,7 @@ describe.skipIf(!ready)('agents', () => {
     const id = unique('agt-legacy');
     const role = '  历史自由岗位：研究 / 交付  ';
     createdAgents.push(slug);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agents (id, slug, name, model, role, created_by, owner_business_id)
        values ($1, $2, $3, $4, $5,
          (select business_id from "user" where username = 'admin'),
@@ -326,7 +326,7 @@ describe.skipIf(!ready)('agents', () => {
       [id, slug, 'Legacy role agent', 'claude-sonnet-5-5', role],
     );
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/agents/${id}`,
       headers: auth(),
@@ -334,13 +334,13 @@ describe.skipIf(!ready)('agents', () => {
     expect(detail.statusCode, detail.body).toBe(200);
     expect(detail.json<Agent>().role).toBe(role);
 
-    const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+    const list = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
     // 摘要与详情都带岗位文本；历史值原样保留。
     const summary = list.json<Array<Record<string, unknown>>>().find((item) => item.id === id);
     expect(summary).toMatchObject({ id, name: 'Legacy role agent', role, parentId: null });
 
-    const renamed = await inject(app, {
+    const renamed = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${id}`,
       headers: auth(),
@@ -348,10 +348,10 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(renamed.statusCode, renamed.body).toBe(200);
     expect(renamed.json<Agent>()).toMatchObject({ name: 'Renamed legacy agent', role });
-    const stored = await app.pool.query<{ role: string }>('select role from agents where id = $1', [
+    const stored = await app.client.unsafe<{ role: string }[]>('select role from agents where id = $1', [
       id,
     ]);
-    expect(stored.rows[0]?.role).toBe(role);
+    expect(stored[0]?.role).toBe(role);
   });
 
   it('rejects a duplicate slug with 409', async () => {
@@ -363,7 +363,7 @@ describe.skipIf(!ready)('agents', () => {
   it('PATCH toggles uiFormat and rejects unknown formats', async () => {
     const agent = (await newAgent(unique('ui-format'))).json<Agent>();
 
-    const enabled = await inject(app, {
+    const enabled = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -372,20 +372,20 @@ describe.skipIf(!ready)('agents', () => {
     expect(enabled.statusCode, enabled.body).toBe(200);
     expect(enabled.json<Agent>().uiFormat).toBe('openui');
 
-    const invalid = await inject(app, {
+    const invalid = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
       payload: { uiFormat: 'html' },
     });
-    expect(expectProblem(invalid, 'INVALID_INPUT').path).toBe('/uiFormat');
+    expect(expectProblem(invalid, 'INVALID_INPUT').path).toBe('/body/uiFormat');
   });
 
   it('PATCH updates fields and forbids slug changes', async () => {
     const slug = unique('patch');
     const agent = (await newAgent(slug)).json<Agent>();
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -398,7 +398,7 @@ describe.skipIf(!ready)('agents', () => {
       maxTurns: 7,
     });
 
-    const slugChange = await inject(app, {
+    const slugChange = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -409,7 +409,7 @@ describe.skipIf(!ready)('agents', () => {
 
   it('rejects permissionMode auto but accepts default', async () => {
     // auto 依赖模型分类器，平台无法审计；default 可直接透传（D-20）。
-    const rejected = await inject(app, {
+    const rejected = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -419,7 +419,7 @@ describe.skipIf(!ready)('agents', () => {
     expectProblem(rejected, 'INVALID_INPUT');
 
     const slug = unique('perms-ok');
-    const accepted = await inject(app, {
+    const accepted = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -440,7 +440,7 @@ describe.skipIf(!ready)('agents', () => {
   it('PATCH rejects a stale expectedUpdatedAt with 409', async () => {
     const agent = (await newAgent(unique('stale-agent'))).json<Agent>();
 
-    const ok = await inject(app, {
+    const ok = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -448,7 +448,7 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(ok.statusCode).toBe(200);
 
-    const stale = await inject(app, {
+    const stale = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -460,7 +460,7 @@ describe.skipIf(!ready)('agents', () => {
   it('PATCHes ordinary fields without reading the agent row first', async () => {
     const slug = unique('patch-plain');
     createdAgents.push(slug);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -469,7 +469,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(created.statusCode, created.body).toBe(201);
     const agent = created.json<Agent>();
 
-    const changed = await inject(app, {
+    const changed = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -482,7 +482,7 @@ describe.skipIf(!ready)('agents', () => {
       enabled: false,
     });
 
-    const empty = await inject(app, {
+    const empty = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -492,7 +492,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(empty.json<Agent>().name).toBe('Renamed plain');
 
     // null 是合法的「清除回未配置」，与 undefined（不动）语义不同。
-    const cleared = await inject(app, {
+    const cleared = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -501,15 +501,15 @@ describe.skipIf(!ready)('agents', () => {
     expect(cleared.statusCode, cleared.body).toBe(200);
     expect(cleared.json<Agent>().effort).toBeUndefined();
 
-    const stored = await app.pool.query<{ effort: string | null }>(
+    const stored = await app.client.unsafe<{ effort: string | null }[]>(
       'select effort from agents where id = $1',
       [agent.id],
     );
-    expect(stored.rows[0]).toEqual({ effort: null });
+    expect(stored[0]).toEqual({ effort: null });
   });
 
   it('PATCH returns 404 for a missing agent even with a stale expectedUpdatedAt', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: '/api/agents/agt_missing_stale_patch',
       headers: auth(),
@@ -522,7 +522,7 @@ describe.skipIf(!ready)('agents', () => {
     const agent = (await newAgent(unique('patch-special'))).json<Agent>();
     const missingId = 'agt_missing_special_patch';
 
-    const subAgents = await inject(app, {
+    const subAgents = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -530,7 +530,7 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(subAgents.statusCode, subAgents.body).toBe(200);
 
-    const plugins = await inject(app, {
+    const plugins = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -538,7 +538,7 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(plugins.statusCode, plugins.body).toBe(200);
 
-    const slugChange = await inject(app, {
+    const slugChange = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -552,7 +552,7 @@ describe.skipIf(!ready)('agents', () => {
       { subAgentIds: [] },
       { pluginBindings: [] },
     ]) {
-      const missing = await inject(app, {
+      const missing = await request(app, {
         method: 'PATCH',
         url: `/api/agents/${missingId}`,
         headers: auth(),
@@ -570,7 +570,7 @@ describe.skipIf(!ready)('agents', () => {
     const res = await newAgent(unique('files'), [server.id]);
     const agent = res.json<Agent>();
 
-    const files = await inject(app, {
+    const files = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/files`,
       headers: auth(),
@@ -592,13 +592,13 @@ describe.skipIf(!ready)('agents', () => {
     expect(mcp.mcpServers[server.name]?._note).toContain('运行时注入');
 
     // reveal=1 也不返回明文，只要求响应不被缓存。
-    const reveal = await inject(app, {
+    const reveal = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/files?reveal=1`,
       headers: auth(),
     });
     expect(reveal.statusCode).toBe(200);
-    expect(reveal.headers['cache-control']).toBe('no-store');
+    expect(reveal.headers.get('cache-control')).toBe('no-store');
     expect(reveal.body).not.toContain('Bearer ');
     expect(reveal.body).not.toContain('mcpToken');
 
@@ -613,7 +613,7 @@ describe.skipIf(!ready)('agents', () => {
   it('accepts Bash and Bash(...) in allowedTools and keeps an explicit deny', async () => {
     const slug = unique('bash');
     createdAgents.push(slug);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -629,7 +629,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(agent.allowedTools).toEqual(['Bash', 'Bash(git:*)']);
     expect(agent.disallowedTools).toEqual(['Bash(rm:*)']);
 
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -641,7 +641,7 @@ describe.skipIf(!ready)('agents', () => {
       disallowedTools: ['Bash'],
     });
 
-    const files = await inject(app, {
+    const files = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/files`,
       headers: auth(),
@@ -660,7 +660,7 @@ describe.skipIf(!ready)('agents', () => {
       track: createdServers,
     });
     const createTool = async (serverId: string, name: string) => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/servers/${serverId}/tools`,
         headers: auth(),
@@ -672,7 +672,7 @@ describe.skipIf(!ready)('agents', () => {
     await createTool(second.id, unique('tool-b'));
     const toolsOf = async (serverId: string) =>
       (
-        await inject(app, {
+        await request(app, {
           method: 'GET',
           url: `/api/servers/${serverId}/tools`,
           headers: auth(),
@@ -680,7 +680,7 @@ describe.skipIf(!ready)('agents', () => {
       ).json<Array<{ name: string }>>();
 
     const agent = (await newAgent(unique('openui-bind'), [first.id])).json<Agent>();
-    const enable = await inject(app, {
+    const enable = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -690,7 +690,7 @@ describe.skipIf(!ready)('agents', () => {
 
     const preview = async () =>
       (
-        await inject(app, {
+        await request(app, {
           method: 'GET',
           url: `/api/agents/${agent.id}/files`,
           headers: auth(),
@@ -705,7 +705,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(before.claudeMd.split('## 生成式 UI')).toHaveLength(2);
 
     // 换绑后预览必须立即反映新 server：旧名字消失、新名字出现，生成段仍是 1 份。
-    const rebind = await inject(app, {
+    const rebind = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -721,26 +721,26 @@ describe.skipIf(!ready)('agents', () => {
 
   it('returns 404 for unknown ids on get/patch/delete/files', async () => {
     const missing = 'agt_missing';
-    const get = await inject(app, {
+    const get = await request(app, {
       method: 'GET',
       url: `/api/agents/${missing}`,
       headers: auth(),
     });
     expect(get.statusCode).toBe(404);
-    const patch = await inject(app, {
+    const patch = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${missing}`,
       headers: auth(),
       payload: { name: 'x' },
     });
     expect(patch.statusCode).toBe(404);
-    const files = await inject(app, {
+    const files = await request(app, {
       method: 'GET',
       url: `/api/agents/${missing}/files`,
       headers: auth(),
     });
     expect(files.statusCode).toBe(404);
-    const del = await inject(app, {
+    const del = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${missing}`,
       headers: auth(),
@@ -751,13 +751,13 @@ describe.skipIf(!ready)('agents', () => {
   it('DELETE removes the agent', async () => {
     const slug = unique('delete');
     const agent = (await newAgent(slug)).json<Agent>();
-    const del = await inject(app, {
+    const del = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
     });
     expect(del.statusCode).toBe(204);
-    const get = await inject(app, {
+    const get = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}`,
       headers: auth(),
@@ -770,14 +770,14 @@ describe.skipIf(!ready)('agents', () => {
     const childSlug = unique('child');
     const child = (await newAgent(childSlug)).json<Agent>();
     const listSummary = async (): Promise<Array<Record<string, unknown>>> => {
-      const list = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+      const list = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
       expect(list.statusCode, list.body).toBe(200);
       return list.json<Array<Record<string, unknown>>>();
     };
     expect((await listSummary()).find((entry) => entry.id === child.id)).toMatchObject({
       parentId: null,
     });
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: auth(),
@@ -793,7 +793,7 @@ describe.skipIf(!ready)('agents', () => {
     const parent = res.json<Agent>();
     expect(parent.subAgentIds).toEqual([child.id]);
 
-    const childGet = await inject(app, {
+    const childGet = await request(app, {
       method: 'GET',
       url: `/api/agents/${child.id}`,
       headers: auth(),
@@ -806,7 +806,7 @@ describe.skipIf(!ready)('agents', () => {
       parentId: parent.id,
     });
 
-    const files = await inject(app, {
+    const files = await request(app, {
       method: 'GET',
       url: `/api/agents/${parent.id}/files`,
       headers: auth(),
@@ -824,7 +824,7 @@ describe.skipIf(!ready)('agents', () => {
     const a = (await newAgent(unique('cycle-a'))).json<Agent>();
     const b = (await newAgent(unique('cycle-b'))).json<Agent>();
 
-    const self = await inject(app, {
+    const self = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${a.id}`,
       headers: auth(),
@@ -832,7 +832,7 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(self.statusCode).toBe(400);
 
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${a.id}`,
       headers: auth(),
@@ -842,7 +842,7 @@ describe.skipIf(!ready)('agents', () => {
 
     // b 已经是 a 的子智能体，不能再被 c 委派，也不能自己再委派。
     const c = (await newAgent(unique('cycle-c'))).json<Agent>();
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${c.id}`,
       headers: auth(),
@@ -850,7 +850,7 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(second.statusCode).toBe(400);
 
-    const nested = await inject(app, {
+    const nested = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${b.id}`,
       headers: auth(),
@@ -866,14 +866,14 @@ describe.skipIf(!ready)('agents', () => {
     });
     const source = (await newAgent(unique('dup-src'), [server.id])).json<Agent>();
 
-    const rule = await inject(app, {
+    const rule = await request(app, {
       method: 'PUT',
       url: `/api/agents/${source.id}/rules/deploy`,
       headers: auth(),
       payload: { content: 'Deploy carefully.', globs: 'src/**' },
     });
     expect(rule.statusCode, rule.body).toBe(200);
-    const style = await inject(app, {
+    const style = await request(app, {
       method: 'PUT',
       url: `/api/agents/${source.id}/output-styles/concise`,
       headers: auth(),
@@ -882,7 +882,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(style.statusCode, style.body).toBe(200);
 
     // 非默认配置也要被克隆，避免默认值相等掩盖漏拷。
-    const configured = await inject(app, {
+    const configured = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${source.id}`,
       headers: auth(),
@@ -891,12 +891,12 @@ describe.skipIf(!ready)('agents', () => {
     expect(configured.statusCode, configured.body).toBe(200);
 
     const getRules = async (id: string) =>
-      (await inject(app, { method: 'GET', url: `/api/agents/${id}/rules`, headers: auth() })).json<
+      (await request(app, { method: 'GET', url: `/api/agents/${id}/rules`, headers: auth() })).json<
         Array<{ slug: string; content: string; globs: string }>
       >();
     const getStyles = async (id: string) =>
       (
-        await inject(app, {
+        await request(app, {
           method: 'GET',
           url: `/api/agents/${id}/output-styles`,
           headers: auth(),
@@ -910,7 +910,7 @@ describe.skipIf(!ready)('agents', () => {
 
     const slug = unique('dup-copy');
     createdAgents.push(slug);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/agents/${source.id}/duplicate`,
       headers: auth(),
@@ -950,7 +950,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(await getRules(source.id)).toEqual(sourceRulesBefore);
     expect(await getStyles(source.id)).toEqual(sourceStylesBefore);
 
-    const versions = await inject(app, {
+    const versions = await request(app, {
       method: 'GET',
       url: `/api/agents/${copy.id}/versions`,
       headers: auth(),
@@ -963,7 +963,7 @@ describe.skipIf(!ready)('agents', () => {
     const source = (await newAgent(unique('dup-conflict-src'))).json<Agent>();
     const taken = unique('dup-taken');
     await newAgent(taken);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/agents/${source.id}/duplicate`,
       headers: auth(),
@@ -973,7 +973,7 @@ describe.skipIf(!ready)('agents', () => {
   });
 
   it('returns 404 when duplicating a missing agent', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/agents/agt_missing/duplicate',
       headers: auth(),
@@ -986,7 +986,7 @@ describe.skipIf(!ready)('agents', () => {
   it('validates rule slugs at the route boundary and keeps database failures as 500s', async () => {
     const agent = (await newAgent(unique('rule-errors'))).json<Agent>();
 
-    const invalid = await inject(app, {
+    const invalid = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/rules/Bad.Slug`,
       headers: auth(),
@@ -997,7 +997,7 @@ describe.skipIf(!ready)('agents', () => {
 
     // PostgreSQL rejects NUL bytes in text parameters: a real DB failure must
     // surface as INTERNAL_ERROR, not as an invalid-slug message.
-    const dbError = await inject(app, {
+    const dbError = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/rules/deploy`,
       headers: auth(),

@@ -4,7 +4,7 @@
 // 组件契约本身以 definitions.ts 的真实 Zod 为唯一来源；这里只搬官方文案，
 // 避免在仓库里手抄 5 个示例和 42 条规则后与上游漂移。
 //
-// 用法：pnpm openui:meta（pnpm openui:spec 会先跑它）
+// 用法：bun run openui:meta（bun run openui:spec 会先跑它）
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +29,7 @@ const componentGroups = openuiChatComponentGroups.map((group) => ({
 }));
 
 const source = `// 由官方 @openuidev/react-ui 的 chat 库生成，请勿手改。
-// 重新生成：pnpm openui:meta（openui:spec 会先跑它）
+// 重新生成：bun run openui:meta（openui:spec 会先跑它）
 // 组件契约的权威定义在 definitions.ts（真实 Zod）；这里只存官方文案与分组。
 import type { OpenUiPromptOptions } from './protocol.js';
 

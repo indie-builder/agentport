@@ -8,7 +8,7 @@ import {
   sessionCleanupAckChannel,
   sessionCleanupRequestSchema,
 } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { waitClose } from '../close-wait.js';
 import type { SessionSandboxes } from './sessions.js';
@@ -36,10 +36,10 @@ export async function startSessionCleanupChannel(
 ): Promise<SessionCleanupChannel> {
   const { logger } = options;
   const requestChannel = options.requestChannel ?? SESSION_CLEANUP_REQUEST_CHANNEL;
-  const subscriber = new Redis(options.redisUrl, { maxRetriesPerRequest: null });
-  const publisher = new Redis(options.redisUrl, { maxRetriesPerRequest: null });
-  subscriber.on('error', (err) => logger.warn({ err }, 'session cleanup subscriber error'));
-  publisher.on('error', (err) => logger.warn({ err }, 'session cleanup publisher error'));
+  const subscriber = new RedisClient(options.redisUrl);
+  const publisher = new RedisClient(options.redisUrl);
+  subscriber.onclose = (err) => logger.warn({ err }, 'session cleanup subscriber error');
+  publisher.onclose = (err) => logger.warn({ err }, 'session cleanup publisher error');
 
   const inFlight = new Set<Promise<void>>();
   let closed = false;
@@ -85,7 +85,7 @@ export async function startSessionCleanupChannel(
     );
   }
 
-  subscriber.on('message', (channel, payload) => {
+  const listener = (payload: string, channel: string) => {
     if (channel !== requestChannel || closed) return;
     let raw: unknown;
     try {
@@ -113,13 +113,25 @@ export async function startSessionCleanupChannel(
         logger.warn({ err, requestId: parsed.data.requestId }, 'session cleanup request failed');
       })
       .finally(() => inFlight.delete(task));
-  });
+  };
+
+  let connected = false;
+  subscriber.onconnect = () => {
+    if (!connected) {
+      connected = true;
+      return;
+    }
+    if (!closed)
+      void subscriber.subscribe(requestChannel, listener).catch((err: unknown) => {
+        logger.warn({ err }, 'session cleanup resubscribe failed');
+      });
+  };
 
   try {
-    await subscriber.subscribe(requestChannel);
+    await subscriber.subscribe(requestChannel, listener);
   } catch (err) {
-    subscriber.disconnect();
-    publisher.disconnect();
+    subscriber.close();
+    publisher.close();
     throw err;
   }
 
@@ -131,7 +143,7 @@ export async function startSessionCleanupChannel(
       try {
         await Promise.race([
           (async () => {
-            await subscriber.unsubscribe(requestChannel).catch(() => undefined);
+            await subscriber.unsubscribe(requestChannel, listener).catch(() => undefined);
             // 关停时不打断进行中的关闭确认：它们仍要回 ACK 并保留失败跟踪。
             await Promise.allSettled([...inFlight]);
           })(),
@@ -144,8 +156,8 @@ export async function startSessionCleanupChannel(
         ]);
       } finally {
         if (timer !== undefined) clearTimeout(timer);
-        subscriber.disconnect();
-        publisher.disconnect();
+        subscriber.close();
+        publisher.close();
       }
     },
   };

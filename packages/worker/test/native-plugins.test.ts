@@ -10,30 +10,31 @@ import {
 } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { waitFor } from './fixtures/native-test.js';
 import type { Config } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
-import {
-  type NativePluginsDeps,
-  registerNativePlugins,
-  runNativePluginAction,
-} from '../src/native-plugins.js';
+import type { NativePluginsDeps } from '../src/native-plugins.js';
 import type { Sandbox, SandboxCreateOptions } from '../src/sandbox/provider.js';
 
 /** registerNativePlugins 自建 provider；用可控替身覆盖 create/destroyAll。 */
-const docker = vi.hoisted(() => ({
-  createImpl: vi.fn<(options: SandboxCreateOptions) => Promise<Sandbox>>(),
-  destroy: vi.fn(async (_sandbox: Sandbox) => undefined),
-  destroyAll: vi.fn(async () => undefined),
-}));
+const docker = (() => ({
+  createImpl: mock<(options: SandboxCreateOptions) => Promise<Sandbox>>(),
+  destroy: mock(async (_sandbox: Sandbox) => undefined),
+  destroyAll: mock(async () => undefined),
+}))();
 
-vi.mock('../src/sandbox/docker.js', () => ({
+const dockerActual = await import('../src/sandbox/docker.js');
+mock.module('../src/sandbox/docker.js', () => ({
+  ...dockerActual,
   DockerSandboxProvider: class {
     create = docker.createImpl;
     destroy = docker.destroy;
     destroyAll = docker.destroyAll;
   },
 }));
+
+const { registerNativePlugins, runNativePluginAction } = await import('../src/native-plugins.js');
 
 let workspacesDir = '';
 
@@ -139,7 +140,7 @@ function config(): Config {
 
 /** 等消费者真正拿到 job：create 被调用即表示任务已在跑。 */
 async function waitForCreate(): Promise<void> {
-  await vi.waitFor(() => expect(docker.createImpl).toHaveBeenCalled(), { timeout: 10_000 });
+  await waitFor(() => expect(docker.createImpl).toHaveBeenCalled(), { timeout: 10_000 });
 }
 
 async function enqueueInstall(): Promise<Queue<NativePluginAction>> {
@@ -205,7 +206,7 @@ describe('runNativePluginAction', () => {
     const [options] = fake.options;
     expect(options).toMatchObject({
       image: RUNTIME.imageId,
-      entrypoint: 'node',
+      entrypoint: 'bun',
       command: ['dist/native-plugins.js'],
       // 安装不调用模型：容器里只有可写的 HOME/TMPDIR，没有任何平台密钥。
       env: { HOME: '/tmp', TMPDIR: '/tmp' },
@@ -299,7 +300,7 @@ describe('runNativePluginAction', () => {
       { ...deps(provider, 5_000), closing: closing.signal },
       { action: 'list' },
     );
-    await vi.waitFor(() => expect(captured.signal).toBeDefined());
+    await waitFor(() => expect(captured.signal).toBeDefined());
     closing.abort();
     const result = await pending;
 
@@ -331,7 +332,7 @@ describe('runNativePluginAction', () => {
       { ...deps(provider, 10_000), closing: closing.signal },
       { action: 'list' },
     );
-    await vi.waitFor(() => expect(rejectCreate).toBeDefined());
+    await waitFor(() => expect(rejectCreate).toBeDefined());
     closing.abort();
     const result = await pending;
 
@@ -342,7 +343,7 @@ describe('runNativePluginAction', () => {
   it('leaves late cleanup to the provider and reports its failure', async () => {
     const child = hangingChild();
     const destroyed: string[] = [];
-    const warn = vi.fn();
+    const warn = mock();
     const logger = { ...quietLogger, warn } as unknown as Logger;
     const captured: { resolve?: (value: Sandbox) => void } = {};
     const provider: FakeProvider['provider'] = {
@@ -366,7 +367,7 @@ describe('runNativePluginAction', () => {
     });
 
     captured.resolve?.({ id: 'native-plugin-late', child } as unknown as Sandbox);
-    await vi.waitFor(() => expect(destroyed).toEqual(['native-plugin-late']));
+    await waitFor(() => expect(destroyed).toEqual(['native-plugin-late']));
     // 停止语义归 provider；这里不能杀进程，清理失败也必须带上下文告警。
     expect(child.signals).toEqual([]);
     expect(warn).toHaveBeenCalledWith(
@@ -416,7 +417,7 @@ describe('registerNativePlugins close', () => {
 
   beforeEach(() => {
     // clearAllMocks 保留实现；上面两个用例各自 set 了 createImpl。
-    vi.clearAllMocks();
+    mock.clearAllMocks();
   });
 
   it('destroys the active install before waiting for the job to finish', async () => {
@@ -485,7 +486,7 @@ describe('registerNativePlugins close', () => {
       // 迟到的容器由 provider 销毁，native-plugins 不再直接杀进程。
       const child = hangingChild();
       resolveCreate({ id: 'native-plugin-late', child } as unknown as Sandbox);
-      await vi.waitFor(() => expect(docker.destroy).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(docker.destroy).toHaveBeenCalledTimes(1));
       expect(child.signals).toEqual([]);
     } finally {
       await handle.close();

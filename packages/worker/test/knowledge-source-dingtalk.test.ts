@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { probeDingtalk, readDingtalk } from '../src/knowledge/source-dingtalk.js';
 import { SourceAuthError } from '../src/knowledge/source-http.js';
 import type { SourceConfig } from '../src/knowledge/sources.js';
@@ -35,9 +36,7 @@ function installFetch(
   handler: (record: RequestRecord) => Response | Promise<Response>,
 ): RequestRecord[] {
   const records: RequestRecord[] = [];
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+  stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       const record: RequestRecord = {
         url,
@@ -68,7 +67,7 @@ function bytes(value: Buffer, contentType: string): Response {
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreFetch();
 });
 
 function config(settings: Record<string, unknown>): SourceConfig {
@@ -740,9 +739,7 @@ describe('readDingtalk', () => {
     const requestStarted = new Promise<void>((resolve) => {
       started = resolve;
     });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
+    stubFetch(mock(
         (_input: string | URL | Request, init?: RequestInit) =>
           new Promise<Response>((_resolve, reject) => {
             const fail = () => reject(new DOMException('aborted', 'AbortError'));

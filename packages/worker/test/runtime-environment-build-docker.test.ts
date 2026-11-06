@@ -1,13 +1,13 @@
 import { spawn } from 'node:child_process';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { executeRuntimeEnvironmentBuild } from '../src/runtime-environments/build.js';
 
 /**
  * 真实 Docker 证据：仅在本机已有基座镜像、且基座含当前产物与 Bash 时运行。
- * 基座默认用补齐 Bash 的固定 tag（SANDBOX_IMAGE 可能仍是缺产物的开发镜像）。
  * 构建产物用本次独占 tag，不覆盖基座。
  */
-const IMAGE = process.env.RUNTIME_ENV_BUILD_IMAGE ?? 'agentport/sandbox:runtime-env-bash-20261029';
+const IMAGE =
+  process.env.RUNTIME_ENV_BUILD_IMAGE ?? process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const REQUIRED_ARTIFACTS = [
   '/app/dist/runner.js',
   '/app/dist/session-supervisor.js',

@@ -24,8 +24,8 @@ import {
   type SDKMessage,
   type SDKResultSuccess,
 } from '@anthropic-ai/claude-agent-sdk';
+import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import { z } from 'zod';
 import { modelProxyUpstream } from './upstream.js';
 
@@ -263,20 +263,34 @@ async function watchCancel(
   runId: string,
   onCancel: () => void,
 ): Promise<() => Promise<void>> {
-  const redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: null });
-  redis.on('error', () => undefined);
+  const redis = new RedisClient(redisUrl);
+  redis.onclose = () => undefined;
+  const lookup = new RedisClient(redisUrl);
+  lookup.onclose = () => undefined;
   try {
     await redis.connect();
     const channel = runCancelKey(runId);
-    redis.on('message', () => onCancel());
-    await redis.subscribe(channel);
-    if ((await redis.exists(channel)) === 1) onCancel();
+    const listener = () => onCancel();
+    redis.onconnect = () => {
+      void redis
+        .subscribe(channel, listener)
+        .then(async () => {
+          if (await lookup.exists(channel)) onCancel();
+        })
+        .catch((err: unknown) =>
+          process.stderr.write(`memory review cancel resubscribe failed: ${errorText(err)}\n`),
+        );
+    };
+    await redis.subscribe(channel, listener);
+    if (await lookup.exists(channel)) onCancel();
     return async () => {
-      await redis.unsubscribe(channel).catch(() => undefined);
-      redis.disconnect();
+      redis.onconnect = () => undefined;
+      redis.close();
+      lookup.close();
     };
   } catch (err) {
-    redis.disconnect();
+    redis.close();
+    lookup.close();
     throw err;
   }
 }

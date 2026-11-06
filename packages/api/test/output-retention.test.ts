@@ -10,17 +10,17 @@ import {
 } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import { outputShareSchema } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { runMaintenance } from '../../worker/src/maintenance.js';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import {
   ADMIN_BUSINESS_ID,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
@@ -30,7 +30,7 @@ const isolated = (await infraReady)
   : null;
 
 describe.skipIf(!isolated)('output retention through maintenance and HTTP fork', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let root: string;
   let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
@@ -117,7 +117,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       },
     ]);
     const sessionId = randomUUID();
-    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+    await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
       conversationId,
       sessionId,
     ]);
@@ -173,18 +173,17 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       ).toEqual([source.userMessageId, source.afterMessageId].sort());
       const summary = await runMaintenance(app.db, app.log, { ...days, agentVersions: 1 }, root);
       // 用真实 HTTP fork，不能用手造 messageIds 掩盖数据库锚点消失。
-      const attachment = await app.pool.query('select run_id from messages where id = $1', [
+      const attachment = await app.client.unsafe('select run_id from messages where id = $1', [
         source.attachmentId,
       ]);
-      expect(attachment.rows).toEqual([{ run_id: null }]);
-      const anchors = await app.pool.query(
-        'select id, run_id, content from messages where id = any($1::text[]) order by id',
-        [[source.userMessageId, source.afterMessageId]],
+      expect(attachment).toEqual([{ run_id: null }]);
+      const anchors = await app.client.unsafe(
+        'select id, run_id, content from messages where id = any($1::text[]) order by id', [app.client.array([source.userMessageId, source.afterMessageId], 'TEXT')],
       );
-      expect(anchors.rows).toHaveLength(2);
-      expect(anchors.rows.every((row) => row.run_id === null)).toBe(true);
+      expect(anchors).toHaveLength(2);
+      expect(anchors.every((row) => row.run_id === null)).toBe(true);
       // 消息 run_id 被清空后，成果列表仍用 manifest 锚点指回这两条边界消息。
-      const sourceList = await inject(app, {
+      const sourceList = await request(app, {
         method: 'GET',
         url: `/api/conversations/${source.conversationId}/outputs`,
         headers: { cookie },
@@ -195,7 +194,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
         userMessageId: source.userMessageId,
         afterMessageId: source.afterMessageId,
       });
-      const fork = await inject(app, {
+      const fork = await request(app, {
         method: 'POST',
         url: `/api/conversations/${source.conversationId}/branch`,
         headers: { cookie },
@@ -203,7 +202,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       });
       expect(fork.statusCode, fork.body).toBe(201);
       const branchId = fork.json<{ id: string }>().id;
-      const removed = await inject(app, {
+      const removed = await request(app, {
         method: 'DELETE',
         url: `/api/conversations/${source.conversationId}`,
         headers: { cookie },
@@ -212,7 +211,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       await expect(
         stat(join(root, source.slug, 'conversation-outputs', source.conversationId)),
       ).rejects.toThrow();
-      const downloaded = await inject(app, {
+      const downloaded = await request(app, {
         method: 'GET',
         url: `/api/conversations/${branchId}/outputs/${source.runId}/download?path=original.bin`,
         headers: { cookie },
@@ -225,7 +224,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
         orphanMessagesDeleted: 1,
       });
       expect(
-        (await app.pool.query('select id from agent_runs where id = $1', [source.runId])).rowCount,
+        (await app.client.unsafe('select id from agent_runs where id = $1', [source.runId])).count,
       ).toBe(0);
       const copied = await repo.chat.listMessages(app.db, branchId);
       expect(copied).toHaveLength(4);
@@ -234,7 +233,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
         ['旧消息 0', '旧消息 1'].includes((message.content as { text: string }).text),
       );
       expect(retained).toHaveLength(2);
-      const branchList = await inject(app, {
+      const branchList = await request(app, {
         method: 'GET',
         url: `/api/conversations/${branchId}/outputs`,
         headers: { cookie },
@@ -254,7 +253,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
 
   it('serves a share and keeps output anchors branchable after the old run is pruned', async () => {
     const source = await seed();
-    const shared = await inject(app, {
+    const shared = await request(app, {
       method: 'POST',
       url: `/api/conversations/${source.conversationId}/output-shares`,
       headers: { cookie },
@@ -272,11 +271,11 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
     );
     expect(summary.runsDeleted).toBe(1);
     expect(
-      (await app.pool.query('select id from agent_runs where id = $1', [source.runId])).rowCount,
+      (await app.client.unsafe('select id from agent_runs where id = $1', [source.runId])).count,
     ).toBe(0);
 
     // 分享锚定已发布快照而不是 run 行：run 被清掉后公开下载仍返回原始字节。
-    const download = await inject(app, {
+    const download = await request(app, {
       method: 'GET',
       url: `/api/public/output-shares/${share.id}/download`,
       headers: { authorization: `Bearer ${token}` },
@@ -285,7 +284,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
     expect(download.rawPayload).toEqual(source.bytes);
 
     // 成果锚点消息在清理后仍能分支，分支侧也能按同一 runId/path 读到成果。
-    const fork = await inject(app, {
+    const fork = await request(app, {
       method: 'POST',
       url: `/api/conversations/${source.conversationId}/branch`,
       headers: { cookie },
@@ -293,7 +292,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
     });
     expect(fork.statusCode, fork.body).toBe(201);
     const branchId = fork.json<{ id: string }>().id;
-    const branchDownload = await inject(app, {
+    const branchDownload = await request(app, {
       method: 'GET',
       url: `/api/conversations/${branchId}/outputs/${source.runId}/download?path=original.bin`,
       headers: { cookie },
@@ -319,7 +318,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
     ).rejects.toThrow();
     expect(await repo.chat.listMessages(app.db, source.conversationId)).toHaveLength(6);
     expect(
-      (await app.pool.query('select id from agent_runs where id = $1', [source.runId])).rowCount,
+      (await app.client.unsafe('select id from agent_runs where id = $1', [source.runId])).count,
     ).toBe(1);
   });
 });

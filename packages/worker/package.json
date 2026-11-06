@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --clear-screen=false --env-file-if-exists=../../.env src/index.ts",
+    "dev": "bun ./node_modules/nodemon/bin/nodemon.js --signal SIGTERM --watch src --watch ../core/dist --watch ../db/dist --watch ../shared/dist --ext ts,tsx,mts,cts,js,mjs,cjs,json --exec 'bun --env-file=../../.env' src/index.ts",
     "build": "tsc -b",
-    "start": "node dist/index.js",
-    "maintenance": "node --env-file-if-exists=../../.env --import tsx src/maintenance.ts",
+    "start": "bun dist/index.js",
+    "maintenance": "bun --env-file=../../.env src/maintenance.ts",
     "typecheck": "tsc -b"
   },
   "dependencies": {
@@ -21,7 +21,6 @@
     "effect": "catalog:",
     "fast-xml-parser": "5.11.2",
     "feedsmith": "3.0.1",
-    "ioredis": "catalog:",
     "mdast-util-from-markdown": "2.1.0",
     "pino": "catalog:",
     "sharp": "0.35.5",
@@ -29,8 +28,9 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/turndown": "5.0.6",
-    "tsx": "catalog:"
+    "nodemon": "3.1.14"
   }
 }

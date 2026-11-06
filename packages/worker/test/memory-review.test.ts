@@ -13,48 +13,44 @@ import {
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { executeMemoryReview, type MemoryReviewQueryFn } from '../src/memory-review.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-const mocks = vi.hoisted(() => ({
-  acquire: vi.fn(),
-  run: vi.fn(),
-  query: vi.fn(),
+const mocks = (() => ({
+  acquire: mock(),
+  run: mock(),
+  query: mock(),
   processors: new Map<string, (job: unknown) => Promise<void>>(),
-  dbHandles: [] as Array<{ pool: { end(): Promise<void> } }>,
+  dbHandles: [] as Array<{ client: { close(): Promise<void> } }>,
+}))();
+
+const runAccessActual = await import('../src/run-access.js');
+mock.module('../src/run-access.js', () => ({
+  ...runAccessActual,
+  checkUserAgentAccess: async () => null,
 }));
 
-vi.mock('../src/run-access.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/run-access.js')>();
-  return { ...actual, checkUserAgentAccess: async () => null };
-});
-
-vi.mock('@agentport/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/db')>();
-  return {
-    ...actual,
-    createDb: (...args: Parameters<typeof actual.createDb>) => {
-      const handle = actual.createDb(...args);
-      mocks.dbHandles.push(handle);
-      return handle;
-    },
-  };
-});
+const dbActual = await import('@agentport/db');
+const actualCreateDb = dbActual.createDb;
+mock.module('@agentport/db', () => ({
+  ...dbActual,
+  createDb: (...args: Parameters<typeof dbActual.createDb>) => {
+    const handle = actualCreateDb(...args);
+    mocks.dbHandles.push(handle);
+    return handle;
+  },
+}));
 
 // 进程级守卫会把测试里任何未处理异常变成 process.exit；这里只验证 worker 分流。
-vi.mock('@agentport/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/core')>();
-  return { ...actual, installProcessGuards: () => undefined };
-});
+const coreActual = await import('@agentport/core');
+mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
 
-vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>();
-  return { ...actual, query: mocks.query };
-});
+const sdkActual = await import('@anthropic-ai/claude-agent-sdk');
+mock.module('@anthropic-ai/claude-agent-sdk', () => ({ ...sdkActual, query: mocks.query }));
 
-vi.mock('bullmq', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('bullmq')>();
+const bullmqActual = await import('bullmq');
+mock.module('bullmq', () => {
   class Worker {
     constructor(_name: string, processor: (job: unknown) => Promise<void>) {
       mocks.processors.set(_name, processor);
@@ -64,14 +60,16 @@ vi.mock('bullmq', async (importOriginal) => {
     }
     async close(): Promise<void> {}
   }
-  return { ...actual, Worker };
+  return { ...bullmqActual, Worker };
 });
 
-vi.mock('../src/sandbox/session-cleanup.js', () => ({
+const sessionCleanupActual = await import('../src/sandbox/session-cleanup.js');
+mock.module('../src/sandbox/session-cleanup.js', () => ({
+  ...sessionCleanupActual,
   startSessionCleanupChannel: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/sandbox/docker.js', () => ({
+mock.module('../src/sandbox/docker.js', () => ({
   DockerSandboxProvider: class {
     async destroyAll(): Promise<void> {}
     async ensureImage(): Promise<void> {}
@@ -79,72 +77,76 @@ vi.mock('../src/sandbox/docker.js', () => ({
   resolveLocalImageId: async () => `sha256:${'a'.repeat(64)}`,
 }));
 
-vi.mock('../src/sandbox/sessions.js', () => ({
+mock.module('../src/sandbox/sessions.js', () => ({
   SessionSandboxes: class {
     async close(): Promise<void> {}
   },
 }));
 
-vi.mock('../src/runner-client.js', () => ({
-  configureRunnerClient: vi.fn(),
-  closeRunnerClient: vi.fn(),
+const runnerClientActual = await import('../src/runner-client.js');
+mock.module('../src/runner-client.js', () => ({
+  ...runnerClientActual,
+  configureRunnerClient: mock(),
+  closeRunnerClient: mock(),
   acquireSessionSandbox: mocks.acquire,
   runInSandbox: mocks.run,
-  publishRun: vi.fn(async () => undefined),
+  publishRun: mock(async () => undefined),
   isRetryable: () => false,
 }));
 
-vi.mock('../src/runtime-environments/default.js', () => ({
+mock.module('../src/runtime-environments/default.js', () => ({
   ensureDefaultEnvironment: async () => undefined,
   startDefaultEnvironmentRetry: () => async () => undefined,
 }));
 
-vi.mock('../src/runtime-environments/build.js', () => ({
+mock.module('../src/runtime-environments/build.js', () => ({
   startRuntimeEnvironmentBuildWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/runtime-environments/reconcile.js', () => ({
+mock.module('../src/runtime-environments/reconcile.js', () => ({
   startRuntimeEnvironmentBuildReconciler: () => () => undefined,
 }));
 
-vi.mock('../src/reconcile.js', () => ({
+mock.module('../src/reconcile.js', () => ({
   startReconciler: () => () => undefined,
 }));
 
-vi.mock('../src/knowledge/queue.js', () => ({
+mock.module('../src/knowledge/queue.js', () => ({
   startKnowledgeWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/knowledge/reconcile.js', () => ({
+mock.module('../src/knowledge/reconcile.js', () => ({
   startKnowledgeReconciler: () => () => undefined,
 }));
 
-vi.mock('../src/knowledge/scheduler.js', () => ({
+mock.module('../src/knowledge/scheduler.js', () => ({
   startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-vi.mock('../src/scheduler.js', () => ({
+mock.module('../src/scheduler.js', () => ({
   startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-vi.mock('../src/maintenance.js', () => ({
+mock.module('../src/maintenance.js', () => ({
   startMaintenanceWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/sandbox-probe.js', () => ({
+mock.module('../src/sandbox-probe.js', () => ({
   registerSandboxProbe: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/native-plugins.js', () => ({
+mock.module('../src/native-plugins.js', () => ({
   registerNativePlugins: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/eval-runner.js', () => ({
+mock.module('../src/eval-runner.js', () => ({
   executeEvalRun: async () => undefined,
   closeEvalRunQueue: async () => undefined,
+  evalFailureDiagnostics: () => ({}),
+  publicEvalFailureMessage: () => '',
 }));
 
-vi.mock('../src/model-proxy.js', () => ({
+mock.module('../src/model-proxy.js', () => ({
   startModelProxy: async () => null,
 }));
 
@@ -156,7 +158,7 @@ const { db } = dbHandle;
 
 async function probeDatabase(): Promise<boolean> {
   try {
-    await dbHandle.pool.query('select 1');
+    await dbHandle.client.unsafe('select 1');
     return true;
   } catch {
     return false;
@@ -359,7 +361,7 @@ afterAll(async () => {
     await db.delete(schema.roles).where(eq(schema.roles.id, roleId));
   }
   // isolated-db 已在建库/迁移后结束自己的连接，重复 end 只忽略这一次收尾错误。
-  for (const handle of mocks.dbHandles) await handle.pool.end().catch(() => undefined);
+  for (const handle of mocks.dbHandles) await handle.client.close().catch(() => undefined);
   await isolated?.close();
 });
 
@@ -1268,7 +1270,7 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
       agentId,
       subject: { kind: 'user', businessId },
     });
-    const queryFn = vi.fn<MemoryReviewQueryFn>();
+    const queryFn = mock<MemoryReviewQueryFn>();
 
     await expect(
       executeMemoryReview(

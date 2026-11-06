@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import type {
   ConnectorNetwork,
@@ -229,7 +230,7 @@ afterAll(async () => {
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreFetch();
 });
 
 interface Collected {
@@ -583,9 +584,7 @@ describe('connector item sourceId limit', () => {
   const imaSecrets = { apiKey: 'api-key' };
 
   function installImaFetch(lists: Record<string, string[]>): void {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
         );

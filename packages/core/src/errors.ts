@@ -5,7 +5,6 @@ import { type ErrorCode, errorCode } from '@agentport/shared';
  *
  * 分层规则（对应 NestJS 的 DomainError + 全局 filter、Spring 的 ErrorResponse）：
  * - core / db / 业务代码抛 AppError，`code` 自身带状态码，不必再写 `statusCode: 409`
- * - 只有 API 边界（plugins/errors.ts）把它渲染成 HTTP 响应
  * - 非 AppError 的一切（数据库断开、上游超时、代码缺陷）都归为系统异常，
  *   细节只进日志，响应固定 500
  */

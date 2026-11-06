@@ -1,24 +1,23 @@
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import {
   deleteMemoryFile,
   listMemoryFiles,
   readMemoryFile,
   writeMemoryFile,
-} from '../src/features/agents/memory-files.js';
+} from '../src/modules/agents/memory-files.js';
 
-vi.mock('node:fs/promises', async (original) => {
-  const fs = await original<typeof import('node:fs/promises')>();
-  return {
-    ...fs,
-    rename: vi.fn(fs.rename),
-    readdir: vi.fn(fs.readdir),
-    open: vi.fn(fs.open),
-    unlink: vi.fn(fs.unlink),
-  };
-});
+const realFs = { ...fs };
+const fsMocks = {
+  rename: mock((...args: Parameters<typeof fs.rename>) => realFs.rename(...args)),
+  readdir: mock((...args: Parameters<typeof fs.readdir>) => realFs.readdir(...args)),
+  open: mock((...args: Parameters<typeof fs.open>) => realFs.open(...args)),
+  unlink: mock((...args: Parameters<typeof fs.unlink>) => realFs.unlink(...args)),
+};
+
+mock.module('node:fs/promises', () => ({ ...realFs, ...fsMocks }));
 
 let root: string;
 const slug = 'test-agent';
@@ -40,7 +39,10 @@ beforeEach(async () => {
   root = await fs.mkdtemp(join(await fs.realpath(tmpdir()), 'memory-files-'));
 });
 afterEach(async () => {
-  vi.restoreAllMocks();
+  fsMocks.rename.mockImplementation((...args) => realFs.rename(...args));
+  fsMocks.readdir.mockImplementation((...args) => realFs.readdir(...args));
+  fsMocks.open.mockImplementation((...args) => realFs.open(...args));
+  fsMocks.unlink.mockImplementation((...args) => realFs.unlink(...args));
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -145,7 +147,7 @@ describe('memory files', () => {
 
   it('does not treat permission errors as uninitialized memory', async () => {
     await fs.mkdir(join(root, slug, 'agent-memory'), { recursive: true });
-    vi.mocked(fs.readdir).mockRejectedValueOnce(
+    fsMocks.readdir.mockRejectedValueOnce(
       Object.assign(new Error('private path'), { code: 'EACCES' }),
     );
     await expect(listMemoryFiles(root, slug)).rejects.toMatchObject({ code: 'EACCES' });
@@ -154,14 +156,14 @@ describe('memory files', () => {
   it.each(['read', 'delete'] as const)('propagates IO failures during %s', async (operation) => {
     await writeMemoryFile(root, slug, 'MEMORY.md', 'old');
     const error = Object.assign(new Error('private IO details'), { code: 'EIO' });
-    const original = await vi.importActual<typeof fs>('node:fs/promises');
+    const original = realFs;
     if (operation === 'read') {
-      vi.mocked(fs.open).mockImplementation(async (...args) => {
+      fsMocks.open.mockImplementation(async (...args) => {
         if (String(args[0]).endsWith('/MEMORY.md')) throw error;
         return original.open(...args);
       });
     } else {
-      vi.mocked(fs.unlink).mockRejectedValueOnce(error);
+      fsMocks.unlink.mockRejectedValueOnce(error);
     }
     await expect(operate(operation)).rejects.toBe(error);
     expect(await fs.readFile(join(root, slug, 'agent-memory', 'MEMORY.md'), 'utf8')).toBe('old');
@@ -171,9 +173,9 @@ describe('memory files', () => {
     await writeMemoryFile(root, slug, 'MEMORY.md', 'safe');
     await fs.mkdir(join(root, 'outside', 'agent-memory'), { recursive: true });
     await fs.writeFile(join(root, 'outside', 'agent-memory', 'MEMORY.md'), 'private');
-    const original = await vi.importActual<typeof fs>('node:fs/promises');
+    const original = realFs;
     let swapped = false;
-    vi.mocked(fs.open).mockImplementation(async (...args) => {
+    fsMocks.open.mockImplementation(async (...args) => {
       if (!swapped && String(args[0]).endsWith('/MEMORY.md')) {
         swapped = true;
         await original.rename(join(root, slug), join(root, 'moved'));
@@ -189,12 +191,12 @@ describe('memory files', () => {
   it('bounds actual bytes read even when the file grows after stat', async () => {
     await writeMemoryFile(root, slug, 'MEMORY.md', 'old');
     const target = join(root, slug, 'agent-memory', 'MEMORY.md');
-    const original = await vi.importActual<typeof fs>('node:fs/promises');
-    vi.mocked(fs.open).mockImplementation(async (...args) => {
+    const original = realFs;
+    fsMocks.open.mockImplementation(async (...args) => {
       const handle = await original.open(...args);
       if (String(args[0]).endsWith('/MEMORY.md')) {
         const stat = handle.stat.bind(handle);
-        vi.spyOn(handle, 'stat').mockImplementation(async () => {
+        spyOn(handle, 'stat').mockImplementation(async () => {
           const info = await stat();
           await fs.appendFile(target, 'x'.repeat(200_001));
           return info;
@@ -209,7 +211,7 @@ describe('memory files', () => {
 
   it('preserves the old file and cleans temporary files if atomic replacement fails', async () => {
     await writeMemoryFile(root, slug, 'MEMORY.md', 'old');
-    vi.mocked(fs.rename).mockRejectedValueOnce(
+    fsMocks.rename.mockRejectedValueOnce(
       Object.assign(new Error('disk failure'), { code: 'EIO' }),
     );
     await expect(writeMemoryFile(root, slug, 'MEMORY.md', 'new')).rejects.toMatchObject({

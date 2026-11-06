@@ -95,11 +95,22 @@ async function fill(id: string, value: string) {
 function mockFetch(handler: (url: string, method: string, body: unknown) => Response | undefined) {
   calls = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    const url = String(input);
-    const method = init?.method ?? 'GET';
-    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-    calls.push({ url, method, body });
-    return handler(url, method, body) ?? json({ code: 'NOT_FOUND', message: '未模拟' }, 404);
+    const request =
+      input instanceof Request
+        ? input
+        : new Request(new URL(String(input), 'http://localhost'), init);
+    const url = new URL(request.url);
+    const method = request.method;
+    const text = method === 'GET' || method === 'HEAD' ? '' : await request.clone().text();
+    const body = text === '' ? undefined : JSON.parse(text);
+    calls.push({ url: url.pathname + url.search, method, body });
+    return (
+      handler(url.pathname + url.search, method, body) ??
+      json(
+        { code: 'NOT_FOUND', message: '未模拟', status: 404, requestId: '', retryable: false },
+        404,
+      )
+    );
   });
 }
 

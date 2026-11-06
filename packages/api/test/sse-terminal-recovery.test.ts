@@ -1,28 +1,29 @@
-import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { publishRun } from '../src/queue/producer.js';
 import {
   cleanup,
   createAgent,
   eventFollowerCount,
   infraReady,
-  inject,
   loginCookie,
+  request,
   seedRun,
   startApp,
+  type TestApp,
   testConfig,
   unique,
   waitFor,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('sse terminal recovery', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let server: TestServer;
   let cookie: string;
   let baseUrl: string;
   let redis: Redis;
@@ -38,13 +39,13 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    server = await listen(app);
+    baseUrl = server.url;
     redis = new Redis(testConfig().REDIS_URL, { maxRetriesPerRequest: null });
   });
 
   afterAll(async () => {
+    await server.close();
     for (const runId of runIds) {
       await redis.del(runStreamKey(runId), runCancelKey(runId)).catch(() => undefined);
     }
@@ -63,13 +64,13 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     });
     runIds.push(runId);
     if (status !== 'running') {
-      await app.pool.query('update agent_runs set status = $2 where id = $1', [runId, status]);
+      await app.client.unsafe('update agent_runs set status = $2 where id = $1', [runId, status]);
     }
     return runId;
   };
 
   const setTerminal = (runId: string): Promise<unknown> =>
-    app.pool.query("update agent_runs set status = 'succeeded', ended_at = now() where id = $1", [
+    app.client.unsafe("update agent_runs set status = 'succeeded', ended_at = now() where id = $1", [
       runId,
     ]);
 
@@ -175,7 +176,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 1)).toBe(true);
 
     // 模拟保留期清理：只删本用例自己的 run 行。
-    await app.pool.query('delete from agent_runs where id = $1', [runId]);
+    await app.client.unsafe('delete from agent_runs where id = $1', [runId]);
     const started = Date.now();
     const { text, closed } = await sse.readUntilClosed(5_000);
 
@@ -219,7 +220,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     await delay(2_200);
     expect(await eventFollowerCount(redis, runId)).toBe(0);
 
-    const health = await inject(app, { method: 'GET', url: '/health/live' });
+    const health = await request(app, { method: 'GET', url: '/health/live' });
     expect(health.statusCode).toBe(200);
   });
 });

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 
 // 装好的 SDK 会 fork 一个 Claude Code 子进程；这里只把那个子进程换成假 Node 脚本，
 // SDK 模块本身走真实代码，断言的是真实的 argv 与 initialize 控制帧，而不是中间层参数。

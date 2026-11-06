@@ -1,43 +1,43 @@
-import { EventEmitter } from 'node:events';
+import { RedisClient } from 'bun';
 import { RunFailure } from '@agentport/core';
 import type { ChatEvent, ExecutionSettlement } from '@agentport/shared';
 import { runCancelKey } from '@agentport/shared';
 import type { Logger } from 'pino';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, jest, mock, spyOn } from 'bun:test';
+import { advanceTimersByTimeAsync, waitFor } from './fixtures/native-test.js';
 import { SandboxCleanupError } from '../src/sandbox/provider.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
 
-const redisMock = vi.hoisted(() => ({
-  subscribe: vi.fn(async (_channel: string): Promise<void> => undefined),
-  unsubscribe: vi.fn(async (_channel: string): Promise<void> => undefined),
-  exists: vi.fn(async (_channel: string): Promise<number> => 0),
-  connections: [] as EventEmitter[],
-}));
-vi.mock('ioredis', () => ({
-  Redis: class extends EventEmitter {
-    constructor() {
-      super();
-      redisMock.connections.push(this);
-    }
-    subscribe = redisMock.subscribe;
-    unsubscribe = redisMock.unsubscribe;
-    exists = redisMock.exists;
-    async quit() {}
-    pipeline() {
-      return {
-        xadd() {
-          return this;
-        },
-        expire() {
-          return this;
-        },
-        async exec() {
-          return [];
-        },
-      };
-    }
-  },
-}));
+const cancelHandlers = new Map<string, Set<unknown>>();
+const redisMock = {
+  subscribe: spyOn(RedisClient.prototype, 'subscribe'),
+  unsubscribe: spyOn(RedisClient.prototype, 'unsubscribe'),
+  exists: spyOn(RedisClient.prototype, 'exists'),
+  connections: [
+    {
+      listenerCount: () => [...cancelHandlers.values()].reduce((total, set) => total + set.size, 0),
+      emit: (_event: string, channel: string, message: string) => {
+        for (const handler of cancelHandlers.get(channel) ?? [])
+          (handler as (message: string, channel: string) => void)(message, channel);
+      },
+    },
+  ],
+};
+const resetRedisMock = (): void => {
+  cancelHandlers.clear();
+  redisMock.subscribe.mockReset().mockImplementation(async (channel: string, listener: unknown) => {
+    const handlers = cancelHandlers.get(channel) ?? new Set();
+    handlers.add(listener);
+    cancelHandlers.set(channel, handlers);
+  });
+  redisMock.unsubscribe
+    .mockReset()
+    .mockImplementation(async (channel: string, listener: unknown) => {
+      cancelHandlers.get(channel)?.delete(listener);
+    });
+  redisMock.exists.mockReset().mockResolvedValue(0);
+};
+resetRedisMock();
 const { acquireSessionSandbox, closeRunnerClient, runInSandbox, isRetryable } = await import(
   '../src/runner-client.js'
 );
@@ -60,12 +60,9 @@ function cleanupFailure(
 
 afterAll(closeRunnerClient);
 afterEach(async () => {
-  vi.useRealTimers();
+  jest.useRealTimers();
   await closeRunnerClient();
-  redisMock.subscribe.mockReset().mockResolvedValue(undefined);
-  redisMock.unsubscribe.mockReset().mockResolvedValue(undefined);
-  redisMock.exists.mockReset().mockResolvedValue(0);
-  redisMock.connections.length = 0;
+  resetRedisMock();
 });
 
 function fixture(
@@ -81,7 +78,7 @@ function fixture(
   const done = new Promise<ExecutionSettlement>((resolve) => {
     finish = resolve;
   });
-  const cancel = vi.fn(async () => {
+  const cancel = mock(async () => {
     event({
       type: 'run_finished',
       status: 'cancelled',
@@ -94,14 +91,14 @@ function fixture(
     finish(result);
     return result;
   });
-  const release = vi.fn(async () => {
+  const release = mock(async () => {
     if (input.releaseError !== undefined) throw input.releaseError;
     if (input.destroyFails) throw new Error('destroy failed');
   });
   const lease: SessionSandboxLease = {
     sandboxId: 'session-container',
     release,
-    start: vi.fn(async (options) => {
+    start: mock(async (options) => {
       event = options.onEvent;
       if (!input.timeout)
         queueMicrotask(() => {
@@ -130,12 +127,15 @@ describe('subscription preparation cancellation', () => {
     for (const pending of ['subscribe', 'exists'] as const) {
       for (const stop of ['shutdown', 'budget'] as const) {
         it(`${entry}: ${stop} interrupts pending ${pending} and removes its listener`, async () => {
-          vi.useFakeTimers();
+          jest.useFakeTimers();
           redisMock[pending].mockImplementationOnce(() => new Promise(() => undefined));
           // Unsubscribe must not make shutdown depend on the same disconnected Redis.
-          redisMock.unsubscribe.mockImplementationOnce(() => new Promise(() => undefined));
+          redisMock.unsubscribe.mockImplementationOnce(async (channel: string, listener: unknown) => {
+            cancelHandlers.get(channel)?.delete(listener);
+            return new Promise<void>(() => undefined);
+          });
           const { lease } = fixture();
-          const acquire = vi.fn(async () => lease);
+          const acquire = mock(async () => lease);
           const closing = new AbortController();
           let result: unknown;
           const running =
@@ -164,10 +164,10 @@ describe('subscription preparation cancellation', () => {
               result = error;
             },
           );
-          await vi.advanceTimersByTimeAsync(0);
+          await advanceTimersByTimeAsync(0);
           expect(redisMock[pending]).toHaveBeenCalled();
           if (stop === 'shutdown') closing.abort();
-          await vi.advanceTimersByTimeAsync(stop === 'budget' ? 30_000 : 1);
+          await advanceTimersByTimeAsync(stop === 'budget' ? 30_000 : 1);
           expect(result).toBeDefined();
           if (entry === 'acquire') {
             expect(result).toMatchObject({
@@ -185,20 +185,22 @@ describe('subscription preparation cancellation', () => {
           expect(
             redisMock.connections.every((connection) => connection.listenerCount('message') === 0),
           ).toBe(true);
-          expect(redisMock.unsubscribe).toHaveBeenCalledWith(runCancelKey('pending-preparation'));
+          expect(redisMock.unsubscribe).toHaveBeenCalledWith(
+            runCancelKey('pending-preparation'),
+            expect.any(Function),
+          );
         });
       }
     }
     for (const cancellation of ['exists', 'callback', 'signal'] as const) {
       it(`${entry}: ${cancellation} already cancelled never starts a side effect`, async () => {
         const { lease, release } = fixture();
-        const acquire = vi.fn(async () => lease);
+        const acquire = mock(async () => lease);
         const closing = new AbortController();
         if (cancellation === 'exists') redisMock.exists.mockResolvedValueOnce(1);
         if (cancellation === 'callback')
-          redisMock.subscribe.mockImplementationOnce(async (channel) => {
-            for (const connection of redisMock.connections)
-              connection.emit('message', channel, '1');
+          redisMock.subscribe.mockImplementationOnce(async (channel, listener) => {
+            (listener as (message: string, channel: string) => void)('1', channel);
           });
         if (cancellation === 'signal') closing.abort();
         if (entry === 'acquire') {
@@ -251,7 +253,7 @@ describe('subscription preparation cancellation', () => {
         logger,
         signal: closing.signal,
       });
-      await vi.waitFor(() => expect(redisMock[pending]).toHaveBeenCalled());
+      await waitFor(() => expect(redisMock[pending]).toHaveBeenCalled());
       closing.abort();
       expect((await running).status).toBe('cancelled');
       rejectPending(new Error('late Redis failure'));
@@ -283,7 +285,7 @@ describe('subscription preparation cancellation', () => {
       logger,
       signal: closing.signal,
     });
-    await vi.waitFor(() => expect(redisMock.subscribe).toHaveBeenCalled());
+    await waitFor(() => expect(redisMock.subscribe).toHaveBeenCalled());
     closing.abort();
     await running;
     resolveSubscribe();
@@ -314,7 +316,7 @@ describe('subscription preparation cancellation', () => {
       timeoutMs: 1000,
       logger,
     });
-    await vi.waitFor(() => expect(active.lease.start).toHaveBeenCalled());
+    await waitFor(() => expect(active.lease.start).toHaveBeenCalled());
     closing.abort();
     await first;
     const subscriber = redisMock.connections[0];
@@ -328,7 +330,7 @@ describe('subscription preparation cancellation', () => {
 
   it('keeps metadata received while waiting for start ACK during cancellation', async () => {
     const { lease } = fixture();
-    lease.start = vi.fn(async ({ onEvent }) => {
+    lease.start = mock(async ({ onEvent }) => {
       onEvent({
         type: 'run_finished',
         status: 'cancelled',
@@ -349,7 +351,7 @@ describe('subscription preparation cancellation', () => {
       logger,
       signal: closing.signal,
     });
-    await vi.waitFor(() => expect(lease.start).toHaveBeenCalled());
+    await waitFor(() => expect(lease.start).toHaveBeenCalled());
     closing.abort();
     expect(await running).toMatchObject({
       status: 'cancelled',
@@ -361,12 +363,12 @@ describe('subscription preparation cancellation', () => {
   });
 
   it('keeps one startup budget across subscription and start ACK', async () => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     redisMock.subscribe.mockImplementationOnce(
       () => new Promise((resolve) => setTimeout(resolve, 20_000)),
     );
     const { lease } = fixture();
-    lease.start = vi.fn(() => new Promise(() => undefined));
+    lease.start = mock(() => new Promise(() => undefined));
     let outcome: unknown;
     void runInSandbox({
       runId: 'single-budget',
@@ -378,7 +380,7 @@ describe('subscription preparation cancellation', () => {
     }).then((value) => {
       outcome = value;
     });
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advanceTimersByTimeAsync(30_000);
     expect(outcome).toMatchObject({ status: 'failed', failure: { reason: 'infra' } });
   });
 
@@ -414,13 +416,13 @@ describe('session acquire cancellation and budget', () => {
   it('keeps waiting after the 30 second budget until the aborted create settles', async () => {
     let received: AbortSignal | undefined;
     let rejectAcquire: (error: Error) => void = () => undefined;
-    const acquire = vi.fn((_spec, signal: AbortSignal) => {
+    const acquire = mock((_spec, signal: AbortSignal) => {
       received = signal;
       return new Promise<SessionSandboxLease>((_resolve, reject) => {
         rejectAcquire = reject;
       });
     });
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     try {
       const cleanup = cleanupFailure('late-container');
       let settled = false;
@@ -433,21 +435,22 @@ describe('session acquire cancellation and budget', () => {
       }).finally(() => {
         settled = true;
       });
-      const rejected = expect(running).rejects.toMatchObject({
+      await advanceTimersByTimeAsync(0);
+      expect(acquire).toHaveBeenCalled();
+      await advanceTimersByTimeAsync(30_000);
+      expect(received?.aborted).toBe(true);
+      await advanceTimersByTimeAsync(0);
+      // provider 仍在清理：预算到点后必须等它真正收尾，不能先返回。
+      expect(settled).toBe(false);
+      rejectAcquire(cleanup);
+      await expect(running).rejects.toMatchObject({
         reason: 'infra',
         message: expect.stringContaining('timed out'),
         // 清理失败的真实类型保留在 cause 里，调用方仍能拿到容器 id。
         cause: cleanup,
       });
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(received?.aborted).toBe(true);
-      await vi.advanceTimersByTimeAsync(0);
-      // provider 仍在清理：预算到点后必须等它真正收尾，不能先返回。
-      expect(settled).toBe(false);
-      rejectAcquire(cleanup);
-      await rejected;
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 
@@ -455,7 +458,7 @@ describe('session acquire cancellation and budget', () => {
     const closing = new AbortController();
     let received: AbortSignal | undefined;
     let rejectAcquire: (error: Error) => void = () => undefined;
-    const acquire = vi.fn((_spec, signal: AbortSignal) => {
+    const acquire = mock((_spec, signal: AbortSignal) => {
       received = signal;
       return new Promise<SessionSandboxLease>((_resolve, reject) => {
         rejectAcquire = reject;
@@ -471,21 +474,20 @@ describe('session acquire cancellation and budget', () => {
     }).finally(() => {
       settled = true;
     });
-    const rejected = expect(running).rejects.toMatchObject({ reason: 'cancelled' });
-    await vi.waitFor(() => expect(acquire).toHaveBeenCalled());
+    await waitFor(() => expect(acquire).toHaveBeenCalled());
     closing.abort();
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(received?.aborted).toBe(true);
     expect(settled).toBe(false);
     rejectAcquire(cleanupFailure('cancelled-container'));
-    await rejected;
+    await expect(running).rejects.toMatchObject({ reason: 'cancelled' });
   });
 
   it('releases a lease that arrives after cancellation instead of leaking it', async () => {
     const closing = new AbortController();
-    const release = vi.fn(async () => undefined);
+    const release = mock(async () => undefined);
     let resolveAcquire: (lease: SessionSandboxLease) => void = () => undefined;
-    const acquire = vi.fn(
+    const acquire = mock(
       (_spec, _signal: AbortSignal) =>
         new Promise<SessionSandboxLease>((resolve) => {
           resolveAcquire = resolve;
@@ -501,28 +503,27 @@ describe('session acquire cancellation and budget', () => {
     }).finally(() => {
       settled = true;
     });
-    const rejected = expect(running).rejects.toMatchObject({ reason: 'cancelled' });
-    await vi.waitFor(() => expect(acquire).toHaveBeenCalled());
+    await waitFor(() => expect(acquire).toHaveBeenCalled());
     closing.abort();
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
     resolveAcquire({
       sandboxId: 'late-lease',
       release,
-      start: vi.fn(),
+      start: mock(),
     } as unknown as SessionSandboxLease);
-    await rejected;
+    await expect(running).rejects.toMatchObject({ reason: 'cancelled' });
     expect(release).toHaveBeenCalledWith({ reuse: false });
   });
 
   it('keeps the sandbox id when releasing a late cancelled lease fails with a plain error', async () => {
     const closing = new AbortController();
     const releaseError = new Error('docker rm failed');
-    const release = vi.fn(async () => {
+    const release = mock(async () => {
       throw releaseError;
     });
     let resolveAcquire: (lease: SessionSandboxLease) => void = () => undefined;
-    const acquire = vi.fn(
+    const acquire = mock(
       (_spec, _signal: AbortSignal) =>
         new Promise<SessionSandboxLease>((resolve) => {
           resolveAcquire = resolve;
@@ -535,13 +536,13 @@ describe('session acquire cancellation and budget', () => {
       signal: closing.signal,
       logger,
     }).catch((err: unknown) => err);
-    await vi.waitFor(() => expect(acquire).toHaveBeenCalled());
+    await waitFor(() => expect(acquire).toHaveBeenCalled());
     closing.abort();
     await new Promise<void>((resolve) => setImmediate(resolve));
     resolveAcquire({
       sandboxId: 'late-lease-release-fails',
       release,
-      start: vi.fn(),
+      start: mock(),
     } as unknown as SessionSandboxLease);
     const error = await running;
     expect(error).toBeInstanceOf(RunFailure);
@@ -554,14 +555,14 @@ describe('session acquire cancellation and budget', () => {
   });
 
   it('keeps the sandbox id when releasing a late timed-out lease fails with a plain error', async () => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     try {
       const releaseError = new Error('docker rm failed');
-      const release = vi.fn(async () => {
+      const release = mock(async () => {
         throw releaseError;
       });
       let resolveAcquire: (lease: SessionSandboxLease) => void = () => undefined;
-      const acquire = vi.fn(
+      const acquire = mock(
         (_spec, _signal: AbortSignal) =>
           new Promise<SessionSandboxLease>((resolve) => {
             resolveAcquire = resolve;
@@ -574,13 +575,13 @@ describe('session acquire cancellation and budget', () => {
         signal: new AbortController().signal,
         logger,
       }).catch((err: unknown) => err);
-      await vi.advanceTimersByTimeAsync(0);
+      await advanceTimersByTimeAsync(0);
       expect(acquire).toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(30_000);
+      await advanceTimersByTimeAsync(30_000);
       resolveAcquire({
         sandboxId: 'late-timeout-release-fails',
         release,
-        start: vi.fn(),
+        start: mock(),
       } as unknown as SessionSandboxLease);
       const error = await running;
       expect(error).toBeInstanceOf(RunFailure);
@@ -592,13 +593,13 @@ describe('session acquire cancellation and budget', () => {
       expect(cleanup.sandboxId).toBe('late-timeout-release-fails');
       expect(cleanup.cause).toBe(releaseError);
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 
   it('treats an ordinary acquire failure as retryable infra and keeps its cause', async () => {
     const failure = new Error('image pull failed');
-    const acquire = vi.fn(async () => {
+    const acquire = mock(async () => {
       throw failure;
     });
     const error = await acquireSessionSandbox({
@@ -625,7 +626,7 @@ describe('session acquire cancellation and budget', () => {
 
   it('passes the run id to the acquire implementation', async () => {
     const { lease } = fixture();
-    const acquire = vi.fn(async () => lease);
+    const acquire = mock(async () => lease);
     await acquireSessionSandbox({
       runId: 'run-with-id',
       spec,
@@ -639,7 +640,7 @@ describe('session acquire cancellation and budget', () => {
   it('passes shutdown cancellation to an acquire that is still pending', async () => {
     const closing = new AbortController();
     let received: AbortSignal | undefined;
-    const acquire = vi.fn((_spec, signal: AbortSignal) => {
+    const acquire = mock((_spec, signal: AbortSignal) => {
       received = signal;
       return new Promise<SessionSandboxLease>((_resolve, reject) =>
         signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }),
@@ -652,10 +653,9 @@ describe('session acquire cancellation and budget', () => {
       signal: closing.signal,
       logger,
     });
-    const rejected = expect(running).rejects.toMatchObject({ reason: 'cancelled' });
-    await vi.waitFor(() => expect(acquire).toHaveBeenCalled());
+    await waitFor(() => expect(acquire).toHaveBeenCalled());
     closing.abort();
-    await rejected;
+    await expect(running).rejects.toMatchObject({ reason: 'cancelled' });
     expect(received?.aborted).toBe(true);
   });
 });
@@ -694,7 +694,7 @@ describe('session runner client', () => {
       logger,
       signal: signal.signal,
     });
-    await vi.waitFor(() => expect(lease.start).toHaveBeenCalled());
+    await waitFor(() => expect(lease.start).toHaveBeenCalled());
     signal.abort();
     const outcome = await running;
     expect(outcome).toMatchObject({

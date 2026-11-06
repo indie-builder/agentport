@@ -1,10 +1,8 @@
-import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Agent, Server } from '@agentport/shared';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getQueue, publishRun } from '../src/queue/producer.js';
 import {
   cleanup,
@@ -13,21 +11,24 @@ import {
   eventFollowerCount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
   queueIdle,
+  request,
   seedRun,
   startApp,
+  type TestApp,
   testConfig,
   unique,
   waitFor,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 const idle = await queueIdle;
 
 describe.skipIf(!(ready && idle))('failure paths', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let server: TestServer;
   let cookie: string;
   let baseUrl: string;
   let redis: Redis;
@@ -40,13 +41,13 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     app = await startApp();
     cookie = await loginCookie(app);
     // SSE 需要真实 HTTP 连接，inject 无法模拟客户端中途断开。
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    server = await listen(app);
+    baseUrl = server.url;
     redis = new Redis(testConfig().REDIS_URL, { maxRetriesPerRequest: null });
   });
 
   afterAll(async () => {
+    await server.close();
     for (const runId of runIds) {
       await getQueue()
         .remove(runId)
@@ -77,7 +78,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     });
 
   const createRun = async (agent: Agent, message = 'hello'): Promise<string> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -88,11 +89,11 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
   };
 
   const runCount = async (agentId: string): Promise<number> => {
-    const res = await app.pool.query<{ count: number }>(
+    const res = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from agent_runs where agent_id = $1',
       [agentId],
     );
-    return res.rows[0]?.count ?? 0;
+    return res[0]?.count ?? 0;
   };
 
   const openSse = async (
@@ -159,7 +160,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
 
     expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 0)).toBe(true);
     // 服务端仍能处理新请求，说明断开路径没有把连接池或事件循环拖死。
-    const health = await inject(app, { method: 'GET', url: '/health/live' });
+    const health = await request(app, { method: 'GET', url: '/health/live' });
     expect(health.statusCode).toBe(200);
   });
 
@@ -190,21 +191,21 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
   });
 
   it('returns 404 for a missing run on events, cancel and approve', async () => {
-    const events = await inject(app, {
+    const events = await request(app, {
       method: 'GET',
       url: '/api/chat/run_missing/events',
       headers: auth(),
     });
     expectProblem(events, 'RUN_NOT_FOUND');
 
-    const cancel = await inject(app, {
+    const cancel = await request(app, {
       method: 'POST',
       url: '/api/chat/run_missing/cancel',
       headers: auth(),
     });
     expectProblem(cancel, 'RUN_NOT_FOUND');
 
-    const approve = await inject(app, {
+    const approve = await request(app, {
       method: 'POST',
       url: '/api/runs/run_missing/approve',
       headers: auth(),
@@ -215,7 +216,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
 
   it('enqueueing the same jobId twice does not create a second run', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -240,16 +241,16 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     expect(second.id).toBe(runId);
     expect(await runCount(agent.id)).toBe(1);
 
-    const stored = await app.pool.query<{ count: number }>(
+    const stored = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from agent_runs where conversation_id = $1',
       [conversationId],
     );
-    expect(stored.rows[0]?.count).toBe(1);
+    expect(stored[0]?.count).toBe(1);
   });
 
   it('rejects malformed JSON on /api/chat and /api/servers with 400', async () => {
     for (const url of ['/api/chat', '/api/servers']) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url,
         headers: { ...auth(), 'content-type': 'application/json' },
@@ -262,7 +263,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
 
   it('rejects a prompt larger than 64KB with 400 and creates no run', async () => {
     const agent = await newAgent();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -275,24 +276,24 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
   it('returns 401/401/404 for missing token, wrong token and unknown MCP server id', async () => {
     const server = await createGeneratedServer();
 
-    const missing = await inject(app, { method: 'POST', url: `/mcp/${server.id}` });
+    const missing = await request(app, { method: 'POST', url: `/mcp/${server.id}` });
     expectProblem(missing, 'UNAUTHORIZED');
 
-    const wrong = await inject(app, {
+    const wrong = await request(app, {
       method: 'POST',
       url: `/mcp/${server.id}`,
       headers: { authorization: 'Bearer definitely-wrong' },
     });
     expect(wrong.statusCode).toBe(401);
 
-    const tokenRes = await app.pool.query<{ token: string }>(
+    const tokenRes = await app.client.unsafe<{ token: string }[]>(
       "select config->>'mcpToken' as token from servers where id = $1",
       [server.id],
     );
-    const token = tokenRes.rows[0]?.token ?? '';
+    const token = tokenRes[0]?.token ?? '';
     expect(token).not.toBe('');
 
-    const unknown = await inject(app, {
+    const unknown = await request(app, {
       method: 'POST',
       url: '/mcp/srv_missing',
       headers: { authorization: `Bearer ${token}` },
@@ -303,7 +304,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
   it('rejects approving a request that does not exist', async () => {
     const server = await createGeneratedServer();
     const toolName = 'needs-approval';
-    const tool = await inject(app, {
+    const tool = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/tools`,
       headers: auth(),
@@ -321,7 +322,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     const { runId } = await seedRun(app, agent.id, { runId: unique('fail-run') });
     runIds.push(runId);
 
-    const unknown = await inject(app, {
+    const unknown = await request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: auth(),
@@ -329,18 +330,18 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     });
     expectProblem(unknown, 'APPROVAL_NOT_FOUND');
 
-    const unchanged = await app.pool.query<{ count: number }>(
+    const unchanged = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from approval_requests where run_id = $1',
       [runId],
     );
-    expect(unchanged.rows[0]?.count).toBe(0);
+    expect(unchanged[0]?.count).toBe(0);
 
     // 伪造一条 pending 记录（模拟工具被拒后的状态），批准才会成功。
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into approval_requests (id, run_id, server_id, tool_name) values ($1, $2, $3, $4)',
       [unique('apr'), runId, server.id, toolName],
     );
-    const valid = await inject(app, {
+    const valid = await request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: auth(),
@@ -354,7 +355,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
 
     // 同 run 的另一 server 不能复用这次批准。
     const otherServer = await createGeneratedServer();
-    const crossServer = await inject(app, {
+    const crossServer = await request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: auth(),
@@ -368,7 +369,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     skillSlugs.push(slug);
     const payload = { slug, name: 'Failure skill', description: 'dup check', body: '' };
 
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: auth(),
@@ -376,7 +377,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     });
     expect(first.statusCode).toBe(201);
 
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: auth(),

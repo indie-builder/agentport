@@ -1,7 +1,7 @@
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent } from '@agentport/shared';
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { persistRunMessages } from '../src/messages.js';
 import { testAccess } from './fixtures/access.js';
 
@@ -11,8 +11,8 @@ const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta
  * 跨轮 UI 编辑的落库语义：基线必须在本 run 输出删除之前取，纯文本/子智能体/截断不能伪造完整程序，
  * 多段各有自己的命名空间（blockKey s0/s1）。
  */
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -109,7 +109,7 @@ async function assistantRows(runId: string) {
 describe.skipIf(!ready)('persistRunMessages OpenUI programs', () => {
   afterAll(async () => {
     await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
-    await pool.end();
+    await client.close();
   });
 
   it('reads the previous main-assistant program before deleting this run and merges a patch', async () => {

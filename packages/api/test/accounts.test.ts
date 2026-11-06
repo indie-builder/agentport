@@ -1,14 +1,14 @@
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   adminCookie,
   cookieOf,
   createAccount,
   expectProblem,
   infraReady,
-  inject,
   login,
+  request,
   startAccessApp,
+  type TestApp,
   unique,
 } from './access-helpers.js';
 
@@ -23,7 +23,7 @@ interface AccountBody {
 }
 
 describe.skipIf(!ready)('accounts', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let admin: string;
 
   beforeAll(async () => {
@@ -45,7 +45,7 @@ describe.skipIf(!ready)('accounts', () => {
     ]);
     expect(JSON.stringify(first.body)).not.toMatch(/password|email|session/i);
 
-    const listed = await inject(app, {
+    const listed = await request(app, {
       method: 'GET',
       url: '/api/accounts?limit=100',
       headers: { cookie: admin },
@@ -56,13 +56,13 @@ describe.skipIf(!ready)('accounts', () => {
       expect.arrayContaining([first.account.businessId, second.account.businessId]),
     );
 
-    await inject(app, {
+    await request(app, {
       method: 'PATCH',
       url: `/api/accounts/${encodeURIComponent(second.account.businessId)}/status`,
       headers: { cookie: admin },
       payload: { status: 'disabled' },
     });
-    const again = await inject(app, {
+    const again = await request(app, {
       method: 'GET',
       url: `/api/accounts?q=${encodeURIComponent(second.account.businessId)}`,
       headers: { cookie: admin },
@@ -77,7 +77,7 @@ describe.skipIf(!ready)('accounts', () => {
     const created = await createAccount(app, admin);
     const { businessId } = created.account;
 
-    const updated = await inject(app, {
+    const updated = await request(app, {
       method: 'PATCH',
       url: `/api/accounts/${encodeURIComponent(businessId)}`,
       headers: { cookie: admin },
@@ -87,7 +87,7 @@ describe.skipIf(!ready)('accounts', () => {
     expect(updated.json()).toMatchObject({ businessId, name: '新名字' });
 
     for (const payload of [{}, { businessId: 'other' }, { name: 'x', password: '12345678' }]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PATCH',
         url: `/api/accounts/${encodeURIComponent(businessId)}`,
         headers: { cookie: admin },
@@ -119,7 +119,7 @@ describe.skipIf(!ready)('accounts', () => {
     const signIn = await login(app, created.account.username, 'test-password-123');
     const cookie = cookieOf(signIn);
 
-    const reset = await inject(app, {
+    const reset = await request(app, {
       method: 'POST',
       url: `/api/accounts/${encodeURIComponent(created.account.businessId)}/password`,
       headers: { cookie: admin },
@@ -128,7 +128,7 @@ describe.skipIf(!ready)('accounts', () => {
     expect(reset.statusCode, reset.body).toBe(200);
     expect(reset.json()).toEqual({ ok: true });
 
-    const old = await inject(app, { method: 'GET', url: '/api/accounts', headers: { cookie } });
+    const old = await request(app, { method: 'GET', url: '/api/accounts', headers: { cookie } });
     expect(old.statusCode).toBe(401);
     expect((await login(app, created.account.username, 'test-password-123')).statusCode).toBe(401);
     expect((await login(app, created.account.username, '{{SECRET_qfao7tnn}}')).statusCode).toBe(
@@ -142,12 +142,12 @@ describe.skipIf(!ready)('accounts', () => {
     const signIn = await login(app, username, 'test-password-123');
     const cookie = cookieOf(signIn);
 
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into user_preferences (business_id, content, revision) values ($1, $2, 0)',
       [businessId, 'keep me'],
     );
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/accounts/${encodeURIComponent(businessId)}`,
       headers: { cookie: admin },
@@ -155,26 +155,26 @@ describe.skipIf(!ready)('accounts', () => {
     expect(removed.statusCode, removed.body).toBe(200);
     expect(removed.json()).toEqual({ ok: true });
 
-    const oldCookie = await inject(app, {
+    const oldCookie = await request(app, {
       method: 'GET',
       url: '/api/accounts',
       headers: { cookie },
     });
     expect(oldCookie.statusCode).toBe(401);
 
-    const authRows = await app.pool.query(
+    const authRows = await app.client.unsafe(
       `select
          (select count(*) from "user" where business_id = $1) as users,
          (select count(*) from session s join "user" u on u.id = s.user_id where u.business_id = $1) as sessions`,
       [businessId],
     );
-    expect(Number(authRows.rows[0]?.users)).toBe(0);
-    expect(Number(authRows.rows[0]?.sessions)).toBe(0);
-    const prefs = await app.pool.query(
+    expect(Number(authRows[0]?.users)).toBe(0);
+    expect(Number(authRows[0]?.sessions)).toBe(0);
+    const prefs = await app.client.unsafe(
       'select content from user_preferences where business_id = $1',
       [businessId],
     );
-    expect(prefs.rows[0]?.content).toBe('keep me');
+    expect(prefs[0]?.content).toBe('keep me');
 
     const withoutRestore = await createAccount(app, admin, { businessId, username: unique('new') });
     expectProblem(withoutRestore.res, 'CONFLICT');
@@ -189,7 +189,7 @@ describe.skipIf(!ready)('accounts', () => {
       { id: expect.any(String), name: '用户', systemKey: 'user' },
     ]);
 
-    const oldAgain = await inject(app, {
+    const oldAgain = await request(app, {
       method: 'GET',
       url: '/api/accounts',
       headers: { cookie },
@@ -198,7 +198,7 @@ describe.skipIf(!ready)('accounts', () => {
   });
 
   it('protects the last active administrator from disable and role removal', async () => {
-    const disable = await inject(app, {
+    const disable = await request(app, {
       method: 'PATCH',
       url: '/api/accounts/bootstrap-admin/status',
       headers: { cookie: admin },
@@ -206,7 +206,7 @@ describe.skipIf(!ready)('accounts', () => {
     });
     expectProblem(disable, 'CONFLICT');
 
-    const roles = await inject(app, {
+    const roles = await request(app, {
       method: 'GET',
       url: '/api/roles',
       headers: { cookie: admin },
@@ -214,7 +214,7 @@ describe.skipIf(!ready)('accounts', () => {
     const userRole = roles
       .json<{ roles: { id: string; systemKey: string | null }[] }>()
       .roles.find((role) => role.systemKey === 'user');
-    const removeAdmin = await inject(app, {
+    const removeAdmin = await request(app, {
       method: 'PUT',
       url: '/api/accounts/bootstrap-admin/roles',
       headers: { cookie: admin },
@@ -225,13 +225,13 @@ describe.skipIf(!ready)('accounts', () => {
 
   it('assigns roles to offline identities with history only', async () => {
     const created = await createAccount(app, admin);
-    await inject(app, {
+    await request(app, {
       method: 'DELETE',
       url: `/api/accounts/${encodeURIComponent(created.account.businessId)}`,
       headers: { cookie: admin },
     });
 
-    const roles = await inject(app, {
+    const roles = await request(app, {
       method: 'GET',
       url: '/api/roles',
       headers: { cookie: admin },
@@ -240,7 +240,7 @@ describe.skipIf(!ready)('accounts', () => {
       .json<{ roles: { id: string; systemKey: string | null }[] }>()
       .roles.find((role) => role.systemKey === 'user');
 
-    const assigned = await inject(app, {
+    const assigned = await request(app, {
       method: 'PUT',
       url: `/api/accounts/${encodeURIComponent(created.account.businessId)}/roles`,
       headers: { cookie: admin },
@@ -248,7 +248,7 @@ describe.skipIf(!ready)('accounts', () => {
     });
     expect(assigned.statusCode, assigned.body).toBe(200);
 
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'PUT',
       url: `/api/accounts/${encodeURIComponent(unique('ghost'))}/roles`,
       headers: { cookie: admin },

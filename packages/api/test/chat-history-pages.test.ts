@@ -2,17 +2,17 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -34,7 +34,7 @@ interface HistoryBody {
 }
 
 describe.skipIf(!ready)('chat history pagination', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const conversationIds: string[] = [];
@@ -47,9 +47,8 @@ describe.skipIf(!ready)('chat history pagination', () => {
   afterAll(async () => {
     await cleanup(app, { agentSlugs });
     if (conversationIds.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [
-        conversationIds,
-      ]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(conversationIds, 'TEXT')],
+      );
     }
     await app.close();
   });
@@ -68,7 +67,7 @@ describe.skipIf(!ready)('chat history pagination', () => {
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
     // 分支需要 SDK 会话与每条消息的 uuid；分页本身不读它们。
-    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+    await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
       id,
       sessionUuid(0),
     ]);
@@ -90,14 +89,14 @@ describe.skipIf(!ready)('chat history pagination', () => {
       (_, index) => `${id}_m${index.toString().padStart(3, '0')}`,
     );
     for (const [index, messageId] of ids.entries()) {
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into messages (id, conversation_id, role, content, created_at, sdk_message_uuid) values ($1, $2, $3, $4, $5, $6)',
         [
           messageId,
           id,
           index % 2 === 0 ? 'user' : 'assistant',
           JSON.stringify({ type: 'text', text: `第 ${index} 条` }),
-          TIES,
+          TIES.toISOString(),
           sessionUuid(index + 1),
         ],
       );
@@ -106,7 +105,7 @@ describe.skipIf(!ready)('chat history pagination', () => {
   };
 
   const getPage = (id: string, query = '') =>
-    inject(app, {
+    request(app, {
       method: 'GET',
       url: `/api/conversations/${id}${query === '' ? '' : `?${query}`}`,
       headers: auth(),
@@ -215,7 +214,7 @@ describe.skipIf(!ready)('chat history pagination', () => {
   it('requires auth and 404s unknown conversations before validating the cursor', async () => {
     const { id } = await newConversation(2);
 
-    const anonymous = await inject(app, {
+    const anonymous = await request(app, {
       method: 'GET',
       url: `/api/conversations/${id}`,
       headers: {},
@@ -231,7 +230,7 @@ describe.skipIf(!ready)('chat history pagination', () => {
   it('branches all 125 messages while leaving the original history unbounded', async () => {
     const { id, ids } = await newConversation(125);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/conversations/${id}/branch`,
       headers: auth(),
@@ -242,11 +241,11 @@ describe.skipIf(!ready)('chat history pagination', () => {
     conversationIds.push(branchId);
 
     // 分支在自己的目录里拿到来源 transcript，首轮运行才能 fork。
-    const agent = await app.pool.query<{ slug: string }>(
+    const agent = await app.client.unsafe<{ slug: string }[]>(
       'select a.slug from agents a join conversations c on c.agent_id = a.id where c.id = $1',
       [branchId],
     );
-    const slug = agent.rows[0]?.slug ?? '';
+    const slug = agent[0]?.slug ?? '';
     const branchSession = join(
       app.config.WORKSPACES_DIR,
       slug,

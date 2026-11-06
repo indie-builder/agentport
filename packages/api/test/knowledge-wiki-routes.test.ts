@@ -3,21 +3,14 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { getKnowledgeQueue } from '../src/queue/producer.js';
-import {
-  type FastifyInstance,
-  infraReady,
-  inject,
-  loginCookie,
-  startApp,
-  unique,
-} from './helpers.js';
+import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('knowledge wiki routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   let baseId = '';
@@ -26,7 +19,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   const profileIds: string[] = [];
 
   async function createProfile() {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -44,7 +37,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   }
 
   async function createBase(embeddingProfileId: string) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -57,7 +50,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   }
 
   async function createPage(title = '认证') {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/wiki-pages`,
       headers: { cookie },
@@ -68,7 +61,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   }
 
   async function createWikiPageInBase(targetBaseId: string, slug: string, title: string) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${targetBaseId}/wiki-pages`,
       headers: { cookie },
@@ -80,7 +73,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   async function seedSourceDocument(targetBaseId = baseId): Promise<string> {
     const documentId = `kdoc_wiki${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents (id, base_id, title, source_type, mime_type, status)
        values ($1, $2, '来源文档', 'upload', 'text/markdown', 'processing')`,
       [documentId, targetBaseId],
@@ -98,7 +91,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const versionId = `kdv_wiki${suffix}`;
     const chunkId = `kchk_wiki${suffix}`;
     const targetBaseId = options.baseId ?? baseId;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id)
@@ -106,13 +99,13 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
                (select embedding_profile_id from knowledge_bases where id = $5))`,
       [versionId, documentId, version, 'b'.repeat(64), targetBaseId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text, enabled)
        values ($1, $2, $3, $4, 0, 'text', '正文', '正文', $5)`,
       [chunkId, targetBaseId, documentId, versionId, options.enabled ?? true],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_documents set status = 'ready', current_version_id = $2 where id = $1`,
       [documentId, options.current === false ? null : versionId],
     );
@@ -162,12 +155,12 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   }
 
   async function indexJobs(documentId: string): Promise<WikiIndexJob[]> {
-    const rows = await app.pool.query<WikiIndexJob>(
+    const rows = await app.client.unsafe<WikiIndexJob[]>(
       `select type, status, payload from knowledge_jobs
        where document_id = $1 and type = 'ingest' order by created_at, id`,
       [documentId],
     );
-    return rows.rows;
+    return rows;
   }
 
   function firstRow<T>(rows: T[]): T {
@@ -186,12 +179,11 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -210,14 +202,18 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       ['POST', `/api/knowledge/wiki-pages/${page.id}/rollback`, { versionId: 'kwv_x' }],
     ] as const;
     for (const [method, url, payload] of cases) {
-      const res = await inject(app, { method, url, ...(payload === undefined ? {} : { payload }) });
+      const res = await request(app, {
+        method,
+        url,
+        ...(payload === undefined ? {} : { payload }),
+      });
       expect(res.statusCode, `${method} ${url}: ${res.body}`).toBe(401);
     }
   });
 
   it('lists and creates pages, then returns versions on get', async () => {
     const page = await createPage('部署手册');
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/wiki-pages`,
       headers: { cookie },
@@ -226,7 +222,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const items = list.json<{ items: Array<{ id: string; title: string }> }>().items;
     expect(items.some((item) => item.id === page.id && item.title === '部署手册')).toBe(true);
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -237,7 +233,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('manual edits append drafts and never rewrite history; publish switches explicitly', async () => {
     const page = await createPage();
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -247,7 +243,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     // 保存草稿不隐式发布：线上指针仍为空。
     expect(first.json()).toMatchObject({ status: 'draft', currentVersionId: null });
 
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -256,7 +252,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(second.statusCode, second.body).toBe(200);
     expect(second.json()).toMatchObject({ title: '认证（改）', status: 'draft' });
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -271,7 +267,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(versions.every((row) => row.generatedBy === 'manual')).toBe(true);
 
     const secondVersionId = versions.find((row) => row.markdown === '# 第二版')?.id ?? '';
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -283,7 +279,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       currentVersionId: secondVersionId,
     });
     // 发布只切指针，历史版本正文不变。
-    const after = await inject(app, {
+    const after = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -296,22 +292,29 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   it('writes each wiki version with one insert that computes the next number in SQL', async () => {
     const page = await createPage();
 
+    type TxClient = { unsafe: (...args: unknown[]) => unknown };
     const statements: string[] = [];
-    const clientProto = (
-      app.pool as unknown as { Client: { prototype: { query: (...args: unknown[]) => unknown } } }
-    ).Client.prototype;
-    const originalQuery = clientProto.query;
-    const spy = vi.spyOn(clientProto, 'query').mockImplementation(function (
-      this: unknown,
-      first: unknown,
-      ...rest: unknown[]
-    ) {
-      if (typeof first === 'string') statements.push(first);
-      else if (first && typeof first === 'object' && 'text' in first) {
-        statements.push(String((first as { text: unknown }).text));
-      }
-      return originalQuery.apply(this, [first, ...rest]);
-    });
+    const wrapped: TxClient[] = [];
+    const originalBegin = app.client.begin.bind(app.client) as <T>(
+      fn: (client: TxClient) => Promise<T>,
+    ) => Promise<T>;
+    const spy = spyOn(app.client, 'begin').mockImplementation((<T>(
+      callback: (client: TxClient) => Promise<T>,
+    ) =>
+      originalBegin((client) => {
+        if (!wrapped.includes(client)) {
+          const originalQuery = client.unsafe;
+          wrapped.push(client);
+          client.unsafe = (...args: unknown[]) => {
+            const first = args[0] as { text?: unknown } | undefined;
+            const sql =
+              typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : '';
+            if (sql) statements.push(sql);
+            return originalQuery.apply(client, args);
+          };
+        }
+        return callback(client);
+      })) as never);
     let first: Awaited<ReturnType<typeof repo.knowledge.saveWikiVersion>>;
     let second: Awaited<ReturnType<typeof repo.knowledge.saveWikiVersion>>;
     try {
@@ -366,15 +369,15 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     ]);
     expect(saved.map((row) => row?.version).sort()).toEqual([1, 2]);
 
-    const versions = await app.pool.query<{ version: number; markdown: string }>(
+    const versions = await app.client.unsafe<{ version: number; markdown: string }[]>(
       'select version, markdown from knowledge_wiki_versions where page_id = $1 order by version',
       [page.id],
     );
-    expect(versions.rows).toEqual([
+    expect(versions).toEqual([
       { version: 1, markdown: expect.stringMatching(/^# 并发 [AB]$/) },
       { version: 2, markdown: expect.stringMatching(/^# 并发 [AB]$/) },
     ]);
-    expect(versions.rows[0]?.markdown).not.toBe(versions.rows[1]?.markdown);
+    expect(versions[0]?.markdown).not.toBe(versions[1]?.markdown);
   });
 
   it('publish records only validated source snapshots; missing sources stay unsaved', async () => {
@@ -393,22 +396,22 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       currentVersionId: null,
     });
     expect(
-      (await app.pool.query('select 1 from knowledge_wiki_sources where page_id = $1', [page.id]))
-        .rows,
+      (await app.client.unsafe('select 1 from knowledge_wiki_sources where page_id = $1', [page.id]))
+        ,
     ).toEqual([]);
 
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
       payload: { versionId: draft?.id },
     });
     expect(publish.statusCode, publish.body).toBe(200);
-    const sources = await app.pool.query(
+    const sources = await app.client.unsafe(
       'select document_id, version_id, chunk_id, stale from knowledge_wiki_sources where page_id = $1',
       [page.id],
     );
-    expect(sources.rows).toEqual([
+    expect(sources).toEqual([
       {
         document_id: documentId,
         version_id: source.versionId,
@@ -420,20 +423,20 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('rollback copies the target version into a new published version', async () => {
     const page = await createPage();
-    const firstPatch = await inject(app, {
+    const firstPatch = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# 稳定版' },
     });
     expect(firstPatch.statusCode, firstPatch.body).toBe(200);
-    await inject(app, {
+    await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# 回退前' },
     });
-    const before = await inject(app, {
+    const before = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -444,7 +447,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(target).toBeDefined();
     const targetId = target?.id ?? '';
 
-    const rollback = await inject(app, {
+    const rollback = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/rollback`,
       headers: { cookie },
@@ -456,7 +459,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(created.id).not.toBe(targetId);
     expect(created.version).toBe(3);
 
-    const after = await inject(app, {
+    const after = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -473,11 +476,11 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('schedules a wiki internal index ingest on publish and rollback', async () => {
     const page = await createPage('索引页');
-    const pageRow = await app.pool.query<{ slug: string }>(
+    const pageRow = await app.client.unsafe<{ slug: string }[]>(
       'select slug from knowledge_wiki_pages where id = $1',
       [page.id],
     );
-    const slug = pageRow.rows[0]?.slug ?? '';
+    const slug = pageRow[0]?.slug ?? '';
     const save = async (markdown: string) =>
       repo.knowledge.saveWikiVersion(app.db, page.id, {
         markdown,
@@ -486,7 +489,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
         generatedBy: 'manual',
       });
     const first = await save('# 索引第一版');
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -494,17 +497,17 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(publish.statusCode, publish.body).toBe(200);
 
-    const indexRows = await app.pool.query<{
+    const indexRows = await app.client.unsafe<{
       id: string;
       content_hash: string | null;
       metadata: { wikiPageId?: string; wikiVersionId?: string };
-    }>(
+    }[]>(
       `select id, content_hash, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    expect(indexRows.rows).toHaveLength(1);
-    const index = firstRow(indexRows.rows);
+    expect(indexRows).toHaveLength(1);
+    const index = firstRow(indexRows);
     expect(index.metadata.wikiVersionId).toBe(first?.id);
     // 索引文档的 contentHash 是线上指纹，发布不再用准备内容覆盖它。
     expect(index.content_hash).toBeNull();
@@ -528,26 +531,26 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(await blobForJob(firstJob)).toBe('# 索引第一版');
 
     const second = await save('# 索引第二版');
-    const rollback = await inject(app, {
+    const rollback = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/rollback`,
       headers: { cookie },
       payload: { versionId: second?.id },
     });
     expect(rollback.statusCode, rollback.body).toBe(201);
-    const updated = await app.pool.query<{
+    const updated = await app.client.unsafe<{
       id: string;
       metadata: { wikiVersionId?: string };
-    }>(
+    }[]>(
       `select id, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
     // 每页只保留一个内部索引文档，回退复用同一身份并更新版本 metadata。
-    expect(updated.rows).toHaveLength(1);
-    expect(updated.rows[0]?.id).toBe(index.id);
+    expect(updated).toHaveLength(1);
+    expect(updated[0]?.id).toBe(index.id);
     const rolledBackVersionId = rollback.json<{ id: string }>().id;
-    expect(updated.rows[0]?.metadata.wikiVersionId).toBe(rolledBackVersionId);
+    expect(updated[0]?.metadata.wikiVersionId).toBe(rolledBackVersionId);
     const jobs = await indexJobs(index.id);
     expect(jobs.map((job) => job.payload.versionMetadata.wikiVersionId)).toEqual([
       first?.id,
@@ -563,14 +566,14 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   it('索引文件准备失败时不切换线上指针，也不留索引文档或任务', async () => {
     const page = await createPage('准备失败页');
     const markdown = `# 准备失败正文 ${Math.random().toString(36).slice(2, 8)}`;
-    const saved = await inject(app, {
+    const saved = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown },
     });
     expect(saved.statusCode, saved.body).toBe(200);
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -580,9 +583,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     // 在内容寻址的目标路径放一个目录，让 writeFile 以 EISDIR 失败。
     const blobPath = blobPathFor(markdown);
     await mkdir(blobPath, { recursive: true });
-    let publish: Awaited<ReturnType<typeof inject>>;
+    let publish: Awaited<ReturnType<typeof request>>;
     try {
-      publish = await inject(app, {
+      publish = await request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${page.id}/publish`,
         headers: { cookie },
@@ -597,12 +600,12 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       status: 'draft',
       currentVersionId: null,
     });
-    const indexes = await app.pool.query(
+    const indexes = await app.client.unsafe(
       `select 1 from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    expect(indexes.rows).toEqual([]);
+    expect(indexes).toEqual([]);
   });
 
   it('同页并发首次发布只创建一个内部索引文档', async () => {
@@ -616,7 +619,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       });
     const [first, second] = await Promise.all([save('# 并发索引 A'), save('# 并发索引 B')]);
     const publish = (versionId: string | undefined) =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${page.id}/publish`,
         headers: { cookie },
@@ -626,13 +629,13 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(left.statusCode, left.body).toBe(200);
     expect(right.statusCode, right.body).toBe(200);
 
-    const indexes = await app.pool.query<{ id: string }>(
+    const indexes = await app.client.unsafe<{ id: string }[]>(
       `select id from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    expect(indexes.rows).toHaveLength(1);
-    const jobs = await indexJobs(firstRow(indexes.rows).id);
+    expect(indexes).toHaveLength(1);
+    const jobs = await indexJobs(firstRow(indexes).id);
     expect(jobs).toHaveLength(2);
     expect(jobs.map((job) => job.payload.versionMetadata.wikiVersionId).sort()).toEqual(
       [first?.id, second?.id].sort(),
@@ -652,19 +655,19 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
-    const publishFirst = await inject(app, {
+    const publishFirst = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
       payload: { versionId: w1?.id },
     });
     expect(publishFirst.statusCode, publishFirst.body).toBe(200);
-    const indexRows = await app.pool.query<{ id: string; metadata: { wikiVersionId?: string } }>(
+    const indexRows = await app.client.unsafe<{ id: string; metadata: { wikiVersionId?: string } }[]>(
       `select id, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    const index = firstRow(indexRows.rows);
+    const index = firstRow(indexRows);
     const queuedBefore = await indexJobs(index.id);
     expect(queuedBefore).toHaveLength(1);
     expect(queuedBefore[0]?.status).toBe('queued');
@@ -672,7 +675,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     // w2 引用已停用来源：准备会写出 w2 blob，但发布事务在来源校验处 409。
     const documentId = await seedSourceDocument();
     const source = await addSourceVersion(documentId, 1);
-    await app.pool.query(`update knowledge_documents set status = 'disabled' where id = $1`, [
+    await app.client.unsafe(`update knowledge_documents set status = 'disabled' where id = $1`, [
       documentId,
     ]);
     const w2 = await repo.knowledge.saveWikiVersion(app.db, page.id, {
@@ -681,7 +684,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       model: 'wiki-model',
       generatedBy: 'sdk',
     });
-    const failed = await inject(app, {
+    const failed = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -694,14 +697,14 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       status: 'published',
       currentVersionId: w1?.id,
     });
-    const indexAfter = await app.pool.query<{ id: string; metadata: { wikiVersionId?: string } }>(
+    const indexAfter = await app.client.unsafe<{ id: string; metadata: { wikiVersionId?: string } }[]>(
       `select id, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    expect(indexAfter.rows).toHaveLength(1);
-    expect(indexAfter.rows[0]?.id).toBe(index.id);
-    expect(indexAfter.rows[0]?.metadata.wikiVersionId).toBe(w1?.id);
+    expect(indexAfter).toHaveLength(1);
+    expect(indexAfter[0]?.id).toBe(index.id);
+    expect(indexAfter[0]?.metadata.wikiVersionId).toBe(w1?.id);
     const queuedAfter = await indexJobs(index.id);
     expect(queuedAfter).toHaveLength(1);
     expect(queuedAfter[0]?.payload).toEqual(queuedBefore[0]?.payload);
@@ -717,12 +720,11 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
-    const create = vi
-      .spyOn(repo.knowledge, 'createJob')
+    const create = spyOn(repo.knowledge, 'createJob')
       .mockRejectedValueOnce(new Error('insert job failed'));
-    let publish: Awaited<ReturnType<typeof inject>>;
+    let publish: Awaited<ReturnType<typeof request>>;
     try {
-      publish = await inject(app, {
+      publish = await request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${page.id}/publish`,
         headers: { cookie },
@@ -738,19 +740,19 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       status: 'draft',
       currentVersionId: null,
     });
-    const indexes = await app.pool.query(
+    const indexes = await app.client.unsafe(
       `select 1 from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    expect(indexes.rows).toEqual([]);
-    const jobs = await app.pool.query(
+    expect(indexes).toEqual([]);
+    const jobs = await app.client.unsafe(
       `select 1 from knowledge_jobs j
        join knowledge_documents d on d.id = j.document_id
        where d.base_id = $1 and d.content_kind = 'wiki' and d.metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    expect(jobs.rows).toEqual([]);
+    expect(jobs).toEqual([]);
   });
 
   it('索引任务入队失败时保留 queued 任务供 reconcile 补投', async () => {
@@ -761,10 +763,10 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
-    const add = vi.spyOn(getKnowledgeQueue(), 'add').mockRejectedValueOnce(new Error('redis down'));
-    let publish: Awaited<ReturnType<typeof inject>>;
+    const add = spyOn(getKnowledgeQueue(), 'add').mockRejectedValueOnce(new Error('redis down'));
+    let publish: Awaited<ReturnType<typeof request>>;
     try {
-      publish = await inject(app, {
+      publish = await request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${page.id}/publish`,
         headers: { cookie },
@@ -776,14 +778,14 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(publish.statusCode, publish.body).toBe(200);
     expect(publish.json()).toMatchObject({ status: 'published', currentVersionId: draft?.id });
 
-    const jobs = await app.pool.query<{ status: string }>(
+    const jobs = await app.client.unsafe<{ status: string }[]>(
       `select j.status from knowledge_jobs j
        join knowledge_documents d on d.id = j.document_id
        where d.base_id = $1 and d.content_kind = 'wiki'
          and d.metadata ->> 'wikiPageId' = $2 and j.type = 'ingest'`,
       [baseId, page.id],
     );
-    expect(jobs.rows).toEqual([{ status: 'queued' }]);
+    expect(jobs).toEqual([{ status: 'queued' }]);
   });
 
   it('回退的索引准备失败时保留原线上版本', async () => {
@@ -797,7 +799,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       });
     const targetMarkdown = `# 回退目标正文 ${Math.random().toString(36).slice(2, 8)}`;
     const target = await save(targetMarkdown);
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -805,7 +807,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(first.statusCode, first.body).toBe(200);
     const current = await save('# 当前线上正文');
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -817,9 +819,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const blobPath = blobPathFor(targetMarkdown);
     await rm(blobPath, { force: true });
     await mkdir(blobPath, { recursive: true });
-    let rollback: Awaited<ReturnType<typeof inject>>;
+    let rollback: Awaited<ReturnType<typeof request>>;
     try {
-      rollback = await inject(app, {
+      rollback = await request(app, {
         method: 'POST',
         url: `/api/knowledge/wiki-pages/${page.id}/rollback`,
         headers: { cookie },
@@ -835,20 +837,20 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       currentVersionId: current?.id,
     });
     // 准备失败不改索引指针、不追加任务。
-    const indexRows = await app.pool.query<{ id: string; metadata: { wikiVersionId?: string } }>(
+    const indexRows = await app.client.unsafe<{ id: string; metadata: { wikiVersionId?: string } }[]>(
       `select id, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    expect(indexRows.rows).toHaveLength(1);
-    expect(indexRows.rows[0]?.metadata.wikiVersionId).toBe(current?.id);
+    expect(indexRows).toHaveLength(1);
+    expect(indexRows[0]?.metadata.wikiVersionId).toBe(current?.id);
     // 前两次发布各留一个任务；失败的回退不再追加。
-    expect(await indexJobs(firstRow(indexRows.rows).id)).toHaveLength(2);
+    expect(await indexJobs(firstRow(indexRows).id)).toHaveLength(2);
   });
 
   it('queues a wiki_generate job and returns 202', async () => {
     const page = await createPage();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/generate`,
       headers: { cookie },
@@ -857,18 +859,18 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(res.statusCode, res.body).toBe(202);
     const { jobId } = res.json<{ jobId: string }>();
 
-    const job = await app.pool.query<{
+    const job = await app.client.unsafe<{
       type: string;
       base_id: string;
       status: string;
       payload: { pageId: string; instruction: string };
-    }>('select type, base_id, status, payload from knowledge_jobs where id = $1', [jobId]);
-    expect(job.rows[0]).toMatchObject({ type: 'wiki_generate', base_id: baseId, status: 'queued' });
-    expect(job.rows[0]?.payload).toMatchObject({ pageId: page.id, instruction: '写短一些' });
+    }[]>('select type, base_id, status, payload from knowledge_jobs where id = $1', [jobId]);
+    expect(job[0]).toMatchObject({ type: 'wiki_generate', base_id: baseId, status: 'queued' });
+    expect(job[0]?.payload).toMatchObject({ pageId: page.id, instruction: '写短一些' });
   });
 
   it('returns 404 for unknown pages and mismatched versions', async () => {
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'GET',
       url: '/api/knowledge/wiki-pages/kwp_missing',
       headers: { cookie },
@@ -877,20 +879,20 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
     const page = await createPage();
     const other = await createPage();
-    await inject(app, {
+    await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# a' },
     });
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
     });
     const versionId = detail.json<{ versions: Array<{ id: string }> }>().versions[0]?.id ?? '';
 
-    const rollback = await inject(app, {
+    const rollback = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${other.id}/rollback`,
       headers: { cookie },
@@ -898,7 +900,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(rollback.statusCode).toBe(404);
 
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${other.id}/publish`,
       headers: { cookie },
@@ -909,20 +911,20 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('sdk 草稿只追加；模型失败后 current 仍是原发布版本', async () => {
     const page = await createPage();
-    const saved = await inject(app, {
+    const saved = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# 已发布' },
     });
     expect(saved.statusCode, saved.body).toBe(200);
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
     });
     const publishedVersionId = detail.json<{ versions: Array<{ id: string }> }>().versions[0]?.id;
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -938,7 +940,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(draft?.id).not.toBe(publishedVersionId);
 
-    const afterDraft = await inject(app, {
+    const afterDraft = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -952,7 +954,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       afterDraft.json<{ versions: Array<{ id: string }> }>().versions.map((row) => row.id),
     ).toEqual(expect.arrayContaining([publishedVersionId, draft?.id]));
 
-    const versions = await inject(app, {
+    const versions = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}/versions`,
       headers: { cookie },
@@ -964,12 +966,12 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
     // 模型失败：只有 job 失败、没有新版本，已发布指针必须原地不动。
     const failedJobId = `kjob_wiki${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_jobs (id, type, base_id, status, error, payload, ended_at)
        values ($1, 'wiki_generate', $2, 'failed', '模型不可用', $3::jsonb, now())`,
       [failedJobId, baseId, JSON.stringify({ type: 'wiki_generate', baseId, pageId: page.id })],
     );
-    const afterFailure = await inject(app, {
+    const afterFailure = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -982,20 +984,20 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('publish 只接受属于该页的版本，并切到该版本', async () => {
     const page = await createPage();
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# 第一版' },
     });
     expect(first.statusCode, first.body).toBe(200);
-    const firstDetail = await inject(app, {
+    const firstDetail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
     });
     const firstVersionId = firstDetail.json<{ versions: Array<{ id: string }> }>().versions[0]?.id;
-    await inject(app, {
+    await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -1008,7 +1010,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       generatedBy: 'manual',
     });
 
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -1017,7 +1019,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(publish.statusCode, publish.body).toBe(200);
     expect(publish.json()).toMatchObject({ status: 'published', currentVersionId: draft?.id });
 
-    const back = await inject(app, {
+    const back = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -1029,27 +1031,27 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('expectedVersion 不一致时 409，不静默覆盖别人的发布', async () => {
     const page = await createPage();
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# 第一版' },
     });
     expect(first.statusCode, first.body).toBe(200);
-    const firstDetail = await inject(app, {
+    const firstDetail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
     });
     const staleVersionId = firstDetail.json<{ versions: Array<{ id: string }> }>().versions[0]?.id;
-    await inject(app, {
+    await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# 第二版' },
     });
 
-    const conflict = await inject(app, {
+    const conflict = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -1058,7 +1060,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(conflict.statusCode, conflict.body).toBe(409);
     expect(conflict.json<{ code: string }>().code).toBe('CONFLICT_STALE');
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -1068,26 +1070,26 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('正文冲突时标题不被单独写入：结构与正文同事务', async () => {
     const page = await createPage('原标题');
-    await inject(app, {
+    await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# 第一版' },
     });
-    const firstDetail = await inject(app, {
+    const firstDetail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
     });
     const staleVersionId = firstDetail.json<{ versions: Array<{ id: string }> }>().versions[0]?.id;
-    await inject(app, {
+    await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
       payload: { markdown: '# 第二版' },
     });
 
-    const conflict = await inject(app, {
+    const conflict = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -1096,7 +1098,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(conflict.statusCode, conflict.body).toBe(409);
     expect(conflict.json<{ code: string }>().code).toBe('CONFLICT_STALE');
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -1117,7 +1119,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       `child-${Math.random().toString(36).slice(2, 8)}`,
       '子页',
     );
-    const moveChild = await inject(app, {
+    const moveChild = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${child}`,
       headers: { cookie },
@@ -1125,7 +1127,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(moveChild.statusCode, moveChild.body).toBe(200);
 
-    const cycle = await inject(app, {
+    const cycle = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${parent.id}`,
       headers: { cookie },
@@ -1134,7 +1136,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(cycle.statusCode, cycle.body).toBe(400);
     expect(cycle.json<{ code: string }>().code).toBe('INVALID_INPUT');
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${parent.id}`,
       headers: { cookie },
@@ -1152,12 +1154,12 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const documentId = `kdoc_wiki${Math.random().toString(36).slice(2, 10)}`;
     const versionId = `kdv_wiki${Math.random().toString(36).slice(2, 10)}`;
     const chunkId = `kchk_wiki${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents (id, base_id, title, source_type, mime_type, status)
        values ($1, $2, '来源文档', 'upload', 'text/markdown', 'disabled')`,
       [documentId, baseId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id)
@@ -1165,7 +1167,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
                (select embedding_profile_id from knowledge_bases where id = $4))`,
       [versionId, documentId, 'b'.repeat(64), baseId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text)
        values ($1, $2, $3, $4, 0, 'text', '正文', '正文')`,
@@ -1179,7 +1181,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(draft).not.toBeNull();
 
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -1187,7 +1189,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(publish.statusCode, publish.body).toBe(409);
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
@@ -1276,7 +1278,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const v2 = await addSourceVersion(documentId, 2);
     expect(v2.chunkId).not.toBe(v1.chunkId);
 
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -1294,7 +1296,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       documentId,
       ...v2,
     });
-    const retry = await inject(app, {
+    const retry = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -1368,13 +1370,13 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
         });
         expect(
           (
-            await app.pool.query('select 1 from knowledge_wiki_sources where page_id = $1', [
+            await app.client.unsafe('select 1 from knowledge_wiki_sources where page_id = $1', [
               page.id,
             ])
-          ).rows,
+          ),
         ).toEqual([]);
 
-        const publish = await inject(app, {
+        const publish = await request(app, {
           method: 'POST',
           url: `/api/knowledge/wiki-pages/${page.id}/publish`,
           headers: { cookie },
@@ -1415,7 +1417,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       generatedBy: 'manual',
     });
     expect(saved).not.toBeNull();
-    const publish = await inject(app, {
+    const publish = await request(app, {
       method: 'POST',
       url: `/api/knowledge/wiki-pages/${page.id}/publish`,
       headers: { cookie },
@@ -1426,16 +1428,16 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       status: 'published',
       currentVersionId: saved?.id,
     });
-    const sources = await app.pool.query<{ chunk_id: string }>(
+    const sources = await app.client.unsafe<{ chunk_id: string }[]>(
       'select chunk_id from knowledge_wiki_sources where page_id = $1 order by chunk_id',
       [page.id],
     );
-    expect(sources.rows.map((row) => row.chunk_id)).toEqual([...usable].sort());
+    expect(sources.map((row) => row.chunk_id)).toEqual([...usable].sort());
   });
 
   it('目录 parent/position 落库，拒绝跨库与循环', async () => {
     const parent = await createPage('目录父页');
-    const childRes = await inject(app, {
+    const childRes = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/wiki-pages`,
       headers: { cookie },
@@ -1450,7 +1452,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const child = childRes.json<{ id: string; parentId: string; position: number }>();
     expect(child).toMatchObject({ parentId: parent.id, position: 3 });
 
-    const cycle = await inject(app, {
+    const cycle = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${parent.id}`,
       headers: { cookie },
@@ -1460,7 +1462,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(cycle.json<{ code: string }>().code).toBe('INVALID_INPUT');
 
     const foreignParent = await createWikiPageInBase(otherBaseId, 'foreign-parent', '外库目录');
-    const rejected = await inject(app, {
+    const rejected = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${child.id}`,
       headers: { cookie },
@@ -1480,7 +1482,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       '```',
       '坏链接 [[missing-page]]',
     ].join('\n');
-    const save = await inject(app, {
+    const save = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/wiki-pages/${source}`,
       headers: { cookie },
@@ -1488,7 +1490,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(save.statusCode, save.body).toBe(200);
 
-    const links = await inject(app, {
+    const links = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${source}/links`,
       headers: { cookie },
@@ -1503,7 +1505,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       incoming: [],
     });
 
-    const incoming = await inject(app, {
+    const incoming = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${target}/links`,
       headers: { cookie },
@@ -1533,7 +1535,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}/diff?fromVersionId=${first?.id}&toVersionId=${second?.id}`,
       headers: { cookie },
@@ -1548,7 +1550,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       removedSourceChunkIds: [chunk.chunkId],
     });
 
-    const reverse = await inject(app, {
+    const reverse = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}/diff?fromVersionId=${second?.id}&toVersionId=${first?.id}`,
       headers: { cookie },
@@ -1561,7 +1563,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
 
     const other = await createPage();
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${other.id}/diff?fromVersionId=${first?.id}&toVersionId=${second?.id}`,
       headers: { cookie },

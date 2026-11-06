@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
@@ -10,10 +10,10 @@ const isolated = await createIsolatedDatabase(
   'db_knowledge_lifecycle',
   process.env.DATABASE_URL ?? '',
 );
-const { db, pool } = createDb(
+const { db, client } = createDb(
   isolated?.url ?? process.env.DATABASE_URL ?? 'postgres://unreachable@127.0.0.1:1/unavailable',
 );
-const ready = await pool.query('select 1').then(
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -62,27 +62,35 @@ async function injectFailure(
   else if (kind === 'source_cursor')
     condition = `new.id = '${sourceId}' and new.cursor is distinct from old.cursor`;
   else condition = `new.id = '${sourceId}'`;
-  await pool.query(
+  await client.unsafe(
     `create function ${name}() returns trigger language plpgsql as $$ begin raise exception 'injected ${kind} failure'; end $$`,
   );
-  await pool.query(
+  await client.unsafe(
     `create trigger ${name}_trg before ${event} on ${table} for each row when (${condition}) execute function ${name}()`,
   );
   cleanups.push(async () => {
-    await pool.query(`drop trigger if exists ${name}_trg on ${table}`);
-    await pool.query(`drop function if exists ${name}()`);
+    await client.unsafe(`drop trigger if exists ${name}_trg on ${table}`);
+    await client.unsafe(`drop function if exists ${name}()`);
   });
 }
 
 async function expectInjectedFailure(promise: Promise<unknown>, marker: string): Promise<void> {
-  await expect(promise).rejects.toSatisfy((error: unknown) => {
-    let current = error as { message?: string; cause?: unknown } | undefined;
-    for (let depth = 0; depth < 5 && current; depth += 1) {
-      if (String(current.message ?? '').includes(marker)) return true;
-      current = current.cause as { message?: string; cause?: unknown } | undefined;
+  let error: unknown;
+  try {
+    await promise;
+  } catch (caught) {
+    error = caught;
+  }
+  let current = error as { message?: string; cause?: unknown } | undefined;
+  let matched = false;
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    if (String(current.message ?? '').includes(marker)) {
+      matched = true;
+      break;
     }
-    return false;
-  });
+    current = current.cause as { message?: string; cause?: unknown } | undefined;
+  }
+  expect(matched).toBe(true);
 }
 
 async function rowsOf(source: string) {
@@ -101,16 +109,16 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     serverId = `srv_life_${suffix()}`;
     profileId = `kmp_life_${suffix()}`;
     baseId = `kbase_life_${suffix()}`;
-    await pool.query(
+    await client.unsafe(
       `insert into servers (id, name, kind, config) values ($1, $2, 'knowledge', '{}')`,
       [serverId, `life-${suffix()}`],
     );
-    await pool.query(
+    await client.unsafe(
       `insert into knowledge_model_profiles (id, kind, name, endpoint_url, model, dimensions, enabled)
        values ($1, 'embedding', $2, 'http://127.0.0.1:1', 'test', 1024, true)`,
       [profileId, `life-${suffix()}`],
     );
-    await pool.query(
+    await client.unsafe(
       `insert into knowledge_bases (id, slug, name, description, server_id, embedding_profile_id, settings)
        values ($1, $2, 'life', '', $3, $4, '{"chunkTokens":400,"chunkOverlap":40,"wikiAutoUpdate":false}')`,
       [baseId, `life-${suffix()}`, serverId, profileId],
@@ -123,14 +131,14 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
 
   afterEach(async () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
-    await pool.query('delete from knowledge_sources where id = $1', [sourceId]);
+    await client.unsafe('delete from knowledge_sources where id = $1', [sourceId]);
   });
 
   afterAll(async () => {
-    await pool.query('delete from knowledge_bases where id = $1', [baseId]);
-    await pool.query('delete from knowledge_model_profiles where id = $1', [profileId]);
-    await pool.query('delete from servers where id = $1', [serverId]);
-    await pool.end();
+    await client.unsafe('delete from knowledge_bases where id = $1', [baseId]);
+    await client.unsafe('delete from knowledge_model_profiles where id = $1', [profileId]);
+    await client.unsafe('delete from servers where id = $1', [serverId]);
+    await client.close();
     await isolated?.close();
   });
 
@@ -166,7 +174,7 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
 
     const createdOther = await knowledge.createSyncJob(db, other);
     expect(createdOther.status).toBe('created');
-    await pool.query('delete from knowledge_sources where id = $1', [other]);
+    await client.unsafe('delete from knowledge_sources where id = $1', [other]);
   });
 
   it('claims the job and moves its queued run to running in the same transaction', async () => {
@@ -386,7 +394,7 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     );
     expect((await rowsOf(sourceId)).job?.status).toBe('running');
 
-    await pool.query('delete from knowledge_sync_runs where id = $1', [pair.run.id]);
+    await client.unsafe('delete from knowledge_sync_runs where id = $1', [pair.run.id]);
     await expect(
       knowledge.finishJob(db, pair.job.id, { status: 'failed', error: 'lost' }),
     ).rejects.toThrow('sync run');
@@ -398,9 +406,9 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     await knowledge.claimJob(db, pair.job.id);
     const other = await makeSource();
     cleanups.push(async () => {
-      await pool.query('delete from knowledge_sources where id = $1', [other]);
+      await client.unsafe('delete from knowledge_sources where id = $1', [other]);
     });
-    await pool.query('update knowledge_sync_runs set source_id = $1 where id = $2', [
+    await client.unsafe('update knowledge_sync_runs set source_id = $1 where id = $2', [
       other,
       pair.run.id,
     ]);
@@ -412,15 +420,15 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     expect(rows.job?.status).toBe('running');
     expect(rows.source).toMatchObject({ cursor: {}, lastSyncStatus: null });
     const [mismatched] = (
-      await pool.query<{ status: string; source_id: string }>(
+      await client.unsafe<{ status: string; source_id: string }[]>(
         'select status, source_id from knowledge_sync_runs where id = $1',
         [pair.run.id],
       )
-    ).rows;
+    );
     expect(mismatched).toMatchObject({ status: 'running', source_id: other });
 
     // 恢复关联后同一终态提交可以成功，证明错配只回滚本次事务。
-    await pool.query('update knowledge_sync_runs set source_id = $1 where id = $2', [
+    await client.unsafe('update knowledge_sync_runs set source_id = $1 where id = $2', [
       sourceId,
       pair.run.id,
     ]);
@@ -438,12 +446,12 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     await knowledge.claimJob(db, pair.job.id);
     const startedAt = (await rowsOf(sourceId)).run?.startedAt?.getTime();
     expect(typeof startedAt).toBe('number');
-    await pool.query('update knowledge_sync_runs set cursor_after = $1::jsonb where id = $2', [
+    await client.unsafe('update knowledge_sync_runs set cursor_after = $1::jsonb where id = $2', [
       JSON.stringify({ page: 1 }),
       pair.run.id,
     ]);
     // 与队列 resetToQueued 一致：可重试失败只把 job 退回 queued，不改 run 与检查点。
-    await pool.query("update knowledge_jobs set status = 'queued' where id = $1", [pair.job.id]);
+    await client.unsafe("update knowledge_jobs set status = 'queued' where id = $1", [pair.job.id]);
 
     const reclaimed = await knowledge.claimJob(db, pair.job.id);
     expect(reclaimed).toMatchObject({ status: 'running', attempts: 2 });
@@ -458,7 +466,7 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     await knowledge.claimJob(db, pair.job.id);
     await knowledge.finishJob(db, pair.job.id, { status: 'cancelled', error: 'cancelled' });
     // 人为把 job 退回 queued：认领必须拒绝复活终态 run，并回滚 job 状态。
-    await pool.query("update knowledge_jobs set status = 'queued' where id = $1", [pair.job.id]);
+    await client.unsafe("update knowledge_jobs set status = 'queued' where id = $1", [pair.job.id]);
 
     await expect(knowledge.claimJob(db, pair.job.id)).rejects.toThrow('not active');
     const rows = await rowsOf(sourceId);

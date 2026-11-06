@@ -4,6 +4,7 @@ import {
   type KnowledgeJob,
   type KnowledgeSourceInput,
   knowledgeAudioMetadataSchema,
+  knowledgeDocumentStatusSchema,
 } from '@agentport/shared';
 import { type Query, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
@@ -599,7 +600,15 @@ function DocumentsTab({
   const [query, setQuery] = useState('');
   // 每个字符都换无限查询键会把列表打爆：输入即时回显，停 300ms 再订阅。
   const settledQuery = useDebouncedValue(query.trim(), 300);
-  const [status, setStatus] = useState('all');
+  const [status, setStatus] = useState<'all' | KnowledgeDocument['status']>('all');
+  const applyStatus = (next: string): void => {
+    if (next === 'all') {
+      setStatus('all');
+      return;
+    }
+    const parsed = knowledgeDocumentStatusSchema.safeParse(next);
+    if (parsed.success) setStatus(parsed.data);
+  };
   const [tag, setTag] = useState('all');
   const folders = useKnowledgeFolders(baseId);
   const tags = useKnowledgeTags(baseId);
@@ -840,7 +849,7 @@ function DocumentsTab({
             <FilterSelect
               label="按状态筛选"
               value={status}
-              onValueChange={setStatus}
+              onValueChange={applyStatus}
               options={[
                 { value: 'all', label: '全部状态' },
                 ...Object.entries(documentStatusLabel).map(([value, label]) => ({ value, label })),
@@ -1529,9 +1538,12 @@ function DocumentDialog({
     tags: document.tags.join(', '),
     status: document.status === 'disabled' ? ('disabled' as const) : ('ready' as const),
   }));
-  const { register, control, handleSubmit, watch, formState } = useZodForm(documentPropertiesSchema, {
-    defaultValues: initial,
-  });
+  const { register, control, handleSubmit, watch, formState } = useZodForm(
+    documentPropertiesSchema,
+    {
+      defaultValues: initial,
+    },
+  );
   const { isDirty } = formState;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pending = update.isPending;
@@ -2486,9 +2498,12 @@ function ManualDocumentDialog({
   const create = useCreateKnowledgeManualDocument(baseId);
   const initialTarget = folderId ?? 'null';
   const pending = create.isPending;
-  const { register, control, handleSubmit, watch, formState } = useZodForm(manualDocumentFormSchema, {
-    defaultValues: { title: '', content: '', tags: '', target: initialTarget },
-  });
+  const { register, control, handleSubmit, watch, formState } = useZodForm(
+    manualDocumentFormSchema,
+    {
+      defaultValues: { title: '', content: '', tags: '', target: initialTarget },
+    },
+  );
   const { isDirty } = formState;
   const invalid = watch('title').trim() === '' || watch('content').trim() === '';
   const dirty = isDirty;
@@ -3388,9 +3403,7 @@ function RangeRows({
               aria-label={`启用范围 ${index + 1}`}
               onCheckedChange={(checked) => patch(index, { enabled: checked })}
             />
-            <span className="text-xs text-muted-foreground">
-              {range.enabled ? '启用' : '停用'}
-            </span>
+            <span className="text-xs text-muted-foreground">{range.enabled ? '启用' : '停用'}</span>
             <Button
               type="button"
               variant="ghost"

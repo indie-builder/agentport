@@ -1,13 +1,13 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import { getRunDetail } from '../src/repo/runs.js';
 import { agentRuns, agents, conversations } from '../src/schema.js';
 
 const url = process.env.DATABASE_URL ?? 'postgres://unreachable@127.0.0.1:1/unavailable';
-const { db, pool } = createDb(url);
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(url);
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -61,7 +61,7 @@ describe.skipIf(!ready)('run detail runtime environment identity', () => {
     await db.delete(agentRuns).where(eq(agentRuns.conversationId, conversationId));
     await db.delete(conversations).where(eq(conversations.id, conversationId));
     await db.delete(agents).where(eq(agents.id, agentId));
-    await pool.end();
+    await client.close();
   });
 
   it('returns the stored identity as one environment object', async () => {

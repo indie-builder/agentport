@@ -1,20 +1,20 @@
 import type { Agent, Skill, WorkspaceFiles } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('subagent skill resources in workspace previews', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const skillSlugs: string[] = [];
@@ -32,7 +32,7 @@ describe.skipIf(!ready)('subagent skill resources in workspace previews', () => 
   it('includes child-only resources while enabled and retains resources with a root binding', async () => {
     const slug = unique('child-resource');
     skillSlugs.push(slug);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: { cookie },
@@ -46,7 +46,7 @@ describe.skipIf(!ready)('subagent skill resources in workspace previews', () => 
     expect(created.statusCode, created.body).toBe(201);
     const skill = created.json<Skill>();
     const resource = { path: 'references/api.md', content: '# API reference\r\nGET /widgets\r\n' };
-    const written = await inject(app, {
+    const written = await request(app, {
       method: 'PUT',
       url: `/api/skills/${skill.id}/files/${resource.path}`,
       headers: { cookie },
@@ -65,7 +65,7 @@ describe.skipIf(!ready)('subagent skill resources in workspace previews', () => 
       })
     ).json<Agent>();
     const preview = async () => {
-      const response = await inject(app, {
+      const response = await request(app, {
         method: 'GET',
         url: `/api/agents/${parent.id}/files`,
         headers: { cookie },
@@ -98,7 +98,7 @@ describe.skipIf(!ready)('subagent skill resources in workspace previews', () => 
     expect(files.claudeMd).not.toContain(`\`${slug}\``);
 
     // 根和子同时绑定时只渲染一份；根绑定不能因子智能体停用而丢失资源。
-    const bound = await inject(app, {
+    const bound = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${parent.id}`,
       headers: { cookie },
@@ -107,7 +107,7 @@ describe.skipIf(!ready)('subagent skill resources in workspace previews', () => 
     expect(bound.statusCode, bound.body).toBe(200);
     expect((await preview()).skills).toEqual(files.skills);
 
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${child.id}`,
       headers: { cookie },
@@ -118,7 +118,7 @@ describe.skipIf(!ready)('subagent skill resources in workspace previews', () => 
     expect(rootOnly.skills).toEqual(files.skills);
     expect(rootOnly.subAgents).toEqual([]);
 
-    const unbound = await inject(app, {
+    const unbound = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${parent.id}`,
       headers: { cookie },

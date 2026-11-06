@@ -1,9 +1,9 @@
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -94,7 +94,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
     if (serverIds.length > 0) {
       await db.delete(schema.servers).where(inArray(schema.servers.id, serverIds));
     }
-    await pool.end();
+    await client.close();
   });
 
   it('includes http and generated tools, excludes stdio', async () => {

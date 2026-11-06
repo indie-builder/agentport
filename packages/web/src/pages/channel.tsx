@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { AgentAvatar } from '../components/agent-avatar.js';
+import { AgentAvatar, type AgentDisplay } from '../components/agent-avatar.js';
 import { AgentPicker } from '../components/agent-picker.js';
 import { Page, PageHeader, PageNote } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
@@ -528,9 +528,7 @@ function ChannelAgentHeader({
   agent,
   agentId,
 }: {
-  agent:
-    | { name: string; description: string; role?: string | null; slug?: string | null }
-    | undefined;
+  agent: AgentDisplay | undefined;
   agentId: string;
 }) {
   return (

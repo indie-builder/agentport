@@ -7,15 +7,8 @@ import type {
   KnowledgeFaqTransferEntry,
   KnowledgeJobPayload,
 } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  type FastifyInstance,
-  infraReady,
-  inject,
-  loginCookie,
-  startApp,
-  unique,
-} from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -64,7 +57,7 @@ interface ImportResult {
 }
 
 describe.skipIf(!ready)('knowledge FAQ job retry', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   const baseIds: string[] = [];
@@ -78,19 +71,18 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
   });
 
   async function createBase(): Promise<string> {
-    const profile = await inject(app, {
+    const profile = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -105,7 +97,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     const profileId = profile.json<{ id: string }>().id;
     profileIds.push(profileId);
 
-    const base = await inject(app, {
+    const base = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -118,7 +110,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
   }
 
   async function createFaq(baseId: string, payload: KnowledgeFaq = faq) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs`,
       headers: { cookie },
@@ -129,7 +121,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
   }
 
   async function detail(documentId: string): Promise<FaqDetail> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -156,7 +148,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
   async function completeJob(jobId: string, documentId: string, versionId: string) {
     const claimed = await repo.knowledge.claimJob(app.db, jobId);
     if (!claimed) throw new Error(`job ${jobId} is not queued`);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text, metadata)
        values ($1, $2, $3, $4, 0, 'text', $5, $5, '{}'::jsonb)`,
@@ -167,7 +159,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
   }
 
   async function retry(jobId: string) {
-    return inject(app, {
+    return request(app, {
       method: 'POST',
       url: `/api/knowledge/jobs/${jobId}/retry`,
       headers: { cookie },
@@ -175,7 +167,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
   }
 
   async function publish(documentId: string, versionId: string, expectedVersionId: string | null) {
-    return inject(app, {
+    return request(app, {
       method: 'POST',
       url: `/api/knowledge/faqs/${documentId}/publish`,
       headers: { cookie },
@@ -195,7 +187,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     await settleJob(jobId, 'failed');
     expect((await publish(documentId, versionId, null)).statusCode).toBe(409);
 
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_document_versions
          set metadata = metadata || '{"retryMarker":"keep"}'::jsonb
        where id = $1`,
@@ -232,7 +224,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     const versionId = (await detail(documentId)).draftVersion?.id;
     if (!versionId) throw new Error('FAQ draft missing');
 
-    const cancelled = await inject(app, {
+    const cancelled = await request(app, {
       method: 'POST',
       url: `/api/knowledge/jobs/${jobId}/cancel`,
       headers: { cookie },
@@ -262,7 +254,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     expect(firstPublish.statusCode, firstPublish.body).toBe(200);
     const publishedMetadata = (await repo.knowledge.getVersion(app.db, firstDraft))?.metadata;
 
-    const updated = await inject(app, {
+    const updated = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/faqs/${documentId}`,
       headers: { cookie },
@@ -292,7 +284,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
 
   it('retries failed and cancelled FAQ import drafts and persists the new job id', async () => {
     const baseId = await createBase();
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
       headers: { cookie },
@@ -329,7 +321,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     expect(importPayload).toMatchObject({ type: 'ingest', versionId: failedVersionId });
 
     // 其它 metadata 不能被重试覆盖。
-    await app.pool.query(
+    await app.client.unsafe(
       `update knowledge_document_versions
          set metadata = metadata || '{"retryMarker":"keep"}'::jsonb
        where id = $1`,
@@ -337,7 +329,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     );
 
     await settleJob(failedEntry.jobId, 'failed');
-    const cancelled = await inject(app, {
+    const cancelled = await request(app, {
       method: 'POST',
       url: `/api/knowledge/jobs/${cancelledEntry.jobId}/cancel`,
       headers: { cookie },
@@ -389,7 +381,7 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
       ],
     };
     const publishBatch = () =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/faqs/batch`,
         headers: { cookie },

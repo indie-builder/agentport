@@ -1,16 +1,16 @@
 import type { Agent } from '@agentport/shared';
 import { judge } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getEvalQueue } from '../src/queue/producer.js';
 import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
   queueIdle,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -34,7 +34,7 @@ describe('judge', () => {
 });
 
 describe.skipIf(!ready)('eval routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -58,7 +58,7 @@ describe.skipIf(!ready)('eval routes', () => {
 
   it('POST /api/eval/runs returns 202 and enqueues the job', async () => {
     const agent = await newAgent();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/eval/cases',
       headers: { cookie },
@@ -66,7 +66,7 @@ describe.skipIf(!ready)('eval routes', () => {
     });
     expect(created.statusCode).toBe(201);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/eval/runs',
       headers: { cookie },

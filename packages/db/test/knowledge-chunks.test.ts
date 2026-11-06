@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -15,17 +15,17 @@ let profileId = '';
 let baseId = '';
 
 afterEach(async () => {
-  if (baseId) await pool.query('delete from knowledge_bases where id = $1', [baseId]);
+  if (baseId) await client.unsafe('delete from knowledge_bases where id = $1', [baseId]);
   if (profileId)
-    await pool.query('delete from knowledge_model_profiles where id = $1', [profileId]);
-  if (serverId) await pool.query('delete from servers where id = $1', [serverId]);
+    await client.unsafe('delete from knowledge_model_profiles where id = $1', [profileId]);
+  if (serverId) await client.unsafe('delete from servers where id = $1', [serverId]);
   baseId = '';
   profileId = '';
   serverId = '';
 });
 
 afterAll(async () => {
-  await pool.end();
+  await client.close();
 });
 
 async function seedVersion() {
@@ -169,8 +169,8 @@ describe.skipIf(!ready)('knowledge chunk summaries', () => {
     const { chunk, versionId } = await seedChunk('令牌 轮换');
     const role = `kchk_reader_${randomBytes(4).toString('hex')}`;
     const readerPassword = 'test-reader-password';
-    await pool.query(`create role ${role} login password '${readerPassword}'`);
-    await pool.query(
+    await client.unsafe(`create role ${role} login password '${readerPassword}'`);
+    await client.unsafe(
       `grant select (id, document_id, version_id, ordinal, parent_ordinal, index_role, kind,
          heading, content, enabled, edited_by_user, page_from, page_to, locator, token_count,
          metadata)
@@ -203,9 +203,9 @@ describe.skipIf(!ready)('knowledge chunk summaries', () => {
       });
       expect(page.items[0]).not.toHaveProperty('embedding');
     } finally {
-      await reader.pool.end();
-      await pool.query(`drop owned by ${role}`);
-      await pool.query(`drop role if exists ${role}`);
+      await reader.client.close();
+      await client.unsafe(`drop owned by ${role}`);
+      await client.unsafe(`drop role if exists ${role}`);
     }
   });
 });

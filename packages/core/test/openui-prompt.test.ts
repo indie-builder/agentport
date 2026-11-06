@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { openuiSystemPrompt } from '../src/openui-prompt.js';
 import { renderWorkspace } from '../src/workspace.js';
 import { toWorkspaceInput, type WorkspaceAgentRow } from '../src/workspace-input.js';

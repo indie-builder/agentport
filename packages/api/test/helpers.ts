@@ -16,12 +16,128 @@ import {
   runEventsConnectionName,
   type Server,
 } from '@agentport/shared';
-import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { Redis } from 'ioredis';
-import { expect } from 'vitest';
+import { expect } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { type Config, loadConfig } from '../src/config.js';
-import { AUTH_COOKIE, BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/features/auth/types.js';
+import { AUTH_COOKIE, BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/modules/auth/types.js';
+import type { AppRuntime } from '../src/types.js';
+
+export type TestApp = AppRuntime;
+
+export interface TestRequest {
+  method?: string;
+  url: string;
+  headers?: Record<string, string>;
+  payload?: unknown;
+  cookies?: Record<string, string>;
+  query?: Record<string, string | number | boolean | undefined>;
+}
+
+export interface ResponseCookie {
+  name: string;
+  value: string;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite?: string;
+  path?: string;
+  maxAge?: number;
+}
+
+export interface TestResponse {
+  statusCode: number;
+  status: number;
+  body: string;
+  rawPayload: Buffer;
+  headers: Headers;
+  cookies: ResponseCookie[];
+  json<T = unknown>(): T;
+}
+
+function parseSetCookie(lines: string[]): ResponseCookie[] {
+  return lines.map((line) => {
+    const [pair, ...attrs] = line.split(';').map((part) => part.trim());
+    const [name, ...rest] = (pair ?? '').split('=');
+    const attribute = (key: string): string | undefined =>
+      attrs.find((entry) => entry.toLowerCase().startsWith(`${key}=`))?.split('=')[1];
+    const maxAge = attribute('max-age');
+    const cookie: ResponseCookie = {
+      name: name ?? '',
+      value: rest.join('='),
+      httpOnly: attrs.some((entry) => entry.toLowerCase() === 'httponly'),
+      secure: attrs.some((entry) => entry.toLowerCase() === 'secure'),
+    };
+    const sameSite = attribute('samesite');
+    const path = attribute('path');
+    if (sameSite !== undefined) cookie.sameSite = sameSite;
+    if (path !== undefined) cookie.path = path;
+    if (maxAge !== undefined) cookie.maxAge = Number(maxAge);
+    return cookie;
+  });
+}
+
+/** 统一的测试请求入口：构造真实 Web Request，交给 Hono app.request，响应缓冲成可断言形状。 */
+export async function request(app: TestApp, opts: TestRequest): Promise<TestResponse> {
+  const url = new URL(opts.url, 'http://localhost');
+  for (const [key, value] of Object.entries(opts.query ?? {})) {
+    if (value !== undefined) url.searchParams.set(key, String(value));
+  }
+  const headers = new Headers(opts.headers);
+  if (opts.cookies !== undefined) {
+    headers.set(
+      'cookie',
+      Object.entries(opts.cookies)
+        .map(([name, value]) => `${name}=${value}`)
+        .join('; '),
+    );
+  }
+  let body: BodyInit | undefined;
+  if (typeof opts.payload === 'string') {
+    body = opts.payload;
+  } else if (opts.payload instanceof Uint8Array) {
+    body = opts.payload;
+    if (!headers.has('content-type')) headers.set('content-type', 'application/zip');
+  } else if (opts.payload !== undefined) {
+    body = JSON.stringify(opts.payload);
+    headers.set('content-type', 'application/json');
+  }
+  const response = await app.app.request(
+    new Request(url, {
+      method: opts.method ?? (body === undefined ? 'GET' : 'POST'),
+      headers,
+      body,
+    }),
+  );
+  const rawPayload = Buffer.from(await response.arrayBuffer());
+  const text = rawPayload.toString('utf8');
+  return {
+    statusCode: response.status,
+    status: response.status,
+    body: text,
+    rawPayload,
+    headers: response.headers,
+    cookies: parseSetCookie(response.headers.getSetCookie()),
+    json<T = unknown>(): T {
+      return JSON.parse(text) as T;
+    },
+  };
+}
+
+/** ZIP 导出/导入是二进制接口：直接发字节并声明 application/zip。 */
+export function requestZip(
+  app: TestApp,
+  method: 'GET' | 'POST',
+  url: string,
+  cookie: string,
+  payload?: Buffer,
+): Promise<TestResponse> {
+  return request(app, {
+    method,
+    url,
+    headers: payload === undefined ? { cookie } : { cookie, 'content-type': 'application/zip' },
+    ...(payload === undefined ? {} : { payload }),
+  });
+}
 
 /** 默认管理员账户的稳定业务 ID；直接落库的测试夹具用工位一致的主体。 */
 export const ADMIN_BUSINESS_ID = BOOTSTRAP_ADMIN_BUSINESS_ID;
@@ -29,26 +145,6 @@ export const ADMIN_BUSINESS_ID = BOOTSTRAP_ADMIN_BUSINESS_ID;
 // 每个测试文件独立后缀：并行执行时名称不会互相冲突，也不需要全局清理。
 const SUFFIX = randomBytes(4).toString('hex');
 let counter = 0;
-
-export function inject(app: FastifyInstance, opts: InjectOptions): Promise<LightMyRequestResponse> {
-  return app.inject(opts);
-}
-
-/** ZIP 导出/导入是二进制接口：直接发字节并声明 application/zip。 */
-export function injectZip(
-  app: FastifyInstance,
-  method: 'GET' | 'POST',
-  url: string,
-  cookie: string,
-  payload?: Buffer,
-): Promise<LightMyRequestResponse> {
-  return app.inject({
-    method,
-    url,
-    headers: payload === undefined ? { cookie } : { cookie, 'content-type': 'application/zip' },
-    ...(payload === undefined ? {} : { payload }),
-  });
-}
 
 /** 合法 slug/name：小写字母、数字、- 和 _。 */
 export function unique(prefix: string): string {
@@ -65,20 +161,20 @@ export function testConfig(overrides: Partial<Record<string, string>> = {}): Con
 
 /** Postgres 与 Redis 都可用才跑集成测试；否则整个 describe 跳过。 */
 async function probeInfra(config: Config): Promise<boolean> {
-  const { pool } = createDb(config.DATABASE_URL);
+  const { client } = createDb(config.DATABASE_URL);
   const redis = new Redis(config.REDIS_URL, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     retryStrategy: () => null,
   });
   try {
-    await pool.query('select 1');
+    await client.unsafe('select 1');
     await redis.connect();
     return (await redis.ping()) === 'PONG';
   } catch {
     return false;
   } finally {
-    await pool.end().catch(() => undefined);
+    await client.close().catch(() => undefined);
     await redis.quit().catch(() => undefined);
   }
 }
@@ -114,27 +210,18 @@ export const infraReady: Promise<boolean> = probeInfra(testConfig());
 
 export const queueIdle: Promise<boolean> = probeQueueIdle(testConfig().REDIS_URL);
 
-export async function startApp(
-  overrides: Partial<Record<string, string>> = {},
-): Promise<FastifyInstance> {
-  const app = await buildApp(testConfig(overrides));
-  // 让 cookie/jwt 等插件在第一个 inject 前完成 boot。
-  await app.ready();
-  return app;
+export async function startApp(overrides: Partial<Record<string, string>> = {}): Promise<TestApp> {
+  return buildApp(testConfig(overrides));
 }
 
-export async function loginCookie(app: FastifyInstance): Promise<string> {
+export async function loginCookie(app: TestApp): Promise<string> {
   const config = testConfig();
   return loginAs(app, config.ADMIN_USER, config.ADMIN_PASSWORD);
 }
 
 /** 用任意账户登录；返回可直接放进 headers.cookie 的 Cookie 头。 */
-export async function loginAs(
-  app: FastifyInstance,
-  username: string,
-  password: string,
-): Promise<string> {
-  const res = await inject(app, {
+export async function loginAs(app: TestApp, username: string, password: string): Promise<string> {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/auth/login',
     payload: { username, password },
@@ -149,11 +236,11 @@ export async function loginAs(
 
 /** 默认角色 id：按 systemKey 从当前矩阵读取，测试不硬编码角色 ID。 */
 export async function roleIds(
-  app: FastifyInstance,
+  app: TestApp,
   adminCookie: string,
   systemKeys: ReadonlyArray<NonNullable<Role['systemKey']>>,
 ): Promise<string[]> {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'GET',
     url: '/api/roles',
     headers: { cookie: adminCookie },
@@ -188,7 +275,7 @@ export interface TestAccount {
  * 返回的 cookie 可直接用于业务路由。
  */
 export async function createTestAccount(
-  app: FastifyInstance,
+  app: TestApp,
   adminCookie: string,
   options: TestAccountOptions = {},
 ): Promise<TestAccount> {
@@ -199,7 +286,7 @@ export async function createTestAccount(
     options.systemKeys === undefined
       ? undefined
       : await roleIds(app, adminCookie, options.systemKeys);
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/accounts',
     headers: { cookie: adminCookie },
@@ -224,13 +311,13 @@ export async function createTestAccount(
 
 /** 负责人给自己负责的专家加成员；canUse/canMaintain 至少一个为 true。 */
 export async function setAgentMember(
-  app: FastifyInstance,
+  app: TestApp,
   cookie: string,
   agentId: string,
   businessId: string,
   input: { canUse: boolean; canMaintain: boolean },
 ): Promise<void> {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'PUT',
     url: `/api/agents/${agentId}/members/${encodeURIComponent(businessId)}`,
     headers: { cookie },
@@ -251,13 +338,13 @@ interface CreateAgentOptions {
 }
 
 export async function createAgent(
-  app: FastifyInstance,
+  app: TestApp,
   cookie: string,
   options: CreateAgentOptions = {},
-): Promise<LightMyRequestResponse> {
+): Promise<TestResponse> {
   const slug = options.slug ?? unique('agent');
   options.track?.push(slug);
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/agents',
     headers: { cookie },
@@ -276,13 +363,13 @@ export async function createAgent(
 
 /** 只有 generated server 需要工厂：测试里它是最常见的类型。 */
 export async function createServer(
-  app: FastifyInstance,
+  app: TestApp,
   cookie: string,
   options: { name?: string; baseUrl?: string; track?: string[] } = {},
 ): Promise<Server> {
   const name = options.name ?? unique('server');
   options.track?.push(name);
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/servers',
     headers: { cookie },
@@ -301,7 +388,7 @@ export async function createServer(
  * mcpTokenHash 同时写入有效期，供 per-run token 的用例使用。
  */
 export async function seedRun(
-  app: FastifyInstance,
+  app: TestApp,
   agentId: string,
   options: {
     runId?: string;
@@ -318,7 +405,7 @@ export async function seedRun(
     kind: 'user',
     businessId: BOOTSTRAP_ADMIN_BUSINESS_ID,
   };
-  await app.pool.query(
+  await app.client.unsafe(
     'insert into conversations (id, agent_id, created_by, service_id) values ($1, $2, $3, $4)',
     [
       conversationId,
@@ -327,7 +414,7 @@ export async function seedRun(
       subject.kind === 'service' ? subject.serviceId : null,
     ],
   );
-  await app.pool.query(
+  await app.client.unsafe(
     `insert into agent_runs
        (id, conversation_id, agent_id, status, subject_kind, initiated_by, service_id, mcp_token_hash, mcp_token_expires_at)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -340,14 +427,16 @@ export async function seedRun(
       subject.kind === 'user' ? subject.businessId : null,
       subject.kind === 'service' ? subject.serviceId : null,
       options.mcpTokenHash ?? null,
-      options.mcpTokenHash === undefined ? null : new Date(Date.now() + 5 * 60_000),
+      options.mcpTokenHash === undefined
+        ? null
+        : new Date(Date.now() + 5 * 60_000).toISOString(),
     ],
   );
   return { runId, conversationId };
 }
 
 /** 断言响应体是完整 Problem，且 code 与 HTTP 状态一致。 */
-export function expectProblem(res: LightMyRequestResponse, code: ErrorCode): Problem {
+export function expectProblem(res: TestResponse, code: ErrorCode): Problem {
   const body = problemSchema.parse(res.json());
   expect(res.statusCode).toBe(errorCode[code]);
   expect(body).toMatchObject({ code, status: res.statusCode });
@@ -376,7 +465,7 @@ export async function eventFollowerCount(redis: Redis, runId: string): Promise<n
 
 /** 只删本次测试创建的目标；级联会带走 tools / agent_servers / conversations。 */
 export async function cleanup(
-  app: FastifyInstance,
+  app: TestApp,
   targets: {
     serverNames?: string[];
     agentSlugs?: string[];
@@ -386,19 +475,19 @@ export async function cleanup(
 ): Promise<void> {
   const { serverNames = [], agentSlugs = [], skillSlugs = [], runIds = [] } = targets;
   if (runIds.length > 0) {
-    await app.pool.query('delete from agent_runs where id = any($1::text[])', [runIds]);
+    await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [app.client.array(runIds, 'TEXT')]);
   }
   if (agentSlugs.length > 0) {
-    await app.pool.query('delete from agents where slug = any($1::text[])', [agentSlugs]);
+    await app.client.unsafe('delete from agents where slug = any($1::text[])', [app.client.array(agentSlugs, 'TEXT')]);
   }
   if (skillSlugs.length > 0) {
-    await app.pool.query('delete from skills where slug = any($1::text[])', [skillSlugs]);
+    await app.client.unsafe('delete from skills where slug = any($1::text[])', [app.client.array(skillSlugs, 'TEXT')]);
   }
   if (serverNames.length > 0) {
-    await app.pool.query('delete from servers where name = any($1::text[])', [serverNames]);
+    await app.client.unsafe('delete from servers where name = any($1::text[])', [app.client.array(serverNames, 'TEXT')]);
   }
   const ids = [...serverNames, ...agentSlugs, ...skillSlugs, ...runIds];
   if (ids.length > 0) {
-    await app.pool.query('delete from audit_log where target = any($1::text[])', [ids]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(ids, 'TEXT')]);
   }
 }

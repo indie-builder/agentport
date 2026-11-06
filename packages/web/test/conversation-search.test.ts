@@ -35,17 +35,22 @@ describe('conversation search client', () => {
       ),
     ).resolves.toEqual(response);
 
-    const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(url).toBe(
+    const [request] = fetch.mock.calls[0] ?? [];
+    const url = new URL((request as Request).url);
+    expect(url.pathname + url.search).toBe(
       '/api/conversations/search?q=%E9%A1%B9%E7%9B%AE+%E8%BF%9B%E5%BA%A6&agentId=agt_1&limit=5&before=cursor-0',
     );
-    expect(init?.signal).toBe(controller.signal);
+    expect((request as Request).signal.aborted).toBe(false);
+    controller.abort();
+    expect((request as Request).signal.aborted).toBe(true);
   });
 
   it('omits undefined options', async () => {
     const fetch = mockFetch(Response.json({ items: [], nextBefore: null }));
     await api.searchConversations({});
-    expect(fetch.mock.calls[0]?.[0]).toBe('/api/conversations/search');
+    expect(new URL((fetch.mock.calls[0]?.[0] as Request).url).pathname).toBe(
+      '/api/conversations/search',
+    );
   });
 
   it('exposes searchConversationsOptions for the UI domain', () => {

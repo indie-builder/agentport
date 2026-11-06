@@ -2,7 +2,7 @@
 
 PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：把 HTTP API 或 MCP Server 接进来，用文件定义智能体，在隔离沙盒里运行，并观测每一次调用。
 
-产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `pnpm-lock.yaml` 为准：Node.js >=24.22.2 <25、pnpm 12.16.1、React 19.3、Vite 8.3、Fastify 5.12、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.14.0）。
+产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `bun.lock` 为准：Bun 1.4.3、Node.js >=24.22.2 <25、React 19.3、Vite 8.3、Hono 4.13、oRPC 1.16、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.14.0）。
 
 ## 能力
 
@@ -25,42 +25,42 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 
 ### 前置条件
 
-- Node.js >=24.22.2 <25（24 LTS，当前 24.22.2）
-- pnpm 12.16.1（`packageManager` 已固定）
+- Bun 1.4.3（`packageManager` 已固定，依赖与脚本都用 Bun）
+- Node.js >=24.22.2 <25（24 LTS，当前 24.22.2；镜像基座与尚未迁移的 `node` 脚本使用）
 - Docker Engine 与 Docker Compose
 - 备份需要本机有 `pg_dump`（PostgreSQL 客户端）
 
 ### 一条命令部署
 
 ```bash
-pnpm install
-pnpm run up        # 生成 .env、起依赖、迁移、构建镜像、冒烟
+bun install
+bun run up        # 生成 .env、起依赖、迁移、构建镜像、冒烟
 # 打开 http://localhost:3000
 ```
 
-首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`，并打印管理员密码；首次部署请先按需修改 `ADMIN_PASSWORD` 再执行 `pnpm run up`。`ADMIN_PASSWORD` 只在首次初始化（`platform_bootstrap` marker 不存在）时创建管理员 `bootstrap-admin`，之后启动或登录都不再按 `.env` 覆盖已有密码；后续改密走显式账户操作。实现与验收记录见 任务记录。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
+首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`，并打印管理员密码；首次部署请先按需修改 `ADMIN_PASSWORD` 再执行 `bun run up`。`ADMIN_PASSWORD` 只在首次初始化（`platform_bootstrap` marker 不存在）时创建管理员 `bootstrap-admin`，之后启动或登录都不再按 `.env` 覆盖已有密码；后续改密走显式账户操作。实现与验收记录见 任务记录。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
 
-`pnpm run up` 依次完成：`docker compose up -d --wait` 启动 postgres/redis 并等 healthcheck 通过 → 从仓库根构建 `agentport/sandbox:dev`（已存在则跳过，`pnpm run up --rebuild` 强制重建）→ compose 一次性 `migrate` 服务执行迁移 → 构建并启动 api/worker；compose 的 `--wait --wait-timeout 120` 会等 api 的 `/health/ready` healthcheck 通过 → `pnpm smoke`。任一步失败会打印原因并以非零退出。停止服务用 `pnpm run down`（保留数据卷），`pnpm run down --clean` 会删除数据卷。
+`bun run up` 依次完成：`docker compose up -d --wait` 启动 postgres/redis 并等 healthcheck 通过 → 从仓库根构建 `agentport/sandbox:dev`（已存在则跳过，`bun run up --rebuild` 强制重建）→ compose 一次性 `migrate` 服务执行迁移 → 构建并启动 api/worker；compose 的 `--wait --wait-timeout 120` 会等 api 的 `/health/ready` healthcheck 通过 → `bun run smoke`。任一步失败会打印原因并以非零退出。停止服务用 `bun run down`（保留数据卷），`bun run down --clean` 会删除数据卷。
 
 生产中 web 由 api 静态托管（`WEB_DIST=/app/web`），没有独立 web 容器。
 
 三个最容易踩的点（完整部署、升级与排障见 [docs/OPERATIONS.md](docs/OPERATIONS.md)）：
 
-- 沙盒镜像从仓库根 context 的 `sandbox` target 构建，必须使用宿主 Docker；`pnpm run up` 已包含该步骤，worker 通过宿主 Docker daemon 启动沙盒。
+- 沙盒镜像从仓库根 context 的 `sandbox` target 构建，必须使用宿主 Docker；`bun run up` 已包含该步骤，worker 通过宿主 Docker daemon 启动沙盒。
 - worker 挂载 `/var/run/docker.sock`，等价于宿主 root 权限，仅适合单机自用。
 - 生产模式下登录 Cookie 带 `Secure`；请通过 `http://localhost` 访问。用局域网 IP 走 HTTP 会无法保持登录。
 
 ### 本地开发
 
 ```bash
-pnpm install
-pnpm build                      # 生成各包 dist；db:migrate 依赖它
+bun install
+bun run build                   # 生成各包 dist；db:migrate 依赖它
 cp .env.example .env            # 填写下方必填项
 docker compose up -d --wait postgres redis
-pnpm db:migrate
+bun run db:migrate
 # 沙盒镜像与 api/worker 共用根 Dockerfile，安装与构建都在镜像内完成
 docker build --target sandbox -t agentport/sandbox:dev .
-pnpm dev
+bun run dev
 ```
 
 `.env` 至少填写：
@@ -73,14 +73,14 @@ pnpm dev
 生成随机串：
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+bun -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'))"
 ```
 
 打开 Portless 输出的地址（本机基地址 [https://agentport.localhost](https://agentport.localhost)，worktree 下带分支前缀；实际 URL 以终端输出为准），用 `ADMIN_USER` / `ADMIN_PASSWORD` 登录。配置与端口说明见 [docs/OPERATIONS.md §2.3](docs/OPERATIONS.md#23-本地开发)。
 
-`pnpm dev` 并行启动 api、worker、web，以及 shared/core/db 的 TypeScript watch。web 的 Vite 开发服务器把 `/api`、`/health` 代理到 [http://localhost:3000](http://localhost:3000)。
+`bun run dev` 并行启动 api、worker、web，以及 shared/contract/core/db 的 TypeScript watch。web 的 Vite 开发服务器把 `/api`、`/health` 代理到 [http://localhost:3000](http://localhost:3000)。
 
-后端已在 [http://localhost:3000](http://localhost:3000) 运行时，只验收前端可在当前 worktree 单独启动 web：`pnpm --filter @agentport/web dev`（需先 `pnpm install` 并构建 shared/core 的 dist），地址同样取 Portless 输出。它复用同一 API、数据库与 Redis，不隔离其他 worktree 的数据。
+后端已在 [http://localhost:3000](http://localhost:3000) 运行时，只验收前端可在当前 worktree 单独启动 web：`bun run --filter @agentport/web dev`（需先 `bun install` 并构建 shared/contract/core 的 dist），地址同样取 Portless 输出。它复用同一 API、数据库与 Redis，不隔离其他 worktree 的数据。
 
 ## 常用命令
 
@@ -88,31 +88,31 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 | 命令 | 作用 |
 |---|---|
-| `pnpm run up` | 一条命令部署：生成 `.env`、启动依赖、迁移、构建镜像并冒烟（`--rebuild` 强制重建沙盒镜像） |
-| `pnpm run down` | 停止整套 compose 服务并保留数据卷（`--clean` 删除数据卷） |
-| `pnpm dev` | 并行启动所有包的开发进程（api / worker / web / watch） |
-| `pnpm build` | 全量构建（`pnpm -r build`） |
-| `pnpm typecheck` | 全量类型检查（`pnpm -r typecheck`） |
-| `pnpm lint` | Biome 检查 |
-| `pnpm lint:fix` | Biome 检查并写入修复 |
-| `pnpm test` | 同时跑 `web` 与 `backend` 两个 Vitest 项目。`web` 项目不依赖后端；`backend` 项目会加载 `.env`，只把它当作管理连接：每次调用创建随机 PostgreSQL database 并完成迁移，同时启动独享临时 Redis 容器（loopback 随机端口，容器内 db 9），退出只删除本轮资源，不读写开发库或共享 Redis；前置与失败/跳过边界见 [docs/OPERATIONS.md §9.2](docs/OPERATIONS.md#92-后端集成测试与-e2e)。API/worker 配置无需改动 |
-| `pnpm test:web` | 只跑 `packages/web/test`（jsdom，不加载 `.env`，不需要 API、worker、PostgreSQL、Redis） |
-| `pnpm test:watch` | Vitest watch；同一 watch 会话复用本轮隔离资源，退出时清理，热重跑不重建 |
-| `pnpm test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）。自动启动或复用 [http://localhost:5173](http://localhost:5173) 的 Vite（不经过 Portless）；API 需另行在 [http://localhost:3000](http://localhost:3000) 运行。前置与凭据见下方说明；配置收全部 `tests/**/*.e2e.ts`，普通套件含要求停 worker 的回放用例，真实对话用例需单独跑（见下） |
-| `pnpm db:generate` | 修改 Drizzle schema 后生成迁移 |
-| `pnpm db:migrate` | 在宿主机应用迁移（`pnpm run up` 部署时由 compose 的 `migrate` 服务自动执行） |
-| `pnpm backup` | `pg_dump` → `backups/<timestamp>.sql.gz`，保留最近 7 份；需先 export `DATABASE_URL` |
-| `pnpm restore` | `pnpm restore <backup-file>`：先留恢复前安全副本，再单事务整库替换并补迁移 |
-| `pnpm smoke` | 部署自检（健康、登录、列表、`/mcp` 鉴权）；需 `ADMIN_PASSWORD` 与服务已启动 |
-| `pnpm infra:up` | 启动 compose 中的 postgres 与 redis |
-| `pnpm infra:down` | `docker compose down`，会停止整套 compose 服务 |
-| `pnpm clean` | 删除各包 `dist` 与所有 `node_modules` |
-| `pnpm --filter @agentport/sandbox image` | 从仓库根 context 构建 `agentport/sandbox:dev`（`docker build --target sandbox`）；安装、构建与 `pnpm deploy --prod` 都在镜像内完成，不依赖宿主 `dist` |
-| `pnpm --filter @agentport/worker maintenance` | 手动执行一次数据保留任务 |
-| `pnpm --filter @agentport/api start` | 以构建产物启动 api（需先 `pnpm build`） |
-| `pnpm --filter @agentport/web preview` | 预览 web 构建产物 |
+| `bun run up` | 一条命令部署：生成 `.env`、启动依赖、迁移、构建镜像并冒烟（`--rebuild` 强制重建沙盒镜像） |
+| `bun run down` | 停止整套 compose 服务并保留数据卷（`--clean` 删除数据卷） |
+| `bun run dev` | 并行启动所有包的开发进程（api / worker / web / watch） |
+| `bun run build` | 全量构建（`bun run --filter './packages/*' build`） |
+| `bun run typecheck` | 全量类型检查（`bun run --filter './packages/*' typecheck`） |
+| `bun run lint` | Biome 检查 |
+| `bun run lint:fix` | Biome 检查并写入修复 |
+| `bun run test` | 用 `bun:test` 跑后端套件（`scripts/test-backend.ts`，`--isolate`，排除 web）。会加载 `.env`，只把它当作管理连接：每次调用创建随机 PostgreSQL database 并完成迁移，同时启动独享临时 Redis 容器（loopback 随机端口，容器内 db 9），退出只删除本轮资源，不读写开发库或共享 Redis；前置与失败/跳过边界见 [docs/OPERATIONS.md §9.2](docs/OPERATIONS.md#92-后端集成测试与-e2e)。API/worker 配置无需改动 |
+| `bun run test:web` | 用 Vitest 只跑 `packages/web/test`（jsdom，不加载 `.env`，不需要 API、worker、PostgreSQL、Redis） |
+| `bun run test:watch` | 以 `bun:test --watch` 跑后端套件；同一 watch 会话复用本轮隔离资源，退出时清理，热重跑不重建 |
+| `bun run test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）。自动启动或复用 [http://localhost:5173](http://localhost:5173) 的 Vite（不经过 Portless）；API 需另行在 [http://localhost:3000](http://localhost:3000) 运行。前置与凭据见下方说明；配置收全部 `tests/**/*.e2e.ts`，普通套件含要求停 worker 的回放用例，真实对话用例需单独跑（见下） |
+| `bun run db:generate` | 修改 Drizzle schema 后生成迁移 |
+| `bun run db:migrate` | 在宿主机应用迁移（`bun run up` 部署时由 compose 的 `migrate` 服务自动执行） |
+| `bun run backup` | `pg_dump` → `backups/<timestamp>.sql.gz`，保留最近 7 份；需先 export `DATABASE_URL` |
+| `bun run restore` | `bun run restore <backup-file>`：先留恢复前安全副本，再单事务整库替换并补迁移 |
+| `bun run smoke` | 部署自检（健康、登录、列表、`/mcp` 鉴权）；需 `ADMIN_PASSWORD` 与服务已启动 |
+| `bun run infra:up` | 启动 compose 中的 postgres 与 redis |
+| `bun run infra:down` | `docker compose down`，会停止整套 compose 服务 |
+| `bun run clean` | 删除各包 `dist` 与所有 `node_modules` |
+| `bun run --filter @agentport/sandbox image` | 从仓库根 context 构建 `agentport/sandbox:dev`（`docker build --target sandbox`）；安装与构建都在镜像内完成，不依赖宿主 `dist` |
+| `bun run --filter @agentport/worker maintenance` | 手动执行一次数据保留任务 |
+| `bun run --filter @agentport/api start` | 以构建产物启动 api（需先 `bun run build`） |
+| `bun run --filter @agentport/web preview` | 预览 web 构建产物 |
 
-E2E 配置（`e2e.config.ts`）不主动加载 `.env`，浏览器用例连的是 [http://localhost:5173](http://localhost:5173)，不走 Portless。`e2e.config.ts` 的默认凭据是 `admin` / `admin-local-dev-2026`，必须与服务端实际生效的 `ADMIN_USER` / `ADMIN_PASSWORD` 一致，否则用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。多数用例还会直写数据库：先 `pnpm build` 产出 `packages/db/dist`，并显式导出与 API 同库的 `DATABASE_URL`；个别用例另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `pnpm test:e2e` 要停 worker；`tests/smoke.e2e.ts` 里的真实对话用例需要 worker 与模型凭据，只在 `E2E_FULL=1` 时运行，与回放用例前提相反——应单独运行该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。其他前置以各文件与 `e2e.config.ts` 的实际配置为准。
+E2E 配置（`e2e.config.ts`）不主动加载 `.env`，浏览器用例连的是 [http://localhost:5173](http://localhost:5173)，不走 Portless。`e2e.config.ts` 的默认凭据是 `admin` / `admin-local-dev-2026`，必须与服务端实际生效的 `ADMIN_USER` / `ADMIN_PASSWORD` 一致，否则用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。需要直写数据库的用例经 `tests/support/fixture.ts` 启动 Bun 子进程，必须显式提供与 API 同库的 `E2E_DATABASE_URL`；频道回放等用例另需 `E2E_REDIS_URL`。先 `bun run build` 供 API 使用 workspace `dist`，E2E 不依赖 Node PostgreSQL 驱动。个别用例另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `bun run test:e2e` 要停 worker；`tests/smoke.e2e.ts` 里的真实对话用例需要 worker 与模型凭据，只在 `E2E_FULL=1` 时运行，与回放用例前提相反——应单独运行该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。其他前置以各文件与 `e2e.config.ts` 的实际配置为准。
 
 ## 版本与发布
 
@@ -126,9 +126,10 @@ tag 触发 `.github/workflows/release.yml`，构建并推送 `ghcr.io/<repo>/api
 agentport/
 ├─ packages/
 │  ├─ shared/      纯类型与 zod schema，无运行时依赖（zod 除外）
+│  ├─ contract/    oRPC HTTP 契约：路径、输入输出与访问元数据
 │  ├─ core/        领域逻辑：工作区渲染、密钥加解密、MCP 条目
 │  ├─ db/          Drizzle schema、repo、迁移
-│  ├─ api/         Fastify：HTTP、鉴权、MCP 端点、SSE、队列生产
+│  ├─ api/         Bun + Hono + oRPC：HTTP、鉴权、MCP 端点、SSE、队列生产
 │  ├─ worker/      BullMQ 消费者、沙盒生命周期、维护任务
 │  ├─ sandbox/     容器内 runner 与沙盒镜像（Claude Agent SDK）
 │  └─ web/         React 19 + Vite SPA
@@ -166,10 +167,10 @@ agentport/
 
 ## 安全说明
 
-- **认证**：Better Auth 1.7（username + Drizzle adapter），账号密码登录；密码哈希与校验由 better-auth 管理，错误不区分用户名/密码。会话写入 PostgreSQL `session` 表，httpOnly、SameSite=Lax 的 `agentport_token` Cookie 保存会话 token，有效期 24 小时，logout 删除会话；**不使用 JWT，也不在 Redis 校验会话**，`JWT_SECRET` 只是 better-auth 的签名密钥（历史命名）。CORS 使用 `CORS_ORIGINS` allowlist；限流按 IP 计数（全局 600/min，登录 10/min、对话 20/min、`/mcp` 60/min、连接测试 20/min、评估发起 10/min；`RATE_LIMIT_DISABLED=1` 可整体关闭，仅用于测试与本地）。
+- **认证**：Better Auth 1.7（username + Drizzle adapter），账号密码登录；密码哈希与校验由 better-auth 管理，错误不区分用户名/密码。会话写入 PostgreSQL `session` 表，httpOnly、SameSite=Lax 的 `agentport_token` Cookie 保存会话 token，有效期 24 小时，logout 删除会话；**不使用 JWT，也不在 Redis 校验会话**，`JWT_SECRET` 只是 better-auth 的签名密钥（历史命名）。CORS 使用 `CORS_ORIGINS` allowlist；限流按 IP 计数（`/api/*` 600/min，登录 10/min、对话 20/min、`/mcp` 与 `/mcp/:serverId` 各 60/min、连接测试 20/min、评估发起 10/min；静态资源、SPA 回退与 `/health/*` 不计入 API 配额；`RATE_LIMIT_DISABLED=1` 可整体关闭，仅用于测试与本地）。
 - **多账户与权限**：稳定 `businessId` 作为业务身份，认证技术 ID 只承载登录、可删除重建；业务创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权与个人记忆直接记录 `businessId`。同 `businessId` 重建后恢复业务归属、角色、成员授权与个人记忆，旧会话不复活。默认四角色（平台管理员 / 用户 / 负责人 / 维护人员）存 DB，角色与功能授权按矩阵配置；系统 admin 授权固定、最后一名活跃管理员不可删除/停用/降权，所有业务入口同时检查动作授权与对象范围。私有会话、消息与个人记忆按 `businessId` 隔离；平台管理员跨用户运维可审计，读取他人私有内容须留审计；负责人与维护人员不获得其他用户正文。独立 MCP token 与公开分享 token 保持各自边界，登录用户权限不扩展到这两类凭据。
 - **密钥**：MCP 的 env/headers 使用 AES-256-GCM 加密入库，API 返回时脱敏为 `••••`；日志对 authorization、cookie、token、secret 等字段脱敏。
-- **工作区密钥**：每次运行会把解密后的 MCP env/headers 写入按 run 隔离的 `data/workspaces/<slug>/<runId>/.mcp.json`，供沙盒内进程使用。目录 0700、文件 0600，run 结束即删除；MCP 凭据使用按 run 签发的短期 token（DB 只存 sha256）。但工作区仍含明文 MCP 密钥，不要提交或打包。模型凭证已代理（D-17）：worker 启动回环代理（默认 `MODEL_PROXY_PORT=3426`），沙盒只拿到代理地址与按 run 签发的短期 token，真实密钥只存在于 worker 进程；未配置任何凭证时才回退直接注入并在启动日志警告（见 [SECURITY.md](docs/SECURITY.md) M12a）。
+- **工作区密钥**：每次运行会把解密后的 MCP env/headers 写入会话工作区的 `data/workspaces/<slug>/session-sandboxes/<conversationId>/workspace/.mcp.json`，供沙盒内进程使用。目录 0700、文件 0600；终态停稳后删除，删除失败时禁止复用该容器并在仍持有 lease 时销毁。MCP 凭据使用按 run 签发的短期 token（DB 只存 sha256）。但工作区仍含明文 MCP 密钥，不要提交或打包。模型凭证已代理（D-17）：worker 启动回环代理（默认 `MODEL_PROXY_PORT=3426`），沙盒只拿到代理地址与按 run 签发的短期 token，真实密钥只存在于 worker 进程；未配置任何凭证时才回退直接注入并在启动日志警告（见 [SECURITY.md](docs/SECURITY.md) M12a）。
 - **SSRF**：只允许 http/https；连接测试与工具运行时都会解析 DNS 并拒绝私网、回环、link-local 地址；开发模式放行 localhost。DNS 重绑定无法在应用层彻底消除，出站仍建议配合网络 allowlist。
 - **沙盒**：只读根文件系统、只读工作区挂载（长期记忆目录 `agent-memory/` 单独 rw 挂载）、`--cap-drop ALL`、`no-new-privileges`、非 root 用户、内存/CPU/PID 限制；内置工具默认禁用，只放行绑定的 MCP 工具，以及长期记忆目录的 `Read`/`Edit`（`Edit` 含 `Write`，越界由 `PreToolUse` 拒绝）；有子智能体时才放行 `Agent`。
 - **工具审批**：标记 `requiresApproval` 的工具会**挂起同一次调用**（MCP 工具内部轮询 DB，默认最多 300s，`APPROVAL_WAIT_MS`），在运行详情页批准后直接继续并返回结果，不需要模型重发；超时按拒绝处理。未标记的工具在 `dontAsk` 下直接拒绝。

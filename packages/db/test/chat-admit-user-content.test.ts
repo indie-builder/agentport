@@ -1,5 +1,5 @@
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';
@@ -16,8 +16,8 @@ import {
  * 准入的用户消息内容必须与 run、继承审批同一次提交：
  * 动作内容直接写在 appendMessage 里，不允许先落纯文本再补写（补写失败会留下没有 job 的 queued run）。
  */
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -98,7 +98,7 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
     // agents 级联清会话、消息、run 与审批；servers 单独删。
     for (const agentId of agentIds) await db.delete(agents).where(eq(agents.id, agentId));
     for (const serverId of serverIds) await db.delete(servers).where(eq(servers.id, serverId));
-    await pool.end();
+    await client.close();
   });
 
   it('persists the full action content as the only user message', async () => {

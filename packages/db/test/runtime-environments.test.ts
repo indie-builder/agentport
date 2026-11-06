@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { isIdOfType, newId } from '../src/id.js';
 import * as agentVersionsRepo from '../src/repo/agent-versions.js';
@@ -14,8 +14,8 @@ import * as repo from '../src/repo/runtime-environments.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions, servers } from '../src/schema.js';
 
 const url = process.env.DATABASE_URL ?? 'postgres://unreachable@127.0.0.1:1/unavailable';
-const { db, pool } = createDb(url);
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(url);
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -85,7 +85,7 @@ describe.skipIf(!ready)('runtime environment repo', () => {
         .where(eq(runtimeEnvironmentVersions.environmentId, id));
       await db.delete(runtimeEnvironments).where(eq(runtimeEnvironments.id, id));
     }
-    await pool.end();
+    await client.close();
   });
 
   it('creates with a TypeID, updates draft and rejects duplicate names', async () => {
@@ -190,12 +190,21 @@ describe.skipIf(!ready)('runtime environment repo', () => {
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
 
     // 直接写库也过不了复合外键：线上版本必须属于本环境。
-    await expect(
-      db
+    let foreignKeyError: unknown;
+    try {
+      await db
         .update(runtimeEnvironments)
         .set({ onlineVersionId: foreignVersion.id })
-        .where(eq(runtimeEnvironments.id, first.id)),
-    ).rejects.toMatchObject({ cause: { code: '23503' } });
+        .where(eq(runtimeEnvironments.id, first.id));
+    } catch (caught) {
+      foreignKeyError = caught;
+    }
+    const foreignKey = foreignKeyError as
+      | { errno?: string; code?: string; cause?: { errno?: string; code?: string } }
+      | undefined;
+    expect(
+      foreignKey?.errno ?? foreignKey?.code ?? foreignKey?.cause?.errno ?? foreignKey?.cause?.code,
+    ).toBe('23503');
   });
 
   it('truncates oversized build logs and marks them', async () => {

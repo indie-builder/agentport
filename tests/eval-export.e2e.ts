@@ -2,24 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) throw new Error('DATABASE_URL is required for evaluation export fixtures');
-
-function connectDb() {
-  return import('../packages/db/dist/index.js').then(({ createDb }) => createDb(DATABASE_URL));
-}
-
-let poolPromise: ReturnType<typeof connectDb> | undefined;
-function pool() {
-  poolPromise ??= connectDb();
-  return poolPromise;
-}
-
-test.afterAll(async () => {
-  const current = await poolPromise;
-  await current?.pool.end();
-});
+import { fixture as runFixture } from './support/fixture.js';
 
 interface ApiRequest {
   path: string;
@@ -80,66 +63,19 @@ async function insertRun(
   total: number,
   passed: number,
 ): Promise<string> {
-  const id = `er_${randomUUID()}`;
-  const { pool: client } = await pool();
-  await client.query(
-    `insert into eval_runs (id, agent_id, status, total, passed, created_at, finished_at)
-     values ($1, $2, $3, $4, $5, now(), $6)`,
-    [id, agentId, status, total, passed, status === 'running' ? null : new Date()],
-  );
-  return id;
+  return runFixture('eval-export', 'insertRun', agentId, status, total, passed);
 }
 
 async function insertResults(runId: string, rows: ResultSeed[]): Promise<void> {
-  const { pool: client } = await pool();
-  for (const [index, row] of rows.entries()) {
-    await client.query(
-      `insert into eval_results (id, eval_run_id, case_id, case_snapshot, passed, output)
-       values ($1, $2, null, $3, $4, $5)`,
-      [
-        `${runId}-${String(index).padStart(3, '0')}`,
-        runId,
-        JSON.stringify({
-          id: `${runId}-case-${index}`,
-          name: row.name,
-          prompt: row.prompt,
-          expectation: row.expectation,
-        }),
-        row.passed,
-        row.output,
-      ],
-    );
-  }
+  return runFixture('eval-export', 'insertResults', runId, rows);
 }
 
 async function insertOversizeResults(runId: string): Promise<void> {
-  const { pool: client } = await pool();
-  // 501 条越过导出上限；caseId 为 NULL 时唯一索引不冲突。
-  await client.query(
-    `insert into eval_results (id, eval_run_id, case_id, case_snapshot, passed, output)
-     select $1 || '-' || g, $2, null,
-       jsonb_build_object(
-         'id', $1 || '-case-' || g,
-         'name', 'oversize case ' || g,
-         'prompt', 'prompt ' || g,
-         'expectation', ''
-       ),
-       g % 2 = 0,
-       'output ' || g
-     from generate_series(1, 501) as g`,
-    [runId, runId],
-  );
+  return runFixture('eval-export', 'insertOversizeResults', runId);
 }
 
 async function removeFixture(agentId: string): Promise<void> {
-  const { pool: client } = await pool();
-  await client.query(
-    `delete from audit_log
-     where target = $1 or target in (select id from eval_cases where agent_id = $1)`,
-    [agentId],
-  );
-  // 用例、评估批次、结果、版本随 agent 级联删除。
-  await client.query('delete from agents where id = $1', [agentId]);
+  return runFixture('eval-export', 'removeFixture', agentId);
 }
 
 async function readJson(file: string): Promise<Record<string, unknown>> {

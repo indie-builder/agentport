@@ -8,6 +8,10 @@ import {
   stripImageReferences,
 } from '../src/components/knowledge-citations.js';
 
+function requestUrl(input: RequestInfo | URL): string {
+  return input instanceof Request ? input.url : String(input);
+}
+
 const hits = [
   {
     chunkId: 'kchk_1',
@@ -138,7 +142,7 @@ describe('knowledge citations', () => {
 
   it('lists hits and opens the parsed text from the saved tool result', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
-      String(input).includes('/details')
+      requestUrl(input).includes('/details')
         ? detailsResponse()
         : new Response('# 上线流程\n\n发布前需要产品与研发双方确认。', {
             headers: { 'content-type': 'text/markdown; charset=utf-8' },
@@ -161,10 +165,11 @@ describe('knowledge citations', () => {
     await act(async () => trigger?.click());
     await flush();
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/knowledge/versions/kdv_1/markdown',
-      expect.objectContaining({ credentials: 'include' }),
-    );
+    const [markdownRequest, markdownInit] = fetchMock.mock.calls[0] ?? [];
+    expect(
+      new URL(requestUrl(markdownRequest as RequestInfo | URL), 'http://localhost').pathname,
+    ).toBe('/api/knowledge/versions/kdv_1/markdown');
+    expect(markdownInit?.credentials).toBe('include');
     const source = document.querySelector<HTMLAnchorElement>('a[href^="https://"]');
     expect(source?.getAttribute('target')).toBe('_blank');
     expect(source?.getAttribute('rel')).toBe('noreferrer noopener');
@@ -173,7 +178,7 @@ describe('knowledge citations', () => {
 
   it('never turns a non-http source into a clickable link', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
-      String(input).includes('/details') ? detailsResponse() : new Response('正文'),
+      requestUrl(input).includes('/details') ? detailsResponse() : new Response('正文'),
     );
     mount(
       createElement(KnowledgeCitations, {
@@ -191,8 +196,11 @@ describe('knowledge citations', () => {
   });
 
   it('explains a deleted or revoked source instead of showing an empty viewer', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      Response.json({ code: 'NOT_FOUND', message: '版本不存在' }, { status: 404 }),
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      Response.json(
+        { code: 'NOT_FOUND', message: '版本不存在', status: 404, requestId: '', retryable: false },
+        { status: 404 },
+      ),
     );
     mount(
       createElement(KnowledgeCitations, {
@@ -210,7 +218,7 @@ describe('knowledge citations', () => {
 
   it('shows the original image of an image hit in the citation dialog', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
-      String(input).includes('/images/')
+      requestUrl(input).includes('/images/')
         ? new Response(new Blob(['png'], { type: 'image/png' }))
         : new Response('正文\n\n![image-1.png](images/image-1.png)'),
     );
@@ -240,7 +248,7 @@ describe('knowledge citations', () => {
   it('distinguishes a revoked image (403) from a missing one (404)', async () => {
     let imageStatus = 403;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
-      String(input).includes('/images/')
+      requestUrl(input).includes('/images/')
         ? Response.json({ code: 'FORBIDDEN', message: '无权读取' }, { status: imageStatus })
         : new Response('正文'),
     );
@@ -344,7 +352,7 @@ describe('knowledge citation tools', () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/details')) {
         return Response.json({
           id: 'kdv_1',
@@ -385,7 +393,7 @@ describe('knowledge citation tools', () => {
     ).not.toBeNull();
     expect(
       (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(([url]) =>
-        String(url).includes('/content'),
+        requestUrl(url as RequestInfo | URL).includes('/content'),
       ),
     ).toBe(true);
   });
@@ -398,7 +406,7 @@ describe('knowledge citation tools', () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/details')) {
         return Response.json({
           id: 'kdv_1',

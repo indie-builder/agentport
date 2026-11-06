@@ -1,11 +1,11 @@
 import { createServer, type Server } from 'node:http';
 import { createDb, repo } from '@agentport/db';
 import { sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { searchKnowledge } from '../src/features/knowledge/retrieval.js';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { searchKnowledge } from '../src/modules/knowledge/retrieval.js';
 
 const SECRET_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 
 // 真实本地 HTTP fixture：embedding 走 OpenAI 兼容 /embeddings。
 let fixture: Server;
@@ -66,7 +66,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => fixture.close(() => resolve()));
-  await pool.end();
+  await client.close();
 });
 
 let baseId = '';
@@ -239,11 +239,10 @@ describe('searchKnowledge', () => {
   });
 
   afterEach(async () => {
-    await pool.query('delete from knowledge_bases where id = $1', [baseId]);
-    await pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-      [profileId, rerankProfileId],
-    ]);
-    await pool.query('delete from servers where name like $1', ['kb-retrieval-%']);
+    await client.unsafe('delete from knowledge_bases where id = $1', [baseId]);
+    await client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [client.array([profileId, rerankProfileId], 'TEXT')],
+    );
+    await client.unsafe('delete from servers where name like $1', ['kb-retrieval-%']);
     documentIds.length = 0;
   });
 
@@ -280,11 +279,11 @@ describe('searchKnowledge', () => {
   });
 
   it('删除文档后不再召回', async () => {
-    const columns = await pool.query<{ id: string }>(
+    const columns = await client.unsafe<{ id: string }[]>(
       "select id from knowledge_documents where base_id = $1 and title = '令牌文档'",
       [baseId],
     );
-    await repo.knowledge.deleteDocument(db, columns.rows[0]!.id);
+    await repo.knowledge.deleteDocument(db, columns[0]!.id);
     const query = { q: '令牌', folders: [], tags: [], limit: 10, rerank: false };
     const result = await searchKnowledge(db, baseId, query, { secretKey: SECRET_KEY });
     expect(result.hits.map((hit) => hit.title)).not.toContain('令牌文档');
@@ -343,12 +342,12 @@ describe('searchKnowledge', () => {
   });
 
   it('停用知识库后管理端检索也立即拒绝，不返回仍可读的历史命中', async () => {
-    await pool.query("update knowledge_bases set status = 'disabled' where id = $1", [baseId]);
+    await client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [baseId]);
     const query = { q: '令牌', folders: [], tags: [], limit: 10, rerank: false };
     await expect(
       searchKnowledge(db, baseId, query, { secretKey: SECRET_KEY }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
-    await pool.query("update knowledge_bases set status = 'active' where id = $1", [baseId]);
+    await client.unsafe("update knowledge_bases set status = 'active' where id = $1", [baseId]);
     const result = await searchKnowledge(db, baseId, query, { secretKey: SECRET_KEY });
     expect(result.hits.length).toBeGreaterThan(0);
   });
@@ -383,7 +382,7 @@ describe('searchKnowledge', () => {
       const result = await searchKnowledge(db, baseId, query, { secretKey: SECRET_KEY });
       expect(result.hits.map((hit) => hit.title)).not.toContain('他库令牌');
     } finally {
-      await pool.query('delete from knowledge_bases where id = $1', [other.id]);
+      await client.unsafe('delete from knowledge_bases where id = $1', [other.id]);
     }
   });
 
@@ -1011,7 +1010,7 @@ describe('searchKnowledge', () => {
     });
     const published = await repo.knowledge.saveWikiVersion(db, page.id, {
       markdown: '线上 Wiki 正文',
-      sourceChunkIds: [chunk.rows[0]!.id],
+      sourceChunkIds: [chunk[0]!.id],
       model: 'manual',
       generatedBy: 'manual',
     });
@@ -1083,7 +1082,7 @@ describe('searchKnowledge', () => {
     // 线上指针前进但索引未追上：旧索引不召回，并给出 pending 警告。
     const next = await repo.knowledge.saveWikiVersion(db, page.id, {
       markdown: '线上 Wiki 新正文',
-      sourceChunkIds: [chunk.rows[0]!.id],
+      sourceChunkIds: [chunk[0]!.id],
       model: 'manual',
       generatedBy: 'manual',
     });

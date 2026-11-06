@@ -11,8 +11,7 @@ import {
   personalUsageSummarySchema,
   utcWindowStart,
 } from '@agentport/shared';
-import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -21,9 +20,11 @@ import {
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginAs,
   loginCookie,
+  request,
+  type TestApp,
+  type TestResponse,
   testConfig,
   unique,
 } from './helpers.js';
@@ -55,7 +56,7 @@ interface SeedRunInput {
 const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
 
 describe.skipIf(!ready)('personal data', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let admin: string;
   const accountIds: string[] = [];
   const roleIds: string[] = [];
@@ -67,12 +68,12 @@ describe.skipIf(!ready)('personal data', () => {
 
   async function createRole(grants: Array<[PermissionId, AccessScope]>): Promise<string> {
     const id = newId('role');
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into roles (id, name, created_at, updated_at) values ($1, $2, now(), now())',
       [id, unique('personal-role')],
     );
     for (const [permissionId, scope] of grants) {
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into role_permissions (role_id, permission_id, scope) values ($1, $2, $3)',
         [id, permissionId, scope],
       );
@@ -84,7 +85,7 @@ describe.skipIf(!ready)('personal data', () => {
   async function createAccountWithRoles(roleIdsForAccount: string[]): Promise<SeededAccount> {
     const businessId = unique('biz');
     const username = unique('user');
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/accounts',
       headers: auth(admin),
@@ -104,7 +105,7 @@ describe.skipIf(!ready)('personal data', () => {
 
   async function seedAgent(createdBy: string): Promise<string> {
     const id = newId('agent');
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into agents (id, slug, name, model, created_by, owner_business_id) values ($1, $1, $1, 'm', $2, $2)",
       [id, createdBy],
     );
@@ -117,7 +118,7 @@ describe.skipIf(!ready)('personal data', () => {
     const conversationId = input.conversationId ?? newId('conversation');
     if (input.conversationId === undefined) {
       if (input.serviceId === undefined) {
-        await app.pool.query(
+        await app.client.unsafe(
           'insert into conversations (id, agent_id, created_by, channel_id) values ($1, $2, $3, $4)',
           [
             conversationId,
@@ -127,13 +128,13 @@ describe.skipIf(!ready)('personal data', () => {
           ],
         );
       } else {
-        await app.pool.query(
+        await app.client.unsafe(
           'insert into conversations (id, agent_id, service_id) values ($1, $2, $3)',
           [conversationId, input.agentId, input.serviceId],
         );
       }
     }
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs
          (id, conversation_id, agent_id, status, trigger, subject_kind, initiated_by, service_id,
           channel_id, error, created_at, cost_usd, input_tokens, output_tokens)
@@ -149,7 +150,7 @@ describe.skipIf(!ready)('personal data', () => {
         input.serviceId ?? null,
         input.channelId ?? null,
         input.error ?? null,
-        input.createdAt ?? new Date(),
+        (input.createdAt ?? new Date()).toISOString(),
         input.costUsd ?? null,
         input.inputTokens ?? null,
         input.outputTokens ?? null,
@@ -171,12 +172,12 @@ describe.skipIf(!ready)('personal data', () => {
     const runId = input.runId ?? newId('run');
     const path = input.path ?? 'report.md';
     if (input.conversationId === undefined) {
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into conversations (id, agent_id, created_by, title) values ($1, $2, $3, $4)',
         [conversationId, input.agentId, input.businessId, '我的分享会话'],
       );
     }
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into output_shares
          (id, conversation_id, run_id, path, sha256, token_hash, token_encrypted)
        values ($1, $2, $3, $4, $5, $6, $7)`,
@@ -220,40 +221,40 @@ describe.skipIf(!ready)('personal data', () => {
     });
   }
 
-  function getRuns(cookie: string, query = ''): Promise<LightMyRequestResponse> {
-    return inject(app, {
+  function getRuns(cookie: string, query = ''): Promise<TestResponse> {
+    return request(app, {
       method: 'GET',
       url: `/api/me/runs${query === '' ? '' : `?${query}`}`,
       headers: auth(cookie),
     });
   }
 
-  function getUsage(cookie: string, query = ''): Promise<LightMyRequestResponse> {
-    return inject(app, {
+  function getUsage(cookie: string, query = ''): Promise<TestResponse> {
+    return request(app, {
       method: 'GET',
       url: `/api/me/usage${query === '' ? '' : `?${query}`}`,
       headers: auth(cookie),
     });
   }
 
-  function getShares(cookie: string, query = ''): Promise<LightMyRequestResponse> {
-    return inject(app, {
+  function getShares(cookie: string, query = ''): Promise<TestResponse> {
+    return request(app, {
       method: 'GET',
       url: `/api/me/output-shares${query === '' ? '' : `?${query}`}`,
       headers: auth(cookie),
     });
   }
 
-  function getConversations(cookie: string, query = ''): Promise<LightMyRequestResponse> {
-    return inject(app, {
+  function getConversations(cookie: string, query = ''): Promise<TestResponse> {
+    return request(app, {
       method: 'GET',
       url: `/api/me/conversations${query === '' ? '' : `?${query}`}`,
       headers: auth(cookie),
     });
   }
 
-  function deleteShare(cookie: string, id: string): Promise<LightMyRequestResponse> {
-    return inject(app, {
+  function deleteShare(cookie: string, id: string): Promise<TestResponse> {
+    return request(app, {
       method: 'DELETE',
       url: `/api/me/output-shares/${id}`,
       headers: auth(cookie),
@@ -262,26 +263,24 @@ describe.skipIf(!ready)('personal data', () => {
 
   beforeAll(async () => {
     app = await buildApp(testConfig());
-    await app.ready();
     admin = await loginCookie(app);
   }, 60_000);
 
   afterAll(async () => {
     await cleanup(app, { agentSlugs });
     if (channelIds.length > 0) {
-      await app.pool.query('delete from channels where id = any($1::text[])', [channelIds]);
+      await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(channelIds, 'TEXT')]);
     }
     if (directAgentIds.length > 0) {
-      await app.pool.query('delete from agents where id = any($1::text[])', [directAgentIds]);
+      await app.client.unsafe('delete from agents where id = any($1::text[])', [app.client.array(directAgentIds, 'TEXT')]);
     }
     if (accountIds.length > 0) {
-      await app.pool.query('delete from user_roles where business_id = any($1::text[])', [
-        accountIds,
-      ]);
-      await app.pool.query('delete from "user" where business_id = any($1::text[])', [accountIds]);
+      await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(accountIds, 'TEXT')],
+      );
+      await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(accountIds, 'TEXT')]);
     }
     if (roleIds.length > 0) {
-      await app.pool.query('delete from roles where id = any($1::text[])', [roleIds]);
+      await app.client.unsafe('delete from roles where id = any($1::text[])', [app.client.array(roleIds, 'TEXT')]);
     }
     await app.close();
   });
@@ -293,10 +292,10 @@ describe.skipIf(!ready)('personal data', () => {
       '/api/me/output-shares',
       '/api/me/conversations',
     ]) {
-      expectProblem(await inject(app, { method: 'GET', url }), 'UNAUTHORIZED');
+      expectProblem(await request(app, { method: 'GET', url }), 'UNAUTHORIZED');
     }
     expectProblem(
-      await inject(app, { method: 'DELETE', url: '/api/me/output-shares/osh_missing' }),
+      await request(app, { method: 'DELETE', url: '/api/me/output-shares/osh_missing' }),
       'UNAUTHORIZED',
     );
 
@@ -309,7 +308,7 @@ describe.skipIf(!ready)('personal data', () => {
       '/api/me/conversations',
     ]) {
       expectProblem(
-        await inject(app, { method: 'GET', url, headers: auth(restricted.cookie) }),
+        await request(app, { method: 'GET', url, headers: auth(restricted.cookie) }),
         'FORBIDDEN',
       );
     }
@@ -345,7 +344,7 @@ describe.skipIf(!ready)('personal data', () => {
       for (const [otherLabel, otherRunId] of expected) {
         if (otherLabel !== label) expect(ids).not.toContain(otherRunId);
       }
-      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.headers.get('cache-control')).toBe('no-store');
     }
   });
 
@@ -423,12 +422,12 @@ describe.skipIf(!ready)('personal data', () => {
 
       const channelId = newId('channel');
       channelIds.push(channelId);
-      await app.pool.query('insert into channels (id, name, created_by) values ($1, $2, $3)', [
+      await app.client.unsafe('insert into channels (id, name, created_by) values ($1, $2, $3)', [
         channelId,
         unique('personal-data-channel'),
         ADMIN_BUSINESS_ID,
       ]);
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into channel_members (channel_id, business_id, role)
          values ($1, $2, 'owner'), ($1, $3, 'member')`,
         [channelId, ADMIN_BUSINESS_ID, author.businessId],
@@ -451,12 +450,12 @@ describe.skipIf(!ready)('personal data', () => {
       });
 
       // 先确认成员关系真实存在，再移除；不是只给 run 挂一个假 channelId。
-      const membership = await app.pool.query<{ role: string }>(
+      const membership = await app.client.unsafe<{ role: string }[]>(
         'select role from channel_members where channel_id = $1 and business_id = $2',
         [channelId, author.businessId],
       );
-      expect(membership.rows).toEqual([{ role: 'member' }]);
-      await app.pool.query(
+      expect(membership).toEqual([{ role: 'member' }]);
+      await app.client.unsafe(
         'delete from channel_members where channel_id = $1 and business_id = $2',
         [channelId, author.businessId],
       );
@@ -466,8 +465,8 @@ describe.skipIf(!ready)('personal data', () => {
       const page = personalRunListSchema.parse(res.json());
       const byId = new Map(page.items.map((item) => [item.id, item]));
       expect(byId.get(privateRun.runId)).toMatchObject({ status: 'failed', error: privateError });
-      expect.soft(byId.has(channelRun.runId)).toBe(false);
-      expect.soft(res.body).not.toContain(sensitiveError);
+      expect(byId.has(channelRun.runId)).toBe(false);
+      expect(res.body).not.toContain(sensitiveError);
     }
   });
 
@@ -522,7 +521,7 @@ describe.skipIf(!ready)('personal data', () => {
 
     const res = await getUsage(user.cookie, 'days=90');
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers.get('cache-control')).toBe('no-store');
     const summary = personalUsageSummarySchema.parse(res.json());
     expect(summary).toMatchObject({
       days: 90,
@@ -647,9 +646,9 @@ describe.skipIf(!ready)('personal data', () => {
       businessId: other.businessId,
       createdAt: stamp,
     });
-    await app.pool.query('update agent_runs set created_at = $2 where id = any($1::text[])', [
-      ids,
-      stamp,
+    await app.client.unsafe('update agent_runs set created_at = $2 where id = any($1::text[])', [
+      app.client.array(ids, 'TEXT'),
+      stamp.toISOString(),
     ]);
 
     const expected = [...ids].sort((a, b) => b.localeCompare(a));
@@ -699,7 +698,7 @@ describe.skipIf(!ready)('personal data', () => {
     ] as const) {
       const res = await getShares(cookie);
       expect(res.statusCode, res.body).toBe(200);
-      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.headers.get('cache-control')).toBe('no-store');
       const page = personalOutputShareListSchema.parse(res.json());
       const ids = page.items.map((item) => item.id);
       if (own === null) {
@@ -717,7 +716,7 @@ describe.skipIf(!ready)('personal data', () => {
     }
 
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'DELETE',
         url: `/api/me/output-shares/${shareB.id}`,
         headers: auth(userA.cookie),
@@ -728,12 +727,12 @@ describe.skipIf(!ready)('personal data', () => {
 
     expect((await deleteShare(userA.cookie, shareA.id)).statusCode).toBe(204);
     expect((await deleteShare(userA.cookie, shareA.id)).statusCode).toBe(204);
-    const audits = await app.pool.query<{ input_digest: string | null }>(
+    const audits = await app.client.unsafe<{ input_digest: string | null }[]>(
       'select input_digest from audit_log where target = $1',
       [shareA.id],
     );
-    expect(audits.rows).toHaveLength(1);
-    expect(JSON.stringify(audits.rows)).not.toContain(shareA.token);
+    expect(audits).toHaveLength(1);
+    expect(JSON.stringify(audits)).not.toContain(shareA.token);
     expect(
       personalOutputShareListSchema.parse((await getShares(userA.cookie)).json()).items,
     ).toHaveLength(0);
@@ -751,12 +750,12 @@ describe.skipIf(!ready)('personal data', () => {
     const agentRef = agent.json<{ id: string; slug: string }>();
     const content = '# 我的产出\n';
     const conversationId = newId('conversation');
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into conversations (id, agent_id, created_by, title) values ($1, $2, $3, $4)',
       [conversationId, agentRef.id, user.businessId, '公开撤销会话'],
     );
     const runId = newId('run');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by)
        values ($1, $2, $3, 'succeeded', 'user', $4)`,
       [runId, conversationId, agentRef.id, user.businessId],
@@ -765,7 +764,7 @@ describe.skipIf(!ready)('personal data', () => {
 
     const token = unique('public-token');
     const shareId = newId('outputShare');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into output_shares
          (id, conversation_id, run_id, path, sha256, token_hash, token_encrypted)
        values ($1, $2, $3, 'report.md', $4, $5, $6)`,
@@ -780,7 +779,7 @@ describe.skipIf(!ready)('personal data', () => {
     );
 
     const publicUrl = `/api/public/output-shares/${shareId}`;
-    const before = await inject(app, {
+    const before = await request(app, {
       method: 'GET',
       url: publicUrl,
       headers: { authorization: `Bearer ${token}` },
@@ -788,7 +787,7 @@ describe.skipIf(!ready)('personal data', () => {
     expect(before.statusCode, before.body).toBe(200);
 
     expect((await deleteShare(user.cookie, shareId)).statusCode).toBe(204);
-    const after = await inject(app, {
+    const after = await request(app, {
       method: 'GET',
       url: publicUrl,
       headers: { authorization: `Bearer ${token}` },
@@ -807,9 +806,9 @@ describe.skipIf(!ready)('personal data', () => {
     const second = await seedShare({ businessId: user.businessId, agentId, path: 'b.md' });
     const foreign = await seedShare({ businessId: other.businessId, agentId, path: 'c.md' });
     const stamp = new Date();
-    await app.pool.query('update output_shares set created_at = $2 where id = any($1::text[])', [
-      [first.id, second.id],
-      stamp,
+    await app.client.unsafe('update output_shares set created_at = $2 where id = any($1::text[])', [
+      app.client.array([first.id, second.id], 'TEXT'),
+      stamp.toISOString(),
     ]);
 
     const pageOne = personalOutputShareListSchema.parse(
@@ -848,14 +847,14 @@ describe.skipIf(!ready)('personal data', () => {
     const agentId = agent.json<{ id: string }>().id;
     const mine = newId('conversation');
     const foreign = newId('conversation');
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into conversations (id, agent_id, created_by, title) values ($1, $2, $3, $4), ($5, $2, $6, $7)',
       [mine, agentId, user.businessId, '我的会话', foreign, other.businessId, '别人的会话'],
     );
 
     const res = await getConversations(user.cookie);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers.get('cache-control')).toBe('no-store');
     const items = res.json<Array<{ id: string; title: string; agentId: string }>>();
     expect(items.map((item) => item.id)).toEqual([mine]);
     expect(items[0]).toMatchObject({ title: '我的会话', agentId });
@@ -889,7 +888,7 @@ describe.skipIf(!ready)('personal data', () => {
       '/api/me/conversations?limit=201',
     ]) {
       expectProblem(
-        await inject(app, { method: 'GET', url, headers: auth(user.cookie) }),
+        await request(app, { method: 'GET', url, headers: auth(user.cookie) }),
         'INVALID_INPUT',
       );
     }

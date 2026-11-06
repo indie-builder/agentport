@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -15,25 +15,25 @@ const profileIds: string[] = [];
 const serverIds: string[] = [];
 
 afterEach(async () => {
-  vi.restoreAllMocks();
+  mock.restore();
   if (baseIds.length > 0) {
-    await pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+    await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [client.array(baseIds, 'TEXT')]);
     baseIds.length = 0;
   }
   if (profileIds.length > 0) {
-    await pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-      profileIds,
+    await client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+      client.array(profileIds, 'TEXT'),
     ]);
     profileIds.length = 0;
   }
   if (serverIds.length > 0) {
-    await pool.query('delete from servers where id = any($1::text[])', [serverIds]);
+    await client.unsafe('delete from servers where id = any($1::text[])', [client.array(serverIds, 'TEXT')]);
     serverIds.length = 0;
   }
 });
 
 afterAll(async () => {
-  await pool.end();
+  await client.close();
 });
 
 async function seedBase(): Promise<string> {
@@ -71,7 +71,7 @@ async function seedBase(): Promise<string> {
 
 /** spy 保留真实执行，只统计 Drizzle 经由 pool 发出的 SQL 条数。 */
 async function queriesWhile<T>(run: () => Promise<T>): Promise<{ value: T; queries: number }> {
-  const spy = vi.spyOn(pool, 'query');
+  const spy = spyOn(client, 'unsafe');
   try {
     const value = await run();
     return { value, queries: spy.mock.calls.length };
@@ -81,7 +81,7 @@ async function queriesWhile<T>(run: () => Promise<T>): Promise<{ value: T; queri
 }
 
 async function tagNames(baseId: string): Promise<string[]> {
-  const { rows } = await pool.query<{ name: string }>(
+  const rows = await client.unsafe<{ name: string }[]>(
     'select name from knowledge_tags where base_id = $1 order by name',
     [baseId],
   );
@@ -128,7 +128,7 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     const rows = await knowledge.upsertTags(db, baseId, ['dup', 'one', 'dup', 'other', 'one']);
     expect(rows.map((row) => row.name)).toEqual(['dup', 'one', 'other']);
     expect(await tagNames(baseId)).toEqual(['dup', 'one', 'other']);
-    const { rows: counts } = await pool.query<{ name: string; n: number }>(
+    const counts = await client.unsafe<{ name: string; n: number }[]>(
       'select name, count(*)::int as n from knowledge_tags where base_id = $1 group by name order by name',
       [baseId],
     );
@@ -154,9 +154,9 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
       knowledge.upsertTags(db, secondBase, ['shared']),
     ]);
     expect(first[0]?.id).not.toBe(second[0]?.id);
-    const { rows } = await pool.query<{ base_id: string; id: string }>(
+    const rows = await client.unsafe<{ base_id: string; id: string }[]>(
       'select base_id, id from knowledge_tags where name = $1 and base_id = any($2::text[])',
-      ['shared', [firstBase, secondBase]],
+      ['shared', client.array([firstBase, secondBase], 'TEXT')],
     );
     expect(rows).toHaveLength(2);
     expect(new Set(rows.map((row) => row.base_id))).toEqual(new Set([firstBase, secondBase]));
@@ -186,7 +186,7 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
       // 每批一次插入，存在旧行时统一补查一次。
       expect(queries).toBe(Math.ceil(size / 500) + 1);
     }
-    const { rows } = await pool.query<{ n: number; unique_names: number }>(
+    const rows = await client.unsafe<{ n: number; unique_names: number }[]>(
       'select count(*)::int as n, count(distinct name)::int as unique_names from knowledge_tags where base_id = $1',
       [baseId],
     );

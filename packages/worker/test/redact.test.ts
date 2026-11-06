@@ -1,5 +1,5 @@
 import { publicRunQuestion, redactChatEvent, redactJson, redactSecrets } from '@agentport/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 describe('redactSecrets', () => {
   it('masks bearer tokens but keeps the scheme', () => {

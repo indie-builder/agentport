@@ -1,20 +1,22 @@
-import type { FastifyInstance } from 'fastify';
-import { describe, expect, it, vi } from 'vitest';
-import { createInvoker } from '../src/features/servers/agent-invoker.js';
+import * as dbModule from '@agentport/db';
+import { describe, expect, it, mock } from 'bun:test';
+import { createInvoker } from '../src/modules/servers/agent-invoker.js';
+import type { TestApp } from './helpers.js';
 
-const state = vi.hoisted(() => ({
+const realDb = { ...dbModule };
+const state = {
   getRunCalls: 0,
   cancelCalls: 0,
-}));
+};
 
-const queue = vi.hoisted(() => ({
-  getWaitingCount: vi.fn(async () => 0),
-  add: vi.fn(async () => undefined),
-  getJob: vi.fn(async () => undefined),
-}));
+const queue = {
+  getWaitingCount: mock(async () => 0),
+  add: mock(async () => undefined),
+  getJob: mock(async () => undefined),
+};
 
-vi.mock('@agentport/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/db')>();
+mock.module('@agentport/db', () => {
+  const actual = realDb;
   return {
     ...actual,
     repo: {
@@ -44,16 +46,16 @@ vi.mock('@agentport/db', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/queue/producer.js', () => ({ getQueue: () => queue }));
-vi.mock('../src/plugins/audit.js', () => ({ writeAudit: vi.fn(async () => undefined) }));
-vi.mock('../src/features/chat/cancel-run.js', () => ({
-  cancelAgentRun: vi.fn(async () => {
+mock.module('../src/queue/producer.js', () => ({ getQueue: () => queue }));
+mock.module('../src/plugins/audit.js', () => ({ writeAudit: mock(async () => undefined) }));
+mock.module('../src/modules/chat/cancel-run.js', () => ({
+  cancelAgentRun: mock(async () => {
     state.cancelCalls += 1;
     return 'queued';
   }),
 }));
 
-function fakeApp(): FastifyInstance {
+function fakeApp(): TestApp {
   const db = {
     select: () => ({
       from: () => ({
@@ -66,7 +68,7 @@ function fakeApp(): FastifyInstance {
   return {
     db,
     log: { error: () => undefined, warn: () => undefined },
-  } as unknown as FastifyInstance;
+  } as unknown as TestApp;
 }
 
 async function rejectionOf(promise: Promise<unknown>): Promise<{ code?: string; message: string }> {
@@ -99,8 +101,8 @@ describe('agent invoker cancellable wait', () => {
     expect(err.code).toBe('UPSTREAM_FAILED');
     expect(err.message).toBe('agent run cancelled');
     // 两个维度都报告：取消延迟与取消后是否还多读了一次 run。
-    expect.soft(performance.now() - abortedAt).toBeLessThan(500);
-    expect.soft(state.getRunCalls).toBe(0);
+    expect(performance.now() - abortedAt).toBeLessThan(500);
+    expect(state.getRunCalls).toBe(0);
     expect(state.cancelCalls).toBe(1);
   });
 

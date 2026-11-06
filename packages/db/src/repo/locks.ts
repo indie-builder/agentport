@@ -1,8 +1,7 @@
 import { AppError } from '@agentport/core';
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import type { QueryResult, QueryResultRow } from 'pg';
-import type { Database, DbPool } from '../client.js';
+import { drizzle } from 'drizzle-orm/bun-sql';
+import type { Database, DatabaseClient } from '../client.js';
 import { agents, schema } from '../schema.js';
 
 /** 事务或连接都可用的最小查询面，避免调用方为了加锁反复 cast。 */
@@ -84,13 +83,16 @@ function connectionError(reason: unknown): Error {
  * 的设置恢复、tx A/B 与 unlock；超时即销毁原 client 并拒绝，迟到回调不能换连接继续写入。
  */
 export async function withAdvisoryLock<T>(
-  pool: DbPool,
+  databaseClient: DatabaseClient,
   key: string,
   fn: (db: Database) => Promise<T>,
   holdTimeoutMs?: number,
 ): Promise<T> {
-  const client = await pool.connect();
+  const client = await databaseClient.reserve().catch((err: unknown) => {
+    throw serviceError('无法取得数据库锁，操作未执行', err);
+  });
   let released = false;
+  let closing: Promise<void> | undefined;
   let broken: Error | undefined;
   let statementTimeout: string | undefined;
   let lockTimeout: string | undefined;
@@ -100,21 +102,15 @@ export async function withAdvisoryLock<T>(
   let expireHold: ((err: Error) => void) | undefined;
   let holdDeadline: Promise<never> | undefined;
 
-  const onError = (err: unknown): void => {
-    broken ??= connectionError(err);
-  };
-  const onEnd = (): void => {
-    broken ??= new Error('database connection ended');
-  };
-  client.on('error', onError);
-  client.on('end', onEnd);
-
   const releaseOnce = (destroy: boolean): void => {
     if (released) return;
     released = true;
-    client.removeListener('error', onError);
-    client.removeListener('end', onEnd);
-    client.release(destroy);
+    if (destroy) {
+      closing = client.close({ timeout: 0 });
+      void closing.catch(() => undefined);
+    } else {
+      client.release();
+    }
   };
 
   /** 控制查询超时/失效：先销毁一次连接，再把失败交给调用方。 */
@@ -124,12 +120,12 @@ export async function withAdvisoryLock<T>(
     return serviceError(message, cause);
   };
 
-  const control = <R extends QueryResultRow = QueryResultRow>(
+  const control = <R extends Record<string, unknown> = Record<string, unknown>>(
     text: string,
     values?: string[],
-  ): Promise<QueryResult<R>> => {
+  ): Promise<R[]> => {
     if (released) return Promise.reject(serviceError('数据库连接已销毁，操作未执行'));
-    return new Promise<QueryResult<R>>((resolve, reject) => {
+    return new Promise<R[]>((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(
           destroyControl(
@@ -139,14 +135,14 @@ export async function withAdvisoryLock<T>(
         );
       }, CONTROL_QUERY_TIMEOUT_MS);
       timer.unref?.();
-      client.query<R>(text, values).then(
+      client.unsafe<R[]>(text, values).then(
         (result) => {
           clearTimeout(timer);
           resolve(result);
         },
         (err) => {
           clearTimeout(timer);
-          reject(err);
+          reject(destroyControl('数据库锁控制查询失败，连接已销毁', err));
         },
       );
     });
@@ -154,7 +150,7 @@ export async function withAdvisoryLock<T>(
 
   const readSetting = async (name: string): Promise<string> => {
     const result = await control<{ value: string }>('select current_setting($1) as value', [name]);
-    return result.rows[0]?.value ?? '0';
+    return result[0]?.value ?? '0';
   };
   const setSetting = (name: string, value: string): Promise<unknown> =>
     control('select set_config($1, $2, false)', [name, value]);
@@ -221,7 +217,7 @@ export async function withAdvisoryLock<T>(
           key,
         ]),
       );
-      if (unlock.rows[0]?.unlocked !== true) {
+      if (unlock[0]?.unlocked !== true) {
         throw serviceError('数据库会话锁未按预期释放');
       }
       await bounded(setSetting('statement_timeout', statementTimeout ?? '0'));
@@ -236,6 +232,13 @@ export async function withAdvisoryLock<T>(
 
   if (holdTimer !== undefined) clearTimeout(holdTimer);
   releaseOnce(cleanupError !== undefined);
+  if (closing !== undefined) {
+    try {
+      await closing;
+    } catch (err) {
+      cleanupError ??= err;
+    }
+  }
 
   if (primaryError !== undefined) {
     const thrown =

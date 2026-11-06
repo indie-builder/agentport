@@ -1,4 +1,3 @@
-import type { AddressInfo } from 'node:net';
 import {
   type Agent,
   type Channel,
@@ -6,9 +5,8 @@ import {
   type ChannelMessage,
   RUN_QUEUE_MAX_WAITING,
 } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { persistRunMessages } from '../../worker/src/messages.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
@@ -16,15 +14,17 @@ import {
   createAgent,
   createTestAccount,
   infraReady,
-  inject,
   loginCookie,
+  request,
   setAgentMember,
   startApp,
   type TestAccount,
+  type TestApp,
   testConfig,
   unique,
   waitFor,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -41,7 +41,8 @@ interface RunRow {
 const ready = await infraReady;
 
 describe.skipIf(!ready)('channel mentions', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let server: TestServer;
   let adminCookie: string;
   let baseUrl: string;
   let redis: Redis;
@@ -54,9 +55,8 @@ describe.skipIf(!ready)('channel mentions', () => {
   beforeAll(async () => {
     app = await startApp();
     adminCookie = await loginCookie(app);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    server = await listen(app);
+    baseUrl = server.url;
     redis = new Redis(testConfig().REDIS_URL);
     owner = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     member = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
@@ -64,28 +64,25 @@ describe.skipIf(!ready)('channel mentions', () => {
   });
 
   afterAll(async () => {
+    await server.close();
     if (channelIds.length > 0) {
-      const runs = await app.pool
-        .query<{ id: string }>('select id from agent_runs where channel_id = any($1::text[])', [
-          channelIds,
-        ])
-        .catch(() => ({ rows: [] }));
-      for (const row of runs.rows) {
+      const runs = await app.client.unsafe<{ id: string }[]>('select id from agent_runs where channel_id = any($1::text[])', [app.client.array(channelIds, 'TEXT')],
+        )
+        .catch(() => []);
+      for (const row of runs) {
         await getQueue()
           .remove(row.id)
           .catch(() => undefined);
       }
-      await app.pool
-        .query('delete from channels where id = any($1::text[])', [channelIds])
+      await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(channelIds, 'TEXT')])
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs });
     const businessIds = [owner.businessId, member.businessId, viewer.businessId];
-    await app.pool.query('delete from audit_log where actor = any($1::text[])', [businessIds]);
-    await app.pool.query('delete from user_roles where business_id = any($1::text[])', [
-      businessIds,
-    ]);
-    await app.pool.query('delete from "user" where business_id = any($1::text[])', [businessIds]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
+    );
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
     await redis.quit().catch(() => undefined);
     await app.close();
   });
@@ -96,7 +93,7 @@ describe.skipIf(!ready)('channel mentions', () => {
     cookie: string,
     payload?: Record<string, unknown>,
   ) =>
-    inject(app, {
+    request(app, {
       method,
       url,
       headers: { cookie },
@@ -141,7 +138,7 @@ describe.skipIf(!ready)('channel mentions', () => {
     call('POST', `/api/channels/${channelId}/messages`, cookie, payload);
 
   const channelRuns = async (channelId: string): Promise<RunRow[]> => {
-    const result = await app.pool.query<RunRow>(
+    const result = await app.client.unsafe<RunRow[]>(
       `select id, agent_id, conversation_id, trigger, channel_id,
               channel_trigger_message_id, status
          from agent_runs
@@ -149,12 +146,12 @@ describe.skipIf(!ready)('channel mentions', () => {
         order by created_at, id`,
       [channelId],
     );
-    return result.rows;
+    return result;
   };
 
   // 复用 worker 的真实落库/频道投影路径，不手写等价写入。
   const finishRunWithReply = async (run: RunRow, agentId: string, text: string) => {
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'running', started_at = now() where id = $1",
       [run.id],
     );
@@ -164,18 +161,18 @@ describe.skipIf(!ready)('channel mentions', () => {
       runId: run.id,
       events: [{ type: 'assistant_text', text }],
     });
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
       [run.id],
     );
   };
 
   const runUserContent = async (runId: string) => {
-    const result = await app.pool.query<{ content: { type: string; text: string } }>(
+    const result = await app.client.unsafe<{ content: { type: string; text: string } }[]>(
       "select content from messages where run_id = $1 and role = 'user'",
       [runId],
     );
-    return result.rows;
+    return result;
   };
 
   it('wakes only mentioned agents and reuses one lane across members', async () => {
@@ -204,19 +201,19 @@ describe.skipIf(!ready)('channel mentions', () => {
     });
     expect(await getQueue().getJob(run.id)).toBeDefined();
 
-    const lane = await app.pool.query<{ channel_id: string; agent_id: string }>(
+    const lane = await app.client.unsafe<{ channel_id: string; agent_id: string }[]>(
       'select channel_id, agent_id from conversations where id = $1',
       [run.conversation_id],
     );
-    expect(lane.rows[0]).toEqual({ channel_id: channel.id, agent_id: agent.id });
-    const binding = await app.pool.query<{ conversation_id: string }>(
+    expect(lane[0]).toEqual({ channel_id: channel.id, agent_id: agent.id });
+    const binding = await app.client.unsafe<{ conversation_id: string }[]>(
       'select conversation_id from channel_agent_bindings where channel_id = $1 and agent_id = $2',
       [channel.id, agent.id],
     );
-    expect(binding.rows[0]?.conversation_id).toBe(run.conversation_id);
+    expect(binding[0]?.conversation_id).toBe(run.conversation_id);
 
     // 释放 lane 后由第二个成员继续，验证同一 (channel, agent) 只复用一个会话。
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
       [run.id],
     );
@@ -253,11 +250,11 @@ describe.skipIf(!ready)('channel mentions', () => {
     if (!firstRun) throw new Error('expected the first round run');
     await finishRunWithReply(firstRun, agent.id, firstReply);
 
-    const projected = await app.pool.query<{ body: string }>(
+    const projected = await app.client.unsafe<{ body: string }[]>(
       "select body from channel_messages where channel_id = $1 and run_id = $2 and kind = 'agent'",
       [channel.id, firstRun.id],
     );
-    expect(projected.rows.map((row) => row.body)).toEqual([firstReply]);
+    expect(projected.map((row) => row.body)).toEqual([firstReply]);
 
     const second = await post(channel.id, owner.cookie, {
       body: 'second round prompt',
@@ -283,19 +280,19 @@ describe.skipIf(!ready)('channel mentions', () => {
       expect(text).toContain('second round prompt');
     }
 
-    const human = await app.pool.query<{ body: string }>(
+    const human = await app.client.unsafe<{ body: string }[]>(
       "select body from channel_messages where channel_id = $1 and kind = 'human' order by seq",
       [channel.id],
     );
-    expect(human.rows.map((row) => row.body)).toEqual([
+    expect(human.map((row) => row.body)).toEqual([
       'first round prompt',
       'second round prompt',
     ]);
-    const injected = await app.pool.query<{ count: string }>(
+    const injected = await app.client.unsafe<{ count: string }[]>(
       "select count(*) from channel_messages where channel_id = $1 and body like '%【频道上下文】%'",
       [channel.id],
     );
-    expect(Number(injected.rows[0]?.count)).toBe(0);
+    expect(Number(injected[0]?.count)).toBe(0);
   });
 
   it('does not enqueue without a mention', async () => {
@@ -311,8 +308,7 @@ describe.skipIf(!ready)('channel mentions', () => {
     const channel = await createChannel();
     const agent = await createBoundAgent(channel.id);
     await addMember(channel.id, viewer, 'viewer');
-    const waiting = vi
-      .spyOn(getQueue(), 'getWaitingCount')
+    const waiting = spyOn(getQueue(), 'getWaitingCount')
       .mockResolvedValue(RUN_QUEUE_MAX_WAITING + 1);
     const mentionPayload: Record<string, unknown> = {
       body: 'mention full',
@@ -359,13 +355,13 @@ describe.skipIf(!ready)('channel mentions', () => {
     ).json<Agent>();
 
     const paused = await createBoundAgent(channel.id);
-    await app.pool.query(
+    await app.client.unsafe(
       "update channel_agent_bindings set status = 'paused' where channel_id = $1 and agent_id = $2",
       [channel.id, paused.id],
     );
 
     const disabled = await createBoundAgent(channel.id);
-    await app.pool.query('update agents set enabled = false where id = $1', [disabled.id]);
+    await app.client.unsafe('update agents set enabled = false where id = $1', [disabled.id]);
 
     const active = await createBoundAgent(channel.id);
 
@@ -382,11 +378,11 @@ describe.skipIf(!ready)('channel mentions', () => {
       });
       expect(res.statusCode, res.body).toBe(400);
       expect(res.json<{ code: string }>().code).toBe('INVALID_INPUT');
-      const stored = await app.pool.query<{ count: string }>(
+      const stored = await app.client.unsafe<{ count: string }[]>(
         'select count(*) from channel_messages where channel_id = $1 and client_message_id = $2',
         [channel.id, clientMessageId],
       );
-      expect(Number(stored.rows[0]?.count)).toBe(0);
+      expect(Number(stored[0]?.count)).toBe(0);
     }
 
     const viewerPost = await post(channel.id, viewer.cookie, {
@@ -410,7 +406,7 @@ describe.skipIf(!ready)('channel mentions', () => {
     expect(optedOut.statusCode, optedOut.body).toBe(201);
     expect(await channelRuns(channel.id)).toHaveLength(0);
 
-    await app.pool.query(
+    await app.client.unsafe(
       'update channel_agent_bindings set auto_wake_on_all = true where channel_id = $1 and agent_id = $2',
       [channel.id, agent.id],
     );
@@ -441,13 +437,13 @@ describe.skipIf(!ready)('channel mentions', () => {
     expect(busy.statusCode, busy.body).toBe(201);
     expect(await channelRuns(channel.id)).toHaveLength(1);
 
-    const notices = await app.pool.query<{ kind: string; agent_id: string; body: string }>(
+    const notices = await app.client.unsafe<{ kind: string; agent_id: string; body: string }[]>(
       "select kind, agent_id, body from channel_messages where channel_id = $1 and kind = 'system'",
       [channel.id],
     );
-    expect(notices.rows).toHaveLength(1);
-    expect(notices.rows[0]).toMatchObject({ kind: 'system', agent_id: agent.id });
-    expect(notices.rows[0]?.body).toContain('处理上一轮');
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ kind: 'system', agent_id: agent.id });
+    expect(notices[0]?.body).toContain('处理上一轮');
   });
 
   it('does not wake again for a repeated client message id', async () => {
@@ -465,7 +461,7 @@ describe.skipIf(!ready)('channel mentions', () => {
     expect(runs).toHaveLength(1);
     const run = runs[0];
     if (!run) throw new Error('expected a run');
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
       [run.id],
     );
@@ -528,7 +524,7 @@ describe.skipIf(!ready)('channel mentions', () => {
     const channel = await createChannel();
     const agent = await createBoundAgent(channel.id);
     const queue = getQueue();
-    const add = vi.spyOn(queue, 'add').mockRejectedValueOnce(new Error('redis down'));
+    const add = spyOn(queue, 'add').mockRejectedValueOnce(new Error('redis down'));
     let posted: Awaited<ReturnType<typeof post>>;
     try {
       posted = await post(channel.id, owner.cookie, {

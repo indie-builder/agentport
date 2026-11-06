@@ -6,8 +6,9 @@ import {
   sessionCleanupAckChannel,
   sessionCleanupRequestSchema,
 } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import { Redis } from 'ioredis';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { closeSessionSandboxes } from '../src/queue/session-cleanup.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9';
@@ -20,7 +21,7 @@ afterEach(async () => {
     server.closeAllConnections?.();
     server.close();
   }
-  vi.restoreAllMocks();
+  mock.restore();
 });
 
 async function worker(
@@ -115,7 +116,7 @@ describe('closeSessionSandboxes', () => {
         JSON.stringify({ requestId: request.requestId, ok: true }),
       );
     });
-    const disconnects = vi.spyOn(Redis.prototype, 'disconnect');
+    const disconnects = spyOn(RedisClient.prototype, 'close');
 
     const error = await close({
       redisUrl: REDIS_URL,
@@ -138,7 +139,7 @@ describe('closeSessionSandboxes', () => {
     server.unref();
     const address = server.address();
     if (address === null || typeof address === 'string') throw new Error('missing server address');
-    const disconnects = vi.spyOn(Redis.prototype, 'disconnect');
+    const disconnects = spyOn(RedisClient.prototype, 'close');
     const started = Date.now();
 
     const error = await close({
@@ -155,8 +156,8 @@ describe('closeSessionSandboxes', () => {
 
   it('releases Redis connections when publishing the request fails', async () => {
     const requestChannel = await worker(async () => undefined);
-    const disconnects = vi.spyOn(Redis.prototype, 'disconnect');
-    vi.spyOn(Redis.prototype, 'publish').mockRejectedValueOnce(new Error('publish failed'));
+    const disconnects = spyOn(RedisClient.prototype, 'close');
+    spyOn(RedisClient.prototype, 'publish').mockRejectedValueOnce(new Error('publish failed'));
 
     const error = await close({
       redisUrl: REDIS_URL,
@@ -166,7 +167,7 @@ describe('closeSessionSandboxes', () => {
     });
 
     expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
-    expect(String((error as Error).message)).toContain('无法发送');
+    expect(String((error as Error).message)).toContain('无法完成会话容器关闭确认');
     expect(disconnects).toHaveBeenCalledTimes(2);
   });
 

@@ -1,6 +1,6 @@
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { testAccess } from './fixtures/access.js';
 
 const { agentOwnership, conversationSubject, userSubject } = testAccess(import.meta.url);
@@ -51,7 +51,7 @@ describe('run claim and retry contract', () => {
     await db.delete(schema.agentRuns).where(eq(schema.agentRuns.conversationId, conversationId));
     await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
     await db.delete(schema.agents).where(eq(schema.agents.id, agentId));
-    await dbHandle.pool.end();
+    await dbHandle.client.close();
   });
 
   it('claims a queued run exactly once', async () => {

@@ -7,25 +7,27 @@ import { join } from 'node:path';
 import { hashMcpToken } from '@agentport/core';
 import { newId, schema } from '@agentport/db';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   seedRun,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
 const LONG = 'x'.repeat(20_050);
 
 describe.skipIf(!ready)('knowledge MCP endpoint', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let server: TestServer;
   let cookie = '';
   let baseUrl = '';
   let knowledgeDir = '';
@@ -47,7 +49,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   const runIds: string[] = [];
 
   async function createProfile() {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -65,7 +67,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   }
 
   async function createBase(profileId: string) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -87,20 +89,20 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   ) {
     const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
     const versionId = `kdv_${documentId.slice(5)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents
          (id, base_id, title, source_type, mime_type, status, current_version_id)
        values ($1, $2, 'mcp 文档', 'upload', 'text/markdown', 'ready', $3)`,
       [documentId, targetBaseId, versionId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id)
        values ($1, $2, 1, $3, $3, 'a.md', 'text/markdown', 1, 'parsed', '[]', '[]', $4)`,
       [versionId, documentId, 'a'.repeat(64), profileId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text)
        values ($1, $2, $3, $4, 0, 'text', $5, $6)`,
@@ -117,7 +119,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     const pageId = `kwp_${randomBytes(6).toString('hex')}`;
     const versionId = `kwv_${pageId.slice(4)}`;
     const markdown = input.markdown ?? '线上 Wiki 正文';
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_wiki_pages (id, base_id, slug, title, status, current_version_id)
        values ($1, $2, $3, 'Wiki 页面', $4, $5)`,
       [
@@ -128,7 +130,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         versionId,
       ],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_wiki_versions
          (id, page_id, version, markdown, source_chunk_ids, model, generated_by)
        values ($1, $2, 1, $3, '[]', 'manual', 'manual')`,
@@ -218,8 +220,8 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     knowledgeDir = await mkdtemp(join(tmpdir(), 'knowledge-mcp-'));
     app = await startApp({ KNOWLEDGE_DIR: knowledgeDir });
     cookie = await loginCookie(app);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    server = await listen(app);
+    baseUrl = server.url;
 
     embeddingId = await createProfile();
     const base = await createBase(embeddingId);
@@ -244,24 +246,23 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   afterAll(async () => {
+    await server.close();
     if (runIds.length > 0) {
-      await app.pool.query('delete from agent_runs where id = any($1::text[])', [runIds]);
+      await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [app.client.array(runIds, 'TEXT')]);
     }
     if (createdAgents.length > 0) {
-      await app.pool.query('delete from agents where slug = any($1::text[])', [createdAgents]);
+      await app.client.unsafe('delete from agents where slug = any($1::text[])', [app.client.array(createdAgents, 'TEXT')]);
     }
     if (createdBases.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [
-        createdBases,
-      ]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(createdBases, 'TEXT')],
+      );
     }
     if (createdServers.length > 0) {
-      await app.pool.query('delete from servers where id = any($1::text[])', [createdServers]);
+      await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array(createdServers, 'TEXT')]);
     }
     if (createdProfiles.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        createdProfiles,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(createdProfiles, 'TEXT')],
+      );
     }
     await app.close();
     await new Promise<void>((resolve) => embedFix.close(() => resolve()));
@@ -289,7 +290,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
 
   it('rejects expired, cleared, unbound and disabled-child tokens with 401', async () => {
     const expired = await seedAuthRun('self');
-    await app.pool.query(
+    await app.client.unsafe(
       "update agent_runs set mcp_token_expires_at = now() - interval '1 minute' where id = $1",
       [expired.runId],
     );
@@ -302,7 +303,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
 
     // run 结束后 token 被清空：即使 header 里还带着旧 token 也不能再用。
     const cleared = await seedAuthRun('self');
-    await app.pool.query(
+    await app.client.unsafe(
       'update agent_runs set mcp_token_hash = null, mcp_token_expires_at = null where id = $1',
       [cleared.runId],
     );
@@ -338,7 +339,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
 
   it('checks the run binding once per successful request', async () => {
     // 真实 query spy：旧实现会先取 token、再做一次 isRunBoundToServer，同样的 JOIN 执行两次。
-    const spy = vi.spyOn(app.pool, 'query');
+    const spy = spyOn(app.client, 'unsafe');
     let sql: string[] = [];
     try {
       const res = await mcpPost(serverId, {
@@ -457,11 +458,11 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   it('lists only readable targets, filters by kind and pages with a stable cursor', async () => {
     const doc = await seedDocument(baseId, embeddingId, '列表明细');
     const faq = await seedDocument(baseId, embeddingId, 'FAQ 明细');
-    await app.pool.query("update knowledge_documents set content_kind = 'faq' where id = $1", [
+    await app.client.unsafe("update knowledge_documents set content_kind = 'faq' where id = $1", [
       faq.documentId,
     ]);
     const disabled = await seedDocument(baseId, embeddingId, '已停用');
-    await app.pool.query(
+    await app.client.unsafe(
       "update knowledge_documents set status = 'disabled', disabled_reason = 'manual' where id = $1",
       [disabled.documentId],
     );
@@ -503,13 +504,13 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   it('reads all FAQ answers from the published version', async () => {
     const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
     const versionId = `kdv_${documentId.slice(5)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents
          (id, base_id, title, source_type, mime_type, status, current_version_id, content_kind)
        values ($1, $2, 'FAQ 文档', 'manual', 'text/markdown', 'ready', $3, 'faq')`,
       [documentId, baseId, versionId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id, origin, faq)
@@ -546,13 +547,13 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   it('accepts FAQ policy args and returns faq/directAnswer on the search wire', async () => {
     const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
     const versionId = `kdv_${documentId.slice(5)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents
          (id, base_id, title, source_type, mime_type, status, current_version_id, content_kind)
        values ($1, $2, 'FAQ 检索文档', 'manual', 'text/markdown', 'ready', $3, 'faq')`,
       [documentId, baseId, versionId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id, origin, faq)
@@ -573,7 +574,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         }),
       ],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text, metadata)
        values ($1, $2, $3, $4, 0, 'text', '重置密码', '重置 密码', $5)`,
@@ -631,13 +632,13 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     const versionId = `kdv_${documentId.slice(5)}`;
     const question = '表情问答';
     const answers = [`${'😀'.repeat(6_000)}甲`, `${'😀'.repeat(6_000)}乙`];
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents
          (id, base_id, title, source_type, mime_type, status, current_version_id, content_kind)
        values ($1, $2, 'FAQ 分页文档', 'manual', 'text/markdown', 'ready', $3, 'faq')`,
       [documentId, baseId, versionId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id, origin, faq)
@@ -731,7 +732,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   it('returns BASE_DISABLED for every tool when the base is disabled', async () => {
-    await app.pool.query("update knowledge_bases set status = 'disabled' where id = $1", [baseId]);
+    await app.client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [baseId]);
     try {
       for (const [name, args] of [
         ['knowledge_search', { q: '令牌' }],
@@ -743,7 +744,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         expect(res.text).toContain('BASE_DISABLED');
       }
     } finally {
-      await app.pool.query("update knowledge_bases set status = 'active' where id = $1", [baseId]);
+      await app.client.unsafe("update knowledge_bases set status = 'active' where id = $1", [baseId]);
     }
   });
 
@@ -757,7 +758,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
       'base64',
     );
-    await app.pool.query('update knowledge_bases set settings = $2 where id = $1', [
+    await app.client.unsafe('update knowledge_bases set settings = $2 where id = $1', [
       baseId,
       JSON.stringify({
         chunkTokens: 800,
@@ -766,14 +767,14 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         imageProcessing: { enabled: true, model: 'vision' },
       }),
     ]);
-    await app.pool.query('update knowledge_document_versions set images = $2 where id = $1', [
+    await app.client.unsafe('update knowledge_document_versions set images = $2 where id = $1', [
       versionId,
       JSON.stringify([
         { name: 'fig-1.png', sha256: 'c'.repeat(64), mimeType: 'image/png', page: 1, warnings: [] },
       ]),
     ]);
     const chunkId = `kchk_${Math.random().toString(36).slice(2, 12)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text, metadata)
        values ($1, $2, $3, $4, 9, 'image', '图中显示令牌轮换', '', $5)`,
@@ -828,9 +829,9 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
       });
       expect(JSON.parse(withImage.text)).toEqual(parsed);
     } finally {
-      await app.pool.query('delete from knowledge_chunks where id = $1', [chunkId]);
-      await app.pool.query('delete from knowledge_documents where id = $1', [imageDocumentId]);
-      await app.pool.query('update knowledge_bases set settings = $2 where id = $1', [
+      await app.client.unsafe('delete from knowledge_chunks where id = $1', [chunkId]);
+      await app.client.unsafe('delete from knowledge_documents where id = $1', [imageDocumentId]);
+      await app.client.unsafe('update knowledge_bases set settings = $2 where id = $1', [
         baseId,
         JSON.stringify({ chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false }),
       ]);
@@ -839,31 +840,31 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
 
   it('stops recalling a deleted document', async () => {
     // 前面的用例已在同一库留下含「令牌」的文档，先全部清掉再验证。
-    await app.pool.query('delete from knowledge_documents where base_id = $1', [baseId]);
+    await app.client.unsafe('delete from knowledge_documents where base_id = $1', [baseId]);
     const { documentId } = await seedDocument(baseId, embeddingId, '唯一 召回 词');
     const before = await toolCall('knowledge_search', { q: '召回' });
     expect(JSON.parse(before.text).hits).toHaveLength(1);
-    await app.pool.query('delete from knowledge_documents where id = $1', [documentId]);
+    await app.client.unsafe('delete from knowledge_documents where id = $1', [documentId]);
     const after = await toolCall('knowledge_search', { q: '召回' });
     expect(JSON.parse(after.text).hits).toHaveLength(0);
   });
 
   it('pages targets sharing one microsecond timestamp without skipping any', async () => {
     // 同一事务创建的 document/faq/wiki 共享微秒时间；cursor 不能丢精度。
-    await app.pool.query('delete from knowledge_documents where base_id = $1', [baseId]);
-    await app.pool.query('delete from knowledge_wiki_pages where base_id = $1', [baseId]);
+    await app.client.unsafe('delete from knowledge_documents where base_id = $1', [baseId]);
+    await app.client.unsafe('delete from knowledge_wiki_pages where base_id = $1', [baseId]);
     const stamp = '2026-01-01T12:00:00.123456Z';
     for (const [id, versionId, kind] of [
       ['kdoc_a', 'kdv_a', 'document'],
       ['kdoc_b', 'kdv_b', 'faq'],
     ] as const) {
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into knowledge_documents
            (id, base_id, title, source_type, mime_type, status, current_version_id, content_kind)
          values ($1, $2, $3, 'manual', 'text/markdown', 'ready', $4, $5)`,
         [id, baseId, id, versionId, kind],
       );
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into knowledge_document_versions
            (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
             size_bytes, parse_status, page_map, images, embedding_profile_id, origin, faq)
@@ -885,16 +886,16 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         ],
       );
     }
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_wiki_pages (id, base_id, slug, title, status, current_version_id)
        values ('kwp_c', $1, 'wiki-kwp-c', 'Wiki 同微秒', 'published', 'kwv_c')`,
       [baseId],
     );
-    await app.pool.query('update knowledge_documents set updated_at = $2 where base_id = $1', [
+    await app.client.unsafe('update knowledge_documents set updated_at = $2 where base_id = $1', [
       baseId,
       stamp,
     ]);
-    await app.pool.query('update knowledge_wiki_pages set updated_at = $2 where base_id = $1', [
+    await app.client.unsafe('update knowledge_wiki_pages set updated_at = $2 where base_id = $1', [
       baseId,
       stamp,
     ]);
