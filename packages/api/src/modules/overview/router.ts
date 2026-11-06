@@ -29,6 +29,72 @@ export const overviewRouter = os.router({
       runScope === undefined
         ? or(inWindow, eq(schema.agentRuns.status, 'running'))
         : and(or(inWindow, eq(schema.agentRuns.status, 'running')), runScope);
+    const runStats = {
+      lastRunStartTime: sql<Date | null>`max(${schema.agentRuns.startedAt})`.as(
+        'last_run_start_time',
+      ),
+      runCount: sql<number>`count(${schema.agentRuns.id})::int`.as('run_count'),
+      totalCost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`.as('total_cost'),
+      errorRate: sql<number>`coalesce(
+          count(*) filter (where ${schema.agentRuns.status} in ('failed','timeout'))::float
+          / nullif(count(${schema.agentRuns.id}), 0), 0)::float`.as('error_rate'),
+      latencyP50: sql<
+        number | null
+      >`percentile_cont(0.5) within group (order by ${schema.agentRuns.latencyMs})`.as(
+        'latency_p50',
+      ),
+      latencyP99: sql<
+        number | null
+      >`percentile_cont(0.99) within group (order by ${schema.agentRuns.latencyMs})`.as(
+        'latency_p99',
+      ),
+      totalTokens:
+        sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0)::bigint + coalesce(${schema.agentRuns.outputTokens},0)::bigint), 0)::float8`.as(
+          'total_tokens',
+        ),
+    };
+    const agentFields = {
+      agentId: schema.agents.id,
+      name: schema.agents.name,
+      slug: schema.agents.slug,
+      createdAt: schema.agents.createdAt,
+      enabled: schema.agents.enabled,
+    };
+    const agentRunStats = ownOnly
+      ? null
+      : context.db
+          .select({ agentId: schema.agentRuns.agentId, ...runStats })
+          .from(schema.agentRuns)
+          .where(and(inWindow, runScope))
+          .groupBy(schema.agentRuns.agentId)
+          .as('agent_run_stats');
+    const agentQuery =
+      agentRunStats === null
+        ? context.db
+            .select({ ...agentFields, ...runStats })
+            .from(schema.agents)
+            .leftJoin(
+              schema.agentRuns,
+              and(eq(schema.agentRuns.agentId, schema.agents.id), inWindow, runScope),
+            )
+            .where(agentScope)
+            .groupBy(schema.agents.id)
+            .orderBy(desc(sql`max(${schema.agentRuns.startedAt})`))
+        : context.db
+            .select({
+              ...agentFields,
+              lastRunStartTime: agentRunStats.lastRunStartTime,
+              runCount: sql<number>`coalesce(${agentRunStats.runCount}, 0)`,
+              totalCost: sql<number>`coalesce(${agentRunStats.totalCost}, 0)`,
+              errorRate: sql<number>`coalesce(${agentRunStats.errorRate}, 0)`,
+              latencyP50: agentRunStats.latencyP50,
+              latencyP99: agentRunStats.latencyP99,
+              totalTokens: sql<number>`coalesce(${agentRunStats.totalTokens}, 0)`,
+            })
+            .from(schema.agents)
+            .leftJoin(agentRunStats, eq(agentRunStats.agentId, schema.agents.id))
+            .where(agentScope)
+            .orderBy(desc(agentRunStats.lastRunStartTime));
     const [[runAgg], agentRows, recent] = await Promise.all([
       context.db
         .select({
@@ -49,39 +115,7 @@ export const overviewRouter = os.router({
         })
         .from(schema.agentRuns)
         .where(runWindow),
-      context.db
-        .select({
-          agentId: schema.agents.id,
-          name: schema.agents.name,
-          slug: schema.agents.slug,
-          createdAt: schema.agents.createdAt,
-          enabled: schema.agents.enabled,
-          lastRunStartTime: sql<Date | null>`max(${schema.agentRuns.startedAt})`,
-          runCount: sql<number>`count(${schema.agentRuns.id})::int`,
-          totalCost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`,
-          errorRate: sql<number>`coalesce(
-          count(*) filter (where ${schema.agentRuns.status} in ('failed','timeout'))::float
-          / nullif(count(${schema.agentRuns.id}), 0), 0)::float`,
-          latencyP50: sql<
-            number | null
-          >`percentile_cont(0.5) within group (order by ${schema.agentRuns.latencyMs})`,
-          latencyP99: sql<
-            number | null
-          >`percentile_cont(0.99) within group (order by ${schema.agentRuns.latencyMs})`,
-          totalTokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0)::bigint + coalesce(${schema.agentRuns.outputTokens},0)::bigint), 0)::float8`,
-        })
-        .from(schema.agents)
-        .leftJoin(
-          schema.agentRuns,
-          and(
-            eq(schema.agentRuns.agentId, schema.agents.id),
-            sql`${schema.agentRuns.startedAt} >= ${since}`,
-            runScope,
-          ),
-        )
-        .where(agentScope)
-        .groupBy(schema.agents.id)
-        .orderBy(desc(sql`max(${schema.agentRuns.startedAt})`)),
+      agentQuery,
       context.db
         .select({
           id: schema.agentRuns.id,
