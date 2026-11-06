@@ -548,7 +548,7 @@ describe('knowledge library list', () => {
     );
     await mount('/knowledge');
     expect(document.querySelectorAll('h1')).toHaveLength(1);
-    expect(document.body.textContent).toContain('知识库保存可检索的文档与 Wiki');
+    expect(document.body.textContent).toContain('未创建知识库');
     expect(button('新建知识库')).toBeDefined();
   });
 

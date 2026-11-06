@@ -552,7 +552,7 @@ export function ServersPage() {
       {servers.data && all.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
-          title="连接器把外部服务变成专家可调用的工具"
+          title="未添加连接器"
           description={canCreate ? undefined : '当前账户没有创建连接器的权限。'}
           action={
             canCreate ? (

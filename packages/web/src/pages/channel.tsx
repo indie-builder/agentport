@@ -448,7 +448,6 @@ function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
               <EmptyState
                 icon={<MessageSquare className="size-5" />}
                 title="从第一条消息开始"
-                description="在下方输入消息；输入 @ 可以点名频道里的智能体。"
               />
             }
             approvals={{ pending: null, onApprove: () => undefined }}

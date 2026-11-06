@@ -265,7 +265,7 @@ export function SkillsPage() {
       {skills.data && skills.data.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
-          title="技能是可复用的操作流程"
+          title="未添加技能"
           description={
             canCreateSkill || canReadMarket
               ? undefined

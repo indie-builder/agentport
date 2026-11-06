@@ -228,7 +228,7 @@ export function ChatPage() {
           <EmptyState
             illustration={<BusinessIllustration name="agents" />}
             title="暂无可用专家"
-            description="当前账户尚未分配可用专家，请联系管理员。"
+            description="请联系管理员分配。"
             action={
               canReadAgents ? (
                 <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>

@@ -448,7 +448,7 @@ export function KnowledgePage() {
       ) : null}
       {!bases.isPending && !bases.isError && baseItems.length === 0 ? (
         <PageNote
-          title="知识库保存可检索的文档与 Wiki"
+          title="未创建知识库"
           action={
             canCreate ? (
               <Button
