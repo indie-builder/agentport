@@ -1,5 +1,5 @@
 import { createDb } from '@agentport/db';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, describe, expect, it } from 'bun:test';
 import setup, {
   type IsolatedRedis,
@@ -177,10 +177,10 @@ describe.skipIf(!redisReady)('isolated redis sessions', () => {
   it('keeps keys and pub/sub separate and only removes the session that closes', async () => {
     const a = redisFirst as IsolatedRedis;
     const b = redisSecond as IsolatedRedis;
-    const aClient = new Redis(a.url);
-    const bClient = new Redis(b.url);
-    const aSub = new Redis(a.url);
-    const bSub = new Redis(b.url);
+    const aClient = new RedisClient(a.url);
+    const bClient = new RedisClient(b.url);
+    const aSub = new RedisClient(a.url);
+    const bSub = new RedisClient(b.url);
     try {
       await expect(aClient.ping()).resolves.toBe('PONG');
       await expect(bClient.ping()).resolves.toBe('PONG');
@@ -190,10 +190,8 @@ describe.skipIf(!redisReady)('isolated redis sessions', () => {
 
       const aMessages: string[] = [];
       const bMessages: string[] = [];
-      aSub.on('message', (_channel, message) => aMessages.push(message));
-      bSub.on('message', (_channel, message) => bMessages.push(message));
-      await aSub.subscribe('isolation-channel');
-      await bSub.subscribe('isolation-channel');
+      await aSub.subscribe('isolation-channel', (message) => aMessages.push(message));
+      await bSub.subscribe('isolation-channel', (message) => bMessages.push(message));
       await aClient.publish('isolation-channel', 'hello');
       await waitFor(() => aMessages.length === 1);
       expect(aMessages).toEqual(['hello']);
@@ -205,10 +203,10 @@ describe.skipIf(!redisReady)('isolated redis sessions', () => {
       await bClient.set('after-close', 'b');
       expect(await bClient.get('after-close')).toBe('b');
     } finally {
-      aClient.disconnect();
-      bClient.disconnect();
-      aSub.disconnect();
-      bSub.disconnect();
+      aClient.close();
+      bClient.close();
+      aSub.close();
+      bSub.close();
     }
   });
 });

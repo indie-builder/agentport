@@ -518,3 +518,21 @@
 - **现象**：任意 worktree 的 API 登录都返回 500，日志是 `relation "platform_bootstrap" does not exist`；`drizzle.__drizzle_migrations` 有几十条旧记录，但最大 `created_at` 早于当前 journal 的 0043。
 - **原因**：多个 worktree/分支各自生成过迁移，共享库被另一套 journal 迁移过，台账与仓库 journal 的时间戳/内容对不上。drizzle migrator 只按「journal.when > 台账最大 created_at」判断待执行，于是重跑已存在的迁移，在第一个 `CREATE TABLE` 就失败并整批回滚。
 - **规避**：先 `pg_dump -Fc` 备份；只读核验实际结构与 journal，确定真实基线；对已存在的对象按核验结果登记台账（hash 用迁移 SQL 的 sha256），对新增的 NOT NULL 列先建可空列、回填后再 `SET NOT NULL`；在 dump 恢复出的副本库完整演练后再作用于共享库。不要直接 `bun run db:migrate` 硬跑，也不要为了跑通而删除业务数据。
+
+## 运行：Bun 默认空闲超时也会断开仍在处理的请求
+
+- **现象**：MCP `tools/call` 没有提前输出响应字节，约 12 秒出现 `ECONNRESET`，服务端提示请求空闲超过 10 秒；JSON、导入导出也会受同一入口设置影响。
+- **原因**：`Bun.serve` 默认 `idleTimeout` 为 10 秒，按网络字节活动计时，不是业务执行截止。Bun 1.4.3 实测全局 `idleTimeout: 0` 和入口 `server.timeout(request, 0)` 都不会在响应完成后自动恢复空闲 keepalive 回收。
+- **规避**：API 统一配置 `idleTimeout: 0`，保留业务自己的截止、取消和 `HTTP_DRAIN_MS` 有界 HTTP 排空。验证必须用真实端口等待超过 12 秒且没有响应字节，另外观察响应后的空闲连接和 SIGTERM；不要只放宽某条 SSE 路由，也不要把默认值换成另一个有限业务上限。
+
+## 运行：Redis 主动 close 也会触发 onclose，排空与释放必须分开
+
+- **现象**：worker 正常退出时出现 `session cleanup subscriber error` / `publisher error`；试图用 `onclose = null` 解除回调，在 Bun 1.4.3 实测会使后续 `.close()` 抛 `TypeError`，尽管本地类型允许 `null`。
+- **原因**：正常释放也触发断线回调，回调本身不能区分主动关闭与异常。开始排空时在途 ACK 仍依赖 publisher，不能把整个排空期都当成无须记录的主动释放。
+- **规避**：只在最终 `.close()` 前设置局部释放状态，在 `onclose` 中据此抑制主动关闭告警；初始化订阅失败的释放走同一判定。保留排空期间的异常、排空超时与 ACK 发布失败日志。系统探针分别验证正常 ACK 后关闭、真实 Redis 故障和在途 ACK 失败；退出码之外同时检查 fatal 日志。
+
+## 迁移：删依赖后旧 `node_modules` 残留会掩盖未迁移的测试与 E2E
+
+- **现象**：移走旧驱动（如 ioredis）后，沿用旧安装的依赖树跑测试仍可能全绿；在干净 `bun install --frozen-lockfile` 下，测试或 E2E 里的旧直接导入、旧连接参数才报错。
+- **原因**：旧安装或上级目录中仍可解析的依赖可能掩盖未迁移调用，旧工作区测试通过不证明锁文件能在干净环境复现；当前源码 typecheck 不覆盖测试与 E2E；只搜索直接 import 也会漏掉 BullMQ 旧 connection options 这类隐式驱动入口。
+- **规避**：删依赖时同时检查源码、测试、E2E 与隐式驱动入口；在干净依赖环境跑对应的真实回归，不通过补回旧驱动来掩盖漏迁。

@@ -11,7 +11,6 @@ import { requestContext } from '../../http/context.js';
 import { AppError, isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { writeAudit } from '../../plugins/audit.js';
-import type { NativeHttpDependencies } from '../chat/http.js';
 import { runsQuestionsRouter } from './questions.js';
 
 const runsRepo = repo.runs;
@@ -146,7 +145,7 @@ export const runsMainRouter = {
     }
   }),
 };
-export function registerRunExportHttp(app: Hono<HttpEnv>, _deps: NativeHttpDependencies): void {
+export function registerRunExportHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/runs/export',
     access({ kind: 'permission', permissionId: 'runs.export' }),

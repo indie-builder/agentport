@@ -6,9 +6,9 @@ import type { RequestContext } from '../../http/context.js';
 
 const os = implement(auditContract).$context<RequestContext>();
 
-type Row = Awaited<ReturnType<typeof repo.audit.listAudit>>[number];
+type AuditRow = Awaited<ReturnType<typeof repo.audit.listAudit>>[number];
 
-function toItem(row: Row) {
+export function toItem(row: AuditRow) {
   return {
     id: row.id,
     actor: row.actor,
@@ -22,7 +22,7 @@ function toItem(row: Row) {
   };
 }
 
-type Query = {
+type AuditQueryParams = {
   action?: string | undefined;
   status?: 'ok' | 'error' | 'denied' | undefined;
   target?: string | undefined;
@@ -31,7 +31,7 @@ type Query = {
   beforeId?: string | undefined;
 };
 
-function auditOptions(query: Query): repo.audit.AuditQuery {
+export function auditOptions(query: AuditQueryParams): repo.audit.AuditQuery {
   const { action, status, target, limit, before, beforeId } = query;
   return {
     ...(action ? { action } : {}),

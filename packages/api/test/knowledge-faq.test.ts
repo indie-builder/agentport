@@ -1,4 +1,8 @@
-import type { KnowledgeFaqTransferEntry, KnowledgeSearchHit } from '@agentport/shared';
+import {
+  type KnowledgeFaqTransferEntry,
+  type KnowledgeSearchHit,
+  knowledgeFaqInputSchema as faqInputSchema,
+} from '@agentport/shared';
 import { Workbook } from 'exceljs';
 import { unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'bun:test';
@@ -6,7 +10,6 @@ import {
   type FaqExistingEntry,
   type FaqParsedRow,
   faqContentHash,
-  faqInputSchema,
   normalizeFaqEntry,
   normalizeFaqQuestion,
   parseFaqImport,

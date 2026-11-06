@@ -1,5 +1,6 @@
 import { NATIVE_PLUGINS_QUEUE, type NativePluginAction } from '@agentport/shared';
-import { type Job, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
+import { createBunRedisClient, type Job, Queue, Worker } from 'bullmq';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { runNativePluginAction } from '../src/modules/plugins/native.js';
 import { infraReady } from './helpers.js';
@@ -12,10 +13,10 @@ import {
 
 const ready = await infraReady;
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
-const connection = { url: redisUrl };
+let connection: ReturnType<typeof createBunRedisClient>;
 const logger = { warn: () => undefined };
 
-// 不需要 Postgres/Redis：这条用真实 ioredis 连接被拒绝的端口，不走 mock。
+// 不需要 Postgres/Redis：这条用真实原生连接被拒绝的端口，不走 mock。
 it('fails within the budget with SERVICE_UNAVAILABLE when Redis refuses connections', async () => {
   const startedAt = Date.now();
   const refused = 'redis://127.0.0.1:1';
@@ -50,6 +51,7 @@ describe.skipIf(!ready)('native plugin queue client', () => {
   };
 
   beforeAll(async () => {
+    connection = createBunRedisClient(new RedisClient(redisUrl));
     adminQueue = new Queue<NativePluginAction>(NATIVE_PLUGINS_QUEUE, { connection });
     await adminQueue.obliterate({ force: true });
   });
@@ -71,6 +73,7 @@ describe.skipIf(!ready)('native plugin queue client', () => {
   afterAll(async () => {
     await adminQueue?.obliterate({ force: true });
     await adminQueue?.close();
+    await connection?.quit();
   });
 
   it('sends the action as the job payload and returns the worker output', async () => {

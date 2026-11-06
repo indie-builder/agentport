@@ -8,7 +8,7 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import { type AgentRunJob, RUNS_QUEUE, runCancelKey, runStreamKey } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import {
@@ -20,6 +20,7 @@ import {
   type TestApp,
 } from '../../api/test/helpers.js';
 import { testAccess } from './fixtures/access.js';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
 
 const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
@@ -338,24 +339,22 @@ async function createFixture(label: string) {
 }
 
 async function requestCancel(runId: string): Promise<void> {
-  const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+  const redis = new RedisClient(redisUrl);
   try {
     await redis.set(runCancelKey(runId), '1', 'EX', 60);
     await redis.publish(runCancelKey(runId), '1');
   } finally {
-    redis.disconnect();
+    redis.close();
   }
 }
 
 async function readStream(runId: string): Promise<Array<{ type?: string }>> {
-  const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+  const redis = new RedisClient(redisUrl);
   try {
-    const entries = (await redis.xrange(runStreamKey(runId), '-', '+')) as Array<
-      [string, string[]]
-    >;
+    const entries = await redis.xrange(runStreamKey(runId), '-', '+');
     return entries.map(([, fields]) => JSON.parse(fields[1] ?? '{}'));
   } finally {
-    redis.disconnect();
+    redis.close();
   }
 }
 
@@ -480,8 +479,9 @@ describe('unconfirmed stop handoff', () => {
     const cleanup = (input: { runId: string; conversationId: string; sandboxId: string }) =>
       manager?.cleanup(input.conversationId, input.sandboxId, input.runId) ??
       Promise.reject(new Error('no manager'));
+    const queueRedis = bunRedisConnection(redisUrl);
     const queue = new Queue<AgentRunJob>(`pending-${randomUUID()}`, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: queueRedis.connection,
     });
 
     try {
@@ -558,6 +558,7 @@ describe('unconfirmed stop handoff', () => {
       expect((await patchAgent(fixture.agentId, { subAgentIds: [] })).statusCode).toBe(200);
     } finally {
       await queue.close();
+      await queueRedis.close();
     }
   }, 20_000);
 });

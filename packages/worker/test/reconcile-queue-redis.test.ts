@@ -4,10 +4,10 @@ import { createDb, newId, schema } from '@agentport/db';
 import type { AgentRunJob } from '@agentport/shared';
 import { Queue, Worker } from 'bullmq';
 import { eq, inArray } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { testAccess } from './fixtures/access.js';
+import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const { agentOwnership, conversationSubject, runSubjectFields } = testAccess(import.meta.url);
@@ -32,20 +32,13 @@ async function probeInfra(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
   const { client } = createDb(databaseUrl);
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
   try {
     await client.unsafe('select 1');
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
+    return await probeBunRedis(redisUrl);
   } catch {
     return false;
   } finally {
     await client.close().catch(() => undefined);
-    await redis.quit().catch(() => undefined);
   }
 }
 
@@ -59,6 +52,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   let dbHandle: ReturnType<typeof createDb>;
   let db: ReturnType<typeof createDb>['db'];
   let queue: Queue<AgentRunJob>;
+  let queueRedis: ReturnType<typeof bunRedisConnection>;
   const agentId = newId('agent');
   const conversationId = newId('conversation');
   const runWaiting = newId('run');
@@ -81,8 +75,9 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     dbHandle = createDb(isolated?.url ?? '');
     db = dbHandle.db;
     // 队列名按测试唯一：真实 worker 只消费 agent-runs，不会把这里的 job 跑掉。
+    queueRedis = bunRedisConnection(process.env.REDIS_URL ?? '');
     queue = new Queue<AgentRunJob>(`reconcile-${randomUUID()}`, {
-      connection: { url: process.env.REDIS_URL, maxRetriesPerRequest: null },
+      connection: queueRedis.connection,
     });
     await db.insert(schema.agents).values({
       id: agentId,
@@ -128,6 +123,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     await waitingJob?.remove();
     await delayedJob?.remove();
     await queue.close();
+    await queueRedis?.close();
     await db.delete(schema.auditLog).where(inArray(schema.auditLog.target, ownedRuns));
     await db.delete(schema.agentRuns).where(inArray(schema.agentRuns.id, ownedRuns));
     await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
@@ -185,8 +181,9 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     await new Promise<void>((resolve, reject) =>
       listener.close((error) => (error ? reject(error) : resolve())),
     );
+    const offlineRedis = bunRedisConnection(`redis://127.0.0.1:${address.port}`);
     const offline = new Queue(`offline-${randomUUID()}`, {
-      connection: { host: '127.0.0.1', port: address.port },
+      connection: offlineRedis.connection,
     });
     offline.on('error', () => undefined);
     const started = Date.now();
@@ -208,6 +205,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       expect(publishRun).not.toHaveBeenCalled();
     } finally {
       await offline.close();
+      await offlineRedis.close();
     }
   }, 30_000);
 
@@ -347,8 +345,9 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       ...runSubjectFields,
     });
 
+    const activeRedis = bunRedisConnection(process.env.REDIS_URL ?? '');
     const activeQueue = new Queue<AgentRunJob>(`reconcile-active-${randomUUID()}`, {
-      connection: { url: process.env.REDIS_URL, maxRetriesPerRequest: null },
+      connection: activeRedis.connection,
     });
     let active!: () => void;
     const reachedActive = new Promise<void>((resolve) => {
@@ -358,13 +357,14 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     const blocking = new Promise<void>((resolve) => {
       release = resolve;
     });
+    const workerRedis = bunRedisConnection(process.env.REDIS_URL ?? '');
     const worker = new Worker(
       activeQueue.name,
       async () => {
         active();
         await blocking;
       },
-      { connection: { url: process.env.REDIS_URL, maxRetriesPerRequest: null } },
+      { connection: workerRedis.connection },
     );
     worker.on('error', () => undefined);
     const job = await activeQueue.add(
@@ -400,8 +400,10 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     } finally {
       release();
       await worker.close();
+      await workerRedis.close();
       await Promise.allSettled([job.remove(), mirrorWaiting.remove(), mirrorDelayed.remove()]);
       await activeQueue.close();
+      await activeRedis.close();
       await db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, runActive));
       await db.delete(schema.agents).where(eq(schema.agents.id, agentActive));
     }

@@ -38,8 +38,13 @@ export async function startSessionCleanupChannel(
   const requestChannel = options.requestChannel ?? SESSION_CLEANUP_REQUEST_CHANNEL;
   const subscriber = new RedisClient(options.redisUrl);
   const publisher = new RedisClient(options.redisUrl);
-  subscriber.onclose = (err) => logger.warn({ err }, 'session cleanup subscriber error');
-  publisher.onclose = (err) => logger.warn({ err }, 'session cleanup publisher error');
+  let releasing = false;
+  subscriber.onclose = (err) => {
+    if (!releasing) logger.warn({ err }, 'session cleanup subscriber error');
+  };
+  publisher.onclose = (err) => {
+    if (!releasing) logger.warn({ err }, 'session cleanup publisher error');
+  };
 
   const inFlight = new Set<Promise<void>>();
   let closed = false;
@@ -130,6 +135,7 @@ export async function startSessionCleanupChannel(
   try {
     await subscriber.subscribe(requestChannel, listener);
   } catch (err) {
+    releasing = true;
     subscriber.close();
     publisher.close();
     throw err;
@@ -156,6 +162,7 @@ export async function startSessionCleanupChannel(
         ]);
       } finally {
         if (timer !== undefined) clearTimeout(timer);
+        releasing = true;
         subscriber.close();
         publisher.close();
       }

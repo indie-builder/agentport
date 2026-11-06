@@ -3,30 +3,15 @@ import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import { type AppContext, type HttpEnv, requestContext } from '../../http/context.js';
+import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
+import { auditOptions, toItem } from './router.js';
 
 const exportQuerySchema = auditQuerySchema.extend({
   limit: z.coerce.number().int().positive().max(1000).default(1000),
 });
 
-type Row = Awaited<ReturnType<typeof repo.audit.listAudit>>[number];
-
-function toItem(row: Row) {
-  return {
-    id: row.id,
-    actor: row.actor,
-    action: row.action,
-    target: row.target,
-    status: row.status,
-    durationMs: row.durationMs,
-    requestId: row.requestId,
-    inputDigest: row.inputDigest,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
-
-export function registerAuditHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
+export function registerAuditHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/audit/export',
     access({ kind: 'permission', permissionId: 'audit.read' }),
@@ -40,15 +25,8 @@ export function registerAuditHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
         fail('INVALID_INPUT', parsed.error.issues[0]?.message ?? 'invalid request');
       const query = parsed.data;
 
-      const options: repo.audit.AuditQuery = {
-        ...(query.action ? { action: query.action } : {}),
-        ...(query.status ? { status: query.status } : {}),
-        ...(query.target ? { target: query.target } : {}),
-        ...(query.before === undefined ? {} : { before: new Date(query.before) }),
-        ...(query.beforeId === undefined ? {} : { beforeId: query.beforeId }),
-      };
       const rows = await repo.audit.listAudit(context.db, {
-        ...options,
+        ...auditOptions(query),
         limit: query.limit + 1,
       });
       if (

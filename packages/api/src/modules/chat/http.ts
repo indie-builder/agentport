@@ -6,6 +6,6 @@ import { registerChatEventsHttp } from './router.js';
 export type NativeHttpDependencies = { timeout: (request: Request, seconds: number) => void };
 export function registerChatHttp(app: Hono<HttpEnv>, deps: NativeHttpDependencies): void {
   registerChatEventsHttp(app, deps);
-  registerChatOutputsHttp(app, deps);
-  registerChatAttachmentsHttp(app, deps);
+  registerChatOutputsHttp(app);
+  registerChatAttachmentsHttp(app);
 }

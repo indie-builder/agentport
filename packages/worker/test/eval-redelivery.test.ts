@@ -7,10 +7,11 @@ import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { RUNS_QUEUE } from '@agentport/shared';
 import { Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { type IsolatedRedis, startRedisContainer, stopRedisContainer } from './global-setup.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
@@ -57,11 +58,11 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
   let closers: Array<() => Promise<void>> = [];
 
   async function flushExclusiveRedis(): Promise<void> {
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: null });
+    const redis = new RedisClient(redisUrl);
     try {
       await redis.flushdb();
     } finally {
-      await redis.quit();
+      redis.close();
     }
   }
 
@@ -153,7 +154,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
   function startChild(evalRunId: string, queueName: string): Child {
     const fixture = fileURLToPath(new URL('./fixtures/eval-worker-process.ts', import.meta.url));
     const cwd = fileURLToPath(new URL('../', import.meta.url));
-    return spawn(process.execPath, ['--import', 'tsx', fixture], {
+    return spawn(process.execPath, [fixture], {
       cwd,
       env: {
         ...process.env,
@@ -217,10 +218,14 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       { name: 'second', prompt: 'second', expectation: 'second-ok' },
     ]);
     const queueName = `eval-redelivery-${randomUUID()}`;
+    const evalRedis = bunRedisConnection(redisUrl);
     const evalQueue = new Queue(queueName, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: evalRedis.connection,
     });
-    closers.push(() => evalQueue.close());
+    closers.push(async () => {
+      await evalQueue.close();
+      await evalRedis.close();
+    });
     await evalQueue.add(
       'eval-run',
       { evalRunId },
@@ -232,17 +237,21 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
 
     // 替代消费者：与生产相同的 handler seam，只保留真实 stalled 重投。
     const failed = new Promise<void>((resolve) => {
+      const replacementRedis = bunRedisConnection(redisUrl);
       const replacement = new Worker(
         queueName,
         (job) => runEvalJob({ db, logger, redisUrl, job }),
         {
-          connection: { url: redisUrl, maxRetriesPerRequest: null },
+          connection: replacementRedis.connection,
           concurrency: 1,
           lockDuration: 1_000,
           stalledInterval: 500,
         },
       );
-      closers.push(() => replacement.close());
+      closers.push(async () => {
+        await replacement.close();
+        await replacementRedis.close();
+      });
       replacement.on('error', () => undefined);
       replacement.on('failed', () => resolve());
     });
@@ -279,10 +288,14 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       { name: 'second', prompt: 'second', expectation: 'second-ok' },
     ]);
     const queueName = `eval-stalled-${randomUUID()}`;
+    const evalRedis = bunRedisConnection(redisUrl);
     const evalQueue = new Queue(queueName, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: evalRedis.connection,
     });
-    closers.push(() => evalQueue.close());
+    closers.push(async () => {
+      await evalQueue.close();
+      await evalRedis.close();
+    });
     await evalQueue.add(
       'eval-run',
       { evalRunId },
@@ -297,6 +310,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     let processorCalls = 0;
     let failedError: unknown;
     const failed = new Promise<void>((resolve) => {
+      const replacementRedis = bunRedisConnection(redisUrl);
       const replacement = new Worker(
         queueName,
         (job) => {
@@ -304,14 +318,17 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
           return runEvalJob({ db, logger, redisUrl, job });
         },
         {
-          connection: { url: redisUrl, maxRetriesPerRequest: null },
+          connection: replacementRedis.connection,
           concurrency: 1,
           lockDuration: 1_000,
           stalledInterval: 250,
           maxStalledCount: 0,
         },
       );
-      closers.push(() => replacement.close());
+      closers.push(async () => {
+        await replacement.close();
+        await replacementRedis.close();
+      });
       replacement.on('error', () => undefined);
       replacement.on('failed', (job, err) => {
         failedError = err;
@@ -351,6 +368,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       { name: 'only', prompt: 'only', expectation: 'only-ok' },
     ]);
     // 模型边界：只替换子 run 的执行结果，不替换 eval 的 claim/finish/fail。
+    const runRedis = bunRedisConnection(redisUrl);
     const runWorker = new Worker(
       RUNS_QUEUE,
       async (job) => {
@@ -366,9 +384,12 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
           runId: job.data.runId,
         });
       },
-      { connection: { url: redisUrl, maxRetriesPerRequest: null } },
+      { connection: runRedis.connection },
     );
-    closers.push(() => runWorker.close());
+    closers.push(async () => {
+      await runWorker.close();
+      await runRedis.close();
+    });
 
     const finishSecret = `sk-live-eval-finish-${randomUUID()}`;
     const settleSecret = `sk-live-eval-settle-${randomUUID()}`;
@@ -394,10 +415,14 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     `);
 
     const queueName = `eval-settle-${randomUUID()}`;
+    const evalRedis = bunRedisConnection(redisUrl);
     const evalQueue = new Queue(queueName, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: evalRedis.connection,
     });
-    closers.push(() => evalQueue.close());
+    closers.push(async () => {
+      await evalQueue.close();
+      await evalRedis.close();
+    });
     await evalQueue.add(
       'eval-run',
       { evalRunId },
@@ -411,12 +436,16 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     let failedError: unknown;
     try {
       const failed = new Promise<void>((resolve) => {
+        const evalWorkerRedis = bunRedisConnection(redisUrl);
         const evalWorker = new Worker(
           queueName,
           (job) => runEvalJob({ db, logger, redisUrl, job }),
-          { connection: { url: redisUrl, maxRetriesPerRequest: null }, concurrency: 1 },
+          { connection: evalWorkerRedis.connection, concurrency: 1 },
         );
-        closers.push(() => evalWorker.close());
+        closers.push(async () => {
+          await evalWorker.close();
+          await evalWorkerRedis.close();
+        });
         evalWorker.on('error', () => undefined);
         evalWorker.on('failed', (job, err) => {
           failedError = err;

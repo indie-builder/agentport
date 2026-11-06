@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Agent, Server } from '@agentport/shared';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getQueue, publishRun } from '../src/queue/producer.js';
 import {
@@ -31,7 +31,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
   let server: TestServer;
   let cookie: string;
   let baseUrl: string;
-  let redis: Redis;
+  let redis: RedisClient;
   const agentSlugs: string[] = [];
   const serverNames: string[] = [];
   const skillSlugs: string[] = [];
@@ -43,7 +43,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     // SSE 需要真实 HTTP 连接，inject 无法模拟客户端中途断开。
     server = await listen(app);
     baseUrl = server.url;
-    redis = new Redis(testConfig().REDIS_URL, { maxRetriesPerRequest: null });
+    redis = new RedisClient(testConfig().REDIS_URL);
   });
 
   afterAll(async () => {
@@ -55,7 +55,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       await redis.del(runStreamKey(runId), runCancelKey(runId)).catch(() => undefined);
     }
     await cleanup(app, { serverNames, agentSlugs, skillSlugs, runIds });
-    await redis.quit();
+    redis.close();
     await app.close();
   });
 

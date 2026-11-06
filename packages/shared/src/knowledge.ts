@@ -281,6 +281,15 @@ export const knowledgeFaqSchema = z.object({
 
 export type KnowledgeFaq = z.infer<typeof knowledgeFaqSchema>;
 
+export const knowledgeFaqInputSchema = z.object({
+  question: z.string(),
+  similarQuestions: z.array(z.string()).default([]),
+  negativeQuestions: z.array(z.string()).default([]),
+  answers: z.array(z.string()),
+  answerStrategy: z.string().optional(),
+  isRecommended: z.boolean().optional(),
+});
+
 /** 导入/导出条目：FAQ 内容 + 启用标记；运营标记不参与内容哈希。 */
 export const knowledgeFaqTransferEntrySchema = knowledgeFaqSchema.extend({
   enabled: z.boolean().default(true),

@@ -1,5 +1,6 @@
 import { SANDBOX_PROBES_QUEUE, type Server } from '@agentport/shared';
-import { type Job, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
+import { createBunRedisClient, type Job, Queue, Worker } from 'bullmq';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { testStdioInSandbox } from '../src/modules/servers/sandbox-probe.js';
 import {
@@ -22,7 +23,7 @@ import {
 const ready = await infraReady;
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:55540';
-const connection = { url: redisUrl };
+let connection: ReturnType<typeof createBunRedisClient>;
 const logger = { warn: () => undefined };
 
 /**
@@ -47,6 +48,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
   };
 
   beforeAll(async () => {
+    connection = createBunRedisClient(new RedisClient(redisUrl));
     // 上次运行留下的等待 job 会被新 consumer 先消费，清空后再断言。
     adminQueue = new Queue<{ serverId: string }>(SANDBOX_PROBES_QUEUE, { connection });
     await adminQueue.obliterate({ force: true });
@@ -73,6 +75,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     await app.close();
     await adminQueue?.obliterate({ force: true });
     await adminQueue?.close();
+    await connection?.quit();
   });
 
   const createStdio = async (name: string): Promise<Server> => {

@@ -2,26 +2,12 @@ import { AppError, isAppError } from '@agentport/core';
 import type { PermissionId } from '@agentport/shared';
 import type { Hono } from 'hono';
 import { actorOf, authorize, requirePermission } from '../../http/access.js';
-import type { AppContext, HttpContext, HttpEnv, RequestContext } from '../../http/context.js';
+import type { HttpContext, HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { problem, toAppError } from '../../http/errors.js';
 import { requireTrustedOrigin } from '../auth/origin.js';
 import { authenticate } from '../auth/session.js';
 import * as useCases from './use-cases.js';
-
-function contextOf(c: HttpContext, deps: AppContext): RequestContext {
-  const context = requestContext(c);
-  if (context !== undefined) return context;
-  return {
-    ...deps,
-    principal: null,
-    requestId: c.req.header('x-request-id') ?? crypto.randomUUID(),
-    request: c.req.raw,
-    responseHeaders: new Headers(),
-    remoteAddress: c.env.remoteAddress ?? '',
-    limit: async () => undefined,
-  };
-}
 
 function param(c: HttpContext, name: string): string {
   const value = c.req.param(name);
@@ -56,12 +42,9 @@ async function scoped(
   }
 }
 
-function native(
-  deps: AppContext,
-  handler: (context: RequestContext, c: HttpContext) => Promise<Response>,
-) {
+function native(handler: (context: RequestContext, c: HttpContext) => Promise<Response>) {
   return async (c: HttpContext): Promise<Response> => {
-    const context = contextOf(c, deps);
+    const context = requestContext(c);
     try {
       await authenticate(context);
       if (!['GET', 'HEAD', 'OPTIONS'].includes(context.request.method)) {
@@ -81,10 +64,10 @@ function native(
   };
 }
 
-export function registerKnowledgeHttp(app: Hono<HttpEnv>, deps: AppContext): void {
+export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/knowledge/versions/:versionId/images/:name',
-    native(deps, async (context, c) => {
+    native(async (context, c) => {
       await requirePermission(context, 'knowledge.read');
       const image = await useCases.getVersionImage(
         depsOf(context),
@@ -103,7 +86,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>, deps: AppContext): voi
 
   app.get(
     '/api/knowledge/versions/:versionId/content',
-    native(deps, async (context, c) => {
+    native(async (context, c) => {
       await requirePermission(context, 'knowledge.read');
       const content = await useCases.getVersionContent(depsOf(context), param(c, 'versionId'));
       return new Response(new Uint8Array(content.data), {
@@ -118,7 +101,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>, deps: AppContext): voi
 
   app.get(
     '/api/knowledge/versions/:versionId/markdown',
-    native(deps, async (context, c) => {
+    native(async (context, c) => {
       await requirePermission(context, 'knowledge.read');
       const markdown = await useCases.getVersionMarkdown(depsOf(context), param(c, 'versionId'));
       return new Response(markdown.markdown, {
@@ -132,7 +115,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>, deps: AppContext): voi
 
   app.get(
     '/api/knowledge/bases/:id/export',
-    native(deps, async (context, c) => {
+    native(async (context, c) => {
       await requirePermission(context, 'knowledge.export');
       await scoped(context, 'knowledge.export', param(c, 'id'));
       const pkg = await useCases.exportPackage(depsOf(context), param(c, 'id'));
@@ -149,7 +132,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>, deps: AppContext): voi
 
   app.post(
     '/api/knowledge/bases/import',
-    native(deps, async (context, c) => {
+    native(async (context, c) => {
       await requirePermission(context, 'knowledge.import');
       const body = Buffer.from(await c.req.arrayBuffer());
       const result = await useCases.importPackage(depsOf(context), body);
@@ -162,7 +145,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>, deps: AppContext): voi
 
   app.get(
     '/api/knowledge/bases/:id/faqs/export',
-    native(deps, async (context, c) => {
+    native(async (context, c) => {
       await requirePermission(context, 'knowledge.export');
       await scoped(context, 'knowledge.export', param(c, 'id'));
       const format = c.req.query('format') === 'csv' ? 'csv' : 'json';

@@ -4,9 +4,9 @@ import type { AgentRunJob, ScheduleTriggerJob } from '@agentport/shared';
 import { RUNS_QUEUE, SCHEDULE_TRIGGERS_QUEUE, scheduleTriggerArgs } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { and, eq, inArray } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
 import type { ScheduleTriggerJobLike } from '../src/scheduler.js';
 import { createIsolatedDatabase } from './isolated-db.js';
@@ -25,21 +25,14 @@ async function probeInfra(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
   const { client } = createDb(databaseUrl);
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
   try {
     await client.unsafe('select 1');
-    await redis.connect();
     // 不需要检查消费者：本套件全程使用独立 prefix（见下方 `prefix`），真实 worker 看不到。
-    return (await redis.ping()) === 'PONG';
+    return await probeBunRedis(redisUrl);
   } catch {
     return false;
   } finally {
     await client.close().catch(() => undefined);
-    await redis.quit().catch(() => undefined);
   }
 }
 
@@ -69,6 +62,8 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
   const scheduleBusinessId = 'schedule-owner';
   let scheduleIds: string[] = [];
   let runsQueue: Queue<AgentRunJob>;
+  let schedulerRedis: ReturnType<typeof bunRedisConnection>;
+  let runsRedis: ReturnType<typeof bunRedisConnection>;
 
   async function clearSchedulers(): Promise<void> {
     const schedulers = await schedulerQueue.getJobSchedulers();
@@ -163,8 +158,9 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
     const handle = createDb(databaseUrl);
     db = handle.db;
     client = handle.client;
+    schedulerRedis = bunRedisConnection(redisUrl);
     schedulerQueue = new Queue<ScheduleTriggerJob>(SCHEDULE_TRIGGERS_QUEUE, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: schedulerRedis.connection,
       prefix,
     });
     await db.insert(schema.agents).values([
@@ -186,8 +182,9 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
         ownerBusinessId: scheduleBusinessId,
       },
     ]);
+    runsRedis = bunRedisConnection(redisUrl);
     runsQueue = new Queue<AgentRunJob>(`${RUNS_QUEUE}-sched-test-${randomUUID()}`, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: runsRedis.connection,
     });
   });
 
@@ -205,6 +202,8 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
     await runsQueue.obliterate({ force: true }).catch(() => undefined);
     await runsQueue.close();
     await schedulerQueue.close();
+    await runsRedis.close();
+    await schedulerRedis.close();
     await db.delete(schema.agents).where(inArray(schema.agents.id, [agentId, disabledAgentId]));
     await client.close();
     await isolated?.close();

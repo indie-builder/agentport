@@ -39,7 +39,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@hono/node-server": "2.1.6",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "nodemon": "3.1.14"

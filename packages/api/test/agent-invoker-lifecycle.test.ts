@@ -2,7 +2,7 @@ import { repo } from '@agentport/db';
 import { RUN_CANCEL_PAYLOAD, runCancelKey, runStreamKey } from '@agentport/shared';
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import { buildAgentServer } from '../src/modules/servers/agent-tools.js';
@@ -79,14 +79,14 @@ async function settledWithin(promise: Promise<void>, ms: number): Promise<boolea
 describe.skipIf(!ready)('agent invoker lifecycle', () => {
   let app: TestApp;
   let cookie: string;
-  let redis: Redis;
+  let redis: RedisClient;
   const agentIds: string[] = [];
   const agentSlugs: string[] = [];
 
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    redis = new Redis(testConfig().REDIS_URL);
+    redis = new RedisClient(testConfig().REDIS_URL);
   });
 
   afterAll(async () => {
@@ -107,7 +107,7 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
       await redis.del(runCancelKey(runId), runStreamKey(runId)).catch(() => undefined);
     }
     await cleanup(app, { agentSlugs, runIds: discovered });
-    await redis.quit().catch(() => undefined);
+    redis.close();
     await app.close();
   });
 
@@ -281,17 +281,15 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
     const run = (await runsOf(agent.id))[0];
     if (!run) throw new Error('run was not created');
 
-    const subscriber = new Redis(testConfig().REDIS_URL);
+    const subscriber = new RedisClient(testConfig().REDIS_URL);
     try {
       const channel = runCancelKey(run.id);
-      await subscriber.subscribe(channel);
       let received: string | undefined;
-      const signalled = new Promise<void>((resolve) => {
-        subscriber.on('message', (incoming, message) => {
-          if (incoming !== channel) return;
-          received = message;
-          resolve();
-        });
+      const signalled = Promise.withResolvers<void>();
+      await subscriber.subscribe(channel, (message, incoming) => {
+        if (incoming !== channel) return;
+        received = message;
+        signalled.resolve();
       });
 
       const moved = await app.client.unsafe(
@@ -303,7 +301,7 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
       const err = await rejectionOf(withDeadline(pending, 5_000));
       expect(err.code).toBe('UPSTREAM_FAILED');
       expect(err.message).toMatch(/timed out/);
-      expect(await settledWithin(signalled, 5_000)).toBe(true);
+      expect(await settledWithin(signalled.promise, 5_000)).toBe(true);
       expect(received).toBe(RUN_CANCEL_PAYLOAD);
       // 订阅连接处于 pub/sub 模式，读键必须用独立连接。
       expect(await redis.get(channel)).toBe(RUN_CANCEL_PAYLOAD);
@@ -312,7 +310,7 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
       // running 的 job 由 worker 负责清理，取消只发信号。
       expect(await getQueue().getJob(run.id)).toBeDefined();
     } finally {
-      await subscriber.quit().catch(() => undefined);
+      subscriber.close();
     }
   });
 });

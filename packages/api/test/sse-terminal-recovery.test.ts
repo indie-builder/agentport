@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { publishRun } from '../src/queue/producer.js';
 import {
@@ -26,7 +26,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
   let server: TestServer;
   let cookie: string;
   let baseUrl: string;
-  let redis: Redis;
+  let redis: RedisClient;
   const agentSlugs: string[] = [];
   const runIds: string[] = [];
   const activeReaders = new Set<() => Promise<void>>();
@@ -41,7 +41,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     cookie = await loginCookie(app);
     server = await listen(app);
     baseUrl = server.url;
-    redis = new Redis(testConfig().REDIS_URL, { maxRetriesPerRequest: null });
+    redis = new RedisClient(testConfig().REDIS_URL);
   });
 
   afterAll(async () => {
@@ -50,7 +50,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
       await redis.del(runStreamKey(runId), runCancelKey(runId)).catch(() => undefined);
     }
     await cleanup(app, { agentSlugs, runIds });
-    await redis.quit();
+    redis.close();
     await app.close();
   });
 

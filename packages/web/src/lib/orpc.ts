@@ -1,55 +1,15 @@
-import { agentsContract } from '@agentport/contract/agents';
-import { auditContract } from '@agentport/contract/audit';
-import { authContract, authNativeContract } from '@agentport/contract/auth';
-import { channelsContract } from '@agentport/contract/channels';
-import { chatContract } from '@agentport/contract/chat';
-import { evalContract } from '@agentport/contract/eval';
-import { knowledgeContract } from '@agentport/contract/knowledge';
-import { marketContract } from '@agentport/contract/market';
-import { memoryContract } from '@agentport/contract/memory';
-import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
-import { opsContract } from '@agentport/contract/ops';
-import { outputSharesContract } from '@agentport/contract/output-shares';
-import { overviewContract } from '@agentport/contract/overview';
-import { personalContract } from '@agentport/contract/personal';
-import { pluginsContract } from '@agentport/contract/plugins';
-import { runsContract } from '@agentport/contract/runs';
-import { runtimeEnvironmentsContract } from '@agentport/contract/runtime-environments';
-import { serversContract } from '@agentport/contract/servers';
-import { skillsContract } from '@agentport/contract/skills';
+import { apiContract } from '@agentport/contract';
 import { problemSchema } from '@agentport/shared';
 import { createORPCClient, ORPCError } from '@orpc/client';
 import type { ContractRouterClient } from '@orpc/contract';
 import { OpenAPILink } from '@orpc/openapi-client/fetch';
 import { loginPath } from './auth-redirect.js';
 
-export const contract = {
-  agents: agentsContract,
-  audit: auditContract,
-  auth: { ...authContract, ...authNativeContract },
-  channels: channelsContract,
-  chat: chatContract,
-  eval: evalContract,
-  knowledge: knowledgeContract,
-  market: marketContract,
-  memory: memoryContract,
-  memoryReviews: memoryReviewsContract,
-  ops: opsContract,
-  outputShares: outputSharesContract,
-  overview: overviewContract,
-  personal: personalContract,
-  plugins: pluginsContract,
-  runs: runsContract,
-  runtimeEnvironments: runtimeEnvironmentsContract,
-  servers: serversContract,
-  skills: skillsContract,
-} as const;
-
 export interface ApiContext {
   idempotencyKey?: string;
 }
 
-export type ApiClient = ContractRouterClient<typeof contract, ApiContext>;
+export type ApiClient = ContractRouterClient<typeof apiContract, ApiContext>;
 
 interface ApiErrorOptions {
   code?: string;
@@ -162,7 +122,7 @@ function toApiError(error: unknown): unknown {
   return error;
 }
 
-const link = new OpenAPILink(contract, {
+const link = new OpenAPILink(apiContract, {
   url: `${globalThis.location.origin}/api`,
   headers: (options, path) =>
     path.join('.') === 'memoryReviews.create' && options.context.idempotencyKey !== undefined

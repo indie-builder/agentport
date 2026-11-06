@@ -3,9 +3,9 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
 import { type Job, Queue, Worker } from 'bullmq';
 import { and, eq, gte, isNull } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { KNOWLEDGE_TIMEOUT_MS } from '../src/knowledge/queue.js';
 import {
   ensureDailyCleanup,
@@ -19,20 +19,13 @@ async function probeInfra(): Promise<boolean> {
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
   const { client } = createDb(databaseUrl);
-  const redis = new Redis(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-  });
   try {
     await client.unsafe('select 1');
-    await redis.connect();
-    return (await redis.ping()) === 'PONG';
+    return await probeBunRedis(redisUrl);
   } catch {
     return false;
   } finally {
     await client.close().catch(() => undefined);
-    await redis.quit().catch(() => undefined);
   }
 }
 
@@ -45,6 +38,7 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   let db: ReturnType<typeof createDb>['db'];
   let client: ReturnType<typeof createDb>['client'];
   let queue: Queue<{ jobId: string }>;
+  let queueRedis: ReturnType<typeof bunRedisConnection>;
   const logger = {
     info: () => undefined,
     warn: () => undefined,
@@ -103,8 +97,9 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
 
   beforeAll(async () => {
     ({ db, client } = createDb(process.env.DATABASE_URL ?? ''));
+    queueRedis = bunRedisConnection(redisUrl);
     queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: queueRedis.connection,
       prefix,
     });
     await db.insert(schema.servers).values({
@@ -173,6 +168,7 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
       if (queue) {
         await queue.obliterate({ force: true }).catch(() => undefined);
         await queue.close();
+        await queueRedis?.close();
       }
       if (db) {
         await db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.baseId, baseId));
@@ -325,12 +321,13 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   it('re-enqueues a queued job whose redis entry already finished', async () => {
     const id = await insertJob({ status: 'queued', createdAt: PAST_GRACE });
     // 用一个必定失败的 worker 把 job 跑到 failed，模拟「Redis 里已有终态条目」。
+    const failingRedis = bunRedisConnection(redisUrl);
     const failing = new Worker(
       KNOWLEDGE_JOBS_QUEUE,
       async () => {
         throw new Error('boom');
       },
-      { connection: { url: redisUrl, maxRetriesPerRequest: null }, prefix },
+      { connection: failingRedis.connection, prefix },
     );
     try {
       await queue.add('knowledge', { jobId: id }, { jobId: id });
@@ -343,6 +340,7 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
       }
     } finally {
       await failing.close();
+      await failingRedis.close();
     }
     expect(await (await queue.getJob(id))?.getState()).toBe('failed');
 

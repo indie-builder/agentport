@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { RedisClient } from 'bun';
 import { newId } from '../../../packages/db/src/index.js';
 import { RUNS_QUEUE } from '../../../packages/shared/src/chat.js';
 import { runCancelKey, runStreamKey } from '../../../packages/shared/src/run-stream.js';
@@ -27,14 +28,15 @@ export async function seedFixture(
 const requireFromApi = createRequire(
   new URL('../../../packages/api/package.json', import.meta.url),
 );
-const { Queue } = requireFromApi(
+const { createBunRedisClient, Queue } = requireFromApi(
   'bullmq',
 ) as typeof import('../../../packages/api/node_modules/bullmq/dist/esm/index.js');
 
 async function removeJob(runId: string, required: boolean): Promise<void> {
   const url = process.env.E2E_REDIS_URL;
   if (!url) throw new Error('E2E_REDIS_URL must identify the isolated E2E Redis');
-  const queue = new Queue(RUNS_QUEUE, { connection: { url } });
+  const connection = createBunRedisClient(new RedisClient(url));
+  const queue = new Queue(RUNS_QUEUE, { connection });
   try {
     const job = await queue.getJob(runId);
     if (!job && required)
@@ -42,6 +44,7 @@ async function removeJob(runId: string, required: boolean): Promise<void> {
     await job?.remove();
   } finally {
     await queue.close();
+    await connection.quit();
   }
 }
 

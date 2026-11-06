@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { runStreamKey } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, describe, expect, it } from 'bun:test';
 import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
 import { eventFollowerCount, infraReady, testConfig, unique, waitFor } from './helpers.js';
@@ -51,20 +51,20 @@ describe.skipIf(!ready)('run subscribers', () => {
 
   it('replays a long stream from its first event without trimming', async () => {
     const runId = unique('sse-run');
-    const redis = new Redis(testConfig().REDIS_URL);
+    const redis = new RedisClient(testConfig().REDIS_URL);
     const total = 1_600;
     let sub: Awaited<ReturnType<typeof subscribeRun>> | undefined;
     try {
-      const pipeline = redis.pipeline();
-      for (let i = 0; i < total; i += 1) {
-        pipeline.xadd(
-          runStreamKey(runId),
-          '*',
-          'payload',
-          JSON.stringify({ type: 'text_delta', text: `e${i}` }),
-        );
-      }
-      await pipeline.exec();
+      await Promise.all(
+        Array.from({ length: total }, (_, i) =>
+          redis.xadd(
+            runStreamKey(runId),
+            '*',
+            'payload',
+            JSON.stringify({ type: 'text_delta', text: `e${i}` }),
+          ),
+        ),
+      );
       expect(await redis.xlen(runStreamKey(runId))).toBe(total);
 
       const types: string[] = [];
@@ -81,13 +81,13 @@ describe.skipIf(!ready)('run subscribers', () => {
     } finally {
       sub?.close();
       await redis.del(runStreamKey(runId)).catch(() => undefined);
-      await redis.quit();
+      redis.close();
     }
   });
 
   it('replays events beyond the old 8MiB cap instead of dropping the older ones', async () => {
     const runId = unique('sse-run');
-    const redis = new Redis(testConfig().REDIS_URL);
+    const redis = new RedisClient(testConfig().REDIS_URL);
     let sub: Awaited<ReturnType<typeof subscribeRun>> | undefined;
     try {
       // 三条 3MiB，合计 9MiB：旧实现从新往旧只能装下两条并补 bytes 标记。
@@ -110,14 +110,14 @@ describe.skipIf(!ready)('run subscribers', () => {
     } finally {
       sub?.close();
       await redis.del(runStreamKey(runId)).catch(() => undefined);
-      await redis.quit();
+      redis.close();
     }
   });
 
   it('does not disconnect a live subscriber when a stale one closes', async () => {
     const runId = unique('sse-run');
     const types: string[] = [];
-    const probe = new Redis(testConfig().REDIS_URL);
+    const probe = new RedisClient(testConfig().REDIS_URL);
 
     try {
       const stale = await subscribeRun(runId, () => undefined);
@@ -133,13 +133,13 @@ describe.skipIf(!ready)('run subscribers', () => {
       live.close();
       expect(await waitFor(async () => (await eventFollowerCount(probe, runId)) === 0)).toBe(true);
     } finally {
-      await probe.quit();
+      probe.close();
     }
   });
 
   it('follows events added while the blocking read is between calls', async () => {
     const runId = unique('sse-run');
-    const probe = new Redis(testConfig().REDIS_URL);
+    const probe = new RedisClient(testConfig().REDIS_URL);
     const types: string[] = [];
     const sub = await subscribeRun(runId, (event) => types.push(event.type));
     try {
@@ -151,13 +151,13 @@ describe.skipIf(!ready)('run subscribers', () => {
       expect(await waitFor(() => types.length === 2)).toBe(true);
     } finally {
       sub.close();
-      await probe.quit();
+      probe.close();
     }
   });
 
   it('resumes from the last seen id after the follower connection drops', async () => {
     const runId = unique('sse-run');
-    const probe = new Redis(testConfig().REDIS_URL);
+    const probe = new RedisClient(testConfig().REDIS_URL);
     const texts: string[] = [];
     const sub = await subscribeRun(runId, (event) => {
       if (event.type === 'text_delta') texts.push(event.text);
@@ -180,7 +180,7 @@ describe.skipIf(!ready)('run subscribers', () => {
       expect(texts).toEqual(['before', 'after']);
     } finally {
       sub.close();
-      await probe.quit();
+      probe.close();
     }
   });
 
@@ -209,12 +209,12 @@ describe.skipIf(!ready)('run subscribers', () => {
 
   it('closeProducer interrupts a blocked follower promptly', async () => {
     const runId = unique('sse-run');
-    const probe = new Redis(testConfig().REDIS_URL);
+    const probe = new RedisClient(testConfig().REDIS_URL);
     await subscribeRun(runId, () => undefined);
     await waitFor(async () => (await eventFollowerCount(probe, runId)) === 1);
     const started = Date.now();
     await closeProducer();
     expect(Date.now() - started).toBeLessThan(2_000);
-    await probe.quit();
+    probe.close();
   });
 });

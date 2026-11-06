@@ -1,9 +1,8 @@
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { newId, repo } from '@agentport/db';
+import { type DatabaseClient, newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { PoolClient } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
@@ -128,7 +127,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     return id;
   };
 
-  const backendPid = async (client: PoolClient): Promise<number> => {
+  const backendPid = async (client: DatabaseClient): Promise<number> => {
     const rows = await client.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
     const pid = rows[0]?.pid;
     if (pid === undefined) throw new Error('no backend pid');

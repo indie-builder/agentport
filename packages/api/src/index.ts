@@ -28,6 +28,7 @@ if (webDist && existsSync(webDist)) {
 const server = Bun.serve({
   port: config.PORT,
   hostname: '0.0.0.0',
+  idleTimeout: 0,
   fetch: (request, server) => {
     const remoteAddress = server.requestIP(request)?.address;
     return app.fetch(request, remoteAddress === undefined ? {} : { remoteAddress });

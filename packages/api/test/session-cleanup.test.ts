@@ -7,34 +7,33 @@ import {
   sessionCleanupRequestSchema,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { Redis } from 'ioredis';
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { closeSessionSandboxes } from '../src/queue/session-cleanup.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9';
-const connections: Redis[] = [];
+const connections: RedisClient[] = [];
 const servers: Server[] = [];
+const handlers: Promise<void>[] = [];
 
 afterEach(async () => {
-  for (const connection of connections.splice(0)) connection.disconnect();
+  await Promise.all(handlers.splice(0));
+  for (const connection of connections.splice(0)) connection.close();
   for (const server of servers.splice(0)) {
     server.closeAllConnections?.();
     server.close();
   }
-  mock.restore();
 });
 
 async function worker(
-  handler: (request: SessionCleanupRequest, publisher: Redis) => Promise<void>,
+  handler: (request: SessionCleanupRequest, publisher: RedisClient) => Promise<void>,
 ): Promise<string> {
   const requestChannel = `${SESSION_CLEANUP_REQUEST_CHANNEL}:${randomUUID()}`;
-  const subscriber = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
-  const publisher = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+  const subscriber = new RedisClient(REDIS_URL);
+  const publisher = new RedisClient(REDIS_URL);
   connections.push(subscriber, publisher);
-  await subscriber.subscribe(requestChannel);
-  subscriber.on('message', (_channel, payload) => {
+  await subscriber.subscribe(requestChannel, (payload) => {
     const parsed = sessionCleanupRequestSchema.safeParse(JSON.parse(payload));
-    if (parsed.success) void handler(parsed.data, publisher);
+    if (parsed.success) handlers.push(handler(parsed.data, publisher));
   });
   return requestChannel;
 }
@@ -117,19 +116,22 @@ describe('closeSessionSandboxes', () => {
       );
     });
     const disconnects = spyOn(RedisClient.prototype, 'close');
+    try {
+      const error = await close({
+        redisUrl: REDIS_URL,
+        requestChannel,
+        timeoutMs: 100,
+        targets: [{ conversationId: 'conv_1', sandboxIds: ['sandbox-1'] }],
+      });
 
-    const error = await close({
-      redisUrl: REDIS_URL,
-      requestChannel,
-      timeoutMs: 100,
-      targets: [{ conversationId: 'conv_1', sandboxIds: ['sandbox-1'] }],
-    });
-
-    expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
-    expect(disconnects).toHaveBeenCalledTimes(2);
-    // 迟到 ACK 不能把已失败的删除变成成功；完成后仍不留下连接。
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(disconnects).toHaveBeenCalledTimes(2);
+      expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
+      expect(disconnects).toHaveBeenCalledTimes(2);
+      // 迟到 ACK 不能把已失败的删除变成成功；完成后仍不留下连接。
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(disconnects).toHaveBeenCalledTimes(2);
+    } finally {
+      disconnects.mockRestore();
+    }
   });
 
   it('bounds a subscribe that never completes with the same deadline', async () => {
@@ -140,35 +142,45 @@ describe('closeSessionSandboxes', () => {
     const address = server.address();
     if (address === null || typeof address === 'string') throw new Error('missing server address');
     const disconnects = spyOn(RedisClient.prototype, 'close');
-    const started = Date.now();
+    try {
+      const started = Date.now();
 
-    const error = await close({
-      redisUrl: `redis://127.0.0.1:${address.port}`,
-      timeoutMs: 100,
-      targets: [{ conversationId: 'conv_1', sandboxIds: ['sandbox-1'] }],
-    });
+      const error = await close({
+        redisUrl: `redis://127.0.0.1:${address.port}`,
+        timeoutMs: 100,
+        targets: [{ conversationId: 'conv_1', sandboxIds: ['sandbox-1'] }],
+      });
 
-    expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
-    // 连接自身的 2s connectTimeout 不能成为删除预算。
-    expect(Date.now() - started).toBeLessThan(1_500);
-    expect(disconnects).toHaveBeenCalledTimes(2);
+      expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
+      // 连接自身的 2s connectTimeout 不能成为删除预算。
+      expect(Date.now() - started).toBeLessThan(1_500);
+      expect(disconnects).toHaveBeenCalledTimes(2);
+    } finally {
+      disconnects.mockRestore();
+    }
   });
 
   it('releases Redis connections when publishing the request fails', async () => {
     const requestChannel = await worker(async () => undefined);
     const disconnects = spyOn(RedisClient.prototype, 'close');
-    spyOn(RedisClient.prototype, 'publish').mockRejectedValueOnce(new Error('publish failed'));
+    const publish = spyOn(RedisClient.prototype, 'publish').mockRejectedValueOnce(
+      new Error('publish failed'),
+    );
+    try {
+      const error = await close({
+        redisUrl: REDIS_URL,
+        requestChannel,
+        timeoutMs: 500,
+        targets: [{ conversationId: 'conv_1', sandboxIds: ['sandbox-1'] }],
+      });
 
-    const error = await close({
-      redisUrl: REDIS_URL,
-      requestChannel,
-      timeoutMs: 500,
-      targets: [{ conversationId: 'conv_1', sandboxIds: ['sandbox-1'] }],
-    });
-
-    expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
-    expect(String((error as Error).message)).toContain('无法完成会话容器关闭确认');
-    expect(disconnects).toHaveBeenCalledTimes(2);
+      expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
+      expect(String((error as Error).message)).toContain('无法完成会话容器关闭确认');
+      expect(disconnects).toHaveBeenCalledTimes(2);
+    } finally {
+      publish.mockRestore();
+      disconnects.mockRestore();
+    }
   });
 
   it('accepts only the ack matching this request id', async () => {

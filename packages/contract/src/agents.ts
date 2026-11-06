@@ -28,7 +28,6 @@ const versionParams = z.object({
   version: z.coerce.number().int().positive(),
 });
 const rollbackBody = z.object({ version: z.number().int().positive() });
-const memoryParams = z.object({ id: z.string().min(1) });
 const memoryFileParams = z.object({
   id: z.string().min(1),
   name: memoryFileNameSchema,
@@ -180,7 +179,7 @@ export const agentsContract = {
   memory: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.read' } })
     .route({ method: 'GET', path: '/agents/{id}/memory', successStatus: 200 })
-    .input(z.object({ params: memoryParams }))
+    .input(z.object({ params: idParams }))
     .output(memoryFileListSchema),
   memoryFile: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.read' } })
@@ -200,7 +199,7 @@ export const agentsContract = {
   rules: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.rules.read' } })
     .route({ method: 'GET', path: '/agents/{id}/rules', successStatus: 200 })
-    .input(z.object({ params: memoryParams }))
+    .input(z.object({ params: idParams }))
     .output(z.array(ruleSchema)),
   writeRule: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.rules.write' } })
@@ -215,7 +214,7 @@ export const agentsContract = {
   outputStyles: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.styles.read' } })
     .route({ method: 'GET', path: '/agents/{id}/output-styles', successStatus: 200 })
-    .input(z.object({ params: memoryParams }))
+    .input(z.object({ params: idParams }))
     .output(z.array(outputStyleSchema)),
   writeOutputStyle: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.styles.write' } })
@@ -239,7 +238,7 @@ export const agentsContract = {
   members: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.members.manage' } })
     .route({ method: 'GET', path: '/agents/{id}/members', successStatus: 200 })
-    .input(z.object({ params: memoryParams }))
+    .input(z.object({ params: idParams }))
     .output(z.object({ ownerBusinessId: z.string(), members: z.array(memberSchema) })),
   setMember: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.members.manage' } })
@@ -254,7 +253,7 @@ export const agentsContract = {
   transfer: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.transfer' } })
     .route({ method: 'POST', path: '/agents/{id}/transfer', successStatus: 200 })
-    .input(z.object({ params: memoryParams, body: transferBody }))
+    .input(z.object({ params: idParams, body: transferBody }))
     .output(agentSchema),
   identities: contractProcedure
     .meta({ access: { kind: 'authenticated' } })

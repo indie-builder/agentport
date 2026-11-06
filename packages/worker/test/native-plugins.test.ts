@@ -11,6 +11,7 @@ import {
 import { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
 import type { Config } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
@@ -126,7 +127,7 @@ const redisUrl = (() => {
   url.pathname = '/1';
   return url.toString();
 })();
-const connection = { url: redisUrl };
+const queueConnections: Array<ReturnType<typeof bunRedisConnection>> = [];
 
 function config(): Config {
   return loadConfig({
@@ -144,9 +145,26 @@ async function waitForCreate(): Promise<void> {
 }
 
 async function enqueueInstall(): Promise<Queue<NativePluginAction>> {
-  const queue = new Queue<NativePluginAction>(NATIVE_PLUGINS_QUEUE, { connection });
+  const redis = bunRedisConnection(redisUrl);
+  queueConnections.push(redis);
+  const queue = new Queue<NativePluginAction>(NATIVE_PLUGINS_QUEUE, {
+    connection: redis.connection,
+  });
   await queue.add('install', { action: 'install', marketplace: 'owner/repo', plugin: 'demo' });
   return queue;
+}
+
+async function obliterateQueue(): Promise<void> {
+  const redis = bunRedisConnection(redisUrl);
+  const queue = new Queue<NativePluginAction>(NATIVE_PLUGINS_QUEUE, {
+    connection: redis.connection,
+  });
+  try {
+    await queue.obliterate({ force: true });
+  } finally {
+    await queue.close();
+    await redis.close();
+  }
 }
 
 beforeAll(async () => {
@@ -154,6 +172,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await Promise.allSettled(queueConnections.map((connection) => connection.close()));
   if (workspacesDir) await rm(workspacesDir, { recursive: true, force: true });
 });
 
@@ -407,13 +426,9 @@ describe('runNativePluginAction', () => {
 });
 
 describe('registerNativePlugins close', () => {
-  beforeAll(async () => {
-    await new Queue(NATIVE_PLUGINS_QUEUE, { connection }).obliterate({ force: true });
-  });
+  beforeAll(obliterateQueue);
 
-  afterAll(async () => {
-    await new Queue(NATIVE_PLUGINS_QUEUE, { connection }).obliterate({ force: true });
-  });
+  afterAll(obliterateQueue);
 
   beforeEach(() => {
     // clearAllMocks 保留实现；上面两个用例各自 set 了 createImpl。

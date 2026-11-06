@@ -16,7 +16,7 @@ import {
   runEventsConnectionName,
   type Server,
 } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { expect } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { type Config, loadConfig } from '../src/config.js';
@@ -162,11 +162,11 @@ export function testConfig(overrides: Partial<Record<string, string>> = {}): Con
 /** Postgres 与 Redis 都可用才跑集成测试；否则整个 describe 跳过。 */
 async function probeInfra(config: Config): Promise<boolean> {
   const { client } = createDb(config.DATABASE_URL);
-  const redis = new Redis(config.REDIS_URL, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
+  const redis = new RedisClient(config.REDIS_URL, {
+    connectionTimeout: 1_000,
+    autoReconnect: false,
   });
+  redis.onclose = () => undefined;
   try {
     await client.unsafe('select 1');
     await redis.connect();
@@ -175,7 +175,7 @@ async function probeInfra(config: Config): Promise<boolean> {
     return false;
   } finally {
     await client.close().catch(() => undefined);
-    await redis.quit().catch(() => undefined);
+    redis.close();
   }
 }
 
@@ -184,7 +184,8 @@ async function probeInfra(config: Config): Promise<boolean> {
  * 这里检测 agent-runs 是否有 active/waiting 的 worker，有则提示。
  */
 async function probeQueueIdle(redisUrl: string): Promise<boolean> {
-  const redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
+  const redis = new RedisClient(redisUrl, { connectionTimeout: 1_000, autoReconnect: false });
+  redis.onclose = () => undefined;
   // CLIENT LIST 是实例级的，不受库号隔离；只看本测试库里 agent-runs 的连接：
   // 开发库上常驻的 worker 会让整组用例误判，同轮其他测试起的 worker 也不该算进来。
   const db = new URL(redisUrl).pathname.replace('/', '') || '0';
@@ -202,7 +203,7 @@ async function probeQueueIdle(redisUrl: string): Promise<boolean> {
   } catch {
     return true;
   } finally {
-    await redis.quit().catch(() => undefined);
+    redis.close();
   }
 }
 
@@ -457,7 +458,7 @@ export async function waitFor(
 }
 
 /** 用独立连接数某个 run 的阻塞事件跟随者；连接名由 producer 设置。 */
-export async function eventFollowerCount(redis: Redis, runId: string): Promise<number> {
+export async function eventFollowerCount(redis: RedisClient, runId: string): Promise<number> {
   const name = `name=${runEventsConnectionName(runId)}`;
   const list = await redis.client('LIST');
   return list.split('\n').filter((line) => line.includes(`${name} `) || line.endsWith(name)).length;

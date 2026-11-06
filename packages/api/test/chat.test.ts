@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Agent } from '@agentport/shared';
 import { chatEventSchema, RUN_CANCEL_PAYLOAD, runCancelKey } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildMessageRows } from '../../worker/src/messages.js';
 import { getQueue } from '../src/queue/producer.js';
@@ -26,7 +26,7 @@ const ready = (await infraReady) && (await queueIdle);
 describe.skipIf(!ready)('chat', () => {
   let app: TestApp;
   let cookie: string;
-  let testRedis: Redis;
+  let testRedis: RedisClient;
   const createdAgents: string[] = [];
   const runIds: string[] = [];
   const createdServers: string[] = [];
@@ -34,7 +34,7 @@ describe.skipIf(!ready)('chat', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    testRedis = new Redis(testConfig().REDIS_URL);
+    testRedis = new RedisClient(testConfig().REDIS_URL);
   });
 
   afterAll(async () => {
@@ -45,7 +45,7 @@ describe.skipIf(!ready)('chat', () => {
         .then((job) => job?.remove())
         .catch(() => undefined);
     }
-    await testRedis.quit().catch(() => undefined);
+    testRedis.close();
     await cleanup(app, { agentSlugs: createdAgents, runIds, serverNames: createdServers });
     await app.close();
   });

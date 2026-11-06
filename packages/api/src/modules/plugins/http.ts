@@ -5,7 +5,7 @@ import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { actorOf } from '../../http/access.js';
-import type { AppContext, HttpEnv } from '../../http/context.js';
+import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
@@ -21,7 +21,7 @@ import { parsePluginFiles } from './parse.js';
 
 const importQuerySchema = z.object({ slug: slugSchema }).strict();
 
-export function registerPluginsHttp(app: Hono<HttpEnv>, _deps: AppContext): void {
+export function registerPluginsHttp(app: Hono<HttpEnv>): void {
   app.post(
     '/api/plugins/import',
     access({ kind: 'permission', permissionId: 'plugins.import' }),

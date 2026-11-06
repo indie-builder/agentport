@@ -10,9 +10,10 @@ import {
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
 import { Queue, QueueEvents } from 'bullmq';
+import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { KnowledgeCancelled, type KnowledgeConnector } from '../src/knowledge/ingestion.js';
 import { KNOWLEDGE_TIMEOUT_MS, startKnowledgeWorker } from '../src/knowledge/queue.js';
 import { type KnowledgeQueueLike, reconcileKnowledgeJobs } from '../src/knowledge/reconcile.js';
@@ -32,18 +33,28 @@ const quiet = {
 } as unknown as Parameters<typeof startKnowledgeWorker>[0]['logger'];
 
 let knowledgeDir = '';
+const redisConnections: Array<ReturnType<typeof bunRedisConnection>> = [];
+
+function connection() {
+  const redis = bunRedisConnection(redisUrl);
+  redisConnections.push(redis);
+  return redis.connection;
+}
 
 beforeAll(async () => {
   knowledgeDir = await mkdtemp(join(tmpdir(), 'knowledge-queue-'));
 });
 
 afterAll(async () => {
+  const redis = bunRedisConnection(redisUrl);
   const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, {
-    connection: { url: redisUrl },
+    connection: redis.connection,
     prefix,
   });
   await queue.obliterate({ force: true }).catch(() => undefined);
   await queue.close();
+  await redis.close();
+  await Promise.allSettled(redisConnections.map((entry) => entry.close()));
   await rm(knowledgeDir, { recursive: true, force: true });
   await dbHandle.client.close();
 });
@@ -235,7 +246,7 @@ describe('knowledge worker queue', () => {
       connectors: {},
     });
     const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl },
+      connection: connection(),
       prefix,
     });
     try {
@@ -321,9 +332,9 @@ describe('knowledge worker queue', () => {
       ],
       connectors: {},
     });
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     const events = new QueueEvents(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: connection(),
       prefix,
     });
     events.on('error', () => undefined);
@@ -533,9 +544,9 @@ describe('knowledge worker queue', () => {
       ],
       connectors: { feed: connector },
     });
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     const events = new QueueEvents(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: connection(),
       prefix,
     });
     events.on('error', () => undefined);
@@ -623,9 +634,9 @@ describe('knowledge worker queue', () => {
       },
     };
     const worker = await startKnowledgeSyncWorker(connector);
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     const events = new QueueEvents(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl, maxRetriesPerRequest: null },
+      connection: connection(),
       prefix,
     });
     events.on('error', () => undefined);
@@ -681,7 +692,7 @@ describe('knowledge worker queue', () => {
         throw new Error('listing failed after checkpoint');
       },
     });
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     try {
       await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
       expect((await waitForJobStatus(job.id, ['failed', 'succeeded']))?.status).toBe('failed');
@@ -701,7 +712,7 @@ describe('knowledge worker queue', () => {
 
   it('honors cancellation requested after the last checkpoint before sync finish', async () => {
     const { sourceId, job } = await seedSyncPair();
-    const redis = new Redis(redisUrl);
+    const redis = new RedisClient(redisUrl);
     const worker = await startKnowledgeSyncWorker({
       // biome-ignore lint/correctness/useYield: 空同步返回前写取消键，不等轮询
       async *sync(input) {
@@ -709,7 +720,7 @@ describe('knowledge worker queue', () => {
         await redis.set(knowledgeCancelKey(job.id), '1', 'EX', 60);
       },
     });
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     try {
       await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
       expect((await waitForJobStatus(job.id, ['cancelled', 'succeeded']))?.status).toBe(
@@ -721,7 +732,7 @@ describe('knowledge worker queue', () => {
     } finally {
       await queue.close();
       await worker.close();
-      redis.disconnect();
+      redis.close();
     }
   }, 30_000);
 
@@ -744,7 +755,7 @@ describe('knowledge worker queue', () => {
         throw new Error('probe must not sync');
       },
     });
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     try {
       await queue.add('knowledge', { jobId: probe.id }, knowledgeEnqueueOptions(probe.id));
       const finished = await waitForJobStatus(probe.id, ['succeeded', 'failed']);
@@ -777,8 +788,8 @@ describe('knowledge worker queue', () => {
       },
     };
     const worker = await startKnowledgeSyncWorker(connector);
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
-    const redis = new Redis(redisUrl);
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
+    const redis = new RedisClient(redisUrl);
     try {
       await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
       // 检查点落库后才发 cancel 键：确认取消发生在真实执行中，不是队列前。
@@ -803,7 +814,7 @@ describe('knowledge worker queue', () => {
     } finally {
       await queue.close();
       await worker.close();
-      redis.disconnect();
+      redis.close();
     }
   }, 30_000);
 
@@ -818,7 +829,7 @@ describe('knowledge worker queue', () => {
     const previousTimeout = KNOWLEDGE_TIMEOUT_MS.sync;
     KNOWLEDGE_TIMEOUT_MS.sync = 200;
     let worker: Awaited<ReturnType<typeof startKnowledgeWorker>> | undefined;
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     try {
       worker = await startKnowledgeSyncWorker(connector);
       await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
@@ -851,7 +862,7 @@ describe('knowledge worker queue', () => {
       },
     };
     const worker = await startKnowledgeSyncWorker(connector);
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     try {
       await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
 
@@ -915,7 +926,7 @@ describe('knowledge worker queue', () => {
       connectors: {},
     });
     const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl },
+      connection: connection(),
       prefix,
     });
     try {
@@ -967,7 +978,7 @@ describe('knowledge worker queue', () => {
       ],
       connectors: {},
     });
-    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: { url: redisUrl }, prefix });
+    const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     const waitFor = async (id: string, statuses: string[]) => {
       const deadline = Date.now() + 15_000;
       let job = await repo.knowledge.getJob(db, id);
@@ -1091,7 +1102,7 @@ describe('knowledge worker queue', () => {
       })(),
     });
     const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl },
+      connection: connection(),
       prefix,
     });
     try {
@@ -1177,7 +1188,7 @@ describe('knowledge worker queue', () => {
       connectors: {},
     });
     const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl },
+      connection: connection(),
       prefix,
     });
     try {
@@ -1295,7 +1306,7 @@ describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled
     dbHandle = createDb(isolated.url);
     db = dbHandle.db;
     queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: redisUrl },
+      connection: connection(),
       prefix: redeliveryPrefix,
     });
   });

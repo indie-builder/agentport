@@ -117,7 +117,7 @@ export async function buildApp(
   );
   for (const middleware of security.middleware) app.use('*', middleware);
   app.use('/api/*', security.apiLimit);
-  registerHealthHttp(app, context);
+  registerHealthHttp(app);
   registerRoutes(app, context, {
     timeout: (request, seconds) => options.timeout?.(request, seconds),
   });

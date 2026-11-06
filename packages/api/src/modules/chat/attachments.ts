@@ -8,14 +8,10 @@ import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import type { NativeHttpDependencies } from './http.js';
 import { contentDisposition } from './outputs.js';
 
 const notFound = () => fail('NOT_FOUND', '附件不存在，可能已被清理');
-export function registerChatAttachmentsHttp(
-  app: Hono<HttpEnv>,
-  _deps: NativeHttpDependencies,
-): void {
+export function registerChatAttachmentsHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/conversations/:id/attachments/:attachmentId/download',
     access({ kind: 'permission', permissionId: 'conversations.read' }),

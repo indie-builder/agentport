@@ -1,7 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import {
@@ -25,12 +24,12 @@ const logger = { warn: () => undefined, error: () => undefined } as unknown as L
  * 让 API 与 worker 各写一条，再用 shared 的键读回。
  */
 describe.skipIf(!ready)('run stream contract', () => {
-  const redis = new Redis(testConfig().REDIS_URL);
+  const redis = new RedisClient(testConfig().REDIS_URL);
   const runIds: string[] = [];
 
   afterAll(async () => {
     await Promise.all(runIds.map((runId) => redis.del(runStreamKey(runId), runCancelKey(runId))));
-    await redis.quit();
+    redis.close();
     await closeProducer();
     await closeRunnerClient();
   });
@@ -99,7 +98,7 @@ describe.skipIf(!ready)('run stream contract', () => {
   it('cancel sets only the cancel key and never writes the event stream', async () => {
     const runId = newRun();
     expect(await requestRunCancel(runId)).toBe(true);
-    expect(await redis.exists(runCancelKey(runId))).toBe(1);
+    expect(await redis.exists(runCancelKey(runId))).toBe(true);
     expect(await eventCount(runId)).toBe(0);
     // 键已存在：重复取消不再发通知。
     expect(await requestRunCancel(runId)).toBe(false);
@@ -195,9 +194,9 @@ describe.skipIf(!ready)('run stream contract', () => {
     expect(totalBytes).toBeGreaterThan(8 * 1024 * 1024);
     expect(totalBytes).toBeLessThan(32 * 1024 * 1024);
 
-    const seed = redis.pipeline();
-    for (const payload of payloads) seed.xadd(runStreamKey(runId), '*', 'payload', payload);
-    await seed.exec();
+    await Promise.all(
+      payloads.map((payload) => redis.xadd(runStreamKey(runId), '*', 'payload', payload)),
+    );
 
     const watched = watchCounts('XRANGE', runId);
     const types: string[] = [];
