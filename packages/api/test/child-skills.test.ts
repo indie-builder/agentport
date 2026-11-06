@@ -1,22 +1,22 @@
 import { readFile } from 'node:fs/promises';
 import type { Agent, Skill, WorkspaceFiles } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('child skills in the rendered workspace', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
   const createdSkills: string[] = [];
@@ -36,7 +36,7 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
     const createSkill = async (prefix: string): Promise<Skill> => {
       const slug = unique(prefix);
       createdSkills.push(slug);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/skills',
         headers: { cookie },
@@ -62,7 +62,7 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
 
     child = await newAgent('child', [childSkill.id, sharedSkill.id]);
     disabledChild = await newAgent('disabled-child', [disabledSkill.id]);
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${disabledChild.id}`,
       headers: { cookie },
@@ -71,7 +71,7 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
     expect(disabled.statusCode, disabled.body).toBe(200);
 
     parent = await newAgent('parent', [rootSkill.id]);
-    const bind = await inject(app, {
+    const bind = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${parent.id}`,
       headers: { cookie },
@@ -87,7 +87,7 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
 
   const auth = () => ({ cookie });
   const preview = () =>
-    inject(app, { method: 'GET', url: `/api/agents/${parent.id}/files`, headers: auth() });
+    request(app, { method: 'GET', url: `/api/agents/${parent.id}/files`, headers: auth() });
 
   it('unions enabled child skills into the workspace files', async () => {
     const res = await preview();
@@ -132,7 +132,7 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
     const files = (await preview()).json<WorkspaceFiles>();
     const rendered = files.subAgents.find((subAgent) => subAgent.slug === child.slug);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/agents/${parent.id}/subagents/${child.id}/file`,
       headers: auth(),
@@ -144,7 +144,7 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
 
   it('keeps preview behind auth', async () => {
     expectProblem(
-      await inject(app, { method: 'GET', url: `/api/agents/${parent.id}/files` }),
+      await request(app, { method: 'GET', url: `/api/agents/${parent.id}/files` }),
       'UNAUTHORIZED',
     );
   });

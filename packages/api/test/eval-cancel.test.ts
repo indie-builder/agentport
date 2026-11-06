@@ -1,22 +1,22 @@
 import { newId, repo } from '@agentport/db';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('eval run cancellation', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
   const evalRunIds: string[] = [];
@@ -29,7 +29,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
   afterAll(async () => {
     // 审计没有外键，目标行随 agent 级联删除后仍需显式清理。
     if (evalRunIds.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [evalRunIds]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(evalRunIds, 'TEXT')]);
     }
     await cleanup(app, { agentSlugs: createdAgents });
     await app.close();
@@ -62,7 +62,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
   };
 
   const cancel = (id: string, withCookie = true) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: `/api/eval/runs/${id}/cancel`,
       headers: withCookie ? { cookie } : {},
@@ -70,11 +70,11 @@ describe.skipIf(!ready)('eval run cancellation', () => {
 
   const cancelAudits = async (target: string) =>
     (
-      await app.pool.query(
+      await app.client.unsafe(
         "select input_digest from audit_log where action = 'eval.run.cancelled' and target = $1",
         [target],
       )
-    ).rows;
+    );
 
   it('requires auth', async () => {
     const res = await cancel(newId('evalRun'), false);
@@ -88,7 +88,7 @@ describe.skipIf(!ready)('eval run cancellation', () => {
 
   it('checks run existence with an id-only query', async () => {
     const { run } = await seedRun();
-    const query = vi.spyOn(app.pool, 'query');
+    const query = spyOn(app.client, 'unsafe');
     const res = await cancel(run.id);
     const calls = [...query.mock.calls];
     query.mockRestore();

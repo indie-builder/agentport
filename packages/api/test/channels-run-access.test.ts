@@ -1,7 +1,6 @@
 import { newId } from '@agentport/db';
 import type { Agent, Channel, ChannelMessage } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getQueue } from '../src/queue/producer.js';
 import {
   cleanup,
@@ -9,12 +8,13 @@ import {
   createServer,
   createTestAccount,
   infraReady,
-  inject,
   loginCookie,
+  request,
   seedRun,
   setAgentMember,
   startApp,
   type TestAccount,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -28,7 +28,7 @@ const ready = await infraReady;
 
 /** M2 的私有运行入口（详情/提问/审批）不实现频道授权，频道 run 一律按不存在处理。 */
 describe.skipIf(!ready)('channel run private entry points', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let adminCookie: string;
   let owner: TestAccount;
   let member: TestAccount;
@@ -50,7 +50,7 @@ describe.skipIf(!ready)('channel run private entry points', () => {
     cookie: string,
     payload?: Record<string, unknown>,
   ) =>
-    inject(app, {
+    request(app, {
       method,
       url,
       headers: { cookie },
@@ -96,27 +96,27 @@ describe.skipIf(!ready)('channel run private entry points', () => {
     expect(posted.statusCode, posted.body).toBe(201);
     expect(posted.json<ChannelMessage>().body).toBe('private entry probe');
 
-    const runs = await app.pool.query<RunRow>(
+    const runs = await app.client.unsafe<RunRow[]>(
       `select id, conversation_id, channel_id
          from agent_runs
         where channel_id = $1
         order by created_at, id`,
       [channel.id],
     );
-    expect(runs.rows).toHaveLength(1);
-    const run = runs.rows[0];
+    expect(runs).toHaveLength(1);
+    const run = runs[0];
     if (!run) throw new Error('expected a channel run');
     runId = run.id;
     expect(run.channel_id).toBe(channel.id);
 
     // 回答/批准都要求 run 仍在 running；worker 不在测试进程内消费，手动置为运行中。
-    await app.pool.query("update agent_runs set status = 'running', error = $2 where id = $1", [
+    await app.client.unsafe("update agent_runs set status = 'running', error = $2 where id = $1", [
       runId,
       sensitiveError,
     ]);
 
     requestId = unique('question-request');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into run_questions (id, run_id, request_id, tool_use_id, questions, expires_at)
        values ($1, $2, $3, $4, $5::jsonb, now() + interval '10 minutes')`,
       [
@@ -140,7 +140,7 @@ describe.skipIf(!ready)('channel run private entry points', () => {
 
     const server = await createServer(app, adminCookie, { track: serverNames });
     serverId = server.id;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into approval_requests (id, run_id, server_id, tool_name, expires_at)
        values ($1, $2, $3, $4, now() + interval '10 minutes')`,
       [newId('approval'), runId, serverId, toolName],
@@ -161,22 +161,19 @@ describe.skipIf(!ready)('channel run private entry points', () => {
         .catch(() => undefined);
     }
     if (channelIds.length > 0) {
-      await app.pool
-        .query('delete from channels where id = any($1::text[])', [channelIds])
+      await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(channelIds, 'TEXT')])
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs, serverNames });
     if (privateConversationIds.length > 0) {
-      await app.pool.query('delete from conversations where id = any($1::text[])', [
-        privateConversationIds,
-      ]);
+      await app.client.unsafe('delete from conversations where id = any($1::text[])', [app.client.array(privateConversationIds, 'TEXT')],
+      );
     }
     const businessIds = [owner.businessId, member.businessId];
-    await app.pool.query('delete from audit_log where actor = any($1::text[])', [businessIds]);
-    await app.pool.query('delete from user_roles where business_id = any($1::text[])', [
-      businessIds,
-    ]);
-    await app.pool.query('delete from "user" where business_id = any($1::text[])', [businessIds]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
+    );
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
     await app.close();
   });
 
@@ -200,11 +197,11 @@ describe.skipIf(!ready)('channel run private entry points', () => {
     expect(answered.statusCode, answered.body).toBe(404);
     expect(answered.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
 
-    const stored = await app.pool.query<{ status: string; answers: unknown }>(
+    const stored = await app.client.unsafe<{ status: string; answers: unknown }[]>(
       'select status, answers from run_questions where run_id = $1',
       [runId],
     );
-    expect(stored.rows[0]).toMatchObject({ status: 'pending', answers: null });
+    expect(stored[0]).toMatchObject({ status: 'pending', answers: null });
   });
 
   it('rejects reading approvals and approving them after the triggering member leaves', async () => {
@@ -219,11 +216,11 @@ describe.skipIf(!ready)('channel run private entry points', () => {
     expect(approved.statusCode, approved.body).toBe(404);
     expect(approved.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
 
-    const stored = await app.pool.query<{ approved_at: Date | null }>(
+    const stored = await app.client.unsafe<{ approved_at: Date | null }[]>(
       'select approved_at from approval_requests where run_id = $1',
       [runId],
     );
-    expect(stored.rows[0]?.approved_at).toBeNull();
+    expect(stored[0]?.approved_at).toBeNull();
   });
 
   for (const scope of ['former member', 'platform'] as const) {
@@ -237,16 +234,16 @@ describe.skipIf(!ready)('channel run private entry points', () => {
         const res = await call('GET', `${endpoint}?agentId=${agentId}`, cookie);
         expect(res.statusCode, res.body).toBe(200);
         const items = res.json<{ items: Array<{ id: string }> }>().items;
-        expect.soft(items.map((item) => item.id)).toContain(privateRun.runId);
-        expect.soft(items.map((item) => item.id)).not.toContain(runId);
-        expect.soft(res.body).not.toContain(sensitiveError);
+        expect(items.map((item) => item.id)).toContain(privateRun.runId);
+        expect(items.map((item) => item.id)).not.toContain(runId);
+        expect(res.body).not.toContain(sensitiveError);
         const filtered = await call(
           'GET',
           `${endpoint}?agentId=${agentId}&trigger=channel`,
           cookie,
         );
         expect(filtered.statusCode, filtered.body).toBe(200);
-        expect.soft(filtered.json<{ items: unknown[] }>().items).toEqual([]);
+        expect(filtered.json<{ items: unknown[] }>().items).toEqual([]);
       }
     });
   }

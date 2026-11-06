@@ -1,7 +1,7 @@
 import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { ensureSessionWorkspace, refreshSessionDirectory } from '../src/session-workspace.js';
 
 let root = '';

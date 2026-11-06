@@ -66,7 +66,7 @@
 
 ## D-7 ✅ 备份的执行方式
 
-**决定（按 B）**：保留手动 `pnpm backup`，由宿主机 cron 调用（示例见 [OPERATIONS.md §3.1](OPERATIONS.md#31-备份)）；应用内不做定时。
+**决定（按 B）**：保留手动 `bun run backup`，由宿主机 cron 调用（示例见 [OPERATIONS.md §3.1](OPERATIONS.md#31-备份)）；应用内不做定时。
 
 **影响面**：`scripts/backup.sh`；保留最近 7 份，不读取 `.env`。
 
@@ -626,6 +626,16 @@
 **当前处理**：本轮代码清理不扩功能、不加门禁：不补安装按钮的禁用/隐藏与权限提示，也不删除视觉 token；API 强制权限与组件现有行为保持不变。是否补按钮反馈作为独立 UX 任务另行决定，不新建 LoopX todo。
 
 **影响面**：`packages/web/src/pages/skills.tsx`、`packages/web/src/styles.css`、`docs/DESIGN-SYSTEM.md`。
+
+## D-78 ⏳ overview 接口 p95/p99 尾部回归（2026-11-06，Bun 迁移合并前记录）
+
+**发现**：正式 ABBA 性能对照（6 轮、650 万成功请求、0 失败，两侧响应体逐字节一致，证据 `/tmp/pbm/summary-final.json`）显示 `/api/overview?days=7` 吞吐与 p50 持平，但 p95 约 1.30x、p99 约 1.38x 慢于迁移前 Node/Fastify。两侧瓶颈均在 PostgreSQL（约 6.8 核），服务端机制未定位。同轮 `/api/agents` 快 1.63x（p50 15.5→9.5ms、RSS 774→506MB），`/health/live` 快约 10%。
+
+**当前处理**：按「已知未解释的尾部回归」记录后放行合并；复现 harness 保留在 `/tmp/pbm/HARNESS.md`（ABBA、容器与种子重建命令齐全）。若验收门槛包含 overview 尾部延迟或对外承诺性能不退化，需先定位再发布，不能以 agents 变快替代该端点结论。
+
+**影响面**：`packages/api/src/modules/overview/router.ts`、底层 SQL 与连接参数（`prepare: false`、ISO 日期绑定）均在候选范围内；定位属独立性能任务。
+
+---
 
 ## 决策记录格式
 

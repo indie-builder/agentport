@@ -2,7 +2,12 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ChatEvent, ResolvedRuntimeEnvironment, SandboxInputCommand } from '@agentport/shared';
 import pino from 'pino';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
+import {
+  advanceTimersByTimeAsync,
+  runOnlyPendingTimersAsync,
+  waitFor,
+} from './fixtures/native-test.js';
 import {
   type Sandbox,
   SandboxCleanupError,
@@ -217,7 +222,7 @@ async function startRun(
     onStderr: (text) => stderr.push(text),
   });
   const child = provider.childOf(lease.sandboxId);
-  await vi.waitFor(() => expect(child.input).toContain('"type":"start"'));
+  await waitFor(() => expect(child.input).toContain('"type":"start"'));
   child.stdout.write(line({ type: 'started', runId }));
   return starting;
 }
@@ -266,7 +271,7 @@ function settle(
 }
 
 afterEach(() => {
-  vi.useRealTimers();
+  jest.useRealTimers();
 });
 
 describe('session sandboxes', () => {
@@ -299,7 +304,7 @@ describe('session sandboxes', () => {
     const lease = await acquire(sessions, target);
     const create = provider.creates[0];
     expect(create).toBeDefined();
-    expect(create?.entrypoint).toBe('node');
+    expect(create?.entrypoint).toBe('bun');
     expect(create?.command).toEqual(['dist/session-supervisor.js']);
     expect(create?.workspaceDir).toBe('/host/workspace');
     expect(create?.env).toEqual({});
@@ -486,7 +491,7 @@ describe('session sandboxes', () => {
     const first = await acquire(sessions, spec());
     await first.release({ reuse: true });
     provider.childOf(first.sandboxId).emit('close', 1, null);
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
     // 容器已经消亡：下一次 acquire 是真实创建，必须读当时的线上版本。
     online.versionId = 'version_2';
@@ -517,12 +522,12 @@ describe('session sandboxes', () => {
     const sessions = await createManager(provider, 5 * 60_000);
     const lease = await acquire(sessions, spec());
 
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     await lease.release({ reuse: true });
-    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await advanceTimersByTimeAsync(5 * 60_000);
 
     expect(provider.destroyed).toEqual(['sandbox-1']);
-    await vi.runOnlyPendingTimersAsync();
+    await runOnlyPendingTimersAsync();
     await sessions.close();
   });
 
@@ -532,15 +537,15 @@ describe('session sandboxes', () => {
     const lease = await acquire(sessions, spec());
     await startRun(lease, provider, 'run_1');
 
-    vi.useFakeTimers();
-    await vi.advanceTimersByTimeAsync(10_000);
+    jest.useFakeTimers();
+    await advanceTimersByTimeAsync(10_000);
     expect(provider.destroyed).toEqual([]);
 
     settle(provider.childOf(lease.sandboxId), 'run_1');
     await lease.release({ reuse: true });
-    await vi.advanceTimersByTimeAsync(999);
+    await advanceTimersByTimeAsync(999);
     expect(provider.destroyed).toEqual([]);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(provider.destroyed).toEqual(['sandbox-1']);
     await sessions.close();
   });
@@ -550,17 +555,17 @@ describe('session sandboxes', () => {
     const sessions = await createManager(provider, 1_000);
     const first = await acquire(sessions, spec());
 
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     await first.release({ reuse: true });
     const second = await acquire(sessions, spec());
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advanceTimersByTimeAsync(1_000);
     expect(provider.destroyed).toEqual([]);
     expect(provider.creates).toHaveLength(1);
 
     await second.release({ reuse: true });
-    await vi.advanceTimersByTimeAsync(999);
+    await advanceTimersByTimeAsync(999);
     expect(provider.destroyed).toEqual([]);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTimersByTimeAsync(1);
     expect(provider.destroyed).toEqual(['sandbox-1']);
     await sessions.close();
   });
@@ -602,7 +607,7 @@ describe('session sandboxes', () => {
     child.stdout.write(
       line({ type: 'event', runId: 'run_2', event: { type: 'error', message: 'fresh' } }),
     );
-    await vi.waitFor(() => expect(nextEvents).toEqual([{ type: 'error', message: 'fresh' }]));
+    await waitFor(() => expect(nextEvents).toEqual([{ type: 'error', message: 'fresh' }]));
     settle(child, 'run_2');
     await next.release({ reuse: false });
     await sessions.close();
@@ -627,7 +632,7 @@ describe('session sandboxes', () => {
         return execution;
       });
 
-    await vi.waitFor(() => expect(child.input).toContain('"type":"start"'));
+    await waitFor(() => expect(child.input).toContain('"type":"start"'));
     await Promise.resolve();
     expect(resolved).toBe(false);
 
@@ -641,7 +646,7 @@ describe('session sandboxes', () => {
       response: { answers: {} },
     };
     execution.send(command);
-    await vi.waitFor(() => expect(child.input).toContain('"type":"input","runId":"run_1"'));
+    await waitFor(() => expect(child.input).toContain('"type":"input","runId":"run_1"'));
 
     settle(child, 'run_1');
     await execution.done;
@@ -661,7 +666,7 @@ describe('session sandboxes', () => {
       onEvent: () => undefined,
       onStderr: () => undefined,
     });
-    await vi.waitFor(() => expect(child.input).toContain('"type":"start"'));
+    await waitFor(() => expect(child.input).toContain('"type":"start"'));
     child.stdout.write(
       line({ type: 'rejected', runId: 'run_1', code: 'SPAWN_FAILED', message: 'no runner' }),
     );
@@ -695,7 +700,7 @@ describe('session sandboxes', () => {
     const child = provider.childOf(lease.sandboxId);
 
     const cancelling = execution.cancel();
-    await vi.waitFor(() => expect(child.input).toContain('"type":"cancel","runId":"run_1"'));
+    await waitFor(() => expect(child.input).toContain('"type":"cancel","runId":"run_1"'));
     settle(child, 'run_1', { signal: 'SIGTERM' });
 
     await expect(cancelling).resolves.toEqual({
@@ -719,16 +724,16 @@ describe('session sandboxes', () => {
     const execution = await startRun(lease, provider, 'run_1');
     const child = provider.childOf(lease.sandboxId);
 
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     let settled: unknown;
     const cancelling = execution.cancel().then((value) => {
       settled = value;
       return value;
     });
-    await vi.waitFor(() => expect(child.input).toContain('"type":"cancel"'));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await waitFor(() => expect(child.input).toContain('"type":"cancel"'));
+    await advanceTimersByTimeAsync(1_000);
     expect(settled).toBeUndefined();
-    await vi.advanceTimersByTimeAsync(5_000);
+    await advanceTimersByTimeAsync(5_000);
 
     await expect(cancelling).resolves.toMatchObject({
       state: 'unconfirmed',
@@ -747,10 +752,10 @@ describe('session sandboxes', () => {
     const sessions = await createManager(provider, 1_000);
     const lease = await acquire(sessions, spec());
 
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     provider.holdDestroy = true;
     await lease.release({ reuse: true });
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advanceTimersByTimeAsync(1_000);
     expect(provider.destroyed).toEqual(['sandbox-1']);
 
     const acquiring = acquire(sessions, spec());
@@ -763,7 +768,7 @@ describe('session sandboxes', () => {
     expect(settled).toBe(false);
 
     provider.releaseDestroy();
-    vi.useRealTimers();
+    jest.useRealTimers();
     const next = await acquiring;
     expect(next.sandboxId).toBe('sandbox-2');
     provider.holdDestroy = false;
@@ -779,7 +784,7 @@ describe('session sandboxes', () => {
     provider.holdDestroy = true;
 
     provider.childOf('sandbox-1').emit('close', 0, null);
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
     const acquiring = acquire(sessions, spec());
     let settled = false;
@@ -811,7 +816,7 @@ describe('session sandboxes', () => {
     provider.failing.add('sandbox-1');
     provider.childOf('sandbox-1').emit('close', 1, null);
 
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
     // 等 idle-exit 的失败销毁收口；acquire 与仍在收口的 destroy 并发时只 join 那一轮。
     await new Promise((resolve) => setTimeout(resolve, 0));
     await expect(acquire(sessions, spec())).rejects.toThrow(/cleanup failed for sandbox-1/);
@@ -842,7 +847,7 @@ describe('session sandboxes', () => {
     const controller = new AbortController();
 
     const acquiring = acquire(sessions, spec(), controller.signal);
-    await vi.waitFor(() => expect(provider.held).toHaveLength(1));
+    await waitFor(() => expect(provider.held).toHaveLength(1));
     controller.abort();
 
     await expect(acquiring).rejects.toMatchObject({ name: 'AbortError' });
@@ -858,7 +863,7 @@ describe('session sandboxes', () => {
     const controller = new AbortController();
 
     const acquiring = acquire(sessions, spec(), controller.signal);
-    await vi.waitFor(() => expect(provider.held).toHaveLength(1));
+    await waitFor(() => expect(provider.held).toHaveLength(1));
     controller.abort();
     provider.releaseCreate();
 
@@ -877,7 +882,7 @@ describe('session sandboxes', () => {
     const acquiring = expect(
       acquire(sessions, spec(), AbortSignal.timeout(20)),
     ).rejects.toMatchObject({ name: 'AbortError' });
-    await vi.waitFor(() => expect(provider.sandboxes).toHaveLength(1));
+    await waitFor(() => expect(provider.sandboxes).toHaveLength(1));
 
     await acquiring;
     expect(provider.destroyed).toEqual(['sandbox-1']);
@@ -909,7 +914,7 @@ describe('session sandboxes', () => {
     const sessions = await createManager(provider);
 
     const acquiring = acquire(sessions, spec());
-    await vi.waitFor(() => expect(provider.held).toHaveLength(1));
+    await waitFor(() => expect(provider.held).toHaveLength(1));
     const closing = sessions.close();
     provider.releaseCreate();
 
@@ -923,10 +928,10 @@ describe('session sandboxes', () => {
     const sessions = await createManager(provider, 1_000);
     const lease = await acquire(sessions, spec());
 
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     provider.failing.add(lease.sandboxId);
     await lease.release({ reuse: true });
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advanceTimersByTimeAsync(1_000);
     await expect(acquire(sessions, spec())).rejects.toThrow(/cleanup failed for sandbox-1/);
     expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']);
     expect(provider.creates).toHaveLength(1);
@@ -975,7 +980,7 @@ describe('session sandboxes', () => {
     provider.holdDestroy = true;
     const first = sessions.cleanup('conv_1', sandboxId, 'run_1');
     const second = sessions.cleanup('conv_1', sandboxId, 'run_1');
-    await vi.waitFor(() => expect(provider.destroyed).toEqual([sandboxId, sandboxId]));
+    await waitFor(() => expect(provider.destroyed).toEqual([sandboxId, sandboxId]));
     provider.releaseDestroy();
     await expect(first).resolves.toBeUndefined();
     await expect(second).resolves.toBeUndefined();
@@ -1041,7 +1046,7 @@ describe('session sandboxes', () => {
     const controller = new AbortController();
 
     const acquiring = acquire(sessions, spec(), controller.signal);
-    await vi.waitFor(() => expect(provider.held).toHaveLength(1));
+    await waitFor(() => expect(provider.held).toHaveLength(1));
     provider.failing.add('sandbox-1');
     controller.abort();
     provider.releaseCreate();
@@ -1061,7 +1066,7 @@ describe('session sandboxes', () => {
     const controller = new AbortController();
 
     const acquiring = acquire(sessions, spec(), controller.signal);
-    await vi.waitFor(() => expect(provider.sandboxes).toHaveLength(1));
+    await waitFor(() => expect(provider.sandboxes).toHaveLength(1));
     provider.failing.add('sandbox-1');
     controller.abort();
 
@@ -1122,7 +1127,7 @@ describe('session sandboxes', () => {
     const lease = await acquire(sessions, spec());
     provider.holdDestroy = true;
     await lease.release({ reuse: true });
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
     const acquiring = acquire(sessions, spec(), undefined, 'run_2');
     // 等待中的 acquire 占住 entry，第三个请求仍按 busy 拒绝，不带别的 run 的错误 id。
@@ -1200,7 +1205,7 @@ describe('session sandboxes', () => {
 
     provider.holdDestroy = true;
     const first = acquire(sessions, spec());
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']));
     await expect(acquire(sessions, spec())).rejects.toThrow(/busy/i);
 
     provider.releaseDestroy();
@@ -1222,7 +1227,7 @@ describe('session sandboxes', () => {
 
     provider.holdDestroy = true;
     const replacement = acquire(sessions, spec());
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']));
 
     const competing = acquireDuringHandoff(provider, sessions, spec());
     const next = await replacement;
@@ -1243,7 +1248,7 @@ describe('session sandboxes', () => {
     provider.holdDestroy = true;
     const changed = spec({ runtimeEnvironmentId: 'env_2' });
     const replacement = acquire(sessions, changed);
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
     const competing = acquireDuringHandoff(provider, sessions, changed);
     const next = await replacement;
@@ -1261,7 +1266,7 @@ describe('session sandboxes', () => {
     const lease = await acquire(sessions, spec());
     provider.holdDestroy = true;
     await lease.release({ reuse: true });
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
     const replacement = acquire(sessions, spec());
     const competing = acquireDuringHandoff(provider, sessions, spec());
@@ -1284,7 +1289,7 @@ describe('session sandboxes', () => {
 
     provider.holdDestroy = true;
     const acquiring = acquire(sessions, spec());
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']));
     const closing = sessions.close();
     provider.releaseDestroy();
 
@@ -1304,7 +1309,7 @@ describe('session sandboxes', () => {
     provider.holdDestroy = true;
     const controller = new AbortController();
     const acquiring = acquire(sessions, spec(), controller.signal);
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']));
     controller.abort();
     provider.releaseDestroy();
 
@@ -1339,7 +1344,7 @@ describe('session sandboxes', () => {
 
     const first = lease.release({ reuse: false });
     const second = lease.release({ reuse: false });
-    await vi.waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
+    await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
     const settled = [first, second].map((promise) => {
       const state = { done: false };
       void promise.then(
@@ -1443,17 +1448,17 @@ describe('session sandboxes', () => {
     const sessions = await createManager(provider, 1_000);
     const lease = await acquire(sessions, spec());
 
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     provider.holdDestroy = true;
     await lease.release({ reuse: true });
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advanceTimersByTimeAsync(1_000);
     expect(provider.destroyed).toEqual(['sandbox-1']);
 
     const acquiring = acquire(sessions, spec(), undefined, 'run_2');
     await expect(sessions.closeIdle('conv_1', [lease.sandboxId])).rejects.toThrow(/busy/i);
 
     provider.releaseDestroy();
-    vi.useRealTimers();
+    jest.useRealTimers();
     const next = await acquiring;
     provider.holdDestroy = false;
     await next.release({ reuse: false });
@@ -1545,7 +1550,7 @@ describe('session sandboxes', () => {
 async function cappedManager(provider: FakeProvider, maxActive: number) {
   const { SessionSandboxes } = await import('../src/sandbox/sessions.js');
   const logger = pino({ level: 'silent' });
-  const warn = vi.spyOn(logger, 'warn');
+  const warn = spyOn(logger, 'warn');
   const sessions = new SessionSandboxes({
     provider,
     idleTimeoutMs: 300_000,

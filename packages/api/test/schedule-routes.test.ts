@@ -2,26 +2,41 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SCHEDULE_TRIGGERS_QUEUE, type ScheduleTriggerJob } from '@agentport/shared';
 import { Queue } from 'bullmq';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as scheduleSyncModule from '../src/modules/ops/schedule-sync.js';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
+
+
+const realScheduleSync = { ...scheduleSyncModule };
 
 /**
  * 只替换队列获取这一个既有边界：注入带私有 prefix 的真队列，
  * 让测试写入的 scheduler 不落到开发/其它套件的 `schedule-triggers` 键上。
  * 其余同步函数与 Fastify schema 都走真实实现。
  */
-const state = vi.hoisted(() => ({
+const state = {
   queue: undefined as unknown as Queue<ScheduleTriggerJob>,
-}));
+};
 
-vi.mock('../src/features/ops/schedule-sync.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../src/features/ops/schedule-sync.js')>()),
+mock.module('../src/modules/ops/schedule-sync.js', () => ({
+  ...realScheduleSync,
   getScheduleQueue: () => state.queue,
 }));
 
-const { cleanup, createAgent, infraReady, loginCookie, startApp, unique } = await import(
+const { cleanup, createAgent, infraReady, loginCookie, request, startApp, unique } = await import(
   './helpers.js'
 );
+
+import type { TestApp } from './helpers.js';
 
 const ready = await infraReady;
 const REDIS_URL = process.env.REDIS_URL ?? '';
@@ -37,7 +52,7 @@ interface ScheduleBody {
 }
 
 describe.skipIf(!ready)('schedule routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let agentId: string;
   let queue: Queue<ScheduleTriggerJob>;
@@ -47,7 +62,7 @@ describe.skipIf(!ready)('schedule routes', () => {
 
   /** 自定义 repeatStrategy 让 pending job 在秒级到期，不用等真实的 5/10 分钟窗口。 */
   async function createSchedule(overrides: Record<string, unknown> = {}): Promise<ScheduleBody> {
-    const response = await app.inject({
+    const response = await request(app, {
       method: 'POST',
       url: '/api/schedules',
       headers: { cookie },
@@ -69,7 +84,7 @@ describe.skipIf(!ready)('schedule routes', () => {
     id: string,
     payload: Record<string, unknown>,
   ): Promise<ScheduleBody> {
-    const response = await app.inject({
+    const response = await request(app, {
       method: 'PATCH',
       url: `/api/schedules/${id}`,
       headers: { cookie },
@@ -80,7 +95,7 @@ describe.skipIf(!ready)('schedule routes', () => {
   }
 
   async function auditActions(target: string): Promise<string[]> {
-    const { rows } = await app.pool.query<{ action: string; status: string }>(
+    const rows = await app.client.unsafe<{ action: string; status: string }[]>(
       'select action, status from audit_log where target = $1 order by created_at',
       [target],
     );
@@ -111,7 +126,7 @@ describe.skipIf(!ready)('schedule routes', () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   afterAll(async () => {
@@ -121,10 +136,9 @@ describe.skipIf(!ready)('schedule routes', () => {
     }
     if (app) {
       if (scheduleIds.length > 0) {
-        await app.pool.query('delete from audit_log where target = any($1::text[])', [scheduleIds]);
-        await app.pool.query('delete from agent_schedules where id = any($1::text[])', [
-          scheduleIds,
-        ]);
+        await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(scheduleIds, 'TEXT')]);
+        await app.client.unsafe('delete from agent_schedules where id = any($1::text[])', [app.client.array(scheduleIds, 'TEXT')],
+        );
       }
       await cleanup(app, { agentSlugs: [agentSlug] });
       await app.close();
@@ -135,7 +149,7 @@ describe.skipIf(!ready)('schedule routes', () => {
     'rejects an unschedulable cron before writing: %s',
     async (cron) => {
       const name = unique('invalid');
-      const response = await app.inject({
+      const response = await request(app, {
         method: 'POST',
         url: '/api/schedules',
         headers: { cookie },
@@ -143,7 +157,7 @@ describe.skipIf(!ready)('schedule routes', () => {
       });
       expect(response.statusCode, response.body).toBe(400);
       expect(response.json()).toMatchObject({ code: 'INVALID_INPUT' });
-      const { rows } = await app.pool.query('select id from agent_schedules where name = $1', [
+      const rows = await app.client.unsafe('select id from agent_schedules where name = $1', [
         name,
       ]);
       expect(rows).toHaveLength(0);
@@ -181,7 +195,7 @@ describe.skipIf(!ready)('schedule routes', () => {
     const delayed = await queue.getDelayed();
     expect(delayed.map((job) => job.id)).toEqual([pending?.id]);
 
-    const { rows } = await app.pool.query<{ prompt: string }>(
+    const rows = await app.client.unsafe<{ prompt: string }[]>(
       'select prompt from agent_schedules where id = $1',
       [created.id],
     );
@@ -229,7 +243,7 @@ describe.skipIf(!ready)('schedule routes', () => {
   });
 
   it('keeps the created schedule when redis is unavailable, and audits it', async () => {
-    vi.spyOn(queue, 'upsertJobScheduler').mockRejectedValueOnce(new Error('redis down'));
+    spyOn(queue, 'upsertJobScheduler').mockRejectedValueOnce(new Error('redis down'));
     const created = await createSchedule();
     expect(created.nextDueAt).toBeNull();
     expect(await auditActions(created.id)).toContain('schedule.sync_failed:error');
@@ -237,14 +251,14 @@ describe.skipIf(!ready)('schedule routes', () => {
 
   it('keeps the schedule update when redis is unavailable during a cron change, and audits it', async () => {
     const created = await createSchedule();
-    vi.spyOn(queue, 'upsertJobScheduler').mockRejectedValueOnce(new Error('redis down'));
+    spyOn(queue, 'upsertJobScheduler').mockRejectedValueOnce(new Error('redis down'));
 
     const body = await patchSchedule(created.id, { cron: '*/10 * * * *' });
     expect(body.nextDueAt).toBeNull();
     expect(await auditActions(created.id)).toContain('schedule.updated:ok');
     expect(await auditActions(created.id)).toContain('schedule.sync_failed:error');
 
-    const { rows } = await app.pool.query<{ cron: string }>(
+    const rows = await app.client.unsafe<{ cron: string }[]>(
       'select cron from agent_schedules where id = $1',
       [created.id],
     );
@@ -253,8 +267,8 @@ describe.skipIf(!ready)('schedule routes', () => {
 
   it('removes the scheduler after deleting, and survives redis failures', async () => {
     const created = await createSchedule();
-    vi.spyOn(queue, 'removeJobScheduler').mockRejectedValueOnce(new Error('redis down'));
-    const response = await app.inject({
+    spyOn(queue, 'removeJobScheduler').mockRejectedValueOnce(new Error('redis down'));
+    const response = await request(app, {
       method: 'DELETE',
       url: `/api/schedules/${created.id}`,
       headers: { cookie },
@@ -267,7 +281,7 @@ describe.skipIf(!ready)('schedule routes', () => {
   it('removes the scheduler after deleting', async () => {
     const created = await createSchedule();
     expect(await queue.getJobScheduler(created.id)).toBeDefined();
-    const response = await app.inject({
+    const response = await request(app, {
       method: 'DELETE',
       url: `/api/schedules/${created.id}`,
       headers: { cookie },

@@ -1,17 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { createRequire } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { createDb, newId } from '../packages/db/dist/index.js';
-import { RUNS_QUEUE } from '../packages/shared/dist/chat.js';
-import { runCancelKey, runStreamKey } from '../packages/shared/dist/run-stream.js';
-
-/**
- * fixture 专用的裁剪上限，只用来模拟旧版本或异常情况下已经被裁掉流头的日志。
- * 它不是生产策略：生产保留 worker 事件预算内的完整日志，并分批完整回放。
- */
-const FIXTURE_TRIM_MAXLEN = 1000;
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 回放截断的真实链路：真实页面、真实 POST /api/chat、真实 BullMQ job、真实 Redis Stream、
@@ -25,7 +16,7 @@ const FIXTURE_TRIM_MAXLEN = 1000;
  * API 轮询发现后补 terminal_missing + run_finished，前端用已保存结果补全。
  *
  * 前置条件（缺一不可，否则直接失败而不是冒真跑模型的风险）：
- * - DATABASE_URL / REDIS_URL 显式给出，且与预览 API 指向同一套实例；
+ * - E2E_DATABASE_URL / E2E_REDIS_URL 显式给出，且与预览 API 指向同一套实例；
  * - E2E_WORKER_PAUSED=1：父进程已停掉 preview 的 worker。
  */
 if (process.env.E2E_WORKER_PAUSED !== '1') {
@@ -33,67 +24,6 @@ if (process.env.E2E_WORKER_PAUSED !== '1') {
     'E2E_WORKER_PAUSED=1 is required. PARENT ACTION: stop the preview worker, then re-run. This test creates a real queued run for a configured model and must never execute with a live consumer.',
   );
 }
-
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required for the truncated replay e2e`);
-  return value;
-}
-
-const DATABASE_URL = requiredEnv('DATABASE_URL');
-const REDIS_URL = requiredEnv('REDIS_URL');
-
-interface RedisPipeline {
-  xadd(key: string, ...args: (string | number)[]): RedisPipeline;
-  exec(): Promise<unknown>;
-}
-
-interface RedisClient {
-  xadd(key: string, ...args: (string | number)[]): Promise<string>;
-  xlen(key: string): Promise<number>;
-  expire(key: string, seconds: number): Promise<number>;
-  del(...keys: string[]): Promise<number>;
-  pipeline(): RedisPipeline;
-  quit(): Promise<string>;
-}
-
-interface QueueJob {
-  remove(): Promise<void>;
-}
-
-interface QueueClient {
-  getJob(id: string): Promise<QueueJob | undefined>;
-  close(): Promise<void>;
-}
-
-// 依赖都声明在 packages/api：从那个 package 解析，免得给根目录添加依赖。
-const requireFromApi = createRequire(new URL('../packages/api/package.json', import.meta.url));
-const { Redis } = requireFromApi('ioredis') as { Redis: new (url: string) => RedisClient };
-const { Queue } = requireFromApi('bullmq') as {
-  Queue: new (name: string, options: { connection: { url: string } }) => QueueClient;
-};
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function db() {
-  dbPromise ??= createDb(DATABASE_URL);
-  return dbPromise;
-}
-
-let redisInstance: RedisClient | undefined;
-function redis(): RedisClient {
-  redisInstance ??= new Redis(REDIS_URL);
-  return redisInstance;
-}
-
-let queueInstance: QueueClient | undefined;
-function queue(): QueueClient {
-  queueInstance ??= new Queue(RUNS_QUEUE, { connection: { url: REDIS_URL } });
-  return queueInstance;
-}
-
-test.afterAll(async () => {
-  await Promise.allSettled([redisInstance?.quit(), queueInstance?.close(), dbPromise?.pool.end()]);
-});
 
 interface Fixture {
   agentId: string;
@@ -116,33 +46,10 @@ async function until<T>(
 
 /** 专家、会话与两条历史消息直写库；历史段落用固定时间排序，先于本轮提问。 */
 async function seedFixture(
-  fixture: Fixture,
   slug: string,
   text: { historyUser: string; historyAnswer: string },
-): Promise<void> {
-  const { pool } = await db();
-  await pool.query("insert into agents (id, slug, name, model) values ($1, $2, $3, 'test-model')", [
-    fixture.agentId,
-    slug,
-    'E2E 截断回放',
-  ]);
-  await pool.query('insert into conversations (id, agent_id, title) values ($1, $2, $3)', [
-    fixture.conversationId,
-    fixture.agentId,
-    'E2E 截断回放',
-  ]);
-  await pool.query(
-    `insert into messages (id, conversation_id, role, content, created_at) values
-       ($1, $2, 'user', $3, now() - interval '2 minutes'),
-       ($4, $2, 'assistant', $5, now() - interval '1 minute')`,
-    [
-      newId('message'),
-      fixture.conversationId,
-      JSON.stringify({ type: 'text', text: text.historyUser }),
-      newId('message'),
-      JSON.stringify({ type: 'text', text: text.historyAnswer }),
-    ],
-  );
+): Promise<Fixture> {
+  return runFixture('chat-replay', 'seedFixture', slug, text);
 }
 
 function installChatGate(browser: Browser): Promise<unknown> {
@@ -222,23 +129,13 @@ function restoreFetch(browser: Browser): Promise<unknown> {
 
 async function waitForRun(fixture: Fixture): Promise<string> {
   return until(async () => {
-    const { rows } = await db().pool.query<{ id: string }>(
-      'select id from agent_runs where agent_id = $1 and conversation_id = $2 order by created_at desc limit 1',
-      [fixture.agentId, fixture.conversationId],
-    );
-    return rows[0]?.id ?? null;
+    return runFixture('chat-replay', 'latestRun', fixture.agentId, fixture.conversationId);
   }, 'POST /api/chat did not create a run within 30s');
 }
 
 /** jobId 就是 runId；立刻移除，即使 worker 没停也不会消费到它。 */
 async function removeOwnJob(runId: string): Promise<void> {
-  const job = await queue().getJob(runId);
-  if (!job) {
-    throw new Error(
-      `BullMQ job ${runId} is missing; a consumer may have claimed it (worker must stay paused)`,
-    );
-  }
-  await job.remove();
+  return runFixture('chat-replay', 'removeOwnJob', runId);
 }
 
 /**
@@ -246,37 +143,7 @@ async function removeOwnJob(runId: string): Promise<void> {
  * 生产回放不再按保留窗口推断截断，所以“已截断”标记由 fixture 在终态前主动补发。
  */
 async function seedStream(runId: string): Promise<void> {
-  const client = redis();
-  const key = runStreamKey(runId);
-  const total = 1_500;
-  for (let start = 0; start < total; start += 500) {
-    const pipe = client.pipeline();
-    const end = Math.min(start + 500, total);
-    for (let index = start; index < end; index += 1) {
-      pipe.xadd(
-        key,
-        'MAXLEN',
-        '~',
-        String(FIXTURE_TRIM_MAXLEN),
-        '*',
-        'payload',
-        JSON.stringify({ type: 'text_delta', text: `p${index} ` }),
-      );
-    }
-    await pipe.exec();
-  }
-  for (let index = 0; index < 3; index += 1) {
-    await client.xadd(
-      key,
-      'MAXLEN',
-      '~',
-      String(FIXTURE_TRIM_MAXLEN),
-      '*',
-      'payload',
-      JSON.stringify({ type: 'text_delta', text: 'partial-tail ' }),
-    );
-  }
-  await client.expire(key, 3600);
+  return runFixture('chat-replay', 'seedStream', runId);
 }
 
 /**
@@ -284,57 +151,17 @@ async function seedStream(runId: string): Promise<void> {
  * 订阅端此时只会回放裁剪后的尾部，前端必须用 /api/runs/:id 补齐。
  */
 async function finishRun(runId: string, saved: string): Promise<void> {
-  const { pool } = await db();
-  await pool.query(
-    `insert into messages (id, conversation_id, role, content, run_id)
-     select $1, conversation_id, 'assistant', $2, id from agent_runs where id = $3`,
-    [newId('message'), JSON.stringify({ type: 'text', text: saved }), runId],
-  );
-  const { rows } = await pool.query(
-    `update agent_runs set status = 'succeeded', ended_at = now(), turns = 1
-     where id = $1 and status = 'queued' returning id`,
-    [runId],
-  );
-  if (rows.length === 0) {
-    throw new Error(
-      'run was no longer queued; a worker claimed the job while E2E_WORKER_PAUSED was set',
-    );
-  }
-  await redis().xadd(
-    runStreamKey(runId),
-    'MAXLEN',
-    '~',
-    String(FIXTURE_TRIM_MAXLEN),
-    '*',
-    'payload',
-    JSON.stringify({ type: 'run_finished', status: 'succeeded', turns: 1 }),
-  );
-  await redis().expire(runStreamKey(runId), 3600);
+  return runFixture('chat-replay', 'finishRun', runId, saved);
 }
 
 /** 只写增量：流里始终没有终态，观众只能靠 API 轮询数据库补齐。 */
 async function seedPartialStream(runId: string, text: string): Promise<void> {
-  const client = redis();
-  await client.xadd(
-    runStreamKey(runId),
-    'MAXLEN',
-    '~',
-    String(FIXTURE_TRIM_MAXLEN),
-    '*',
-    'payload',
-    JSON.stringify({ type: 'text_delta', text }),
-  );
-  await client.expire(runStreamKey(runId), 3600);
+  return runFixture('chat-replay', 'seedPartialStream', runId, text);
 }
 
 /** 模拟 worker 已接手：初始快照必须是非终态，事件流才会进入数据库轮询。 */
 async function markRunning(runId: string): Promise<void> {
-  const { rows } = await db().pool.query(
-    `update agent_runs set status = 'running', started_at = now()
-     where id = $1 and status = 'queued' returning id`,
-    [runId],
-  );
-  if (rows.length === 0) throw new Error(`run ${runId} was not queued before the stream opened`);
+  return runFixture('chat-replay', 'markRunning', runId);
 }
 
 /**
@@ -342,35 +169,11 @@ async function markRunning(runId: string): Promise<void> {
  * 指标也只存在于库里，前端必须靠 /api/runs/:id 补齐。
  */
 async function finishWithoutEvent(runId: string, saved: string): Promise<void> {
-  const { pool } = await db();
-  await pool.query(
-    `insert into messages (id, conversation_id, role, content, run_id)
-     select $1, conversation_id, 'assistant', $2, id from agent_runs where id = $3`,
-    [newId('message'), JSON.stringify({ type: 'text', text: saved }), runId],
-  );
-  const { rows } = await pool.query(
-    `update agent_runs
-        set status = 'succeeded', ended_at = now(), turns = 2, cost_usd = 0.0123,
-            latency_ms = 1234, input_tokens = 100, output_tokens = 20
-      where id = $1 and status = 'running' returning id`,
-    [runId],
-  );
-  if (rows.length === 0) {
-    throw new Error('run was no longer running; a worker claimed the job while E2E_WORKER_PAUSED');
-  }
+  return runFixture('chat-replay', 'finishWithoutEvent', runId, saved);
 }
 
 async function cleanup(fixture: Fixture, runId?: string): Promise<void> {
-  if (runId) {
-    await queue()
-      .getJob(runId)
-      .then((job) => job?.remove());
-    await redis().del(runStreamKey(runId), runCancelKey(runId));
-  }
-  const { pool } = await db();
-  const targets = [fixture.agentId, fixture.conversationId, ...(runId ? [runId] : [])];
-  await pool.query('delete from audit_log where target = any($1::text[])', [targets]);
-  await pool.query('delete from agents where id = $1', [fixture.agentId]);
+  return runFixture('chat-replay', 'cleanup', fixture, runId);
 }
 
 test('missing terminal event is recovered from the persisted run without XADD run_finished', {
@@ -381,10 +184,9 @@ test('missing terminal event is recovered from the persisted run without XADD ru
   const prompt = `E2E 缺终态提问 ${suffix}`;
   const partial = `流式尾部 ${suffix} `;
   const saved = '数据库补齐的完整回答';
-  const fixture: Fixture = { agentId: newId('agent'), conversationId: newId('conversation') };
   let runId: string | undefined;
 
-  await seedFixture(fixture, `e2e-terminal-missing-${suffix}`, {
+  const fixture = await seedFixture(`e2e-terminal-missing-${suffix}`, {
     historyUser: `历史问题 ${suffix}`,
     historyAnswer: `历史回答 ${suffix}`,
   });
@@ -413,7 +215,7 @@ test('missing terminal event is recovered from the persisted run without XADD ru
     expect((await events).status).toBe(200);
     // 尾部出现在页面上，说明订阅已经完成（回放经由订阅回调送达）。
     await expect(screen.getByText(partial.trim(), { exact: false })).toBeVisible();
-    expect(await redis().xlen(runStreamKey(runId))).toBe(1);
+    expect(await runFixture('chat-replay', 'streamLength', runId)).toBe(1);
 
     // 只有数据库进入终态；流里永远不会有 run_finished。
     await finishWithoutEvent(runId, saved);
@@ -434,9 +236,7 @@ test('missing terminal event is recovered from the persisted run without XADD ru
     await restoreFetch(browser).catch(() => undefined);
     try {
       if (runId) {
-        const status = await db()
-          .pool.query<{ status: string }>('select status from agent_runs where id = $1', [runId])
-          .then((result) => result.rows[0]?.status);
+        const status = await runFixture('chat-replay', 'runStatus', runId);
         expect(status).toBe('succeeded');
       }
     } finally {
@@ -453,10 +253,9 @@ test('a vanished run row ends the stream with a fixed notice and frees the compo
   const prompt = `E2E 运行记录消失提问 ${suffix}`;
   const partial = `消失前的尾部 ${suffix} `;
   const unavailable = '运行记录已不存在，已停止接收。';
-  const fixture: Fixture = { agentId: newId('agent'), conversationId: newId('conversation') };
   let runId: string | undefined;
 
-  await seedFixture(fixture, `e2e-run-gone-${suffix}`, {
+  const fixture = await seedFixture(`e2e-run-gone-${suffix}`, {
     historyUser: `历史问题 ${suffix}`,
     historyAnswer: `历史回答 ${suffix}`,
   });
@@ -486,7 +285,7 @@ test('a vanished run row ends the stream with a fixed notice and frees the compo
     await expect(screen.getByText(partial.trim(), { exact: false })).toBeVisible();
 
     // 只删本轮的 run 行：agent 与会话保留，所以还能继续发送。
-    await db().pool.query('delete from agent_runs where id = $1', [runId]);
+    await runFixture('chat-replay', 'deleteRun', runId);
 
     // 连接内轮询（2s）发现行不存在：发固定通知并断开，不伪造完成或失败。
     await expect(screen.getByText(unavailable, { exact: true })).toBeVisible({ timeout: 20_000 });
@@ -498,11 +297,7 @@ test('a vanished run row ends the stream with a fixed notice and frees the compo
     await expect(screen.getByText('完成', { exact: true })).toHaveCount(0);
     await expect(screen.getByText('失败', { exact: true })).toHaveCount(0);
 
-    const { rows } = await db().pool.query<{ count: number }>(
-      'select count(*)::int as count from agent_runs where id = $1',
-      [runId],
-    );
-    expect(rows[0]?.count).toBe(0);
+    expect(await runFixture('chat-replay', 'runCount', runId)).toBe(0);
 
     // 忙碌已释放：输入框可编辑，输入内容后发送按钮即可用。
     const textbox = screen.getByRole('textbox', '消息');
@@ -526,10 +321,9 @@ test('truncated SSE replay restores the persisted answer without duplicating the
   const historyUser = `历史问题 ${suffix}`;
   const historyAnswer = `历史回答 ${suffix}`;
   const saved = '完整保存的回答：缺失前缀和尾部';
-  const fixture: Fixture = { agentId: newId('agent'), conversationId: newId('conversation') };
   let runId: string | undefined;
 
-  await seedFixture(fixture, `e2e-replay-${suffix}`, { historyUser, historyAnswer });
+  const fixture = await seedFixture(`e2e-replay-${suffix}`, { historyUser, historyAnswer });
 
   try {
     await app.open(`/chat?agent=${fixture.agentId}&conversation=${fixture.conversationId}`);
@@ -548,21 +342,12 @@ test('truncated SSE replay restores the persisted answer without duplicating the
     runId = await waitForRun(fixture);
     expect(await chatStatus(browser)).toBe(202);
 
-    const user = await db().pool.query<{ text: string | null }>(
-      "select content->>'text' as text from messages where run_id = $1 and role = 'user'",
-      [runId],
-    );
-    expect(user.rows[0]?.text).toBe(prompt);
+    expect(await runFixture('chat-replay', 'userText', runId)).toBe(prompt);
 
     await removeOwnJob(runId);
     await seedStream(runId);
     // 裁剪完成后、终态前补标记：此时后面只剩 run_finished，不会被后续写入的 MAXLEN 裁掉。
-    await redis().xadd(
-      runStreamKey(runId),
-      '*',
-      'payload',
-      JSON.stringify({ type: 'replay_truncated', reason: 'retention' }),
-    );
+    await runFixture('chat-replay', 'markTruncated', runId);
     await finishRun(runId, saved);
 
     // 真实 EventSource 与恢复用的真实 GET 都在 release 之后发生。
@@ -593,9 +378,7 @@ test('truncated SSE replay restores the persisted answer without duplicating the
     await restoreFetch(browser).catch(() => undefined);
     try {
       if (runId) {
-        const status = await db()
-          .pool.query<{ status: string }>('select status from agent_runs where id = $1', [runId])
-          .then((result) => result.rows[0]?.status);
+        const status = await runFixture('chat-replay', 'runStatus', runId);
         expect(status).toBe('succeeded');
       }
     } finally {

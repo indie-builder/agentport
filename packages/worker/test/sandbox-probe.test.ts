@@ -13,23 +13,19 @@ import {
 import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { waitFor } from './fixtures/native-test.js';
 import type { Config } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
 import type { Sandbox } from '../src/sandbox/provider.js';
-import {
-  type ProbeSandboxOptions,
-  registerSandboxProbe,
-  runSandboxProbe,
-  type SandboxProbeDeps,
-} from '../src/sandbox-probe.js';
+import type { ProbeSandboxOptions, SandboxProbeDeps } from '../src/sandbox-probe.js';
 
 /** registerSandboxProbe 自建 provider；close 用例用替身覆盖 destroyAll。 */
-const docker = vi.hoisted(() => ({
-  destroyAll: vi.fn(async () => undefined),
-}));
+const docker = (() => ({ destroyAll: mock(async () => undefined) }))();
 
-vi.mock('../src/sandbox/docker.js', () => ({
+const dockerActual = await import('../src/sandbox/docker.js');
+mock.module('../src/sandbox/docker.js', () => ({
+  ...dockerActual,
   DockerSandboxProvider: class {
     create = async () => {
       throw new Error('unexpected create');
@@ -39,10 +35,12 @@ vi.mock('../src/sandbox/docker.js', () => ({
   },
 }));
 
+const { registerSandboxProbe, runSandboxProbe } = await import('../src/sandbox-probe.js');
+
 const SECRET_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
-const ready = await dbHandle.pool.query('select 1').then(
+const ready = await dbHandle.client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -154,7 +152,7 @@ afterAll(async () => {
   for (const id of createdIds) {
     await db.delete(schema.servers).where(eq(schema.servers.id, id));
   }
-  await dbHandle.pool.end();
+  await dbHandle.client.close();
 });
 
 describe.skipIf(!ready)('runSandboxProbe', () => {
@@ -171,7 +169,7 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     const [options] = fake.options;
     expect(options).toMatchObject({
       image: RUNTIME.imageId,
-      entrypoint: 'node',
+      entrypoint: 'bun',
       command: ['dist/probe.js'],
       // 试连不调用模型：容器里不能出现任何模型凭证，只给一个可写的 HOME。
       env: { HOME: '/tmp' },
@@ -336,7 +334,7 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
         throw new Error('docker stop failed');
       },
     };
-    const warn = vi.fn();
+    const warn = mock();
     const logger = { ...quietLogger, warn } as unknown as Logger;
 
     const result = await runSandboxProbe({ ...deps(provider), logger }, serverId, 220);
@@ -375,7 +373,7 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     };
 
     const pending = runSandboxProbe({ ...deps(provider), closing: closing.signal }, serverId, 100);
-    await vi.waitFor(() => expect(captured.signal).toBeDefined());
+    await waitFor(() => expect(captured.signal).toBeDefined());
     closing.abort();
     const result = await pending;
 
@@ -409,7 +407,7 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
       serverId,
       10_000,
     );
-    await vi.waitFor(() => expect(rejectCreate).toBeDefined());
+    await waitFor(() => expect(rejectCreate).toBeDefined());
     closing.abort();
     const result = await pending;
 

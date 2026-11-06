@@ -3,18 +3,18 @@ import { type ChannelEvent, channelStreamKey } from '@agentport/shared';
 import { eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import pino from 'pino';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { publishChannelEventSafely } from '../src/channel-events.js';
 import { finalizeRun, type RunFinishedEvent } from '../src/run-finish.js';
 import { closeRunnerClient, configureRunnerClient } from '../src/runner-client.js';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const redisUrl = process.env.REDIS_URL ?? '';
 const logger = pino({ level: 'silent' });
 const agentIds: string[] = [];
 const channelIds: string[] = [];
 
-const dbReady = await pool.query('select 1').then(
+const dbReady = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -91,7 +91,7 @@ afterAll(async () => {
     await db.delete(schema.channels).where(inArray(schema.channels.id, channelIds));
   }
   await redis?.quit().catch(() => undefined);
-  await pool.end();
+  await client.close();
 });
 
 describe.skipIf(!ready)('channel run lifecycle events', () => {

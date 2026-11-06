@@ -1,12 +1,12 @@
 import { createDb } from '@agentport/db';
 import { Redis } from 'ioredis';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import setup, {
   type IsolatedRedis,
   startRedisContainer,
   stopRedisContainer,
 } from './global-setup.js';
-import { type BackendInfra, createIsolatedDatabase, type IsolatedDatabase } from './isolated-db.js';
+import { createIsolatedDatabase, type IsolatedDatabase } from './isolated-db.js';
 
 const adminUrl = process.env.DATABASE_URL ?? '';
 const originalUrl = process.env.DATABASE_URL;
@@ -59,12 +59,12 @@ const ready = first !== null && second !== null;
 const redisReady = redisFirst !== null && redisSecond !== null;
 
 async function databaseExists(name: string): Promise<boolean> {
-  const { pool } = createDb(adminUrl);
+  const { client } = createDb(adminUrl);
   try {
-    const result = await pool.query('select 1 from pg_database where datname = $1', [name]);
-    return result.rowCount === 1;
+    const result = await client.unsafe('select 1 from pg_database where datname = $1', [name]);
+    return result.length === 1;
   } finally {
-    await pool.end();
+    await client.close();
   }
 }
 
@@ -73,14 +73,14 @@ function databaseName(url: string): string {
 }
 
 async function probeValues(handle: IsolatedDatabase): Promise<string[]> {
-  const { pool } = createDb(handle.url);
+  const { client } = createDb(handle.url);
   try {
-    const result = await pool.query<{ value: string }>(
+    const result = await client.unsafe<{ value: string }[]>(
       'select value from isolation_probe order by value',
     );
-    return result.rows.map((row) => row.value);
+    return result.map((row) => row.value);
   } finally {
-    await pool.end();
+    await client.close();
   }
 }
 
@@ -118,26 +118,26 @@ describe.skipIf(!ready)('createIsolatedDatabase sessions', () => {
     const aDb = createDb(a.url);
     const bDb = createDb(b.url);
     try {
-      await aDb.pool.query('create table isolation_probe (value text not null)');
-      await bDb.pool.query('create table isolation_probe (value text not null)');
-      await aDb.pool.query("insert into isolation_probe values ('a')");
-      await bDb.pool.query("insert into isolation_probe values ('b')");
+      await aDb.client.unsafe('create table isolation_probe (value text not null)');
+      await bDb.client.unsafe('create table isolation_probe (value text not null)');
+      await aDb.client.unsafe("insert into isolation_probe values ('a')");
+      await bDb.client.unsafe("insert into isolation_probe values ('b')");
       expect(await probeValues(a)).toEqual(['a']);
       expect(await probeValues(b)).toEqual(['b']);
 
-      await aDb.pool.end();
+      await aDb.client.close();
       await a.close();
       expect(await databaseExists(a.name)).toBe(false);
       expect(await probeValues(b)).toEqual(['b']);
       expect(await databaseExists(b.name)).toBe(true);
 
       await a.close();
-      await bDb.pool.end();
+      await bDb.client.close();
       await b.close();
       expect(await databaseExists(b.name)).toBe(false);
     } finally {
-      await aDb.pool.end().catch(() => undefined);
-      await bDb.pool.end().catch(() => undefined);
+      await aDb.client.close().catch(() => undefined);
+      await bDb.client.close().catch(() => undefined);
     }
   });
 
@@ -153,22 +153,17 @@ describe.skipIf(!ready)('createIsolatedDatabase sessions', () => {
 
 describe.skipIf(!ready)('global setup lifecycle', () => {
   it('removes the database it created when teardown runs', async () => {
-    let provided: BackendInfra | undefined;
-    const teardown = await setup({
-      provide: (_key: string, value: BackendInfra) => {
-        provided = value;
-      },
-    } as unknown as Parameters<typeof setup>[0]);
+    const infra = await setup();
     let name = '';
     try {
-      name = databaseName(provided?.DATABASE_URL ?? '');
+      name = databaseName(infra.env.DATABASE_URL);
       expect(await databaseExists(name)).toBe(true);
     } finally {
-      await teardown();
+      await infra.close();
     }
     expect(await databaseExists(name)).toBe(false);
     // 清理幂等：成功后才标记关闭，重复 teardown 不再操作资源。
-    await expect(teardown()).resolves.toBeUndefined();
+    await expect(infra.close()).resolves.toBeUndefined();
   });
 });
 

@@ -147,7 +147,7 @@ async function sourceScopeAllowsDocument(
         )
     ) as ok
   `);
-  return result.rows[0]?.ok === true;
+  return result[0]?.ok === true;
 }
 
 /** 读来源授权快照：source FOR SHARE 后再读全部范围，调用方只消费这一份一致视图。 */
@@ -1717,7 +1717,7 @@ async function faqStateSnapshot(
     where d.base_id = ${baseId} and d.content_kind = 'faq'
     order by d.id
   `);
-  return result.rows.map((row) => ({
+  return result.map((row) => ({
     documentId: row.documentId,
     currentVersionId: row.currentVersionId,
     latestDraftVersionId: row.latestDraftVersionId,
@@ -1956,7 +1956,7 @@ export async function publishFaqImport(
         and v.metadata -> 'faqImport' ->> 'batchId' = ${input.importBatchId}
         and v.id is distinct from d.current_version_id
     `);
-    const coverageIds = new Set(coverage.rows.map((row) => row.documentId));
+    const coverageIds = new Set(coverage.map((row) => row.documentId));
     if (
       coverageIds.size !== itemIds.size ||
       [...itemIds].some((documentId) => !coverageIds.has(documentId))
@@ -2232,6 +2232,7 @@ function syncRefOf(job: KnowledgeJobRow): { syncRunId: string; sourceId: string 
 export async function claimJob(db: Database, id: string): Promise<KnowledgeJobRow | null> {
   return db.transaction(async (tx) => {
     const startedAt = new Date();
+    const startedAtIso = startedAt.toISOString();
     const [row] = await tx
       .update(knowledgeJobs)
       .set({
@@ -2249,7 +2250,7 @@ export async function claimJob(db: Database, id: string): Promise<KnowledgeJobRo
         .update(knowledgeSyncRuns)
         .set({
           status: 'running',
-          startedAt: sql`coalesce(${knowledgeSyncRuns.startedAt}, ${startedAt})`,
+          startedAt: sql`coalesce(${knowledgeSyncRuns.startedAt}, ${startedAtIso})`,
         })
         .where(
           and(
@@ -2631,7 +2632,7 @@ export async function replaceSourceScope(
           )
         )
     `);
-    const coveredIds = new Set(covered.rows.map((row) => row.id));
+    const coveredIds = new Set(covered.map((row) => row.id));
     const statusAllowsRead = source.status === 'active' || source.status === 'paused';
     const reason: Exclude<KnowledgeDocumentRow['disabledReason'], null> =
       source.status === 'disabled' ? 'source' : source.status === 'auth_error' ? 'remote' : 'range';
@@ -3294,7 +3295,7 @@ async function applyWikiStructureTx(
       )
       select id from ancestors where id = ${pageId} limit 1
     `);
-    if (cycle.rows.length > 0) {
+    if (cycle.length > 0) {
       throw new AppError('INVALID_INPUT', '不能把 Wiki 页面移动到自身或子孙页面下');
     }
   }

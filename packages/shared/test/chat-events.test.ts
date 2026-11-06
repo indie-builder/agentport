@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { chatEventSchema, progressTodoSchema } from '../src/chat.js';
 
 const parse = (event: unknown) => chatEventSchema.parse(event);

@@ -1,5 +1,5 @@
 import { Effect, Fiber, Option } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { isRetryableFailure, RunFailure, runProgram } from '../src/effect-runtime.js';
 
 describe('acquireRelease semantics', () => {

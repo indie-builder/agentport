@@ -269,7 +269,7 @@
 | 能力 | 状态 | 证据 |
 |---|---|---|
 | 限流 | ✅ | 登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 60/min、连接测试 20/min、评估发起 10/min；`/mcp` 另有进程内并发 4 |
-| CSP | ✅ | 全局启用；仅 MCP 路由关闭；`style-src` 放行内联样式 |
+| CSP | ✅ | `packages/api/src/http/security.ts:72` 的 `secureHeaders` 由 `packages/api/src/app.ts:118` 全局挂载，对所有响应生效（含 `/mcp`）；`style-src` 放行内联样式；`/api/docs` 用专用 CSP 放行 Scalar 内联脚本与 CDN |
 | 可吊销会话 | ✅ | JWT 带 `sid`，Redis `session:<sid>`，logout 立即失效；鉴权结果本地缓存 5 秒 |
 | CORS / 代理 | ✅ | `CORS_ORIGINS` allowlist；`TRUST_PROXY=1` 信任转发头 |
 | 乐观锁 | ✅ | Agent/Server PATCH 带 `expectedUpdatedAt`，冲突返回 409 `CONFLICT_STALE` |

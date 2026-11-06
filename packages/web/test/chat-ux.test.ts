@@ -219,6 +219,7 @@ beforeEach(() => {
   vi.spyOn(api, 'run').mockResolvedValue(terminal);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'runQuestions').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextBefore: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

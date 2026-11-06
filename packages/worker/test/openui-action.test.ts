@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { promptWithOpenUiAction } from '../src/openui-action.js';
 
 describe('promptWithOpenUiAction', () => {

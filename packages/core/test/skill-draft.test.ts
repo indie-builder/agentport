@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { buildSkillDraft, slugify } from '../src/skill-draft.js';
 
 describe('slugify', () => {

@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { persistRunMessages } from '../../worker/src/messages.js';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
@@ -18,8 +18,8 @@ import {
   servers,
 } from '../src/schema.js';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -192,7 +192,7 @@ afterAll(async () => {
   for (const agentId of agentIds) {
     await db.delete(agents).where(eq(agents.id, agentId));
   }
-  await pool.end();
+  await client.close();
 });
 
 describe.skipIf(!ready)('channel lane admission', () => {
@@ -365,8 +365,8 @@ describe.skipIf(!ready)('channel lane admission', () => {
       });
       await finish(admitted);
       const next = await admit(channelId, agentId, second.message.id, member);
-      expect.soft(next.inherited).toEqual([]);
-      expect.soft(await runs.getApprovedToolNames(db, next.run.id, serverId)).toEqual([]);
+      expect(next.inherited).toEqual([]);
+      expect(await runs.getApprovedToolNames(db, next.run.id, serverId)).toEqual([]);
 
       const privateRun = await chat.admitChatRun(db, {
         agentId,
@@ -592,15 +592,19 @@ describe.skipIf(!ready)('channel data isolation', () => {
     if (posted.kind !== 'ok') throw new Error('post failed');
     const admitted = await admit(channelId, agentId, posted.message.id);
 
-    await expect(
-      db.insert(conversations).values({
+    let laneError: unknown;
+    try {
+      await db.insert(conversations).values({
         id: newId('conversation'),
         agentId,
         createdBy: owner,
         channelId,
         title: 'duplicate lane',
-      }),
-    ).rejects.toThrow();
+      });
+    } catch (caught) {
+      laneError = caught;
+    }
+    expect(laneError).toBeDefined();
 
     const source = first(
       await db
@@ -617,16 +621,20 @@ describe.skipIf(!ready)('channel data isolation', () => {
       body: 'reply one',
       sourceMessageId: source.id,
     });
-    await expect(
-      db.insert(channelMessages).values({
+    let replyError: unknown;
+    try {
+      await db.insert(channelMessages).values({
         id: newId('channelMessage'),
         channelId,
         kind: 'agent',
         agentId,
         body: 'reply two',
         sourceMessageId: source.id,
-      }),
-    ).rejects.toThrow();
+      });
+    } catch (caught) {
+      replyError = caught;
+    }
+    expect(replyError).toBeDefined();
   });
 });
 

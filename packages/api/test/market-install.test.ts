@@ -1,12 +1,13 @@
 import { repo } from '@agentport/db';
-import { describe, expect, it, vi } from 'vitest';
-import { snapshotToSkill } from '../src/features/market/install.js';
+import { describe, expect, it, mock } from 'bun:test';
+import { stubGlobal, unstubAllGlobals } from './native.js';
+import { snapshotToSkill } from '../src/modules/market/install.js';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
   unique,
 } from './helpers.js';
@@ -98,9 +99,9 @@ describe.skipIf(!ready)('market install persistence', () => {
       const slug = unique('market-conflict');
       try {
         const cookie = await loginCookie(app);
-        vi.stubGlobal(
+        stubGlobal(
           'fetch',
-          vi.fn().mockResolvedValue(
+          mock().mockResolvedValue(
             Response.json({
               files: [
                 { path: 'SKILL.md', contents: skillMd },
@@ -110,7 +111,7 @@ describe.skipIf(!ready)('market install persistence', () => {
             }),
           ),
         );
-        const result = await inject(app, {
+        const result = await request(app, {
           method: 'POST',
           url: '/api/market/skills/install',
           headers: { cookie },
@@ -120,7 +121,7 @@ describe.skipIf(!ready)('market install persistence', () => {
         expect(await repo.skills.getSkillBySourceId(app.db, `acme/skills/${slug}`)).toBeNull();
         expect((await repo.skills.listSkills(app.db)).some((row) => row.slug === slug)).toBe(false);
       } finally {
-        vi.unstubAllGlobals();
+        unstubAllGlobals();
         await cleanup(app, { skillSlugs: [slug] });
         await app.close();
       }

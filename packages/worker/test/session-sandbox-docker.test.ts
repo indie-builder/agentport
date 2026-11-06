@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pino from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { DockerSandboxProvider } from '../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
 import { SessionSandboxes } from '../src/sandbox/sessions.js';
@@ -18,7 +18,7 @@ import { SessionSandboxes } from '../src/sandbox/sessions.js';
  * packages/<pkg>/dist），再基于本机 sandbox:dev 构建一次性派生镜像并在结束时删除。
  * 镜像缺失时明确失败，不联网 pull；派生 tag 随机且测试结束删除，不覆盖共享镜像。
  */
-const BASE_IMAGE = 'agentport/sandbox:dev';
+const BASE_IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const IMAGE_TAG = `session-sandbox-lifecycle-test-${randomUUID().slice(0, 8)}`;
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const FIXTURE = join(REPO_ROOT, 'packages/worker/test/fixtures/session-task.mjs');
@@ -328,8 +328,8 @@ async function compileCurrentSources(context: string): Promise<void> {
   );
 
   const before = { shared: sourceDigest(sources.shared), sandbox: sourceDigest(sources.sandbox) };
-  const command = ['exec', 'tsc', '-b', sandboxConfig, '--force'];
-  const compiled = spawnSync('pnpm', command, {
+  const command = ['run', 'tsc', '-b', sandboxConfig, '--force'];
+  const compiled = spawnSync('bun', command, {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 180_000,
@@ -366,7 +366,7 @@ async function compileCurrentSources(context: string): Promise<void> {
       {
         suite: 'session-sandbox-docker',
         compiledAt: new Date().toISOString(),
-        command: `pnpm ${command.join(' ')}`,
+        command: `bun ${command.join(' ')}`,
         repoRoot: REPO_ROOT,
         sourceDigest: after,
         artifacts: Object.fromEntries(
@@ -390,7 +390,7 @@ async function buildTestImage(context: string): Promise<void> {
     [
       `FROM ${BASE_IMAGE}`,
       'COPY --chown=node:node dist/ /app/dist/',
-      'COPY --chown=node:node shared/ /app/node_modules/@agentport/shared/dist/',
+      'COPY --chown=node:node shared/ /app/packages/shared/dist/',
       '',
     ].join('\n'),
   );
@@ -408,7 +408,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
   beforeAll(async () => {
     if (!imagePresent()) {
       throw new Error(
-        `offline test requires local image ${BASE_IMAGE}; it is missing and this suite never pulls. Build it first: pnpm --filter @agentport/sandbox image`,
+        `offline test requires local image ${BASE_IMAGE}; it is missing and this suite never pulls. Build it first: bun run --filter @agentport/sandbox image`,
       );
     }
     buildContext = await mkdtemp(join(tmpdir(), 'session-docker-image-'));

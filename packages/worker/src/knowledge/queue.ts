@@ -4,9 +4,9 @@ import {
   knowledgeCancelKey,
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
-import { DelayedError, type Job, Queue, Worker } from 'bullmq';
+import { createBunRedisClient, DelayedError, type Job, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { knowledgeConnectors } from './connector-adapter.js';
 import type { ImageQueryFn } from './image-processing.js';
@@ -108,8 +108,9 @@ export async function startKnowledgeWorker(
     parserUrl: config.parser?.url,
     parserKey: config.parser?.key,
   });
+  const connection = createBunRedisClient(new RedisClient(config.redisUrl));
   const followups = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
-    connection: { url: config.redisUrl },
+    connection,
     ...(config.prefix === undefined ? {} : { prefix: config.prefix }),
   });
   followups.on('error', (err) => config.logger.warn({ err }, 'knowledge follow-up enqueue error'));
@@ -130,8 +131,8 @@ export async function startKnowledgeWorker(
     ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
     ...(config.imageQueryFn === undefined ? {} : { imageQueryFn: config.imageQueryFn }),
   };
-  const scanner = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
-  scanner.on('error', (err) => config.logger.warn({ err }, 'knowledge cancel watch error'));
+  const scanner = new RedisClient(config.redisUrl);
+  scanner.onclose = (err) => config.logger.warn({ err }, 'knowledge cancel watch error');
   // 关闭时 abort 活跃任务；否则 worker.close() 会等满任务超时（最长 2h）。
   const activeJobs = new Set<AbortController>();
   let closing = false;
@@ -221,7 +222,7 @@ export async function startKnowledgeWorker(
       }
     },
     {
-      connection: { url: config.redisUrl },
+      connection,
       ...(config.prefix === undefined ? {} : { prefix: config.prefix }),
       concurrency: 2,
     },
@@ -237,7 +238,9 @@ export async function startKnowledgeWorker(
       for (const controller of activeJobs) controller.abort();
       await worker.close();
       await followups.close();
-      scanner.disconnect();
+      await connection.quit();
+      scanner.onclose = () => undefined;
+      scanner.close();
     },
   };
 }

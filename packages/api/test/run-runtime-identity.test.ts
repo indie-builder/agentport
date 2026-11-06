@@ -1,12 +1,12 @@
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -24,7 +24,7 @@ interface RunDetailBody {
 }
 
 describe.skipIf(!ready)('run runtime environment identity', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let agentId: string;
   let environmentId: string;
@@ -43,11 +43,11 @@ describe.skipIf(!ready)('run runtime environment identity', () => {
     environmentId = unique('rt-identity-env');
     oldVersionId = unique('rt-identity-version');
     const onlineVersionId = unique('rt-identity-online');
-    await app.pool.query('insert into runtime_environments (id, name) values ($1, $2)', [
+    await app.client.unsafe('insert into runtime_environments (id, name) values ($1, $2)', [
       environmentId,
       environmentId,
     ]);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into runtime_environment_versions
          (id, environment_id, dockerfile, base_image_id, status, image_id)
        values ($1, $3, 'FROM scratch', 'base:test', 'ready', $2),
@@ -60,11 +60,11 @@ describe.skipIf(!ready)('run runtime environment identity', () => {
         `sha256:${'2'.repeat(64)}`,
       ],
     );
-    await app.pool.query('update runtime_environments set online_version_id = $1 where id = $2', [
+    await app.client.unsafe('update runtime_environments set online_version_id = $1 where id = $2', [
       onlineVersionId,
       environmentId,
     ]);
-    await app.pool.query('update agents set runtime_environment_id = $1 where id = $2', [
+    await app.client.unsafe('update agents set runtime_environment_id = $1 where id = $2', [
       environmentId,
       agentId,
     ]);
@@ -73,11 +73,11 @@ describe.skipIf(!ready)('run runtime environment identity', () => {
     startedRunId = unique('rt-identity-run');
     queuedRunId = unique('rt-identity-queued');
     runIds.push(startedRunId, queuedRunId);
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
       [conversationId, agentId],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs
          (id, conversation_id, agent_id, status, subject_kind, initiated_by, runtime_environment_id,
           runtime_environment_name, runtime_environment_version_id, runtime_environment_image_id)
@@ -98,18 +98,18 @@ describe.skipIf(!ready)('run runtime environment identity', () => {
 
   afterAll(async () => {
     await cleanup(app, { agentSlugs, runIds });
-    await app.pool.query('update runtime_environments set online_version_id = null where id = $1', [
+    await app.client.unsafe('update runtime_environments set online_version_id = null where id = $1', [
       environmentId,
     ]);
-    await app.pool.query('delete from runtime_environment_versions where environment_id = $1', [
+    await app.client.unsafe('delete from runtime_environment_versions where environment_id = $1', [
       environmentId,
     ]);
-    await app.pool.query('delete from runtime_environments where id = $1', [environmentId]);
+    await app.client.unsafe('delete from runtime_environments where id = $1', [environmentId]);
     await app.close();
   });
 
   async function detail(runId: string): Promise<RuntimeIdentity | null> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/runs/${encodeURIComponent(runId)}`,
       headers: { cookie },

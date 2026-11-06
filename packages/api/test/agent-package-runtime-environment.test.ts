@@ -1,17 +1,17 @@
 import { newId } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import { AGENT_PACKAGE_SIDECAR, DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { encodePackage } from '../src/features/agent-package-zip.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { encodePackage } from '../src/modules/agents/package-zip.js';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { unzipPackage } from './package-fixtures.js';
@@ -26,7 +26,7 @@ interface ImportResult {
 const IMAGE_ID = `sha256:${'a'.repeat(64)}`;
 
 describe.skipIf(!ready)('agent package runtime environment binding', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const environmentIds: string[] = [];
@@ -39,21 +39,17 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
   afterAll(async () => {
     await cleanup(app, { agentSlugs });
     if (environmentIds.length > 0) {
-      await app.pool.query('delete from agents where runtime_environment_id = any($1::text[])', [
-        environmentIds,
-      ]);
+      await app.client.unsafe('delete from agents where runtime_environment_id = any($1::text[])', [app.client.array(environmentIds, 'TEXT')],
+      );
       // 先断开线上指针，复合外键才允许删除版本。
-      await app.pool.query(
-        'update runtime_environments set online_version_id = null where id = any($1::text[])',
-        [environmentIds],
+      await app.client.unsafe(
+        'update runtime_environments set online_version_id = null where id = any($1::text[])', [app.client.array(environmentIds, 'TEXT')],
       );
-      await app.pool.query(
-        'delete from runtime_environment_versions where environment_id = any($1::text[])',
-        [environmentIds],
+      await app.client.unsafe(
+        'delete from runtime_environment_versions where environment_id = any($1::text[])', [app.client.array(environmentIds, 'TEXT')],
       );
-      await app.pool.query('delete from runtime_environments where id = any($1::text[])', [
-        environmentIds,
-      ]);
+      await app.client.unsafe('delete from runtime_environments where id = any($1::text[])', [app.client.array(environmentIds, 'TEXT')],
+      );
     }
     await app.close();
   });
@@ -65,19 +61,19 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
     const id = newId('runtimeEnvironment');
     const name = unique('env');
     environmentIds.push(id);
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into runtime_environments (id, name, dockerfile) values ($1, $2, $3)',
       [id, name, DEFAULT_RUNTIME_DOCKERFILE],
     );
     if (!withOnlineVersion) return { id, name };
     const versionId = newId('runtimeEnvironmentVersion');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into runtime_environment_versions
          (id, environment_id, dockerfile, base_image_id, status, image_tag, image_id, finished_at)
        values ($1, $2, $3, $4, 'ready', $4, $5, now())`,
       [versionId, id, DEFAULT_RUNTIME_DOCKERFILE, name, IMAGE_ID],
     );
-    await app.pool.query('update runtime_environments set online_version_id = $2 where id = $1', [
+    await app.client.unsafe('update runtime_environments set online_version_id = $2 where id = $1', [
       id,
       versionId,
     ]);
@@ -87,7 +83,7 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
   const createBoundAgent = async (runtimeEnvironmentId: string | null): Promise<Agent> => {
     const slug = unique('agent');
     agentSlugs.push(slug);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: { cookie },
@@ -103,13 +99,13 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
   };
 
   const exportFiles = async (agentId: string): Promise<Map<string, string>> => {
-    const res = await injectZip(app, 'GET', `/api/export/agents/${agentId}`, cookie);
+    const res = await requestZip(app, 'GET', `/api/export/agents/${agentId}`, cookie);
     expect(res.statusCode, res.body).toBe(200);
     return unzipPackage(res.rawPayload);
   };
 
   const importZip = (files: Map<string, string>, query = '') =>
-    injectZip(
+    requestZip(
       app,
       'POST',
       `/api/import/agents${query}`,
@@ -125,11 +121,11 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
 
   /** 导入会占用包 slug，重复时改用 slug-2 等；只数这一族，避免并行套件新增的智能体干扰全表计数。 */
   const countPackageAgents = async (slug: string): Promise<number> => {
-    const rows = await app.pool.query<{ count: string }>(
+    const rows = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from agents where slug = $1 or slug like $2',
       [slug, `${slug.slice(0, 60)}-%`],
     );
-    return Number(rows.rows[0]?.count);
+    return Number(rows[0]?.count);
   };
 
   it('exports only the environment name and imports into the same-name environment', async () => {
@@ -216,10 +212,10 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
     const problem = expectProblem(res, 'INVALID_REFERENCE');
     expect(problem.message).toContain('线上版本');
 
-    const versions = await app.pool.query<{ count: string }>(
+    const versions = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from runtime_environment_versions where environment_id = $1',
       [environment.id],
     );
-    expect(versions.rows[0]?.count).toBe('0');
+    expect(versions[0]?.count).toBe('0');
   });
 });

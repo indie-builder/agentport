@@ -1,8 +1,8 @@
 import { newId, schema } from '@agentport/db';
 import type { Logger } from 'pino';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
-const { publishRun, queueClose } = vi.hoisted(() => {
+const { publishRun, queueClose } = (() => {
   let failed!: () => void;
   const failedPromise = new Promise<void>((resolve) => {
     failed = resolve;
@@ -11,17 +11,22 @@ const { publishRun, queueClose } = vi.hoisted(() => {
     publishRun: {
       failed: failedPromise,
       signal: failed,
-      fn: vi.fn(async () => {
+      fn: mock(async () => {
         failed();
         throw new Error('publish failed');
       }),
     },
-    queueClose: vi.fn(async () => undefined),
+    queueClose: mock(async () => undefined),
   };
-});
+})();
 
-vi.mock('../src/runner-client.js', () => ({ publishRun: publishRun.fn }));
-vi.mock('bullmq', () => ({
+const runnerClientActual = await import('../src/runner-client.js');
+mock.module('../src/runner-client.js', () => ({
+  ...runnerClientActual,
+  publishRun: publishRun.fn,
+}));
+mock.module('bullmq', () => ({
+  createBunRedisClient: () => ({ quit: async () => undefined }),
   Queue: class {
     on(): void {}
     getJob = async (): Promise<undefined> => undefined;
@@ -35,7 +40,7 @@ const logger = {
   info: () => undefined,
   warn: () => undefined,
   debug: () => undefined,
-  error: vi.fn(),
+  error: mock(),
 } as unknown as Logger;
 
 /** 等所有排队的微任务与 setImmediate 回调走完，再断言 stop 没有提前结束。 */
@@ -43,7 +48,7 @@ const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 describe('startReconciler shutdown', () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
   });
 
   it('waits for both reconcile branches before stop closes the queues', async () => {

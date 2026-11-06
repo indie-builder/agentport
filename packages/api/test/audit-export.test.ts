@@ -1,6 +1,13 @@
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { expectProblem, infraReady, inject, loginCookie, startApp, unique } from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import {
+  expectProblem,
+  infraReady,
+  loginCookie,
+  request,
+  startApp,
+  type TestApp,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -23,7 +30,7 @@ interface ExportBody {
 }
 
 describe.skipIf(!ready)('audit export', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdIds: string[] = [];
   const createdTargets: string[] = [];
@@ -35,25 +42,24 @@ describe.skipIf(!ready)('audit export', () => {
 
   afterAll(async () => {
     if (createdIds.length > 0) {
-      await app.pool.query('delete from audit_log where id = any($1::text[])', [createdIds]);
+      await app.client.unsafe('delete from audit_log where id = any($1::text[])', [app.client.array(createdIds, 'TEXT')]);
     }
     if (createdTargets.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [
-        createdTargets,
-      ]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(createdTargets, 'TEXT')],
+      );
     }
     await app.close();
   });
 
   const exportAudit = (query = '', withCookie = true) =>
-    inject(app, {
+    request(app, {
       method: 'GET',
       url: `/api/audit/export${query}`,
       headers: withCookie ? { cookie } : {},
     });
 
   const listAudit = (query = '') =>
-    inject(app, { method: 'GET', url: `/api/audit${query}`, headers: { cookie } });
+    request(app, { method: 'GET', url: `/api/audit${query}`, headers: { cookie } });
 
   /** 直接落库：写入路径已在别处覆盖，这里只验证读路径。 */
   async function seedAudit(options: {
@@ -67,7 +73,7 @@ describe.skipIf(!ready)('audit export', () => {
   }): Promise<string> {
     const id = `audit-export-${unique('row')}`;
     createdIds.push(id);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into audit_log (id, actor, action, target, input_digest, status, duration_ms, request_id)
        values ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
@@ -136,10 +142,10 @@ describe.skipIf(!ready)('audit export', () => {
 
     const res = await exportAudit(`?target=${encodeURIComponent(target)}`);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-disposition']).toBe('attachment; filename="audit.json"');
-    expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="audit.json"');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-type')).toContain('application/json');
 
     const body = res.json<ExportBody>();
     expect(Object.keys(body).sort()).toEqual(['exportedAt', 'format', 'items']);
@@ -166,7 +172,7 @@ describe.skipIf(!ready)('audit export', () => {
   it('exports at most 1000 rows by default and rejects an explicit larger limit', async () => {
     const target = unique('target');
     createdTargets.push(target);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into audit_log (id, action, target, status)
        select $1 || '-' || g, 'audit.export.bulk', $2, 'ok' from generate_series(1, 1001) g`,
       [`audit-export-bulk-${target}`, target],
@@ -177,7 +183,7 @@ describe.skipIf(!ready)('audit export', () => {
 
     const exactly = unique('target');
     createdTargets.push(exactly);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into audit_log (id, action, target, status)
        select $1 || '-' || g, 'audit.export.bulk', $2, 'ok' from generate_series(1, 1000) g`,
       [`audit-export-exact-${exactly}`, exactly],
@@ -198,11 +204,11 @@ describe.skipIf(!ready)('audit export', () => {
     const id = await seedAudit({ action: 'agent.run', target });
     const row = async () =>
       (
-        await app.pool.query(
+        await app.client.unsafe(
           'select id, actor, action, target, input_digest, status, duration_ms, request_id, created_at from audit_log where id = $1',
           [id],
         )
-      ).rows[0];
+      )[0];
     const before = await row();
 
     expect((await exportAudit(`?target=${encodeURIComponent(target)}`)).statusCode).toBe(200);

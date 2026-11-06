@@ -2,15 +2,8 @@ import { createHash } from 'node:crypto';
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import {
-  expectProblem,
-  type FastifyInstance,
-  inject,
-  loginCookie,
-  startApp,
-  unique,
-} from './helpers.js';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { expectProblem, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 /** 只证明容器头成立的合成音频；负载是否可解码由转录端决定。 */
 const AUDIO_FIXTURES = {
@@ -61,7 +54,7 @@ function sha256(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
-let app: FastifyInstance;
+let app: TestApp;
 let cookie = '';
 let knowledgeDir = '';
 const baseIds: string[] = [];
@@ -76,17 +69,16 @@ beforeAll(async () => {
 
 afterEach(async () => {
   if (baseIds.length > 0) {
-    await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+    await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     baseIds.length = 0;
   }
   if (serverIds.length > 0) {
-    await app.pool.query('delete from servers where id = any($1::text[])', [serverIds]);
+    await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array(serverIds, 'TEXT')]);
     serverIds.length = 0;
   }
   if (profileIds.length > 0) {
-    await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-      profileIds,
-    ]);
+    await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+    );
     profileIds.length = 0;
   }
 });
@@ -99,7 +91,7 @@ afterAll(async () => {
 type ProfileKind = 'embedding' | 'rerank' | 'asr';
 
 async function createProfile(kind: ProfileKind, overrides: Record<string, unknown> = {}) {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/knowledge/model-profiles',
     headers: { cookie },
@@ -129,7 +121,7 @@ async function createBase(asrProfileId: string | null = null) {
     endpointUrl: 'http://127.0.0.1:1/embeddings',
     model: 'test-embedding',
   });
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/knowledge/bases',
     headers: { cookie },
@@ -148,7 +140,7 @@ async function createBase(asrProfileId: string | null = null) {
 }
 
 async function upload(baseId: string, media: { filename: string; mimeType: string; data: Buffer }) {
-  return inject(app, {
+  return request(app, {
     method: 'PUT',
     url: `/api/knowledge/bases/${baseId}/documents/upload`,
     headers: { cookie },
@@ -161,15 +153,15 @@ async function upload(baseId: string, media: { filename: string; mimeType: strin
 }
 
 async function rowCounts(baseId: string) {
-  const documents = await app.pool.query<{ count: number }>(
+  const documents = await app.client.unsafe<{ count: number }[]>(
     'select count(*)::int as count from knowledge_documents where base_id = $1',
     [baseId],
   );
-  const jobs = await app.pool.query<{ count: number }>(
+  const jobs = await app.client.unsafe<{ count: number }[]>(
     'select count(*)::int as count from knowledge_jobs where base_id = $1',
     [baseId],
   );
-  return { documents: documents.rows[0]!.count, jobs: jobs.rows[0]!.count };
+  return { documents: documents[0]!.count, jobs: jobs[0]!.count };
 }
 
 async function blobExists(sha: string): Promise<boolean> {
@@ -181,7 +173,7 @@ async function blobExists(sha: string): Promise<boolean> {
 
 describe('ASR model profiles', () => {
   it('kind=asr 固定 openai/无维度/无图片，密钥不回显且可清除', async () => {
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -207,7 +199,7 @@ describe('ASR model profiles', () => {
     expect(body).not.toHaveProperty('apiKey');
     expect(body).not.toHaveProperty('secretsEncrypted');
 
-    const listed = await inject(app, {
+    const listed = await request(app, {
       method: 'GET',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -219,7 +211,7 @@ describe('ASR model profiles', () => {
     expect(row).toMatchObject({ kind: 'asr', hasSecret: true });
     expect(row).not.toHaveProperty('apiKey');
 
-    const cleared = await inject(app, {
+    const cleared = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/model-profiles/${body.id}`,
       headers: { cookie },
@@ -231,7 +223,7 @@ describe('ASR model profiles', () => {
 
   it('创建与更新拒绝 ASR 的 cohere_v2 / 图片能力', async () => {
     for (const overrides of [{ embeddingProtocol: 'cohere_v2' }, { imageInputEnabled: true }]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/knowledge/model-profiles',
         headers: { cookie },
@@ -249,7 +241,7 @@ describe('ASR model profiles', () => {
 
     const profile = await createProfile('asr');
     for (const overrides of [{ embeddingProtocol: 'cohere_v2' }, { imageInputEnabled: true }]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${profile.id}`,
         headers: { cookie },
@@ -262,9 +254,9 @@ describe('ASR model profiles', () => {
 
   it('ASR 测试入口在出站前返回 409，且不调用 fetch', async () => {
     const profile = await createProfile('asr');
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const fetchSpy = spyOn(globalThis, 'fetch');
     try {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/model-profiles/${profile.id}/test`,
         headers: { cookie },
@@ -285,7 +277,7 @@ describe('knowledge base ASR binding', () => {
     const base = await createBase(asr.id);
     expect(base.asrProfileId).toBe(asr.id);
 
-    const got = await inject(app, {
+    const got = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${base.id}`,
       headers: { cookie },
@@ -293,7 +285,7 @@ describe('knowledge base ASR binding', () => {
     expect(got.statusCode, got.body).toBe(200);
     expect(got.json<{ asrProfileId: string | null }>().asrProfileId).toBe(asr.id);
 
-    const cleared = await inject(app, {
+    const cleared = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/bases/${base.id}`,
       headers: { cookie },
@@ -302,7 +294,7 @@ describe('knowledge base ASR binding', () => {
     expect(cleared.statusCode, cleared.body).toBe(200);
     expect(cleared.json<{ asrProfileId: string | null }>().asrProfileId).toBeNull();
 
-    const rebound = await inject(app, {
+    const rebound = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/bases/${base.id}`,
       headers: { cookie },
@@ -312,7 +304,7 @@ describe('knowledge base ASR binding', () => {
     expect(rebound.json<{ asrProfileId: string | null }>().asrProfileId).toBe(asr.id);
 
     // 未传时保持原绑定，不会被默认值重置。
-    const renamed = await inject(app, {
+    const renamed = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/bases/${base.id}`,
       headers: { cookie },
@@ -329,7 +321,7 @@ describe('knowledge base ASR binding', () => {
     });
     const base = await createBase();
     const disabled = await createProfile('asr');
-    const disable = await inject(app, {
+    const disable = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/model-profiles/${disabled.id}`,
       headers: { cookie },
@@ -338,7 +330,7 @@ describe('knowledge base ASR binding', () => {
     expect(disable.statusCode, disable.body).toBe(200);
 
     for (const asrProfileId of [embedding.id, disabled.id, 'kmp_missing']) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/bases/${base.id}`,
         headers: { cookie },
@@ -353,7 +345,7 @@ describe('knowledge base ASR binding', () => {
     const asr = await createProfile('asr');
     const base = await createBase(asr.id);
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/model-profiles/${asr.id}`,
       headers: { cookie },
@@ -361,7 +353,7 @@ describe('knowledge base ASR binding', () => {
     expect(removed.statusCode, removed.body).toBe(409);
     expectProblem(removed, 'CONFLICT');
 
-    const modelChange = await inject(app, {
+    const modelChange = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/model-profiles/${asr.id}`,
       headers: { cookie },
@@ -370,7 +362,7 @@ describe('knowledge base ASR binding', () => {
     expect(modelChange.statusCode, modelChange.body).toBe(409);
     expectProblem(modelChange, 'CONFLICT');
 
-    const endpointChange = await inject(app, {
+    const endpointChange = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/model-profiles/${asr.id}`,
       headers: { cookie },
@@ -379,14 +371,14 @@ describe('knowledge base ASR binding', () => {
     expect(endpointChange.statusCode, endpointChange.body).toBe(200);
     expect(endpointChange.json<{ hasSecret: boolean }>().hasSecret).toBe(true);
 
-    const unlink = await inject(app, {
+    const unlink = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/bases/${base.id}`,
       headers: { cookie },
       payload: { asrProfileId: null },
     });
     expect(unlink.statusCode, unlink.body).toBe(200);
-    const deleted = await inject(app, {
+    const deleted = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/model-profiles/${asr.id}`,
       headers: { cookie },
@@ -404,17 +396,17 @@ describe('audio upload entry', () => {
       const res = await upload(base.id, media);
       expect(res.statusCode, `${media.filename}: ${res.body}`).toBe(202);
       const { documentId, jobId } = res.json<{ documentId: string; jobId: string }>();
-      const row = await app.pool.query<{
+      const row = await app.client.unsafe<{
         mimeType: string;
         title: string;
         metadata: Record<string, unknown>;
-      }>('select mime_type as "mimeType", title, metadata from knowledge_documents where id = $1', [
+      }[]>('select mime_type as "mimeType", title, metadata from knowledge_documents where id = $1', [
         documentId,
       ]);
-      expect(row.rows[0]!.mimeType).toBe(media.canonical);
-      expect(row.rows[0]!.metadata.originalFilename).toBe(media.filename);
-      const job = await app.pool.query('select 1 from knowledge_jobs where id = $1', [jobId]);
-      expect(job.rowCount).toBe(1);
+      expect(row[0]!.mimeType).toBe(media.canonical);
+      expect(row[0]!.metadata.originalFilename).toBe(media.filename);
+      const job = await app.client.unsafe('select 1 from knowledge_jobs where id = $1', [jobId]);
+      expect(job).toHaveLength(1);
     }
   });
 
@@ -435,7 +427,7 @@ describe('audio upload entry', () => {
 
     const asr = await createProfile('asr');
     const bound = await createBase(asr.id);
-    const disabledBase = await inject(app, {
+    const disabledBase = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/bases/${bound.id}`,
       headers: { cookie },
@@ -446,8 +438,8 @@ describe('audio upload entry', () => {
     expect(disabledUpload.statusCode, disabledUpload.body).toBe(409);
     expect(await rowCounts(bound.id)).toEqual({ documents: 0, jobs: 0 });
 
-    await app.pool.query("update knowledge_bases set status = 'active' where id = $1", [bound.id]);
-    const disableProfile = await inject(app, {
+    await app.client.unsafe("update knowledge_bases set status = 'active' where id = $1", [bound.id]);
+    const disableProfile = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/model-profiles/${asr.id}`,
       headers: { cookie },
@@ -556,12 +548,12 @@ describe('audio upload entry', () => {
       data,
     });
     expect(res.statusCode, res.body).toBe(202);
-    const row = await app.pool.query<{ sizeBytes: string; mimeType: string }>(
+    const row = await app.client.unsafe<{ sizeBytes: string; mimeType: string }[]>(
       'select size_bytes as "sizeBytes", mime_type as "mimeType" from knowledge_documents where id = $1',
       [res.json<{ documentId: string }>().documentId],
     );
-    expect(row.rows[0]!.mimeType).toBe('text/markdown');
-    expect(Number(row.rows[0]!.sizeBytes)).toBe(data.length);
+    expect(row[0]!.mimeType).toBe('text/markdown');
+    expect(Number(row[0]!.sizeBytes)).toBe(data.length);
   });
 
   it('普通文件仍保留 32MiB 上传上限，不因音频入口被误判', async () => {
@@ -574,11 +566,11 @@ describe('audio upload entry', () => {
       data,
     });
     expect(res.statusCode, res.body).toBe(202);
-    const row = await app.pool.query<{ sizeBytes: string; mimeType: string }>(
+    const row = await app.client.unsafe<{ sizeBytes: string; mimeType: string }[]>(
       'select size_bytes as "sizeBytes", mime_type as "mimeType" from knowledge_documents where id = $1',
       [res.json<{ documentId: string }>().documentId],
     );
-    expect(row.rows[0]!.mimeType).toBe('text/markdown');
-    expect(Number(row.rows[0]!.sizeBytes)).toBe(data.length);
+    expect(row[0]!.mimeType).toBe('text/markdown');
+    expect(Number(row[0]!.sizeBytes)).toBe(data.length);
   });
 });

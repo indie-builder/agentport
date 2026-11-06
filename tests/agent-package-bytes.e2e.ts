@@ -1,28 +1,13 @@
-import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { createDb, newId } from '../packages/db/dist/index.js';
 import { AGENT_PACKAGE_MAX_BYTES } from '../packages/shared/dist/agent-package.js';
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 专家包字节上限的真实浏览器验收：真实页面、真实 API、数据库直写 fixture。
- * DATABASE_URL 必须显式给出（无默认值），且与页面背后 API 指向同一个库。
+ * E2E_DATABASE_URL 必须显式给出（无默认值），且与页面背后 API 指向同一个库。
  */
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) throw new Error('DATABASE_URL is required for agent package fixtures');
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function db(): ReturnType<typeof createDb> {
-  dbPromise ??= createDb(DATABASE_URL);
-  return dbPromise;
-}
-
-test.afterAll(async () => {
-  const current = await dbPromise;
-  await current?.pool.end();
-});
-
 interface Fixture {
   id: string;
   slug: string;
@@ -36,33 +21,19 @@ const importedIds: string[] = [];
 
 /** 只删本文件建的 agent；版本、绑定随 agent 级联删除，审计行按目标另删。 */
 test.afterEach(async () => {
-  const { pool } = await db();
-  const ids = [...created.map((fixture) => fixture.id), ...importedIds];
-  if (ids.length > 0) {
-    await pool.query('delete from audit_log where target = any($1::text[])', [ids]);
-    await pool.query('delete from agents where id = any($1::text[])', [ids]);
-  }
+  await runFixture('agent-package-bytes', 'cleanup', [
+    ...created.map((item) => item.id),
+    ...importedIds,
+  ]);
   created.length = 0;
   importedIds.length = 0;
 });
 
 /** 直写数据库：600 KB 级提示词放不进默认 1 MiB 的导入请求体。 */
 async function seed(prompt: string): Promise<Fixture> {
-  const suffix = randomUUID().slice(0, 8);
-  const fixture: Fixture = {
-    id: newId('agent'),
-    slug: `e2e-pkg-${suffix}`,
-    name: `E2E 包 ${suffix}`,
-    prompt,
-  };
-  const { pool } = await db();
-  await pool.query(
-    `insert into agents (id, slug, name, model, system_prompt_md)
-     values ($1, $2, $3, 'test-model', $4)`,
-    [fixture.id, fixture.slug, fixture.name, prompt],
-  );
-  created.push(fixture);
-  return fixture;
+  const value = await runFixture('agent-package-bytes', 'seed', prompt);
+  created.push(value);
+  return value;
 }
 
 interface ImportResult {

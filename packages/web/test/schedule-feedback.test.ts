@@ -947,7 +947,13 @@ describe('schedule row mutation locking', () => {
 describe('schedule stale conflict recovery', () => {
   const stale = () =>
     HttpResponse.json(
-      { code: 'CONFLICT_STALE', message: '该定时任务已被修改，请刷新后重试' },
+      {
+        code: 'CONFLICT_STALE',
+        message: '该定时任务已被修改，请刷新后重试',
+        status: 409,
+        requestId: '',
+        retryable: false,
+      },
       { status: 409 },
     );
 
@@ -1110,7 +1116,10 @@ describe('schedule stale conflict recovery', () => {
   it('treats a 404 on save as deleted and only creates on explicit save-as', async () => {
     msw.server.use(
       http.patch('/api/schedules/sch_1', () =>
-        HttpResponse.json({ code: 'NOT_FOUND', message: '定时任务不存在' }, { status: 404 }),
+        HttpResponse.json(
+          { code: 'NOT_FOUND', message: '定时任务不存在', status: 404, requestId: '', retryable: false },
+          { status: 404 },
+        ),
       ),
     );
     await mount();

@@ -1,4 +1,3 @@
-import type { AddressInfo } from 'node:net';
 import { newId } from '@agentport/db';
 import type {
   Agent,
@@ -10,23 +9,24 @@ import type {
   ChannelMember,
   ChannelMessage,
 } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   createTestAccount,
   infraReady,
-  inject,
   loginCookie,
+  request,
   setAgentMember,
   startApp,
   type TestAccount,
+  type TestApp,
   testConfig,
   unique,
   waitFor,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 type MemberRole = ChannelMember['role'];
 
@@ -34,7 +34,8 @@ const ready = await infraReady;
 const READ_PATH = (channelId: string): string => `/api/channels/${channelId}/read`;
 
 describe.skipIf(!ready)('channels', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let server: TestServer;
   let adminCookie: string;
   let baseUrl: string;
   let redis: Redis;
@@ -50,9 +51,8 @@ describe.skipIf(!ready)('channels', () => {
   beforeAll(async () => {
     app = await startApp();
     adminCookie = await loginCookie(app);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    server = await listen(app);
+    baseUrl = server.url;
     redis = new Redis(testConfig().REDIS_URL);
     owner = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     member = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
@@ -62,9 +62,9 @@ describe.skipIf(!ready)('channels', () => {
   });
 
   afterAll(async () => {
+    await server.close();
     for (const channelId of channelIds) {
-      await app.pool
-        .query('delete from channels where id = $1', [channelId])
+      await app.client.unsafe('delete from channels where id = $1', [channelId])
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs });
@@ -76,12 +76,11 @@ describe.skipIf(!ready)('channels', () => {
       outsider.businessId,
       ...noGrantBusinessIds,
     ];
-    await app.pool.query('delete from audit_log where actor = any($1::text[])', [businessIds]);
-    await app.pool.query('delete from audit_log where target = any($1::text[])', [channelIds]);
-    await app.pool.query('delete from user_roles where business_id = any($1::text[])', [
-      businessIds,
-    ]);
-    await app.pool.query('delete from "user" where business_id = any($1::text[])', [businessIds]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(channelIds, 'TEXT')]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
+    );
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
     await redis.quit().catch(() => undefined);
     await app.close();
   });
@@ -97,7 +96,7 @@ describe.skipIf(!ready)('channels', () => {
     cookie: string,
     payload?: Record<string, unknown>,
   ) =>
-    inject(app, {
+    request(app, {
       method,
       url,
       headers: { cookie },
@@ -225,15 +224,15 @@ describe.skipIf(!ready)('channels', () => {
     );
     expect(adminDelete.statusCode, adminDelete.body).toBe(404);
 
-    const messages = await app.pool.query('select id from channel_messages where channel_id = $1', [
+    const messages = await app.client.unsafe('select id from channel_messages where channel_id = $1', [
       channel.id,
     ]);
-    expect(messages.rows).toHaveLength(0);
-    const bindings = await app.pool.query(
+    expect(messages).toHaveLength(0);
+    const bindings = await app.client.unsafe(
       'select agent_id from channel_agent_bindings where channel_id = $1',
       [channel.id],
     );
-    expect(bindings.rows).toEqual([{ agent_id: agent.id }]);
+    expect(bindings).toEqual([{ agent_id: agent.id }]);
   });
 
   it('lets viewers read but rejects their posts', async () => {
@@ -346,11 +345,11 @@ describe.skipIf(!ready)('channels', () => {
     expect(new Set(raced.map((message) => message.seq)).size).toBe(1);
 
     for (const clientId of [clientMessageId, racyId]) {
-      const rows = await app.pool.query<{ count: string }>(
+      const rows = await app.client.unsafe<{ count: string }[]>(
         'select count(*) from channel_messages where channel_id = $1 and client_message_id = $2',
         [channel.id, clientId],
       );
-      expect(Number(rows.rows[0]?.count)).toBe(1);
+      expect(Number(rows[0]?.count)).toBe(1);
     }
 
     const listed = await call('GET', `/api/channels/${channel.id}/messages`, owner.cookie);
@@ -540,11 +539,11 @@ describe.skipIf(!ready)('channels', () => {
       autoWakeOnAll: false,
       addedBy: owner.businessId,
     });
-    const rows = await app.pool.query<{ conversation_id: string | null }>(
+    const rows = await app.client.unsafe<{ conversation_id: string | null }[]>(
       'select conversation_id from channel_agent_bindings where channel_id = $1 and agent_id = $2',
       [channel.id, agent.id],
     );
-    expect(rows.rows).toEqual([{ conversation_id: null }]);
+    expect(rows).toEqual([{ conversation_id: null }]);
 
     const duplicate = await call('POST', `/api/channels/${channel.id}/agents`, owner.cookie, {
       agentId: agent.id,
@@ -590,11 +589,11 @@ describe.skipIf(!ready)('channels', () => {
         )
       ).statusCode,
     ).toBe(204);
-    const remaining = await app.pool.query(
+    const remaining = await app.client.unsafe(
       'select agent_id from channel_agent_bindings where channel_id = $1',
       [channel.id],
     );
-    expect(remaining.rows).toHaveLength(0);
+    expect(remaining).toHaveLength(0);
   });
 
   it('answers channel membership before agent access when binding agents', async () => {
@@ -748,18 +747,23 @@ describe.skipIf(!ready)('channels', () => {
     const total = 205;
     const ids = Array.from({ length: total }, () => newId('channelMessage'));
     const bodies = ids.map((_, index) => `bulk-${index}`);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into channel_messages (id, channel_id, kind, author_business_id, body)
        select id, $2, 'human', $3, body
        from unnest($1::text[], $4::text[]) as bulk(id, body)`,
-      [ids, channel.id, owner.businessId, bodies],
+      [
+        app.client.array(ids, 'TEXT'),
+        channel.id,
+        owner.businessId,
+        app.client.array(bodies, 'TEXT'),
+      ],
     );
-    const rows = await app.pool.query<{ seq: string }>(
+    const rows = await app.client.unsafe<{ seq: string }[]>(
       'select seq from channel_messages where channel_id = $1 order by seq',
       [channel.id],
     );
-    expect(rows.rows).toHaveLength(total);
-    const allSeqs = rows.rows.map((row) => Number(row.seq));
+    expect(rows).toHaveLength(total);
+    const allSeqs = rows.map((row) => Number(row.seq));
     const after = present(allSeqs[0]);
     const expected = allSeqs.slice(1);
     expect(expected).toHaveLength(total - 1);
@@ -921,11 +925,11 @@ describe.skipIf(!ready)('channels', () => {
     expect(conflict.json<{ code: string }>().code).toBe('CONFLICT');
 
     const survivor = responses[0]?.statusCode === 204 ? channelAdmin.businessId : owner.businessId;
-    const rows = await app.pool.query<{ business_id: string; role: string }>(
+    const rows = await app.client.unsafe<{ business_id: string; role: string }[]>(
       'select business_id, role from channel_members where channel_id = $1',
       [channel.id],
     );
-    expect(rows.rows).toEqual([{ business_id: survivor, role: 'owner' }]);
+    expect(rows).toEqual([{ business_id: survivor, role: 'owner' }]);
 
     const survivorCookie = survivor === owner.businessId ? owner.cookie : channelAdmin.cookie;
     const detail = await call('GET', `/api/channels/${channel.id}`, survivorCookie);

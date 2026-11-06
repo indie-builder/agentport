@@ -1,37 +1,33 @@
 import { SECRET_MASK, type Server } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import {
   cleanup,
   createServer,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
-/**
- * 记录真实 pool.query 执行的 SQL。drizzle 的 node-postgres driver 直接调用
- * pool.query，所以包住这一层就能看到最终 SQL，不需要 mock repo。
- */
-function capturePoolQueries(app: FastifyInstance): { queries: string[]; restore: () => void } {
-  const original = app.pool.query;
+function capturePoolQueries(app: TestApp): { queries: string[]; restore: () => void } {
+  const original = app.client.unsafe;
   const queries: string[] = [];
   const patched = (first: unknown, ...rest: unknown[]) => {
     queries.push(typeof first === 'string' ? first : (first as { text: string }).text);
-    return (original as (...args: unknown[]) => unknown).call(app.pool, first, ...rest);
+    return (original as (...args: unknown[]) => unknown).call(app.client, first, ...rest);
   };
-  app.pool.query = patched as typeof original;
+  app.client.unsafe = patched as typeof original;
   return {
     queries,
     restore: () => {
-      app.pool.query = original;
+      app.client.unsafe = original;
     },
   };
 }
@@ -42,7 +38,7 @@ const readsServerSecrets = (sql: string) => /"(?:config|secrets_encrypted)"/i.te
 const isIdOnlyServerQuery = (sql: string) => /select\s+"id"\s+from\s+"servers"/i.test(sql);
 
 describe.skipIf(!ready)('servers', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const created: string[] = [];
 
@@ -58,7 +54,7 @@ describe.skipIf(!ready)('servers', () => {
 
   const auth = () => ({ cookie });
   const post = (name: string, body: Record<string, unknown>) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: auth(),
@@ -81,7 +77,7 @@ describe.skipIf(!ready)('servers', () => {
     expect(body.env).toEqual({ TOKEN: '••••' });
     expect(res.body).not.toContain('secret-value');
 
-    const list = await inject(app, { method: 'GET', url: '/api/servers', headers: auth() });
+    const list = await request(app, { method: 'GET', url: '/api/servers', headers: auth() });
     expect(list.statusCode).toBe(200);
     expect(list.body).not.toContain('secret-value');
   });
@@ -122,7 +118,7 @@ describe.skipIf(!ready)('servers', () => {
       await post(name, { kind: 'generated', baseUrl: 'https://jsonplaceholder.typicode.com' })
     ).json<Server>();
 
-    const shown = await inject(app, {
+    const shown = await request(app, {
       method: 'GET',
       url: `/api/servers/${server.id}/token`,
       headers: auth(),
@@ -136,7 +132,7 @@ describe.skipIf(!ready)('servers', () => {
 
     // 轮换接口是唯一返回明文的地方；再轮换一次，前一个 token 应失效。
     const rotate = () =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/servers/${server.id}/rotate-token`,
         headers: auth(),
@@ -149,12 +145,12 @@ describe.skipIf(!ready)('servers', () => {
     const newToken = second.json<{ token: string }>().token;
     expect(newToken).not.toBe(oldToken);
 
-    const list = await inject(app, { method: 'GET', url: '/api/servers', headers: auth() });
+    const list = await request(app, { method: 'GET', url: '/api/servers', headers: auth() });
     expect(list.body).not.toContain(newToken);
 
     // 旧 token 失效，新 token 通过鉴权。
     const probe = (token: string) =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/mcp/${server.id}`,
         headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
@@ -172,7 +168,7 @@ describe.skipIf(!ready)('servers', () => {
       { kind: 'unknown', name: unique('bad') },
     ];
     for (const payload of cases) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/servers',
         headers: auth(),
@@ -193,9 +189,8 @@ describe.skipIf(!ready)('servers', () => {
   it('rejects a private address in production and allows public addresses', async () => {
     // 只换 NODE_ENV，其余配置沿用测试环境；app.inject 直接带 cookie，Secure 不影响。
     const prodApp = await buildApp({ ...testConfig(), NODE_ENV: 'production' });
-    await prodApp.ready();
     try {
-      const res = await inject(prodApp, {
+      const res = await request(prodApp, {
         method: 'POST',
         url: '/api/servers',
         headers: auth(),
@@ -206,7 +201,7 @@ describe.skipIf(!ready)('servers', () => {
 
       const publicName = unique('prod-public');
       created.push(publicName);
-      const ok = await inject(prodApp, {
+      const ok = await request(prodApp, {
         method: 'POST',
         url: '/api/servers',
         headers: auth(),
@@ -215,7 +210,7 @@ describe.skipIf(!ready)('servers', () => {
       expect(ok.statusCode).toBe(201);
 
       // PATCH 同样按库里的 kind 复查新地址。
-      const patched = await inject(prodApp, {
+      const patched = await request(prodApp, {
         method: 'PATCH',
         url: `/api/servers/${ok.json<Server>().id}`,
         headers: auth(),
@@ -249,7 +244,7 @@ describe.skipIf(!ready)('servers', () => {
   });
 
   it('GET /api/servers/:id returns 404 for an unknown id', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: '/api/servers/srv_missing',
       headers: auth(),
@@ -263,7 +258,7 @@ describe.skipIf(!ready)('servers', () => {
       baseUrl: 'https://jsonplaceholder.typicode.com',
     });
     const server = created.json<Server>();
-    const toolRes = await inject(app, {
+    const toolRes = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/tools`,
       headers: auth(),
@@ -278,7 +273,7 @@ describe.skipIf(!ready)('servers', () => {
     expect(toolRes.statusCode).toBe(201);
     const tool = toolRes.json<{ id: string }>();
 
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${server.id}/tools/${tool.id}`,
       headers: auth(),
@@ -292,7 +287,7 @@ describe.skipIf(!ready)('servers', () => {
       description: 'posts by user',
     });
 
-    const empty = await inject(app, {
+    const empty = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${server.id}/tools/${tool.id}`,
       headers: auth(),
@@ -308,7 +303,7 @@ describe.skipIf(!ready)('servers', () => {
       await post(name, { kind: 'stdio', command: 'echo', args: [], env: { TOKEN: 'original' } })
     ).json<Server>();
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${createdServer.id}`,
       headers: auth(),
@@ -320,7 +315,7 @@ describe.skipIf(!ready)('servers', () => {
     if (body.kind !== 'stdio') throw new Error('unexpected kind');
     expect(body.env).toEqual({ TOKEN: '••••', EXTRA: '••••' });
 
-    const bad = await inject(app, {
+    const bad = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${createdServer.id}`,
       headers: auth(),
@@ -348,7 +343,7 @@ describe.skipIf(!ready)('servers', () => {
       inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
       paramsIn: 'query',
     };
-    const createdTool = await inject(app, {
+    const createdTool = await request(app, {
       method: 'POST',
       url: `/api/servers/${gen.id}/tools`,
       headers: auth(),
@@ -357,7 +352,7 @@ describe.skipIf(!ready)('servers', () => {
     expect(createdTool.statusCode).toBe(201);
     const toolId = createdTool.json<{ id: string }>().id;
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/servers/${gen.id}/tools`,
       headers: auth(),
@@ -365,7 +360,7 @@ describe.skipIf(!ready)('servers', () => {
     expect(list.statusCode).toBe(200);
     expect(list.json<Array<{ name: string }>>().map((t) => t.name)).toContain('get-user');
 
-    const rejected = await inject(app, {
+    const rejected = await request(app, {
       method: 'POST',
       url: `/api/servers/${stdio.id}/tools`,
       headers: auth(),
@@ -373,14 +368,14 @@ describe.skipIf(!ready)('servers', () => {
     });
     expect(rejected.statusCode).toBe(400);
 
-    const del = await inject(app, {
+    const del = await request(app, {
       method: 'DELETE',
       url: `/api/servers/${gen.id}/tools/${toolId}`,
       headers: auth(),
     });
     expect(del.statusCode).toBe(204);
 
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'DELETE',
       url: `/api/servers/${gen.id}/tools/${toolId}`,
       headers: auth(),
@@ -392,7 +387,7 @@ describe.skipIf(!ready)('servers', () => {
     const server = await createServer(app, cookie, { track: created });
     const probe = capturePoolQueries(app);
     try {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/servers/${server.id}/tools`,
         headers: auth(),
@@ -411,7 +406,7 @@ describe.skipIf(!ready)('servers', () => {
 
       // 正对照：同一条捕获通道能识别整行查询里的 config/secrets，
       // 证明上面的否定断言不是因为匹配器永远为假。
-      await app.pool.query('select "config", "secrets_encrypted" from "servers" where id = $1', [
+      await app.client.unsafe('select "config", "secrets_encrypted" from "servers" where id = $1', [
         server.id,
       ]);
       const withControl = probe.queries.filter(isServerQuery);
@@ -425,7 +420,7 @@ describe.skipIf(!ready)('servers', () => {
   it('GET /api/servers/:id/tools returns the original 404 Problem without listing tools', async () => {
     const probe = capturePoolQueries(app);
     try {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: '/api/servers/srv_missing/tools',
         headers: auth(),
@@ -444,7 +439,7 @@ describe.skipIf(!ready)('servers', () => {
   });
 
   it('GET /api/servers/:id/tools requires auth', async () => {
-    const res = await inject(app, { method: 'GET', url: '/api/servers/srv_missing/tools' });
+    const res = await request(app, { method: 'GET', url: '/api/servers/srv_missing/tools' });
     expectProblem(res, 'UNAUTHORIZED');
   });
 
@@ -455,7 +450,7 @@ describe.skipIf(!ready)('servers', () => {
       await post(name, { kind: 'generated', baseUrl: 'https://jsonplaceholder.typicode.com' })
     ).json<Server>();
     const createTool = (toolName: string) =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/servers/${server.id}/tools`,
         headers: auth(),
@@ -468,7 +463,7 @@ describe.skipIf(!ready)('servers', () => {
     const firstTool = first.json<{ name: string }>();
     const secondTool = second.json<{ id: string }>();
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${server.id}/tools/${secondTool.id}`,
       headers: auth(),
@@ -485,7 +480,7 @@ describe.skipIf(!ready)('servers', () => {
       await post(name, { kind: 'stdio', command: 'echo', args: [], env: {} })
     ).json<Server>();
 
-    const ok = await inject(app, {
+    const ok = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${server.id}`,
       headers: auth(),
@@ -493,7 +488,7 @@ describe.skipIf(!ready)('servers', () => {
     });
     expect(ok.statusCode).toBe(200);
 
-    const stale = await inject(app, {
+    const stale = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${server.id}`,
       headers: auth(),
@@ -507,13 +502,13 @@ describe.skipIf(!ready)('servers', () => {
     const server = (
       await post(name, { kind: 'stdio', command: 'echo', args: [], env: {} })
     ).json<Server>();
-    const del = await inject(app, {
+    const del = await request(app, {
       method: 'DELETE',
       url: `/api/servers/${server.id}`,
       headers: auth(),
     });
     expect(del.statusCode).toBe(204);
-    const again = await inject(app, {
+    const again = await request(app, {
       method: 'DELETE',
       url: `/api/servers/${server.id}`,
       headers: auth(),

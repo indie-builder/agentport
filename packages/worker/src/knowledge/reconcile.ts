@@ -1,6 +1,7 @@
 import { type createDb, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
-import { Queue } from 'bullmq';
+import { createBunRedisClient, Queue } from 'bullmq';
+import { RedisClient } from 'bun';
 import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { KNOWLEDGE_TIMEOUT_MS } from './queue.js';
@@ -170,8 +171,9 @@ export function startKnowledgeReconciler(input: {
   redisUrl: string;
   prefix?: string;
 }): () => Promise<void> {
+  const connection = createBunRedisClient(new RedisClient(input.redisUrl));
   const queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
-    connection: { url: input.redisUrl, maxRetriesPerRequest: null },
+    connection,
     ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
   });
   queue.on('error', () => input.logger.warn('knowledge queue connection failed'));
@@ -199,5 +201,6 @@ export function startKnowledgeReconciler(input: {
     clearInterval(timer);
     await inFlight;
     await queue.close();
+    await connection.quit();
   };
 }

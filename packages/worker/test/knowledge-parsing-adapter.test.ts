@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 
 const fixture = (name: string): string =>

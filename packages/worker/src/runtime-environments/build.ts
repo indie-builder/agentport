@@ -8,7 +8,8 @@ import {
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
   type RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';
-import { type Job, Worker } from 'bullmq';
+import { createBunRedisClient, type Job, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { verifyRuntimeEnvironmentImage } from './verify.js';
 
@@ -473,8 +474,9 @@ export async function startRuntimeEnvironmentBuildWorker(
     ...(config.spawn === undefined ? {} : { spawn: config.spawn }),
     ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
   });
+  const connection = createBunRedisClient(new RedisClient(config.redisUrl));
   const worker = new Worker<RuntimeEnvironmentBuildJob>(RUNTIME_ENVIRONMENT_BUILDS_QUEUE, handler, {
-    connection: { url: config.redisUrl },
+    connection,
     ...(config.prefix === undefined ? {} : { prefix: config.prefix }),
     concurrency: 1,
   });
@@ -487,6 +489,7 @@ export async function startRuntimeEnvironmentBuildWorker(
       // 先 abort 当前构建让它退回 queued，再等 worker 收尾。
       closing.abort();
       await worker.close();
+      await connection.quit();
     },
   };
 }

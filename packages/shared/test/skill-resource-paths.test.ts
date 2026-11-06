@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { findSkillResourcePathConflict, skillFileInputSchema } from '../src/agent.js';
 
 describe('skill resource paths', () => {

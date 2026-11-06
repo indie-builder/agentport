@@ -1,14 +1,16 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { probeConfluence, readConfluence } from '../src/knowledge/source-confluence.js';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { SourceAuthError, type SourceConfig } from '../src/knowledge/sources.js';
 
 // Scoped tokens use the fixed Atlassian gateway; resolve it to a public address
 // so validateSourceUrl never touches real DNS, while fetch stays fully mocked.
-vi.mock('node:dns/promises', () => ({
+mock.module('node:dns/promises', () => ({
   lookup: async () => [{ address: '93.184.216.34', family: 4 }],
 }));
+
+const { probeConfluence, readConfluence } = await import('../src/knowledge/source-confluence.js');
 
 const SITE = 'http://127.0.0.1:9';
 const SIGNED = 'http://127.0.0.1:10';
@@ -56,7 +58,7 @@ function body(init: RequestInit): string | null {
 
 beforeEach(() => {
   calls = [];
-  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+  stubFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(
       typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
     );
@@ -71,7 +73,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreFetch();
 });
 
 function config(

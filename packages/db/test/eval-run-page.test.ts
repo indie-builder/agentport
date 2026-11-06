@@ -1,14 +1,14 @@
 import type { AccessFilter } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as evalRepo from '../src/repo/eval.js';
 import { agents } from '../src/schema.js';
 
 const url = process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
-const { db, pool } = createDb(url);
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(url);
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -41,7 +41,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     ]);
     // 原始 SQL 才能写入微秒：drizzle 的 Date 参数只有毫秒。
     const insert = (id: string, owner: string, createdAt: string, total: number) =>
-      pool.query(
+      client.unsafe(
         `insert into eval_runs
            (id, agent_id, status, total, passed, error, created_at, claimed_at, case_snapshot, created_by)
          values ($1, $2, 'succeeded', $3, 1, null, $4, now(), $5, $6)`,
@@ -65,7 +65,7 @@ describe.skipIf(!ready)('eval run list pagination', () => {
 
   afterAll(async () => {
     await db.delete(agents).where(inArray(agents.id, [agentId, otherAgentId]));
-    await pool.end();
+    await client.close();
   });
 
   it('pages by (created_at, id) at microsecond precision without gaps or duplicates', async () => {

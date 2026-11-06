@@ -52,7 +52,7 @@ export async function hasBusinessHistory(db: DbHandle, businessId: string): Prom
   const result = await db.execute<{ exists: boolean }>(sql`
     select exists(select 1 from (${identityIds}) ids where ids.business_id = ${businessId}) as "exists"
   `);
-  return result.rows[0]?.exists === true;
+  return result[0]?.exists === true;
 }
 
 export interface IdentitySummary {
@@ -90,5 +90,5 @@ export async function listIdentities(
       ${filter}
     `),
   ]);
-  return { items: page.rows as IdentitySummary[], total: total.rows[0]?.total ?? 0 };
+  return { items: page as IdentitySummary[], total: total[0]?.total ?? 0 };
 }

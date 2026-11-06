@@ -2,16 +2,9 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
-import {
-  type FastifyInstance,
-  infraReady,
-  inject,
-  loginCookie,
-  testConfig,
-  unique,
-} from './helpers.js';
+import { infraReady, loginCookie, request, type TestApp, testConfig, unique } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -27,7 +20,7 @@ const PNG = Buffer.from(
 );
 
 describe.skipIf(!ready)('knowledge image routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   let baseId = '';
@@ -37,7 +30,7 @@ describe.skipIf(!ready)('knowledge image routes', () => {
   const profileIds: string[] = [];
 
   async function createBase(): Promise<string> {
-    const profile = await inject(app, {
+    const profile = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -51,7 +44,7 @@ describe.skipIf(!ready)('knowledge image routes', () => {
     expect(profile.statusCode, profile.body).toBe(201);
     profileIds.push(profile.json<{ id: string }>().id);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -66,18 +59,17 @@ describe.skipIf(!ready)('knowledge image routes', () => {
   beforeAll(async () => {
     knowledgeDir = await mkdtemp(join(tmpdir(), 'knowledge-image-routes-'));
     app = await buildApp(testConfig({ KNOWLEDGE_DIR: knowledgeDir }));
-    await app.ready();
     cookie = await loginCookie(app);
     baseId = await createBase();
 
     // 直接落一条已解析版本：图片 route 只依赖版本行与磁盘图片目录。
-    const document = await app.pool.query<{ id: string }>(
+    const document = await app.client.unsafe<{ id: string }[]>(
       `insert into knowledge_documents (id, base_id, title, source_type, mime_type, status)
        values ($1, $2, '图册', 'upload', 'application/pdf', 'ready') returning id`,
       [`kdoc_${Math.random().toString(36).slice(2, 12)}`, baseId],
     );
-    documentId = mustRow(document.rows).id;
-    const profile = await app.pool.query<{ embedding_profile_id: string }>(
+    documentId = mustRow(document).id;
+    const profile = await app.client.unsafe<{ embedding_profile_id: string }[]>(
       'select embedding_profile_id from knowledge_bases where id = $1',
       [baseId],
     );
@@ -94,7 +86,7 @@ describe.skipIf(!ready)('knowledge image routes', () => {
         page: 1,
       },
     ];
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, parse_status, page_map, images, embedding_profile_id)
@@ -106,7 +98,7 @@ describe.skipIf(!ready)('knowledge image routes', () => {
         'b'.repeat(64),
         JSON.stringify(pageMap),
         JSON.stringify(images),
-        mustRow(profile.rows).embedding_profile_id,
+        mustRow(profile).embedding_profile_id,
       ],
     );
 
@@ -119,12 +111,11 @@ describe.skipIf(!ready)('knowledge image routes', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -135,26 +126,26 @@ describe.skipIf(!ready)('knowledge image routes', () => {
       `/api/knowledge/versions/${versionId}/images/image-1.png`,
       `/api/knowledge/versions/${versionId}/details`,
     ]) {
-      const res = await inject(app, { method: 'GET', url });
+      const res = await request(app, { method: 'GET', url });
       expect(res.statusCode, `${url}: ${res.body}`).toBe(401);
     }
   });
 
   it('白名单内的图片返回原始字节、sniff 防护与私有缓存', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/versions/${versionId}/images/image-1.png`,
       headers: { cookie },
     });
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-type']).toBe('image/png');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(res.headers['cache-control']).toBe('private');
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('cache-control')).toBe('private');
     expect(Buffer.from(res.rawPayload).equals(PNG)).toBe(true);
   });
 
   it('未登记在版本白名单里的文件名 404，即使磁盘上存在同名文件', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/versions/${versionId}/images/secret.png`,
       headers: { cookie },
@@ -174,7 +165,7 @@ describe.skipIf(!ready)('knowledge image routes', () => {
       ['%2e%2e%2fsecret.png', [400]],
       ['a%5Cb.png', [400]],
     ] as const) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/versions/${versionId}/images/${name}`,
         headers: { cookie },
@@ -184,7 +175,7 @@ describe.skipIf(!ready)('knowledge image routes', () => {
   });
 
   it('不存在的版本返回 404', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: '/api/knowledge/versions/kdv_missing/images/image-1.png',
       headers: { cookie },
@@ -193,7 +184,7 @@ describe.skipIf(!ready)('knowledge image routes', () => {
   });
 
   it('版本详情报出 images 与 pageMap 但不下发磁盘信息', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/versions/${versionId}/details`,
       headers: { cookie },
@@ -217,13 +208,13 @@ describe.skipIf(!ready)('knowledge image routes', () => {
   });
 
   it('禁用知识库后图片与详情仍按管理员鉴权读取', async () => {
-    await app.pool.query("update knowledge_bases set status = 'disabled' where id = $1", [baseId]);
-    const res = await inject(app, {
+    await app.client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [baseId]);
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/versions/${versionId}/images/image-1.png`,
       headers: { cookie },
     });
     expect(res.statusCode, res.body).toBe(200);
-    await app.pool.query("update knowledge_bases set status = 'active' where id = $1", [baseId]);
+    await app.client.unsafe("update knowledge_bases set status = 'active' where id = $1", [baseId]);
   });
 });

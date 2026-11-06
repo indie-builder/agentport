@@ -1,9 +1,9 @@
-import type { FastifyInstance } from 'fastify';
 import pino from 'pino';
 import {
   type SessionCleanupChannel,
   startSessionCleanupChannel,
 } from '../../worker/src/sandbox/session-cleanup.js';
+import type { TestApp } from './helpers.js';
 
 /** 记录路由删除时真实发来的关闭目标；测试不需要 Docker 的 SessionSandboxes 实现。 */
 export class FakeSessionCloser {
@@ -26,7 +26,7 @@ export class FakeSessionCloser {
  * 使用 app 自己的 REDIS_URL，便于故障用例切到独享库隔离并行套件。
  */
 export function startSessionCleanupResponder(
-  app: FastifyInstance,
+  app: TestApp,
   sessions: FakeSessionCloser,
 ): Promise<SessionCleanupChannel> {
   return startSessionCleanupChannel({

@@ -8,16 +8,16 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import { type AgentRunJob, RUNS_QUEUE, runCancelKey, runStreamKey } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import {
   createTestAccount,
   expectProblem,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
 } from '../../api/test/helpers.js';
 import { testAccess } from './fixtures/access.js';
 
@@ -35,10 +35,10 @@ interface SessionManager {
   close(): Promise<void>;
 }
 
-const mocks = vi.hoisted(() => ({
-  publishRun: vi.fn(async () => undefined),
+const mocks = (() => ({
+  publishRun: mock(async () => undefined),
   processors: new Map<string, (job: unknown) => Promise<void>>(),
-  dbHandles: [] as Array<{ pool: { end(): Promise<void> } }>,
+  dbHandles: [] as Array<{ client: { close(): Promise<void> } }>,
   managers: [] as SessionManager[],
   destroyFailures: 0,
   destroyed: [] as string[],
@@ -46,33 +46,31 @@ const mocks = vi.hoisted(() => ({
   onStarted: null as (() => void) | null,
   startedRuns: [] as string[],
   cancelFrames: 0,
+}))();
+
+const dbActual = await import('@agentport/db');
+const actualCreateDb = dbActual.createDb;
+mock.module('@agentport/db', () => ({
+  ...dbActual,
+  createDb: (...args: Parameters<typeof dbActual.createDb>) => {
+    const handle = actualCreateDb(...args);
+    mocks.dbHandles.push(handle);
+    return handle;
+  },
 }));
 
-vi.mock('@agentport/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/db')>();
-  return {
-    ...actual,
-    createDb: (...args: Parameters<typeof actual.createDb>) => {
-      const handle = actual.createDb(...args);
-      mocks.dbHandles.push(handle);
-      return handle;
-    },
-  };
-});
-
-vi.mock('../src/run-access.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/run-access.js')>();
-  return { ...actual, checkUserAgentAccess: async () => null };
-});
+const runAccessActual = await import('../src/run-access.js');
+mock.module('../src/run-access.js', () => ({
+  ...runAccessActual,
+  checkUserAgentAccess: async () => null,
+}));
 
 // 进程级守卫会把测试里任何未处理异常变成 process.exit；这里只验证 run 流程。
-vi.mock('@agentport/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/core')>();
-  return { ...actual, installProcessGuards: () => undefined };
-});
+const coreActual = await import('@agentport/core');
+mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
 
-vi.mock('bullmq', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('bullmq')>();
+const bullmqActual = await import('bullmq');
+mock.module('bullmq', () => {
   class Worker {
     constructor(name: string, processor: (job: unknown) => Promise<void>) {
       mocks.processors.set(name, processor);
@@ -82,11 +80,11 @@ vi.mock('bullmq', async (importOriginal) => {
     }
     async close(): Promise<void> {}
   }
-  return { ...actual, Worker };
+  return { ...bullmqActual, Worker };
 });
 
 // provider 是外部边界：用 fake 容器注入 destroy 失败与取消无 ACK；SessionSandboxes 保持真实。
-vi.mock('../src/sandbox/docker.js', () => ({
+mock.module('../src/sandbox/docker.js', () => ({
   DockerSandboxProvider: class {
     async ensureImage(): Promise<void> {}
     async destroyAll(): Promise<void> {}
@@ -166,18 +164,19 @@ vi.mock('../src/sandbox/docker.js', () => ({
 }));
 
 // 记录 index 创建的 manager，reconcile 通过真实的 SessionSandboxes.cleanup 收口。
-vi.mock('../src/sandbox/sessions.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/sandbox/sessions.js')>();
-  class RecordingSessionSandboxes extends actual.SessionSandboxes {
-    constructor(options: ConstructorParameters<typeof actual.SessionSandboxes>[0]) {
+const sessionsActual = await import('../src/sandbox/sessions.js');
+const ActualSessionSandboxes = sessionsActual.SessionSandboxes;
+mock.module('../src/sandbox/sessions.js', () => {
+  class RecordingSessionSandboxes extends ActualSessionSandboxes {
+    constructor(options: ConstructorParameters<typeof ActualSessionSandboxes>[0]) {
       super(options);
       mocks.managers.push(this);
     }
   }
-  return { ...actual, SessionSandboxes: RecordingSessionSandboxes };
+  return { ...sessionsActual, SessionSandboxes: RecordingSessionSandboxes };
 });
 
-vi.mock('../src/runtime-environments/resolve.js', () => ({
+mock.module('../src/runtime-environments/resolve.js', () => ({
   createRuntimeEnvironmentResolver: () => async () => ({
     environmentId: 'rte_pending',
     environmentName: 'pending environment',
@@ -186,59 +185,62 @@ vi.mock('../src/runtime-environments/resolve.js', () => ({
   }),
 }));
 
-vi.mock('../src/runtime-environments/default.js', () => ({
+mock.module('../src/runtime-environments/default.js', () => ({
   ensureDefaultEnvironment: async () => undefined,
   startDefaultEnvironmentRetry: () => async () => undefined,
 }));
 
-vi.mock('../src/runtime-environments/build.js', () => ({
+mock.module('../src/runtime-environments/build.js', () => ({
   startRuntimeEnvironmentBuildWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/runtime-environments/reconcile.js', () => ({
+mock.module('../src/runtime-environments/reconcile.js', () => ({
   startRuntimeEnvironmentBuildReconciler: () => () => undefined,
 }));
 
 // index 不自己起后台 reconiler；下面的用例手动跑同一实现。
-vi.mock('../src/reconcile.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/reconcile.js')>();
-  return { ...actual, startReconciler: () => () => undefined };
-});
+const reconcileActual = await import('../src/reconcile.js');
+mock.module('../src/reconcile.js', () => ({
+  ...reconcileActual,
+  startReconciler: () => () => undefined,
+}));
 
-vi.mock('../src/knowledge/queue.js', () => ({
+mock.module('../src/knowledge/queue.js', () => ({
   startKnowledgeWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/knowledge/reconcile.js', () => ({
+mock.module('../src/knowledge/reconcile.js', () => ({
   startKnowledgeReconciler: () => () => undefined,
 }));
 
-vi.mock('../src/knowledge/scheduler.js', () => ({
+mock.module('../src/knowledge/scheduler.js', () => ({
   startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-vi.mock('../src/scheduler.js', () => ({
+mock.module('../src/scheduler.js', () => ({
   startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-vi.mock('../src/maintenance.js', () => ({
+mock.module('../src/maintenance.js', () => ({
   startMaintenanceWorker: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/sandbox-probe.js', () => ({
+mock.module('../src/sandbox-probe.js', () => ({
   registerSandboxProbe: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/native-plugins.js', () => ({
+mock.module('../src/native-plugins.js', () => ({
   registerNativePlugins: async () => ({ close: async () => undefined }),
 }));
 
-vi.mock('../src/eval-runner.js', () => ({
+mock.module('../src/eval-runner.js', () => ({
   executeEvalRun: async () => undefined,
   closeEvalRunQueue: async () => undefined,
+  evalFailureDiagnostics: () => ({}),
+  publicEvalFailureMessage: () => '',
 }));
 
-vi.mock('../src/model-proxy.js', () => ({
+mock.module('../src/model-proxy.js', () => ({
   startModelProxy: async () => null,
 }));
 
@@ -262,11 +264,11 @@ const cleanupIds: { agents: string[]; conversations: string[]; runs: string[] } 
 };
 
 // 与 worker 共用同一轮隔离库；数据全部按本次生成的 id 创建并在 afterAll 回收。
-let app: FastifyInstance;
+let app: TestApp;
 let cookie = '';
 
 const putMemory = (agentId: string, content = 'note') =>
-  inject(app, {
+  request(app, {
     method: 'PUT',
     url: `/api/agents/${agentId}/memory/MEMORY.md`,
     headers: { cookie },
@@ -274,7 +276,7 @@ const putMemory = (agentId: string, content = 'note') =>
   });
 
 const patchAgent = (agentId: string, payload: Record<string, unknown>) =>
-  inject(app, {
+  request(app, {
     method: 'PATCH',
     url: `/api/agents/${agentId}`,
     headers: { cookie },
@@ -413,7 +415,7 @@ describe('unconfirmed stop handoff', () => {
     if (app) await app.close();
     await rm(workdir, { recursive: true, force: true });
     // app.close 与 helper 的临时探测也会结束各自 pool；这里只兜底收尾剩余连接。
-    for (const handle of mocks.dbHandles) await handle.pool.end().catch(() => undefined);
+    for (const handle of mocks.dbHandles) await handle.client.close().catch(() => undefined);
   });
 
   it('keeps the run and its memory occupancy until reconcile confirms cleanup', async () => {
@@ -436,6 +438,7 @@ describe('unconfirmed stop handoff', () => {
     expect(mocks.destroyed).toHaveLength(1);
 
     const pending = await runRow(fixture.runId);
+    const pendingSnapshot = structuredClone(pending);
     expect(pending).toMatchObject({
       status: 'running',
       endedAt: null,
@@ -495,7 +498,7 @@ describe('unconfirmed stop handoff', () => {
       ).toBe(0);
       const stillRunning = await runRow(fixture.runId);
       expect(stillRunning).toMatchObject({ status: 'running', endedAt: null });
-      expect(stillRunning?.pendingFinish).toEqual(pending?.pendingFinish);
+      expect(stillRunning?.pendingFinish).toEqual(pendingSnapshot?.pendingFinish);
       expect(
         (await readStream(fixture.runId)).filter((e) => e.type === 'run_finished'),
       ).toHaveLength(0);
@@ -525,13 +528,13 @@ describe('unconfirmed stop handoff', () => {
         inputTokens: 5,
         outputTokens: 7,
       });
-      expect(mocks.destroyed.at(-1)).toBe(pending?.sandboxId);
+      expect(mocks.destroyed.at(-1)).toBe(pendingSnapshot?.sandboxId);
 
       const finished = (await readStream(fixture.runId)).filter(
         (event) => event.type === 'run_finished',
       );
       expect(finished).toHaveLength(1);
-      expect(finished[0]).toEqual(pending?.pendingFinish);
+      expect(finished[0]).toEqual(pendingSnapshot?.pendingFinish);
 
       const reconciled = await db
         .select({ action: schema.auditLog.action, status: schema.auditLog.status })
@@ -544,7 +547,7 @@ describe('unconfirmed stop handoff', () => {
       // 终态落库后活动集合释放：保存、启停、解绑恢复可用。
       const saved = await putMemory(fixture.childId, 'settled memory');
       expect(saved.statusCode, saved.body).toBe(200);
-      const stored = await inject(app, {
+      const stored = await request(app, {
         method: 'GET',
         url: `/api/agents/${fixture.childId}/memory/MEMORY.md`,
         headers: { cookie },

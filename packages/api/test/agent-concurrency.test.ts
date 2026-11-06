@@ -1,21 +1,21 @@
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, jest, spyOn } from 'bun:test';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   waitFor,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('agent update concurrency', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdSlugs: string[] = [];
   const createdIds: string[] = [];
@@ -28,7 +28,7 @@ describe.skipIf(!ready)('agent update concurrency', () => {
   afterAll(async () => {
     if (createdIds.length > 0) {
       // audit_log 没有外键，删 agent 不会带走它。
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [createdIds]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(createdIds, 'TEXT')]);
     }
     await cleanup(app, { agentSlugs: createdSlugs });
     await app.close();
@@ -42,7 +42,7 @@ describe.skipIf(!ready)('agent update concurrency', () => {
   };
 
   const patch = (id: string, payload: Record<string, unknown>) =>
-    inject(app, {
+    request(app, {
       method: 'PATCH',
       url: `/api/agents/${id}`,
       headers: { cookie },
@@ -50,17 +50,21 @@ describe.skipIf(!ready)('agent update concurrency', () => {
     });
 
   const get = async (id: string): Promise<Agent> => {
-    const res = await inject(app, { method: 'GET', url: `/api/agents/${id}`, headers: { cookie } });
+    const res = await request(app, {
+      method: 'GET',
+      url: `/api/agents/${id}`,
+      headers: { cookie },
+    });
     expect(res.statusCode, res.body).toBe(200);
     return res.json<Agent>();
   };
 
   const versionRows = async (id: string) => {
-    const { rows } = await app.pool.query<{
+    const rows = await app.client.unsafe<{
       version: number;
       snapshot: Agent;
       note: string | null;
-    }>('select version, snapshot, note from agent_versions where agent_id = $1 order by version', [
+    }[]>('select version, snapshot, note from agent_versions where agent_id = $1 order by version', [
       id,
     ]);
     return rows;
@@ -71,8 +75,11 @@ describe.skipIf(!ready)('agent update concurrency', () => {
     // 把版本值固定在同一毫秒，并让 Node 的 new Date() 也停在这一刻：
     // 旧实现直接把 new Date() 写回，第二次请求仍能命中旧版本。
     const frozen = new Date(Date.now());
-    await app.pool.query('update agents set updated_at = $2 where id = $1', [agent.id, frozen]);
-    vi.useFakeTimers({ now: frozen, toFake: ['Date'] });
+    await app.client.unsafe('update agents set updated_at = $2 where id = $1', [
+      agent.id,
+      frozen.toISOString(),
+    ]);
+    jest.useFakeTimers({ now: frozen });
     try {
       const first = await patch(agent.id, { name: 'First', expectedUpdatedAt: frozen });
       expect(first.statusCode, first.body).toBe(200);
@@ -81,7 +88,7 @@ describe.skipIf(!ready)('agent update concurrency', () => {
       expectProblem(second, 'CONFLICT_STALE');
       expect(await get(agent.id)).toMatchObject({ name: 'First' });
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 
@@ -89,22 +96,29 @@ describe.skipIf(!ready)('agent update concurrency', () => {
     const agent = await newAgent();
     expect((await versionRows(agent.id)).map((row) => row.version)).toEqual([1]);
 
+    type TxClient = { unsafe: (...args: unknown[]) => unknown };
     const statements: string[] = [];
-    const clientProto = (
-      app.pool as unknown as { Client: { prototype: { query: (...args: unknown[]) => unknown } } }
-    ).Client.prototype;
-    const originalQuery = clientProto.query;
-    const spy = vi.spyOn(clientProto, 'query').mockImplementation(function (
-      this: unknown,
-      first: unknown,
-      ...rest: unknown[]
-    ) {
-      if (typeof first === 'string') statements.push(first);
-      else if (first && typeof first === 'object' && 'text' in first) {
-        statements.push(String((first as { text: unknown }).text));
-      }
-      return originalQuery.apply(this, [first, ...rest]);
-    });
+    const wrapped: TxClient[] = [];
+    const originalBegin = app.client.begin.bind(app.client) as <T>(
+      fn: (client: TxClient) => Promise<T>,
+    ) => Promise<T>;
+    const spy = spyOn(app.client, 'begin').mockImplementation((<T>(
+      callback: (client: TxClient) => Promise<T>,
+    ) =>
+      originalBegin((client) => {
+        if (!wrapped.includes(client)) {
+          const originalQuery = client.unsafe;
+          wrapped.push(client);
+          client.unsafe = (...args: unknown[]) => {
+            const first = args[0] as { text?: unknown } | undefined;
+            const sql =
+              typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : '';
+            if (sql) statements.push(sql);
+            return originalQuery.apply(client, args);
+          };
+        }
+        return callback(client);
+      })) as never);
     try {
       const first = await patch(agent.id, { name: 'Round one' });
       expect(first.statusCode, first.body).toBe(200);
@@ -136,7 +150,7 @@ describe.skipIf(!ready)('agent update concurrency', () => {
       description: 'Round two',
     });
 
-    const rolledBack = await inject(app, {
+    const rolledBack = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
       headers: { cookie },
@@ -151,19 +165,19 @@ describe.skipIf(!ready)('agent update concurrency', () => {
   it('lets exactly one of two same-version PATCHes win with one version and one audit row', async () => {
     const agent = await newAgent();
 
-    const client = await app.pool.connect();
+    const client = await app.client.reserve();
     try {
-      await client.query('begin');
-      const { rows } = await client.query<{ pid: number }>('select pg_backend_pid() as pid');
+      await client.unsafe('begin');
+      const rows = await client.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
       const holderPid = rows[0]?.pid;
       if (holderPid === undefined) throw new Error('no backend pid');
-      await client.query('select id from agents where id = $1 for update', [agent.id]);
+      await client.unsafe('select id from agents where id = $1 for update', [agent.id]);
 
       const first = patch(agent.id, { name: 'Concurrent A', expectedUpdatedAt: agent.updatedAt });
       const second = patch(agent.id, { name: 'Concurrent B', expectedUpdatedAt: agent.updatedAt });
       // 两个写请求都停在行锁上才算真的并发；只等一个可能刚好一前一后完成。
       const blocked = await waitFor(async () => {
-        const waiting = await app.pool.query<{ n: number }>(
+        const waiting = await app.client.unsafe<{ n: number }[]>(
           `with recursive blocked(pid) as (
              select a.pid from pg_stat_activity a
              where a.datname = current_database()
@@ -175,10 +189,10 @@ describe.skipIf(!ready)('agent update concurrency', () => {
            ) select count(*)::int as n from blocked`,
           [holderPid],
         );
-        return (waiting.rows[0]?.n ?? 0) === 2;
+        return (waiting[0]?.n ?? 0) === 2;
       });
       expect(blocked).toBe(true);
-      await client.query('commit');
+      await client.unsafe('commit');
 
       const [a, b] = await Promise.all([first, second]);
       expect(
@@ -201,13 +215,13 @@ describe.skipIf(!ready)('agent update concurrency', () => {
       });
       expect(versions.filter((row) => row.snapshot.name === winnerName)).toHaveLength(1);
 
-      const audit = await app.pool.query<{ n: number }>(
+      const audit = await app.client.unsafe<{ n: number }[]>(
         "select count(*)::int as n from audit_log where target = $1 and action = 'agent.updated'",
         [agent.id],
       );
-      expect(audit.rows[0]?.n).toBe(1);
+      expect(audit[0]?.n).toBe(1);
     } finally {
-      await client.query('rollback').catch(() => undefined);
+      await client.unsafe('rollback').catch(() => undefined);
       client.release();
     }
   });
@@ -215,19 +229,19 @@ describe.skipIf(!ready)('agent update concurrency', () => {
   it('keeps both fields when two disjoint PATCHes run without a version', async () => {
     const agent = await newAgent();
 
-    const client = await app.pool.connect();
+    const client = await app.client.reserve();
     try {
-      await client.query('begin');
-      const { rows } = await client.query<{ pid: number }>('select pg_backend_pid() as pid');
+      await client.unsafe('begin');
+      const rows = await client.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
       const holderPid = rows[0]?.pid;
       if (holderPid === undefined) throw new Error('no backend pid');
-      await client.query('select id from agents where id = $1 for update', [agent.id]);
+      await client.unsafe('select id from agents where id = $1 for update', [agent.id]);
 
       // 不带 expectedUpdatedAt 的请求不受乐观锁保护，必须靠「只写传入字段」避免互相回填旧值。
       const first = patch(agent.id, { name: 'Disjoint name' });
       const second = patch(agent.id, { description: 'Disjoint description' });
       const blocked = await waitFor(async () => {
-        const waiting = await app.pool.query<{ n: number }>(
+        const waiting = await app.client.unsafe<{ n: number }[]>(
           `with recursive blocked(pid) as (
              select a.pid from pg_stat_activity a
              where a.datname = current_database()
@@ -239,10 +253,10 @@ describe.skipIf(!ready)('agent update concurrency', () => {
            ) select count(*)::int as n from blocked`,
           [holderPid],
         );
-        return (waiting.rows[0]?.n ?? 0) === 2;
+        return (waiting[0]?.n ?? 0) === 2;
       });
       expect(blocked).toBe(true);
-      await client.query('commit');
+      await client.unsafe('commit');
 
       const [a, b] = await Promise.all([first, second]);
       expect([a.statusCode, b.statusCode], `${a.body} / ${b.body}`).toEqual([200, 200]);
@@ -257,7 +271,7 @@ describe.skipIf(!ready)('agent update concurrency', () => {
         description: 'Disjoint description',
       });
     } finally {
-      await client.query('rollback').catch(() => undefined);
+      await client.unsafe('rollback').catch(() => undefined);
       client.release();
     }
   });
@@ -267,7 +281,7 @@ describe.skipIf(!ready)('agent update concurrency', () => {
     // 起点放到未来：数据库 now() 不可能越过它，版本只能靠 +1ms 分支前进，
     // 这样不用 sleep 也能稳定测到同一毫秒内的单调推进。
     const start = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-    await app.pool.query('update agents set updated_at = $2 where id = $1', [agent.id, start]);
+    await app.client.unsafe('update agents set updated_at = $2 where id = $1', [agent.id, start]);
 
     let expected = start.toISOString();
     for (let i = 0; i < 5; i += 1) {

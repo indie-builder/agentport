@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ExecutionSettlement } from '@agentport/shared';
 import { runCancelKey } from '@agentport/shared';
 import { Redis } from 'ioredis';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import {
   acquireSessionSandbox,
   closeRunnerClient,
@@ -142,10 +142,10 @@ describe.skipIf(!ready)('session acquire cancellation', () => {
         },
       },
     });
-    const rejected = expect(running).rejects.toMatchObject({ reason: 'cancelled' });
+    const settled = running.catch((error: unknown) => error);
     await reached;
     await requestCancel(runId);
-    await rejected;
+    expect(await settled).toMatchObject({ reason: 'cancelled' });
     expect(received?.aborted).toBe(true);
     expect(cleanedUp).toBe(true);
   });

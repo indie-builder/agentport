@@ -1,17 +1,17 @@
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { buildGeneratedServer } from '../src/features/servers/generated.js';
-import { assertSafeUrl } from '../src/features/servers/ssrf.js';
+import { afterEach, beforeEach, expect, it, mock } from 'bun:test';
+import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
+import { buildGeneratedServer } from '../src/modules/servers/generated.js';
 
 /** 工具 handler 的第二个参数：run 取消时 SDK 通过它传 abort signal。 */
 type ToolContext = { mcpReq: { signal: AbortSignal } };
 type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<CallToolResult>;
 
 // MCP 边界 mock：捕获 registerTool 的回调，直接驱动真实的 handler 逻辑。
-const mcp = vi.hoisted(() => ({ handlers: new Map<string, ToolHandler>() }));
+const mcp = ({ handlers: new Map<string, ToolHandler>() });
 
-vi.mock('@modelcontextprotocol/server', () => ({
+mock.module('@modelcontextprotocol/server', () => ({
   McpServer: class {
     registerTool(name: string, _config: unknown, handler: ToolHandler) {
       mcp.handlers.set(name, handler);
@@ -20,11 +20,11 @@ vi.mock('@modelcontextprotocol/server', () => ({
   fromJsonSchema: (schema: unknown) => schema,
 }));
 
-vi.mock('../src/features/servers/ssrf.js', () => ({
-  assertSafeUrl: vi.fn(async () => undefined),
-}));
+const ssrfMock = mock(async () => undefined);
 
-const ssrfMock = vi.mocked(assertSafeUrl);
+mock.module('../src/modules/servers/ssrf.js', () => ({
+  assertSafeUrl: ssrfMock,
+}));
 
 const tool: ApiTool = {
   id: 'tool_1',
@@ -77,19 +77,17 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
+  unstubAllGlobals();
   mcp.handlers.clear();
 });
 
 it('cancels the suspended call when the run ends before approval, without touching upstream', async () => {
-  vi.useFakeTimers({ now: 0 });
-  const fetchSpy = vi.fn(async () => new Response('ok'));
-  vi.stubGlobal('fetch', fetchSpy);
+  const fetchSpy = mock(async () => new Response('ok'));
+  stubGlobal('fetch', fetchSpy);
 
   let active = true;
   let approvals: string[] = [];
-  const onApprovalRequired = vi.fn(async () => undefined);
+  const onApprovalRequired = mock(async () => undefined);
 
   buildGeneratedServer({
     ...baseInput,
@@ -100,25 +98,22 @@ it('cancels the suspended call when the run ends before approval, without touchi
   });
 
   const call = callTool(new AbortController().signal);
-  await vi.advanceTimersByTimeAsync(0);
-  expect(onApprovalRequired).toHaveBeenCalledTimes(1);
+  await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(1));
 
   // 取消发生在等待窗口内：run 结束，随后即使出现批准记录也不再执行。
   active = false;
   approvals = ['approve-tool'];
-  await vi.advanceTimersByTimeAsync(500);
 
   expectCancelled(await call);
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
 it('cancels immediately when the request signal aborts during the wait', async () => {
-  vi.useFakeTimers({ now: 0 });
-  const fetchSpy = vi.fn(async () => new Response('ok'));
-  vi.stubGlobal('fetch', fetchSpy);
+  const fetchSpy = mock(async () => new Response('ok'));
+  stubGlobal('fetch', fetchSpy);
 
   const controller = new AbortController();
-  const onApprovalRequired = vi.fn(async () => undefined);
+  const onApprovalRequired = mock(async () => undefined);
   buildGeneratedServer({
     ...baseInput,
     isRunActive: async () => true,
@@ -127,20 +122,19 @@ it('cancels immediately when the request signal aborts during the wait', async (
   });
 
   const call = callTool(controller.signal);
-  await vi.advanceTimersByTimeAsync(0);
+  await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(1));
   controller.abort();
-  await vi.advanceTimersByTimeAsync(500);
 
-  // 截止时刻是 1000ms：500ms 就返回说明是取消，不是超时。
+  // 截止时刻是 1000ms：提前返回说明是取消，不是超时。
   expectCancelled(await call);
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
 it('refuses an already approved tool when the run is no longer active', async () => {
-  const fetchSpy = vi.fn(async () => {
+  const fetchSpy = mock(async () => {
     throw new Error('upstream must not be called for an ended run');
   });
-  vi.stubGlobal('fetch', fetchSpy);
+  stubGlobal('fetch', fetchSpy);
 
   buildGeneratedServer({
     ...baseInput,
@@ -155,8 +149,8 @@ it('refuses an already approved tool when the run is no longer active', async ()
 it('checks cancellation after the DNS gate and before fetch', async () => {
   const gate = deferred();
   ssrfMock.mockImplementation(() => gate.promise);
-  const fetchSpy = vi.fn(async () => new Response('ok'));
-  vi.stubGlobal('fetch', fetchSpy);
+  const fetchSpy = mock(async () => new Response('ok'));
+  stubGlobal('fetch', fetchSpy);
 
   const controller = new AbortController();
   buildGeneratedServer({
@@ -166,7 +160,7 @@ it('checks cancellation after the DNS gate and before fetch', async () => {
   });
 
   const call = callTool(controller.signal);
-  await vi.waitFor(() => expect(ssrfMock).toHaveBeenCalledTimes(1));
+  await waitForAssertion(() => expect(ssrfMock).toHaveBeenCalledTimes(1));
   controller.abort();
   gate.resolve();
 
@@ -178,7 +172,7 @@ it.each([0, 1000])(
   'does not create an approval after cancellation during a status read (%i ms)',
   async (approvalWaitMs) => {
     const controller = new AbortController();
-    const onApprovalRequired = vi.fn(async () => undefined);
+    const onApprovalRequired = mock(async () => undefined);
     let reads = 0;
     buildGeneratedServer({
       ...baseInput,
@@ -196,8 +190,8 @@ it.each([0, 1000])(
 );
 
 it('still calls upstream for an active run with approval', async () => {
-  const fetchSpy = vi.fn(async () => new Response('ok'));
-  vi.stubGlobal('fetch', fetchSpy);
+  const fetchSpy = mock(async () => new Response('ok'));
+  stubGlobal('fetch', fetchSpy);
 
   buildGeneratedServer({
     ...baseInput,

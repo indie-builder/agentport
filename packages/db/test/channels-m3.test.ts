@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as channelsRepo from '../src/repo/channels.js';
@@ -14,8 +14,8 @@ import {
   servers,
 } from '../src/schema.js';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -90,7 +90,7 @@ afterAll(async () => {
   for (const serverId of serverIds) {
     await db.delete(servers).where(eq(servers.id, serverId));
   }
-  await pool.end();
+  await client.close();
 });
 
 describe.skipIf(!ready)('closed channels reject new content', () => {

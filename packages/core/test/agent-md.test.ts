@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { parseAgentMd } from '../src/agent-md.js';
 import { AppError } from '../src/errors.js';
 

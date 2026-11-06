@@ -2,19 +2,20 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   seedRun,
   startApp,
+  type TestApp,
   unique,
   waitFor,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
@@ -23,7 +24,8 @@ const ready = await infraReady;
  * 「run 取消后，挂起中的工具调用不再打上游」。
  */
 describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let listener: TestServer;
   let cookie: string;
   let baseUrl: string;
   let server: Server;
@@ -37,9 +39,8 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
   beforeAll(async () => {
     app = await startApp({ APPROVAL_WAIT_MS: '1000' });
     cookie = await loginCookie(app);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    listener = await listen(app);
+    baseUrl = listener.url;
 
     // 本机上游：调用计数就是「取消后是否真打了上游」的唯一证据。
     const upstreamServer = createServer((_req, res) => {
@@ -55,7 +56,7 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
 
     const name = unique('cancel-mcp');
     createdServers.push(name);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -64,7 +65,7 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
     expect(res.statusCode, res.body).toBe(201);
     server = res.json<Server>();
 
-    const toolRes = await inject(app, {
+    const toolRes = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/tools`,
       headers: { cookie },
@@ -79,15 +80,16 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
     });
     expect(toolRes.statusCode, toolRes.body).toBe(201);
 
-    const row = await app.pool.query<{ token: string }>(
+    const row = await app.client.unsafe<{ token: string }[]>(
       "select config->>'mcpToken' as token from servers where id = $1",
       [server.id],
     );
-    token = row.rows[0]?.token ?? '';
+    token = row[0]?.token ?? '';
     expect(token).not.toBe('');
   });
 
   afterAll(async () => {
+    await listener.close();
     upstream.abort();
     await cleanup(app, { serverNames: createdServers, agentSlugs: createdAgents, runIds });
     await app.close();
@@ -116,7 +118,7 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
 
       // 等挂起请求落库并带未来截止时间，再取消；顺序固定，不靠 sleep 猜时序。
       const seeded = await waitFor(async () => {
-        const res = await inject(app, {
+        const res = await request(app, {
           method: 'GET',
           url: `/api/runs/${runId}/approvals`,
           headers: { cookie },
@@ -125,7 +127,7 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
       });
       expect(seeded).toBe(true);
 
-      const cancel = await inject(app, {
+      const cancel = await request(app, {
         method: 'POST',
         url: `/api/chat/${runId}/cancel`,
         headers: { cookie },

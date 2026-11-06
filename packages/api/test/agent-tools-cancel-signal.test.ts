@@ -1,9 +1,8 @@
 import { repo } from '@agentport/db';
 import { RUN_CANCEL_PAYLOAD, runCancelKey, runStreamKey } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createInvoker } from '../src/features/servers/agent-invoker.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
   cleanup,
@@ -12,6 +11,7 @@ import {
   loginCookie,
   queueIdle,
   startApp,
+  type TestApp,
   testConfig,
   unique,
   waitFor,
@@ -35,7 +35,7 @@ async function settledWithin(promise: Promise<void>, ms: number): Promise<boolea
 }
 
 describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let redis: Redis;
   const createdAgents: string[] = [];
@@ -62,19 +62,19 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
   });
 
   const ownRun = async (agentId: string): Promise<string | undefined> => {
-    const rows = await app.pool.query<{ id: string }>(
+    const rows = await app.client.unsafe<{ id: string }[]>(
       'select id from agent_runs where agent_id = $1 order by created_at desc limit 1',
       [agentId],
     );
-    return rows.rows[0]?.id;
+    return rows[0]?.id;
   };
 
   const statusOf = async (runId: string): Promise<string | undefined> => {
-    const rows = await app.pool.query<{ status: string }>(
+    const rows = await app.client.unsafe<{ status: string }[]>(
       'select status from agent_runs where id = $1',
       [runId],
     );
-    return rows.rows[0]?.status;
+    return rows[0]?.status;
   };
 
   /** 等到本次 agent 的 run 建好并真实入队；返回 runId。 */

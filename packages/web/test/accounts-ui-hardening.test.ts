@@ -81,7 +81,7 @@ function json(value: unknown, status = 200): Response {
   return Response.json(value, { status });
 }
 function problem(status: number, message: string, code = 'ERROR'): Response {
-  return Response.json({ code, message }, { status });
+  return Response.json({ code, message, status, requestId: '', retryable: false }, { status });
 }
 function bodyOf(path: string, method = 'PUT'): unknown {
   return calls.find((call) => call.method === method && call.path === path)?.body;
@@ -264,11 +264,17 @@ function prepare(): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input), 'http://localhost');
+      const request =
+        input instanceof Request
+          ? input
+          : new Request(new URL(String(input), 'http://localhost'), init);
+      const url = new URL(request.url);
+      const bodyText =
+        request.method === 'GET' || request.method === 'HEAD' ? '' : await request.clone().text();
       const call: Call = {
-        method: init?.method ?? 'GET',
+        method: request.method,
         path: url.pathname,
-        ...(init?.body === undefined ? {} : { body: JSON.parse(String(init.body)) }),
+        ...(bodyText === '' ? {} : { body: JSON.parse(bodyText) }),
       };
       calls.push(call);
       const match = handlers.find(

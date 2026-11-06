@@ -1,7 +1,6 @@
 import { newId } from '@agentport/db';
 import type { Agent, EvalDataset, EvalDatasetImportResult } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -9,9 +8,10 @@ import {
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -31,7 +31,7 @@ interface ExportedDataset {
 }
 
 describe.skipIf(!ready)('eval dataset files', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -57,14 +57,14 @@ describe.skipIf(!ready)('eval dataset files', () => {
   });
 
   const exportCases = (agentId: string, withCookie = true) =>
-    inject(app, {
+    request(app, {
       method: 'GET',
       url: `/api/eval/cases/export?agentId=${encodeURIComponent(agentId)}`,
       headers: withCookie ? { cookie } : {},
     });
 
   const importCases = (agentId: string, file: unknown, withCookie = true) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/eval/cases/import',
       headers: withCookie ? { cookie } : {},
@@ -72,7 +72,7 @@ describe.skipIf(!ready)('eval dataset files', () => {
     });
 
   const startRun = (agentId: string, withCookie = true) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/eval/runs',
       headers: withCookie ? { cookie } : {},
@@ -81,7 +81,7 @@ describe.skipIf(!ready)('eval dataset files', () => {
 
   const listCases = async (agentId: string): Promise<EvalCaseRow[]> =>
     (
-      await inject(app, {
+      await request(app, {
         method: 'GET',
         url: `/api/eval/cases?agentId=${encodeURIComponent(agentId)}`,
         headers: { cookie },
@@ -89,18 +89,18 @@ describe.skipIf(!ready)('eval dataset files', () => {
     ).json<EvalCaseRow[]>();
 
   const countCases = async (agentId: string): Promise<number> => {
-    const res = await app.pool.query<{ n: number }>(
+    const res = await app.client.unsafe<{ n: number }[]>(
       'select count(*)::int as n from eval_cases where agent_id = $1',
       [agentId],
     );
-    return res.rows[0]?.n ?? -1;
+    return res[0]?.n ?? -1;
   };
 
   const createCase = (
     agentId: string,
     input: { name: string; prompt: string; expectation: string },
   ) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/eval/cases',
       headers: { cookie },
@@ -109,7 +109,7 @@ describe.skipIf(!ready)('eval dataset files', () => {
 
   /** 直接落库超过上限的用例，避免为造数据跑 500 次请求。 */
   const seedCases = (agentId: string, count: number, prompt?: string) =>
-    app.pool.query(
+    app.client.unsafe(
       `insert into eval_cases (id, agent_id, name, prompt, expectation, created_by)
        select $1 || '-seed-' || g, $1, 'seeded-' || g, coalesce($3, 'p' || g), '', $4
        from generate_series(1, $2) g`,
@@ -123,7 +123,7 @@ describe.skipIf(!ready)('eval dataset files', () => {
 
   it('rejects export without agentId', async () => {
     expectProblem(
-      await inject(app, { method: 'GET', url: '/api/eval/cases/export', headers: { cookie } }),
+      await request(app, { method: 'GET', url: '/api/eval/cases/export', headers: { cookie } }),
       'INVALID_INPUT',
     );
   });
@@ -147,24 +147,24 @@ describe.skipIf(!ready)('eval dataset files', () => {
     const maintainer = await createTestAccount(app, cookie, { systemKeys: ['maintainer'] });
 
     const requestsFor = (agentId: string) => [
-      inject(app, {
+      request(app, {
         method: 'GET',
         url: `/api/eval/cases/export?agentId=${encodeURIComponent(agentId)}`,
         headers: { cookie: maintainer.cookie },
       }),
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: '/api/eval/cases',
         headers: { cookie: maintainer.cookie },
         payload: { agentId, name: 'hidden', prompt: 'p', expectation: '' },
       }),
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: '/api/eval/cases/import',
         headers: { cookie: maintainer.cookie },
         payload: { agentId, dataset: dataset([]) },
       }),
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: '/api/eval/runs',
         headers: { cookie: maintainer.cookie },
@@ -246,10 +246,12 @@ describe.skipIf(!ready)('eval dataset files', () => {
 
     const exported = await exportCases(source.id);
     expect(exported.statusCode).toBe(200);
-    expect(exported.headers['content-disposition']).toBe('attachment; filename="eval-cases.json"');
-    expect(exported.headers['cache-control']).toBe('no-store');
-    expect(exported.headers['x-content-type-options']).toBe('nosniff');
-    expect(exported.headers['content-type']).toContain('application/json');
+    expect(exported.headers.get('content-disposition')).toBe(
+      'attachment; filename="eval-cases.json"',
+    );
+    expect(exported.headers.get('cache-control')).toBe('no-store');
+    expect(exported.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(exported.headers.get('content-type')).toContain('application/json');
 
     const body = exported.json<ExportedDataset>();
     expect(Object.keys(body).sort()).toEqual(['cases', 'exportedAt', 'format']);
@@ -320,53 +322,58 @@ describe.skipIf(!ready)('eval dataset files', () => {
       { name: 'brand-new', prompt: 'second', expectation: '' },
     ];
 
-    type TxClient = { query: (...args: unknown[]) => unknown };
+    type TxClient = { unsafe: (...args: unknown[]) => unknown };
     const captured: Array<{ sql: string; params: unknown[]; rows: number }> = [];
-    // 池会复用 client，必须按 client 记录原始 query 才能在 finally 还原，避免污染后续请求。
-    const wrappedClients: Array<{ client: TxClient; originalQuery: TxClient['query'] }> = [];
-    const originalConnect = app.pool.connect.bind(app.pool) as (
-      callback?: (...args: unknown[]) => void,
-    ) => unknown;
-    const connectSpy = vi.spyOn(app.pool, 'connect').mockImplementation(((
-      callback?: (...args: unknown[]) => void,
-    ) => {
-      // Pool.query 走回调式 connect；只包裹事务直接取到的 client。
-      if (callback) return originalConnect(callback);
-      return (originalConnect() as Promise<TxClient>).then((client) => {
-        if (wrappedClients.some((entry) => entry.client === client)) return client;
-        const originalQuery = client.query;
-        wrappedClients.push({ client, originalQuery });
-        client.query = (...args: unknown[]) => {
-          const result = originalQuery.apply(client, args);
-          // Drizzle 带字段的查询把 SQL 放进 QueryConfig 对象，而不是第一个字符串参数。
-          const first = args[0] as { text?: unknown } | undefined;
-          const sql =
-            typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : '';
-          if (!/^select "name" from "eval_cases"/i.test(sql)) return result;
-          // 透传真实查询结果，只读取返回行数作为过滤生效的证据。
-          return Promise.resolve(result).then((res) => {
-            captured.push({
-              sql,
-              params: Array.isArray(args[1]) ? args[1] : [],
-              rows: (res as { rows: unknown[] }).rows.length,
+    const wrappedClients: Array<{ client: TxClient; originalQuery: TxClient['unsafe'] }> = [];
+    const originalBegin = app.client.begin.bind(app.client) as <T>(
+      fn: (client: TxClient) => Promise<T>,
+    ) => Promise<T>;
+    const beginSpy = spyOn(app.client, 'begin').mockImplementation((<T>(
+      callback: (client: TxClient) => Promise<T>,
+    ) =>
+      originalBegin((client) => {
+        if (!wrappedClients.some((entry) => entry.client === client)) {
+          const originalQuery = client.unsafe;
+          wrappedClients.push({ client, originalQuery });
+          client.unsafe = (...args: unknown[]) => {
+            const result = originalQuery.apply(client, args) as {
+              values?: () => Promise<unknown[]>;
+            } & PromiseLike<unknown[]>;
+            const first = args[0] as { text?: unknown } | undefined;
+            const sql =
+              typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : '';
+            if (!/^select "name" from "eval_cases"/i.test(sql)) return result;
+            let recorded = false;
+            const record = (res: unknown[]) => {
+              if (!recorded) {
+                recorded = true;
+                captured.push({
+                  sql,
+                  params: Array.isArray(args[1]) ? args[1] : [],
+                  rows: res.length,
+                });
+              }
+              return res;
+            };
+            const promise = Promise.resolve(result).then(record);
+            return Object.assign(promise, {
+              values: () => Promise.resolve(result.values?.() ?? []).then(record),
             });
-            return res;
-          });
-        };
-        return client;
-      });
-    }) as never);
+          };
+        }
+        return callback(client);
+      })) as never);
 
     let res: Awaited<ReturnType<typeof importCases>>;
     try {
       res = await importCases(agent.id, dataset(candidates));
     } finally {
-      for (const { client, originalQuery } of wrappedClients) client.query = originalQuery;
-      connectSpy.mockRestore();
+      for (const { client, originalQuery } of wrappedClients) client.unsafe = originalQuery;
+      beginSpy.mockRestore();
     }
 
     for (const { client, originalQuery } of wrappedClients) {
-      expect(client.query).toBe(originalQuery);
+      expect(client.unsafe).toBe(originalQuery);
     }
 
     expect(res.statusCode).toBe(201);
@@ -435,16 +442,16 @@ describe.skipIf(!ready)('eval dataset files', () => {
       dataset([{ name: 'no-run', prompt: 'p', expectation: '' }]),
     );
     expect(res.statusCode).toBe(201);
-    const runs = await app.pool.query<{ n: number }>(
+    const runs = await app.client.unsafe<{ n: number }[]>(
       'select count(*)::int as n from eval_runs where agent_id = $1',
       [agent.id],
     );
-    expect(runs.rows[0]?.n).toBe(0);
-    const results = await app.pool.query<{ n: number }>(
+    expect(runs[0]?.n).toBe(0);
+    const results = await app.client.unsafe<{ n: number }[]>(
       `select count(*)::int as n from eval_results r
        join eval_runs e on e.id = r.eval_run_id where e.agent_id = $1`,
       [agent.id],
     );
-    expect(results.rows[0]?.n).toBe(0);
+    expect(results[0]?.n).toBe(0);
   });
 });

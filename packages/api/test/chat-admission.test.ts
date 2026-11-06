@@ -1,17 +1,17 @@
 import { repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
   queueIdle,
+  request,
   startApp,
+  type TestApp,
   unique,
   waitFor,
 } from './helpers.js';
@@ -22,7 +22,7 @@ const ACTIVE = ['queued', 'running'] as const;
 const TERMINAL = ['succeeded', 'failed', 'cancelled', 'timeout'] as const;
 
 describe.skipIf(!ready)('chat admission', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
   const runIds: string[] = [];
@@ -62,7 +62,7 @@ describe.skipIf(!ready)('chat admission', () => {
     ).id;
 
   const post = (agentId: string, conversationId: string, message: string) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: { cookie },
@@ -70,29 +70,29 @@ describe.skipIf(!ready)('chat admission', () => {
     });
 
   const runCount = async (conversationId: string): Promise<number> => {
-    const res = await app.pool.query<{ count: string }>(
+    const res = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from agent_runs where conversation_id = $1',
       [conversationId],
     );
-    return Number(res.rows[0]?.count);
+    return Number(res[0]?.count);
   };
 
   const userMessageCount = async (conversationId: string): Promise<number> => {
-    const res = await app.pool.query<{ count: string }>(
+    const res = await app.client.unsafe<{ count: string }[]>(
       "select count(*) from messages where conversation_id = $1 and role = 'user'",
       [conversationId],
     );
-    return Number(res.rows[0]?.count);
+    return Number(res[0]?.count);
   };
 
   const requestedAuditCount = async (conversationId: string): Promise<number> => {
-    const res = await app.pool.query<{ count: string }>(
+    const res = await app.client.unsafe<{ count: string }[]>(
       `select count(*) from audit_log
         where action = 'agent.run.requested'
           and target in (select id from agent_runs where conversation_id = $1)`,
       [conversationId],
     );
-    return Number(res.rows[0]?.count);
+    return Number(res[0]?.count);
   };
 
   const seedRun = async (
@@ -214,29 +214,28 @@ describe.skipIf(!ready)('chat admission', () => {
       prompt: 'latest question',
     });
     // 续聊身份在准入时就固定：平台生成的 uuid 与用户消息一一对应。
-    const [stored] = await app.pool
-      .query<{ sdk_message_uuid: string }>(
+    const [stored] = await app.client.unsafe<{ sdk_message_uuid: string }[]>(
         "select sdk_message_uuid from messages where run_id = $1 and role = 'user'",
         [runId],
       )
-      .then((result) => result.rows);
+      .then((result) => result);
     expect(stored?.sdk_message_uuid).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('waits on the conversation row lock before admitting the run', async () => {
     const agent = await newAgent();
     const conversationId = await newConversation(agent.id);
-    const locker = await app.pool.connect();
-    const lockerPid = (await locker.query<{ pid: number }>('select pg_backend_pid() as pid'))
-      .rows[0]?.pid;
+    const locker = await app.client.reserve();
+    const lockerPid = (await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid'))
+      [0]?.pid;
 
     try {
-      await locker.query('begin');
-      await locker.query('select id from conversations where id = $1 for update', [conversationId]);
+      await locker.unsafe('begin');
+      await locker.unsafe('select id from conversations where id = $1 for update', [conversationId]);
 
       const pending = post(agent.id, conversationId, 'queued behind a lock');
       const blocked = await waitFor(async () => {
-        const res = await app.pool.query(
+        const res = await app.client.unsafe(
           `select pid from pg_stat_activity
             where wait_event_type = 'Lock'
               and query ilike '%conversations%'
@@ -244,28 +243,28 @@ describe.skipIf(!ready)('chat admission', () => {
               and $1 = any(pg_blocking_pids(pid))`,
           [lockerPid],
         );
-        return (res.rowCount ?? 0) > 0;
+        return res.length > 0;
       });
       expect(blocked, 'POST /api/chat must wait on the conversation row lock').toBe(true);
       expect(await runCount(conversationId)).toBe(0);
 
-      await locker.query('commit');
+      await locker.unsafe('commit');
 
       const res = await pending;
       expect(res.statusCode, res.body).toBe(202);
       runIds.push(res.json<{ runId: string }>().runId);
       expect(await runCount(conversationId)).toBe(1);
     } finally {
-      await locker.query('rollback').catch(() => undefined);
+      await locker.unsafe('rollback').catch(() => undefined);
       locker.release();
     }
   });
 
   it('rejects an admission that passed the enabled precheck when the agent is disabled while it waits', async () => {
     const agent = await newAgent();
-    const locker = await app.pool.connect();
+    const locker = await app.client.reserve();
     const postNewConversation = (message: string) =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: '/api/chat',
         headers: { cookie },
@@ -274,14 +273,14 @@ describe.skipIf(!ready)('chat admission', () => {
     let pendingPost: ReturnType<typeof postNewConversation> | undefined;
     let pendingAdmission: Promise<unknown> | undefined;
     try {
-      const own = await locker.query<{ pid: number }>('select pg_backend_pid() as pid');
-      const lockerPid = own.rows[0]?.pid;
-      await locker.query('begin');
+      const own = await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
+      const lockerPid = own[0]?.pid;
+      await locker.unsafe('begin');
       // 真实停用路径也先拿这把绑定锁；持锁不提交，两条准入会先通过各自的 enabled 预检再停在锁上。
-      await locker.query('select pg_advisory_xact_lock(hashtext($1))', [
+      await locker.unsafe('select pg_advisory_xact_lock(hashtext($1))', [
         'agentport.subagent-bindings',
       ]);
-      await locker.query('update agents set enabled = false where id = $1', [agent.id]);
+      await locker.unsafe('update agents set enabled = false where id = $1', [agent.id]);
 
       pendingPost = postNewConversation('disabled while waiting');
       // 共享准入的直接入口没有外层预检，用它证明检查发生在准入锁内。
@@ -297,18 +296,18 @@ describe.skipIf(!ready)('chat admission', () => {
         );
 
       const blocked = await waitFor(async () => {
-        const res = await app.pool.query<{ count: string }>(
+        const res = await app.client.unsafe<{ count: string }[]>(
           `select count(*) as count from pg_stat_activity
             where wait_event_type = 'Lock'
               and query ilike '%pg_advisory_xact_lock%'
               and $1 = any(pg_blocking_pids(pid))`,
           [lockerPid],
         );
-        return Number(res.rows[0]?.count) >= 2;
+        return Number(res[0]?.count) >= 2;
       });
       expect(blocked, 'both admissions must wait on the binding lock').toBe(true);
 
-      await locker.query('commit');
+      await locker.unsafe('commit');
 
       const problem = expectProblem(await pendingPost, 'AGENT_DISABLED');
       expect(problem.message).toBe('该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
@@ -317,11 +316,11 @@ describe.skipIf(!ready)('chat admission', () => {
         message: '该智能体已停用，无法发起新对话；请到智能体页面启用后再试',
       });
 
-      const counts = await app.pool.query<{
+      const counts = await app.client.unsafe<{
         conversations: string;
         runs: string;
         messages: string;
-      }>(
+      }[]>(
         `select
            (select count(*) from conversations where agent_id = $1) as conversations,
            (select count(*) from agent_runs where agent_id = $1) as runs,
@@ -330,9 +329,9 @@ describe.skipIf(!ready)('chat admission', () => {
              where c.agent_id = $1) as messages`,
         [agent.id],
       );
-      expect(counts.rows[0]).toEqual({ conversations: '0', runs: '0', messages: '0' });
+      expect(counts[0]).toEqual({ conversations: '0', runs: '0', messages: '0' });
     } finally {
-      await locker.query('rollback').catch(() => undefined);
+      await locker.unsafe('rollback').catch(() => undefined);
       locker.release();
       // 失败路径下准入可能仍在排队；等它落地再让 cleanup 删 agent。
       await pendingPost;
@@ -343,14 +342,14 @@ describe.skipIf(!ready)('chat admission', () => {
   it('checks the agent before taking the conversation lock, so a concurrent delete cannot deadlock', async () => {
     const agent = await newAgent();
     const conversationId = await newConversation(agent.id);
-    const locker = await app.pool.connect();
-    const probe = await app.pool.connect();
+    const locker = await app.client.reserve();
+    const probe = await app.client.reserve();
     let pending: Promise<unknown> | undefined;
     try {
-      const own = await locker.query<{ pid: number }>('select pg_backend_pid() as pid');
-      const lockerPid = own.rows[0]?.pid;
-      await locker.query('begin');
-      await locker.query('select id from agents where id = $1 for update', [agent.id]);
+      const own = await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
+      const lockerPid = own[0]?.pid;
+      await locker.unsafe('begin');
+      await locker.unsafe('select id from agents where id = $1 for update', [agent.id]);
 
       pending = repo.chat
         .admitChatRun(app.db, {
@@ -365,37 +364,35 @@ describe.skipIf(!ready)('chat admission', () => {
         );
 
       const blocked = await waitFor(async () => {
-        const res = await app.pool.query(
+        const res = await app.client.unsafe(
           `select pid from pg_stat_activity
             where wait_event_type = 'Lock'
               and $1 = any(pg_blocking_pids(pid))`,
           [lockerPid],
         );
-        return (res.rowCount ?? 0) > 0;
+        return res.length > 0;
       });
       expect(blocked, 'admission must wait on the agent row').toBe(true);
       expect(await runCount(conversationId)).toBe(0);
 
       // 等待中的准入不得持有会话行锁；否则与 DELETE agents 的级联锁形成环。
-      await probe.query('begin');
-      await expect(
-        probe.query('select id from conversations where id = $1 for update nowait', [
-          conversationId,
-        ]),
-      ).resolves.toBeDefined();
-      await probe.query('rollback');
+      await probe.unsafe('begin');
+      await probe.unsafe('select id from conversations where id = $1 for update nowait', [
+        conversationId,
+      ]);
+      await probe.unsafe('rollback');
 
-      await locker.query('delete from agents where id = $1', [agent.id]);
-      await locker.query('commit');
+      await locker.unsafe('delete from agents where id = $1', [agent.id]);
+      await locker.unsafe('commit');
 
       expect(await pending).toMatchObject({
         code: 'AGENT_NOT_FOUND',
         message: '智能体不存在，可能已被删除；请刷新后重新选择',
       });
     } finally {
-      await locker.query('rollback').catch(() => undefined);
+      await locker.unsafe('rollback').catch(() => undefined);
       locker.release();
-      await probe.query('rollback').catch(() => undefined);
+      await probe.unsafe('rollback').catch(() => undefined);
       probe.release();
       // 失败路径下准入可能仍在排队；等它落地再让 cleanup 删 agent。
       await pending;

@@ -15,8 +15,8 @@ import {
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import pino from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { deleteAgentWithSandboxes } from '../../api/src/features/runtime-deletion.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { deleteAgentWithSandboxes } from '../../api/src/modules/runtime-deletion.js';
 import { DockerSandboxProvider } from '../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
 import { startSessionCleanupChannel } from '../src/sandbox/session-cleanup.js';
@@ -28,7 +28,7 @@ import { createIsolatedDatabase } from './isolated-db.js';
  * 真实 Docker 的删除关闭验收：idle supervisor → tx A → 事务外关闭请求 → 确认后才进入 tx B 删行。
  * 只使用独占临时目录、独立数据库与假 secret；镜像基于本机 agentport/sandbox:dev 与本轮源码构建，不联网。
  */
-const BASE_IMAGE = 'agentport/sandbox:dev';
+const BASE_IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const IMAGE_TAG = `session-cleanup-lifecycle-test-${randomUUID().slice(0, 8)}`;
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 // 新编排使用生产默认信道；独占 Redis 才能与其他套件的默认信道测试并行。
@@ -40,8 +40,8 @@ const isolatedDb = await createIsolatedDatabase(
   'worker_session_cleanup_docker',
   process.env.DATABASE_URL ?? '',
 );
-const { db, pool } = createDb(isolatedDb?.url ?? 'postgres://unreachable@127.0.0.1:1/unavailable');
-const dbReady = await pool.query('select 1').then(
+const { db, client } = createDb(isolatedDb?.url ?? 'postgres://unreachable@127.0.0.1:1/unavailable');
+const dbReady = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -111,8 +111,8 @@ let buildContext = '';
 /** 从当前源码构建一次性派生镜像；不拉取、不复用旧 dist 而不校验构建结果。 */
 async function buildTestImage(): Promise<void> {
   const compiled = spawnSync(
-    'pnpm',
-    ['exec', 'tsc', '-b', 'packages/sandbox/tsconfig.json', '--force'],
+    'bun',
+    ['run', 'tsc', '-b', 'packages/sandbox/tsconfig.json', '--force'],
     {
       cwd: REPO_ROOT,
       encoding: 'utf8',
@@ -134,7 +134,7 @@ async function buildTestImage(): Promise<void> {
     [
       `FROM ${BASE_IMAGE}`,
       'COPY --chown=node:node dist/ /app/dist/',
-      'COPY --chown=node:node shared/ /app/node_modules/@agentport/shared/dist/',
+      'COPY --chown=node:node shared/ /app/packages/shared/dist/',
       '',
     ].join('\n'),
   );
@@ -256,7 +256,7 @@ async function setup(failDestroy = false): Promise<Incident> {
 
 function deleteWithClose(incident: Incident): Promise<boolean> {
   return deleteAgentWithSandboxes({
-    pool,
+    client,
     redisUrl: REDIS_URL,
     deletion: {
       id: incident.agentId,
@@ -279,7 +279,7 @@ afterAll(async () => {
     await rm(buildContext, { recursive: true, force: true });
   }
   await stopRedisContainer(isolatedRedis);
-  await pool.end();
+  await client.close();
   await isolatedDb?.close();
 });
 

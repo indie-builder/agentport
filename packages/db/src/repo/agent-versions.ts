@@ -36,8 +36,8 @@ function isVersionConflict(err: unknown): boolean {
   let cause: unknown = err;
   for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
     if (
-      'code' in cause &&
-      cause.code === '23505' &&
+      'errno' in cause &&
+      cause.errno === '23505' &&
       'constraint' in cause &&
       cause.constraint === 'agent_versions_agent_version_idx'
     ) {

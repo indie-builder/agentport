@@ -1,8 +1,14 @@
-import { inject } from 'vitest';
-import type { BackendInfra } from './isolated-db.js';
+if (process.env.AGENTPORT_BACKEND_TEST !== '1') {
+  throw new Error('Run backend tests with bun run test so PostgreSQL and Redis stay isolated');
+}
 
-// 必须在测试模块导入前切到本轮独享资源；拿不到时 globalSetup 给的是不可连地址。
-const infra = inject('backendInfra') as BackendInfra;
-
-process.env.DATABASE_URL = infra.DATABASE_URL;
-process.env.REDIS_URL = infra.REDIS_URL;
+Object.assign(process.env, {
+  NODE_ENV: 'development',
+  LOG_LEVEL: 'error',
+  APP_SECRET_KEY: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY',
+  ADMIN_USER: 'admin',
+  ADMIN_PASSWORD: 'test-admin-password',
+  JWT_SECRET: 'test-jwt-secret-at-least-16-bytes',
+  RATE_LIMIT_DISABLED: '1',
+  SELF_URL: 'http://127.0.0.1:3000',
+});

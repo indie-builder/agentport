@@ -1,14 +1,14 @@
 import type { Agent, WorkspaceFiles } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseAgentPackage } from '../src/features/agent-package.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { parseAgentPackage } from '../src/modules/agents/package.js';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -36,7 +36,7 @@ interface AgentMdImportResult {
 }
 
 describe.skipIf(!ready)('agent.md import', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -52,7 +52,7 @@ describe.skipIf(!ready)('agent.md import', () => {
 
   const auth = () => ({ cookie });
   const importFile = (agentMd: string) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/agents/import-file',
       headers: auth(),
@@ -77,7 +77,7 @@ describe.skipIf(!ready)('agent.md import', () => {
     ].join('\n');
 
   const agentSlugs = async (): Promise<string[]> => {
-    const res = await inject(app, { method: 'GET', url: '/api/agents', headers: auth() });
+    const res = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(res.statusCode).toBe(200);
     return res.json<Agent[]>().map((agent) => agent.slug);
   };
@@ -108,7 +108,7 @@ describe.skipIf(!ready)('agent.md import', () => {
     });
     expect(warnings.length).toBeGreaterThan(0);
 
-    const versions = await inject(app, {
+    const versions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/versions`,
       headers: auth(),
@@ -116,7 +116,7 @@ describe.skipIf(!ready)('agent.md import', () => {
     expect(versions.statusCode, versions.body).toBe(200);
     expect(versions.json<Array<{ version: number }>>().map((v) => v.version)).toEqual([1]);
 
-    const files = await inject(app, {
+    const files = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/files`,
       headers: auth(),
@@ -137,7 +137,7 @@ describe.skipIf(!ready)('agent.md import', () => {
     const duplicate = await importFile(agentMd(slug, ['maxTurns: 3']));
     expectProblem(duplicate, 'CONFLICT');
 
-    const loaded = await inject(app, {
+    const loaded = await request(app, {
       method: 'GET',
       url: `/api/agents/${original.id}`,
       headers: auth(),
@@ -185,7 +185,7 @@ describe.skipIf(!ready)('agent.md import', () => {
   });
 
   it('requires auth to import', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/agents/import-file',
       payload: { agentMd: agentMd(unique('md-anon')) },

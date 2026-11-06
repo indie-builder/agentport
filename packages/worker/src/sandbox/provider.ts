@@ -13,7 +13,7 @@ export interface SandboxCreateOptions {
    * 落在跨 run 持久的宿主目录，而不是沙盒内被回收的 tmpfs。
    */
   extraMounts?: Array<{ hostPath: string; containerPath: string; readonly?: boolean }>;
-  /** 覆盖镜像 ENTRYPOINT；试连用它换成 `node dist/probe.js`。 */
+  /** 覆盖镜像 ENTRYPOINT；试连用它换成 `bun dist/probe.js`。 */
   entrypoint?: string;
   /** ENTRYPOINT 之后的参数。 */
   command?: string[];

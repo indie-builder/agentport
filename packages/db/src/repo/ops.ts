@@ -147,6 +147,7 @@ export async function claimScheduleTrigger(
     await lockRunResources(tx, owner.agentId);
 
     const claimedAt = new Date(input.triggerAt);
+    const claimedAtIso = claimedAt.toISOString();
     const claimed = await tx
       .update(agentSchedules)
       .set({ lastRunAt: claimedAt })
@@ -154,7 +155,7 @@ export async function claimScheduleTrigger(
         and(
           eq(agentSchedules.id, input.scheduleId),
           eq(agentSchedules.enabled, true),
-          sql`(${agentSchedules.lastRunAt} is null or ${agentSchedules.lastRunAt} < ${claimedAt})`,
+          sql`(${agentSchedules.lastRunAt} is null or ${agentSchedules.lastRunAt} < ${claimedAtIso})`,
         ),
       )
       .returning();
@@ -247,6 +248,8 @@ export async function listRecentFailedRuns(db: Database, limit = 20) {
 export async function agentStats(db: Database, agentId: string, since: Date) {
   // 与 API 的 since 同一 UTC 自然日口径；分组、排序、展示必须用同一个表达式。
   const utcDay = sql`date_trunc('day', ${agentRuns.createdAt} AT TIME ZONE 'UTC')`;
+  const sinceUtc = since.toISOString();
+  const sinceUtcDay = sql`${agentRuns.createdAt} >= ${sinceUtc}`;
   const [[agg], daily] = await Promise.all([
     db
       .select({
@@ -265,7 +268,7 @@ export async function agentStats(db: Database, agentId: string, since: Date) {
         lastRunStartTime: sql<Date | null>`max(${agentRuns.startedAt})`,
       })
       .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, agentId), sql`${agentRuns.createdAt} >= ${since}`)),
+      .where(and(eq(agentRuns.agentId, agentId), sinceUtcDay)),
     db
       .select({
         day: sql<string>`to_char(${utcDay}, 'YYYY-MM-DD')`,
@@ -273,7 +276,7 @@ export async function agentStats(db: Database, agentId: string, since: Date) {
         cost: sql<number>`coalesce(sum(${agentRuns.costUsd}), 0)::float`,
       })
       .from(agentRuns)
-      .where(and(eq(agentRuns.agentId, agentId), sql`${agentRuns.createdAt} >= ${since}`))
+      .where(and(eq(agentRuns.agentId, agentId), sinceUtcDay))
       .groupBy(utcDay)
       .orderBy(utcDay),
   ]);

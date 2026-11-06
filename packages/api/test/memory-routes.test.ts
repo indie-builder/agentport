@@ -1,106 +1,75 @@
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { schema } from '@agentport/db';
-import { PERMISSIONS } from '@agentport/shared';
-import Fastify, { type FastifyInstance } from 'fastify';
-import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { registerAgentRoutes } from '../src/features/agents/routes.js';
-import { registerErrorHandler } from '../src/plugins/errors.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import {
+  cleanup,
+  createAgent,
+  infraReady,
+  loginCookie,
+  request,
+  startApp,
+  type TestApp,
+  unique,
+} from './helpers.js';
 
-vi.mock('../src/plugins/audit.js', () => ({ writeAudit: vi.fn() }));
-let app: FastifyInstance;
-let root: string;
-beforeEach(async () => {
-  root = await fs.mkdtemp(join(await fs.realpath(tmpdir()), 'memory-routes-'));
-  app = Fastify();
-  app.setValidatorCompiler(validatorCompiler);
-  app.setSerializerCompiler(serializerCompiler);
-  app.decorate('requireAuth', async () => {});
-  // 本轮只验证文件边界，不接数据库权限：给平台管理员主体并让 authorize 通过。
-  app.decorateRequest('principal', null);
-  const principal = {
-    kind: 'user' as const,
-    authUserId: 'test-auth-user',
-    businessId: 'bootstrap-admin',
-    username: 'admin',
-    name: 'Admin',
-    roles: [],
-    grants: PERMISSIONS.map((permission) => ({
-      permissionId: permission.id,
-      scope: 'platform' as const,
-    })),
-  };
-  app.addHook('onRequest', async (request) => {
-    request.principal = principal;
-  });
-  app.decorate('authorize', async () => {});
-  app.decorate('agentAccess', async (_request: unknown, agentId: string) => ({
-    agentId,
-    permissionIds: [],
-  }));
-  app.decorate('requirePermission', () => async () => {});
-  app.decorate('config', { WORKSPACES_DIR: root });
-  // 只模拟路由用到的查询形状：agents 查得到一行，其余（活动 run、变更账本）为空。
-  const chain = (table: unknown) => {
-    const rows = table === schema.agents ? [{ slug: 'agent' }] : [];
-    const result = {
-      from: () => chain(table),
-      where: () => result,
-      orderBy: async () => rows,
-      limit: async () => rows,
-    };
-    return result;
-  };
-  const select = () => ({ from: (table: unknown) => chain(table) });
-  const insert = () => ({
-    values: () => ({ returning: async () => [{ id: 'mch_test' }] }),
-  });
-  const tx = { execute: async () => undefined, select, insert };
-  app.decorate('db', { select, transaction: async (fn: (value: typeof tx) => unknown) => fn(tx) });
-  // withAdvisoryLock 仍是真实 helper：给出它需要的会话形状，锁只影响单次请求。
-  const lockClient = {
-    on: () => undefined,
-    removeListener: () => undefined,
-    release: () => undefined,
-    query: async (text: string) => {
-      if (text.includes('current_setting')) return { rows: [{ value: '0' }] };
-      if (text.includes('pg_advisory_unlock')) return { rows: [{ unlocked: true }] };
-      return { rows: [] };
-    },
-  };
-  app.decorate('pool', { connect: async () => lockClient });
-  registerErrorHandler(app);
-  registerAgentRoutes(app);
-  await app.ready();
-});
-afterEach(async () => {
-  await app.close();
-  await fs.rm(root, { recursive: true, force: true });
-});
+const ready = await infraReady;
 
-describe('memory routes', () => {
+describe.skipIf(!ready)('memory routes', () => {
+  let app: TestApp;
+  let cookie: string;
+  let root: string;
+  let id: string;
+  let brokenId: string;
+  const agentSlugs: string[] = [];
+
+  beforeAll(async () => {
+    root = await fs.mkdtemp(join(await fs.realpath(tmpdir()), 'memory-routes-'));
+    app = await startApp({ WORKSPACES_DIR: root });
+    cookie = await loginCookie(app);
+    id = (
+      await createAgent(app, cookie, {
+        slug: unique('memory-agent'),
+        track: agentSlugs,
+      })
+    ).json<{ id: string }>().id;
+    brokenId = (
+      await createAgent(app, cookie, {
+        slug: unique('memory-broken'),
+        track: agentSlugs,
+      })
+    ).json<{ id: string }>().id;
+  });
+
+  afterAll(async () => {
+    if (!app) return;
+    await cleanup(app, { agentSlugs });
+    await app.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
   it.each(['GET', 'PUT', 'DELETE'] as const)(
     'validates filenames before looking up the agent for %s',
     async (method) => {
       for (const name of ['.hidden.md', 'notes.txt', '..%2Fprivate.md', 'a%5Cb.md']) {
-        const response = await app.inject({
+        const response = await request(app, {
           method,
-          url: `/api/agents/agent/memory/${name}`,
+          url: `/api/agents/${id}/memory/${name}`,
+          headers: { cookie },
           ...(method === 'PUT' ? { payload: { content: 'x' } } : {}),
         });
         expect(response.statusCode, response.body).toBe(400);
-        expect(response.json()).toMatchObject({ code: 'INVALID_INPUT', path: '/name' });
+        expect(response.json()).toMatchObject({ code: 'INVALID_INPUT', path: '/params/name' });
       }
     },
   );
 
   it('returns 413 for oversized UTF-8 memory content', async () => {
     for (const content of ['界'.repeat(66_667), 'x'.repeat(200_001)]) {
-      const response = await app.inject({
+      const response = await request(app, {
         method: 'PUT',
-        url: '/api/agents/agent/memory/MEMORY.md',
+        url: `/api/agents/${id}/memory/MEMORY.md`,
+        headers: { cookie },
         payload: { content },
       });
       expect(response.statusCode, response.body.slice(0, 500)).toBe(413);
@@ -111,11 +80,14 @@ describe('memory routes', () => {
   it.each(['GET', 'PUT', 'DELETE'] as const)(
     'returns 400 for links without leaking their private path for %s',
     async (method) => {
-      await fs.mkdir(join(root, 'agent', 'agent-memory'), { recursive: true });
-      await fs.symlink('/private/secret-file.md', join(root, 'agent', 'agent-memory', 'MEMORY.md'));
-      const response = await app.inject({
+      const slug = agentSlugs[0] ?? '';
+      await fs.mkdir(join(root, slug, 'agent-memory'), { recursive: true });
+      await fs.rm(join(root, slug, 'agent-memory', 'MEMORY.md'), { force: true });
+      await fs.symlink('/private/secret-file.md', join(root, slug, 'agent-memory', 'MEMORY.md'));
+      const response = await request(app, {
         method,
-        url: '/api/agents/agent/memory/MEMORY.md',
+        url: `/api/agents/${id}/memory/MEMORY.md`,
+        headers: { cookie },
         ...(method === 'PUT' ? { payload: { content: 'x' } } : {}),
       });
       expect(response.statusCode).toBe(400);
@@ -126,10 +98,11 @@ describe('memory routes', () => {
   );
 
   it('reports an IO write failure as internal error without exposing filesystem details', async () => {
-    await fs.writeFile(join(root, 'agent'), 'not a directory');
-    const response = await app.inject({
+    await fs.writeFile(join(root, agentSlugs[1] ?? ''), 'not a directory');
+    const response = await request(app, {
       method: 'PUT',
-      url: '/api/agents/agent/memory/MEMORY.md',
+      url: `/api/agents/${brokenId}/memory/MEMORY.md`,
+      headers: { cookie },
       payload: { content: 'x' },
     });
     expect(response.statusCode).toBe(500);

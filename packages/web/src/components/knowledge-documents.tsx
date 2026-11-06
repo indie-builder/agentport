@@ -431,11 +431,15 @@ export function ManualDraftDialog({
               event.preventDefault();
               setError(null);
               if (content.trim() === '') return;
+              if (initial === null) {
+                setError('正文版本尚未载入，请稍后重试。');
+                return;
+              }
               save.mutate(
                 {
                   documentId,
                   content,
-                  expectedVersionId: initial?.versionId ?? null,
+                  expectedVersionId: initial.versionId,
                 },
                 {
                   onSuccess: (data) => setJobId(data.jobId),

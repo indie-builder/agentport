@@ -1,21 +1,23 @@
 import { SECRET_MASK, type Server } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
   waitFor,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('server concurrent writes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let server: TestServer;
   let cookie: string;
   let baseUrl: string;
   const created: string[] = [];
@@ -24,19 +26,18 @@ describe.skipIf(!ready)('server concurrent writes', () => {
     app = await startApp();
     cookie = await loginCookie(app);
     // MCP 端点走真实 HTTP 才能验证 token 是否仍然有效。
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address();
-    if (address === null || typeof address === 'string') throw new Error('no listen address');
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    server = await listen(app);
+    baseUrl = server.url;
   });
 
   afterAll(async () => {
+    await server.close();
     await cleanup(app, { serverNames: created });
     await app.close();
   });
 
   const post = (body: Record<string, unknown>) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -44,7 +45,7 @@ describe.skipIf(!ready)('server concurrent writes', () => {
     });
 
   const patch = (id: string, payload: Record<string, unknown>) =>
-    inject(app, {
+    request(app, {
       method: 'PATCH',
       url: `/api/servers/${id}`,
       headers: { cookie },
@@ -52,7 +53,7 @@ describe.skipIf(!ready)('server concurrent writes', () => {
     });
 
   const get = (id: string) =>
-    inject(app, { method: 'GET', url: `/api/servers/${id}`, headers: { cookie } });
+    request(app, { method: 'GET', url: `/api/servers/${id}`, headers: { cookie } });
 
   /**
    * 用一条独立连接持有行锁，让所有写请求都在同一时刻到达锁点：
@@ -62,20 +63,20 @@ describe.skipIf(!ready)('server concurrent writes', () => {
     pid: number;
     release: () => Promise<void>;
   }> {
-    const client = await app.pool.connect();
+    const client = await app.client.reserve();
     try {
-      await client.query('begin');
-      const { rows } = await client.query<{ pid: number }>('select pg_backend_pid() as pid');
+      await client.unsafe('begin');
+      const rows = await client.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
       const pid = rows[0]?.pid;
       if (pid === undefined) throw new Error('no backend pid');
-      await client.query('select id from servers where id = $1 for update', [id]);
+      await client.unsafe('select id from servers where id = $1 for update', [id]);
       return {
         pid,
         release: async () => {
           try {
-            await client.query('commit');
+            await client.unsafe('commit');
           } catch (err) {
-            await client.query('rollback').catch(() => undefined);
+            await client.unsafe('rollback').catch(() => undefined);
             throw err;
           } finally {
             client.release();
@@ -93,7 +94,7 @@ describe.skipIf(!ready)('server concurrent writes', () => {
    * 持锁连接后面，所以只数「正在等锁且与 servers 相关的会话」，不认具体阻塞者。
    */
   const waitingOnServerWrites = async (holderPid: number): Promise<number> => {
-    const { rows } = await app.pool.query<{ n: number }>(
+    const rows = await app.client.unsafe<{ n: number }[]>(
       `select count(*)::int as n from pg_stat_activity
        where datname = current_database()
          and pid <> $1
@@ -178,17 +179,17 @@ describe.skipIf(!ready)('server concurrent writes', () => {
     const newBaseUrl = 'http://127.0.0.1:3999/new';
     const server = (await post({ name, kind: 'generated', baseUrl: oldBaseUrl })).json<Server>();
 
-    const oldTokenRow = await app.pool.query<{ token: string }>(
+    const oldTokenRow = await app.client.unsafe<{ token: string }[]>(
       "select config->>'mcpToken' as token from servers where id = $1",
       [server.id],
     );
-    const oldToken = oldTokenRow.rows[0]?.token ?? '';
+    const oldToken = oldTokenRow[0]?.token ?? '';
     expect(oldToken).not.toBe('');
 
     const lock = await holdRowLock(server.id);
     try {
       // 两个请求都不带版本号：它们在锁外读到的都是旧配置。
-      const rotate = inject(app, {
+      const rotate = request(app, {
         method: 'POST',
         url: `/api/servers/${server.id}/rotate-token`,
         headers: { cookie },
@@ -204,11 +205,11 @@ describe.skipIf(!ready)('server concurrent writes', () => {
       expect(patched.json<Server>()).toMatchObject({ baseUrl: newBaseUrl });
 
       // 最终行必须同时包含新地址和新 token：map 结果用布尔值，避免失败时打印 token。
-      const final = await app.pool.query<{ same: boolean; url: string }>(
+      const final = await app.client.unsafe<{ same: boolean; url: string }[]>(
         "select config->>'mcpToken' = $2 as same, config->>'baseUrl' as url from servers where id = $1",
         [server.id, rotated.json<{ token: string }>().token],
       );
-      expect(final.rows[0]).toEqual({ same: true, url: newBaseUrl });
+      expect(final[0]).toEqual({ same: true, url: newBaseUrl });
 
       // 旧 token 必须真的失效，新 token 必须能初始化 MCP 会话。
       const initialize = (token: string) =>

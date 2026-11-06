@@ -6,7 +6,8 @@ import { PassThrough } from 'node:stream';
 import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/db';
 import type { Job } from 'bullmq';
 import type { Logger } from 'pino';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, jest } from 'bun:test';
+import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 import {
   createRuntimeEnvironmentBuildHandler,
   executeRuntimeEnvironmentBuild,
@@ -341,9 +342,7 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
 
   it('日志落库同步抛错后，后续输出仍会落库', async () => {
     // 修复前 flush 会停在已完成的 drain 上死循环：先断言迟到日志，再关闭进程收尾。
-    vi.useFakeTimers({
-      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
-    });
+    jest.useFakeTimers();
     try {
       const fake = fakeDocker(dockerResponder({ build: { holdOpen: true } }));
       const { store, calls } = fakeStore();
@@ -375,10 +374,10 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
 
       buildChild.stdout.write('first-step\n');
       await new Promise((resolve) => setImmediate(resolve));
-      await vi.advanceTimersByTimeAsync(1_000);
+      await advanceTimersByTimeAsync(1_000);
       buildChild.stdout.write('late-step\n');
       await new Promise((resolve) => setImmediate(resolve));
-      await vi.advanceTimersByTimeAsync(1_000);
+      await advanceTimersByTimeAsync(1_000);
 
       expect(attempts).toBe(2);
       expect(calls.logs.map((entry) => entry.chunk).join('')).toContain('late-step');
@@ -386,7 +385,7 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
       buildChild.emit('close', 0, null);
       await running;
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 
@@ -435,9 +434,7 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
 
   it('空闲刷新窗口后到达的日志仍落库，收尾 flush 能结束', async () => {
     // 只假 timers：fake docker 的 queueMicrotask 与流回调保持真实，避免测试自己制造死循环。
-    vi.useFakeTimers({
-      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
-    });
+    jest.useFakeTimers();
     try {
       const fake = fakeDocker(dockerResponder({ build: { holdOpen: true } }));
       const { store, calls } = fakeStore();
@@ -459,12 +456,12 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
       ]);
 
       // 先排空已到达的输出，再让下一次刷新在 pending 为空时执行。
-      await vi.advanceTimersByTimeAsync(1_000);
+      await advanceTimersByTimeAsync(1_000);
       // 空 pending 的定时刷新：这里曾留下已完成的 drain Promise，后续日志再也落不了库。
-      await vi.advanceTimersByTimeAsync(1_000);
+      await advanceTimersByTimeAsync(1_000);
       buildChild.stdout.write('late-step\n');
       await new Promise((resolve) => setImmediate(resolve));
-      await vi.advanceTimersByTimeAsync(1_000);
+      await advanceTimersByTimeAsync(1_000);
 
       expect(calls.logs.map((entry) => entry.chunk).join('')).toContain('late-step');
 
@@ -474,7 +471,7 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
       expect(calls.complete).toHaveLength(1);
       expect(calls.fail).toHaveLength(0);
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 

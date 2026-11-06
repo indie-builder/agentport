@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createDb } from '@agentport/db';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-// 这些用例只用临时目录 + stub 的 pg_dump/pg_restore/pnpm，不触真实数据库或工作区卷。
+// 这些用例只用临时目录 + stub 的 pg_dump/pg_restore/bun，不触真实数据库或工作区卷。
 // 唯一例外是配置损坏的哨兵用例：它只在本轮隔离随机库里读写一张自建表，不碰开发库。
 const run = promisify(execFile);
 const ROOT = join(import.meta.dirname, '..', '..', '..');
@@ -243,7 +243,7 @@ async function defaultStubs() {
     'pg_restore',
     `printf "PGRESTORE %s\\n" "$*" >>"$STUB_LOG"; cat </dev/null; for a in "$@"; do case "$a" in --dbname=*) printf "%s" "\${a#--dbname=}";; esac; done`,
   );
-  await stub('pnpm', 'printf "PNPM %s DATABASE_URL=%s\\n" "$*" "$DATABASE_URL" >>"$STUB_LOG"');
+  await stub('bun', 'printf "BUN %s DATABASE_URL=%s\\n" "$*" "$DATABASE_URL" >>"$STUB_LOG"');
   await addPassThrough('gzip');
   await addPassThrough('shasum');
 }
@@ -736,11 +736,11 @@ describe('restore.sh', () => {
       const archive = await makeBackup();
       const empty = join(env.dir, 'empty.env');
       await writeFile(empty, '');
-      const { pool } = createDb(realDatabaseUrl);
+      const { client } = createDb(realDatabaseUrl);
       try {
-        await pool.query('drop table if exists restore_sentinel');
-        await pool.query('create table restore_sentinel (id int primary key, note text)');
-        await pool.query("insert into restore_sentinel values (1, 'keep')");
+        await client.unsafe('drop table if exists restore_sentinel');
+        await client.unsafe('create table restore_sentinel (id int primary key, note text)');
+        await client.unsafe("insert into restore_sentinel values (1, 'keep')");
 
         const { stderr } = await restoreError([archive], {
           DATABASE_URL: realDatabaseUrl,
@@ -749,10 +749,10 @@ describe('restore.sh', () => {
         expect(stderr).toContain('config is empty or unreadable');
         // 不是只看返回值：真正的目标库仍必须保有哨兵，且没有任何 --dbname 恢复调用。
         expect(await restoreTargets()).toEqual([]);
-        const rows = await pool.query('select note from restore_sentinel where id = 1');
-        expect(rows.rows).toEqual([{ note: 'keep' }]);
+        const rows = await client.unsafe('select note from restore_sentinel where id = 1');
+        expect(rows).toEqual([{ note: 'keep' }]);
       } finally {
-        await pool.end();
+        await client.close();
       }
     },
   );
@@ -777,7 +777,7 @@ describe('restore.sh', () => {
     // 恢复必须落在调用环境指定的库，不能拿归档 env 里的 DATABASE_URL。
     expect(await restoreTargets()).toEqual(['postgres://caller/target']);
     const calls = await stubLog();
-    expect(calls.some((line) => line.startsWith('PNPM '))).toBe(true);
+    expect(calls.some((line) => line.startsWith('BUN '))).toBe(true);
     expect(calls.some((line) => line.includes('DATABASE_URL=postgres://caller/target'))).toBe(true);
     // 配置文件恢复成归档里的内容，目标 .env 原样留了安全副本。
     expect(await readFile(targetEnv, 'utf8')).toContain('APP_SECRET_KEY=super-secret-value');

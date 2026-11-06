@@ -5,15 +5,15 @@ import {
   knowledgeBaseSettingsSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 import { schema } from '../src/schema.js';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -25,32 +25,34 @@ let profileId = '';
 
 afterEach(async () => {
   if (baseIds.length > 0) {
-    await pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+    await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [client.array(baseIds, 'TEXT')]);
     baseIds.length = 0;
   }
   if (profileIds.length > 0) {
-    await pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-      profileIds,
+    await client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+      client.array(profileIds, 'TEXT'),
     ]);
     profileIds.length = 0;
   }
   if (serverIds.length > 0) {
-    await pool.query('delete from servers where id = any($1::text[])', [serverIds]);
+    await client.unsafe('delete from servers where id = any($1::text[])', [client.array(serverIds, 'TEXT')]);
     serverIds.length = 0;
   }
   profileId = '';
 });
 
 afterAll(async () => {
-  await pool.end();
+  await client.close();
 });
 
 const suffix = () => randomBytes(6).toString('hex');
 
 function pgCode(error: unknown): string | undefined {
-  const direct = (error as { code?: string }).code;
-  if (direct) return direct;
-  return (error as { cause?: { code?: string } }).cause?.code;
+  const direct = error as { code?: string; errno?: string };
+  if (direct.errno) return direct.errno;
+  if (direct.code) return direct.code;
+  const cause = (error as { cause?: { code?: string; errno?: string } }).cause;
+  return cause?.errno ?? cause?.code;
 }
 
 async function createAsrProfile(
@@ -368,14 +370,14 @@ async function waitForBlockedBackends(
   const blockers = Array.isArray(blockerPid) ? blockerPid : [blockerPid];
   const deadline = Date.now() + 5_000;
   for (;;) {
-    const blocked = await pool.query<{ pid: number }>(
+    const blocked = await client.unsafe<{ pid: number }[]>(
       `select pid from pg_stat_activity
         where wait_event_type = 'Lock'
           and pg_blocking_pids(pid) && $1::int[]
           and not (pid = any($2::int[]))`,
-      [blockers, excludePids],
+      [client.array(blockers, 'INT4'), client.array(excludePids, 'INT4')],
     );
-    if (blocked.rows.length >= expected) return blocked.rows.map((row) => row.pid);
+    if (blocked.length >= expected) return blocked.map((row) => row.pid);
     if (Date.now() > deadline) {
       throw new Error(`等待 ${expected} 个后端阻塞在 ${blockers.join(',')} 超时`);
     }
@@ -461,9 +463,13 @@ describe.skipIf(!ready)('replaceChunks draft indexing', () => {
       ordinal: ordinal === 500 ? 0 : ordinal,
       content: `new ${ordinal}`,
     }));
-    await expect(knowledge.replaceChunks(db, { ...input, chunks })).rejects.toSatisfy(
-      (error: unknown) => pgCode(error) === '23505',
-    );
+    let error: unknown;
+    try {
+      await knowledge.replaceChunks(db, { ...input, chunks });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(pgCode(error)).toBe('23505');
     expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
     expect((await knowledge.listChunks(db, published.version.id)).items).toEqual(published.chunks);
   });
@@ -528,26 +534,25 @@ describe.skipIf(!ready)('replaceChunks draft indexing', () => {
 
   it('事务等待文档锁期间取消获胜，恢复后不能替换草稿', async () => {
     const { input, old } = await seedReplacement();
-    const blocker = await pool.connect();
+    const blocker = await client.reserve();
     let replacement: Promise<unknown> | undefined;
     try {
-      await blocker.query('begin');
-      await blocker.query('select id from knowledge_documents where id = $1 for update', [
+      await blocker.unsafe('begin');
+      await blocker.unsafe('select id from knowledge_documents where id = $1 for update', [
         input.documentId,
       ]);
-      const {
-        rows: [backend],
-      } = await blocker.query<{ pid: number }>('select pg_backend_pid() as pid');
+      const [backend] = (await blocker.unsafe('select pg_backend_pid() as pid')) as {
+        pid: number;
+      }[];
       if (!backend) throw new Error('blocker backend missing');
       replacement = knowledge.replaceChunks(db, input);
-      const rejected = expect(replacement).rejects.toMatchObject({ code: 'CONFLICT' });
       await waitForBlockedBackends(backend.pid, 1);
       await knowledge.finishJob(db, input.jobId, { status: 'cancelled' });
-      await blocker.query('commit');
-      await rejected;
+      await blocker.unsafe('commit');
+      await expect(replacement).rejects.toMatchObject({ code: 'CONFLICT' });
       expect((await knowledge.listChunks(db, input.versionId)).items).toEqual(old);
     } finally {
-      await blocker.query('rollback');
+      await blocker.unsafe('rollback');
       blocker.release();
       await replacement?.catch(() => {});
     }
@@ -2246,16 +2251,17 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     if (!draft) throw new Error('draft missing');
 
     // 1) 发布必须先等来源锁：范围撤权持有来源行锁时，发布不得抢在它前面动页面。
-    const gate = await pool.connect();
+    const gate = await client.reserve();
     let publishing: Promise<unknown> | null = null;
     let revoking: Promise<unknown> | null = null;
     let committed = false;
     try {
-      await gate.query('begin');
-      const gatePid = (await gate.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]
-        ?.pid;
+      await gate.unsafe('begin');
+      const gatePid = (
+        (await gate.unsafe('select pg_backend_pid() as pid')) as { pid: number }[]
+      )[0]?.pid;
       if (gatePid === undefined) throw new Error('gate pid missing');
-      await gate.query('select id from knowledge_sources where id = $1 for update', [source.id]);
+      await gate.unsafe('select id from knowledge_sources where id = $1 for update', [source.id]);
       publishing = knowledge.publishWikiVersion(db, page.id, draft.id);
       const [publishPid] = await waitForBlockedBackends(gatePid, 1);
       if (publishPid === undefined) throw new Error('publish pid missing');
@@ -2272,45 +2278,46 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       });
       // 排在后面的撤权可能被前一个等待者 soft-block，因此以任一 blocker 判断它确实阻塞。
       await waitForBlockedBackends([gatePid, publishPid], 1, [publishPid]);
-      await gate.query('commit');
+      await gate.unsafe('commit');
       committed = true;
       const [published, scoped] = await Promise.all([publishing, revoking]);
       expect(published).toMatchObject({ currentVersionId: draft.id });
       expect(scoped).toMatchObject({ disabledDocumentIds: [] });
     } finally {
-      if (!committed) await gate.query('rollback').catch(() => undefined);
+      if (!committed) await gate.unsafe('rollback').catch(() => undefined);
       gate.release();
       await Promise.allSettled([publishing, revoking]);
     }
 
     // 2) 撤权在锁住 Wiki 页之后才写来源关联；持页锁时不能已持有 wiki_sources 行锁。
-    const pageGate = await pool.connect();
+    const pageGate = await client.reserve();
     let revokeOnly: Promise<unknown> | null = null;
     let pageCommitted = false;
     try {
-      await pageGate.query('begin');
-      const pageGatePid = (await pageGate.query<{ pid: number }>('select pg_backend_pid() as pid'))
-        .rows[0]?.pid;
+      await pageGate.unsafe('begin');
+      const pageGatePid = (
+        (await pageGate.unsafe('select pg_backend_pid() as pid')) as { pid: number }[]
+      )[0]?.pid;
       if (pageGatePid === undefined) throw new Error('page gate pid missing');
-      await pageGate.query('select id from knowledge_wiki_pages where id = $1 for update', [
+      await pageGate.unsafe('select id from knowledge_wiki_pages where id = $1 for update', [
         page.id,
       ]);
       revokeOnly = knowledge.replaceSourceScope(db, source.id, { ranges: [] });
       const [blockedPid] = await waitForBlockedBackends(pageGatePid, 1);
       if (blockedPid === undefined) throw new Error('blocked pid missing');
-      const tupleLocks = await pool.query<{ count: number }>(
+      const tupleLocks = await client.unsafe<{ count: number }[]>(
         `select count(*)::int as count
            from pg_locks l join pg_class c on c.oid = l.relation
           where l.pid = $1 and c.relname = 'knowledge_wiki_sources' and l.locktype = 'tuple'`,
         [blockedPid],
       );
-      expect(tupleLocks.rows[0]?.count).toBe(0);
-      await pageGate.query('commit');
+      expect(tupleLocks[0]?.count).toBe(0);
+      await pageGate.unsafe('commit');
       pageCommitted = true;
       await revokeOnly;
       expect((await knowledge.getWikiPage(db, page.id))?.status).toBe('stale');
     } finally {
-      if (!pageCommitted) await pageGate.query('rollback').catch(() => undefined);
+      if (!pageCommitted) await pageGate.unsafe('rollback').catch(() => undefined);
       pageGate.release();
       await Promise.allSettled([revokeOnly]);
     }
@@ -2377,31 +2384,32 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       [aDocs[1]?.chunk, bDocs[0]?.chunk].filter((chunk) => chunk !== undefined),
     );
 
-    const gate = await pool.connect();
+    const gate = await client.reserve();
     let revokeA: Promise<unknown> | null = null;
     let revokeB: Promise<unknown> | null = null;
     let committed = false;
     try {
-      await gate.query('begin');
-      const gatePid = (await gate.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]
-        ?.pid;
+      await gate.unsafe('begin');
+      const gatePid = (
+        (await gate.unsafe('select pg_backend_pid() as pid')) as { pid: number }[]
+      )[0]?.pid;
       if (gatePid === undefined) throw new Error('gate pid missing');
-      await gate.query('select id from knowledge_wiki_pages where id = $1 for update', [
+      await gate.unsafe('select id from knowledge_wiki_pages where id = $1 for update', [
         lowPage.id,
       ]);
       revokeA = knowledge.replaceSourceScope(db, sourceA.source.id, { ranges: [] });
       const [blockedPid] = await waitForBlockedBackends(gatePid, 1);
       if (blockedPid === undefined) throw new Error('blocked pid missing');
       // 必须从全局最小页 ID 开始等锁：等待最小页时，本事务不能已经持有高页（旧实现会）。
-      const probeHighPage = await pool
-        .query('select id from knowledge_wiki_pages where id = $1 for update nowait', [highPage.id])
+      const probeHighPage = await client
+        .unsafe('select id from knowledge_wiki_pages where id = $1 for update nowait', [highPage.id])
         .then(
           () => 'free',
           (error: { code?: string }) => error.code,
         );
       expect(probeHighPage).toBe('free');
       revokeB = knowledge.replaceSourceScope(db, sourceB.source.id, { ranges: [] });
-      await gate.query('commit');
+      await gate.unsafe('commit');
       committed = true;
       const [scopedA, scopedB] = await Promise.all([revokeA, revokeB]);
       expect(scopedA).toMatchObject({
@@ -2413,7 +2421,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       expect((await knowledge.getWikiPage(db, lowPage.id))?.status).toBe('stale');
       expect((await knowledge.getWikiPage(db, highPage.id))?.status).toBe('stale');
     } finally {
-      if (!committed) await gate.query('rollback').catch(() => undefined);
+      if (!committed) await gate.unsafe('rollback').catch(() => undefined);
       gate.release();
       await Promise.allSettled([revokeA, revokeB]);
     }

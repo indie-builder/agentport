@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 // 真实 CLI 的启动开销小，15s 足够覆盖冷启动；不因单次慢而放宽全部测试。
 const TIMEOUT = 15_000;
@@ -119,10 +119,9 @@ async function discover(
 }
 
 describe('real CLI skill discovery', () => {
-  it(
+  it.skipIf(!nativeCli)(
     'lists a project skill enabled through the SDK options',
-    async (ctx) => {
-      if (!nativeCli) ctx.skip(`no native CLI installed for ${process.platform}-${process.arch}`);
+    async () => {
       const { version, commands } = await discover();
 
       expect(version).toMatch(/^\d+\.\d+\.\d+/);
@@ -131,10 +130,9 @@ describe('real CLI skill discovery', () => {
     TIMEOUT,
   );
 
-  it(
+  it.skipIf(!nativeCli)(
     'does not invent a skill that is absent from disk',
-    async (ctx) => {
-      if (!nativeCli) ctx.skip(`no native CLI installed for ${process.platform}-${process.arch}`);
+    async () => {
       const { commands } = await discover(false);
 
       expect(commands).not.toContain(SKILL);

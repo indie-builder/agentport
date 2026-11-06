@@ -1,20 +1,20 @@
 import type { Agent, WorkspaceFiles } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('subagent file download', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -37,7 +37,7 @@ describe.skipIf(!ready)('subagent file download', () => {
     const create = async (prefix: string, systemPrompt: string): Promise<Agent> => {
       const slug = unique(prefix);
       createdAgents.push(slug);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/agents',
         headers: auth(),
@@ -47,7 +47,7 @@ describe.skipIf(!ready)('subagent file download', () => {
       return res.json<Agent>();
     };
     const bind = async (owner: Agent, subAgentIds: string[]): Promise<void> => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PATCH',
         url: `/api/agents/${owner.id}`,
         headers: auth(),
@@ -67,7 +67,7 @@ describe.skipIf(!ready)('subagent file download', () => {
     disabledParent = await create('disabled-parent', 'disabled parent');
     disabledChild = await create('disabled-child', 'disabled child');
     await bind(disabledParent, [disabledChild.id]);
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${disabledChild.id}`,
       headers: auth(),
@@ -85,14 +85,14 @@ describe.skipIf(!ready)('subagent file download', () => {
 
   const auth = () => ({ cookie });
   const download = (parentId: string, childId: string, headers: Record<string, string> = auth()) =>
-    inject(app, {
+    request(app, {
       method: 'GET',
       url: `/api/agents/${parentId}/subagents/${childId}/file`,
       headers,
     });
 
   it('returns the exact child file rendered for the parent workspace', async () => {
-    const files = await inject(app, {
+    const files = await request(app, {
       method: 'GET',
       url: `/api/agents/${parent.id}/files`,
       headers: auth(),
@@ -118,15 +118,15 @@ describe.skipIf(!ready)('subagent file download', () => {
   it('sets download headers for a quoted, schema-safe filename', async () => {
     const res = await download(parent.id, child.id);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-type']).toBe('text/markdown; charset=utf-8');
-    expect(res.headers['content-disposition']).toBe(`attachment; filename="${child.slug}.md"`);
-    expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect(res.headers.get('content-disposition')).toBe(`attachment; filename="${child.slug}.md"`);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
   it('does not mutate the stored agent', async () => {
     expect((await download(parent.id, child.id)).statusCode).toBe(200);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/agents/${child.id}`,
       headers: auth(),
@@ -168,7 +168,7 @@ describe.skipIf(!ready)('subagent file download', () => {
       prompt,
     ].join('\n');
 
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: '/api/agents/import-file',
       headers: auth(),
@@ -177,7 +177,7 @@ describe.skipIf(!ready)('subagent file download', () => {
     expect(imported.statusCode, imported.body).toBe(201);
     const importedAgent = imported.json<{ agent: Agent }>().agent;
 
-    const bound = await inject(app, {
+    const bound = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${parent.id}`,
       headers: auth(),
@@ -193,7 +193,7 @@ describe.skipIf(!ready)('subagent file download', () => {
 
   it('rejects user/local memory scopes on single-file import', async () => {
     for (const scope of ['user', 'local']) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/agents/import-file',
         headers: auth(),

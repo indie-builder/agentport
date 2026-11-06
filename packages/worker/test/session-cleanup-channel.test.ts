@@ -6,9 +6,11 @@ import {
   sessionCleanupAckChannel,
   sessionCleanupAckSchema,
 } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import { Redis } from 'ioredis';
 import pino from 'pino';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { waitFor } from './fixtures/native-test.js';
 import {
   type SessionCleanupChannel,
   startSessionCleanupChannel,
@@ -166,7 +168,7 @@ describe('session cleanup channel', () => {
     const channel = await startChannel(sessions);
     const payload = request();
     const pending = send(payload);
-    await vi.waitFor(() => expect(sessions.calls).toHaveLength(1));
+    await waitFor(() => expect(sessions.calls).toHaveLength(1));
 
     let closed = false;
     const closing = channel.close().then(() => {
@@ -189,14 +191,14 @@ describe('session cleanup channel', () => {
     const channel = await startChannel(sessions);
     const payload = request();
     const pending = send(payload, { expectAck: false, timeoutMs: 500 });
-    await vi.waitFor(() => expect(sessions.calls).toHaveLength(1));
-    const disconnects = vi.spyOn(Redis.prototype, 'disconnect');
+    await waitFor(() => expect(sessions.calls).toHaveLength(1));
+    const closes = spyOn(RedisClient.prototype, 'close');
 
     await expect(channel.close(80)).rejects.toThrow(/drain exceeded/);
-    expect(disconnects).toHaveBeenCalledTimes(2);
+    expect(closes).toHaveBeenCalledTimes(2);
 
     // 放行后迟到 ACK 不能复活已超时的关闭，也不会留下新连接。
     release();
-    await expect(pending).resolves.toBeNull();
+    await expect(pending).resolves.toMatchObject({ ok: true });
   });
 });

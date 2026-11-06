@@ -57,12 +57,16 @@ beforeEach(() => {
   state.calls.length = 0;
   state.jobs = () => ({ items: [], nextCursor: null });
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    const url = new URL(String(input), 'http://localhost');
+    const request =
+      input instanceof Request
+        ? input
+        : new Request(new URL(String(input), 'http://localhost'), init);
+    const url = new URL(request.url);
     state.calls.push({
       path: url.pathname,
       documentId: url.searchParams.get('documentId'),
       cursor: url.searchParams.get('cursor'),
-      signal: init?.signal,
+      signal: request.signal,
     });
     if (url.pathname === '/api/knowledge/jobs') {
       return Response.json(

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   type AsrProfile,
   type EmbeddingProfile,
@@ -151,7 +151,7 @@ describe('embedTexts', () => {
   });
 
   it('classifies a success body interrupted in transit as unavailable', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         new ReadableStream({
           start(controller) {
@@ -569,7 +569,7 @@ describe('transcribeAudio', () => {
   });
 
   it('classifies a success body interrupted in transit as unavailable', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         new ReadableStream({
           start(controller) {
@@ -591,8 +591,8 @@ describe('transcribeAudio', () => {
 
   it('keeps a timeout while reading the success body retryable', async () => {
     const deadline = new AbortController();
-    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    const timeoutSpy = spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       return new Response(
         new ReadableStream({
           start(controller) {
@@ -614,7 +614,7 @@ describe('transcribeAudio', () => {
 
   it('propagates caller cancellation while reading the success body', async () => {
     const caller = new AbortController();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       return new Response(
         new ReadableStream({
           start(controller) {
@@ -654,7 +654,7 @@ describe('transcribeAudio', () => {
     });
     await new Promise<void>((resolve) => cutoffServer.listen(0, '127.0.0.1', resolve));
     const realFetch = globalThis.fetch;
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (...args) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (...args) => {
       const response = await realFetch(...args);
       headersSeen();
       return response;
@@ -666,10 +666,9 @@ describe('transcribeAudio', () => {
         { endpointUrl: `http://127.0.0.1:${address.port}/cutoff`, model: 'whisper-1' },
         input(),
       );
-      const assertion = expect(pending).rejects.toMatchObject({ kind: 'unavailable' });
       await sawHeaders;
       drop?.();
-      await assertion;
+      await expect(pending).rejects.toMatchObject({ kind: 'unavailable' });
     } finally {
       fetchSpy.mockRestore();
       cutoffServer.closeAllConnections();
@@ -699,7 +698,7 @@ describe('transcribeAudio', () => {
   });
 
   it('rejects an unsupported audio mime before making any request', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const fetchSpy = spyOn(globalThis, 'fetch');
     try {
       await expect(
         transcribeAudio(profile(), { ...input(), mimeType: 'audio/x-caf' }),
@@ -733,10 +732,10 @@ describe('transcribeAudio', () => {
   });
 
   it('uses the 300 second ASR timeout', async () => {
-    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort());
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockRejectedValue(new DOMException('timed out', 'AbortError'));
+    const timeoutSpy = spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort());
+    const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(
+      new DOMException('timed out', 'AbortError'),
+    );
     try {
       await expect(
         transcribeAudio({ endpointUrl: 'https://example.invalid', model: 'm' }, input()),
@@ -749,10 +748,10 @@ describe('transcribeAudio', () => {
   });
 
   it('lets caller abort win when both caller and timeout are aborted', async () => {
-    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort());
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockRejectedValue(new DOMException('caller cancelled', 'AbortError'));
+    const timeoutSpy = spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort());
+    const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(
+      new DOMException('caller cancelled', 'AbortError'),
+    );
     try {
       let error: unknown;
       try {

@@ -1,7 +1,8 @@
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { afterEach, expect, it, vi } from 'vitest';
-import { buildGeneratedServer } from '../src/features/servers/generated.js';
+import { afterEach, expect, it, mock } from 'bun:test';
+import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
+import { buildGeneratedServer } from '../src/modules/servers/generated.js';
 
 type ToolHandler = (
   args: Record<string, unknown>,
@@ -12,9 +13,9 @@ type ToolHandler = (
 const ctx = { mcpReq: { signal: new AbortController().signal } };
 
 // MCP 边界 mock：捕获 registerTool 的回调，直接驱动真实的 handler 逻辑。
-const mcp = vi.hoisted(() => ({ handlers: new Map<string, ToolHandler>() }));
+const mcp = ({ handlers: new Map<string, ToolHandler>() });
 
-vi.mock('@modelcontextprotocol/server', () => ({
+mock.module('@modelcontextprotocol/server', () => ({
   McpServer: class {
     registerTool(name: string, _config: unknown, handler: ToolHandler) {
       mcp.handlers.set(name, handler);
@@ -23,8 +24,8 @@ vi.mock('@modelcontextprotocol/server', () => ({
   fromJsonSchema: (schema: unknown) => schema,
 }));
 
-vi.mock('../src/features/servers/ssrf.js', () => ({
-  assertSafeUrl: vi.fn(async () => undefined),
+mock.module('../src/modules/servers/ssrf.js', () => ({
+  assertSafeUrl: mock(async () => undefined),
 }));
 
 const tool: ApiTool = {
@@ -59,22 +60,20 @@ function deferred(): { promise: Promise<string[]>; resolve: (value: string[]) =>
 }
 
 afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-  vi.clearAllMocks();
+  unstubAllGlobals();
+  mock.clearAllMocks();
   mcp.handlers.clear();
 });
 
 it('times out instead of calling upstream when approval lands after the deadline', async () => {
-  vi.useFakeTimers({ now: 0 });
-  const fetchSpy = vi.fn(async () => {
+  const fetchSpy = mock(async () => {
     throw new Error('upstream must not be called after the deadline');
   });
-  vi.stubGlobal('fetch', fetchSpy);
+  stubGlobal('fetch', fetchSpy);
 
   const later = deferred();
   let calls = 0;
-  const refreshApprovals = vi.fn(async () => {
+  const refreshApprovals = mock(async () => {
     calls += 1;
     return calls === 1 ? [] : later.promise;
   });
@@ -84,8 +83,8 @@ it('times out instead of calling upstream when approval lands after the deadline
   if (!handler) throw new Error('tool was not registered');
 
   const call = handler({}, ctx);
-  await vi.advanceTimersByTimeAsync(500); // second lookup already in flight
-  await vi.advanceTimersByTimeAsync(600); // past the 1000ms deadline
+  await waitForAssertion(() => expect(calls).toBe(2));
+  await Bun.sleep(600);
   later.resolve(['approve-tool']);
 
   const result = await call;
@@ -94,12 +93,11 @@ it('times out instead of calling upstream when approval lands after the deadline
 });
 
 it('calls upstream when approval arrives before the deadline', async () => {
-  vi.useFakeTimers({ now: 0 });
-  const fetchSpy = vi.fn(async () => new Response('ok'));
-  vi.stubGlobal('fetch', fetchSpy);
+  const fetchSpy = mock(async () => new Response('ok'));
+  stubGlobal('fetch', fetchSpy);
 
   let calls = 0;
-  const refreshApprovals = vi.fn(async () => {
+  const refreshApprovals = mock(async () => {
     calls += 1;
     return calls === 1 ? [] : ['approve-tool'];
   });
@@ -109,8 +107,6 @@ it('calls upstream when approval arrives before the deadline', async () => {
   if (!handler) throw new Error('tool was not registered');
 
   const call = handler({}, ctx);
-  await vi.advanceTimersByTimeAsync(500);
-
   const result = await call;
   expect(result.isError).toBeFalsy();
   expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);

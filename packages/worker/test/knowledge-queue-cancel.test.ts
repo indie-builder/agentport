@@ -9,22 +9,21 @@ import {
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
 import { Queue } from 'bullmq';
-import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { startKnowledgeWorker } from '../src/knowledge/queue.js';
+import { RedisClient } from 'bun';
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 
-const control = vi.hoisted(() => ({ captureCancelRead: false }));
+const control = { captureCancelRead: false };
 
-vi.mock('../src/knowledge/ingestion.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/knowledge/ingestion.js')>();
-  return {
-    ...actual,
-    // 处理返回后队列才开始最后一次取消键读取；从这里挂起，才能稳定命中收尾竞态窗口。
-    runKnowledgeJob: async () => {
-      control.captureCancelRead = true;
-    },
-  };
-});
+const ingestionActual = await import('../src/knowledge/ingestion.js');
+mock.module('../src/knowledge/ingestion.js', () => ({
+  ...ingestionActual,
+  // 处理返回后队列才开始最后一次取消键读取；从这里挂起，才能稳定命中收尾竞态窗口。
+  runKnowledgeJob: async () => {
+    control.captureCancelRead = true;
+  },
+}));
+
+const { startKnowledgeWorker } = await import('../src/knowledge/queue.js');
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
@@ -52,7 +51,7 @@ afterAll(async () => {
   await queue.obliterate({ force: true }).catch(() => undefined);
   await queue.close();
   await rm(knowledgeDir, { recursive: true, force: true });
-  await dbHandle.pool.end();
+  await dbHandle.client.close();
 });
 
 describe('knowledge queue cancellation during final read', () => {
@@ -65,8 +64,8 @@ describe('knowledge queue cancellation during final read', () => {
       payload: { type: 'cleanup' },
     });
 
-    const redisPrototype = Redis.prototype as unknown as {
-      get: (this: Redis, key: string) => Promise<string | null>;
+    const redisPrototype = RedisClient.prototype as unknown as {
+      get: (this: RedisClient, key: string) => Promise<string | null>;
     };
     const originalGet = redisPrototype.get;
     const held: Array<(value: null) => void> = [];

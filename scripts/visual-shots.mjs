@@ -23,7 +23,7 @@ const USAGE = `用法: node scripts/visual-shots.mjs --route <path> [options]
   --out <dir>             输出目录，默认 .visual/<yyyymmdd-hhmmss>
   --seed <mode>           none | minimal | dev-data，默认 minimal
                           minimal：库里没有数据时造 2 个 agent + 1 个频道
-                          dev-data：调用 pnpm dev:data（重，失败只提示不阻塞）
+                          dev-data：调用 bun run dev:data（重，失败只提示不阻塞）
   --base-url <url>        复用已有栈，跳过起环境/建库；只登录、截图、打开
   --wait-ms <n>           每页稳定等待毫秒，默认 1200
   --open / --no-open      截图后是否用系统默认程序打开，默认打开
@@ -32,7 +32,7 @@ const USAGE = `用法: node scripts/visual-shots.mjs --route <path> [options]
   -h, --help              显示本帮助
 
 示例:
-  pnpm visual:shots --route /agents --route /channels
+  bun run visual:shots --route /agents --route /channels
   node scripts/visual-shots.mjs --route /agents?q=x --viewports 1440x900,1200x900 --no-open
 `;
 
@@ -614,7 +614,7 @@ async function run(opts, env, state) {
     if (create.status !== 0) {
       fail(
         `创建临时库失败：${dbName}\n${create.stderr?.trim() || create.stdout?.trim()}` +
-          '\n确认 PostgreSQL 在运行：pnpm infra:up 或 docker compose ps',
+          '\n确认 PostgreSQL 在运行：bun run infra:up 或 docker compose ps',
       );
     }
     // 只有 CREATE 成功后才登记待删库名，避免失败时误删别人的库。
@@ -622,7 +622,7 @@ async function run(opts, env, state) {
 
     const tempUrl = new URL(baseDbUrl);
     tempUrl.pathname = '/' + state.dbName;
-    const migrate = spawnSync('pnpm', ['--filter', '@agentport/db', 'migrate'], {
+    const migrate = spawnSync('bun', ['run', '--filter', '@agentport/db', 'migrate'], {
       cwd: ROOT,
       env: { ...process.env, DATABASE_URL: tempUrl.toString() },
       encoding: 'utf8',
@@ -630,7 +630,7 @@ async function run(opts, env, state) {
     if (migrate.status !== 0) {
       fail(
         `迁移临时库失败：\n${(migrate.stdout || '').slice(-3000)}\n${(migrate.stderr || '').slice(-3000)}` +
-          '\n首次运行先构建依赖：pnpm --filter @agentport/shared --filter @agentport/db --filter @agentport/core build',
+          '\n首次运行先构建依赖：bun run --filter @agentport/shared --filter @agentport/db --filter @agentport/core build',
       );
     }
 
@@ -638,15 +638,15 @@ async function run(opts, env, state) {
     const apiLog = join(LOG_DIR, 'api.log');
     const webLog = join(LOG_DIR, 'web.log');
     const apiChild = spawnDetached(
-      'pnpm',
-      ['--filter', '@agentport/api', 'dev'],
+      'bun',
+      ['run', '--filter', '@agentport/api', 'dev'],
       ROOT,
       apiLog,
       { ...process.env, DATABASE_URL: tempUrl.toString() },
     );
     const webChild = spawnDetached(
-      'pnpm',
-      ['exec', 'vite', '--port', String(WEB_PORT), '--host', '127.0.0.1'],
+      'bun',
+      ['run', 'vite', '--port', String(WEB_PORT), '--host', '127.0.0.1'],
       join(ROOT, 'packages/web'),
       webLog,
       process.env,
@@ -676,7 +676,7 @@ async function run(opts, env, state) {
     }
     let devData;
     try {
-      devData = await runForeground('pnpm', ['dev:data'], {
+      devData = await runForeground('bun', ['run', 'dev:data'], {
         cwd: ROOT,
         env: devDataEnv,
         timeoutMs: 600_000,
@@ -721,7 +721,7 @@ function stopServices(services) {
   for (const service of services) {
     if (service.child) killProcessGroup(service.child.pid, 'SIGTERM');
   }
-  // 给 pnpm/tsx/vite 一点时间自行退出，再对仍占口的自家进程组补 SIGKILL。
+  // 给 bun run/tsx/vite 一点时间自行退出，再对仍占口的自家进程组补 SIGKILL。
   const waitUntil = Date.now() + 2000;
   while (Date.now() < waitUntil && services.some((service) => isPortListening(service.port))) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);

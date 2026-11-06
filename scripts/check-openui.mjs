@@ -5,7 +5,7 @@
  * 四件事，缺一不可：
  * 1. **可重生成**：用官方 CLI 从真实的浏览器库（packages/web/src/openui/library.tsx）
  *    现场生成一份临时 spec，与提交的 core/src/generated/openui.spec.json 逐项比对；
- *    不一致说明忘了 `pnpm openui:spec`。
+ *    不一致说明忘了 `bun run openui:spec`。
  * 2. **与官方一致**：把提交的 spec 与已安装 `@openuidev/react-ui` 的真实元数据
  *    （组件签名、描述、分组、JSON Schema、提示词样例）逐项比对。官方升级后，
  *    这里会精确指出哪个组件漂了。
@@ -15,7 +15,7 @@
  * 4. **兼容范围**：只校验 `react-ui` 声明的 peer 范围覆盖实装 `react-lang`；
  *    不要求两个包的版本号相等——那是上游的发布策略，不是我们的约束。
  *
- * 用法：pnpm openui:check
+ * 用法：bun run openui:check
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -81,12 +81,12 @@ try {
     .join('\n')
     .trim();
   console.error(`FAIL  shared/core 构建检查执行失败：${detail || error.message}`);
-  console.error('先运行 pnpm -r build，再重跑 pnpm openui:check。');
+  console.error('先运行 bun run build，再重跑 bun run openui:check。');
   process.exit(1);
 }
 if (dry.includes('would build')) {
   console.error('FAIL  shared/core 构建产物过期；后续校验会读旧 dist。');
-  console.error('先运行 pnpm -r build，再重跑 pnpm openui:check。');
+  console.error('先运行 bun run build，再重跑 bun run openui:check。');
   process.exit(1);
 }
 check('shared/core 构建产物是当前源码', '最新', true);
@@ -126,7 +126,7 @@ if (regenerated) {
     '提交的 spec 与当前库重生成结果一致',
     drift.length === 0
       ? `${Object.keys(committed.components).length} 个组件`
-      : `差异：${drift.join(', ')}；运行 pnpm openui:spec`,
+      : `差异：${drift.join(', ')}；运行 bun run openui:spec`,
     drift.length === 0,
   );
 }
@@ -199,9 +199,9 @@ const behaviorTests = [
   'packages/core/test/openui-reactive-query.test.ts',
   'packages/core/test/openui-upgrade-guard.test.ts',
 ];
-const vitest = resolve(root, 'node_modules/vitest/vitest.mjs');
+const backendRunner = resolve(root, 'scripts/test-backend.ts');
 try {
-  execFileSync(process.execPath, [vitest, 'run', ...behaviorTests], {
+  execFileSync('bun', [backendRunner, ...behaviorTests], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

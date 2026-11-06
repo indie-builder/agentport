@@ -1,19 +1,19 @@
 import { AppError } from '@agentport/core';
 import type { Agent } from '@agentport/shared';
 import { AGENT_PACKAGE_MAX_BYTES, AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { packAgentPackage } from '../src/features/agent-package.js';
-import { decodePackage, encodePackage } from '../src/features/agent-package-zip.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { packAgentPackage } from '../src/modules/agents/package.js';
+import { decodePackage, encodePackage } from '../src/modules/agents/package-zip.js';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { sidecarOf, unzipPackage } from './package-fixtures.js';
@@ -84,7 +84,7 @@ describe('agent package packing limits', () => {
 });
 
 describe.skipIf(!ready)('agent package export limits', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -99,7 +99,7 @@ describe.skipIf(!ready)('agent package export limits', () => {
   });
 
   const writeRule = async (agentId: string, slug: string, content: string) => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agentId}/rules/${slug}`,
       headers: { cookie },
@@ -109,7 +109,7 @@ describe.skipIf(!ready)('agent package export limits', () => {
   };
 
   const writeStyle = async (agentId: string, slug: string, body: string) => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agentId}/output-styles/${slug}`,
       headers: { cookie },
@@ -119,7 +119,7 @@ describe.skipIf(!ready)('agent package export limits', () => {
   };
 
   const readRules = async (agentId: string) => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/agents/${agentId}/rules`,
       headers: { cookie },
@@ -129,7 +129,7 @@ describe.skipIf(!ready)('agent package export limits', () => {
   };
 
   const readStyles = async (agentId: string) => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/agents/${agentId}/output-styles`,
       headers: { cookie },
@@ -138,8 +138,8 @@ describe.skipIf(!ready)('agent package export limits', () => {
     return res.json<Array<{ slug: string; body: string }>>();
   };
 
-  const exportAgent = (id: string) => injectZip(app, 'GET', `/api/export/agents/${id}`, cookie);
-  const importZip = (zip: Buffer) => injectZip(app, 'POST', '/api/import/agents', cookie, zip);
+  const exportAgent = (id: string) => requestZip(app, 'GET', `/api/export/agents/${id}`, cookie);
+  const importZip = (zip: Buffer) => requestZip(app, 'POST', '/api/import/agents', cookie, zip);
 
   it('keeps rule and output-style slug namespaces separate for root and child definitions', async () => {
     const slug = unique('pkg-ns-root');
@@ -149,7 +149,7 @@ describe.skipIf(!ready)('agent package export limits', () => {
     const child = (
       await createAgent(app, cookie, { slug: childSlug, track: createdAgents })
     ).json<Agent>();
-    const attached = await inject(app, {
+    const attached = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${root.id}`,
       headers: { cookie },
@@ -184,11 +184,11 @@ describe.skipIf(!ready)('agent package export limits', () => {
       { slug: 'guide', body: 'Root style.' },
     ]);
 
-    const importedChild = await app.pool.query<{ id: string }>(
+    const importedChild = await app.client.unsafe<{ id: string }[]>(
       'select id from agents where slug = $1',
       [result.createdSubAgents[0]],
     );
-    const childId = importedChild.rows[0]?.id ?? '';
+    const childId = importedChild[0]?.id ?? '';
     expect(await readRules(childId)).toMatchObject([{ slug: 'guide', content: 'Child rule.' }]);
     expect(await readStyles(childId)).toMatchObject([{ slug: 'guide', body: 'Child style.' }]);
   });
@@ -228,10 +228,10 @@ describe.skipIf(!ready)('agent package export limits', () => {
     const result = imported.json<{ agent: Agent }>();
     createdAgents.push(result.agent.slug);
 
-    const rules = await app.pool.query<{ count: string; longest: number }>(
+    const rules = await app.client.unsafe<{ count: string; longest: number }[]>(
       'select count(*)::text as count, max(length(content)) as longest from agent_rules where agent_id = $1',
       [result.agent.id],
     );
-    expect(rules.rows).toEqual([{ count: '50', longest: 20_000 }]);
+    expect(rules).toEqual([{ count: '50', longest: 20_000 }]);
   });
 });

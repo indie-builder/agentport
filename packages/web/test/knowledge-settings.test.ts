@@ -510,7 +510,13 @@ describe('knowledge base settings', () => {
       profilesHandler([cohereProfile, rerankProfile]),
       http.patch('/api/knowledge/bases/kb_1', () =>
         HttpResponse.json(
-          { code: 'CONFLICT', message: '图片向量需要 Cohere embed-v4.0 且 profile 已开启图片输入' },
+          {
+            code: 'CONFLICT',
+            message: '图片向量需要 Cohere embed-v4.0 且 profile 已开启图片输入',
+            status: 409,
+            requestId: '',
+            retryable: false,
+          },
           { status: 409 },
         ),
       ),
@@ -844,7 +850,13 @@ describe('knowledge model profiles', () => {
       http.get('/api/knowledge/model-profiles', () => HttpResponse.json([embeddingProfile])),
       http.delete('/api/knowledge/model-profiles/profile_embed', () =>
         HttpResponse.json(
-          { code: 'CONFLICT', message: '该 profile 仍被知识库使用，请先切换或删除知识库' },
+          {
+            code: 'CONFLICT',
+            message: '该 profile 仍被知识库使用，请先切换或删除知识库',
+            status: 409,
+            requestId: '',
+            retryable: false,
+          },
           { status: 409 },
         ),
       ),

@@ -958,7 +958,13 @@ describe('FAQ import batch recovery', () => {
       ),
       http.post('/api/knowledge/bases/kb_1/faqs/batch', () =>
         HttpResponse.json(
-          { code: 'CONFLICT_STALE', message: '线上版本已变化', requestId: 'req_stale' },
+          {
+            code: 'CONFLICT_STALE',
+            message: '线上版本已变化',
+            status: 409,
+            requestId: 'req_stale',
+            retryable: false,
+          },
           { status: 409 },
         ),
       ),

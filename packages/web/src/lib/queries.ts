@@ -1938,7 +1938,7 @@ const KNOWLEDGE_PAGE_SIZE = 50;
  */
 export function useKnowledgeDocuments(
   baseId: string,
-  filter: { folderId?: string; tag?: string; status?: string; q?: string },
+  filter: NonNullable<Parameters<typeof api.knowledgeDocuments>[1]>,
 ) {
   return useInfiniteQuery({
     queryKey: [...knowledgeKeys.documents(baseId), filter],
@@ -2242,7 +2242,9 @@ export function useSaveKnowledgeDocumentManual(baseId: string) {
   const client = useQueryClient();
   const invalidate = useDocumentVersionInvalidate(baseId);
   return useMutation({
-    mutationFn: (vars: { documentId: string; content: string; expectedVersionId: string | null }) =>
+    mutationFn: (
+      vars: { documentId: string } & Parameters<typeof api.saveKnowledgeDocumentManual>[1],
+    ) =>
       api.saveKnowledgeDocumentManual(vars.documentId, {
         content: vars.content,
         expectedVersionId: vars.expectedVersionId,
@@ -2288,7 +2290,7 @@ export function useBatchKnowledgeDocuments(baseId: string) {
 
 export function useKnowledgeFaqs(
   baseId: string,
-  filter: { q?: string; status?: string; folderId?: string; isRecommended?: boolean },
+  filter: NonNullable<Parameters<typeof api.knowledgeFaqs>[1]>,
 ) {
   return useInfiniteQuery({
     queryKey: [...knowledgeKeys.faqs(baseId), filter],

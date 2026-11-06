@@ -1,8 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   closeRunnerClient,
   configureRunnerClient,
@@ -46,17 +47,18 @@ describe.skipIf(!ready)('run stream contract', () => {
    * 只统计客户端实际发出的读命令：spy 默认 call-through，真实读写仍走 Redis。
    * 按本次 run 的唯一键过滤，取每条命令的 COUNT；这是客户端调用计数，不是服务端 MONITOR。
    */
-  const watchCounts = (command: 'xrange' | 'xread', runId: string) => {
+  const watchCounts = (command: 'XRANGE' | 'XREAD', runId: string) => {
     const key = runStreamKey(runId);
-    const spy = vi.spyOn(Redis.prototype, command);
+    const spy = spyOn(RedisClient.prototype, 'send');
     return {
       get counts(): number[] {
         return spy.mock.calls
-          .filter((args) => {
+          .filter(([name, args]) => {
+            if (name !== command) return false;
             const streams = args.indexOf('STREAMS');
             return (streams >= 0 ? args[streams + 1] : args[0]) === key;
           })
-          .map((args) => {
+          .map(([, args]) => {
             const index = args.indexOf('COUNT');
             return index >= 0 ? Number(args[index + 1]) : -1;
           });
@@ -143,7 +145,7 @@ describe.skipIf(!ready)('run stream contract', () => {
       await publishRun(runId, { type: 'text_delta', text: `e${i}` });
     }
 
-    const watched = watchCounts('xrange', runId);
+    const watched = watchCounts('XRANGE', runId);
     const texts: string[] = [];
     let subscription: Awaited<ReturnType<typeof subscribeRun>> | undefined;
     try {
@@ -163,7 +165,7 @@ describe.skipIf(!ready)('run stream contract', () => {
 
   it('follows live events with bounded multi-event XREAD batches', async () => {
     const runId = newRun();
-    const watched = watchCounts('xread', runId);
+    const watched = watchCounts('XREAD', runId);
     const types: string[] = [];
     let subscription: Awaited<ReturnType<typeof subscribeRun>> | undefined;
     try {
@@ -197,7 +199,7 @@ describe.skipIf(!ready)('run stream contract', () => {
     for (const payload of payloads) seed.xadd(runStreamKey(runId), '*', 'payload', payload);
     await seed.exec();
 
-    const watched = watchCounts('xrange', runId);
+    const watched = watchCounts('XRANGE', runId);
     const types: string[] = [];
     let deliveredBytes = 0;
     let subscription: Awaited<ReturnType<typeof subscribeRun>> | undefined;
@@ -262,7 +264,7 @@ describe.skipIf(!ready)('run stream contract', () => {
       await publishRun(runId, { type: 'text_delta', text: `e${i}` });
     }
 
-    const watched = watchCounts('xrange', runId);
+    const watched = watchCounts('XRANGE', runId);
     const controller = new AbortController();
     const seen: string[] = [];
     let subscription: Awaited<ReturnType<typeof subscribeRun>> | undefined;

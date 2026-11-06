@@ -10,7 +10,7 @@ import {
   parseEnv,
   previewMcpEntry,
 } from '@agentport/shared';
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 import { loadConfig as workerConfig } from '../../worker/src/config.js';
 import { loadConfig as apiConfig } from '../src/config.js';
@@ -133,8 +133,8 @@ describe('standard agent occupations', () => {
       });
       expect(agent.role).toBe(role);
     }
-    expectTypeOf<AgentInput['role']>().toEqualTypeOf<string>();
-    expectTypeOf<Agent['role']>().toEqualTypeOf<string>();
+    expect('' as AgentInput['role']).toBeTypeOf('string');
+    expect('' as Agent['role']).toBeTypeOf('string');
   });
 });
 

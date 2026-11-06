@@ -1,7 +1,6 @@
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -9,9 +8,10 @@ import {
   createServer,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
   waitFor,
 } from './helpers.js';
@@ -19,7 +19,7 @@ import {
 const ready = await infraReady;
 
 describe.skipIf(!ready)('approval lifecycle', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let server: Server;
   const agentSlugs: string[] = [];
@@ -71,15 +71,14 @@ describe.skipIf(!ready)('approval lifecycle', () => {
       serverId: server.id,
       toolName,
     });
-    const [request] = await app.pool
-      .query<{ id: string }>('select id from approval_requests where run_id = $1', [run.id])
-      .then((res) => res.rows);
+    const [request] = await app.client.unsafe<{ id: string }[]>('select id from approval_requests where run_id = $1', [run.id])
+      .then((res) => res);
     if (!request) throw new Error('approval request was not inserted');
     return { runId: run.id, requestId: request.id, toolName };
   };
 
   const approve = (runId: string, payload: unknown) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: { cookie },
@@ -87,19 +86,19 @@ describe.skipIf(!ready)('approval lifecycle', () => {
     });
 
   const requestState = async (requestId: string) => {
-    const res = await app.pool.query<{ approved_at: Date | null }>(
+    const res = await app.client.unsafe<{ approved_at: Date | null }[]>(
       'select approved_at from approval_requests where id = $1',
       [requestId],
     );
-    return res.rows[0];
+    return res[0];
   };
 
   const approvedAuditCount = async (runId: string): Promise<number> => {
-    const res = await app.pool.query<{ count: number }>(
+    const res = await app.client.unsafe<{ count: number }[]>(
       "select count(*)::int as count from audit_log where action = 'agent.run.approved' and target = $1",
       [runId],
     );
-    return res.rows[0]?.count ?? 0;
+    return res[0]?.count ?? 0;
   };
 
   it('approves a pending request while the run is running', async () => {
@@ -149,13 +148,13 @@ describe.skipIf(!ready)('approval lifecycle', () => {
   it('waits on the run row lock before deciding approval', async () => {
     const { runId, requestId, toolName } = await seed('running');
     // 独立连接持有未提交的状态变更，模拟 cancel / worker 的并发写入。
-    const locker = await app.pool.connect();
+    const locker = await app.client.reserve();
     let settled = false;
     try {
-      const own = await locker.query<{ pid: number }>('select pg_backend_pid() as pid');
-      const lockerPid = own.rows[0]?.pid;
-      await locker.query('begin');
-      await locker.query("update agent_runs set status = 'cancelled' where id = $1", [runId]);
+      const own = await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
+      const lockerPid = own[0]?.pid;
+      await locker.unsafe('begin');
+      await locker.unsafe("update agent_runs set status = 'cancelled' where id = $1", [runId]);
 
       const approval = approve(runId, { serverId: server.id, toolName }).finally(() => {
         settled = true;
@@ -163,7 +162,7 @@ describe.skipIf(!ready)('approval lifecycle', () => {
 
       // 不以耗时判断：等 PostgreSQL 明确记录该后端正被本连接的行锁阻塞。
       const blocked = await waitFor(async () => {
-        const res = await app.pool.query(
+        const res = await app.client.unsafe(
           `select pid from pg_stat_activity
             where wait_event_type = 'Lock'
               and query ilike '%agent_runs%'
@@ -171,18 +170,18 @@ describe.skipIf(!ready)('approval lifecycle', () => {
               and $1 = any(pg_blocking_pids(pid))`,
           [lockerPid],
         );
-        return res.rowCount !== null && res.rowCount > 0;
+        return res.length > 0;
       });
       expect(blocked, 'approval should wait on the run row lock').toBe(true);
       expect(settled).toBe(false);
 
-      await locker.query('commit');
+      await locker.unsafe('commit');
 
       expectProblem(await approval, 'CONFLICT');
       expect((await requestState(requestId))?.approved_at).toBeNull();
       expect(await approvedAuditCount(runId)).toBe(0);
     } finally {
-      await locker.query('rollback').catch(() => undefined);
+      await locker.unsafe('rollback').catch(() => undefined);
       locker.release();
     }
   });

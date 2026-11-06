@@ -1,20 +1,23 @@
+import { SQL } from 'bun';
 import { AppError, isAppError } from '@agentport/core';
 import { isIdOfType, newId } from '@agentport/db';
 import { errorCode } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { isPgCode, toAppError } from '../src/plugins/errors.js';
-import { expectProblem, inject, startApp } from './helpers.js';
+import { HTTPException } from 'hono/http-exception';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { isPgCode, toAppError } from '../src/http/errors.js';
+import { expectProblem, loginCookie, request, startApp, type TestApp } from './helpers.js';
 
 /**
  * 错误契约的边界测试：每个出口都必须给出同一形状。
  * 业务路径的断言在各自 feature 的测试里，这里只验证「形状与安全」。
  */
 describe('problem responses', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let cookie: string;
 
   beforeAll(async () => {
     app = await startApp();
+    cookie = await loginCookie(app);
   });
 
   afterAll(async () => {
@@ -22,7 +25,7 @@ describe('problem responses', () => {
   });
 
   it('unknown route produces a complete Problem', async () => {
-    const res = await inject(app, { method: 'GET', url: '/api/definitely-not-a-route' });
+    const res = await request(app, { method: 'GET', url: '/api/definitely-not-a-route' });
     const body = expectProblem(res, 'NOT_FOUND');
     expect(body.retryable).toBe(false);
     expect(typeof body.message).toBe('string');
@@ -30,30 +33,36 @@ describe('problem responses', () => {
   });
 
   it('returns 401 Problem when unauthenticated', async () => {
-    const res = await inject(app, { method: 'GET', url: '/api/agents' });
+    const res = await request(app, { method: 'GET', url: '/api/agents' });
     expect(expectProblem(res, 'UNAUTHORIZED').retryable).toBe(false);
   });
 
-  it('validates querystring at the schema boundary', async () => {
-    // 校验在 preHandler 之前：非法查询串不会因为未登录而变成 401。
-    for (const url of [
+  it('validates querystring after authentication', async () => {
+    const urls = [
       '/api/runs?limit=0',
       '/api/runs?limit=201',
       '/api/runs?limit=abc',
       '/api/runs?status=nope',
       '/api/conversations?limit=999',
       '/api/overview?days=0',
-    ]) {
-      const res = await inject(app, { method: 'GET', url });
+    ];
+    for (const url of urls) {
+      const anonymous = await request(app, { method: 'GET', url });
+      expectProblem(anonymous, 'UNAUTHORIZED');
+      const res = await request(app, { method: 'GET', url, headers: { cookie } });
       expect(typeof expectProblem(res, 'INVALID_INPUT').path, url).toBe('string');
     }
 
-    const ok = await inject(app, { method: 'GET', url: '/api/runs?limit=5' });
+    const ok = await request(app, { method: 'GET', url: '/api/runs?limit=5' });
     expect(ok.statusCode).toBe(401);
   });
 
   it('renders zod default validation messages in Chinese', async () => {
-    const res = await inject(app, { method: 'GET', url: '/api/runs?limit=abc' });
+    const res = await request(app, {
+      method: 'GET',
+      url: '/api/runs?limit=abc',
+      headers: { cookie },
+    });
     const body = expectProblem(res, 'INVALID_INPUT');
     expect(body.message).toMatch(/[一-鿿]/);
   });
@@ -64,7 +73,7 @@ describe('AppError contract', () => {
     // better-auth 的登录要读用户表；数据库不可达时登录本身就是一次真实的 500。
     const broken = await startApp({ DATABASE_URL: 'postgres://u:hunter2@127.0.0.1:1/nope' });
     try {
-      const res = await inject(broken, {
+      const res = await request(broken, {
         method: 'POST',
         url: '/api/auth/login',
         payload: { username: 'admin', password: 'irrelevant-password' },
@@ -94,7 +103,7 @@ describe('AppError contract', () => {
   it('maps malformed JSON to a 400, not a 500', async () => {
     const app = await startApp();
     try {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/auth/login',
         headers: { 'content-type': 'application/json' },
@@ -123,17 +132,21 @@ describe('AppError contract', () => {
 
 describe('toAppError mappings', () => {
   it.each([
-    [{ statusCode: 413 }, 'PAYLOAD_TOO_LARGE'],
-    [{ statusCode: 415 }, 'UNSUPPORTED_MEDIA_TYPE'],
-    [{ statusCode: 429 }, 'RATE_LIMITED'],
-    [{ statusCode: 503 }, 'SERVICE_UNAVAILABLE'],
-  ] as const)('maps %o to %s', (input, code) => {
-    expect(toAppError(input)).toMatchObject({ code, status: errorCode[code] });
+    [413, 'PAYLOAD_TOO_LARGE'],
+    [415, 'UNSUPPORTED_MEDIA_TYPE'],
+    [429, 'RATE_LIMITED'],
+    [503, 'SERVICE_UNAVAILABLE'],
+  ] as const)('maps HTTP %i to %s', (status, code) => {
+    expect(toAppError(new HTTPException(status))).toMatchObject({
+      code,
+      status: errorCode[code],
+    });
   });
 
   it('maps a Redis outage to a retryable 503, not a 500', () => {
-    const unavailable = Object.assign(new Error('Command timed out'), {
-      name: 'MaxRetriesPerRequestError',
+    const unavailable = Object.assign(new Error('Connection closed'), {
+      name: 'RedisError',
+      code: 'ERR_REDIS_CONNECTION_CLOSED',
     });
     expect(toAppError(unavailable)).toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
@@ -159,12 +172,13 @@ describe('toAppError mappings', () => {
 
 describe('isPgCode', () => {
   it('finds 23505/23503 nested in drizzle causes', () => {
-    const fk = Object.assign(new Error('update violates fk'), {
-      cause: Object.assign(new Error('pg'), { code: '23503' }),
-    });
+    const postgres = (errno: string) =>
+      Object.assign(Object.create(SQL.PostgresError.prototype), { errno });
+    const fk = Object.assign(new Error('update violates fk'), { cause: postgres('23503') });
     expect(isPgCode(fk, '23503')).toBe(true);
     expect(isPgCode(fk, '23505')).toBe(false);
-    expect(isPgCode({ code: '23505' }, '23505')).toBe(true);
+    expect(isPgCode(postgres('23505'), '23505')).toBe(true);
+    expect(isPgCode({ errno: '23505' }, '23505')).toBe(false);
     expect(isPgCode(null, '23505')).toBe(false);
     expect(isPgCode(new Error('plain'), '23505')).toBe(false);
   });

@@ -1,31 +1,12 @@
-import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { createDb, newId } from '../packages/db/dist/index.js';
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 运行导出的真实浏览器验收：真实页面、真实 API、数据库直写 fixture。
- * DATABASE_URL 必须显式给出（无默认值），且与页面背后 API 指向同一个库。
+ * E2E_DATABASE_URL 必须显式给出（无默认值），且与页面背后 API 指向同一个库。
  */
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required for runs export fixtures`);
-  return value;
-}
-const DATABASE_URL = requiredEnv('DATABASE_URL');
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function pool(): ReturnType<typeof createDb>['pool'] {
-  dbPromise ??= createDb(DATABASE_URL);
-  return dbPromise.pool;
-}
-
-test.afterAll(async () => {
-  const current = await dbPromise;
-  await current?.pool.end();
-});
-
 interface Fixture {
   ownAgentId: string;
   foreignAgentId: string;
@@ -37,82 +18,12 @@ interface Fixture {
 
 /** 自己的 agent 两条运行（succeeded / failed），另一个 agent 一条 failed。 */
 async function seed(): Promise<Fixture> {
-  const suffix = randomUUID().slice(0, 8);
-  const fixture: Fixture = {
-    ownAgentId: newId('agent'),
-    foreignAgentId: newId('agent'),
-    succeededRunId: newId('run'),
-    failedRunId: newId('run'),
-    foreignRunId: newId('run'),
-    targets: [],
-  };
-  const ownConversations = [newId('conversation'), newId('conversation')];
-  const foreignConversation = newId('conversation');
-  const client = pool();
-
-  await client.query(
-    `insert into agents (id, slug, name, model) values
-       ($1, $3, $5, 'test-model'), ($2, $4, $6, 'test-model')`,
-    [
-      fixture.ownAgentId,
-      fixture.foreignAgentId,
-      `e2e-runs-export-own-${suffix}`,
-      `e2e-runs-export-foreign-${suffix}`,
-      `E2E 运行导出 ${suffix}`,
-      `E2E 无关专家 ${suffix}`,
-    ],
-  );
-  await client.query(
-    `insert into conversations (id, agent_id, title) values
-       ($1, $4, $6), ($2, $4, $6), ($3, $5, $7)`,
-    [
-      ownConversations[0],
-      ownConversations[1],
-      foreignConversation,
-      fixture.ownAgentId,
-      fixture.foreignAgentId,
-      `E2E 运行导出会话 ${suffix}`,
-      `E2E 无关会话 ${suffix}`,
-    ],
-  );
-  await client.query(
-    `insert into agent_runs (id, conversation_id, agent_id, status, started_at, ended_at, error)
-     values
-       ($1, $4, $7, 'succeeded', now(), now(), null),
-       ($2, $5, $7, 'failed', now(), now(), 'fixture boom'),
-       ($3, $6, $8, 'failed', now(), now(), 'foreign boom')`,
-    [
-      fixture.succeededRunId,
-      fixture.failedRunId,
-      fixture.foreignRunId,
-      ownConversations[0],
-      ownConversations[1],
-      foreignConversation,
-      fixture.ownAgentId,
-      fixture.foreignAgentId,
-    ],
-  );
-
-  fixture.targets = [
-    fixture.ownAgentId,
-    fixture.foreignAgentId,
-    ...ownConversations,
-    foreignConversation,
-    fixture.succeededRunId,
-    fixture.failedRunId,
-    fixture.foreignRunId,
-  ];
-  return fixture;
+  return runFixture('runs-export', 'seed');
 }
 
 /** 只删自己建的 agent：会话、运行随 agent 级联删除；审计行按 id 另删。 */
 async function cleanup(fixture: Fixture): Promise<void> {
-  const client = pool();
-  await client.query('delete from audit_log where target = any($1::text[])', [fixture.targets]);
-  await client.query('delete from agents where id = any($1::text[])', [
-    [fixture.ownAgentId, fixture.foreignAgentId],
-  ]);
-  // 会话、运行、消息随 agent 级联删除。
+  return runFixture('runs-export', 'cleanup', fixture);
 }
 
 interface ExportBody {

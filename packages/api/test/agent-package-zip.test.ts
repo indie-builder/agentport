@@ -4,18 +4,18 @@ import { join } from 'node:path';
 import { parseChildAgentMd, parseClaudeMd } from '@agentport/core';
 import type { Agent, Server, Skill } from '@agentport/shared';
 import { AGENT_PACKAGE_MAX_BYTES, AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   createServer,
   expectProblem,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
@@ -98,7 +98,7 @@ const sortByName = <T extends { name: string }>(items: T[]): T[] =>
   [...items].sort((a, b) => a.name.localeCompare(b.name));
 
 describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
   const createdServers: string[] = [];
@@ -118,26 +118,26 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     await app.close();
   });
 
-  const exportAgent = (id: string) => injectZip(app, 'GET', `/api/export/agents/${id}`, cookie);
+  const exportAgent = (id: string) => requestZip(app, 'GET', `/api/export/agents/${id}`, cookie);
   const exportFiles = async (id: string): Promise<Map<string, string>> => {
     const res = await exportAgent(id);
     expect(res.statusCode, res.body).toBe(200);
     return unzipPackage(res.rawPayload);
   };
   const importZip = (zip: Buffer, query = '') =>
-    injectZip(app, 'POST', `/api/import/agents${query}`, cookie, zip);
+    requestZip(app, 'POST', `/api/import/agents${query}`, cookie, zip);
   const listAgents = async (): Promise<Agent[]> => {
-    const res = await inject(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
+    const res = await request(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
     expect(res.statusCode, res.body).toBe(200);
     return res.json<Agent[]>();
   };
   const serverByName = async (name: string): Promise<Server | undefined> => {
-    const res = await inject(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
+    const res = await request(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
     expect(res.statusCode).toBe(200);
     return res.json<Server[]>().find((server) => server.name === name);
   };
   const createToolFor = async (serverId: string, tool: PortableTool): Promise<ApiToolResponse> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/servers/${serverId}/tools`,
       headers: { cookie },
@@ -146,7 +146,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(res.statusCode, res.body).toBe(201);
     const created = res.json<ApiToolResponse>();
     if (tool.enabled) return created;
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/servers/${serverId}/tools/${created.id}`,
       headers: { cookie },
@@ -156,7 +156,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     return disabled.json<ApiToolResponse>();
   };
   const listTools = async (serverId: string): Promise<ApiToolResponse[]> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/servers/${serverId}/tools`,
       headers: { cookie },
@@ -170,7 +170,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     description: string,
     resources: Array<{ path: string; content: string }>,
   ): Promise<Skill> => {
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: { cookie },
@@ -179,7 +179,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(created.statusCode, created.body).toBe(201);
     const skill = created.json<Skill>();
     for (const resource of resources) {
-      const written = await inject(app, {
+      const written = await request(app, {
         method: 'PUT',
         url: `/api/skills/${skill.id}/files/${resource.path}`,
         headers: { cookie },
@@ -192,7 +192,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
   const skillResources = async (
     skillId: string,
   ): Promise<Array<{ path: string; content: string }>> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/skills/${skillId}/files`,
       headers: { cookie },
@@ -207,7 +207,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     createdAgents.push(slug);
     createdSkills.push(skillSlug);
 
-    const skill = await inject(app, {
+    const skill = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: { cookie },
@@ -222,7 +222,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const created = await createAgent(app, cookie, { slug, track: createdAgents });
     const agentId = created.json<{ id: string }>().id;
     const prompt = '你是助手。\n包含 "引号"、\\反斜杠 与 🚀\n第二行';
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agentId}`,
       headers: { cookie },
@@ -232,10 +232,10 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
 
     const res = await exportAgent(agentId);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-type']).toMatch(/^application\/zip/);
-    expect(res.headers['content-disposition']).toBe(`attachment; filename="${slug}.zip"`);
-    expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers.get('content-type')).toMatch(/^application\/zip/);
+    expect(res.headers.get('content-disposition')).toBe(`attachment; filename="${slug}.zip"`);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.rawPayload.byteLength).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);
 
     const files = unzipPackage(res.rawPayload);
@@ -275,7 +275,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       '',
       'Steps.',
     ].join('\n');
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: '/api/skills/import',
       headers: { cookie },
@@ -309,7 +309,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const created = await createAgent(app, cookie, { slug, track: createdAgents });
     // 随机内容不可压缩：官方文件合起来真实超过 1 MiB，才能验证导出端拒绝而不是截断。
     // 单个请求仍低于 1 MiB 的 JSON 上限，所以只能由导出端拦截。
-    const skill = await inject(app, {
+    const skill = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: { cookie },
@@ -321,7 +321,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       },
     });
     expect(skill.statusCode, skill.body).toBe(201);
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${created.json<{ id: string }>().id}`,
       headers: { cookie },
@@ -421,7 +421,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     createdServers.push(serverName, kindName);
     createdAgents.push(slug, kindSlug);
 
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -443,7 +443,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(body.createdServers).toEqual([]);
     expect(body.agent.serverIds).toEqual([created.json<Server>().id]);
 
-    const stdio = await inject(app, {
+    const stdio = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -479,7 +479,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
   it('renames a conflicting slug and explains it in warnings', async () => {
     const slug = unique('imp-dup');
     createdAgents.push(slug, `${slug}-2`);
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: { cookie },
@@ -527,7 +527,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
   });
 
   it('rejects a legacy JSON package', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/import/agents',
       headers: { cookie, 'content-type': 'application/zip' },
@@ -618,7 +618,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     createdServers.push(sourceName, importedName);
     createdAgents.push(importedSlug);
 
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -671,11 +671,11 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     );
 
     // mcpToken 与加密列里的值都不能写入导出包。
-    const tokenRow = await app.pool.query<{ token: string | null }>(
+    const tokenRow = await app.client.unsafe<{ token: string | null }[]>(
       "select config->>'mcpToken' as token from servers where name = $1",
       [sourceName],
     );
-    const sourceToken = tokenRow.rows[0]?.token ?? '';
+    const sourceToken = tokenRow[0]?.token ?? '';
     expect(sourceToken).not.toBe('');
     expect(sourceEntry).not.toHaveProperty('mcpToken');
     expect(sourceEntry.secretKeys).toEqual(['Authorization']);
@@ -722,11 +722,11 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     }
 
     // 导入必须生成新的 mcpToken，且响应里不能出现任何 token。
-    const importedTokenRow = await app.pool.query<{ token: string | null }>(
+    const importedTokenRow = await app.client.unsafe<{ token: string | null }[]>(
       "select config->>'mcpToken' as token from servers where name = $1",
       [importedName],
     );
-    const importedToken = importedTokenRow.rows[0]?.token ?? '';
+    const importedToken = importedTokenRow[0]?.token ?? '';
     expect(importedToken).not.toBe('');
     expect(importedToken).not.toBe(sourceToken);
     expect(res.body).not.toContain(importedToken);
@@ -742,7 +742,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     createdAgents.push(slug);
     createdServers.push(serverName);
 
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -776,11 +776,11 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
 
     const existing = await serverByName(serverName);
     expect(existing?.kind === 'http' ? existing.url : undefined).toBe('https://example.com/mcp');
-    const row = await app.pool.query<{ secrets_encrypted: string | null }>(
+    const row = await app.client.unsafe<{ secrets_encrypted: string | null }[]>(
       'select secrets_encrypted from servers where name = $1',
       [serverName],
     );
-    expect(row.rows[0]?.secrets_encrypted).not.toBeNull();
+    expect(row[0]?.secrets_encrypted).not.toBeNull();
   });
 
   it('never writes secret values and warns about secret keys', async () => {
@@ -808,12 +808,12 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(body.warnings[0]).toContain('API_KEY');
     expect(body.warnings[0]).toContain('TOKEN');
 
-    const row = await app.pool.query<{ secrets_encrypted: string | null }>(
+    const row = await app.client.unsafe<{ secrets_encrypted: string | null }[]>(
       'select secrets_encrypted from servers where name = $1',
       [serverName],
     );
-    expect(row.rows[0]?.secrets_encrypted).toBeNull();
-    const servers = await inject(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
+    expect(row[0]?.secrets_encrypted).toBeNull();
+    const servers = await request(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
     const imported = servers.json<Server[]>().find((server) => server.name === serverName);
     expect(imported?.kind === 'stdio' ? imported.env : imported?.headers).toEqual({});
   });
@@ -824,7 +824,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const targetSlug = unique('imp-skill-target');
     createdAgents.push(slug, targetSlug);
     createdSkills.push(skillSlug);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: { cookie },
@@ -843,7 +843,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(body.createdSkills).toEqual([]);
     expect(body.agent.skillIds).toHaveLength(1);
     expect(body.warnings.some((warning) => warning.includes(skillSlug))).toBe(true);
-    const skills = await inject(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
+    const skills = await request(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
     expect(skills.json<Skill[]>().filter((skill) => skill.slug === skillSlug)).toHaveLength(1);
     expect(skills.json<Skill[]>().find((skill) => skill.slug === skillSlug)?.body).toBe('');
   });
@@ -855,7 +855,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     createdAgents.push(slug, again);
     createdSkills.push(skillSlug);
 
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: { cookie },
@@ -912,7 +912,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(body.warnings.some((w) => w.includes('内容与导入包不同'))).toBe(false);
     expect(body.warnings.some((w) => w.includes('来源信息与导入包不同'))).toBe(true);
 
-    const skills = await inject(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
+    const skills = await request(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
     expect(skills.statusCode, skills.body).toBe(200);
     expect(skills.json<Skill[]>().find((skill) => skill.slug === skillSlug)).toMatchObject({
       license: 'MIT',
@@ -1051,7 +1051,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
   });
 
   it('requires auth for import and export', async () => {
-    const imported = await inject(app, {
+    const imported = await request(app, {
       method: 'POST',
       url: '/api/import/agents',
       headers: { 'content-type': 'application/zip' },
@@ -1059,7 +1059,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     });
     expect(imported.statusCode).toBe(401);
 
-    const exported = await inject(app, { method: 'GET', url: '/api/export/agents/agt_missing' });
+    const exported = await request(app, { method: 'GET', url: '/api/export/agents/agt_missing' });
     expect(exported.statusCode).toBe(401);
   });
 
@@ -1237,7 +1237,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       await createAgent(app, cookie, { slug: sourceSlug, track: createdAgents })
     ).json<Agent>();
     const prompt = '你是看板助手。\n\n## 规则\n\n1. 先查再答。';
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${sourceAgent.id}`,
       headers: { cookie },
@@ -1315,7 +1315,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const childAgent = (
       await createAgent(app, cookie, { slug: childSlug, track: createdAgents })
     ).json<Agent>();
-    const childPatched = await inject(app, {
+    const childPatched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${childAgent.id}`,
       headers: { cookie },
@@ -1330,7 +1330,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         subAgentIds: [childAgent.id],
       })
     ).json<Agent>();
-    const rootPatched = await inject(app, {
+    const rootPatched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${sourceAgent.id}`,
       headers: { cookie },
@@ -1364,11 +1364,11 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
 
     const importedChildSlug = result.createdSubAgents[0] ?? '';
     // 列表只返回摘要，正文要按实体 id 读取。
-    const childRow = await app.pool.query<{ id: string }>('select id from agents where slug = $1', [
+    const childRow = await app.client.unsafe<{ id: string }[]>('select id from agents where slug = $1', [
       importedChildSlug,
     ]);
-    const importedChildId = childRow.rows[0]?.id ?? '';
-    const importedChildGet = await inject(app, {
+    const importedChildId = childRow[0]?.id ?? '';
+    const importedChildGet = await request(app, {
       method: 'GET',
       url: `/api/agents/${importedChildId}`,
       headers: { cookie },
@@ -1397,7 +1397,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const slug = unique('pkg-openui-ver');
     createdAgents.push(slug);
     const agent = (await createAgent(app, cookie, { slug, track: createdAgents })).json<Agent>();
-    const toOpenUi = await inject(app, {
+    const toOpenUi = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie },
@@ -1406,7 +1406,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(toOpenUi.statusCode, toOpenUi.body).toBe(200);
 
     // 当前版本是 openui；回滚到仍为 markdown 的 v1 必须显式变回 markdown。
-    const back = await inject(app, {
+    const back = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
       headers: { cookie },
@@ -1415,7 +1415,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(back.statusCode, back.body).toBe(200);
     expect(back.json<Agent>().uiFormat).toBe('markdown');
 
-    const again = await inject(app, {
+    const again = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie },
@@ -1425,7 +1425,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
 
     const copySlug = unique('pkg-openui-copy');
     createdAgents.push(copySlug);
-    const copy = await inject(app, {
+    const copy = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/duplicate`,
       headers: { cookie },
@@ -1435,7 +1435,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(copy.json<Agent>().uiFormat).toBe('openui');
 
     // 回到 openui 版本（v2 = 第一次 PATCH 后），回滚后导出仍是生成式 UI。
-    const restored = await inject(app, {
+    const restored = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
       headers: { cookie },
@@ -1467,7 +1467,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         track: createdAgents,
       })
     ).json<Agent>();
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${sourceAgent.id}`,
       headers: { cookie },
@@ -1497,7 +1497,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     createdAgents.push(result.agent.slug);
 
     // 预览与运行时同源：换绑后的 server 名与工具名必须出现在新智能体的提示词里。
-    const preview = await inject(app, {
+    const preview = await request(app, {
       method: 'GET',
       url: `/api/agents/${result.agent.id}/files`,
       headers: { cookie },
@@ -1518,7 +1518,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       await createAgent(app, cookie, { slug: sourceSlug, track: createdAgents })
     ).json<Agent>();
     const prompt = '你是报表助手。\n\n## 步骤\n\n1. 汇总。';
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${sourceAgent.id}`,
       headers: { cookie },
@@ -1593,7 +1593,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
   it('rejects more than 20 children and more than 100 resources on export', async () => {
     const rootSlug = unique('pkg-many-children');
     createdAgents.push(rootSlug);
-    const createdRoot = await inject(app, {
+    const createdRoot = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: { cookie },
@@ -1605,7 +1605,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const idPrefix = `agt_${unique('many')}_`;
     const slugPrefix = unique('pkg-child-bulk');
     for (let index = 1; index <= 21; index += 1) createdAgents.push(`${slugPrefix}-${index}`);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agents (id, slug, name, model, system_prompt_md, parent_id, created_by, owner_business_id)
        select $1 || g, $2 || '-' || g, 'Bulk child ' || g, 'claude-sonnet-5-5', 'bulk', $3, 'bootstrap-admin', 'bootstrap-admin'
        from generate_series(1, 21) g`,
@@ -1616,7 +1616,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const resourceSlug = unique('pkg-many-skills');
     createdAgents.push(resourceSlug);
     const root2 = (
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: '/api/agents',
         headers: { cookie },
@@ -1625,13 +1625,13 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     ).json<Agent>();
     const skillPrefix = unique('pkg-bulk-skill');
     for (let index = 1; index <= 101; index += 1) createdSkills.push(`${skillPrefix}-${index}`);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into skills (id, slug, name, description, body)
        select $1 || g, $2 || '-' || g, 'Bulk skill ' || g, 'bulk', ''
        from generate_series(1, 101) g`,
       [`skl_${unique('bulk')}_`, skillPrefix],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_skills (agent_id, skill_id)
        select $1, id from skills where slug like $2`,
       [root2.id, `${skillPrefix}-%`],
@@ -1667,14 +1667,14 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         }),
       );
       expect(imported.statusCode, imported.body).toBe(201);
-      const skill = await app.pool.query<{ id: string }>('select id from skills where slug = $1', [
+      const skill = await app.client.unsafe<{ id: string }[]>('select id from skills where slug = $1', [
         skillSlug,
       ]);
-      await app.pool.query('delete from skill_files where skill_id = $1', [skill.rows[0]?.id]);
+      await app.client.unsafe('delete from skill_files where skill_id = $1', [skill[0]?.id]);
       for (const path of item.paths) {
-        await app.pool.query(
+        await app.client.unsafe(
           'insert into skill_files (id, skill_id, path, content) values ($1, $2, $3, $4)',
-          [unique('collision-file'), skill.rows[0]?.id, path, 'Conflicting resource.'],
+          [unique('collision-file'), skill[0]?.id, path, 'Conflicting resource.'],
         );
       }
       const exported = await exportAgent(imported.json<AgentImportResult>().agent.id);
@@ -1686,7 +1686,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const slug = unique('pkg-limits');
     createdAgents.push(slug);
     const root = (
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: '/api/agents',
         headers: { cookie },
@@ -1694,8 +1694,8 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       })
     ).json<Agent>();
     const insertRules = async (count: number) => {
-      await app.pool.query('delete from agent_rules where agent_id = $1', [root.id]);
-      await app.pool.query(
+      await app.client.unsafe('delete from agent_rules where agent_id = $1', [root.id]);
+      await app.client.unsafe(
         `insert into agent_rules (id, agent_id, slug, content, globs)
          select $1 || g, $2, 'rule-' || g, '', '' from generate_series(1, $3) g`,
         [`rule_${unique('bulk')}_`, root.id, count],
@@ -1729,7 +1729,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const importedSlug = unique('imp-reuse-tools-dst');
     createdAgents.push(sourceSlug, importedSlug);
 
-    const server = await inject(app, {
+    const server = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -1895,7 +1895,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const serverName = unique('pkg-mask-srv');
     createdAgents.push(slug);
     createdServers.push(serverName);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },

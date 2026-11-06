@@ -1,5 +1,5 @@
 import { hasOpenUiSegment, segmentOpenUi } from '@agentport/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 /**
  * shared 分段器是浏览器与服务端共用的唯一实现。

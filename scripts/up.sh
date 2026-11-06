@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 一条命令部署：生成 .env → 启动依赖 → 迁移 → 构建镜像 → 冒烟。
-# 用法：pnpm run up [--rebuild]
+# 用法：bun run up [--rebuild]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -112,5 +112,5 @@ echo "部署完成：$BASE_URL"
 if [ -z "$(env_get ANTHROPIC_API_KEY)$(env_get ANTHROPIC_AUTH_TOKEN)" ]; then
   echo
   echo "注意：未配置模型凭据（ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN）。"
-  echo "      平台本身可用，但发起对话会失败；补全 .env 后运行 pnpm run up 重启。"
+  echo "      平台本身可用，但发起对话会失败；补全 .env 后运行 bun run up 重启。"
 fi

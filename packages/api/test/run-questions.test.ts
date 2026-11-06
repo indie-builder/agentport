@@ -1,17 +1,17 @@
 import { repo } from '@agentport/db';
 import type { PublicRunQuestion, RunQuestion } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { requestRunCancel } from '../src/queue/producer.js';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   seedRun,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -31,7 +31,7 @@ const questionSet = [
 ];
 
 describe.skipIf(!ready)('run question routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const runIds: string[] = [];
@@ -71,14 +71,14 @@ describe.skipIf(!ready)('run question routes', () => {
   }
 
   const list = (runId: string) =>
-    inject(app, {
+    request(app, {
       method: 'GET',
       url: `/api/runs/${runId}/questions`,
       headers: auth(),
     });
 
   const respond = (runId: string, requestId: string, payload: unknown) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/questions/${requestId}/response`,
       headers: auth(),
@@ -131,7 +131,7 @@ describe.skipIf(!ready)('run question routes', () => {
       },
     });
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/runs/${seeded.runId}`,
       headers: auth(),
@@ -145,11 +145,11 @@ describe.skipIf(!ready)('run question routes', () => {
   it('requires login for both endpoints', async () => {
     const runId = await run();
     expectProblem(
-      await inject(app, { method: 'GET', url: `/api/runs/${runId}/questions` }),
+      await request(app, { method: 'GET', url: `/api/runs/${runId}/questions` }),
       'UNAUTHORIZED',
     );
     expectProblem(
-      await inject(app, {
+      await request(app, {
         method: 'POST',
         url: `/api/runs/${runId}/questions/req-1/response`,
         payload: { decline: true },
@@ -188,11 +188,11 @@ describe.skipIf(!ready)('run question routes', () => {
 
     expectProblem(await respond(runId, 'req-1', { answers: { '0': 'Python' } }), 'CONFLICT');
 
-    const audit = await app.pool.query<{ action: string }>(
+    const audit = await app.client.unsafe<{ action: string }[]>(
       'select action from audit_log where target = $1 order by created_at desc limit 1',
       [runId],
     );
-    expect(audit.rows[0]?.action).toBe('agent.run.question.responded');
+    expect(audit[0]?.action).toBe('agent.run.question.responded');
   });
 
   it('projects secrets and restores selected original labels using stable indices', async () => {

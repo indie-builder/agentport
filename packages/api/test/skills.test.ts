@@ -1,21 +1,21 @@
 import type { Agent, Skill, SkillWithAgentCount, WorkspaceFiles } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('skills', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
   const createdSkills: string[] = [];
@@ -34,7 +34,7 @@ describe.skipIf(!ready)('skills', () => {
 
   const createSkill = async (slug: string): Promise<Skill> => {
     createdSkills.push(slug);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: auth(),
@@ -59,7 +59,7 @@ describe.skipIf(!ready)('skills', () => {
     await newAgent([shared.id]);
     await newAgent([shared.id]);
 
-    const res = await inject(app, { method: 'GET', url: '/api/skills', headers: auth() });
+    const res = await request(app, { method: 'GET', url: '/api/skills', headers: auth() });
     expect(res.statusCode).toBe(200);
     const body = res.json<SkillWithAgentCount[]>();
 
@@ -71,7 +71,7 @@ describe.skipIf(!ready)('skills', () => {
     const slug = unique('file-skill');
     createdSkills.push(slug);
     const body = '\r\n\r\n## 步骤\r\n第一行：你好，世界 🌏\r\nSecond line\r\n\r\n';
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: auth(),
@@ -85,14 +85,14 @@ describe.skipIf(!ready)('skills', () => {
     expect(created.statusCode, created.body).toBe(201);
     const skill = created.json<Skill>();
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/skills/${skill.id}/file`,
       headers: auth(),
     });
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-type']).toBe('text/markdown; charset=utf-8');
-    expect(res.headers['content-disposition']).toBe('attachment; filename="SKILL.md"');
+    expect(res.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="SKILL.md"');
 
     // 期望值手写：正文只去外层空白，内部 CRLF 与 Unicode 原样保留。
     const expected = [
@@ -110,7 +110,7 @@ describe.skipIf(!ready)('skills', () => {
 
     // 同一技能绑定到智能体后，预览里的内容必须与下载逐字节相同。
     const agent = await newAgent([skill.id]);
-    const preview = await inject(app, {
+    const preview = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/files`,
       headers: auth(),
@@ -126,10 +126,10 @@ describe.skipIf(!ready)('skills', () => {
   });
 
   it('requires auth and returns 404 for an unknown skill file', async () => {
-    const anon = await inject(app, { method: 'GET', url: '/api/skills/skill_missing/file' });
+    const anon = await request(app, { method: 'GET', url: '/api/skills/skill_missing/file' });
     expectProblem(anon, 'UNAUTHORIZED');
 
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'GET',
       url: '/api/skills/skill_missing/file',
       headers: auth(),
@@ -142,7 +142,7 @@ describe.skipIf(!ready)('skills', () => {
     const skill = await createSkill(unique('file-path'));
 
     for (const path of ['%2E%2E%2Fhack.md', '%2Fetc%2Fpasswd', 'a%2F..%2Fb.md']) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PUT',
         url: `/api/skills/${skill.id}/files/${path}`,
         headers: auth(),
@@ -150,10 +150,10 @@ describe.skipIf(!ready)('skills', () => {
       });
       const body = expectProblem(res, 'INVALID_INPUT');
       expect(body.message).toContain('相对路径');
-      expect(body.path).toBe('/*');
+      expect(body.path).toBe('/params/path');
     }
 
-    const del = await inject(app, {
+    const del = await request(app, {
       method: 'DELETE',
       url: `/api/skills/${skill.id}/files/%2E%2E%2Fhack.md`,
       headers: auth(),
@@ -171,14 +171,14 @@ describe.skipIf(!ready)('skills', () => {
     'refs/',
   ])('rejects non-projectable resource path %s without writing a file', async (path) => {
     const skill = await createSkill(unique('invalid-resource'));
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PUT',
       url: `/api/skills/${skill.id}/files/${encodeURIComponent(path)}`,
       headers: auth(),
       payload: { content: 'must not be written' },
     });
     expectProblem(res, 'INVALID_INPUT');
-    const listed = await inject(app, {
+    const listed = await request(app, {
       method: 'GET',
       url: `/api/skills/${skill.id}/files`,
       headers: auth(),
@@ -196,7 +196,7 @@ describe.skipIf(!ready)('skills', () => {
     async (original, conflict) => {
       const skill = await createSkill(unique('resource-conflict'));
       const put = (path: string, content: string) =>
-        inject(app, {
+        request(app, {
           method: 'PUT',
           url: `/api/skills/${skill.id}/files/${encodeURIComponent(path)}`,
           headers: auth(),
@@ -206,7 +206,7 @@ describe.skipIf(!ready)('skills', () => {
       expect(first.statusCode, first.body).toBe(200);
       const rejected = await put(conflict, 'conflict');
       expectProblem(rejected, 'INVALID_INPUT');
-      const listed = await inject(app, {
+      const listed = await request(app, {
         method: 'GET',
         url: `/api/skills/${skill.id}/files`,
         headers: auth(),
@@ -218,7 +218,7 @@ describe.skipIf(!ready)('skills', () => {
   it('keeps nested resources and updates the same path in place', async () => {
     const skill = await createSkill(unique('nested-resource'));
     const put = (content: string) =>
-      inject(app, {
+      request(app, {
         method: 'PUT',
         url: `/api/skills/${skill.id}/files/references/nested/SKILL.md`,
         headers: auth(),
@@ -229,7 +229,7 @@ describe.skipIf(!ready)('skills', () => {
     const updated = await put('updated');
     expect(updated.statusCode, updated.body).toBe(200);
     expect(updated.json()).toEqual({ ...first.json(), content: 'updated' });
-    const listed = await inject(app, {
+    const listed = await request(app, {
       method: 'GET',
       url: `/api/skills/${skill.id}/files`,
       headers: auth(),
@@ -240,7 +240,7 @@ describe.skipIf(!ready)('skills', () => {
   type ImportResult = { skill: Skill; warnings: string[] };
 
   const importSkill = (skillMd: string) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/skills/import',
       headers: auth(),
@@ -278,7 +278,7 @@ describe.skipIf(!ready)('skills', () => {
     });
     expect(warnings).toEqual([]);
 
-    const file = await inject(app, {
+    const file = await request(app, {
       method: 'GET',
       url: `/api/skills/${skill.id}/file`,
       headers: auth(),
@@ -312,7 +312,7 @@ describe.skipIf(!ready)('skills', () => {
   });
 
   it('round-trips an exported SKILL.md under a new slug', async () => {
-    const original = await inject(app, {
+    const original = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: auth(),
@@ -327,7 +327,7 @@ describe.skipIf(!ready)('skills', () => {
     const source = original.json<Skill>();
     createdSkills.push(source.slug);
 
-    const exported = await inject(app, {
+    const exported = await request(app, {
       method: 'GET',
       url: `/api/skills/${source.id}/file`,
       headers: auth(),
@@ -352,7 +352,7 @@ describe.skipIf(!ready)('skills', () => {
       body: source.body,
     });
 
-    const downloaded = await inject(app, {
+    const downloaded = await request(app, {
       method: 'GET',
       url: `/api/skills/${imported.id}/file`,
       headers: auth(),
@@ -375,9 +375,9 @@ describe.skipIf(!ready)('skills', () => {
       expectProblem(res, 'INVALID_INPUT');
     }
 
-    const listed = (await inject(app, { method: 'GET', url: '/api/skills', headers: auth() })).json<
-      Skill[]
-    >();
+    const listed = (
+      await request(app, { method: 'GET', url: '/api/skills', headers: auth() })
+    ).json<Skill[]>();
     expect(listed.map((skill) => skill.slug)).not.toContain(tooBigSlug);
     expect(listed.map((skill) => skill.slug)).not.toContain('bad-slug');
   });
@@ -393,7 +393,7 @@ describe.skipIf(!ready)('skills', () => {
     const duplicate = await importSkill(skillMd(slug, [], 'Other Name'));
     expectProblem(duplicate, 'CONFLICT');
 
-    const loaded = await inject(app, {
+    const loaded = await request(app, {
       method: 'GET',
       url: `/api/skills/${original.id}`,
       headers: auth(),
@@ -407,7 +407,7 @@ describe.skipIf(!ready)('skills', () => {
   });
 
   it('requires auth to import', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/skills/import',
       payload: { skillMd: skillMd(unique('import-anon')) },
@@ -418,7 +418,7 @@ describe.skipIf(!ready)('skills', () => {
   it('patches and clears descriptive frontmatter fields', async () => {
     const slug = unique('patch-meta');
     createdSkills.push(slug);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/skills',
       headers: auth(),
@@ -432,7 +432,7 @@ describe.skipIf(!ready)('skills', () => {
       compatibility: 'claude-code',
       metadata: { author: 'skills.sh', version: 2 },
     };
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/skills/${skill.id}`,
       headers: auth(),
@@ -441,7 +441,7 @@ describe.skipIf(!ready)('skills', () => {
     expect(patched.statusCode, patched.body).toBe(200);
     expect(patched.json<Skill>()).toMatchObject(provenance);
 
-    const loaded = await inject(app, {
+    const loaded = await request(app, {
       method: 'GET',
       url: `/api/skills/${skill.id}`,
       headers: auth(),
@@ -450,14 +450,14 @@ describe.skipIf(!ready)('skills', () => {
     expect(loaded.json<Skill>()).toMatchObject(provenance);
 
     // null 表示显式清空：读回来三个键都要消失，而不是变成 null。
-    const cleared = await inject(app, {
+    const cleared = await request(app, {
       method: 'PATCH',
       url: `/api/skills/${skill.id}`,
       headers: auth(),
       payload: { license: null, compatibility: null, metadata: null },
     });
     expect(cleared.statusCode, cleared.body).toBe(200);
-    const reloaded = await inject(app, {
+    const reloaded = await request(app, {
       method: 'GET',
       url: `/api/skills/${skill.id}`,
       headers: auth(),
@@ -490,7 +490,7 @@ describe.skipIf(!ready)('skills', () => {
     };
     expect(res.json<ImportResult>().skill).toMatchObject(expected);
 
-    const loaded = await inject(app, {
+    const loaded = await request(app, {
       method: 'GET',
       url: `/api/skills/${res.json<ImportResult>().skill.id}`,
       headers: auth(),
@@ -503,7 +503,7 @@ describe.skipIf(!ready)('skills', () => {
     createdSkills.push(plainSlug);
     const plain = await importSkill(skillMd(plainSlug));
     expect(plain.statusCode, plain.body).toBe(201);
-    const plainLoaded = await inject(app, {
+    const plainLoaded = await request(app, {
       method: 'GET',
       url: `/api/skills/${plain.json<ImportResult>().skill.id}`,
       headers: auth(),

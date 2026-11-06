@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 const root = new URL('../../../', import.meta.url);
 const rootPath = fileURLToPath(root);
@@ -16,33 +16,37 @@ describe('build context and sandbox image', () => {
     expect(stages).toContain('sandbox');
     // docker build . must keep producing the api/worker image; sandbox needs --target.
     expect(stages.at(-1)).toBe('runtime');
-    expect(dockerfile).toContain('pnpm --filter @agentport/sandbox deploy --prod /out/sandbox');
+    expect(dockerfile).toContain(
+      'bun install --production --frozen-lockfile --filter @agentport/sandbox',
+    );
     // Worker reuses the image with an explicit supervisor entrypoint, but the default stays runner.
     expect(dockerfile).toContain('test -f dist/session-supervisor.js');
-    expect(dockerfile).toContain('ENTRYPOINT ["node", "dist/runner.js"]');
+    expect(dockerfile).toContain('ENTRYPOINT ["bun", "dist/runner.js"]');
   });
 
   it.skipIf(!existsSync(new URL('packages/shared/dist/index.js', root)))(
-    'deploys shared without src, tests or tsconfig',
+    'packs shared without src, tests or tsconfig',
     async () => {
       const out = mkdtempSync(join(tmpdir(), 'shared-deploy-'));
       try {
-        execFileSync('pnpm', ['--filter', './packages/shared', 'deploy', '--prod', out], {
-          cwd: rootPath,
+        execFileSync('bun', ['pm', 'pack', '--destination', out], {
+          cwd: join(rootPath, 'packages/shared'),
           stdio: 'pipe',
         });
+        const archive = readdirSync(out).find((entry) => entry.endsWith('.tgz'));
+        if (archive === undefined) throw new Error('shared archive was not produced');
+        execFileSync('tar', ['-xzf', join(out, archive), '-C', out]);
+        const packed = join(out, 'package');
+        expect(readdirSync(packed).sort()).toEqual(['dist', 'package.json']);
+        expect(
+          JSON.parse(readFileSync(join(packed, 'package.json'), 'utf8')).dependencies.zod,
+        ).toBe(JSON.parse(read('package.json')).workspaces.catalog.zod);
+        cpSync(join(rootPath, 'packages/shared/node_modules'), join(packed, 'node_modules'), {
+          recursive: true,
+          dereference: true,
+        });
 
-        // pnpm deploy adds its own lock/workspace files beside the packed manifest.
-        const allowed = new Set([
-          'dist',
-          'node_modules',
-          'package.json',
-          'pnpm-lock.yaml',
-          'pnpm-workspace.yaml',
-        ]);
-        expect(readdirSync(out).filter((entry) => !allowed.has(entry))).toEqual([]);
-
-        const deployed = await import(pathToFileURL(join(out, 'dist/index.js')).href);
+        const deployed = await import(pathToFileURL(join(packed, 'dist/index.js')).href);
         expect(deployed.agentDuplicateInputSchema.safeParse({}).success).toBe(false);
         expect(deployed.agentDuplicateInputSchema.safeParse({ slug: 'x', name: 'x' }).success).toBe(
           true,

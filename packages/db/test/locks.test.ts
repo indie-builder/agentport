@@ -1,47 +1,48 @@
 import { randomUUID } from 'node:crypto';
 import { connect, createServer, type Socket } from 'node:net';
 import { sql } from 'drizzle-orm';
-import { Pool } from 'pg';
-import { afterAll, describe, expect, it } from 'vitest';
-import type { Database } from '../src/client.js';
-import { createDb, type DbPool } from '../src/client.js';
+import { afterAll, describe, expect, it } from 'bun:test';
+import type { Database, DatabaseClient } from '../src/client.js';
+import { createDb } from '../src/client.js';
 import { withAdvisoryLock } from '../src/repo/locks.js';
 
-const { pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
-const observer = new Pool({ connectionString: process.env.DATABASE_URL ?? '', max: 2 });
+const observer = createDb(process.env.DATABASE_URL ?? '');
 // 同轮其它 db 套件也使用生产绑定键；本文件用独立键验证 helper 本身的语义。
 const testKey = `runtimeB-locks-${randomUUID()}`;
 
 afterAll(async () => {
-  await observer.end();
-  await pool.end();
+  await observer.client.close();
+  await client.close();
 });
 
 async function backendPid(db: Database): Promise<number> {
-  const result = await db.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`);
-  return Number(result.rows[0]?.pid);
+  const result = (await db.execute(sql`select pg_backend_pid() as pid`)) as unknown as Array<{
+    pid: number;
+  }>;
+  return Number(result[0]?.pid);
 }
 
-async function canTakeSameKey(target: Pool, key: string): Promise<boolean> {
-  const result = await target.query<{ locked: boolean }>(
+async function canTakeSameKey(target: DatabaseClient, key: string): Promise<boolean> {
+  const result = await target.unsafe<{ locked: boolean }[]>(
     'select pg_try_advisory_xact_lock(hashtext($1)) as locked',
     [key],
   );
-  return result.rows[0]?.locked === true;
+  return result[0]?.locked === true;
 }
 
 /** 后端断开会异步释放 session lock；只轮询条件，不靠固定 sleep 猜时序。 */
 async function lockReleased(key: string, timeoutMs = 3_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await canTakeSameKey(observer, key)) return true;
+    if (await canTakeSameKey(observer.client, key)) return true;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  return canTakeSameKey(observer, key);
+  return canTakeSameKey(observer.client, key);
 }
 
 interface BlockingProxy {
@@ -119,10 +120,14 @@ async function startBlockingProxy(
   };
 }
 
-function proxiedPool(url: string): { pool: DbPool; real: Pool; releases: boolean[] } {
-  const real = new Pool({ connectionString: url, max: 1 });
+function proxiedClient(url: string): {
+  client: DatabaseClient;
+  real: DatabaseClient;
+  releases: boolean[];
+} {
+  const real = createDb(url).client;
   const releases: boolean[] = [];
-  return { pool: faultyPool(real, () => undefined, releases), real, releases };
+  return { client: faultyClient(real, () => undefined, releases), real, releases };
 }
 
 interface Fault {
@@ -131,28 +136,34 @@ interface Fault {
 }
 
 /** 真实 PG 上只替换一条语句的结果，用来触发难自然出现的 unlock/reset/acquire 分支。 */
-function faultyPool(
-  real: Pool,
+function faultyClient(
+  real: DatabaseClient,
   fault: (text: string, values: unknown[] | undefined) => Fault | undefined,
   releases: boolean[],
-): DbPool {
+): DatabaseClient {
   return {
-    connect: async () => {
-      const client = await real.connect();
-      return new Proxy(client, {
+    reserve: async () => {
+      const reserved = await real.reserve();
+      return new Proxy(reserved, {
         get(target, property) {
-          if (property === 'query') {
+          if (property === 'unsafe') {
             return (text: string, values?: unknown[]) => {
               const injected = fault(text, values);
               if (injected?.reject !== undefined) return Promise.reject(injected.reject);
               if (injected?.result !== undefined) return Promise.resolve(injected.result);
-              return target.query(text, values);
+              return target.unsafe(text, values);
+            };
+          }
+          if (property === 'close') {
+            return (...args: unknown[]) => {
+              releases.push(true);
+              return (target.close as unknown as (...a: unknown[]) => Promise<void>)(...args);
             };
           }
           if (property === 'release') {
-            return (destroy?: boolean | Error) => {
-              releases.push(destroy === true);
-              return target.release(destroy as boolean | undefined);
+            return () => {
+              releases.push(false);
+              return target.release();
             };
           }
           const value = Reflect.get(target, property);
@@ -160,13 +171,13 @@ function faultyPool(
         },
       });
     },
-  } as unknown as DbPool;
+  } as unknown as DatabaseClient;
 }
 
 describe.skipIf(!ready)('withAdvisoryLock', () => {
   it('runs A/B on the same pooled client and releases the session lock', async () => {
     const pids: number[] = [];
-    const value = await withAdvisoryLock(pool, testKey, async (db) => {
+    const value = await withAdvisoryLock(client, testKey, async (db) => {
       pids.push(await backendPid(db));
       pids.push(await db.transaction((tx) => backendPid(tx as unknown as Database)));
       pids.push(await db.transaction((tx) => backendPid(tx as unknown as Database)));
@@ -174,14 +185,14 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
     });
     expect(value).toBe('done');
     expect(new Set(pids).size).toBe(1);
-    expect(await canTakeSameKey(observer, testKey)).toBe(true);
+    expect(await canTakeSameKey(observer.client, testKey)).toBe(true);
   });
 
   it('completes two transactions with a single-connection pool without self-locking', async () => {
-    const single = new Pool({ connectionString: process.env.DATABASE_URL ?? '', max: 1 });
+    const single = createDb(process.env.DATABASE_URL ?? '');
     try {
       await expect(
-        withAdvisoryLock(single, testKey, async (db) => {
+        withAdvisoryLock(single.client, testKey, async (db) => {
           await db.transaction(async (tx) => {
             await tx.execute(sql`select 1`);
           });
@@ -191,26 +202,26 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
         }),
       ).resolves.toBeUndefined();
     } finally {
-      await single.end();
+      await single.client.close();
     }
   });
 
   it('excludes the same key from another session while held', async () => {
     let allowed: boolean | undefined;
-    await withAdvisoryLock(pool, testKey, async () => {
-      allowed = await canTakeSameKey(observer, testKey);
+    await withAdvisoryLock(client, testKey, async () => {
+      allowed = await canTakeSameKey(observer.client, testKey);
     });
     expect(allowed).toBe(false);
-    expect(await canTakeSameKey(observer, testKey)).toBe(true);
+    expect(await canTakeSameKey(observer.client, testKey)).toBe(true);
   });
 
   it('destroys the client when unlock reports false and does not leak the lock', async () => {
     const releases: boolean[] = [];
-    const faulty = faultyPool(
-      pool,
+    const faulty = faultyClient(
+      client,
       (text) =>
         text.includes('pg_advisory_unlock')
-          ? { result: { rows: [{ unlocked: false }] } }
+          ? { result: [{ unlocked: false }] }
           : undefined,
       releases,
     );
@@ -223,8 +234,8 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
 
   it('destroys the client when unlock throws', async () => {
     const releases: boolean[] = [];
-    const faulty = faultyPool(
-      pool,
+    const faulty = faultyClient(
+      client,
       (text) =>
         text.includes('pg_advisory_unlock') ? { reject: new Error('unlock failed') } : undefined,
       releases,
@@ -239,8 +250,8 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
   it('destroys the client when restoring connection settings fails', async () => {
     const releases: boolean[] = [];
     let lockTimeoutSets = 0;
-    const faulty = faultyPool(
-      pool,
+    const faulty = faultyClient(
+      client,
       (text, values) => {
         if (text.includes('set_config') && values?.[0] === 'lock_timeout') {
           lockTimeoutSets += 1;
@@ -259,8 +270,8 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
 
   it('destroys the client when lock acquisition has an unknown result', async () => {
     const releases: boolean[] = [];
-    const faulty = faultyPool(
-      pool,
+    const faulty = faultyClient(
+      client,
       (text) =>
         text.includes('pg_advisory_lock')
           ? { reject: Object.assign(new Error('lock timeout'), { code: '55P03' }) }
@@ -277,7 +288,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
   it('expires the hold budget, destroys the client, and stops a late callback from deleting', async () => {
     const releases: boolean[] = [];
     let continued = false;
-    const faulty = faultyPool(pool, () => undefined, releases);
+    const faulty = faultyClient(client, () => undefined, releases);
     await expect(
       withAdvisoryLock(
         faulty,
@@ -299,12 +310,12 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
 
   it('still supports memory callbacks that ignore the delivered connection', async () => {
     const memoryKey = `user:runtimeB-${randomUUID()}`;
-    const value = await withAdvisoryLock(pool, memoryKey, async () => {
-      const result = await pool.query('select 1 as value');
-      return result.rows[0]?.value;
+    const value = await withAdvisoryLock(client, memoryKey, async () => {
+      const result = await client.unsafe('select 1 as value');
+      return (result as unknown as Array<{ value: number }>)[0]?.value;
     });
     expect(value).toBe(1);
-    expect(await canTakeSameKey(observer, memoryKey)).toBe(true);
+    expect(await canTakeSameKey(observer.client, memoryKey)).toBe(true);
   });
 
   it('aborts a blocked settings read by the client deadline and releases the connection once', async () => {
@@ -313,7 +324,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       'current_setting',
       'response',
     );
-    const { pool: proxied, real, releases } = proxiedPool(proxy.url);
+    const { client: proxied, real, releases } = proxiedClient(proxy.url);
     const key = `${testKey}-${randomUUID()}`;
     let ran = false;
     try {
@@ -329,9 +340,9 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       expect(elapsed).toBeLessThan(8_000);
       expect(releases).toEqual([true]);
       expect(ran).toBe(false);
-      expect(await canTakeSameKey(observer, key)).toBe(true);
+      expect(await canTakeSameKey(observer.client, key)).toBe(true);
     } finally {
-      await real.end();
+      await real.close();
       await proxy.close();
     }
   }, 12_000);
@@ -342,7 +353,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       'pg_advisory_lock',
       'response',
     );
-    const { pool: proxied, real, releases } = proxiedPool(proxy.url);
+    const { client: proxied, real, releases } = proxiedClient(proxy.url);
     const key = `${testKey}-${randomUUID()}`;
     let ran = false;
     try {
@@ -361,7 +372,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       // 服务端已执行取锁；销毁 TCP 连接必须让后端退出并释放 session lock。
       expect(await lockReleased(key)).toBe(true);
     } finally {
-      await real.end();
+      await real.close();
       await proxy.close();
     }
   }, 12_000);
@@ -373,7 +384,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       'response',
       3,
     );
-    const { pool: proxied, real, releases } = proxiedPool(proxy.url);
+    const { client: proxied, real, releases } = proxiedClient(proxy.url);
     const key = `${testKey}-${randomUUID()}`;
     let ran = false;
     try {
@@ -391,7 +402,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       expect(ran).toBe(false);
       expect(await lockReleased(key)).toBe(true);
     } finally {
-      await real.end();
+      await real.close();
       await proxy.close();
     }
   }, 12_000);
@@ -402,7 +413,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       'pg_advisory_unlock',
       'request',
     );
-    const { pool: proxied, real, releases } = proxiedPool(proxy.url);
+    const { client: proxied, real, releases } = proxiedClient(proxy.url);
     const key = `${testKey}-${randomUUID()}`;
     let ran = false;
     try {
@@ -422,7 +433,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       // 服务端没收到 unlock，仍持有 session lock；销毁连接后必须可再次取得。
       expect(await lockReleased(key)).toBe(true);
     } finally {
-      await real.end();
+      await real.close();
       await proxy.close();
     }
   }, 12_000);
@@ -434,7 +445,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       'response',
       3,
     );
-    const { pool: proxied, real, releases } = proxiedPool(proxy.url);
+    const { client: proxied, real, releases } = proxiedClient(proxy.url);
     const key = `${testKey}-${randomUUID()}`;
     let ran = false;
     try {
@@ -457,7 +468,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       expect(ran).toBe(false);
       expect(await lockReleased(key)).toBe(true);
     } finally {
-      await real.end();
+      await real.close();
       await proxy.close();
     }
   }, 12_000);

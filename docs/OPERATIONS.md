@@ -33,7 +33,7 @@
 | `PLATFORM_MCP_TOKEN` | 未设置 | api | `/mcp` 平台端点的 Bearer token，≥16 字符；未设置则端点不注册 |
 | `RATE_LIMIT_DISABLED` | 未设置 | api | 值为 `1` 时关闭限流；仅用于测试/排障 |
 | `TRUST_PROXY` | 未设置 | api | 值为 `1` 时信任 `X-Forwarded-For`/`X-Forwarded-Proto`（反向代理之后必须开启，否则限流按代理 IP 计数） |
-| `DB_POOL_MAX` | `10` | api、worker | 每个进程的 pg 连接池上限 |
+| `DB_POOL_MAX` | `10` | api、worker | 每个进程的 Bun SQL 连接上限（`createDb` 传给 `new SQL(..., { max })`）；不是 node-postgres 连接池 |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | 未设置 | worker | 仅 `SANDBOX_EGRESS=proxy` 时透传给沙盒，loopback 自动改写 |
 | `REDIS_PASSWORD` | `agentport-dev` | compose | redis 服务密码，同时拼进 api/worker 的 `REDIS_URL`；不是应用变量 |
 | `DOCKER_GID` | `0` | compose | worker 容器加入的组 GID，用于访问宿主 Docker socket |
@@ -90,13 +90,13 @@
 - 每轮重新渲染官方定义并刷新到 `workspace`；本轮短期 MCP/模型凭证只进当轮 runner，stdio 的 `env` 与 http 的 `headers` 还会把上游解密 secrets 写入当轮 `.mcp.json`，可能是长期凭证。运行结束（不论容器清理是否成功）都会尝试清空本轮 MCP token；DB 清空失败只记 warning，token 可能保留到过期时间；模型 token 从代理内存集合移除并尝试清空 DB hash，清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。终态停稳后删除 `.mcp.json`，删除失败时记录错误并禁止复用该容器，文件可能留到下一轮刷新时被覆盖；残留期间上游长期 secret 仍可能有效。空闲容器不保留上一轮身份，下一轮重新渲染。
 - `agent-memory/` 仍按智能体共享，不随会话隔离；只有 `sdk-sessions/<conversationId>/` 按会话隔离。
 - `sandbox-probe` 试连与 `native-plugins` 安装仍使用一次性容器，不进入会话复用。
-- 实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核；最终联合回归 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK 4 例）。真实付费模型与浏览器全链路未测。详见任务记录。
+- 实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核；当时的旧 Vitest 入口 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK 4 例）；该数字不代表迁移到 `bun:test` 后的当前结果。真实付费模型与浏览器全链路未测。详见任务记录。
 
 ### 原生记忆存储（native memory storage）
 
 `WORKSPACES_DIR/<slug>/agent-memory/` 是原生 `MEMORY.md` 与主题 Markdown 的持久存储，独立于 `run_*` 工作区，run 结束与过期清理均保留。它是专家共享记忆：同一专家的所有使用者看到同一份内容，不是用户私有数据。个人偏好另存于 `user_preferences` 与按 `businessId` 隔离的投影文件，worker 在每轮挂载前按 DB 重建投影，不写入本目录。Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 和 worker；两者镜像及沙盒均使用 node（uid 1000），命名卷 init 保持 1000:1000。worker 创建目录为 0700 并收紧已有目录权限；创建目录或 chmod 失败会使 run 明确失败，不再吞错或改为 0777。
 
-沙盒及 API/worker 都以 uid 1000 运行时，才能对 0700 记忆目录读写一致：请用 Compose 启动 API/worker。本地 `pnpm dev` 以宿主 uid 运行时仍可正常跑智能体，但原生记忆跨宿主 uid 与容器内 uid 1000 的 0700 目录可能不可写，记忆功能不保证；需要持久记忆时用 Compose。不要递归 chown 未核对的宿主目录，也不要以 0777 绕过错误。已有外部数据卷应先备份并确认属主后再启用。
+沙盒及 API/worker 都以 uid 1000 运行时，才能对 0700 记忆目录读写一致：请用 Compose 启动 API/worker。本地 `bun run dev` 以宿主 uid 运行时仍可正常跑智能体，但原生记忆跨宿主 uid 与容器内 uid 1000 的 0700 目录可能不可写，记忆功能不保证；需要持久记忆时用 Compose。不要递归 chown 未核对的宿主目录，也不要以 0777 绕过错误。已有外部数据卷应先备份并确认属主后再启用。
 
 runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`。主会话的 `Read`/`Write`/`Edit` 通过绝对路径许可与 SDK PreToolUse 双重约束，只放行目录内普通 `.md` 文件；子智能体使用官方 `memory: project`，宿主按 slug 把它自己的 `.claude/agent-memory/<slug>/` 挂进工作区，已登记子智能体只允许读写自己的子目录，兄弟、父级与未登记调用方拒绝。这是原生文件工具边界，不是 OS 级秘密隔离：Bash 不经过该路径 hook，同一容器内的 Bash 仍可按挂载权限访问这些目录；软链接、硬链接、非普通文件、相对路径及工具越界请求在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。
 
@@ -114,9 +114,9 @@ runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`a
 
 worker 预建该会话目录（即使本轮没有附件）并把整个目录只读挂到 `/mnt/inputs`，挂载始终存在且只指向当前会话目录；prompt 列出本轮文件并要求主智能体用原生 `Read` 读取；图片与 PDF 由 Read 原生处理。子智能体不能直接读文件；输入不可写，交付仍写 `/mnt/outputs`。附件按会话保留，分支只复制被复制消息引用的文件，删除会话或专家时回收目录；run 保留清理会保留带附件的用户消息，因此历史下载入口不随旧 run 消失。
 
-Compose 中 API/worker/沙盒同为 uid 1000，可直接读写这些 0700/0600 目录。Linux 宿主以其他 UID 直跑 `pnpm dev` 时，沙盒以 1000 运行将无法读取附件（与原生记忆的既有 UID 限制相同）；需要附件时请用 Compose 启动，不要递归放宽目录权限。
+Compose 中 API/worker/沙盒同为 uid 1000，可直接读写这些 0700/0600 目录。Linux 宿主以其他 UID 直跑 `bun run dev` 时，沙盒以 1000 运行将无法读取附件（与原生记忆的既有 UID 限制相同）；需要附件时请用 Compose 启动，不要递归放宽目录权限。
 
-Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两者看到同一目录。本地 `pnpm dev` 时 API 与 worker 各自以包目录为 cwd 解析 `.env` 里的相对 `WORKSPACES_DIR`，附件、原生记忆与成果会分别落到两个目录；本地开发请把 `WORKSPACES_DIR` 设为同一个绝对路径（例如 `/abs/path/data/workspaces`），或改用 Compose。这与上面的 UID 限制同属本地启动方式带来的差异，不是附件功能本身的缺陷。
+Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两者看到同一目录。本地 `bun run dev` 时 API 与 worker 各自以包目录为 cwd 解析 `.env` 里的相对 `WORKSPACES_DIR`，附件、原生记忆与成果会分别落到两个目录；本地开发请把 `WORKSPACES_DIR` 设为同一个绝对路径（例如 `/abs/path/data/workspaces`），或改用 Compose。这与上面的 UID 限制同属本地启动方式带来的差异，不是附件功能本身的缺陷。
 
 ### 1.4 数据保留
 
@@ -150,8 +150,9 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 
 ### 2.1 前置
 
-- Node.js 24 LTS（要求 24 的最新补丁版本，当前 24.22.2；`engines` 为 `>=24.22.2 <25`）、pnpm 12.16.1
-- pnpm 12 默认不跑依赖的安装脚本，决定写在根 `pnpm-workspace.yaml` 的 `allowBuilds`：放行 `esbuild`、`msgpackr-extract`，拒绝 `@openuidev/lang-core`（其 postinstall 只上报匿名安装遥测）。新增带安装脚本的依赖时在这里补决定，否则 `pnpm install` / `deploy` 以 `ERR_PNPM_IGNORED_BUILDS` 失败。
+- Bun 1.4.3（`packageManager` 已固定；依赖安装、脚本与 api/worker/sandbox 入口都用 Bun）
+- Node.js 24 LTS（要求 24 的最新补丁版本，当前 24.22.2；`engines` 为 `>=24.22.2 <25`，用于镜像基座与尚未迁移的 `node` 脚本）
+- Bun 默认不执行未列入根 `package.json` `trustedDependencies` 的生命周期脚本；当前放行 `esbuild` 与 `msgpackr-extract`。`@openuidev/lang-core` 的 postinstall 只上报匿名安装遥测，因此不加白名单。新增带安装脚本的依赖时显式补决定，不让脚本静默运行。
 - Docker Engine + Compose
 - 宿主有 `pg_dump` / `psql`（备份与恢复）
 - 至少一个模型凭证（`ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`）
@@ -159,19 +160,19 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 ### 2.2 Docker Compose
 
 ```bash
-pnpm install
-pnpm run up
+bun install
+bun run up
 ```
 
-`pnpm run up`（`scripts/up.sh`）依次执行：
+`bun run up`（`scripts/up.sh`）依次执行：
 
 1. `.env` 不存在时从 `.env.example` 复制，随机生成 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN`、`ADMIN_PASSWORD`（同时改写 `REDIS_URL`），并打印管理员密码；运行智能体仍需自行填写模型凭证。
 2. `docker compose up -d --wait --wait-timeout 120 postgres redis`，按 compose healthcheck 等两者就绪；失败时打印状态与日志。
-3. 从仓库根构建沙盒镜像 `agentport/sandbox:dev`（已存在则跳过；`pnpm run up --rebuild` 强制重建）。步骤见下文「2.2.1 手动构建沙盒镜像」。
-4. `docker compose up -d --build --wait --wait-timeout 120 api worker`。compose 会先运行一次性服务 `migrate`（`node api/node_modules/@agentport/db/scripts/migrate.js`，`restart: no`），成功后 api 才启动（`depends_on: service_completed_successfully`）；`--wait` 继续等 api 的 `/health/ready` healthcheck 通过。
+3. 从仓库根构建沙盒镜像 `agentport/sandbox:dev`（已存在则跳过；`bun run up --rebuild` 强制重建）。步骤见下文「2.2.1 手动构建沙盒镜像」。
+4. `docker compose up -d --build --wait --wait-timeout 120 api worker`。compose 会先运行一次性服务 `migrate`（`bun packages/db/scripts/migrate.js`，`restart: no`），成功后 api 才启动（`depends_on: service_completed_successfully`）；`--wait` 继续等 api 的 `/health/ready` healthcheck 通过。
 5. 执行 `bash scripts/smoke.sh`。
 
-任一步失败会打印相关容器状态或日志，并以非零退出。停止服务用 `pnpm run down`（`docker compose down`，保留卷）；`pnpm run down --clean` 使用 `down -v` 删除数据卷。
+任一步失败会打印相关容器状态或日志，并以非零退出。停止服务用 `bun run down`（`docker compose down`，保留卷）；`bun run down --clean` 使用 `down -v` 删除数据卷。
 
 检查：
 
@@ -185,25 +186,25 @@ curl -s http://localhost:3000/health/ready
 
 说明：
 
-- compose 的 api/worker 镜像与 `sandbox` target 都在镜像内执行安装与 `pnpm -r build`（sandbox 再用 `pnpm deploy --prod` 打包），不依赖宿主 `dist` 或暂存目录。
-- 迁移由 compose 的 `migrate` 服务自动执行；直接在宿主机操作时仍可用 `pnpm db:migrate`（需要 `packages/db/dist`，先 `pnpm build`）。
-- `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`pnpm run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
+- compose 的 api/worker 镜像与 `sandbox` target 都在镜像内执行 `bun install`、`bun run build` 与生产依赖安装；sandbox 再复制 sandbox 与 shared 的 `dist`，不依赖宿主 `dist` 或暂存目录。
+- 迁移由 compose 的 `migrate` 服务自动执行；直接在宿主机操作时仍可用 `bun run db:migrate`（需要 `packages/db/dist`，先 `bun run build`）。
+- `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`bun run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
-- 知识库卷 `knowledgedata` 与 `workspaces` 一样由一次性 `init` 服务 `chown 1000:1000`（镜像 `USER node`，即 uid 1000），否则 api/worker 首次上传会 EACCES。卷内容随 `pnpm backup` 的 `knowledge/` 归档；`docker compose down -v` 会连同知识库一起删除。
+- 知识库卷 `knowledgedata` 与 `workspaces` 一样由一次性 `init` 服务 `chown 1000:1000`（镜像 `USER node`，即 uid 1000），否则 api/worker 首次上传会 EACCES。卷内容随 `bun run backup` 的 `knowledge/` 归档；`docker compose down -v` 会连同知识库一起删除。
 - 复杂格式解析默认不部署：需要时 `docker compose --profile docling up -d docling`，并把 `.env` 的 `DOCLING_URL` 设为 `http://docling:5001`。不内置时指向外部 Docling 服务即可，`DOCLING_TOKEN` 通过 `X-Api-Key` 发送。当前配置 Docling Serve 1.38.2（tag/digest 见 `docker-compose.yml`，该镜像已预装解析模型，无需首次下载）。本轮已用该固定镜像在独立容器中验证真实 PDF 的文本、图片与表格解析、纯图片 PDF 的 OCR 开关、200/401/损坏文件的 failure 返回；镜像预装 rapidocr，无运行时模型下载。来源 pageMap 的两处缺陷已修复并经 Opus review 通过：真实响应回放确认表格 chunk 的 pageFrom 为 2、短 OCR 不侵入数字、CRLF 与多段 JSON 区间均回归通过，详细范围见任务记录。范围限于独立容器直连 Docling，`--profile docling` 的 compose 路径未实际拉起；Office 格式本轮未实测，不声称已验证；仅标题 OCR 文本在 chunk 丢失的缺陷已修复并在工作分支验证通过（真实响应回放 1/1），尚未合入 main，见任务记录。compose 的 `DOCLING_SERVE_MAX_SYNC_WAIT` 为 `600`，与客户端 10 分钟超时对齐。未配置 `DOCLING_URL` 时 PDF/Office/OCR 解析会明确报错，而不是假装成功。
 - 基础设施版本：Redis 8.10.3（compose 的 `redis` 服务，tag/digest 见 `docker-compose.yml` 与 CI）；是否已启动以当次 `docker compose ps` 为准，本文不代替运行状态。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
-- Redis 健康检查（compose 里的 `healthcheck.test`）在容器内使用 redis 服务自身的 `REDIS_PASSWORD`；若宿主另行导出 `REDIS_PASSWORD`，compose 会用它重建 redis，与 `.env` 的 `REDIS_URL` 不一致时 api/worker 连不上。`pnpm run up` 不读取宿主导出的该变量，直接使用 `.env`。
+- Redis 健康检查（compose 里的 `healthcheck.test`）在容器内使用 redis 服务自身的 `REDIS_PASSWORD`；若宿主另行导出 `REDIS_PASSWORD`，compose 会用它重建 redis，与 `.env` 的 `REDIS_URL` 不一致时 api/worker 连不上。`bun run up` 不读取宿主导出的该变量，直接使用 `.env`。
 - 生产通过 `http://localhost:3000` 访问；Cookie 带 `Secure`，局域网 IP + HTTP 会无法保持登录。
 
 #### 2.2.1 手动构建沙盒镜像
 
-沙盒镜像与 api/worker 共用根 `Dockerfile`，**必须从仓库根 context 构建 `sandbox` target**；依赖安装、`pnpm -r build` 与 `pnpm deploy --prod` 都在镜像内完成，不需要先在宿主构建 `dist`，也不再把 shared 复制到 `packages/sandbox`。
+沙盒镜像与 api/worker 共用根 `Dockerfile`，**必须从仓库根 context 构建 `sandbox` target**；依赖安装、`bun run build` 与 sandbox/shared `dist` 复制都在镜像内完成，不需要先在宿主构建 `dist`，也不再把 shared 复制到 `packages/sandbox`。
 
 推荐直接用脚本：
 
 ```bash
-pnpm run up --rebuild
+bun run up --rebuild
 ```
 
 手动等价步骤：
@@ -211,10 +212,10 @@ pnpm run up --rebuild
 ```bash
 docker build --target sandbox -t agentport/sandbox:dev .
 # 或使用包脚本（同样从仓库根 context 构建）：
-pnpm --filter @agentport/sandbox image
+bun run --filter @agentport/sandbox image
 ```
 
-- 镜像构建期验证 `dist/runner.js` 存在、Agent SDK 原生 CLI 可执行，并确认 `bash` 是 GNU bash、`pdftoppm`/`pdfinfo` 可用；`deploy` 输出已包含生产依赖与 workspace 包（含 `@agentport/shared` 的 `dist`）。
+- 镜像构建期验证 `dist/runner.js` 存在、Agent SDK 原生 CLI 可执行，并确认 `bash` 是 GNU bash、`pdftoppm`/`pdfinfo` 可用；生产依赖与 sandbox、shared 的 `dist` 已在镜像内安装并复制。
 - `runtime` target 额外安装 `docker-cli` 与 `docker-cli-buildx`，只服务 worker 的宿主 Docker 调用和运行环境构建，不进入 `sandbox` 基座。
 - 不再有 `package.shared.json` / `package.docker.json` 或 `packages/sandbox/.dockerignore`；旧版 `packages/sandbox/shared` 暂存目录也已删除。
 - 根 `.dockerignore` 排除 `.git`、docs、data、`node_modules`、`dist` 等；镜像内重新安装和编译，`packages/sandbox/shared` 即使残留也不会进入构建上下文。
@@ -235,9 +236,9 @@ pnpm --filter @agentport/sandbox image
 本地验证先构建依赖，不跑固定全量：
 
 ```bash
-pnpm --filter @agentport/shared --filter @agentport/core --filter @agentport/db build
+bun run --filter @agentport/shared --filter @agentport/core --filter @agentport/db build
 
-pnpm exec vitest run --project backend \
+bun run test -- \
   packages/shared/test/runtime-environment.test.ts \
   packages/db/test/runtime-environments.test.ts \
   packages/worker/test/runtime-environment-build.test.ts \
@@ -246,20 +247,20 @@ pnpm exec vitest run --project backend \
   packages/api/test/runtime-environments.test.ts \
   packages/api/test/agent-package-runtime-environment.test.ts
 
-pnpm exec vitest run --project web packages/web/test/runtime-environments.test.ts
+bun run test:web -- packages/web/test/runtime-environments.test.ts
 ```
 
 需要宿主 Docker 的真实构建/校验用例按当次环境单独执行；缺少本地基座镜像或 Docker 时整组跳过，跳过不等于通过：
 
 ```bash
 # 真实构建缓存、镜像卷/入口/Bash/SDK CLI 校验
-pnpm exec vitest run --project backend \
+bun run test -- \
   packages/worker/test/runtime-environment-build-docker.test.ts \
   packages/worker/test/runtime-environment-verify-docker.test.ts
 
 # 线上指针 + 存活容器跨发布/回退 + 重建的真实 lifecycle 证据
 # 需本地基座 agentport/sandbox:runtime-env-bash-20261029（可用 RUNTIME_ENV_LIFECYCLE_BASE 覆盖）与可用 Docker
-pnpm exec vitest run --project backend packages/worker/test/runtime-environment-lifecycle-docker.test.ts
+bun run test -- packages/worker/test/runtime-environment-lifecycle-docker.test.ts
 ```
 
 backend 套件由 globalSetup 在随机 PostgreSQL 库和临时 Redis 上运行，不触碰开发库登录态；是否通过以当次命令输出为准，不能据此声称全部通过或已上线。
@@ -281,25 +282,25 @@ worker 挂载 `/var/run/docker.sock`，**等价于把宿主 root 权限交给 wo
 ### 2.3 本地开发
 
 ```bash
-pnpm install
-pnpm build
+bun install
+bun run build
 cp .env.example .env
 docker compose up -d --wait postgres redis
-pnpm db:migrate
+bun run db:migrate
 # 见上文「2.2.1 手动构建沙盒镜像」：从仓库根构建 sandbox target，安装与构建都在镜像内
 docker build --target sandbox -t agentport/sandbox:dev .
-pnpm dev
+bun run dev
 ```
 
 - web: [https://agentport.localhost](https://agentport.localhost)（Portless 分配随机端口，实际 URL 以启动输出为准；Vite 代理 `/api`、`/health` 到 [http://localhost:3000](http://localhost:3000)）
 - 在 worktree 中运行时 Origin 是 `https://<worktree>.agentport.localhost`：`CORS_ORIGINS` 同时保留精确基地址与 `https://*.agentport.localhost` 通配符即可，一次配置覆盖后续变化的子域名；通配符仅匹配 HTTPS 默认端口
 - api: [http://localhost:3000](http://localhost:3000)（不变）
 - worker、沙盒与 Docker 网络不变；沙盒仍通过 `host.docker.internal:3000` 回连 API
-- 首次运行 `pnpm dev` 会请求 sudo 安装本地 CA 并绑定 443，状态在 `~/.portless`，之后无感
+- 首次运行 `bun run dev` 会请求 sudo 安装本地 CA 并绑定 443，状态在 `~/.portless`，之后无感
 - Postgres/Redis 的 5432/6379 与 worker 的 `MODEL_PROXY_PORT=3426` 仍是固定端口
-- `pnpm run up`（compose，生产地址仍为 3000）路径不变；Portless 只在本地 `pnpm dev` 启动 web 时使用
+- `bun run up`（compose，生产地址仍为 3000）路径不变；Portless 只在本地 `bun run dev` 启动 web 时使用
 
-按所需最小进程启动：只验收前端、且后端已在运行（compose 或另一 worktree）时，在当前 worktree 运行 `pnpm --filter @agentport/web dev` 即可（web 引用 shared/core 的 `dist`，先 `pnpm install` 并构建这两个包），地址同样取 Portless 输出；不必重复起 api/worker。后端尚未运行时仍需停掉 compose 的 api/worker（`docker compose stop api worker`）后跑完整 `pnpm dev`；依赖（postgres/redis）保持运行。
+按所需最小进程启动：只验收前端、且后端已在运行（compose 或另一 worktree）时，在当前 worktree 运行 `bun run --filter @agentport/web dev` 即可（web 引用 shared/contract/core 的 `dist`，先 `bun install` 并构建这些包），地址同样取 Portless 输出；不必重复起 api/worker。后端尚未运行时仍需停掉 compose 的 api/worker（`docker compose stop api worker`）后跑完整 `bun run dev`；依赖（postgres/redis）保持运行。
 
 多 worktree 共用同一套 API、数据库与 Redis，前端单独启动不提供后端隔离；不同任务的数据会互相可见（见 [PITFALLS.md](PITFALLS.md)）。
 
@@ -317,20 +318,20 @@ pnpm dev
 
 ```bash
 git pull
-pnpm install
-pnpm run up --rebuild
+bun install
+bun run up --rebuild
 ```
 
-`pnpm run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。代码中的迁移链以 `packages/db/migrations/meta/_journal.json` 为准（当前末条 `0046_cold_slipstream`，接在 `0045_married_expediter` 之后）；**实际数据库是否已应用同一链必须单独核对**，不能从代码、其他环境或历史文档推断。应用前先比对 `__drizzle_migrations` 与 journal，并在隔离随机库验证升级。已有库账本或结构与当前链不一致时，不要手改账本、不要给迁移加 `IF NOT EXISTS` 兼容层；个人项目默认按当前 schema 重建干净库，但清理/重建共享库必须先取得用户明确授权，未授权时保持现场、停止迁移并报告缺口。2026-10-31 本机实测记录：共享本机 business 库 `agentport_business_e2e_dataset` 成功应用 `0046`；默认 `agentport` 库因历史账本/结构漂移失败，未清库、未手改账本，重建仍待用户授权。此记录只覆盖两个明确本机配置对应的库，不代表其他环境已迁移。具体行数与差异计数见任务记录的迁移实测记录。
+`bun run up` 会重新构建镜像并由 compose 的 `migrate` 服务应用迁移；沙盒镜像仅在传 `--rebuild` 时重建。worker 升级会中断进行中的 run 和运行环境构建（容器随 `docker rm -f` 清理）；建议在空闲时操作。代码中的迁移链以 `packages/db/migrations/meta/_journal.json` 为准（当前末条 `0046_cold_slipstream`，接在 `0045_married_expediter` 之后）；**实际数据库是否已应用同一链必须单独核对**，不能从代码、其他环境或历史文档推断。应用前先比对 `__drizzle_migrations` 与 journal，并在隔离随机库验证升级。已有库账本或结构与当前链不一致时，不要手改账本、不要给迁移加 `IF NOT EXISTS` 兼容层；个人项目默认按当前 schema 重建干净库，但清理/重建共享库必须先取得用户明确授权，未授权时保持现场、停止迁移并报告缺口。2026-10-31 本机实测记录：共享本机 business 库 `agentport_business_e2e_dataset` 成功应用 `0046`；默认 `agentport` 库因历史账本/结构漂移失败，未清库、未手改账本，重建仍待用户授权。此记录只覆盖两个明确本机配置对应的库，不代表其他环境已迁移。具体行数与差异计数见任务记录的迁移实测记录。
 
-**关停顺序**：api 收到 SIGTERM 后先关闭队列 producer 与 SSE 订阅，再 `app.close()`，并把它与超时竞速，最后强制关闭残留 socket；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 收到 SIGTERM 先 abort 沙盒关停信号：不再新建容器或拉取镜像，进行中的拉取/创建按取消语义收尾，活跃聊天 run 也随同一信号取消；随后并发关闭主与 eval run worker，并最多等待 10s 让已取消的任务收尾（超时不再等），再清理容器（容器 stop 本身不受这 10s 限制，必须等它完成）；其余队列与其他步骤从关停开始就并发关闭、各有界，最后按序执行收尾步骤。单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
+**关停顺序**：api 收到 SIGTERM 后停止接收新请求、关闭队列 producer 与 SSE 订阅，再执行 `runtime.close()`，并把它与超时竞速，最后强制关闭残留连接；compose 为 api/worker 设了 `stop_grace_period: 30s`。worker 收到 SIGTERM 先 abort 沙盒关停信号：不再新建容器或拉取镜像，进行中的拉取/创建按取消语义收尾，活跃聊天 run 也随同一信号取消；随后并发关闭主与 eval run worker，并最多等待 10s 让已取消的任务收尾（超时不再等），再清理容器（容器 stop 本身不受这 10s 限制，必须等它完成）；其余队列与其他步骤从关停开始就并发关闭、各有界，最后按序执行收尾步骤。单项清理失败仍继续关闭其余资源，记录错误并以非零状态退出。执行已经完成后的清理失败不改写业务结果或触发模型重试。reconciler 会收敛仍为 running 的 run。因此 `docker compose stop api worker` 宁可多等几秒，不要 `kill -9`。
 
 ## 3. 备份与恢复
 
 ### 3.1 备份
 
 ```bash
-pnpm backup
+bun run backup
 ```
 
 `scripts/backup.sh`（共享实现见 `scripts/backup-lib.sh`）生成一个完整包：`backups/<YYYYMMDD-HHMMSS>.tar.gz`（0600）。
@@ -361,7 +362,7 @@ pnpm backup
 建议用宿主机 cron 每天执行：
 
 ```cron
-15 3 * * * cd /path/to/agentport && pnpm backup >> backups/cron.log 2>&1
+15 3 * * * cd /path/to/agentport && bun run backup >> backups/cron.log 2>&1
 ```
 
 `backups/` 与完整包都含密文密钥与会话数据，按敏感文件保护并使 restic 或同步盘保持 0600/0700。
@@ -370,7 +371,7 @@ pnpm backup
 
 ```bash
 docker compose stop api worker
-pnpm restore backups/<YYYYMMDD-HHMMSS>.tar.gz
+bun run restore backups/<YYYYMMDD-HHMMSS>.tar.gz
 docker compose start api worker
 ```
 
@@ -380,7 +381,7 @@ docker compose start api worker
 2. compose 的 api/worker 仍在运行时直接拒绝（脚本不替你停共享服务）。
 3. 先写 `pre-restore-<ts>.tar.gz`（当前数据库 + 工作区 + 知识库 + 配置）；任一步失败即中止，不改动任何目标。本地配置原本不存在时仍可恢复：只要调用方显式给了 `DATABASE_URL`，安全副本只为该目标 URL 生成一份最小引导 `env`（只含该 URL 与说明，不含原本不存在的密钥），实际恢复后的配置仍取自归档内的 `env`。配置路径存在但为空/不可读/非普通文件或复制失败时，在改库前中止。当前知识库已配置却读不到时同样中止，不留一个缺知识库的回退点。安全副本原子改名发布后、改库前用与恢复相同的 `validate_archive` 复核，不通过则删除并中止。
 4. `pg_restore --clean --if-exists --single-transaction --exit-on-error`：数据库失败整体回滚，库保持原样。
-5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置）；覆盖前若目标配置已存在，另存 `pre-restore-<ts>.env`，该副本在数据库提交后、覆盖配置前复制，其失败不在“不改动任何目标”的保证内。再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`（`session-sandboxes/` 属普通工作区内容随包换入，是可再生的会话派生缓存）；当前工作区里新增、但备份中没有的专家目录，其 `run_*` 会在按需新建目录后搬回，搬运中任一失败则先把已搬入的 `run_*` 尽力归回 holding 再恢复原目录，回搬失败时保留现场与 holding，不保证所有失败都能归位；知识库用同一套换入（宿主目录在宿主执行，`knowledgedata` 卷用一次性容器），最后执行 `pnpm db:migrate`。
+5. 恢复 `env`（可用 `RESTORE_ENV_TARGET` 改路径；`--target-workspaces` 旁路验证默认不改配置）；覆盖前若目标配置已存在，另存 `pre-restore-<ts>.env`，该副本在数据库提交后、覆盖配置前复制，其失败不在“不改动任何目标”的保证内。再按“暂存 → 权限收紧 → 顶层换入”恢复工作区，保留现有 `run_*`（`session-sandboxes/` 属普通工作区内容随包换入，是可再生的会话派生缓存）；当前工作区里新增、但备份中没有的专家目录，其 `run_*` 会在按需新建目录后搬回，搬运中任一失败则先把已搬入的 `run_*` 尽力归回 holding 再恢复原目录，回搬失败时保留现场与 holding，不保证所有失败都能归位；知识库用同一套换入（宿主目录在宿主执行，`knowledgedata` 卷用一次性容器），最后执行 `bun run db:migrate`。
 
 要点：
 
@@ -389,13 +390,13 @@ docker compose start api worker
 - `--target-workspaces <空目录>` 可把文件恢复到旁路目录做验证，不碰当前工作区；`--target-knowledge <空目录>` 把知识库恢复到隔离目录（即使真实部署用命名卷），两者可同时使用。
 - 只给 `--target-workspaces` 时知识库不恢复，避免演练覆盖线上知识卷；要一起验就同时给 `--target-knowledge`。
 - 容器卷模式下换入会在目标卷里做「暂存 + 按顶层换入」，中断时尽力回滚；api/worker 必须先停。
-- 新机器上恢复知识库前，先让 compose 建出 `knowledgedata` 卷（`docker compose create` 或先启动过一次），再执行 `pnpm restore`：卷还不存在时脚本会按 `KNOWLEDGE_DIR` 落到宿主目录，随后启动的容器读的却是空卷。
+- 新机器上恢复知识库前，先让 compose 建出 `knowledgedata` 卷（`docker compose create` 或先启动过一次），再执行 `bun run restore`：卷还不存在时脚本会按 `KNOWLEDGE_DIR` 落到宿主目录，随后启动的容器读的却是空卷。
 - 保持原来的 `APP_SECRET_KEY`。换了主密钥，`servers.secrets_encrypted` 无法解密，所有 MCP 密钥需重新填写。
-- restic 恢复本身不由脚本执行：按需 `restic restore latest --target <dir>` 取回完整包后再运行 `pnpm restore`。
+- restic 恢复本身不由脚本执行：按需 `restic restore latest --target <dir>` 取回完整包后再运行 `bun run restore`。
 
 ### 3.3 其他数据约束
 
-- 集成测试使用固定APP_SECRET_KEY，测试默认不再读写开发数据库：backend 的 globalSetup 每轮以 `DATABASE_URL` 为管理连接创建随机库并完成迁移，`setupFiles` 在测试模块导入前把连接串写入 `process.env.DATABASE_URL`，退出时只删除本轮创建的库。PostgreSQL 连不上时发布不可连地址，依赖数据库的套件跳过；管理账号需有 `CREATEDB` 权限，连接成功但建库或迁移失败（含无建库权限）属配置错误，直接报错而不跳过。
+- 集成测试使用固定APP_SECRET_KEY，测试默认不再读写开发数据库：`bun run test`（`scripts/test-backend.ts`）先以 `.env` 的 `DATABASE_URL` 为管理连接创建随机库并完成迁移，再把返回的 `DATABASE_URL`/`REDIS_URL` 合并进环境后 spawn `bun test --isolate`；`bunfig.toml` 的 preload 在测试模块导入前设置固定 `APP_SECRET_KEY`、`RATE_LIMIT_DISABLED=1` 等变量。退出时只删除本轮创建的库。PostgreSQL 连不上时发布不可连地址，依赖数据库的套件跳过；管理账号需有 `CREATEDB` 权限，连接成功但建库或迁移失败（含无建库权限）属配置错误，直接报错而不跳过。
 - 测试 Redis 同样每轮独享：globalSetup 复用已缓存的 Redis 镜像（tag 以 `packages/worker/test/global-setup.ts` 的 `REDIS_IMAGE` 为准）启动临时容器（仅 loopback 随机端口、关闭持久化，实例内部仍用 db 9），退出时按本轮唯一容器名删除。本地需预先缓存该镜像（首次可显式 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`，须与 `REDIS_IMAGE` 完整一致），镜像缺失属配置错误直接失败；只有 Docker 不可用时依赖 Redis 的套件才跳过。开发与各 worktree 的 worker 留在共享 Redis db 0，因此「队列里没有消费者」类断言不会被别人的 worker 干扰；禁止回落到共享 Redis，也不要为此停开发 worker。
 - URL中不能写username/password；新建、编辑和两类导入均拒绝。旧记录在列表/导出/预览显示掩码，测试连接会在传输前返回固定错误；数据库不自动改写。需改为无内嵌凭证的URL并在加密headers中配置认证后保存，详见D-33。
 - 连接器页「导入 .mcp.json」接受≤1MiB、1–100条HTTP/stdio配置；env/headers加密保存，响应只给密钥键名。任一重名整批409不覆盖；未知字段、未支持transport、`${VAR}`占位符及URL内嵌凭证明确拒绝。HTTP仍校验SSRF；导入不测试连接或执行命令，详见D-32。
@@ -420,7 +421,7 @@ docker compose start api worker
 
 - 普通 URL：真实备份 → `BACKUP_ENV_FILE` 指向不存在路径 + 显式 `DATABASE_URL` 恢复成功（无本地 env 的灾难恢复）；哨兵行与持久文件回到备份内容，恢复前活动 `run_*` 保留。
 - 安全副本回退成功：安全包的 `env` 只有说明行 + `DATABASE_URL`（206 bytes），无其他密钥；用该包把库与工作区回退到第一次恢复前状态。
-- 两次恢复都实际执行了恢复命令传入的 `--clean --if-exists --single-transaction` 与宿主 `pnpm db:migrate`；日志无 URL。
+- 两次恢复都实际执行了恢复命令传入的 `--clean --if-exists --single-transaction` 与宿主 `bun run db:migrate`；日志无 URL。
 - 含真正单引号、空格、`&`、`$(touch …)` 的 URL 只用 stub 参数做逐字节往返，并由独立 Opus `/bin/bash` 两端各 782 组合验证；没有用密码本身含特殊字符的真实账户连接。stub 结果不等于真实 PG 恢复。
 - 当前工作区新增专家的 `run_*` 保留与部分搬运失败完整归位由 stub 用例覆盖；41 个 stub 用例 + 1 个真实隔离库哨兵用例的覆盖界限保持不变。
 
@@ -449,7 +450,7 @@ worker 启动时注册 BullMQ 的 `maintenance` 每日重复任务（`upsertJobS
 ### 4.2 手动触发
 
 ```bash
-pnpm --filter @agentport/worker maintenance
+bun run --filter @agentport/worker maintenance
 ```
 
 它会读取 `.env`、连接数据库、执行一次并打印摘要（`runsDeleted`、`runMessagesDeleted`、`orphanMessagesDeleted`、`agentVersionsDeleted`、`durationMs`）。
@@ -467,7 +468,7 @@ pnpm --filter @agentport/worker maintenance
 - MCP上游执行每API进程4槽、排队最多8项，满额返回可重试错误；审批等待独立4槽，满额立即返回需批准而非排队。握手/SSE/平台invoke不占上游槽，invoke仍保留既有4并发入场；多进程不共享全局容量，详见D-36。
 - 工具审批只接受running状态的运行；API在事务内锁定运行行再批准，与取消/终态更新串行。queued及终态返回409，不写批准时间；重复批准保留首次时间。等待中的同一次MCP调用可继续，无需重发消息。聊天结束后停止审批轮询，终态详情只显示失效说明。
 - 审批是有超时的调用内等待；0024新增expires_at，服务端返回waiting并区分当前等待与后续调用许可。过期批准仍可用于后续调用，不会恢复已超时的旧调用；截止前后都检查期限（包括读取批准状态之后）。期限不证明沙盒仍在线，不提供跨重启检查点；API与数据库时钟需保持同步。
-- 事件流在 Redis 中保留 1 小时（`run:<runId>:events`，约 1000 条），首次回放按有界批次读取、累计不超过8MiB，并保持写入顺序；每个观众仍是独立订阅。展示增量（`text_delta`、块边界）与需落库的完整事件分开限额，增量超限只停止展示，不挤占完整消息的落库额度；完整事件超过保存上限时保留部分结果并明确失败（不可自动重试），取消、超时等既有非成功状态优先。保留裁剪或字节裁剪返回独立提示。裁剪运行结束后页面读取该run已保存步骤恢复本轮尾部，保留已加载旧历史；保存缺失或读取失败则保留部分输出并提示。过期流仍需从历史查看，不等于SDK会话恢复，详见D-50。
+- 事件流在 Redis 中保留 1 小时（`run:<runId>:events`），`XADD` 不按条数裁剪，每次写入续期 `EXPIRE 3600`；首次回放从流头按 `XRANGE COUNT 2` 逐页读取，不设累计字节上限，读完后用 `XREAD BLOCK` 跟随。每个观众独占一条订阅连接。展示增量（`text_delta`、块边界）与需落库的完整事件分开限额：`shared/run-stream.ts` 各为 2000 条、32MiB；增量超限只停止展示，不挤占完整消息的落库额度；完整事件超过保存上限时保留部分结果并明确失败（不可自动重试），取消、超时等既有非成功状态优先。流过期后页面读取该 run 已保存步骤恢复本轮尾部，保留已加载旧历史；保存缺失或读取失败则保留部分输出并提示。过期流仍需从历史查看，不等于 SDK 会话恢复，详见 D-50。
 - 已订阅运行每2秒非重叠检查数据库终态：结束事件缺失时发terminal_missing标记后补终态，页面读取已保存步骤；若确认运行行已消失，则发run_unavailable并关闭，页面保留已接收文本、释放忙碌、不伪造结果。初次请求不存在仍404，数据库查询失败继续固定警告重试，详见D-58/D-60。
 - 普通聊天入队失败只将仍queued的运行收口为failed/infra，用户消息保留，可重提；固定503及统一安全日志不附原始队列cause，认领/终态保留。数据库收尾失败可能等待既有协调清理，详见D-59。
 - 连接器编辑与token轮换共用行锁内合并，避免并发覆盖或旧token复活；提交expectedUpdatedAt过期返回409且保留最新配置，版本时间至少前进一毫秒。省略版本仍是同字段后写优先，详见D-51。
@@ -483,12 +484,12 @@ pnpm --filter @agentport/worker maintenance
 | `/health/ready` 返回 503，`db` 或 `redis` 为 `error` | 依赖未启动、连接串错误、容器不健康 | `docker compose ps`；`docker compose logs postgres redis`；`curl -s localhost:3000/health/ready`；确认 `.env` 的 `DATABASE_URL` / `REDIS_URL` 与实际端口一致 |
 | `docker compose ps` 中 redis 一直 `health: starting`，api/worker 不启动 | 宿主导出了与 `.env` 不同的 `REDIS_PASSWORD`，compose 用它重建了 redis，而 `.env` 的 `REDIS_URL` 仍是旧密码 | `unset REDIS_PASSWORD` 后 `docker compose up -d --force-recreate redis api worker`；或让 `.env` 的 `REDIS_PASSWORD`/`REDIS_URL` 与导出的值一致；确认用 `docker compose exec redis redis-cli -a "$REDIS_PASSWORD" ping` |
 | 日志报 `Could not find a working container runtime strategy` 或 `Cannot connect to the Docker daemon` | worker 无法访问宿主 Docker socket | 在 worker 容器内 `docker ps`；检查 `/var/run/docker.sock` 挂载与 `DOCKER_GID`（`ls -l /var/run/docker.sock`，`getent group docker`） |
-| run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`pnpm run up --rebuild`（或按「2.2.1 手动构建沙盒镜像」）；核对 `SANDBOX_IMAGE` |
+| run 失败，错误含 `no such image` / `pull access denied` | 沙盒镜像未构建或名字不对 | `docker images agentport/sandbox`；`bun run up --rebuild`（或按「2.2.1 手动构建沙盒镜像」）；核对 `SANDBOX_IMAGE` |
 | 新建会话报「运行环境 ... 没有可用的线上版本」 | 智能体绑定的环境尚未发布版本，或默认环境登记失败 | 在「运行环境」构建并设为线上；默认环境首次登记时本地缺失会先拉取 `SANDBOX_IMAGE`，已有默认环境不会因环境变量变化自动拉取或推进指针；不要手工改线上指针 |
 | 运行环境构建报 `unknown command: buildx` | worker 镜像的 `runtime` target 未带 buildx 插件 | 用当前根 Dockerfile 重建 worker 镜像；旧镜像不会自动获得该插件 |
 | 运行环境构建报基座镜像不存在或不可用 | `SANDBOX_IMAGE` 指向的本地基座缺失 | 按 §2.2.1 构建基座；构建不会隐式 pull，也不会改用其他镜像 |
 | 发布/回退后运行中的会话仍用旧镜像 | 设计如此：线上指针只在新建容器时解析 | 需要新镜像时等容器空闲回收或被销毁后重建，不要期待发布替换存活容器 |
-| 构建沙盒镜像报 `COPY package.json: not found` 或 `SDK native CLI is not executable` | 仍在用 `packages/sandbox` 作为构建上下文；或 `pnpm deploy` 未带入平台对应的 optional 原生依赖 | 从仓库根执行 `docker build --target sandbox ... .`；确认基础镜像平台与 SDK optional 依赖匹配，删掉旧构建缓存后重试 |
+| 构建沙盒镜像报 `COPY package.json: not found` 或 `SDK native CLI is not executable` | 仍在用 `packages/sandbox` 作为构建上下文；或生产依赖安装未带入平台对应的 optional 原生依赖 | 从仓库根执行 `docker build --target sandbox ... .`；确认基础镜像平台与 SDK optional 依赖匹配，删掉旧构建缓存后重试 |
 | 模型调用 401 / 403 | 凭证缺失、失效，或 `ANTHROPIC_BASE_URL` 在容器内不可达 | `docker compose logs worker` 看容器 stderr；确认 `.env` 只填了 `ANTHROPIC_API_KEY` 与 `ANTHROPIC_AUTH_TOKEN` 之一；`ANTHROPIC_BASE_URL` 不要写 `127.0.0.1`（worker 会改写为 `host.docker.internal`，Linux 需 Docker 支持该别名） |
 | MCP 工具未出现在智能体上下文 | 未绑定 server、工具被禁用、绑定关系未保存，或 server 连接失败 | 「MCP Servers」页点「测试」看 `listTools()`；检查 generated server 的工具是否 `enabled`；「智能体 → 文件预览」确认 `.mcp.json` 含该 server；运行详情看拒绝原因（`permissionMode=dontAsk` 下未预批准会直接拒绝） |
 | `mcp__<server>__tool` 被拒绝 | 允许规则写成了 `mcp__*`，或 server 名与绑定名不一致 | 规则由 worker 按 `.mcp.json` 的 server key 生成 `mcp__<name>__*`；不要手写 `mcp__*`；在文件预览核对 server key |
@@ -497,11 +498,11 @@ pnpm --filter @agentport/worker maintenance
 | SSE 无输出或立即断开 | 未登录（401 后前端跳登录）、反向代理缓冲、run 尚未开始、事件流已过期 | `curl -N -b "agentport_token=<token>" http://localhost:3000/api/chat/<runId>/events`；代理需关闭 buffering（代码已发 `X-Accel-Buffering: no`）；确认 run 状态不是 `queued`；事件流 TTL 为 1 小时 |
 | generated server 在沙盒内 401 | `.mcp.json` 里的 `mcpToken` 与数据库不一致，或平台地址不可达 | 短期 token 只在 run 期间有效，run 结束后 401 属预期；外部客户端用长期 `mcpToken`（页面「轮换 token」后旧值立即失效）；确认 `SANDBOX_API_URL` 从容器可达（`docker run --rm curlimages/curl -s $SANDBOX_API_URL/health/live`） |
 | 页面登录成功但刷新后退出 | 生产 Cookie 带 `Secure`，却用 HTTP + 非 localhost 访问 | 用 `http://localhost:3000`，或在明确可信的内网终止 TLS 后访问；不要把 `NODE_ENV` 改成 development 来绕过 |
-| 修改 schema 后报 `column ... does not exist` | 只改了 `schema.ts`，未生成或未应用迁移 | `pnpm db:generate && pnpm db:migrate`；迁移文件按顺序应用，不要手改已应用的迁移 |
+| 修改 schema 后报 `column ... does not exist` | 只改了 `schema.ts`，未生成或未应用迁移 | `bun run db:generate && bun run db:migrate`；迁移文件按顺序应用，不要手改已应用的迁移 |
 | 登录返回 429 | 登录限流 10 次/分钟（按 IP）；反向代理后未设 `TRUST_PROXY=1` 时所有请求共用代理 IP | 等一分钟；确认 `TRUST_PROXY=1`；只在本地/测试环境可临时 `RATE_LIMIT_DISABLED=1` 后重启 api |
-| `pnpm backup` 报 `DATABASE_URL is required` | 脚本不读取 `.env` | `set -a; . ./.env; set +a; pnpm backup` |
-| `pnpm backup` / `pnpm restore` 报 `pg_dump`、`psql` 或 `docker compose` 找不到 | 宿主既没有 PostgreSQL 客户端，也不在项目目录运行 | 在项目根目录运行；安装 `postgresql` 客户端，或保持 compose 的 postgres 容器运行 |
-| `pnpm backup` 报 `cannot read knowledge storage` | `knowledgedata` 卷存在，但宿主挂载点不可读且容器方式也失败（Docker 未运行、服务不健康） | 启动 Docker 与 postgres/api 容器后重跑；本机直跑且没有卷时设 `BACKUP_KNOWLEDGE_DIR` 指向真实目录。不要为绕过它改成 `KNOWLEDGE_DIR=`（会把知识库漏出备份） |
+| `bun run backup` 报 `DATABASE_URL is required` | 脚本不读取 `.env` | `set -a; . ./.env; set +a; bun run backup` |
+| `bun run backup` / `bun run restore` 报 `pg_dump`、`psql` 或 `docker compose` 找不到 | 宿主既没有 PostgreSQL 客户端，也不在项目目录运行 | 在项目根目录运行；安装 `postgresql` 客户端，或保持 compose 的 postgres 容器运行 |
+| `bun run backup` 报 `cannot read knowledge storage` | `knowledgedata` 卷存在，但宿主挂载点不可读且容器方式也失败（Docker 未运行、服务不健康） | 启动 Docker 与 postgres/api 容器后重跑；本机直跑且没有卷时设 `BACKUP_KNOWLEDGE_DIR` 指向真实目录。不要为绕过它改成 `KNOWLEDGE_DIR=`（会把知识库漏出备份） |
 | generated server 在沙盒内 401 | run 的短期 token 已过期/被清空，或 `.mcp.json` 未带上 `x-agentport-run-id` | 确认 run 仍为 `running`；不要手工改工作区文件；run 结束后短期 token 必然失效，属预期 |
 | worker 退出并报 `Invalid environment` | `.env` 缺少必填项或长度不足 | 按报错里的字段名补齐；`APP_SECRET_KEY`、`JWT_SECRET` ≥32，`ADMIN_PASSWORD` ≥12 且不是常见默认口令 |
 | 运行超时 | `timeoutMs` 太小、模型慢、工具上游慢 | 运行详情看 `latencyMs` 与最后一步；调大智能体的 `timeoutMs`；检查上游 API 延迟 |
@@ -527,7 +528,7 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 |---|---|---|
 | `GET /health/live` | 进程存活 | 无 |
 | `GET /health/ready` | DB 查询 + Redis ping；任一失败返回 503 与 `status: degraded` | 无 |
-| `GET /health/metrics` | 进程（uptime、RSS、Node 版本）、队列计数、连接池、Redis ping 延迟；`knowledgeQueue` 为知识队列五态 `waiting/active/completed/failed/delayed`（单项失败返回 `null`），整体仍 200 | 登录（`requireAuth`） |
+| `GET /health/metrics` | 进程（uptime、RSS、`bunVersion`）、队列计数、`db.connected`/`pingMs`/`maxConnections`、Redis ping 延迟；`knowledgeQueue` 为知识队列五态 `waiting/active/completed/failed/delayed`（单项失败返回 `null`），整体仍 200 | 登录（`requireAuth`） |
 | `/api/overview` | 统计卡、智能体聚合（运行数、成本、错误率、P50/P99、tokens）、最近 20 条运行；`days` 限制 1–3650、默认 7，统计最近 N 个 UTC 自然日（含今天）；连接器计数排除内部知识连接 | 登录 |
 | `/api/overview/timeseries` | 与概况相同自然日窗口，默认 7；恰好 N 个 UTC 日期点，包含无运行日期的零值 | 登录 |
 | `/api/runs`、`/api/runs/:id` | 运行列表与 trace 步骤 | 登录 |
@@ -542,11 +543,11 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 
 ## 7. 性能备注
 
-- **索引**（0009 迁移）：`agent_runs(started_at DESC NULLS LAST, id DESC)` 与 `agent_runs(agent_id, started_at DESC NULLS LAST, id DESC)` 服务 `/api/runs` 与概览的「最近运行」排序；`messages(run_id)` 服务 run trace 查询；`messages(conversation_id, created_at, id)` 让会话消息免排序。改动见 `packages/db/src/schema.ts`，重新生成用 `pnpm db:generate`。
-- **连接池可配**：`packages/db/src/client.ts` 读 `DB_POOL_MAX`（默认 10），api 与 worker 各自独立一个池。`/api/overview` 的 servers/agents 计数已并行，running/runs 聚合与最近运行也并行；单个请求仍会执行多条 SQL。
+- **索引**（0009 迁移）：`agent_runs(started_at DESC NULLS LAST, id DESC)` 与 `agent_runs(agent_id, started_at DESC NULLS LAST, id DESC)` 服务 `/api/runs` 与概览的「最近运行」排序；`messages(run_id)` 服务 run trace 查询；`messages(conversation_id, created_at, id)` 让会话消息免排序。改动见 `packages/db/src/schema.ts`，重新生成用 `bun run db:generate`。
+- **连接上限可配**：`packages/db/src/client.ts` 的 `createDb()` 读 `DB_POOL_MAX`（默认 10），作为 Bun SQL 的 `max`；api 与 worker 各自独立一个连接集合。`/api/overview` 的 servers/agents 计数已并行，running/runs 聚合与最近运行也并行；单个请求仍会执行多条 SQL。
 - **会话列表**：`/api/conversations` 的 `lastMessage` 只返回截断到 280 字的 `text`，不再回传整块 jsonb；`limit` 上限 200。
 - **概览页**：`/api/overview` 已含 servers/agents 计数，前端不再额外请求 `/api/servers`、`/api/agents`；`/api/overview` 返回 404 时才回退到列表接口。
-- **本机基线**（20 次 curl，改前 → 改后，p50/p95）：`/api/overview` 8.0/9.7 → 6.9/8.8 ms；`/api/runs` 3.1/4.9 → 3.1/4.0 ms；`/api/conversations` 3.4/5.3 → 3.0/5.1 ms（响应 8009 → 6820 B）。数据量很小时数据库耗时不占主导，收益主要来自索引在数据增长后避免全表扫描 + 排序。
+- **本机基线（迁移前 Node/Fastify 环境，历史数据）**（20 次 curl，改前 → 改后，p50/p95）：`/api/overview` 8.0/9.7 → 6.9/8.8 ms；`/api/runs` 3.1/4.9 → 3.1/4.0 ms；`/api/conversations` 3.4/5.3 → 3.0/5.1 ms（响应 8009 → 6820 B）。数据量很小时数据库耗时不占主导，收益主要来自索引在数据增长后避免全表扫描 + 排序。
 - **未做**：`/api/agents`、`/api/skills`、`/api/eval/*` 列表仍无分页；当前单机数据量下影响可忽略，智能体/技能数量上来后再加 `limit`。MCP 端点每次请求重查 server + tools，属于配置即时生效的取舍，不在本次范围。
 
 ## 8. 压力测试结果
@@ -563,12 +564,12 @@ ADMIN_PASSWORD='...' node scripts/loadtest.mjs
 
 只创建 slug 以 `loadtest-` 开头的智能体/技能；开始与结束各清理一次（DB 行、工作区目录、审计记录）。每次运行会产生约 12 次真实模型调用（单次约 $0.005），并留下几条 `auth.login.succeeded` 审计和 Redis 中最近 100 条完成的 BullMQ job，这两项无法按前缀安全清理。
 
-测试环境（2026-10-20，单机）：
+测试环境（2026-10-20，单机）。以下数据来自迁移前的 Node/Fastify 运行栈，只作历史基线，不能作为 Bun/Hono 的性能结论：
 
 | 项 | 值 |
 |---|---|
 | 宿主 | macOS，12 逻辑核，API / worker / Postgres / Redis / 压测客户端同机 |
-| API | Node 24 LTS（测时 v24.22.0；以当前 24 最新补丁为准），tsx dev，Fastify；pg 连接池 `max: 10`（当时硬编码；现由 `DB_POOL_MAX` 配置，默认仍为 10） |
+| API | Node 24 LTS（测时 v24.22.0；以当前 24 最新补丁为准），tsx dev，Fastify；pg 连接池 `max: 10`（当时硬编码；迁移后对应 Bun SQL 的 `DB_POOL_MAX`，默认仍为 10） |
 | 数据库 | Postgres 18-alpine，`max_connections=100`，`shared_buffers=128MB`；测试时 3 agents / 2 skills / 1 server / 14 runs / 43 messages |
 | worker | `AGENT_MAX_CONCURRENT=2`，`SANDBOX_MEMORY=1g`，模型 `claude-sonnet-5-5` |
 | 读接口 | 50 并发 × 20 轮（每接口 1000 样本）；另做 100 / 200 并发 × 10 轮找拐点 |
@@ -616,15 +617,15 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 
 第二个瓶颈是 **worker 并发 `AGENT_MAX_CONCURRENT=2`**：单次 run 固定成本约 2.5–3.3 s（主要是拉容器和启动 SDK，简单 prompt 也一样；该基线为每次新建容器，同会话复用只省容器部分，不省每轮 SDK query 启动），因此 run 吞吐约 0.7 个/秒。10 个 run 同时投递时 p95 排队 10.5 s、峰值 waiting 8，与理论 FIFO 完全吻合，队列本身没有额外异常，只是并发上限低。
 
-未发现 SSE、MCP、写接口在本次并发量下有问题：SSE 内存不增长（同一 run 的多个订阅者共用一条 Redis 订阅），MCP 每个请求重建 handler 的取舍在 20 并发下仍是 10–20 ms。
+未发现 SSE、MCP、写接口在本次并发量下有问题：SSE 内存不增长；每个观众独占一条 Redis 订阅连接，20 个观众就是 20 条连接。MCP 每个请求重建 handler 的取舍在 20 并发下仍是 10–20 ms。
 
 ### 8.4 建议参数
 
-1. **先改读接口的查询形态**（收益最大、无配置风险）：`/api/overview` 的 counts（servers/agents/running/runs）合并成一条 SQL，其余两条重查询与它并行；`packages/api/src/features/agents/routes.ts` 的 4 条查询已是 1+3 并行，可只把首条列表查询与关联查询合并。预期 200 并发下 p95 从约 100 ms 降到 40–50 ms，吞吐约翻倍。
-2. **连接池可配置（已实现）**：`packages/db/src/client.ts` 读取 `DB_POOL_MAX`（默认 10）。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍池只是把压力更早推给 Postgres。worker 另有独立连接池，扩容时一并计入。
-3. **读接口补限流**：当前 `global: false`，只有显式配置的路由计数（登录 10/min、chat 20/min、`/mcp` 与 `/mcp/:serverId` 各 60/min、连接测试 20/min、评估发起 10/min），读接口完全不计流（压测中 2000 次读请求无 429）。若要暴露到 localhost 之外，建议读接口加 600 次/分/IP；单管理员场景下 chat 的 20 次/分偏低（两次突发落在同一分钟就会 429，本次压测已复现 2/10 被拒），可提到 60 次/分或按登录用户计数（多账户/RBAC 落地后按用户/角色重新评估）。
+1. **先改读接口的查询形态**（收益最大、无配置风险）：`/api/overview` 的 counts（servers/agents/running/runs）合并成一条 SQL，其余两条重查询与它并行；`packages/api/src/modules/agents/router.ts` 的 4 条查询已是 1+3 并行，可只把首条列表查询与关联查询合并。预期 200 并发下 p95 从约 100 ms 降到 40–50 ms，吞吐约翻倍。
+2. **连接上限可配置（已实现）**：`packages/db/src/client.ts` 的 `createDb()` 读取 `DB_POOL_MAX`（默认 10），作为 Bun SQL 的 `max`。单 API 实例、Postgres `max_connections=100` 时，20–30 安全；但若不同时做第 1 条，翻倍上限只是把压力更早推给 Postgres。worker 另有独立连接集合，扩容时一并计入。
+3. **读接口限流已落地**：压测当时 `global: false`，读接口完全不计流；现在 `hono-rate-limiter` 的 RedisStore 对 `/api/*` 统一按 600/min/IP 计数，静态资源、SPA 回退与 `/health/*` 不计入，登录、chat、`/mcp`、连接测试与评估发起仍保留各自的更低配额。单管理员场景下 chat 的 20 次/分仍偏紧（两次突发落在同一分钟就会 429，压测曾复现 2/10 被拒）；是否提到 60 次/分或改为按登录用户计数，等真实使用数据再定。
 4. **worker 并发按资源定**：每个沙盒受 `SANDBOX_MEMORY=1g` 上限约束，把 `AGENT_MAX_CONCURRENT` 从 2 提到 4 可把 10 个 run 的 p95 排队从约 10.5 s 降到约 5 s，代价是活跃沙盒按该上限占用的内存与更多宿主 CPU。以上是一次性容器压测数据；会话复用后，正常完成或成功取消的容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内热空闲并继续占用资源，实际容器总数可能高于活跃 run 数。本机未实测热空闲容器的内存，也不据此给出新的并发上限；扩容前按容器数（含热空闲）观察资源水位。同会话复用减少容器创建/启动，但不跳过每轮 SDK query 启动，不算 SDK 冷启动优化。
-5. **观测告警线**：`/health/metrics` 的 `db.waiting > 5` 持续 10 s，或队列 `waiting > 10`，即可认为已进入本次测出的瓶颈区。
+5. **观测告警线**：当时的 node-postgres 池字段（`db.waiting`/`db.total`）已不存在；当前 `/health/metrics` 只给 `db.connected`、`db.pingMs` 与 `db.maxConnections`。继续用 `db.pingMs` 升高、队列 `waiting > 10` 和宿主连接数作为进入本次瓶颈区的信号，不要照抄旧字段名。
 
 ### 8.5 复现注意
 
@@ -639,30 +640,30 @@ CPU 采样：API 峰值约 117%，Postgres 峰值约 111%，Redis 峰值约 2%�
 ### 9.1 仅运行 Web 单元测试
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm test:web
+bun install --frozen-lockfile
+bun run test:web
 # 按需输出机器可读结果（路径自行指定）
-pnpm test:web --reporter=json --outputFile=web-test-results.json
-pnpm --filter @agentport/web typecheck
-pnpm exec biome check package.json vitest.config.ts packages/web/vitest.config.ts packages/web/test
-pnpm --filter @agentport/web build
+bun run test:web --reporter=json --outputFile=web-test-results.json
+bun run --filter @agentport/web typecheck
+bunx biome check package.json vitest.config.ts packages/web/vitest.config.ts packages/web/test
+bun run --filter @agentport/web build
 ```
 
 `test:web` 使用 `packages/web/vitest.config.ts`，只收集 `packages/web/test/**/*.test.ts`。配置基于自身文件定位仓库与 `@` → `packages/web/src` 别名，使用 Vitest 的 `jsdom` 环境与自动 JSX 转换；`packages/web/test/setup.ts` 开启 React `act` 环境。`jsdom` 是锁定版本的根开发依赖，安装时需包含 devDependencies。
 
 此命令禁用 `.env` 文件加载，不需要 API、worker、PostgreSQL 或 Redis，也不依赖机器上的临时配置。它仍会继承调用进程已有的环境变量。
 
-根 `pnpm test` / `pnpm test:watch` 使用 Vitest projects：`web` 项目加载上述独立配置；`backend` 项目维持 Node 环境、原有测试变量与超时，并排除 Web 目录。手动触发 CI 时，`pnpm test` 会运行两类测试，不需要单独追加 Web 步骤；push 和 PR 不自动运行 CI，合并不等待远端检查。根命令仍适用下方后端运行前提。
+根 `bun run test` 只跑后端（`scripts/test-backend.ts` → `bun test --isolate`）；`bun run test:web` 只跑前端 Vitest。手动触发 CI 时两个命令分别执行，不存在“根测试命令自动包含 web”的旧行为；push 和 PR 不自动运行 CI，合并不等待远端检查。后端运行前提见 §9.2。
 
-只检查文件收集、不执行测试模块时，可运行 `pnpm exec vitest list --filesOnly`。此根命令仍解析后端配置并可能读取 `.env`；需要严格避免读取本地秘密时只用 `pnpm exec vitest list --config packages/web/vitest.config.ts --filesOnly`。
+只检查 web 测试文件收集、不执行测试模块时，运行 `bunx vitest list --config packages/web/vitest.config.ts --filesOnly`；根 `vitest.config.ts` 也只配置了 web project。
 
 ### 9.2 后端集成测试与 E2E
 
-根 `pnpm test` 的 `backend` 项目（`vitest.config.ts`）会用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：globalSetup 每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；两者通过 `inject('backendInfra')` + `setupFiles` 在测试模块导入前写入 `process.env`，后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次可 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`）以及建库或迁移失败都属配置错误，直接报错。`pnpm test:web` 不走这条路径（见 §9.1）。watch 会话开始时 globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理；热重跑不会重建资源。
+根 `bun run test` 由 `scripts/test-backend.ts` 用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：它调用 `packages/worker/test/global-setup.ts`，每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；随后把两者合并进环境，spawn `bun test --isolate --parallel=2 --path-ignore-patterns=**/web/**`。`bunfig.toml` 的 preload（`packages/worker/test/setup-env.ts`）在测试模块导入前设置固定测试变量。后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次可 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`）以及建库或迁移失败都属配置错误，直接报错。`bun run test:web` 不走这条路径（见 §9.1）。`bun run test:watch` 把 `--watch` 传给 `bun test`；globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理，热重跑不会重建资源。
 
 集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。这类断言怕的是**同一个 Redis 实例上有 worker 在消费 `agent-runs`**。测试使用每轮独享的临时 Redis 容器（内部 db 9），开发 worker 留在共享实例的 db 0，默认互不可见，**不需要停 worker**；不要为了让测试通过把 `REDIS_URL` 指回共享实例。
 
-E2E（`pnpm test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `pnpm --filter @agentport/web exec vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。多数用例直写数据库：先 `pnpm build` 产出 `packages/db/dist`，并显式导出与 API 同库的 `DATABASE_URL`。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `pnpm test:e2e` 要停 worker。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
+E2E（`bun run test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `bun run --cwd packages/web vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。需要直写数据库的用例经 `tests/support/fixture.ts` 启动 Bun 子进程（`bun --no-env-file`），必须显式提供与 API 同库的 `E2E_DATABASE_URL`；`tests/chat-replay.e2e.ts` 另需 `E2E_REDIS_URL`。先 `bun run build` 供 API 使用 workspace `dist`；E2E 不依赖 Node PostgreSQL 驱动。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `bun run test:e2e` 要停 worker。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
 
 知识库本轮的正式整组检查点 `backend knowledge` 45 文件 624/624、`web knowledge/BlobPdf/chatOutputs/publicShare` 13 文件 293/293（0 跳过）产生于 ASR 与九种新增来源落地**之前**，只证明该核心检查点；报告分别是 `/tmp/knowledge-weknora-backend-consolidated.json` 与 `/tmp/knowledge-weknora-web-consolidated.json`。之后的 ASR、来源扩展与 FAQ 恢复改动各有定向证据，不能把 624/293 挪作新增功能后的最终验收，也不能与各定向结果相加冒充完整通过。
 
@@ -670,7 +671,7 @@ E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，
 
 ### 9.3 持久开发数据集（`dev:data`）
 
-`pnpm dev:data` 通过真实业务 UI 补齐本地开发数据集，`pnpm dev:data:verify` 只读验收；两者都要求先用 `E2E_APP_URL` 指向已起好的隔离实例（命令不自动启动 vite/API），并复用 `tests/support/auth.e2e.ts` 的管理员 session。专用配置 `e2e.dev-data.config.ts` 只收集 auth setup 与 `tests/dev-data/**/*.e2e.ts`，普通 `e2e.config.ts` 已排除该目录。
+`bun run dev:data` 通过真实业务 UI 补齐本地开发数据集，`bun run dev:data:verify` 只读验收；两者都要求先用 `E2E_APP_URL` 指向已起好的隔离实例（命令不自动启动 vite/API），并复用 `tests/support/auth.e2e.ts` 的管理员 session。专用配置 `e2e.dev-data.config.ts` 只收集 auth setup 与 `tests/dev-data/**/*.e2e.ts`，普通 `e2e.config.ts` 已排除该目录。
 
 - 两套命令由 Node 注入 `E2E_DEV_DATA=1`；专用用例的第一行据此跳过，直接运行 `e2e run --config e2e.dev-data.config.ts` 不会写数据。
 - `dev:data` 运行构建用例并排除只读验收；`dev:data:verify` 只运行标题含 `verify` 的验收用例（构建用例标题不要含该词）。只读验收不触发模型、embedding、环境构建或定时任务同步。
@@ -680,15 +681,15 @@ E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，
 
 已生成的 v1 数据集（「青禾商贸｜采购与售后协作」）包含：5 个专家（主/子/OpenUI/停用/故障）、1 个专用运行环境（成功版本已发布，另有 2 条失败版本历史）、7 个对话场景（3 成功、2 取消、1 超时、1 失败）、2 个底层成功的评估运行（批次 1 过 1 不过）、2 个真实触发后暂停的定时任务、1 个已应用的记忆审核，以及规则、风格和记忆文件；共 12 个运行、11 个对话，分享 2 个（有效/已撤销各 1）。取消、超时、失败、停用、失败版本与撤销分享是刻意保留的负面状态，属于数据集内容，不是缺陷。重跑只复用，不新增专家、评估批次、分享或计费运行。
 
-当前仍无真实 embedding 配置（knowledge profiles 为 0），知识库 manifest 为 `blocked` 且没有实体。`pnpm dev:data:verify` 的登录、资产、运行环境和业务 UI 验收可通过，business/knowledge 仅因知识链路缺口失败；因此在补齐真实 embedding 前不能宣称数据集或验收全绿。同名资产接管立即停止、已有对象不覆盖等既有规则不变。
+当前仍无真实 embedding 配置（knowledge profiles 为 0），知识库 manifest 为 `blocked` 且没有实体。`bun run dev:data:verify` 的登录、资产、运行环境和业务 UI 验收可通过，business/knowledge 仅因知识链路缺口失败；因此在补齐真实 embedding 前不能宣称数据集或验收全绿。同名资产接管立即停止、已有对象不覆盖等既有规则不变。
 
-隔离运行配置持久化在本 worktree 未跟踪的 `.env`：`DATABASE_URL` 指向独立持久库 `agentport_business_e2e_dataset`，`REDIS_URL` 使用 db 12，工作区与知识库目录为本树 `data/` 的绝对路径，沙盒镜像为 `agentport/sandbox:business-e2e-68241ba`，模型网关与端口沿用已实测值。主 checkout `.env` 未修改，原开发库未迁移/清理；首次环境准备曾因旧结构不匹配造成两条旧队列任务失败，现服务已隔离到专用库和 Redis 12。复用前先停掉本任务此前启动的 API/worker，再从本树根目录用标准 `pnpm dev` 启动，避免新旧进程争用 3000/3426 或连错库；`E2E_APP_URL=https://worktree-business-e2e-dataset.agentport.localhost`。本任务未提交/未合并，附件、成果与记忆投影在本树 `data/`，PG 库独立持久；不要删除 worktree 或 `data/`。
+隔离运行配置持久化在本 worktree 未跟踪的 `.env`：`DATABASE_URL` 指向独立持久库 `agentport_business_e2e_dataset`，`REDIS_URL` 使用 db 12，工作区与知识库目录为本树 `data/` 的绝对路径，沙盒镜像为 `agentport/sandbox:business-e2e-68241ba`，模型网关与端口沿用已实测值。主 checkout `.env` 未修改，原开发库未迁移/清理；首次环境准备曾因旧结构不匹配造成两条旧队列任务失败，现服务已隔离到专用库和 Redis 12。复用前先停掉本任务此前启动的 API/worker，再从本树根目录用标准 `bun run dev` 启动，避免新旧进程争用 3000/3426 或连错库；`E2E_APP_URL=https://worktree-business-e2e-dataset.agentport.localhost`。本任务未提交/未合并，附件、成果与记忆投影在本树 `data/`，PG 库独立持久；不要删除 worktree 或 `data/`。
 
 `e2e.dev-data.config.ts` 的管理员凭据优先取 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`，未设置时使用专用配置回退值，未必匹配当前 bootstrap；运行前从本树 `.env` 的进程环境安全注入 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`（不要把真实密码写进文档、提交文件或命令历史，也不需要新增 helper）；不要用 `.env` 的 `ADMIN_PASSWORD` 去猜已有库的当前密码，当前隔离库用 bootstrap 凭据可正常登录。
 
 数据生成过程还修复了专家摘要缺少的 6 个既有元数据字段（`parentId`/`slug`/`role`/`model`/`uiFormat`/`createdAt`，不下发敏感配置）；相关后端测试 40/40、API build 通过，子专家 UI 解绑/重绑与文件核对、看板 table/cards 均已用真实 UI 验证，且没有新增运行。
 
-日常开发直接使用已生成的持久库与 `data/`：从本树根目录用标准 `pnpm dev` 启动即可，不需要运行 `pnpm dev:data`。现有数据不要重建，只有缺项首次生成或需要恢复时才运行 `dev:data`，`dev:data:verify` 始终只读。
+日常开发直接使用已生成的持久库与 `data/`：从本树根目录用标准 `bun run dev` 启动即可，不需要运行 `bun run dev:data`。现有数据不要重建，只有缺项首次生成或需要恢复时才运行 `dev:data`，`dev:data:verify` 始终只读。
 
 
 ## 本地模型网关

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { listNativePlugins, readPlugin, resolveNativeCli } from '../src/native-plugins.js';
 
 // 真实 CLI 的启动开销小，30s 足够覆盖冷启动。

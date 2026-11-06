@@ -2,11 +2,10 @@ import { repo } from '@agentport/db';
 import { RUN_CANCEL_PAYLOAD, runCancelKey, runStreamKey } from '@agentport/shared';
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createInvoker } from '../src/features/servers/agent-invoker.js';
-import { buildAgentServer } from '../src/features/servers/agent-tools.js';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { createInvoker } from '../src/modules/servers/agent-invoker.js';
+import { buildAgentServer } from '../src/modules/servers/agent-tools.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
   cleanup,
@@ -15,6 +14,7 @@ import {
   loginCookie,
   queueIdle,
   startApp,
+  type TestApp,
   testConfig,
   unique,
   waitFor,
@@ -77,7 +77,7 @@ async function settledWithin(promise: Promise<void>, ms: number): Promise<boolea
 }
 
 describe.skipIf(!ready)('agent invoker lifecycle', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let redis: Redis;
   const agentIds: string[] = [];
@@ -95,11 +95,10 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
       agentIds.length === 0
         ? []
         : (
-            await app.pool.query<{ id: string }>(
-              'select id from agent_runs where agent_id = any($1::text[])',
-              [agentIds],
+            await app.client.unsafe<{ id: string }[]>(
+              'select id from agent_runs where agent_id = any($1::text[])', [app.client.array(agentIds, 'TEXT')],
             )
-          ).rows.map((row) => row.id);
+          ).map((row) => row.id);
     for (const runId of discovered) {
       await getQueue()
         .getJob(runId)
@@ -122,11 +121,11 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
 
   const runsOf = async (agentId: string): Promise<RunRow[]> =>
     (
-      await app.pool.query<RunRow>(
+      await app.client.unsafe<RunRow[]>(
         'select id, status, error, error_kind, ended_at from agent_runs where agent_id = $1 order by created_at desc',
         [agentId],
       )
-    ).rows;
+    );
 
   it('rejects non-positive and non-finite timeouts before writing a conversation or run', async () => {
     const agent = await newAgent('timeout-invalid');
@@ -137,11 +136,11 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
       expect(err.code).toBe('INVALID_INPUT');
     }
     expect(await runsOf(agent.id)).toHaveLength(0);
-    const conversations = await app.pool.query<{ count: number }>(
+    const conversations = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from conversations where agent_id = $1',
       [agent.id],
     );
-    expect(conversations.rows[0]?.count).toBe(0);
+    expect(conversations[0]?.count).toBe(0);
   });
 
   it('advertises the positive timeout constraint in the MCP tool schema', async () => {
@@ -167,8 +166,7 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
   it('turns a rejected enqueue into a fixed error and an infra-failed run without leaking secrets', async () => {
     const agent = await newAgent('enqueue-fail');
     const queue = getQueue();
-    const spy = vi
-      .spyOn(queue, 'add')
+    const spy = spyOn(queue, 'add')
       .mockRejectedValueOnce(new Error('redis://:hunter2-secret@127.0.0.1:6379 refused'));
     let err: { code?: string; message: string };
     try {
@@ -205,7 +203,7 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
     async ({ claimed, terminal }) => {
       const agent = await newAgent(`enqueue-${claimed}`);
       const queue = getQueue();
-      const spy = vi.spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
+      const spy = spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
         // 模拟 worker 在 add 返回前就领取/完成：失败收口只能动仍为 queued 的 run。
         await repo.chat.updateRun(app.db, data.runId, {
           status: claimed,
@@ -257,11 +255,11 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
     expect(runs).toHaveLength(1);
     expect(runs[0]?.status).toBe('cancelled');
     expect(await getQueue().getJob(runs[0]?.id ?? '')).toBeUndefined();
-    const active = await app.pool.query<{ count: number }>(
+    const active = await app.client.unsafe<{ count: number }[]>(
       "select count(*)::int as count from agent_runs where agent_id = $1 and status in ('queued', 'running')",
       [agent.id],
     );
-    expect(active.rows[0]?.count).toBe(0);
+    expect(active[0]?.count).toBe(0);
   });
 
   it('signals a running run on deadline expiry without taking over its job or terminal state', {
@@ -296,11 +294,11 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
         });
       });
 
-      const moved = await app.pool.query(
+      const moved = await app.client.unsafe(
         "update agent_runs set status = 'running', started_at = now() where id = $1 and status = 'queued' returning id",
         [run.id],
       );
-      expect(moved.rows).toHaveLength(1);
+      expect(moved).toHaveLength(1);
 
       const err = await rejectionOf(withDeadline(pending, 5_000));
       expect(err.code).toBe('UPSTREAM_FAILED');

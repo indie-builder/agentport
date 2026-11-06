@@ -5,19 +5,18 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
-import type { FastifyInstance } from 'fastify';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { type KnowledgeDeps, runReindex } from '../../worker/src/knowledge/ingestion.js';
 import { createParsingAdapter } from '../../worker/src/knowledge/parsing-adapter.js';
 import { buildApp } from '../src/app.js';
 import {
   exportKnowledgePackage,
   importKnowledgePackage,
-} from '../src/features/knowledge/package.js';
-import { readKnowledgeImage } from '../src/features/knowledge/read-image.js';
-import { searchKnowledge } from '../src/features/knowledge/retrieval.js';
-import { infraReady, inject, loginCookie, testConfig, unique } from './helpers.js';
+} from '../src/modules/knowledge/package.js';
+import { readKnowledgeImage } from '../src/modules/knowledge/read-image.js';
+import { searchKnowledge } from '../src/modules/knowledge/retrieval.js';
+import { infraReady, loginCookie, request, type TestApp, testConfig, unique } from './helpers.js';
 
 const ready = await infraReady;
 
@@ -77,14 +76,14 @@ async function startFixture(): Promise<void> {
 }
 
 describe.skipIf(!ready)('knowledge multimodal API', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   const baseIds: string[] = [];
   const profileIds: string[] = [];
 
   async function createProfile(payload: Record<string, unknown>) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -95,7 +94,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
   }
 
   async function createBase(payload: Record<string, unknown>) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -140,18 +139,16 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
     await startFixture();
     knowledgeDir = await mkdtemp(join(tmpdir(), 'knowledge-multimodal-'));
     app = await buildApp(testConfig({ KNOWLEDGE_DIR: knowledgeDir }));
-    await app.ready();
     cookie = await loginCookie(app);
   });
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await Promise.all(servers.map((server) => new Promise((r) => server.close(r))));
@@ -175,7 +172,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       expect(saved.statusCode, saved.body).toBe(201);
       const base = saved.json<{ id: string; settings: { imageProcessing: { model: string } } }>();
       expect(base.settings.imageProcessing.model).toBe('claude-vision-test');
-      const fetched = await inject(app, {
+      const fetched = await request(app, {
         method: 'GET',
         url: `/api/knowledge/bases/${base.id}`,
         headers: { cookie },
@@ -247,13 +244,17 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
 
       // 真实 pool.query 正对照：引用判断必须发 EXISTS 布尔查询，而不是数完再比较。
       const statements: string[] = [];
-      const realQuery = app.pool.query.bind(app.pool);
-      const querySpy = vi.spyOn(app.pool, 'query').mockImplementation(((
-        sql: string,
+      const realQuery = app.client.unsafe.bind(app.client);
+      const querySpy = spyOn(app.client, 'unsafe').mockImplementation(((
+        query: string | { text?: string },
         params?: unknown[],
       ) => {
-        statements.push(sql);
-        return Reflect.apply(realQuery, app.pool, params === undefined ? [sql] : [sql, params]);
+        statements.push(typeof query === 'string' ? query : (query.text ?? ''));
+        return Reflect.apply(
+          realQuery,
+          app.client,
+          params === undefined ? [query] : [query, params],
+        );
       }) as never);
       try {
         // 保持能力组合合法，确保命中「已被引用不可原地更换」而不是输入校验。
@@ -262,7 +263,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
           { embeddingProtocol: 'openai', imageInputEnabled: false },
           { imageInputEnabled: false },
         ]) {
-          const res = await inject(app, {
+          const res = await request(app, {
             method: 'PATCH',
             url: `/api/knowledge/model-profiles/${cohereId}`,
             headers: { cookie },
@@ -285,22 +286,22 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       }
 
       // 409 不能留下部分配置。
-      const stored = await app.pool.query<{
+      const stored = await app.client.unsafe<{
         model: string;
         embedding_protocol: string;
         image_input_enabled: boolean;
-      }>(
+      }[]>(
         'select model, embedding_protocol, image_input_enabled from knowledge_model_profiles where id = $1',
         [cohereId],
       );
-      expect(stored.rows[0]).toEqual({
+      expect(stored[0]).toEqual({
         model: 'embed-v4.0',
         embedding_protocol: 'cohere_v2',
         image_input_enabled: true,
       });
 
       // 能力校验先于引用判断：非法组合仍是 400，不因被引用而改判 409。
-      const invalid = await inject(app, {
+      const invalid = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${cohereId}`,
         headers: { cookie },
@@ -308,7 +309,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       expect(invalid.statusCode, invalid.body).toBe(400);
 
-      const rename = await inject(app, {
+      const rename = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${cohereId}`,
         headers: { cookie },
@@ -319,7 +320,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
 
     it('allows capability changes and deletion while the profile is unreferenced', async () => {
       const profileId = await imageProfile();
-      const changed = await inject(app, {
+      const changed = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${profileId}`,
         headers: { cookie },
@@ -328,7 +329,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       expect(changed.statusCode, changed.body).toBe(200);
       expect(changed.json()).toMatchObject({ model: 'other-model', imageInputEnabled: false });
 
-      const missing = await inject(app, {
+      const missing = await request(app, {
         method: 'PATCH',
         url: '/api/knowledge/model-profiles/kmp_missing',
         headers: { cookie },
@@ -336,7 +337,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       expect(missing.statusCode, missing.body).toBe(404);
 
-      const deleted = await inject(app, {
+      const deleted = await request(app, {
         method: 'DELETE',
         url: `/api/knowledge/model-profiles/${profileId}`,
         headers: { cookie },
@@ -354,23 +355,23 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       expect(base.statusCode, base.body).toBe(201);
       const baseId = base.json<{ id: string }>().id;
 
-      const deleted = await inject(app, {
+      const deleted = await request(app, {
         method: 'DELETE',
         url: `/api/knowledge/model-profiles/${profileId}`,
         headers: { cookie },
       });
       expect(deleted.statusCode, deleted.body).toBe(409);
 
-      const profile = await app.pool.query<{ count: string }>(
+      const profile = await app.client.unsafe<{ count: string }[]>(
         'select count(*)::text as count from knowledge_model_profiles where id = $1',
         [profileId],
       );
-      expect(profile.rows[0]?.count).toBe('1');
-      const stillReferenced = await app.pool.query<{ count: string }>(
+      expect(profile[0]?.count).toBe('1');
+      const stillReferenced = await app.client.unsafe<{ count: string }[]>(
         'select count(*)::text as count from knowledge_bases where id = $1 and embedding_profile_id = $2',
         [baseId, profileId],
       );
-      expect(stillReferenced.rows[0]?.count).toBe('1');
+      expect(stillReferenced[0]?.count).toBe('1');
     });
 
     it('rejects switching to a rerank or disabled profile on both embedding and rerank slots', async () => {
@@ -408,7 +409,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         { rerankProfileId: textId },
         { rerankProfileId: disabledId },
       ]) {
-        const res = await inject(app, {
+        const res = await request(app, {
           method: 'PATCH',
           url: `/api/knowledge/bases/${baseId}`,
           headers: { cookie },
@@ -417,7 +418,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         expect(res.statusCode, `${JSON.stringify(payload)} ${res.body}`).toBe(400);
       }
 
-      const unchanged = await inject(app, {
+      const unchanged = await request(app, {
         method: 'GET',
         url: `/api/knowledge/bases/${baseId}`,
         headers: { cookie },
@@ -428,21 +429,21 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
 
       // 不换绑时仍可改名/停用：已绑 profile 后来被停用，不能卡住库自身的维护。
-      const afterDisable = await inject(app, {
+      const afterDisable = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${textId}`,
         headers: { cookie },
         payload: { enabled: false },
       });
       expect(afterDisable.statusCode, afterDisable.body).toBe(200);
-      const rename = await inject(app, {
+      const rename = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/bases/${baseId}`,
         headers: { cookie },
         payload: { name: '已停用 profile 的库', status: 'disabled' },
       });
       expect(rename.statusCode, rename.body).toBe(200);
-      await inject(app, {
+      await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${textId}`,
         headers: { cookie },
@@ -527,7 +528,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       await writeFile(join(imagesDir, 'fig-1.png'), PNG);
 
       for (const payload of [{ content: '把描述改掉' }, { heading: '新标题' }]) {
-        const res = await inject(app, {
+        const res = await request(app, {
           method: 'PATCH',
           url: `/api/knowledge/chunks/${chunk!.id}`,
           headers: { cookie },
@@ -537,7 +538,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       }
 
       // 图片定位不可由用户改：PATCH body 没有 metadata 字段，传入也被 schema 丢弃。
-      const located = await inject(app, {
+      const located = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/chunks/${chunk!.id}`,
         headers: { cookie },
@@ -559,7 +560,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         imageRole: 'vector',
       });
 
-      const toggled = await inject(app, {
+      const toggled = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/chunks/${locatedBody.chunk.id}`,
         headers: { cookie },
@@ -599,7 +600,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
 
       const cohereId = await imageProfile();
       const before = cohereBodies.length;
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/model-profiles/${cohereId}/test`,
         headers: { cookie },
@@ -734,13 +735,13 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       const profileId = await imageProfile();
       const { baseId } = await seedImageLibrary(profileId, { imageVectorEnabled: false });
       const url = `/api/knowledge/bases/${baseId}/search?q=${encodeURIComponent('令牌')}`;
-      const active = await inject(app, { method: 'GET', url, headers: { cookie } });
+      const active = await request(app, { method: 'GET', url, headers: { cookie } });
       expect(active.statusCode, active.body).toBe(200);
 
-      await app.pool.query("update knowledge_bases set status = 'disabled' where id = $1", [
+      await app.client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [
         baseId,
       ]);
-      const disabled = await inject(app, { method: 'GET', url, headers: { cookie } });
+      const disabled = await request(app, { method: 'GET', url, headers: { cookie } });
       expect(disabled.statusCode, disabled.body).toBe(409);
       expect(disabled.json<{ message: string }>().message).toContain('禁用');
     });
@@ -791,7 +792,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       const first = await imageProfile();
       const { baseId } = await seedImageLibrary(first);
       const second = await textProfile();
-      const patch = await inject(app, {
+      const patch = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/bases/${baseId}`,
         headers: { cookie },
@@ -814,7 +815,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       const first = await imageProfile();
       const { baseId } = await seedImageLibrary(first);
       const second = await textProfile();
-      const switched = await inject(app, {
+      const switched = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/bases/${baseId}`,
         headers: { cookie },
@@ -826,18 +827,18 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       expect(switched.statusCode, switched.body).toBe(200);
 
       // 切库后没有 base 再引用 first，但历史版本仍保留引用。
-      const bases = await app.pool.query<{ count: string }>(
+      const bases = await app.client.unsafe<{ count: string }[]>(
         'select count(*)::text as count from knowledge_bases where embedding_profile_id = $1',
         [first],
       );
-      expect(bases.rows[0]?.count).toBe('0');
-      const versions = await app.pool.query<{ count: string }>(
+      expect(bases[0]?.count).toBe('0');
+      const versions = await app.client.unsafe<{ count: string }[]>(
         'select count(*)::text as count from knowledge_document_versions where embedding_profile_id = $1',
         [first],
       );
-      expect(Number(versions.rows[0]?.count)).toBeGreaterThan(0);
+      expect(Number(versions[0]?.count)).toBeGreaterThan(0);
 
-      const changed = await inject(app, {
+      const changed = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${first}`,
         headers: { cookie },
@@ -845,22 +846,22 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       expect(changed.statusCode, changed.body).toBe(409);
 
-      const deleted = await inject(app, {
+      const deleted = await request(app, {
         method: 'DELETE',
         url: `/api/knowledge/model-profiles/${first}`,
         headers: { cookie },
       });
       expect(deleted.statusCode, deleted.body).toBe(409);
-      const profile = await app.pool.query<{ count: string }>(
+      const profile = await app.client.unsafe<{ count: string }[]>(
         'select count(*)::text as count from knowledge_model_profiles where id = $1',
         [first],
       );
-      expect(profile.rows[0]?.count).toBe('1');
-      const versionsAfter = await app.pool.query<{ count: string }>(
+      expect(profile[0]?.count).toBe('1');
+      const versionsAfter = await app.client.unsafe<{ count: string }[]>(
         'select count(*)::text as count from knowledge_document_versions where embedding_profile_id = $1',
         [first],
       );
-      expect(Number(versionsAfter.rows[0]?.count)).toBeGreaterThan(0);
+      expect(Number(versionsAfter[0]?.count)).toBeGreaterThan(0);
     });
   });
 
@@ -989,7 +990,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         ),
       ).rejects.toMatchObject({ code: 'IMAGE_PROCESSING_DISABLED' });
 
-      await app.pool.query("update knowledge_bases set status = 'disabled' where id = $1", [
+      await app.client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [
         seeded.baseId,
       ]);
       await expect(
@@ -998,7 +999,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
           format: 'description',
         }),
       ).rejects.toMatchObject({ code: 'BASE_DISABLED' });
-      await app.pool.query("update knowledge_bases set status = 'active' where id = $1", [
+      await app.client.unsafe("update knowledge_bases set status = 'active' where id = $1", [
         seeded.baseId,
       ]);
 
@@ -1216,24 +1217,24 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       expect(chunks.map((chunk) => chunk.metadata.imageRole)).toEqual(['caption', 'vector']);
       expect(chunks.map((chunk) => chunk.enabled)).toEqual([true, false]);
 
-      await app.pool.query('delete from servers where id = $1', [seeded.serverId]);
+      await app.client.unsafe('delete from servers where id = $1', [seeded.serverId]);
       const imported = await importKnowledgePackage(app.db, knowledgeDir, pkg!.body);
       baseIds.push(imported.baseId);
-      const rows = await app.pool.query<{
+      const rows = await app.client.unsafe<{
         kind: string;
         enabled: boolean;
         metadata: { imageRole: string; image: { name: string } };
         search_text: string;
         embedding: unknown;
-      }>(
+      }[]>(
         'select kind, enabled, metadata, search_text, embedding from knowledge_chunks where base_id = $1 order by ordinal',
         [imported.baseId],
       );
-      expect(rows.rows.map((row) => row.metadata.imageRole)).toEqual(['caption', 'vector']);
+      expect(rows.map((row) => row.metadata.imageRole)).toEqual(['caption', 'vector']);
       // 描述保留、向量不迁移：导入后靠 reindex chunksOnly 按原图补，不在这里调模型。
-      expect(rows.rows.every((row) => row.embedding === null)).toBe(true);
+      expect(rows.every((row) => row.embedding === null)).toBe(true);
       // vector chunk 身份与原图绑定保留，但不进关键词索引；停用状态同样保留。
-      expect(rows.rows[1]).toMatchObject({
+      expect(rows[1]).toMatchObject({
         kind: 'image',
         enabled: false,
         search_text: '',
@@ -1315,11 +1316,11 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       const seeded = await seedPackageLibrary();
       const count = async () =>
         (
-          await app.pool.query<{ count: string }>(
+          await app.client.unsafe<{ count: string }[]>(
             'select count(*) from knowledge_bases where embedding_profile_id = $1',
             [seeded.profileId],
           )
-        ).rows[0]?.count;
+        )[0]?.count;
       const before = await count();
 
       const duplicate = await editPackage(seeded.baseId, (manifest) => {
@@ -1374,15 +1375,15 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         });
       });
 
-      await app.pool.query('delete from servers where id = $1', [seeded.serverId]);
+      await app.client.unsafe('delete from servers where id = $1', [seeded.serverId]);
       const imported = await importKnowledgePackage(app.db, knowledgeDir, archive);
       baseIds.push(imported.baseId);
 
-      const rows = await app.pool.query<{
+      const rows = await app.client.unsafe<{
         version: number;
         images: Array<{ name: string; mimeType: string; page: number }>;
         chunks: Array<{ image: { name: string; mimeType: string; page: number } }>;
-      }>(
+      }[]>(
         `select v.version, v.images,
                 (select json_agg(c.metadata order by c.ordinal)
                    from knowledge_chunks c where c.version_id = v.id) as chunks
@@ -1393,7 +1394,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         [imported.baseId],
       );
       expect(
-        rows.rows.map((row) => ({
+        rows.map((row) => ({
           images: row.images.map(({ name, mimeType, page }) => ({ name, mimeType, page })),
           chunk: row.chunks[0]!.image,
         })),
@@ -1413,11 +1414,11 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       const seeded = await seedPackageLibrary();
       const count = async () =>
         (
-          await app.pool.query<{ count: string }>(
+          await app.client.unsafe<{ count: string }[]>(
             'select count(*) from knowledge_bases where embedding_profile_id = $1',
             [seeded.profileId],
           )
-        ).rows[0]?.count;
+        )[0]?.count;
       const before = await count();
 
       // missing.png 是合法单段文件名，能过 schema，但不在本版本的图片清单里。
@@ -1470,7 +1471,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
     it('refills the imported vector chunk via chunksOnly without running image description', async () => {
       const seeded = await seedPackageLibrary({ imageVectorEnabled: true });
       const pkg = await exportKnowledgePackage(app.db, knowledgeDir, seeded.baseId);
-      await app.pool.query('delete from servers where id = $1', [seeded.serverId]);
+      await app.client.unsafe('delete from servers where id = $1', [seeded.serverId]);
       const imported = await importKnowledgePackage(app.db, knowledgeDir, pkg!.body);
       baseIds.push(imported.baseId);
 
@@ -1506,21 +1507,21 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       if (!claimed) throw new Error('job missing');
       await runReindex(deps, claimed, new AbortController().signal);
 
-      const rows = await app.pool.query<{
+      const rows = await app.client.unsafe<{
         kind: string;
         metadata: { imageRole: string; image: { name: string } };
         search_text: string;
         embedding: string | null;
-      }>(
+      }[]>(
         'select kind, metadata, search_text, embedding from knowledge_chunks where base_id = $1 order by ordinal',
         [imported.baseId],
       );
       // 描述 chunk 走文字 embedding，vector chunk 由原图字节补回 1024 维并仍指向同一张图。
-      expect(rows.rows[0]!.embedding).not.toBeNull();
-      expect(rows.rows[1]!.embedding).toMatch(/^\[/);
-      expect(rows.rows[1]!.metadata.image.name).toBe('fig-1.png');
-      expect(rows.rows[1]!.search_text).toBe('');
-      const vector = JSON.parse(rows.rows[1]!.embedding!) as number[];
+      expect(rows[0]!.embedding).not.toBeNull();
+      expect(rows[1]!.embedding).toMatch(/^\[/);
+      expect(rows[1]!.metadata.image.name).toBe('fig-1.png');
+      expect(rows[1]!.search_text).toBe('');
+      const vector = JSON.parse(rows[1]!.embedding!) as number[];
       expect(vector).toHaveLength(1024);
       // fixture 对含「令牌」的文字返回 [1,...]，图片 data URI 返回 [0.01,...]；这里必须走图片路径。
       expect(vector[0]).toBeCloseTo(0.01);

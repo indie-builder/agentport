@@ -1,20 +1,20 @@
 import type { Agent, RunListItem } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('run agent version pin', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let runId: string;
   let agentId: string;
@@ -30,11 +30,11 @@ describe.skipIf(!ready)('run agent version pin', () => {
     const conversationId = unique('version-pin-conv');
     runId = unique('version-pin-run');
     runIds.push(runId);
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
       [conversationId, agent.id],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by, agent_version)
        values ($1, $2, $3, 'succeeded', 'user', 'bootstrap-admin', 3)`,
       [runId, conversationId, agent.id],
@@ -47,7 +47,7 @@ describe.skipIf(!ready)('run agent version pin', () => {
   });
 
   it('returns the pinned version in the run list', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/runs?agentId=${encodeURIComponent(agentId)}`,
       headers: { cookie },
@@ -60,7 +60,7 @@ describe.skipIf(!ready)('run agent version pin', () => {
   });
 
   it('returns the pinned version in the run detail', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/runs/${encodeURIComponent(runId)}`,
       headers: { cookie },

@@ -587,7 +587,11 @@ describe('记忆提案', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
-        if (String(input) === '/api/agents') {
+        const path = new URL(
+          input instanceof Request ? input.url : String(input),
+          'http://localhost',
+        ).pathname;
+        if (path === '/api/agents') {
           return new Promise<Response>((resolve) => {
             releaseAgents = () =>
               resolve(
@@ -598,7 +602,7 @@ describe('记忆提案', () => {
               );
           });
         }
-        return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+        return Promise.reject(new Error(`Unexpected fetch: ${path}`));
       }),
     );
     // agentsQuery 直接引用模块加载时的 api.agents，这里用挂起的 fetch 模拟目录尚未返回。
@@ -636,13 +640,14 @@ describe('记忆提案', () => {
     await expect(api.createMemoryReview(input, key, 'own')).resolves.toEqual({
       runId: 'run-1',
     });
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/memory-reviews?scope=own',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'idempotency-key': key },
-      }),
-    );
+    const [request, init] = fetchMock.mock.calls[0] ?? [];
+    const requestValue = request as Request;
+    const url = new URL(requestValue.url);
+    expect(url.pathname + url.search).toBe('/api/memory-reviews?scope=own');
+    expect(requestValue.method).toBe('POST');
+    expect(requestValue.headers.get('content-type')).toContain('application/json');
+    expect(requestValue.headers.get('idempotency-key')).toBe(key);
+    expect(init?.credentials).toBe('include');
   });
 
   it('详情先展示写入目标与完整变化，再展示理由、证据与来源', async () => {

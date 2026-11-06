@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { createSubAgentBoundaryHook, type SubAgentBoundary } from '../src/sub-agent-permissions.js';
 
 const hookFor = (boundary: SubAgentBoundary) => createSubAgentBoundaryHook(boundary);

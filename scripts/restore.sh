@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 从完整备份恢复：校验归档 → 生成恢复前安全副本（库 + 工作区）→ 单事务替换数据库 →
 # 换入工作区文件 → 补齐迁移。
-# 用法：pnpm restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]
+# 用法：bun run restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]
 # 数据库目标永远来自调用环境（DATABASE_URL 或 BACKUP_ENV_FILE 里的值），
 # 备份里的 env 只用于恢复配置文件，不会覆盖本次连接的数据库。
 set -euo pipefail
@@ -26,7 +26,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     -h | --help)
-      echo "usage: pnpm restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]" >&2
+      echo "usage: bun run restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]" >&2
       exit 0
       ;;
     *)
@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-[ -n "$ARCHIVE" ] || die "usage: pnpm restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]"
+[ -n "$ARCHIVE" ] || die "usage: bun run restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]"
 ARCHIVE="$(cd "$(dirname -- "$ARCHIVE")" && pwd)/$(basename -- "$ARCHIVE")"
 
 ENV_SOURCE="${BACKUP_ENV_FILE:-$ROOT/.env}"
@@ -276,8 +276,8 @@ else
 fi
 
 log "applying migrations"
-if ! DATABASE_URL="$DATABASE_URL" pnpm --dir "$ROOT" db:migrate; then
-  die "database and files restored, but migrations failed. Fix and re-run 'pnpm db:migrate'. safety copy: $SAFETY"
+if ! DATABASE_URL="$DATABASE_URL" bun run --cwd "$ROOT" db:migrate; then
+  die "database and files restored, but migrations failed. Fix and re-run 'bun run db:migrate'. safety copy: $SAFETY"
 fi
 
 echo "RESTORE OK $ARCHIVE"

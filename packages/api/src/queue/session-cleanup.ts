@@ -10,7 +10,7 @@ import {
   sessionCleanupAckChannel,
   sessionCleanupAckSchema,
 } from '@agentport/shared';
-import { Redis } from 'ioredis';
+import { RedisClient } from 'bun';
 
 export interface CloseSessionSandboxesInput {
   targets: readonly SessionCleanupTarget[];
@@ -53,47 +53,33 @@ export async function closeSessionSandboxes(input: CloseSessionSandboxesInput): 
   const request: SessionCleanupRequest = { requestId, deadline, targets };
   const channel = sessionCleanupAckChannel(requestId);
   const requestChannel = input.requestChannel ?? SESSION_CLEANUP_REQUEST_CHANNEL;
-  const subscriber = new Redis(input.redisUrl, {
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-    connectTimeout: 2_000,
+  const subscriber = new RedisClient(input.redisUrl, {
+    autoReconnect: false,
+    connectionTimeout: 2_000,
   });
-  const publisher = new Redis(input.redisUrl, {
-    maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
-    connectTimeout: 2_000,
+  const publisher = new RedisClient(input.redisUrl, {
+    autoReconnect: false,
+    connectionTimeout: 2_000,
   });
-  subscriber.on('error', () => undefined);
-  publisher.on('error', () => undefined);
 
   let timer: NodeJS.Timeout | undefined;
   // 订阅与 ACK 继续在后台完成时也必须被观察到，超时后由 finally 断开连接。
   const exchange = (async () => {
-    await subscriber.subscribe(channel);
-    const ack = await new Promise<SessionCleanupAck>((resolve, reject) => {
-      let settled = false;
-      const finish = (): boolean => {
-        if (settled) return false;
-        settled = true;
-        return true;
-      };
-      subscriber.on('message', (received, payload) => {
-        if (received !== channel) return;
-        let raw: unknown;
-        try {
-          raw = JSON.parse(payload);
-        } catch {
-          return;
-        }
-        const parsed = sessionCleanupAckSchema.safeParse(raw);
-        if (!parsed.success || parsed.data.requestId !== requestId) return;
-        if (finish()) resolve(parsed.data);
-      });
-      // 订阅建立后再发送，避免 ACK 早于监听。
-      void publisher.publish(requestChannel, JSON.stringify(request)).catch((err: unknown) => {
-        if (finish()) reject(unavailable('无法发送会话容器关闭请求', err));
-      });
+    const { promise: ackPromise, resolve } = Promise.withResolvers<SessionCleanupAck>();
+    await subscriber.subscribe(channel, (payload, received) => {
+      if (received !== channel) return;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(payload);
+      } catch {
+        return;
+      }
+      const parsed = sessionCleanupAckSchema.safeParse(raw);
+      if (!parsed.success || parsed.data.requestId !== requestId) return;
+      resolve(parsed.data);
     });
+    await publisher.publish(requestChannel, JSON.stringify(request));
+    const ack = await ackPromise;
     if (!ack.ok) throw unavailable(`会话容器关闭失败：${ack.error}`);
   })();
   exchange.catch(() => undefined);
@@ -113,7 +99,7 @@ export async function closeSessionSandboxes(input: CloseSessionSandboxesInput): 
     throw unavailable(`无法完成会话容器关闭确认：${errorText(err)}`, err);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
-    subscriber.disconnect();
-    publisher.disconnect();
+    subscriber.close();
+    publisher.close();
   }
 }

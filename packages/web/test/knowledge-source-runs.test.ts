@@ -103,8 +103,13 @@ beforeEach(() => {
   );
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    const path = String(input);
-    const method = (init?.method ?? 'GET').toUpperCase();
+    const request =
+      input instanceof Request
+        ? input
+        : new Request(new URL(String(input), 'http://localhost'), init);
+    const url = new URL(request.url);
+    const path = url.pathname + url.search;
+    const method = request.method.toUpperCase();
     state.calls.push({ method, path });
     const found = state.handlers[`${method} ${path.split('?')[0] ?? path}`];
     return found ? Response.json(found()) : Response.json({ items: [], nextCursor: null });

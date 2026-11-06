@@ -7,7 +7,7 @@ import type {
   PreToolUseHookInput,
   UserPromptSubmitHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createFileBoundaryHook, createPersonalMemoryHook } from '../src/memory-permissions.js';
 
 let dir: string;

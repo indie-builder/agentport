@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import { personalMemoryDir } from '@agentport/core';
 import { createDb, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { projectPersonalMemory } from '../src/personal-memory.js';
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
@@ -12,7 +12,7 @@ const { db } = dbHandle;
 
 async function probeDatabase(): Promise<boolean> {
   try {
-    await dbHandle.pool.query('select 1');
+    await dbHandle.client.unsafe('select 1');
     return true;
   } catch {
     return false;
@@ -41,7 +41,7 @@ afterAll(async () => {
       .delete(schema.userPreferences)
       .where(eq(schema.userPreferences.businessId, otherBusinessId));
   }
-  await dbHandle.pool.end();
+  await dbHandle.client.close();
 });
 
 describe.skipIf(!ready)('projectPersonalMemory', () => {
@@ -58,7 +58,7 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, 'CLAUDE.md'), 'stale');
 
-      await projectPersonalMemory(db, dbHandle.pool, root, businessId);
+      await projectPersonalMemory(db, dbHandle.client, root, businessId);
 
       const file = join(dir, 'CLAUDE.md');
       expect(await readFile(file, 'utf8')).toBe('恢复后的偏好');
@@ -81,7 +81,7 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
           set: { content: '长身份偏好', revision: 1 },
         });
 
-      await projectPersonalMemory(db, dbHandle.pool, root, longBusinessId);
+      await projectPersonalMemory(db, dbHandle.client, root, longBusinessId);
 
       const dir = personalMemoryDir(root, longBusinessId);
       expect(basename(dir)).toHaveLength(64);
@@ -111,8 +111,8 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
           set: { content: '另一个人的偏好', revision: 1 },
         });
 
-      await projectPersonalMemory(db, dbHandle.pool, root, businessId);
-      await projectPersonalMemory(db, dbHandle.pool, root, otherBusinessId);
+      await projectPersonalMemory(db, dbHandle.client, root, businessId);
+      await projectPersonalMemory(db, dbHandle.client, root, otherBusinessId);
 
       const first = personalMemoryDir(root, businessId);
       const second = personalMemoryDir(root, otherBusinessId);
@@ -133,7 +133,7 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
       await mkdir(dir, { recursive: true });
       await symlink(outside, join(dir, 'CLAUDE.md'));
 
-      await expect(projectPersonalMemory(db, dbHandle.pool, root, businessId)).rejects.toThrow(
+      await expect(projectPersonalMemory(db, dbHandle.client, root, businessId)).rejects.toThrow(
         'without links',
       );
       expect(await readFile(outside, 'utf8')).toBe('do not touch');
@@ -144,15 +144,15 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
 
   it('waits on the same business advisory lock used by API saves', async () => {
     const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
-    const client = await dbHandle.pool.connect();
+    const client = await dbHandle.client.reserve();
     try {
-      await client.query('set statement_timeout = 0');
-      await client.query('select pg_advisory_lock(hashtext($1))', [`user:${businessId}`]);
-      const projection = projectPersonalMemory(db, dbHandle.pool, root, businessId);
+      await client.unsafe('set statement_timeout = 0');
+      await client.unsafe('select pg_advisory_lock(hashtext($1))', [`user:${businessId}`]);
+      const projection = projectPersonalMemory(db, dbHandle.client, root, businessId);
       expect(
         await Promise.race([projection.then(() => 'done'), sleep(150).then(() => 'waiting')]),
       ).toBe('waiting');
-      await client.query('select pg_advisory_unlock(hashtext($1))', [`user:${businessId}`]);
+      await client.unsafe('select pg_advisory_unlock(hashtext($1))', [`user:${businessId}`]);
       await projection;
     } finally {
       client.release();

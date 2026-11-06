@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   AGENT_MEMORY_MAX_BYTES,
   AGENT_MEMORY_MAX_LINES,

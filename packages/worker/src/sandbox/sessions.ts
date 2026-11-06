@@ -462,7 +462,7 @@ export class SessionSandboxes {
         // 创建环境不含任何 run 凭证；每轮凭证由 start 帧带入 supervisor。
         env: {},
         name: `pace-session-${randomBytes(6).toString('hex')}`,
-        entrypoint: 'node',
+        entrypoint: 'bun',
         command: ['dist/session-supervisor.js'],
         init: true,
         extraMounts: [

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
-import { afterAll, describe, expect, it } from 'vitest';
+import { drizzle } from 'drizzle-orm/bun-sql';
+import { afterAll, describe, expect, it } from 'bun:test';
+import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';
 import { inheritApprovals } from '../src/repo/runs.js';
@@ -10,17 +10,12 @@ import { agents, approvalRequests, schema, servers } from '../src/schema.js';
 /**
  * 继承查询把「找上一轮 run」和「读它的已批准工具」合成一条语句：
  * 无前轮/前轮无批准 1 SELECT，有批准再加 1 INSERT。
- * 事务走独立连接，pool.query 探针看不到，必须用 Drizzle logger 计数。
+ * 事务走独立连接，client.unsafe 探针看不到，必须用 Drizzle logger 计数。
  */
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL ?? '',
-  max: 4,
-  statement_timeout: 15_000,
-  connectionTimeoutMillis: 5_000,
-});
+const { client } = createDb(process.env.DATABASE_URL ?? '');
 const statements: string[] = [];
-const db = drizzle(pool, { schema, logger: { logQuery: (query) => statements.push(query) } });
-const ready = await pool.query('select 1').then(
+const db = drizzle(client, { schema, logger: { logQuery: (query) => statements.push(query) } });
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -105,7 +100,7 @@ describe.skipIf(!ready)('inheritApprovals', () => {
   afterAll(async () => {
     for (const agentId of agentIds) await db.delete(agents).where(eq(agents.id, agentId));
     for (const serverId of serverIds) await db.delete(servers).where(eq(servers.id, serverId));
-    await pool.end();
+    await client.close();
   });
 
   it('uses one select and returns nothing without a previous run', async () => {

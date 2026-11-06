@@ -2,7 +2,8 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent, RunQuestion } from '@agentport/shared';
 import { type PublicRunQuestion, publicRunQuestion } from '@agentport/shared';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
+import { waitFor } from './fixtures/native-test.js';
 import * as messages from '../src/messages.js';
 import { testAccess } from './fixtures/access.js';
 
@@ -13,8 +14,8 @@ const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta
  * 重试重放、以及 agent 删除都必须让它整笔跳过，不能留下迟到的输出。
  * 这里用真实 Postgres 行锁构造竞争，不 mock 任何锁行为。
  */
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -137,7 +138,7 @@ async function conversationOutputCount(conversationId: string): Promise<number> 
  * 等待者，所以要顺着 blocker 链判断，而不是直接看持锁会话。
  */
 async function waitersBehind(pid: number): Promise<number> {
-  const { rows } = await pool.query<{ pid: number; blockers: number[] }>(
+  const rows = await client.unsafe<{ pid: number; blockers: number[] }[]>(
     `select pid, pg_blocking_pids(pid) as blockers
       from pg_stat_activity
       where datname = current_database()
@@ -157,22 +158,22 @@ async function waitersBehind(pid: number): Promise<number> {
 }
 
 /** pool.connect 有回调重载，ReturnType 取不到 PoolClient；锁场景只用 query。 */
-type LockClient = { query: (sql: string, values?: unknown[]) => Promise<unknown> };
+type LockClient = { unsafe: (sql: string, values?: unknown[]) => Promise<unknown> };
 
 /** 独占一个连接跑锁场景；断言失败时也回滚，避免悬挂事务挡住级联清理。 */
 async function withLockedTx(
   run: (client: LockClient, pid: number) => Promise<void>,
 ): Promise<void> {
-  const client = await pool.connect();
+  const locker = await client.reserve();
   try {
-    const { rows } = await client.query<{ pid: number }>('select pg_backend_pid() as pid');
-    const pid = rows[0]?.pid;
+    const [{ pid }] = await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
+    
     if (pid === undefined) throw new Error('lock client has no backend pid');
-    await client.query('begin');
-    await run(client, pid);
+    await locker.unsafe('begin');
+    await run(locker as unknown as LockClient, pid);
   } finally {
-    await client.query('rollback').catch(() => undefined);
-    client.release();
+    await locker.unsafe('rollback').catch(() => undefined);
+    locker.release();
   }
 }
 
@@ -364,7 +365,7 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     // 删 agent 级联清掉会话、run、消息；被测试删除的 agent 已是 no-op。
     await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
     await db.delete(schema.channels).where(inArray(schema.channels.id, channelIds));
-    await pool.end();
+    await client.close();
   });
 
   async function newChannelFixture(): Promise<Fixture & { channelId: string }> {
@@ -469,14 +470,14 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
         status: failure === 'queued cancellation' ? 'cancelled' : 'failed',
         endedAt: new Date(),
       });
-      expect.soft(await fixture.cursor()).toBe(0);
+      expect(await fixture.cursor()).toBe(0);
       const next = await fixture.admit(await fixture.nextTrigger());
       const [user] = await db
         .select()
         .from(schema.messages)
         .where(and(eq(schema.messages.runId, next.run.id), eq(schema.messages.role, 'user')));
-      expect.soft(repo.chat.messageText(user?.content)).toContain('unconsumed context');
-      expect.soft(repo.chat.messageText(user?.content)).toContain('first trigger');
+      expect(repo.chat.messageText(user?.content)).toContain('unconsumed context');
+      expect(repo.chat.messageText(user?.content)).toContain('first trigger');
     });
   }
 
@@ -498,7 +499,7 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
       });
       expect(saved.written).toBe(true);
       expect(await outputOf(admitted.run.id)).toEqual([{ type: 'text', text: errorText }]);
-      expect.soft(await fixture.cursor()).toBe(0);
+      expect(await fixture.cursor()).toBe(0);
       await repo.chat.updateRun(db, admitted.run.id, {
         status: 'failed',
         endedAt: new Date(),
@@ -508,8 +509,8 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
         .select()
         .from(schema.messages)
         .where(and(eq(schema.messages.runId, next.run.id), eq(schema.messages.role, 'user')));
-      expect.soft(repo.chat.messageText(user?.content)).toContain('unconsumed context');
-      expect.soft(repo.chat.messageText(user?.content)).toContain('first trigger');
+      expect(repo.chat.messageText(user?.content)).toContain('unconsumed context');
+      expect(repo.chat.messageText(user?.content)).toContain('first trigger');
     });
 
     it(`preserves visible synthetic ${error} assistant text in private conversations`, async () => {
@@ -617,12 +618,12 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
       .set({ channelTriggerMessageId: fixture.trigger.id })
       .where(eq(schema.agentRuns.id, runId));
     const consume = repo.chat.consumeChannelContext;
-    const failure = vi
-      .spyOn(repo.chat, 'consumeChannelContext')
-      .mockImplementationOnce(async (tx, input) => {
+    const failure = spyOn(repo.chat, 'consumeChannelContext').mockImplementationOnce(
+      async (tx, input) => {
         await consume(tx, input);
         throw new Error('injected persistence failure');
-      });
+      },
+    );
     try {
       await expect(
         messages.persistRunMessages(db, {
@@ -1001,15 +1002,15 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     });
 
     await withLockedTx(async (locker, lockerPid) => {
-      await locker.query(
+      await locker.unsafe(
         "update agent_runs set status = 'cancelled', ended_at = now() where id = $1",
         [runId],
       );
 
       const flushing = persist(fixture, runId, [text('late output')]);
-      await expect.poll(() => waitersBehind(lockerPid)).toBe(1);
+      await waitFor(async () => expect(await waitersBehind(lockerPid)).toBe(1));
 
-      await locker.query('commit');
+      await locker.unsafe('commit');
       await expect(flushing).resolves.toBe(false);
     });
 
@@ -1021,16 +1022,16 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     const runId = await seedRun(fixture);
 
     await withLockedTx(async (locker, lockerPid) => {
-      await locker.query('select id from agent_runs where id = $1 for update', [runId]);
+      await locker.unsafe('select id from agent_runs where id = $1 for update', [runId]);
 
       const flushing = persist(fixture, runId, [text('flushed answer')]);
-      await expect.poll(() => waitersBehind(lockerPid)).toBe(1);
+      await waitFor(async () => expect(await waitersBehind(lockerPid)).toBe(1));
 
       // PostgreSQL 按等待顺序授予行锁：flush 先排队，cancel 只能排在 flush 后面。
       const cancelling = repo.chat.cancelRun(db, runId);
-      await expect.poll(() => waitersBehind(lockerPid)).toBe(2);
+      await waitFor(async () => expect(await waitersBehind(lockerPid)).toBe(2));
 
-      await locker.query('commit');
+      await locker.unsafe('commit');
       // flush 先拿到 run 行锁时状态仍是 running：这条断言证明它排在 cancel 之前。
       await expect(flushing).resolves.toBe(true);
       expect(await cancelling).not.toBeNull();
@@ -1047,20 +1048,20 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     const runId = await seedRun(fixture);
 
     await withLockedTx(async (locker, lockerPid) => {
-      await locker.query('select id from agents where id = $1 for update', [fixture.agentId]);
+      await locker.unsafe('select id from agents where id = $1 for update', [fixture.agentId]);
 
       const flushing = persist(fixture, runId, [text('late output')]);
-      await expect.poll(() => waitersBehind(lockerPid)).toBe(1);
+      await waitFor(async () => expect(await waitersBehind(lockerPid)).toBe(1));
 
       // flush 还被 agent 锁挡住，尚未轮到 conversation 锁；删除因此不会反向等待。
-      await expect(
-        pool.query('select id from conversations where id = $1 for update nowait', [
-          fixture.conversationId,
-        ]),
-      ).resolves.toBeDefined();
+      const unlocked = await client.unsafe(
+        'select id from conversations where id = $1 for update nowait',
+        [fixture.conversationId],
+      );
+      expect(unlocked).toBeDefined();
 
-      await locker.query('delete from agents where id = $1', [fixture.agentId]);
-      await locker.query('commit');
+      await locker.unsafe('delete from agents where id = $1', [fixture.agentId]);
+      await locker.unsafe('commit');
       await expect(flushing).resolves.toBe(false);
     });
 

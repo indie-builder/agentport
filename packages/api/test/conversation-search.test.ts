@@ -4,24 +4,25 @@ import {
   type ConversationSearchResponse,
   conversationSearchResponseSchema,
 } from '@agentport/shared';
-import type { FastifyInstance, InjectOptions } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
+  type TestRequest,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('conversation search', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
 
@@ -59,9 +60,9 @@ describe.skipIf(!ready)('conversation search', () => {
     content: unknown,
     createdAt = new Date(),
   ): Promise<void> => {
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into messages (id, conversation_id, role, content, created_at) values ($1, $2, $3, $4, $5)',
-      [newId('message'), conversationId, role, JSON.stringify(content), createdAt],
+      [newId('message'), conversationId, role, JSON.stringify(content), createdAt.toISOString()],
     );
   };
 
@@ -73,11 +74,11 @@ describe.skipIf(!ready)('conversation search', () => {
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined) params.set(key, String(value));
     }
-    return inject(app, {
+    return request(app, {
       method: 'GET',
       url: `/api/conversations/search?${params.toString()}`,
       headers,
-    } satisfies InjectOptions);
+    } satisfies TestRequest);
   };
 
   const item = (body: ConversationSearchResponse) => body.items[0];
@@ -241,12 +242,14 @@ describe.skipIf(!ready)('conversation search', () => {
       new Date(base + 1_000),
     );
 
-    const body = (await search({ agentId: agent.id, q: 'dedupetoken' })).json();
+    const body = (
+      await search({ agentId: agent.id, q: 'dedupetoken' })
+    ).json<ConversationSearchResponse>();
     expect(body.items).toHaveLength(1);
     expect(body.items[0]?.match?.excerpt).toContain('DedupeToken');
     expect(body.items[0]?.match?.excerpt).toContain('x'.repeat(100));
     expect(body.items[0]?.match?.excerpt).not.toContain('old body');
-    expect(body.items[0]?.match?.excerpt.length).toBe(240);
+    expect(body.items[0]?.match?.excerpt?.length).toBe(240);
   });
 
   it('keeps sub-millisecond activity times exact across pages', async () => {
@@ -256,7 +259,7 @@ describe.skipIf(!ready)('conversation search', () => {
     const ids: string[] = [];
     for (const [index, fraction] of stamps.entries()) {
       const id = await newConversation(agent.id, `micro ${index}`);
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into messages (id, conversation_id, role, content, created_at) values ($1, $2, $3, $4, $5::timestamptz)',
         [
           newId('message'),

@@ -3,12 +3,19 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppError } from '@agentport/core';
-import type { FastifyInstance } from 'fastify';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
-import { assertPackageCapacity } from '../src/features/knowledge/package.js';
-import { infraReady, inject, injectZip, loginCookie, testConfig, unique } from './helpers.js';
+import { assertPackageCapacity } from '../src/modules/knowledge/package.js';
+import {
+  infraReady,
+  loginCookie,
+  request,
+  requestZip,
+  type TestApp,
+  testConfig,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -65,7 +72,7 @@ describe('knowledge package capacity preflight', () => {
 });
 
 describe.skipIf(!ready)('knowledge package regressions', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   let profileId = '';
@@ -79,7 +86,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
   };
 
   async function createProfile(): Promise<{ id: string; name: string }> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -97,7 +104,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
   }
 
   async function createBase(): Promise<string> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -110,13 +117,13 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
   }
 
   async function exportBase(targetBaseId: string): Promise<Buffer> {
-    const res = await injectZip(app, 'GET', `/api/knowledge/bases/${targetBaseId}/export`, cookie);
+    const res = await requestZip(app, 'GET', `/api/knowledge/bases/${targetBaseId}/export`, cookie);
     expect(res.statusCode, res.body).toBe(200);
     return res.rawPayload;
   }
 
   async function deleteBase(targetBaseId: string): Promise<void> {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/bases/${targetBaseId}`,
       headers: { cookie },
@@ -129,7 +136,6 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
   beforeAll(async () => {
     knowledgeDir = await mkdtemp(join(tmpdir(), 'knowledge-package-regressions-'));
     app = await buildApp(testConfig({ KNOWLEDGE_DIR: knowledgeDir }));
-    await app.ready();
     cookie = await loginCookie(app);
     const profile = await createProfile();
     profileId = profile.id;
@@ -137,12 +143,11 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -156,25 +161,25 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     // 真实解压 20000 字节，中央目录改成 19998：fflate 会按声明长度截断。
     archive.writeUInt32LE(19_998, centralOffset(archive) + 24);
 
-    const before = await app.pool.query<{ count: string }>(
+    const before = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_bases where embedding_profile_id = $1',
       [profileId],
     );
-    const res = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
+    const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
     expect(res.statusCode, res.body).toBe(400);
     expect(res.json<{ code: string }>().code).toBe('INVALID_INPUT');
-    const after = await app.pool.query<{ count: string }>(
+    const after = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_bases where embedding_profile_id = $1',
       [profileId],
     );
-    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+    expect(after[0]?.count).toBe(before[0]?.count);
   });
 
   it('无版本的 manual 草稿（排队/失败）随包保存原件与 pending，导入不改写成 ready', async () => {
     const targetBaseId = await createBase();
     const content = '# 未发布草稿\n\n这段正文还没有被解析成版本。\n';
     const bytes = Buffer.from(content, 'utf8');
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${targetBaseId}/documents/manual`,
       headers: { cookie },
@@ -183,7 +188,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     expect(created.statusCode, created.body).toBe(202);
     const documentId = created.json<{ documentId: string }>().documentId;
     // 模拟排队后失败：没有版本，只有 original blob 与 contentHash。
-    await app.pool.query("update knowledge_documents set status = 'failed' where id = $1", [
+    await app.client.unsafe("update knowledge_documents set status = 'failed' where id = $1", [
       documentId,
     ]);
 
@@ -205,7 +210,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     expect(archive.includes('faqImport')).toBe(false);
 
     await deleteBase(targetBaseId);
-    const imported = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
+    const imported = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
     expect(imported.statusCode, imported.body).toBe(201);
     const result = imported.json<{
       baseId: string;
@@ -214,19 +219,19 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     baseIds.push(result.baseId);
     expect(result.counts).toMatchObject({ documents: 1, versions: 0, chunks: 0 });
 
-    const documentRows = await app.pool.query<{
+    const documentRows = await app.client.unsafe<{
       id: string;
       status: string;
       size_bytes: string;
       content_hash: string | null;
       current_version_id: string | null;
       metadata: { originalFilename?: string };
-    }>(
+    }[]>(
       'select id, status, size_bytes, content_hash, current_version_id, metadata from knowledge_documents where base_id = $1',
       [result.baseId],
     );
-    expect(documentRows.rows).toHaveLength(1);
-    const row = documentRows.rows[0]!;
+    expect(documentRows).toHaveLength(1);
+    const row = documentRows[0]!;
     expect(row.status).toBe('pending');
     expect(Number(row.size_bytes)).toBe(bytes.length);
     expect(row.content_hash).toBe(sha256(bytes));
@@ -237,21 +242,21 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
       join(knowledgeDir, 'blobs', sha256(bytes).slice(0, 2), sha256(bytes)),
     );
     expect(restored).toEqual(bytes);
-    const versions = await app.pool.query<{ count: string }>(
+    const versions = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_document_versions where document_id = $1',
       [row.id],
     );
-    expect(versions.rows[0]?.count).toBe('0');
-    const chunks = await app.pool.query<{ count: string }>(
+    expect(versions[0]?.count).toBe('0');
+    const chunks = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_chunks where document_id = $1',
       [row.id],
     );
-    expect(chunks.rows[0]?.count).toBe('0');
+    expect(chunks[0]?.count).toBe('0');
   });
 
   it('Wiki 内部索引仍按派生态跳过，不因无版本把整库导出变成 409', async () => {
     const targetBaseId = await createBase();
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents
          (id, base_id, title, source_type, content_kind, mime_type, size_bytes, status, metadata)
        values ($1, $2, '内部索引', 'manual', 'wiki', 'text/markdown', 0, 'pending', '{}')`,
@@ -267,7 +272,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     const alphaSlug = unique('alpha');
     const betaSlug = unique('beta');
     const create = async (slug: string, title: string): Promise<string> => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${targetBaseId}/wiki-pages`,
         headers: { cookie },
@@ -282,7 +287,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
       [alphaId, `# Alpha\n\n见 [[${betaSlug}|Beta]]。`],
       [betaId, '# Beta\n\n被引用的页面。'],
     ] as const) {
-      const patched = await inject(app, {
+      const patched = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/wiki-pages/${pageId}`,
         headers: { cookie },
@@ -293,12 +298,12 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
 
     const archive = await exportBase(targetBaseId);
     await deleteBase(targetBaseId);
-    const imported = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
+    const imported = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
     expect(imported.statusCode, imported.body).toBe(201);
     const result = imported.json<{ baseId: string }>();
     baseIds.push(result.baseId);
 
-    const pages = await inject(app, {
+    const pages = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${result.baseId}/wiki-pages`,
       headers: { cookie },
@@ -312,7 +317,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     const importedBetaId = bySlug.get(betaSlug)!;
     expect(importedAlphaId).not.toBe(alphaId);
 
-    const links = await inject(app, {
+    const links = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${importedAlphaId}/links`,
       headers: { cookie },
@@ -336,7 +341,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     await mkdir(join(knowledgeDir, 'blobs', blobSha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', blobSha.slice(0, 2), blobSha), original);
 
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents
          (id, base_id, title, source_type, source_id, source_connection_id, source_url, mime_type,
           size_bytes, status, content_kind, current_version_id, content_hash, metadata)
@@ -344,7 +349,7 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
                'text/markdown', $3, 'ready', 'document', $4, $5, '{"originalFilename":"readme.md"}')`,
       [documentId, targetBaseId, original.length, publishedVersionId, blobSha],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
           size_bytes, origin, metadata, parse_status, page_map, images, embedding_profile_id)
@@ -379,40 +384,40 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     expect(archive.includes('old-job')).toBe(false);
 
     await deleteBase(targetBaseId);
-    const imported = await injectZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
+    const imported = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, archive);
     expect(imported.statusCode, imported.body).toBe(201);
     const result = imported.json<{ baseId: string }>();
     baseIds.push(result.baseId);
 
-    const documents = await app.pool.query<{
+    const documents = await app.client.unsafe<{
       id: string;
       source_type: string;
       source_id: string | null;
       source_connection_id: string | null;
-    }>(
+    }[]>(
       'select id, source_type, source_id, source_connection_id from knowledge_documents where base_id = $1',
       [result.baseId],
     );
-    expect(documents.rows[0]).toMatchObject({
+    expect(documents[0]).toMatchObject({
       source_type: 'github',
       source_id: 'repo:readme',
       source_connection_id: null,
     });
 
-    const versions = await app.pool.query<{
+    const versions = await app.client.unsafe<{
       version: number;
       origin: string;
       metadata: Record<string, unknown>;
-    }>(
+    }[]>(
       'select version, origin, metadata from knowledge_document_versions where document_id = $1 order by version',
-      [documents.rows[0]!.id],
+      [documents[0]!.id],
     );
-    expect(versions.rows[1]).toMatchObject({
+    expect(versions[1]).toMatchObject({
       version: 2,
       origin: 'manual',
       metadata: { publication: 'draft', keep: 'yes' },
     });
-    expect(versions.rows[1]!.metadata).not.toHaveProperty('faqImport');
-    expect(versions.rows[1]!.metadata).not.toHaveProperty('faqImportJobId');
+    expect(versions[1]!.metadata).not.toHaveProperty('faqImport');
+    expect(versions[1]!.metadata).not.toHaveProperty('faqImportJobId');
   });
 });

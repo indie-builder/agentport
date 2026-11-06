@@ -26,7 +26,7 @@ docker compose logs --tail=120 api worker
 3. 任何破坏性操作（恢复、删工作区、改密钥）之前，先备份：
 
 ```bash
-set -a; . ./.env; set +a; pnpm backup
+set -a; . ./.env; set +a; bun run backup
 ```
 
 `/health/live`、`/health/ready` **没有鉴权**，`/health/metrics` 需要登录（`requireAuth`），不要直接暴露到公网；只经由反向代理的内网路径或本机访问。后文所有 `/health/metrics` 命令都假定先设置登录 Cookie：
@@ -203,11 +203,11 @@ grep '^SANDBOX_IMAGE=' .env
 
 ```bash
 # 推荐：从仓库根构建 sandbox target，安装与构建都在镜像内完成
-pnpm run up --rebuild
+bun run up --rebuild
 # 手动等价
 docker build --target sandbox -t agentport/sandbox:dev .
 # 或包脚本（同样从仓库根 context 构建）
-pnpm --filter @agentport/sandbox image
+bun run --filter @agentport/sandbox image
 # 若 .env 的 SANDBOX_IMAGE 不是这个名字，改成上面的 tag 后重启 worker
 docker compose up -d --force-recreate worker
 ```
@@ -241,7 +241,7 @@ export DOCKER_GID=$(getent group docker | cut -d: -f3)
 docker compose up -d --force-recreate worker
 ```
 
-`DOCKER_GID` 要写进 `.env` 才会在下次 `pnpm run up` 保留。Docker Desktop 默认 socket 为 `root:root`，`DOCKER_GID=0` 即可。
+`DOCKER_GID` 要写进 `.env` 才会在下次 `bun run up` 保留。Docker Desktop 默认 socket 为 `root:root`，`DOCKER_GID=0` 即可。
 
 **验证**
 
@@ -535,7 +535,7 @@ docker compose exec -T worker find /workspaces -mindepth 2 -maxdepth 2 -type d -
 ls -lh backups | tail -20
 
 # 4) 数据库：手动跑一次保留策略（默认保留 90 天 run / 30 天孤立消息）
-pnpm --filter @agentport/worker maintenance
+bun run --filter @agentport/worker maintenance
 
 # 5) 日志：滚动重启或截断（截断需要 root；更稳妥是给 compose 加 logging 上限）
 sudo truncate -s 0 "$(docker inspect --format '{{.LogPath}}' agentport-api-1)"
@@ -631,7 +631,7 @@ curl -sS -b "agentport_token=<当前会话 Cookie>" -X POST http://localhost:300
 
 ```bash
 set -a; . ./.env; set +a
-pnpm backup
+bun run backup
 git rev-parse --short HEAD                 # 记录当前版本
 docker tag agentport/api:dev agentport/api:pre-$(date +%Y%m%d-%H%M)
 docker tag agentport/sandbox:dev agentport/sandbox:pre-$(date +%Y%m%d-%H%M)
@@ -643,11 +643,11 @@ docker tag agentport/sandbox:dev agentport/sandbox:pre-$(date +%Y%m%d-%H%M)
 
 ```bash
 git pull
-pnpm install
-pnpm run up --rebuild
+bun install
+bun run up --rebuild
 ```
 
-`pnpm run up` 会重建 api/worker 与沙盒镜像、跑迁移，并用 compose `--wait --wait-timeout 120` 等 api 的 `/health/ready` healthcheck，再执行冒烟。迁移是**前向**的，不要手改已应用的迁移。
+`bun run up` 会重建 api/worker 与沙盒镜像、跑迁移，并用 compose `--wait --wait-timeout 120` 等 api 的 `/health/ready` healthcheck，再执行冒烟。迁移是**前向**的，不要手改已应用的迁移。
 
 ### 9.2 升级后验证
 
@@ -677,8 +677,8 @@ docker compose up -d --force-recreate api worker
 
 ```bash
 git checkout <上一个版本>
-pnpm install
-pnpm run up --rebuild
+bun install
+bun run up --rebuild
 ```
 
 若新版本已经执行了不兼容的迁移，仅回滚镜像不够：先停 api/worker，再恢复升级前的备份：
@@ -686,11 +686,11 @@ pnpm run up --rebuild
 ```bash
 set -a; . ./.env; set +a
 docker compose stop api worker
-pnpm restore backups/<升级前的时间戳>.sql.gz
+bun run restore backups/<升级前的时间戳>.tar.gz
 docker compose start api worker
 ```
 
-`pnpm restore` 会整库替换并先生成 `pre-restore-*` 安全副本；保持 `APP_SECRET_KEY` 不变，否则 MCP 密钥无法解密。
+`bun run restore` 会整库替换并先生成 `pre-restore-*` 安全副本；保持 `APP_SECRET_KEY` 不变，否则 MCP 密钥无法解密。
 
 **验证**
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { utf8Bytes } from '../src/utf8.js';
 
 describe('utf8Bytes', () => {

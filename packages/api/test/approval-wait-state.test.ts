@@ -1,29 +1,29 @@
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   createServer,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 /** 直接建 run（不经过队列），避免 worker 把状态从 running 改走。 */
-async function seedRun(app: FastifyInstance, agentId: string): Promise<string> {
+async function seedRun(app: TestApp, agentId: string): Promise<string> {
   const conversationId = unique('wait-conv');
   const runId = unique('wait-run');
-  await app.pool.query(
+  await app.client.unsafe(
     "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
     [conversationId, agentId],
   );
-  await app.pool.query(
+  await app.client.unsafe(
     "insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by) values ($1, $2, $3, 'running', 'user', 'bootstrap-admin')",
     [runId, conversationId, agentId],
   );
@@ -31,7 +31,7 @@ async function seedRun(app: FastifyInstance, agentId: string): Promise<string> {
 }
 
 describe.skipIf(!ready)('approval wait state', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let server: Server;
   const agentSlugs: string[] = [];
@@ -63,7 +63,7 @@ describe.skipIf(!ready)('approval wait state', () => {
   };
 
   const list = async (runId: string) => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/runs/${runId}/approvals`,
       headers: { cookie },
@@ -75,7 +75,7 @@ describe.skipIf(!ready)('approval wait state', () => {
   };
 
   const approve = (runId: string, toolName: string) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: { cookie },
@@ -150,12 +150,11 @@ describe.skipIf(!ready)('approval wait state', () => {
       toolName,
       expiresAt: new Date(Date.now() + 120_000),
     });
-    const [row] = await app.pool
-      .query<{ expires_at: Date; approved_at: Date | null }>(
+    const [row] = await app.client.unsafe<{ expires_at: Date; approved_at: Date | null }[]>(
         'select expires_at, approved_at from approval_requests where run_id = $1',
         [runId],
       )
-      .then((res) => res.rows);
+      .then((res) => res);
     expect(row?.expires_at).toEqual(later);
     expect(row?.approved_at).not.toBeNull();
   });

@@ -1,14 +1,15 @@
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { afterEach, expect, it, vi } from 'vitest';
-import { buildGeneratedServer } from '../src/features/servers/generated.js';
+import { afterEach, expect, it, mock } from 'bun:test';
+import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
+import { buildGeneratedServer } from '../src/modules/servers/generated.js';
 
 type ToolContext = { mcpReq: { signal: AbortSignal } };
 type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<CallToolResult>;
 
-const mcp = vi.hoisted(() => ({ handlers: new Map<string, ToolHandler>() }));
+const mcp = ({ handlers: new Map<string, ToolHandler>() });
 
-vi.mock('@modelcontextprotocol/server', () => ({
+mock.module('@modelcontextprotocol/server', () => ({
   McpServer: class {
     registerTool(name: string, _config: unknown, handler: ToolHandler) {
       mcp.handlers.set(name, handler);
@@ -17,8 +18,8 @@ vi.mock('@modelcontextprotocol/server', () => ({
   fromJsonSchema: (schema: unknown) => schema,
 }));
 
-vi.mock('../src/features/servers/ssrf.js', () => ({
-  assertSafeUrl: vi.fn(async () => undefined),
+mock.module('../src/modules/servers/ssrf.js', () => ({
+  assertSafeUrl: mock(async () => undefined),
 }));
 
 const approvalTool: ApiTool = {
@@ -67,17 +68,15 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
+  unstubAllGlobals();
   mcp.handlers.clear();
 });
 
 it('keeps the execution pool free while calls wait for approval', async () => {
-  vi.useFakeTimers({ now: 0 });
-  const fetchSpy = vi.fn(async () => new Response('ok'));
-  vi.stubGlobal('fetch', fetchSpy);
+  const fetchSpy = mock(async () => new Response('ok'));
+  stubGlobal('fetch', fetchSpy);
 
-  const onApprovalRequired = vi.fn(async () => undefined);
+  const onApprovalRequired = mock(async () => undefined);
   buildGeneratedServer({
     ...baseInput,
     isRunActive: async () => true,
@@ -90,8 +89,7 @@ it('keeps the execution pool free while calls wait for approval', async () => {
   const waiting = Array.from({ length: 4 }, () =>
     handler('approve-tool')({}, { mcpReq: { signal } }),
   );
-  await vi.advanceTimersByTimeAsync(0);
-  expect(onApprovalRequired).toHaveBeenCalledTimes(4);
+  await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(4));
 
   // 已批准的工具在四次等待期间照样能打上游。
   const plain = await handler('plain-tool')({}, { mcpReq: { signal } });
@@ -105,20 +103,18 @@ it('keeps the execution pool free while calls wait for approval', async () => {
   expect(onApprovalRequired).toHaveBeenCalledTimes(5);
   expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', null);
 
-  await vi.advanceTimersByTimeAsync(1000);
   const results = await Promise.all(waiting);
   for (const result of results) expect(result.isError).toBe(true);
   expect(fetchSpy).toHaveBeenCalledTimes(1);
 });
 
 it('releases the wait slot when a suspended call ends', async () => {
-  vi.useFakeTimers({ now: 0 });
-  vi.stubGlobal(
+  stubGlobal(
     'fetch',
-    vi.fn(async () => new Response('ok')),
+    mock(async () => new Response('ok')),
   );
 
-  const onApprovalRequired = vi.fn(async () => undefined);
+  const onApprovalRequired = mock(async () => undefined);
   buildGeneratedServer({
     ...baseInput,
     isRunActive: async () => true,
@@ -130,26 +126,25 @@ it('releases the wait slot when a suspended call ends', async () => {
   const waiting = Array.from({ length: 4 }, () =>
     handler('approve-tool')({}, { mcpReq: { signal } }),
   );
-  await vi.advanceTimersByTimeAsync(0);
+  await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(4));
 
   const rejected = await handler('approve-tool')({}, { mcpReq: { signal } });
   expect(rejected.isError).toBe(true);
 
-  await vi.advanceTimersByTimeAsync(1000);
   await Promise.all(waiting);
 
   // 名额已归还：下一次调用重新进入挂起，而不是继续走立即拒绝。
   const call = handler('approve-tool')({}, { mcpReq: { signal } });
-  await vi.advanceTimersByTimeAsync(0);
-  expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', expect.any(Date));
-  await vi.advanceTimersByTimeAsync(1000);
+  await waitForAssertion(() =>
+    expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', expect.any(Date)),
+  );
   await call;
 });
 
 it('never calls upstream for a call cancelled while queued for the execution pool', async () => {
   const slots = Array.from({ length: 4 }, () => deferred<Response>());
-  const fetchSpy = vi.fn(() => slots[fetchSpy.mock.calls.length - 1]?.promise ?? Promise.reject());
-  vi.stubGlobal('fetch', fetchSpy);
+  const fetchSpy = mock(() => slots[fetchSpy.mock.calls.length - 1]?.promise ?? Promise.reject());
+  stubGlobal('fetch', fetchSpy);
 
   buildGeneratedServer({ ...baseInput, approvals: ['plain-tool'], isRunActive: async () => true });
 
@@ -157,7 +152,7 @@ it('never calls upstream for a call cancelled while queued for the execution poo
   const activeCalls = Array.from({ length: 4 }, () =>
     handler('plain-tool')({}, { mcpReq: { signal: new AbortController().signal } }),
   );
-  await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(4));
+  await waitForAssertion(() => expect(fetchSpy).toHaveBeenCalledTimes(4));
 
   const queued = handler('plain-tool')({}, { mcpReq: { signal: controller.signal } });
   controller.abort();

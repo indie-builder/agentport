@@ -1,27 +1,20 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  type FastifyInstance,
-  infraReady,
-  inject,
-  loginCookie,
-  startApp,
-  unique,
-} from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('knowledge source routes', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
   const baseIds: string[] = [];
   const profileIds: string[] = [];
 
   async function createBase(): Promise<string> {
-    const profile = await inject(app, {
+    const profile = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -35,7 +28,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(profile.statusCode, profile.body).toBe(201);
     profileIds.push(profile.json<{ id: string }>().id);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -59,7 +52,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
   }
 
   async function createSource(baseId: string, overrides: Record<string, unknown> = {}) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -77,12 +70,11 @@ describe.skipIf(!ready)('knowledge source routes', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -101,7 +93,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       ['GET', `/api/knowledge/sources/${source.id}/runs`, undefined],
     ] as const;
     for (const [method, url, payload] of cases) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method,
         url,
         ...(payload === undefined ? {} : { payload }),
@@ -112,7 +104,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
 
   it('creates a source with ranges, encrypts secrets, and never returns them', async () => {
     const baseId = await createBase();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -139,13 +131,13 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(JSON.stringify(source)).not.toContain('glpat-plaintext-token');
     expect(JSON.stringify(source)).not.toContain('secretsEncrypted');
 
-    const stored = await app.pool.query<{ secrets_encrypted: string }>(
+    const stored = await app.client.unsafe<{ secrets_encrypted: string }[]>(
       'select secrets_encrypted from knowledge_sources where id = $1',
       [source.id],
     );
-    expect(stored.rows[0]!.secrets_encrypted).not.toContain('glpat-plaintext-token');
+    expect(stored[0]!.secrets_encrypted).not.toContain('glpat-plaintext-token');
 
-    const list = await inject(app, {
+    const list = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -167,7 +159,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       ...overrides,
     });
 
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -194,7 +186,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(JSON.stringify(source)).not.toContain('{{SECRET_ghp_example}}');
 
     // ref 可空：不填时由 worker 回落到仓库 default branch。
-    const noBase = await inject(app, {
+    const noBase = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -202,7 +194,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     });
     expect(noBase.statusCode, noBase.body).toBe(201);
 
-    const missingToken = await inject(app, {
+    const missingToken = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -210,7 +202,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     });
     expect(missingToken.statusCode, missingToken.body).toBe(400);
 
-    const invalidUrl = await inject(app, {
+    const invalidUrl = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -218,7 +210,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     });
     expect(invalidUrl.statusCode, invalidUrl.body).toBe(400);
 
-    const missingProject = await inject(app, {
+    const missingProject = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -227,7 +219,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(missingProject.statusCode, missingProject.body).toBe(400);
 
     // PATCH 不重建 schema，仍按同一套本地规则拒绝缺 projectId 的配置。
-    const badPatch = await inject(app, {
+    const badPatch = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },
@@ -236,16 +228,16 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(badPatch.statusCode, badPatch.body).toBe(400);
     expect(badPatch.json()).toMatchObject({ code: 'INVALID_INPUT' });
 
-    const count = await app.pool.query<{ n: string }>(
+    const count = await app.client.unsafe<{ n: string }[]>(
       'select count(*)::text as n from knowledge_sources where base_id = $1',
       [baseId],
     );
-    expect(count.rows[0]!.n).toBe('2');
+    expect(count[0]!.n).toBe('2');
   });
 
   it('re-parses PATCH config by source type so defaults and booleans reach the DB', async () => {
     const baseId = await createBase();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -260,7 +252,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(created.statusCode, created.body).toBe(201);
     const sourceId = created.json<{ id: string }>().id;
 
-    const invalid = await inject(app, {
+    const invalid = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${sourceId}`,
       headers: { cookie },
@@ -274,13 +266,13 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(invalid.json<{ requestId: string }>().requestId).toBeTruthy();
 
     // 非法类型不能落库，worker 读到的仍是创建时的布尔值。
-    const untouched = await app.pool.query<{ config: Record<string, unknown> }>(
+    const untouched = await app.client.unsafe<{ config: Record<string, unknown> }[]>(
       'select config from knowledge_sources where id = $1',
       [sourceId],
     );
-    expect(untouched.rows[0]!.config).toEqual({ syncDeletions: true });
+    expect(untouched[0]!.config).toEqual({ syncDeletions: true });
 
-    const replaced = await inject(app, {
+    const replaced = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${sourceId}`,
       headers: { cookie },
@@ -288,13 +280,13 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     });
     expect(replaced.statusCode, replaced.body).toBe(200);
     expect(replaced.json()).toMatchObject({ config: { syncDeletions: false } });
-    const stored = await app.pool.query<{ config: Record<string, unknown> }>(
+    const stored = await app.client.unsafe<{ config: Record<string, unknown> }[]>(
       'select config from knowledge_sources where id = $1',
       [sourceId],
     );
-    expect(stored.rows[0]!.config).toEqual({ syncDeletions: false });
+    expect(stored[0]!.config).toEqual({ syncDeletions: false });
 
-    const enabled = await inject(app, {
+    const enabled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${sourceId}`,
       headers: { cookie },
@@ -324,7 +316,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       { kind: 'github_repo', externalId: 'octo/../..', enabled: false },
       { kind: 'gitlab_project', externalId: 'octo/wrong-kind' },
     ];
-    const rejected = await inject(app, {
+    const rejected = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -336,13 +328,13 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(message).toContain('octo/.. 需为 owner/repo');
     expect(message).toContain('octo/wrong-kind 的类型必须是仓库');
 
-    const count = await app.pool.query<{ n: string }>(
+    const count = await app.client.unsafe<{ n: string }[]>(
       'select count(*)::text as n from knowledge_sources where base_id = $1',
       [baseId],
     );
-    expect(count.rows[0]!.n).toBe('0');
+    expect(count[0]!.n).toBe('0');
 
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -352,7 +344,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     const source = created.json<{ id: string }>();
 
     // 只改 ranges、不带 config/secrets，也必须走同一套校验。
-    const badRepos = await inject(app, {
+    const badRepos = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },
@@ -368,16 +360,16 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(badRepos.json<{ message: string }>().message).toContain('owner/repo');
     expect(badRepos.json<{ message: string }>().message).toContain('类型必须是仓库');
 
-    const ranges = await app.pool.query<{ kind: string; external_id: string }>(
+    const ranges = await app.client.unsafe<{ kind: string; external_id: string }[]>(
       'select kind, external_id from knowledge_source_ranges where source_id = $1 order by id',
       [source.id],
     );
-    expect(ranges.rows).toEqual([{ kind: 'github_repo', external_id: 'octo/proj' }]);
+    expect(ranges).toEqual([{ kind: 'github_repo', external_id: 'octo/proj' }]);
   });
 
   it('reports every enabled invalid range and still allows a rename-only patch', async () => {
     const baseId = await createBase();
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -395,14 +387,14 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       ['krng_a5', 'gitlab_project', 'octo/wrong-kind', true],
     ] as const;
     for (const [id, kind, externalId, enabled] of legacy) {
-      await app.pool.query(
+      await app.client.unsafe(
         `insert into knowledge_source_ranges (id, source_id, kind, external_id, paths, enabled)
          values ($1, $2, $3, $4, '[]'::jsonb, $5)`,
         [id, source.id, kind, externalId, enabled],
       );
     }
 
-    const tested = await inject(app, {
+    const tested = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${source.id}/test`,
       headers: { cookie },
@@ -417,7 +409,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(message).toContain('范围 octo/wrong-kind 的类型必须是仓库（github_repo）');
 
     // 只改 name 时不被历史非法范围阻断。
-    const renamed = await inject(app, {
+    const renamed = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },
@@ -430,7 +422,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
   it('rejects empty ranges with 400', async () => {
     const baseId = await createBase();
     for (const ranges of [[], undefined]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/sources`,
         headers: { cookie },
@@ -438,35 +430,35 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       });
       expect(res.statusCode, res.body).toBe(400);
     }
-    const count = await app.pool.query<{ n: string }>(
+    const count = await app.client.unsafe<{ n: string }[]>(
       'select count(*)::text as n from knowledge_sources where base_id = $1',
       [baseId],
     );
-    expect(count.rows[0]!.n).toBe('0');
+    expect(count[0]!.n).toBe('0');
   });
 
   it('rejects local configuration issues at the boundary and queues a read-only probe', async () => {
     const baseId = await createBase();
     const source = await createSource(baseId);
-    const ok = await inject(app, {
+    const ok = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${source.id}/test`,
       headers: { cookie },
     });
     expect(ok.statusCode, ok.body).toBe(202);
     const jobId = ok.json<{ jobId: string }>().jobId;
-    const job = await app.pool.query<{ type: string; status: string; payload: unknown }>(
+    const job = await app.client.unsafe<{ type: string; status: string; payload: unknown }[]>(
       'select type, status, payload from knowledge_jobs where id = $1',
       [jobId],
     );
-    expect(job.rows[0]).toMatchObject({
+    expect(job[0]).toMatchObject({
       type: 'source_probe',
       status: 'queued',
       payload: { type: 'source_probe', sourceId: source.id },
     });
 
     // 清空 config/凭证后 test 必须报出缺失项，而不是入队一个必然失败的探针。
-    const broken = await inject(app, {
+    const broken = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
       headers: { cookie },
@@ -480,10 +472,10 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     });
     expect(broken.statusCode, broken.body).toBe(201);
     const brokenId = broken.json<{ id: string }>().id;
-    await app.pool.query('update knowledge_sources set secrets_encrypted = null where id = $1', [
+    await app.client.unsafe('update knowledge_sources set secrets_encrypted = null where id = $1', [
       brokenId,
     ]);
-    const bad = await inject(app, {
+    const bad = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${brokenId}/test`,
       headers: { cookie },
@@ -496,7 +488,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
   it('enqueues a sync run and job, then lists runs', async () => {
     const baseId = await createBase();
     const source = await createSource(baseId);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${source.id}/sync`,
       headers: { cookie },
@@ -506,23 +498,23 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(body.jobId).toMatch(/^kjob_/);
     expect(body.syncRunId).toMatch(/^ksyn_/);
 
-    const job = await app.pool.query<{ type: string; status: string; payload: unknown }>(
+    const job = await app.client.unsafe<{ type: string; status: string; payload: unknown }[]>(
       'select type, status, payload from knowledge_jobs where id = $1',
       [body.jobId],
     );
-    expect(job.rows[0]).toMatchObject({
+    expect(job[0]).toMatchObject({
       type: 'sync',
       status: 'queued',
       payload: { type: 'sync', sourceId: source.id, syncRunId: body.syncRunId },
     });
 
-    const run = await app.pool.query<{ status: string }>(
+    const run = await app.client.unsafe<{ status: string }[]>(
       'select status from knowledge_sync_runs where id = $1',
       [body.syncRunId],
     );
-    expect(run.rows[0]!.status).toBe('queued');
+    expect(run[0]!.status).toBe('queued');
 
-    const runs = await inject(app, {
+    const runs = await request(app, {
       method: 'GET',
       url: `/api/knowledge/sources/${source.id}/runs`,
       headers: { cookie },
@@ -543,7 +535,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
   it('cancels a queued sync with its run and retries into a new run', async () => {
     const baseId = await createBase();
     const source = await createSource(baseId);
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${source.id}/sync`,
       headers: { cookie },
@@ -551,82 +543,82 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(first.statusCode, first.body).toBe(202);
     const created = first.json<{ jobId: string; syncRunId: string }>();
 
-    const cancelled = await inject(app, {
+    const cancelled = await request(app, {
       method: 'POST',
       url: `/api/knowledge/jobs/${created.jobId}/cancel`,
       headers: { cookie },
     });
     expect(cancelled.statusCode, cancelled.body).toBe(200);
     expect(cancelled.json()).toMatchObject({ status: 'cancelled' });
-    const run = await app.pool.query<{ status: string }>(
+    const run = await app.client.unsafe<{ status: string }[]>(
       'select status from knowledge_sync_runs where id = $1',
       [created.syncRunId],
     );
-    expect(run.rows[0]!.status).toBe('cancelled');
-    const sourceRow = await app.pool.query<{ last_sync_status: string; cursor: unknown }>(
+    expect(run[0]!.status).toBe('cancelled');
+    const sourceRow = await app.client.unsafe<{ last_sync_status: string; cursor: unknown }[]>(
       'select last_sync_status, cursor from knowledge_sources where id = $1',
       [source.id],
     );
-    expect(sourceRow.rows[0]).toMatchObject({ last_sync_status: 'cancelled', cursor: {} });
+    expect(sourceRow[0]).toMatchObject({ last_sync_status: 'cancelled', cursor: {} });
 
-    const retried = await inject(app, {
+    const retried = await request(app, {
       method: 'POST',
       url: `/api/knowledge/jobs/${created.jobId}/retry`,
       headers: { cookie },
     });
     expect(retried.statusCode, retried.body).toBe(202);
     const retryJobId = retried.json<{ jobId: string }>().jobId;
-    const retryJob = await app.pool.query<{ payload: { syncRunId: string } }>(
+    const retryJob = await app.client.unsafe<{ payload: { syncRunId: string } }[]>(
       'select payload from knowledge_jobs where id = $1',
       [retryJobId],
     );
-    const retryRunId = retryJob.rows[0]!.payload.syncRunId;
+    const retryRunId = retryJob[0]!.payload.syncRunId;
     expect(retryRunId).not.toBe(created.syncRunId);
     // 旧 run 的历史保持原样，不被重试覆写。
-    const oldRun = await app.pool.query<{ status: string; ended_at: string | null }>(
+    const oldRun = await app.client.unsafe<{ status: string; ended_at: string | null }[]>(
       'select status, ended_at from knowledge_sync_runs where id = $1',
       [created.syncRunId],
     );
-    expect(oldRun.rows[0]!.status).toBe('cancelled');
-    expect(oldRun.rows[0]!.ended_at).not.toBeNull();
-    const newRun = await app.pool.query<{ status: string }>(
+    expect(oldRun[0]!.status).toBe('cancelled');
+    expect(oldRun[0]!.ended_at).not.toBeNull();
+    const newRun = await app.client.unsafe<{ status: string }[]>(
       'select status from knowledge_sync_runs where id = $1',
       [retryRunId],
     );
-    expect(newRun.rows[0]!.status).toBe('queued');
+    expect(newRun[0]!.status).toBe('queued');
   });
 
   it('rejects manual sync for a non-active source or while one is already queued', async () => {
     const baseId = await createBase();
     const source = await createSource(baseId);
-    const paused = await inject(app, {
+    const paused = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },
       payload: { status: 'paused' },
     });
     expect(paused.statusCode, paused.body).toBe(200);
-    const inactive = await inject(app, {
+    const inactive = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${source.id}/sync`,
       headers: { cookie },
     });
     expect(inactive.statusCode, inactive.body).toBe(409);
 
-    const activated = await inject(app, {
+    const activated = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },
       payload: { status: 'active' },
     });
     expect(activated.statusCode, activated.body).toBe(200);
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${source.id}/sync`,
       headers: { cookie },
     });
     expect(first.statusCode, first.body).toBe(202);
-    const duplicate = await inject(app, {
+    const duplicate = await request(app, {
       method: 'POST',
       url: `/api/knowledge/sources/${source.id}/sync`,
       headers: { cookie },
@@ -639,12 +631,12 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     const source = await createSource(baseId);
     const runId = unique('ksyn');
     const failedJobId = unique('kjob');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_sync_runs (id, source_id, status, cursor_before)
        values ($1, $2, 'failed', '{}'::jsonb)`,
       [runId, source.id],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_jobs (id, type, base_id, source_id, status, payload)
        values ($1, 'sync', $2, $3, 'failed', $4::jsonb)`,
       [
@@ -657,53 +649,53 @@ describe.skipIf(!ready)('knowledge source routes', () => {
 
     const suffix = unique('fault').replaceAll('-', '_');
     const fn = `fail_pair_${suffix}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `create function ${fn}() returns trigger language plpgsql as $$ begin raise exception 'injected job insert'; end $$`,
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `create trigger ${fn}_trg before insert on knowledge_jobs for each row when (new.source_id = '${source.id}') execute function ${fn}()`,
     );
     try {
-      const manual = await inject(app, {
+      const manual = await request(app, {
         method: 'POST',
         url: `/api/knowledge/sources/${source.id}/sync`,
         headers: { cookie },
       });
       expect(manual.statusCode, manual.body).toBe(500);
-      const retry = await inject(app, {
+      const retry = await request(app, {
         method: 'POST',
         url: `/api/knowledge/jobs/${failedJobId}/retry`,
         headers: { cookie },
       });
       expect(retry.statusCode, retry.body).toBe(500);
     } finally {
-      await app.pool.query(`drop trigger if exists ${fn}_trg on knowledge_jobs`);
-      await app.pool.query(`drop function if exists ${fn}()`);
+      await app.client.unsafe(`drop trigger if exists ${fn}_trg on knowledge_jobs`);
+      await app.client.unsafe(`drop function if exists ${fn}()`);
     }
 
-    const runs = await app.pool.query<{ id: string }>(
+    const runs = await app.client.unsafe<{ id: string }[]>(
       'select id from knowledge_sync_runs where source_id = $1',
       [source.id],
     );
-    expect(runs.rows.map((row) => row.id)).toEqual([runId]);
+    expect(runs.map((row) => row.id)).toEqual([runId]);
   });
 
   async function seedSourceDocument(baseId: string, sourceId: string): Promise<string> {
     const documentId = `kdoc_src${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents
          (id, base_id, title, source_type, source_id, source_connection_id, mime_type, status)
        values ($1, $2, 'doc', 'feed', $3, $4, 'text/markdown', 'ready')`,
       [documentId, baseId, `feed-item-${documentId}`, sourceId],
     );
-    const range = await app.pool.query<{ id: string }>(
+    const range = await app.client.unsafe<{ id: string }[]>(
       'select id from knowledge_source_ranges where source_id = $1 order by id limit 1',
       [sourceId],
     );
-    if (range.rows[0]) {
-      await app.pool.query(
+    if (range[0]) {
+      await app.client.unsafe(
         'insert into knowledge_document_source_ranges (document_id, range_id) values ($1, $2)',
-        [documentId, range.rows[0].id],
+        [documentId, range[0].id],
       );
     }
     return documentId;
@@ -714,7 +706,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     const source = await createSource(baseId);
     const documentId = await seedSourceDocument(baseId, source.id);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/sources/${source.id}?documents=keep`,
       headers: { cookie },
@@ -722,15 +714,15 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({ documents: 'keep', affected: 1 });
 
-    const doc = await app.pool.query<{ status: string }>(
+    const doc = await app.client.unsafe<{ status: string }[]>(
       'select status from knowledge_documents where id = $1',
       [documentId],
     );
-    expect(doc.rows[0]!.status).toBe('disabled');
-    const sourceRow = await app.pool.query('select 1 from knowledge_sources where id = $1', [
+    expect(doc[0]!.status).toBe('disabled');
+    const sourceRow = await app.client.unsafe('select 1 from knowledge_sources where id = $1', [
       source.id,
     ]);
-    expect(sourceRow.rowCount).toBe(0);
+    expect(sourceRow).toHaveLength(0);
   });
 
   it('disabling a source disables its documents and marks Wiki pages stale', async () => {
@@ -738,16 +730,16 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     const source = await createSource(baseId);
     const documentId = await seedSourceDocument(baseId, source.id);
     const pageId = `kwp_${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into knowledge_wiki_pages (id, base_id, slug, title, status) values ($1, $2, $3, '页面', 'published')",
       [pageId, baseId, `page-${pageId}`],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into knowledge_wiki_sources (page_id, document_id, stale) values ($1, $2, false)',
       [pageId, documentId],
     );
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },
@@ -755,21 +747,21 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     });
     expect(res.statusCode, res.body).toBe(200);
 
-    const doc = await app.pool.query<{ status: string }>(
+    const doc = await app.client.unsafe<{ status: string }[]>(
       'select status from knowledge_documents where id = $1',
       [documentId],
     );
-    expect(doc.rows[0]!.status).toBe('disabled');
-    const page = await app.pool.query<{ status: string }>(
+    expect(doc[0]!.status).toBe('disabled');
+    const page = await app.client.unsafe<{ status: string }[]>(
       'select status from knowledge_wiki_pages where id = $1',
       [pageId],
     );
-    expect(page.rows[0]!.status).toBe('stale');
-    const link = await app.pool.query<{ stale: boolean }>(
+    expect(page[0]!.status).toBe('stale');
+    const link = await app.client.unsafe<{ stale: boolean }[]>(
       'select stale from knowledge_wiki_sources where page_id = $1',
       [pageId],
     );
-    expect(link.rows[0]!.stale).toBe(true);
+    expect(link[0]!.stale).toBe(true);
   });
 
   it('DELETE documents=delete physically removes documents', async () => {
@@ -778,7 +770,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     const kept = await seedSourceDocument(baseId, 'ksrc_other');
     const removed = await seedSourceDocument(baseId, source.id);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/sources/${source.id}?documents=delete`,
       headers: { cookie },
@@ -786,19 +778,19 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({ documents: 'delete', affected: 1 });
 
-    const gone = await app.pool.query('select 1 from knowledge_documents where id = $1', [removed]);
-    expect(gone.rowCount).toBe(0);
-    const other = await app.pool.query<{ status: string }>(
+    const gone = await app.client.unsafe('select 1 from knowledge_documents where id = $1', [removed]);
+    expect(gone).toHaveLength(0);
+    const other = await app.client.unsafe<{ status: string }[]>(
       'select status from knowledge_documents where id = $1',
       [kept],
     );
-    expect(other.rows[0]!.status).toBe('ready');
+    expect(other[0]!.status).toBe('ready');
   });
 
   it('rejects a sync cron that BullMQ cannot schedule, and writes nothing', async () => {
     const baseId = await createBase();
     for (const syncCron of ['99 99 99 99 99', '0 0 31 2 *']) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${baseId}/sources`,
         headers: { cookie },
@@ -807,22 +799,22 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       expect(res.statusCode, res.body).toBe(400);
       expect(res.json()).toMatchObject({ code: 'INVALID_INPUT', path: '/syncCron' });
     }
-    const stored = await app.pool.query<{ count: string }>(
+    const stored = await app.client.unsafe<{ count: string }[]>(
       'select count(*)::text as count from knowledge_sources where base_id = $1',
       [baseId],
     );
-    expect(stored.rows[0]!.count).toBe('0');
+    expect(stored[0]!.count).toBe('0');
   });
 
   it('accepts schedulable crons including leap day and surrounding whitespace, and null disables', async () => {
     const baseId = await createBase();
     const leap = await createSource(baseId, { syncCron: '  0 0 29 2 *  ' });
-    expect(leap).toMatchObject({ id: expect.stringMatching(/^ksrc_/) });
-    const stored = await app.pool.query<{ sync_cron: string }>(
+    expect(leap.id).toMatch(/^ksrc_/);
+    const stored = await app.client.unsafe<{ sync_cron: string }[]>(
       'select sync_cron from knowledge_sources where id = $1',
       [leap.id],
     );
-    expect(stored.rows[0]!.sync_cron).toBe('0 0 29 2 *');
+    expect(stored[0]!.sync_cron).toBe('0 0 29 2 *');
     const step = await createSource(baseId, { syncCron: '*/5   * * * *' });
     const disabled = await createSource(baseId, { syncCron: null });
     expect([step.id, disabled.id]).toHaveLength(2);
@@ -832,7 +824,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     const baseId = await createBase();
     const source = await createSource(baseId, { syncCron: '0 3 * * *' });
 
-    const omitted = await inject(app, {
+    const omitted = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },
@@ -842,7 +834,7 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(omitted.json()).toMatchObject({ name: 'renamed', syncCron: '0 3 * * *' });
 
     for (const syncCron of ['99 99 99 99 99', '0 0 31 2 *']) {
-      const bad = await inject(app, {
+      const bad = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/sources/${source.id}`,
         headers: { cookie },
@@ -851,13 +843,13 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       expect(bad.statusCode, bad.body).toBe(400);
       expect(bad.json()).toMatchObject({ code: 'INVALID_INPUT', path: '/syncCron' });
     }
-    const unchanged = await app.pool.query<{ sync_cron: string }>(
+    const unchanged = await app.client.unsafe<{ sync_cron: string }[]>(
       'select sync_cron from knowledge_sources where id = $1',
       [source.id],
     );
-    expect(unchanged.rows[0]!.sync_cron).toBe('0 3 * * *');
+    expect(unchanged[0]!.sync_cron).toBe('0 3 * * *');
 
-    const nulled = await inject(app, {
+    const nulled = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
       headers: { cookie },

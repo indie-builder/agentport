@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Browser } from '@e2e-dev/web';
-import { encodePackage } from '../../packages/api/src/features/agent-package-zip.js';
+import { encodePackage } from '../../packages/api/src/modules/agents/package-zip.js';
 
 /** 固定数据集命名空间；所有专用 slug 与 manifest 路径都带这个标记。 */
 export const DATASET_ID = 'devdata-qinghe-v1';

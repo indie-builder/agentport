@@ -1011,12 +1011,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
           <span className="text-xs text-muted-foreground">数字员工</span>
         </div>
         <AgentAvatar
-          agent={{
-            name: agent.name,
-            description: agent.description,
-            role: agent.role ?? null,
-            slug: agent.slug ?? null,
-          }}
+          agent={agent}
           className="size-24 self-center rounded-xl bg-sunken object-cover ring-1 ring-line"
         />
         <div className="flex flex-col items-center gap-1.5 text-center">
@@ -2511,7 +2506,7 @@ export function AgentEditor({
         },
         {
           onSuccess: (saved) => {
-            loadDraft(saved);
+            if ('systemPrompt' in saved) loadDraft(saved);
             toastSuccess('智能体已保存');
           },
           onError: (error) => {
@@ -2712,11 +2707,7 @@ export function AgentEditor({
                     </Button>
                   }
                 />
-                <DropdownMenuContent
-                  align="end"
-                  sideOffset={4}
-                  className="w-40"
-                >
+                <DropdownMenuContent align="end" sideOffset={4} className="w-40">
                   <DropdownMenuGroup>
                     {canClone ? (
                       <DropdownMenuItem

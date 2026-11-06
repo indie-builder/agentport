@@ -1,5 +1,4 @@
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
 // 一次性库：导出是整表读，不能把共享测试库里的其他用例数据卷进来。
@@ -8,7 +7,10 @@ if (isolated) process.env.DATABASE_URL = isolated.url;
 
 // helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
-const { ADMIN_BUSINESS_ID, expectProblem, inject, loginCookie, startApp, unique } = helpers;
+const { ADMIN_BUSINESS_ID, expectProblem, request, loginCookie, startApp, unique } = helpers;
+
+import type { TestApp } from './helpers.js';
+
 const ready = await helpers.infraReady;
 // skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
 if (!ready && isolated) await isolated.close();
@@ -35,7 +37,7 @@ interface ExportBody {
 }
 
 describe.skipIf(!(ready && isolated))('runs export', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
 
   beforeAll(async () => {
@@ -52,7 +54,7 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   });
 
   const exportRuns = (query = '', withCookie = true) =>
-    inject(app, {
+    request(app, {
       method: 'GET',
       url: `/api/runs/export${query}`,
       headers: withCookie ? { cookie } : {},
@@ -61,7 +63,7 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   async function seedAgent(): Promise<{ id: string; name: string }> {
     const id = unique('runs-export-agent');
     const name = `Agent ${id}`;
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into agents (id, slug, name, model, created_by, owner_business_id) values ($1, $1, $2, $3, $4, $4)',
       [id, name, 'm', ADMIN_BUSINESS_ID],
     );
@@ -84,11 +86,11 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   }): Promise<string> {
     const id = options.id ?? unique('runs-export-run');
     const conversationId = unique('runs-export-conv');
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
       [conversationId, options.agentId, ADMIN_BUSINESS_ID],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs
         (id, conversation_id, agent_id, status, trigger, subject_kind, initiated_by, started_at, ended_at, latency_ms, cost_usd, turns, input_tokens, output_tokens, error)
        values ($1, $2, $3, $4, $5, 'user', $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
@@ -99,8 +101,8 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
         options.status,
         options.trigger ?? 'chat',
         ADMIN_BUSINESS_ID,
-        options.startedAt ?? null,
-        options.endedAt ?? null,
+        options.startedAt?.toISOString() ?? null,
+        options.endedAt?.toISOString() ?? null,
         options.latencyMs ?? null,
         options.costUsd ?? null,
         options.turns ?? null,
@@ -165,10 +167,10 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
 
     const res = await exportRuns(`?agentId=${encodeURIComponent(agent.id)}`);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-disposition']).toBe('attachment; filename="runs.json"');
-    expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="runs.json"');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-type')).toContain('application/json');
 
     const body = res.json<ExportBody>();
     expect(Object.keys(body).sort()).toEqual(['exportedAt', 'format', 'items']);
@@ -200,11 +202,11 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   it('rejects more than 1000 rows instead of truncating', async () => {
     const agent = await seedAgent();
     const conversationId = unique('runs-export-conv');
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
       [conversationId, agent.id],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by)
        select $1 || '-' || g, $2, $3, 'succeeded', 'user', 'bootstrap-admin' from generate_series(1, 1001) g`,
       [unique('runs-export-bulk'), conversationId, agent.id],
@@ -220,11 +222,11 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
   it('exports exactly 1000 rows', async () => {
     const agent = await seedAgent();
     const conversationId = unique('runs-export-conv');
-    await app.pool.query(
+    await app.client.unsafe(
       "insert into conversations (id, agent_id, created_by) values ($1, $2, 'bootstrap-admin')",
       [conversationId, agent.id],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into agent_runs (id, conversation_id, agent_id, status, subject_kind, initiated_by)
        select $1 || '-' || g, $2, $3, 'timeout', 'user', 'bootstrap-admin' from generate_series(1, 1000) g`,
       [unique('runs-export-exact'), conversationId, agent.id],
@@ -240,11 +242,11 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
     const id = await seedRun({ agentId: agent.id, status: 'failed', error: 'boom' });
     const row = async () =>
       (
-        await app.pool.query(
+        await app.client.unsafe(
           'select id, status, started_at, ended_at, latency_ms, cost_usd, turns, input_tokens, output_tokens, error from agent_runs where id = $1',
           [id],
         )
-      ).rows[0];
+      )[0];
     const before = await row();
 
     expect((await exportRuns(`?agentId=${encodeURIComponent(agent.id)}`)).statusCode).toBe(200);

@@ -1,16 +1,16 @@
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -45,7 +45,7 @@ interface ExportBody {
 const SEEDED_RUN_ID = 'evalRun-export-bulk';
 
 describe.skipIf(!ready)('eval result export', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
 
@@ -107,7 +107,7 @@ describe.skipIf(!ready)('eval result export', () => {
     });
 
   const exportRun = (id: string, withCookie = true) =>
-    inject(app, {
+    request(app, {
       method: 'GET',
       url: `/api/eval/runs/${id}/export`,
       headers: withCookie ? { cookie } : {},
@@ -154,10 +154,10 @@ describe.skipIf(!ready)('eval result export', () => {
 
     const res = await exportRun(run);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-disposition']).toBe('attachment; filename="eval-result.json"');
-    expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="eval-result.json"');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-type')).toContain('application/json');
 
     const body = res.json<ExportBody>();
     expect(Object.keys(body).sort()).toEqual([
@@ -225,7 +225,7 @@ describe.skipIf(!ready)('eval result export', () => {
     const run = await newRun(agent.id);
     await record(run, { caseId: snapshot.id, snapshot, passed: true, output: 'ok' });
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/eval/cases/${snapshot.id}`,
       headers: { cookie },
@@ -257,18 +257,17 @@ describe.skipIf(!ready)('eval result export', () => {
 
     const rows = async () =>
       (
-        await app.pool.query(
-          'select id, eval_run_id, case_id, passed, output from eval_results where eval_run_id = any($1::text[]) order by id',
-          [[own, other]],
+        await app.client.unsafe(
+          'select id, eval_run_id, case_id, passed, output from eval_results where eval_run_id = any($1::text[]) order by id', [app.client.array([own, other], 'TEXT')],
         )
-      ).rows;
+      );
     const runRow = async () =>
       (
-        await app.pool.query(
+        await app.client.unsafe(
           'select status, total, passed, error, claimed_at, finished_at from eval_runs where id = $1',
           [own],
         )
-      ).rows;
+      );
     const before = { results: await rows(), run: await runRow() };
 
     const body = await exported(own);
@@ -282,12 +281,12 @@ describe.skipIf(!ready)('eval result export', () => {
 
   it('refuses more than 500 results instead of truncating', async () => {
     const agent = await newAgent();
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into eval_runs (id, agent_id, created_by, status, total)
        values ($1, $2, $3, 'succeeded', 501)`,
       [SEEDED_RUN_ID, agent.id, ADMIN_BUSINESS_ID],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into eval_results (id, eval_run_id, passed, output)
        select $1 || '-r-' || lpad(g::text, 4, '0'), $1, true, 'ok'
        from generate_series(1, 501) g`,
@@ -296,7 +295,7 @@ describe.skipIf(!ready)('eval result export', () => {
 
     expectProblem(await exportRun(SEEDED_RUN_ID), 'CONFLICT');
     // 501 条结果里没有一条是截断后发出的。
-    const { rows } = await app.pool.query<{ n: number }>(
+    const rows = await app.client.unsafe<{ n: number }[]>(
       'select count(*)::int as n from eval_results where eval_run_id = $1',
       [SEEDED_RUN_ID],
     );
@@ -306,7 +305,7 @@ describe.skipIf(!ready)('eval result export', () => {
   it('exports exactly 500 results', async () => {
     const agent = await newAgent();
     const run = await newRun(agent.id);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into eval_results (id, eval_run_id, passed, output)
        select $1 || '-r-' || lpad(g::text, 4, '0'), $1, g % 2 = 0, 'ok'
        from generate_series(1, 500) g`,
@@ -320,7 +319,7 @@ describe.skipIf(!ready)('eval result export', () => {
   it('refuses exports larger than 1 MiB instead of truncating', async () => {
     const agent = await newAgent();
     const run = await newRun(agent.id);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into eval_results (id, eval_run_id, passed, output) values ($1, $2, true, $3)`,
       [newId('evalResult'), run, 'x'.repeat(1_100_000)],
     );

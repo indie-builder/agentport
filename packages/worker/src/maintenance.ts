@@ -1,7 +1,8 @@
 import { pathToFileURL } from 'node:url';
 import { outputMessageAnchors } from '@agentport/core';
 import { createDb, repo, schema } from '@agentport/db';
-import { Queue, Worker } from 'bullmq';
+import { createBunRedisClient, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
 import { loadConfig } from './config.js';
@@ -82,15 +83,17 @@ export async function startMaintenanceWorker(input: {
   retain: Retention;
   workspacesDir: string;
 }): Promise<Worker> {
-  const queue = new Queue(MAINTENANCE_QUEUE, { connection: { url: input.redisUrl } });
+  const connection = createBunRedisClient(new RedisClient(input.redisUrl));
+  const queue = new Queue(MAINTENANCE_QUEUE, { connection });
   await queue.upsertJobScheduler('daily', { every: DAY_MS });
   await queue.close();
 
   const worker = new Worker(
     MAINTENANCE_QUEUE,
     () => runMaintenance(input.db, input.logger, input.retain, input.workspacesDir),
-    { connection: { url: input.redisUrl } },
+    { connection },
   );
+  worker.on('closed', () => connection.disconnect());
   worker.on('failed', (job, err) => {
     input.logger.error({ jobId: job?.id, err }, 'maintenance job failed');
   });
@@ -101,7 +104,7 @@ export async function startMaintenanceWorker(input: {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
   const logger = pino({ level: config.LOG_LEVEL });
-  const { db, pool } = createDb(config.DATABASE_URL);
+  const { db, client } = createDb(config.DATABASE_URL);
   try {
     await runMaintenance(
       db,
@@ -114,6 +117,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       config.WORKSPACES_DIR,
     );
   } finally {
-    await pool.end();
+    await client.close();
   }
 }

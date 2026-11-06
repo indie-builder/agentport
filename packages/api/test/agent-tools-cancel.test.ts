@@ -1,10 +1,10 @@
 import { Client } from '@modelcontextprotocol/client';
 import { type CallToolResult, InMemoryTransport } from '@modelcontextprotocol/server';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
-import { createInvoker } from '../src/features/servers/agent-invoker.js';
-import { buildAgentServer } from '../src/features/servers/agent-tools.js';
+import { createInvoker } from '../src/modules/servers/agent-invoker.js';
+import { buildAgentServer } from '../src/modules/servers/agent-tools.js';
+import type { TestApp } from './helpers.js';
 
 // 每次运行建独立库：只验证 invoke 的取消路径，也能并跑多条回归。
 const isolated = await createIsolatedDatabase(
@@ -21,7 +21,7 @@ const ready = await helpers.infraReady;
 if (!ready && isolated) await isolated.close();
 
 describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdAgents: string[] = [];
   const runIds: string[] = [];
@@ -122,16 +122,16 @@ describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () =
       }),
     ).rejects.toThrow(/cancelled/);
 
-    const runs = await app.pool.query<{ count: number }>(
+    const runs = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from agent_runs where agent_id = $1',
       [agent.id],
     );
-    expect(runs.rows[0]?.count).toBe(0);
-    const conversations = await app.pool.query<{ count: number }>(
+    expect(runs[0]?.count).toBe(0);
+    const conversations = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from conversations where agent_id = $1',
       [agent.id],
     );
-    expect(conversations.rows[0]?.count).toBe(0);
+    expect(conversations[0]?.count).toBe(0);
   });
 
   it('cancels the queued run when the signal aborts during polling', async () => {
@@ -145,11 +145,11 @@ describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () =
 
     const pending = invoker.invoke({ slug, prompt: 'cancel me', signal: controller.signal });
     const created = await waitFor(async () => {
-      const rows = await app.pool.query<{ id: string }>(
+      const rows = await app.client.unsafe<{ id: string }[]>(
         'select id from agent_runs where agent_id = $1',
         [agent.id],
       );
-      const id = rows.rows[0]?.id;
+      const id = rows[0]?.id;
       if (id === undefined) return false;
       runIds.push(id);
       return true;
@@ -159,11 +159,11 @@ describe.skipIf(!(ready && isolated))('platform agent tools: cancellation', () =
 
     await expect(pending).rejects.toThrow(/cancelled/);
     const runId = runIds.at(-1) ?? '';
-    const run = await app.pool.query<{ status: string }>(
+    const run = await app.client.unsafe<{ status: string }[]>(
       'select status from agent_runs where id = $1',
       [runId],
     );
-    expect(run.rows[0]?.status).toBe('cancelled');
+    expect(run[0]?.status).toBe('cancelled');
     const { getQueue } = await import('../src/queue/producer.js');
     expect(await getQueue().getJob(runId)).toBeUndefined();
   });

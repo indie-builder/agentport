@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   chunkDocument,
   KnowledgeParseError,

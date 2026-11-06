@@ -1,6 +1,13 @@
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { expectProblem, infraReady, inject, loginCookie, startApp, unique } from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import {
+  expectProblem,
+  infraReady,
+  loginCookie,
+  request,
+  startApp,
+  type TestApp,
+  unique,
+} from './helpers.js';
 
 const ready = await infraReady;
 
@@ -22,7 +29,7 @@ interface ExportBody extends ItemBody {
 }
 
 describe.skipIf(!ready)('audit ID cursor pages', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const createdIds: string[] = [];
   const createdTargets: string[] = [];
@@ -34,20 +41,19 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
 
   afterAll(async () => {
     if (createdIds.length > 0) {
-      await app.pool.query('delete from audit_log where id = any($1::text[])', [createdIds]);
+      await app.client.unsafe('delete from audit_log where id = any($1::text[])', [app.client.array(createdIds, 'TEXT')]);
     }
     if (createdTargets.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [
-        createdTargets,
-      ]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(createdTargets, 'TEXT')],
+      );
     }
     await app.close();
   });
 
   const list = (query = '') =>
-    inject(app, { method: 'GET', url: `/api/audit${query}`, headers: { cookie } });
+    request(app, { method: 'GET', url: `/api/audit${query}`, headers: { cookie } });
   const exportAudit = (query = '') =>
-    inject(app, { method: 'GET', url: `/api/audit/export${query}`, headers: { cookie } });
+    request(app, { method: 'GET', url: `/api/audit/export${query}`, headers: { cookie } });
 
   async function page(query: string): Promise<AuditItem[]> {
     const res = await list(query);
@@ -57,7 +63,7 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
 
   /** 真实连接直通 spy：只统计发往 audit_log 的 SELECT，不改变数据库行为。 */
   async function countAuditSelects(run: () => Promise<unknown>): Promise<number> {
-    const spy = vi.spyOn(app.pool, 'query');
+    const spy = spyOn(app.client, 'unsafe');
     try {
       await run();
       return spy.mock.calls
@@ -79,17 +85,17 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
   async function seed(target: string, rows: SeedRow[]): Promise<void> {
     createdTargets.push(target);
     createdIds.push(...rows.map((row) => row.id));
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into audit_log (id, actor, action, target, status, created_at)
        select t.id, 'admin', t.action, $1, t.status, t.created_at::timestamptz
        from unnest($2::text[], $3::text[], $4::text[], $5::text[])
          as t(id, action, status, created_at)`,
       [
         target,
-        rows.map((row) => row.id),
-        rows.map((row) => row.action ?? 'audit.page'),
-        rows.map((row) => row.status ?? 'ok'),
-        rows.map((row) => row.createdAt),
+        app.client.array(rows.map((row) => row.id), 'TEXT'),
+        app.client.array(rows.map((row) => row.action ?? 'audit.page'), 'TEXT'),
+        app.client.array(rows.map((row) => row.status ?? 'ok'), 'TEXT'),
+        app.client.array(rows.map((row) => row.createdAt), 'TEXT'),
       ],
     );
   }
@@ -203,27 +209,27 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     });
     await seed(target, rows);
 
-    const expected = await app.pool.query<{ id: string; ts: string }>(
+    const expected = await app.client.unsafe<{ id: string; ts: string }[]>(
       `select id, to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as ts
        from audit_log where target = $1 order by created_at desc, id desc`,
       [target],
     );
-    expect(expected.rows).toHaveLength(125);
-    expect(new Set(expected.rows.map((row) => row.ts)).size).toBe(125);
+    expect(expected).toHaveLength(125);
+    expect(new Set(expected.map((row) => row.ts)).size).toBe(125);
 
     const first = await page(`${targetQuery(target)}&limit=100`);
     expect(first).toHaveLength(100);
-    expect(first.map((row) => row.id)).toEqual(expected.rows.slice(0, 100).map((row) => row.id));
+    expect(first.map((row) => row.id)).toEqual(expected.slice(0, 100).map((row) => row.id));
 
     const second = await page(`${targetQuery(target)}&limit=100${cursor(first.at(-1)?.id ?? '')}`);
     expect(second).toHaveLength(25);
-    expect(second.map((row) => row.id)).toEqual(expected.rows.slice(100).map((row) => row.id));
+    expect(second.map((row) => row.id)).toEqual(expected.slice(100).map((row) => row.id));
 
     const third = await page(`${targetQuery(target)}&limit=100${cursor(second.at(-1)?.id ?? '')}`);
     expect(third).toEqual([]);
 
     const all = [...first, ...second];
-    expect(all.map((row) => row.id)).toEqual(expected.rows.map((row) => row.id));
+    expect(all.map((row) => row.id)).toEqual(expected.map((row) => row.id));
     expect(new Set(all.map((row) => row.id)).size).toBe(125);
     // wire 上仍是毫秒 ISO：时间戳游标无法区分这些行，记录游标必须读库内真实值。
     expect(new Set(all.map((row) => row.createdAt)).size).toBe(1);
@@ -335,9 +341,9 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
 
     const res = await exportAudit(`${targetQuery(target)}${cursor(before)}`);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-disposition']).toBe('attachment; filename="audit.json"');
-    expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="audit.json"');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     const body = res.json<ExportBody>();
     expect(Object.keys(body).sort()).toEqual(['exportedAt', 'format', 'items']);
     expect(body.items.map((row) => row.id)).toEqual(

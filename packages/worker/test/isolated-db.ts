@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createDb } from '@agentport/db';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { migrate } from 'drizzle-orm/bun-sql/migrator';
 
 export interface IsolatedDatabase {
   readonly name: string;
@@ -12,12 +12,6 @@ export interface IsolatedDatabase {
 export interface BackendInfra {
   readonly DATABASE_URL: string;
   readonly REDIS_URL: string;
-}
-
-declare module 'vitest' {
-  interface ProvidedContext {
-    backendInfra: BackendInfra;
-  }
 }
 
 /**
@@ -38,14 +32,14 @@ export async function createIsolatedDatabase(
   const admin = createDb(adminUrl);
   try {
     try {
-      await admin.pool.query('select 1');
+      await admin.client.unsafe('select 1');
     } catch {
       return null;
     }
     // 随机库名撞名说明有缺陷，直接抛出，不接管别人的库。
-    await admin.pool.query(`create database "${name}"`);
+    await admin.client.unsafe(`create database "${name}"`);
   } finally {
-    await admin.pool.end();
+    await admin.client.close();
   }
 
   const target = createDb(isolatedUrl);
@@ -53,14 +47,16 @@ export async function createIsolatedDatabase(
     await migrate(target.db, {
       migrationsFolder: fileURLToPath(new URL('../../db/migrations', import.meta.url)),
     });
-    const identity = await target.pool.query<{ name: string }>('select current_database() as name');
-    if (identity.rows[0]?.name !== name) {
-      throw new Error(`isolated database identity mismatch: ${identity.rows[0]?.name ?? 'none'}`);
+    const identity = await target.client.unsafe<{ name: string }[]>(
+      'select current_database() as name',
+    );
+    if (identity[0]?.name !== name) {
+      throw new Error(`isolated database identity mismatch: ${identity[0]?.name ?? 'none'}`);
     }
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     try {
-      await target.pool.end();
+      await target.client.close();
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }
@@ -77,7 +73,7 @@ export async function createIsolatedDatabase(
     }
     throw error;
   }
-  await target.pool.end();
+  await target.client.close();
 
   let closed = false;
   return {
@@ -94,8 +90,8 @@ export async function createIsolatedDatabase(
 async function dropDatabase(adminUrl: string, name: string): Promise<void> {
   const admin = createDb(adminUrl);
   try {
-    await admin.pool.query(`drop database if exists "${name}" with (force)`);
+    await admin.client.unsafe(`drop database if exists "${name}" with (force)`);
   } finally {
-    await admin.pool.end();
+    await admin.client.close();
   }
 }

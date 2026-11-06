@@ -2,10 +2,11 @@
 
 > 跨任务反复出现的坑统一记在这里，由 `CLAUDE.md` 指向。主会话与执行子代理动手前先读，落实相关规避方式；任务范围变化或报错时重新核对，不只在踩坑后追加。
 > 不限定类别：遇到值得留存、能避免以后重复犯错的教训就及时整理，运行、实现、沟通、测试只是例子。每条固定「现象 → 原因 → 规避」，不把任务流水账和已有操作说明复制进来。
+> 早期条目里的 `pnpm` 命令是当次事件的原始记录；现行命令用 Bun（`bun install`、`bun run <script>`），不要照抄历史命令。
 
 ## 运行：宿主直跑 worker 时模型网关地址不能被改写成 host.docker.internal
 
-- **现象**：`pnpm dev` 下真实对话全部失败，worker 日志反复出现 `model proxy request failed: other side closed`，但直接请求网关正常。
+- **现象**：`bun run dev` 下真实对话全部失败，worker 日志反复出现 `model proxy request failed: other side closed`，但直接请求网关正常。
 - **原因**：模型代理无条件把上游 loopback 改写成 `host.docker.internal`；该别名只在容器内可解析，宿主进程访问同一网关会失败。
 - **规避**：只有 worker 自身在容器内时才改写（`packages/worker/src/upstream.ts`，用 `/.dockerenv` 判定）；沙盒侧地址仍必须改写。改到这里时不要把它和沙盒的 `toHostUrl` 混用。
 
@@ -13,7 +14,7 @@
 
 - **现象**：新 worktree 起了服务，但用户刚确认的管理员密码失效；或 `.env` 缺 `APP_SECRET_KEY` / `ANTHROPIC_API_KEY` 起不来，装好依赖后前端也可能无法解析 `@agentport/shared`。
 - **原因**：`.env` 不受 Git 管理；`.worktreeinclude` 只在建树时复制一次，来源是发起建树的那棵树（可能是旧 worktree），结果不代表最新。主 checkout 的 `.env` 也可能是旧残留。worktree 还不带 `node_modules` 与 workspace `dist`。各树共用数据库；历史实现曾在首次登录时用 `ensureAdmin` 按当时的 `ADMIN_PASSWORD` 重播管理员，旧配置一登录就把用户刚设的密码覆盖掉。当前已改为 `ensureBootstrap`：`platform_bootstrap` marker 只允许初始化一次，之后 `.env` 的 `ADMIN_PASSWORD` 不再覆盖现有账户。
-- **规避**：配置默认取主 checkout `.env` 的绝对路径，启动前核对 `ADMIN_USER`/`ADMIN_PASSWORD`/`ALLOW_WEAK_ADMIN_PASSWORD` 等改动过的关键项；用户最新明确决定优先于磁盘上的值，不以「来自 main 的 `.env`」当成用户决定。登录验证使用用户确认的账号密码，不把 `.env` 的值等同于当前密码；也不拿测试或调试任务改掉用户登录态。然后 `pnpm install --frozen-lockfile`，前端预览前构建 shared/core。新增必填 env 文件时同步加进 `.worktreeinclude`（仅作初始化副本，仍不保证最新）。规则集中在 `docs/DEV-WORKFLOW.md`「配置与启动」。
+- **规避**：配置默认取主 checkout `.env` 的绝对路径，启动前核对 `ADMIN_USER`/`ADMIN_PASSWORD`/`ALLOW_WEAK_ADMIN_PASSWORD` 等改动过的关键项；用户最新明确决定优先于磁盘上的值，不以「来自 main 的 `.env`」当成用户决定。登录验证使用用户确认的账号密码，不把 `.env` 的值等同于当前密码；也不拿测试或调试任务改掉用户登录态。然后 `bun install --frozen-lockfile`，前端预览前构建 shared/contract/core。新增必填 env 文件时同步加进 `.worktreeinclude`（仅作初始化副本，仍不保证最新）。规则集中在 `docs/DEV-WORKFLOW.md`「配置与启动」。
 
 ## 多个 worktree 同时跑全栈 compose 会互相踩
 
@@ -35,21 +36,21 @@
 
 ## 测试：队列消费者检查要看库号和队列名，不能只看实例
 
-- **现象**：`pnpm test` 里 `chat-admission`、`chat`、`eval` 等套件整组 skip 或报 `worker must be stopped`，换机器/换时间又正常。
+- **现象**：`bun run test` 里 `chat-admission`、`chat`、`eval` 等套件整组 skip 或报 `worker must be stopped`，换机器/换时间又正常。
 - **原因**：`queueIdle` 用 `redis.client('LIST')` 扫全实例，而 `CLIENT LIST` 不受库号隔离；开发库 db 0 上常驻的 worker 会被算成「被测队列的消费者」。`Queue.getWorkersCount()` 同样扫全实例、只按 clientName 过滤，换成它并不能解决。测试全部并行时，同轮其它套件起的 worker（`sandbox-probe`、`native-queue`）也会被误算。
 - **规避**：默认入口已由 backend globalSetup 每轮提供独享临时 Redis 容器（实例内固定 db 9），开发 worker 留在另一个共享实例的 db 0，因此看不到测试队列。自己判消费者时仍要同时按 `db=<库号>` 和 `name=bull:<base64(队列名)>` 过滤，不能只看实例；用独立 `prefix` 的套件（如 `schedule-scheduler`）真实 worker 看不到，不需要消费者检查，直接判 Redis/Postgres 可用即可。
 
 ## 测试：全量并行时偶发 401，根因是登录后会话没落库
 
-- **现象**：`pnpm test` 全量跑时，`agents`、`servers`、`knowledge-routes` 等随机有文件报 `UNAUTHORIZED: not logged in`，每轮命中的文件都不一样，单独跑又全过。
+- **现象**：`bun run test` 全量跑时，`agents`、`servers`、`knowledge-routes` 等随机有文件报 `UNAUTHORIZED: not logged in`，每轮命中的文件都不一样，单独跑又全过。
 - **原因**：多个测试文件并行登录同一管理员时，better-auth 偶发返回 200、也下发了 cookie，但会话行没写进库。实测证据：失败的那张 cookie 重试仍 401、换一个 app 实例也 401，而会话表里既有会话完好、行数没有减少——所以不是缓存、不是 CASCADE、不是限流、也不是连接池。
 - **规避**：登录接口已加「下发的 cookie 回读一次，读不到就重试一次登录」（`packages/api/src/features/auth/routes.ts`；探测用 `disableRefresh: true`，避免为探测多写一次会话）。排查同类抖动时用 `--no-file-parallelism` 与基线对比，不要凭一次全量结果认定回归。
 
-## 测试：`RATE_LIMIT_DISABLED` 只在模块加载时求值
+## 测试：`RATE_LIMIT_DISABLED` 在构建 app 时读取
 
-- **现象**：调试脚本里设了 `process.env.RATE_LIMIT_DISABLED = '1'`，登录仍然第 11 次开始返回 429。
-- **原因**：`plugins/security.ts` 的 `limitsOff` 是模块顶层常量，在 `import` 时求值；ES module 的 import 会提升，写在 `import` 之后的赋值不生效。同时 `authRateLimit = preset(10)` 就是「第 11 次开始 429」的来源。
-- **规避**：脚本里要在 import 之前设置该变量（或用 `NODE_ENV=test` 等外部环境传入）；直接用 `node --env-file` 或 shell 前缀，不要在模块内补设。vitest 已经在 `env` 里统一下发，测试本身不受影响。
+- **现象**：调试脚本里设置 `process.env.RATE_LIMIT_DISABLED = '1'` 的时机晚于 `buildApp`，登录仍从第 11 次开始返回 429。
+- **原因**：`packages/api/src/http/security.ts` 的 `createSecurity()` 在 `buildApp` 时读取该变量，更早的模块加载阶段或已构造的 app 不会重新求值。登录限流来自契约的 `rateLimit: 10`，不是旧的 `preset`。
+- **规避**：在 `buildApp`/`createSecurity` 之前设置变量，或用 `NODE_ENV=test` 等外部环境传入；后端测试由根 `bunfig.toml` 的 preload（`packages/worker/test/setup-env.ts`）统一下发 `RATE_LIMIT_DISABLED=1`。不要指望修改已创建 app 的进程环境后即时生效。
 
 ## recharts 的 `strokeWidth` 不是图标违例
 
@@ -63,11 +64,11 @@
 - **原因**：worktree 退出即删或按周期清理，且 `.claude/worktrees/` 被 gitignore。
 - **规避**：普通任务跟踪放当前对话或原生待办；只有用户明确要求保存时才写入指定路径。跨任务教训写 `docs/PITFALLS.md` 并随分支提交；需要暂停或交接时用 pstack 原生 checkpoint，不手造目录。
 
-## 运行：`pnpm up` 会更新依赖，不会启动项目
+## 运行：`bun update` 会更新依赖，不会启动项目
 
-- **现象**：要求启动服务，却更新了 package.json、锁文件和本地依赖。
-- **原因**：`up` 是 pnpm 内置 update 命令，优先于同名 package script。
-- **规避**：启动脚本显式运行 `pnpm run up`；执行前看 scripts，不能仅凭名称猜命令。误更新时只恢复已确认由本次命令产生的改动。
+- **现象**：要求启动服务，却更新了依赖和锁文件。
+- **原因**：项目启动脚本叫 `up`，必须通过 `bun run up` 执行；裸 `bun update` 只更新依赖，不会启动项目。
+- **规避**：启动显式运行 `bun run up`；升级依赖才用 `bun update`。执行前看根 `package.json` 的 scripts，不凭名称猜命令。误更新时只恢复已确认由本次命令产生的改动。
 
 ## 运行：API 可访问，不代表用户的 Portless 地址已启动
 
@@ -143,7 +144,7 @@
 
 ## 测试：全量并行时不同文件每轮随机失败，根因是跨文件共享的测试身份与信道
 
-- **现象**：`pnpm test` 全量并行时每轮命中的文件不同：`createTestAccount` 返回 409「该业务 ID 有历史记录」、个人记忆用例查到 2 条本应 1 条、删除接口偶发 503 且服务端日志为 `options.sessions.closeIdle is not a function`；把失败文件单独跑全过。
+- **现象**：`bun run test` 全量并行时每轮命中的文件不同：`createTestAccount` 返回 409「该业务 ID 有历史记录」、个人记忆用例查到 2 条本应 1 条、删除接口偶发 503 且服务端日志为 `options.sessions.closeIdle is not a function`；把失败文件单独跑全过。
 - **原因**：三类跨文件共享：① `packages/worker/test/fixtures/access.ts` 曾用固定业务 ID，一个文件写入 agents 记录后，另一个文件用同一 ID 建号被 409 拒绝；② `personal-memory.test.ts` 曾按管理员身份筛整张表，而 `agents.test.ts` 也以管理员写规则；③ 导入真实 worker `src/index.ts` 的入口测试若只 mock 部分 `sessions` 方法，会订阅默认信道 `session-cleanup:requests`，抢答其它 API 测试的删除请求并回传 TypeError（ACK 首个胜出）。
 - **规避**：测试身份按文件 URL 派生（同文件稳定、跨文件唯一）；需要清理或计数的测试用自己创建的账号并按 `business_id` 限定；导入 worker 入口的测试一律 mock `startSessionCleanupChannel` 返回空 `close`（参照 `eval-index-log.test.ts`），不要只给残缺 sessions 补方法。复现用 `--sequence.shuffle --sequence.seed=… --repeats=…` 组合相关文件，并与 `--no-file-parallelism` 对照。
 
@@ -157,13 +158,19 @@
 
 - **现象**：`sql`${ids}::text[]`` 生成 `($2, $3)::text[]`，非空数组报 `cannot cast type record to text[]`，空数组直接语法错误；看起来像 SQL 写错。
 - **原因**：Drizzle 的 `sql` 模板把数组当参数列表展开，不作为一个数组参数绑定。
-- **规避**：需要单个 PostgreSQL 数组参数时用 `sql.param(array)`，例如 `${sql.param(ids)}::text[]`；空数组与非空数组都要有测试，不能只测其中一种。
+- **规避**：Bun SQL 的数组参数用原生 `client.array(values, 'TEXT')` 构造，再交给 `sql.param`，例如 `${sql.param(db.$client.array(ids, 'TEXT'))}::text[]`；不要把 JS 数组直接交给 Drizzle 模板。同一原生 SQL 路径的日期参数传 ISO 字符串（`date.toISOString()`），不要依赖驱动自动转换 `Date`。空数组与非空数组都要有测试。
+
+## 数据库：workspace 包导出指向 dist，只改源码不重跑 `tsc -b` 时测试仍在用旧代码
+
+- **现象**：改了 `packages/contract` 等包的 schema 源码，后端测试结果不变；重建 dist 后同一个测试立刻出现不同行为（如知识原件 61 与 62 字节）。
+- **原因**：workspace 的 `exports` 指向 `dist` 且 dist 被 gitignore；直接跑测试加载的是上一次构建的产物，不是刚改的源码。
+- **规避**：改共享包源码后先 `bun run build`（或该包 `tsc -b`）再跑测试；排查「改动无效」类问题时先确认 dist 时间戳，不要先怀疑缓存或断言。
 
 ## 数据库：迁移账本漂移或共享库已有列时不要手改账本
 
-- **现象**：`pnpm db:migrate` 报列已存在（如 `agents.role`），或 `__drizzle_migrations` 里的时间戳在 journal 中找不到；共享库还可能停在上一号，后续迁移一条都没跑。
+- **现象**：`bun run db:migrate` 报列已存在（如 `agents.role`），或 `__drizzle_migrations` 里的时间戳在 journal 中找不到；共享库还可能停在上一号，后续迁移一条都没跑。
 - **原因**：dev/共享库曾被另一条迁移历史建过，或列被手工 DDL、另一分支加过；journal 与库内账本不一致，列定义也可能与本分支 schema 不同（例如 `not null default ''` vs 可空）。
-- **规避**：先按 `journal`、实际 `__drizzle_migrations` 与 `\d <table>` 逐条比对确认差异；个人项目不留历史数据，直接 `pnpm run down --clean && pnpm run up` 重建最干净，或确认无数据后按本分支 schema 重建。不要手写/删除迁移账本行来「对齐」，也不要把 `ADD COLUMN` 改成 `IF NOT EXISTS`，否则新库与旧库定义会分叉。
+- **规避**：先按 `journal`、实际 `__drizzle_migrations` 与 `\d <table>` 逐条比对确认差异；个人项目不留历史数据，直接 `bun run down --clean && bun run up` 重建最干净，或确认无数据后按本分支 schema 重建。不要手写/删除迁移账本行来「对齐」，也不要把 `ADD COLUMN` 改成 `IF NOT EXISTS`，否则新库与旧库定义会分叉。
 
 ## 流程：用 main 的提交顺序覆盖了用户更晚的决定
 
@@ -259,7 +266,7 @@
 
 - **现象**：外层已注入临时数据库，但创建智能体仍500，取消测试静默跳过；或测试进程把连接串改成了历史固定库。
 - **原因**：测试模块在 import 时捕获 `DATABASE_URL`、擅自改 `process.env`，或把地址重写回固定历史库；复用的旧迁移账本不含后来合入的表，迁移异常又被吞成 infra 不可用。
-- **规避**：默认入口由 backend globalSetup 每轮创建随机库并迁移，经 `provide`/`inject` + `setupFiles` 在导入测试前写入 `process.env`；套件确需独立库时调用 `createIsolatedDatabase(prefix, adminUrl)`，显式使用返回的 `url`（不再隐式改 env），关闭连接后只删自己创建的库。建库/迁移失败必须抛错；只有 PG/Docker 不可用才发布不可连地址并跳过，不能回落开发库或共享 Redis。核验清理时只认本次函数返回的库名及唯一容器名/句柄：同一 worktree 可能有并行代理在跑测试，不要按 `backend_test_*` 前缀或镜像名批量删库/删容器。
+- **规避**：默认入口由 `scripts/test-backend.ts` 调用 globalSetup 每轮创建随机库并迁移，再把返回的连接串合并进 spawn `bun test` 的 `process.env`；套件确需独立库时调用 `createIsolatedDatabase(prefix, adminUrl)`，显式使用返回的 `url`（不再隐式改 env），关闭连接后只删自己创建的库。建库/迁移失败必须抛错；只有 PG/Docker 不可用才发布不可连地址并跳过，不能回落开发库或共享 Redis。核验清理时只认本次函数返回的库名及唯一容器名/句柄：同一 worktree 可能有并行代理在跑测试，不要按 `backend_test_*` 前缀或镜像名批量删库/删容器。
 
 ## 测试：用行锁编排 claim/取消竞争时，等锁对象不一定是同一个
 
@@ -287,13 +294,13 @@
 
 ## 测试：组件覆盖的「豁免清单」会冒充已覆盖
 
-- **现象**：`pnpm openui:check` 11 项全绿、组件覆盖测试 38 项全绿，实际仍有日期早存一天、复选默认项不进载荷、表格流式补行后仍 0 行、日期弹层点击打不开。
+- **现象**：`bun run openui:check` 11 项全绿、组件覆盖测试 38 项全绿，实际仍有日期早存一天、复选默认项不进载荷、表格流式补行后仍 0 行、日期弹层点击打不开。
 - **原因**：覆盖测试断言的是「渲染出非空内容」；可交互组件被写进 `NESTED_ONLY` 并注释「由父组件用例覆盖」，而豁免只是一个名字，没有任何交互断言。`openui:check` 只比对 schema/spec，不进入 DOM 交互。
-- **规避**：改动 OpenUI 组件后跑 `pnpm openui:audit`，看 behavior / render / nested（可交互但尚未登记证据）/ missing 四类数字；缺口按同一范围比较不应上升，新增组件或能力可以登记新缺口并写明，不算回归；审计只读登记表，不解析断言也不计算覆盖率。每个新发现的 bug 先落一条会失败的行为用例再修；不要靠往豁免清单加名字让测试变绿。
+- **规避**：改动 OpenUI 组件后跑 `bun run openui:audit`，看 behavior / render / nested（可交互但尚未登记证据）/ missing 四类数字；缺口按同一范围比较不应上升，新增组件或能力可以登记新缺口并写明，不算回归；审计只读登记表，不解析断言也不计算覆盖率。每个新发现的 bug 先落一条会失败的行为用例再修；不要靠往豁免清单加名字让测试变绿。
 
 ## 附件：目录权限与相对路径会让沙盒读不到文件
 
-- **现象**：`pnpm dev` 上传成功，但模型读取 `/mnt/inputs` 失败；或 Linux 宿主以非 1000 UID 运行时同样读不到。
+- **现象**：`bun run dev` 上传成功，但模型读取 `/mnt/inputs` 失败；或 Linux 宿主以非 1000 UID 运行时同样读不到。
 - **原因**：API 与 worker 各自以包目录为 cwd 解析相对 `WORKSPACES_DIR`，附件（以及记忆、成果）落在不同目录；附件目录按 0700/0600 创建，而沙盒固定以 uid 1000 运行，宿主直跑非 1000 UID 时无法遍历。
 - **规避**：本地开发把 `WORKSPACES_DIR` 设为同一个绝对路径，或使用 Compose；需要沙盒读取持久目录时用 Compose 的 uid 1000 三端配置，不要用 0755/0777 放宽权限掩盖 UID 差异。
 
@@ -373,19 +380,19 @@
 
 - **现象**：新增路由文件后类型检查报路由未注册，或手改的生成文件被下一次 dev/build 覆盖。
 - **原因**：TanStack Router 的 Vite 插件在 dev/build 时生成 `routeTree.gen.ts`，`tsc -b` 不负责生成。
-- **规避**：新增或删除路由后跑一次 `pnpm --filter @agentport/web build`（或 dev），让生成文件更新并随改动提交；不要手工编辑生成文件。
+- **规避**：新增或删除路由后跑一次 `bun run --filter @agentport/web build`（或 dev），让生成文件更新并随改动提交；不要手工编辑生成文件。
 
 ## 数据库：新增运行触发值要同步扩展 CHECK 约束
 
 - **现象**：插入 `agent_runs.trigger='review'` 时报 CHECK 约束失败，代码与 schema 看似一致。
 - **原因**：`trigger` 是 text + CHECK 约束（`chat/mcp/schedule/event/review`），不是 PostgreSQL enum；改 Drizzle schema 不会自动改已有约束。
-- **规避**：新增触发值时先 `pnpm db:generate` 生成扩展 CHECK 的迁移，再 `pnpm db:migrate`；不要假设 text 列会接受新值。
+- **规避**：新增触发值时先 `bun run db:generate` 生成扩展 CHECK 的迁移，再 `bun run db:migrate`；不要假设 text 列会接受新值。
 
 ## 测试：真实容器测试可能加载旧 dist，产物存在不等于来自当前源码
 
-- **现象**：真实 Docker / SDK 测试全绿，实际行为却对应旧代码；镜像或挂载里是旧的 `shared`/`sandbox` 构建。新建 worktree 首次跑 Vitest 还可能在业务用例前报 `TypeError: code.charCodeAt is not a function`。
-- **原因**：测试只检测 `dist` 是否存在，或复用镜像中旧的 `shared` 产物，没有确认产物来自本轮源码；根 `vitest` 入口只跑测试，不等于执行构建。新 worktree 不带 workspace `dist` 时，Vite 会把模块解析/构建异常重写成 `charCodeAt` 堆栈，看起来像业务代码报错（本次实测缺 `packages/db/dist`）。
-- **规避**：每轮为 `shared`/`sandbox` 编译独占临时产物或显式构建最新版本，并记录产物来源；验收跑真实 Docker 与 SDK fake API；不要把根 `vitest` 入口当作构建步骤。新树先 `pnpm --filter @agentport/shared --filter @agentport/core --filter @agentport/db build` 再跑 backend 测试；遇到 `charCodeAt` 先查缺哪个 workspace `dist`，不要改业务代码。后端测试由 globalSetup 在随机 PostgreSQL 库和临时 Redis 上运行，不手动迁开发库、不回落共享库。
+- **现象**：真实 Docker / SDK 测试全绿，实际行为却对应旧代码；镜像或挂载里是旧的 `shared`/`sandbox` 构建。旧 Vitest 入口还曾在新建 worktree 首次跑用例前报 `TypeError: code.charCodeAt is not a function`。
+- **原因**：测试只检测 `dist` 是否存在，或复用镜像中旧的 `shared` 产物，没有确认产物来自本轮源码；根 `bun run test` 只跑测试，不等于执行构建。旧 Vite 转换会把缺 workspace `dist` 的模块解析异常改写成 `charCodeAt` 堆栈。
+- **规避**：每轮为 `shared`/`sandbox` 编译独占临时产物或显式构建最新版本，并记录产物来源；验收跑真实 Docker 与 SDK fake API；不要把根测试入口当作构建步骤。新树先 `bun run --filter @agentport/shared --filter @agentport/core --filter @agentport/db build` 再跑后端测试；遇到 `charCodeAt` 先查缺哪个 workspace `dist`，不要改业务代码。后端测试由 globalSetup 在随机 PostgreSQL 库和临时 Redis 上运行，不手动迁开发库、不回落共享库。
 
 ## 实现：被工作区与产出共用的目录刷新不能无条件保留记忆挂载根
 
@@ -393,11 +400,11 @@
 - **原因**：`refreshSessionDirectory`（`packages/worker/src/session-workspace.ts`）同时服务定义工作区与产出目录，却无条件跳过 `.claude/agent-memory` 以保住工作区的挂载根 inode；产出目录没有挂载根，同名目录只是普通用户文件，被当挂载根跳过就不再复制或删除。
 - **规避**：保留挂载根改为显式选项 `preserveMemoryMount`，只在定义工作区调用时传 `true`（`packages/worker/src/index.ts`），产出保持整棵替换；新增刷新调用前先确认目标是否真有挂载根，不按目录名猜语义。
 
-## 测试：生产 ESM/CJS 互操作不能用 Vitest 结果代替
+## 测试：生产 ESM/CJS 互操作不能用测试运行结果代替
 
-- **现象**：ExcelJS 等 CJS 依赖在 Vitest 里导入全绿，构建后的 API 以原生 ESM 启动却报具名导出缺失。
+- **现象**：ExcelJS 等 CJS 依赖在旧 Vitest 入口里导入全绿，构建后的 API 以原生 ESM 启动却报具名导出缺失。
 - **原因**：Vitest/Vite 会做 CJS 互操作与转译，掩盖打包后 Node 原生 ESM 对具名导出的限制；测试环境通过不代表 `dist` 可加载。
-- **规避**：用真实 Node 导入构建产物（如 `node --input-type=module -e "await import('./packages/api/dist/...')"`）或直接启动构建后的服务；不把 Vitest 绿色当作 ESM 兼容证据，也不用 mock 替换该检查。
+- **规避**：用真实 Node 导入构建产物（如 `node --input-type=module -e "await import('./packages/api/dist/...')"`）或直接启动构建后的服务；不把测试绿色当作 ESM 兼容证据，也不用 mock 替换该检查。
 
 ## 知识库：COW 事务提交后失败清理不能删除已发布文件
 
@@ -430,9 +437,9 @@
 - **规避**：最新版本、版本列表与 keyset 分页统一按 `version DESC`（同页再加 version keyset），版本号在页面行锁与唯一约束内生成；不要按 `created_at`/`id` 推断业务顺序。当前仓储已改为 `version DESC`，相关定向测试与独立复核结论以任务记录为准，不把本条写成全绿。
 ## 数据库：`userId` 改 `businessId` 必须选 rename，且 Vite 会把真实迁移错误掩成 `charCodeAt`
 
-- **现象**：drizzle-kit 生成迁移后，新库执行报 PostgreSQL `multiple primary keys for table ... are not allowed`；在 Vitest globalSetup 里可能只看到 `TypeError: code.charCodeAt is not a function`，看不出是迁移失败。
+- **现象**：drizzle-kit 生成迁移后，新库执行报 PostgreSQL `multiple primary keys for table ... are not allowed`；在旧 Vitest globalSetup 里可能只看到 `TypeError: code.charCodeAt is not a function`，看不出是迁移失败。
 - **原因**：交互式生成时把改名默认当成「新增列 + 新主键」，会生成 `ADD PRIMARY KEY`，而旧主键还在；真实错误又被 Vite 的 globalSetup 包装改写成 `charCodeAt` 堆栈（另见「真实容器测试可能加载旧 dist」一条）。
-- **规避**：生成时明确把该列选为 rename，保留 `RENAME COLUMN`，并在同一迁移里删除原列上指向 auth `user` 的外键，不要接受默认的 add 方案。验证时绕过 Vite，直接用 `pnpm --filter @agentport/api exec tsx` 调用 `createIsolatedDatabase` 建全新随机库并迁移，拿到真实 Pg 错误；不要在共享库上试。
+- **规避**：生成时明确把该列选为 rename，保留 `RENAME COLUMN`，并在同一迁移里删除原列上指向 auth `user` 的外键，不要接受默认的 add 方案。验证时绕过前端测试转译，直接用 Bun 运行调用 `createIsolatedDatabase` 的临时脚本，建全新随机库并迁移，拿到真实 Pg 错误；不要在共享库上试。
 
 ## 运行：`/health` 只证明连通，不证明 schema 与当前代码匹配
 
@@ -494,11 +501,11 @@
 - **原因**：两者复用 `fixtures/access.ts` 的 `TEST_BUSINESS_ID`，前者可先写带该身份的消息，后者此时建账号被正常的身份恢复校验拒绝。
 - **规避**：验证时让 `run-pending-finish` 独立运行或用 `--no-file-parallelism`；改夹具时按套件分配唯一业务身份，不放宽生产身份校验。
 
-## 测试：依赖安装与 vitest 运行并发会让新 worker 丢掉旧 peer 路径
+## 测试：依赖安装与测试运行并发会让新 worker 丢掉旧 peer 路径
 
-- **现象**：长测试跑着时执行 `pnpm install`/升级依赖，已启动的 worker 多数正常，但新 fork 的 worker 报模块找不到，路径指向已被替换的 `.pnpm` 目录；单独重跑整套又全绿。
-- **原因**：pnpm 安装会重排 `node_modules/.pnpm` 的虚拟 store 并更新顶层链接；已加载模块的进程不受影响，新 worker 按新解析结果启动，旧 peer 路径已不存在，失败被误当成代码回归。
-- **规避**：测试运行期间不安装/升级依赖；先停掉测试进程，等 `pnpm install` 完成后再从干净状态重跑。出现这类「路径不存在」先核对是否刚装过依赖，不要改业务代码或删测试。
+- **现象**：长测试跑着时执行 `bun install`/升级依赖，已启动的 worker 多数正常，但新 fork 的 worker 报模块找不到，路径指向已被替换的 `node_modules/.bun` 目录；单独重跑整套又全绿。
+- **原因**：Bun 安装会重排隔离 store 并更新顶层链接；已加载模块的进程不受影响，新 worker 按新解析结果启动，旧 peer 路径已不存在，失败被误当成代码回归。
+- **规避**：测试运行期间不安装/升级依赖；先停掉测试进程，等 `bun install` 完成后再从干净状态重跑。出现这类「路径不存在」先核对是否刚装过依赖，不要改业务代码或删测试。
 
 ## SSE：`subscribeRun` 回放完才 resolve，await 之后启动的定时器保护不了长回放
 
@@ -510,4 +517,4 @@
 
 - **现象**：任意 worktree 的 API 登录都返回 500，日志是 `relation "platform_bootstrap" does not exist`；`drizzle.__drizzle_migrations` 有几十条旧记录，但最大 `created_at` 早于当前 journal 的 0043。
 - **原因**：多个 worktree/分支各自生成过迁移，共享库被另一套 journal 迁移过，台账与仓库 journal 的时间戳/内容对不上。drizzle migrator 只按「journal.when > 台账最大 created_at」判断待执行，于是重跑已存在的迁移，在第一个 `CREATE TABLE` 就失败并整批回滚。
-- **规避**：先 `pg_dump -Fc` 备份；只读核验实际结构与 journal，确定真实基线；对已存在的对象按核验结果登记台账（hash 用迁移 SQL 的 sha256），对新增的 NOT NULL 列先建可空列、回填后再 `SET NOT NULL`；在 dump 恢复出的副本库完整演练后再作用于共享库。不要直接 `pnpm db:migrate` 硬跑，也不要为了跑通而删除业务数据。
+- **规避**：先 `pg_dump -Fc` 备份；只读核验实际结构与 journal，确定真实基线；对已存在的对象按核验结果登记台账（hash 用迁移 SQL 的 sha256），对新增的 NOT NULL 列先建可空列、回填后再 `SET NOT NULL`；在 dump 恢复出的副本库完整演练后再作用于共享库。不要直接 `bun run db:migrate` 硬跑，也不要为了跑通而删除业务数据。

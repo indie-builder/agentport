@@ -1,20 +1,20 @@
 import type { Agent, OutputStyle } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('output styles', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let agent: Agent;
   const createdAgents: string[] = [];
@@ -33,14 +33,14 @@ describe.skipIf(!ready)('output styles', () => {
 
   const auth = () => ({ cookie });
   const write = (slug: string, body: string) =>
-    inject(app, {
+    request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/output-styles/${slug}`,
       headers: auth(),
       payload: { description: `${slug} style`, body },
     });
   const list = () =>
-    inject(app, { method: 'GET', url: `/api/agents/${agent.id}/output-styles`, headers: auth() });
+    request(app, { method: 'GET', url: `/api/agents/${agent.id}/output-styles`, headers: auth() });
 
   it('writes a style and lists it as selected', async () => {
     const res = await write('concise', 'Answer in one sentence.');
@@ -59,7 +59,7 @@ describe.skipIf(!ready)('output styles', () => {
   });
 
   it('deletes a style', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}/output-styles/concise`,
       headers: auth(),
@@ -82,7 +82,7 @@ describe.skipIf(!ready)('output styles', () => {
   });
 
   it('returns 404 for an unknown agent', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/agents/${unique('missing')}/output-styles`,
       headers: auth(),

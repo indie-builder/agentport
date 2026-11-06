@@ -1,40 +1,42 @@
 import type { Server } from '@agentport/shared';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as mcpClientModule from '@modelcontextprotocol/client';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import * as ssrfModule from '../src/modules/servers/ssrf.js';
+
+const realMcpClient = { ...mcpClientModule };
+const realSsrf = { ...ssrfModule };
 
 /**
  * testConnection 的目录上限走真实 Effect 流程，只 mock MCP client 边界：
  * 不建连接，断言失败/成功与 close 语义。stdio 已移到沙盒，这里用 http。
  */
-const mocks = vi.hoisted(() => ({
+const mocks = ({
   tools: [] as unknown[],
-  connect: vi.fn(async () => undefined),
-  listTools: vi.fn(async () => ({ tools: [] as unknown[] })),
-  getServerVersion: vi.fn(() => ({ name: 'fixture-mcp', version: '1.2.3' })),
-  close: vi.fn(async () => undefined),
-}));
-
-vi.mock('@modelcontextprotocol/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@modelcontextprotocol/client')>();
-  return {
-    ...actual,
-    Client: class {
-      connect = mocks.connect;
-      listTools = mocks.listTools;
-      getServerVersion = mocks.getServerVersion;
-      close = mocks.close;
-    },
-    StreamableHTTPClientTransport: class {},
-  };
+  connect: mock(async () => undefined),
+  listTools: mock(async () => ({ tools: [] as unknown[] })),
+  getServerVersion: mock(() => ({ name: 'fixture-mcp', version: '1.2.3' })),
+  close: mock(async () => undefined),
 });
+
+mock.module('@modelcontextprotocol/client', () => ({
+  ...realMcpClient,
+  Client: class {
+    connect = mocks.connect;
+    listTools = mocks.listTools;
+    getServerVersion = mocks.getServerVersion;
+    close = mocks.close;
+  },
+  StreamableHTTPClientTransport: class {},
+}));
 
 // SSRF 边界单独有测试；本套件只关心目录上限与 close 语义，
 // 用真实 DNS 会让离线/沙箱环境里的固定域名解析失败，掩盖真正的断言。
-vi.mock('../src/features/servers/ssrf.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../src/features/servers/ssrf.js')>()),
-  assertSafeUrl: vi.fn(async () => undefined),
+mock.module('../src/modules/servers/ssrf.js', () => ({
+  ...realSsrf,
+  assertSafeUrl: mock(async () => undefined),
 }));
 
-const { testConnection } = await import('../src/features/servers/test-connection.js');
+const { testConnection } = await import('../src/modules/servers/test-connection.js');
 
 const server: Server = {
   id: 'srv-fixture',
@@ -101,7 +103,7 @@ describe('testConnection tool catalog limits', () => {
         'connect failed: Authorization: Bearer abcdefghijklmnop, MCP_TOKEN=superSecretValue123',
       ),
     );
-    const logger = { warn: vi.fn() };
+    const logger = { warn: mock() };
 
     const result = await testConnection(server, 'production', undefined, logger);
 
@@ -120,7 +122,7 @@ describe('testConnection tool catalog limits', () => {
 
   it('redacts a multi-megabyte bearer token without RangeError', async () => {
     mocks.connect.mockRejectedValueOnce(new Error(`Bearer ${'x'.repeat(7_000_000)}`));
-    const logger = { warn: vi.fn() };
+    const logger = { warn: mock() };
 
     const result = await testConnection(server, 'production', undefined, logger);
 

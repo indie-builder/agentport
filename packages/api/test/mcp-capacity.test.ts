@@ -3,21 +3,23 @@ import type { AddressInfo } from 'node:net';
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import Fastify, { type FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { AgentInvoker } from '../src/features/servers/agent-tools.js';
-import { registerAgentToolsEndpoint } from '../src/features/servers/agent-tools-endpoint.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import type { AgentInvoker } from '../src/modules/servers/agent-tools.js';
+import { registerServersHttp } from '../src/modules/servers/http.js';
+import type { AppRuntime } from '../src/types.js';
 import {
   cleanup,
   createAgent,
   infraReady,
-  inject,
   loginCookie,
+  request,
   seedRun,
   startApp,
   unique,
   waitFor,
 } from './helpers.js';
+import { contextApp } from './hono-app.js';
+import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
@@ -68,7 +70,8 @@ function boundedInvoker(): { invoker: AgentInvoker; release: () => void; calls: 
 }
 
 describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execution', () => {
-  let app: FastifyInstance;
+  let app: AppRuntime;
+  let listener: TestServer;
   let cookie: string;
   let mcpUrl: string;
   let server: Server;
@@ -83,8 +86,8 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
     // 等待窗口必须足够长：旧实现下 4 个挂起调用会一直占住整个 MCP 并发名额。
     app = await startApp({ APPROVAL_WAIT_MS: '10000' });
     cookie = await loginCookie(app);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    mcpUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    listener = await listen(app);
+    mcpUrl = listener.url;
 
     const upstreamServer = createServer((_req, res) => {
       upstreamCalls.count += 1;
@@ -97,7 +100,7 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
 
     const name = unique('capacity-mcp');
     createdServers.push(name);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -110,7 +113,7 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
       { name: 'waiting-tool', requiresApproval: true },
       { name: 'free-tool', requiresApproval: false },
     ]) {
-      const toolRes = await inject(app, {
+      const toolRes = await request(app, {
         method: 'POST',
         url: `/api/servers/${server.id}/tools`,
         headers: { cookie },
@@ -125,17 +128,19 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
       expect(toolRes.statusCode, toolRes.body).toBe(201);
     }
 
-    const row = await app.pool.query<{ token: string }>(
+    const row = await app.client.unsafe<{ token: string }[]>(
       "select config->>'mcpToken' as token from servers where id = $1",
       [server.id],
     );
-    token = row.rows[0]?.token ?? '';
+    token = row[0]?.token ?? '';
     expect(token).not.toBe('');
   });
 
   afterAll(async () => {
     upstream.close();
+    if (!app) return;
     await cleanup(app, { serverNames: createdServers, agentSlugs: createdAgents, runIds });
+    await listener?.close();
     await app.close();
   });
 
@@ -189,7 +194,7 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
       // 4 条审批记录都已落库，说明前 4 个调用真的进了挂起路径（waiting 见 generated-mcp 用例）。
       for (const runId of runIdsForAgent.slice(0, 4)) {
         const parked = await waitFor(async () => {
-          const res = await inject(app, {
+          const res = await request(app, {
             method: 'GET',
             url: `/api/runs/${runId}/approvals`,
             headers: { cookie },
@@ -230,7 +235,7 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
 
       // 拒绝也要落审批记录，但没有等待窗口：expiresAt 为 null，页面不显示倒计时。
       const rows = await waitFor(async () => {
-        const res = await inject(app, {
+        const res = await request(app, {
           method: 'GET',
           url: `/api/runs/${fifthRunId}/approvals`,
           headers: { cookie },
@@ -239,7 +244,7 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
       });
       expect(rows).toBe(true);
       const refusedRow = (
-        await inject(app, {
+        await request(app, {
           method: 'GET',
           url: `/api/runs/${fifthRunId}/approvals`,
           headers: { cookie },
@@ -258,8 +263,8 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
 });
 
 describe.skipIf(!ready)('platform MCP: long tool invokes must not block new sessions', () => {
-  let app: FastifyInstance;
-  let platform: FastifyInstance;
+  let app: AppRuntime;
+  let platform: TestServer;
   let cookie: string;
   let platformUrl: string;
   let slug: string;
@@ -277,21 +282,27 @@ describe.skipIf(!ready)('platform MCP: long tool invokes must not block new sess
       id: string;
     }>().id;
 
-    // 独立 Fastify：端点只依赖 PLATFORM_MCP_TOKEN 与 app.db，不需要认证/cookie 链路。
     mock = boundedInvoker();
-    platform = Fastify({ logger: false });
-    platform.decorate('db', app.db);
-    registerAgentToolsEndpoint(platform, mock.invoker);
-    await platform.listen({ port: 0, host: '127.0.0.1' });
-    platformUrl = `http://127.0.0.1:${(platform.server.address() as AddressInfo).port}/mcp`;
+    const platformApp = contextApp(app);
+    registerServersHttp(platformApp as never, {
+      db: app.db,
+      client: app.client,
+      config: app.config,
+      log: app.log,
+      auth: app.auth,
+      invoker: mock.invoker,
+    });
+    platform = await listen({ app: platformApp as never });
+    platformUrl = `${platform.url}/mcp`;
   });
 
   afterAll(async () => {
     mock.release();
+    if (!app) return;
     // cleanup 只按 slug 删 agent；audit_log.target 存的是 id，一并删掉自己的行。
-    await app.pool.query('delete from audit_log where target = $1', [agentId]);
+    await app.client.unsafe('delete from audit_log where target = $1', [agentId]);
     await cleanup(app, { agentSlugs: createdAgents });
-    await platform.close();
+    await platform?.close();
     await app.close();
   });
 

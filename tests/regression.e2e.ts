@@ -1,18 +1,6 @@
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import {
-  agentRuns,
-  agents,
-  conversations,
-  createDb,
-  messages,
-  newId,
-} from '../packages/db/dist/index.js';
-
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error('DATABASE_URL is required for regression fixtures');
-const database = createDb(databaseUrl);
-test.afterAll(() => database.pool.end());
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 迁移自 e2e/regression.spec.ts 的其余 4 条。
@@ -24,41 +12,8 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
   screen,
   browser,
 }) => {
-  const agentId = newId('agent');
-  const conversationId = newId('conversation');
-  const runId = newId('run');
+  const { agentId, runId } = await runFixture('regression', 'seed');
   try {
-    // RBAC NOT NULL：夹具归属首次初始化的 bootstrap 管理员业务身份。
-    await database.db.insert(agents).values({
-      id: agentId,
-      slug: `regression-${agentId}`,
-      name: 'Run navigation fixture',
-      model: 'test-model',
-      createdBy: 'bootstrap-admin',
-      ownerBusinessId: 'bootstrap-admin',
-    });
-    await database.db
-      .insert(conversations)
-      .values({ id: conversationId, agentId, createdBy: 'bootstrap-admin' });
-    await database.db.insert(agentRuns).values({
-      id: runId,
-      agentId,
-      conversationId,
-      status: 'succeeded',
-      subjectKind: 'user',
-      initiatedBy: 'bootstrap-admin',
-      prompt: 'Run navigation fixture',
-      startedAt: new Date(),
-      endedAt: new Date(),
-    });
-    await database.db.insert(messages).values({
-      id: newId('message'),
-      conversationId,
-      runId,
-      role: 'user',
-      content: { type: 'text', text: 'Run navigation fixture' },
-    });
-
     await app.open(`/runs?agent=${agentId}`);
     await expect(screen.getByRole('heading', '运行')).toBeVisible();
     const row = browser.locator('button[data-row]').first();
@@ -70,7 +25,7 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
     await expect(browser).toHaveURL(new RegExp(`/runs/${runId}(?:\\?.*)?$`));
     await expect(screen.getByRole('button', '重跑')).toBeVisible();
   } finally {
-    await database.pool.query('delete from agents where id = $1', [agentId]);
+    await runFixture('regression', 'cleanup', agentId);
   }
 });
 

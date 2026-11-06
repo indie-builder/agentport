@@ -30,7 +30,8 @@ import {
   serverInputSchema,
   wireFailureKind,
 } from '@agentport/shared';
-import { Worker } from 'bullmq';
+import { createBunRedisClient, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
 import { conversationInputsMount, promptWithAttachments } from './attachments.js';
@@ -114,7 +115,9 @@ if (config.SANDBOX_EGRESS === 'none') {
   );
 }
 
-const { db, pool } = createDb(config.DATABASE_URL);
+const { db, client } = createDb(config.DATABASE_URL);
+const runConnection = createBunRedisClient(new RedisClient(config.REDIS_URL));
+const evalConnection = createBunRedisClient(new RedisClient(config.REDIS_URL));
 type Db = typeof db;
 /**
  * 惰性解析：只在真实创建容器时读线上版本。
@@ -598,8 +601,9 @@ const worker = new Worker(
     const claimed = await db
       .update(schema.agentRuns)
       .set({ status: 'running', startedAt: new Date() })
-      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')));
-    if (claimed.rowCount === 0) {
+      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')))
+      .returning({ id: schema.agentRuns.id });
+    if (claimed.length === 0) {
       logger.info({ runId }, 'run externally terminated before claim, skipping');
       return;
     }
@@ -680,7 +684,7 @@ const worker = new Worker(
         const personalBusinessId =
           subject.kind === 'user' && run.channelId === null ? subject.businessId : undefined;
         if (personalBusinessId !== undefined) {
-          await projectPersonalMemory(db, pool, workspacesDir, personalBusinessId);
+          await projectPersonalMemory(db, client, workspacesDir, personalBusinessId);
         }
         const sessionPaths = await ensureSessionWorkspace({
           workspacesDir,
@@ -1322,7 +1326,7 @@ const worker = new Worker(
       }
     }
   },
-  { connection: { url: config.REDIS_URL }, concurrency: config.AGENT_MAX_CONCURRENT },
+  { connection: runConnection, concurrency: config.AGENT_MAX_CONCURRENT },
 );
 
 worker.on('failed', async (job, err) => {
@@ -1348,7 +1352,7 @@ worker.on('failed', async (job, err) => {
 const evalWorker = new Worker(
   EVAL_RUNS_QUEUE,
   (job) => runEvalJob({ db, logger, redisUrl: config.REDIS_URL, job }),
-  { connection: { url: config.REDIS_URL }, concurrency: 1 },
+  { connection: evalConnection, concurrency: 1 },
 );
 
 evalWorker.on('failed', (job, err) => {
@@ -1462,8 +1466,6 @@ await knowledgeScheduler.sync().catch((err: unknown) => {
   logger.error({ err }, 'knowledge scheduler sync failed');
 });
 
-logger.info('worker started');
-
 // 启动即对账一次：Redis 里的 Job Scheduler 以库为准补齐/清理。
 const scheduleScheduler = startScheduleScheduler({
   db,
@@ -1527,10 +1529,17 @@ const shutdown = async (): Promise<void> => {
       { label: 'model proxy', close: () => modelProxy?.close() ?? Promise.resolve() },
       { label: 'runner client', close: () => closeRunnerClient() },
     ],
-    pool: { label: 'postgres pool', close: () => pool.end() },
+    database: {
+      label: 'redis/postgres connections',
+      close: async () => {
+        await Promise.all([runConnection.quit(), evalConnection.quit()]);
+        await client.close();
+      },
+    },
   });
   process.exit(code);
 };
 
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
+logger.info('worker started');

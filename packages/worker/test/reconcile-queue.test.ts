@@ -2,18 +2,18 @@ import { createDb, newId, schema } from '@agentport/db';
 import type { Queue } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
+import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 import { testAccess } from './fixtures/access.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const { agentOwnership, conversationSubject, runSubjectFields } = testAccess(import.meta.url);
 
-const { publishRun } = vi.hoisted(() => ({
-  publishRun: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-}));
+const publishRun = mock<() => Promise<void>>().mockResolvedValue(undefined);
 
 // 事件通道是外部边界：单测只断言补发内容，避免往真实 Redis stream 写数据。
-vi.mock('../src/runner-client.js', () => ({ publishRun }));
+const runnerClientActual = await import('../src/runner-client.js');
+mock.module('../src/runner-client.js', () => ({ ...runnerClientActual, publishRun }));
 
 const { LOST_RUN_ERROR, reconcileOrphanedRuns } = await import('../src/reconcile.js');
 
@@ -28,16 +28,16 @@ const LONG_TIMEOUT_MS = 60 * 60_000;
 // 对账函数扫描整张运行表：独享随机库，避免扫到同轮其他套件提交的记录。
 const isolatedDb = await createIsolatedDatabase('worker_reconcile_queue_probe');
 const dbHandle = createDb(isolatedDb?.url ?? '');
-const { db } = dbHandle;
+const { db, client } = dbHandle;
 type Db = typeof db;
 const ready =
   isolatedDb !== null &&
-  (await dbHandle.pool.query('select 1').then(
+  (await client.unsafe('select 1').then(
     () => true,
     () => false,
   ));
 if (!ready) {
-  await dbHandle.pool.end();
+  await client.close();
   await isolatedDb?.close();
 }
 
@@ -82,9 +82,9 @@ interface Fixture {
 /** 只 mock BullMQ 的 getJob 边界；返回 null 代表队列里没有这个 job。 */
 function fakeQueue(behavior: (runId: string) => string | null | Error): {
   queue: Pick<Queue, 'getJob'>;
-  getJob: ReturnType<typeof vi.fn>;
+  getJob: ReturnType<typeof mock>;
 } {
-  const getJob = vi.fn(async (runId: string) => {
+  const getJob = mock(async (runId: string) => {
     if (!ownedRuns.has(runId)) return undefined;
     const result = behavior(runId);
     if (result instanceof Error) throw result;
@@ -94,7 +94,7 @@ function fakeQueue(behavior: (runId: string) => string | null | Error): {
   return { queue: { getJob } as unknown as Pick<Queue, 'getJob'>, getJob };
 }
 
-const cleanup = vi.fn(
+const cleanup = mock(
   async (_input: { runId: string; conversationId: string; sandboxId: string }) => undefined,
 );
 
@@ -223,7 +223,7 @@ const KEPT_QUEUED = { status: 'queued', error: null };
 
 describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
   afterAll(async () => {
-    await dbHandle.pool.end();
+    await dbHandle.client.close();
     await isolatedDb?.close();
   });
 
@@ -357,7 +357,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
         });
         return undefined;
       });
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      jest.useFakeTimers();
       try {
         let settled = false;
         const pending = reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup).then(
@@ -367,7 +367,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
           },
         );
         await probing;
-        await vi.advanceTimersByTimeAsync(20_001);
+        await advanceTimersByTimeAsync(20_001);
         expect(settled).toBe(true);
         expect(await pending).toBe(0);
         expect(await statusOf(tx, runId)).toMatchObject(KEPT_QUEUED);
@@ -377,7 +377,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
         expect(publishRun).not.toHaveBeenCalled();
       } finally {
         release?.();
-        vi.useRealTimers();
+        jest.useRealTimers();
       }
       expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
       expect(await statusOf(tx, runId)).toMatchObject(KEPT_QUEUED);

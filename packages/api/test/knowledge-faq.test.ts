@@ -1,7 +1,7 @@
 import type { KnowledgeFaqTransferEntry, KnowledgeSearchHit } from '@agentport/shared';
 import { Workbook } from 'exceljs';
 import { unzipSync, zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   type FaqExistingEntry,
   type FaqParsedRow,
@@ -12,8 +12,8 @@ import {
   parseFaqImport,
   planFaqImport,
   serializeFaqExport,
-} from '../src/features/knowledge/faq.js';
-import { evaluateRetrieval } from '../src/features/knowledge/retrieval-evaluation.js';
+} from '../src/modules/knowledge/faq.js';
+import { evaluateRetrieval } from '../src/modules/knowledge/retrieval-evaluation.js';
 
 const faq: KnowledgeFaqTransferEntry = {
   question: '如何重置密码？',

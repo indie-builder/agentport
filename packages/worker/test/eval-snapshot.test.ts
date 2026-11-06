@@ -1,74 +1,74 @@
 import type { Database } from '@agentport/db';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
 /**
  * 跑批开始时的用例快照契约：有快照就绝不再读活用例表。
  * 只 mock repo/bullmq 这一层边界，断言 worker 的输入与写回内容。
  */
-const mocks = vi.hoisted(() => {
+const mocks = (() => {
   const noop = () => undefined;
   return {
-    queueAdd: vi.fn(),
-    waitUntilReady: vi.fn(async () => undefined),
-    waitUntilFinished: vi.fn(async () => undefined),
+    queueAdd: mock(),
+    waitUntilReady: mock(async () => undefined),
+    waitUntilFinished: mock(async () => undefined),
     evalRepo: {
-      getEvalRun: vi.fn(),
-      claimEvalRun: vi.fn(),
-      listCases: vi.fn(),
-      addResult: vi.fn(),
-      updateProgress: vi.fn(),
-      finishEvalRun: vi.fn(),
-      failEvalRun: vi.fn(),
+      getEvalRun: mock(),
+      claimEvalRun: mock(),
+      listCases: mock(),
+      addResult: mock(),
+      updateProgress: mock(),
+      finishEvalRun: mock(),
+      failEvalRun: mock(),
     },
     chat: {
-      admitChatRun: vi.fn(),
-      getRun: vi.fn(),
-      listMessages: vi.fn(),
+      admitChatRun: mock(),
+      getRun: mock(),
+      listMessages: mock(),
       messageText: (content: { text?: string } | null | undefined) => content?.text ?? null,
     },
-    checkAccess: vi.fn(),
-    auditWrite: vi.fn(async () => undefined),
+    checkAccess: mock(),
+    auditWrite: mock(async () => undefined),
     logger: { info: noop, warn: noop, error: noop, debug: noop, child: noop },
   };
-});
+})();
 
-vi.mock('../src/run-access.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/run-access.js')>();
-  return { ...actual, loadUserAgentAccess: mocks.checkAccess };
-});
+const runAccessActual = await import('../src/run-access.js');
+mock.module('../src/run-access.js', () => ({
+  ...runAccessActual,
+  loadUserAgentAccess: mocks.checkAccess,
+}));
 
-vi.mock('@agentport/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/db')>();
-  return {
-    ...actual,
-    repo: {
-      ...actual.repo,
-      agentVersions: {
-        ...actual.repo.agentVersions,
-        latestAgentVersion: vi.fn().mockResolvedValue(null),
-      },
-      evalRepo: mocks.evalRepo,
-      chat: mocks.chat,
-      audit: { ...actual.repo.audit, writeAudit: mocks.auditWrite },
+const dbActual = await import('@agentport/db');
+mock.module('@agentport/db', () => ({
+  ...dbActual,
+  repo: {
+    ...dbActual.repo,
+    agentVersions: {
+      ...dbActual.repo.agentVersions,
+      latestAgentVersion: mock().mockResolvedValue(null),
     },
-  };
-});
+    evalRepo: mocks.evalRepo,
+    chat: mocks.chat,
+    audit: { ...dbActual.repo.audit, writeAudit: mocks.auditWrite },
+  },
+}));
 
-vi.mock('bullmq', () => ({
+mock.module('bullmq', () => ({
+  createBunRedisClient: () => ({ quit: async () => undefined }),
   Queue: class {
     add = mocks.queueAdd;
-    close = vi.fn(async () => undefined);
+    close = mock(async () => undefined);
   },
   QueueEvents: class {
-    on = vi.fn();
-    close = vi.fn(async () => undefined);
+    on = mock();
+    close = mock(async () => undefined);
     waitUntilReady = mocks.waitUntilReady;
   },
   UnrecoverableError: class UnrecoverableError extends Error {},
 }));
 
-import { handleEvalJobFailed, runEvalJob } from '../src/eval-job.js';
-import { EVAL_FAILURE_PUBLIC_MESSAGE, executeEvalRun } from '../src/eval-runner.js';
+const { handleEvalJobFailed, runEvalJob } = await import('../src/eval-job.js');
+const { EVAL_FAILURE_PUBLIC_MESSAGE, executeEvalRun } = await import('../src/eval-runner.js');
 
 const { UnrecoverableError } = await import('bullmq');
 
@@ -127,7 +127,7 @@ function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, st
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  mock.clearAllMocks();
   outputsByConversation.clear();
 });
 

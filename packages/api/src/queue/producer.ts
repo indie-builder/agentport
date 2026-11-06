@@ -22,8 +22,8 @@ import {
   runEventsConnectionName,
   runStreamKey,
 } from '@agentport/shared';
-import { Queue } from 'bullmq';
-import { Redis } from 'ioredis';
+import { createBunRedisClient, Queue } from 'bullmq';
+import { RedisClient } from 'bun';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
@@ -56,12 +56,18 @@ let queue: Queue<AgentRunJob> | undefined;
 let evalQueue: Queue<EvalRunJob> | undefined;
 let knowledgeQueue: Queue<{ jobId: string }> | undefined;
 let runtimeEnvironmentBuildQueue: Queue<RuntimeEnvironmentBuildJob> | undefined;
-let client: Redis | undefined;
-let channelClient: Redis | undefined;
+let client: RedisClient | undefined;
+let channelClient: RedisClient | undefined;
+let queueConnection: ReturnType<typeof createBunRedisClient> | undefined;
+
+function getQueueConnection() {
+  queueConnection ??= createBunRedisClient(new RedisClient(REDIS_URL));
+  return queueConnection;
+}
 
 export function getQueue(): Queue<AgentRunJob> {
   if (!queue) {
-    queue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: { url: REDIS_URL } });
+    queue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: getQueueConnection() });
     queue.on('error', logRedisError);
   }
   return queue;
@@ -69,7 +75,7 @@ export function getQueue(): Queue<AgentRunJob> {
 
 export function getEvalQueue(): Queue<EvalRunJob> {
   if (!evalQueue) {
-    evalQueue = new Queue<EvalRunJob>(EVAL_RUNS_QUEUE, { connection: { url: REDIS_URL } });
+    evalQueue = new Queue<EvalRunJob>(EVAL_RUNS_QUEUE, { connection: getQueueConnection() });
     evalQueue.on('error', logRedisError);
   }
   return evalQueue;
@@ -79,7 +85,7 @@ export function getEvalQueue(): Queue<EvalRunJob> {
 export function getKnowledgeQueue(): Queue<{ jobId: string }> {
   if (!knowledgeQueue) {
     knowledgeQueue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
-      connection: { url: REDIS_URL },
+      connection: getQueueConnection(),
     });
     knowledgeQueue.on('error', logRedisError);
   }
@@ -91,32 +97,29 @@ export function getRuntimeEnvironmentBuildQueue(): Queue<RuntimeEnvironmentBuild
   if (!runtimeEnvironmentBuildQueue) {
     runtimeEnvironmentBuildQueue = new Queue<RuntimeEnvironmentBuildJob>(
       RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
-      { connection: { url: REDIS_URL } },
+      { connection: getQueueConnection() },
     );
     runtimeEnvironmentBuildQueue.on('error', logRedisError);
   }
   return runtimeEnvironmentBuildQueue;
 }
 
-function getClient(): Redis {
+function getClient(): RedisClient {
   if (!client) {
-    client = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
-    client.on('error', logRedisError);
+    client = new RedisClient(REDIS_URL);
+    client.onclose = logRedisError;
   }
   return client;
 }
 
-function getChannelClient(): Redis {
+function getChannelClient(): RedisClient {
   if (!channelClient) {
-    channelClient = new Redis(REDIS_URL, {
-      connectionName: 'channel-producer',
-      maxRetriesPerRequest: 1,
-      commandTimeout: 1_000,
-      connectTimeout: 1_000,
-      // 允许冷启动时短暂排队：首个事件常发生在连接 ready 之前；commandTimeout 仍保证 Redis 不可用时不阻塞请求。
-      enableOfflineQueue: true,
+    channelClient = new RedisClient(REDIS_URL, {
+      connectionTimeout: 1_000,
+      idleTimeout: 1_000,
+      autoReconnect: false,
     });
-    channelClient.on('error', logRedisError);
+    channelClient.onclose = () => undefined;
   }
   return channelClient;
 }
@@ -153,40 +156,24 @@ function parseChannelEvent(payload: string): ChannelEvent | null {
   return parsed.success ? parsed.data : null;
 }
 
-/**
- * pipeline.exec() 不会因单条命令失败而 reject，只逐命令返回 [error, result]；
- * 这里必须检查每一条，否则写入失败会被当成成功。
- */
-function throwOnCommandError(results: [Error | null, unknown][] | null): void {
-  for (const [err] of results ?? []) {
-    if (err) throw err;
-  }
-}
-
 export async function publishRun(runId: string, event: ChatEvent): Promise<void> {
   const redis = getClient();
   const key = runStreamKey(runId);
-  // 事件流不会被读取者删除（可回放），单独给 TTL 兜底；两条命令合成一次往返。
-  throwOnCommandError(
-    await redis
-      .pipeline()
-      .xadd(key, '*', 'payload', JSON.stringify(event))
-      .expire(key, STREAM_TTL_SECONDS)
-      .exec(),
-  );
+  await Promise.all([
+    redis.send('XADD', [key, '*', 'payload', JSON.stringify(event)]),
+    redis.expire(key, STREAM_TTL_SECONDS),
+  ]);
 }
 
 /** 频道事件只做唤醒；订阅端按 DB 的 seq 补拉，不信任这里的正文。 */
 export async function publishChannelEvent(channelId: string, event: ChannelEvent): Promise<void> {
   const redis = getChannelClient();
+  if (!redis.connected) await redis.connect();
   const key = channelStreamKey(channelId);
-  throwOnCommandError(
-    await redis
-      .pipeline()
-      .xadd(key, '*', 'payload', JSON.stringify(event))
-      .expire(key, STREAM_TTL_SECONDS)
-      .exec(),
-  );
+  await Promise.all([
+    redis.send('XADD', [key, '*', 'payload', JSON.stringify(event)]),
+    redis.expire(key, STREAM_TTL_SECONDS),
+  ]);
 }
 
 export async function publishChannelMessage(
@@ -209,20 +196,16 @@ export async function publishChannelMessage(
 export async function requestRunCancel(runId: string): Promise<boolean> {
   const redis = getClient();
   const key = runCancelKey(runId);
-  const replies = await redis
-    .pipeline()
-    .set(key, RUN_CANCEL_PAYLOAD, 'EX', STREAM_TTL_SECONDS, 'NX')
-    .publish(key, RUN_CANCEL_PAYLOAD)
-    .exec();
-  throwOnCommandError(replies);
-  // SET NX 已有键时返回 null：这次没有真正发出新信号。
-  const setResult = replies?.[0]?.[1];
-  return setResult !== null && setResult !== undefined;
+  const [setResult] = await Promise.all([
+    redis.send('SET', [key, RUN_CANCEL_PAYLOAD, 'EX', String(STREAM_TTL_SECONDS), 'NX']),
+    redis.publish(key, RUN_CANCEL_PAYLOAD),
+  ]);
+  return setResult !== null;
 }
 
 /** 挂起的工具调用据此在 worker 收尾前就停止等待。 */
 export async function isRunCancelRequested(runId: string): Promise<boolean> {
-  return (await getClient().exists(runCancelKey(runId))) === 1;
+  return await getClient().exists(runCancelKey(runId));
 }
 
 export interface RunSubscription {
@@ -231,7 +214,7 @@ export interface RunSubscription {
 }
 
 /** 每个订阅独占连接；close() 时断开，避免一条连接的退出影响其他观众。 */
-const subscriptions = new Map<Redis, () => void>();
+const subscriptions = new Map<RedisClient, () => void>();
 
 /**
  * 从流头回放并持续跟进：首次回放从 0-0 正序逐页读完（COUNT 2 限制单页驻留），
@@ -282,18 +265,14 @@ async function subscribeStream<T>(
   errorEvent: T,
   cb: (event: T) => void | Promise<void>,
   signal?: AbortSignal,
-  replayClient?: Redis,
+  replayClient?: RedisClient,
 ): Promise<RunSubscription> {
   if (signal?.aborted) return { close: () => undefined };
   let closed = false;
-  const redis = new Redis(REDIS_URL, {
-    maxRetriesPerRequest: null,
-    connectionName,
-  });
-  redis.on('error', (err) => {
-    // 主动断开会打断在途的 XREAD，连接关闭后的 EPIPE 属于预期。
+  let redis = new RedisClient(REDIS_URL);
+  redis.onclose = (err) => {
     if (!closed) logRedisError(err);
-  });
+  };
   let lastId = '0-0';
 
   const release = (): void => {
@@ -302,29 +281,33 @@ async function subscribeStream<T>(
     signal?.removeEventListener('abort', onAbort);
     subscriptions.delete(redis);
     // QUIT 会排在阻塞中的 XREAD 后面等它返回，所以关闭必须直接断开连接。
-    redis.disconnect();
+    redis.onclose = () => undefined;
+    redis.close();
   };
   const onAbort = (): void => release();
   signal?.addEventListener('abort', onAbort, { once: true });
-  subscriptions.set(redis, () => {
+  const shutdown = () => {
     // Shutdown must not wait for a stalled viewer to drain.
     void Promise.resolve(cb(shutdownEvent)).catch((err: unknown) => {
       logRedisError(err instanceof Error ? err : new Error(String(err)));
     });
     release();
-  });
+  };
+  subscriptions.set(redis, shutdown);
 
   try {
+    await redis.send('CLIENT', ['SETNAME', connectionName]);
     let cursor = '0-0';
     for (;;) {
       if (closed) break;
-      const page = (await (replayClient ?? getClient()).xrange(
+      if (replayClient && !replayClient.connected) await replayClient.connect();
+      const page: StreamEntry[] = await (replayClient ?? getClient()).send('XRANGE', [
         key,
         cursor,
         '+',
         'COUNT',
-        READ_PAGE_SIZE,
-      )) as StreamEntry[];
+        String(READ_PAGE_SIZE),
+      ]);
       for (const [id, fields] of page) {
         if (closed) break;
         lastId = id;
@@ -343,22 +326,39 @@ async function subscribeStream<T>(
 
   if (closed) return { close: release };
 
-  // 回放完成后调用方不再等这个函数；跟读阶段的错误只能记录并释放，不能抛出。
-  // 终端错误（握手/鉴权失败等）向观众发一条 error，让 SSE 正常收尾而不是静默卡住；
-  // 闪断由 ioredis 自动重连并从 lastId 续读，不会进这里。
   void (async () => {
     try {
       while (!closed) {
-        const reply = (await redis.xread(
-          'COUNT',
-          READ_PAGE_SIZE,
-          'BLOCK',
-          0,
-          'STREAMS',
-          key,
-          lastId,
-        )) as Array<[string, StreamEntry[]]> | null;
-        for (const [, batch] of reply ?? []) {
+        let reply: Record<string, StreamEntry[]> | null;
+        try {
+          if (!redis.connected) {
+            await redis.connect();
+            await redis.send('CLIENT', ['SETNAME', connectionName]);
+          }
+          reply = await redis.send('XREAD', [
+            'COUNT',
+            String(READ_PAGE_SIZE),
+            'BLOCK',
+            '0',
+            'STREAMS',
+            key,
+            lastId,
+          ]);
+        } catch (err) {
+          if (closed) return;
+          if (err instanceof Error && 'code' in err && err.code === 'ERR_REDIS_SERVER_ERROR')
+            throw err;
+          logRedisError(err instanceof Error ? err : new Error(String(err)));
+          subscriptions.delete(redis);
+          redis.onclose = () => undefined;
+          redis.close();
+          redis = new RedisClient(REDIS_URL);
+          redis.onclose = logRedisError;
+          subscriptions.set(redis, shutdown);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
+        for (const batch of Object.values(reply ?? {})) {
           for (const [id, fields] of batch) {
             if (closed) return;
             lastId = id;
@@ -368,24 +368,23 @@ async function subscribeStream<T>(
         }
       }
     } catch (err) {
-      // close() 主动断开连接会让在途的 XREAD 失败，属于预期。
       if (!closed) {
         logRedisError(err instanceof Error ? err : new Error(String(err)));
         try {
           await cb(errorEvent);
-        } catch {
-          // 观众写入失败时仍要释放连接。
+        } finally {
+          release();
         }
-        release();
       }
     }
-  })();
+  })().catch(logRedisError);
 
   return { close: release };
 }
 
 export async function closeProducer(): Promise<void> {
-  channelClient?.disconnect();
+  if (channelClient) channelClient.onclose = () => undefined;
+  channelClient?.close();
   channelClient = undefined;
   const closing = [queue, evalQueue, knowledgeQueue, runtimeEnvironmentBuildQueue, client] as const;
   queue = undefined;
@@ -398,8 +397,11 @@ export async function closeProducer(): Promise<void> {
     closing[1]?.close(),
     closing[2]?.close(),
     closing[3]?.close(),
-    closing[4]?.quit(),
     ...[...subscriptions.values()].map((close) => close()),
   ]);
+  if (closing[4]) closing[4].onclose = () => undefined;
+  closing[4]?.close();
+  await queueConnection?.quit();
+  queueConnection = undefined;
   subscriptions.clear();
 }

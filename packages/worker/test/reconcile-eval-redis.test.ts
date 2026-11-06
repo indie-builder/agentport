@@ -5,15 +5,14 @@ import { Queue, Worker } from 'bullmq';
 import { eq, inArray } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, mock } from 'bun:test';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-const { publishRun } = vi.hoisted(() => ({
-  publishRun: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-}));
+const publishRun = mock<() => Promise<void>>().mockResolvedValue(undefined);
 
 // 收敛 evals 本身不发事件，但模块静态导入 runner-client；照既有用例挡掉真实 Redis stream。
-vi.mock('../src/runner-client.js', () => ({ publishRun }));
+const runnerClientActual = await import('../src/runner-client.js');
+mock.module('../src/runner-client.js', () => ({ ...runnerClientActual, publishRun }));
 
 const { reconcileOrphanedEvalRuns } = await import('../src/reconcile.js');
 
@@ -26,20 +25,20 @@ async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
-  const { pool } = createDb(databaseUrl);
+  const { client } = createDb(databaseUrl);
   const redis = new Redis(redisUrl, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     retryStrategy: () => null,
   });
   try {
-    await pool.query('select 1');
+    await client.unsafe('select 1');
     await redis.connect();
     return (await redis.ping()) === 'PONG';
   } catch {
     return false;
   } finally {
-    await pool.end().catch(() => undefined);
+    await client.close().catch(() => undefined);
     await redis.quit().catch(() => undefined);
   }
 }
@@ -127,7 +126,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     if (agentIds.length > 0) {
       await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
     }
-    await dbHandle.pool.end();
+    await dbHandle.client.close();
     await isolated?.close();
   });
 

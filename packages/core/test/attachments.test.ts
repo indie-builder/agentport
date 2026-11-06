@@ -20,7 +20,7 @@ import {
   type ChatAttachmentInput,
   type MessageAttachment,
 } from '@agentport/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   conversationInputsDir,
   copyConversationInputs,

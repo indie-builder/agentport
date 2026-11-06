@@ -5,17 +5,17 @@ import { join } from 'node:path';
 import { newId } from '@agentport/db';
 import type { PermissionGrant } from '@agentport/shared';
 import { hashPassword } from 'better-auth/crypto';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
-import { AUTH_COOKIE } from '../src/features/auth/types.js';
+import { AUTH_COOKIE } from '../src/modules/auth/types.js';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
@@ -36,7 +36,7 @@ async function hash(password: string): Promise<string> {
 }
 
 describe.skipIf(!ready || isolated === null)('agents access control', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let adminCookie: string;
   let adminBusinessId: string;
   const roleIds: Record<string, string> = {};
@@ -54,7 +54,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     const businessId = `biz-${input.label}-${randomUUID().slice(0, 8)}`;
     const username = `user-${input.label}-${randomUUID().slice(0, 8)}`;
     const authUserId = randomUUID();
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into "user" (id, name, email, email_verified, username, business_id, disabled, created_at, updated_at)
        values ($1, $2, $3, true, $4, $5, $6, now(), now())`,
       [
@@ -66,13 +66,13 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
         input.disabled ?? false,
       ],
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into account (id, account_id, provider_id, user_id, password, created_at, updated_at)
        values ($1, $2, 'credential', $3, $4, now(), now())`,
       [randomUUID(), authUserId, authUserId, await hash(PASSWORD)],
     );
     for (const roleId of input.roles) {
-      await app.pool.query('insert into user_roles (business_id, role_id) values ($1, $2)', [
+      await app.client.unsafe('insert into user_roles (business_id, role_id) values ($1, $2)', [
         businessId,
         roleId,
       ]);
@@ -82,7 +82,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
   };
 
   const loginAs = async (account: SeededAccount): Promise<string> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/auth/login',
       payload: { username: account.username, password: PASSWORD },
@@ -95,12 +95,12 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
 
   const createRole = async (name: string, grants: PermissionGrant[]): Promise<string> => {
     const id = newId('role');
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into roles (id, name, system_key, created_at, updated_at) values ($1, $2, null, now(), now())',
       [id, name],
     );
     for (const grant of grants) {
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into role_permissions (role_id, permission_id, scope) values ($1, $2, $3)',
         [id, grant.permissionId, grant.scope],
       );
@@ -112,7 +112,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
   const createAs = (cookie: string, payload: Record<string, unknown> = {}) => {
     const slug = (payload.slug as string | undefined) ?? unique('agent');
     agentSlugs.push(slug);
-    return inject(app, {
+    return request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: { cookie },
@@ -140,17 +140,17 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     // 首次登录触发 bootstrap，播种四个默认角色。
     adminCookie = await loginCookie(app);
     adminBusinessId = (
-      await app.pool.query<{ business_id: string }>(
+      await app.client.unsafe<{ business_id: string }[]>(
         'select business_id from "user" where username = $1',
         ['admin'],
       )
-    ).rows[0]?.business_id as string;
+    )[0]?.business_id as string;
     expect(adminBusinessId).toBeTruthy();
 
-    const roles = await app.pool.query<{ id: string; system_key: string }>(
+    const roles = await app.client.unsafe<{ id: string; system_key: string }[]>(
       'select id, system_key from roles where system_key is not null',
     );
-    for (const row of roles.rows) roleIds[row.system_key] = row.id;
+    for (const row of roles) roleIds[row.system_key] = row.id;
 
     owner1 = await seedAccount({ label: 'owner1', roles: [roleIds.owner as string] });
     owner2 = await seedAccount({ label: 'owner2', roles: [roleIds.owner as string] });
@@ -169,13 +169,13 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     await sessions.close();
     await cleanup(app, { agentSlugs });
     for (const businessId of seeded) {
-      await app.pool.query('delete from user_roles where business_id = $1', [businessId]);
-      await app.pool.query('delete from "user" where business_id = $1', [businessId]);
+      await app.client.unsafe('delete from user_roles where business_id = $1', [businessId]);
+      await app.client.unsafe('delete from "user" where business_id = $1', [businessId]);
     }
     for (const roleId of customRoles) {
-      await app.pool.query('delete from roles where id = $1', [roleId]);
+      await app.client.unsafe('delete from roles where id = $1', [roleId]);
     }
-    await app.pool.query('delete from audit_log where actor = any($1::text[])', [seeded]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(seeded, 'TEXT')]);
     await app.close();
     await isolated?.close();
     await rm(workspaces, { recursive: true, force: true });
@@ -186,7 +186,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     expect(created.statusCode, created.body).toBe(201);
     const agent = created.json<{ id: string }>();
 
-    const own = await inject(app, {
+    const own = await request(app, {
       method: 'GET',
       url: '/api/agents',
       headers: { cookie: owner1.cookie },
@@ -224,7 +224,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     }
     expect(own.body).not.toContain('TOP-SECRET-PROMPT');
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: owner1.cookie },
@@ -233,7 +233,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     expect(detail.json<{ systemPrompt: string }>().systemPrompt).toBe('TOP-SECRET-PROMPT');
 
     // 无关用户列表里看不到；没有配置读取叶的用户连详情入口都不可用。
-    const strangerList = await inject(app, {
+    const strangerList = await request(app, {
       method: 'GET',
       url: '/api/agents',
       headers: { cookie: viewer.cookie },
@@ -243,14 +243,14 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       false,
     );
 
-    const strangerDetail = await inject(app, {
+    const strangerDetail = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: viewer.cookie },
     });
     expectProblem(strangerDetail, 'FORBIDDEN');
 
-    const adminDetail = await inject(app, {
+    const adminDetail = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: adminCookie },
@@ -268,11 +268,11 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     expectProblem(forged, 'INVALID_INPUT');
 
     const agent = await createAgentFor(owner1.cookie);
-    const row = await app.pool.query<{ created_by: string; owner_business_id: string }>(
+    const row = await app.client.unsafe<{ created_by: string; owner_business_id: string }[]>(
       'select created_by, owner_business_id from agents where id = $1',
       [agent.id],
     );
-    expect(row.rows[0]).toEqual({
+    expect(row[0]).toEqual({
       created_by: owner1.businessId,
       owner_business_id: owner1.businessId,
     });
@@ -281,7 +281,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
   it('lets a maintainer edit content but not members, transfer or delete', async () => {
     const agent = await createAgentFor(owner1.cookie);
 
-    const grant = await inject(app, {
+    const grant = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/members/${maintainer.businessId}`,
       headers: { cookie: owner1.cookie },
@@ -294,7 +294,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       canMaintain: true,
     });
 
-    const config = await inject(app, {
+    const config = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: maintainer.cookie },
@@ -307,7 +307,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       ['DELETE', `/api/agents/${agent.id}`, undefined],
       ['POST', `/api/agents/${agent.id}/transfer`, { ownerBusinessId: maintainer.businessId }],
     ] as const) {
-      const denied = await inject(app, {
+      const denied = await request(app, {
         method,
         url,
         headers: { cookie: maintainer.cookie },
@@ -326,7 +326,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       `/api/agents/${agent.id}/versions`,
       `/api/agents/${agent.id}/files`,
     ]) {
-      const read = await inject(app, {
+      const read = await request(app, {
         method: 'GET',
         url,
         headers: { cookie: maintainer.cookie },
@@ -340,7 +340,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     const ownChild = await createAgentFor(owner1.cookie);
     const foreignChild = await createAgentFor(owner2.cookie);
 
-    const ownBind = await inject(app, {
+    const ownBind = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${parent.id}`,
       headers: { cookie: owner1.cookie },
@@ -348,7 +348,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(ownBind.statusCode, ownBind.body).toBe(200);
 
-    const foreignBind = await inject(app, {
+    const foreignBind = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${parent.id}`,
       headers: { cookie: owner1.cookie },
@@ -356,11 +356,11 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(foreignBind.statusCode, foreignBind.body).toBe(404);
 
-    const stillBound = await app.pool.query<{ parent_id: string | null }>(
+    const stillBound = await app.client.unsafe<{ parent_id: string | null }[]>(
       'select parent_id from agents where id = $1',
       [foreignChild.id],
     );
-    expect(stillBound.rows[0]?.parent_id).toBeNull();
+    expect(stillBound[0]?.parent_id).toBeNull();
   });
 
   it('hides other owners objects once the scope does not match', async () => {
@@ -373,7 +373,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       ['DELETE', `/api/agents/${agent.id}`, undefined],
       ['POST', `/api/agents/${agent.id}/transfer`, { ownerBusinessId: owner2.businessId }],
     ] as const) {
-      const denied = await inject(app, {
+      const denied = await request(app, {
         method,
         url,
         headers: { cookie: owner2.cookie },
@@ -382,8 +382,8 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       expect(denied.statusCode, `${method} ${url}: ${denied.body}`).toBe(404);
     }
 
-    const stillThere = await app.pool.query('select id from agents where id = $1', [agent.id]);
-    expect(stillThere.rows).toHaveLength(1);
+    const stillThere = await app.client.unsafe('select id from agents where id = $1', [agent.id]);
+    expect(stillThere).toHaveLength(1);
   });
 
   it('does not merge write and read scopes from different roles on one object', async () => {
@@ -391,7 +391,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     const makeMaintainer = async (label: string, roleId: string) => {
       const account = await seedAccount({ label, roles: [roleId] });
       account.cookie = await loginAs(account);
-      await app.pool.query(
+      await app.client.unsafe(
         'insert into agent_members (agent_id, business_id, can_use, can_maintain, created_at) values ($1, $2, false, true, now())',
         [agent.id, account.businessId],
       );
@@ -407,7 +407,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
         { permissionId: 'agents.config.read', scope: 'authorized_agents' },
       ]),
     );
-    const readDenied = await inject(app, {
+    const readDenied = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: cantRead.cookie },
@@ -424,7 +424,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
         { permissionId: 'agents.config.update', scope: 'authorized_agents' },
       ]),
     );
-    const writeDenied = await inject(app, {
+    const writeDenied = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: cantWrite.cookie },
@@ -440,7 +440,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
         { permissionId: 'agents.config.update', scope: 'maintained_agents' },
       ]),
     );
-    const allowed = await inject(app, {
+    const allowed = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: matched.cookie },
@@ -448,11 +448,11 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(allowed.statusCode, allowed.body).toBe(200);
 
-    const stored = await app.pool.query<{ description: string }>(
+    const stored = await app.client.unsafe<{ description: string }[]>(
       'select description from agents where id = $1',
       [agent.id],
     );
-    expect(stored.rows[0]?.description).toBe('same scope');
+    expect(stored[0]?.description).toBe('same scope');
   });
 
   it('requires both the declared leaf and the binding leaf on a combined patch', async () => {
@@ -464,13 +464,13 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     const comboSingle = await seedAccount({ label: 'update-only', roles: [updateRole] });
     comboSingle.cookie = await loginAs(comboSingle);
     const agent = await createAgentFor(owner1.cookie, { description: 'initial' });
-    await app.pool.query(
+    await app.client.unsafe(
       'insert into agent_members (agent_id, business_id, can_use, can_maintain, created_at) values ($1, $2, true, true, now())',
       [agent.id, comboSingle.businessId],
     );
 
     // 同一请求同时带配置与绑定字段：配置叶通过，但缺少绑定叶，整体拒绝且不写部分字段。
-    const denied = await inject(app, {
+    const denied = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: comboSingle.cookie },
@@ -478,17 +478,17 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(denied.statusCode, denied.body).toBe(403);
 
-    const description = await app.pool.query<{ description: string }>(
+    const description = await app.client.unsafe<{ description: string }[]>(
       'select description from agents where id = $1',
       [agent.id],
     );
-    expect(description.rows[0]?.description).toBe('initial');
+    expect(description[0]?.description).toBe('initial');
   });
 
   it('manages members, transfers ownership and keeps createdBy unchanged', async () => {
     const agent = await createAgentFor(owner1.cookie);
 
-    const members = await inject(app, {
+    const members = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/members`,
       headers: { cookie: owner1.cookie },
@@ -496,7 +496,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     expect(members.statusCode, members.body).toBe(200);
     expect(members.json()).toEqual({ ownerBusinessId: owner1.businessId, members: [] });
 
-    const unregistered = await inject(app, {
+    const unregistered = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/members/never-registered`,
       headers: { cookie: owner1.cookie },
@@ -504,7 +504,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expectProblem(unregistered, 'INVALID_INPUT');
 
-    const invalidMember = await inject(app, {
+    const invalidMember = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/members/${maintainer.businessId}`,
       headers: { cookie: owner1.cookie },
@@ -512,7 +512,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expectProblem(invalidMember, 'INVALID_INPUT');
 
-    const added = await inject(app, {
+    const added = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/members/${maintainer.businessId}`,
       headers: { cookie: owner1.cookie },
@@ -521,7 +521,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     expect(added.statusCode, added.body).toBe(200);
     expect(added.json()).toMatchObject({ businessId: maintainer.businessId, canUse: true });
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}/members/${maintainer.businessId}`,
       headers: { cookie: owner1.cookie },
@@ -530,7 +530,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     expect(removed.json()).toEqual({ ok: true });
 
     // 无创建权限的账户不能接任负责人。
-    const toViewer = await inject(app, {
+    const toViewer = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/transfer`,
       headers: { cookie: owner1.cookie },
@@ -543,7 +543,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       roles: [roleIds.owner as string],
       disabled: true,
     });
-    const toDisabled = await inject(app, {
+    const toDisabled = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/transfer`,
       headers: { cookie: owner1.cookie },
@@ -551,7 +551,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expectProblem(toDisabled, 'INVALID_INPUT');
 
-    const transferred = await inject(app, {
+    const transferred = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/transfer`,
       headers: { cookie: owner1.cookie },
@@ -559,17 +559,17 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(transferred.statusCode, transferred.body).toBe(200);
 
-    const row = await app.pool.query<{ created_by: string; owner_business_id: string }>(
+    const row = await app.client.unsafe<{ created_by: string; owner_business_id: string }[]>(
       'select created_by, owner_business_id from agents where id = $1',
       [agent.id],
     );
-    expect(row.rows[0]).toEqual({
+    expect(row[0]).toEqual({
       created_by: owner1.businessId,
       owner_business_id: owner2.businessId,
     });
 
     // 原负责人失去管理权；新负责人可继续配置。
-    const oldOwner = await inject(app, {
+    const oldOwner = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: owner1.cookie },
@@ -577,7 +577,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(oldOwner.statusCode, oldOwner.body).toBe(404);
 
-    const newOwner = await inject(app, {
+    const newOwner = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: owner2.cookie },
@@ -588,14 +588,14 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
 
   it('serves evaluated permissions per object and restricts identity search to the owner', async () => {
     const agent = await createAgentFor(owner1.cookie);
-    await inject(app, {
+    await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/members/${maintainer.businessId}`,
       headers: { cookie: owner1.cookie },
       payload: { canUse: true, canMaintain: true },
     });
 
-    const ownerAccess = await inject(app, {
+    const ownerAccess = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/access`,
       headers: { cookie: owner1.cookie },
@@ -612,7 +612,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       ]),
     );
 
-    const maintainerAccess = await inject(app, {
+    const maintainerAccess = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/access`,
       headers: { cookie: maintainer.cookie },
@@ -632,14 +632,14 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       expect(maintainerPermissions).not.toContain(forbidden);
     }
 
-    const strangerAccess = await inject(app, {
+    const strangerAccess = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/access`,
       headers: { cookie: owner2.cookie },
     });
     expect(strangerAccess.statusCode, strangerAccess.body).toBe(404);
 
-    const identities = await inject(app, {
+    const identities = await request(app, {
       method: 'GET',
       url: `/api/identities?agentId=${encodeURIComponent(agent.id)}&q=`,
       headers: { cookie: owner1.cookie },
@@ -657,14 +657,14 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       });
     }
 
-    const maintainerSearch = await inject(app, {
+    const maintainerSearch = await request(app, {
       method: 'GET',
       url: `/api/identities?agentId=${encodeURIComponent(agent.id)}`,
       headers: { cookie: maintainer.cookie },
     });
     expectProblem(maintainerSearch, 'FORBIDDEN');
 
-    const foreignSearch = await inject(app, {
+    const foreignSearch = await request(app, {
       method: 'GET',
       url: `/api/identities?agentId=${encodeURIComponent(agent.id)}`,
       headers: { cookie: owner2.cookie },
@@ -675,21 +675,21 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
   it('deletes only when the owner holds the delete leaf', async () => {
     const agent = await createAgentFor(owner1.cookie);
 
-    const maintainerDelete = await inject(app, {
+    const maintainerDelete = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: maintainer.cookie },
     });
     expectProblem(maintainerDelete, 'FORBIDDEN');
 
-    const ownerDelete = await inject(app, {
+    const ownerDelete = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: owner1.cookie },
     });
     expect(ownerDelete.statusCode, ownerDelete.body).toBe(204);
 
-    const gone = await inject(app, {
+    const gone = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: owner1.cookie },
@@ -699,7 +699,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
 
   it('allows admins to manage any agent and audits with the business id', async () => {
     const agent = await createAgentFor(owner1.cookie);
-    const patched = await inject(app, {
+    const patched = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: adminCookie },
@@ -707,10 +707,10 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(patched.statusCode, patched.body).toBe(200);
 
-    const audit = await app.pool.query<{ actor: string }>(
+    const audit = await app.client.unsafe<{ actor: string }[]>(
       'select actor from audit_log where target = $1 and action = $2 order by created_at desc limit 1',
       [agent.id, 'agent.updated'],
     );
-    expect(audit.rows[0]?.actor).toBe(adminBusinessId);
+    expect(audit[0]?.actor).toBe(adminBusinessId);
   });
 });

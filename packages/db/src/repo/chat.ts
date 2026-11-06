@@ -828,7 +828,7 @@ export async function searchConversations(
         and strpos(lower(normalized.body), ${needle}) > 0
       order by ${messages.conversationId}, ${messages.createdAt} desc, ${messages.id} desc
     `);
-    for (const row of result.rows) {
+    for (const row of result) {
       excerptById.set(row.conversationId, row.excerpt);
     }
   }

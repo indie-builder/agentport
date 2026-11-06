@@ -41,7 +41,7 @@
 | 编号 | 修复 |
 |---|---|
 | H5 | `/mcp` 60/min + 进程内并发 4；`/api/servers/:id/test` 20/min；`/api/eval/runs` 10/min + 同 agent 只允许一个 running |
-| H8 | 全局启用 CSP；仅 MCP 路由关闭；`style-src` 放行内联样式 |
+| H8 | 全局启用 CSP：`packages/api/src/http/security.ts:72` 的 `secureHeaders` 由 `packages/api/src/app.ts:118` 挂到 `*`，对所有响应生效（含 `/mcp`）；`style-src` 放行内联样式；`/api/docs` 用专用 CSP（`packages/api/src/plugins/openapi.ts:12`）放行 Scalar 的内联脚本与 CDN |
 | M2 | JWT 增加 `sid`，Redis 存会话，logout 立即失效；TTL 24 小时；鉴权查询 5 秒本地缓存（历史实现；当前见文首说明） |
 | M3 | CORS 显式 allowlist（`CORS_ORIGINS`）；`TRUST_PROXY` 支持 |
 | M7 | Agent/Server PATCH 乐观锁，冲突返回 409 `CONFLICT_STALE`；前端提示刷新 |

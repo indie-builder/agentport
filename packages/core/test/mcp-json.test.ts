@@ -1,5 +1,5 @@
 import type { ServerInput } from '@agentport/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { AppError } from '../src/errors.js';
 import { parseMcpJson } from '../src/mcp-json.js';
 

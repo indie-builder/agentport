@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
@@ -10,8 +10,8 @@ import { agents } from '../src/schema.js';
 
 // pruneRuns/pruneOrphanMessages 是全库操作：与其它套件共用库时会互相删掉对方的数据。
 const isolated = await createIsolatedDatabase('db_attach', process.env.DATABASE_URL ?? '');
-const { db, pool } = createDb(isolated?.url ?? process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(isolated?.url ?? process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -50,7 +50,7 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
       for (const agentId of agentIds) {
         await db.delete(agents).where(eq(agents.id, agentId));
       }
-      await pool.end();
+      await client.close();
     } finally {
       await isolated?.close();
     }
@@ -215,7 +215,7 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
       [user, null],
       [after, null],
     ]);
-    await pool.query('delete from conversations where id = $1', [conversationId]);
+    await client.unsafe('delete from conversations where id = $1', [conversationId]);
   });
 
   it('never deletes orphan messages that reference attachments', async () => {

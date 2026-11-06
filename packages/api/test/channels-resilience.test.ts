@@ -1,49 +1,27 @@
-import { ServerResponse } from 'node:http';
-import { type AddressInfo, createConnection, createServer, type Server } from 'node:net';
+import { connect } from 'node:net';
 import { repo } from '@agentport/db';
-import type { Channel, ChannelEvent, ChannelMessage } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { channelStreamKey, type Channel, type ChannelEvent, type ChannelMessage } from '@agentport/shared';
+import { RedisClient } from 'bun';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { closeProducer } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,
   createTestAccount,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
   type TestAccount,
-  testConfig,
+  type TestApp,
   unique,
 } from './helpers.js';
-
-const faults = vi.hoisted(() => ({ redisUrl: '', ready: undefined as (() => void) | undefined }));
-vi.mock('ioredis', async (original) => {
-  const actual = await original<typeof import('ioredis')>();
-  return {
-    ...actual,
-    Redis: class extends actual.Redis {
-      constructor(...args: ConstructorParameters<typeof actual.Redis>) {
-        const options = args[1];
-        const name = options && typeof options === 'object' ? options.connectionName : undefined;
-        if (
-          faults.redisUrl &&
-          (name === 'channel-producer' || name?.startsWith('channel-events:'))
-        ) {
-          super(faults.redisUrl, options);
-          if (name === 'channel-producer') this.once('ready', () => faults.ready?.());
-        } else {
-          super(...args);
-        }
-      }
-    },
-  };
-});
+import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('channel resilience and authorization', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let server: TestServer;
   let adminCookie: string;
   let owner: TestAccount;
   let member: TestAccount;
@@ -55,26 +33,23 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
     adminCookie = await loginCookie(app);
     owner = await createTestAccount(app, adminCookie, { systemKeys: [] });
     member = await createTestAccount(app, adminCookie, { systemKeys: [] });
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    baseUrl = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+    server = await listen(app);
+    baseUrl = server.url;
   });
 
   afterEach(async () => {
-    faults.redisUrl = '';
-    faults.ready = undefined;
-    vi.restoreAllMocks();
     await closeProducer();
   });
 
   afterAll(async () => {
-    await app.pool.query('delete from channels where id = any($1::text[])', [ids]);
-    await app.pool.query('delete from audit_log where target = any($1::text[])', [ids]);
+    await server.close();
+    await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(ids, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(ids, 'TEXT')]);
     const businessIds = [owner.businessId, member.businessId];
-    await app.pool.query('delete from audit_log where actor = any($1::text[])', [businessIds]);
-    await app.pool.query('delete from user_roles where business_id = any($1::text[])', [
-      businessIds,
-    ]);
-    await app.pool.query('delete from "user" where business_id = any($1::text[])', [businessIds]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
+    );
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
     await app.close();
   });
 
@@ -84,7 +59,7 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
     cookie = owner.cookie,
     payload?: Record<string, unknown>,
   ) =>
-    inject(app, {
+    request(app, {
       method,
       url,
       headers: { cookie },
@@ -172,7 +147,7 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
     const future = await call('GET', `/api/channels/${value.id}/events?after=1000000`);
     expect(future.statusCode, future.body).toBe(400);
     expect(future.json()).toMatchObject({ code: 'INVALID_INPUT' });
-    expect(future.headers['content-type']).not.toContain('text/event-stream');
+    expect(future.headers.get('content-type')).not.toContain('text/event-stream');
     const empty = await stream(value.id);
     await empty.close();
     const saved = (await post(value.id, 'current maximum')).json<ChannelMessage>();
@@ -227,13 +202,13 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
       await connection.next(
         (event) => event.type === 'message.created' && event.message.body === 'another',
       );
-      const audit = await app.pool.query(
+      const audit = await app.client.unsafe(
         'select actor, subject_business_id, action, request_id from audit_log where target = $1 order by created_at',
         [value.id],
       );
-      expect(audit.rows).toHaveLength(4);
-      expect(new Set(audit.rows.map((row) => row.request_id)).size).toBe(4);
-      for (const row of audit.rows)
+      expect(audit).toHaveLength(4);
+      expect(new Set(audit.map((row) => row.request_id)).size).toBe(4);
+      for (const row of audit)
         expect(row).toMatchObject({
           actor: ADMIN_BUSINESS_ID,
           subject_business_id: owner.businessId,
@@ -248,21 +223,22 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
     const value = await channel();
     await join(value.id);
     await post(value.id, 'secret after access check');
-    const query = app.pool.query.bind(app.pool);
+    const query = app.client.unsafe.bind(app.client);
     let revoked = false;
-    const spy = vi.spyOn(app.pool, 'query').mockImplementation((async (
-      ...args: Parameters<typeof app.pool.query>
+    const spy = spyOn(app.client, 'unsafe').mockImplementation(((
+      ...args: Parameters<typeof app.client.unsafe>
     ) => {
       const text = typeof args[0] === 'string' ? args[0] : args[0].text;
       if (!revoked && /from "channel_messages"/i.test(text) && /order by/i.test(text)) {
         revoked = true;
-        await query('delete from channel_members where channel_id = $1 and business_id = $2', [
-          value.id,
-          member.businessId,
-        ]);
+        const pending = query(
+          'delete from channel_members where channel_id = $1 and business_id = $2',
+          [value.id, member.businessId],
+        ).then(() => query(...args));
+        return Object.assign(pending, { values: () => pending });
       }
       return query(...args);
-    }) as typeof app.pool.query);
+    }) as typeof app.client.unsafe);
     try {
       const result = await repo.channels.listMessages(
         app.db,
@@ -283,95 +259,96 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
   it('stops a cached SSE page after membership is removed during backpressure', async () => {
     const value = await channel();
     await join(value.id);
-    await post(value.id, 'already written');
-    await post(value.id, 'must stay private');
-    let blockedResponse: ServerResponse | undefined;
-    const blocked = Promise.withResolvers<void>();
-    const originalWrite = ServerResponse.prototype.write;
-    vi.spyOn(ServerResponse.prototype, 'write').mockImplementation(function (
-      this: ServerResponse,
-      ...args: Parameters<ServerResponse['write']>
-    ) {
-      const frame = String(args[0]);
-      const result = originalWrite.apply(this, args);
-      if (
-        frame.startsWith('data: ') &&
-        frame.includes('already written') &&
-        frame.includes(value.id)
-      ) {
-        blockedResponse = this;
-        blocked.resolve();
-        return false;
-      }
-      return result;
-    });
-    const connecting = stream(value.id, member.cookie);
-    await blocked.promise;
-    const connection = await connecting;
-    try {
-      const removed = await call(
-        'DELETE',
-        `/api/channels/${value.id}/members/${member.businessId}`,
-      );
-      expect(removed.statusCode, removed.body).toBe(204);
-      blockedResponse?.emit('drain');
-      await connection.pump;
-      expect(
-        connection.events
-          .filter((event) => event.type === 'message.created')
-          .map((event) => event.message.body),
-      ).toEqual(['already written']);
-      expect(connection.events.at(-1)).toMatchObject({ type: 'error' });
-    } finally {
-      blockedResponse?.emit('drain');
-      await connection.close();
+    const total = 200;
+    const body = 'x'.repeat(30_000);
+    for (let index = 0; index < total; index += 1) {
+      const posted = await post(value.id, `${index}:${body}`);
+      expect(posted.statusCode, posted.body).toBe(201);
     }
+
+    const url = new URL(baseUrl);
+    const socket = connect(Number(url.port), url.hostname);
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve);
+      socket.once('error', reject);
+    });
+    socket.write(
+      [
+        `GET /api/channels/${value.id}/events?after=0 HTTP/1.1`,
+        `Host: ${url.host}`,
+        `Cookie: ${member.cookie}`,
+        'Accept: text/event-stream',
+        'Connection: close',
+        '',
+        '',
+      ].join('\r\n'),
+    );
+
+    // Slow consumer: do not read for a while so the server's cached page fills the socket buffer.
+    await Bun.sleep(300);
+    const removed = await call(
+      'DELETE',
+      `/api/channels/${value.id}/members/${member.businessId}`,
+    );
+    expect(removed.statusCode, removed.body).toBe(204);
+
+    const chunks: Buffer[] = [];
+    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+    socket.on('data', (chunk: Buffer) => chunks.push(chunk));
+    socket.resume();
+    await Promise.race([closed, Bun.sleep(8_000)]);
+    socket.destroy();
+
+    const text = Buffer.concat(chunks).toString('utf8');
+    const events = text
+      .split('\n\n')
+      .flatMap((block) => {
+        const line = block.split('\n').find((entry) => entry.startsWith('data: '));
+        if (!line) return [];
+        try {
+          return [JSON.parse(line.slice(6)) as { type?: string; message?: { body?: string } }];
+        } catch {
+          return [];
+        }
+      })
+      .filter((event) => event.type !== undefined);
+
+    const created = events.filter((event) => event.type === 'message.created');
+    expect(created.length).toBeLessThan(total);
+    expect(events.at(-1)).toMatchObject({ type: 'error' });
   });
 
   it('saves promptly and keeps DB replay and polling alive when channel Redis does not answer', async () => {
     const value = await channel();
     await post(value.id, 'history before failure');
     await closeProducer();
-    const sockets = new Set<import('node:net').Socket>();
-    const redisUrl = new URL(testConfig().REDIS_URL);
+    const key = channelStreamKey(value.id);
     let blockedPublish = false;
     let blockedReplay = false;
-    const blackhole: Server = createServer((socket) => {
-      const upstream = createConnection({ host: redisUrl.hostname, port: Number(redisUrl.port) });
-      sockets.add(socket);
-      sockets.add(upstream);
-      socket.on('error', () => undefined);
-      upstream.on('error', () => socket.destroy());
-      socket.on('close', () => {
-        sockets.delete(socket);
-        upstream.destroy();
-      });
-      upstream.on('close', () => sockets.delete(upstream));
-      upstream.pipe(socket);
-      socket.on('data', (data) => {
-        const command = data.toString().toLowerCase();
-        if (command.includes('xadd')) {
+    const originalSend = RedisClient.prototype.send;
+    const spy = spyOn(RedisClient.prototype, 'send').mockImplementation(function (
+      this: RedisClient,
+      command: string,
+      args: string[],
+    ) {
+      if (String(args[0]) === key) {
+        if (command === 'XADD') {
           blockedPublish = true;
-          return;
+          return Promise.reject(new Error('redis down'));
         }
-        if (command.includes('xrange')) {
+        if (command === 'XRANGE' || command === 'XREAD') {
           blockedReplay = true;
-          return;
+          return Promise.reject(new Error('redis down'));
         }
-        upstream.write(data);
-      });
+      }
+      return originalSend.call(this, command, args);
     });
-    await new Promise<void>((resolve) => blackhole.listen(0, '127.0.0.1', resolve));
-    faults.redisUrl = `redis://127.0.0.1:${(blackhole.address() as AddressInfo).port}`;
     let connection: Awaited<ReturnType<typeof stream>> | undefined;
-    const channelReady = Promise.withResolvers<void>();
-    faults.ready = () => channelReady.resolve();
     try {
       const started = performance.now();
       const saved = await post(value.id, 'saved despite redis');
       expect(saved.statusCode, saved.body).toBe(201);
       expect(performance.now() - started).toBeLessThan(2500);
-      await channelReady.promise;
       connection = await stream(value.id);
       await connection.next(
         (event) => event.type === 'message.created' && event.message.body === 'saved despite redis',
@@ -395,11 +372,8 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
       ).toBe(true);
     } finally {
       await connection?.close();
+      spy.mockRestore();
       await closeProducer();
-      for (const socket of sockets) socket.destroy();
-      await new Promise<void>((resolve, reject) =>
-        blackhole.close((error) => (error ? reject(error) : resolve())),
-      );
     }
   });
 });

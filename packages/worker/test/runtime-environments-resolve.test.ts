@@ -1,5 +1,5 @@
 import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 import { createRuntimeEnvironmentResolver } from '../src/runtime-environments/resolve.js';
 
 const identity: ResolvedRuntimeEnvironment = {
@@ -11,7 +11,7 @@ const identity: ResolvedRuntimeEnvironment = {
 
 describe('runtime environment resolver', () => {
   it('passes the binding through and resolves once per real creation', async () => {
-    const resolveOnline = vi.fn(async () => identity);
+    const resolveOnline = mock(async () => identity);
     const resolve = createRuntimeEnvironmentResolver(resolveOnline);
 
     await expect(resolve('env_1')).resolves.toEqual(identity);
@@ -19,7 +19,7 @@ describe('runtime environment resolver', () => {
   });
 
   it('uses null for the platform default environment', async () => {
-    const resolveOnline = vi.fn(async (_environmentId: string | null) => identity);
+    const resolveOnline = mock(async (_environmentId: string | null) => identity);
     const resolve = createRuntimeEnvironmentResolver(resolveOnline);
 
     await resolve(null);

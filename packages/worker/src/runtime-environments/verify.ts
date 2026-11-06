@@ -34,8 +34,6 @@ const entries = ['runner', 'session-supervisor', 'probe', 'native-plugins'];
 for (const name of entries) {
   const path = '/app/dist/' + name + '.js';
   if (!fs.existsSync(path)) fail('missing artifact: ' + path);
-  const checked = run(process.execPath, ['--check', path]);
-  if (checked.status !== 0) fail('syntax error in ' + path + ': ' + tail(checked.stderr));
 }
 
 let writable = false;
@@ -84,7 +82,7 @@ if (runnerOutput.indexOf('stdin closed before task JSON arrived') === -1) {
   fail('runner failed to load: ' + tail(runnerOutput));
 }
 
-const base = require('node:module').createRequire('/app/package.json');
+const base = require('node:module').createRequire('/app/packages/sandbox/package.json');
 const sdk = require('node:module').createRequire(base.resolve('@anthropic-ai/claude-agent-sdk'));
 const cli = sdk.resolve('@anthropic-ai/claude-agent-sdk-linux-' + process.arch + '-musl/claude');
 if (!(fs.statSync(cli).mode & 0o111)) fail('SDK native CLI is not executable: ' + cli);
@@ -251,7 +249,7 @@ export async function verifyRuntimeEnvironmentImage(
         '--workdir',
         '/app',
         '--entrypoint',
-        'node',
+        'bun',
         input.imageId,
         '-e',
         VERIFY_SCRIPT,

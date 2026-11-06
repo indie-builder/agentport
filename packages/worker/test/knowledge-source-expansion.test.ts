@@ -11,9 +11,10 @@ import {
   knowledgeSourceInputSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readKnowledgeTarget } from '../../api/src/features/knowledge/mcp.js';
-import { searchKnowledge } from '../../api/src/features/knowledge/retrieval.js';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
+import { readKnowledgeTarget } from '../../api/src/modules/knowledge/mcp.js';
+import { searchKnowledge } from '../../api/src/modules/knowledge/retrieval.js';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import { type KnowledgeDeps, runSync } from '../src/knowledge/ingestion.js';
 import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
@@ -70,9 +71,7 @@ let handler: FetchHandler = () => new Response('not mocked', { status: 599 });
 beforeEach(() => {
   calls = [];
   handler = () => new Response('not mocked', { status: 599 });
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+  stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(
         typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
       );
@@ -102,7 +101,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreFetch();
 });
 
 interface FixtureBase {
@@ -122,7 +121,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
-  await dbHandle?.pool.end();
+  await dbHandle?.client.close();
   await isolated?.close();
 });
 

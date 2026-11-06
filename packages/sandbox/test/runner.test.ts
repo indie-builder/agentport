@@ -1,9 +1,10 @@
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import * as fsActual from 'node:fs/promises';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { renderWorkspace } from '../../core/src/workspace.js';
 
 // 外部 I/O 只有 SDK 与 stdin/stdout；runner 的 schema、选项组装和事件编码全走真实代码。
-const io = vi.hoisted(() => {
+const io = (() => {
   const stdin: string[] = [];
   const waiters: Array<(line: string | null) => void> = [];
   let stdinClosed = false;
@@ -57,9 +58,9 @@ const io = vi.hoisted(() => {
     /** query.close() 是否被显式调用。 */
     closed: false,
   };
-});
+})();
 
-vi.mock('node:readline', () => ({
+mock.module('node:readline', () => ({
   createInterface: () => ({
     close() {},
     [Symbol.asyncIterator]: () => ({
@@ -72,20 +73,17 @@ vi.mock('node:readline', () => ({
 }));
 
 // transcript 目录用真实文件系统语义太重；这里只回答「会话是否存在」。
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
-  return {
-    ...actual,
-    readdir: async () => ['workspace'],
-    stat: async (path: string) => {
-      const match = /([^/]+)\.jsonl$/.exec(path);
-      if (match && io.sessions.has(match[1] ?? '')) return { isFile: () => true };
-      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-    },
-  };
-});
+mock.module('node:fs/promises', () => ({
+  ...fsActual,
+  readdir: async () => ['workspace'],
+  stat: async (path: string) => {
+    const match = /([^/]+)\.jsonl$/.exec(path);
+    if (match && io.sessions.has(match[1] ?? '')) return { isFile: () => true };
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  },
+}));
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   forkSession: async (sessionId: string, options: { upToMessageId?: string }) => {
     io.forkCalls.push({
       sessionId,
@@ -167,6 +165,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 const USER_UUID = '11111111-2222-4333-8444-555555555555';
+let caseSequence = 0;
 
 interface Event {
   type: string;
@@ -223,19 +222,18 @@ async function run(
   const previousTrigger = process.env.PACE_RUN_TRIGGER;
   if (init.channel === true) process.env.PACE_RUN_TRIGGER = 'channel';
   else delete process.env.PACE_RUN_TRIGGER;
-  vi.resetModules();
   const events: Event[] = [];
   let stderr = '';
-  const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+  const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => {
     events.push(JSON.parse(String(chunk)));
     return true;
   });
-  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+  const stderrSpy = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
     stderr += String(chunk);
     return true;
   });
   try {
-    await import('../src/runner.js');
+    await import(`../src/runner.js?case=${caseSequence++}`);
   } finally {
     stdout.mockRestore();
     stderrSpy.mockRestore();

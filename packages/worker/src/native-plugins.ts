@@ -11,7 +11,8 @@ import {
   nativePluginOutputSchema,
   redactSecrets,
 } from '@agentport/shared';
-import { Worker } from 'bullmq';
+import { createBunRedisClient, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import pino, { type Logger } from 'pino';
 import type { Config } from './config.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
@@ -109,7 +110,7 @@ export async function runNativePluginAction(
     // 安装不调用模型：环境里只有 HOME/TMPDIR，任何平台密钥都不进容器。
     env: { HOME: '/tmp', TMPDIR: '/tmp' },
     name: `agentport-native-plugin-${randomBytes(4).toString('hex')}`,
-    entrypoint: 'node',
+    entrypoint: 'bun',
     command: ['dist/native-plugins.js'],
     extraMounts: [
       { hostPath: join(deps.hostWorkspacesDir, CACHE_DIR), containerPath: CONTAINER_CACHE_DIR },
@@ -285,6 +286,7 @@ export async function registerNativePlugins(
     closing: closing.signal,
   };
 
+  const connection = createBunRedisClient(new RedisClient(config.REDIS_URL));
   const worker = new Worker<NativePluginAction>(
     NATIVE_PLUGINS_QUEUE,
     async (job) => {
@@ -293,7 +295,7 @@ export async function registerNativePlugins(
       // 失败也走正常返回，API 的 waitUntilFinished 拿到的是结果而不是异常。
       return runNativePluginAction(deps, parsed.data);
     },
-    { connection: { url: config.REDIS_URL }, concurrency: 1 },
+    { connection, concurrency: 1 },
   );
 
   return {
@@ -301,7 +303,7 @@ export async function registerNativePlugins(
       // 先停新任务并取消活动安装，再销毁容器，最后才等 close 收尾：
       // 反过来先 await 会等满 120s 安装预算，超过 compose 的 30s 宽限，Docker 来不及清理。
       closing.abort();
-      const closed = worker.close();
+      const closed = worker.close().finally(() => connection.quit());
       const results = await Promise.allSettled([closed, provider.destroyAll()]);
       const failures = results.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : [],

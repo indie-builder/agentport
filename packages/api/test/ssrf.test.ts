@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
-const dns = vi.hoisted(() => ({ lookup: vi.fn() }));
-vi.mock('node:dns/promises', () => ({ lookup: dns.lookup }));
+const dns = ({ lookup: mock() });
+mock.module('node:dns/promises', () => ({ lookup: dns.lookup }));
 
-import { assertSafeUrl } from '../src/features/servers/ssrf.js';
+import { assertSafeUrl } from '../src/modules/servers/ssrf.js';
 
 const DEV = 'development';
 const PROD = 'production';

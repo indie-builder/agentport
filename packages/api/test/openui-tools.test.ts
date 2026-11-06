@@ -5,8 +5,7 @@ import type { Agent, Server } from '@agentport/shared';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { sql } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createRole } from './access-helpers.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -16,18 +15,20 @@ import {
   createTestAccount,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   roleIds,
   setAgentMember,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
+import { listen } from './server.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('openui tools', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let upstreamUrl: string;
   /** 真实 MCP 上游：覆盖 structuredContent、多 text 块与 isError 三种返回形状。 */
@@ -89,9 +90,8 @@ describe.skipIf(!ready)('openui tools', () => {
   afterAll(async () => {
     await cleanup(app, { agentSlugs, serverNames });
     if (conversationIds.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [
-        conversationIds,
-      ]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(conversationIds, 'TEXT')],
+      );
     }
     await app.close();
     await mcpHandler.close();
@@ -127,7 +127,7 @@ describe.skipIf(!ready)('openui tools', () => {
           : { parentToolUseId: options.parentToolUseId }),
       },
     });
-    await app.pool.query('update messages set ui_format = $2 where id = $1', [
+    await app.client.unsafe('update messages set ui_format = $2 where id = $1', [
       message.id,
       options.uiFormat ?? 'openui',
     ]);
@@ -156,7 +156,7 @@ describe.skipIf(!ready)('openui tools', () => {
         requiresApproval: true,
       },
     ]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: `/api/servers/${server.id}/tools`,
         headers: auth(),
@@ -185,7 +185,7 @@ describe.skipIf(!ready)('openui tools', () => {
   };
 
   const callTool = (conversationId: string, toolName: string, body: Record<string, unknown> = {}) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: `/api/chat/${conversationId}/openui/tools/${toolName}`,
       headers: auth(),
@@ -194,7 +194,7 @@ describe.skipIf(!ready)('openui tools', () => {
 
   it('requires auth', async () => {
     const { conversationId, messageId } = await seedAgent();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/chat/${conversationId}/openui/tools/${encodeURIComponent('mcp__x__y')}`,
       payload: { args: {}, messageId, blockKey: 's0' },
@@ -259,13 +259,13 @@ describe.skipIf(!ready)('openui tools', () => {
     const name = unique('oui-kb');
     const serverId = newId('server');
     // knowledge 连接由平台内置，用户 CRUD 不暴露；直接落库模拟已存在的绑定。
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into servers (id, name, kind, config)
        values ($1, $2, 'knowledge', '{"knowledgeBaseId":"kb-test"}'::jsonb)`,
       [serverId, name],
     );
     serverNames.push(name);
-    await app.pool.query('insert into agent_servers (agent_id, server_id) values ($1, $2)', [
+    await app.client.unsafe('insert into agent_servers (agent_id, server_id) values ($1, $2)', [
       agent.id,
       serverId,
     ]);
@@ -279,7 +279,7 @@ describe.skipIf(!ready)('openui tools', () => {
 
   it('rejects a disabled tool', async () => {
     const { conversationId, messageId, server } = await seedAgent();
-    await app.pool.query('update api_tools set enabled = false where server_id = $1', [server.id]);
+    await app.client.unsafe('update api_tools set enabled = false where server_id = $1', [server.id]);
     expectProblem(
       await callTool(conversationId, `mcp__${server.name}__get-user`, { messageId }),
       'FORBIDDEN',
@@ -300,7 +300,7 @@ describe.skipIf(!ready)('openui tools', () => {
   it('returns INVALID_INPUT instead of 500 when the tool inputSchema is invalid', async () => {
     const { conversationId, messageId, server } = await seedAgent();
     // 目录里的 JSON Schema 是不可信数据：写坏的 schema 是输入问题，不是服务端故障。
-    await app.pool.query(
+    await app.client.unsafe(
       `update api_tools set input_schema = '{"type":"object","properties":{"id":{"type":"nonsense"}}}'::jsonb
        where server_id = $1 and name = 'get-user'`,
       [server.id],
@@ -322,11 +322,11 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({ status: 'ok', data: { id: 1, name: 'Fixture user' } });
 
-    const audit = await app.pool.query<{ status: string }>(
+    const audit = await app.client.unsafe<{ status: string }[]>(
       "select status from audit_log where action = 'openui.tool.called' and target = $1 order by created_at desc limit 1",
       [conversationId],
     );
-    expect(audit.rows[0]?.status).toBe('ok');
+    expect(audit[0]?.status).toBe('ok');
   });
 
   it('returns 202 approval_required, then runs after the approval route is used', async () => {
@@ -343,7 +343,7 @@ describe.skipIf(!ready)('openui tools', () => {
     const second = await callTool(conversationId, toolName, { messageId });
     expect(second.json<{ approvalId: string }>().approvalId).toBe(pending.approvalId);
 
-    const approve = await inject(app, {
+    const approve = await request(app, {
       method: 'POST',
       url: `/api/chat/${conversationId}/openui/approvals/${pending.approvalId}/approve`,
       headers: auth(),
@@ -369,7 +369,7 @@ describe.skipIf(!ready)('openui tools', () => {
       approvalId: string;
     }>();
     const approve = () =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/chat/${conversationId}/openui/approvals/${pending.approvalId}/approve`,
         headers: auth(),
@@ -384,21 +384,21 @@ describe.skipIf(!ready)('openui tools', () => {
       set approved_at = now() - interval '7 hours', expires_at = now() + interval '1 hour'
       where id = ${pending.approvalId}
     `);
-    const before = await app.pool.query<{ approved_at: Date; expires_at: Date }>(
+    const before = await app.client.unsafe<{ approved_at: Date; expires_at: Date }[]>(
       'select approved_at, expires_at from approval_requests where id = $1',
       [pending.approvalId],
     );
 
     const again = await approve();
     expect(again.statusCode, again.body).toBe(200);
-    const after = await app.pool.query<{ approved_at: Date; expires_at: Date }>(
+    const after = await app.client.unsafe<{ approved_at: Date; expires_at: Date }[]>(
       'select approved_at, expires_at from approval_requests where id = $1',
       [pending.approvalId],
     );
-    expect(after.rows[0]?.approved_at).toEqual(before.rows[0]?.approved_at);
-    expect(after.rows[0]?.expires_at).toEqual(before.rows[0]?.expires_at);
+    expect(after[0]?.approved_at).toEqual(before[0]?.approved_at);
+    expect(after[0]?.expires_at).toEqual(before[0]?.expires_at);
     expect(again.json<{ expiresAt: string }>().expiresAt).toBe(
-      before.rows[0]?.expires_at.toISOString(),
+      before[0]?.expires_at.toISOString(),
     );
     expect((await callTool(conversationId, toolName, { messageId })).statusCode).toBe(200);
   });
@@ -410,7 +410,7 @@ describe.skipIf(!ready)('openui tools', () => {
     const pending = (await callTool(conversationId, toolName, { messageId })).json<{
       approvalId: string;
     }>();
-    await inject(app, {
+    await request(app, {
       method: 'POST',
       url: `/api/chat/${conversationId}/openui/approvals/${pending.approvalId}/approve`,
       headers: auth(),
@@ -425,17 +425,17 @@ describe.skipIf(!ready)('openui tools', () => {
     `);
 
     // 过期行不能直接批准，也不能被这次请求顺手复活。
-    const stale = await inject(app, {
+    const stale = await request(app, {
       method: 'POST',
       url: `/api/chat/${conversationId}/openui/approvals/${pending.approvalId}/approve`,
       headers: auth(),
     });
     expectProblem(stale, 'CONFLICT');
-    const stillExpired = await app.pool.query<{ expires_at: Date }>(
+    const stillExpired = await app.client.unsafe<{ expires_at: Date }[]>(
       'select expires_at from approval_requests where id = $1',
       [pending.approvalId],
     );
-    expect(stillExpired.rows[0]?.expires_at.getTime()).toBeLessThan(Date.now());
+    expect(stillExpired[0]?.expires_at.getTime()).toBeLessThan(Date.now());
 
     const again = await callTool(conversationId, toolName, { messageId });
     expect(again.statusCode, again.body).toBe(202);
@@ -449,7 +449,7 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(reRequested.status).toBe('approval_required');
     expect(reRequested.approvalId).toBe(pending.approvalId);
 
-    const reapproved = await inject(app, {
+    const reapproved = await request(app, {
       method: 'POST',
       url: `/api/chat/${conversationId}/openui/approvals/${reRequested.approvalId}/approve`,
       headers: auth(),
@@ -479,12 +479,12 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(again.json<{ status: string }>().status).toBe('approval_required');
 
     // 重新走一次审批后，旧行会被清成待批，不会继续复用 null 有效期。
-    const row = await app.pool.query<{ approved_at: Date | null; expires_at: Date | null }>(
+    const row = await app.client.unsafe<{ approved_at: Date | null; expires_at: Date | null }[]>(
       'select approved_at, expires_at from approval_requests where id = $1',
       [pending.approvalId],
     );
-    expect(row.rows[0]?.approved_at).toBeNull();
-    expect(row.rows[0]?.expires_at).toBeNull();
+    expect(row[0]?.approved_at).toBeNull();
+    expect(row[0]?.expires_at).toBeNull();
   });
 
   it('rejects an unknown or cross-conversation approval id', async () => {
@@ -509,7 +509,7 @@ describe.skipIf(!ready)('openui tools', () => {
       [first.conversationId, 'apr_missing'],
     ] as const) {
       expectProblem(
-        await inject(app, {
+        await request(app, {
           method: 'POST',
           url: `/api/chat/${conversationId}/openui/approvals/${approvalId}/approve`,
           headers: auth(),
@@ -579,7 +579,7 @@ describe.skipIf(!ready)('openui tools', () => {
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
     const call = () =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/chat/${conversationId}/openui/tools/mcp__${server.name}__get-user`,
         headers: { cookie: viewer.cookie },
@@ -589,7 +589,7 @@ describe.skipIf(!ready)('openui tools', () => {
     const allowed = await call();
     expect(allowed.statusCode, allowed.body).toBe(200);
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agent.id}/members/${encodeURIComponent(viewer.businessId)}`,
       headers: auth(),
@@ -607,7 +607,7 @@ describe.skipIf(!ready)('openui tools', () => {
       { permissionId: 'agents.use', scope: 'authorized_agents' },
     ]);
     const approver = await createTestAccount(app, cookie, { systemKeys: ['user'] });
-    const assign = await inject(app, {
+    const assign = await request(app, {
       method: 'PUT',
       url: `/api/accounts/${encodeURIComponent(approver.businessId)}/roles`,
       headers: auth(),
@@ -628,7 +628,7 @@ describe.skipIf(!ready)('openui tools', () => {
     });
     conversationIds.push(conversationId);
     const messageId = await appendUiMessage(conversationId);
-    const pending = await inject(app, {
+    const pending = await request(app, {
       method: 'POST',
       url: `/api/chat/${conversationId}/openui/tools/mcp__${server.name}__list-invoices`,
       headers: { cookie: approver.cookie },
@@ -637,7 +637,7 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(pending.statusCode, pending.body).toBe(202);
     const approvalId = pending.json<{ approvalId: string }>().approvalId;
     const approveAs = (approvalCookie: string) =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/chat/${conversationId}/openui/approvals/${approvalId}/approve`,
         headers: { cookie: approvalCookie },
@@ -650,7 +650,7 @@ describe.skipIf(!ready)('openui tools', () => {
     const outsider = await createTestAccount(app, cookie, { systemKeys: ['user'] });
     expectProblem(await approveAs(outsider.cookie), 'NOT_FOUND');
 
-    const restore = await inject(app, {
+    const restore = await request(app, {
       method: 'PUT',
       url: `/api/accounts/${encodeURIComponent(approver.businessId)}/roles`,
       headers: auth(),
@@ -666,14 +666,14 @@ describe.skipIf(!ready)('openui tools', () => {
     // 再用它注册成 http server，验证 StreamableHTTP 分支与目录快照。
     const name = unique('oui-http');
     serverNames.push(name);
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: auth(),
       payload: { name, kind: 'generated', baseUrl: upstreamUrl },
     });
     const generatedId = created.json<{ id: string }>().id;
-    await inject(app, {
+    await request(app, {
       method: 'POST',
       url: `/api/servers/${generatedId}/tools`,
       headers: auth(),
@@ -686,32 +686,31 @@ describe.skipIf(!ready)('openui tools', () => {
         paramsIn: 'query',
       },
     });
-    const tokenRow = await app.pool.query<{ token: string }>(
+    const tokenRow = await app.client.unsafe<{ token: string }[]>(
       "select config->>'mcpToken' as token from servers where id = $1",
       [generatedId],
     );
-    const token = tokenRow.rows[0]?.token ?? '';
+    const token = tokenRow[0]?.token ?? '';
 
-    // 平台 MCP 端点要求真实端口；app.inject 承载不了 StreamableHTTP 会话。
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address() as AddressInfo;
+    // 平台 MCP 端点要求真实端口；app.request 承载不了 StreamableHTTP 会话。
+    const mcpServer = await listen(app);
     const httpName = unique('oui-http-client');
     serverNames.push(httpName);
-    const httpServer = await inject(app, {
+    const httpServer = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: auth(),
       payload: {
         name: httpName,
         kind: 'http',
-        url: `http://127.0.0.1:${address.port}/mcp/${generatedId}`,
+        url: `${mcpServer.url}/mcp/${generatedId}`,
         headers: { authorization: `Bearer ${token}` },
       },
     });
     expect(httpServer.statusCode, httpServer.body).toBe(201);
 
     // 目录快照：真实调用走 test 按钮，成功即写入 servers.config.toolCatalog。
-    const tested = await inject(app, {
+    const tested = await request(app, {
       method: 'POST',
       url: `/api/servers/${httpServer.json<{ id: string }>().id}/test`,
       headers: auth(),
@@ -741,6 +740,7 @@ describe.skipIf(!ready)('openui tools', () => {
     });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({ status: 'ok', data: { id: 1, name: 'Fixture user' } });
+    await mcpServer.close();
   });
 
   /** 直接把 fixture MCP 上游注册成 http server，并缓存它的工具目录。 */
@@ -750,7 +750,7 @@ describe.skipIf(!ready)('openui tools', () => {
     messageId: string;
   }> => {
     const name = unique('oui-mcp');
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: auth(),
@@ -759,7 +759,7 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(created.statusCode, created.body).toBe(201);
     const server = created.json<Server>();
     serverNames.push(server.name);
-    const tested = await inject(app, {
+    const tested = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/test`,
       headers: auth(),
@@ -809,10 +809,10 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({ status: 'error', error: 'boom\ndetail' });
 
-    const audit = await app.pool.query<{ status: string }>(
+    const audit = await app.client.unsafe<{ status: string }[]>(
       "select status from audit_log where action = 'openui.tool.called' and target = $1 order by created_at desc limit 1",
       [conversationId],
     );
-    expect(audit.rows[0]?.status).toBe('error');
+    expect(audit[0]?.status).toBe('error');
   });
 });

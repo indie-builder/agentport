@@ -2,7 +2,7 @@ name: agentport
 
 # 本地全栈：postgres + redis + migrate（一次性）+ api + worker。
 # web 生产由 api 静态托管（WEB_DIST），所以没有独立 web 服务；
-# 前端开发仍用 packages/web 的 Vite dev server（pnpm dev）。
+# 前端开发仍用 packages/web 的 Vite dev server（bun run dev）。
 
 services:
   postgres:
@@ -42,7 +42,7 @@ services:
       timeout: 3s
       retries: 10
 
-  # 命名卷首次创建时属主是 root；api/worker 以 node(1000) 运行会 EACCES。
+  # 命名卷首次创建时属主是 root；api/worker 以 bun(1000) 运行会 EACCES。
   # 单独的一次性 init 修复，`docker compose up` 与 up.sh 行为一致。
   init:
     image: alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
@@ -57,8 +57,8 @@ services:
       context: .
       target: runtime
     image: ${API_IMAGE:-agentport/api:dev}
-    # 一次性迁移：使用镜像内已 deploy 的 db 包（含 dist、migrations、scripts）。
-    command: ['node', 'api/node_modules/@agentport/db/scripts/migrate.js']
+    # 一次性迁移：使用镜像内生产 db 包（含 dist、migrations、scripts）。
+    command: ['bun', 'packages/db/scripts/migrate.js']
     restart: 'no'
     env_file: .env
     environment:
@@ -113,7 +113,7 @@ services:
     healthcheck:
       test:
         - CMD
-        - node
+        - bun
         - -e
         - "fetch('http://127.0.0.1:3000/health/ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 5s
@@ -137,7 +137,7 @@ services:
     image: ${API_IMAGE:-agentport/api:dev}
     restart: unless-stopped
     stop_grace_period: 30s
-    command: ['node', 'worker/dist/index.js']
+    command: ['bun', 'packages/worker/dist/index.js']
     env_file: .env
     environment:
       NODE_ENV: production
@@ -175,7 +175,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - workspaces:/workspaces
       - knowledgedata:/knowledge
-    # socket 属于宿主 root:docker；容器内 node 用户不在该组，补上 GID 0
+    # socket 属于宿主 root:docker；容器内 bun 用户不在该组，补上 GID 0
     # （Docker Desktop 默认 socket 为 root:root）。Linux 上若 docker 组 GID 不同，
     # 用 DOCKER_GID 覆盖。
     #

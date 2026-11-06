@@ -2,26 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { createDb } from '../packages/db/dist/index.js';
+import { fixture as runFixture } from './support/fixture.js';
 
 /**
  * 审计导出的真实浏览器验收：真实页面、真实 API、数据库直写 fixture。
- * DATABASE_URL 必须显式给出，并且与页面背后的 API 指向同一个库。
+ * E2E_DATABASE_URL 必须显式给出，并且与页面背后的 API 指向同一个库。
  */
-const DATABASE_URL = process.env.DATABASE_URL ?? '';
-if (!DATABASE_URL) throw new Error('DATABASE_URL is required for audit export fixtures');
-
-let dbPromise: ReturnType<typeof createDb> | undefined;
-function db() {
-  dbPromise ??= createDb(DATABASE_URL);
-  return dbPromise;
-}
-
-test.afterAll(async () => {
-  const current = await dbPromise;
-  await current?.pool.end();
-});
-
 const targetOf = (label: string): string => `e2e-audit-${label}-${randomUUID()}`;
 
 async function seedAudit(
@@ -29,24 +15,11 @@ async function seedAudit(
   action: string,
   extra: { inputDigest?: string; requestId?: string } = {},
 ): Promise<string> {
-  const id = `aud_${randomUUID()}`;
-  const { pool } = await db();
-  await pool.query(
-    `insert into audit_log (id, actor, action, target, input_digest, status, request_id, created_at)
-     values ($1, 'admin', $2, $3, $4, 'ok', $5, now())`,
-    [id, action, target, extra.inputDigest ?? null, extra.requestId ?? null],
-  );
-  return id;
+  return runFixture('audit-export', 'seedAudit', target, action, extra);
 }
 
 async function removeFixtures(ids: string[], targets: string[]): Promise<void> {
-  const { pool } = await db();
-  if (ids.length > 0) {
-    await pool.query('delete from audit_log where id = any($1::text[])', [ids]);
-  }
-  if (targets.length > 0) {
-    await pool.query('delete from audit_log where target = any($1::text[])', [targets]);
-  }
+  return runFixture('audit-export', 'removeFixtures', ids, targets);
 }
 
 async function readJson(file: string): Promise<ExportBody> {
@@ -155,15 +128,8 @@ test('round38 same-time audit pagination', { session: 'admin' }, async ({
   browser,
 }) => {
   const target = targetOf('same-time');
-  const { pool } = await db();
   // 125 条共用同一个 created_at：翻页只能靠 (created_at, id) 里的 id 游标。
-  await pool.query(
-    `insert into audit_log (id, actor, action, target, status, created_at)
-     select 'aud_' || $1 || '-' || lpad(g::text, 3, '0'), 'admin',
-            'audit.page.' || lpad(g::text, 3, '0'), $1, 'ok', now()
-     from generate_series(1, 125) as g`,
-    [target],
-  );
+  await runFixture('audit-export', 'seedSameTime', target);
 
   try {
     await app.open('/audit');
@@ -208,13 +174,7 @@ test('oversize audit export reports the error instead of silently truncating', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
   const target = targetOf('oversize');
-  const { pool } = await db();
-  await pool.query(
-    `insert into audit_log (id, actor, action, target, status, created_at)
-       select 'aud_' || $1 || '-' || g, 'admin', 'audit.e2e.bulk', $1, 'ok', now()
-       from generate_series(1, 1001) as g`,
-    [target],
-  );
+  await runFixture('audit-export', 'seedOversize', target);
   try {
     await app.open(`/audit?target=${encodeURIComponent(target)}`);
     await screen.getByRole('button', '导出审计', { exact: true }).tap();
@@ -228,13 +188,7 @@ test('oversize audit export reports the error instead of silently truncating', {
 
 test('exports exactly 1000 audit rows', { session: 'admin' }, async ({ app, screen, browser }) => {
   const target = targetOf('bulk');
-  const { pool } = await db();
-  await pool.query(
-    `insert into audit_log (id, actor, action, target, status, created_at)
-     select 'aud_' || $1 || '-' || g, 'admin', 'audit.e2e.bulk', $1, 'ok', now()
-     from generate_series(1, 1000) as g`,
-    [target],
-  );
+  await runFixture('audit-export', 'seedLimit', target);
 
   try {
     await app.open(`/audit?target=${encodeURIComponent(target)}`);

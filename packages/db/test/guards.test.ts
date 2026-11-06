@@ -1,5 +1,5 @@
 import { count, eq } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';
@@ -7,8 +7,8 @@ import * as evalRepo from '../src/repo/eval.js';
 import { agents, conversations, evalCases, evalResults, evalRuns } from '../src/schema.js';
 
 const url = process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
-const { db, pool } = createDb(url);
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(url);
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -21,7 +21,7 @@ describe.skipIf(!ready)('db repo guards', () => {
   afterAll(async () => {
     // 删 agent 级联清掉会话、消息、评估数据。
     await db.delete(agents).where(eq(agents.id, agentId));
-    await pool.end();
+    await client.close();
   });
 
   it('listMessages pages newest-first and keeps the no-arg order', async () => {

@@ -1,16 +1,16 @@
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -28,10 +28,10 @@ function countOwnershipReads(sql: string[]): number {
  * 直通真实 pool.query：drizzle 的 node-postgres 会话最终也调用它，
  * 因此能同时看到 repo 的 select/update 与 direct pool 查询。恢复必须放 finally。
  */
-function spyPoolQueries(app: FastifyInstance): { sql: string[]; restore: () => void } {
+function spyPoolQueries(app: TestApp): { sql: string[]; restore: () => void } {
   const sql: string[] = [];
-  const original = app.pool.query;
-  app.pool.query = ((...args: unknown[]) => {
+  const original = app.client.unsafe;
+  app.client.unsafe = ((...args: unknown[]) => {
     const first = args[0];
     sql.push(
       typeof first === 'string'
@@ -40,12 +40,12 @@ function spyPoolQueries(app: FastifyInstance): { sql: string[]; restore: () => v
           ? String((first as { text: unknown }).text)
           : '',
     );
-    return (original as (...inner: unknown[]) => unknown).apply(app.pool, args);
-  }) as typeof app.pool.query;
+    return (original as (...inner: unknown[]) => unknown).apply(app.client, args);
+  }) as typeof app.client.unsafe;
   return {
     sql,
     restore: () => {
-      app.pool.query = original;
+      app.client.unsafe = original;
     },
   };
 }
@@ -59,7 +59,7 @@ function uiText(segments: number): string {
 }
 
 describe.skipIf(!ready)('openui state', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const conversationIds: string[] = [];
@@ -71,9 +71,8 @@ describe.skipIf(!ready)('openui state', () => {
 
   afterAll(async () => {
     if (conversationIds.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [
-        conversationIds,
-      ]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(conversationIds, 'TEXT')],
+      );
     }
     await cleanup(app, { agentSlugs });
     await app.close();
@@ -117,7 +116,7 @@ describe.skipIf(!ready)('openui state', () => {
       content,
     });
     // 状态只挂在生成式 UI 的助手消息上；appendMessage 不暴露这两个渲染字段，夹具直接补齐。
-    await app.pool.query('update messages set ui_format = $2, ui_program = $3 where id = $1', [
+    await app.client.unsafe('update messages set ui_format = $2, ui_program = $3 where id = $1', [
       message.id,
       options.uiFormat ?? 'openui',
       options.uiProgram ?? null,
@@ -126,7 +125,7 @@ describe.skipIf(!ready)('openui state', () => {
   };
 
   const put = (conversationId: string, messageId: string, payload: unknown) =>
-    inject(app, {
+    request(app, {
       method: 'PUT',
       url: `/api/conversations/${conversationId}/messages/${messageId}/openui-state`,
       headers: auth(),
@@ -134,16 +133,16 @@ describe.skipIf(!ready)('openui state', () => {
     });
 
   const savedState = async (messageId: string): Promise<unknown> => {
-    const res = await app.pool.query<{ ui_state: unknown }>(
+    const res = await app.client.unsafe<{ ui_state: unknown }[]>(
       'select ui_state from messages where id = $1',
       [messageId],
     );
-    return res.rows[0]?.ui_state;
+    return res[0]?.ui_state;
   };
 
   it('requires auth', async () => {
     const { conversationId, messageId } = await seed();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PUT',
       url: `/api/conversations/${conversationId}/messages/${messageId}/openui-state`,
       payload: { blockKey: 's0', state: { name: 'x' } },
@@ -280,11 +279,11 @@ describe.skipIf(!ready)('openui state', () => {
     }
 
     expect(await savedState(messageId)).toEqual({ version: 1, blocks: { s0: { a: 1 } } });
-    const audit = await app.pool.query(
+    const audit = await app.client.unsafe(
       "select 1 from audit_log where action = 'openui.state.saved' and target = $1",
       [messageId],
     );
-    expect(audit.rows).toHaveLength(1);
+    expect(audit).toHaveLength(1);
   });
 
   it('persists a state envelope and merges blocks instead of overwriting', async () => {
@@ -336,7 +335,7 @@ describe.skipIf(!ready)('openui state', () => {
   it('replaces an invalid stored envelope instead of leaking it', async () => {
     const { conversationId, messageId } = await seed();
     // 历史版本/手工写入的脏数据：形状不符时按空快照重来，不把原文回给前端。
-    await app.pool.query('update messages set ui_state = $2::jsonb where id = $1', [
+    await app.client.unsafe('update messages set ui_state = $2::jsonb where id = $1', [
       messageId,
       JSON.stringify({ version: 2, blocks: ['nope'] }),
     ]);
@@ -356,12 +355,12 @@ describe.skipIf(!ready)('openui state', () => {
   it('writes an audit row naming the block, not its values', async () => {
     const { conversationId, messageId } = await seed();
     await put(conversationId, messageId, { blockKey: 's1', state: { secret: 'pii' } });
-    const res = await app.pool.query<{ input_digest: string | null }>(
+    const res = await app.client.unsafe<{ input_digest: string | null }[]>(
       "select input_digest from audit_log where action = 'openui.state.saved' and target = $1",
       [messageId],
     );
-    expect(res.rows).toHaveLength(1);
+    expect(res).toHaveLength(1);
     // 只存摘要：原文（含用户输入）不进审计表。
-    expect(res.rows[0]?.input_digest).not.toBeNull();
+    expect(res[0]?.input_digest).not.toBeNull();
   });
 });

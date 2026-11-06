@@ -1,15 +1,15 @@
 import { SANDBOX_PROBES_QUEUE, type Server } from '@agentport/shared';
 import { type Job, Queue, Worker } from 'bullmq';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { testStdioInSandbox } from '../src/features/servers/sandbox-probe.js';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { testStdioInSandbox } from '../src/modules/servers/sandbox-probe.js';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import {
@@ -31,7 +31,7 @@ const logger = { warn: () => undefined };
  * 容器内真正的 stdio 试连由 worker/sandbox 各自的测试覆盖。
  */
 describe.skipIf(!ready)('sandbox probe queue', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let adminQueue: Queue<{ serverId: string }> | undefined;
   let cookie: string;
   const created: string[] = [];
@@ -76,7 +76,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
   });
 
   const createStdio = async (name: string): Promise<Server> => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -102,7 +102,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
       };
     });
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/test`,
       headers: { cookie },
@@ -118,11 +118,11 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     });
 
     // 结果落到连接健康度，列表刷新后仍能看到；没有环境身份的结果记为 null。
-    const row = await app.pool.query(
+    const row = await app.client.unsafe(
       'select last_test_ok, last_tool_count, last_test_runtime_environment from servers where id = $1',
       [server.id],
     );
-    expect(row.rows[0]).toMatchObject({
+    expect(row[0]).toMatchObject({
       last_test_ok: true,
       last_tool_count: 1,
       last_test_runtime_environment: null,
@@ -173,7 +173,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
       };
     });
 
-    const first = await inject(app, {
+    const first = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/test`,
       headers: { cookie },
@@ -183,7 +183,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     expect(first.json()).toMatchObject({ runtimeEnvironment: { environmentId: 'rte_first' } });
 
     // 换环境再测：上一次的成功不能被当成当前环境的结果复用。
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/test`,
       headers: { cookie },
@@ -230,14 +230,14 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     });
 
     const test = (environmentId: string) =>
-      inject(app, {
+      request(app, {
         method: 'POST',
         url: `/api/servers/${server.id}/test`,
         headers: { cookie },
         payload: { runtimeEnvironmentId: environmentId },
       });
     const readBack = async (): Promise<Server> => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/servers/${server.id}`,
         headers: { cookie },
@@ -270,7 +270,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
   it('rejects a runtime environment on HTTP connections instead of pretending it applied', async () => {
     const name = unique('probe-http');
     created.push(name);
-    const createdServer = await inject(app, {
+    const createdServer = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -279,7 +279,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     expect(createdServer.statusCode, createdServer.body).toBe(201);
     const server = createdServer.json<Server>();
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/test`,
       headers: { cookie },

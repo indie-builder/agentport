@@ -1,24 +1,24 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 /**
  * probe 的 schema、目录裁剪与 close 语义全走真实代码，只 mock MCP 传输边界：
  * 不 spawn 子进程，只断言 stdin 任务、stdio env 与结果行。
  */
-const io = vi.hoisted(() => {
+const io = (() => {
   const noop = () => undefined;
   return {
     line: '',
     tools: [] as unknown[],
-    connect: vi.fn(async () => undefined),
-    listTools: vi.fn(async () => ({ tools: [] as unknown[] })),
-    close: vi.fn(async () => undefined),
+    connect: mock(async () => undefined),
+    listTools: mock(async () => ({ tools: [] as unknown[] })),
+    close: mock(async () => undefined),
     transportOptions: undefined as Record<string, unknown> | undefined,
     stderrText: '',
     stderr: undefined as { setEncoding: () => void; on: typeof noop } | undefined,
   };
-});
+})();
 
-vi.mock('@modelcontextprotocol/client', () => ({
+mock.module('@modelcontextprotocol/client', () => ({
   Client: class {
     connect = io.connect;
     listTools = io.listTools;
@@ -27,7 +27,7 @@ vi.mock('@modelcontextprotocol/client', () => ({
   },
 }));
 
-vi.mock('@modelcontextprotocol/client/stdio', () => ({
+mock.module('@modelcontextprotocol/client/stdio', () => ({
   StdioClientTransport: class {
     stderr = {
       setEncoding: () => undefined,
@@ -36,11 +36,11 @@ vi.mock('@modelcontextprotocol/client/stdio', () => ({
     constructor(options: Record<string, unknown>) {
       io.transportOptions = options;
     }
-    close = vi.fn(async () => undefined);
+    close = mock(async () => undefined);
   },
 }));
 
-vi.mock('node:readline', () => ({
+mock.module('node:readline', () => ({
   createInterface: () => ({
     close() {},
     async *[Symbol.asyncIterator]() {
@@ -48,6 +48,8 @@ vi.mock('node:readline', () => ({
     },
   }),
 }));
+
+let caseSequence = 0;
 
 interface Result {
   ok: boolean;
@@ -62,15 +64,14 @@ async function run(task: string): Promise<Result[]> {
   io.close.mockClear();
   io.listTools.mockReset();
   io.listTools.mockImplementation(async () => ({ tools: io.tools }));
-  vi.resetModules();
   const results: Result[] = [];
-  const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+  const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => {
     results.push(JSON.parse(String(chunk)));
     return true;
   });
-  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  const stderr = spyOn(process.stderr, 'write').mockImplementation(() => true);
   try {
-    await import('../src/probe.js');
+    await import(`../src/probe.js?case=${caseSequence++}`);
   } finally {
     stdout.mockRestore();
     stderr.mockRestore();

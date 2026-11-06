@@ -293,9 +293,9 @@ export function StatusPage() {
     ? 'pending'
     : !data
       ? 'unknown'
-      : !db
+      : !db?.connected
         ? 'error'
-        : metrics.isError || db.waiting > 5
+        : metrics.isError
           ? 'warn'
           : 'ok';
   const redisState: CheckState = metrics.isPending
@@ -414,7 +414,7 @@ export function StatusPage() {
             <div className="grid grid-cols-3 gap-4">
               <Metric label="运行时长" value={formatUptime(data.process.uptimeSeconds)} />
               <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
-              <Metric label="Node" value={data.process.nodeVersion} />
+              <Metric label="Bun" value={data.process.bunVersion} />
             </div>
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
@@ -451,24 +451,25 @@ export function StatusPage() {
           )}
         </PageSection>
 
-        <PageSection title="数据库连接池" actions={<StatusPill state={dbState} />}>
+        <PageSection title="数据库" actions={<StatusPill state={dbState} />}>
           {db ? (
             <>
               <div className="grid grid-cols-3 gap-4">
-                <Metric label="总数" value={String(db.total)} />
-                <Metric label="空闲" value={String(db.idle)} />
-                <Metric label="等待" value={String(db.waiting)} />
+                <Metric label="连接" value={db.connected ? '正常' : '失败'} />
+                <Metric label="Ping" value={db.pingMs === null ? '未测得' : `${db.pingMs} ms`} />
+                <Metric
+                  label="连接上限"
+                  value={db.maxConnections === null ? '未提供' : String(db.maxConnections)}
+                />
               </div>
-              {db.waiting > 5 ? (
-                <Reason tone="warn">
-                  连接池在排队（waiting &gt; 5）：调大 DB_POOL_MAX，或先减少单请求的 SQL 条数。
-                </Reason>
+              {!db.connected ? (
+                <Reason>数据库探测失败：检查 DATABASE_URL 与 PostgreSQL 服务。</Reason>
               ) : null}
             </>
           ) : metrics.isPending ? (
             <LoadingState rows={2} />
           ) : data ? (
-            <div className="text-sm text-muted-foreground">读不到连接池指标。</div>
+            <div className="text-sm text-muted-foreground">读不到数据库指标。</div>
           ) : (
             <Unknown />
           )}

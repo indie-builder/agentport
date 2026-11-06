@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 // 真实 CLI 的启动开销小，15s 足以覆盖冷启动。
 const TIMEOUT = 15_000;
@@ -144,10 +144,9 @@ async function load(withPlugin = true): Promise<{
 }
 
 describe('real CLI plugin loading', () => {
-  it(
+  it.skipIf(!nativeCli)(
     'namespaces plugin skills and agents after the manifest name',
-    async (ctx) => {
-      if (!nativeCli) ctx.skip(`no native CLI installed for ${process.platform}-${process.arch}`);
+    async () => {
       const { version, commands, agents, pluginsApplied } = await load();
       const skill = commands.find((command) => command.name.startsWith(`${RUNTIME_NAME}:`));
 
@@ -161,10 +160,9 @@ describe('real CLI plugin loading', () => {
     TIMEOUT,
   );
 
-  it(
+  it.skipIf(!nativeCli)(
     'does not invent plugin components when no plugin is loaded',
-    async (ctx) => {
-      if (!nativeCli) ctx.skip(`no native CLI installed for ${process.platform}-${process.arch}`);
+    async () => {
       const { commands, agents, pluginsApplied } = await load(false);
 
       expect(commands.some((command) => command.name.startsWith(`${RUNTIME_NAME}:`))).toBe(false);

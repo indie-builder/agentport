@@ -24,4 +24,4 @@
 
 ## 验证
 
-`pnpm --filter @agentport/sandbox typecheck` 与 `packages/sandbox/test`；镜像构建/Docker 用例需要 Docker，缺失时按其前置跳过。
+`bun run --filter @agentport/sandbox typecheck` 与 `packages/sandbox/test`；镜像构建/Docker 用例需要 Docker，缺失时按其前置跳过。

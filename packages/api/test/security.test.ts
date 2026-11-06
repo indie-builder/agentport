@@ -1,12 +1,11 @@
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AUTH_COOKIE } from '../src/features/auth/types.js';
-import { infraReady, inject, startApp, testConfig } from './helpers.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { AUTH_COOKIE } from '../src/modules/auth/types.js';
+import { infraReady, request, startApp, type TestApp, testConfig } from './helpers.js';
 
 const ready = await infraReady;
 
 describe.skipIf(!ready)('security headers', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
 
   beforeAll(async () => {
     app = await startApp();
@@ -18,8 +17,8 @@ describe.skipIf(!ready)('security headers', () => {
 
   it('serves the SPA with a CSP that allows inline styles but not inline scripts', async () => {
     for (const url of ['/', '/health/live']) {
-      const res = await inject(app, { method: 'GET', url });
-      const csp = String(res.headers['content-security-policy'] ?? '');
+      const res = await request(app, { method: 'GET', url });
+      const csp = String(res.headers.get('content-security-policy') ?? '');
       expect(csp, url).toContain("script-src 'self'");
       expect(csp, url).toContain("style-src 'self' 'unsafe-inline'");
       // UI 把鉴权拉取的图片转成 blob URL 渲染；缺 blob: 会被 CSP 拦掉。
@@ -33,14 +32,17 @@ describe.skipIf(!ready)('security headers', () => {
     }
   });
 
-  it('omits CSP on the MCP endpoint, which non-browser clients call', async () => {
-    // 不存在的 serverId 走同一路由，CSP 关闭由路由配置决定，与鉴权结果无关。
-    const res = await inject(app, { method: 'POST', url: '/mcp/missing', payload: {} });
-    expect(res.headers['content-security-policy']).toBeUndefined();
+  it('serves the MCP endpoint with the global browser CSP', async () => {
+    const res = await request(app, { method: 'POST', url: '/mcp/missing', payload: {} });
+    const csp = String(res.headers.get('content-security-policy') ?? '');
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
   it('does not reflect arbitrary origins in CORS preflight', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'OPTIONS',
       url: '/api/servers',
       headers: {
@@ -48,14 +50,14 @@ describe.skipIf(!ready)('security headers', () => {
         'access-control-request-method': 'GET',
       },
     });
-    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
 });
 
 describe.skipIf(!ready)('production CORS and auth cookies', () => {
   const config = testConfig();
   const origin = 'https://worktree-skills-toolbar-layout.agentport.localhost';
-  let app: FastifyInstance;
+  let app: TestApp;
 
   beforeAll(async () => {
     app = await startApp({
@@ -69,27 +71,27 @@ describe.skipIf(!ready)('production CORS and auth cookies', () => {
   });
 
   it('reflects an allowed wildcard origin in preflight with credentials', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'OPTIONS',
       url: '/api/servers',
       headers: { origin, 'access-control-request-method': 'GET' },
     });
     expect(res.statusCode).toBe(204);
-    expect(res.headers['access-control-allow-origin']).toBe(origin);
-    expect(res.headers['access-control-allow-credentials']).toBe('true');
+    expect(res.headers.get('access-control-allow-origin')).toBe(origin);
+    expect(res.headers.get('access-control-allow-credentials')).toBe('true');
   });
 
   it('still omits the header for an unrelated origin', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'OPTIONS',
       url: '/api/servers',
       headers: { origin: 'https://evil.example', 'access-control-request-method': 'GET' },
     });
-    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
 
   it('keeps cookie guarantees for a wildcard-origin login and logout', async () => {
-    const login = await inject(app, {
+    const login = await request(app, {
       method: 'POST',
       url: '/api/auth/login',
       headers: { origin },
@@ -102,7 +104,7 @@ describe.skipIf(!ready)('production CORS and auth cookies', () => {
     expect(cookie?.sameSite).toBe('Lax');
     expect(cookie?.secure).toBe(true);
 
-    const logout = await inject(app, {
+    const logout = await request(app, {
       method: 'POST',
       url: '/api/auth/logout',
       headers: { origin, cookie: `${AUTH_COOKIE}=${cookie?.value ?? ''}` },

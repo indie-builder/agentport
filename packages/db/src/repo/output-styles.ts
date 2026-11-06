@@ -29,7 +29,11 @@ export async function upsertOutputStyle(
   return db.transaction(async (tx) => {
     // 锁住父 agent 行，让同一 agent 的并发保存在此串行化；
     // 否则两个事务都先清空再插入 is_selected=true，会撞上部分唯一索引。
-    await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId)).for('key share');
+    await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .for('no key update');
     await tx
       .update(agentOutputStyles)
       .set({ isSelected: false })

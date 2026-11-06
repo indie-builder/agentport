@@ -10,8 +10,7 @@ import {
   outputListSchema,
   problemSchema,
 } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
@@ -20,10 +19,11 @@ import {
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
   queueIdle,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
@@ -36,7 +36,7 @@ const isolated = ready ? await createIsolatedDatabase('outputs_routes') : null;
 const MAX_PREVIEW = 1024 * 1024;
 
 describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   let sessions: Awaited<ReturnType<typeof startSessionCleanupResponder>>;
   const agentSlugs: string[] = [];
@@ -59,7 +59,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs, runIds });
-    await app.pool.query('delete from conversations where id = any($1::text[])', [conversationIds]);
+    await app.client.unsafe('delete from conversations where id = any($1::text[])', [app.client.array(conversationIds, 'TEXT')]);
     for (const slug of agentSlugs) {
       await rm(join(app.config.WORKSPACES_DIR, slug, 'conversation-outputs'), {
         recursive: true,
@@ -121,7 +121,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
   };
 
   const get = (url: string, headers: Record<string, string> = auth()) =>
-    inject(app, { method: 'GET', url, headers });
+    request(app, { method: 'GET', url, headers });
 
   const outputsDir = (slug: string) =>
     join(app.config.WORKSPACES_DIR, slug, 'conversation-outputs');
@@ -335,15 +335,15 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
 
     const image = await get(`/api/conversations/${id}/outputs/run_dl/download?path=chart.png`);
     expect(image.statusCode, image.body).toBe(200);
-    expect(image.headers['content-type']).toBe('image/png');
+    expect(image.headers.get('content-type')).toBe('image/png');
     expect(image.rawPayload.equals(png)).toBe(true);
 
     const html = await get(`/api/conversations/${id}/outputs/run_dl/download?path=page.html`);
     expect(html.statusCode, html.body).toBe(200);
-    expect(String(html.headers['content-disposition'])).toMatch(/^attachment;/);
-    expect(String(html.headers['content-disposition'])).toContain("filename*=UTF-8''");
-    expect(html.headers['x-content-type-options']).toBe('nosniff');
-    expect(html.headers['cache-control']).toBe('no-store');
+    expect(String(html.headers.get('content-disposition'))).toMatch(/^attachment;/);
+    expect(String(html.headers.get('content-disposition'))).toContain("filename*=UTF-8''");
+    expect(html.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(html.headers.get('cache-control')).toBe('no-store');
 
     const large = await get(`/api/conversations/${id}/outputs/run_dl/download?path=large.txt`);
     expect(large.statusCode, large.body).toBe(200);
@@ -360,7 +360,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     );
     expect(special.statusCode, special.body).toBe(200);
     expect(special.rawPayload.equals(report)).toBe(true);
-    const disposition = String(special.headers['content-disposition']);
+    const disposition = String(special.headers.get('content-disposition'));
     expect(disposition.split("filename*=UTF-8''")[1]).not.toMatch(/[()*]/);
     expect(disposition).toBe(
       'attachment; filename="__(__)*v2.md"; filename*=UTF-8\'\'%E6%8A%A5%E5%91%8A%28%E6%9C%80%E7%BB%88%29%2Av2.md',
@@ -389,10 +389,10 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     const download = await get(`/api/conversations/${id}/outputs/run_pdf/download?path=report.pdf`);
     expect(download.statusCode, download.body).toBe(200);
     expect(download.rawPayload.equals(pdf)).toBe(true);
-    expect(download.headers['content-type']).toBe('application/pdf');
-    expect(String(download.headers['content-disposition'])).toMatch(/^attachment;/);
-    expect(download.headers['cache-control']).toBe('no-store');
-    expect(download.headers['x-content-type-options']).toBe('nosniff');
+    expect(download.headers.get('content-type')).toBe('application/pdf');
+    expect(String(download.headers.get('content-disposition'))).toMatch(/^attachment;/);
+    expect(download.headers.get('cache-control')).toBe('no-store');
+    expect(download.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
   it('persists the selected output on the user message without changing OpenUI fields', async () => {
@@ -400,7 +400,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     const id = await newConversation(agent.id);
     await publish(agent.slug, id, 'run_pub', { 'report.md': '# v1\n' });
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -414,11 +414,11 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     expect(res.statusCode, res.body).toBe(202);
     runIds.push(res.json<{ runId: string }>().runId);
 
-    const rows = await app.pool.query<{ content: unknown }>(
+    const rows = await app.client.unsafe<{ content: unknown }[]>(
       "select content from messages where conversation_id = $1 and role = 'user' order by created_at desc, id desc limit 1",
       [id],
     );
-    expect(rows.rows[0]?.content).toEqual({
+    expect(rows[0]?.content).toEqual({
       type: 'text',
       text: '基于这版继续改',
       output: { runId: 'run_pub', path: 'report.md' },
@@ -427,7 +427,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     // 同一轮既选成果又回传生成式 UI 动作：文本段保留动作字段，并追加所选成果。
     const actionConversation = await newConversation(agent.id);
     await publish(agent.slug, actionConversation, 'run_action', { 'form.md': '# 表单\n' });
-    const withAction = await inject(app, {
+    const withAction = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -447,11 +447,11 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     expect(withAction.statusCode, withAction.body).toBe(202);
     runIds.push(withAction.json<{ runId: string }>().runId);
 
-    const actionRows = await app.pool.query<{ content: unknown }>(
+    const actionRows = await app.client.unsafe<{ content: unknown }[]>(
       "select content from messages where conversation_id = $1 and role = 'user'",
       [actionConversation],
     );
-    expect(actionRows.rows[0]?.content).toEqual([
+    expect(actionRows[0]?.content).toEqual([
       {
         type: 'text',
         text: '按这个表单改',
@@ -472,7 +472,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     const otherId = await newConversation(other.id);
     await publish(other.slug, otherId, 'run_other', { 'report.md': '# other\n' });
 
-    const noConversation = await inject(app, {
+    const noConversation = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -484,7 +484,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     });
     expectProblem(noConversation, 'INVALID_INPUT');
 
-    const foreignConversation = await inject(app, {
+    const foreignConversation = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -497,7 +497,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     });
     expectProblem(foreignConversation, 'CONVERSATION_NOT_FOUND');
 
-    const unknownFile = await inject(app, {
+    const unknownFile = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -518,7 +518,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     const id = await newConversation(agent.id);
     const conversation = await repo.chat.getConversation(app.db, id);
     if (!conversation) throw new Error('conversation missing');
-    await app.pool.query('update conversations set sdk_session_id = $2 where id = $1', [
+    await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
       id,
       '66666666-7777-4888-8999-000000000000',
     ]);
@@ -568,7 +568,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     await mkdir(sessionsDir, { recursive: true });
     await writeFile(join(sessionsDir, '66666666-7777-4888-8999-000000000000.jsonl'), '');
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/conversations/${id}/branch`,
       headers: auth(),
@@ -599,7 +599,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     const id = await newConversation(agent.id);
     await publish(agent.slug, id, 'run_del', { 'a.md': 'a' });
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/conversations/${id}`,
       headers: auth(),
@@ -610,7 +610,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     const secondAgent = await newAgent();
     const secondId = await newConversation(secondAgent.id);
     await publish(secondAgent.slug, secondId, 'run_del2', { 'b.md': 'b' });
-    const removedAgent = await inject(app, {
+    const removedAgent = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${secondAgent.id}`,
       headers: auth(),

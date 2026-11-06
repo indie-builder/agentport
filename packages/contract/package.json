@@ -1,0 +1,29 @@
+{
+  "name": "@agentport/contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch --preserveWatchOutput",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@agentport/shared": "workspace:*",
+    "@orpc/contract": "1.16.1",
+    "zod": "catalog:"
+  }
+}

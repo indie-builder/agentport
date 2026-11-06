@@ -3,10 +3,10 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Redis } from 'ioredis';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { type FastifyInstance, inject, loginCookie, startApp, testConfig } from './helpers.js';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { loginCookie, request, startApp, type TestApp, testConfig } from './helpers.js';
 
-let app: FastifyInstance;
+let app: TestApp;
 let cookie = '';
 let fixture: Server;
 let fixtureUrl = '';
@@ -49,13 +49,12 @@ beforeAll(async () => {
 
 afterEach(async () => {
   if (baseIds.length > 0) {
-    await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+    await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
     baseIds.length = 0;
   }
   if (profileIds.length > 0) {
-    await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-      profileIds,
-    ]);
+    await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+    );
     profileIds.length = 0;
   }
 });
@@ -67,7 +66,7 @@ afterAll(async () => {
 });
 
 async function createProfile(kind: 'embedding' | 'rerank') {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/knowledge/model-profiles',
     headers: { cookie },
@@ -85,7 +84,7 @@ async function createProfile(kind: 'embedding' | 'rerank') {
 }
 
 async function createBase(embeddingProfileId: string, rerankProfileId: string | null = null) {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: '/api/knowledge/bases',
     headers: { cookie },
@@ -103,7 +102,7 @@ async function createBase(embeddingProfileId: string, rerankProfileId: string | 
 }
 
 async function upload(baseId: string, content: string, filename = 'notes.md') {
-  return inject(app, {
+  return request(app, {
     method: 'PUT',
     url: `/api/knowledge/bases/${baseId}/documents/upload`,
     headers: { cookie },
@@ -120,9 +119,9 @@ async function rebuildCapturingDocumentSelects(
   baseId: string,
   payload: { documentIds?: string[]; chunksOnly?: boolean },
 ) {
-  const spy = vi.spyOn(app.pool, 'query');
+  const spy = spyOn(app.client, 'unsafe');
   try {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/rebuild`,
       headers: { cookie },
@@ -139,7 +138,7 @@ async function rebuildCapturingDocumentSelects(
 
 /** 检索依赖 chunk 与当前版本；这里直接落 ready 文档，验证 API 层而不是 worker。 */
 async function seedReadyDocument(baseId: string, profileId: string, content: string) {
-  const document = await inject(app, {
+  const document = await request(app, {
     method: 'PUT',
     url: `/api/knowledge/bases/${baseId}/documents/upload`,
     headers: { cookie },
@@ -152,7 +151,7 @@ async function seedReadyDocument(baseId: string, profileId: string, content: str
   expect(document.statusCode, document.body).toBe(202);
   const documentId = document.json<{ documentId: string }>().documentId;
 
-  const version = await app.pool.query<{ id: string }>(
+  const version = await app.client.unsafe<{ id: string }[]>(
     `insert into knowledge_document_versions
        (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,
         size_bytes, parse_status, page_map, images, embedding_profile_id)
@@ -160,8 +159,8 @@ async function seedReadyDocument(baseId: string, profileId: string, content: str
      returning id`,
     [`kdv_${documentId.slice(4)}`, documentId, 'a'.repeat(64), profileId],
   );
-  const versionId = version.rows[0]!.id;
-  await app.pool.query(
+  const versionId = version[0]!.id;
+  await app.client.unsafe(
     `insert into knowledge_chunks
        (id, base_id, document_id, version_id, ordinal, kind, content, search_text, embedding)
      values ($1, $2, $3, $4, 0, 'text', $5, $6, $7::vector)`,
@@ -175,7 +174,7 @@ async function seedReadyDocument(baseId: string, profileId: string, content: str
       `[${vectorFor(content).join(',')}]`,
     ],
   );
-  await app.pool.query(
+  await app.client.unsafe(
     "update knowledge_documents set status = 'ready', current_version_id = $2 where id = $1",
     [documentId, versionId],
   );
@@ -183,7 +182,7 @@ async function seedReadyDocument(baseId: string, profileId: string, content: str
 }
 
 async function createFolder(baseId: string, name: string, parentId: string | null = null) {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'POST',
     url: `/api/knowledge/bases/${baseId}/folders`,
     headers: { cookie },
@@ -194,7 +193,7 @@ async function createFolder(baseId: string, name: string, parentId: string | nul
 }
 
 async function folderPaths(baseId: string): Promise<Map<string, string>> {
-  const res = await inject(app, {
+  const res = await request(app, {
     method: 'GET',
     url: `/api/knowledge/bases/${baseId}/folders`,
     headers: { cookie },
@@ -210,7 +209,7 @@ describe('knowledge routes', () => {
       '/api/knowledge/model-profiles',
       '/api/knowledge/jobs',
     ]) {
-      const res = await inject(app, { method: 'GET', url });
+      const res = await request(app, { method: 'GET', url });
       expect(res.statusCode, `${url}: ${res.body}`).toBe(401);
     }
   });
@@ -223,7 +222,7 @@ describe('knowledge routes', () => {
     const body = res.json<{ documentId: string; jobId: string }>();
     expect(body.documentId).toMatch(/^kdoc_/);
 
-    const job = await inject(app, {
+    const job = await request(app, {
       method: 'GET',
       url: `/api/knowledge/jobs/${body.jobId}`,
       headers: { cookie },
@@ -231,7 +230,7 @@ describe('knowledge routes', () => {
     expect(job.statusCode, job.body).toBe(200);
     expect(job.json()).toMatchObject({ type: 'ingest', status: 'queued' });
 
-    const document = await inject(app, {
+    const document = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${body.documentId}`,
       headers: { cookie },
@@ -239,11 +238,11 @@ describe('knowledge routes', () => {
     expect(document.statusCode, document.body).toBe(200);
     expect(document.json()).toMatchObject({ title: 'notes', status: 'pending' });
 
-    const jobRow = await app.pool.query<{ payload: { documentId: string } }>(
+    const jobRow = await app.client.unsafe<{ payload: { documentId: string } }[]>(
       'select payload from knowledge_jobs where id = $1',
       [body.jobId],
     );
-    expect(jobRow.rows[0]?.payload.documentId).toBe(body.documentId);
+    expect(jobRow[0]?.payload.documentId).toBe(body.documentId);
   });
 
   it('任务列表只返回展示字段，列表查询不读 payload，单任务仍保留 payload', async () => {
@@ -253,9 +252,9 @@ describe('knowledge routes', () => {
     expect(uploaded.statusCode, uploaded.body).toBe(202);
     const { documentId, jobId } = uploaded.json<{ documentId: string; jobId: string }>();
 
-    const spy = vi.spyOn(app.pool, 'query');
+    const spy = spyOn(app.client, 'unsafe');
     try {
-      const list = await inject(app, {
+      const list = await request(app, {
         method: 'GET',
         url: `/api/knowledge/jobs?baseId=${base.id}`,
         headers: { cookie },
@@ -282,7 +281,7 @@ describe('knowledge routes', () => {
         ].sort(),
       );
 
-      const detail = await inject(app, {
+      const detail = await request(app, {
         method: 'GET',
         url: `/api/knowledge/jobs/${jobId}`,
         headers: { cookie },
@@ -300,11 +299,11 @@ describe('knowledge routes', () => {
       spy.mockRestore();
     }
 
-    const stored = await app.pool.query<{ payload: { documentId: string } }>(
+    const stored = await app.client.unsafe<{ payload: { documentId: string } }[]>(
       'select payload from knowledge_jobs where id = $1',
       [jobId],
     );
-    expect(stored.rows[0]?.payload.documentId).toBe(documentId);
+    expect(stored[0]?.payload.documentId).toBe(documentId);
   });
 
   it('任务列表按 baseId 与 status 过滤', async () => {
@@ -315,7 +314,7 @@ describe('knowledge routes', () => {
     expect(queued.statusCode, queued.body).toBe(202);
     const queuedId = queued.json<{ jobId: string }>().jobId;
     const failedId = `kjob_failed_${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_jobs (id, type, base_id, status, payload, error, ended_at)
        values ($1, 'reindex', $2, 'failed', $3::jsonb, 'boom', now())`,
       [
@@ -329,7 +328,7 @@ describe('knowledge routes', () => {
     const otherId = other.json<{ jobId: string }>().jobId;
 
     const ids = async (query: string) => {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/jobs?${query}`,
         headers: { cookie },
@@ -349,17 +348,17 @@ describe('knowledge routes', () => {
     const base = await createBase(embedding);
     const suffix = Math.random().toString(36).slice(2, 10);
     const jobIds = [1, 2, 3].map((n) => `kjob_cursor_${suffix}_${n}`);
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_jobs (id, type, base_id, status, payload, created_at)
        select id, 'cleanup', $1, 'queued', '{}'::jsonb, '2026-01-01T00:00:00Z'::timestamptz
        from unnest($2::text[]) as id`,
-      [base.id, jobIds],
+      [base.id, app.client.array(jobIds, 'TEXT')],
     );
 
     const getPage = async (cursor?: string) => {
       const params = new URLSearchParams({ baseId: base.id, limit: '2' });
       if (cursor) params.set('cursor', cursor);
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/jobs?${params}`,
         headers: { cookie },
@@ -381,7 +380,7 @@ describe('knowledge routes', () => {
     const base = await createBase(embedding);
     const { documentId } = await seedReadyDocument(base.id, embedding, '访问 令牌 需要 定期 轮换');
 
-    const hit = await inject(app, {
+    const hit = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${base.id}/search?q=${encodeURIComponent('令牌')}`,
       headers: { cookie },
@@ -391,14 +390,14 @@ describe('knowledge routes', () => {
     expect(payload.degraded).toBe(false);
     expect(payload.hits.map((h) => h.documentId)).toContain(documentId);
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/documents/${documentId}`,
       headers: { cookie },
     });
     expect(removed.statusCode, removed.body).toBe(200);
 
-    const after = await inject(app, {
+    const after = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${base.id}/search?q=${encodeURIComponent('令牌')}`,
       headers: { cookie },
@@ -413,7 +412,7 @@ describe('knowledge routes', () => {
     await seedReadyDocument(base.id, embedding, '访问 令牌 需要 定期 轮换');
     embeddingMode = 'fail';
     try {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'GET',
         url: `/api/knowledge/bases/${base.id}/search?q=${encodeURIComponent('令牌')}`,
         headers: { cookie },
@@ -432,7 +431,7 @@ describe('knowledge routes', () => {
     const first = await createBase(embedding);
     const second = await createBase(embedding);
     await seedReadyDocument(second.id, embedding, '访问 令牌 需要 定期 轮换');
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/bases/${first.id}/search?q=${encodeURIComponent('令牌')}`,
       headers: { cookie },
@@ -444,28 +443,28 @@ describe('knowledge routes', () => {
   it('上传非法 base64 返回 400，且不建文档', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
-    const before = await app.pool.query<{ count: string }>(
+    const before = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_documents where base_id = $1',
       [base.id],
     );
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/bases/${base.id}/documents/upload`,
       headers: { cookie },
       payload: { filename: 'x.md', mimeType: 'text/markdown', dataBase64: '!!!not-base64!!!' },
     });
     expect(res.statusCode, res.body).toBe(400);
-    const after = await app.pool.query<{ count: string }>(
+    const after = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from knowledge_documents where base_id = $1',
       [base.id],
     );
-    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+    expect(after[0]?.count).toBe(before[0]?.count);
   });
 
   it('删除知识库同时删内置 server 并解绑专家', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
-    const agent = await inject(app, {
+    const agent = await request(app, {
       method: 'POST',
       url: '/api/agents',
       headers: { cookie },
@@ -479,7 +478,7 @@ describe('knowledge routes', () => {
     expect(agent.statusCode, agent.body).toBe(201);
     const agentId = agent.json<{ id: string }>().id;
 
-    const removed = await inject(app, {
+    const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/bases/${base.id}`,
       headers: { cookie },
@@ -487,13 +486,13 @@ describe('knowledge routes', () => {
     expect(removed.statusCode, removed.body).toBe(204);
     baseIds.length = 0;
 
-    const server = await app.pool.query('select id from servers where id = $1', [base.serverId]);
-    expect(server.rowCount).toBe(0);
-    const bound = await app.pool.query('select 1 from agent_servers where agent_id = $1', [
+    const server = await app.client.unsafe('select id from servers where id = $1', [base.serverId]);
+    expect(server).toHaveLength(0);
+    const bound = await app.client.unsafe('select 1 from agent_servers where agent_id = $1', [
       agentId,
     ]);
-    expect(bound.rowCount).toBe(0);
-    await app.pool.query('delete from agents where id = $1', [agentId]);
+    expect(bound).toHaveLength(0);
+    await app.client.unsafe('delete from agents where id = $1', [agentId]);
   });
 
   it('取消排队任务直接写终态，运行中任务只发 cancel key 并保持 running', async () => {
@@ -503,22 +502,22 @@ describe('knowledge routes', () => {
     expect(queued.statusCode, queued.body).toBe(202);
     const queuedJobId = queued.json<{ jobId: string }>().jobId;
 
-    const cancelled = await inject(app, {
+    const cancelled = await request(app, {
       method: 'POST',
       url: `/api/knowledge/jobs/${queuedJobId}/cancel`,
       headers: { cookie },
     });
     expect(cancelled.statusCode, cancelled.body).toBe(200);
     expect(cancelled.json()).toMatchObject({ status: 'cancelled' });
-    const endedAt = await app.pool.query<{ ended_at: string | null }>(
+    const endedAt = await app.client.unsafe<{ ended_at: string | null }[]>(
       'select ended_at from knowledge_jobs where id = $1',
       [queuedJobId],
     );
-    expect(endedAt.rows[0]?.ended_at).not.toBeNull();
+    expect(endedAt[0]?.ended_at).not.toBeNull();
 
     // 运行中：API 不能自己把 DB 改成 cancelled，否则 worker 还在跑却显示已取消。
     const runningJobId = `kjob_run${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_jobs (id, type, base_id, status, payload, started_at)
        values ($1, 'reindex', $2, 'running', $3::jsonb, now())`,
       [
@@ -529,21 +528,21 @@ describe('knowledge routes', () => {
     );
     const redis = new Redis(testConfig().REDIS_URL);
     try {
-      const running = await inject(app, {
+      const running = await request(app, {
         method: 'POST',
         url: `/api/knowledge/jobs/${runningJobId}/cancel`,
         headers: { cookie },
       });
       expect(running.statusCode, running.body).toBe(200);
       expect(running.json()).toMatchObject({ status: 'running' });
-      const row = await app.pool.query<{ status: string }>(
+      const row = await app.client.unsafe<{ status: string }[]>(
         'select status from knowledge_jobs where id = $1',
         [runningJobId],
       );
-      expect(row.rows[0]?.status).toBe('running');
+      expect(row[0]?.status).toBe('running');
       expect(await redis.get(`knowledge:${runningJobId}:cancel`)).toBe('1');
 
-      const finished = await inject(app, {
+      const finished = await request(app, {
         method: 'POST',
         url: `/api/knowledge/jobs/${queuedJobId}/cancel`,
         headers: { cookie },
@@ -562,7 +561,7 @@ describe('knowledge routes', () => {
     const other = await seedReadyDocument(base.id, embedding, '其他 文档');
 
     // 不传 expectedVersionId 是入口校验失败。
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${target.documentId}/chunks`,
       headers: { cookie },
@@ -571,7 +570,7 @@ describe('knowledge routes', () => {
     expect(missing.statusCode, missing.body).toBe(400);
 
     // 传别的文档版本指针不能覆盖当前指针。
-    const foreign = await inject(app, {
+    const foreign = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${target.documentId}/chunks`,
       headers: { cookie },
@@ -581,13 +580,13 @@ describe('knowledge routes', () => {
     expect(foreign.json()).toMatchObject({ code: 'CONFLICT_STALE' });
 
     // 超过单页 200 条后，序号仍必须接在整版最大值之后。
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks (id, base_id, document_id, version_id, ordinal, kind, content, search_text)
        select 'kchk_bulk_' || g, $1, $2, $3, g + 1, 'text', 'bulk', 'bulk'
        from generate_series(0, 249) g`,
       [base.id, target.documentId, target.versionId],
     );
-    const created = await inject(app, {
+    const created = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${target.documentId}/chunks`,
       headers: { cookie },
@@ -604,18 +603,18 @@ describe('knowledge routes', () => {
     const second = await createBase(embedding);
     const { documentId } = await seedReadyDocument(second.id, embedding, '另一个库');
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${first.id}/rebuild`,
       headers: { cookie },
       payload: { documentIds: [documentId] },
     });
     expect(res.statusCode, res.body).toBe(400);
-    const jobs = await app.pool.query<{ count: string }>(
+    const jobs = await app.client.unsafe<{ count: string }[]>(
       "select count(*)::text as count from knowledge_jobs where base_id = $1 and type = 'reindex'",
       [first.id],
     );
-    expect(jobs.rows[0]?.count).toBe('0');
+    expect(jobs[0]?.count).toBe('0');
   });
 
   it('重建多个合法文档只做一次归属查询且只取 id', async () => {
@@ -640,12 +639,12 @@ describe('knowledge routes', () => {
     expect(sql).toMatch(/^select "id" from "knowledge_documents"/i);
     expect(sql).not.toMatch(/"metadata"|"content_hash"/i);
 
-    const jobs = await app.pool.query<{ payload: Record<string, unknown> }>(
+    const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
       "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
       [base.id],
     );
-    expect(jobs.rows).toHaveLength(1);
-    expect(jobs.rows[0]?.payload).toEqual({
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toEqual({
       type: 'reindex',
       baseId: base.id,
       documentIds,
@@ -685,11 +684,11 @@ describe('knowledge routes', () => {
     });
     expect(missing.selects).toHaveLength(1);
 
-    const jobs = await app.pool.query<{ count: string }>(
+    const jobs = await app.client.unsafe<{ count: string }[]>(
       "select count(*)::text as count from knowledge_jobs where base_id = $1 and type = 'reindex'",
       [first.id],
     );
-    expect(jobs.rows[0]?.count).toBe('0');
+    expect(jobs[0]?.count).toBe('0');
   });
 
   it('重建重复文档只做一次归属查询并保留原数组入队', async () => {
@@ -705,12 +704,12 @@ describe('knowledge routes', () => {
     expect(res.statusCode, res.body).toBe(202);
     expect(selects).toHaveLength(1);
 
-    const jobs = await app.pool.query<{ payload: Record<string, unknown> }>(
+    const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
       "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
       [base.id],
     );
-    expect(jobs.rows).toHaveLength(1);
-    expect(jobs.rows[0]?.payload).toEqual({
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toEqual({
       type: 'reindex',
       baseId: base.id,
       documentIds: [documentId, documentId],
@@ -727,12 +726,12 @@ describe('knowledge routes', () => {
     expect(res.statusCode, res.body).toBe(202);
     expect(selects).toHaveLength(0);
 
-    const jobs = await app.pool.query<{ payload: Record<string, unknown> }>(
+    const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
       "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
       [base.id],
     );
-    expect(jobs.rows).toHaveLength(1);
-    expect(jobs.rows[0]?.payload).toEqual({
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toEqual({
       type: 'reindex',
       baseId: base.id,
       documentIds: [],
@@ -749,12 +748,12 @@ describe('knowledge routes', () => {
     expect(res.statusCode, res.body).toBe(202);
     expect(selects).toHaveLength(0);
 
-    const jobs = await app.pool.query<{ payload: Record<string, unknown> }>(
+    const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
       "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
       [base.id],
     );
-    expect(jobs.rows).toHaveLength(1);
-    expect(jobs.rows[0]?.payload).toEqual({
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toEqual({
       type: 'reindex',
       baseId: base.id,
       chunksOnly: true,
@@ -763,7 +762,7 @@ describe('knowledge routes', () => {
   });
 
   it('模型端点保存与测试都走 SSRF 边界，allowlist 内网主机放行', async () => {
-    const blocked = await inject(app, {
+    const blocked = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -783,7 +782,7 @@ describe('knowledge routes', () => {
     });
     try {
       const secondCookie = await loginCookie(second);
-      const allowed = await inject(second, {
+      const allowed = await request(second, {
         method: 'POST',
         url: '/api/knowledge/model-profiles',
         headers: { cookie: secondCookie },
@@ -802,13 +801,13 @@ describe('knowledge routes', () => {
 
     // 存量行不经过创建校验：测试端点必须再拦一次，不能成为内网探针。
     const storedId = `kmp_${Math.random().toString(36).slice(2, 10)}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_model_profiles (id, kind, name, endpoint_url, model, dimensions)
        values ($1, 'embedding', $2, 'http://10.9.8.7:8080/v1', 'm', 1024)`,
       [storedId, `stored-${storedId}`],
     );
     profileIds.push(storedId);
-    const tested = await inject(app, {
+    const tested = await request(app, {
       method: 'POST',
       url: `/api/knowledge/model-profiles/${storedId}/test`,
       headers: { cookie },
@@ -845,7 +844,7 @@ describe('knowledge routes', () => {
     }
 
     for (const [index] of cases.entries()) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/folders/${roots[index]!.id}`,
         headers: { cookie },
@@ -869,7 +868,7 @@ describe('knowledge routes', () => {
     const root = await createFolder(base.id, '🚀');
     const child = await createFolder(base.id, '子', root.id);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/folders/${root.id}`,
       headers: { cookie },
@@ -890,7 +889,7 @@ describe('knowledge routes', () => {
     const b = await createFolder(base.id, 'B');
     const target = await createFolder(base.id, 'target', b.id);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/folders/${a.id}`,
       headers: { cookie },
@@ -909,7 +908,7 @@ describe('knowledge routes', () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
     const { documentId, versionId } = await seedReadyDocument(base.id, embedding, '基础 分块');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text, edited_by_user)
        select 'kchk_manual_' || g, $1, $2, $3, g + 1, 'text', 'bulk', 'bulk', g = 249
@@ -917,7 +916,7 @@ describe('knowledge routes', () => {
       [base.id, documentId, versionId],
     );
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${documentId}/reprocess`,
       headers: { cookie },
@@ -926,7 +925,7 @@ describe('knowledge routes', () => {
     expect(res.statusCode, res.body).toBe(409);
     expect(res.json<{ message: string }>().message).toContain('1 个');
 
-    const confirmed = await inject(app, {
+    const confirmed = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${documentId}/reprocess`,
       headers: { cookie },
@@ -940,7 +939,7 @@ describe('knowledge routes', () => {
     const base = await createBase(embedding);
     const { documentId } = await seedReadyDocument(base.id, embedding, '访问 令牌 需要 定期 轮换');
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${documentId}/chunks`,
       headers: { cookie },

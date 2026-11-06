@@ -1,19 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 /**
  * wiki_generate 必须由队列分派到 runWikiGenerate，而不是落到摄取分派里抛错。
  * 这里只验证分派选择，真实生成行为由 knowledge-wiki.test.ts 覆盖。
  */
-const runWikiGenerate = vi.fn(async () => undefined);
-const runKnowledgeJob = vi.fn(async () => undefined);
+const runWikiGenerate = mock(async () => undefined);
+const runKnowledgeJob = mock(async () => undefined);
 
-vi.mock('../src/knowledge/wiki.js', () => ({ runWikiGenerate }));
-vi.mock('../src/knowledge/ingestion.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/knowledge/ingestion.js')>(
-    '../src/knowledge/ingestion.js',
-  );
-  return { ...actual, runKnowledgeJob };
-});
+mock.module('../src/knowledge/wiki.js', () => ({ runWikiGenerate }));
+const ingestionActual = await import('../src/knowledge/ingestion.js');
+mock.module('../src/knowledge/ingestion.js', () => ({ ...ingestionActual, runKnowledgeJob }));
 
 describe('knowledge queue dispatch', () => {
   it('routes wiki_generate to the wiki generator', async () => {

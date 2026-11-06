@@ -9,7 +9,7 @@
  * nestedInteractive 的语义：嵌套且有交互、尚无行为证据。父组件已有行为测试覆盖的
  * 交互组件留在 nestedOnly，不重复登记在 nestedInteractive；纯结构/纯数据组件两者都不进。
  *
- * 用法：pnpm openui:audit
+ * 用法：bun run openui:audit
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

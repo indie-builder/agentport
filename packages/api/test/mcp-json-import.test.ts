@@ -1,14 +1,14 @@
 import { decryptSecrets } from '@agentport/core';
 import type { Server } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
@@ -23,7 +23,7 @@ interface McpImportResult {
 const doc = (servers: Record<string, unknown>) => JSON.stringify({ mcpServers: servers });
 
 describe.skipIf(!ready)('mcp.json import', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const created: string[] = [];
 
@@ -38,7 +38,7 @@ describe.skipIf(!ready)('mcp.json import', () => {
   });
 
   const post = (mcpJson: string) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/servers/import-file',
       headers: { cookie },
@@ -46,16 +46,16 @@ describe.skipIf(!ready)('mcp.json import', () => {
     });
 
   const stored = async (name: string) => {
-    const { rows } = await app.pool.query<{
+    const rows = await app.client.unsafe<{
       id: string;
       config: string;
       secrets_encrypted: string | null;
-    }>('select id, config::text as config, secrets_encrypted from servers where name = $1', [name]);
+    }[]>('select id, config::text as config, secrets_encrypted from servers where name = $1', [name]);
     return rows[0];
   };
 
   it('requires auth', async () => {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/servers/import-file',
       payload: { mcpJson: doc({ nope: { command: 'npx' } }) },
@@ -105,7 +105,7 @@ describe.skipIf(!ready)('mcp.json import', () => {
       Authorization: `Bearer ${httpSecret}`,
     });
 
-    const list = await inject(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
+    const list = await request(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
     expect(list.statusCode).toBe(200);
     const listed = list.json<Server[]>().filter((server) => server.name === stdioName);
     expect(listed[0]).toMatchObject({ kind: 'stdio', env: { API_KEY: '••••' } });
@@ -116,7 +116,7 @@ describe.skipIf(!ready)('mcp.json import', () => {
     const existing = unique('import-existing');
     const fresh = unique('import-fresh');
     created.push(existing);
-    const seeded = await inject(app, {
+    const seeded = await request(app, {
       method: 'POST',
       url: '/api/servers',
       headers: { cookie },
@@ -132,7 +132,7 @@ describe.skipIf(!ready)('mcp.json import', () => {
     );
     expectProblem(res, 'CONFLICT');
     expect(res.body).not.toContain(existing);
-    const { rows } = await app.pool.query('select 1 from servers where name = $1', [fresh]);
+    const rows = await app.client.unsafe('select 1 from servers where name = $1', [fresh]);
     expect(rows).toHaveLength(0);
   });
 
@@ -145,7 +145,7 @@ describe.skipIf(!ready)('mcp.json import', () => {
     const statuses = results.map((res) => res.statusCode).sort();
     expect(statuses).toEqual([201, 409]);
 
-    const { rows } = await app.pool.query('select id from servers where name = $1', [name]);
+    const rows = await app.client.unsafe('select id from servers where name = $1', [name]);
     expect(rows).toHaveLength(1);
   });
 
@@ -159,7 +159,7 @@ describe.skipIf(!ready)('mcp.json import', () => {
       }),
     );
     expectProblem(res, 'INVALID_INPUT');
-    const { rows } = await app.pool.query('select 1 from servers where name = $1', [first]);
+    const rows = await app.client.unsafe('select 1 from servers where name = $1', [first]);
     expect(rows).toHaveLength(0);
   });
 
@@ -193,23 +193,23 @@ describe.skipIf(!ready)('mcp.json import', () => {
     expect(res.statusCode, res.body).toBe(201);
 
     // 批次没有单一目标对象：审计行只保留摘要，target 为空。
-    const audit = await app.pool.query<{ target: string | null; input_digest: string | null }>(
+    const audit = await app.client.unsafe<{ target: string | null; input_digest: string | null }[]>(
       `select target, input_digest from audit_log
        where action = 'server.imported' order by created_at desc limit 1`,
     );
-    expect(audit.rows[0]?.target).toBeNull();
-    expect(audit.rows[0]?.input_digest).not.toBeNull();
+    expect(audit[0]?.target).toBeNull();
+    expect(audit[0]?.input_digest).not.toBeNull();
     const returned = res.json<McpImportResult>().servers[0];
     if (!returned) throw new Error('missing imported server');
-    const bindings = await app.pool.query<{ count: number }>(
+    const bindings = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from agent_servers where server_id = $1',
       [returned.id],
     );
-    expect(bindings.rows[0]?.count).toBe(0);
-    const tested = await app.pool.query<{ count: number }>(
+    expect(bindings[0]?.count).toBe(0);
+    const tested = await app.client.unsafe<{ count: number }[]>(
       "select count(*)::int as count from audit_log where action = 'mcp.server.tested' and target = $1",
       [returned.id],
     );
-    expect(tested.rows[0]?.count).toBe(0);
+    expect(tested[0]?.count).toBe(0);
   });
 });

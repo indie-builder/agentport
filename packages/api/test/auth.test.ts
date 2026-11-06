@@ -1,19 +1,19 @@
 import { authUsers, platformBootstrap } from '@agentport/db';
 import { PERMISSIONS } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ensureBootstrap } from '../src/features/auth/bootstrap.js';
-import { AUTH_COOKIE } from '../src/features/auth/types.js';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { ensureBootstrap } from '../src/modules/auth/bootstrap.js';
+import { AUTH_COOKIE } from '../src/modules/auth/types.js';
 import {
   adminCookie,
   cookieOf,
   createAccount,
   expectProblem,
   infraReady,
-  inject,
   login,
+  request,
   startAccessApp,
+  type TestApp,
   testConfig,
 } from './access-helpers.js';
 
@@ -21,7 +21,7 @@ const ready = await infraReady;
 
 describe.skipIf(!ready)('auth', () => {
   const config = testConfig();
-  let app: FastifyInstance;
+  let app: TestApp;
 
   beforeAll(async () => {
     app = await startAccessApp();
@@ -32,7 +32,7 @@ describe.skipIf(!ready)('auth', () => {
   });
 
   it('rejects protected routes without a cookie', async () => {
-    const res = await inject(app, { method: 'GET', url: '/api/accounts' });
+    const res = await request(app, { method: 'GET', url: '/api/accounts' });
     expectProblem(res, 'UNAUTHORIZED');
   });
 
@@ -53,7 +53,7 @@ describe.skipIf(!ready)('auth', () => {
       { username: config.ADMIN_USER },
       { username: null, password: 'x' },
     ]) {
-      const res = await inject(app, { method: 'POST', url: '/api/auth/login', payload });
+      const res = await request(app, { method: 'POST', url: '/api/auth/login', payload });
       const body = expectProblem(res, 'INVALID_INPUT');
       expect(body.path).toMatch(/^\/(username|password)$/);
       expect(body.message).toMatch(/用户名|密码/);
@@ -92,7 +92,7 @@ describe.skipIf(!ready)('auth', () => {
     expect(cookie?.httpOnly).toBe(true);
     expect(cookie?.sameSite).toBe('Lax');
 
-    const authed = await inject(app, {
+    const authed = await request(app, {
       method: 'GET',
       url: '/api/accounts',
       cookies: { [AUTH_COOKIE]: cookie?.value ?? '' },
@@ -101,11 +101,11 @@ describe.skipIf(!ready)('auth', () => {
   });
 
   it('GET /api/auth/me returns the unified access payload', async () => {
-    const anon = await inject(app, { method: 'GET', url: '/api/auth/me' });
+    const anon = await request(app, { method: 'GET', url: '/api/auth/me' });
     expect(anon.json()).toEqual({ authenticated: false });
 
     const cookie = await adminCookie(app);
-    const me = await inject(app, { method: 'GET', url: '/api/auth/me', headers: { cookie } });
+    const me = await request(app, { method: 'GET', url: '/api/auth/me', headers: { cookie } });
     expect(me.statusCode, me.body).toBe(200);
     const body = me.json();
     expect(body).toMatchObject({
@@ -119,7 +119,7 @@ describe.skipIf(!ready)('auth', () => {
 
   it('logout clears the cookie and revokes the session', async () => {
     const cookie = await adminCookie(app);
-    const logout = await inject(app, {
+    const logout = await request(app, {
       method: 'POST',
       url: '/api/auth/logout',
       headers: { cookie },
@@ -128,7 +128,7 @@ describe.skipIf(!ready)('auth', () => {
     expect(logout.json()).toEqual({ ok: true });
     expect(logout.cookies.find((c) => c.name === AUTH_COOKIE)?.value).toBe('');
 
-    const after = await inject(app, { method: 'GET', url: '/api/accounts', headers: { cookie } });
+    const after = await request(app, { method: 'GET', url: '/api/accounts', headers: { cookie } });
     expect(after.statusCode).toBe(401);
   });
 
@@ -142,7 +142,7 @@ describe.skipIf(!ready)('auth', () => {
     expect(signIn.statusCode, signIn.body).toBe(200);
     const cookie = cookieOf(signIn);
 
-    const disabled = await inject(app, {
+    const disabled = await request(app, {
       method: 'PATCH',
       url: `/api/accounts/${encodeURIComponent(created.account.businessId)}/status`,
       headers: { cookie: admin },
@@ -150,7 +150,7 @@ describe.skipIf(!ready)('auth', () => {
     });
     expect(disabled.statusCode, disabled.body).toBe(200);
 
-    const oldCookie = await inject(app, {
+    const oldCookie = await request(app, {
       method: 'GET',
       url: '/api/accounts',
       headers: { cookie },
@@ -170,7 +170,7 @@ describe.skipIf(!ready)('auth', () => {
     const signIn = await login(app, account.username, 'test-password-123');
     const cookie = cookieOf(signIn);
 
-    const wrong = await inject(app, {
+    const wrong = await request(app, {
       method: 'POST',
       url: '/api/auth/change-password',
       headers: { cookie },
@@ -178,7 +178,7 @@ describe.skipIf(!ready)('auth', () => {
     });
     expect(wrong.statusCode).toBe(401);
 
-    const changed = await inject(app, {
+    const changed = await request(app, {
       method: 'POST',
       url: '/api/auth/change-password',
       headers: { cookie },
@@ -187,7 +187,7 @@ describe.skipIf(!ready)('auth', () => {
     expect(changed.statusCode, changed.body).toBe(200);
     expect(changed.json()).toEqual({ ok: true });
 
-    const oldSession = await inject(app, {
+    const oldSession = await request(app, {
       method: 'GET',
       url: '/api/accounts',
       headers: { cookie },
@@ -207,21 +207,21 @@ describe.skipIf(!ready)('auth', () => {
     expect(before).toHaveLength(1);
 
     const [credentialBefore] = (
-      await app.pool.query<{ password: string }>(
+      await app.client.unsafe<{ password: string }[]>(
         `select password from account where provider_id = 'credential'
          and user_id = (select id from "user" where business_id = 'bootstrap-admin')`,
       )
-    ).rows;
+    );
 
     await ensureBootstrap(app.db, testConfig());
     await ensureBootstrap(app.db, testConfig());
 
     const [credentialAfter] = (
-      await app.pool.query<{ password: string }>(
+      await app.client.unsafe<{ password: string }[]>(
         `select password from account where provider_id = 'credential'
          and user_id = (select id from "user" where business_id = 'bootstrap-admin')`,
       )
-    ).rows;
+    );
     expect(credentialAfter?.password).toBe(credentialBefore?.password);
 
     const markers = await app.db
@@ -238,8 +238,8 @@ describe.skipIf(!ready)('auth', () => {
 describe.skipIf(!ready)('auth wildcard origins', () => {
   const config = testConfig();
   const origin = 'https://worktree-skills-toolbar-layout.agentport.localhost';
-  let app: FastifyInstance;
-  let strictApp: FastifyInstance;
+  let app: TestApp;
+  let strictApp: TestApp;
 
   beforeAll(async () => {
     app = await startAccessApp({
@@ -258,7 +258,7 @@ describe.skipIf(!ready)('auth wildcard origins', () => {
     expect(signIn.statusCode, signIn.body).toBe(200);
     const cookie = cookieOf(signIn);
 
-    const logout = await inject(app, {
+    const logout = await request(app, {
       method: 'POST',
       url: '/api/auth/logout',
       headers: { origin, cookie },

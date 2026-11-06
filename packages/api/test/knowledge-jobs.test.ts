@@ -9,7 +9,7 @@ import {
 } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   KnowledgeCancelled,
   type KnowledgeConnector,
@@ -18,11 +18,11 @@ import { startKnowledgeWorker } from '../../worker/src/knowledge/queue.js';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { buildApp } from '../src/app.js';
 import {
-  type FastifyInstance,
   infraReady,
-  inject,
   loginAs,
   loginCookie,
+  request,
+  type TestApp,
   testConfig,
   unique,
 } from './helpers.js';
@@ -48,13 +48,13 @@ const JOB_KEYS = [
 ].sort();
 
 describe.skipIf(!ready)('knowledge job projections', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   const baseIds: string[] = [];
   const profileIds: string[] = [];
 
   async function createBase(): Promise<string> {
-    const profile = await inject(app, {
+    const profile = await request(app, {
       method: 'POST',
       url: '/api/knowledge/model-profiles',
       headers: { cookie },
@@ -68,7 +68,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
     expect(profile.statusCode, profile.body).toBe(201);
     profileIds.push(profile.json<{ id: string }>().id);
 
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/knowledge/bases',
       headers: { cookie },
@@ -85,7 +85,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
   }
 
   async function seedDocument(baseId: string, id: string, title: string) {
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_documents (id, base_id, title, source_type, mime_type, size_bytes)
        values ($1, $2, $3, 'upload', 'text/markdown', 12)`,
       [id, baseId, title],
@@ -93,7 +93,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
   }
 
   async function seedSource(baseId: string, id: string, name: string) {
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_sources (id, base_id, type, name, config)
        values ($1, $2, 'gitlab', $3, $4::jsonb)`,
       [id, baseId, name, JSON.stringify({ token: 'SOURCE_CONFIG_SECRET' })],
@@ -110,7 +110,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
     createdAt?: string;
     payload?: Record<string, unknown>;
   }) {
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_jobs
          (id, type, base_id, document_id, source_id, status, payload, created_at)
        values ($1, $2, $3, $4, $5, $6, $7::jsonb, coalesce($8::timestamptz, now()))`,
@@ -128,7 +128,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
   }
 
   async function list(query: string) {
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/jobs?${query}`,
       headers: { cookie },
@@ -142,19 +142,17 @@ describe.skipIf(!ready)('knowledge job projections', () => {
 
   beforeAll(async () => {
     app = await buildApp(testConfig());
-    await app.ready();
     cookie = await loginCookie(app);
   });
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      await app.pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
       baseIds.length = 0;
     }
     if (profileIds.length > 0) {
-      await app.pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-        profileIds,
-      ]);
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
+      );
       profileIds.length = 0;
     }
   });
@@ -184,7 +182,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
       payload: { type: 'sync', sourceId, syncRunId: 'ksyn_missing' },
     });
 
-    const spy = vi.spyOn(app.pool, 'query');
+    const spy = spyOn(app.client, 'unsafe');
     let body: Awaited<ReturnType<typeof list>>;
     let selects: string[] = [];
     try {
@@ -249,7 +247,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
       documentId: null,
       documentTitle: null,
     });
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/jobs/${job.id}`,
       headers: { cookie },
@@ -316,7 +314,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
     await seedSource(baseId, sourceId, '单任务来源');
     await seedJob({ id: jobId, baseId, documentId, sourceId });
 
-    const detail = await inject(app, {
+    const detail = await request(app, {
       method: 'GET',
       url: `/api/knowledge/jobs/${jobId}`,
       headers: { cookie },
@@ -326,7 +324,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
     expect(Object.keys(job).sort()).toEqual(JOB_KEYS);
     expect(job).toMatchObject({ documentId, sourceId, documentTitle: null, sourceName: null });
 
-    const cancelled = await inject(app, {
+    const cancelled = await request(app, {
       method: 'POST',
       url: `/api/knowledge/jobs/${jobId}/cancel`,
       headers: { cookie },
@@ -353,7 +351,7 @@ const raceReady = ready && raceDatabase !== null;
 if (!raceReady) await raceDatabase?.close();
 
 describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie = '';
   let knowledgeDir = '';
 
@@ -375,7 +373,6 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
     if (!raceDatabase) throw new Error('isolated database unavailable');
     const url = raceDatabase.url;
     app = await buildApp(testConfig({ DATABASE_URL: url }));
-    await app.ready();
     const config = testConfig({ DATABASE_URL: url });
     cookie = await loginAs(app, config.ADMIN_USER, config.ADMIN_PASSWORD);
     knowledgeDir = await mkdtemp(join(tmpdir(), 'knowledge-cancel-race-'));
@@ -393,18 +390,18 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
   async function seedSyncPair(): Promise<{ sourceId: string; jobId: string; runId: string }> {
     const suffix = Math.random().toString(36).slice(2, 8);
     const serverId = newId('server');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into servers (id, name, kind, config) values ($1, $2, 'knowledge', '{}')`,
       [serverId, `race-${suffix}`],
     );
     const profileId = newId('knowledgeModelProfile');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_model_profiles (id, kind, name, endpoint_url, model, dimensions, enabled)
        values ($1, 'embedding', $2, 'http://127.0.0.1:1', 'test', 1024, true)`,
       [profileId, `race-${suffix}`],
     );
     const baseId = newId('knowledgeBase');
-    await app.pool.query(
+    await app.client.unsafe(
       `insert into knowledge_bases (id, slug, name, description, server_id, embedding_profile_id, settings)
        values ($1, $2, 'race', '', $3, $4, $5::jsonb)`,
       [
@@ -438,7 +435,7 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
   async function waitForWaitingRowLocks(expected: number): Promise<void> {
     const deadline = Date.now() + 10_000;
     for (;;) {
-      const { rows } = await app.pool.query<{ waiting: string }>(
+      const rows = await app.client.unsafe<{ waiting: string }[]>(
         `select count(*) as waiting
            from pg_locks l
            join pg_stat_activity a on a.pid = l.pid
@@ -447,7 +444,7 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
       );
       if (Number(rows[0]?.waiting ?? 0) >= expected) return;
       if (Date.now() > deadline) {
-        const locks = await app.pool.query(
+        const locks = await app.client.unsafe(
           `select l.pid, l.locktype, l.mode, l.granted, l.relation::regclass::text as relation,
                   a.state, a.wait_event_type, a.wait_event, left(a.query, 120) as query
              from pg_locks l
@@ -456,7 +453,7 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
             order by l.granted, l.pid`,
         );
         throw new Error(
-          `did not observe ${expected} waiting row lock(s): ${JSON.stringify(locks.rows)}`,
+          `did not observe ${expected} waiting row lock(s): ${JSON.stringify(locks)}`,
         );
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -494,7 +491,7 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
       },
     };
 
-    const locker = await app.pool.connect();
+    const locker = await app.client.reserve();
     const worker = await startKnowledgeWorker({
       db: app.db,
       logger: quietLogger,
@@ -509,19 +506,19 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
     let released = false;
     try {
       // 锁住 sync run：claim 先成功锁住 job（尚未提交），再卡在 run；API 的 CAS 只能等 claim 提交。
-      await locker.query('begin');
-      await locker.query('select 1 from knowledge_sync_runs where id = $1 for update', [runId]);
+      await locker.unsafe('begin');
+      await locker.unsafe('select 1 from knowledge_sync_runs where id = $1 for update', [runId]);
       await queue.add('knowledge', { jobId }, knowledgeEnqueueOptions(jobId));
       await waitForWaitingRowLocks(1);
 
-      const cancelPromise = inject(app, {
+      const cancelPromise = request(app, {
         method: 'POST',
         url: `/api/knowledge/jobs/${jobId}/cancel`,
         headers: { cookie },
       });
       // 第二个等锁事件证明 API 已读到 queued 并进入 finishJob 的 CAS UPDATE。
       await waitForWaitingRowLocks(2);
-      await locker.query('rollback');
+      await locker.unsafe('rollback');
       released = true;
 
       const cancelResponse = await cancelPromise;
@@ -546,7 +543,7 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
         lastError: 'cancelled',
       });
     } finally {
-      if (!released) await locker.query('rollback').catch(() => undefined);
+      if (!released) await locker.unsafe('rollback').catch(() => undefined);
       locker.release();
       await queue.close();
       await worker.close();

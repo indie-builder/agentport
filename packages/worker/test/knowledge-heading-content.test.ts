@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { markdownBlocks } from '../src/knowledge/parsing.js';
 import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 

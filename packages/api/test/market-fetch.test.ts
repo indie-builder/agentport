@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
 
 const SEARCH_TTL_MS = 5 * 60 * 1000;
 const LEADERBOARD_TTL_MS = 10 * 60 * 1000;
@@ -44,7 +45,7 @@ beforeEach(async () => {
   baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
 
   const nativeFetch = globalThis.fetch;
-  vi.stubGlobal('fetch', ((input: string | URL | Request, init?: RequestInit) => {
+  stubGlobal('fetch', ((input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(
       typeof input === 'string' ? input : input instanceof URL ? input : input.url,
     );
@@ -53,17 +54,21 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+  unstubAllGlobals();
+  mock.restore();
   server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-async function loadMarket() {
-  vi.resetModules();
-  const search = await import('../src/features/market/search.js');
-  const leaderboard = await import('../src/features/market/leaderboard.js');
-  return { ...search, ...leaderboard };
+let market: Promise<typeof import('../src/modules/market/search.js') & typeof import('../src/modules/market/leaderboard.js')>;
+
+function loadMarket() {
+  market ??= (async () => {
+    const search = await import('../src/modules/market/search.js');
+    const leaderboard = await import('../src/modules/market/leaderboard.js');
+    return { ...search, ...leaderboard };
+  })();
+  return market;
 }
 
 describe('market fetch failure handling', () => {
@@ -73,7 +78,7 @@ describe('market fetch failure handling', () => {
     const error = await searchMarket('offline').catch((err: unknown) => err);
 
     expect(error).toMatchObject({ code: 'UPSTREAM_FAILED', retryable: true });
-    await vi.waitFor(() => expect(state.closed).toBe(1));
+    await waitForAssertion(() => expect(state.closed).toBe(1));
   });
 
   it('fails leaderboard without cache and releases the 503 connection', async () => {
@@ -82,13 +87,13 @@ describe('market fetch failure handling', () => {
     const error = await fetchLeaderboard('hot').catch((err: unknown) => err);
 
     expect(error).toMatchObject({ code: 'UPSTREAM_FAILED', retryable: true });
-    await vi.waitFor(() => expect(state.closed).toBe(1));
+    await waitForAssertion(() => expect(state.closed).toBe(1));
   });
 
   it('keeps stale search data and releases the 503 connection', async () => {
     const { searchMarket } = await loadMarket();
     const start = Date.now();
-    const now = vi.spyOn(Date, 'now').mockReturnValue(start);
+    const now = spyOn(Date, 'now').mockReturnValue(start);
     mode = 'ok';
     const first = await searchMarket('stale');
     mode = 'fail';
@@ -98,13 +103,13 @@ describe('market fetch failure handling', () => {
 
     expect(second).toEqual(first);
     expect(state.requests).toBe(2);
-    await vi.waitFor(() => expect(state.closed).toBe(1));
+    await waitForAssertion(() => expect(state.closed).toBe(1));
   });
 
   it('keeps stale leaderboard data and releases the 503 connection', async () => {
     const { fetchLeaderboard } = await loadMarket();
     const start = Date.now();
-    const now = vi.spyOn(Date, 'now').mockReturnValue(start);
+    const now = spyOn(Date, 'now').mockReturnValue(start);
     mode = 'ok';
     const first = await fetchLeaderboard('trending');
     mode = 'fail';
@@ -114,7 +119,7 @@ describe('market fetch failure handling', () => {
 
     expect(second).toEqual(first);
     expect(state.requests).toBe(2);
-    await vi.waitFor(() => expect(state.closed).toBe(1));
+    await waitForAssertion(() => expect(state.closed).toBe(1));
   });
 });
 

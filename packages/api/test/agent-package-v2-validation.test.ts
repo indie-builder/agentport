@@ -1,15 +1,15 @@
 import type { Agent } from '@agentport/shared';
 import { AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
   infraReady,
-  inject,
-  injectZip,
   loginCookie,
+  request,
+  requestZip,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 import {
@@ -43,7 +43,7 @@ const childStyle = {
 const resource = { path: 'references/api.md', content: 'Canonical resource.' };
 
 describe.skipIf(!ready)('agent package validation (official files)', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const skillSlugs: string[] = [];
@@ -55,15 +55,14 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
 
   afterAll(async () => {
     try {
-      const targets = await app.pool.query<{ id: string }>(
+      const targets = await app.client.unsafe<{ id: string }[]>(
         `select id from agents where slug = any($1::text[])
          union all
          select id from skills where slug = any($2::text[])`,
-        [agentSlugs, skillSlugs],
+        [app.client.array(agentSlugs, 'TEXT'), app.client.array(skillSlugs, 'TEXT')],
       );
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [
-        targets.rows.map(({ id }) => id),
-      ]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(targets.map(({ id }) => id), 'TEXT')],
+      );
       await cleanup(app, { agentSlugs, skillSlugs });
     } finally {
       await app.close();
@@ -120,33 +119,33 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
     };
   }
 
-  const importZip = (zip: Buffer) => injectZip(app, 'POST', '/api/import/agents', cookie, zip);
+  const importZip = (zip: Buffer) => requestZip(app, 'POST', '/api/import/agents', cookie, zip);
   const importSpec = (spec: PackageSpec) => importZip(packageZip(spec));
   const exportFiles = async (id: string) => {
-    const res = await injectZip(app, 'GET', `/api/export/agents/${id}`, cookie);
+    const res = await requestZip(app, 'GET', `/api/export/agents/${id}`, cookie);
     expect(res.statusCode, res.body).toBe(200);
     return unzipPackage(res.rawPayload);
   };
 
   const assertNothingWritten = async (fixtureValue: Fixture) => {
     const [agents, skills] = await Promise.all([
-      inject(app, { method: 'GET', url: '/api/agents', headers: { cookie } }),
-      inject(app, { method: 'GET', url: '/api/skills', headers: { cookie } }),
+      request(app, { method: 'GET', url: '/api/agents', headers: { cookie } }),
+      request(app, { method: 'GET', url: '/api/skills', headers: { cookie } }),
     ]);
     const ownAgents = [fixtureValue.root];
     expect(agents.json<Agent[]>().filter((entry) => ownAgents.includes(entry.slug))).toEqual([]);
     expect(
       skills.json<Array<{ slug: string }>>().filter((entry) => entry.slug === fixtureValue.skill),
     ).toEqual([]);
-    const definitions = await app.pool.query(
+    const definitions = await app.client.unsafe(
       `select r.id from agent_rules r join agents a on a.id = r.agent_id where a.slug = any($1::text[])
        union all
        select o.id from agent_output_styles o join agents a on a.id = o.agent_id where a.slug = any($1::text[])
        union all
        select f.id from skill_files f join skills s on s.id = f.skill_id where s.slug = any($2::text[])`,
-      [ownAgents, [fixtureValue.skill]],
+      [app.client.array(ownAgents, 'TEXT'), app.client.array([fixtureValue.skill], 'TEXT')],
     );
-    expect(definitions.rows).toEqual([]);
+    expect(definitions).toEqual([]);
   };
 
   const invalidCases: Array<{
@@ -422,7 +421,7 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
   });
 
   it('rejects a legacy JSON body and an unsupported content type', async () => {
-    const legacy = await inject(app, {
+    const legacy = await request(app, {
       method: 'POST',
       url: '/api/import/agents',
       headers: { cookie, 'content-type': 'application/json' },
@@ -431,15 +430,15 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
         agent: { slug: unique('pkgv-json'), name: 'Legacy' },
       },
     });
-    expectProblem(legacy, 'INVALID_INPUT');
+    expectProblem(legacy, 'UNSUPPORTED_MEDIA_TYPE');
 
-    const plain = await inject(app, {
+    const plain = await request(app, {
       method: 'POST',
       url: '/api/import/agents',
       headers: { cookie, 'content-type': 'text/plain' },
       payload: 'not a zip',
     });
-    expectProblem(plain, 'INVALID_INPUT');
+    expectProblem(plain, 'UNSUPPORTED_MEDIA_TYPE');
   });
 
   it('keeps sub-agent rules and styles attached to the child definition', async () => {
@@ -448,25 +447,25 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
     expect(imported.statusCode, imported.body).toBe(201);
     const body = imported.json<{ agent: Agent; createdSubAgents: string[] }>();
     const childId = (
-      await app.pool.query<{ id: string }>('select id from agents where slug = $1', [
+      await app.client.unsafe<{ id: string }[]>('select id from agents where slug = $1', [
         body.createdSubAgents[0],
       ])
-    ).rows[0]?.id;
-    const childRules = await app.pool.query<{ content: string }>(
+    )[0]?.id;
+    const childRules = await app.client.unsafe<{ content: string }[]>(
       'select content from agent_rules where agent_id = $1',
       [childId],
     );
-    expect(childRules.rows.map((row) => row.content)).toEqual(['Child rule.']);
-    const childStyles = await app.pool.query<{ body: string; is_selected: boolean }>(
+    expect(childRules.map((row) => row.content)).toEqual(['Child rule.']);
+    const childStyles = await app.client.unsafe<{ body: string; is_selected: boolean }[]>(
       'select body, is_selected from agent_output_styles where agent_id = $1',
       [childId],
     );
-    expect(childStyles.rows).toEqual([{ body: 'Child style.', is_selected: true }]);
+    expect(childStyles).toEqual([{ body: 'Child style.', is_selected: true }]);
 
-    const rootRules = await app.pool.query<{ content: string }>(
+    const rootRules = await app.client.unsafe<{ content: string }[]>(
       'select content from agent_rules where agent_id = $1',
       [body.agent.id],
     );
-    expect(rootRules.rows.map((row) => row.content)).toEqual(['Canonical rule.']);
+    expect(rootRules.map((row) => row.content)).toEqual(['Canonical rule.']);
   });
 });

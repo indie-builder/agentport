@@ -1,32 +1,31 @@
 import { createDb, newId, schema } from '@agentport/db';
+import * as dnsModule from 'node:dns/promises';
 import * as agentRepo from '@agentport/db/repo/agents.js';
 import * as serverRepo from '@agentport/db/repo/servers.js';
 import { AGENT_PACKAGE_SIDECAR, knowledgeTokenEnv } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import {
   buildAgentPackage,
   importAgentPackage,
   parseAgentPackage,
-} from '../src/features/agent-package.js';
-import { BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/features/auth/types.js';
-import { getServer, listServers, toApiServer } from '../src/features/servers/repo.js';
+} from '../src/modules/agents/package.js';
+import { BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/modules/auth/types.js';
+import { getServer, listServers, toApiServer } from '../src/modules/servers/repo.js';
 
 // 只给占位域名一个公网地址，其余域名仍走真实解析，
 // 这样「解析到内网要拒绝」那条用例照常生效。
-vi.mock('node:dns/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:dns/promises')>();
-  return {
-    ...actual,
-    lookup: vi.fn(async (host: string, options?: { all?: boolean }) => {
-      if (host === 'pace.example.com') {
-        return options?.all
-          ? [{ address: '203.0.113.10', family: 4 }]
-          : { address: '203.0.113.10', family: 4 };
-      }
-      return actual.lookup(host, options as never);
-    }),
-  };
-});
+const realDns = { ...dnsModule };
+mock.module('node:dns/promises', () => ({
+  ...realDns,
+  lookup: mock(async (host: string, options?: { all?: boolean }) => {
+    if (host === 'pace.example.com') {
+      return options?.all
+        ? [{ address: '203.0.113.10', family: 4 }]
+        : { address: '203.0.113.10', family: 4 };
+    }
+    return realDns.lookup(host, options as never);
+  }),
+}));
 
 const KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
 const handle = createDb(
@@ -73,10 +72,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await handle.pool.query('delete from agent_servers where server_id = $1', [serverId]);
-  await handle.pool.query('delete from agents where id = any($1::text[])', [createdAgents]);
-  await handle.pool.query('delete from servers where id = $1', [serverId]);
-  await handle.pool.end();
+  await handle.client.unsafe('delete from agent_servers where server_id = $1', [serverId]);
+  await handle.client.unsafe('delete from agents where id = any($1::text[])', [handle.client.array(createdAgents, 'TEXT')]);
+  await handle.client.unsafe('delete from servers where id = $1', [serverId]);
+  await handle.client.close();
 });
 
 async function exportedPackage() {
@@ -229,13 +228,13 @@ describe('knowledge binding in the agent package', () => {
       // 缺凭据必须给出可读 warning，而不是静默漏掉绑定。
       expect(result.warnings.join('\n')).toContain('知识库连接');
       expect(result.agent.serverIds).toHaveLength(1);
-      const { rows } = await handle.pool.query<{ kind: string }>(
+      const rows = await handle.client.unsafe<{ kind: string }[]>(
         'select kind from servers where name = $1',
         [renamed],
       );
       expect(rows[0]?.kind).toBe('http');
     } finally {
-      await handle.pool.query('delete from servers where name = $1', [renamed]);
+      await handle.client.unsafe('delete from servers where name = $1', [renamed]);
     }
   });
 });

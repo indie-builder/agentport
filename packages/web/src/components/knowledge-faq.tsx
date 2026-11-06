@@ -1,4 +1,4 @@
-import { knowledgeFaqImportMetadataSchema } from '@agentport/shared';
+import { knowledgeDocumentStatusSchema, knowledgeFaqImportMetadataSchema } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Download, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -261,8 +261,7 @@ function FaqEditorForm({
       label: `${'　'.repeat(folder.depth)}${folder.label}`,
     })),
   ];
-  const expectedVersionId =
-    initialDetail?.draftVersion?.id ?? initialDetail?.publishedVersion?.id ?? null;
+  const expectedVersionId = initialDetail?.draftVersion?.id ?? initialDetail?.publishedVersion?.id;
   const answerErrors = form.formState.errors.answers;
   const answersRootError = rootErrorMessage(answerErrors);
 
@@ -290,6 +289,10 @@ function FaqEditorForm({
       guard.finish();
     };
     if (initialDetail) {
+      if (expectedVersionId === undefined) {
+        setError('当前 FAQ 没有可编辑的版本，请刷新后重试。');
+        return;
+      }
       update.mutate(
         { documentId: initialDetail.document.id, ...common, expectedVersionId },
         { onSuccess, onError: (reason) => setError(errorMessage(reason)) },
@@ -1118,9 +1121,7 @@ function FaqImportDialog({
                         旧 FAQ 会保留到整批发布成功；失败时线上不变。
                       </span>
                     ) : existing.isError ? (
-                      <span className="text-sm text-danger">
-                        旧 FAQ 数量读取失败，暂不能替换。
-                      </span>
+                      <span className="text-sm text-danger">旧 FAQ 数量读取失败，暂不能替换。</span>
                     ) : (
                       <span className="text-sm text-muted-foreground">正在读取旧 FAQ 数量…</span>
                     )
@@ -1418,7 +1419,15 @@ export function FaqTab({
 }) {
   const [query, setQuery] = useState('');
   const settledQuery = useDebouncedValue(query.trim(), 300);
-  const [status, setStatus] = useState('all');
+  const [status, setStatus] = useState<'all' | KnowledgeFaqSummary['status']>('all');
+  const applyStatus = (next: string): void => {
+    if (next === 'all') {
+      setStatus('all');
+      return;
+    }
+    const parsed = knowledgeDocumentStatusSchema.safeParse(next);
+    if (parsed.success) setStatus(parsed.data);
+  };
   const [folder, setFolder] = useState('all');
   const [recommended, setRecommended] = useState('all');
   const folders = useKnowledgeFolders(baseId);
@@ -1529,7 +1538,7 @@ export function FaqTab({
           <FilterSelect
             label="按 FAQ 状态筛选"
             value={status}
-            onValueChange={setStatus}
+            onValueChange={applyStatus}
             options={[
               { value: 'all', label: '全部状态' },
               { value: 'ready', label: '可召回' },

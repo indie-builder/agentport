@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   installPlugin,
   listNativePlugins,
@@ -68,10 +68,9 @@ async function marketFixture(root: string): Promise<string> {
 }
 
 describe('real CLI native plugin install', () => {
-  it(
+  it.skipIf(!nativeCli)(
     'installs a local marketplace plugin once and reads it from cache without the source',
-    async (ctx) => {
-      if (!nativeCli) ctx.skip(`no native CLI installed for ${process.platform}-${process.arch}`);
+    async () => {
       const root = await mkdtemp(join(tmpdir(), 'native-plugin-cli-'));
       try {
         const market = await marketFixture(root);

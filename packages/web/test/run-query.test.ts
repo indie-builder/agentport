@@ -19,11 +19,13 @@ describe('run query cancellation', () => {
     });
 
     // 真实网络边界：queryFn -> api.run -> fetch。记录的是 fetch 实际收到的信号。
-    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
-      signal = init?.signal ?? undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const requestSignal =
+        (input instanceof Request ? input.signal : undefined) ?? init?.signal ?? undefined;
+      signal = requestSignal;
       started();
       return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => {
+        requestSignal?.addEventListener('abort', () => {
           aborted();
           reject(new DOMException('The operation was aborted.', 'AbortError'));
         });

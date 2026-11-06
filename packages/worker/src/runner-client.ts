@@ -8,6 +8,7 @@ import {
   type NativeQuestion,
   publicRunQuestion,
   type QuestionResponse,
+  RUN_CANCEL_PAYLOAD,
   RUN_PERSISTED_MAX_BYTES,
   RUN_PERSISTED_MAX_EVENTS,
   RUN_TRANSIENT_MAX_BYTES,
@@ -21,8 +22,8 @@ import {
   type SandboxTaskInput,
   SUPERVISOR_INPUT_MAX_BYTES,
 } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import { Deferred, Effect, Exit, type Scope } from 'effect';
-import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import { SandboxCleanupError } from './sandbox/provider.js';
 import type {
@@ -380,22 +381,42 @@ export function configureRunnerClient(url: string): void {
   redisUrl = url;
 }
 
-let publisher: Redis | undefined;
-let cancelSubscriber: Redis | undefined;
+let publisher: RedisClient | undefined;
+let cancelSubscriber: RedisClient | undefined;
+const cancelHandlers = new Map<string, Set<(message: string, channel: string) => void>>();
 
-function getPublisher(logger: Logger): Redis {
+function getPublisher(logger: Logger): RedisClient {
   if (!publisher) {
-    publisher = new Redis(redisUrl, { maxRetriesPerRequest: null });
-    publisher.on('error', (err) => logger.warn({ err }, 'redis error'));
+    publisher = new RedisClient(redisUrl);
+    publisher.onclose = (err) => logger.warn({ err }, 'redis error');
   }
   return publisher;
 }
 
 /** 与 API 的订阅共用同一频道；这里只关心 cancel 消息。 */
-function getCancelSubscriber(logger: Logger): Redis {
+function getCancelSubscriber(logger: Logger): RedisClient {
   if (!cancelSubscriber) {
-    cancelSubscriber = new Redis(redisUrl, { maxRetriesPerRequest: null });
-    cancelSubscriber.on('error', (err) => logger.warn({ err }, 'redis error'));
+    cancelSubscriber = new RedisClient(redisUrl);
+    cancelSubscriber.onclose = (err) => logger.warn({ err }, 'redis error');
+    let connected = false;
+    cancelSubscriber.onconnect = () => {
+      if (!connected) {
+        connected = true;
+        return;
+      }
+      const redis = cancelSubscriber;
+      if (!redis) return;
+      for (const [channel, handlers] of cancelHandlers) {
+        for (const handler of handlers) {
+          void redis
+            .subscribe(channel, handler)
+            .then(async () => {
+              if (await getPublisher(logger).exists(channel)) handler(RUN_CANCEL_PAYLOAD, channel);
+            })
+            .catch((err: unknown) => logger.warn({ err }, 'cancel resubscribe failed'));
+        }
+      }
+    };
   }
   return cancelSubscriber;
 }
@@ -403,17 +424,11 @@ function getCancelSubscriber(logger: Logger): Redis {
 /** 事件写 Redis Stream（与 API 的订阅端一致），可从流头回放；BLOCK 订阅者由 XADD 直接唤醒。 */
 export async function publishRun(runId: string, event: ChatEvent, logger: Logger): Promise<void> {
   const key = runStreamKey(runId);
-  // XADD 与 TTL 合并为一次 pipeline；逐命令检查，避免任一失败被静默吞掉。
-  const replies = await getPublisher(logger)
-    .pipeline()
-    .xadd(key, '*', 'payload', JSON.stringify(event))
-    .expire(key, 3600)
-    .exec();
-  // 无 WATCH 时不应返回 null；真出现说明命令没执行，不能当作发布成功。
-  if (replies === null) throw new Error('redis pipeline aborted');
-  for (const reply of replies) {
-    if (reply[0]) throw reply[0];
-  }
+  const redis = getPublisher(logger);
+  await Promise.all([
+    redis.send('XADD', [key, '*', 'payload', JSON.stringify(event)]),
+    redis.expire(key, 3600),
+  ]);
 }
 
 /** 频道事件只是唤醒信号：Redis 黑洞时必须有界返回，不能拖住 run 收尾。 */
@@ -435,25 +450,25 @@ export async function publishChannelEvent(
   logger: Logger,
 ): Promise<void> {
   const key = channelStreamKey(channelId);
-  const replies = await withPublishTimeout(
-    getPublisher(logger)
-      .pipeline()
-      .xadd(key, '*', 'payload', JSON.stringify(event))
-      .expire(key, 3600)
-      .exec(),
+  const redis = getPublisher(logger);
+  await withPublishTimeout(
+    Promise.all([
+      redis.send('XADD', [key, '*', 'payload', JSON.stringify(event)]),
+      redis.expire(key, 3600),
+    ]),
     CHANNEL_PUBLISH_TIMEOUT_MS,
   );
-  if (replies === null) throw new Error('redis pipeline aborted');
-  for (const reply of replies) {
-    if (reply[0]) throw reply[0];
-  }
 }
 
 export async function closeRunnerClient(): Promise<void> {
   const closing = [publisher, cancelSubscriber] as const;
   publisher = undefined;
   cancelSubscriber = undefined;
-  await Promise.allSettled([closing[0]?.quit(), closing[1]?.quit()]);
+  cancelHandlers.clear();
+  if (closing[0]) closing[0].onclose = () => undefined;
+  if (closing[1]) closing[1].onclose = () => undefined;
+  closing[0]?.close();
+  closing[1]?.close();
 }
 
 /** acquire 的总预算；超时后仍要等 provider 清理完，不能先返回留下未知容器。 */
@@ -980,27 +995,31 @@ function subscribeCancel(
   return Effect.gen(function* () {
     const redis = getCancelSubscriber(logger);
     const channel = runCancelKey(runId);
-    const handler = (received: string): void => {
+    const handler = (_message: string, received: string): void => {
       if (received === channel) onCancel();
     };
     yield* Effect.acquireRelease(
       Effect.sync(() => {
-        redis.on('message', handler);
+        const handlers = cancelHandlers.get(channel) ?? new Set();
+        handlers.add(handler);
+        cancelHandlers.set(channel, handlers);
         signal?.addEventListener('abort', onCancel, { once: true });
         if (signal?.aborted) onCancel();
       }),
       () =>
         Effect.sync(() => {
-          redis.off('message', handler);
+          const handlers = cancelHandlers.get(channel);
+          handlers?.delete(handler);
+          if (handlers?.size === 0) cancelHandlers.delete(channel);
           signal?.removeEventListener('abort', onCancel);
           // 同一连接按序发送 UNSUBSCRIBE，不能等它的 ACK 把 shutdown 再次挂住。
-          void redis.unsubscribe(channel).catch((err: unknown) => {
+          void redis.unsubscribe(channel, handler).catch((err: unknown) => {
             logger.warn({ err, runId }, 'cancel unsubscribe failed');
           });
         }),
     );
     yield* Effect.tryPromise({
-      try: () => redis.subscribe(channel),
+      try: () => redis.subscribe(channel, handler),
       catch: (err) => new RunFailure('infra', errorText(err)),
     });
     // 订阅连接不能执行 EXISTS；独立 effect 保证中断后不再发补查。
@@ -1008,6 +1027,6 @@ function subscribeCancel(
       try: () => getPublisher(logger).exists(channel),
       catch: (err) => new RunFailure('infra', errorText(err)),
     });
-    if (exists === 1) onCancel();
+    if (exists) onCancel();
   });
 }

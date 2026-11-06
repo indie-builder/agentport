@@ -1,7 +1,6 @@
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getQueue } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -9,9 +8,10 @@ import {
   createAgent,
   expectProblem,
   infraReady,
-  inject,
   loginCookie,
+  request,
   startApp,
+  type TestApp,
   unique,
 } from './helpers.js';
 
@@ -23,7 +23,7 @@ const ready = await infraReady;
 const uiSegment = (name: string) => `\`\`\`openui-lang\n${name} = Card([])\n\`\`\``;
 
 describe.skipIf(!ready)('openui actions', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
   const runIds: string[] = [];
@@ -42,9 +42,8 @@ describe.skipIf(!ready)('openui actions', () => {
         .catch(() => undefined);
     }
     if (conversationIds.length > 0) {
-      await app.pool.query('delete from audit_log where target = any($1::text[])', [
-        conversationIds,
-      ]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(conversationIds, 'TEXT')],
+      );
     }
     await cleanup(app, { agentSlugs, runIds });
     await app.close();
@@ -99,7 +98,7 @@ describe.skipIf(!ready)('openui actions', () => {
           : { parentToolUseId: options.parentToolUseId }),
       },
     });
-    await app.pool.query('update messages set ui_format = $2, ui_program = $3 where id = $1', [
+    await app.client.unsafe('update messages set ui_format = $2, ui_program = $3 where id = $1', [
       message.id,
       options.uiFormat ?? 'openui',
       text,
@@ -108,7 +107,7 @@ describe.skipIf(!ready)('openui actions', () => {
   };
 
   const userMessages = (conversationId: string) =>
-    app.pool.query<{ content: unknown }>(
+    app.client.unsafe<{ content: unknown }[]>(
       "select content from messages where conversation_id = $1 and role = 'user'",
       [conversationId],
     );
@@ -117,7 +116,7 @@ describe.skipIf(!ready)('openui actions', () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
     const params = { card: 'paris', filters: { nights: [2, 5], tags: ['art', 'food'] } };
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -143,8 +142,8 @@ describe.skipIf(!ready)('openui actions', () => {
     runIds.push(body.runId);
 
     const rows = await userMessages(body.conversationId);
-    expect(rows.rows).toHaveLength(1);
-    expect(rows.rows[0]?.content).toEqual([
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.content).toEqual([
       { type: 'text', text: 'Plan a trip to Paris' },
       {
         type: 'openui_action',
@@ -161,7 +160,7 @@ describe.skipIf(!ready)('openui actions', () => {
   it('keeps params.context when no explicit context is sent', async () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -181,7 +180,7 @@ describe.skipIf(!ready)('openui actions', () => {
     expect(res.statusCode, res.body).toBe(202);
     runIds.push(res.json<{ runId: string }>().runId);
     const rows = await userMessages(source.conversationId);
-    expect(rows.rows[0]?.content).toEqual([
+    expect(rows[0]?.content).toEqual([
       { type: 'text', text: 'continue' },
       {
         type: 'openui_action',
@@ -195,7 +194,7 @@ describe.skipIf(!ready)('openui actions', () => {
 
   it('accepts a live action without source for form-state continuation', async () => {
     const agent = await newAgent();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -214,7 +213,7 @@ describe.skipIf(!ready)('openui actions', () => {
     runIds.push(res.json<{ runId: string }>().runId);
     const rows = await userMessages(res.json<{ conversationId: string }>().conversationId);
     // 不伪造来源 id：没有来源就不写 messageId/blockKey。
-    expect(rows.rows[0]?.content).toEqual([
+    expect(rows[0]?.content).toEqual([
       { type: 'text', text: 'submit' },
       {
         type: 'openui_action',
@@ -228,7 +227,7 @@ describe.skipIf(!ready)('openui actions', () => {
   it('accepts a source pointing at the second real segment', async () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id, { segments: 2 });
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -266,7 +265,7 @@ describe.skipIf(!ready)('openui actions', () => {
       '结尾。',
     ].join('\n');
     const source = await sourceMessage(agent.id, { text });
-    const second = await inject(app, {
+    const second = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -285,7 +284,7 @@ describe.skipIf(!ready)('openui actions', () => {
     expect(second.statusCode, second.body).toBe(202);
     runIds.push(second.json<{ runId: string }>().runId);
 
-    const missing = await inject(app, {
+    const missing = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -308,7 +307,7 @@ describe.skipIf(!ready)('openui actions', () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
     for (const sourcePart of [{ messageId: source.messageId }, { blockKey: 's0' }]) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/chat',
         headers: auth(),
@@ -340,7 +339,7 @@ describe.skipIf(!ready)('openui actions', () => {
       { conversationId: source.conversationId, messageId: other.messageId, blockKey: 's0' },
     ];
     for (const sourcePart of cases) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/chat',
         headers: auth(),
@@ -387,7 +386,7 @@ describe.skipIf(!ready)('openui actions', () => {
       { conversationId: oneSegment.conversationId, messageId: oneSegment.messageId, blockKey: '0' },
     ];
     for (const sourcePart of cases) {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/chat',
         headers: auth(),
@@ -415,16 +414,16 @@ describe.skipIf(!ready)('openui actions', () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
     const fn = `test_openui_action_block_${Date.now()}`;
-    await app.pool.query(
+    await app.client.unsafe(
       `create function ${fn}() returns trigger language plpgsql as $$ begin raise exception 'blocked openui action insert'; end $$`,
     );
-    await app.pool.query(
+    await app.client.unsafe(
       `create trigger ${fn} before insert on messages for each row
        when (new.role = 'user' and jsonb_typeof(new.content) = 'array' and new.content @> '[{"type":"openui_action"}]'::jsonb)
        execute function ${fn}()`,
     );
     try {
-      const res = await inject(app, {
+      const res = await request(app, {
         method: 'POST',
         url: '/api/chat',
         headers: auth(),
@@ -443,29 +442,29 @@ describe.skipIf(!ready)('openui actions', () => {
       });
       expect(res.statusCode).toBe(500);
 
-      const runs = await app.pool.query('select id from agent_runs where conversation_id = $1', [
+      const runs = await app.client.unsafe('select id from agent_runs where conversation_id = $1', [
         source.conversationId,
       ]);
-      expect(runs.rows).toHaveLength(0);
-      const messages = await app.pool.query(
+      expect(runs).toHaveLength(0);
+      const messages = await app.client.unsafe(
         "select id from messages where conversation_id = $1 and role = 'user'",
         [source.conversationId],
       );
-      expect(messages.rows).toHaveLength(0);
+      expect(messages).toHaveLength(0);
       const jobs = await getQueue().getJobs(['waiting', 'delayed', 'active']);
       expect(jobs.filter((job) => job.data.conversationId === source.conversationId)).toHaveLength(
         0,
       );
     } finally {
-      await app.pool.query(`drop trigger if exists ${fn} on messages`);
-      await app.pool.query(`drop function if exists ${fn}()`);
+      await app.client.unsafe(`drop trigger if exists ${fn} on messages`);
+      await app.client.unsafe(`drop function if exists ${fn}()`);
     }
   });
 
   it('rejects an open_url action that is not http(s)', async () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -487,7 +486,7 @@ describe.skipIf(!ready)('openui actions', () => {
   it('accepts an https open_url action without persisting a message', async () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -506,13 +505,13 @@ describe.skipIf(!ready)('openui actions', () => {
     // 浏览器自己开窗：既不起 run，也不写消息。
     expect(res.statusCode).toBe(204);
     const rows = await userMessages(source.conversationId);
-    expect(rows.rows).toHaveLength(0);
+    expect(rows).toHaveLength(0);
   });
 
   it('rejects an action over 64KB with 413', async () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -534,7 +533,7 @@ describe.skipIf(!ready)('openui actions', () => {
   it('rejects an unknown action type', async () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -554,7 +553,7 @@ describe.skipIf(!ready)('openui actions', () => {
 
   it('leaves plain text messages unchanged', async () => {
     const agent = await newAgent();
-    const res = await inject(app, {
+    const res = await request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: auth(),
@@ -563,6 +562,6 @@ describe.skipIf(!ready)('openui actions', () => {
     const body = res.json<{ runId: string; conversationId: string }>();
     runIds.push(body.runId);
     const rows = await userMessages(body.conversationId);
-    expect(rows.rows[0]?.content).toEqual({ type: 'text', text: 'plain hello' });
+    expect(rows[0]?.content).toEqual({ type: 'text', text: 'plain hello' });
   });
 });

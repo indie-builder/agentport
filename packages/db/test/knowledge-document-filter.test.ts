@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
 
-const { db, pool } = createDb(process.env.DATABASE_URL ?? '');
-const ready = await pool.query('select 1').then(
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
@@ -15,26 +15,26 @@ const profileIds: string[] = [];
 const serverIds: string[] = [];
 
 afterEach(async () => {
-  vi.restoreAllMocks();
+  mock.restore();
   if (baseIds.length > 0) {
-    await pool.query('delete from knowledge_bases where id = any($1::text[])', [baseIds]);
+    await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [client.array(baseIds, 'TEXT')]);
     baseIds.length = 0;
   }
   if (profileIds.length > 0) {
-    await pool.query('delete from knowledge_model_profiles where id = any($1::text[])', [
-      profileIds,
+    await client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+      client.array(profileIds, 'TEXT'),
     ]);
     profileIds.length = 0;
   }
   profileId = '';
   if (serverIds.length > 0) {
-    await pool.query('delete from servers where id = any($1::text[])', [serverIds]);
+    await client.unsafe('delete from servers where id = any($1::text[])', [client.array(serverIds, 'TEXT')]);
     serverIds.length = 0;
   }
 });
 
 afterAll(async () => {
-  await pool.end();
+  await client.close();
 });
 
 let profileId = '';
@@ -115,7 +115,7 @@ interface CapturedQuery {
 async function captureQueries<T>(
   run: () => Promise<T>,
 ): Promise<{ value: T; queries: CapturedQuery[] }> {
-  const spy = vi.spyOn(pool, 'query');
+  const spy = spyOn(client, 'unsafe');
   try {
     const value = await run();
     const queries = spy.mock.calls.map((call) => {

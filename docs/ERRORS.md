@@ -1,13 +1,13 @@
 # 异常管理设计
 
-> 2026-10-20。记录错误契约、分层规则、以及每一类异常在哪里被处理。
+> 2026-10-20 初稿；2026-11-06 按 Bun/Hono/oRPC 迁移复核。记录错误契约、分层规则、以及每一类异常在哪里被处理。
 
 ## 结论先说
 
 | 层 | 异常类型 | 表示 | 处理者 |
 |---|---|---|---|
 | 业务（core / db / feature） | **业务异常** | `AppError(code, message)` | 抛给边界，不写 HTTP 状态码 |
-| API 边界（Fastify） | 校验 / 框架 / 未预期 | `Problem` JSON | `plugins/errors.ts` 统一渲染 |
+| API 边界（Hono / oRPC） | 校验 / 框架 / 未预期 | `Problem` JSON | `packages/api/src/http/errors.ts` 统一渲染 |
 | Worker（BullMQ） | 运行失败 | `RunFailure(reason)` | Scope 收尾 + `isRetryableFailure` |
 | 沙盒（容器内） | 模型/工具失败 | `run_finished.failureKind` | 过 stdout 传给宿主 |
 | 进程 | 未捕获异常 | 日志 + 退出 | `installProcessGuards` |
@@ -20,7 +20,7 @@
 | 来源 | 取用的设计 | 没取用的部分 |
 |---|---|---|
 | [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457.html) | 单一 envelope、`type`/`title` 语义、扩展成员放字段级 `errors[]` | `application/problem+json` 媒体类型——前端 `fetch` 只读 JSON，换媒体类型没有收益 |
-| [NestJS Exception Filters](https://docs.nestjs.com/exception-filters) | `DomainError` + 全局 filter；业务层不感知 HTTP | 依赖注入式 filter 注册，Fastify 的 `setErrorHandler` 等价 |
+| [NestJS Exception Filters](https://docs.nestjs.com/exception-filters) | `DomainError` + 全局 filter；业务层不感知 HTTP | 依赖注入式 filter 注册，Hono `onError` 与 oRPC 错误映射等价 |
 | [Spring `ErrorResponse` / `ProblemDetail`](https://docs.springframework.org.cn/spring-framework/reference/web/webmvc/mvc-ann-rest-exceptions.html) | 异常自带映射；`ResponseEntityExceptionHandler` 先处理框架异常再兜底 | `@ControllerAdvice` 的注解机制 |
 | [Google AIP-193](https://cloud.google.com/apis/design/errors) | `ErrorInfo.reason` 作为稳定机器可读码；retryability 与 code 绑定；`RetryInfo` | protobuf `Status.details` 的 Any 编码 |
 | [BullMQ UnrecoverableError](http://docs.bullmq.io/patterns/stop-retrying-jobs) | 永久失败不重试 | 直接使用 `UnrecoverableError`——项目已有 `RunFailure.reason`，语义更细 |
@@ -77,7 +77,7 @@ fail('CONFLICT', 'agent version conflict, retry later', { retryable: true });
 | 来源 | 结果 |
 |---|---|
 | 未识别异常 | `INTERNAL_ERROR` 500，原始信息只进日志 |
-| Fastify body 超限 | `PAYLOAD_TOO_LARGE` 413 |
+| Hono body 超限 | `PAYLOAD_TOO_LARGE` 413 |
 | 错误 Content-Type | `UNSUPPORTED_MEDIA_TYPE` 415 |
 | 限流 | `RATE_LIMITED` 429，`retryable: true` |
 | 响应不符合 schema | `RESPONSE_INVALID` 500（服务端缺陷） |
@@ -118,14 +118,13 @@ fail('CONFLICT', 'agent version conflict, retry later', { retryable: true });
    每个状态一个子类。code 已经是判别式，子类只会增加 import。
 3. **不把 HTTP 映射放进 db 层**：`AppError` 定义在 core，db 只依赖 core；API 边界负责渲染。
    db 抛 `CONFLICT_STALE` 是因为它是**业务事实**，不是因为它知道 409。
-4. **保留兼容分支**：`toAppError` 仍识别 `Object.assign(new Error(), { statusCode, code })`，
-   用于尚未迁移的第三方插件（如限流）。迁移完可删。
+4. **不留旧兼容分支**：`toAppError` 识别 zod、`ORPCError`、`HTTPException` 与 Redis 连接错误；Bun SQL 错误用 `isPgCode` 辅助判断。不再识别旧的 `statusCode` 对象形状。
 
 ## 验证
 
 - `packages/api/test/errors.test.ts`：404/401 的 Problem 形状、code→状态映射、`retryable` 语义、
   跨包 `instanceof`。
-- 各 feature 测试仍断言 `code`（如 `CONFLICT_STALE`、`INVALID_URL`），迁移前后行为一致。
+- 各模块测试仍断言 `code`（如 `CONFLICT_STALE`、`INVALID_URL`），迁移前后行为一致。
 
 ## 已知边界
 

@@ -5,7 +5,7 @@ import { type Job, Queue, Worker } from 'bullmq';
 import { and, eq, gte, isNull } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { KNOWLEDGE_TIMEOUT_MS } from '../src/knowledge/queue.js';
 import {
   ensureDailyCleanup,
@@ -18,20 +18,20 @@ async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;
   const redisUrl = process.env.REDIS_URL;
   if (!databaseUrl || !redisUrl) return false;
-  const { pool } = createDb(databaseUrl);
+  const { client } = createDb(databaseUrl);
   const redis = new Redis(redisUrl, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     retryStrategy: () => null,
   });
   try {
-    await pool.query('select 1');
+    await client.unsafe('select 1');
     await redis.connect();
     return (await redis.ping()) === 'PONG';
   } catch {
     return false;
   } finally {
-    await pool.end().catch(() => undefined);
+    await client.close().catch(() => undefined);
     await redis.quit().catch(() => undefined);
   }
 }
@@ -43,7 +43,7 @@ const prefix = `knowledge-reconcile-${randomUUID().slice(0, 8)}`;
 
 describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   let db: ReturnType<typeof createDb>['db'];
-  let pool: ReturnType<typeof createDb>['pool'];
+  let client: ReturnType<typeof createDb>['client'];
   let queue: Queue<{ jobId: string }>;
   const logger = {
     info: () => undefined,
@@ -102,7 +102,7 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   }
 
   beforeAll(async () => {
-    ({ db, pool } = createDb(process.env.DATABASE_URL ?? ''));
+    ({ db, client } = createDb(process.env.DATABASE_URL ?? ''));
     queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
       connection: { url: redisUrl, maxRetriesPerRequest: null },
       prefix,
@@ -183,7 +183,7 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
         await db.delete(schema.servers).where(eq(schema.servers.id, serverId));
       }
     } finally {
-      if (pool) await pool.end();
+      await client.close();
     }
   });
 

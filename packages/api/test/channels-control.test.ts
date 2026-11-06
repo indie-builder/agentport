@@ -1,4 +1,3 @@
-import type { AddressInfo } from 'node:net';
 import { repo } from '@agentport/db';
 import {
   type Channel,
@@ -7,9 +6,9 @@ import {
   channelStreamKey,
   runCancelKey,
 } from '@agentport/shared';
-import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
+import * as producerModule from '../src/queue/producer.js';
 import {
   closeProducer,
   publishRun,
@@ -21,15 +20,17 @@ import {
   createAgent,
   createTestAccount,
   infraReady,
-  inject,
   loginCookie,
+  request,
   setAgentMember,
   startApp,
   type TestAccount,
+  type TestApp,
   testConfig,
   unique,
   waitFor,
 } from './helpers.js';
+import { listen, type TestServer } from './server.js';
 
 type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
 type ActiveRun = {
@@ -46,25 +47,24 @@ type RunRow = {
   started_at: Date | null;
 };
 
-const cancelState = vi.hoisted(() => ({ failFor: new Set<string>() }));
+const cancelState = { failFor: new Set<string>() };
+const realProducer = { ...producerModule };
 
 // 取消信号是控制面唯一无法用 DB 行模拟的失败点：让指定 run 的 NX 写入抛错，其余走真实实现。
-vi.mock('../src/queue/producer.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/queue/producer.js')>();
-  return {
-    ...actual,
-    requestRunCancel: (runId: string) =>
-      cancelState.failFor.has(runId)
-        ? Promise.reject(new Error('cancel signal failed'))
-        : actual.requestRunCancel(runId),
-  };
-});
+mock.module('../src/queue/producer.js', () => ({
+  ...realProducer,
+  requestRunCancel: (runId: string) =>
+    cancelState.failFor.has(runId)
+      ? Promise.reject(new Error('cancel signal failed'))
+      : realProducer.requestRunCancel(runId),
+}));
 
 const ready = await infraReady;
 
 /** M3 控制面：活动 run 列表、run 事件流、stop / disconnect / close 与真实操作人审计。 */
 describe.skipIf(!ready)('channel control', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
+  let server: TestServer;
   let adminCookie: string;
   let baseUrl: string;
   let redis: Redis;
@@ -81,9 +81,8 @@ describe.skipIf(!ready)('channel control', () => {
   beforeAll(async () => {
     app = await startApp();
     adminCookie = await loginCookie(app);
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    server = await listen(app);
+    baseUrl = server.url;
     redis = new Redis(testConfig().REDIS_URL);
     owner = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
     member = await createTestAccount(app, adminCookie, { systemKeys: ['user'] });
@@ -108,9 +107,9 @@ describe.skipIf(!ready)('channel control', () => {
   });
 
   afterAll(async () => {
+    await server.close();
     for (const channelId of channelIds) {
-      await app.pool
-        .query('delete from channels where id = $1', [channelId])
+      await app.client.unsafe('delete from channels where id = $1', [channelId])
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs });
@@ -122,13 +121,12 @@ describe.skipIf(!ready)('channel control', () => {
       channelAdmin.businessId,
       outsider.businessId,
     ];
-    await app.pool.query('delete from audit_log where actor = any($1::text[])', [businessIds]);
-    await app.pool.query('delete from audit_log where target = any($1::text[])', [channelIds]);
-    await app.pool.query('delete from user_roles where business_id = any($1::text[])', [
-      businessIds,
-    ]);
-    await app.pool.query('delete from "user" where business_id = any($1::text[])', [businessIds]);
-    await app.pool.query('delete from audit_log where actor = $1', [owner.businessId]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(channelIds, 'TEXT')]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
+    );
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where actor = $1', [owner.businessId]);
     await redis.quit().catch(() => undefined);
     await closeProducer();
     await app.close();
@@ -140,7 +138,7 @@ describe.skipIf(!ready)('channel control', () => {
     cookie: string,
     payload?: Record<string, unknown>,
   ) =>
-    inject(app, {
+    request(app, {
       method,
       url,
       headers: { cookie },
@@ -194,18 +192,18 @@ describe.skipIf(!ready)('channel control', () => {
     });
 
   const channelRuns = async (channelId: string): Promise<RunRow[]> => {
-    const result = await app.pool.query<RunRow>(
+    const result = await app.client.unsafe<RunRow[]>(
       `select id, agent_id, status, initiated_by, started_at
          from agent_runs
         where channel_id = $1
         order by created_at, id`,
       [channelId],
     );
-    return result.rows;
+    return result;
   };
 
   const setRunStatus = async (runId: string, status: 'running' | 'succeeded'): Promise<void> => {
-    await app.pool.query(
+    await app.client.unsafe(
       `update agent_runs
           set status = $2,
               started_at = case when $2 = 'running' then coalesce(started_at, now()) else started_at end,
@@ -309,11 +307,11 @@ describe.skipIf(!ready)('channel control', () => {
         ),
       ).toBe(true);
 
-      const audit = await app.pool.query<{ actor: string; action: string }>(
+      const audit = await app.client.unsafe<{ actor: string; action: string }[]>(
         'select actor, action from audit_log where target = $1',
         [runId],
       );
-      expect(audit.rows).toContainEqual({
+      expect(audit).toContainEqual({
         actor: member.businessId,
         action: 'agent.run.cancelled',
       });
@@ -328,8 +326,8 @@ describe.skipIf(!ready)('channel control', () => {
       member.cookie,
     );
     expect(repeat.statusCode, repeat.body).toBe(202);
-    const audits = await app.pool.query('select id from audit_log where target = $1', [runId]);
-    expect(audits.rows).toHaveLength(1);
+    const audits = await app.client.unsafe('select id from audit_log where target = $1', [runId]);
+    expect(audits).toHaveLength(1);
   });
 
   it('limits member stop to own runs while owner and channel admin may stop any run', async () => {
@@ -410,7 +408,7 @@ describe.skipIf(!ready)('channel control', () => {
     const runId = await runIdFor(channel.id, agentId);
     // worker 已领取 run：DB 是 running，但控制面读到的是领取前的 queued 快照。
     await setRunStatus(runId, 'running');
-    const stop = vi.spyOn(repo.channelControl, 'stopRun').mockResolvedValue({
+    const stop = spyOn(repo.channelControl, 'stopRun').mockResolvedValue({
       kind: 'ok',
       run: {
         id: runId,
@@ -475,19 +473,19 @@ describe.skipIf(!ready)('channel control', () => {
       channelAdmin.cookie,
     );
     expect(disconnected.statusCode, disconnected.body).toBe(204);
-    const binding = await app.pool.query<{ status: string }>(
+    const binding = await app.client.unsafe<{ status: string }[]>(
       'select status from channel_agent_bindings where channel_id = $1 and agent_id = $2',
       [channel.id, agentId],
     );
-    expect(binding.rows[0]?.status).toBe('disconnected');
+    expect(binding[0]?.status).toBe('disconnected');
     const [run] = await channelRuns(channel.id);
     expect(run?.status).toBe('cancelled');
 
-    const audit = await app.pool.query<{ actor: string; action: string }>(
+    const audit = await app.client.unsafe<{ actor: string; action: string }[]>(
       'select actor, action from audit_log where target = $1 order by created_at',
       [agentId],
     );
-    expect(audit.rows).toContainEqual({
+    expect(audit).toContainEqual({
       actor: channelAdmin.businessId,
       action: 'channel.agent.disconnected',
     });
@@ -515,11 +513,11 @@ describe.skipIf(!ready)('channel control', () => {
     expect(closed.statusCode, closed.body).toBe(200);
     const archivedAt = closed.json<{ archivedAt: string }>().archivedAt;
     expect(typeof archivedAt).toBe('string');
-    const stored = await app.pool.query<{ archived_at: Date | null }>(
+    const stored = await app.client.unsafe<{ archived_at: Date | null }[]>(
       'select archived_at from channels where id = $1',
       [channel.id],
     );
-    expect(stored.rows[0]?.archived_at).not.toBeNull();
+    expect(stored[0]?.archived_at).not.toBeNull();
     const cancelled = await channelRuns(channel.id);
     expect(cancelled.map((run) => run.status)).toEqual(['cancelled', 'cancelled']);
 
@@ -532,11 +530,11 @@ describe.skipIf(!ready)('channel control', () => {
     });
     expect(refused.statusCode, refused.body).toBe(409);
 
-    const audit = await app.pool.query<{ actor: string; action: string }>(
+    const audit = await app.client.unsafe<{ actor: string; action: string }[]>(
       'select actor, action from audit_log where target = $1',
       [channel.id],
     );
-    expect(audit.rows).toContainEqual({ actor: owner.businessId, action: 'channel.closed' });
+    expect(audit).toContainEqual({ actor: owner.businessId, action: 'channel.closed' });
   });
 
   it('reports 503 when close cannot stop one of two runs, keeping the archive and allowing retry', async () => {
@@ -559,18 +557,18 @@ describe.skipIf(!ready)('channel control', () => {
       });
 
       // 关闭已提交，不回滚；只有第二个 run 收到了取消信号。
-      const stored = await app.pool.query<{ archived_at: Date | null }>(
+      const stored = await app.client.unsafe<{ archived_at: Date | null }[]>(
         'select archived_at from channels where id = $1',
         [channel.id],
       );
-      expect(stored.rows[0]?.archived_at).not.toBeNull();
+      expect(stored[0]?.archived_at).not.toBeNull();
       expect(await redis.exists(runCancelKey(first.id))).toBe(0);
       expect(await redis.exists(runCancelKey(second.id))).toBe(1);
-      const failedAudit = await app.pool.query<{ status: string }>(
+      const failedAudit = await app.client.unsafe<{ status: string }[]>(
         "select status from audit_log where target = $1 and action = 'channel.closed'",
         [channel.id],
       );
-      expect(failedAudit.rows.map((row) => row.status)).toContain('error');
+      expect(failedAudit.map((row) => row.status)).toContain('error');
 
       // 调用者用同一个 close 重试，补停剩余 run。
       cancelState.failFor.clear();
@@ -590,7 +588,7 @@ describe.skipIf(!ready)('channel control', () => {
     const [first, second] = runs;
     if (!first || !second) throw new Error('expected two channel runs');
     // 正常准入会因 lane 忙碌拒绝第二条；把两条 run 收拢到同一 lane 以覆盖批量取消。
-    await app.pool.query('update agent_runs set agent_id = $2 where id = $1', [
+    await app.client.unsafe('update agent_runs set agent_id = $2 where id = $1', [
       second.id,
       first.agent_id,
     ]);
@@ -612,11 +610,11 @@ describe.skipIf(!ready)('channel control', () => {
         retryable: true,
       });
 
-      const binding = await app.pool.query<{ status: string }>(
+      const binding = await app.client.unsafe<{ status: string }[]>(
         'select status from channel_agent_bindings where channel_id = $1 and agent_id = $2',
         [channel.id, agentId],
       );
-      expect(binding.rows[0]?.status).toBe('disconnected');
+      expect(binding[0]?.status).toBe('disconnected');
       expect(await redis.exists(runCancelKey(first.id))).toBe(0);
       expect(await redis.exists(runCancelKey(second.id))).toBe(1);
 
@@ -708,7 +706,7 @@ describe.skipIf(!ready)('channel control', () => {
     for (const cookie of [outsider.cookie, adminCookie]) {
       const hidden = await call('GET', `/api/channels/${channel.id}/runs/${runId}/events`, cookie);
       expect(hidden.statusCode, hidden.body).toBe(404);
-      expect(hidden.headers['content-type']).not.toContain('text/event-stream');
+      expect(hidden.headers.get('content-type')).not.toContain('text/event-stream');
     }
     const viewerStream = await openRunEvents(channel.id, runId, viewer.cookie);
     await viewerStream.close();
@@ -781,8 +779,7 @@ describe.skipIf(!ready)('channel control', () => {
     let checks = 0;
     const original = repo.channelControl.getChannelRunForMember;
     // 第 1 次是 hijack 前的预检；第 2 次是回放首个事件的逐事件核验，先卡在这里。
-    const spy = vi
-      .spyOn(repo.channelControl, 'getChannelRunForMember')
+    const spy = spyOn(repo.channelControl, 'getChannelRunForMember')
       .mockImplementation(async (...args) => {
         checks += 1;
         if (checks === 2) {
@@ -829,8 +826,7 @@ describe.skipIf(!ready)('channel control', () => {
     let checks = 0;
     const original = repo.channelControl.getChannelRunForMember;
     // 第 1 次是 hijack 前的预检；第 2 次（首条回放事件）抛错，之后恢复正常查询。
-    const spy = vi
-      .spyOn(repo.channelControl, 'getChannelRunForMember')
+    const spy = spyOn(repo.channelControl, 'getChannelRunForMember')
       .mockImplementation(async (...args) => {
         checks += 1;
         if (checks === 2) throw new Error('membership lookup unavailable');

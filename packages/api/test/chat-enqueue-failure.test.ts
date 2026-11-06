@@ -1,17 +1,41 @@
 import { inspect } from 'node:util';
-import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { buildApp } from '../src/app.js';
 import { getQueue } from '../src/queue/producer.js';
+
+const loggedErrors = [] as unknown[];
+mock.module('pino', () => {
+  const logger = {
+    trace: () => undefined,
+    debug: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
+    error: (...args: unknown[]) => loggedErrors.push(args),
+    fatal: () => undefined,
+    child: () => logger,
+  };
+  const factory = () => logger;
+  return { default: factory, pino: factory };
+});
 
 // 每次运行建独立库：固定名的残留库迁移账本会与新迁移错位（缺插件表），导致建智能体 500。
 const isolated = await createIsolatedDatabase('api_chat_enqueue', process.env.DATABASE_URL ?? '');
 if (isolated) process.env.DATABASE_URL = isolated.url;
 
 // helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
-const { cleanup, createAgent, expectProblem, infraReady, inject, loginCookie, testConfig, unique } =
-  await import('./helpers.js');
+const {
+  cleanup,
+  createAgent,
+  expectProblem,
+  infraReady,
+  request,
+  loginCookie,
+  testConfig,
+  unique,
+} = await import('./helpers.js');
+
+import type { TestApp } from './helpers.js';
 
 const ready = await infraReady;
 // skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
@@ -30,19 +54,12 @@ interface RunRow {
 }
 
 describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
-  let app: FastifyInstance;
+  let app: TestApp;
   let cookie: string;
   const agentSlugs: string[] = [];
-  const loggedErrors: unknown[] = [];
 
   beforeAll(async () => {
     app = await buildApp(testConfig());
-    app.addHook('onRequest', async (request) => {
-      request.log.error = (...args: unknown[]) => {
-        loggedErrors.push(args);
-      };
-    });
-    await app.ready();
     cookie = await loginCookie(app);
   });
 
@@ -69,7 +86,7 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
     ).json<{ id: string }>().id;
 
   const post = (agentId: string, message: string, conversationId?: string) =>
-    inject(app, {
+    request(app, {
       method: 'POST',
       url: '/api/chat',
       headers: { cookie },
@@ -82,17 +99,17 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
 
   const runsOf = async (agentId: string): Promise<RunRow[]> =>
     (
-      await app.pool.query<RunRow>(
+      await app.client.unsafe<RunRow[]>(
         `select id, conversation_id, status, error, error_kind, ended_at
            from agent_runs where agent_id = $1 order by created_at, id`,
         [agentId],
       )
-    ).rows;
+    );
 
   it('returns a fixed 503, records failed/infra, keeps the user message, and allows a retry', async () => {
     const agentId = await newAgent();
     const queue = getQueue();
-    const add = vi.spyOn(queue, 'add').mockRejectedValueOnce(new Error(DOWN));
+    const add = spyOn(queue, 'add').mockRejectedValueOnce(new Error(DOWN));
     loggedErrors.length = 0;
     let res: Awaited<ReturnType<typeof post>>;
     try {
@@ -116,7 +133,7 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
     expect(run.ended_at).not.toBeNull();
 
     // 用户消息必须留在会话历史里，失败只收口 run。
-    const history = await inject(app, {
+    const history = await request(app, {
       method: 'GET',
       url: `/api/conversations/${run.conversation_id}`,
       headers: { cookie },
@@ -132,7 +149,7 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
     );
 
     // 失败行已收口：同一会话可再次发送，不带版本条件也不返回 409。
-    const retry = vi.spyOn(queue, 'add').mockResolvedValueOnce({ id: 'synthetic' } as never);
+    const retry = spyOn(queue, 'add').mockResolvedValueOnce({ id: 'synthetic' } as never);
     try {
       const next = await post(agentId, 'try again', run.conversation_id);
       expect(next.statusCode, next.body).toBe(202);
@@ -147,8 +164,8 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
   it('returns 503 and preserves a run the worker claimed before the rejection', async () => {
     const agentId = await newAgent();
     const queue = getQueue();
-    const add = vi.spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
-      await app.pool.query(
+    const add = spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
+      await app.client.unsafe(
         "update agent_runs set status = 'running', started_at = now() where id = $1",
         [data.runId],
       );
@@ -175,8 +192,8 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
     async (terminal) => {
       const agentId = await newAgent();
       const queue = getQueue();
-      const add = vi.spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
-        await app.pool.query('update agent_runs set status = $2, ended_at = now() where id = $1', [
+      const add = spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
+        await app.client.unsafe('update agent_runs set status = $2, ended_at = now() where id = $1', [
           data.runId,
           terminal,
         ]);

@@ -9,7 +9,8 @@ import {
   scheduleTriggerArgs,
   scheduleTriggerJobSchema,
 } from '@agentport/shared';
-import { Queue, Worker } from 'bullmq';
+import { createBunRedisClient, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { checkUserAgentAccess } from './run-access.js';
@@ -216,7 +217,7 @@ export function startScheduleScheduler(input: {
   /** 测试用独立 Redis 键前缀，避免对账删到同机真实的 scheduler。 */
   prefix?: string;
 }): ScheduleScheduler {
-  const connection = { url: input.redisUrl, maxRetriesPerRequest: null };
+  const connection = createBunRedisClient(new RedisClient(input.redisUrl));
   const prefix = input.prefix === undefined ? undefined : input.prefix;
   const queueOptions = { connection, ...(prefix === undefined ? {} : { prefix }) };
   const queue = new Queue<ScheduleTriggerJob>(SCHEDULE_TRIGGERS_QUEUE, queueOptions);
@@ -268,6 +269,7 @@ export function startScheduleScheduler(input: {
       await worker.close();
       await runsQueue.close();
       await queue.close();
+      await connection.quit();
     },
   };
 }
