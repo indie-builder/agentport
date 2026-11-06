@@ -164,7 +164,7 @@ describe('schedule next due display', () => {
     expect(narrowSummary()).toContain(`下次 UTC ${utcDisplay}`);
     expect(narrowSummary()).not.toContain('17:00');
     expect(lastRunCell().textContent).toContain('分钟前');
-    expect(row().querySelectorAll('td')[0]?.textContent).toBe(schedule.cron);
+    expect(row().querySelectorAll('td')[0]?.textContent).toBe('每天 09:00 UTC');
   });
 
   it('shows an em dash for missing or invalid next trigger times', async () => {

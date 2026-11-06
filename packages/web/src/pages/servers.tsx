@@ -552,7 +552,7 @@ export function ServersPage() {
       {servers.data && all.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
-          title="连接器把外部服务变成专家可调用的工具"
+          title="未添加连接器"
           description={canCreate ? undefined : '当前账户没有创建连接器的权限。'}
           action={
             canCreate ? (
@@ -591,7 +591,10 @@ export function ServersPage() {
           label="连接器列表"
           loading={servers.isPending}
           hideRowCount
-          onRowClick={(server) => setCatalogServer(server)}
+          onRowClick={(server, trigger) => {
+            triggerRef.current = trigger;
+            setCatalogServer(server);
+          }}
         />
       ) : null}
 
@@ -1012,7 +1015,9 @@ function ToolCatalogDialog({
     <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogShell
         title={`工具与试连「${server.name}」`}
-        description="最近一次试连结果，只代表这一个环境版本。"
+        {...(testedAt || result
+          ? { description: '最近一次试连结果，只代表这一个环境版本。' }
+          : {})}
         finalFocus={getReturnFocus}
         className="max-w-2xl sm:max-w-2xl"
       >
@@ -1046,7 +1051,7 @@ function ToolCatalogDialog({
               onClick={(event) => onRetest(event.currentTarget)}
             >
               <RefreshCw data-icon="inline-start" />
-              {testing ? '测试中…' : '重新测试'}
+              {testing ? '测试中…' : testedAt || result ? '重新测试' : '测试连接'}
             </Button>
           </div>
 
@@ -1062,7 +1067,13 @@ function ToolCatalogDialog({
 
           {!result ? (
             <InlineEmpty>
-              {ok ? '重新测试后查看工具目录。' : '重新测试后查看失败原因。'}
+              {testing
+                ? '正在测试连接…'
+                : !testedAt
+                  ? '未测试连接。'
+                  : ok
+                    ? '重新测试后查看工具目录。'
+                    : '重新测试后查看失败原因。'}
             </InlineEmpty>
           ) : null}
 
@@ -1082,9 +1093,7 @@ function ToolCatalogDialog({
                     ) : null}
                   </div>
                   {tool.description ? (
-                    <p className="text-sm text-muted-foreground">
-                      {tool.description}
-                    </p>
+                    <p className="text-sm text-muted-foreground">{tool.description}</p>
                   ) : null}
                   {tool.inputSchema ? (
                     <JsonBlock value={tool.inputSchema} maxHeight="12rem" />

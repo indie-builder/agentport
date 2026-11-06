@@ -265,11 +265,9 @@ export function SkillsPage() {
       {skills.data && skills.data.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
-          title="技能是可复用的操作流程"
+          title="未添加技能"
           description={
-            canCreateSkill || canReadMarket
-              ? undefined
-              : '当前账号没有创建技能或访问市场的权限。'
+            canCreateSkill || canReadMarket ? undefined : '当前账号没有创建技能或访问市场的权限。'
           }
           action={
             canCreateSkill ? (
@@ -308,11 +306,11 @@ export function SkillsPage() {
       ) : null}
 
       {visibleSkills.length > 0 ? (
-        <ul className="-mx-6 divide-y divide-line border-y">
+        <ul className="divide-y divide-line border-y">
           {visibleSkills.map((skill) => (
             <li
               key={skill.id}
-              className="flex min-h-14 items-center gap-4 px-6 py-2 transition-colors duration-150 ease-out-soft hover:bg-hover"
+              className="flex min-h-14 items-center gap-4 py-2 transition-colors duration-150 ease-out-soft hover:bg-hover"
             >
               <div className="min-w-0 flex-1">
                 <Button

@@ -152,7 +152,7 @@ export function PersonalMemoryPanel({
       : dirty
         ? '未保存'
         : savedNotice
-          ? '已保存，下一轮对话会带入。'
+          ? '已保存'
           : null;
   const versionCount = versions.data?.items.length ?? 0;
 
@@ -299,9 +299,9 @@ export function PersonalMemoryPanel({
           </>
         ) : content.trim() === '' ? (
           <div className="flex flex-col items-start gap-2">
-            <p className="text-base font-medium text-fg">还没有个人记忆</p>
+            <p className="text-base font-medium text-fg">个人记忆为空</p>
             <p className="max-w-[60ch] text-sm text-muted-foreground">
-              自己填写长期信息，或从过去对话整理一条可审核的提案。
+              记录长期信息，或审核从对话整理的提案。
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
               {canWrite ? (

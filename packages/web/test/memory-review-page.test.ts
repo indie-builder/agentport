@@ -902,7 +902,7 @@ describe('记忆提案', () => {
 
     await browserBack();
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
-    await vi.waitFor(() => expect(host.textContent).toContain('还没有个人记忆'));
+    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆为空'));
   });
 
   it('生成记忆提案草稿阻止切回个人记忆，确认后仅继续该次导航', async () => {
@@ -930,7 +930,7 @@ describe('记忆提案', () => {
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
     await click(button('放弃并离开', discardDialog() as HTMLElement));
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/memory'));
-    await vi.waitFor(() => expect(host.textContent).toContain('还没有个人记忆'));
+    await vi.waitFor(() => expect(host.textContent).toContain('个人记忆为空'));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
@@ -994,7 +994,7 @@ describe('记忆提案', () => {
     expect(router.state.location.pathname).toBe('/personal/reviews');
     expect(router.state.location.search).toEqual({});
     expect(window.location.pathname + window.location.search).toBe(router.state.location.pathname);
-    expect(host.textContent).toContain('从对话梳理可采纳的记忆与规则提案');
+    expect(host.textContent).toContain('没有记忆提案');
     expect(host.textContent).not.toContain('个人记忆内容（Markdown）');
   });
 

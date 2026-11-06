@@ -228,7 +228,7 @@ export function ChatPage() {
           <EmptyState
             illustration={<BusinessIllustration name="agents" />}
             title="暂无可用专家"
-            description="当前账户尚未分配可用专家，请联系管理员。"
+            description="请联系管理员分配。"
             action={
               canReadAgents ? (
                 <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
@@ -451,8 +451,8 @@ function ChatWorkspace({
 
   // 空态或运行结束后把焦点交还输入框，键盘用户不用再找一次。
   useEffect(() => {
-    if (!run && items.length === 0) composerRef.current?.focus();
-  }, [run, items.length]);
+    if (agentId && !run && items.length === 0) composerRef.current?.focus();
+  }, [agentId, run, items.length]);
 
   const history = useMemo(
     () =>
@@ -692,7 +692,7 @@ function ChatWorkspace({
       deleting={deleteMutation.isPending}
       agent={agent}
       agentOptions={agentOptions}
-      showAgentPicker={desktop ? historyCollapsed : !historyOpen}
+      showAgentPicker={agent !== null && (desktop ? historyCollapsed : !historyOpen)}
       onSwitchAgent={switchAgent}
       historyVisible={desktop ? !historyCollapsed : historyOpen}
       historyPanelId="chat-history"
@@ -772,6 +772,19 @@ function ChatWorkspace({
       hasOlder={Boolean(historyPrefix?.conversationId === conversationId && detail.hasNextPage)}
       loadingOlder={detail.isFetchingNextPage}
       showWelcome={showWelcome}
+      welcomeAction={
+        !agent && (desktop ? historyCollapsed : !historyOpen) ? (
+          <div className="w-44">
+            <AgentPicker
+              agent={null}
+              agentId={null}
+              agentOptions={agentOptions}
+              onSwitchAgent={switchAgent}
+              triggerVariant="field"
+            />
+          </div>
+        ) : null
+      }
       send={stream.send}
       composerRef={composerRef}
     />
@@ -1519,6 +1532,7 @@ function ChatColumn({
   hasOlder,
   loadingOlder,
   showWelcome,
+  welcomeAction,
   send,
   composerRef,
 }: {
@@ -1554,6 +1568,7 @@ function ChatColumn({
   hasOlder: boolean;
   loadingOlder: boolean;
   showWelcome: boolean;
+  welcomeAction: ReactNode;
   send: ReturnType<typeof useChatStream>['send'];
   composerRef: RefObject<HTMLTextAreaElement | null>;
 }) {
@@ -1703,7 +1718,7 @@ function ChatColumn({
           streaming={Boolean(run)}
           onAction={openUiAction}
           openUiSnapshot={openUiSnapshot}
-          welcome={showWelcome ? <WelcomeState /> : null}
+          welcome={showWelcome ? <WelcomeState action={welcomeAction} /> : null}
         />
 
         {/* 运行状态跟着最后一轮走，不再单独占一条横栏；对屏幕阅读器仍播报同一句。 */}
@@ -2946,8 +2961,7 @@ const welcomeSuggestions = [
   { label: '分析问题', icon: Wrench, prompt: '帮我分析一个问题，先了解背景、现象和已有尝试。' },
 ] as const;
 
-/** 欢迎区只保留插画与标题，留在阅读区上方；建议入口由输入框上方承担。 */
-function WelcomeState() {
+function WelcomeState({ action }: { action: ReactNode }) {
   return (
     <div className="flex w-full flex-col gap-6 py-10 sm:py-12">
       <div className="flex flex-wrap items-center gap-4 sm:gap-5">
@@ -2963,6 +2977,7 @@ function WelcomeState() {
           今天想完成什么？
         </h2>
       </div>
+      {action}
     </div>
   );
 }

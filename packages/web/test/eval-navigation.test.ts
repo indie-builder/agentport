@@ -131,7 +131,7 @@ async function mount(editing = false, options: MountOptions = {}) {
     );
   });
   await vi.waitFor(() =>
-    expect(container.textContent).toContain(editing ? 'Original case' : '还没有用例'),
+    expect(container.textContent).toContain(editing ? 'Original case' : '用例为空'),
   );
   if (options.openDialog !== false) {
     await click(editing ? '编辑 Original case' : '新建用例');

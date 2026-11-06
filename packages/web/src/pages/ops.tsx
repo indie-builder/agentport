@@ -138,6 +138,19 @@ function decodeCron(
   return { frequency: 'weekly', time, weekdays: rawDays };
 }
 
+function formatScheduleCron(cron: string): string {
+  const decoded = decodeCron(cron);
+  if (!decoded) return cron;
+  const frequency =
+    decoded.frequency === 'daily'
+      ? '每天'
+      : weekdayOptions
+          .filter((day) => decoded.weekdays.includes(day.value))
+          .map((day) => day.name)
+          .join('、');
+  return `${frequency} ${decoded.time} UTC`;
+}
+
 const emptyScheduleForm: ScheduleFormValues = {
   agentId: '',
   name: '',
@@ -280,9 +293,9 @@ export function SchedulesPage() {
         }
       />
 
-      {schedules.data ? (
+      {items.length > 0 ? (
         <PageToolbar>
-          <p className="text-sm text-muted-foreground">{schedules.data.length} 个定时任务。</p>
+          <p className="text-sm text-muted-foreground">{items.length} 个定时任务。</p>
           <div className="ml-auto">
             <ViewToggle value={view} onChange={setView} />
           </div>
@@ -309,15 +322,8 @@ export function SchedulesPage() {
       {schedules.data && items.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="schedule" size="compact" />}
-          title="还没有定时任务"
+          title="定时任务为空"
           description={canManage ? undefined : '当前账户没有创建权限，请联系管理员。'}
-          action={
-            canManage ? (
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                <Plus data-icon="inline-start" aria-hidden="true" /> 新建任务
-              </Button>
-            ) : undefined
-          }
         />
       ) : null}
 
@@ -367,7 +373,7 @@ export function SchedulesPage() {
                   名称
                 </TableHead>
                 <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
-                  cron
+                  执行计划
                 </TableHead>
                 <TableHead scope="col" className="hidden w-[18%] sm:table-cell">
                   下次触发（UTC）
@@ -397,14 +403,14 @@ export function SchedulesPage() {
                       </span>
                       {/* 窄屏收起列，用可见标签保留每项数据。 */}
                       <span className="block text-xs text-muted-foreground sm:hidden">
-                        {schedule.cron} · 下次 UTC {nextDue} · 上次{' '}
+                        {formatScheduleCron(schedule.cron)} · 下次 UTC {nextDue} · 上次{' '}
                         {formatRelative(schedule.lastRunAt)}
                       </span>
                     </TableHead>
                     <TableCell className="hidden sm:table-cell">
-                      <code className="font-mono text-xs text-muted-foreground">
-                        {schedule.cron}
-                      </code>
+                      <span className="text-xs text-muted-foreground">
+                        {formatScheduleCron(schedule.cron)}
+                      </span>
                     </TableCell>
                     <TableCell className="hidden text-xs tabular-nums text-muted-foreground sm:table-cell">
                       {nextDue}
@@ -532,10 +538,8 @@ function ScheduleCard({
       </CardHeader>
       <CardContent>
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
-          <dt className="text-muted-foreground">cron</dt>
-          <dd className="text-right">
-            <code className="font-mono text-xs text-muted-foreground">{schedule.cron}</code>
-          </dd>
+          <dt className="text-muted-foreground">执行计划</dt>
+          <dd className="text-right text-muted-foreground">{formatScheduleCron(schedule.cron)}</dd>
           <dt className="text-muted-foreground">下次触发（UTC）</dt>
           <dd className="text-right tabular-nums text-muted-foreground">{nextDue}</dd>
           <dt className="text-muted-foreground">上次运行</dt>
