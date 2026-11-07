@@ -110,6 +110,8 @@ export const runsSearchSchema = z.object({
   view: listViewSchema,
 });
 
+export const channelsSearchSchema = z.object({ view: listViewSchema });
+
 export const schedulesSearchSchema = z.object({ view: listViewSchema });
 
 export const personalSecuritySearchSchema = z.object({ view: listViewSchema });

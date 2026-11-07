@@ -1,6 +1,6 @@
 import { type ChannelListItem, channelCreateSchema } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Hash, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -16,10 +16,26 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
 import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table.js';
 import { Textarea } from '../components/ui/textarea.js';
+import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
 import { formatRelative } from '../lib/format.js';
@@ -30,9 +46,18 @@ import { useZodForm } from '../lib/use-zod-form.js';
 export function ChannelsPage() {
   const me = useQuery(meQuery);
   const channels = useChannels();
+  const navigate = useNavigate({ from: '/channels/' });
+  const search = useSearch({ from: '/_shell/channels/' });
+  const view = search.view ?? 'cards';
+  const setView = (next: ListView): void => {
+    void navigate({ to: '/channels', search: { ...search, view: next }, replace: true });
+  };
   const canCreate = can(me.data, 'conversations.create');
   const [creating, setCreating] = useState(false);
   const items = channels.data ?? [];
+  const showCreate =
+    canCreate &&
+    (channels.isPending || (channels.isError && channels.data === undefined) || items.length > 0);
   // 列表只带最后一条消息；成员/智能体数量按详情补齐，数量少且与列表同屏可见。
   const details = useQueries({
     queries: items.map((channel) => ({ ...channelQuery(channel.id), staleTime: 30_000 })),
@@ -43,15 +68,18 @@ export function ChannelsPage() {
       <PageTopbar>
         <PageHeader
           title="频道"
+          {...(items.length > 0 ? { description: `${items.length} 个频道` } : {})}
           actions={
-            canCreate &&
-            (channels.isPending ||
-              (channels.isError && channels.data === undefined) ||
-              items.length > 0) ? (
-              <Button onClick={() => setCreating(true)}>
-                <Plus aria-hidden="true" />
-                新建频道
-              </Button>
+            items.length > 0 || showCreate ? (
+              <>
+                {items.length > 0 ? <ViewToggle value={view} onChange={setView} /> : null}
+                {showCreate ? (
+                  <Button onClick={() => setCreating(true)}>
+                    <Plus aria-hidden="true" />
+                    新建频道
+                  </Button>
+                ) : null}
+              </>
             ) : undefined
           }
         />
@@ -71,7 +99,7 @@ export function ChannelsPage() {
         ) : null}
 
         {channels.isPending ? (
-          <LoadingState rows={4} />
+          <LoadingState rows={4} layout={view === 'cards' ? 'cards' : 'rows'} />
         ) : channels.isError && channels.data === undefined ? (
           <ErrorState error={channels.error} onRetry={() => void channels.refetch()} />
         ) : items.length === 0 ? (
@@ -90,17 +118,97 @@ export function ChannelsPage() {
           />
         ) : (
           <PageSection divided={false}>
-            <ul className="divide-y divide-line overflow-hidden rounded-card border border-line">
-              {items.map((channel, index) => (
-                <li key={channel.id}>
-                  <ChannelRow
-                    channel={channel}
-                    memberCount={details[index]?.data?.members.length}
-                    agentCount={details[index]?.data?.agentBindings.length}
-                  />
-                </li>
-              ))}
-            </ul>
+            {view === 'cards' ? (
+              <ul
+                aria-label="频道列表"
+                className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
+              >
+                {items.map((channel, index) => (
+                  <li key={channel.id} className="min-w-0">
+                    <ChannelCard
+                      channel={channel}
+                      memberCount={details[index]?.data?.members.length}
+                      agentCount={details[index]?.data?.agentBindings.length}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <Table aria-label="频道列表">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>频道</TableHead>
+                    <TableHead>最近消息</TableHead>
+                    <TableHead>成员</TableHead>
+                    <TableHead>智能体</TableHead>
+                    <TableHead>未读</TableHead>
+                    <TableHead>更新时间</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((channel, index) => {
+                    const last = channel.lastMessage;
+                    const memberCount = details[index]?.data?.members.length;
+                    const agentCount = details[index]?.data?.agentBindings.length;
+                    return (
+                      <TableRow key={channel.id}>
+                        <TableCell className="max-w-72">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Link
+                              to="/channels/$channelId"
+                              params={{ channelId: channel.id }}
+                              title={channel.name}
+                              className="min-w-0 truncate rounded-item text-sm font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {channel.name}
+                            </Link>
+                            {channel.archivedAt ? <Badge variant="outline">已关闭</Badge> : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="block max-w-96 truncate">
+                            {last === null ? (
+                              <span className="text-muted-foreground">还没有消息</span>
+                            ) : (
+                              last.body
+                            )}
+                          </span>
+                        </TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">
+                          {memberCount ?? '—'}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">
+                          {agentCount ?? '—'}
+                        </TableCell>
+                        <TableCell>
+                          {channel.unreadCount > 0 ? (
+                            <Badge aria-label={`${channel.unreadCount} 条未读`}>
+                              {channel.unreadCount}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatRelative(channel.updatedAt)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Link
+                            to="/channels/$channelId"
+                            params={{ channelId: channel.id }}
+                            aria-label={`进入频道 ${channel.name}`}
+                            className="text-link underline underline-offset-2 hover:text-link/80"
+                          >
+                            进入
+                          </Link>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
           </PageSection>
         )}
       </PageBody>
@@ -109,7 +217,7 @@ export function ChannelsPage() {
   );
 }
 
-function ChannelRow({
+function ChannelCard({
   channel,
   memberCount,
   agentCount,
@@ -119,39 +227,51 @@ function ChannelRow({
   agentCount: number | undefined;
 }) {
   const last = channel.lastMessage;
-  const summary = last === null ? '还没有消息' : last.body;
 
   return (
     <Link
       to="/channels/$channelId"
       params={{ channelId: channel.id }}
-      className={cn(
-        'flex min-w-0 items-start gap-3 px-4 py-2 transition-colors duration-150 ease-out-soft hover:bg-hover',
-        channel.archivedAt && 'opacity-70',
-      )}
+      className="group block h-full rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-item bg-sunken text-muted-foreground">
-        <Hash aria-hidden="true" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-base font-medium text-fg">{channel.name}</span>
-          {channel.archivedAt ? <Badge variant="outline">已关闭</Badge> : null}
-        </div>
-        <p className="min-w-0 truncate text-sm text-muted-foreground">{summary}</p>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5 whitespace-nowrap">
+      <Card className={cn('h-full min-h-44 gap-3', channel.archivedAt && 'opacity-70')}>
+        <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]! items-start gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-item bg-sunken text-muted-foreground">
+            <Hash aria-hidden="true" />
+          </span>
+          <div className="flex min-w-0 flex-col gap-1">
+            <CardTitle>
+              <h2 className="flex min-w-0 items-center gap-2">
+                <span
+                  className="min-w-0 truncate text-base font-medium text-fg transition-colors group-hover:text-primary"
+                  title={channel.name}
+                >
+                  {channel.name}
+                </span>
+                {channel.archivedAt ? <Badge variant="outline">已关闭</Badge> : null}
+              </h2>
+            </CardTitle>
+            {channel.description ? (
+              <CardDescription className="line-clamp-1">{channel.description}</CardDescription>
+            ) : null}
+          </div>
           {channel.unreadCount > 0 ? (
             <Badge aria-label={`${channel.unreadCount} 条未读`}>{channel.unreadCount}</Badge>
           ) : null}
-          <span>{formatRelative(last?.createdAt)}</span>
-        </span>
-        <span className="whitespace-nowrap">
-          {memberCount === undefined ? '成员 —' : `${memberCount} 成员`}
-          {agentCount === undefined ? '' : ` · ${agentCount} 智能体`}
-        </span>
-      </div>
+        </CardHeader>
+        <CardContent className="flex flex-1 flex-col justify-center">
+          <p className="line-clamp-2 text-sm text-muted-foreground">
+            {last === null ? '还没有消息' : last.body}
+          </p>
+        </CardContent>
+        <CardContent className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate">
+            {memberCount === undefined ? '成员 —' : `${memberCount} 成员`} ·{' '}
+            {agentCount === undefined ? '智能体 —' : `${agentCount} 智能体`}
+          </span>
+          <span className="shrink-0 whitespace-nowrap">{formatRelative(channel.updatedAt)}</span>
+        </CardContent>
+      </Card>
     </Link>
   );
 }
