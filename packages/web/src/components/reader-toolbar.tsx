@@ -2,7 +2,7 @@ import { Download } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { CopyButton } from './copy-button.js';
 import { buttonVariants } from './ui/button.js';
-import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group.js';
+import { SegmentedToggle } from './view-toggle.js';
 
 export type ReaderMode = 'read' | 'source';
 
@@ -44,23 +44,7 @@ export function ReaderToolbar({
       </div>
       <div className="flex max-w-full shrink-0 flex-wrap items-center gap-1">
         {mode === undefined || onModeChange === undefined ? null : (
-          <ToggleGroup
-            aria-label="查看方式"
-            multiple={false}
-            value={[mode]}
-            onValueChange={(values) => {
-              const next = MODES.find((item) => item.value === values[0]);
-              if (next !== undefined) onModeChange(next.value);
-            }}
-            variant="outline"
-            size="sm"
-          >
-            {MODES.map((item) => (
-              <ToggleGroupItem key={item.value} value={item.value}>
-                {item.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <SegmentedToggle label="查看方式" value={mode} options={MODES} onChange={onModeChange} />
         )}
         {copy === undefined ? null : <CopyButton value={copy.value} label={copy.label} />}
         {download === undefined ? null : (

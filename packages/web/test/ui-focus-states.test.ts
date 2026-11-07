@@ -412,15 +412,13 @@ describe('error and focus states stay distinguishable', () => {
     }
   });
 
-  it('keeps the input family on the light boundary with a neutral focus border', () => {
+  it('keeps the input family boundary and adds one offset focus outline', () => {
     for (const name of ['input', 'textarea', 'select']) {
       const classNames = probeClasses(name);
-      // 默认输入边线等同 line，不新增 hover 加深。
       expect(winning(rules, classNames, {}, false, 'border-color')).toBe('var(--color-input)');
-      expect(winning(rules, classNames, {}, true, 'border-color')).toBe('var(--color-subtle)');
-      // 普通聚焦只换边线，不再叠 ring 或外轮廓。
+      expect(winning(rules, classNames, {}, true, 'border-color')).toBe('var(--color-input)');
       expect(ringVisible(rules, classNames, {}, true)).toBe(false);
-      expect(outlineVisible(rules, classNames, {}, true)).toBe(false);
+      expect(outlineVisible(rules, classNames, {}, true)).toBe(true);
     }
   });
 
@@ -464,13 +462,12 @@ describe('error and focus states stay distinguishable', () => {
         border: 'var(--color-control-boundary)',
         outline: false,
       },
-      // 未选中：聚焦只把边框换成环色，不额外画轮廓或环。
       {
         name: 'unchecked focus',
         attrs: {},
         focus: true,
-        border: 'var(--color-ring)',
-        outline: false,
+        border: 'var(--color-control-boundary)',
+        outline: true,
       },
       {
         name: 'unchecked invalid',
@@ -544,12 +541,11 @@ describe('error and focus states stay distinguishable', () => {
     }
   });
 
-  it('moves checked checkbox and switch focus from the fill-hugging ring to an offset outline', () => {
+  it('keeps one offset outline on checked and unchecked checkbox and switch states', () => {
     for (const name of ['checkbox', 'switch']) {
       const classNames = probeClasses(name);
-      // 未选中：仍用单层 ring 表达焦点，且不叠外轮廓。
-      expect(ringVisible(rules, classNames, {}, true), name).toBe(true);
-      expect(outlineVisible(rules, classNames, {}, true), name).toBe(false);
+      expect(ringVisible(rules, classNames, {}, true), name).toBe(false);
+      expect(outlineVisible(rules, classNames, {}, true), name).toBe(true);
       // 选中：深色填充上不再贴 ring，改为 2px ring 色外轮廓 + 2px 背景间隔。
       expect(ringVisible(rules, classNames, checked, true), name).toBe(false);
       expect(outlineVisible(rules, classNames, checked, true), name).toBe(true);
@@ -582,7 +578,6 @@ describe('error and focus states stay distinguishable', () => {
   });
 
   it('keeps the invalid border ahead of card FieldLabel focus resets', () => {
-    // 卡片式字段标签聚焦时，控件自身让出焦点视觉（外层标签画单层 ring），
     // 但普通态/选中态的边线复位不能覆盖错误的危险边线。
     const cardBorders = {
       checkbox: { unchecked: 'var(--color-control-boundary)', checked: 'var(--color-primary)' },
@@ -607,7 +602,6 @@ describe('error and focus states stay distinguishable', () => {
         winning(rules, classNames, { ...checked, ...invalid }, true, 'border-color', true),
         `${name} card checked invalid`,
       ).toBe('var(--color-destructive)');
-      // 卡片标签仍由外层单层 ring 表达焦点，错误态只加危险边框，不再叠内层环/轮廓。
       expect(ringVisible(rules, classNames, invalid, true, true), `${name} card invalid`).toBe(
         false,
       );
@@ -647,67 +641,63 @@ describe('error and focus states stay distinguishable', () => {
       expect(winning(rules, classNames, invalid, true, 'border-color')).toBe(
         'var(--color-destructive)',
       );
-      // 错误边框表达错误，焦点环表达焦点；两者同时存在，不能吞掉键盘焦点。
-      expect(ringVisible(rules, classNames, invalid, true)).toBe(true);
-      expect(winning(rules, classNames, invalid, true, '--tw-ring-color')).toBe(
-        'var(--color-ring)',
-      );
-    }
-    for (const name of ['button-default', 'button-solid']) {
-      expect(winning(rules, probeClasses(name), invalid, true, '--tw-ring-offset-width')).toBe(
-        '2px',
-      );
+      expect(ringVisible(rules, classNames, invalid, true)).toBe(false);
+      expect(outlineVisible(rules, classNames, invalid, true)).toBe(true);
+      expect(winning(rules, classNames, invalid, true, 'outline-color')).toBe('var(--color-ring)');
+      expect(winning(rules, classNames, invalid, true, 'outline-offset')).toBe('2px');
     }
   });
 
-  it('shows one visible focus ring on every button variant and keeps primary actions outlined', () => {
+  it('shows one offset focus outline on every button variant and fills primary actions', () => {
     for (const name of ['button-default', 'button-outline', 'button-ghost', 'button-solid']) {
       const classNames = probeClasses(name);
-      // 未聚焦不画环。
       expect(ringVisible(rules, classNames, {}, false)).toBe(false);
-      // 键盘聚焦必须有一层真实可见的环，而不是全透明的 2px 阴影。
-      expect(ringVisible(rules, classNames, {}, true)).toBe(true);
-      expect(winning(rules, classNames, {}, true, '--tw-ring-color')).toBe('var(--color-ring)');
+      expect(ringVisible(rules, classNames, {}, true)).toBe(false);
+      expect(outlineVisible(rules, classNames, {}, false)).toBe(false);
+      expect(outlineVisible(rules, classNames, {}, true)).toBe(true);
+      expect(winning(rules, classNames, {}, true, 'outline-width')).toBe('2px');
+      expect(winning(rules, classNames, {}, true, 'outline-color')).toBe('var(--color-ring)');
+      expect(winning(rules, classNames, {}, true, 'outline-offset')).toBe('2px');
     }
     for (const name of ['button-default', 'button-solid']) {
       const classNames = probeClasses(name);
-      expect(winning(rules, classNames, {}, false, 'background-color')).toBe('transparent');
-      expect(winning(rules, classNames, {}, false, 'color')).toBe('var(--color-button-primary)');
+      expect(winning(rules, classNames, {}, false, 'background-color')).toBe(
+        'var(--color-button-primary)',
+      );
+      expect(winning(rules, classNames, {}, false, 'color')).toBe(
+        'var(--color-primary-foreground)',
+      );
       expect(winning(rules, classNames, {}, false, 'border-color')).toBe(
         'var(--color-button-primary)',
       );
       expect(winning(rules, classNames, {}, true, 'border-color')).toBe(
         'var(--color-button-primary)',
       );
-      expect(winning(rules, classNames, {}, true, '--tw-ring-offset-width')).toBe('2px');
-      expect(winning(rules, classNames, {}, true, '--tw-ring-offset-color')).toBe(
-        'var(--color-background)',
-      );
     }
-    // outline 的边框保持中性色，不参与焦点表达；dark 绑定 .dark 后不会在亮色下生效。
     expect(winning(rules, probeClasses('button-outline'), {}, true, 'border-color')).toBe(
-      'var(--color-border)',
+      'var(--color-input)',
     );
   });
 
-  it('merges the shared helper so Links match the outlined default', () => {
-    // helper 直接输出 cva 时，调用方追加的 className 仍要按 Tailwind 冲突规则覆盖。
+  it('merges the shared helper so Links match the filled default', () => {
     const primary = probeClasses('button-helper-default');
-    expect(winning(rules, primary, {}, false, 'background-color')).toBe('transparent');
-    expect(winning(rules, primary, {}, false, 'color')).toBe('var(--color-button-primary)');
+    expect(winning(rules, primary, {}, false, 'background-color')).toBe(
+      'var(--color-button-primary)',
+    );
+    expect(winning(rules, primary, {}, false, 'color')).toBe('var(--color-primary-foreground)');
     expect(winning(rules, primary, {}, false, 'border-color')).toBe('var(--color-button-primary)');
     expect(winning(rules, primary, {}, true, 'border-color')).toBe('var(--color-button-primary)');
-    expect(ringVisible(rules, primary, {}, true)).toBe(true);
-    expect(winning(rules, primary, {}, true, '--tw-ring-offset-width')).toBe('2px');
-    expect(winning(rules, primary, {}, true, '--tw-ring-offset-color')).toBe(
-      'var(--color-background)',
-    );
+    expect(ringVisible(rules, primary, {}, true)).toBe(false);
+    expect(outlineVisible(rules, primary, {}, true)).toBe(true);
+    expect(winning(rules, primary, {}, true, 'outline-offset')).toBe('2px');
 
     for (const variant of ['outline', 'ghost', 'solid'] as const) {
-      expect(ringVisible(rules, probeClasses(`button-helper-${variant}`), {}, true)).toBe(true);
+      const classNames = probeClasses(`button-helper-${variant}`);
+      expect(ringVisible(rules, classNames, {}, true)).toBe(false);
+      expect(outlineVisible(rules, classNames, {}, true)).toBe(true);
     }
     expect(winning(rules, probeClasses('button-helper-outline'), {}, false, 'border-color')).toBe(
-      'var(--color-border)',
+      'var(--color-input)',
     );
     expect(winning(rules, probeClasses('button-helper-ghost'), {}, false, 'border-color')).toBe(
       'transparent',
@@ -717,29 +707,24 @@ describe('error and focus states stay distinguishable', () => {
     );
   });
 
-  it('keeps the keyboard ring on both toggle variants and restores the outline border', () => {
+  it('keeps one keyboard outline on both toggle variants and preserves the neutral border', () => {
     const normal = probeClasses('toggle-default');
     const outline = probeClasses('toggle-outline');
-    // default：无边框，普通聚焦只保留环；正常态不得因错误态修复而多出边框。
     expect(winning(rules, normal, {}, false, 'border-width')).toBeUndefined();
-    expect(ringVisible(rules, normal, {}, true)).toBe(true);
-    expect(winning(rules, normal, {}, true, '--tw-ring-color')).toBe('var(--color-ring)');
-    // outline：默认走普通动作边线，聚焦仍用 2px 环，不再换成输入焦点边线。
-    expect(winning(rules, outline, {}, false, 'border-color')).toBe('var(--color-border)');
-    expect(winning(rules, outline, {}, true, 'border-color')).toBe('var(--color-border)');
-    expect(ringVisible(rules, outline, {}, true)).toBe(true);
-    expect(winning(rules, outline, {}, true, '--tw-ring-color')).toBe('var(--color-ring)');
-    // 错误态（含聚焦）：危险 1px 边框与焦点环共存，焦点不被吞掉。
+    expect(winning(rules, outline, {}, false, 'border-color')).toBe('var(--color-input)');
+    expect(winning(rules, outline, {}, true, 'border-color')).toBe('var(--color-input)');
     for (const classNames of [normal, outline]) {
+      expect(ringVisible(rules, classNames, {}, true)).toBe(false);
+      expect(outlineVisible(rules, classNames, {}, true)).toBe(true);
+      expect(winning(rules, classNames, {}, true, 'outline-color')).toBe('var(--color-ring)');
+      expect(winning(rules, classNames, {}, true, 'outline-offset')).toBe('2px');
       expect(winning(rules, classNames, invalid, false, 'border-width')).toBe('1px');
       expect(winning(rules, classNames, invalid, true, 'border-width')).toBe('1px');
       expect(winning(rules, classNames, invalid, true, 'border-color')).toBe(
         'var(--color-destructive)',
       );
-      expect(ringVisible(rules, classNames, invalid, true)).toBe(true);
-      expect(winning(rules, classNames, invalid, true, '--tw-ring-color')).toBe(
-        'var(--color-ring)',
-      );
+      expect(ringVisible(rules, classNames, invalid, true)).toBe(false);
+      expect(outlineVisible(rules, classNames, invalid, true)).toBe(true);
     }
   });
 });

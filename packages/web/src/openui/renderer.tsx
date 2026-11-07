@@ -384,7 +384,7 @@ function QueryFailure() {
   return (
     <div
       role="alert"
-      className="flex items-start gap-2 rounded-card border border-line bg-chip px-3 py-2 text-xs text-fg"
+      className="flex items-start gap-2 rounded-card border border-line bg-surface px-3 py-2 text-xs text-fg"
     >
       <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
       <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
@@ -427,7 +427,7 @@ function ApprovalEntry({
         return (
           <div
             key={approvalId}
-            className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-chip px-3 py-2 text-xs text-fg"
+            className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-surface px-3 py-2 text-xs text-fg"
           >
             {done ? (
               <CircleCheck className="size-3.5 shrink-0 text-success" aria-hidden="true" />

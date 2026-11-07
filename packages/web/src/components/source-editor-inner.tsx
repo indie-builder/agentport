@@ -34,7 +34,6 @@ function contentAttributes({ id, label, describedBy, invalid, disabled }: Conten
   return attrs;
 }
 
-// 颜色全部走 styles.css 的 @theme 变量；焦点由外层容器的边框表达，编辑器本身不画轮廓。
 const editorTheme = EditorView.theme({
   '&': { color: 'var(--color-fg)', backgroundColor: 'transparent' },
   '&.cm-focused': { outline: 'none' },
@@ -43,7 +42,6 @@ const editorTheme = EditorView.theme({
     padding: '0.5rem 0.625rem',
     caretColor: 'var(--color-fg)',
     minHeight: '4rem',
-    // 冲突时压过全局 :focus-visible 轮廓；焦点信号只留外层容器的边框。
     outline: 'none',
   },
   '.cm-gutters': {
@@ -78,12 +76,25 @@ const editorTheme = EditorView.theme({
     // 输入家族默认浅线；按钮与复选框仍用各自原生焦点。
     border: '1px solid var(--color-input)',
   },
-  '.cm-panel.cm-search .cm-textfield:focus-visible': {
-    borderColor: 'var(--color-input-focus)',
-    // 与输入家族一致：焦点只由浅线加深表达，不叠加全局 2px 轮廓。
-    outline: 'none',
+  '.cm-panel.cm-search button': {
+    backgroundImage: 'none',
+    backgroundColor: 'var(--color-surface)',
+    border: '1px solid var(--color-line)',
   },
-  '.cm-panel.cm-search button': { border: '1px solid var(--color-line)' },
+  '.cm-panel.cm-search button:hover:not(:disabled)': {
+    backgroundColor: 'var(--color-hover)',
+  },
+  '.cm-panel.cm-search button:active': {
+    backgroundImage: 'none',
+  },
+  '.cm-panel.cm-search button:active:not(:disabled)': {
+    backgroundColor: 'var(--color-selected)',
+  },
+  '.cm-panel.cm-search button:disabled': {
+    backgroundColor: 'var(--color-sunken)',
+    borderColor: 'var(--color-input)',
+    color: 'var(--color-muted-foreground)',
+  },
   '.cm-searchMatch, .cm-searchMatch.cm-searchMatch-selected': {
     backgroundColor: 'var(--color-selected)',
   },

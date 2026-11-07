@@ -45,13 +45,12 @@ export function SourceEditor({
       data-disabled={disabled || undefined}
       data-invalid={ariaInvalid || undefined}
       className={cn(
-        'flex w-full overflow-hidden rounded-lg border border-input bg-transparent font-mono text-sm transition-colors',
-        // 输入类控件只留一层焦点信号：边框换色，不叠光环。
+        'flex w-full overflow-hidden rounded-lg border border-input bg-background font-mono text-sm transition-colors outline-none [&:has(.cm-content:focus-visible,>textarea:focus-visible)]:outline-2 [&:has(.cm-content:focus-visible,>textarea:focus-visible)]:outline-solid [&:has(.cm-content:focus-visible,>textarea:focus-visible)]:outline-ring [&:has(.cm-content:focus-visible,>textarea:focus-visible)]:outline-offset-2 [&_.cm-content:focus-visible]:outline-none [&>textarea:focus-visible]:outline-none',
         disabled
-          ? 'cursor-not-allowed bg-control-boundary/50 opacity-50'
+          ? 'cursor-not-allowed bg-sunken text-muted-foreground'
           : ariaInvalid
-            ? 'border-destructive has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-solid has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-2'
-            : 'focus-within:border-input-focus',
+            ? 'border-destructive'
+            : 'hover:border-control-boundary',
         className,
       )}
     >

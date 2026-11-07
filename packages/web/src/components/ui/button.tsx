@@ -3,19 +3,19 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
 
 const buttonVariantStyles = cva(
-  "group/button cds-btn-squish inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-[0.35] aria-disabled:pointer-events-none aria-disabled:opacity-[0.35] aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button cds-btn-squish inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2 disabled:pointer-events-none disabled:border-input disabled:bg-sunken disabled:text-muted-foreground aria-disabled:pointer-events-none aria-disabled:border-input aria-disabled:bg-sunken aria-disabled:text-muted-foreground aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         plain: 'cursor-pointer bg-transparent',
         default:
-          'border-button-primary bg-transparent text-button-primary hover:bg-hover hover:text-button-primary-hover active:bg-selected active:text-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          'border-button-primary bg-button-primary text-primary-foreground hover:border-button-primary-hover hover:bg-button-primary-hover active:border-button-primary-active active:bg-button-primary-active',
         solid:
-          'border-button-primary bg-transparent text-button-primary hover:bg-hover hover:text-button-primary-hover active:bg-selected active:text-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          'border-button-primary bg-button-primary text-primary-foreground hover:border-button-primary-hover hover:bg-button-primary-hover active:border-button-primary-active active:bg-button-primary-active',
         outline:
-          'border-border bg-background hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50',
+          'border-input bg-background text-foreground hover:border-control-boundary hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50',
         secondary:
-          'bg-secondary text-secondary-foreground hover:bg-hover aria-expanded:bg-secondary aria-expanded:text-secondary-foreground',
+          'bg-sunken text-secondary-foreground hover:bg-hover aria-expanded:bg-hover aria-expanded:text-secondary-foreground',
         ghost:
           'hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground dark:hover:bg-muted/50',
         destructive:
