@@ -668,7 +668,7 @@ export function DataTable<T extends RowData>({
         {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
         <DragOverlay>
           {draggingColumn ? (
-            <div className="rounded-icon border bg-surface px-2 py-1.5 text-xs shadow-overlay">
+            <div className="rounded-icon border bg-surface px-2 py-1.5 text-xs shadow-content-overlay">
               {draggingColumn.header}
             </div>
           ) : null}

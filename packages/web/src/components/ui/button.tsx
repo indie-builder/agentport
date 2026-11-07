@@ -9,9 +9,9 @@ const buttonVariantStyles = cva(
       variant: {
         plain: 'cursor-pointer bg-transparent',
         default:
-          'border-transparent bg-button-primary text-primary-foreground shadow-[var(--shadow-2xs)] hover:bg-button-primary-hover active:bg-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          'border-button-primary bg-transparent text-button-primary hover:bg-hover hover:text-button-primary-hover active:bg-selected active:text-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         solid:
-          'bg-button-primary text-primary-foreground shadow-[var(--shadow-2xs)] hover:bg-button-primary-hover active:bg-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          'border-button-primary bg-transparent text-button-primary hover:bg-hover hover:text-button-primary-hover active:bg-selected active:text-button-primary-active focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         outline:
           'border-border bg-background hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50',
         secondary:

@@ -4026,8 +4026,7 @@ export function AgentEditor({
           side="right"
           showCloseButton={false}
           aria-describedby={undefined}
-          // Keep the project shadow.
-          className="w-full max-w-120! gap-0 p-0 shadow-overlay sm:max-w-120!"
+          className="w-full max-w-120! gap-0 p-0 shadow-content-overlay sm:max-w-120!"
         >
           <div className="flex items-start justify-between gap-4 border-b px-5 py-3.5">
             <div className="min-w-0">

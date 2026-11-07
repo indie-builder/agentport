@@ -173,20 +173,12 @@
   --color-input-focus: #bdbdbd;
   --color-ring: #4d7079;
 
-  /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
   --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
-  --shadow-2xs: 0 1px 1px rgba(0, 0, 0, 0.04);
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 2px 8px 0 rgba(0, 0, 0, 0.08);
-  --shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10);
-  --shadow-composer-hover: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20);
-  --shadow-composer-focus: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20), 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20);
-  --shadow-panel: 0 0 0 var(--hairline) var(--color-line), var(--shadow-sm);
-  --shadow-panel-hover: 0 0 0 var(--hairline) var(--color-line-strong), 0 4px 16px -2px rgba(0, 0, 0, 0.09);
+  --shadow-content-overlay: 0 4px 12px rgb(0 0 0 / .08);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / .05);
+  --shadow-panel: 0 0 0 var(--hairline) var(--color-line);
+  --shadow-panel-hover: 0 0 0 var(--hairline) var(--color-line-strong);
 
-  /*
-   * 底座浮层用 shadow-md / shadow-lg。项目只有一种浮层阴影语言，
-   * 在这里统一覆盖，避免两套阴影同时出现在屏幕上。
-   */
   --shadow-md: var(--shadow-overlay);
   --shadow-lg: var(--shadow-overlay);
 }
@@ -424,7 +416,7 @@
 
   .agent-create-fan:hover .agent-create-fan__chip,
   .agent-create-fan:focus-visible .agent-create-fan__chip {
-    box-shadow: var(--shadow-overlay);
+    box-shadow: var(--shadow-content-overlay);
   }
   .agent-create-fan:hover .agent-create-fan__chip:nth-child(1),
   .agent-create-fan:focus-visible .agent-create-fan__chip:nth-child(1) {
