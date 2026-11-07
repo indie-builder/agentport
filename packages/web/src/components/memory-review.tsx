@@ -42,7 +42,7 @@ import { CodeBlock } from './code-block.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
 import { FilterSelect } from './filter-select.js';
-import { PageToolbar } from './page.js';
+import { PageBody, PageToolbar, PageTopbar } from './page.js';
 import { EmptyState, ErrorState, LoadingState } from './states.js';
 import { StatusBadge } from './status-badge.js';
 import { Button } from './ui/button.js';
@@ -296,215 +296,161 @@ export function MemoryReviews({
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      <PageToolbar>
-        {canReadAgents ? (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-6">
+      <PageTopbar>
+        <PageToolbar>
+          {canReadAgents ? (
+            <FilterSelect
+              value={agentId ?? ''}
+              onValueChange={(next) => onAgentChange(next || null)}
+              options={agentOptions}
+              label="按专家筛选记忆提案"
+              className="w-full sm:w-36"
+            />
+          ) : null}
           <FilterSelect
-            value={agentId ?? ''}
-            onValueChange={(next) => onAgentChange(next || null)}
-            options={agentOptions}
-            label="按专家筛选记忆提案"
+            value={stage ?? 'all'}
+            onValueChange={(next) =>
+              onStageChange(next === 'all' ? null : (next as MemoryReviewView))
+            }
+            options={reviewViewOptions}
+            label="按处理状态筛选"
             className="w-full sm:w-36"
           />
-        ) : null}
-        <FilterSelect
-          value={stage ?? 'all'}
-          onValueChange={(next) =>
-            onStageChange(next === 'all' ? null : (next as MemoryReviewView))
-          }
-          options={reviewViewOptions}
-          label="按处理状态筛选"
-          className="w-full sm:w-36"
-        />
-        <div className="ml-auto flex flex-wrap items-center gap-3">
-          {reviews.data && items.length > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              当前已加载 {items.length} 条 · 待审核 {viewCounts.pending} · 生成中{' '}
-              {viewCounts.generating} · 已处理 {viewCounts.done}
-            </p>
-          ) : null}
-          {canReview ? (
-            <Button
-              ref={createTrigger}
-              onClick={() => openCreate()}
-              disabled={
-                agents.isPending ||
-                agents.isError ||
-                !canReadConversations ||
-                !canReadAgents ||
-                !canUseAgents
-              }
-              title={
-                !canReadConversations
-                  ? '需要会话读取权限才能选择来源'
-                  : !canReadAgents
-                    ? '需要专家目录读取权限才能选择专家'
-                    : !canUseAgents
-                      ? '需要专家使用权限才能生成提案'
-                      : undefined
-              }
-            >
-              <Plus data-icon="inline-start" aria-hidden="true" />
-              生成记忆提案
-            </Button>
-          ) : null}
-          <ViewToggle value={view} onChange={onViewChange} />
-        </div>
-      </PageToolbar>
-
-      {agents.isError ? (
-        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-      ) : null}
-
-      {reviews.isPending ? <LoadingState rows={4} /> : null}
-      {reviews.isError ? (
-        <ErrorState error={reviews.error} onRetry={() => void reviews.refetch()} />
-      ) : null}
-      {reviews.data ? (
-        items.length === 0 ? (
-          <EmptyState
-            illustration={<BusinessIllustration name="review" />}
-            title="没有记忆提案"
-            description="从对话整理可采纳的记忆与规则。"
-            action={
-              canCreate ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openCreate()}
-                  disabled={agents.isPending || agents.isError}
-                >
-                  <Plus data-icon="inline-start" aria-hidden="true" />
-                  生成记忆提案
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : visibleItems.length === 0 ? (
-          <EmptyState
-            icon={<Search className="size-5" />}
-            title="当前筛选下没有提案"
-            description="仅筛选当前已加载的记录。"
-            action={
-              <Button variant="outline" size="sm" onClick={() => onStageChange(null)}>
-                查看全部
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            {reviews.data && items.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                当前已加载 {items.length} 条 · 待审核 {viewCounts.pending} · 生成中{' '}
+                {viewCounts.generating} · 已处理 {viewCounts.done}
+              </p>
+            ) : null}
+            {canReview ? (
+              <Button
+                ref={createTrigger}
+                onClick={() => openCreate()}
+                disabled={
+                  agents.isPending ||
+                  agents.isError ||
+                  !canReadConversations ||
+                  !canReadAgents ||
+                  !canUseAgents
+                }
+                title={
+                  !canReadConversations
+                    ? '需要会话读取权限才能选择来源'
+                    : !canReadAgents
+                      ? '需要专家目录读取权限才能选择专家'
+                      : !canUseAgents
+                        ? '需要专家使用权限才能生成提案'
+                        : undefined
+                }
+              >
+                <Plus data-icon="inline-start" aria-hidden="true" />
+                生成记忆提案
               </Button>
-            }
-          />
-        ) : view === 'cards' ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {visibleItems.map((review) => {
-              const target = targetDisplay(review.target, agents.data);
-              const status = decisionDisplay(review, rolledBack(review));
-              const accessibleTarget = target.detail
-                ? `${target.label}（${target.detail}）`
-                : target.label;
-              const summary =
-                review.proposal?.summary ??
-                review.sources
-                  .map((source) => source.title)
-                  .filter(Boolean)
-                  .join('、');
-              return (
-                <Card key={review.runId} className="h-full min-w-0">
-                  <CardHeader>
-                    <CardTitle className="min-w-0">
-                      <h2 className="truncate" title={target.detail ?? target.label}>
-                        {target.label}
-                        {target.detail ? (
-                          <span className="ml-1.5 font-normal text-muted-foreground">
-                            {target.detail}
-                          </span>
-                        ) : null}
-                      </h2>
-                    </CardTitle>
-                    <CardAction>
-                      {status ? <StatusBadge tone={status.tone}>{status.label}</StatusBadge> : null}
-                    </CardAction>
-                  </CardHeader>
-                  <CardContent className="flex flex-1 flex-col gap-3">
-                    {review.proposal ? (
-                      <p className="line-clamp-2 max-w-[75ch] text-sm text-muted-foreground">
-                        {review.proposal.summary}
-                      </p>
-                    ) : null}
-                    <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-xs">
-                      <dt className="text-muted-foreground">运行状态</dt>
-                      <dd className="justify-self-end">
-                        <StatusBadge tone={runStatusVariant[review.status]}>
-                          {runStatusLabel[review.status]}
-                        </StatusBadge>
-                      </dd>
-                      {review.costUsd ? (
-                        <>
-                          <dt className="text-muted-foreground">成本</dt>
-                          <dd className="text-right font-mono text-muted-foreground">
-                            {formatCost(review.costUsd)}
-                          </dd>
-                        </>
-                      ) : null}
-                    </dl>
-                  </CardContent>
-                  <CardFooter className="justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`查看${accessibleTarget}提案：${summary || '提案'}（${shortId(review.runId)}）`}
-                      onClick={(event) => openDetail(review, event.currentTarget)}
-                    >
-                      查看
-                    </Button>
-                  </CardFooter>
-                </Card>
-              );
-            })}
+            ) : null}
+            <ViewToggle value={view} onChange={onViewChange} />
           </div>
-        ) : (
-          <ul className="divide-y border-y">
-            {visibleItems.map((review) => {
-              const target = targetDisplay(review.target, agents.data);
-              const status = decisionDisplay(review, rolledBack(review));
-              const accessibleTarget = target.detail
-                ? `${target.label}（${target.detail}）`
-                : target.label;
-              const summary =
-                review.proposal?.summary ??
-                review.sources
-                  .map((source) => source.title)
-                  .filter(Boolean)
-                  .join('、');
-              return (
-                <li key={review.runId}>
-                  <div className="flex min-h-14 items-center gap-3 py-2">
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="truncate text-base font-medium text-fg">
+        </PageToolbar>
+      </PageTopbar>
+
+      <PageBody className="gap-4">
+        {agents.isError ? (
+          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+        ) : null}
+
+        {reviews.isPending ? <LoadingState rows={4} /> : null}
+        {reviews.isError ? (
+          <ErrorState error={reviews.error} onRetry={() => void reviews.refetch()} />
+        ) : null}
+        {reviews.data ? (
+          items.length === 0 ? (
+            <EmptyState
+              illustration={<BusinessIllustration name="review" />}
+              title="没有记忆提案"
+              description="从对话整理可采纳的记忆与规则。"
+              action={
+                canCreate ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openCreate()}
+                    disabled={agents.isPending || agents.isError}
+                  >
+                    <Plus data-icon="inline-start" aria-hidden="true" />
+                    生成记忆提案
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : visibleItems.length === 0 ? (
+            <EmptyState
+              icon={<Search className="size-5" />}
+              title="当前筛选下没有提案"
+              description="仅筛选当前已加载的记录。"
+              action={
+                <Button variant="outline" size="sm" onClick={() => onStageChange(null)}>
+                  查看全部
+                </Button>
+              }
+            />
+          ) : view === 'cards' ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {visibleItems.map((review) => {
+                const target = targetDisplay(review.target, agents.data);
+                const status = decisionDisplay(review, rolledBack(review));
+                const accessibleTarget = target.detail
+                  ? `${target.label}（${target.detail}）`
+                  : target.label;
+                const summary =
+                  review.proposal?.summary ??
+                  review.sources
+                    .map((source) => source.title)
+                    .filter(Boolean)
+                    .join('、');
+                return (
+                  <Card key={review.runId} className="h-full min-w-0">
+                    <CardHeader>
+                      <CardTitle className="min-w-0">
+                        <h2 className="truncate" title={target.detail ?? target.label}>
                           {target.label}
                           {target.detail ? (
                             <span className="ml-1.5 font-normal text-muted-foreground">
                               {target.detail}
                             </span>
                           ) : null}
-                        </span>
+                        </h2>
+                      </CardTitle>
+                      <CardAction>
                         {status ? (
                           <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
                         ) : null}
-                      </div>
+                      </CardAction>
+                    </CardHeader>
+                    <CardContent className="flex flex-1 flex-col gap-3">
                       {review.proposal ? (
                         <p className="line-clamp-2 max-w-[75ch] text-sm text-muted-foreground">
                           {review.proposal.summary}
                         </p>
                       ) : null}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <StatusBadge tone={runStatusVariant[review.status]}>
-                        {runStatusLabel[review.status]}
-                      </StatusBadge>
-                      {review.costUsd ? (
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {formatCost(review.costUsd)}
-                        </span>
-                      ) : null}
+                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-xs">
+                        <dt className="text-muted-foreground">运行状态</dt>
+                        <dd className="justify-self-end">
+                          <StatusBadge tone={runStatusVariant[review.status]}>
+                            {runStatusLabel[review.status]}
+                          </StatusBadge>
+                        </dd>
+                        {review.costUsd ? (
+                          <>
+                            <dt className="text-muted-foreground">成本</dt>
+                            <dd className="text-right font-mono text-muted-foreground">
+                              {formatCost(review.costUsd)}
+                            </dd>
+                          </>
+                        ) : null}
+                      </dl>
+                    </CardContent>
+                    <CardFooter className="justify-end">
                       <Button
                         variant="outline"
                         size="sm"
@@ -513,14 +459,74 @@ export function MemoryReviews({
                       >
                         查看
                       </Button>
+                    </CardFooter>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <ul className="divide-y border-y">
+              {visibleItems.map((review) => {
+                const target = targetDisplay(review.target, agents.data);
+                const status = decisionDisplay(review, rolledBack(review));
+                const accessibleTarget = target.detail
+                  ? `${target.label}（${target.detail}）`
+                  : target.label;
+                const summary =
+                  review.proposal?.summary ??
+                  review.sources
+                    .map((source) => source.title)
+                    .filter(Boolean)
+                    .join('、');
+                return (
+                  <li key={review.runId}>
+                    <div className="flex min-h-14 items-center gap-3 py-2">
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="truncate text-base font-medium text-fg">
+                            {target.label}
+                            {target.detail ? (
+                              <span className="ml-1.5 font-normal text-muted-foreground">
+                                {target.detail}
+                              </span>
+                            ) : null}
+                          </span>
+                          {status ? (
+                            <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                          ) : null}
+                        </div>
+                        {review.proposal ? (
+                          <p className="line-clamp-2 max-w-[75ch] text-sm text-muted-foreground">
+                            {review.proposal.summary}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <StatusBadge tone={runStatusVariant[review.status]}>
+                          {runStatusLabel[review.status]}
+                        </StatusBadge>
+                        {review.costUsd ? (
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {formatCost(review.costUsd)}
+                          </span>
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={`查看${accessibleTarget}提案：${summary || '提案'}（${shortId(review.runId)}）`}
+                          onClick={(event) => openDetail(review, event.currentTarget)}
+                        >
+                          查看
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )
-      ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        ) : null}
+      </PageBody>
 
       {creating ? (
         <CreateMemoryReviewDialog

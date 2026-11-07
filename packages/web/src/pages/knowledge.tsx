@@ -445,12 +445,7 @@ export function KnowledgePage() {
           title="未创建知识库"
           action={
             canCreate ? (
-              <Button
-                ref={createButtonRef}
-                variant="default"
-                size="sm"
-                onClick={() => setCreating(true)}
-              >
+              <Button ref={createButtonRef} variant="default" onClick={() => setCreating(true)}>
                 <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
               </Button>
             ) : undefined

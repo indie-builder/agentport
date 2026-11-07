@@ -64,55 +64,53 @@ export function PersonalReviewsPage() {
       <PageTopbar>
         <PageHeader title="记忆提案" />
       </PageTopbar>
-      <PageBody>
-        <MemoryReviews
-          agentId={search.agent ?? null}
-          onAgentChange={(next) =>
-            void navigate({
-              to: '/personal/reviews',
-              search: (current) => ({ ...current, agent: next ?? undefined }),
-            })
-          }
-          canReview={canReview}
-          canWrite={canWrite}
-          canReadConversations={canReadConversations}
-          canReadAgents={canReadAgents}
-          runId={search.run ?? null}
-          onRunChange={(next) =>
-            void navigate({
-              to: '/personal/reviews',
-              search: (current) => ({
-                ...current,
-                run: next ?? undefined,
-              }),
-            })
-          }
-          createRequested={search.create === true}
-          onCreateRequestedChange={(next) =>
-            void navigate({
-              to: '/personal/reviews',
-              search: (current) => ({
-                ...current,
-                create: next ? true : undefined,
-              }),
-            })
-          }
-          stage={search.stage ?? null}
-          onStageChange={(next: MemoryReviewView | null) =>
-            void navigate({
-              to: '/personal/reviews',
-              search: (current) => ({ ...current, stage: next ?? undefined }),
-            })
-          }
-          view={search.view ?? 'table'}
-          onViewChange={(next) =>
-            void navigate({
-              to: '/personal/reviews',
-              search: (current) => ({ ...current, view: next }),
-            })
-          }
-        />
-      </PageBody>
+      <MemoryReviews
+        agentId={search.agent ?? null}
+        onAgentChange={(next) =>
+          void navigate({
+            to: '/personal/reviews',
+            search: (current) => ({ ...current, agent: next ?? undefined }),
+          })
+        }
+        canReview={canReview}
+        canWrite={canWrite}
+        canReadConversations={canReadConversations}
+        canReadAgents={canReadAgents}
+        runId={search.run ?? null}
+        onRunChange={(next) =>
+          void navigate({
+            to: '/personal/reviews',
+            search: (current) => ({
+              ...current,
+              run: next ?? undefined,
+            }),
+          })
+        }
+        createRequested={search.create === true}
+        onCreateRequestedChange={(next) =>
+          void navigate({
+            to: '/personal/reviews',
+            search: (current) => ({
+              ...current,
+              create: next ? true : undefined,
+            }),
+          })
+        }
+        stage={search.stage ?? null}
+        onStageChange={(next: MemoryReviewView | null) =>
+          void navigate({
+            to: '/personal/reviews',
+            search: (current) => ({ ...current, stage: next ?? undefined }),
+          })
+        }
+        view={search.view ?? 'table'}
+        onViewChange={(next) =>
+          void navigate({
+            to: '/personal/reviews',
+            search: (current) => ({ ...current, view: next }),
+          })
+        }
+      />
     </Page>
   );
 }

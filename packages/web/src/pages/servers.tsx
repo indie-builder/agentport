@@ -556,7 +556,7 @@ export function ServersPage() {
           description={canCreate ? undefined : '当前账户没有创建连接器的权限。'}
           action={
             canCreate ? (
-              <Button size="sm" onClick={(event) => openCreate(event.currentTarget)}>
+              <Button onClick={(event) => openCreate(event.currentTarget)}>
                 <Plus data-icon="inline-start" /> 新建连接器
               </Button>
             ) : undefined
