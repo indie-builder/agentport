@@ -695,12 +695,10 @@ export function AgentsPage() {
                             </Link>
                           </h2>
                         </CardTitle>
-                        <div className="flex min-w-0 flex-wrap items-center gap-1">
-                          <StatusBadge className="max-w-full min-w-0 bg-chip">
-                            <span className="block truncate" title={agentRole}>
-                              {agentRole}
-                            </span>
-                          </StatusBadge>
+                        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                          <span className="min-w-0 truncate" title={agentRole}>
+                            {agentRole}
+                          </span>
                           {!agent.enabled ? (
                             <StatusBadge className="shrink-0">已停用</StatusBadge>
                           ) : null}
@@ -743,7 +741,7 @@ export function AgentsPage() {
                         </DropdownMenu>
                       </CardAction>
                     </CardHeader>
-                    <CardContent className="flex flex-col gap-2">
+                    <CardContent className="flex flex-1 flex-col justify-center gap-2">
                       {agent.description.trim() ? (
                         <CardDescription className="line-clamp-2 break-words">
                           {agent.description}
@@ -758,7 +756,7 @@ export function AgentsPage() {
                         </p>
                       ) : null}
                     </CardContent>
-                    <CardContent className="mt-auto flex items-center justify-between gap-2">
+                    <CardContent className="flex items-center justify-between gap-2">
                       {agent.enabled && canUse ? (
                         <Link
                           to="/chat"
