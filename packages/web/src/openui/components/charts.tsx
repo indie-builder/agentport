@@ -65,8 +65,7 @@ import { asArray, childProps, type RenderProps } from './shared.js';
  * - 主图默认 256px，schema 显式 height 优先；横向条形按类别和系列数增高，不把标签压扁；
  * - 缺失值是 null，不是 0：断线、空条都保留为真实缺口，数据视图用「—」表达；
  * - 不播放动画：流式每 delta 重渲染会让图形抖动；
- * - 图例、tooltip 复用 ui/chart 的现有实现，不另造一套；tooltip 原生 portal 到 body，
- *   避免被消息流的 content-visibility 裁掉。
+ * - 图例、tooltip 复用 ui/chart 的现有实现，不另造一套；tooltip 原生 portal 到 body。
  */
 
 const DEFAULT_CHART_HEIGHT = 256;
