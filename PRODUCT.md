@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-TypeScript monorepo: React 19 + Vite 8 + Tailwind CSS 4 + shadcn/ui 结构的自建组件；Fastify 5 + zod 4 后端；Claude Agent SDK；PostgreSQL 18 + Redis 8。
+TypeScript monorepo: React 19 + Vite 8 + Tailwind CSS 4 + shadcn/ui 结构的自建组件；Hono + oRPC + zod 4 后端；Claude Agent SDK；PostgreSQL 18 + Redis 8。
 
 ## Users
 
@@ -60,6 +60,8 @@ PACE 的定位是让用户像找同事一样找专家：把工作交给合适的
 ## Brand Commitments
 
 产品名 **PACE**。语气克制、精确，不使用感叹号与营销话术。界面语言为中文，技术标识保留英文原形。仓库与包名保持 `agentport`。
+
+品牌配色采用用户选定的「石青」：导航以浅石青底分层，主要动作、链接与按钮焦点使用各自的深石青角色，内容工作面保持纯白。通用选中控件保留墨色，成功、警告、危险与数据色保持独立语义；Logo 与插画保留原配色。字体、圆角、阴影与布局继续沿用既有 CDS 外观和 PACE 布局契约，颜色不改变产品功能。
 
 ## Evidence on Hand
 
