@@ -560,3 +560,9 @@
 - **现象**：移走旧驱动（如 ioredis）后，沿用旧安装的依赖树跑测试仍可能全绿；在干净 `bun install --frozen-lockfile` 下，测试或 E2E 里的旧直接导入、旧连接参数才报错。
 - **原因**：旧安装或上级目录中仍可解析的依赖可能掩盖未迁移调用，旧工作区测试通过不证明锁文件能在干净环境复现；当前源码 typecheck 不覆盖测试与 E2E；只搜索直接 import 也会漏掉 BullMQ 旧 connection options 这类隐式驱动入口。
 - **规避**：删依赖时同时检查源码、测试、E2E 与隐式驱动入口；在干净依赖环境跑对应的真实回归，不通过补回旧驱动来掩盖漏迁。
+
+## 镜像：恢复旧镜像 ID 不等于它能被当前 worker 执行
+
+- **现象**：按旧盘记录恢复出的镜像内容与历史一致，但当前 worker 仍不能用它跑新的会话运行：历史镜像内没有 `bun`，默认基座还缺 `session-supervisor` 与 `bash`。
+- **原因**：当前会话容器以 `bun` 为入口执行 `dist/session-supervisor.js`（`packages/worker/src/sandbox/sessions.ts`）；创建容器时按环境线上版本冻结的 `imageId` 取镜像（`resolveOnlineRuntimeEnvironment` 只选 `ready` 且 `imageId` 非空的版本），`baseImageId` 决定构建基座，不参与会话容器的镜像选择。OCI 恢复只还原内容，不保证镜像满足当前入口命令和工具链。
+- **规避**：接管旧运行环境前，分别核对镜像内 `bun`、`session-supervisor` 与 `bash`，并与当前 worker 的入口命令对照；需要重新执行时基于由当前 Dockerfile 构建并验证具备 Bun、supervisor 与 bash 的基座构建并发布新版本，不能凭 tag 认定基座能力，不改冻结 ID、不为旧 runner 加兼容层。启动命令只是配置加载方式，不等于镜像可直接运行。

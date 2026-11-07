@@ -14,7 +14,10 @@ const projectRoot = path.resolve(fileURLToPath(new URL('../..', import.meta.url)
 
 export function datasetPath(section: string): string {
   if (!/^[a-z]+$/.test(section)) throw new Error(`非法 manifest 分区：${section}`);
-  return path.join(projectRoot, 'data', 'dev-dataset', DATASET_ID, `${section}.json`);
+  const root = process.env.E2E_DEV_DATASET_DIR
+    ? path.resolve(process.env.E2E_DEV_DATASET_DIR)
+    : path.join(projectRoot, 'data', 'dev-dataset');
+  return path.join(root, DATASET_ID, `${section}.json`);
 }
 
 export class DatasetApiError extends Error {

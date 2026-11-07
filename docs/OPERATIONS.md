@@ -679,21 +679,27 @@ E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，
 
 - 两套命令由 Node 注入 `E2E_DEV_DATA=1`；专用用例的第一行据此跳过，直接运行 `e2e run --config e2e.dev-data.config.ts` 不会写数据。
 - `dev:data` 运行构建用例并排除只读验收；`dev:data:verify` 只运行标题含 `verify` 的验收用例（构建用例标题不要含该词）。只读验收不触发模型、embedding、环境构建或定时任务同步。
-- 数据事实以业务 API 为准，manifest 只记录归属与 ID，不当作断言来源；每个领域一个文件：`data/dev-dataset/devdata-qinghe-v1/{assets,knowledge,runtime,business}.json`（`data/` 不入库），由对应测试独占写入。实际路径由 `datasetPath(section)` 决定，不要按早先报告里的 `qinghe-v1` 简写硬编码。
+- 数据事实以业务 API 为准，manifest 只记录归属与 ID，不当作断言来源；每个领域一个文件 `{assets,knowledge,runtime,business}.json`（`data/` 不入库），由对应测试独占写入。实际路径由 `datasetPath(section)` 决定：默认是当前代码根的 `data/dev-dataset/<DATASET_ID>/<section>.json`；设置测试专用 `E2E_DEV_DATASET_DIR` 时，该值作为 dev-dataset 父根并 `path.resolve`，路径为 `<E2E_DEV_DATASET_DIR>/<DATASET_ID>/<section>.json`。不要按早先报告里的 `qinghe-v1` 简写硬编码。
 - 重复执行复用已有 ID 并补缺项；同名资产不在 manifest 中、或已归属资产的内容/状态与定义不一致时立即停止，不覆盖、不自动重试。创建成功即写入 ID。
 - 资产组固定使用 `devdata-qinghe-v1` 标记：2 个连接器（jsonplaceholder generated 只读工具 / 故意失效的远程 MCP）、3 个工具（普通 GET、需批准 GET、停用 GET）、2 个技能（其中一个带参考文件）、1 个经 UI 导入的本地 ZIP 插件、2 个演示账户（一个停用）。上游只用公开只读 API，不向外部写入。
 
 已生成的 v1 数据集（「青禾商贸｜采购与售后协作」）包含：5 个专家（主/子/OpenUI/停用/故障）、1 个专用运行环境（成功版本已发布，另有 2 条失败版本历史）、7 个对话场景（3 成功、2 取消、1 超时、1 失败）、2 个底层成功的评估运行（批次 1 过 1 不过）、2 个真实触发后暂停的定时任务、1 个已应用的记忆审核，以及规则、风格和记忆文件；共 12 个运行、11 个对话，分享 2 个（有效/已撤销各 1）。取消、超时、失败、停用、失败版本与撤销分享是刻意保留的负面状态，属于数据集内容，不是缺陷。重跑只复用，不新增专家、评估批次、分享或计费运行。
 
-当前仍无真实 embedding 配置（knowledge profiles 为 0），知识库 manifest 为 `blocked` 且没有实体。`bun run dev:data:verify` 的登录、资产、运行环境和业务 UI 验收可通过，business/knowledge 仅因知识链路缺口失败；因此在补齐真实 embedding 前不能宣称数据集或验收全绿。同名资产接管立即停止、已有对象不覆盖等既有规则不变。
+历史验收时未配置真实 embedding（knowledge profiles 为 0），知识库 manifest 为 `blocked` 且没有实体。当时的 `dev:data:verify` 验收中，登录、资产、运行环境和业务 UI 检查曾通过，business/knowledge 仅因知识链路缺口失败；因此在补齐真实 embedding 前不能宣称数据集或验收全绿。下列接管事实与运行核验只覆盖各自写明的范围，上述历史结果不代表本轮验收通过。同名资产接管立即停止、已有对象不覆盖等既有规则不变。
 
-以下是 `business-e2e-dataset` 工作树的历史验收配置，不是任意当前 worktree 的通用配置，也不代表当前有实例在运行。隔离运行配置持久化在该工作树未跟踪的 `.env`：`DATABASE_URL` 指向独立持久库 `agentport_business_e2e_dataset`，`REDIS_URL` 使用 db 12，工作区与知识库目录为该树 `data/` 的绝对路径，沙盒镜像为 `agentport/sandbox:business-e2e-68241ba`，模型网关与端口沿用已实测值。主 checkout `.env` 未修改，原开发库未迁移/清理；首次环境准备曾因旧结构不匹配造成两条旧队列任务失败，当时服务已隔离到专用库和 Redis 12。后续复用应由最新 `origin/main` 代码接管原有的隔离配置与持久数据，并核对 manifest 路径（`datasetPath()` 固定当前代码根的 `data/dev-dataset`）；完成接管前保留该旧树、不覆盖主目录数据。历史验收地址为 `E2E_APP_URL=https://worktree-business-e2e-dataset.agentport.localhost`（仅记录，不表示当前有服务运行）。实现已由 [PR #139](https://github.com/indie-builder/agentport/pull/139) 合入 main；附件、成果与记忆投影在该树 `data/`，PG 库独立持久，保留 worktree 与 `data/` 是因为这些持久数据与配置路径依赖未入 Git，而非代码未交付；不要删除 worktree 或 `data/`。
+持久开发数据集的接管根固定为 `/Users/xbjt/.local/share/agentport/business-e2e-dataset`（下称 `D`），文件与配置已完成接管。`D` 权限 0700，`D/.env` 权限 0600；174 个文件、8,960,317 字节的数据已从旧工作树的 `data/` 原样移入，旧 `data/` 与旧 `.env` 均不再存在，没有 symlink 或备份副本。`D/.env` 只更新 `WORKSPACES_DIR`、`HOST_WORKSPACES_DIR`、`KNOWLEDGE_DIR`、`E2E_DEV_DATASET_DIR`、`PORTLESS`、`E2E_APP_URL` 六项，后两项分别为 `0` 与 `http://localhost:5173`；其余 22 项及 `SANDBOX_IMAGE` 保持原值，主 checkout 的 `.env` 与 `data/` 未改动。四个 manifest 位于 `D/data/dev-dataset/devdata-qinghe-v1/`，其中的 43 个实体 ID 保持不变；12 份 SDK transcript 仍在各自 `sdk-sessions/<conversationId>/projects/-workspace/` 路径下，未改动。旧 `business-e2e-dataset` 工作树不再承载持久数据，也不再作为运行入口，可按工作流收尾清理。
+
+数据库已从旧 Docker Desktop 的 `Docker.raw` 只读恢复到 OrbStack，保留原库名 `agentport_business_e2e_dataset`，并用标准 `bun run db:migrate` 从 47 条账本升到 52 条。升级后原 55 张业务表的 687 行按迁移前原列投影逐表 hash 不变；原 47 条账本保留，追加的 5 条对应迁移 0047–0051 的原始 SQL，hash 与 when 一致；`platform_bootstrap.id=initial`、认证 user/account/session 的 3/3/79 行、43 个 manifest 实体 ID 与 12 个 SDK session 对应均保持原值；新增的 4 张频道表为空。原迁移链本身正确：`0047_solid_miek` 创建频道表，`0048_nappy_shaman` 为这些表添加外键，按原顺序可正常迁移，不需要改 SQL 或 journal。
+
+只读运行核验（2026-11-07）：真实 core 读取本轮产出 3998 字节；有效分享经 HTTP 返回 200，字节数与 SHA 同数据库及 manifest 匹配；不带 token 与已撤销分享均返回 404；`/health/ready` 返回 200，db 与 redis 均为 ok，HTTP 前后数据库未变化。临时 HTTP 只监听独占的随机 loopback 端口，已关闭。核验未登录，未改账号或 session，未启动 worker、未调用模型，未执行新数据构建、完整 `dev:data:verify` 或 UI 验收；旧 embedding 缺口仍是历史已知问题，不声称数据集或验收全绿。UID 1000 只读挂载已实测：主会话用原青禾镜像 `sha256:e95cf85ac9160cc37740488d5823c483acf3d783b390e3777e31b97a627f56fa`，以 `--rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 1000:1000 --entrypoint node` 启动，并只读 bind 新的 `D/data/workspaces`；检查结果为 uid/gid 1000，167 个工作区文件均可读。未在该容器中执行 SDK 或模型。
+
+三个历史镜像已从旧盘的 containerd blob 以标准 OCI load 恢复，精确镜像 ID 已核对一致，现有 dev 镜像未改动。实测这些历史镜像都没有 `bun`，其中默认基座镜像还缺 `session-supervisor` 与 `bash`；当前 worker 以 `bun` 为容器入口执行 `dist/session-supervisor.js`（`packages/worker/src/sandbox/sessions.ts`），因此旧镜像无法在当前 worker 下执行新的会话运行。个人项目不做旧 runner 兼容，也不替换已冻结的镜像 ID。要重新执行，须先用最新主线根 `Dockerfile` 的 `sandbox` target 构建一个专用新 tag（例如 `agentport/sandbox:business-e2e-bun`），验证镜像内确有 `bun`、`supervisor` 与 `bash`，再将该 tag 作为 `SANDBOX_IMAGE`，通过现有原生 runtime 环境入口构建并发布新版本。构建会冻结入队时的 `SANDBOX_IMAGE` 作为基座，单改 env 不会替换已有线上版本，也不代表旧版本可直接运行。现有 `agentport/sandbox:dev` 不能直接当作当前 Bun 基座：实测其容器启动 `bun` 返回 127，OCI 明确 `bun` 不在 PATH。上述构建与发布均为后续操作，本轮未执行，`D/.env` 仍保留原 `SANDBOX_IMAGE`。
 
 `e2e.dev-data.config.ts` 的管理员凭据优先取 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`，未设置时使用专用配置回退值，未必匹配当前 bootstrap。运行前通过进程环境注入已确认的现有账号凭据 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`；不要把真实密码写进文档、提交文件或命令历史，也不需要新增 helper。不要用 `.env` 的 `ADMIN_PASSWORD` 去猜已有库的当前密码或重置账号；该值不是现有账号的实时密码。
 
 数据生成过程还修复了专家摘要缺少的 6 个既有元数据字段（`parentId`/`slug`/`role`/`model`/`uiFormat`/`createdAt`，不下发敏感配置）；相关后端测试 40/40、API build 通过，子专家 UI 解绑/重绑与文件核对、看板 table/cards 均已用真实 UI 验证，且没有新增运行。
 
-日常开发复用已生成的持久库与 `data/`：完成上述隔离配置与持久数据接管后，在最新 `origin/main` 对应的工作树用标准 `bun run dev` 启动复用，不需要运行 `bun run dev:data`；接管前不能把最新代码与默认库或其他数据集混用。现有数据不要重建，只有缺项首次生成或需要恢复时才运行 `dev:data`，`dev:data:verify` 始终只读。
+日常开发在最新 `origin/main` 对应的工作树启动：`bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev`。父进程已注入的变量优先，子包同名的 `--env-file=../../.env` 不会覆盖，因此无需替换主 `.env`。这是配置加载方式，不是运行能力证明：`D/.env` 仍保留旧 `SANDBOX_IMAGE`，按上面限制，旧镜像无法在当前 worker 下执行新的会话运行。数据集命令也必须显式带上该参数才能读到 `D/.env` 的 manifest 等设置：`bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev:data:verify` 做只读验收；现有数据不重建，只有缺项首次生成或需要恢复时才运行 `bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev:data`，日常复用不运行 `dev:data`。
 
 
 ## 本地模型网关
