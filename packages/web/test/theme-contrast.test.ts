@@ -70,11 +70,14 @@ function ratio(foreground: string, background: string): number {
 }
 
 describe('CDS light theme token contract', () => {
-  it('keeps the warm-gray surface ladder', () => {
+  it('keeps the petrol surface ladder', () => {
     expect(token('--color-surface')).toEqual(parse('#ffffff'));
-    expect(token('--color-canvas')).toEqual(parse('#fcfcfb'));
-    expect(token('--color-sunken')).toEqual(parse('#f9f9f7'));
-    expect(token('--color-selected')).toEqual(parse('#eae9e4'));
+    expect(token('--color-canvas')).toEqual(parse('#fbfcfc'));
+    expect(token('--color-sunken')).toEqual(parse('#f7f9f9'));
+    expect(token('--color-selected')).toEqual(parse('#dfe9ea'));
+    expect(token('--color-sidebar')).toEqual(parse('#eaf0f0'));
+    expect(token('--color-sidebar-hover')).toEqual(parse('#dfe8e9'));
+    expect(token('--color-sidebar-selected')).toEqual(parse('#cfdde0'));
   });
 
   it('keeps body and helper text readable on every surface', () => {
@@ -83,6 +86,9 @@ describe('CDS light theme token contract', () => {
       '--color-canvas',
       '--color-selected',
       '--color-sunken',
+      '--color-sidebar',
+      '--color-sidebar-hover',
+      '--color-sidebar-selected',
     ] as const) {
       for (const foreground of ['--color-fg', '--color-muted-foreground'] as const) {
         expect(
@@ -95,11 +101,7 @@ describe('CDS light theme token contract', () => {
 
   it('keeps status colors readable on surface and canvas', () => {
     for (const background of ['--color-surface', '--color-canvas'] as const) {
-      for (const foreground of [
-        '--color-success',
-        '--color-warning',
-        '--color-danger',
-      ] as const) {
+      for (const foreground of ['--color-success', '--color-warning', '--color-danger'] as const) {
         expect(
           ratio(foreground, background),
           `${foreground} on ${background}`,
@@ -113,21 +115,40 @@ describe('CDS light theme token contract', () => {
     expect(ratio('--color-chart-runs', '--color-surface')).toBeGreaterThanOrEqual(3);
   });
 
-  it('keeps clay as the primary action with a white foreground', () => {
-    expect(token('--color-button-primary')).toEqual(parse('#d97757'));
+  it('keeps petrol actions and focus readable with neutral filled controls', () => {
+    expect(token('--color-button-primary')).toEqual(parse('#315d67'));
+    expect(token('--color-button-primary-hover')).toEqual(parse('#284f58'));
+    expect(token('--color-button-primary-active')).toEqual(parse('#204149'));
     expect(token('--color-primary-foreground')).toEqual(parse('#ffffff'));
+    expect(token('--color-primary')).toEqual(parse('#0b0b0b'));
+    expect(token('--color-primary-hover')).toEqual(parse('#0b0b0b'));
     expect(token('--color-selected-foreground')).toEqual(token('--color-fg'));
     expect(token('--color-accent-foreground')).toEqual(token('--color-fg'));
+    for (const background of [
+      '--color-button-primary',
+      '--color-button-primary-hover',
+      '--color-button-primary-active',
+    ] as const) {
+      expect(ratio('--color-primary-foreground', background), background).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+    for (const background of [
+      '--color-surface',
+      '--color-canvas',
+      '--color-sidebar-selected',
+      '--color-selected',
+    ] as const) {
+      expect(ratio('--color-ring', background), background).toBeGreaterThanOrEqual(3);
+      expect(ratio('--color-link', background), background).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
-  it('records the accepted low-contrast CDS limits', () => {
-    // 发丝边与低对比焦点是 CDS 的视觉选择，用户已接受；它们不属于 WCAG AA 达标。
+  it('records the accepted low-contrast CDS boundary limits', () => {
     expect(token('--color-input')).toEqual(token('--color-line'));
     expect(ratio('--color-input', '--color-surface')).toBeCloseTo(1.254, 2);
     expect(ratio('--color-input', '--color-surface')).toBeLessThan(3);
     expect(ratio('--color-control-boundary', '--color-surface')).toBeCloseTo(2.442, 2);
     expect(ratio('--color-control-boundary', '--color-surface')).toBeLessThan(3);
-    expect(ratio('--color-ring', '--color-selected')).toBeCloseTo(2.568, 2);
-    expect(ratio('--color-ring', '--color-selected')).toBeLessThan(3);
   });
 });

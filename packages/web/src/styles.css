@@ -12,22 +12,17 @@
  */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/*
- * Claude Design System（CDS）亮色契约：暖灰表面阶梯、陶土主操作色、
- * alpha 发丝边与双环阴影。数据蓝只属于图表系列，状态色独立表达结果。
- */
 @theme {
-  /* 表面：侧栏内凹、画布、卡片与浮层共用一套暖灰阶梯。 */
-  --color-canvas: #fcfcfb;
+  --color-canvas: #fbfcfc;
   --color-surface: #ffffff;
   --color-panel: #ffffff;
-  --color-sunken: #f9f9f7;
-  --color-hover: #f3f3f0;
-  --color-chip: #f6f6f4;
-  --color-selected: #eae9e4;
-  --color-sidebar: color-mix(in srgb, var(--color-button-primary) 4%, var(--color-hover));
-  --color-sidebar-hover: color-mix(in srgb, var(--color-button-primary) 8%, var(--color-hover));
-  --color-sidebar-selected: color-mix(in srgb, var(--color-button-primary) 12%, var(--color-selected));
+  --color-sunken: #f7f9f9;
+  --color-hover: #edf2f2;
+  --color-chip: #eff3f3;
+  --color-selected: #dfe9ea;
+  --color-sidebar: #eaf0f0;
+  --color-sidebar-hover: #dfe8e9;
+  --color-sidebar-selected: #cfdde0;
 
   /*
    * 线与文本：分隔线只做分组，边线取 CDS alpha 阶梯。
@@ -35,8 +30,8 @@
    */
   --color-line: rgba(0, 0, 0, 0.10);
   --color-line-strong: rgba(0, 0, 0, 0.20);
-  --color-fg: #0b0b0b;
-  --color-link: #a8482b;
+  --color-fg: #202b2e;
+  --color-link: #2c5660;
   /*
    * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
    * 文字色走 muted-foreground。两者不能共用同一个变量。
@@ -53,14 +48,12 @@
   --color-chart-runs: #2a78d6;
   --color-chart-failed: var(--color-danger);
 
-  /* 主操作走陶土三态；通用 primary 仍是墨色，不与动作色混用。 */
   --color-primary-hover: #0b0b0b;
   --color-selected-foreground: var(--color-fg);
-  --color-button-primary: #d97757;
-  --color-button-primary-hover: #cc5a36;
-  --color-button-primary-active: #c6613f;
+  --color-button-primary: #315d67;
+  --color-button-primary-hover: #284f58;
+  --color-button-primary-active: #204149;
 
-  /* 墨色与正文同值，不再兼任主按钮。 */
   --color-ink: var(--color-fg);
 
   /* 状态：只用于小面积 */
@@ -78,7 +71,7 @@
   --color-code-block-fg: #e6e6e4;
   --color-code-syntax-comment: #8b8b86;
   --color-code-syntax-string: #cdcdc8;
-  --color-code-syntax-accent: #e0a48a;
+  --color-code-syntax-accent: #accad0;
   --color-code-syntax-muted: #b8b8b2;
   --color-code-block-dim: rgb(255 255 255 / 0.55);
   --color-code-block-faint: rgb(255 255 255 / 0.45);
@@ -167,7 +160,7 @@
   --color-secondary-foreground: var(--color-fg);
   --color-accent: var(--color-selected);
   --color-accent-foreground: var(--color-fg);
-  --color-muted-foreground: #52514e;
+  --color-muted-foreground: #505f63;
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
@@ -178,7 +171,7 @@
    */
   --color-input: var(--color-line);
   --color-input-focus: #bdbdbd;
-  --color-ring: #d97757;
+  --color-ring: #4d7079;
 
   /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
   --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
@@ -282,7 +275,6 @@
     letter-spacing: -0.01em;
   }
 
-  /* 焦点兜底走陶土 ring 令牌；skip link 沿用中性语义令牌。 */
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
