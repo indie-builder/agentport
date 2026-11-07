@@ -79,12 +79,11 @@ export function ConfirmDialog({
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose} disabled={pending}>
+          <Button variant="outline" onClick={onClose} disabled={pending}>
             取消
           </Button>
           <Button
             variant={tone === 'default' ? 'default' : 'destructive'}
-            size="sm"
             aria-busy={pending}
             disabled={pending || confirmDisabled}
             onClick={() => void confirm()}

@@ -266,6 +266,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 - **装饰灰（Decorative Gray）** (#898781)：只用于装饰图标与禁用例外，不承载需要阅读的信息。
 - **代码块（Code Block）** (#0D0D0C / #E6E6E4)：围栏/块级代码的深色面与浅色正文；行内 `code` 仍是浅 chip `#F6F6F6`，两种代码形态不互换。
 - **状态色**：success `#187646`、warning `#8A5600`、danger `#B42318`；浅底分别是 `#FBF3E4`、`#FCEBE9`。只在小面积表达结果。
+- **运行中状态**：`StatusBadge` 的 `brand` tone 使用 `selected` 中性底与 `fg` 字，运行圆点用 `fg`。状态文字与既有动效保留，不借陶土动作色。
 - **遮罩（Scrim）** (`rgb(0 0 0 / 0.4)`)：Dialog、Sheet 等模态遮罩。
 
 ### Named Rules
@@ -307,7 +308,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 桌面端布局，窗口窄于 `lg` 时侧栏改为抽屉，仍按桌面密度，不为触摸新增尺寸。应用外壳平铺全幅：根容器铺 `canvas` `#FCFCFB`，透明侧栏（展开 224px / 收起 64px）直接坐在画布上，主内容区贴边铺 `surface` `#FFFFFF`；没有外层圆角、外边距、渐变、描边或阴影。分区靠画布与表面的底色差异和留白表达。
 
-非 chat 内容区水平、底部各 24px（`px-6 pb-6`）；`Page` 默认区块间距 24px，`PageHeader` 单行最小高 56px、不另加顶部或横向 padding，`PageSection` 内部间距 16px、默认顶部 20px。`PageToolbar` 自身 `gap-3`（12px），控件内部 8px 由组内组合决定；搜索桌面 224px 且可收缩，筛选 144px，排序 128px。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。
+非 chat 内容区水平、底部各 24px（`px-6 pb-6`）；AppShell 的 main 不承担普通页面的整页滚动。`Page` 是有界纵向 flex 工作面，`PageTopbar` 将页头、资源导航、任务页签和页面全局搜索筛选组成常驻顶部组，`PageBody` 滚动正文；详情完整只读描述放入可滚动内容，不占常驻顶部：专家各权限分支随任务正文滚动，插件在简介滚动区显示、无文件时仍在正文显示；描述保留换行且不截断，长描述不得挤占正文可用高度。聊天与频道对话、角色矩阵、文件阅读器保留自身滚动容器，公开 login/share 页面保持自然文档滚动。原有区块间距仍为 24px，`PageHeader` 单行最小高 56px、不另加顶部或横向 padding，`PageSection` 内部间距 16px、默认顶部 20px。`PageHeader` 与 `PageToolbar` 自身不使用 sticky，排版不变；`PageToolbar` 自身 `gap-3`（12px），控件内部 8px 由组内组合决定；搜索桌面 224px 且可收缩，筛选 144px，排序 128px。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。
 
 对话阅读轴线 832px，含左右 24px 的外容器最大 880px；聊天没有横跨三栏的外顶栏，历史、消息列与成果栏从工作区顶部并排开始。消息列自带 56px 头部（`px-6`，左右 24px）：历史关闭时显示历史开关、搜索、标题操作与成果开关；未选专家的唯一 `AgentPicker` 位于欢迎区，已选专家的唯一 `AgentPicker` 位于消息列头部。历史打开时，无论是否已选专家，唯一 `AgentPicker` 均位于历史头部，搜索、新建也移入历史面板，消息列头部只留历史开关、标题操作与成果开关。历史头部同为 56px（`px-3`、`gap-1`）：左侧显示专家选择，右侧 32px ghost「新建会话」；侧栏不再有新建会话入口。成果面板 400px 从顶部开始；Composer 在消息列之后距底 24px、始终同一位置。会话历史默认收起 0，首次展开 240px，可在 200–360px 间调整并记忆。历史关闭指桌面 `historyCollapsed` 或窄桌面 Sheet 关闭；历史打开指桌面历史展开或窄桌面 Sheet 打开。
 
@@ -382,9 +383,9 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 暖墨与陶土工具，次要动作保持轻。
 
 - **Shape:** 常规高 32px、8px 圆角、13/20 500；紧凑 28px / 8px；大号 36px。图标按钮用 `size="icon"` 32px / `icon-lg` 36px，与 `icon-sm`（28px）、`icon-xs`（24px）同为 8px；侧栏折叠按钮实例也显式 8px。保留 1px 透明边框占位，尺寸不因换色变化。所有共享按钮带 `.cds-btn-squish`：active 时 `scale(0.975)`，使用 15 阶 `--btn-spring` 弹簧。
-- **Primary:** `default` 用 `button-primary` 陶土实底、白字，hover `#CC5A36`、active `#c6613f`；disabled 仅降透明度并禁止交互。
+- **Primary:** 同一工作面的主要任务与表单提交使用常规 32px `default`，用 `button-primary` 陶土实底、白字，hover `#CC5A36`、active `#c6613f`；disabled 仅降透明度并禁止交互。角色新建只增加草稿，保存为主操作；评估新建用例为次操作，运行评估为主操作。按动作职责核对 variant，不机械批量替换。
 - **Solid:** 发送、登录等显式动作与 `default` 共用同一陶土三态实底。
-- **Outline / Secondary / Ghost / Plain:** outline 白底、1px `line` 边线、`fg` 字，hover 与展开 `#F3F3F0`；secondary 用 `#F3F3F0` 底；ghost 透明，hover 与展开 `#F3F3F0`；plain 保持透明且不加 hover 底。取消、筛选与菜单触发器不因主操作改成陶土实底。
+- **Outline / Secondary / Ghost / Plain:** outline 白底、1px `line` 边线、`fg` 字，hover 与展开 `#F3F3F0`；secondary 用 `#F3F3F0` 底；ghost 透明，hover 与展开 `#F3F3F0`；plain 保持透明且不加 hover 底。取消、筛选与菜单触发器不因主操作改成陶土实底；局部与行内操作使用 `sm` 28px。删除、撤销与放弃使用既有 `destructive`。
 - **Link:** `#A8482B` 深陶土文字，保留下划线 hover 与可访问名，不靠蓝色表明可点击。导航与下载入口用原生 `Link` / `<a>` 配 `buttonVariants`，保持链接语义与既有外观，不用 `Button` 强制 `role=button`。
 - **Focus:** 实底按钮用单层 2px 陶土 `ring`，并在实底外留 2px 背景色间隔；invalid 时危险边框与焦点环共存，实底 offset 不消失。除输入类的中性暖灰聚焦边（`.cds-focus-glow`：Input / Textarea / Select / Combobox / InputGroup）与 SourceEditor / CodeMirror 搜索的 `input-focus` 换线算同一焦点信号外，不要同时出现边框与光环两层普通态焦点信号。
 
@@ -404,7 +405,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 ### Menus / Popovers / Overlays
 
 - **Menu / Select / Combobox / Popover:** 白浮层、1px `line` ring、双环 overlay 阴影；菜单与浮层 10px 圆角（`--radius-popover`），菜单项 8px 圆角、`4px 6px` 内边距。浮层经 `.cds-overlay-enter` 以 `opacity` + `scale(.96)` → `1` 弹入（200ms）。普通文字 `fg`、描述 `muted-foreground`；hover 与键盘高亮用 `accent` `#EAE9E4` + `accent-foreground` `#0b0b0b`；危险项用 `danger`，不被普通 hover 覆盖。
-- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、1px `line` ring、overlay 阴影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。确认的主操作为陶土实底，取消为 outline，危险确认保持 destructive。Sheet 贴边展示，不设圆角。
+- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、1px `line` ring、overlay 阴影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。标准页脚按钮高 32px、间距 8px，取消 outline 在前，确认 default 陶土实底在后，危险确认保持 destructive；不加多余分隔线，真正固定的长表单页脚可用 1px 线分隔正文。Sheet 贴边展示，不设圆角。
 - **Tooltip / Toast:** Tooltip 保留既有反色（`fg` 底、白字），不做成白浮层；Toast 白底、1px `line`、overlay 阴影，操作按钮用显式 outline，关闭按钮白底中性 hover。Toast、操作按钮与关闭按钮的焦点都用单层 2px `ring` outline、offset 2；操作按钮只用该 outline，不叠加按钮基类 ring 与焦点阴影，视觉上不出现第二圈光环。
 
 ### Cards / Tables / Lists
@@ -416,6 +417,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Empty states
 
+- 页头已有同一主操作时，空态里的重复入口使用 `outline sm`；没有同动作页头入口时，空态的主要任务使用 `default`。保留动作与权限条件。
 - 空态沿用 `EmptyState` / `PageNote`：列表空态用无框 `PageNote`（仅上下发丝线，按首次无数据 / 筛选无结果 / 无权限给一句事实与一个动作），`EmptyState` 默认无外框；传 `illustration` 时替换原 40px 圆底图标，未传保持默认图标与动作；行内 `PageNote` 复用 `icon` 槽。业务插画只经 `BusinessIllustration` 取 `standard` 96px / `compact` 64px / `error` 144px 三档，固定宽高、`alt=""`、`aria-hidden="true"`，纯装饰、无文字、无动画；`public/brand/scenarios/` 六张场景图仍只服务品牌 Logo 切换。
 
 ### Messages / Code / Charts

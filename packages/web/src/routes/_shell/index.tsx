@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
-import { Page, PageHeader } from '../../components/page.js';
+import { Page, PageHeader, PageTopbar } from '../../components/page.js';
 import { homePath } from '../../lib/access.js';
 import { meQuery } from '../../lib/queries.js';
 
@@ -18,7 +18,9 @@ function HomeRedirect() {
 
   return (
     <Page>
-      <PageHeader title="正在打开…" />
+      <PageTopbar>
+        <PageHeader title="正在打开…" />
+      </PageTopbar>
     </Page>
   );
 }

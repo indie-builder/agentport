@@ -279,11 +279,13 @@ describe('plugin detail', () => {
     expect(panel('intro').textContent).not.toContain('demo@market');
     expect(body().querySelector('a[href="/api/plugins/plugin-1/export"]')).not.toBeNull();
     expect(body().querySelector('a[href="/plugins"]')).not.toBeNull();
-    // 简介落到标题下方并与标题左对齐，不在标题行里。
-    const header = body().querySelector('[data-slot="page-header"]');
-    expect(header?.textContent).not.toContain('演示插件的能力');
-    expect(header?.nextElementSibling?.textContent).toBe('演示插件的能力');
-    expect(header?.nextElementSibling?.className).toContain('ps-12');
+    expect(body().querySelector('[data-slot="page-topbar"]')?.textContent).not.toContain(
+      plugin.description,
+    );
+    const description = panel('intro').querySelector('p');
+    expect(description?.textContent).toBe(plugin.description);
+    expect(description?.className).toContain('whitespace-pre-wrap');
+    expect(panel('intro').className).toContain('overflow-y-auto');
   });
 
   it('never opens a Sheet or dialog for content, even with a file in the URL', () => {
@@ -512,6 +514,12 @@ describe('plugin detail', () => {
     });
     mount();
     expect(body().textContent).toContain('这个插件没有支持文件');
+    const content = body().querySelector('[data-slot="page-body"]');
+    expect(content?.querySelector('p')?.textContent).toBe(plugin.description);
+    expect(content?.className).toContain('overflow-y-auto');
+    expect(body().querySelector('[data-slot="page-topbar"]')?.textContent).not.toContain(
+      plugin.description,
+    );
     expect(body().querySelector('a[href="/plugins"]')).not.toBeNull();
     expect(body().querySelector('[role="tablist"]')).toBeNull();
   });

@@ -5,7 +5,14 @@ import { useState } from 'react';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
-import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
@@ -280,137 +287,141 @@ export function RunsPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="运行"
-        actions={
-          <>
-            {canExport ? (
-              <Button variant="outline" onClick={() => void exportRuns()} disabled={exporting}>
-                <Download data-icon="inline-start" aria-hidden="true" />
-                {exporting ? '导出中…' : '导出运行'}
-              </Button>
-            ) : null}
-            <Button
-              variant="outline"
-              onClick={() => void runs.refetch()}
-              disabled={runs.isFetching}
-            >
-              <RefreshCw
-                data-icon="inline-start"
-                className={runs.isFetching ? 'animate-spin' : undefined}
-                aria-hidden="true"
-              />
-              {runs.isFetching ? '刷新中…' : '刷新'}
-            </Button>
-          </>
-        }
-      />
-
-      <PageToolbar>
-        <FilterSelect
-          value={agentId}
-          onValueChange={(next) => setFilter({ agent: next || undefined })}
-          options={agentOptions}
-          label="按专家筛选"
-          className="w-full sm:w-36"
-        />
-        <FilterSelect
-          value={status}
-          onValueChange={(next) =>
-            setFilter({ status: (next || undefined) as RunStatus | undefined })
-          }
-          options={statusOptions}
-          label="按状态筛选"
-          className="w-full sm:w-36"
-        />
-        <p className="text-sm text-muted-foreground">
-          {filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'} ·
-          排序仅作用于当前显示的记录
-        </p>
-        <div className="ml-auto">
-          <ViewToggle value={view} onChange={setView} />
-        </div>
-      </PageToolbar>
-
-      {agents.isError ? (
-        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-      ) : null}
-
-      {firstLoadFailed ? (
-        <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
-      ) : (
-        <>
-          {runs.isError ? (
-            <PageNote
-              tone="danger"
-              title="刷新失败，保留上次运行记录"
-              description={errorMessage(runs.error)}
-              action={
-                <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
-                  重试
+      <PageTopbar>
+        <PageHeader
+          title="运行"
+          actions={
+            <>
+              {canExport ? (
+                <Button variant="outline" onClick={() => void exportRuns()} disabled={exporting}>
+                  <Download data-icon="inline-start" aria-hidden="true" />
+                  {exporting ? '导出中…' : '导出运行'}
                 </Button>
-              }
-            />
-          ) : null}
-          {empty ? (
-            <PageNote
-              icon={<BusinessIllustration name={filtered ? 'search' : 'runs'} size="compact" />}
-              title={filtered ? '没有匹配的运行' : '还没有运行记录'}
-              action={
-                filtered ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setFilter({ agent: undefined, status: undefined })}
-                  >
-                    清除筛选
-                  </Button>
-                ) : (
-                  <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-                    新建对话
-                  </Link>
-                )
-              }
-            />
-          ) : view === 'cards' ? (
-            runs.isPending ? (
-              <LoadingState rows={3} layout="cards" columns={3} />
-            ) : (
-              <ul
-                aria-label="运行列表"
-                className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+              ) : null}
+              <Button
+                variant="outline"
+                onClick={() => void runs.refetch()}
+                disabled={runs.isFetching}
               >
-                {items.map((run) => (
-                  <li key={run.id} className="min-w-0">
-                    <RunCard run={run} />
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : (
-            <DataTable
-              rows={items}
-              columns={columns}
-              rowKey={(run) => run.id}
-              rowLabel={(run) =>
-                `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
-              }
-              label="运行列表"
-              loading={runs.isPending}
-              storageKey="pace.runs.columns"
-              initialSorting={[{ id: 'startedAt', desc: true }]}
-              empty="没有匹配的运行"
-              onRowClick={(run) =>
-                void navigate({
-                  to: '/runs/$runId',
-                  params: { runId: run.id },
-                  search: { backTo: location.href },
-                })
-              }
-            />
-          )}
-        </>
-      )}
+                <RefreshCw
+                  data-icon="inline-start"
+                  className={runs.isFetching ? 'animate-spin' : undefined}
+                  aria-hidden="true"
+                />
+                {runs.isFetching ? '刷新中…' : '刷新'}
+              </Button>
+            </>
+          }
+        />
+
+        <PageToolbar>
+          <FilterSelect
+            value={agentId}
+            onValueChange={(next) => setFilter({ agent: next || undefined })}
+            options={agentOptions}
+            label="按专家筛选"
+            className="w-full sm:w-36"
+          />
+          <FilterSelect
+            value={status}
+            onValueChange={(next) =>
+              setFilter({ status: (next || undefined) as RunStatus | undefined })
+            }
+            options={statusOptions}
+            label="按状态筛选"
+            className="w-full sm:w-36"
+          />
+          <p className="text-sm text-muted-foreground">
+            {filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'} ·
+            排序仅作用于当前显示的记录
+          </p>
+          <div className="ml-auto">
+            <ViewToggle value={view} onChange={setView} />
+          </div>
+        </PageToolbar>
+      </PageTopbar>
+
+      <PageBody>
+        {agents.isError ? (
+          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+        ) : null}
+
+        {firstLoadFailed ? (
+          <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
+        ) : (
+          <>
+            {runs.isError ? (
+              <PageNote
+                tone="danger"
+                title="刷新失败，保留上次运行记录"
+                description={errorMessage(runs.error)}
+                action={
+                  <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
+                    重试
+                  </Button>
+                }
+              />
+            ) : null}
+            {empty ? (
+              <PageNote
+                icon={<BusinessIllustration name={filtered ? 'search' : 'runs'} size="compact" />}
+                title={filtered ? '没有匹配的运行' : '还没有运行记录'}
+                action={
+                  filtered ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFilter({ agent: undefined, status: undefined })}
+                    >
+                      清除筛选
+                    </Button>
+                  ) : (
+                    <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                      新建对话
+                    </Link>
+                  )
+                }
+              />
+            ) : view === 'cards' ? (
+              runs.isPending ? (
+                <LoadingState rows={3} layout="cards" columns={3} />
+              ) : (
+                <ul
+                  aria-label="运行列表"
+                  className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+                >
+                  {items.map((run) => (
+                    <li key={run.id} className="min-w-0">
+                      <RunCard run={run} />
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : (
+              <DataTable
+                rows={items}
+                columns={columns}
+                rowKey={(run) => run.id}
+                rowLabel={(run) =>
+                  `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
+                }
+                label="运行列表"
+                loading={runs.isPending}
+                storageKey="pace.runs.columns"
+                initialSorting={[{ id: 'startedAt', desc: true }]}
+                empty="没有匹配的运行"
+                onRowClick={(run) =>
+                  void navigate({
+                    to: '/runs/$runId',
+                    params: { runId: run.id },
+                    search: { backTo: location.href },
+                  })
+                }
+              />
+            )}
+          </>
+        )}
+      </PageBody>
     </Page>
   );
 }

@@ -45,7 +45,7 @@ import {
 import { cn } from '../lib/cn.js';
 import { logoutAccount, meQuery } from '../lib/queries.js';
 import { animateBrand, Brand, BrandMark } from './brand.js';
-import { Page, PageHeader, PageNote } from './page.js';
+import { Page, PageBody, PageHeader, PageNote, PageTopbar } from './page.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
@@ -239,11 +239,7 @@ function SidebarLink({
       className={cn(
         'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
         collapsed ? 'w-8 justify-center' : 'gap-2.5 rounded-item px-2.5',
-        collapsed
-          ? ''
-          : active
-            ? 'bg-selected text-selected-foreground'
-            : 'text-fg hover:bg-hover',
+        collapsed ? '' : active ? 'bg-selected text-selected-foreground' : 'text-fg hover:bg-hover',
         collapsed && (active ? 'text-selected-foreground' : 'text-fg'),
       )}
     >
@@ -298,35 +294,39 @@ export function AccessDenied({
   };
   return (
     <Page>
-      <PageHeader title={noPermissions ? '没有可用权限' : '无权访问'} />
-      <PageNote
-        title={
-          noPermissions ? '当前账户还没有分配任何业务权限。' : '当前账户没有访问这个页面的权限。'
-        }
-        description={
-          noPermissions
-            ? '请联系管理员分配角色，然后点「刷新权限」即可生效。'
-            : '如果这是刚调整过的权限，点「刷新权限」即可生效。'
-        }
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            {home ? (
-              <Link
-                to={home}
-                className={cn(buttonVariants({ variant: 'link', size: 'sm' }), 'underline')}
-              >
-                返回可用页面
-              </Link>
-            ) : null}
-            <Button variant="outline" size="sm" onClick={refresh}>
-              刷新权限
-            </Button>
-            <Button variant="outline" size="sm" onClick={onLogout}>
-              退出登录
-            </Button>
-          </div>
-        }
-      />
+      <PageTopbar>
+        <PageHeader title={noPermissions ? '没有可用权限' : '无权访问'} />
+      </PageTopbar>
+      <PageBody>
+        <PageNote
+          title={
+            noPermissions ? '当前账户还没有分配任何业务权限。' : '当前账户没有访问这个页面的权限。'
+          }
+          description={
+            noPermissions
+              ? '请联系管理员分配角色，然后点「刷新权限」即可生效。'
+              : '如果这是刚调整过的权限，点「刷新权限」即可生效。'
+          }
+          action={
+            <div className="flex flex-wrap items-center gap-2">
+              {home ? (
+                <Link
+                  to={home}
+                  className={cn(buttonVariants({ variant: 'link', size: 'sm' }), 'underline')}
+                >
+                  返回可用页面
+                </Link>
+              ) : null}
+              <Button variant="outline" size="sm" onClick={refresh}>
+                刷新权限
+              </Button>
+              <Button variant="outline" size="sm" onClick={onLogout}>
+                退出登录
+              </Button>
+            </div>
+          }
+        />
+      </PageBody>
     </Page>
   );
 }
@@ -698,18 +698,14 @@ export function AppShell() {
           <main
             id="main-content"
             tabIndex={-1}
-            className={cn(
-              'min-h-0 flex-1',
-              immersive ? 'overflow-hidden' : 'overflow-y-auto',
-              personalContext && '[scrollbar-gutter:stable]',
-            )}
+            className="min-h-0 flex-1 overflow-hidden"
           >
             {immersive ? (
               <div className={cn('h-full', denied && 'p-6')}>{content}</div>
             ) : (
               // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。
-              <div className="w-full px-6 pb-6">
-                <div className="w-full min-w-0">{content}</div>
+              <div className="h-full min-h-0 w-full px-6 pb-6">
+                <div className="h-full min-h-0 w-full min-w-0">{content}</div>
               </div>
             )}
           </main>

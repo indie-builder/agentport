@@ -1287,10 +1287,10 @@ function RenameDialog({
             <FieldError id="conversation-title-error">{error}</FieldError>
           </Field>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={close} disabled={pending}>
+            <Button variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>
-            <Button type="submit" size="sm" disabled={saveDisabled} aria-busy={pending}>
+            <Button type="submit" disabled={saveDisabled} aria-busy={pending}>
               {pending ? '保存中…' : '保存'}
             </Button>
           </div>
@@ -3009,10 +3009,7 @@ function FoldingMessageBody({ text }: { text: string }) {
     <>
       <p
         ref={bodyRef}
-        className={cn(
-          'whitespace-pre-wrap break-words',
-          collapsed && 'max-h-75 overflow-hidden',
-        )}
+        className={cn('whitespace-pre-wrap break-words', collapsed && 'max-h-75 overflow-hidden')}
         style={{ WebkitMaskImage: maskImage, maskImage }}
       >
         {text}

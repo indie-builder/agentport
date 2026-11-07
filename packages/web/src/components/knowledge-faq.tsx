@@ -1815,7 +1815,7 @@ export function FaqTab({
                         {item.status === 'disabled' ? '启用' : '停用'}
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="destructive"
                         size="sm"
                         disabled={pending}
                         onClick={() => setDeleting(item)}

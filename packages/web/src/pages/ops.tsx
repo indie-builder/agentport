@@ -14,7 +14,15 @@ import { AgentPicker } from '../components/agent-picker.js';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageSection,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
@@ -282,188 +290,192 @@ export function SchedulesPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="定时任务"
-        actions={
-          canManage ? (
-            <Button ref={createButtonRef} onClick={() => setCreating(true)}>
-              <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
-            </Button>
-          ) : null
-        }
-      />
-
-      {items.length > 0 ? (
-        <PageToolbar>
-          <p className="text-sm text-muted-foreground">{items.length} 个定时任务。</p>
-          <div className="ml-auto">
-            <ViewToggle value={view} onChange={setView} />
-          </div>
-        </PageToolbar>
-      ) : null}
-
-      {schedules.isPending ? <LoadingState rows={3} /> : null}
-      {schedules.isError && !schedules.data ? (
-        <ErrorState error={schedules.error} onRetry={() => void schedules.refetch()} />
-      ) : null}
-      {schedules.isError && schedules.data ? (
-        <PageNote
-          tone="danger"
-          title="刷新失败，已保留上次列表"
-          description="以下为上次成功加载的定时任务。"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void schedules.refetch()}>
-              重试
-            </Button>
+      <PageTopbar>
+        <PageHeader
+          title="定时任务"
+          actions={
+            canManage ? (
+              <Button ref={createButtonRef} onClick={() => setCreating(true)}>
+                <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
+              </Button>
+            ) : null
           }
         />
-      ) : null}
 
-      {schedules.data && items.length === 0 ? (
-        <PageNote
-          icon={<BusinessIllustration name="schedule" size="compact" />}
-          title="定时任务为空"
-          description={canManage ? undefined : '当前账户没有创建权限，请联系管理员。'}
-        />
-      ) : null}
+        {items.length > 0 ? (
+          <PageToolbar>
+            <p className="text-sm text-muted-foreground">{items.length} 个定时任务。</p>
+            <div className="ml-auto">
+              <ViewToggle value={view} onChange={setView} />
+            </div>
+          </PageToolbar>
+        ) : null}
+      </PageTopbar>
 
-      {items.length > 0 && view === 'cards' ? (
-        <ul
-          aria-label="定时任务列表"
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
-        >
-          {items.map((schedule) => {
-            const nextDue =
-              schedule.enabled || schedule.nextDueAt
-                ? formatUtcDateTime(schedule.nextDueAt)
-                : '未安排';
-            return (
-              <li key={schedule.id} className="min-w-0">
-                <ScheduleCard
-                  schedule={schedule}
-                  nextDue={nextDue}
-                  busy={rowBusy}
-                  onToggle={(enabled) => {
-                    if (rowBusy) return;
-                    toggle.mutate({ id: schedule.id, enabled });
-                  }}
-                  onEdit={() => {
-                    if (rowBusy) return;
-                    setEditing(schedule);
-                  }}
-                  onDelete={() => {
-                    if (rowBusy) return;
-                    deletedRef.current = false;
-                    setDeleting(schedule);
-                  }}
-                />
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      <PageBody>
+        {schedules.isPending ? <LoadingState rows={3} /> : null}
+        {schedules.isError && !schedules.data ? (
+          <ErrorState error={schedules.error} onRetry={() => void schedules.refetch()} />
+        ) : null}
+        {schedules.isError && schedules.data ? (
+          <PageNote
+            tone="danger"
+            title="刷新失败，已保留上次列表"
+            description="以下为上次成功加载的定时任务。"
+            action={
+              <Button variant="outline" size="sm" onClick={() => void schedules.refetch()}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
 
-      {items.length > 0 && view === 'table' ? (
-        <PageSection divided={false}>
-          <Table>
-            <caption className="sr-only">定时任务列表</caption>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col" className="w-[34%]">
-                  名称
-                </TableHead>
-                <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
-                  执行计划
-                </TableHead>
-                <TableHead scope="col" className="hidden w-[18%] sm:table-cell">
-                  下次触发（UTC）
-                </TableHead>
-                <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
-                  上次运行
-                </TableHead>
-                <TableHead scope="col" className="w-[16%] text-right">
-                  <span className="sr-only">操作</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((schedule) => {
-                const nextDue =
-                  schedule.enabled || schedule.nextDueAt
-                    ? formatUtcDateTime(schedule.nextDueAt)
-                    : '未安排';
-                return (
-                  <TableRow key={schedule.id}>
-                    <TableHead scope="row" className="h-auto min-w-0 py-2 font-normal text-fg">
-                      <span className="block truncate text-sm font-medium text-fg">
-                        {schedule.name}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {schedule.agentName ?? '已删除的专家'}
-                      </span>
-                      {/* 窄屏收起列，用可见标签保留每项数据。 */}
-                      <span className="block text-xs text-muted-foreground sm:hidden">
-                        {formatScheduleCron(schedule.cron)} · 下次 UTC {nextDue} · 上次{' '}
+        {schedules.data && items.length === 0 ? (
+          <PageNote
+            icon={<BusinessIllustration name="schedule" size="compact" />}
+            title="定时任务为空"
+            description={canManage ? undefined : '当前账户没有创建权限，请联系管理员。'}
+          />
+        ) : null}
+
+        {items.length > 0 && view === 'cards' ? (
+          <ul
+            aria-label="定时任务列表"
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+          >
+            {items.map((schedule) => {
+              const nextDue =
+                schedule.enabled || schedule.nextDueAt
+                  ? formatUtcDateTime(schedule.nextDueAt)
+                  : '未安排';
+              return (
+                <li key={schedule.id} className="min-w-0">
+                  <ScheduleCard
+                    schedule={schedule}
+                    nextDue={nextDue}
+                    busy={rowBusy}
+                    onToggle={(enabled) => {
+                      if (rowBusy) return;
+                      toggle.mutate({ id: schedule.id, enabled });
+                    }}
+                    onEdit={() => {
+                      if (rowBusy) return;
+                      setEditing(schedule);
+                    }}
+                    onDelete={() => {
+                      if (rowBusy) return;
+                      deletedRef.current = false;
+                      setDeleting(schedule);
+                    }}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {items.length > 0 && view === 'table' ? (
+          <PageSection divided={false}>
+            <Table>
+              <caption className="sr-only">定时任务列表</caption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col" className="w-[34%]">
+                    名称
+                  </TableHead>
+                  <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
+                    执行计划
+                  </TableHead>
+                  <TableHead scope="col" className="hidden w-[18%] sm:table-cell">
+                    下次触发（UTC）
+                  </TableHead>
+                  <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
+                    上次运行
+                  </TableHead>
+                  <TableHead scope="col" className="w-[16%] text-right">
+                    <span className="sr-only">操作</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((schedule) => {
+                  const nextDue =
+                    schedule.enabled || schedule.nextDueAt
+                      ? formatUtcDateTime(schedule.nextDueAt)
+                      : '未安排';
+                  return (
+                    <TableRow key={schedule.id}>
+                      <TableHead scope="row" className="h-auto min-w-0 py-2 font-normal text-fg">
+                        <span className="block truncate text-sm font-medium text-fg">
+                          {schedule.name}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {schedule.agentName ?? '已删除的专家'}
+                        </span>
+                        {/* 窄屏收起列，用可见标签保留每项数据。 */}
+                        <span className="block text-xs text-muted-foreground sm:hidden">
+                          {formatScheduleCron(schedule.cron)} · 下次 UTC {nextDue} · 上次{' '}
+                          {formatRelative(schedule.lastRunAt)}
+                        </span>
+                      </TableHead>
+                      <TableCell className="hidden sm:table-cell">
+                        <span className="text-xs text-muted-foreground">
+                          {formatScheduleCron(schedule.cron)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="hidden text-xs tabular-nums text-muted-foreground sm:table-cell">
+                        {nextDue}
+                      </TableCell>
+                      <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
                         {formatRelative(schedule.lastRunAt)}
-                      </span>
-                    </TableHead>
-                    <TableCell className="hidden sm:table-cell">
-                      <span className="text-xs text-muted-foreground">
-                        {formatScheduleCron(schedule.cron)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="hidden text-xs tabular-nums text-muted-foreground sm:table-cell">
-                      {nextDue}
-                    </TableCell>
-                    <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
-                      {formatRelative(schedule.lastRunAt)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Switch
-                          size="sm"
-                          checked={schedule.enabled}
-                          disabled={rowBusy}
-                          aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
-                          onCheckedChange={(enabled) => {
-                            if (rowBusy) return;
-                            toggle.mutate({ id: schedule.id, enabled });
-                          }}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`编辑 ${schedule.name}`}
-                          disabled={rowBusy}
-                          onClick={() => {
-                            if (rowBusy) return;
-                            setEditing(schedule);
-                          }}
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="icon-sm"
-                          aria-label={`删除 ${schedule.name}`}
-                          disabled={rowBusy}
-                          onClick={() => {
-                            if (rowBusy) return;
-                            deletedRef.current = false;
-                            setDeleting(schedule);
-                          }}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </PageSection>
-      ) : null}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Switch
+                            size="sm"
+                            checked={schedule.enabled}
+                            disabled={rowBusy}
+                            aria-label={`${schedule.enabled ? '暂停' : '启用'} ${schedule.name}`}
+                            onCheckedChange={(enabled) => {
+                              if (rowBusy) return;
+                              toggle.mutate({ id: schedule.id, enabled });
+                            }}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`编辑 ${schedule.name}`}
+                            disabled={rowBusy}
+                            onClick={() => {
+                              if (rowBusy) return;
+                              setEditing(schedule);
+                            }}
+                          >
+                            <Pencil />
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="icon-sm"
+                            aria-label={`删除 ${schedule.name}`}
+                            disabled={rowBusy}
+                            onClick={() => {
+                              if (rowBusy) return;
+                              deletedRef.current = false;
+                              setDeleting(schedule);
+                            }}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </PageSection>
+        ) : null}
+      </PageBody>
 
       {creating ? (
         <ScheduleDialog

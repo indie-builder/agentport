@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../components/agent-avatar.js';
 import { AgentPicker } from '../components/agent-picker.js';
-import { Page, PageHeader, PageNote } from '../components/page.js';
+import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -69,16 +69,24 @@ export function ChannelPage({ channelId }: { channelId: string }) {
   if (detail.isPending) {
     return (
       <Page className="h-full min-h-0 px-6 pb-6">
-        <PageHeader title="频道" />
-        <LoadingState rows={4} />
+        <PageTopbar>
+          <PageHeader title="频道" />
+        </PageTopbar>
+        <PageBody>
+          <LoadingState rows={4} />
+        </PageBody>
       </Page>
     );
   }
   if (detail.isError && detail.data === undefined) {
     return (
       <Page className="h-full min-h-0 px-6 pb-6">
-        <PageHeader title="频道" />
-        <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+        <PageTopbar>
+          <PageHeader title="频道" />
+        </PageTopbar>
+        <PageBody>
+          <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+        </PageBody>
       </Page>
     );
   }
@@ -445,10 +453,7 @@ function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
             onLoadOlder={() => undefined}
             olderDisabled={true}
             welcome={
-              <EmptyState
-                icon={<MessageSquare className="size-5" />}
-                title="从第一条消息开始"
-              />
+              <EmptyState icon={<MessageSquare className="size-5" />} title="从第一条消息开始" />
             }
             approvals={{ pending: null, onApprove: () => undefined }}
             approvalItems={[]}
@@ -782,7 +787,7 @@ function RunControls({
             </span>
             <Button
               size="sm"
-              variant="outline"
+              variant="default"
               disabled={approve.isPending && approve.variables === approval.id}
               aria-busy={approve.isPending && approve.variables === approval.id}
               onClick={() =>

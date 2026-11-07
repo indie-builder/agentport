@@ -19,7 +19,14 @@ import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
-import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageSection,
+  PageTopbar,
+} from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
@@ -162,8 +169,12 @@ export function RuntimeEnvironmentDetailPage() {
   if (environment.isPending) {
     return (
       <Page>
-        <PageHeader title="运行环境" />
-        <LoadingState rows={4} />
+        <PageTopbar>
+          <PageHeader title="运行环境" />
+        </PageTopbar>
+        <PageBody>
+          <LoadingState rows={4} />
+        </PageBody>
       </Page>
     );
   }
@@ -171,8 +182,12 @@ export function RuntimeEnvironmentDetailPage() {
   if (environment.data === undefined) {
     return (
       <Page>
-        <PageHeader title="运行环境" />
-        <ErrorState error={environment.error} onRetry={() => void environment.refetch()} />
+        <PageTopbar>
+          <PageHeader title="运行环境" />
+        </PageTopbar>
+        <PageBody>
+          <ErrorState error={environment.error} onRetry={() => void environment.refetch()} />
+        </PageBody>
       </Page>
     );
   }
@@ -226,219 +241,227 @@ export function RuntimeEnvironmentDetailPage() {
 
   return (
     <Page>
-      <PageHeader
-        title={current.name}
-        eyebrow={current.isDefault ? <Badge variant="secondary">默认</Badge> : null}
-        leading={
-          <Link
-            to="/runtime-environments"
-            aria-label="返回运行环境列表"
-            className={buttonVariants({ variant: 'outline', size: 'icon' })}
-          >
-            <ArrowLeft aria-hidden="true" />
-          </Link>
-        }
-        actions={
-          <>
-            <Button onClick={startBuild} disabled={build.isPending}>
-              <Hammer data-icon="inline-start" />
-              {build.isPending ? '提交中…' : '构建新版本'}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    ref={deleteTriggerRef}
-                    variant="ghost"
-                    size="icon"
-                    aria-label="运行环境操作"
-                  >
-                    <Ellipsis />
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    variant="destructive"
-                    disabled={current.isDefault}
-                    title={current.isDefault ? '默认运行环境不能删除' : undefined}
-                    onClick={() => setConfirmingDelete(true)}
-                  >
-                    <Trash2 className="size-4" /> 删除
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        }
-      />
-
-      {environment.isError ? (
-        <ErrorState error={environment.error} onRetry={() => void environment.refetch()} />
-      ) : null}
-
-      <PageSection title="配置" divided={false}>
-        <form className="flex flex-col gap-5" onSubmit={save}>
-          <FieldGroup>
-            <Field
-              orientation="horizontal"
-              className="gap-3"
-              data-disabled={update.isPending}
-              data-invalid={Boolean(nameError)}
+      <PageTopbar>
+        <PageHeader
+          title={current.name}
+          eyebrow={current.isDefault ? <Badge variant="secondary">默认</Badge> : null}
+          leading={
+            <Link
+              to="/runtime-environments"
+              aria-label="返回运行环境列表"
+              className={buttonVariants({ variant: 'outline', size: 'icon' })}
             >
-              <FieldContent>
-                <FieldLabel htmlFor="runtime-environment-name">名称</FieldLabel>
-                <FieldError id="runtime-environment-name-error">{nameError}</FieldError>
-              </FieldContent>
-              <Input
-                {...register('name')}
-                id="runtime-environment-name"
-                maxLength={64}
-                autoComplete="off"
-                disabled={update.isPending}
-                aria-required="true"
-                aria-invalid={Boolean(nameError)}
-                aria-describedby={nameError ? 'runtime-environment-name-error' : undefined}
-                className="w-64"
-              />
-            </Field>
-            <Field data-disabled={update.isPending}>
-              <FieldLabel htmlFor="runtime-environment-dockerfile">Dockerfile</FieldLabel>
-              <Textarea
-                {...register('dockerfile')}
-                id="runtime-environment-dockerfile"
-                rows={18}
-                spellCheck={false}
-                disabled={update.isPending}
-                className="font-mono text-xs leading-5"
-              />
-            </Field>
-          </FieldGroup>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={!dirty || update.isPending}>
-              {update.isPending ? '保存中…' : '保存更改'}
-            </Button>
-          </div>
-        </form>
-      </PageSection>
-
-      <PageSection
-        title="版本"
-        actions={
-          <FilterSelect
-            value={search.status ?? 'all'}
-            onValueChange={(next) =>
-              updateSearch({
-                status: next === 'all' ? undefined : (next as BuildStatus),
-              })
-            }
-            options={statusOptions}
-            label="按构建状态筛选"
-            className="w-36"
-          />
-        }
-      >
-        {versions.isPending ? <LoadingState rows={3} /> : null}
-        {versions.isError ? (
-          <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
-        ) : null}
-        {versions.data && versions.data.length === 0 ? (
-          <PageNote
-            icon={<Hammer className="size-4" aria-hidden="true" />}
-            title="还没有构建版本"
-            action={<Button onClick={startBuild}>构建新版本</Button>}
-          />
-        ) : null}
-        {versions.data && versions.data.length > 0 && shownVersions.length === 0 ? (
-          <PageNote
-            title="该状态下没有构建版本"
-            action={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => updateSearch({ status: undefined })}
-              >
-                清除筛选
+              <ArrowLeft aria-hidden="true" />
+            </Link>
+          }
+          actions={
+            <>
+              <Button onClick={startBuild} disabled={build.isPending}>
+                <Hammer data-icon="inline-start" />
+                {build.isPending ? '提交中…' : '构建新版本'}
               </Button>
-            }
-          />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      ref={deleteTriggerRef}
+                      variant="ghost"
+                      size="icon"
+                      aria-label="运行环境操作"
+                    >
+                      <Ellipsis />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={current.isDefault}
+                      title={current.isDefault ? '默认运行环境不能删除' : undefined}
+                      onClick={() => setConfirmingDelete(true)}
+                    >
+                      <Trash2 className="size-4" /> 删除
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          }
+        />
+      </PageTopbar>
+
+      <PageBody>
+        {environment.isError ? (
+          <ErrorState error={environment.error} onRetry={() => void environment.refetch()} />
         ) : null}
 
-        {shownVersions.length > 0 ? (
-          <Table aria-label="构建版本列表">
-            <TableHeader>
-              <TableRow>
-                <TableHead>版本</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>镜像</TableHead>
-                <TableHead>开始</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shownVersions.map((version) => {
-                const online = version.id === current.onlineVersionId;
-                return (
-                  <TableRow key={version.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <code className="font-mono text-xs text-muted-foreground">
-                          {shortId(version.id)}
-                        </code>
-                        {online ? <Badge variant="secondary">线上</Badge> : null}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <StatusLabel status={version.status} />
-                    </TableCell>
-                    <TableCell>
-                      {version.imageId ? (
-                        <code
-                          className="font-mono text-xs text-muted-foreground"
-                          title={version.imageId}
-                        >
-                          {shortId(version.imageId)}
-                        </code>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatRelative(version.startedAt ?? version.createdAt)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          aria-label={`查看版本 ${shortId(version.id)} 的构建日志`}
-                          onClick={(event) => {
-                            logTriggerRef.current = event.currentTarget;
-                            updateSearch({ version: version.id });
-                          }}
-                        >
-                          日志
-                        </Button>
-                        {version.status === 'ready' && !online ? (
+        <PageSection title="配置" divided={false}>
+          <form className="flex flex-col gap-5" onSubmit={save}>
+            <FieldGroup>
+              <Field
+                orientation="horizontal"
+                className="gap-3"
+                data-disabled={update.isPending}
+                data-invalid={Boolean(nameError)}
+              >
+                <FieldContent>
+                  <FieldLabel htmlFor="runtime-environment-name">名称</FieldLabel>
+                  <FieldError id="runtime-environment-name-error">{nameError}</FieldError>
+                </FieldContent>
+                <Input
+                  {...register('name')}
+                  id="runtime-environment-name"
+                  maxLength={64}
+                  autoComplete="off"
+                  disabled={update.isPending}
+                  aria-required="true"
+                  aria-invalid={Boolean(nameError)}
+                  aria-describedby={nameError ? 'runtime-environment-name-error' : undefined}
+                  className="w-64"
+                />
+              </Field>
+              <Field data-disabled={update.isPending}>
+                <FieldLabel htmlFor="runtime-environment-dockerfile">Dockerfile</FieldLabel>
+                <Textarea
+                  {...register('dockerfile')}
+                  id="runtime-environment-dockerfile"
+                  rows={18}
+                  spellCheck={false}
+                  disabled={update.isPending}
+                  className="font-mono text-xs leading-5"
+                />
+              </Field>
+            </FieldGroup>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={!dirty || update.isPending}>
+                {update.isPending ? '保存中…' : '保存更改'}
+              </Button>
+            </div>
+          </form>
+        </PageSection>
+
+        <PageSection
+          title="版本"
+          actions={
+            <FilterSelect
+              value={search.status ?? 'all'}
+              onValueChange={(next) =>
+                updateSearch({
+                  status: next === 'all' ? undefined : (next as BuildStatus),
+                })
+              }
+              options={statusOptions}
+              label="按构建状态筛选"
+              className="w-36"
+            />
+          }
+        >
+          {versions.isPending ? <LoadingState rows={3} /> : null}
+          {versions.isError ? (
+            <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
+          ) : null}
+          {versions.data && versions.data.length === 0 ? (
+            <PageNote
+              icon={<Hammer className="size-4" aria-hidden="true" />}
+              title="还没有构建版本"
+              action={
+                <Button variant="outline" size="sm" onClick={startBuild} disabled={build.isPending}>
+                  构建新版本
+                </Button>
+              }
+            />
+          ) : null}
+          {versions.data && versions.data.length > 0 && shownVersions.length === 0 ? (
+            <PageNote
+              title="该状态下没有构建版本"
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => updateSearch({ status: undefined })}
+                >
+                  清除筛选
+                </Button>
+              }
+            />
+          ) : null}
+
+          {shownVersions.length > 0 ? (
+            <Table aria-label="构建版本列表">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>版本</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>镜像</TableHead>
+                  <TableHead>开始</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shownVersions.map((version) => {
+                  const online = version.id === current.onlineVersionId;
+                  return (
+                    <TableRow key={version.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <code className="font-mono text-xs text-muted-foreground">
+                            {shortId(version.id)}
+                          </code>
+                          {online ? <Badge variant="secondary">线上</Badge> : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusLabel status={version.status} />
+                      </TableCell>
+                      <TableCell>
+                        {version.imageId ? (
+                          <code
+                            className="font-mono text-xs text-muted-foreground"
+                            title={version.imageId}
+                          >
+                            {shortId(version.imageId)}
+                          </code>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatRelative(version.startedAt ?? version.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-2">
                           <Button
                             variant="outline"
                             size="sm"
-                            disabled={publish.isPending}
-                            onClick={() => publishVersion(version)}
+                            aria-label={`查看版本 ${shortId(version.id)} 的构建日志`}
+                            onClick={(event) => {
+                              logTriggerRef.current = event.currentTarget;
+                              updateSearch({ version: version.id });
+                            }}
                           >
-                            <RotateCcw data-icon="inline-start" /> 设为线上
+                            日志
                           </Button>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        ) : null}
-      </PageSection>
+                          {version.status === 'ready' && !online ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={publish.isPending}
+                              onClick={() => publishVersion(version)}
+                            >
+                              <RotateCcw data-icon="inline-start" /> 设为线上
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          ) : null}
+        </PageSection>
+      </PageBody>
 
       {search.version ? (
         <Dialog

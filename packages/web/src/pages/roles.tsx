@@ -29,7 +29,14 @@ import {
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { SearchInput } from '../components/search-input.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
@@ -467,124 +474,136 @@ export function RolesPage() {
   if (matrix.isPending || catalog.isPending) {
     return (
       <Page>
-        <PageHeader title="角色" />
-        <LoadingState rows={5} />
+        <PageTopbar>
+          <PageHeader title="角色" />
+        </PageTopbar>
+        <PageBody>
+          <LoadingState rows={5} />
+        </PageBody>
       </Page>
     );
   }
   if ((matrix.isError && !matrix.data) || catalog.isError || loadedRevision.current === null) {
     return (
       <Page>
-        <PageHeader title="角色" />
-        <ErrorState
-          error={matrix.error ?? catalog.error ?? new Error('角色矩阵不可用')}
-          onRetry={() => {
-            void matrix.refetch();
-            void catalog.refetch();
-          }}
-        />
+        <PageTopbar>
+          <PageHeader title="角色" />
+        </PageTopbar>
+        <PageBody>
+          <ErrorState
+            error={matrix.error ?? catalog.error ?? new Error('角色矩阵不可用')}
+            onRetry={() => {
+              void matrix.refetch();
+              void catalog.refetch();
+            }}
+          />
+        </PageBody>
       </Page>
     );
   }
 
   return (
-    <Page className="h-full min-h-0 [div:has(>&)]:h-full [div:has(>div>&)]:h-full">
-      <PageHeader
-        title="角色"
-        className="shrink-0"
-        actions={
-          canManage ? (
-            <>
-              <Button ref={newRoleButton} variant="outline" onClick={addRole} disabled={pending}>
-                <Plus data-icon="inline-start" /> 新建角色
-              </Button>
-              <SaveButton control={control} dirty={dirty} pending={pending} onSubmit={submit} />
-            </>
-          ) : null
-        }
-      />
-      <PageToolbar className="shrink-0">
-        <SearchInput
-          label="搜索权限"
-          placeholder="搜索功能或权限…"
-          value={query}
-          onChange={setQuery}
-          className="w-56 min-w-0"
+    <Page>
+      <PageTopbar>
+        <PageHeader
+          title="角色"
+          className="shrink-0"
+          actions={
+            canManage ? (
+              <>
+                <Button ref={newRoleButton} variant="outline" onClick={addRole} disabled={pending}>
+                  <Plus data-icon="inline-start" /> 新建角色
+                </Button>
+                <SaveButton control={control} dirty={dirty} pending={pending} onSubmit={submit} />
+              </>
+            ) : null
+          }
         />
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={searching}
-            title={searching ? '搜索期间自动展开匹配路径，清空搜索后可恢复折叠' : undefined}
-            onClick={() => table.toggleAllRowsExpanded(true)}
-          >
-            全部展开
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={searching}
-            title={searching ? '搜索期间自动展开匹配路径，清空搜索后可恢复折叠' : undefined}
-            onClick={() => table.toggleAllRowsExpanded(false)}
-          >
-            全部收起
-          </Button>
-        </div>
-        <MatrixFeedback
-          control={control}
-          baseline={baseline}
-          permissions={permissions}
-          recentAction={recentAction}
-        />
-      </PageToolbar>
-      {conflict ? (
-        <PageNote
-          tone="danger"
-          title="保存冲突"
-          description={conflict}
-          action={
+        <PageToolbar className="shrink-0">
+          <SearchInput
+            label="搜索权限"
+            placeholder="搜索功能或权限…"
+            value={query}
+            onChange={setQuery}
+            className="w-56 min-w-0"
+          />
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              disabled={pending}
-              onClick={() => setReloadOpen(true)}
+              disabled={searching}
+              title={searching ? '搜索期间自动展开匹配路径，清空搜索后可恢复折叠' : undefined}
+              onClick={() => table.toggleAllRowsExpanded(true)}
             >
-              <RotateCcw data-icon="inline-start" /> 重新加载
+              全部展开
             </Button>
-          }
-        />
-      ) : null}
-      {error ? <FieldError>{error}</FieldError> : null}
-      {!canManage ? (
-        <p className="text-sm text-muted-foreground">
-          当前角色只有查看权限；修改角色矩阵需要 roles.manage。
-        </p>
-      ) : null}
-      {searching && visibleTree.length === 0 ? (
-        <PageNote
-          title="没有匹配的权限"
-          action={
-            <Button variant="outline" size="sm" onClick={() => setQuery('')}>
-              清除搜索
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={searching}
+              title={searching ? '搜索期间自动展开匹配路径，清空搜索后可恢复折叠' : undefined}
+              onClick={() => table.toggleAllRowsExpanded(false)}
+            >
+              全部收起
             </Button>
-          }
-        />
-      ) : (
-        <PermissionMatrix
-          rows={table.getRowModel().rows}
-          fields={fields}
-          control={control}
-          baseline={baseline}
-          tree={tree}
-          canManage={canManage}
-          pending={pending}
-          searching={searching}
-          onOpenSettings={openSettings}
-          onToggleLeaf={toggleLeaf}
-          onToggleGroup={toggleGroup}
-        />
-      )}
+          </div>
+          <MatrixFeedback
+            control={control}
+            baseline={baseline}
+            permissions={permissions}
+            recentAction={recentAction}
+          />
+        </PageToolbar>
+      </PageTopbar>
+      <PageBody className="overflow-hidden">
+        {conflict ? (
+          <PageNote
+            tone="danger"
+            title="保存冲突"
+            description={conflict}
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setReloadOpen(true)}
+              >
+                <RotateCcw data-icon="inline-start" /> 重新加载
+              </Button>
+            }
+          />
+        ) : null}
+        {error ? <FieldError>{error}</FieldError> : null}
+        {!canManage ? (
+          <p className="text-sm text-muted-foreground">
+            当前角色只有查看权限；修改角色矩阵需要 roles.manage。
+          </p>
+        ) : null}
+        {searching && visibleTree.length === 0 ? (
+          <PageNote
+            title="没有匹配的权限"
+            action={
+              <Button variant="outline" size="sm" onClick={() => setQuery('')}>
+                清除搜索
+              </Button>
+            }
+          />
+        ) : (
+          <PermissionMatrix
+            rows={table.getRowModel().rows}
+            fields={fields}
+            control={control}
+            baseline={baseline}
+            tree={tree}
+            canManage={canManage}
+            pending={pending}
+            searching={searching}
+            onOpenSettings={openSettings}
+            onToggleLeaf={toggleLeaf}
+            onToggleGroup={toggleGroup}
+          />
+        )}
+      </PageBody>
       <Dialog
         open={settingsRole !== undefined && deleteTarget === null}
         onOpenChange={(next, details) => {

@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageHeader, PageToolbar } from '../components/page.js';
+import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
@@ -67,163 +67,170 @@ export function RuntimeEnvironmentsPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="运行环境"
-        actions={
-          canCreate && !(environments.data && environments.data.length === 0) ? (
-            <Button ref={createTriggerRef} onClick={openCreate}>
-              <Plus data-icon="inline-start" /> 新建环境
-            </Button>
-          ) : null
-        }
-      />
-      <PageToolbar>
-        <SearchInput
-          className="w-56"
-          label="搜索运行环境"
-          placeholder="搜索运行环境"
-          value={query}
-          onChange={(next) => {
-            void navigate({
-              to: '/runtime-environments',
-              search: (current) => ({ ...current, q: next || undefined }),
-              replace: true,
-            });
-          }}
-        />
-        <div className="ml-auto">
-          <ViewToggle value={view} onChange={setView} />
-        </div>
-      </PageToolbar>
-
-      {environments.isPending ? <LoadingState rows={4} /> : null}
-      {environments.isError ? (
-        <ErrorState error={environments.error} onRetry={() => void environments.refetch()} />
-      ) : null}
-
-      {environments.data && environments.data.length === 0 ? (
-        <EmptyState
-          icon={<Box className="size-5" />}
-          title="新建第一个运行环境"
-          action={
-            canCreate ? (
-              <Button ref={createTriggerRef} size="sm" onClick={openCreate}>
-                新建环境
+      <PageTopbar>
+        <PageHeader
+          title="运行环境"
+          actions={
+            canCreate && !(environments.data && environments.data.length === 0) ? (
+              <Button ref={createTriggerRef} onClick={openCreate}>
+                <Plus data-icon="inline-start" /> 新建环境
               </Button>
-            ) : undefined
+            ) : null
           }
         />
-      ) : null}
+        <PageToolbar>
+          <SearchInput
+            className="w-56"
+            label="搜索运行环境"
+            placeholder="搜索运行环境"
+            value={query}
+            onChange={(next) => {
+              void navigate({
+                to: '/runtime-environments',
+                search: (current) => ({ ...current, q: next || undefined }),
+                replace: true,
+              });
+            }}
+          />
+          <div className="ml-auto">
+            <ViewToggle value={view} onChange={setView} />
+          </div>
+        </PageToolbar>
+      </PageTopbar>
 
-      {environments.data && environments.data.length > 0 && shown.length === 0 ? (
-        <EmptyState
-          title="没有匹配的运行环境"
-          action={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void navigate({
-                  to: '/runtime-environments',
-                  search: (current) => ({ ...current, q: undefined }),
-                  replace: true,
-                });
-              }}
-            >
-              清除筛选
-            </Button>
-          }
-        />
-      ) : null}
+      <PageBody>
+        {environments.isPending ? <LoadingState rows={4} /> : null}
+        {environments.isError ? (
+          <ErrorState error={environments.error} onRetry={() => void environments.refetch()} />
+        ) : null}
 
-      {shown.length > 0 && view === 'table' ? (
-        <Table aria-label="运行环境列表">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[50%]">名称</TableHead>
-              <TableHead className="w-[25%]">线上版本</TableHead>
-              <TableHead className="w-[25%] text-right">更新时间</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {shown.map((environment) => (
-              <TableRow key={environment.id}>
-                <TableCell className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <Link
-                      to="/runtime-environments/$environmentId"
-                      params={{ environmentId: environment.id }}
-                      className="min-w-0 truncate font-medium text-fg hover:underline"
-                    >
-                      {environment.name}
-                    </Link>
-                    {environment.isDefault &&
-                    environment.name !== DEFAULT_RUNTIME_ENVIRONMENT_NAME ? (
-                      <Badge variant="secondary">默认</Badge>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {environment.onlineVersionId ? (
-                    <code className="font-mono text-xs text-muted-foreground">
-                      {shortId(environment.onlineVersionId)}
-                    </code>
-                  ) : (
-                    <span className="text-muted-foreground">未发布</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-right text-muted-foreground">
-                  {formatRelative(environment.updatedAt)}
-                </TableCell>
+        {environments.data && environments.data.length === 0 ? (
+          <EmptyState
+            icon={<Box className="size-5" />}
+            title="新建第一个运行环境"
+            action={
+              canCreate ? (
+                <Button ref={createTriggerRef} size="sm" onClick={openCreate}>
+                  新建环境
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : null}
+
+        {environments.data && environments.data.length > 0 && shown.length === 0 ? (
+          <EmptyState
+            title="没有匹配的运行环境"
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigate({
+                    to: '/runtime-environments',
+                    search: (current) => ({ ...current, q: undefined }),
+                    replace: true,
+                  });
+                }}
+              >
+                清除筛选
+              </Button>
+            }
+          />
+        ) : null}
+
+        {shown.length > 0 && view === 'table' ? (
+          <Table aria-label="运行环境列表">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[50%]">名称</TableHead>
+                <TableHead className="w-[25%]">线上版本</TableHead>
+                <TableHead className="w-[25%] text-right">更新时间</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      ) : null}
-
-      {shown.length > 0 && view === 'cards' ? (
-        <ul aria-label="运行环境列表" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {shown.map((environment) => (
-            <li key={environment.id} className="min-w-0">
-              <Card className="h-full">
-                <CardHeader>
-                  <CardTitle className="flex min-w-0 items-center gap-2">
-                    <Link
-                      to="/runtime-environments/$environmentId"
-                      params={{ environmentId: environment.id }}
-                      className="min-w-0 truncate font-medium text-fg hover:underline"
-                    >
-                      {environment.name}
-                    </Link>
-                    {environment.isDefault &&
-                    environment.name !== DEFAULT_RUNTIME_ENVIRONMENT_NAME ? (
-                      <Badge variant="secondary">默认</Badge>
-                    ) : null}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="shrink-0 text-xs text-muted-foreground">线上版本</span>
+            </TableHeader>
+            <TableBody>
+              {shown.map((environment) => (
+                <TableRow key={environment.id}>
+                  <TableCell className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Link
+                        to="/runtime-environments/$environmentId"
+                        params={{ environmentId: environment.id }}
+                        className="min-w-0 truncate font-medium text-fg hover:underline"
+                      >
+                        {environment.name}
+                      </Link>
+                      {environment.isDefault &&
+                      environment.name !== DEFAULT_RUNTIME_ENVIRONMENT_NAME ? (
+                        <Badge variant="secondary">默认</Badge>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell>
                     {environment.onlineVersionId ? (
-                      <code className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                      <code className="font-mono text-xs text-muted-foreground">
                         {shortId(environment.onlineVersionId)}
                       </code>
                     ) : (
-                      <span className="text-sm text-muted-foreground">未发布</span>
+                      <span className="text-muted-foreground">未发布</span>
                     )}
-                  </div>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="shrink-0 text-xs text-muted-foreground">更新时间</span>
-                    <span className="text-sm text-muted-foreground">
-                      {formatRelative(environment.updatedAt)}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {formatRelative(environment.updatedAt)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : null}
+
+        {shown.length > 0 && view === 'cards' ? (
+          <ul
+            aria-label="运行环境列表"
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+          >
+            {shown.map((environment) => (
+              <li key={environment.id} className="min-w-0">
+                <Card className="h-full">
+                  <CardHeader>
+                    <CardTitle className="flex min-w-0 items-center gap-2">
+                      <Link
+                        to="/runtime-environments/$environmentId"
+                        params={{ environmentId: environment.id }}
+                        className="min-w-0 truncate font-medium text-fg hover:underline"
+                      >
+                        {environment.name}
+                      </Link>
+                      {environment.isDefault &&
+                      environment.name !== DEFAULT_RUNTIME_ENVIRONMENT_NAME ? (
+                        <Badge variant="secondary">默认</Badge>
+                      ) : null}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-2">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="shrink-0 text-xs text-muted-foreground">线上版本</span>
+                      {environment.onlineVersionId ? (
+                        <code className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                          {shortId(environment.onlineVersionId)}
+                        </code>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">未发布</span>
+                      )}
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="shrink-0 text-xs text-muted-foreground">更新时间</span>
+                      <span className="text-sm text-muted-foreground">
+                        {formatRelative(environment.updatedAt)}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </PageBody>
 
       {creating ? (
         <CreateEnvironmentDialog

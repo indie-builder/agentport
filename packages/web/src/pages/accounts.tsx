@@ -16,7 +16,14 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { ErrorState, LoadingState } from '../components/states.js';
@@ -130,197 +137,208 @@ export function AccountsPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="账户"
-        actions={
-          canManage && !(accounts.data && items.length === 0 && !settled) ? (
-            <Button onClick={() => setCreating(true)}>
-              <Plus data-icon="inline-start" /> 新建账户
-            </Button>
-          ) : null
-        }
-      />
-      <PageToolbar>
-        <SearchInput
-          label="搜索账户"
-          placeholder="搜索业务 ID、用户名或姓名…"
-          value={query}
-          onChange={(next) => {
-            setOffset(0);
-            void navigate({
-              to: '/accounts',
-              search: { ...search, q: next || undefined },
-              replace: true,
-            });
-          }}
-          className="w-56 min-w-0"
-        />
-        <span role="status" className="ml-auto text-xs text-muted-foreground">
-          {accounts.isPending ? '加载中…' : accounts.isError ? '数量不可用' : `共 ${total} 个账户`}
-        </span>
-        <ViewToggle value={view} onChange={setView} />
-      </PageToolbar>
-
-      {accounts.isPending ? <LoadingState rows={4} /> : null}
-      {accounts.isError ? (
-        <ErrorState error={accounts.error} onRetry={() => void accounts.refetch()} />
-      ) : null}
-      {accounts.data && items.length === 0 ? (
-        <PageNote
-          icon={settled ? <SearchX /> : <UsersRound />}
-          title={settled ? '没有匹配的账户' : '还没有账户'}
-          description={settled ? undefined : '创建后即可分配角色；删除认证资料不会移除业务授权。'}
-          action={
-            settled ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setOffset(0);
-                  void navigate({
-                    to: '/accounts',
-                    search: { ...search, q: undefined },
-                    replace: true,
-                  });
-                }}
-              >
-                清除筛选
+      <PageTopbar>
+        <PageHeader
+          title="账户"
+          actions={
+            canManage && !(accounts.data && items.length === 0 && !settled) ? (
+              <Button onClick={() => setCreating(true)}>
+                <Plus data-icon="inline-start" /> 新建账户
               </Button>
-            ) : canManage ? (
-              <Button onClick={() => setCreating(true)}>新建账户</Button>
-            ) : undefined
+            ) : null
           }
         />
-      ) : null}
+        <PageToolbar>
+          <SearchInput
+            label="搜索账户"
+            placeholder="搜索业务 ID、用户名或姓名…"
+            value={query}
+            onChange={(next) => {
+              setOffset(0);
+              void navigate({
+                to: '/accounts',
+                search: { ...search, q: next || undefined },
+                replace: true,
+              });
+            }}
+            className="w-56 min-w-0"
+          />
+          <span role="status" className="ml-auto text-xs text-muted-foreground">
+            {accounts.isPending
+              ? '加载中…'
+              : accounts.isError
+                ? '数量不可用'
+                : `共 ${total} 个账户`}
+          </span>
+          <ViewToggle value={view} onChange={setView} />
+        </PageToolbar>
+      </PageTopbar>
 
-      {items.length > 0 && view === 'table' ? (
-        <Table aria-label="账户列表">
-          <TableHeader>
-            <TableRow>
-              <TableHead>业务 ID</TableHead>
-              <TableHead>姓名</TableHead>
-              <TableHead>用户名</TableHead>
-              <TableHead>角色</TableHead>
-              <TableHead>状态</TableHead>
-              <TableHead>创建时间</TableHead>
-              <TableHead className="text-right">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((account) => (
-              <TableRow key={account.businessId}>
-                <TableCell className="font-mono text-xs">{account.businessId}</TableCell>
-                <TableCell>{account.name}</TableCell>
-                <TableCell>{account.username}</TableCell>
-                <TableCell className="max-w-56 whitespace-normal">
-                  {account.roles.map((role) => role.name).join('、') || '—'}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
-                </TableCell>
-                <TableCell className="font-mono tabular-nums text-muted-foreground">
-                  {formatDate(account.createdAt)}
-                </TableCell>
-                <TableCell>
-                  <AccountRowActions
-                    account={account}
-                    canManage={canManage}
-                    canManageRoles={canManageRoles}
-                    className="justify-end"
-                    onEdit={setEditing}
-                    onResetPassword={setResetting}
-                    onAssignRoles={setAssigningRoles}
-                    onToggleStatus={toggleStatus}
-                    onDelete={setDeleting}
-                  />
-                </TableCell>
+      <PageBody>
+        {accounts.isPending ? <LoadingState rows={4} /> : null}
+        {accounts.isError ? (
+          <ErrorState error={accounts.error} onRetry={() => void accounts.refetch()} />
+        ) : null}
+        {accounts.data && items.length === 0 ? (
+          <PageNote
+            icon={settled ? <SearchX /> : <UsersRound />}
+            title={settled ? '没有匹配的账户' : '还没有账户'}
+            description={settled ? undefined : '创建后即可分配角色；删除认证资料不会移除业务授权。'}
+            action={
+              settled ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setOffset(0);
+                    void navigate({
+                      to: '/accounts',
+                      search: { ...search, q: undefined },
+                      replace: true,
+                    });
+                  }}
+                >
+                  清除筛选
+                </Button>
+              ) : canManage ? (
+                <Button onClick={() => setCreating(true)}>新建账户</Button>
+              ) : undefined
+            }
+          />
+        ) : null}
+
+        {items.length > 0 && view === 'table' ? (
+          <Table aria-label="账户列表">
+            <TableHeader>
+              <TableRow>
+                <TableHead>业务 ID</TableHead>
+                <TableHead>姓名</TableHead>
+                <TableHead>用户名</TableHead>
+                <TableHead>角色</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>创建时间</TableHead>
+                <TableHead className="text-right">操作</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      ) : null}
-
-      {items.length > 0 && view === 'cards' ? (
-        <ul aria-label="账户列表" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {items.map((account) => (
-            <li key={account.businessId} className="min-w-0">
-              <Card className="h-full">
-                <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
-                  <CardTitle className="flex min-w-0 items-center gap-2">
-                    <span className="truncate">{account.name}</span>
+            </TableHeader>
+            <TableBody>
+              {items.map((account) => (
+                <TableRow key={account.businessId}>
+                  <TableCell className="font-mono text-xs">{account.businessId}</TableCell>
+                  <TableCell>{account.name}</TableCell>
+                  <TableCell>{account.username}</TableCell>
+                  <TableCell className="max-w-56 whitespace-normal">
+                    {account.roles.map((role) => role.name).join('、') || '—'}
+                  </TableCell>
+                  <TableCell>
                     <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
-                  </CardTitle>
-                  <CardAction className="col-start-2 row-start-1">
+                  </TableCell>
+                  <TableCell className="font-mono tabular-nums text-muted-foreground">
+                    {formatDate(account.createdAt)}
+                  </TableCell>
+                  <TableCell>
                     <AccountRowActions
                       account={account}
                       canManage={canManage}
                       canManageRoles={canManageRoles}
+                      className="justify-end"
                       onEdit={setEditing}
                       onResetPassword={setResetting}
                       onAssignRoles={setAssigningRoles}
                       onToggleStatus={toggleStatus}
                       onDelete={setDeleting}
                     />
-                  </CardAction>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="shrink-0 text-xs text-muted-foreground">业务 ID</span>
-                    <span
-                      className="min-w-0 truncate font-mono text-xs text-muted-foreground"
-                      title={account.businessId}
-                    >
-                      {account.businessId}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="shrink-0 text-xs text-muted-foreground">用户名</span>
-                    <span className="min-w-0 break-words text-right text-sm text-fg">
-                      {account.username}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-xs text-muted-foreground">角色</span>
-                    <span className="whitespace-normal text-sm text-fg">
-                      {account.roles.map((role) => role.name).join('、') || '—'}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="shrink-0 text-xs text-muted-foreground">创建时间</span>
-                    <span className="text-sm text-muted-foreground">
-                      {formatDate(account.createdAt)}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : null}
 
-      {pages > 1 ? (
-        <div className="flex items-center justify-end gap-2 text-sm">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={offset === 0 || accounts.isFetching}
-            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+        {items.length > 0 && view === 'cards' ? (
+          <ul
+            aria-label="账户列表"
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
           >
-            上一页
-          </Button>
-          <span className="text-muted-foreground">
-            {page} / {pages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={offset + PAGE_SIZE >= total || accounts.isFetching}
-            onClick={() => setOffset(offset + PAGE_SIZE)}
-          >
-            下一页
-          </Button>
-        </div>
-      ) : null}
+            {items.map((account) => (
+              <li key={account.businessId} className="min-w-0">
+                <Card className="h-full">
+                  <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
+                    <CardTitle className="flex min-w-0 items-center gap-2">
+                      <span className="truncate">{account.name}</span>
+                      <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
+                    </CardTitle>
+                    <CardAction className="col-start-2 row-start-1">
+                      <AccountRowActions
+                        account={account}
+                        canManage={canManage}
+                        canManageRoles={canManageRoles}
+                        onEdit={setEditing}
+                        onResetPassword={setResetting}
+                        onAssignRoles={setAssigningRoles}
+                        onToggleStatus={toggleStatus}
+                        onDelete={setDeleting}
+                      />
+                    </CardAction>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-2">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="shrink-0 text-xs text-muted-foreground">业务 ID</span>
+                      <span
+                        className="min-w-0 truncate font-mono text-xs text-muted-foreground"
+                        title={account.businessId}
+                      >
+                        {account.businessId}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="shrink-0 text-xs text-muted-foreground">用户名</span>
+                      <span className="min-w-0 break-words text-right text-sm text-fg">
+                        {account.username}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs text-muted-foreground">角色</span>
+                      <span className="whitespace-normal text-sm text-fg">
+                        {account.roles.map((role) => role.name).join('、') || '—'}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="shrink-0 text-xs text-muted-foreground">创建时间</span>
+                      <span className="text-sm text-muted-foreground">
+                        {formatDate(account.createdAt)}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {pages > 1 ? (
+          <div className="flex items-center justify-end gap-2 text-sm">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={offset === 0 || accounts.isFetching}
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            >
+              上一页
+            </Button>
+            <span className="text-muted-foreground">
+              {page} / {pages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={offset + PAGE_SIZE >= total || accounts.isFetching}
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+            >
+              下一页
+            </Button>
+          </div>
+        ) : null}
+      </PageBody>
 
       {creating ? (
         <CreateAccountDialog
@@ -733,7 +751,9 @@ function CreateAccountDialog({
                   onToggle={(id) =>
                     setValue(
                       'roleIds',
-                      roleIds.includes(id) ? roleIds.filter((item) => item !== id) : [...roleIds, id],
+                      roleIds.includes(id)
+                        ? roleIds.filter((item) => item !== id)
+                        : [...roleIds, id],
                       { shouldDirty: true },
                     )
                   }

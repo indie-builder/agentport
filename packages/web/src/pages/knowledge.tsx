@@ -453,7 +453,7 @@ export function KnowledgePage() {
             canCreate ? (
               <Button
                 ref={createButtonRef}
-                variant="outline"
+                variant="default"
                 size="sm"
                 onClick={() => setCreating(true)}
               >

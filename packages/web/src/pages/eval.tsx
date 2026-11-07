@@ -11,7 +11,15 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
-import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageSection,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
@@ -92,7 +100,7 @@ const runColumns: DataColumn<EvalRun>[] = [
     cell: (run) => (
       <StatusBadge tone={evalStatusVariant[run.status]}>
         {run.status === 'running' ? (
-          <span className="size-1.5 rounded-full bg-button-primary" aria-hidden="true" />
+          <span className="size-1.5 rounded-full bg-fg" aria-hidden="true" />
         ) : null}
         {evalStatusLabel[run.status]}
       </StatusBadge>
@@ -149,9 +157,7 @@ const runColumns: DataColumn<EvalRun>[] = [
   },
 ];
 
-export function buildEvalPassRatePoints(
-  runs: EvalRun[],
-): { label: string; ratePct: number }[] {
+export function buildEvalPassRatePoints(runs: EvalRun[]): { label: string; ratePct: number }[] {
   return [...runs]
     .filter((run) => run.status !== 'running' && run.total > 0)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -177,13 +183,7 @@ export function EvalPassRateChart({ runs }: { runs: EvalRun[] }) {
           margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
         >
           <CartesianGrid vertical={false} />
-          <XAxis
-            dataKey="label"
-            tickLine={false}
-            axisLine={false}
-            tickMargin={8}
-            minTickGap={24}
-          />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
           <YAxis
             domain={[0, 100]}
             allowDecimals={false}
@@ -410,299 +410,305 @@ export function EvalPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="评估"
-        actions={
-          <>
-            {runningRun && canExecuteEval ? (
-              <Button
-                variant="outline"
-                onClick={stopRun}
-                disabled={cancel.isPending}
-                aria-busy={cancel.isPending}
-              >
-                <CircleStop data-icon="inline-start" aria-hidden="true" />
-                {cancel.isPending ? '停止中…' : '停止后续用例'}
-              </Button>
-            ) : null}
-            {canExecuteEval ? (
-              <Button
-                onClick={startRun}
-                disabled={startDisabledReason !== null}
-                aria-busy={start.isPending}
-                aria-describedby={startDisabledReason ? 'eval-start-reason' : undefined}
-              >
-                <Play data-icon="inline-start" aria-hidden="true" />
-                {start.isPending ? '启动中…' : '运行评估'}
-              </Button>
-            ) : null}
-          </>
-        }
-      />
-
-      <PageToolbar>
-        <FilterSelect
-          value={effectiveAgentId ?? ''}
-          onValueChange={setAgentId}
-          options={agentOptions}
-          label="按专家筛选"
-          className="w-full sm:w-36"
-        />
-        {startDisabledReason ? (
-          <span id="eval-start-reason" className="text-sm text-muted-foreground">
-            {startDisabledReason}
-          </span>
-        ) : null}
-        {runningRun ? (
-          <span className="text-sm text-muted-foreground">
-            当前用例可能继续执行；停止后不再开始后续用例。
-          </span>
-        ) : null}
-      </PageToolbar>
-
-      {access.isError ? (
-        <ErrorState
-          error={access.error}
-          title={access.data === undefined ? '评估权限没有加载出来' : '权限刷新失败，保留上次结果'}
-          onRetry={() => void access.refetch()}
-        />
-      ) : null}
-
-      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-        <PageSection
-          title="用例维护"
-          divided={false}
-          className="[&>div:first-child]:items-center"
+      <PageTopbar>
+        <PageHeader
+          title="评估"
           actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  // 先清空 value，同一个文件重试时才会再次触发 change。
-                  event.target.value = '';
-                  if (!file || !effectiveAgentId || !selectedAgent) return;
-                  // 目标专家在选文件时确定：解析期间切换筛选不会把用例导到别人名下。
-                  const targetId = effectiveAgentId;
-                  const targetName = selectedAgent.name;
-                  void importJson(targetId, targetName, file);
-                }}
-              />
-              {canManageEval ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!effectiveAgentId || importDataset.isPending}
-                  aria-busy={importDataset.isPending}
-                  onClick={() => importInputRef.current?.click()}
-                >
-                  <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-                  {importDataset.isPending ? '导入中…' : '导入 JSON'}
-                </Button>
-              ) : null}
-              {canReadEval ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!effectiveAgentId || exporting}
-                  aria-busy={exporting}
-                  onClick={() => void exportJson()}
-                >
-                  <Download data-icon="inline-start" aria-hidden="true" />{' '}
-                  {exporting ? '导出中…' : '导出 JSON'}
-                </Button>
-              ) : null}
-              {casesEmpty ? null : createCaseButton}
-            </div>
-          }
-        >
-          {agents.isPending ? <LoadingState rows={3} /> : null}
-          {agents.isError ? (
-            <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-          ) : null}
-          {missingAgent ? (
-            <PageNote
-              title="所选专家不存在"
-              description="链接中的专家可能已删除，请清除筛选或重新选择专家。"
-              action={
-                <Button variant="outline" size="sm" onClick={() => setAgentId('')}>
-                  清除专家筛选
-                </Button>
-              }
-            />
-          ) : null}
-          {agents.isSuccess && !missingAgent && !effectiveAgentId ? (
-            <PageNote
-              icon={<BusinessIllustration name="agents" size="compact" />}
-              title="专家列表为空"
-              action={
-                <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
-                  前往创建专家
-                </Link>
-              }
-            />
-          ) : null}
-          {cases.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
-          {effectiveAgentId && cases.isError ? (
-            <ErrorState error={cases.error} onRetry={() => void cases.refetch()} />
-          ) : null}
-          {effectiveAgentId && casesEmpty ? (
-            <PageNote
-              icon={<BusinessIllustration name="review" size="compact" />}
-              title="用例为空"
-              action={createCaseButton}
-            />
-          ) : null}
-          {effectiveAgentId && cases.data && cases.data.length > 0 ? (
-            <ul>
-              {cases.data.map((testCase) => (
-                <li
-                  key={testCase.id}
-                  className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">
-                      {testCase.name}
-                    </div>
-                    <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
-                      {testCase.prompt}
-                    </p>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {testCase.expectation
-                        ? `期望包含：${testCase.expectation}`
-                        : '期望为空：只要求有文本输出'}
-                    </p>
-                  </div>
-                  {canManageEval ? (
-                    <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={(event) => {
-                          dialogTriggerRef.current = event.currentTarget;
-                          setEditing(testCase);
-                        }}
-                      >
-                        <span className="sr-only">编辑 {testCase.name}</span>
-                        <Pencil aria-hidden="true" />
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="icon-sm"
-                        onClick={(event) => {
-                          dialogTriggerRef.current = event.currentTarget;
-                          setDeleting(testCase);
-                        }}
-                      >
-                        <span className="sr-only">删除 {testCase.name}</span>
-                        <Trash2 aria-hidden="true" />
-                      </Button>
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </PageSection>
-
-        <PageSection
-          title="运行历史"
-          className="xl:border-t-0 xl:pt-0 [&>div:first-child]:items-center"
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              {terminalRuns.length < 2 ? (
-                <span className="text-xs text-muted-foreground">至少需要两次已结束的运行</span>
-              ) : null}
-              <Button
-                variant="outline"
-                size="sm"
-                ref={compareButtonRef}
-                disabled={terminalRuns.length < 2}
-                title={terminalRuns.length < 2 ? '至少需要两次已结束的运行' : undefined}
-                onClick={openCompare}
-              >
-                <GitCompare data-icon="inline-start" aria-hidden="true" /> 比较运行
-              </Button>
-            </div>
-          }
-        >
-          {agents.isPending ? <LoadingState rows={3} /> : null}
-          {!effectiveAgentId && !agents.isPending ? (
-            <p className="text-sm text-muted-foreground">
-              {agents.isError
-                ? '专家加载失败，请重试后查看运行历史。'
-                : '选择有效的专家后查看运行历史。'}
-            </p>
-          ) : null}
-          {effectiveAgentId && runs.isError && !runs.isFetchNextPageError ? (
-            <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
-          ) : null}
-          {runs.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
-          {effectiveAgentId && runs.isSuccess && runItems.length === 0 ? (
-            <PageNote
-              icon={<BusinessIllustration name="runs" size="compact" />}
-              title="评估尚未运行"
-              description={
-                cases.isSuccess && !casesEmpty && canExecuteEval
-                  ? '点「运行评估」开始。'
-                  : undefined
-              }
-            />
-          ) : null}
-          {effectiveAgentId && runItems.length > 0 ? (
             <>
-              <EvalPassRateChart runs={runItems} />
-              <DataTable
-                rows={runItems}
-                columns={runColumns}
-                rowKey={(run) => run.id}
-                rowLabel={(run) => `${formatDateTime(run.createdAt)} · ${shortId(run.id)}`}
-                label="评估运行"
-                storageKey="agentport.eval-runs.columns"
-                onRowClick={(run) => selectRun(run.id)}
-              />
-              {runs.isFetchNextPageError ? (
-                <ErrorState
-                  error={runs.error}
-                  onRetry={() => void runs.fetchNextPage()}
-                  title="下一页加载失败，保留已加载的运行记录"
+              {runningRun && canExecuteEval ? (
+                <Button
+                  variant="outline"
+                  onClick={stopRun}
+                  disabled={cancel.isPending}
+                  aria-busy={cancel.isPending}
+                >
+                  <CircleStop data-icon="inline-start" aria-hidden="true" />
+                  {cancel.isPending ? '停止中…' : '停止后续用例'}
+                </Button>
+              ) : null}
+              {canExecuteEval ? (
+                <Button
+                  onClick={startRun}
+                  disabled={startDisabledReason !== null}
+                  aria-busy={start.isPending}
+                  aria-describedby={startDisabledReason ? 'eval-start-reason' : undefined}
+                >
+                  <Play data-icon="inline-start" aria-hidden="true" />
+                  {start.isPending ? '启动中…' : '运行评估'}
+                </Button>
+              ) : null}
+            </>
+          }
+        />
+
+        <PageToolbar>
+          <FilterSelect
+            value={effectiveAgentId ?? ''}
+            onValueChange={setAgentId}
+            options={agentOptions}
+            label="按专家筛选"
+            className="w-full sm:w-36"
+          />
+          {startDisabledReason ? (
+            <span id="eval-start-reason" className="text-sm text-muted-foreground">
+              {startDisabledReason}
+            </span>
+          ) : null}
+          {runningRun ? (
+            <span className="text-sm text-muted-foreground">
+              当前用例可能继续执行；停止后不再开始后续用例。
+            </span>
+          ) : null}
+        </PageToolbar>
+      </PageTopbar>
+
+      <PageBody>
+        {access.isError ? (
+          <ErrorState
+            error={access.error}
+            title={
+              access.data === undefined ? '评估权限没有加载出来' : '权限刷新失败，保留上次结果'
+            }
+            onRetry={() => void access.refetch()}
+          />
+        ) : null}
+
+        <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          <PageSection
+            title="用例维护"
+            divided={false}
+            className="[&>div:first-child]:items-center"
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    // 先清空 value，同一个文件重试时才会再次触发 change。
+                    event.target.value = '';
+                    if (!file || !effectiveAgentId || !selectedAgent) return;
+                    // 目标专家在选文件时确定：解析期间切换筛选不会把用例导到别人名下。
+                    const targetId = effectiveAgentId;
+                    const targetName = selectedAgent.name;
+                    void importJson(targetId, targetName, file);
+                  }}
                 />
-              ) : runs.hasNextPage ? (
-                <div className="flex justify-center">
+                {canManageEval ? (
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={runs.isFetchingNextPage}
-                    aria-busy={runs.isFetchingNextPage}
-                    onClick={() => void runs.fetchNextPage()}
+                    disabled={!effectiveAgentId || importDataset.isPending}
+                    aria-busy={importDataset.isPending}
+                    onClick={() => importInputRef.current?.click()}
                   >
-                    {runs.isFetchingNextPage ? '加载中…' : '加载更多'}
+                    <Upload data-icon="inline-start" aria-hidden="true" />{' '}
+                    {importDataset.isPending ? '导入中…' : '导入 JSON'}
                   </Button>
-                </div>
-              ) : (
-                <div className="text-center text-xs text-muted-foreground">已到末尾</div>
-              )}
-            </>
-          ) : null}
-        </PageSection>
-      </div>
+                ) : null}
+                {canReadEval ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!effectiveAgentId || exporting}
+                    aria-busy={exporting}
+                    onClick={() => void exportJson()}
+                  >
+                    <Download data-icon="inline-start" aria-hidden="true" />{' '}
+                    {exporting ? '导出中…' : '导出 JSON'}
+                  </Button>
+                ) : null}
+                {casesEmpty ? null : createCaseButton}
+              </div>
+            }
+          >
+            {agents.isPending ? <LoadingState rows={3} /> : null}
+            {agents.isError ? (
+              <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+            ) : null}
+            {missingAgent ? (
+              <PageNote
+                title="所选专家不存在"
+                description="链接中的专家可能已删除，请清除筛选或重新选择专家。"
+                action={
+                  <Button variant="outline" size="sm" onClick={() => setAgentId('')}>
+                    清除专家筛选
+                  </Button>
+                }
+              />
+            ) : null}
+            {agents.isSuccess && !missingAgent && !effectiveAgentId ? (
+              <PageNote
+                icon={<BusinessIllustration name="agents" size="compact" />}
+                title="专家列表为空"
+                action={
+                  <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
+                    前往创建专家
+                  </Link>
+                }
+              />
+            ) : null}
+            {cases.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
+            {effectiveAgentId && cases.isError ? (
+              <ErrorState error={cases.error} onRetry={() => void cases.refetch()} />
+            ) : null}
+            {effectiveAgentId && casesEmpty ? (
+              <PageNote
+                icon={<BusinessIllustration name="review" size="compact" />}
+                title="用例为空"
+                action={createCaseButton}
+              />
+            ) : null}
+            {effectiveAgentId && cases.data && cases.data.length > 0 ? (
+              <ul>
+                {cases.data.map((testCase) => (
+                  <li
+                    key={testCase.id}
+                    className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">
+                        {testCase.name}
+                      </div>
+                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                        {testCase.prompt}
+                      </p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {testCase.expectation
+                          ? `期望包含：${testCase.expectation}`
+                          : '期望为空：只要求有文本输出'}
+                      </p>
+                    </div>
+                    {canManageEval ? (
+                      <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={(event) => {
+                            dialogTriggerRef.current = event.currentTarget;
+                            setEditing(testCase);
+                          }}
+                        >
+                          <span className="sr-only">编辑 {testCase.name}</span>
+                          <Pencil aria-hidden="true" />
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="icon-sm"
+                          onClick={(event) => {
+                            dialogTriggerRef.current = event.currentTarget;
+                            setDeleting(testCase);
+                          }}
+                        >
+                          <span className="sr-only">删除 {testCase.name}</span>
+                          <Trash2 aria-hidden="true" />
+                        </Button>
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </PageSection>
 
-      {selectedRunId ? (
-        <PageSection
-          title="运行结果"
-          description={`评估 ${shortId(selectedRunId)}`}
-          actions={
-            <Button variant="outline" size="sm" onClick={closeRun}>
-              返回历史
-            </Button>
-          }
-        >
-          <EvalRunResults id={selectedRunId} />
-        </PageSection>
-      ) : null}
+          <PageSection
+            title="运行历史"
+            className="xl:border-t-0 xl:pt-0 [&>div:first-child]:items-center"
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                {terminalRuns.length < 2 ? (
+                  <span className="text-xs text-muted-foreground">至少需要两次已结束的运行</span>
+                ) : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  ref={compareButtonRef}
+                  disabled={terminalRuns.length < 2}
+                  title={terminalRuns.length < 2 ? '至少需要两次已结束的运行' : undefined}
+                  onClick={openCompare}
+                >
+                  <GitCompare data-icon="inline-start" aria-hidden="true" /> 比较运行
+                </Button>
+              </div>
+            }
+          >
+            {agents.isPending ? <LoadingState rows={3} /> : null}
+            {!effectiveAgentId && !agents.isPending ? (
+              <p className="text-sm text-muted-foreground">
+                {agents.isError
+                  ? '专家加载失败，请重试后查看运行历史。'
+                  : '选择有效的专家后查看运行历史。'}
+              </p>
+            ) : null}
+            {effectiveAgentId && runs.isError && !runs.isFetchNextPageError ? (
+              <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
+            ) : null}
+            {runs.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
+            {effectiveAgentId && runs.isSuccess && runItems.length === 0 ? (
+              <PageNote
+                icon={<BusinessIllustration name="runs" size="compact" />}
+                title="评估尚未运行"
+                description={
+                  cases.isSuccess && !casesEmpty && canExecuteEval
+                    ? '点「运行评估」开始。'
+                    : undefined
+                }
+              />
+            ) : null}
+            {effectiveAgentId && runItems.length > 0 ? (
+              <>
+                <EvalPassRateChart runs={runItems} />
+                <DataTable
+                  rows={runItems}
+                  columns={runColumns}
+                  rowKey={(run) => run.id}
+                  rowLabel={(run) => `${formatDateTime(run.createdAt)} · ${shortId(run.id)}`}
+                  label="评估运行"
+                  storageKey="agentport.eval-runs.columns"
+                  onRowClick={(run) => selectRun(run.id)}
+                />
+                {runs.isFetchNextPageError ? (
+                  <ErrorState
+                    error={runs.error}
+                    onRetry={() => void runs.fetchNextPage()}
+                    title="下一页加载失败，保留已加载的运行记录"
+                  />
+                ) : runs.hasNextPage ? (
+                  <div className="flex justify-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={runs.isFetchingNextPage}
+                      aria-busy={runs.isFetchingNextPage}
+                      onClick={() => void runs.fetchNextPage()}
+                    >
+                      {runs.isFetchingNextPage ? '加载中…' : '加载更多'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-center text-xs text-muted-foreground">已到末尾</div>
+                )}
+              </>
+            ) : null}
+          </PageSection>
+        </div>
+
+        {selectedRunId ? (
+          <PageSection
+            title="运行结果"
+            description={`评估 ${shortId(selectedRunId)}`}
+            actions={
+              <Button variant="outline" size="sm" onClick={closeRun}>
+                返回历史
+              </Button>
+            }
+          >
+            <EvalRunResults id={selectedRunId} />
+          </PageSection>
+        ) : null}
+      </PageBody>
 
       {creatingAgentId ? (
         <CaseDialog
@@ -794,9 +800,7 @@ function EvalRunResults({ id }: { id: string }) {
         className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3 text-sm"
       >
         <StatusBadge tone={evalStatusVariant[evalRun.status]}>
-          {running ? (
-            <span className="size-1.5 rounded-full bg-button-primary" aria-hidden="true" />
-          ) : null}
+          {running ? <span className="size-1.5 rounded-full bg-fg" aria-hidden="true" /> : null}
           {evalStatusLabel[evalRun.status]}
         </StatusBadge>
         <span className="text-muted-foreground">
@@ -1237,10 +1241,10 @@ function CaseDialog({
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={close} disabled={pending}>
+            <Button variant="outline" onClick={close} disabled={pending}>
               取消
             </Button>
-            <Button type="submit" size="sm" disabled={pending} aria-busy={pending}>
+            <Button type="submit" disabled={pending} aria-busy={pending}>
               {pending ? '保存中…' : '保存'}
             </Button>
           </div>

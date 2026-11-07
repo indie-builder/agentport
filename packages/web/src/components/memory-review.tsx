@@ -368,7 +368,12 @@ export function MemoryReviews({
             description="从对话整理可采纳的记忆与规则。"
             action={
               canCreate ? (
-                <Button onClick={() => openCreate()} disabled={agents.isPending || agents.isError}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openCreate()}
+                  disabled={agents.isPending || agents.isError}
+                >
                   <Plus data-icon="inline-start" aria-hidden="true" />
                   生成记忆提案
                 </Button>
@@ -381,7 +386,7 @@ export function MemoryReviews({
             title="当前筛选下没有提案"
             description="仅筛选当前已加载的记录。"
             action={
-              <Button variant="outline" onClick={() => onStageChange(null)}>
+              <Button variant="outline" size="sm" onClick={() => onStageChange(null)}>
                 查看全部
               </Button>
             }

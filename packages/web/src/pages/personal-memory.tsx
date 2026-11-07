@@ -3,7 +3,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { MemoryReviews, type MemoryReviewView } from '../components/memory-review.js';
-import { Page, PageHeader } from '../components/page.js';
+import { Page, PageBody, PageHeader, PageTopbar } from '../components/page.js';
 import { PersonalMemoryPanel } from '../components/personal-memory-panel.js';
 import { can } from '../lib/access.js';
 import { useFormBlocker } from '../lib/form.js';
@@ -21,15 +21,19 @@ export function PersonalMemoryPage() {
 
   return (
     <Page>
-      <PageHeader title="个人记忆" />
-      <PersonalMemoryPanel
-        key={draftResetKey}
-        canWrite={canWrite}
-        canReview={canReview}
-        canConverse={canConverse}
-        onDirtyChange={setDirty}
-        onPendingChange={setPending}
-      />
+      <PageTopbar>
+        <PageHeader title="个人记忆" />
+      </PageTopbar>
+      <PageBody>
+        <PersonalMemoryPanel
+          key={draftResetKey}
+          canWrite={canWrite}
+          canReview={canReview}
+          canConverse={canConverse}
+          onDirtyChange={setDirty}
+          onPendingChange={setPending}
+        />
+      </PageBody>
       <ConfirmDialog
         open={blocker.status === 'blocked'}
         onClose={() => blocker.reset?.()}
@@ -57,54 +61,58 @@ export function PersonalReviewsPage() {
 
   return (
     <Page>
-      <PageHeader title="记忆提案" />
-      <MemoryReviews
-        agentId={search.agent ?? null}
-        onAgentChange={(next) =>
-          void navigate({
-            to: '/personal/reviews',
-            search: (current) => ({ ...current, agent: next ?? undefined }),
-          })
-        }
-        canReview={canReview}
-        canWrite={canWrite}
-        canReadConversations={canReadConversations}
-        canReadAgents={canReadAgents}
-        runId={search.run ?? null}
-        onRunChange={(next) =>
-          void navigate({
-            to: '/personal/reviews',
-            search: (current) => ({
-              ...current,
-              run: next ?? undefined,
-            }),
-          })
-        }
-        createRequested={search.create === true}
-        onCreateRequestedChange={(next) =>
-          void navigate({
-            to: '/personal/reviews',
-            search: (current) => ({
-              ...current,
-              create: next ? true : undefined,
-            }),
-          })
-        }
-        stage={search.stage ?? null}
-        onStageChange={(next: MemoryReviewView | null) =>
-          void navigate({
-            to: '/personal/reviews',
-            search: (current) => ({ ...current, stage: next ?? undefined }),
-          })
-        }
-        view={search.view ?? 'table'}
-        onViewChange={(next) =>
-          void navigate({
-            to: '/personal/reviews',
-            search: (current) => ({ ...current, view: next }),
-          })
-        }
-      />
+      <PageTopbar>
+        <PageHeader title="记忆提案" />
+      </PageTopbar>
+      <PageBody>
+        <MemoryReviews
+          agentId={search.agent ?? null}
+          onAgentChange={(next) =>
+            void navigate({
+              to: '/personal/reviews',
+              search: (current) => ({ ...current, agent: next ?? undefined }),
+            })
+          }
+          canReview={canReview}
+          canWrite={canWrite}
+          canReadConversations={canReadConversations}
+          canReadAgents={canReadAgents}
+          runId={search.run ?? null}
+          onRunChange={(next) =>
+            void navigate({
+              to: '/personal/reviews',
+              search: (current) => ({
+                ...current,
+                run: next ?? undefined,
+              }),
+            })
+          }
+          createRequested={search.create === true}
+          onCreateRequestedChange={(next) =>
+            void navigate({
+              to: '/personal/reviews',
+              search: (current) => ({
+                ...current,
+                create: next ? true : undefined,
+              }),
+            })
+          }
+          stage={search.stage ?? null}
+          onStageChange={(next: MemoryReviewView | null) =>
+            void navigate({
+              to: '/personal/reviews',
+              search: (current) => ({ ...current, stage: next ?? undefined }),
+            })
+          }
+          view={search.view ?? 'table'}
+          onViewChange={(next) =>
+            void navigate({
+              to: '/personal/reviews',
+              search: (current) => ({ ...current, view: next }),
+            })
+          }
+        />
+      </PageBody>
     </Page>
   );
 }

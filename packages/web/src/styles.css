@@ -542,7 +542,7 @@
     width: 3px;
     height: 3px;
     border-radius: 50%;
-    background: var(--color-button-primary);
+    background: var(--color-fg);
     /* 静止态可见：reduced-motion 下动画结束后回到这里，避免指示点整组消失。 */
     opacity: 1;
     animation: quiet-dot 1.9s var(--ease-pulse) infinite;
@@ -579,11 +579,11 @@
   }
 
   .status-dot[data-kind="ready"] {
-    background: var(--color-button-primary);
+    background: var(--color-fg);
   }
 
   .status-dot[data-kind="running"] {
-    background: var(--color-button-primary);
+    background: var(--color-fg);
     animation: dot-pulse 1.2s infinite;
   }
 

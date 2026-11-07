@@ -141,7 +141,7 @@ function ShareRow({
         </Badge>
       </div>
       {revoked ? null : (
-        <div className="flex justify-end gap-1">
+        <div className="flex justify-end gap-2">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -152,7 +152,7 @@ function ShareRow({
             <Copy />
           </Button>
           <Button
-            variant="outline"
+            variant="destructive"
             size="sm"
             aria-label={`撤销 ${version} 的链接`}
             disabled={pending}

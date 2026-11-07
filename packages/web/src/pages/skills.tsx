@@ -1042,7 +1042,7 @@ function SkillFilesEditor({
             ) : null}
             <Button
               type="button"
-              variant="outline"
+              variant="default"
               size="sm"
               disabled={pending}
               onClick={() => void save()}
