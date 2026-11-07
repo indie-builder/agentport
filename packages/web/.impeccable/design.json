@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-07T06:29:41Z",
+  "generatedAt": "2026-11-07T07:10:12Z",
   "title": "Design System: PACE (石青 · Claude CDS)",
   "extensions": {
     "tonalRampNotice": "tonalRamp 是面板预览用合成色阶，不是产品 token，也不作为新主题 palette；实现只使用 DESIGN.md frontmatter 与 src/styles.css @theme 的规范值。",
@@ -693,33 +693,28 @@
     "shadows": [
       {
         "name": "overlay",
-        "value": "inset 0 0 0 1px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)",
-        "purpose": "菜单、Select、Combobox、Popover、Dialog、AlertDialog、Sheet、Toast 共用的唯一浮层双环阴影；shadow-md 与 shadow-lg 都映射到这个值。"
+        "value": "0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)",
+        "purpose": "仅主菜单临时预览与 AppShell 导航 Sheet；shadow-md 与 shadow-lg 保留同值别名，不用于内容浮层。"
       },
       {
-        "name": "composer",
-        "value": "0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px rgba(0, 0, 0, 0.10)",
-        "purpose": "Composer 默认态；内环与 1px 发丝边同值。"
-      },
-      {
-        "name": "composer-hover",
-        "value": "0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.20)",
-        "purpose": "Composer 指针悬停态；外阴影与内环同步加深。"
-      },
-      {
-        "name": "composer-focus",
-        "value": "0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.20)",
-        "purpose": "Composer 文本控制器真实聚焦态；保持 input 边线，不叠加 2px 光环。"
+        "name": "content-overlay",
+        "value": "0 4px 12px rgb(0 0 0 / .08)",
+        "purpose": "内容 Select、Combobox、DropdownMenu、Popover、Dialog / AlertDialog、普通 Sheet、Toast、图表 tooltip、拖拽预览与建议面板的一道轻投影；既有细边或 ring 独立保留，令牌不含边环。"
       },
       {
         "name": "panel",
-        "value": "0 0 0 1px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.04)",
-        "purpose": "卡片常驻边界与轻投影（--shadow-panel），取代单独 ring。"
+        "value": "0 0 0 var(--hairline) var(--color-line)",
+        "purpose": "卡片常驻零模糊细边，无投影；hairline 在 1× / 2× / 3× 屏分别为 1px / 0.5px / 1⁄3px。"
       },
       {
         "name": "panel-hover",
-        "value": "0 0 0 1px rgba(0, 0, 0, 0.20), 0 4px 16px -2px rgba(0, 0, 0, 0.09)",
-        "purpose": "卡片 hover（--shadow-panel-hover），配合 translateY(-1.5px)。"
+        "value": "0 0 0 var(--hairline) var(--color-line-strong)",
+        "purpose": "卡片 hover 只加深细边，保留 translateY(-1.5px)，不增加投影。"
+      },
+      {
+        "name": "sm",
+        "value": "0 1px 2px rgb(0 0 0 / .05)",
+        "purpose": "资源页胶囊分段与 ViewToggle 的选中 thumb 的一道微投影。"
       }
     ],
     "gradients": [],
@@ -840,8 +835,8 @@
       },
       {
         "name": "composer-focus",
-        "value": "box-shadow: var(--shadow-composer-focus)",
-        "purpose": "仅 composer 文本控制器真实聚焦时由 InputGroup 外框使用；外框保持 input 边线，不叠加 2px 光环。"
+        "value": "border-color: var(--color-subtle, #898781)",
+        "purpose": "Composer 沿用共享 InputGroup 外框的 1px 中性暖灰聚焦边；内部输入不重复画框，无聚焦阴影。"
       },
       {
         "name": "checked-control-outline",
@@ -851,7 +846,7 @@
       {
         "name": "button-ring",
         "value": "0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079)",
-        "purpose": "按钮类单层 2px 石青 ring；实底按钮外留 2px 背景色间隔。"
+        "purpose": "按钮类单层 2px 石青 ring；default / solid 描边主按钮保留 2px 背景色间隔。"
       },
       {
         "name": "global-fallback",
@@ -865,15 +860,15 @@
       "name": "Primary / Solid Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "普通主操作 default 与发送、登录等显式 solid 共用石青三态与白字；焦点环使用独立石青 ring。",
+      "description": "default 与发送、登录等显式 solid 共用固定石青描边与三态文字，默认透明底、交互浅底，无常驻投影；焦点环使用独立石青 ring。",
       "html": "<button class=\"ds-btn-primary\" type=\"button\">新建专家</button>",
-      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-item, 8px); background: var(--color-button-primary, #315D67); color: var(--color-primary-foreground, #FFFFFF); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms var(--ease-out-soft); } .ds-btn-primary:hover { background: var(--color-button-primary-hover, #284F58); } .ds-btn-primary:active { background: var(--color-button-primary-active, #204149); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079); } .ds-btn-primary:disabled { opacity: 0.5; pointer-events: none; }"
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 32px; gap: 6px; padding: 0 10px; border: 1px solid var(--color-button-primary, #315D67); border-radius: var(--radius-item, 8px); background: transparent; color: var(--color-button-primary, #315D67); font-family: var(--font-sans); font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transform-origin: 50%; transition: transform var(--dur-slow, .45s) var(--btn-spring), color var(--dur-fast, 60ms) ease, background-color var(--dur-fast, 60ms) ease, border-color var(--dur-fast, 60ms) ease; } .ds-btn-primary:hover { background: var(--color-hover, #EDF2F2); color: var(--color-button-primary-hover, #284F58); } .ds-btn-primary:active { background: var(--color-selected, #DFE9EA); color: var(--color-button-primary-active, #204149); transform: scale(.975); transition: transform var(--dur-fast, 60ms) ease-out; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079); } .ds-btn-primary[aria-invalid=true] { border-color: var(--color-destructive, #B42318); } .ds-btn-primary:disabled, .ds-btn-primary[aria-disabled=true] { opacity: .35; pointer-events: none; }"
     },
     {
       "name": "Outline Button",
       "kind": "button",
       "refersTo": "button-outline",
-      "description": "取消、筛选与次级操作；白底 1px 发丝边，hover 用浅中性层，不变成石青实底。",
+      "description": "取消、筛选与次级操作；白底 1px 发丝边，hover 用浅中性层，保留中性次操作职责。",
       "html": "<button class=\"ds-btn-outline\" type=\"button\">取消</button>",
       "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid var(--color-line, rgba(0, 0, 0, 0.10)); border-radius: var(--radius-item, 8px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms var(--ease-out-soft); } .ds-btn-outline:hover, .ds-btn-outline[aria-expanded=true] { background: var(--color-hover, #EDF2F2); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079); }"
     },
@@ -913,9 +908,9 @@
       "name": "Card",
       "kind": "card",
       "refersTo": "card",
-      "description": "纯白内容面、12px 圆角；.cds-card-interactive 带 --shadow-panel（1px 发丝环 + 轻投影），hover 上浮 1.5px 并换 --shadow-panel-hover；根只有纵向 16px 与块间距 16px，水平内边距由 Header/Content/Footer 承担。CardTitle 14/22，sm 卡 13/20；描述 13/20。",
+      "description": "纯白内容面、12px 圆角；常驻 --shadow-panel 零模糊细边，无投影，交互卡 hover 上浮 1.5px 并换 --shadow-panel-hover 强边；根只有纵向 16px 与块间距 16px，水平内边距由 Header/Content/Footer 承担。CardTitle 14/22，sm 卡 13/20；描述 13/20。",
       "html": "<div class=\"ds-card\"><div class=\"ds-card-header\"><div class=\"ds-card-title\">专家名称</div><div class=\"ds-card-description\">一句话描述该专家能交付什么。</div></div><div class=\"ds-card-content\">正文内容</div></div>",
-      "css": ".ds-card { display: flex; flex-direction: column; gap: var(--card-spacing, 16px); padding: var(--card-spacing, 16px) 0; border-radius: var(--radius-card, 12px); background: var(--color-card, #FFFFFF); color: var(--color-card-foreground, #202B2E); box-shadow: 0 0 0 1px var(--color-line, rgba(0, 0, 0, 0.10)), 0 1px 3px rgba(0, 0, 0, 0.04); transition: box-shadow .2s var(--ease-out-soft), transform .2s var(--ease-out-soft); } .ds-card:hover { box-shadow: 0 0 0 1px var(--color-line-strong, rgba(0, 0, 0, 0.20)), 0 4px 16px -2px rgba(0, 0, 0, 0.09); transform: translateY(-1.5px); } .ds-card-header { display: grid; gap: 4px; padding: 0 var(--card-spacing, 16px); } .ds-card-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 22px; } .ds-card-description { color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-card-content { padding: 0 var(--card-spacing, 16px); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; }"
+      "css": ".ds-card { display: flex; flex-direction: column; gap: var(--card-spacing, 16px); padding: var(--card-spacing, 16px) 0; border-radius: var(--radius-card, 12px); background: var(--color-card, #FFFFFF); color: var(--color-card-foreground, #202B2E); box-shadow: var(--shadow-panel, 0 0 0 var(--hairline, 1px) var(--color-line, rgba(0, 0, 0, 0.10))); transition: box-shadow .2s var(--ease-out-soft), transform .2s var(--ease-out-soft); } .ds-card:hover { box-shadow: var(--shadow-panel-hover, 0 0 0 var(--hairline, 1px) var(--color-line-strong, rgba(0, 0, 0, 0.20))); transform: translateY(-1.5px); } .ds-card-header { display: grid; gap: 4px; padding: 0 var(--card-spacing, 16px); } .ds-card-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 22px; } .ds-card-description { color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-card-content { padding: 0 var(--card-spacing, 16px); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; }"
     },
     {
       "name": "Code Block",
@@ -929,9 +924,9 @@
       "name": "Dialog",
       "kind": "custom",
       "refersTo": "dialog",
-      "description": "模态白表面、16px 圆角、1px 发丝边 ring 与 CDS 双环 overlay 阴影、16px 内边距；遮罩用 scrim，确认主操作为石青实底；经 .cds-overlay-enter 以 opacity + scale(.96) 弹入。",
+      "description": "模态白表面、16px 圆角、独立 1px 发丝边 ring 与一道内容轻投影、16px 内边距；遮罩用 scrim，确认主操作为石青描边；经 .cds-overlay-enter 以 opacity + scale(.96) 弹入。",
       "html": "<div class=\"ds-dialog\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"ds-dialog-title\"><div class=\"ds-dialog-title\" id=\"ds-dialog-title\">保存配置</div><div class=\"ds-dialog-description\">确认保存当前更改。</div><div class=\"ds-dialog-actions\"><button class=\"ds-dialog-cancel\" type=\"button\">取消</button><button class=\"ds-dialog-confirm\" type=\"button\">保存</button></div></div>",
-      "css": ".ds-dialog { width: min(384px, calc(100vw - 32px)); padding: 16px; border-radius: var(--radius-dialog, 16px); background: var(--color-popover, #FFFFFF); color: var(--color-popover-foreground, #202B2E); box-shadow: var(--shadow-overlay, inset 0 0 0 1px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)); } .ds-dialog-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; } .ds-dialog-description { margin-top: 8px; color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-dialog-cancel, .ds-dialog-confirm { height: 32px; padding: 0 10px; border-radius: var(--radius-item, 8px); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; } .ds-dialog-cancel { border: 1px solid var(--color-line, rgba(0, 0, 0, 0.10)); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); } .ds-dialog-confirm { border: 1px solid transparent; background: var(--color-button-primary, #315D67); color: var(--color-primary-foreground, #FFFFFF); }"
+      "css": ".ds-dialog { width: min(384px, calc(100vw - 32px)); padding: 16px; border-radius: var(--radius-dialog, 16px); background: var(--color-popover, #FFFFFF); color: var(--color-popover-foreground, #202B2E); box-shadow: 0 0 0 1px var(--color-line, rgba(0, 0, 0, 0.10)), var(--shadow-content-overlay, 0 4px 12px rgb(0 0 0 / .08)); } .ds-dialog-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; } .ds-dialog-description { margin-top: 8px; color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-dialog-cancel, .ds-dialog-confirm { height: 32px; padding: 0 10px; border-radius: var(--radius-item, 8px); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; } .ds-dialog-cancel { border: 1px solid var(--color-line, rgba(0, 0, 0, 0.10)); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); } .ds-dialog-confirm { border: 1px solid var(--color-button-primary, #315D67); background: transparent; color: var(--color-button-primary, #315D67); } .ds-dialog-confirm:hover { background: var(--color-hover, #EDF2F2); color: var(--color-button-primary-hover, #284F58); } .ds-dialog-confirm:active { background: var(--color-selected, #DFE9EA); color: var(--color-button-primary-active, #204149); } .ds-dialog-confirm:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079); } .ds-dialog-cancel:hover { background: var(--color-hover, #EDF2F2); } .ds-dialog-cancel:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #4D7079); }"
     },
     {
       "name": "User Message",
@@ -952,13 +947,13 @@
   ],
   "narrative": {
     "northStar": "The Quiet Workbench（静默工作台）",
-    "overview": "PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFCFC`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面和交互背景采用独立指定的浅石青阶梯，文字与图标仍为深色，石青实底主操作保持最强的动作信号。工具、标题与正文是深墨色，主操作与按钮键盘焦点用石青，状态只在需要时以小面积语义色或呼吸点出现。\n\n这套系统用石青承担「可执行」与按钮键盘焦点，用浅石青与白色阶梯承担层级：普通主操作、发送、登录共用 `#315D67` → `#284F58` → `#204149` 三态实底；正文链接用深石青 `#2C5660`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。\n\n本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。",
+    "overview": "PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFCFC`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面和交互背景采用独立指定的浅石青阶梯，文字与图标仍为深色；主操作由石青描边与文字表达。工具、标题与正文是深墨色，按钮键盘焦点用石青，状态只在需要时以小面积语义色或呼吸点出现。\n\n这套系统用石青承担「可执行」与按钮键盘焦点，用浅石青与白色阶梯承担层级：普通主操作、发送、登录共用石青描边，默认透明底，hover 用 `hover` 浅底、active 用 `selected` 浅底，文字按 `button-primary` 三态加深；正文链接用深石青 `link`。输入族（Input / Textarea / Select / Combobox / InputGroup，含 Composer）聚焦用中性暖灰 1px 边（`subtle`，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线。内容浮层只用一道轻投影，卡片只用细边；主菜单临时预览与导航 Sheet 保留既有阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与细边/浅底关系表达，动作色不扩展到状态与数据。\n\n本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青；主操作描边、内容轻投影、卡片细边与 Composer 共享输入边界采用用户确认的轻量外观，覆盖 CDS 对应外观；其余字体、圆角与组件约定沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。",
     "keyCharacteristics": [
       "平铺外壳：`canvas #FBFCFC` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。",
-      "石青动作三态：`#315D67` / `#284F58` / `#204149`，白字；hover/active 档对比度更高。",
+      "石青描边主操作：边框保持 `button-primary`，文字按 `button-primary` / hover / active 三态加深；默认透明底、hover 浅底、active 选中浅底，无常驻投影。",
       "浅色状态层：hover `#EDF2F2`，selected / accent `#DFE9EA`，chip `#EFF3F3`；主侧栏单独使用浅石青 `sidebar`、`sidebar-hover`、`sidebar-selected` 背景阶梯。",
-      "输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`.cds-focus-glow`：`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`，composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。",
-      "正文链接与 `link` 变体用深石青 `#2C5660`；卡片用 `--shadow-panel`，hover 上浮 1.5px 并换 `--shadow-panel-hover`。",
+      "输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup，含 Composer）聚焦用中性暖灰 1px 边（`subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。",
+      "正文链接与 `link` 变体用深石青；卡片的 `--shadow-panel` / `--shadow-panel-hover` 仅画细边，hover 上浮 1.5px；内容浮层用 `--shadow-content-overlay`，主菜单预览与导航 Sheet 保留 `--shadow-overlay`。",
       "数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为石青 `#4D7079`，输入框聚焦为中性暖灰而非石青。",
       "AnthropicSans → Inter → 中文回退的 13/20 界面档与 14/22 对话阅读档；CDS 弹簧、入场与呼吸动效按本页当前值。"
     ],
@@ -970,7 +965,7 @@
       },
       {
         "name": "The Petrol-Action Rule",
-        "body": "主操作用石青：`default` 与显式 `solid` 共用 `button-primary` 三态与白字，按钮键盘焦点使用独立的 `ring`，链接使用 `link`。通用 `primary` 保持墨色，供复选框、进度与 line 页签等控件使用；成功、警告与危险不借品牌色。",
+        "body": "主操作用石青描边与文字：`default` 与显式 `solid` 共用固定 `button-primary` 边框、三态石青字与透明/浅色底，无常驻投影；按钮键盘焦点使用独立的 `ring`，链接使用 `link`。通用 `primary` 保持墨色，供复选框、进度与 line 页签等控件使用；`primary-foreground` 白色保留给墨色控件，成功、警告与危险不借品牌色。",
         "section": "colors"
       },
       {
@@ -989,17 +984,17 @@
         "section": "typography"
       },
       {
-        "name": "The One-Shadow Rule",
-        "body": "浮层只有一种双环阴影值，Composer 只有三态阴影，卡片只有 `--shadow-panel` / `--shadow-panel-hover` 两态。外壳的收起与固定展开态无阴影，只有临时预览侧栏作为浮层复用 `shadow-overlay`。不得新增第二套浮层阴影，也不得给卡片或外壳叠加其它投影；输入聚焦只用中性暖灰边框、不新增阴影，焦点信号不作为常驻装饰。",
+        "name": "The Quiet-Content Rule",
+        "body": "内容浮层只用 `shadow-content-overlay` 的一道轻投影与必要细边；卡片只用 `shadow-panel` / `shadow-panel-hover` 边界，Composer 沿用共享 InputGroup 的中性细边与聚焦换线。主菜单临时预览及导航 Sheet 使用既有 `shadow-overlay`，不得把这个外壳例外扩展到内容浮层。收起与固定展开侧栏无阴影；焦点信号不作为常驻装饰。",
         "section": "elevation"
       }
     ],
     "dos": [
       "**Do** 保持外壳平铺全幅：`canvas #FBFCFC` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、外边距、外框圆角或描边。",
-      "**Do** 用 `button-primary` 石青三态（`#315D67` / `#284F58` / `#204149`）承载 `default` 与 `solid`，配白字。",
+      "**Do** 用固定 `button-primary` 石青描边与三态文字承载 `default` / `solid`；默认透明底、hover 用 `hover`、active 用 `selected`，无常驻投影。",
       "**Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。",
       "**Do** 主侧栏当前项用 `sidebar-selected` + 深色前景；页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#DFE9EA`。",
-      "**Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 石青 ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。",
+      "**Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup（含 Composer）用 1px 中性暖灰边 `subtle`，无光晕，仅 SourceEditor / CodeMirror 搜索换 `input-focus`；按钮类用 2px 石青 ring（Toast 使用 outline），`default` / `solid` 保留 2px 背景色间隔，错误态可另用 2px outline 补焦点。",
       "**Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。",
       "**Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。",
       "**Do** 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。"
@@ -1010,7 +1005,7 @@
       "**Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。",
       "**Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。",
       "**Don't** 给已经使用中性暖灰聚焦边或 `input-focus` 的输入再叠 2px ring；唯一例外是错误态用 2px outline 补焦点（边框表达错误，outline 表达焦点）。",
-      "**Don't** 在 CDS 双环 overlay、Composer 三态阴影、卡片 `--shadow-panel` 之外再引入第二套阴影，或给表格加投影、给卡片叠加其它阴影。",
+      "**Don't** 给内容浮层叠多层投影、给卡片加投影或给 Composer 加聚焦阴影；内容用 `shadow-content-overlay`，主菜单预览与导航 Sheet 的 `shadow-overlay` 例外保留，不扩展其用途。",
       "**Don't** 重新引入深色主题、第二套主题提供器、重复品牌别名或页面级硬编码色值。",
       "**Don't** 让 Markdown 标题小于正文，或新增第二个阅读正文字号。",
       "**Don't** 在已批准布局契约之外临时改变宽高、内边距或断点；几何调整先更新规范与契约，配色、字体、焦点与动效仍按本页主题成果。"

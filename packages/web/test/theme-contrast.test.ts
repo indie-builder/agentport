@@ -124,18 +124,20 @@ describe('CDS light theme token contract', () => {
     expect(token('--color-primary-hover')).toEqual(parse('#0b0b0b'));
     expect(token('--color-selected-foreground')).toEqual(token('--color-fg'));
     expect(token('--color-accent-foreground')).toEqual(token('--color-fg'));
-    for (const background of [
-      '--color-button-primary',
-      '--color-button-primary-hover',
-      '--color-button-primary-active',
+    for (const [foreground, background] of [
+      ['--color-button-primary', '--color-surface'],
+      ['--color-button-primary-hover', '--color-hover'],
+      ['--color-button-primary-active', '--color-selected'],
     ] as const) {
-      expect(ratio('--color-primary-foreground', background), background).toBeGreaterThanOrEqual(
-        4.5,
-      );
+      expect(
+        ratio(foreground, background),
+        `${foreground} on ${background}`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
     for (const background of [
       '--color-surface',
       '--color-canvas',
+      '--color-hover',
       '--color-sidebar-selected',
       '--color-selected',
     ] as const) {

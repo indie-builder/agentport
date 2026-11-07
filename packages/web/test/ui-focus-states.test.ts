@@ -17,8 +17,6 @@ import { Switch } from '../src/components/ui/switch.js';
 import { Textarea } from '../src/components/ui/textarea.js';
 import { Toggle } from '../src/components/ui/toggle.js';
 
-// 输入类默认走浅边线、普通聚焦换输入焦点色、composer 由页面覆盖；错误态保留危险边线，
-// 并用真实 :focus-visible 的 2px outline 补焦点。按钮/开关类错误态必须保留键盘焦点环。
 // 这里用 Tailwind 4 实际编译组件真实 class，再按选择器优先级取最终声明，
 // 避免只检查 class 名或源码顺序；:has() 组合由 PACE 实页 computed style 验证。
 
@@ -655,7 +653,6 @@ describe('error and focus states stay distinguishable', () => {
         'var(--color-ring)',
       );
     }
-    // 深色实底按钮的 2px 背景色间隔不因 invalid 消失。
     for (const name of ['button-default', 'button-solid']) {
       expect(winning(rules, probeClasses(name), invalid, true, '--tw-ring-offset-width')).toBe(
         '2px',
@@ -663,7 +660,7 @@ describe('error and focus states stay distinguishable', () => {
     }
   });
 
-  it('shows one visible focus ring on every button variant and keeps the default on a solid fill', () => {
+  it('shows one visible focus ring on every button variant and keeps primary actions outlined', () => {
     for (const name of ['button-default', 'button-outline', 'button-ghost', 'button-solid']) {
       const classNames = probeClasses(name);
       // 未聚焦不画环。
@@ -672,14 +669,16 @@ describe('error and focus states stay distinguishable', () => {
       expect(ringVisible(rules, classNames, {}, true)).toBe(true);
       expect(winning(rules, classNames, {}, true, '--tw-ring-color')).toBe('var(--color-ring)');
     }
-    // default 与 solid 都是深色实底：透明 1px 边框只占位，聚焦时用背景色间隔把环推到填充之外。
     for (const name of ['button-default', 'button-solid']) {
       const classNames = probeClasses(name);
-      expect(winning(rules, classNames, {}, false, 'background-color')).toBe(
+      expect(winning(rules, classNames, {}, false, 'background-color')).toBe('transparent');
+      expect(winning(rules, classNames, {}, false, 'color')).toBe('var(--color-button-primary)');
+      expect(winning(rules, classNames, {}, false, 'border-color')).toBe(
         'var(--color-button-primary)',
       );
-      expect(winning(rules, classNames, {}, false, 'border-color')).toBe('transparent');
-      expect(winning(rules, classNames, {}, true, 'border-color')).toBe('transparent');
+      expect(winning(rules, classNames, {}, true, 'border-color')).toBe(
+        'var(--color-button-primary)',
+      );
       expect(winning(rules, classNames, {}, true, '--tw-ring-offset-width')).toBe('2px');
       expect(winning(rules, classNames, {}, true, '--tw-ring-offset-color')).toBe(
         'var(--color-background)',
@@ -691,14 +690,13 @@ describe('error and focus states stay distinguishable', () => {
     );
   });
 
-  it('merges the shared helper so Links match the solid default', () => {
+  it('merges the shared helper so Links match the outlined default', () => {
     // helper 直接输出 cva 时，调用方追加的 className 仍要按 Tailwind 冲突规则覆盖。
     const primary = probeClasses('button-helper-default');
-    expect(winning(rules, primary, {}, false, 'background-color')).toBe(
-      'var(--color-button-primary)',
-    );
-    expect(winning(rules, primary, {}, false, 'border-color')).toBe('transparent');
-    expect(winning(rules, primary, {}, true, 'border-color')).toBe('transparent');
+    expect(winning(rules, primary, {}, false, 'background-color')).toBe('transparent');
+    expect(winning(rules, primary, {}, false, 'color')).toBe('var(--color-button-primary)');
+    expect(winning(rules, primary, {}, false, 'border-color')).toBe('var(--color-button-primary)');
+    expect(winning(rules, primary, {}, true, 'border-color')).toBe('var(--color-button-primary)');
     expect(ringVisible(rules, primary, {}, true)).toBe(true);
     expect(winning(rules, primary, {}, true, '--tw-ring-offset-width')).toBe('2px');
     expect(winning(rules, primary, {}, true, '--tw-ring-offset-color')).toBe(
@@ -715,7 +713,7 @@ describe('error and focus states stay distinguishable', () => {
       'transparent',
     );
     expect(winning(rules, probeClasses('button-helper-solid'), {}, false, 'border-color')).toBe(
-      'transparent',
+      'var(--color-button-primary)',
     );
   });
 
