@@ -482,7 +482,7 @@ export function ListRenderer({
             {clickable ? (
               <button
                 type="button"
-                className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors hover:bg-hover outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2"
+                className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors hover:bg-hover outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
                 onClick={() => void trigger(itemProps.title, undefined, action)}
               >
                 {content}

@@ -130,7 +130,7 @@ function KnowledgeRow({
         to="/knowledge/$baseId"
         params={{ baseId: base.id }}
         aria-label={`查看知识库 ${base.name}`}
-        className="absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-[-2px]"
       />
       <div className="flex min-h-14 items-center gap-4 py-2.5">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -829,7 +829,7 @@ function CreateBaseDialog({
           >
             <CollapsibleTrigger
               type="button"
-              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
             >
               <ChevronRight
                 className={cn(

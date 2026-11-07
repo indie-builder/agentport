@@ -3861,7 +3861,7 @@ function SourceDialog({
                     type="button"
                     disabled={pending}
                     onClick={() => chooseType(option.type)}
-                    className="flex items-center gap-3 border-b border-line px-2 py-3 text-left transition-colors last:border-b-0 hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+                    className="flex items-center gap-3 border-b border-line px-2 py-3 text-left transition-colors last:border-b-0 hover:bg-hover focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0 disabled:pointer-events-none disabled:opacity-50"
                   >
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-item border border-line text-muted-foreground">
                       <OptionIcon className="size-4" aria-hidden="true" />

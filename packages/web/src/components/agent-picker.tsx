@@ -78,7 +78,7 @@ export function AgentPicker({
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedby}
               className={cn(
-                'h-8 w-full justify-between gap-1.5 border-input bg-surface pr-2 pl-2.5 font-normal hover:border-control-boundary disabled:cursor-not-allowed aria-invalid:hover:border-destructive',
+                'h-8 w-full justify-between gap-1.5 border-input bg-surface pr-2 pl-2.5 font-normal hover:not-focus:border-control-boundary focus:not-aria-invalid:border-ring focus-visible:outline-none focus-visible:aria-invalid:pr-[calc(--spacing(2)-1px)] focus:ring-0 focus:shadow-none disabled:cursor-not-allowed aria-invalid:hover:border-destructive',
                 triggerClassName,
               )}
             />

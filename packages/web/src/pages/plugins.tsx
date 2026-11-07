@@ -265,7 +265,7 @@ export function PluginsPage() {
                   to="/plugins/$pluginId"
                   params={{ pluginId: plugin.id }}
                   title={plugin.name}
-                  className="block min-w-0 truncate rounded-sm text-base font-medium text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="block min-w-0 truncate rounded-sm text-base font-medium text-fg hover:underline focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
                 >
                   {plugin.name}
                 </Link>
@@ -431,7 +431,7 @@ function InstallPluginDialog({
                 key={item.id}
                 to="/plugins/$pluginId"
                 params={{ pluginId: item.id }}
-                className="w-fit rounded-sm text-fg underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="w-fit rounded-sm text-fg underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
               >
                 打开「{item.name}」
               </Link>

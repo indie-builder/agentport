@@ -676,7 +676,7 @@
     "shadows": [
       {
         "name": "overlay",
-        "value": "0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)",
+        "value": "0 8px 24px rgba(0, 0, 0, 0.12)",
         "purpose": "仅主菜单临时预览与 AppShell 导航 Sheet；shadow-md 与 shadow-lg 保留同值别名，不用于内容浮层。"
       },
       {
@@ -810,19 +810,19 @@
     ],
     "focus": [
       {
-        "name": "content-outline",
-        "value": "outline: 2px solid var(--color-ring); outline-offset: 2px",
-        "purpose": "内容原语、OpenUI 的 BlockCard、OptionCards、列表触发器、图表数据折叠、独立输入与 checked/unchecked 填充控件共用单层石青 outline；错误保留危险边框，不叠第二层焦点。OptionCards 禁用使用 input 边、sunken 底与 muted-foreground 字，保留原生禁用和禁用 cursor。"
+        "name": "content-boundary",
+        "value": "border-color: var(--color-ring); outline: none; box-shadow: none; 无文本光标的操作控件（含 Select、字段型 AgentPicker、日期触发器与可聚焦 Badge）invalid 的 :focus-visible 将同一条危险边向内加粗为 2px，并按实际内边距减少 1px，含图标侧不对称内距；普通态与正常焦点仍为 1px；有文本光标的文本输入始终 1px；无边框操作使用 outline-offset: -2px 的贴边焦点",
+        "purpose": "同一控件/状态只保留一层必要边界，规则覆盖所有组件。已有边框优先换同一条边，无边框操作使用贴边焦点；禁止 border 与分离 outline/ring、光晕或多重 shadow 重复表达，组合控件不得内外重复画框。保留实底主操作、选中填充、开关 thumb 与必要浮层深度。主菜单保留颜色、布局与几何，阴影同样只保留一道必要软投影，全局兜底不得额外叠层。验收必须实屏 Tab / Shift+Tab，并读取 default、hover+focus、checked/selected+focus、invalid+focus、forced-colors 的边框、轮廓与阴影计算样式并截图；`lint:focus` 与源码断言不能替代这一步。"
       },
       {
-        "name": "composite-outline",
-        "value": ":has(.cm-content:focus-visible, > textarea:focus-visible), :has([data-slot=combobox-chip-input]:focus-visible), :has([data-slot=input-group-control]:focus-visible) { outline: 2px solid var(--color-ring); outline-offset: 2px; }",
-        "purpose": "SourceEditor 外框只代理 .cm-content 或直接 fallback textarea；Combobox Chips 外框只代理 combobox-chip-input；InputGroup 只观察 data-slot=input-group-control。被代理输入不重复画焦点；Chip、移除按钮与 .cm-search 内各独立操作控件保留自身可见焦点，不触发编辑输入外框。卡片式 FieldLabel 由外层 label 承担轮廓，内部填充控件不重复画焦点。"
+        "name": "input-border-focus",
+        "value": ":focus, :has(.cm-content:focus, > textarea:focus), :has([data-slot=combobox-chip-input]:focus), :has([data-slot=input-group-control]:focus) { border-color: var(--color-ring); outline: none; box-shadow: none; }",
+        "purpose": "输入正常聚焦只换现有 1px 边框，鼠标与键盘一致，hover 不覆盖焦点；有文本光标的文本输入 invalid 保持同一条 1px danger 边，光标表达编辑焦点；无文本光标的选择/日期字段 invalid 键盘焦点将同一条危险边向内加粗为 2px 并补偿内边距，普通态与正常焦点仍为 1px。SourceEditor、Combobox Chips、InputGroup（含 Composer）只代理文本焦点，内部文本输入无第二条边或外圈；Chip、移除按钮和 CodeMirror 搜索操作不触发编辑外框，搜索文本框独立聚焦换边。"
       },
       {
-        "name": "slider-outline",
-        "value": ":has(:focus-visible) { outline: 2px solid var(--color-ring); outline-offset: 2px; }",
-        "purpose": "Slider thumb 外框观察原生 range input，键盘焦点时去掉 hover/active ring；保留原生输入 ARIA。"
+        "name": "slider-border",
+        "value": ":has(:focus-visible) { border-color: var(--color-ring); outline: none; box-shadow: none; }",
+        "purpose": "Slider thumb 外框观察原生 range input，hover/active/focus 共用手柄边界；内部 input 不重复画焦点，保留原生 ARIA。"
       },
       {
         "name": "sidebar-ring-exception",
@@ -831,8 +831,8 @@
       },
       {
         "name": "forced-colors",
-        "value": "outline: 2px solid Highlight !important; outline-offset: 2px",
-        "purpose": "强制颜色模式使用系统 Highlight。"
+        "value": "border-color: Highlight !important; outline-color: Highlight !important; box-shadow: none !important",
+        "purpose": "系统 Highlight 替换已有边框或贴边轮廓颜色，复合代理不重复画框，不恢复分离外圈；主菜单按钮阴影焦点改为系统贴边轮廓。"
       }
     ]
   },
@@ -841,25 +841,25 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "default 主操作为石青实底白字；hover / active 背景与边框同步加深，焦点单层 outline，禁用为可读中性状态。solid 使用同一实现。",
+      "description": "default 主操作为石青实底白字；hover / active 背景与边框同步加深，焦点复用同一条边框，禁用为可读中性状态。solid 使用同一实现。",
       "html": "<button class=\"ds-btn-primary\" type=\"button\">新建专家</button>",
-      "css": ".ds-btn-primary {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:var(--color-button-primary,#315D67);border-color:var(--color-button-primary,#315D67);color:var(--color-primary-foreground,#FFFFFF);} .ds-btn-primary:hover {background:var(--color-button-primary-hover,#284F58);border-color:var(--color-button-primary-hover,#284F58);} .ds-btn-primary:active {background:var(--color-button-primary-active,#204149);border-color:var(--color-button-primary-active,#204149);transform:scale(.975);} .ds-btn-primary:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-btn-primary:disabled, .ds-btn-primary[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
+      "css": ".ds-btn-primary {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:var(--color-button-primary,#315D67);border-color:var(--color-button-primary,#315D67);color:var(--color-primary-foreground,#FFFFFF);} .ds-btn-primary:hover {background:var(--color-button-primary-hover,#284F58);border-color:var(--color-button-primary-hover,#284F58);} .ds-btn-primary:active {background:var(--color-button-primary-active,#204149);border-color:var(--color-button-primary-active,#204149);transform:scale(.975);} .ds-btn-primary:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-btn-primary:disabled, .ds-btn-primary[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
     },
     {
       "name": "Outline Button",
       "kind": "button",
       "refersTo": "button-outline",
-      "description": "中性次操作：白底 input 边界，hover 加深到 control-boundary 并铺 hover；单层石青 outline。",
+      "description": "中性次操作：白底 input 边界，hover 加深到 control-boundary 并铺 hover；焦点复用同一条边框。",
       "html": "<button class=\"ds-btn-outline\" type=\"button\">取消</button>",
-      "css": ".ds-btn-outline {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:var(--color-surface,#FFFFFF);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-fg,#202B2E);} .ds-btn-outline:hover {background:var(--color-hover,#EDF2F2);border-color:var(--color-control-boundary,rgba(0,0,0,.35));} .ds-btn-outline:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-btn-outline:disabled, .ds-btn-outline[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;} .ds-btn-outline[aria-expanded=true] {background:var(--color-hover,#EDF2F2);}"
+      "css": ".ds-btn-outline {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:var(--color-surface,#FFFFFF);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-fg,#202B2E);} .ds-btn-outline:hover {background:var(--color-hover,#EDF2F2);border-color:var(--color-control-boundary,rgba(0,0,0,.35));} .ds-btn-outline:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-btn-outline:disabled, .ds-btn-outline[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;} .ds-btn-outline[aria-expanded=true] {background:var(--color-hover,#EDF2F2);}"
     },
     {
       "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "中性浅底次操作，sunken 默认、hover 浅底，单层 outline。",
+      "description": "中性浅底次操作，sunken 默认、hover 浅底，焦点复用同一条边框。",
       "html": "<button class=\"ds-btn-secondary\" type=\"button\">导入</button>",
-      "css": ".ds-btn-secondary {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:var(--color-sunken,#F7F9F9);color:var(--color-fg,#202B2E);} .ds-btn-secondary:hover {background:var(--color-hover,#EDF2F2);} .ds-btn-secondary:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-btn-secondary:disabled, .ds-btn-secondary[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
+      "css": ".ds-btn-secondary {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:var(--color-sunken,#F7F9F9);color:var(--color-fg,#202B2E);} .ds-btn-secondary:hover {background:var(--color-hover,#EDF2F2);} .ds-btn-secondary:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-btn-secondary:disabled, .ds-btn-secondary[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
     },
     {
       "name": "Inline Destructive Button",
@@ -867,7 +867,7 @@
       "refersTo": "button-destructive",
       "description": "行内危险动作为浅红底与危险文字；最终确认独立使用危险实底白字。",
       "html": "<button class=\"ds-btn-danger\" type=\"button\">删除</button>",
-      "css": ".ds-btn-danger {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:color-mix(in oklab,var(--color-destructive,#B42318) 10%,transparent);color:var(--color-destructive,#B42318);} .ds-btn-danger:hover {background:color-mix(in oklab,var(--color-destructive,#B42318) 20%,transparent);} .ds-btn-danger:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-btn-danger:disabled, .ds-btn-danger[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
+      "css": ".ds-btn-danger {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:color-mix(in oklab,var(--color-destructive,#B42318) 10%,transparent);color:var(--color-destructive,#B42318);} .ds-btn-danger:hover {background:color-mix(in oklab,var(--color-destructive,#B42318) 20%,transparent);} .ds-btn-danger:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-btn-danger:disabled, .ds-btn-danger[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
     },
     {
       "name": "Final Danger Confirmation",
@@ -875,31 +875,31 @@
       "refersTo": "button-danger-confirm",
       "description": "ConfirmDialog 与知识库批量删除的最终危险确认：危险实底白字；取消仍为中性 outline。",
       "html": "<button class=\"ds-btn-danger-confirm\" type=\"button\">确认删除</button>",
-      "css": ".ds-btn-danger-confirm {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:var(--color-destructive,#B42318);color:var(--color-destructive-foreground,#FFFFFF);} .ds-btn-danger-confirm:hover {background:color-mix(in oklab,var(--color-destructive,#B42318) 90%,transparent);} .ds-btn-danger-confirm:active {background:color-mix(in oklab,var(--color-destructive,#B42318) 80%,transparent);} .ds-btn-danger-confirm:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-btn-danger-confirm:disabled, .ds-btn-danger-confirm[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
+      "css": ".ds-btn-danger-confirm {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;background:var(--color-destructive,#B42318);color:var(--color-destructive-foreground,#FFFFFF);} .ds-btn-danger-confirm:hover {background:color-mix(in oklab,var(--color-destructive,#B42318) 90%,transparent);} .ds-btn-danger-confirm:active {background:color-mix(in oklab,var(--color-destructive,#B42318) 80%,transparent);} .ds-btn-danger-confirm:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-btn-danger-confirm:disabled, .ds-btn-danger-confirm[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
     },
     {
       "name": "Ghost Icon Button",
       "kind": "button",
       "refersTo": "button-ghost",
-      "description": "内容工具默认透明，hover/展开浅底；32px、8px 圆角，单层 outline。主菜单按钮保留独立 ring 例外。",
+      "description": "内容工具默认透明，hover/展开浅底；32px、8px 圆角，焦点复用同一条边框。主菜单按钮保留独立 ring 例外。",
       "html": "<button class=\"ds-btn-ghost\" type=\"button\" aria-label=\"更多操作\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"19\" cy=\"12\" r=\"1\"></circle><circle cx=\"5\" cy=\"12\" r=\"1\"></circle></svg></button>",
-      "css": ".ds-btn-ghost {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;width:32px;padding:0;background:transparent;color:var(--color-fg,#202B2E);} .ds-btn-ghost:hover {background:var(--color-hover,#EDF2F2);} .ds-btn-ghost:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-btn-ghost:disabled, .ds-btn-ghost[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;} .ds-btn-ghost[aria-expanded=true] {background:var(--color-hover,#EDF2F2);}"
+      "css": ".ds-btn-ghost {display:inline-flex;align-items:center;justify-content:center;height:32px;gap:6px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-item,8px);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;width:32px;padding:0;background:transparent;color:var(--color-fg,#202B2E);} .ds-btn-ghost:hover {background:var(--color-hover,#EDF2F2);} .ds-btn-ghost:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-btn-ghost:disabled, .ds-btn-ghost[aria-disabled=true] {background:var(--color-sunken,#F7F9F9);border-color:var(--color-input,rgba(0,0,0,.20));color:var(--color-muted-foreground,#505F63);pointer-events:none;} .ds-btn-ghost[aria-expanded=true] {background:var(--color-hover,#EDF2F2);}"
     },
     {
       "name": "Text Input",
       "kind": "input",
       "refersTo": "input",
-      "description": "白底 input=line-strong 默认边界，hover control-boundary；焦点单层石青 outline，invalid 独立危险边框，禁用浅底辅助字。",
+      "description": "白底 input=line-strong 默认 1px 边界，hover control-boundary；鼠标与键盘聚焦只换 ring 边，invalid 保持同一条 danger 边，无 outline、ring 或聚焦阴影；禁用浅底辅助字。",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"搜索专家...\" aria-label=\"搜索专家\" />",
-      "css": ".ds-input {width:100%;height:32px;padding:4px 10px;border:1px solid var(--color-input,rgba(0,0,0,.20));border-radius:var(--radius-item,8px);background:var(--color-background,#FFFFFF);color:var(--color-fg,#202B2E);font-family:var(--font-sans);font-size:13px;line-height:20px;transition:color .15s,background-color .15s,border-color .15s;} .ds-input::placeholder {color:var(--color-muted-foreground,#505F63);} .ds-input:hover {border-color:var(--color-control-boundary,rgba(0,0,0,.35));} .ds-input:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-input[aria-invalid=true],.ds-input[aria-invalid=true]:hover {border-color:var(--color-destructive,#B42318);} .ds-input:disabled {background:var(--color-sunken,#F7F9F9);color:var(--color-muted-foreground,#505F63);pointer-events:none;cursor:not-allowed;}"
+      "css": ".ds-input {width:100%;height:32px;padding:4px 10px;border:1px solid var(--color-input,rgba(0,0,0,.20));border-radius:var(--radius-item,8px);background:var(--color-background,#FFFFFF);color:var(--color-fg,#202B2E);font-family:var(--font-sans);font-size:13px;line-height:20px;transition:color .15s,background-color .15s,border-color .15s;} .ds-input::placeholder {color:var(--color-muted-foreground,#505F63);} .ds-input:hover:not(:focus) {border-color:var(--color-control-boundary,rgba(0,0,0,.35));} .ds-input:focus {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-input[aria-invalid=true],.ds-input[aria-invalid=true]:hover,.ds-input[aria-invalid=true]:focus {border-color:var(--color-destructive,#B42318);} .ds-input:disabled {background:var(--color-sunken,#F7F9F9);color:var(--color-muted-foreground,#505F63);pointer-events:none;cursor:not-allowed;}"
     },
     {
       "name": "Segmented Tabs",
       "kind": "chip",
       "refersTo": "tab-list",
-      "description": "sunken 浅轨道与 surface 白 thumb、line 细边、shadow-sm；line 变体透明并保留 2px button-primary 指示线；项焦点单层 outline。",
+      "description": "sunken 浅轨道与 surface 白 thumb、line 细边、shadow-sm；line 变体透明并保留 2px button-primary 指示线；焦点复用同一条边框。",
       "html": "<div class=\"ds-tabs\" role=\"tablist\" aria-label=\"内容视图\"><button class=\"ds-tab\" type=\"button\" role=\"tab\" aria-selected=\"false\">概览</button><button class=\"ds-tab\" type=\"button\" role=\"tab\" aria-selected=\"true\">详情</button></div>",
-      "css": ".ds-tabs {display:inline-flex;align-items:center;height:32px;padding:3px;border-radius:var(--radius-item,8px);background:var(--color-sunken,#F7F9F9);} .ds-tab {display:inline-flex;align-items:center;justify-content:center;height:calc(100% - 1px);padding:2px 6px;border:1px solid transparent;border-radius:var(--radius-icon,8px);background:transparent;color:var(--color-muted-foreground,#505F63);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;} .ds-tab:hover {color:var(--color-fg,#202B2E);} .ds-tab[aria-selected=true] {background:var(--color-background,#FFFFFF);border-color:var(--color-line,rgba(0,0,0,.10));color:var(--color-fg,#202B2E);box-shadow:var(--shadow-sm,0 1px 2px rgb(0 0 0 / .05));} .ds-tab:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-tab:disabled {color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
+      "css": ".ds-tabs {display:inline-flex;align-items:center;height:32px;padding:3px;border-radius:var(--radius-item,8px);background:var(--color-sunken,#F7F9F9);} .ds-tab {display:inline-flex;align-items:center;justify-content:center;height:calc(100% - 1px);padding:2px 6px;border:1px solid transparent;border-radius:var(--radius-icon,8px);background:transparent;color:var(--color-muted-foreground,#505F63);font-family:var(--font-sans);font-size:13px;font-weight:500;line-height:20px;cursor:pointer;} .ds-tab:hover {color:var(--color-fg,#202B2E);} .ds-tab[aria-selected=true] {background:var(--color-background,#FFFFFF);border-color:var(--color-line,rgba(0,0,0,.10));color:var(--color-fg,#202B2E);box-shadow:var(--shadow-sm,0 1px 2px rgb(0 0 0 / .05));} .ds-tab:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-tab:disabled {color:var(--color-muted-foreground,#505F63);pointer-events:none;}"
     },
     {
       "name": "Badge",
@@ -907,7 +907,7 @@
       "refersTo": "badge-default",
       "description": "默认与 secondary 徽章是下沉浅底配正文墨，不整枚深色填充；危险/成功/警告保留各自语义。",
       "html": "<span class=\"ds-badge\">通用助手</span>",
-      "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-tag, 6px); background: var(--color-sunken, #F7F9F9); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; } .ds-badge:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;}"
+      "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-tag, 6px); background: var(--color-sunken, #F7F9F9); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; } .ds-badge:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;}"
     },
     {
       "name": "Interactive Card",
@@ -931,7 +931,7 @@
       "refersTo": "dialog",
       "description": "白表面、16px 圆角、line 细边与一道内容轻影；普通确认石青实底白字，最终危险确认另用危险实底白字。",
       "html": "<div class=\"ds-dialog\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"ds-dialog-title\"><div class=\"ds-dialog-title\" id=\"ds-dialog-title\">保存配置</div><div class=\"ds-dialog-description\">确认保存当前更改。</div><div class=\"ds-dialog-actions\"><button class=\"ds-dialog-cancel\" type=\"button\">取消</button><button class=\"ds-dialog-confirm\" type=\"button\">保存</button></div></div>",
-      "css": ".ds-dialog { width: min(384px, calc(100vw - 32px)); padding: 16px; border-radius: var(--radius-dialog, 16px); background: var(--color-popover, #FFFFFF); color: var(--color-popover-foreground, #202B2E); box-shadow: 0 0 0 1px var(--color-line, rgba(0, 0, 0, 0.10)), var(--shadow-content-overlay, 0 4px 12px rgb(0 0 0 / .08)); } .ds-dialog-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; } .ds-dialog-description { margin-top: 8px; color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-dialog-cancel, .ds-dialog-confirm {border:1px solid var(--color-button-primary,#315D67);background:var(--color-button-primary,#315D67);color:var(--color-primary-foreground,#FFFFFF);} .ds-dialog-cancel { border: 1px solid var(--color-input, rgba(0, 0, 0, 0.20)); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); } .ds-dialog-confirm {border:1px solid var(--color-button-primary,#315D67);background:var(--color-button-primary,#315D67);color:var(--color-primary-foreground,#FFFFFF);} .ds-dialog-confirm:hover {background:var(--color-button-primary-hover,#284F58);border-color:var(--color-button-primary-hover,#284F58);} .ds-dialog-confirm:active {background:var(--color-button-primary-active,#204149);border-color:var(--color-button-primary-active,#204149);} .ds-dialog-confirm:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;} .ds-dialog-cancel:hover { background: var(--color-hover, #EDF2F2); border-color: var(--color-control-boundary, rgba(0,0,0,.35)); } .ds-dialog-cancel:focus-visible {outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px;}"
+      "css": ".ds-dialog { width: min(384px, calc(100vw - 32px)); padding: 16px; border-radius: var(--radius-dialog, 16px); background: var(--color-popover, #FFFFFF); color: var(--color-popover-foreground, #202B2E); box-shadow: 0 0 0 1px var(--color-line, rgba(0, 0, 0, 0.10)), var(--shadow-content-overlay, 0 4px 12px rgb(0 0 0 / .08)); } .ds-dialog-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; } .ds-dialog-description { margin-top: 8px; color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-dialog-cancel, .ds-dialog-confirm {border:1px solid var(--color-button-primary,#315D67);background:var(--color-button-primary,#315D67);color:var(--color-primary-foreground,#FFFFFF);} .ds-dialog-cancel { border: 1px solid var(--color-input, rgba(0, 0, 0, 0.20)); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); } .ds-dialog-confirm {border:1px solid var(--color-button-primary,#315D67);background:var(--color-button-primary,#315D67);color:var(--color-primary-foreground,#FFFFFF);} .ds-dialog-confirm:hover {background:var(--color-button-primary-hover,#284F58);border-color:var(--color-button-primary-hover,#284F58);} .ds-dialog-confirm:active {background:var(--color-button-primary-active,#204149);border-color:var(--color-button-primary-active,#204149);} .ds-dialog-confirm:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;} .ds-dialog-cancel:hover { background: var(--color-hover, #EDF2F2); border-color: var(--color-control-boundary, rgba(0,0,0,.35)); } .ds-dialog-cancel:focus-visible {border-color:var(--color-ring,#4D7079);outline:none;box-shadow:none;}"
     },
     {
       "name": "User Message",
@@ -952,17 +952,22 @@
   ],
   "narrative": {
     "northStar": "The Quiet Workbench（静默工作台）",
-    "overview": "PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`。主操作以石青实底白字形成任务重心，次操作用中性边界或浅底，工具默认透明；标题、正文和普通图标保留深墨色。\n\n这套系统按任务职责分配视觉权重：`default` / `solid` 共用石青实底三态，`outline` 白底中性边，`secondary` 下沉浅底，`ghost` 透明。输入以白底与 `input` 边界表明可编辑，hover 加深到 `control-boundary`；键盘焦点使用单层石青 outline，错误边框独立表达。分段切换是浅轨道与白 thumb，菜单高亮与勾选分别表达当前位置和已选值。内容卡片白底细边，浮层一道轻影；主菜单保留既有颜色、几何、阴影和焦点例外。\n\n本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。2026-11-07 用户批准整体内容组件重设计，替换此前主操作必须描边、输入只换中性边线及旧分段选中底的要求。未触及的 PACE 布局、CDS 字体与圆角、Logo、主侧栏菜单及受保护入口继续保留；内容组件外观以本次实现为准，不以“完全按 CDS”覆盖。参考记录为 [Radix Themes Button](https://www.radix-ui.com/themes/docs/components/button)、[Radix Colors](https://www.radix-ui.com/colors/docs/palette-composition/understanding-the-scale)、[Geist Button](https://vercel.com/geist/button)、[Geist Menu](https://vercel.com/geist/menu)、[Geist Materials](https://vercel.com/geist/materials) 与 [Linear custom views](https://linear.app/docs/custom-views)，查证日期 2026-11-07；前两家交互证据来自本轮调研，Linear 仅官方产品画面、未登录。源码决定最终规则，参考产品不替代本地实现证据。",
+    "overview": "**Creative North Star: \"The Quiet Workbench（静默工作台）\"**\n\nPACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`。主操作以石青实底白字形成任务重心，次操作用中性边界或浅底，工具默认透明；标题、正文和普通图标保留深墨色。\n\n这套系统按任务职责分配视觉权重：`default` / `solid` 共用石青实底三态，`outline` 白底中性边，`secondary` 下沉浅底，`ghost` 透明。输入以白底与 `input` 边界表明可编辑，hover 加深到 `control-boundary`；输入正常聚焦时只将原有 1px 边框换为石青 `ring`；有文本光标的文本输入错误态仍保持 1px，无文本光标的选择/日期字段 invalid 键盘焦点将同一条 `danger` 边向内加粗为 2px 并补偿内边距；不叠 outline、ring 或聚焦阴影。分段切换是浅轨道与白 thumb，菜单高亮与勾选分别表达当前位置和已选值。内容卡片白底细边，浮层一道轻影；主菜单保留既有颜色、几何与可见焦点，投影同样遵守单边界规则。\n\n本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。2026-11-07 用户批准整体内容组件重设计，替换此前主操作必须描边、输入只换中性边线及旧分段选中底的要求。未触及的 PACE 布局、CDS 字体与圆角、Logo、主侧栏菜单及受保护入口继续保留；内容组件外观以本次实现为准，不以“完全按 CDS”覆盖。参考记录为 [Radix Themes Button](https://www.radix-ui.com/themes/docs/components/button)、[Radix Colors](https://www.radix-ui.com/colors/docs/palette-composition/understanding-the-scale)、[Geist Button](https://vercel.com/geist/button)、[Geist Menu](https://vercel.com/geist/menu)、[Geist Materials](https://vercel.com/geist/materials) 与 [Linear custom views](https://linear.app/docs/custom-views)，查证日期 2026-11-07；前两家交互证据来自本轮调研，Linear 仅官方产品画面、未登录。源码决定最终规则，参考产品不替代本地实现证据。\n",
     "keyCharacteristics": [
       "平铺外壳：`canvas #FBFCFC` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。",
       "石青实底主操作：`default` / `solid` 的背景与边框同步使用 `button-primary` 三态，始终白字，无常驻投影。",
       "浅色状态层：hover `#EDF2F2`，selected / accent `#DFE9EA`，chip `#EFF3F3`；主侧栏单独使用浅石青 `sidebar`、`sidebar-hover`、`sidebar-selected` 背景阶梯。",
-      "输入白底、默认 `input = line-strong` 边界，hover 用 `control-boundary`；键盘焦点为单层 2px 石青 outline 与 2px offset，复合输入由外框承担。边界低对比限制见 Known Gaps。",
+      "输入白底、默认 `input = line-strong` 边界，hover 用 `control-boundary`；正常鼠标与键盘聚焦都只将现有 1px 边框换为 `ring`，无 outline、ring 或聚焦阴影；有文本光标的文本输入 invalid 保持同一条 1px `danger` 边，无文本光标的选择/日期字段 invalid 键盘焦点将同一条危险边向内加粗为 2px 并补偿内边距，普通态与正常焦点仍为 1px；复合输入由外框承担。边界低对比限制见 Known Gaps。",
       "正文链接与 `link` 变体用深石青；卡片的 `--shadow-panel` / `--shadow-panel-hover` 仅画细边，hover 上浮 1.5px；内容浮层用 `--shadow-content-overlay`，主菜单预览与导航 Sheet 保留 `--shadow-overlay`。",
-      "数据蓝只用于图表首系列；内容原语与输入共用石青焦点；主菜单按钮保留旧 ring，导航链接沿用全局 outline。",
+      "数据蓝只用于图表首系列；所有组件同一控件/状态只保留一层必要边界，已有边框聚焦换边，无边框操作用贴边焦点；主菜单按钮与导航链接保留既有视觉，全局兜底不新增一层。",
       "AnthropicSans → Inter → 中文回退的 13/20 界面档与 14/22 对话阅读档；CDS 弹簧、入场与呼吸动效按本页当前值。"
     ],
     "rules": [
+      {
+        "name": "The Single-Boundary Rule",
+        "body": "同一控件/状态只保留一层必要边界，规则覆盖所有组件。已有边框优先换同一条边，无边框操作使用贴边焦点；禁止 border 与分离 outline/ring、光晕或多重 shadow 重复表达，组合控件不得内外重复画框。保留实底主操作、选中填充、开关 thumb 与必要浮层深度。主菜单保留颜色、布局与几何，阴影同样只保留一道必要软投影，全局兜底不得额外叠层。验收必须实屏 Tab / Shift+Tab，并读取 default、hover+focus、checked/selected+focus、invalid+focus、forced-colors 的边框、轮廓与阴影计算样式并截图；`lint:focus` 与源码断言不能替代这一步。",
+        "section": "colors"
+      },
       {
         "name": "The Flat-Shell Rule",
         "body": "应用外壳平铺全幅：根容器铺 `canvas #FBFCFC`，侧栏铺不透明的 `sidebar` 浅石青底，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距或描边；收起与固定展开侧栏无阴影，只有临时预览侧栏复用 `shadow-overlay` 覆盖正文。分区靠底色差异与留白表达。",
@@ -999,7 +1004,7 @@
       "**Do** 用 `button-primary` 三态实底与同色边承载 `default` / `solid`，白字，无常驻投影；中性次操作与透明工具按职责分层。",
       "**Do** 用 `input = line-strong` 表达输入默认边界，hover 用 `control-boundary`；分隔仍用 `line`。低于 3:1 的边界只作为已知限制记录，不视为可访问性达标依据。",
       "**Do** 主侧栏当前项用 `sidebar-selected` + 深色前景；内容 Toggle / 日期 / 用户消息用 `selected`，分段当前项用白 thumb，菜单高亮用 `hover` 并保留独立勾选。",
-      "**Do** 内容原语与 OpenUI 组合焦点保持单层 2px 石青 outline 与 2px offset；复合外框只代理编辑输入，独立操作控件保留自身可见焦点，错误用危险边框且不吞掉焦点。主菜单按钮保留既有 ring。",
+      "**Do** 输入正常聚焦只将现有 1px 边框换为 `ring`；有文本光标的文本输入 invalid 保持 1px `danger` 边，无文本光标的选择/日期字段 invalid 键盘焦点将同一条危险边向内加粗为 2px 并补偿内边距，普通态与正常焦点仍为 1px，不叠外圈；复合外框只代理文本焦点。所有组件已有边框优先换同一条边，无边框操作用贴边焦点，独立操作控件保留自身可见焦点。主菜单保留既有视觉，全局兜底不得额外叠层。",
       "**Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。",
       "**Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。",
       "**Do** 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。"
@@ -1009,8 +1014,8 @@
       "**Don't** 给外壳加回渐变、外边距、圆角或描边，也不要把外壳白框铺到画布后面；收起与固定展开侧栏不得加阴影，仅临时预览可用既有 `shadow-overlay`。",
       "**Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。",
       "**Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。",
-      "**Don't** 恢复旧中性换边焦点或给已有 outline 的控件叠加第二圈；不得把主菜单 ring 例外扩展成新内容原语规则。",
-      "**Don't** 给内容浮层叠多层投影、给卡片加投影或给 Composer 加聚焦阴影；内容用 `shadow-content-overlay`，主菜单预览与导航 Sheet 的 `shadow-overlay` 例外保留，不扩展其用途。",
+      "**Don't** 给任何控件用 border 与分离 outline/ring、光晕或多重 shadow 重复表达同一状态，也不得让复合控件内外重复画框；主菜单同样遵守单边界规则。",
+      "**Don't** 给内容浮层叠多层投影、给卡片加投影或给 Composer 加聚焦阴影；内容用 `shadow-content-overlay`，主菜单预览与导航 Sheet 的 `shadow-overlay` 同样只允许一道软投影，不含描边投影。",
       "**Don't** 重新引入深色主题、第二套主题提供器、重复品牌别名或页面级硬编码色值。",
       "**Don't** 让 Markdown 标题小于正文，或新增第二个阅读正文字号。",
       "**Don't** 在已批准布局契约之外临时改变宽高、内边距或断点；几何调整先更新规范与契约，配色、字体、焦点与动效仍按本页主题成果。"

@@ -162,7 +162,7 @@
   --color-input: var(--color-line-strong);
   --color-ring: #4d7079;
 
-  --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.12);
   --shadow-content-overlay: 0 4px 12px rgb(0 0 0 / .08);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / .05);
   --shadow-panel: 0 0 0 var(--hairline) var(--color-line);
@@ -258,6 +258,10 @@
 
   :focus-visible {
     outline: 2px solid var(--color-ring);
+    outline-offset: -2px;
+  }
+
+  .bg-sidebar a:focus-visible {
     outline-offset: 2px;
   }
 
@@ -313,9 +317,21 @@
   }
 
   @media (forced-colors: active) {
-    :focus-visible {
+    :focus-visible,
+    [data-slot="input-group"]:has([data-slot="input-group-control"]:focus-visible),
+    [data-slot="combobox-chips"]:has([data-slot="combobox-chip-input"]:focus-visible),
+    [data-slot="source-editor"]:has(.cm-content:focus-visible, > textarea:focus-visible),
+    [data-slot="slider-thumb"]:has(:focus-visible),
+    [data-slot="field-label"]:has([data-slot="field"] :focus-visible) {
+      border-color: Highlight !important;
+      outline-color: Highlight !important;
+      box-shadow: none !important;
+    }
+
+    .bg-sidebar button:focus-visible {
+      border-color: transparent !important;
       outline: 2px solid Highlight !important;
-      outline-offset: 2px;
+      outline-offset: -2px;
     }
   }
 
@@ -341,8 +357,8 @@
     color: var(--color-fg);
   }
   .agent-create-fan:focus-visible {
-    outline: 2px solid var(--color-ring);
-    outline-offset: 2px;
+    border-color: var(--color-ring);
+    outline: none;
   }
 
   .agent-create-fan__art {
@@ -637,5 +653,13 @@
 
   .message-fade-up {
     animation: message-fade-up .4s var(--ease-overshoot) both;
+  }
+}
+
+@layer utilities {
+  .cds-card-surface:focus-visible {
+    box-shadow: none;
+    outline: var(--hairline) solid var(--color-ring);
+    outline-offset: 0;
   }
 }

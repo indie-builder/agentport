@@ -73,13 +73,33 @@ const editorTheme = EditorView.theme({
   },
   '.cm-panel.cm-search .cm-textfield': {
     padding: '0.125rem 0.375rem',
-    // 输入家族默认浅线；按钮与复选框仍用各自原生焦点。
     border: '1px solid var(--color-input)',
+    outline: 'none',
+    boxShadow: 'none',
+  },
+  '.cm-panel.cm-search .cm-textfield:hover:not(:focus)': {
+    borderColor: 'var(--color-control-boundary)',
+  },
+  '.cm-panel.cm-search .cm-textfield:focus': {
+    borderColor: 'var(--color-ring)',
   },
   '.cm-panel.cm-search button': {
     backgroundImage: 'none',
     backgroundColor: 'var(--color-surface)',
     border: '1px solid var(--color-line)',
+    outline: 'none',
+    boxShadow: 'none',
+  },
+  '.cm-panel.cm-search button:focus-visible': {
+    borderColor: 'var(--color-ring)',
+  },
+  '.cm-panel.cm-search input[type=checkbox]': {
+    accentColor: 'var(--color-primary)',
+  },
+  '.cm-panel.cm-search input[type=checkbox]:focus-visible': {
+    outline: '2px solid var(--color-ring)',
+    outlineOffset: '-2px',
+    boxShadow: 'none',
   },
   '.cm-panel.cm-search button:hover:not(:disabled)': {
     backgroundColor: 'var(--color-hover)',

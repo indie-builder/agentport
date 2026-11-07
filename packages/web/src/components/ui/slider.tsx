@@ -46,7 +46,7 @@ function Slider({
             data-slot="slider-thumb"
             key={index}
             {...thumbAria}
-            className="relative block size-3 shrink-0 rounded-full border border-control-boundary bg-surface ring-ring transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:border-transparent hover:ring-2 has-[:focus-visible]:ring-0 has-[:focus-visible]:border-control-boundary has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-solid has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-2 [&_input:focus-visible]:outline-none active:border-transparent active:ring-2 disabled:pointer-events-none disabled:text-muted-foreground"
+            className="relative block size-3 shrink-0 rounded-full border border-control-boundary bg-surface transition-[color,border-color] select-none after:absolute after:-inset-2 hover:border-ring has-[:focus-visible]:border-ring [&_input:focus-visible]:outline-none active:border-ring disabled:pointer-events-none disabled:text-muted-foreground"
           />
         ))}
       </SliderPrimitive.Control>
