@@ -1,9 +1,7 @@
-import { createDb, newId, schema } from '@agentport/db';
-import * as dnsModule from 'node:dns/promises';
-import * as agentRepo from '@agentport/db/repo/agents.js';
-import * as serverRepo from '@agentport/db/repo/servers.js';
-import { AGENT_PACKAGE_SIDECAR, knowledgeTokenEnv } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import * as dnsModule from 'node:dns/promises';
+import { createDb, newId, repo, schema } from '@agentport/db';
+import { AGENT_PACKAGE_SIDECAR, knowledgeTokenEnv } from '@agentport/shared';
 import {
   buildAgentPackage,
   importAgentPackage,
@@ -73,20 +71,22 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await handle.client.unsafe('delete from agent_servers where server_id = $1', [serverId]);
-  await handle.client.unsafe('delete from agents where id = any($1::text[])', [handle.client.array(createdAgents, 'TEXT')]);
+  await handle.client.unsafe('delete from agents where id = any($1::text[])', [
+    handle.client.array(createdAgents, 'TEXT'),
+  ]);
   await handle.client.unsafe('delete from servers where id = $1', [serverId]);
   await handle.client.close();
 });
 
 async function exportedPackage() {
-  const row = await agentRepo.getAgent(handle.db, agentId);
+  const row = await repo.agents.getAgent(handle.db, agentId);
   if (!row) throw new Error('missing agent row');
   return buildAgentPackage(handle.db, KEY, 'https://pace.example.com', row);
 }
 
 describe('knowledge server read shape', () => {
   it('reads knowledge rows as the knowledge kind instead of falling through', async () => {
-    const row = await serverRepo.getServer(handle.db, serverId);
+    const row = await repo.servers.getServer(handle.db, serverId);
     if (!row) throw new Error('missing knowledge server row');
     const server = await getServer(handle.db, serverId, KEY);
     expect(server).toMatchObject({
@@ -175,7 +175,7 @@ describe('knowledge binding in the agent package', () => {
 
   it('accepts its own loopback MCP endpoint when the base really exists', async () => {
     const selfUrl = 'http://127.0.0.1:3000';
-    const row = await agentRepo.getAgent(handle.db, agentId);
+    const row = await repo.agents.getAgent(handle.db, agentId);
     if (!row) throw new Error('missing agent row');
     const pkg = await buildAgentPackage(handle.db, KEY, selfUrl, row);
     const parsed = parseAgentPackage(new Map(Object.entries(pkg.files)), {});

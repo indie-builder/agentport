@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import * as fsModule from 'node:fs/promises';
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
@@ -6,7 +7,6 @@ import { join } from 'node:path';
 import { personalMemoryDir, personalMemoryPath } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, AGENT_MEMORY_MAX_LINES } from '@agentport/shared';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { readMemoryFile, writeMemoryFile } from '../src/modules/agents/memory-files.js';
 import { memorySha256, writeMemoryJournal } from '../src/modules/memory/journal.js';
@@ -29,7 +29,7 @@ import {
 const ready = await infraReady;
 
 // 故障注入只影响本文件的写入投影；其他 fs 操作继续走真实实现。
-const fsFaults = ({
+const fsFaults = {
   failRename: false,
   /** 第 N 次 rename 失败（1 起算）；0 表示不按次数失败。 */
   failRenameAt: 0,
@@ -39,7 +39,7 @@ const fsFaults = ({
   failUnlink: false,
   renameCalls: 0,
   gate: null as null | { entered: () => void; release: Promise<void> },
-});
+};
 const realFs = { ...fsModule };
 mock.module('node:fs/promises', () => {
   const actual = realFs;
@@ -119,7 +119,9 @@ describe.skipIf(!ready)('memory reviews', () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await app.client.unsafe('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await app.client.unsafe('delete from memory_changes where business_id = $1', [
+      ADMIN_BUSINESS_ID,
+    ]);
     await app.client.unsafe('delete from user_preferences where business_id = $1', [
       ADMIN_BUSINESS_ID,
     ]);
@@ -308,11 +310,9 @@ describe.skipIf(!ready)('memory reviews', () => {
   }
 
   async function manualChangeId(agent: AgentRef): Promise<string> {
-    const [change] = (
-      await app.client.unsafe<{ id: string }[]>(
-        "select id from memory_changes where agent_id = $1 and target->>'name' = 'MEMORY.md'",
-        [agent.id],
-      )
+    const [change] = await app.client.unsafe<{ id: string }[]>(
+      "select id from memory_changes where agent_id = $1 and target->>'name' = 'MEMORY.md'",
+      [agent.id],
     );
     if (!change) throw new Error('manual write did not record a change');
     return change.id;
@@ -595,12 +595,14 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     expect(conversation[0]?.sdk_session_id).toBe('sdk-session-before');
 
-    const run = await app.client.unsafe<{
-      agent_id: string;
-      conversation_id: string;
-      trigger: string;
-      status: string;
-    }[]>('select agent_id, conversation_id, trigger, status from agent_runs where id = $1', [runId]);
+    const run = await app.client.unsafe<
+      {
+        agent_id: string;
+        conversation_id: string;
+        trigger: string;
+        status: string;
+      }[]
+    >('select agent_id, conversation_id, trigger, status from agent_runs where id = $1', [runId]);
     expect(run[0]).toMatchObject({
       agent_id: agent.id,
       conversation_id: conversationId,
@@ -618,12 +620,14 @@ describe.skipIf(!ready)('memory reviews', () => {
       { id: runId, trigger: 'review' },
     ]);
 
-    const review = await app.client.unsafe<{
-      model_agent_id: string;
-      target: unknown;
-      before: unknown;
-      instruction: string;
-    }[]>('select model_agent_id, target, before, instruction from memory_reviews where run_id = $1', [
+    const review = await app.client.unsafe<
+      {
+        model_agent_id: string;
+        target: unknown;
+        before: unknown;
+        instruction: string;
+      }[]
+    >('select model_agent_id, target, before, instruction from memory_reviews where run_id = $1', [
       runId,
     ]);
     expect(review[0]).toMatchObject({
@@ -975,7 +979,9 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     expectProblem(await applyReview(runId), 'CONFLICT');
 
-    await app.client.unsafe("update agent_runs set status = 'cancelled' where id = $1", [activeRunId]);
+    await app.client.unsafe("update agent_runs set status = 'cancelled' where id = $1", [
+      activeRunId,
+    ]);
     expect((await applyReview(runId)).statusCode).toBe(200);
   });
 
@@ -1053,7 +1059,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       content: '旧规则',
       globs: 'lib/**',
     });
-    expectProblem(await applyReview(runId), 'CONFLICT');
+    expectProblem(await applyReview(runId), 'CONFLICT_STALE');
     const rule = await app.client.unsafe<{ content: string; globs: string }[]>(
       'select content, globs from agent_rules where agent_id = $1 and slug = $2',
       [target.id, 'style'],
@@ -1203,8 +1209,9 @@ describe.skipIf(!ready)('memory reviews', () => {
     const { agent, runId } = await reviewForMemory('记住这个约定');
 
     // 文件先落盘、账本事务失败：同一把锁内把原文件（这里是不存在）恢复回去。
-    const spy = spyOn(app.db, 'transaction')
-      .mockRejectedValueOnce(new Error('injected database commit failure') as never);
+    const spy = spyOn(app.db, 'transaction').mockRejectedValueOnce(
+      new Error('injected database commit failure') as never,
+    );
     let failed: Awaited<ReturnType<typeof applyReview>>;
     try {
       failed = await applyReview(runId);
@@ -1243,8 +1250,9 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     // 准备原文件占第 1 次 rename；第 2 次写日志、第 3 次落提案、第 4 次恢复原文件时失败。
     fsFaults.failRenameAt = 4;
-    const spy = spyOn(app.db, 'transaction')
-      .mockRejectedValueOnce(new Error('injected database commit failure') as never);
+    const spy = spyOn(app.db, 'transaction').mockRejectedValueOnce(
+      new Error('injected database commit failure') as never,
+    );
     let failed: Awaited<ReturnType<typeof applyReview>>;
     try {
       failed = await applyReview(runId);
@@ -1297,7 +1305,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
     expect(manual.statusCode, manual.body).toBe(200);
 
-    expectProblem(await applyReview(runId), 'CONFLICT');
+    expectProblem(await applyReview(runId), 'CONFLICT_STALE');
     expect(await reviewChangeCount(runId)).toBe(0);
     // 没有写入日志就不能认定内容已生效：拒绝照常允许，且不改写文件。
     const rejected = await rejectReview(runId);
@@ -1517,7 +1525,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(await journalExists(agent, runId)).toBe(false);
     // 审核仍是 pending；文件已被手工改动，之后采纳按基线不匹配拒绝。
     expect((await getReview(runId)).json()).toMatchObject({ decision: 'pending' });
-    expectProblem(await applyReview(runId), 'CONFLICT');
+    expectProblem(await applyReview(runId), 'CONFLICT_STALE');
   });
 
   it('keeps blocking and keeps the journal when the file matches neither side of it', async () => {
@@ -1667,7 +1675,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       content: '新规则正文',
       globs: '',
     });
-    expectProblem(await applyReview(runId), 'CONFLICT');
+    expectProblem(await applyReview(runId), 'CONFLICT_STALE');
     expect(await reviewChangeCount(runId)).toBe(0);
     const rule = await app.client.unsafe<{ content: string }[]>(
       'select content from agent_rules where agent_id = $1 and slug = $2',
@@ -1899,8 +1907,9 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect((await getReview(runId)).json()).toMatchObject({ decision: 'pending' });
     expect(await reviewChangeCount(runId)).toBe(0);
 
-    const spy = spyOn(app.db, 'transaction')
-      .mockRejectedValueOnce(new Error('injected database commit failure') as never);
+    const spy = spyOn(app.db, 'transaction').mockRejectedValueOnce(
+      new Error('injected database commit failure') as never,
+    );
     let commitFailed: Awaited<ReturnType<typeof applyReview>>;
     try {
       commitFailed = await applyReview(runId);
@@ -2006,7 +2015,7 @@ describe.skipIf(!ready)('memory reviews', () => {
   it('does not overwrite an external theme edit made after the review', async () => {
     const { agent, runId } = await themeReview('deploy.md', 'body');
     await writeMemoryFile(root, agent.slug, 'deploy.md', 'external');
-    expectProblem(await applyReview(runId), 'CONFLICT');
+    expectProblem(await applyReview(runId), 'CONFLICT_STALE');
     expect((await readMemoryFile(root, agent.slug, 'deploy.md'))?.content).toBe('external');
     expect(await readMemoryFile(root, agent.slug, 'MEMORY.md')).toBeNull();
     expect(await reviewChangeCount(runId)).toBe(0);

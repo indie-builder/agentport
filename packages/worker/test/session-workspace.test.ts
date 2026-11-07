@@ -1,8 +1,12 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'bun:test';
-import { ensureSessionWorkspace, refreshSessionDirectory } from '../src/session-workspace.js';
+import {
+  ensureSessionWorkspace,
+  refreshSessionDirectory,
+  toHostWorkspacePath,
+} from '../src/session-workspace.js';
 
 let root = '';
 afterEach(async () => {
@@ -17,6 +21,13 @@ describe('stable session workspace', () => {
       conversationId: 'conversation-1',
       subAgentSlugs: ['child-b', 'child-a'],
     });
+    expect((await lstat(paths.inputsDir)).isDirectory()).toBe(true);
+    expect(
+      toHostWorkspacePath(
+        { workspacesDir: root, hostWorkspacesDir: '/host/workspaces' },
+        paths.inputsDir,
+      ),
+    ).toBe('/host/workspaces/demo/conversation-inputs/conversation-1');
     expect(paths.subAgentMemoryDirs).toEqual([
       { slug: 'child-a', memoryDir: join(root, 'child-a', 'agent-memory') },
       { slug: 'child-b', memoryDir: join(root, 'child-b', 'agent-memory') },
@@ -28,6 +39,22 @@ describe('stable session workspace', () => {
       const target = await lstat(join(paths.workspaceDir, '.claude', 'agent-memory', slug));
       expect(target.isDirectory()).toBe(true);
     }
+  });
+
+  it('rejects linked inputs, linked parents and non-directory inputs before mounting', async () => {
+    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const base = join(root, 'demo', 'conversation-inputs');
+    const input = { workspacesDir: root, slug: 'demo', conversationId: 'conversation-1' };
+    await mkdir(base, { recursive: true });
+    await mkdir(join(root, 'outside'));
+    await symlink(join(root, 'outside'), join(base, 'conversation-1'));
+    await expect(ensureSessionWorkspace(input)).rejects.toThrow(/real directory/);
+    await rm(join(base, 'conversation-1'));
+    await writeFile(join(base, 'conversation-1'), 'not a directory');
+    await expect(ensureSessionWorkspace(input)).rejects.toThrow();
+    await rm(base, { recursive: true });
+    await symlink(join(root, 'outside'), base);
+    await expect(ensureSessionWorkspace(input)).rejects.toThrow(/real directory/);
   });
 
   it('rejects a symlinked child memory host', async () => {

@@ -1,4 +1,6 @@
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
+import * as fsActual from 'node:fs/promises';
 import {
   access,
   link,
@@ -14,8 +16,6 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import * as fsActual from 'node:fs/promises';
-import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import { AppError } from '../src/errors.js';
 
 /** 只在用例显式打开时注入一次 rename 失败；其余测试走真实实现。 */
@@ -579,7 +579,11 @@ describe('trust boundary', () => {
 
     await expect(
       readOutputFile({ root, slug, conversationId, runId: 'run_1', path: 'dir/a.md' }),
-    ).rejects.toBeInstanceOf(AppError);
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      path: '/dir/a.md',
+      message: '产出路径不能经过符号链接',
+    });
   });
 
   it('refuses a symlinked intermediate directory in the draft', async () => {
@@ -688,6 +692,24 @@ describe('trust boundary', () => {
     await expect(
       prepareOutputDraft({ root, slug, conversationId, runId: '../../etc' }),
     ).rejects.toBeInstanceOf(AppError);
+    await expect(
+      prepareOutputDraft({ root: join(root, 'missing'), slug, conversationId, runId: 'run_1' }),
+    ).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      path: '/conversationId',
+      message: '产出根目录不存在',
+    });
+    await writeFile(join(root, 'not-directory'), 'keep');
+    await expect(
+      prepareOutputDraft({ root, slug: 'not-directory', conversationId, runId: 'run_1' }),
+    ).rejects.toMatchObject({ code: 'ENOTDIR' });
+    await expect(
+      captureOutputDraft({ root, slug, conversationId, runId: 'run_1', sourceDir: dirname(root) }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      path: '/sourceDir',
+      message: '产出路径不能经过符号链接',
+    });
   });
 });
 

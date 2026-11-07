@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId } from '@agentport/db';
 import { type Agent, DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
@@ -51,10 +51,10 @@ describe.skipIf(!ready)('agents', () => {
        values ($1, $2, $3, $4, 'ready', $4, $5, now())`,
       [versionId, id, DEFAULT_RUNTIME_DOCKERFILE, name, `sha256:${'a'.repeat(64)}`],
     );
-    await app.client.unsafe('update runtime_environments set online_version_id = $2 where id = $1', [
-      id,
-      versionId,
-    ]);
+    await app.client.unsafe(
+      'update runtime_environments set online_version_id = $2 where id = $1',
+      [id, versionId],
+    );
     return { id, name };
   };
 
@@ -74,9 +74,10 @@ describe.skipIf(!ready)('agents', () => {
         'update runtime_environments set online_version_id = null where id = $1',
         [id],
       );
-      await app.client.unsafe('delete from runtime_environment_versions where environment_id = $1', [
-        id,
-      ]);
+      await app.client.unsafe(
+        'delete from runtime_environment_versions where environment_id = $1',
+        [id],
+      );
       await app.client.unsafe('delete from runtime_environments where id = $1', [id]);
     }
     await app.close();
@@ -288,9 +289,10 @@ describe.skipIf(!ready)('agents', () => {
       payload: { runtimeEnvironmentId: null },
     });
     expect(patched.statusCode, patched.body).toBe(200);
-    await app.client.unsafe('update runtime_environments set online_version_id = null where id = $1', [
-      environment.id,
-    ]);
+    await app.client.unsafe(
+      'update runtime_environments set online_version_id = null where id = $1',
+      [environment.id],
+    );
     await app.client.unsafe('delete from runtime_environment_versions where environment_id = $1', [
       environment.id,
     ]);
@@ -348,9 +350,10 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(renamed.statusCode, renamed.body).toBe(200);
     expect(renamed.json<Agent>()).toMatchObject({ name: 'Renamed legacy agent', role });
-    const stored = await app.client.unsafe<{ role: string }[]>('select role from agents where id = $1', [
-      id,
-    ]);
+    const stored = await app.client.unsafe<{ role: string }[]>(
+      'select role from agents where id = $1',
+      [id],
+    );
     expect(stored[0]?.role).toBe(role);
   });
 
@@ -457,7 +460,7 @@ describe.skipIf(!ready)('agents', () => {
     expectProblem(stale, 'CONFLICT_STALE');
   });
 
-  it('PATCHes ordinary fields without reading the agent row first', async () => {
+  it('PATCHes supplied fields and rejects an empty update', async () => {
     const slug = unique('patch-plain');
     createdAgents.push(slug);
     const created = await request(app, {
@@ -488,8 +491,19 @@ describe.skipIf(!ready)('agents', () => {
       headers: auth(),
       payload: {},
     });
-    expect(empty.statusCode, empty.body).toBe(200);
-    expect(empty.json<Agent>().name).toBe('Renamed plain');
+    expect(empty.statusCode, empty.body).toBe(400);
+    expectProblem(empty, 'INVALID_INPUT');
+    const unchanged = await request(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}`,
+      headers: auth(),
+    });
+    expect(unchanged.statusCode, unchanged.body).toBe(200);
+    expect(unchanged.json<Agent>()).toMatchObject({
+      name: 'Renamed plain',
+      effort: 'high',
+      updatedAt: changed.json<Agent>().updatedAt,
+    });
 
     // null 是合法的「清除回未配置」，与 undefined（不动）语义不同。
     const cleared = await request(app, {

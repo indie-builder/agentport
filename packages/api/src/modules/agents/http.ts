@@ -4,6 +4,8 @@ import {
   AGENT_PACKAGE_MAX_BYTES,
   AGENT_PACKAGE_MAX_ENTRIES,
   AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
+  displayNameSchema,
+  INDEX_FILE_NAME,
   idParams,
   slugSchema,
 } from '@agentport/shared';
@@ -24,10 +26,10 @@ import { decodePackage, encodePackage } from './package-zip.js';
 import { importAgent } from './use-cases.js';
 import { renderAgentWorkspace } from './workspace.js';
 
-const importQuerySchema = z
+export const agentImportQuerySchema = z
   .object({
     slug: slugSchema.optional(),
-    name: z.string().min(1).max(128).optional(),
+    name: displayNameSchema.optional(),
     runtimeEnvironmentId: z.string().min(1).optional(),
   })
   .strict();
@@ -45,7 +47,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
       requireTrustedOrigin(context);
       if (c.req.header('content-type')?.split(';')[0]?.trim() !== 'application/zip')
         fail('UNSUPPORTED_MEDIA_TYPE', '不支持的 Content-Type，请使用 application/zip');
-      const query = importQuerySchema.parse(c.req.query());
+      const query = agentImportQuerySchema.parse(c.req.query());
       let files: Map<string, string>;
       try {
         files = decodePackage(Buffer.from(await c.req.arrayBuffer()));
@@ -167,7 +169,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
       const row = await authorizedAgent(context, id, 'agents.memory.read');
       const archive = await withMemoryTargetLock(
         context.client,
-        { kind: 'agent_memory', agentId: row.id, name: 'MEMORY.md' },
+        { kind: 'agent_memory', agentId: row.id, name: INDEX_FILE_NAME },
         requireUser(context).businessId,
         async () => {
           const listed = await listMemoryFiles(context.config.WORKSPACES_DIR, row.slug);

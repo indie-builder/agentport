@@ -1,5 +1,5 @@
 import { AppError } from '@agentport/core';
-import type { AccessFilter, Agent, AgentDuplicateInput, AgentInput } from '@agentport/shared';
+import type { AccessFilter, Agent, AgentDuplicateInput } from '@agentport/shared';
 import {
   and,
   asc,
@@ -12,7 +12,7 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
   agentMembers,
@@ -27,10 +27,11 @@ import {
   servers,
   skills,
 } from '../schema.js';
-import { insertAgentVersion, retryOnVersionConflict, type Tx } from './agent-versions.js';
+import { insertAgentVersion, retryOnVersionConflict } from './agent-versions.js';
 import type { ConversationSandboxTarget } from './chat.js';
-import { notStale } from './freshness.js';
+import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
+import { listAgentPluginBindingInputs } from './plugins.js';
 
 export type AgentRow = typeof agents.$inferSelect;
 
@@ -43,9 +44,9 @@ export interface AgentWrite {
   systemPromptMd: string;
   allowedTools: string[];
   disallowedTools: string[];
-  permissionMode: string;
-  uiFormat: string;
-  effort: string | null;
+  permissionMode: AgentRow['permissionMode'];
+  uiFormat: AgentRow['uiFormat'];
+  effort: AgentRow['effort'];
   enabled: boolean;
   maxTurns: number;
   /** numeric 列以字符串写入，避免浮点误差。 */
@@ -86,12 +87,12 @@ export function toAgent(
     runtimeEnvironmentId: row.runtimeEnvironmentId,
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
-    permissionMode: row.permissionMode as AgentInput['permissionMode'],
-    uiFormat: row.uiFormat as AgentInput['uiFormat'],
+    permissionMode: row.permissionMode,
+    uiFormat: row.uiFormat,
     maxTurns: row.maxTurns,
     maxBudgetUsd: Number(row.maxBudgetUsd),
     timeoutMs: row.timeoutMs,
-    ...(row.effort === null ? {} : { effort: row.effort as NonNullable<AgentInput['effort']> }),
+    ...(row.effort === null ? {} : { effort: row.effort }),
     enabled: row.enabled,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -157,7 +158,7 @@ export async function listAgents(
     .orderBy(asc(agents.createdAt), asc(agents.id));
 }
 
-export async function getAgent(db: Database | Tx, id: string): Promise<AgentRow | null> {
+export async function getAgent(db: DbHandle, id: string): Promise<AgentRow | null> {
   const [row] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   return row ?? null;
 }
@@ -168,7 +169,7 @@ export async function getAgent(db: Database | Tx, id: string): Promise<AgentRow 
  * 调用方若会顺带拿行锁，必须先调 lockAgentBindings。
  */
 async function lockSubAgentBindings(
-  tx: Tx,
+  tx: Transaction,
   selfId: string | null,
   subAgentIds: string[],
 ): Promise<void> {
@@ -231,7 +232,7 @@ async function lockSubAgentBindings(
  * 改变委派活动集合前，确认真实活动 run 已结束。审核 run 不挂可写目录、也不占委派资源，
  * 因此不算活动运行；queued 取消会直接进入终态，running 取消等 worker 收尾后才解除保护。
  */
-async function assertAgentsIdle(db: Database | Tx, agentIds: string[]): Promise<void> {
+async function assertAgentsIdle(db: DbHandle, agentIds: string[]): Promise<void> {
   if (agentIds.length === 0) return;
   const [active] = await db
     .select({ id: agentRuns.id })
@@ -347,7 +348,7 @@ export async function duplicateAgent(
           const serverIds = await getAgentServerIds(tx, sourceId);
           const skillIds = await getAgentSkillIds(tx, sourceId);
           const pluginBindings =
-            (await listAgentPluginBindings(tx, [sourceId])).get(sourceId) ?? [];
+            (await listAgentPluginBindingInputs(tx, [sourceId])).get(sourceId) ?? [];
           const ruleRows = await tx
             .select()
             .from(agentRules)
@@ -485,8 +486,7 @@ export async function updateAgent(
         .update(agents)
         .set({
           ...patch,
-          // 版本按毫秒比较，同一毫秒内的连续更新也要推进，否则旧 token 仍会命中。
-          updatedAt: sql`greatest(now(), date_trunc('milliseconds', ${agents.updatedAt}) + interval '1 millisecond')`,
+          updatedAt: touchUpdatedAt(agents.updatedAt),
         })
         .where(where)
         .returning();
@@ -534,7 +534,7 @@ export async function updateAgent(
       const nextSubAgentIds = subAgentIds ?? (await getAgentSubAgentIds(tx, id));
       if (pluginBindings !== undefined) await writeAgentPluginBindings(tx, id, pluginBindings);
       const nextPluginBindings =
-        pluginBindings ?? (await listAgentPluginBindings(tx, [id])).get(id) ?? [];
+        pluginBindings ?? (await listAgentPluginBindingInputs(tx, [id])).get(id) ?? [];
       await insertAgentVersion(
         tx,
         id,
@@ -546,41 +546,13 @@ export async function updateAgent(
   );
 }
 
-export async function listAgentPluginBindings(
-  db: Database | Tx,
-  agentIds: string[],
-): Promise<Map<string, Agent['pluginBindings']>> {
-  const out = new Map<string, Agent['pluginBindings']>();
-  if (agentIds.length === 0) return out;
-  const rows = await db
-    .select({
-      agentId: agentPlugins.agentId,
-      pluginId: agentPlugins.pluginId,
-      allowHooks: agentPlugins.allowHooks,
-      allowMcp: agentPlugins.allowMcp,
-    })
-    .from(agentPlugins)
-    .where(inArray(agentPlugins.agentId, agentIds))
-    .orderBy(asc(agentPlugins.agentId), asc(agentPlugins.pluginId));
-  for (const row of rows) {
-    const list = out.get(row.agentId) ?? [];
-    list.push({
-      pluginId: row.pluginId,
-      allowHooks: row.allowHooks,
-      allowMcp: row.allowMcp,
-    });
-    out.set(row.agentId, list);
-  }
-  return out;
-}
-
 /**
  * 专家与插件的绑定随专家一起写。子智能体不允许绑定：复查 parentId，
  * 这样「解绑后立刻被收为子智能体」和「已解绑后又想恢复旧绑定」都过不了。
  * 本函数是私有写 helper，不加锁：调用方在有绑定时必须先 lockAgentBindings，且在碰任何行锁之前。
  */
 async function writeAgentPluginBindings(
-  tx: Tx,
+  tx: Transaction,
   agentId: string,
   bindings: Agent['pluginBindings'],
 ): Promise<void> {
@@ -656,7 +628,7 @@ export async function deleteAgent(
 }
 
 async function readAgentDeletionSnapshot(
-  tx: Tx,
+  tx: Transaction,
   input: AgentDeletionInput,
   lockSelf = false,
 ): Promise<AgentDeletionSnapshot | null> {
@@ -719,7 +691,7 @@ function sameTargets(
 
 /** 目标会话与各会话已落库的容器名；锁内查询，供事务外精确关闭。 */
 async function sandboxTargetsForAgent(
-  tx: Tx,
+  tx: Transaction,
   agentId: string,
 ): Promise<ConversationSandboxTarget[]> {
   const conversationRows = await tx
@@ -748,7 +720,7 @@ async function sandboxTargetsForAgent(
   }));
 }
 
-export async function getAgentServerIds(db: Database | Tx, agentId: string): Promise<string[]> {
+export async function getAgentServerIds(db: DbHandle, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ serverId: agentServers.serverId })
     .from(agentServers)
@@ -757,7 +729,7 @@ export async function getAgentServerIds(db: Database | Tx, agentId: string): Pro
   return rows.map((row) => row.serverId);
 }
 
-export async function getAgentSkillIds(db: Database | Tx, agentId: string): Promise<string[]> {
+export async function getAgentSkillIds(db: DbHandle, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ skillId: agentSkills.skillId })
     .from(agentSkills)
@@ -772,7 +744,7 @@ export async function listSubAgents(db: Database, agentId: string): Promise<Agen
 }
 
 /** 某 agent 的子智能体 id（parent_id 指向它）。 */
-export async function getAgentSubAgentIds(db: Database | Tx, agentId: string): Promise<string[]> {
+export async function getAgentSubAgentIds(db: DbHandle, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ id: agents.id })
     .from(agents)

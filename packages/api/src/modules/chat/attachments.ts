@@ -3,11 +3,11 @@ import { repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import { authorizeObject } from '../../http/access.js';
 import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import { loadReadableConversation } from './access.js';
 import { contentDisposition } from './outputs.js';
 
 const notFound = () => fail('NOT_FOUND', '附件不存在，可能已被清理');
@@ -25,16 +25,7 @@ export function registerChatAttachmentsHttp(app: Hono<HttpEnv>): void {
           }),
         })
         .parse({ params: c.req.param(), query: c.req.query() });
-      const conversation = await repo.chat.getConversation(context.db, input.params.id);
-      if (!conversation) {
-        return fail('CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请从会话列表重新打开');
-      }
-      await authorizeObject(
-        context,
-        'conversations.read',
-        { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
-        '会话不存在，可能已被删除；请从会话列表重新打开',
-      );
+      const conversation = await loadReadableConversation(context, input.params.id);
       const attachment = await repo.chat.findConversationAttachment(
         context.db,
         conversation.id,

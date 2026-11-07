@@ -222,10 +222,8 @@ function runBrowserE2e(env: Record<string, string>): Promise<number> {
       [
         join(REPO, 'node_modules/e2e/dist/cli/bin.js'),
         'run',
-        'tests/support/auth.e2e.ts',
-        ...(EXECUTION_MODE
-          ? ['tests/eval-execution.e2e.ts', 'tests/runtime-build.e2e.ts']
-          : ['tests/channels.e2e.ts']),
+        '--config',
+        EXECUTION_MODE ? 'e2e.execution.config.ts' : 'e2e.channels.config.ts',
         '--reporter',
         'list',
         ...(EXECUTION_MODE ? ['--output', executionOutput, '--no-cache'] : []),

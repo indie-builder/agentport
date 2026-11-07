@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fail, inspectKnowledgeAudio, isAppError, segmentForSearch } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
@@ -22,6 +22,7 @@ import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
 import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../agents/package-zip.js';
+import { blobPathFor, storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
 
 /**
  * 知识库数据包（`pace/knowledge@1`）：ZIP 根 manifest.json 记录库元数据、文件夹、标签、
@@ -259,11 +260,6 @@ function assertEntryPath(path: string): void {
   if (path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
     invalid('包内路径不能包含空段、. 或 ..', path);
   }
-}
-
-/** 原件按内容寻址存放在知识库目录下。 */
-function blobPathFor(knowledgeDir: string, sha256: string): string {
-  return join(knowledgeDir, 'blobs', sha256.slice(0, 2), sha256);
 }
 
 /**
@@ -935,11 +931,7 @@ export async function importKnowledgePackage(
   }
   if (
     manifest.base.settings.imageProcessing.imageVectorEnabled &&
-    !(
-      embedding.embeddingProtocol === 'cohere_v2' &&
-      embedding.model === 'embed-v4.0' &&
-      embedding.imageInputEnabled
-    )
+    !supportsImageVectors(embedding)
   ) {
     fail(
       'CONFLICT',
@@ -1349,12 +1341,9 @@ async function storeBlob(
   created: string[],
 ): Promise<void> {
   if (hash(data) !== expectedSha) invalid('原件内容与 manifest 的 sha256 不符');
-  const target = join(knowledgeDir, 'blobs', expectedSha.slice(0, 2), expectedSha);
+  const target = blobPathFor(knowledgeDir, expectedSha);
   if (await stat(target).catch(() => null)) return;
-  await mkdir(dirname(target), { recursive: true });
-  const temp = `${target}.tmp-${newId('knowledgeJob')}`;
-  await writeFile(temp, data);
-  await rename(temp, target);
+  await storeDocumentBlob(knowledgeDir, data);
   created.push(target);
 }
 

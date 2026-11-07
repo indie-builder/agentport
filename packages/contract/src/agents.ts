@@ -3,7 +3,6 @@ import {
   agentInputSchema,
   agentMemberInputSchema,
   agentOptionsSchema,
-  agentRoleSchema,
   agentSchema,
   agentSummarySchema,
   businessIdSchema,
@@ -14,10 +13,8 @@ import {
   outputStyleInputSchema,
   outputStyleSchema,
   permissionIdSchema,
-  permissionModeSchema,
   ruleSchema,
   slugSchema,
-  uiFormatSchema,
   workspaceFilesSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
@@ -55,39 +52,35 @@ const identitiesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
-const createSchema = agentInputSchema
-  .extend({ allowedTools: z.array(z.string()).default([]) })
-  .strict();
+const createSchema = agentInputSchema.strict();
+const agentFields = agentInputSchema.shape;
 const patchSchema = z
   .object({
-    slug: slugSchema.optional(),
-    name: z.string().min(1).max(128).optional(),
-    role: agentRoleSchema.removeDefault().optional(),
-    description: z.string().max(300).optional(),
-    model: z.string().min(1).optional(),
-    systemPrompt: z.string().optional(),
-    serverIds: z.array(z.string()).optional(),
-    skillIds: z.array(z.string()).optional(),
-    pluginBindings: z
-      .array(
-        z.object({
-          pluginId: z.string(),
-          allowHooks: z.boolean().default(false),
-          allowMcp: z.boolean().default(false),
-        }),
-      )
+    slug: agentFields.slug.optional(),
+    name: agentFields.name.optional(),
+    role: agentFields.role.removeDefault().optional(),
+    description: agentFields.description.removeDefault().optional(),
+    model: agentFields.model.removeDefault().min(1).optional(),
+    systemPrompt: agentFields.systemPrompt.removeDefault().optional(),
+    serverIds: agentFields.serverIds.removeDefault().optional(),
+    skillIds: agentFields.skillIds.removeDefault().optional(),
+    pluginBindings: agentFields.pluginBindings.removeDefault().optional(),
+    subAgentIds: agentFields.subAgentIds.removeDefault().optional(),
+    runtimeEnvironmentId: agentFields.runtimeEnvironmentId
+      .removeDefault()
+      .unwrap()
+      .min(1)
+      .nullable()
       .optional(),
-    subAgentIds: z.array(z.string()).optional(),
-    runtimeEnvironmentId: z.string().min(1).nullable().optional(),
-    allowedTools: z.array(z.string()).optional(),
-    disallowedTools: z.array(z.string()).optional(),
-    permissionMode: permissionModeSchema.optional(),
-    uiFormat: uiFormatSchema.optional(),
-    maxTurns: z.number().int().positive().optional(),
-    maxBudgetUsd: z.number().positive().optional(),
-    timeoutMs: z.number().int().positive().optional(),
-    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).nullable().optional(),
-    enabled: z.boolean().optional(),
+    allowedTools: agentFields.allowedTools.removeDefault().optional(),
+    disallowedTools: agentFields.disallowedTools.removeDefault().optional(),
+    permissionMode: agentFields.permissionMode.removeDefault().optional(),
+    uiFormat: agentFields.uiFormat.removeDefault().optional(),
+    maxTurns: agentFields.maxTurns.removeDefault().optional(),
+    maxBudgetUsd: agentFields.maxBudgetUsd.removeDefault().optional(),
+    timeoutMs: agentFields.timeoutMs.removeDefault().optional(),
+    effort: agentFields.effort.nullable().optional(),
+    enabled: agentFields.enabled.removeDefault().optional(),
     expectedUpdatedAt: z.coerce.date().optional(),
   })
   .strict();

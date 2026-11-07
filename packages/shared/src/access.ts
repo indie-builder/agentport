@@ -433,6 +433,34 @@ export function scopeCovers(candidate: AccessScope, required: AccessScope): bool
   return SCOPE_COVERAGE[candidate]?.includes(required) ?? false;
 }
 
+export type AgentRelation = {
+  exists: boolean;
+  ownerBusinessId: string | null;
+  canUse: boolean;
+  canMaintain: boolean;
+};
+
+export function agentScopeAllows(
+  scope: AccessScope,
+  relation: AgentRelation,
+  businessId: string,
+): boolean {
+  if (!relation.exists) return false;
+  const owner = relation.ownerBusinessId === businessId;
+  switch (scope) {
+    case 'platform':
+      return true;
+    case 'authorized_agents':
+      return owner || relation.canUse;
+    case 'maintained_agents':
+      return owner || relation.canMaintain;
+    case 'owned_agents':
+      return owner;
+    case 'own_data':
+      return false;
+  }
+}
+
 /** 校验一组 grants 的目录值、允许 scope、重复项与读取依赖；返回第一条问题的中文说明。 */
 export function validateGrants(grants: readonly PermissionGrant[]): string | null {
   const seen = new Set<string>();

@@ -40,7 +40,12 @@ status="$(curl -sS -D "$HEADER_FILE" -o "$BODY_FILE" -w '%{http_code}' \
   -H 'content-type: application/json' \
   -d "$(printf '{"username":"%s","password":"%s"}' "$ADMIN_USER" "$ADMIN_PASSWORD")")" ||
   fail "POST /api/auth/login 请求失败"
-[ "$status" = 200 ] || fail "登录失败（${status}）：$(cat "$BODY_FILE")"
+if [ "$status" != 200 ]; then
+  if [ "$status" = 401 ]; then
+    fail "登录失败（401）：ADMIN_USER/ADMIN_PASSWORD 可能不是当前生效的凭据（.env 只在首次初始化时使用，之后改密不会回写）。用环境变量显式覆盖 ADMIN_USER/ADMIN_PASSWORD 后重试；不会重置已有密码。"
+  fi
+  fail "登录失败（${status}）：$(cat "$BODY_FILE")"
+fi
 # 生产模式 cookie 带 Secure，curl 的 cookie jar 不会把它发回 http，所以手动取 header。
 COOKIE="$(sed -n 's/^[Ss]et-[Cc]ookie: *\([^;]*\).*/\1/p' "$HEADER_FILE")"
 [ -n "$COOKIE" ] || fail "登录响应没有 Set-Cookie"

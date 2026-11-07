@@ -1,19 +1,19 @@
+import { afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ChatEvent, ResolvedRuntimeEnvironment, SandboxInputCommand } from '@agentport/shared';
 import pino from 'pino';
-import { afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
-import {
-  advanceTimersByTimeAsync,
-  runOnlyPendingTimersAsync,
-  waitFor,
-} from './fixtures/native-test.js';
 import {
   type Sandbox,
   SandboxCleanupError,
   type SandboxCreateOptions,
   type SandboxProvider,
 } from '../src/sandbox/provider.js';
+import {
+  advanceTimersByTimeAsync,
+  runOnlyPendingTimersAsync,
+  waitFor,
+} from './fixtures/native-test.js';
 
 function abortError(): Error {
   const error = new Error('aborted');
@@ -421,28 +421,29 @@ describe('session sandboxes', () => {
     await sessions.close();
   });
 
-  it('rebuilds the container when the bound environment or a session mount changes', async () => {
+  it.each([
+    { runtimeEnvironmentId: 'env_2' },
+    { workspaceDir: '/host/workspace-2' },
+    { outputsDir: '/host/outputs-2' },
+    { inputsDir: '/host/inputs-2' },
+    { memoryDir: '/host/memory-2' },
+    { sessionsDir: '/host/sessions-2' },
+    { personalDir: '/host/user-2' },
+    { personalDir: undefined },
+    { subAgentMemoryDirs: [{ slug: 'child', memoryDir: '/host/child' }] },
+    { subAgentMemoryDirs: [{ slug: 'renamed', memoryDir: '/host/child' }] },
+  ])('rebuilds when a bound environment or session path changes: %j', async (change) => {
     const provider = new FakeProvider();
     const sessions = await createManager(provider);
-
-    const first = await acquire(sessions, spec());
+    const target = spec();
+    const first = await acquire(sessions, target);
     await first.release({ reuse: true });
-    const changed = await acquire(sessions, spec({ runtimeEnvironmentId: 'env_2' }));
+    const next = { ...target, ...change };
+    if (change.personalDir === undefined && 'personalDir' in change) delete next.personalDir;
+    const changed = await acquire(sessions, next);
     expect(changed.sandboxId).toBe('sandbox-2');
     expect(provider.destroyed).toEqual(['sandbox-1']);
-    await changed.release({ reuse: true });
-
-    const moved = await acquire(
-      sessions,
-      spec({
-        runtimeEnvironmentId: 'env_2',
-        memoryDir: '/host/m2',
-        personalDir: '/host/user-2',
-      }),
-    );
-    expect(moved.sandboxId).toBe('sandbox-3');
-    expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-2']);
-    await moved.release({ reuse: false });
+    await changed.release({ reuse: false });
     await sessions.close();
   });
 

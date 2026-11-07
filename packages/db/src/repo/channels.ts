@@ -1,7 +1,7 @@
 import { fail } from '@agentport/core';
 import type { ChannelRole } from '@agentport/shared';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import {
   agents,
@@ -40,9 +40,6 @@ export type ChannelDetail = {
   members: ChannelMemberRow[];
   agentBindings: ChannelAgentBindingRow[];
 };
-
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
-type DbHandle = Database | Tx;
 
 type NotFound = { kind: 'not_found'; target: 'channel' | 'member' | 'account' | 'agent' };
 

@@ -3,7 +3,6 @@ import { type Database, repo } from '@agentport/db';
 import type { MarketInstallInput } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { isPgCode } from '../../http/errors.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { toApi } from '../skills/api.js';
 import { installFromMarket } from './install.js';
 
@@ -27,7 +26,7 @@ export async function installMarketSkill(
       { ...installed.skill, sourceId: input.id },
       installed.files,
     );
-    await writeAudit(deps.db, deps.log, {
+    await repo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: 'skill.installed',
       target: row.id,

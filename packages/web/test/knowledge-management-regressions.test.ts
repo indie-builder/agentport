@@ -354,7 +354,13 @@ describe('知识管理真实路由回归', () => {
       ),
       http.put('/api/knowledge/documents/kdoc_99/manual', () =>
         HttpResponse.json(
-          { code: 'CONFLICT', message: '正文版本已变化', status: 409, requestId: '', retryable: false },
+          {
+            code: 'CONFLICT',
+            message: '正文版本已变化',
+            status: 409,
+            requestId: '',
+            retryable: false,
+          },
           { status: 409 },
         ),
       ),
@@ -617,7 +623,7 @@ describe('知识管理真实路由回归', () => {
       .mockImplementation(() => {});
     await click(button('下载结果'));
     expect(downloadClick).toHaveBeenCalledOnce();
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:evaluation');
+    await until(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:evaluation'));
     const reader = new FileReader();
     const body = new Promise<string>((resolve) => {
       reader.onload = () => resolve(String(reader.result));

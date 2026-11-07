@@ -4,17 +4,11 @@ import { repo } from '@agentport/db';
 import {
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
   type RuntimeEnvironmentVersion,
+  runtimeBuildEnqueueOptions,
 } from '@agentport/shared';
 import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
 import { getRuntimeEnvironmentBuildQueue } from '../../queue/producer.js';
-
-const buildJobOptions = (versionId: string) => ({
-  jobId: versionId,
-  attempts: 1,
-  removeOnComplete: 100,
-  removeOnFail: 200,
-});
 
 export async function requestRuntimeEnvironmentBuild(
   db: Database,
@@ -32,7 +26,7 @@ export async function requestRuntimeEnvironmentBuild(
     await getRuntimeEnvironmentBuildQueue().add(
       'build',
       { versionId: version.id },
-      buildJobOptions(version.id),
+      runtimeBuildEnqueueOptions(version.id),
     );
   } catch {
     await repo.runtimeEnvironments

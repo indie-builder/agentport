@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { problemSchema } from '@agentport/shared';
 import type { AnyContractRouter } from '@orpc/contract';
 import { OpenAPIGenerator, type OpenAPIGeneratorGenerateOptions } from '@orpc/openapi';
@@ -8,6 +9,8 @@ import { type HttpEnv, requestContext } from '../http/context.js';
 import { access } from '../http/middleware.js';
 import { nativeOpenAPISchemas } from '../http/native-openapi.js';
 import { AUTH_COOKIE } from '../modules/auth/types.js';
+
+const { version }: { version: string } = createRequire(import.meta.url)('../../../../package.json');
 
 const DOCS_CSP = [
   "default-src 'self'",
@@ -39,7 +42,7 @@ export function registerOpenApi(
     async (c) => {
       document ??= generator
         .generate(contract, {
-          info: { title: 'Agentport API', version: '0.14.0' },
+          info: { title: 'Agentport API', version },
           servers: [{ url: '/api' }],
           paths,
           components: {

@@ -92,7 +92,7 @@ const files: WorkspaceFiles = {
   mcpJson: '{}',
   claudeMd: '# CLAUDE',
   agentMd: '# Expert',
-  settingsJson: null,
+  settingsJson: '{}',
   skills: [],
   subAgents: [],
   rules: [],

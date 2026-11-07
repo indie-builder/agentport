@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { accountNameSchema } from './access.js';
 import { runTriggerSchema } from './ops.js';
 import { outputShareSchema } from './outputs.js';
-import { runListItemSchema, runStatusSchema } from './schemas.js';
+import { runStatusSchema } from './run-state.js';
+import { runListItemSchema } from './schemas.js';
 
 /** 个人资料：只允许改显示姓名；身份字段只读。 */
 export const updatePersonalProfileInputSchema = z

@@ -10,10 +10,9 @@ import {
   type RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../schema.js';
-import type { Tx } from './agent-versions.js';
 
 export type RuntimeEnvironmentRow = typeof runtimeEnvironments.$inferSelect;
 export type RuntimeEnvironmentVersionRow = typeof runtimeEnvironmentVersions.$inferSelect;
@@ -103,7 +102,7 @@ export async function listRuntimeEnvironments(db: Database): Promise<RuntimeEnvi
   return rows.map(toRuntimeEnvironment);
 }
 
-async function getRow(db: Database | Tx, id: string): Promise<RuntimeEnvironmentRow | null> {
+async function getRow(db: DbHandle, id: string): Promise<RuntimeEnvironmentRow | null> {
   const [row] = await db
     .select()
     .from(runtimeEnvironments)

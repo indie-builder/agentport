@@ -1,21 +1,67 @@
-export * from './agent-md.js';
-export * from './attachments.js';
-export * from './effect-runtime.js';
-export * from './errors.js';
-export * from './knowledge-audio.js';
-export * from './knowledge-models.js';
-export * from './mcp-json.js';
-export * from './mcp-token.js';
-export * from './official-files.js';
-export * from './openui-prompt.js';
-export * from './openui-response.js';
-export * from './outputs.js';
-export * from './personal-memory.js';
-export * from './plugin-render.js';
-export * from './process-guards.js';
-export * from './secrets.js';
-export * from './skill-draft.js';
-export * from './skill-md.js';
-export * from './tools.js';
-export * from './workspace.js';
-export * from './workspace-input.js';
+export { parseAgentMd } from './agent-md.js';
+export {
+  conversationInputsDir,
+  copyConversationInputs,
+  displayAttachmentFilename,
+  readConversationAttachment,
+  removeConversationInputs,
+  writeConversationAttachments,
+} from './attachments.js';
+export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';
+export { AppError, fail, isAppError } from './errors.js';
+export { inspectKnowledgeAudio } from './knowledge-audio.js';
+export {
+  type AsrProfile,
+  type AudioTranscript,
+  embedImages,
+  embedTexts,
+  KnowledgeModelError,
+  rerankDocuments,
+  segmentForSearch,
+  transcribeAudio,
+} from './knowledge-models.js';
+export { parseMcpJson } from './mcp-json.js';
+export { hashMcpToken, WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from './mcp-token.js';
+export {
+  parseChildAgentMd,
+  parseClaudeMd,
+  parseOutputStyleMd,
+  parseRuleMd,
+} from './official-files.js';
+export { resolveOpenUiResponse } from './openui-response.js';
+export {
+  captureOutputDraft,
+  copyConversationOutputs,
+  listOutputFiles,
+  outputDraftBlockedReason,
+  outputMessageAnchors,
+  prepareOutputDraft,
+  publishOutputSnapshot,
+  readOutputFile,
+  removeConversationOutputs,
+  setOutputDraftBlocked,
+  sha256Hex,
+} from './outputs.js';
+export {
+  personalMemoryDir,
+  personalMemoryPath,
+  writePersonalMemoryProjection,
+} from './personal-memory.js';
+export { renderPlugin } from './plugin-render.js';
+export { installProcessGuards } from './process-guards.js';
+export { decryptSecrets, encryptSecrets } from './secrets.js';
+export { buildSkillDraft } from './skill-draft.js';
+export { type ParsedSkill, parseSkillMd, type SkillProvenance } from './skill-md.js';
+export type { McpJsonEntry } from './tools.js';
+export {
+  renderOutputStyleMd,
+  renderRuleMd,
+  renderSkillMd,
+  renderSubAgentMd,
+  renderWorkspace,
+  unionById,
+  type WorkspaceFiles,
+  type WorkspacePlugin,
+  type WorkspaceSkill,
+} from './workspace.js';
+export { toWorkspaceAgent, toWorkspaceInput } from './workspace-input.js';

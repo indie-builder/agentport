@@ -26,11 +26,6 @@ import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions } from './sandbox/provider.js';
 
-/**
- * 试连要多两个容器入口字段：覆盖镜像 ENTRYPOINT 并传 `dist/probe.js`。
- * SandboxCreateOptions/SandboxProvider 由 worker 运行线补齐这两个可选字段；
- * 运行线接入前，`registerSandboxProbe` 会先确认 provider 支持，再传给 `runSandboxProbe`。
- */
 export interface ProbeSandboxOptions extends SandboxCreateOptions {
   /** 覆盖镜像 ENTRYPOINT。 */
   entrypoint: string;
@@ -38,11 +33,9 @@ export interface ProbeSandboxOptions extends SandboxCreateOptions {
   command: string[];
 }
 
-export type ProbeSandbox = Sandbox;
-
 export interface ProbeProvider {
-  create(options: ProbeSandboxOptions): Promise<ProbeSandbox>;
-  destroy(sandbox: ProbeSandbox): Promise<void>;
+  create(options: ProbeSandboxOptions): Promise<Sandbox>;
+  destroy(sandbox: Sandbox): Promise<void>;
   destroyAll?(): Promise<void>;
 }
 
@@ -131,7 +124,7 @@ export async function runSandboxProbe(
   // 每次试连独立的取消信号：超时或关停时停掉冷拉取，不能等它跑完再销毁容器。
   const createAbort = new AbortController();
 
-  let sandbox: ProbeSandbox | undefined;
+  let sandbox: Sandbox | undefined;
   let abandoned = false;
   let destroyed = false;
   const destroy = async (): Promise<void> => {

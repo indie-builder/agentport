@@ -5,7 +5,6 @@ import {
   skillInputSchema,
   skillSchema,
   skillWithAgentCountSchema,
-  slugSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
@@ -14,14 +13,15 @@ const skillFileParams = z.object({
   id: z.string().min(1),
   path: skillFileInputSchema.shape.path,
 });
+const skillFields = skillInputSchema.shape;
 const patchSchema = z.object({
-  slug: slugSchema.optional(),
-  name: z.string().min(1).max(128).optional(),
-  description: z.string().min(1).max(500).optional(),
-  body: z.string().optional(),
-  license: z.string().max(200).nullable().optional(),
-  compatibility: z.string().max(200).nullable().optional(),
-  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  slug: skillFields.slug.optional(),
+  name: skillFields.name.optional(),
+  description: skillFields.description.optional(),
+  body: skillFields.body.removeDefault().optional(),
+  license: skillFields.license.nullable(),
+  compatibility: skillFields.compatibility.nullable(),
+  metadata: skillFields.metadata.nullable(),
   expectedUpdatedAt: z.iso.datetime().optional(),
 });
 const importSchema = z.object({ skillMd: z.string().max(131072) });

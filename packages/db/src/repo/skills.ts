@@ -1,10 +1,10 @@
 import { AppError, fail, type SkillProvenance } from '@agentport/core';
 import { findSkillResourcePathConflict } from '@agentport/shared';
-import { and, asc, count, eq, sql } from 'drizzle-orm';
+import { and, asc, count, eq } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentSkills, skillFiles, skills } from '../schema.js';
-import { notStale } from './freshness.js';
+import { notStale, touchUpdatedAt } from './freshness.js';
 
 export type SkillRow = typeof skills.$inferSelect;
 
@@ -123,8 +123,7 @@ export async function updateSkill(
     .update(skills)
     .set({
       ...patch,
-      // 版本按毫秒比较，同一毫秒内的连续更新也要推进，否则旧 token 仍会命中。
-      updatedAt: sql`greatest(now(), date_trunc('milliseconds', ${skills.updatedAt}) + interval '1 millisecond')`,
+      updatedAt: touchUpdatedAt(skills.updatedAt),
     })
     .where(
       expectedUpdatedAt === undefined

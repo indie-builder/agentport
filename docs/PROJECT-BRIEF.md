@@ -914,7 +914,6 @@ bun run dev
 | knowledge sync item | `ksit` | — |
 | knowledge wiki page | `kwp` | — |
 | knowledge wiki version | `kwv` | — |
-| knowledge wiki source | `kws` | — |
 | knowledge model profile | `kmp` | — |
 
 TypeID 由 uuidv7 编码而来，按时间排序，便于按创建顺序扫描与分页；前缀让日志、URL 和跨表引用自解释。

@@ -47,6 +47,8 @@
     "e2e:channel": "bun run --filter @agentport/shared --filter @agentport/db --filter @agentport/core build && bun --cwd packages/worker ../../scripts/e2e-channel.ts",
     "e2e:channel:stack": "bun run --filter @agentport/shared --filter @agentport/db --filter @agentport/core build && E2E_CHANNEL_MODE=stack bun --cwd packages/worker ../../scripts/e2e-channel.ts",
     "e2e:channel:ui": "bun run --filter @agentport/shared --filter @agentport/db --filter @agentport/core build && E2E_CHANNEL_MODE=ui bun --cwd packages/worker ../../scripts/e2e-channel.ts",
+    "e2e:channel:execution": "bun run --filter @agentport/shared --filter @agentport/db --filter @agentport/core build && E2E_CHANNEL_MODE=execution bun --cwd packages/worker ../../scripts/e2e-channel.ts",
+    "e2e:channels-business": "e2e run --config e2e.channels-business.config.ts",
     "dev:data": "node -e \"process.env.E2E_DEV_DATA='1';process.env.E2E_DEV_DATA_VERIFY='0';const {spawnSync}=require('node:child_process');const r=spawnSync(process.execPath,['node_modules/e2e/dist/cli/bin.js','run','--config','e2e.dev-data.config.ts','--exclude-tag','verify','--grep-invert','verify'],{stdio:'inherit',env:process.env});process.exit(r.status??1)\"",
     "dev:data:verify": "node -e \"process.env.E2E_DEV_DATA='1';process.env.E2E_DEV_DATA_VERIFY='1';const {spawnSync}=require('node:child_process');const r=spawnSync(process.execPath,['node_modules/e2e/dist/cli/bin.js','run','--config','e2e.dev-data.config.ts','--grep','verify'],{stdio:'inherit',env:process.env});process.exit(r.status??1)\"",
     "db:generate": "bun run --filter @agentport/db generate",

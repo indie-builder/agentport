@@ -1,11 +1,6 @@
-import { type AgentInput, slugSchema } from '@agentport/shared';
+import { type AgentInput, agentInputSchema, effortSchema, slugSchema } from '@agentport/shared';
 import { fail } from './errors.js';
-import { parseMarkdownFrontmatter } from './markdown-frontmatter.js';
-
-/**
- * 官方工作区文件的读取端：与 `renderWorkspace` 的写入端一一对应。
- * 只解析官方文件本身，不在这里做平台绑定的推断。
- */
+import { parseMarkdownFrontmatter, splitHeading } from './markdown-frontmatter.js';
 
 /**
  * 平台生成后缀的边界：独占行、成对、结束标记必须位于文件末尾。
@@ -97,8 +92,6 @@ export interface ParsedChildAgent {
   systemPrompt: string;
 }
 
-const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-
 const CHILD_KEYS = new Set([
   'name',
   'description',
@@ -164,22 +157,22 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
   }
   const description = fields.get('description');
   const effort = fields.get('effort');
-  const effortLevel = EFFORT_LEVELS.find((level) => level === effort);
+  const effortLevel = effortSchema.options.find((level) => level === effort);
   if (effort !== undefined && effortLevel === undefined) {
     fail('INVALID_INPUT', '子智能体文件的 effort 取值不合法', { path: `${path}/effort` });
   }
   const text = body.replace(/\r\n/g, '\n');
-  // 生成后缀是渲染器追加的固定说明；用户正文里的同名标题、委派提示与标记示例都在它之前。
   const suffix = terminalGeneratedSuffix(text);
-  const lines = text.slice(0, suffix?.start ?? text.length).split('\n');
-  const headingIndex = lines.findIndex((line) => line.startsWith('# '));
-  const displayName =
-    headingIndex === -1 ? (description ?? name) : (lines[headingIndex] ?? '').slice(2).trim();
-  const rest = headingIndex === -1 ? lines : lines.slice(headingIndex + 1);
-  // 去掉紧随标题的描述行（与 frontmatter 一致时才删，避免误删正文）。
-  if (typeof description === 'string' && rest[0] === '' && rest[1] === description)
-    rest.splice(0, 2);
-  const prompt = rest.join('\n').trim();
+  const { body: rest, displayName } = splitHeading(text.slice(0, suffix?.start ?? text.length));
+  let prompt = rest.replace(/^(?:[ \t]*\n)+/, '');
+  if (displayName !== undefined && typeof description === 'string') {
+    const paragraph = description.replace(/\r\n/g, '\n');
+    if (prompt.replace(/\n+$/, '') === paragraph) prompt = '';
+    else if (prompt.startsWith(`${paragraph}\n\n`)) {
+      prompt = prompt.slice(paragraph.length + 2);
+    }
+  }
+  prompt = prompt.trim();
   // 没有生成后缀的手写文件仍需正文；渲染器产物的空正文是合法的。
   if (prompt === '' && suffix === null) {
     fail('INVALID_INPUT', '子智能体文件的正文不能为空', { path });
@@ -187,10 +180,10 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
 
   return {
     slug: name,
-    name: typeof displayName === 'string' && displayName !== '' ? displayName : name,
+    name: displayName ?? name,
     description: typeof description === 'string' ? description : '',
     model,
-    maxTurns: (maxTurns as number | undefined) ?? 20,
+    maxTurns: (maxTurns as number | undefined) ?? agentInputSchema.shape.maxTurns.parse(undefined),
     ...(effortLevel === undefined ? {} : { effort: effortLevel }),
     skills: stringList(fields.get('skills'), 'skills', path),
     mcpServers: stringList(fields.get('mcpServers'), 'mcpServers', path),

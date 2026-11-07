@@ -1,7 +1,7 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { authUsers, platformBootstrap } from '@agentport/db';
 import { PERMISSIONS } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { ensureBootstrap } from '../src/modules/auth/bootstrap.js';
 import { AUTH_COOKIE } from '../src/modules/auth/types.js';
 import {
@@ -98,6 +98,22 @@ describe.skipIf(!ready)('auth', () => {
       cookies: { [AUTH_COOKIE]: cookie?.value ?? '' },
     });
     expect(authed.statusCode, authed.body).toBe(200);
+    const signIn = spyOn(app.auth.api, 'signInUsername');
+    const getSession = spyOn(app.auth.api, 'getSession');
+    try {
+      getSession.mockResolvedValueOnce(null);
+      const retried = await login(app, config.ADMIN_USER, config.ADMIN_PASSWORD);
+      expect(retried.statusCode, retried.body).toBe(200);
+      expect(signIn).toHaveBeenCalledTimes(2);
+      signIn.mockClear();
+      getSession.mockRejectedValueOnce(new Error('session read failed'));
+      const failed = await login(app, config.ADMIN_USER, config.ADMIN_PASSWORD);
+      expectProblem(failed, 'INTERNAL_ERROR');
+      expect(signIn).toHaveBeenCalledTimes(1);
+    } finally {
+      signIn.mockRestore();
+      getSession.mockRestore();
+    }
   });
 
   it('GET /api/auth/me returns the unified access payload', async () => {
@@ -186,6 +202,9 @@ describe.skipIf(!ready)('auth', () => {
     });
     expect(changed.statusCode, changed.body).toBe(200);
     expect(changed.json()).toEqual({ ok: true });
+    const cleared = changed.cookies.find((entry) => entry.name === AUTH_COOKIE);
+    expect(cleared).toMatchObject({ value: '', path: '/', httpOnly: true, sameSite: 'Lax' });
+    expect(changed.headers.getSetCookie().join(';')).toContain('Max-Age=0');
 
     const oldSession = await request(app, {
       method: 'GET',
@@ -206,21 +225,17 @@ describe.skipIf(!ready)('auth', () => {
       .where(eq(authUsers.businessId, 'bootstrap-admin'));
     expect(before).toHaveLength(1);
 
-    const [credentialBefore] = (
-      await app.client.unsafe<{ password: string }[]>(
-        `select password from account where provider_id = 'credential'
+    const [credentialBefore] = await app.client.unsafe<{ password: string }[]>(
+      `select password from account where provider_id = 'credential'
          and user_id = (select id from "user" where business_id = 'bootstrap-admin')`,
-      )
     );
 
     await ensureBootstrap(app.db, testConfig());
     await ensureBootstrap(app.db, testConfig());
 
-    const [credentialAfter] = (
-      await app.client.unsafe<{ password: string }[]>(
-        `select password from account where provider_id = 'credential'
+    const [credentialAfter] = await app.client.unsafe<{ password: string }[]>(
+      `select password from account where provider_id = 'credential'
          and user_id = (select id from "user" where business_id = 'bootstrap-admin')`,
-      )
     );
     expect(credentialAfter?.password).toBe(credentialBefore?.password);
 

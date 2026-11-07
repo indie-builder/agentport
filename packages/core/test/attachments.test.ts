@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
   access,
@@ -20,7 +21,6 @@ import {
   type ChatAttachmentInput,
   type MessageAttachment,
 } from '@agentport/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   conversationInputsDir,
   copyConversationInputs,
@@ -221,7 +221,11 @@ describe('writeConversationAttachments / readConversationAttachment', () => {
       await rm(missingRoot, { recursive: true, force: true });
       await expect(
         readConversationAttachment({ root: missingRoot, slug, conversationId, attachment: meta }),
-      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      ).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+        path: '/attachmentId',
+        message: '工作区根目录不存在',
+      });
       await expect(access(missingRoot)).rejects.toThrow();
     } finally {
       await rm(parent, { recursive: true, force: true });
@@ -302,8 +306,22 @@ describe('writeConversationAttachments / readConversationAttachment', () => {
           conversationId,
           inputs: [input('note.txt', 'x')],
         }),
-      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+      ).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+        path: '/conversationId',
+        message: '附件路径不能经过符号链接',
+      });
       expect(await readdir(outside)).toEqual([]);
+      await rm(join(root, slug, 'conversation-inputs'));
+      await writeFile(join(root, slug, 'conversation-inputs'), 'keep');
+      await expect(
+        writeConversationAttachments({
+          root,
+          slug,
+          conversationId,
+          inputs: [input('note.txt', 'x')],
+        }),
+      ).rejects.toMatchObject({ code: 'ENOTDIR' });
     } finally {
       await rm(outside, { recursive: true, force: true });
     }

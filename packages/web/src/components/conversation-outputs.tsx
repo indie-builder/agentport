@@ -6,6 +6,7 @@ import { can } from '../lib/access.js';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { formatBytes, formatDateTime, formatRelative } from '../lib/format.js';
+import { outputPreviewKind, outputSelectionMode } from '../lib/output-preview.js';
 import {
   meQuery,
   useConversationOutputs,
@@ -35,21 +36,6 @@ export interface OutputSelection {
   runId: string;
   path: string;
   mode: 'read' | 'source';
-}
-
-/** Markdown 可切换阅读/源码；图片与 PDF 单独预览；其余文本一律源码，二进制不伪造预览。 */
-type PreviewKind = 'markdown' | 'text' | 'image' | 'pdf' | 'binary';
-
-const TEXT_MEDIA = /^(text\/|application\/json$|image\/svg\+xml$)/;
-const IMAGE_MEDIA = /^image\/(png|jpeg|gif|webp)$/;
-
-/** 与预览接口同一判定：文本走源码/静态阅读，图片与 PDF 走鉴权下载，其余只下载。 */
-function previewKind(file: Pick<OutputFile, 'mediaType'>): PreviewKind {
-  const mediaType = file.mediaType.split(';')[0]?.trim().toLowerCase() ?? '';
-  if (mediaType === 'text/markdown') return 'markdown';
-  if (IMAGE_MEDIA.test(mediaType)) return 'image';
-  if (mediaType === 'application/pdf') return 'pdf';
-  return TEXT_MEDIA.test(mediaType) ? 'text' : 'binary';
 }
 
 /** 列表按发布版本倒序返回；同一路径只展示最新一版，旧版在预览里可选。 */
@@ -103,7 +89,7 @@ export function ConversationOutputs({
     selection !== null && !outputs.isPending && meta === null,
   );
   const file = meta ?? fileQuery.data?.file ?? null;
-  const kind = file ? previewKind(file) : null;
+  const kind = file ? outputPreviewKind(file.mediaType) : null;
   const textPreview = kind === 'markdown' || kind === 'text';
   const content = useOutputContent(
     conversationId,
@@ -117,7 +103,7 @@ export function ConversationOutputs({
     kind === 'image' || kind === 'pdf',
   );
   const shown = content.data?.file ?? file;
-  const shownKind = shown ? previewKind(shown) : kind;
+  const shownKind = shown ? outputPreviewKind(shown.mediaType) : kind;
   // 选中版本在已加载列表里才给位置标签；分页外的旧版只显示真实时间，不编造位置。
   const currentVersion = selection
     ? versions.findIndex((item) => item.runId === selection.runId)
@@ -187,7 +173,7 @@ export function ConversationOutputs({
                           onSelect({
                             runId: file.runId,
                             path: file.path,
-                            mode: previewKind(file) === 'markdown' ? 'read' : 'source',
+                            mode: outputSelectionMode(file.mediaType),
                           })
                         }
                         className={cn(
@@ -353,7 +339,8 @@ export function ConversationOutputs({
                     onRetry={() => void content.refetch()}
                   />
                 ) : content.data ? (
-                  selection.mode === 'read' && previewKind(content.data.file) === 'markdown' ? (
+                  selection.mode === 'read' &&
+                  outputPreviewKind(content.data.file.mediaType) === 'markdown' ? (
                     <Markdown text={content.data.content} staticContent />
                   ) : (
                     <CodeBlock

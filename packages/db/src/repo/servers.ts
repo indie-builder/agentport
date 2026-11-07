@@ -1,14 +1,13 @@
 import { AppError } from '@agentport/core';
 import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
-import { and, asc, eq, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import { and, asc, eq } from 'drizzle-orm';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { apiTools, servers } from '../schema.js';
-import { notStale } from './freshness.js';
+import { notStale, touchUpdatedAt } from './freshness.js';
 
 export type ServerRow = typeof servers.$inferSelect;
 export type ApiToolRow = typeof apiTools.$inferSelect;
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export interface ServerWrite {
   name: string;
@@ -71,13 +70,13 @@ export async function recordTestResult(
     .where(eq(servers.id, id));
 }
 
-export async function getServer(db: Database | Tx, id: string): Promise<ServerRow | null> {
+export async function getServer(db: DbHandle, id: string): Promise<ServerRow | null> {
   const [row] = await db.select().from(servers).where(eq(servers.id, id)).limit(1);
   return row ?? null;
 }
 
 /** 只确认存在性，避免为一次判断传输并解码 config/secretsEncrypted。 */
-export async function serverExists(db: Database | Tx, id: string): Promise<boolean> {
+export async function serverExists(db: DbHandle, id: string): Promise<boolean> {
   const [row] = await db
     .select({ id: servers.id })
     .from(servers)
@@ -90,7 +89,7 @@ export async function serverExists(db: Database | Tx, id: string): Promise<boole
  * 读取并锁住行，供「读 → 合并 → 写」跨请求串行化。
  * 必须在事务内调用；FOR UPDATE 之后的读取拿到的是锁释放后的最新值。
  */
-export async function lockServer(tx: Tx, id: string): Promise<ServerRow | null> {
+export async function lockServer(tx: Transaction, id: string): Promise<ServerRow | null> {
   const [row] = await tx.select().from(servers).where(eq(servers.id, id)).limit(1).for('update');
   return row ?? null;
 }
@@ -105,7 +104,7 @@ export async function createServer(db: Database, input: ServerWrite): Promise<Se
 }
 
 export async function updateServer(
-  db: Database | Tx,
+  db: DbHandle,
   id: string,
   patch: Partial<ServerWrite>,
   expectedUpdatedAt?: Date,
@@ -118,8 +117,7 @@ export async function updateServer(
     .update(servers)
     .set({
       ...patch,
-      // 同一毫秒内的连续写入也要推进版本，否则旧 updatedAt 还能再次命中。
-      updatedAt: sql`greatest(now(), date_trunc('milliseconds', ${servers.updatedAt}) + interval '1 millisecond')`,
+      updatedAt: touchUpdatedAt(servers.updatedAt),
     })
     .where(where)
     .returning();

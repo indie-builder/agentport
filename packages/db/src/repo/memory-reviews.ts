@@ -6,7 +6,7 @@ import type {
   MemoryReviewTarget,
 } from '@agentport/shared';
 import { and, desc, eq, lt, or, type SQL, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, memoryReviews } from '../schema.js';
 
@@ -58,7 +58,7 @@ export type MemoryReviewDetail = Pick<MemoryReviewRow, keyof typeof reviewColumn
 };
 
 export async function insert(
-  db: Database,
+  db: DbHandle,
   input: InsertMemoryReviewInput,
 ): Promise<MemoryReviewRow> {
   const [row] = await db.insert(memoryReviews).values(input).returning();
@@ -74,7 +74,6 @@ export async function createWithRun(
   const first = input.sources[0];
   if (!first) throw new Error('memory review needs at least one source');
   return db.transaction(async (tx) => {
-    const txdb = tx as unknown as Database;
     const runId = newId('run');
     await tx.insert(agentRuns).values({
       id: runId,
@@ -86,7 +85,7 @@ export async function createWithRun(
       initiatedBy: input.businessId,
       agentVersion: input.agentVersion,
     });
-    return insert(txdb, { ...input, runId });
+    return insert(tx, { ...input, runId });
   });
 }
 

@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
-import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/db';
-import { errorText } from '@agentport/shared';
-import type { SpawnFn } from './build.js';
+import { CONFIG_CONTAINER_DIR, errorText } from '@agentport/shared';
+import { runDocker, type SpawnFn } from './command.js';
 
 /**
  * 运行环境镜像的启动冒烟校验。build.ts 只负责构建与用户检查，这里独占
@@ -110,61 +109,7 @@ export type RuntimeEnvironmentImageVerifyResult =
   | { ok: true }
   | { ok: false; aborted: boolean; error: string };
 
-interface CommandResult {
-  code: number | null;
-  aborted: boolean;
-  stdout: string;
-  stderr: string;
-}
-
-/** 错误摘要只保留单行尾部，超长输出不进 DB / 界面。 */
 const ERROR_DETAIL_LIMIT = 1_000;
-
-function keepTail(text: string): string {
-  return text.length > RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT
-    ? text.slice(text.length - RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT)
-    : text;
-}
-
-function runDocker(
-  spawnFn: SpawnFn,
-  args: string[],
-  signal: AbortSignal | undefined,
-  onOutput: ((chunk: string) => void) | undefined,
-): Promise<CommandResult> {
-  return new Promise((resolveCommand, reject) => {
-    let stdout = '';
-    let stderr = '';
-    let aborted = false;
-    const child = spawnFn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', (chunk: string) => {
-      // 只留尾部，超长输出不会在 worker 进程里无限累计。
-      stdout = keepTail(stdout + chunk);
-      onOutput?.(chunk);
-    });
-    child.stderr?.on('data', (chunk: string) => {
-      stderr = keepTail(stderr + chunk);
-      onOutput?.(chunk);
-    });
-    const onAbort = (): void => {
-      aborted = true;
-      child.kill('SIGTERM');
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    const finish = (): void => signal?.removeEventListener('abort', onAbort);
-    child.once('error', (err) => {
-      finish();
-      reject(err);
-    });
-    child.once('close', (code) => {
-      finish();
-      resolveCommand({ code, aborted, stdout, stderr });
-    });
-    if (signal?.aborted) onAbort();
-  });
-}
 
 function lastLine(text: string): string {
   const line =
@@ -239,7 +184,7 @@ export async function verifyRuntimeEnvironmentImage(
         '--tmpfs',
         '/tmp:rw,noexec,nosuid,size=64m',
         '--tmpfs',
-        '/home/node/.claude:rw,noexec,nosuid,size=64m,uid=1000,gid=1000',
+        `${CONFIG_CONTAINER_DIR}:rw,noexec,nosuid,size=64m,uid=1000,gid=1000`,
         '--cap-drop',
         'ALL',
         '--security-opt',

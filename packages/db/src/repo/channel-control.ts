@@ -1,14 +1,10 @@
 import type { ChannelRole } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { agentRuns, channelAgentBindings, channelMembers, channels } from '../schema.js';
 import { channelMemberRole } from './channels.js';
 
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
-type DbHandle = Database | Tx;
-
 export type ChannelRunRow = typeof agentRuns.$inferSelect;
-export type ChannelRunStatus = ChannelRunRow['status'];
 
 /** 控制面只关心活动状态；终态 run 不再占用 lane。 */
 const ACTIVE_STATUSES = ['queued', 'running'] as const;

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
-import { runStatusSchema } from './schemas.js';
+import { runStatusSchema } from './run-state.js';
 import { utf8Bytes } from './utf8.js';
 
 /**
@@ -123,7 +123,7 @@ export const memoryReviewProposalSchema = z
 
 export type MemoryReviewProposal = z.infer<typeof memoryReviewProposalSchema>;
 
-const INDEX_FILE_NAME = 'MEMORY.md';
+export const INDEX_FILE_NAME = 'MEMORY.md';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

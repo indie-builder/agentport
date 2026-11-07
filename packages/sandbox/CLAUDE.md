@@ -13,7 +13,7 @@
 - supervisor 先发 `ready`；收到 `start` 才 spawn runner，任务写入成功后才发 `started`；同一时间只允许一个 active run。
 - stdout 只写 NDJSON 协议行（`supervisorOutputSchema` / `ChatEvent`），日志一律写 stderr。单行上限 `SUPERVISOR_INPUT_MAX_BYTES`（8MiB）：输入超限拒绝该命令，输出超限停止转发并按本轮失败收尾，不静默续读。
 - runner 退出后，supervisor 等进程组停稳、stdout 排空，再发 `settled`；`stopped: false` 表示无法确认停稳，宿主必须销毁容器，不能复用。
-- 取消走 `cancel`：先 SIGTERM，宽限期后对进程组 SIGKILL；stdin EOF 也走同一收尾。
+- 正常 `cancel` 与 runner 退出后的残留进程清理使用 SIGTERM；未确认停稳时返回 `stopped: false`，由宿主销毁容器。stdin EOF 与输出溢出各自保留 SIGKILL 收尾策略。
 
 ## SDK 与权限
 

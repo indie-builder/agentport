@@ -23,9 +23,8 @@ export function slugify(value: string, fallback: string): string {
     .replace(/[^a-z0-9-_]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
-  const base =
-    cleaned && /^[a-z0-9]/.test(cleaned) ? cleaned : `skill-${cleaned}`.replace(/^-+|-+$/g, '');
-  return (base || fallback).slice(0, 64);
+  if (cleaned === '') return fallback.slice(0, 64);
+  return (/^[a-z0-9]/.test(cleaned) ? cleaned : `skill-${cleaned}`).slice(0, 64);
 }
 
 function firstLine(text: string): string {

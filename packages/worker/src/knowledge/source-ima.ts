@@ -2,10 +2,15 @@ import { createHash } from 'node:crypto';
 import { errorText } from '@agentport/shared';
 import { z } from 'zod';
 import {
+  sourceFailure as failureOf,
   fetchChecked,
   fetchJson,
+  SourceItemError as ItemError,
   readBytesCapped,
+  redactUrls,
   SourceAuthError,
+  safeDownloadHeaders,
+  sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
@@ -144,32 +149,8 @@ const EXTENSIONS_BY_MEDIA_TYPE: Record<number, readonly string[]> = {
   21: ['epub'],
 };
 
-const HOP_BY_HOP_HEADERS = new Set([
-  'host',
-  'content-length',
-  'transfer-encoding',
-  'connection',
-  'upgrade',
-  'proxy-authorization',
-  'proxy-authenticate',
-  'te',
-  'trailer',
-  'keep-alive',
-]);
-
 const NOTEBOOK_MEDIA_TYPE = 11;
 const FOLDER_MEDIA_TYPE = 99;
-
-class ItemError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = 'ItemError';
-  }
-}
 
 type Auth = {
   knowledgeBaseId: string;
@@ -177,16 +158,6 @@ type Auth = {
 };
 
 type ListResult = z.infer<typeof listSchema>;
-
-function origins(config: SourceConfig): {
-  trustedHosts?: readonly string[];
-  allowLoopback?: boolean;
-} {
-  return {
-    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
-    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
-  };
-}
 
 function signalOption(signal: AbortSignal | undefined): { signal?: AbortSignal } {
   return signal === undefined ? {} : { signal };
@@ -279,25 +250,6 @@ function assertListPage(response: ListResult): void {
   }
 }
 
-function failureOf(externalId: string, title: string, err: unknown): SourceFailure {
-  if (err instanceof ItemError) {
-    return {
-      externalId,
-      title,
-      code: err.code,
-      message: err.message.slice(0, 500),
-      retryable: err.retryable,
-    };
-  }
-  return {
-    externalId,
-    title,
-    code: 'fetch_failed',
-    message: errorText(err).slice(0, 500),
-    retryable: true,
-  };
-}
-
 function isAbort(err: unknown, signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true || (err instanceof Error && err.name === 'AbortError');
 }
@@ -349,30 +301,6 @@ function mediaMime(mediaType: number, extension: string, contentType: string | n
   return MEDIA[mediaType]?.mime ?? 'application/octet-stream';
 }
 
-/** IMA 返回的下载 header 只准发往本次 URL 的 origin；路由/hop-by-hop 头与 CR/LF 丢弃。 */
-function safeDownloadHeaders(raw: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = {};
-  for (const [name, value] of Object.entries(raw)) {
-    const key = name.trim().toLowerCase();
-    if (!key || HOP_BY_HOP_HEADERS.has(key)) continue;
-    if (/[\r\n]/.test(name) || /[\r\n]/.test(value)) continue;
-    headers[key] = value;
-  }
-  return headers;
-}
-
-/** 预签名 URL 的 query 可能带着长期令牌，失败信息里必须去掉。 */
-function redactUrls(message: string): string {
-  return message.replace(/https?:\/\/[^\s"'<>]+/g, (raw) => {
-    try {
-      const url = new URL(raw);
-      return `${url.origin}${url.pathname}`;
-    } catch {
-      return 'download URL';
-    }
-  });
-}
-
 function sanitizeDownloadError(err: unknown): Error {
   const message = errorText(err);
   return new Error(redactUrls(message));
@@ -385,12 +313,12 @@ async function downloadMedia(
   signal: AbortSignal | undefined,
 ): Promise<{ bytes: Buffer; contentType: string | null }> {
   try {
-    const target = await validateSourceUrl(url, origins(config));
+    const target = await validateSourceUrl(url, sourceNetworkOptions(config));
     const response = await fetchChecked(target.href, {
       headers: safeDownloadHeaders(headers),
       authOrigin: target.origin,
       authFailure: 'item',
-      ...origins(config),
+      ...sourceNetworkOptions(config),
       ...signalOption(signal),
     });
     return {

@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseChildAgentMd, parseClaudeMd } from '@agentport/core';
 import type { Agent, Server, Skill } from '@agentport/shared';
 import { AGENT_PACKAGE_MAX_BYTES, AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
@@ -577,7 +577,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expectProblem(await importZip(bomb), 'INVALID_INPUT');
   });
 
-  it('accepts a package without sidecar using the query slug', async () => {
+  it('accepts query slug and name overrides and rejects a newline in query names', async () => {
     const slug = unique('imp-nosidecar');
     createdAgents.push(slug);
     const files = packageFiles({
@@ -607,6 +607,16 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(res.statusCode, res.body).toBe(201);
     const body = res.json<AgentImportResult>();
     expect(body.agent).toMatchObject({ slug, name: 'Plain', systemPrompt: 'Plain prompt.' });
+
+    const sidecarSlug = unique('imp-query-name');
+    createdAgents.push(sidecarSlug);
+    const sidecarZip = packageZip({ agent: { slug: sidecarSlug, name: 'Sidecar name' } });
+    const override = await importZip(sidecarZip, `?name=${encodeURIComponent('合法覆盖名')}`);
+    expect(override.statusCode, override.body).toBe(201);
+    expect(override.json<AgentImportResult>().agent.name).toBe('合法覆盖名');
+
+    const newline = await importZip(sidecarZip, `?name=${encodeURIComponent('Bad\r\nName')}`);
+    expectProblem(newline, 'INVALID_INPUT');
   });
 
   it('round-trips generated tools, bindings and secret keys', async () => {
@@ -1364,9 +1374,10 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
 
     const importedChildSlug = result.createdSubAgents[0] ?? '';
     // 列表只返回摘要，正文要按实体 id 读取。
-    const childRow = await app.client.unsafe<{ id: string }[]>('select id from agents where slug = $1', [
-      importedChildSlug,
-    ]);
+    const childRow = await app.client.unsafe<{ id: string }[]>(
+      'select id from agents where slug = $1',
+      [importedChildSlug],
+    );
     const importedChildId = childRow[0]?.id ?? '';
     const importedChildGet = await request(app, {
       method: 'GET',
@@ -1667,9 +1678,10 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         }),
       );
       expect(imported.statusCode, imported.body).toBe(201);
-      const skill = await app.client.unsafe<{ id: string }[]>('select id from skills where slug = $1', [
-        skillSlug,
-      ]);
+      const skill = await app.client.unsafe<{ id: string }[]>(
+        'select id from skills where slug = $1',
+        [skillSlug],
+      );
       await app.client.unsafe('delete from skill_files where skill_id = $1', [skill[0]?.id]);
       for (const path of item.paths) {
         await app.client.unsafe(

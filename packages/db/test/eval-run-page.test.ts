@@ -1,12 +1,13 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { AccessFilter } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as evalRepo from '../src/repo/eval.js';
 import { agents } from '../src/schema.js';
 
-const url = process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport';
+const url = process.env.DATABASE_URL;
+if (!url) throw new Error('请通过 bun run test 注入隔离的 DATABASE_URL');
 const { db, client } = createDb(url);
 const ready = await client.unsafe('select 1').then(
   () => true,

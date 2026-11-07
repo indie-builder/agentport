@@ -1,3 +1,4 @@
+import { afterAll, afterEach, describe, expect, it } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import {
   type KnowledgeFaq,
@@ -5,8 +6,7 @@ import {
   knowledgeBaseSettingsSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, describe, expect, it } from 'bun:test';
-import { createDb } from '../src/client.js';
+import { createDb, type Transaction } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
@@ -25,7 +25,9 @@ let profileId = '';
 
 afterEach(async () => {
   if (baseIds.length > 0) {
-    await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [client.array(baseIds, 'TEXT')]);
+    await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+      client.array(baseIds, 'TEXT'),
+    ]);
     baseIds.length = 0;
   }
   if (profileIds.length > 0) {
@@ -35,7 +37,9 @@ afterEach(async () => {
     profileIds.length = 0;
   }
   if (serverIds.length > 0) {
-    await client.unsafe('delete from servers where id = any($1::text[])', [client.array(serverIds, 'TEXT')]);
+    await client.unsafe('delete from servers where id = any($1::text[])', [
+      client.array(serverIds, 'TEXT'),
+    ]);
     serverIds.length = 0;
   }
   profileId = '';
@@ -2402,7 +2406,9 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       if (blockedPid === undefined) throw new Error('blocked pid missing');
       // 必须从全局最小页 ID 开始等锁：等待最小页时，本事务不能已经持有高页（旧实现会）。
       const probeHighPage = await client
-        .unsafe('select id from knowledge_wiki_pages where id = $1 for update nowait', [highPage.id])
+        .unsafe('select id from knowledge_wiki_pages where id = $1 for update nowait', [
+          highPage.id,
+        ])
         .then(
           () => 'free',
           (error: { code?: string }) => error.code,
@@ -2662,7 +2668,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       generatedBy: 'manual',
     });
     if (!draft) throw new Error('draft missing');
-    const indexDocument = (tx: knowledge.Tx) =>
+    const indexDocument = (tx: Transaction) =>
       knowledge.createDocument(tx, {
         baseId,
         folderId: null,

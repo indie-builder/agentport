@@ -1,5 +1,6 @@
 import { AppError, fail } from '@agentport/core';
 import {
+  type AccessFilter,
   type AccessScope,
   type AgentMember,
   type PermissionGrant,
@@ -10,8 +11,8 @@ import {
   type RoleSummary,
   validateGrants,
 } from '@agentport/shared';
-import { and, asc, count, eq, inArray, ne } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import { and, asc, count, eq, inArray, ne, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
+import type { DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
   agentMembers,
@@ -24,22 +25,13 @@ import {
 } from '../schema.js';
 import { hasBusinessHistory } from './identities.js';
 
-/** 事务句柄：仓库函数在调用方事务内复用同一连接。 */
-export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
-export type DbHandle = Database | Tx;
-
-const BOOTSTRAP_ID = 'initial';
-
-function transaction<T>(db: DbHandle, run: (tx: Tx) => Promise<T>): Promise<T> {
-  // Tx 自身也有 transaction（保存点）；矩阵与管理员守卫需要同一把 revision 锁。
-  return (db as Database).transaction(run);
-}
+export const BOOTSTRAP_ID = 'initial';
 
 /**
  * 矩阵 revision 行是所有角色/管理员写操作的串行化点。
  * 账户停用/删除、角色分配与矩阵保存都必须先拿同一行的锁，再读取管理员数量。
  */
-export async function lockAdminMutation(tx: Tx): Promise<number> {
+export async function lockAdminMutation(tx: Transaction): Promise<number> {
   await tx.insert(platformBootstrap).values({ id: BOOTSTRAP_ID }).onConflictDoNothing();
   const [row] = await tx
     .select({ revision: platformBootstrap.rolesRevision })
@@ -173,7 +165,7 @@ export async function getRoleMatrix(db: DbHandle): Promise<RoleMatrix> {
   return { revision: bootstrap?.revision ?? 0, roles: await loadRoles(db) };
 }
 
-async function replaceGrants(tx: Tx, roleId: string, grants: readonly PermissionGrant[]) {
+async function replaceGrants(tx: Transaction, roleId: string, grants: readonly PermissionGrant[]) {
   await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
   if (grants.length > 0) {
     await tx.insert(rolePermissions).values(
@@ -192,7 +184,7 @@ function assertValidGrants(grants: readonly PermissionGrant[]) {
 }
 
 /** 账户存在时必须至少有一个未停用账户持有系统 admin。 */
-async function assertActiveAdminRemains(tx: Tx) {
+async function assertActiveAdminRemains(tx: Transaction) {
   const [accounts] = await tx.select({ total: count() }).from(authUsers);
   if ((accounts?.total ?? 0) === 0) return;
   const [admins] = await tx
@@ -207,7 +199,7 @@ async function assertActiveAdminRemains(tx: Tx) {
 }
 
 export async function replaceRoleMatrix(db: DbHandle, input: RoleMatrixInput): Promise<RoleMatrix> {
-  return transaction(db, async (tx) => {
+  return db.transaction(async (tx) => {
     const revision = await lockAdminMutation(tx);
     if (input.expectedRevision !== revision) {
       fail('CONFLICT', '角色矩阵已被其他修改更新，请刷新后重试');
@@ -323,12 +315,24 @@ async function countOtherActiveAdmins(db: DbHandle, businessId: string): Promise
   return row?.total ?? 0;
 }
 
+export async function assertCanRemoveActiveAdmin(
+  tx: Transaction,
+  businessId: string,
+): Promise<void> {
+  if (
+    (await isActiveAdmin(tx, businessId)) &&
+    (await countOtherActiveAdmins(tx, businessId)) === 0
+  ) {
+    fail('CONFLICT', '至少需要一个启用中的平台管理员');
+  }
+}
+
 export async function setUserRoles(
   db: DbHandle,
   businessId: string,
   roleIds: string[],
 ): Promise<void> {
-  return transaction(db, async (tx) => {
+  return db.transaction(async (tx) => {
     await lockAdminMutation(tx);
     const unique = [...new Set(roleIds)];
     const rows =
@@ -344,10 +348,8 @@ export async function setUserRoles(
       .from(roles)
       .where(eq(roles.systemKey, 'admin'))
       .limit(1);
-    if (admin && !unique.includes(admin.id) && (await isActiveAdmin(tx, businessId))) {
-      if ((await countOtherActiveAdmins(tx, businessId)) === 0) {
-        fail('CONFLICT', '至少需要一个启用中的平台管理员');
-      }
+    if (admin && !unique.includes(admin.id)) {
+      await assertCanRemoveActiveAdmin(tx, businessId);
     }
 
     await tx.delete(userRoles).where(eq(userRoles.businessId, businessId));
@@ -409,7 +411,7 @@ export async function setAgentMember(
   agentId: string,
   input: { businessId: string; canUse: boolean; canMaintain: boolean },
 ): Promise<AgentMember> {
-  return transaction(db, async (tx) => {
+  return db.transaction(async (tx) => {
     if (!input.canUse && !input.canMaintain) {
       fail('INVALID_INPUT', '至少授予使用或维护权限');
     }
@@ -463,4 +465,24 @@ export async function transferAgent(
   if (rows.length === 0) return false;
   // 原负责人不自动保留成员权；显式成员行不因转交而删除。
   return true;
+}
+
+export function maintainedAgentScopeWhere(
+  access: AccessFilter,
+  agentIdColumn: SQLWrapper,
+): SQL | undefined {
+  if (access.scopes.includes('platform')) return undefined;
+  const visible: SQL[] = [];
+  if (access.scopes.includes('maintained_agents')) {
+    visible.push(
+      sql`(exists (select 1 from ${agents} a where a.id = ${agentIdColumn} and a.owner_business_id = ${access.businessId})
+        or exists (select 1 from ${agentMembers} m where m.agent_id = ${agentIdColumn} and m.business_id = ${access.businessId} and m.can_maintain))`,
+    );
+  }
+  if (access.scopes.includes('owned_agents')) {
+    visible.push(
+      sql`exists (select 1 from ${agents} a where a.id = ${agentIdColumn} and a.owner_business_id = ${access.businessId})`,
+    );
+  }
+  return visible.length === 0 ? sql`false` : sql`(${sql.join(visible, sql` or `)})`;
 }

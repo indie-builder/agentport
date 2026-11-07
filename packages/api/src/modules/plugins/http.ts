@@ -9,7 +9,6 @@ import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { writeAudit } from '../../plugins/audit.js';
 import {
   decodePackageEntries,
   encodePackageEntries,
@@ -19,14 +18,16 @@ import { requireTrustedOrigin } from '../auth/origin.js';
 import { toApi, toPluginWrite } from './api.js';
 import { parsePluginFiles } from './parse.js';
 
-const importQuerySchema = z.object({ slug: slugSchema }).strict();
+export const PLUGIN_ZIP_MAX_BYTES = 4_194_304;
+
+export const pluginImportQuerySchema = z.object({ slug: slugSchema }).strict();
 
 export function registerPluginsHttp(app: Hono<HttpEnv>): void {
   app.post(
     '/api/plugins/import',
     access({ kind: 'permission', permissionId: 'plugins.import' }),
     bodyLimit({
-      maxSize: 4_194_304,
+      maxSize: PLUGIN_ZIP_MAX_BYTES,
       onError: () => fail('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试'),
     }),
     async (c) => {
@@ -34,7 +35,7 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
       requireTrustedOrigin(context);
       if (c.req.header('content-type')?.split(';')[0]?.trim() !== 'application/zip')
         fail('UNSUPPORTED_MEDIA_TYPE', '不支持的 Content-Type，请使用 application/zip');
-      const query = importQuerySchema.parse(c.req.query());
+      const query = pluginImportQuerySchema.parse(c.req.query());
       let entries: Map<string, PackageEntry>;
       try {
         entries = decodePackageEntries(Buffer.from(await c.req.arrayBuffer()));
@@ -56,7 +57,7 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
           toPluginWrite(input),
           files,
         );
-        await writeAudit(context.db, context.log, {
+        await repo.audit.writeAudit(context.db, context.log, {
           actor: actorOf(context),
           action: 'plugin.imported',
           target: row.id,

@@ -40,6 +40,7 @@ interface AgentSummary {
 interface AgentDetail extends AgentSummary {
   systemPrompt: string;
   subAgentIds: string[];
+  updatedAt: string;
 }
 
 interface WorkspaceFiles {
@@ -158,23 +159,44 @@ test('business UI acceptance: unbind and rebind the sub-agent through the picker
     await browser.keyboard.press('Escape');
   };
 
-  await openCapabilityTab(app, screen, main);
-  await expect(screen.getByRole('button', { name: `移除 ${sub.name}` })).toBeVisible();
+  const errors: unknown[] = [];
+  try {
+    await openCapabilityTab(app, screen, main);
+    await expect(screen.getByRole('button', { name: `移除 ${sub.name}` })).toBeVisible();
+    await screen.getByRole('button', { name: `移除 ${sub.name}` }).tap();
+    await save((value) => !value.subAgentIds.includes(sub.id));
+    expect((await detail()).subAgentIds).not.toContain(sub.id);
+    expect((await child()).parentId).toBeNull();
+    await app.screenshot('sub-agent-unbound');
 
-  // 解绑并保存，详情与子专家 parentId 都回到未绑定。
-  await screen.getByRole('button', { name: `移除 ${sub.name}` }).tap();
-  await save((value) => !value.subAgentIds.includes(sub.id));
-  expect((await detail()).subAgentIds).not.toContain(sub.id);
-  expect((await child()).parentId).toBeNull();
-  await app.screenshot('sub-agent-unbound');
-
-  // 重新选择并保存，关系恢复，工作区文件同步。
-  await pickSub();
-  await save((value) => value.subAgentIds.includes(sub.id));
-  expect((await detail()).subAgentIds).toEqual([sub.id]);
-  expect((await child()).parentId).toBe(main.id);
-  const files = await api<WorkspaceFiles>(browser, `/api/agents/${main.id}/files`);
-  expect(files.subAgents.map((item) => item.slug)).toContain(sub.slug);
-  await expect(screen.getByRole('button', { name: `移除 ${sub.name}` })).toBeVisible();
-  await app.screenshot('sub-agent-rebound');
+    await pickSub();
+    await save((value) => value.subAgentIds.includes(sub.id));
+    expect((await detail()).subAgentIds.toSorted()).toEqual(before.subAgentIds.toSorted());
+    expect((await child()).parentId).toBe(main.id);
+    const files = await api<WorkspaceFiles>(browser, `/api/agents/${main.id}/files`);
+    expect(files.subAgents.map((item) => item.slug)).toContain(sub.slug);
+    await expect(screen.getByRole('button', { name: `移除 ${sub.name}` })).toBeVisible();
+    await app.screenshot('sub-agent-rebound');
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    try {
+      const current = await detail();
+      if (
+        JSON.stringify(current.subAgentIds.toSorted()) !==
+        JSON.stringify(before.subAgentIds.toSorted())
+      ) {
+        await api(browser, `/api/agents/${main.id}`, {
+          method: 'PATCH',
+          body: { subAgentIds: before.subAgentIds, expectedUpdatedAt: current.updatedAt },
+        });
+      }
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new AggregateError(errors, '子专家解绑验收与关系恢复均失败');
+  }
 });

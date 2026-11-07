@@ -1,12 +1,11 @@
 import { pluginsContract } from '@agentport/contract/plugins';
 import { fail } from '@agentport/core';
 import { repo as pluginRepo } from '@agentport/db';
-import { type NativeInstalledPlugin, type PluginWithAgentCount } from '@agentport/shared';
+import type { NativeInstalledPlugin, PluginWithAgentCount } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { toApi } from './api.js';
 import { runNativePluginAction } from './native.js';
 import { adoptNativePlugin, reusedPlugin } from './use-cases.js';
@@ -127,7 +126,7 @@ export const pluginsRouter = os.router({
         expectedUpdatedAt === undefined ? undefined : new Date(expectedUpdatedAt),
       );
       if (row === null) return notFound();
-      await writeAudit(context.db, context.log, {
+      await pluginRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'plugin.updated',
         target: row.id,
@@ -154,7 +153,7 @@ export const pluginsRouter = os.router({
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
     const deleted = await repo.deletePlugin(context.db, routeInput.params.id);
     if (!deleted) return notFound();
-    await writeAudit(context.db, context.log, {
+    await pluginRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'plugin.deleted',
       target: routeInput.params.id,

@@ -18,6 +18,7 @@ import {
   errorMessage,
   type RunDetail,
 } from './api.js';
+import { readFileBase64 } from './browser-files.js';
 import {
   applyEvent,
   attachmentDownloadUrl,
@@ -28,6 +29,7 @@ import {
 } from './chat-state.js';
 import { useChatStore } from './chat-store.js';
 import {
+  chatKeys,
   type RunQuestionList,
   runQuery,
   runQuestionsQueryKey,
@@ -43,23 +45,6 @@ type PersistedBlock = NonNullable<
 /** 已保存消息的分页上限；一个 run 的输出再多也不无限拉历史。 */
 const RECOVERY_PAGE_SIZE = 100;
 const RECOVERY_MAX_PAGES = 10;
-
-/** FileReader 给出 data URL；请求体只收裸 base64，不把 data: 前缀发给服务端。 */
-function readBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== 'string') {
-        reject(new Error(`无法读取「${file.name}」`));
-        return;
-      }
-      resolve(result.slice(result.indexOf(',') + 1));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error(`无法读取「${file.name}」`));
-    reader.readAsDataURL(file);
-  });
-}
 
 /**
  * 按 `runId` 翻到本 run 的第一条消息。消息按时间正序、同一 run 连续，
@@ -117,7 +102,7 @@ function cacheRunMetrics(
   metric: ConversationRunMetrics,
 ): void {
   client.setQueryData<InfiniteData<ConversationDetail>>(
-    ['conversation', conversationId],
+    chatKeys.conversation(conversationId),
     (previous) => {
       const first = previous?.pages[0];
       if (!previous || !first) return previous;
@@ -390,12 +375,12 @@ export function useChatStream({
           store.setRun(null);
           store.setLastRunId(null);
           void client.invalidateQueries({
-            queryKey: ['conversation', accepted.conversationId],
+            queryKey: chatKeys.conversation(accepted.conversationId),
           });
           void client.invalidateQueries({
-            queryKey: ['conversation-outputs', accepted.conversationId],
+            queryKey: chatKeys.outputs(accepted.conversationId),
           });
-          void client.invalidateQueries({ queryKey: ['conversations'] });
+          void client.invalidateQueries({ queryKey: chatKeys.conversations() });
           return;
         }
         if (event.type === 'run_finished') {
@@ -478,12 +463,12 @@ export function useChatStream({
             endedAt: null,
           });
           void client.invalidateQueries({
-            queryKey: ['conversation', accepted.conversationId],
+            queryKey: chatKeys.conversation(accepted.conversationId),
           });
           void client.invalidateQueries({
-            queryKey: ['conversation-outputs', accepted.conversationId],
+            queryKey: chatKeys.outputs(accepted.conversationId),
           });
-          void client.invalidateQueries({ queryKey: ['conversations'] });
+          void client.invalidateQueries({ queryKey: chatKeys.conversations() });
           // 截断后流里只有部分事件：用落库的完整步骤替换本轮尾部。
           if (needsRecovery) {
             void recoverPersisted(accepted, recoveryGeneration);
@@ -727,7 +712,7 @@ export function useChatStream({
           ? await Promise.all(
               attachments.map(async (file) => ({
                 filename: file.name,
-                dataBase64: await readBase64(file),
+                dataBase64: await readFileBase64(file),
               })),
             )
           : [];
@@ -785,7 +770,7 @@ export function useChatStream({
       // 事件流尚未 onopen；先按重连状态继续回读，onopen 才标记健康。
       store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
       onAccepted(accepted, body);
-      void client.invalidateQueries({ queryKey: ['conversations', agentId] });
+      void client.invalidateQueries({ queryKey: chatKeys.conversations(agentId) });
       openStream(accepted, generation);
     } catch (error) {
       if (!ownsRequest()) return;
@@ -886,9 +871,9 @@ export function useChatStream({
         error: detail.error,
         endedAt: detail.endedAt,
       });
-      void client.invalidateQueries({ queryKey: ['conversations', agentId] });
+      void client.invalidateQueries({ queryKey: chatKeys.conversations(agentId) });
       void client.invalidateQueries({
-        queryKey: ['conversation-outputs', current.conversationId],
+        queryKey: chatKeys.outputs(current.conversationId),
       });
     },
     [closeStream, client, agentId],

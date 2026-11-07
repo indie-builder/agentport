@@ -5,6 +5,27 @@ import {
   type PermissionDefinition,
   type PermissionId,
 } from '@agentport/shared';
+import {
+  Activity,
+  Brain,
+  Cable,
+  CalendarClock,
+  Container,
+  FlaskConical,
+  Hash,
+  HeartPulse,
+  History,
+  KeyRound,
+  LayoutDashboard,
+  LibraryBig,
+  MessagesSquare,
+  Puzzle,
+  ScrollText,
+  Share2,
+  Sparkles,
+  User,
+  Users,
+} from 'lucide-react';
 
 export type AuthenticatedMe = Extract<AuthMe, { authenticated: true }>;
 
@@ -50,15 +71,86 @@ export function hasAnyGrant(
 export type MenuItem = {
   to: string;
   label: string;
+  icon: typeof Cable;
   permissionIds: readonly PermissionId[];
 };
 
+const pages = {
+  agents: { to: '/agents', label: '找专家', icon: Users, permissionIds: ['agents.read'] },
+  chat: { to: '/chat', label: '对话', icon: MessagesSquare, permissionIds: ['conversations.read'] },
+  channels: { to: '/channels', label: '频道', icon: Hash, permissionIds: ['conversations.read'] },
+  schedules: {
+    to: '/schedules',
+    label: '定时任务',
+    icon: CalendarClock,
+    permissionIds: ['schedules.read'],
+  },
+  skills: {
+    to: '/skills',
+    label: '技能',
+    icon: Sparkles,
+    permissionIds: ['skills.read', 'market.read'],
+  },
+  servers: { to: '/servers', label: '连接器', icon: Cable, permissionIds: ['servers.read'] },
+  plugins: { to: '/plugins', label: '插件', icon: Puzzle, permissionIds: ['plugins.read'] },
+  knowledge: {
+    to: '/knowledge',
+    label: '知识库',
+    icon: LibraryBig,
+    permissionIds: ['knowledge.read'],
+  },
+  eval: { to: '/eval', label: '评估', icon: FlaskConical, permissionIds: ['eval.read'] },
+  operations: {
+    to: '/operations',
+    label: '概况',
+    icon: LayoutDashboard,
+    permissionIds: ['operations.read'],
+  },
+  runs: { to: '/runs', label: '运行', icon: Activity, permissionIds: ['runs.read'] },
+  runtimeEnvironments: {
+    to: '/runtime-environments',
+    label: '运行环境',
+    icon: Container,
+    permissionIds: ['runtime_environments.read'],
+  },
+  status: { to: '/status', label: '健康', icon: HeartPulse, permissionIds: ['operations.read'] },
+  audit: { to: '/audit', label: '审计', icon: ScrollText, permissionIds: ['audit.read'] },
+  accounts: { to: '/accounts', label: '账户', icon: KeyRound, permissionIds: ['accounts.read'] },
+  roles: { to: '/roles', label: '角色', icon: Users, permissionIds: ['roles.read'] },
+  profile: { to: '/personal/profile', label: '个人资料', icon: User, permissionIds: [] },
+  memory: {
+    to: '/personal/memory',
+    label: '个人记忆',
+    icon: Brain,
+    permissionIds: ['personal_memory.read'],
+  },
+  reviews: {
+    to: '/personal/reviews',
+    label: '记忆提案',
+    icon: History,
+    permissionIds: ['personal_memory.read'],
+  },
+  security: { to: '/personal/security', label: '账号安全', icon: KeyRound, permissionIds: [] },
+  shares: {
+    to: '/personal/shares',
+    label: '我的分享',
+    icon: Share2,
+    permissionIds: ['conversations.share'],
+  },
+  usage: {
+    to: '/personal/usage',
+    label: '使用记录',
+    icon: Activity,
+    permissionIds: ['overview.read', 'runs.read'],
+  },
+} as const satisfies Record<string, MenuItem>;
+
 /** 工作区入口；同一顺序也用于登录后的首页选择。 */
 export const WORK_MENU: readonly MenuItem[] = [
-  { to: '/agents', label: '找专家', permissionIds: ['agents.read'] },
-  { to: '/chat', label: '对话', permissionIds: ['conversations.read'] },
-  { to: '/channels', label: '频道', permissionIds: ['conversations.read'] },
-  { to: '/schedules', label: '定时任务', permissionIds: ['schedules.read'] },
+  pages.agents,
+  pages.chat,
+  pages.channels,
+  pages.schedules,
 ];
 
 /**
@@ -71,24 +163,15 @@ export const PERSONAL_NAV_GROUPS: readonly {
 }[] = [
   {
     label: '与专家协作',
-    items: [
-      { to: '/personal/memory', label: '个人记忆', permissionIds: ['personal_memory.read'] },
-      { to: '/personal/reviews', label: '记忆提案', permissionIds: ['personal_memory.read'] },
-    ],
+    items: [pages.memory, pages.reviews],
   },
   {
     label: '工作记录',
-    items: [
-      { to: '/personal/shares', label: '我的分享', permissionIds: ['conversations.share'] },
-      { to: '/personal/usage', label: '使用记录', permissionIds: ['overview.read', 'runs.read'] },
-    ],
+    items: [pages.shares, pages.usage],
   },
   {
     label: '账号',
-    items: [
-      { to: '/personal/profile', label: '个人资料', permissionIds: [] },
-      { to: '/personal/security', label: '账号安全', permissionIds: [] },
-    ],
+    items: [pages.profile, pages.security],
   },
 ];
 
@@ -96,34 +179,34 @@ export function isPersonalPath(pathname: string): boolean {
   return /^\/personal(?:\/|$)/.test(pathname);
 }
 
-export const RESOURCE_MENU: readonly MenuItem[] = [
-  { to: '/skills', label: '技能', permissionIds: ['skills.read'] },
-  { to: '/servers', label: '连接器', permissionIds: ['servers.read'] },
-  { to: '/plugins', label: '插件', permissionIds: ['plugins.read'] },
-  { to: '/knowledge', label: '知识库', permissionIds: ['knowledge.read'] },
-];
+export const RESOURCE_SECTIONS = {
+  skills: pages.skills,
+  servers: pages.servers,
+  plugins: pages.plugins,
+  knowledge: pages.knowledge,
+};
+
+export const RESOURCE_MENU = Object.values(RESOURCE_SECTIONS);
 
 export const BUILD_MENU: readonly MenuItem[] = [
   {
     to: '/skills',
     label: '资源',
-    permissionIds: RESOURCE_MENU.flatMap((item) => item.permissionIds.slice(0, 1)),
+    icon: Cable,
+    permissionIds: RESOURCE_MENU.flatMap((item) => [...item.permissionIds]),
   },
-  { to: '/eval', label: '评估', permissionIds: ['eval.read'] },
+  pages.eval,
 ];
 
 export const OPERATIONS_MENU: readonly MenuItem[] = [
-  { to: '/operations', label: '概况', permissionIds: ['operations.read'] },
-  { to: '/runs', label: '运行', permissionIds: ['runs.read'] },
-  { to: '/runtime-environments', label: '运行环境', permissionIds: ['runtime_environments.read'] },
-  { to: '/status', label: '健康', permissionIds: ['operations.read'] },
-  { to: '/audit', label: '审计', permissionIds: ['audit.read'] },
+  pages.operations,
+  pages.runs,
+  pages.runtimeEnvironments,
+  pages.status,
+  pages.audit,
 ];
 
-export const PLATFORM_MENU: readonly MenuItem[] = [
-  { to: '/accounts', label: '账户', permissionIds: ['accounts.read'] },
-  { to: '/roles', label: '角色', permissionIds: ['roles.read'] },
-];
+export const PLATFORM_MENU: readonly MenuItem[] = [pages.accounts, pages.roles];
 
 const HOME_ORDER: readonly MenuItem[] = [
   ...WORK_MENU,
@@ -138,38 +221,41 @@ export function homePath(me: AuthMe | undefined): string | null {
   return HOME_ORDER.find((item) => canAny(me, item.permissionIds))?.to ?? null;
 }
 
-/** 路由到所需叶的映射；任一命中即可进入。未知路由不做页面级拦截。 */
-export const ROUTE_PERMISSIONS: Readonly<Record<string, readonly PermissionId[]>> = {
-  '/_shell/agents/': ['agents.read'],
-  '/_shell/agents/$agentId': ['agents.read'],
-  '/_shell/chat': ['conversations.read'],
-  '/_shell/channels/': ['conversations.read'],
-  '/_shell/channels/$channelId': ['conversations.read'],
-  '/_shell/personal/memory': ['personal_memory.read'],
-  '/_shell/personal/reviews': ['personal_memory.read'],
-  '/_shell/personal/shares': ['conversations.share'],
-  '/_shell/personal/usage': ['overview.read', 'runs.read'],
-  '/_shell/schedules': ['schedules.read'],
-  '/_shell/skills': ['skills.read', 'market.read'],
-  '/_shell/servers': ['servers.read'],
-  '/_shell/plugins/': ['plugins.read'],
-  '/_shell/plugins/$pluginId': ['plugins.read'],
-  '/_shell/knowledge/': ['knowledge.read'],
-  '/_shell/knowledge/$baseId': ['knowledge.read'],
-  '/_shell/eval': ['eval.read'],
-  '/_shell/operations': ['operations.read'],
-  '/_shell/runs/': ['runs.read'],
-  '/_shell/runs/$runId': ['runs.read'],
-  '/_shell/runtime-environments/': ['runtime_environments.read'],
-  '/_shell/runtime-environments/$environmentId': ['runtime_environments.read'],
-  '/_shell/status': ['operations.read'],
-  '/_shell/audit': ['audit.read'],
-  '/_shell/accounts': ['accounts.read'],
-  '/_shell/roles': ['roles.read'],
+export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
+  '/_shell/agents/': pages.agents,
+  '/_shell/agents/$agentId': pages.agents,
+  '/_shell/chat': pages.chat,
+  '/_shell/channels/': pages.channels,
+  '/_shell/channels/$channelId': pages.channels,
+  '/_shell/personal/': pages.profile,
+  '/_shell/personal/profile': pages.profile,
+  '/_shell/personal/memory': pages.memory,
+  '/_shell/personal/reviews': pages.reviews,
+  '/_shell/personal/security': pages.security,
+  '/_shell/personal/shares': pages.shares,
+  '/_shell/personal/usage': pages.usage,
+  '/_shell/schedules': pages.schedules,
+  '/_shell/skills': { ...pages.skills, label: '资源' },
+  '/_shell/servers': pages.servers,
+  '/_shell/plugins/': pages.plugins,
+  '/_shell/plugins/$pluginId': pages.plugins,
+  '/_shell/knowledge/': pages.knowledge,
+  '/_shell/knowledge/$baseId': pages.knowledge,
+  '/_shell/eval': pages.eval,
+  '/_shell/operations': pages.operations,
+  '/_shell/runs/': pages.runs,
+  '/_shell/runs/$runId': pages.runs,
+  '/_shell/runtime-environments/': pages.runtimeEnvironments,
+  '/_shell/runtime-environments/$environmentId': pages.runtimeEnvironments,
+  '/_shell/status': pages.status,
+  '/_shell/audit': pages.audit,
+  '/_shell/accounts': pages.accounts,
+  '/_shell/roles': pages.roles,
 };
 
 export function requiredPermissions(routeId: string | undefined): readonly PermissionId[] | null {
-  return routeId ? (ROUTE_PERMISSIONS[routeId] ?? null) : null;
+  const permissions = routeId ? ROUTE_META[routeId]?.permissionIds : undefined;
+  return permissions?.length ? permissions : null;
 }
 
 // ---- 角色矩阵：功能树 -------------------------------------------------------

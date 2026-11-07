@@ -31,7 +31,7 @@ export interface AssistantTextProps {
   /** 该消息 UI 段的表单/绑定快照：`{ version: 1, blocks: { [blockKey]: state } }`。 */
   uiState?: unknown;
   /** 动作出口；完整动作（含 params.context 与表单值）交给页面发送。 */
-  onAction: (action: OpenUiAction) => void;
+  onAction?: ((action: OpenUiAction) => void) | undefined;
   /** 落库后的消息 id；流刚结束时为空，由上层在收到持久化 id 后补齐。 */
   messageId?: string;
   conversationId?: string;
@@ -94,7 +94,7 @@ export function AssistantText({
             blockKey={blockKey}
             program={segment.text}
             streaming={streaming}
-            onAction={onAction}
+            {...(onAction ? { onAction } : {})}
             {...(isStateRecord(segmentState) ? { initialState: segmentState } : {})}
             {...(messageId === undefined ? {} : { messageId })}
             {...(conversationId === undefined ? {} : { conversationId })}
@@ -134,7 +134,7 @@ function OpenUiSegment({
 }: {
   program: string;
   streaming: boolean;
-  onAction: (action: OpenUiAction) => void;
+  onAction?: ((action: OpenUiAction) => void) | undefined;
   initialState?: Record<string, unknown>;
   messageId?: string;
   conversationId?: string;
@@ -173,7 +173,7 @@ function OpenUiSegment({
         streaming={streaming}
         blockKey={blockKey}
         onInvalid={(failed) => setInvalid(failed)}
-        onAction={onAction}
+        {...(onAction ? { onAction } : {})}
         {...(messageId === undefined ? {} : { messageId })}
         {...(conversationId === undefined ? {} : { conversationId })}
         {...(onToolCall ? { onToolCall } : {})}

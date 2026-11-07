@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
@@ -8,7 +9,6 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeBaseSettings } from '@agentport/shared';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { ImageQueryFn } from '../src/knowledge/image-processing.js';
 import {
   type ChunkDraft,
@@ -1539,8 +1539,19 @@ describe.skipIf(!ready)('runReindex pagination', () => {
     const { mkdir, writeFile } = await import('node:fs/promises');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
-    const documentIds = await seedDocuments(fixtureBase, OVER_PAGE, { contentHash: sha });
-    expect(documentIds).toHaveLength(OVER_PAGE);
+    const documentIds = await seedDocuments(fixtureBase, 202, {
+      contentHash: sha,
+      status: (index) => (index < 200 ? 'disabled' : 'ready'),
+      createdAt: (index) => new Date(Date.UTC(2026, 0, 1) - index * 1000),
+    });
+    const sentinels = documentIds.slice(200);
+    const firstPage = await repo.knowledge.listDocuments(db, {
+      baseId: fixtureBase.baseId,
+      limit: 200,
+    });
+    expect(firstPage.items).toHaveLength(200);
+    expect(firstPage.items.every((document) => document.status === 'disabled')).toBe(true);
+    expect(firstPage.nextCursor).not.toBeNull();
 
     const job = await repo.knowledge.createJob(db, {
       type: 'reindex',
@@ -1564,13 +1575,20 @@ describe.skipIf(!ready)('runReindex pagination', () => {
           eq(schema.knowledgeDocuments.status, 'ready'),
         ),
       );
-    expect(rebuilt).toHaveLength(OVER_PAGE);
+    expect(rebuilt.map((row) => row.id).sort()).toEqual(sentinels.slice().sort());
     const missing = await db
-      .select({ id: schema.knowledgeChunks.id })
+      .select({
+        documentId: schema.knowledgeChunks.documentId,
+        content: schema.knowledgeChunks.content,
+      })
       .from(schema.knowledgeChunks)
       .where(eq(schema.knowledgeChunks.baseId, fixtureBase.baseId));
-    // chunkStub 把该 markdown 切成 2 段。
-    expect(missing).toHaveLength(OVER_PAGE * 2);
+    expect(missing).toHaveLength(4);
+    for (const id of sentinels) {
+      expect(
+        missing.filter((chunk) => chunk.documentId === id).map((chunk) => chunk.content),
+      ).toEqual(['# 标题', '第一段内容。']);
+    }
   });
 });
 

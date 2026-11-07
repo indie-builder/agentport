@@ -1,5 +1,5 @@
-import * as dbModule from '@agentport/db';
 import { describe, expect, it, mock } from 'bun:test';
+import * as dbModule from '@agentport/db';
 import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import type { TestApp } from './helpers.js';
 
@@ -21,6 +21,7 @@ mock.module('@agentport/db', () => {
     ...actual,
     repo: {
       ...actual.repo,
+      audit: { ...actual.repo.audit, writeAudit: mock(async () => undefined) },
       agentVersions: {
         ...actual.repo.agentVersions,
         latestAgentVersion: async () => null,
@@ -47,7 +48,6 @@ mock.module('@agentport/db', () => {
 });
 
 mock.module('../src/queue/producer.js', () => ({ getQueue: () => queue }));
-mock.module('../src/plugins/audit.js', () => ({ writeAudit: mock(async () => undefined) }));
 mock.module('../src/modules/chat/cancel-run.js', () => ({
   cancelAgentRun: mock(async () => {
     state.cancelCalls += 1;

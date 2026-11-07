@@ -1,21 +1,11 @@
-import { z } from '../../../packages/shared/node_modules/zod/index.js';
+import { createRequire } from 'node:module';
+import { scenarios } from '../scenarios.js';
 import { close } from './database.js';
 
-const scenarios = {
-  'agent-defaults': () => import('./agent-defaults.js'),
-  'agent-package-bytes': () => import('./agent-package-bytes.js'),
-  'audit-export': () => import('./audit-export.js'),
-  'runs-export': () => import('./runs-export.js'),
-  'eval-export': () => import('./eval-export.js'),
-  'overview-aggregates': () => import('./overview-aggregates.js'),
-  'run-cancel': () => import('./run-cancel.js'),
-  'chat-history-filter': () => import('./chat-history-filter.js'),
-  'chat-history-pages': () => import('./chat-history-pages.js'),
-  regression: () => import('./regression.js'),
-  channels: () => import('./channels.js'),
-  'channels-business': () => import('./channels-business.js'),
-  'chat-replay': () => import('./chat-replay.js'),
-};
+const requireFromShared = createRequire(
+  new URL('../../../packages/shared/package.json', import.meta.url),
+);
+const { z } = requireFromShared('zod');
 
 const request = z
   .object({

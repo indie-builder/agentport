@@ -1,8 +1,8 @@
+import { describe, expect, it } from 'bun:test';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'bun:test';
-import type { SpawnFn } from '../src/runtime-environments/build.js';
+import type { SpawnFn } from '../src/runtime-environments/command.js';
 import { verifyRuntimeEnvironmentImage } from '../src/runtime-environments/verify.js';
 
 const IMAGE_ID = `sha256:${'c'.repeat(64)}`;
@@ -11,6 +11,8 @@ interface Reply {
   stdout?: string;
   stderr?: string;
   code?: number;
+  holdOpen?: boolean;
+  onStart?: () => void;
 }
 
 /** 只替换子进程；命令参数、管道与关闭语义与真实 docker CLI 一致。 */
@@ -28,12 +30,16 @@ function fakeDocker(respond: (args: string[]) => Reply): {
     };
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
-    child.kill = () => true;
+    child.kill = () => {
+      queueMicrotask(() => child.emit('close', 143, null));
+      return true;
+    };
     queueMicrotask(() => {
       const reply = respond([...args]);
+      reply.onStart?.();
       if (reply.stdout !== undefined) child.stdout.write(reply.stdout);
       if (reply.stderr !== undefined) child.stderr.write(reply.stderr);
-      child.emit('close', reply.code ?? 0, null);
+      if (!reply.holdOpen) child.emit('close', reply.code ?? 0, null);
     });
     return child as unknown as ChildProcess;
   };
@@ -129,6 +135,24 @@ describe('verifyRuntimeEnvironmentImage', () => {
     expect(result.error.endsWith(tail)).toBe(true);
     expect(result.error.length).toBeLessThanOrEqual('产物验证失败: '.length + '…'.length + 1_000);
     expect(result.error).not.toContain('x'.repeat(2_000));
+  });
+
+  it('中断运行中的校验命令并返回取消结果', async () => {
+    const controller = new AbortController();
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const fake = fakeDocker(responder('null', { holdOpen: true, onStart: () => started() }));
+    const verifying = verifyRuntimeEnvironmentImage({
+      imageId: IMAGE_ID,
+      spawn: fake.spawn,
+      signal: controller.signal,
+    });
+    await ready;
+    controller.abort();
+    await expect(verifying).resolves.toEqual({ ok: false, aborted: true, error: '校验已中断' });
+    expect(fake.commands.filter((command) => command[0] === 'run')).toHaveLength(1);
   });
 
   it('已中断时不启动任何 docker 命令', async () => {

@@ -1,11 +1,11 @@
 import { chatContract } from '@agentport/contract/chat';
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { OPENUI_STATE_MAX_BYTES, segmentOpenUi } from '@agentport/shared';
+import { OPENUI_STATE_MAX_BYTES } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { writeAudit } from '../../plugins/audit.js';
+import { hasOpenUiBlock } from './openui-actions.js';
 
 function topLevelText(content: unknown):
   | {
@@ -53,8 +53,7 @@ export const chatStateRouter = {
     if ('subAgent' in content) {
       return fail('FORBIDDEN', '子智能体的输出没有可保存的界面状态；请刷新后重试');
     }
-    const segments = segmentOpenUi(message.uiProgram ?? content.text);
-    if (!segments.some((segment) => segment.kind === 'openui' && segment.blockKey === blockKey)) {
+    if (!hasOpenUiBlock(message.uiProgram ?? content.text, blockKey)) {
       return fail('INVALID_INPUT', `该消息没有 ${blockKey} 这个界面段；请刷新后重试`);
     }
     if (Buffer.byteLength(JSON.stringify(state), 'utf8') > OPENUI_STATE_MAX_BYTES) {
@@ -70,7 +69,7 @@ export const chatStateRouter = {
     if (!saved) {
       return fail('NOT_FOUND', '消息不属于该会话，可能已被删除；请刷新后重试');
     }
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'openui.state.saved',
       target: messageId,

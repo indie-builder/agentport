@@ -14,6 +14,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { fail } from './errors.js';
+import { pathSegmentsProblem } from './path-segments.js';
 
 /**
  * 会话运行产出的单一存储实现。
@@ -127,21 +128,8 @@ async function trustedPath(
       return fail('NOT_FOUND', '产出根目录不存在', { path: `/${label}` });
     throw error;
   });
-  let physical = physicalRoot;
-  for (const segment of segments) {
-    physical = join(physical, segment);
-    const info = await lstat(physical).catch((error: unknown) => {
-      if (hasErrorCode(error, 'ENOENT')) return null;
-      throw error;
-    });
-    if (info === null) break;
-    if (info.isSymbolicLink()) {
-      fail('INVALID_INPUT', '产出路径不能经过符号链接', { path: `/${label}` });
-    }
-    const actual = await realpath(physical);
-    if (actual !== physicalRoot && !actual.startsWith(`${physicalRoot}${sep}`)) {
-      fail('INVALID_INPUT', '产出路径不能经过符号链接', { path: `/${label}` });
-    }
+  if ((await pathSegmentsProblem(physicalRoot, segments)) !== null) {
+    fail('INVALID_INPUT', '产出路径不能经过符号链接', { path: `/${label}` });
   }
   return join(logicalRoot, ...segments);
 }

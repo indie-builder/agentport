@@ -5,33 +5,15 @@ import { runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import { accessFilter, actorOf, authorizeObject } from '../../http/access.js';
+import { accessFilter, actorOf } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
-import { AppError, isPgCode } from '../../http/errors.js';
+import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { writeAudit } from '../../plugins/audit.js';
+import { authorizeRun, RUN_MISSING } from './access.js';
 import { runsQuestionsRouter } from './questions.js';
 
 const runsRepo = repo.runs;
-const chatRepo = repo.chat;
-const RUN_MISSING = '运行记录不存在，可能已被清理；请刷新运行列表';
-async function authorizeRun(
-  context: RequestContext,
-  runId: string,
-  permissionId: 'runs.read' | 'runs.approve' | 'runs.cancel' | 'runs.export',
-) {
-  const run = await chatRepo.getRun(context.db, runId);
-  if (!run) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
-  if (run.channelId !== null) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
-  await authorizeObject(
-    context,
-    permissionId,
-    { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
-    RUN_MISSING,
-  );
-  return run;
-}
 function toIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
 }
@@ -92,7 +74,7 @@ export const runsMainRouter = {
         '这次工具调用没有待批准记录；它可能已批准或已失效，请刷新后重试',
       );
     }
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'agent.run.approved',
       target: input.params.id,
@@ -121,7 +103,7 @@ export const runsMainRouter = {
     });
     try {
       const row = await repo.skills.createSkill(context.db, draft);
-      await writeAudit(context.db, context.log, {
+      await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'skill.created',
         target: row.id,
@@ -145,6 +127,13 @@ export const runsMainRouter = {
     }
   }),
 };
+export const runExportQuerySchema = z.object({
+  agentId: z.string().min(1).optional(),
+  status: runStatusSchema.optional(),
+  trigger: runTriggerSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(1000),
+});
+
 export function registerRunExportHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/runs/export',
@@ -153,16 +142,7 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
       const context = requestContext(c);
       const input = z
         .object({
-          query: z
-            .object({
-              agentId: z.string().min(1).optional(),
-              status: runStatusSchema.optional(),
-              trigger: runTriggerSchema.optional(),
-              limit: z.coerce.number().int().min(1).max(200).default(50),
-            })
-            .extend({
-              limit: z.coerce.number().int().min(1).max(1000).default(1000),
-            }),
+          query: runExportQuerySchema,
         })
         .parse({ params: c.req.param(), query: c.req.query() });
       const { agentId, status, trigger, limit } = input.query;

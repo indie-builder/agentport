@@ -60,7 +60,7 @@
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 仅用于孤儿 run 对账：queued run 超过该值 + 5 分钟宽限且队列探测确认 job 消失/已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限。不是执行超时，执行取 `agent.timeoutMs`（默认 `600000`）；api 也解析但不读 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数；只限制同时执行的 run，正常完成或成功取消后的热空闲会话容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内继续占用资源 |
 
-**配置入口与容器 env 不同。** 配置任一模型凭证后，worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）：真实凭证只留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空），run 结束会从代理内存集合移除该 token 并尝试清空 DB hash（不论容器清理是否成功）；内存移除不保证独立于 DB 立即失效，清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。未配置凭证时代理不启动，`sandboxEnv` 保留直接把配置值注入容器的回退路径，并打印警告。
+**配置入口与容器 env 不同。** 配置任一模型凭证后，worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）：真实凭证只留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空），run 结束会从代理内存集合移除该 token 并尝试清空 DB hash（不论容器清理是否成功）；代理要求 DB hash 匹配、run 状态为 `running`，且 run 同时存在于本进程的 `activeRuns` 集合；从集合移除后，即使 DB 清空或终态落库失败，也不会放行新请求，集合为空时同样拒绝。未配置凭证时代理不启动，`sandboxEnv` 保留直接把配置值注入容器的回退路径，并打印警告。
 
 ### 1.3 沙盒（worker schema）
 
@@ -87,7 +87,7 @@
 - 回收只删除容器，不删除宿主上的持久数据（`agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/`、`conversation-inputs/<conversationId>/`）；后续 run 新建容器时从 `sdk-sessions` 与 `agent-memory` 恢复同一 SDK 会话与记忆。
 - 容器内是常驻 supervisor，每轮启动新的 runner（新 SDK query）；复用只省容器创建与启动（缓存镜像基线约 122ms/次），不算也不承诺 SDK 冷启动优化。
 - 会话级稳定目录为 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/{workspace,outputs}`：`workspace` 渲染本轮官方定义后只读挂入 `/workspace`，`outputs` 可写挂入 `/mnt/outputs`，`/mnt/inputs` 始终挂载（会话目录即使本轮无附件也预建）。整个 `session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存（`workspace` 每轮按数据库重渲染，`outputs` 停稳后复制进 `conversation-outputs`），不是不可丢失的持久交付；容器回收与关停不删除、也不 rename 该根目录，丢失后可由数据库与持久数据重建；删除会话时由 API 回收该会话目录。
-- 每轮重新渲染官方定义并刷新到 `workspace`；本轮短期 MCP/模型凭证只进当轮 runner，stdio 的 `env` 与 http 的 `headers` 还会把上游解密 secrets 写入当轮 `.mcp.json`，可能是长期凭证。运行结束（不论容器清理是否成功）都会尝试清空本轮 MCP token；DB 清空失败只记 warning，token 可能保留到过期时间；模型 token 从代理内存集合移除并尝试清空 DB hash，清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。终态停稳后删除 `.mcp.json`，删除失败时记录错误并禁止复用该容器，文件可能留到下一轮刷新时被覆盖；残留期间上游长期 secret 仍可能有效。空闲容器不保留上一轮身份，下一轮重新渲染。
+- 每轮重新渲染官方定义并刷新到 `workspace`；本轮短期 MCP/模型凭证只进当轮 runner，stdio 的 `env` 与 http 的 `headers` 还会把上游解密 secrets 写入当轮 `.mcp.json`，可能是长期凭证。运行结束（不论容器清理是否成功）都会尝试清空本轮 MCP token；DB 清空失败只记 warning，token 可能保留到过期时间；模型代理要求 DB hash 匹配、run 状态为 `running`，且 run 同时存在于本进程的 `activeRuns` 集合。模型 token 从集合移除后，即使 DB 清空或终态落库失败，也不会放行新请求；随后仍尝试清空 DB hash。终态停稳后删除 `.mcp.json`，删除失败时记录错误并禁止复用该容器，文件可能留到下一轮刷新时被覆盖；残留期间上游长期 secret 仍可能有效。空闲容器不保留上一轮身份，下一轮重新渲染。
 - `agent-memory/` 仍按智能体共享，不随会话隔离；只有 `sdk-sessions/<conversationId>/` 按会话隔离。
 - `sandbox-probe` 试连与 `native-plugins` 安装仍使用一次性容器，不进入会话复用。
 - 实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核；当时的旧 Vitest 入口 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK 4 例）；该数字不代表迁移到 `bun:test` 后的当前结果。真实付费模型与浏览器全链路未测。详见任务记录。
@@ -154,7 +154,7 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 - Node.js 24 LTS（要求 24 的最新补丁版本，当前 24.22.2；`engines` 为 `>=24.22.2 <25`，用于镜像基座与尚未迁移的 `node` 脚本）
 - Bun 默认不执行未列入根 `package.json` `trustedDependencies` 的生命周期脚本；当前放行 `esbuild` 与 `msgpackr-extract`。`@openuidev/lang-core` 的 postinstall 只上报匿名安装遥测，因此不加白名单。新增带安装脚本的依赖时显式补决定，不让脚本静默运行。
 - Docker Engine + Compose
-- 宿主有 `pg_dump` / `psql`（备份与恢复）
+- 宿主有 `pg_dump` / `psql`（可选；缺失时备份与恢复回退到 compose 的 postgres 容器）
 - 至少一个模型凭证（`ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`）
 
 ### 2.2 Docker Compose
@@ -166,7 +166,7 @@ bun run up
 
 `bun run up`（`scripts/up.sh`）依次执行：
 
-1. `.env` 不存在时从 `.env.example` 复制，随机生成 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN`、`ADMIN_PASSWORD`（同时改写 `REDIS_URL`），并打印管理员密码；运行智能体仍需自行填写模型凭证。
+1. `.env` 不存在时从 `.env.example` 复制，随机生成 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN`、`ADMIN_PASSWORD`（同时改写 `REDIS_URL`）；管理员密码写入 `.env`，终端不回显。运行智能体仍需自行填写模型凭证。
 2. `docker compose up -d --wait --wait-timeout 120 postgres redis`，按 compose healthcheck 等两者就绪；失败时打印状态与日志。
 3. 从仓库根构建沙盒镜像 `agentport/sandbox:dev`（已存在则跳过；`bun run up --rebuild` 强制重建）。步骤见下文「2.2.1 手动构建沙盒镜像」。
 4. `docker compose up -d --build --wait --wait-timeout 120 api worker`。compose 会先运行一次性服务 `migrate`（`bun packages/db/scripts/migrate.js`，`restart: no`），成功后 api 才启动（`depends_on: service_completed_successfully`）；`--wait` 继续等 api 的 `/health/ready` healthcheck 通过。
@@ -504,7 +504,7 @@ bun run --filter @agentport/worker maintenance
 | 页面登录成功但刷新后退出 | 生产 Cookie 带 `Secure`，却用 HTTP + 非 localhost 访问 | 用 `http://localhost:3000`，或在明确可信的内网终止 TLS 后访问；不要把 `NODE_ENV` 改成 development 来绕过 |
 | 修改 schema 后报 `column ... does not exist` | 只改了 `schema.ts`，未生成或未应用迁移 | `bun run db:generate && bun run db:migrate`；迁移文件按顺序应用，不要手改已应用的迁移 |
 | 登录返回 429 | 登录限流 10 次/分钟（按 IP）；反向代理后未设 `TRUST_PROXY=1` 时所有请求共用代理 IP | 等一分钟；确认 `TRUST_PROXY=1`；只在本地/测试环境可临时 `RATE_LIMIT_DISABLED=1` 后重启 api |
-| `bun run backup` 报 `DATABASE_URL is required` | 脚本不读取 `.env` | `set -a; . ./.env; set +a; bun run backup` |
+| `bun run backup` 报 `env file not found` 或 `DATABASE_URL is empty` | 仓库根 `.env` 不存在，或其中的 `DATABASE_URL` 为空 | 在仓库根 `.env` 填 `DATABASE_URL`；或用 `BACKUP_ENV_FILE` 指定文件、显式 `export DATABASE_URL` |
 | `bun run backup` / `bun run restore` 报 `pg_dump`、`psql` 或 `docker compose` 找不到 | 宿主既没有 PostgreSQL 客户端，也不在项目目录运行 | 在项目根目录运行；安装 `postgresql` 客户端，或保持 compose 的 postgres 容器运行 |
 | `bun run backup` 报 `cannot read knowledge storage` | `knowledgedata` 卷存在，但宿主挂载点不可读且容器方式也失败（Docker 未运行、服务不健康） | 启动 Docker 与 postgres/api 容器后重跑；本机直跑且没有卷时设 `BACKUP_KNOWLEDGE_DIR` 指向真实目录。不要为绕过它改成 `KNOWLEDGE_DIR=`（会把知识库漏出备份） |
 | generated server 在沙盒内 401 | run 的短期 token 已过期/被清空，或 `.mcp.json` 未带上 `x-agentport-run-id` | 确认 run 仍为 `running`；不要手工改工作区文件；run 结束后短期 token 必然失效，属预期 |
@@ -558,10 +558,10 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 
 ### 8.1 方法与环境
 
-脚本 `scripts/loadtest.mjs`（纯 Node，无依赖）：
+脚本 `scripts/loadtest.mjs`（用 Bun 运行，自带 Bun SQL，无第三方依赖）：
 
 ```bash
-ADMIN_PASSWORD='...' node scripts/loadtest.mjs
+ADMIN_PASSWORD='...' bun scripts/loadtest.mjs
 # 可选：BASE_URL / ADMIN_USER / PLATFORM_MCP_TOKEN / DATABASE_URL
 # 脚本会自动读取仓库根目录的 .env；API 未启动时打印提示并 exit 1。
 ```
@@ -663,11 +663,11 @@ bun run --filter @agentport/web build
 
 ### 9.2 后端集成测试与 E2E
 
-根 `bun run test` 由 `scripts/test-backend.ts` 用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：它调用 `packages/worker/test/global-setup.ts`，每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；随后把两者合并进环境，spawn `bun test --isolate --parallel=2 --path-ignore-patterns=**/web/**`。`bunfig.toml` 的 preload（`packages/worker/test/setup-env.ts`）在测试模块导入前设置固定测试变量。后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次可 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`）以及建库或迁移失败都属配置错误，直接报错。`bun run test:web` 不走这条路径（见 §9.1）。`bun run test:watch` 把 `--watch` 传给 `bun test`；globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理，热重跑不会重建资源。
+根 `bun run test` 由 `scripts/test-backend.ts` 用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：它调用 `packages/worker/test/global-setup.ts`，每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；随后把两者合并进环境，spawn `bun test --isolate --parallel=2 --timeout=20000` 并原样透传 CLI 参数。测试收集由 `bunfig.toml` 原生配置负责：`root = "."`，`pathIgnorePatterns` 排除 web、工具缓存与非测试目录，保留根 `tests/` 内的后端测试。`bunfig.toml` 的 preload（`packages/worker/test/setup-env.ts`）在测试模块导入前设置固定测试变量。后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次可 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`）以及建库或迁移失败都属配置错误，直接报错。`bun run test:web` 不走这条路径（见 §9.1）。`bun run test:watch` 把 `--watch` 传给 `bun test`；globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理，热重跑不会重建资源。
 
 集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。这类断言怕的是**同一个 Redis 实例上有 worker 在消费 `agent-runs`**。测试使用每轮独享的临时 Redis 容器（内部 db 9），开发 worker 留在共享实例的 db 0，默认互不可见，**不需要停 worker**；不要为了让测试通过把 `REDIS_URL` 指回共享实例。
 
-E2E（`bun run test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `bun run --cwd packages/web vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。需要直写数据库的用例经 `tests/support/fixture.ts` 启动 Bun 子进程（`bun --no-env-file`），必须显式提供与 API 同库的 `E2E_DATABASE_URL`；`tests/chat-replay.e2e.ts` 另需 `E2E_REDIS_URL`。先 `bun run build` 供 API 使用 workspace `dist`；E2E 不依赖 Node PostgreSQL 驱动。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `bun run test:e2e` 要停 worker。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
+E2E（`bun run test:e2e`）的地址与启动方式以 `e2e.config.ts` 为准：web 目标固定为 [http://localhost:5173](http://localhost:5173)，未就绪时由 e2e 自动执行 `bun run --cwd packages/web vite` 启动，已就绪则复用（`reuseExisting`）——它不走 Portless，也不使用 Portless 分配的地址。API 不会被自动启动，需另行在 [http://localhost:3000](http://localhost:3000) 运行。需要直写数据库的用例经 `tests/support/fixture.ts` 启动 Bun 子进程（`bun --no-env-file`），必须显式提供与 API 同库的 `E2E_DATABASE_URL`；`tests/chat-replay.e2e.ts` 另需 `E2E_REDIS_URL`。先 `bun run build` 供 API 使用 workspace `dist`；E2E 不依赖 Node PostgreSQL 驱动。登录凭据取自 `e2e.config.ts` 的 `credentials.admin`（默认 `admin` / `admin-local-dev-2026`，可用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖），须与服务端实际生效的管理员一致；个别文件另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），它仍在默认 `e2e.config.ts` 内，所以普通 `bun run test:e2e` 要停 worker。默认配置已排除 `tests/dev-data/**`、`tests/eval-execution.e2e.ts`、`tests/runtime-build.e2e.ts`、`tests/channels.e2e.ts` 与 `tests/channels-business.e2e.ts`：评估执行与运行环境构建由 `bun run e2e:channel:execution` 运行；频道浏览器用例由 `bun run e2e:channel:ui` 运行，`e2e:channel` 跑该链路的 HTTP 断言，`e2e:channel:stack` 只起常驻隔离栈；频道业务回归由 `bun run e2e:channels-business` 运行。评估执行、运行环境构建与频道浏览器入口均由脚本自行创建独享 PostgreSQL、Redis 和受控假模型；execution 模式另校验本轮隔离栈契约，不要手工设置或伪造这些变量；`e2e:channels-business` 要求 `E2E_APP_URL` 指向已起好的隔离实例，并按其用例前置提供 `E2E_DATABASE_URL` 与管理员凭据。`e2e.execution.config.ts` 与 `e2e.channels.config.ts` 由 `scripts/e2e-channel.ts` 选择，不单独直接运行。`tests/smoke.e2e.ts` 中的真实对话用例需要 worker 与模型凭据，仅在 `E2E_FULL=1` 时运行，与回放用例前提相反；要跑它应单独选择该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。
 
 知识库本轮的正式整组检查点 `backend knowledge` 45 文件 624/624、`web knowledge/BlobPdf/chatOutputs/publicShare` 13 文件 293/293（0 跳过）产生于 ASR 与九种新增来源落地**之前**，只证明该核心检查点；报告分别是 `/tmp/knowledge-weknora-backend-consolidated.json` 与 `/tmp/knowledge-weknora-web-consolidated.json`。之后的 ASR、来源扩展与 FAQ 恢复改动各有定向证据，不能把 624/293 挪作新增功能后的最终验收，也不能与各定向结果相加冒充完整通过。
 

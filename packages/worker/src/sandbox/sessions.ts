@@ -1,16 +1,22 @@
 import { randomBytes } from 'node:crypto';
 import {
   type ChatEvent,
+  CONFIG_CONTAINER_DIR,
   type ExecutionSettlement,
   errorText,
+  INPUTS_CONTAINER_DIR,
+  MEMORY_CONTAINER_DIR,
+  OUTPUTS_CONTAINER_DIR,
   type ResolvedRuntimeEnvironment,
   redactSecrets,
   type SandboxInputCommand,
   type SandboxTaskInput,
+  SUBAGENT_MEMORY_CONTAINER_DIR,
   SUPERVISOR_INPUT_MAX_BYTES,
   type SupervisorInputFrame,
   type SupervisorOutput,
   supervisorOutputSchema,
+  USER_CONTAINER_DIR,
 } from '@agentport/shared';
 import type { Logger } from 'pino';
 import type { RuntimeEnvironmentResolver } from '../runtime-environments/resolve.js';
@@ -72,13 +78,6 @@ export interface SessionSandboxesOptions {
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
 }
 
-const CONFIG_DIR = '/home/node/.claude';
-const OUTPUTS_DIR = '/mnt/outputs';
-const INPUTS_DIR = '/mnt/inputs';
-const MEMORY_DIR = '/mnt/agent-memory';
-const USER_DIR = '/mnt/user';
-/** 子智能体 project 记忆的容器内根；每个 slug 是独立 rw bind mount。 */
-const SUBAGENT_MEMORY_DIR = '/workspace/.claude/agent-memory';
 /** 取消 ACK 等待上限；超时返回 unconfirmed，由调用方 release(false) 销毁容器。 */
 const CANCEL_GRACE_MS = 5_000;
 
@@ -165,25 +164,39 @@ interface SessionEntry {
   lastUsedSeq: number;
 }
 
+function mountsFor(
+  spec: SessionSandboxSpec,
+): NonNullable<Parameters<SandboxProvider['create']>[0]['extraMounts']> {
+  return [
+    { hostPath: spec.outputsDir, containerPath: OUTPUTS_CONTAINER_DIR },
+    { hostPath: spec.inputsDir, containerPath: INPUTS_CONTAINER_DIR, readonly: true },
+    { hostPath: spec.memoryDir, containerPath: MEMORY_CONTAINER_DIR },
+    { hostPath: spec.sessionsDir, containerPath: CONFIG_CONTAINER_DIR },
+    ...(spec.personalDir === undefined
+      ? []
+      : [{ hostPath: spec.personalDir, containerPath: USER_CONTAINER_DIR, readonly: true }]),
+    ...(spec.subAgentMemoryDirs ?? []).map((dir) => ({
+      hostPath: dir.memoryDir,
+      containerPath: `${SUBAGENT_MEMORY_CONTAINER_DIR}/${dir.slug}`,
+    })),
+  ];
+}
+
 function specMatches(current: SessionSandboxSpec, next: SessionSandboxSpec): boolean {
-  const currentSubAgents = current.subAgentMemoryDirs ?? [];
-  const nextSubAgents = next.subAgentMemoryDirs ?? [];
+  const currentMounts = mountsFor(current);
+  const nextMounts = mountsFor(next);
   return (
-    // 只比绑定身份，不比对线上解析结果：发布/回退不能替换存活容器。
     current.runtimeEnvironmentId === next.runtimeEnvironmentId &&
     current.workspaceDir === next.workspaceDir &&
-    current.outputsDir === next.outputsDir &&
-    current.inputsDir === next.inputsDir &&
-    current.memoryDir === next.memoryDir &&
-    current.sessionsDir === next.sessionsDir &&
-    current.personalDir === next.personalDir &&
-    // 绑定启停或宿主目录变化都要换容器：运行中的 bind mount 不能热替换。
-    currentSubAgents.length === nextSubAgents.length &&
-    currentSubAgents.every(
-      (dir, index) =>
-        dir.slug === nextSubAgents[index]?.slug &&
-        dir.memoryDir === nextSubAgents[index]?.memoryDir,
-    )
+    currentMounts.length === nextMounts.length &&
+    currentMounts.every((mount, index) => {
+      const other = nextMounts[index];
+      return (
+        mount.hostPath === other?.hostPath &&
+        mount.containerPath === other.containerPath &&
+        mount.readonly === other.readonly
+      );
+    })
   );
 }
 
@@ -465,20 +478,7 @@ export class SessionSandboxes {
         entrypoint: 'bun',
         command: ['dist/session-supervisor.js'],
         init: true,
-        extraMounts: [
-          { hostPath: spec.outputsDir, containerPath: OUTPUTS_DIR },
-          { hostPath: spec.inputsDir, containerPath: INPUTS_DIR, readonly: true },
-          { hostPath: spec.memoryDir, containerPath: MEMORY_DIR },
-          { hostPath: spec.sessionsDir, containerPath: CONFIG_DIR },
-          ...(spec.personalDir === undefined
-            ? []
-            : [{ hostPath: spec.personalDir, containerPath: USER_DIR, readonly: true }]),
-          // 子智能体 project 记忆：唯一宿主直接 rw 挂载，不回写、不经过 /workspace 只读根。
-          ...(spec.subAgentMemoryDirs ?? []).map((dir) => ({
-            hostPath: dir.memoryDir,
-            containerPath: `${SUBAGENT_MEMORY_DIR}/${dir.slug}`,
-          })),
-        ],
+        extraMounts: mountsFor(spec),
         signal: createSignal,
       });
     } catch (err) {

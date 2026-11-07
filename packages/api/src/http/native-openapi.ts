@@ -1,6 +1,7 @@
-import { auditItemSchema, auditQuerySchema } from '@agentport/contract/audit';
+import { auditItemSchema } from '@agentport/contract/audit';
 import { evalCaseExportQuerySchema } from '@agentport/contract/eval';
 import {
+  AGENT_PACKAGE_MAX_BYTES,
   agentSchema,
   channelEventSchema,
   channelEventsQuerySchema,
@@ -13,13 +14,14 @@ import {
   pluginSchema,
   problemSchema,
   runListItemSchema,
-  runStatusSchema,
-  runTriggerSchema,
-  slugSchema,
 } from '@agentport/shared';
 import { isObjectSchema, type OpenAPI, toOpenAPIParameters, toOpenAPISchema } from '@orpc/openapi';
 import { ZodToJsonSchemaConverter } from '@orpc/zod/zod4';
 import { z } from 'zod';
+import { agentImportQuerySchema } from '../modules/agents/http.js';
+import { auditExportQuerySchema } from '../modules/audit/http.js';
+import { PLUGIN_ZIP_MAX_BYTES, pluginImportQuerySchema } from '../modules/plugins/http.js';
+import { runExportQuerySchema } from '../modules/runs/router.js';
 
 const converter = new ZodToJsonSchemaConverter();
 export const nativeOpenAPISchemas: Record<string, OpenAPI.SchemaObject> = {
@@ -121,11 +123,7 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
       operationId: 'exportAudit',
       description: '需要 audit.read。最多导出 limit 条，超限返回 409，请先缩小筛选范围。',
       security: session,
-      parameters: query(
-        auditQuerySchema.extend({
-          limit: z.coerce.number().int().positive().max(1000).default(1000),
-        }).shape,
-      ),
+      parameters: query(auditExportQuerySchema.shape),
       responses: {
         ...protectedErrors,
         200: jsonAttachment(
@@ -392,12 +390,7 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
       description:
         '需要 runs.export，按当前账号对象范围筛选。超过 limit 返回 409，请先缩小筛选范围。',
       security: session,
-      parameters: query({
-        agentId: z.string().min(1).optional(),
-        status: runStatusSchema.optional(),
-        trigger: runTriggerSchema.optional(),
-        limit: z.coerce.number().int().min(1).max(1000).default(1000),
-      }),
+      parameters: query(runExportQuerySchema.shape),
       responses: {
         ...protectedErrors,
         200: jsonAttachment(
@@ -424,9 +417,9 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
   '/plugins/import': {
     post: {
       operationId: 'importPluginZip',
-      description: '需要 plugins.import 和可信 Origin。原始 ZIP 最大 4 MiB。',
+      description: `需要 plugins.import 和可信 Origin。原始 ZIP 最大 ${PLUGIN_ZIP_MAX_BYTES / 1024 / 1024} MiB。`,
       security: session,
-      parameters: query({ slug: slugSchema }),
+      parameters: query(pluginImportQuerySchema.shape),
       requestBody: zipRequest,
       responses: {
         ...protectedErrors,
@@ -459,14 +452,9 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
   '/import/agents': {
     post: {
       operationId: 'importAgentZip',
-      description:
-        '需要 agents.import、agents.create 和可信 Origin。新建连接器或技能还需 servers.create、skills.create；指定运行环境需 runtime_environments.read。原始 ZIP 最大 1 MiB。',
+      description: `需要 agents.import、agents.create 和可信 Origin。新建连接器或技能还需 servers.create、skills.create；指定运行环境需 runtime_environments.read。原始 ZIP 最大 ${AGENT_PACKAGE_MAX_BYTES / 1024 / 1024} MiB。`,
       security: session,
-      parameters: query({
-        slug: slugSchema.optional(),
-        name: z.string().min(1).max(128).optional(),
-        runtimeEnvironmentId: z.string().min(1).optional(),
-      }),
+      parameters: query(agentImportQuerySchema.shape),
       requestBody: zipRequest,
       responses: {
         ...protectedErrors,

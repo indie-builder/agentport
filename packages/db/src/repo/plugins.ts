@@ -1,9 +1,10 @@
 import { AppError } from '@agentport/core';
-import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Agent } from '@agentport/shared';
+import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agentPlugins, pluginFiles, plugins } from '../schema.js';
-import { notStale } from './freshness.js';
+import { notStale, touchUpdatedAt } from './freshness.js';
 
 export type PluginRow = typeof plugins.$inferSelect;
 
@@ -38,9 +39,6 @@ const pluginColumns = {
   createdAt: plugins.createdAt,
   updatedAt: plugins.updatedAt,
 };
-
-/** 版本按毫秒推进：同一毫秒内的连续更新也要让旧 token 失效。 */
-const touchUpdatedAt = sql`greatest(now(), date_trunc('milliseconds', ${plugins.updatedAt}) + interval '1 millisecond')`;
 
 /** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
 export async function listPlugins(db: Database): Promise<PluginWithAgentCount[]> {
@@ -116,7 +114,7 @@ export async function updatePluginMeta(
 ): Promise<PluginRow | null> {
   const [row] = await db
     .update(plugins)
-    .set({ ...patch, updatedAt: touchUpdatedAt })
+    .set({ ...patch, updatedAt: touchUpdatedAt(plugins.updatedAt) })
     .where(
       expectedUpdatedAt === undefined
         ? eq(plugins.id, id)
@@ -178,4 +176,32 @@ export async function listAgentPluginBindings(
     .where(eq(agentPlugins.agentId, agentId))
     .orderBy(asc(plugins.createdAt), asc(plugins.id));
   return rows;
+}
+
+export async function listAgentPluginBindingInputs(
+  db: DbHandle,
+  agentIds: string[],
+): Promise<Map<string, Agent['pluginBindings']>> {
+  const out = new Map<string, Agent['pluginBindings']>();
+  if (agentIds.length === 0) return out;
+  const rows = await db
+    .select({
+      agentId: agentPlugins.agentId,
+      pluginId: agentPlugins.pluginId,
+      allowHooks: agentPlugins.allowHooks,
+      allowMcp: agentPlugins.allowMcp,
+    })
+    .from(agentPlugins)
+    .where(inArray(agentPlugins.agentId, agentIds))
+    .orderBy(asc(agentPlugins.agentId), asc(agentPlugins.pluginId));
+  for (const row of rows) {
+    const list = out.get(row.agentId) ?? [];
+    list.push({
+      pluginId: row.pluginId,
+      allowHooks: row.allowHooks,
+      allowMcp: row.allowMcp,
+    });
+    out.set(row.agentId, list);
+  }
+  return out;
 }

@@ -17,7 +17,6 @@ function agentRow(overrides: Partial<WorkspaceAgentRow> = {}): WorkspaceAgentRow
     allowedTools: [],
     disallowedTools: [],
     enabled: true,
-    timeoutMs: 600_000,
     ...overrides,
   };
 }

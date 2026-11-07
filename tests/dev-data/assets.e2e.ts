@@ -14,7 +14,7 @@ import { resolveOwnership } from '../support/dataset-ownership.js';
 /**
  * 青禾演示资产组：连接器、工具、技能、本地插件与演示账户。
  * 只通过真实 UI 创建；API 仅用于同源读取、轮询和冲突判断。
- * 专项命令：pnpm dev:data / pnpm dev:data:verify（必须设置 E2E_APP_URL）。
+ * 专项命令：bun run dev:data / bun run dev:data:verify（必须设置 E2E_APP_URL）。
  */
 
 const DISPLAY = '【青禾演示】';
@@ -285,7 +285,7 @@ test('assets verify: read-only dataset check', { session: 'admin', tags: ['verif
   app,
   browser,
 }) => {
-  test.skip(process.env.E2E_DEV_DATA !== '1', '仅由 pnpm dev:data:verify 启用');
+  test.skip(process.env.E2E_DEV_DATA !== '1', '仅由 bun run dev:data:verify 启用');
   await app.open('/');
   expect(await manifestExists('assets')).toBe(true);
   const manifest = await loadManifest();
@@ -964,7 +964,7 @@ test('assets build: connectors, tools, skills, plugin, accounts', {
   session: 'admin',
   tags: ['build'],
 }, async ({ app, screen, browser }) => {
-  test.skip(process.env.E2E_DEV_DATA !== '1', '仅由 pnpm dev:data 启用');
+  test.skip(process.env.E2E_DEV_DATA !== '1', '仅由 bun run dev:data 启用');
   // 同源 API 读取走 browser.evaluate，必须先打开页面，不能只靠后面的 app.open。
   await app.open('/');
   const ctx: Ctx = { app, screen, browser };

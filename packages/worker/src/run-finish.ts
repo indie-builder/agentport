@@ -1,5 +1,5 @@
 import { type createDb, repo, schema } from '@agentport/db';
-import type { ChatEvent } from '@agentport/shared';
+import type { ChatEvent, RunErrorKind } from '@agentport/shared';
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { publishChannelEventSafely } from './channel-events.js';
@@ -19,12 +19,8 @@ export interface RunFinishValues {
   inputTokens?: number | null;
   outputTokens?: number | null;
   error?: string | null;
-  errorKind?: 'cancelled' | 'timeout' | 'sandbox' | 'agent' | 'infra' | null;
+  errorKind?: RunErrorKind | null;
 }
-/**
- * 落终态、发布、审计只在 CAS 胜出时发生一次。index 与 reconcile 共用这一段，
- * 避免两处写出不同的状态/事件组合。
- */
 export async function finalizeRun(input: {
   db: Db;
   logger: Logger;
@@ -87,6 +83,17 @@ export async function finalizeRun(input: {
       { runId: row.id },
     );
   }
+  await publishRunFinished(input);
+  return true;
+}
+
+export async function publishRunFinished(input: {
+  db: Db;
+  logger: Logger;
+  runId: string;
+  event: RunFinishedEvent;
+  audit: { action: string; status: 'ok' | 'error'; dedupeKey?: string; durationMs?: number };
+}): Promise<void> {
   await publishRun(input.runId, input.event, input.logger);
   await repo.audit.writeAudit(input.db, input.logger, {
     actor: 'worker',
@@ -96,7 +103,6 @@ export async function finalizeRun(input: {
     ...(input.audit.dedupeKey === undefined ? {} : { dedupeKey: input.audit.dedupeKey }),
     ...(input.audit.durationMs === undefined ? {} : { durationMs: input.audit.durationMs }),
   });
-  return true;
 }
 
 /**

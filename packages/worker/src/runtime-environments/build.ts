@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import {
 import { createBunRedisClient, type Job, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
+import { keepTail, runDocker, type SpawnFn } from './command.js';
 import { verifyRuntimeEnvironmentImage } from './verify.js';
 
 /** BullMQ 任务名；jobId 与载荷都由 shared 契约固定。 */
@@ -22,75 +23,6 @@ export const RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS = 30 * 60_000;
 const BUILD_LOG_FLUSH_BYTES = 16 * 1024;
 const BUILD_LOG_FLUSH_MS = 1_000;
 const IMAGE_ID = /^sha256:[0-9a-f]{64}$/;
-
-/** 失败不自动重试；只有 worker 关闭退回 queued 后由对账重新入队。 */
-export function runtimeEnvironmentBuildEnqueueOptions(versionId: string) {
-  return {
-    jobId: versionId,
-    attempts: 1,
-    removeOnComplete: 100,
-    removeOnFail: 200,
-  };
-}
-
-export type SpawnFn = (
-  command: string,
-  args: readonly string[],
-  options: { stdio: ['ignore', 'pipe', 'pipe'] },
-) => ChildProcess;
-
-interface CommandResult {
-  code: number | null;
-  aborted: boolean;
-  stdout: string;
-  stderr: string;
-}
-
-function keepTail(text: string): string {
-  return text.length > RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT
-    ? text.slice(text.length - RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT)
-    : text;
-}
-
-function runDocker(
-  spawnFn: SpawnFn,
-  args: string[],
-  signal: AbortSignal | undefined,
-  onOutput?: (chunk: string) => void,
-): Promise<CommandResult> {
-  return new Promise((resolveCommand, reject) => {
-    let stdout = '';
-    let stderr = '';
-    let aborted = false;
-    const child = spawnFn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', (chunk: string) => {
-      // 只留尾部，长时间构建不会在工作进程里无限累计输出。
-      stdout = keepTail(stdout + chunk);
-      onOutput?.(chunk);
-    });
-    child.stderr?.on('data', (chunk: string) => {
-      stderr = keepTail(stderr + chunk);
-      onOutput?.(chunk);
-    });
-    const onAbort = (): void => {
-      aborted = true;
-      child.kill('SIGTERM');
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    const finish = (): void => signal?.removeEventListener('abort', onAbort);
-    child.once('error', (err) => {
-      finish();
-      reject(err);
-    });
-    child.once('close', (code) => {
-      finish();
-      resolveCommand({ code, aborted, stdout, stderr });
-    });
-    if (signal?.aborted) onAbort();
-  });
-}
 
 function lastLine(text: string): string {
   return (
@@ -486,7 +418,6 @@ export async function startRuntimeEnvironmentBuildWorker(
 
   return {
     close: async () => {
-      // 先 abort 当前构建让它退回 queued，再等 worker 收尾。
       closing.abort();
       await worker.close();
       await connection.quit();

@@ -1,11 +1,10 @@
+import { effortSchema, permissionModeSchema } from '@agentport/shared';
+import { downloadBlob } from '../lib/browser-files.js';
+import { agentSections as sectionItems, agentTabs as tabItems } from '../lib/detail-tabs.js';
 // 只引用纯函数子路径：core 根入口还导出 node:crypto 相关模块，浏览器不能加载。
 
 import type { McpJsonEntry } from '@agentport/core/tools';
-import {
-  DEFAULT_DISALLOWED_TOOLS,
-  renderWorkspace,
-  type WorkspaceFiles,
-} from '@agentport/core/workspace';
+import { renderWorkspace, type WorkspaceFiles } from '@agentport/core/workspace';
 import {
   AGENT_PACKAGE_MAX_BYTES,
   AGENT_ROLES,
@@ -16,6 +15,7 @@ import {
   agentDuplicateInputSchema,
   agentInputSchema,
   BUILTIN_TOOLS,
+  DEFAULT_DISALLOWED_TOOLS,
   knowledgeMcpEntry,
   type PermissionId,
   type Server,
@@ -72,6 +72,7 @@ import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
+import { MemoryPanel, OutputStylesPanel, RulesPanel } from '../components/memory-panel.js';
 import {
   Collapsible,
   CollapsibleContent,
@@ -178,7 +179,6 @@ import {
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
 import { useZodForm } from '../lib/use-zod-form.js';
-import { MemoryPanel, OutputStylesPanel, RulesPanel } from './memory-panel.js';
 
 /**
  * 模型名由部署的网关决定，不是平台常量：直连 Anthropic 时是 claude-*，
@@ -1312,7 +1312,6 @@ export function AgentDetailPage() {
           agent={full}
           permissions={permissions}
           deletePending={remove.isPending}
-          onDirtyChange={() => {}}
           onPendingChange={setEditorPending}
           onDeleteRequest={() => setDeleting(true)}
         />
@@ -1372,8 +1371,8 @@ export function AgentDetailPage() {
   );
 }
 
-type SectionId = 'identity' | 'behavior' | 'capability' | 'permissions' | 'limits';
-type TabId = 'config' | 'memory' | 'rules' | 'styles' | 'files';
+type SectionId = (typeof sectionItems)[number]['id'];
+type TabId = (typeof tabItems)[number]['id'];
 
 function RestrictedAgentTabs({
   agentId,
@@ -1830,22 +1829,6 @@ function TransferAgentDialog({
   );
 }
 
-const sectionItems: ReadonlyArray<{ id: SectionId; label: string }> = [
-  { id: 'identity', label: '身份' },
-  { id: 'behavior', label: '行为' },
-  { id: 'capability', label: '能力' },
-  { id: 'permissions', label: '权限' },
-  { id: 'limits', label: '运行限制' },
-];
-
-const tabItems: ReadonlyArray<{ id: TabId; label: string }> = [
-  { id: 'config', label: '配置' },
-  { id: 'memory', label: '专家记忆' },
-  { id: 'rules', label: '项目规则' },
-  { id: 'styles', label: '输出风格' },
-  { id: 'files', label: '完整文件' },
-];
-
 const TAB_PERMISSIONS: Record<TabId, PermissionId> = {
   config: 'agents.config.read',
   memory: 'agents.memory.read',
@@ -1900,7 +1883,7 @@ export function AgentEditor({
   agent: Agent;
   permissions: readonly PermissionId[];
   deletePending?: boolean;
-  onDirtyChange: (dirty: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
   onDeleteRequest: () => void;
 }) {
@@ -2095,18 +2078,12 @@ export function AgentEditor({
     setExporting(true);
     try {
       // 导出就是官方 `.claude/` 目录的 ZIP，浏览器直接落盘。
-      const url = URL.createObjectURL(
+      downloadBlob(
         await api.exportAgent(agent.id, undefined, (warnings) => {
           for (const warning of warnings) toast.warning(warning);
         }),
+        `${agent.slug}.zip`,
       );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${agent.slug}.zip`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       toastError(error);
     } finally {
@@ -2165,9 +2142,9 @@ export function AgentEditor({
     blocker.status === 'blocked' && blocker.current?.pathname === blocker.next?.pathname;
 
   useEffect(() => {
-    onDirtyChange(guarded || locked);
+    onDirtyChange?.(guarded || locked);
   }, [guarded, locked, onDirtyChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   useEffect(() => {
     onPendingChange(locked);
@@ -2550,18 +2527,18 @@ export function AgentEditor({
 
   const effortOptions = [
     { value: '', label: '默认' },
-    { value: 'low', label: 'low' },
-    { value: 'medium', label: 'medium' },
-    { value: 'high', label: 'high' },
-    { value: 'xhigh', label: 'xhigh' },
-    { value: 'max', label: 'max' },
+    ...effortSchema.options.map((value) => ({ value, label: value })),
   ];
-  const permissionOptions = [
-    { value: 'dontAsk', label: 'dontAsk — 拒绝未预批准' },
-    { value: 'plan', label: 'plan — 只规划不执行' },
-    { value: 'default', label: 'default — 标准权限' },
-    { value: 'acceptEdits', label: 'acceptEdits — 自动接受编辑' },
-  ];
+  const permissionLabels: Record<(typeof permissionModeSchema.options)[number], string> = {
+    dontAsk: 'dontAsk — 拒绝未预批准',
+    plan: 'plan — 只规划不执行',
+    default: 'default — 标准权限',
+    acceptEdits: 'acceptEdits — 自动接受编辑',
+  };
+  const permissionOrder = Object.keys(permissionLabels);
+  const permissionOptions = permissionModeSchema.options
+    .toSorted((a, b) => permissionOrder.indexOf(a) - permissionOrder.indexOf(b))
+    .map((value) => ({ value, label: permissionLabels[value] }));
   const uiFormatOptions = [
     { value: 'markdown', label: 'Markdown' },
     { value: 'openui', label: '生成式 UI' },
@@ -4049,8 +4026,8 @@ type PreviewSubAgent = {
   systemPrompt: string;
   maxTurns: number;
   timeoutMs: number;
-  permissionMode: string;
-  effort?: string | null;
+  permissionMode: AgentInput['permissionMode'];
+  effort?: AgentInput['effort'] | null;
   allowedTools: string[];
   disallowedTools: string[];
   skills?: PreviewSkill[];
@@ -4114,7 +4091,6 @@ function DraftPreview({
         />
         {title}
       </CollapsibleTrigger>
-      {/* 高度动画由 motion 管，Radix 负责 open 状态和 trigger/content 的 aria 关联。 */}
       <CollapsibleContent keepMounted>
         <AnimatePresence initial={false}>
           {open ? (
@@ -4294,16 +4270,12 @@ function listWorkspaceFiles(files: AgentFiles): FileEntry[] {
     { id: '.mcp.json', path: '.mcp.json', group: '根文件', content: files.mcpJson },
     { id: 'CLAUDE.md', path: 'CLAUDE.md', group: '根文件', content: files.claudeMd },
     { id: 'preview:agent-md', path: 'agent md', group: '根文件', content: files.agentMd },
-    ...(files.settingsJson === null
-      ? []
-      : [
-          {
-            id: '.claude/settings.json',
-            path: '.claude/settings.json',
-            group: '根文件',
-            content: files.settingsJson,
-          },
-        ]),
+    {
+      id: '.claude/settings.json',
+      path: '.claude/settings.json',
+      group: '根文件',
+      content: files.settingsJson,
+    },
     ...(files.skills ?? []).flatMap((skill) => [
       {
         id: `.claude/skills/${skill.slug}/SKILL.md`,
@@ -4895,7 +4867,7 @@ export function CreateAgentDialog({
   );
 }
 
-export function DuplicateAgentDialog({
+function DuplicateAgentDialog({
   agent,
   onClose,
   getReturnFocus,

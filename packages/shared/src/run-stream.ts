@@ -1,3 +1,8 @@
+export const RUNS_QUEUE = 'agent-runs';
+
+/** 评估跑批队列：只传 id，worker 自己读用例，避免 API 重启丢失进程内状态。 */
+export const EVAL_RUNS_QUEUE = 'eval-runs';
+
 export const RUN_CANCEL_PAYLOAD = '1';
 /** At ~40KiB per job this bounds waiting history near 4MiB per queue. */
 export const RUN_QUEUE_MAX_WAITING = 100;

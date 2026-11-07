@@ -3,19 +3,14 @@ import { AppError, fail } from '@agentport/core';
 import type { Account, RoleSummary } from '@agentport/shared';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { and, asc, count, eq, ilike, inArray, ne, or, type SQL } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { DbHandle, Transaction } from '../client.js';
 import { authAccounts, authSessions, authUsers, roles, userRoles } from '../schema.js';
-import { type DbHandle, lockAdminMutation, type Tx } from './access.js';
+import { assertCanRemoveActiveAdmin, lockAdminMutation } from './access.js';
 import { hasBusinessHistory, listIdentities } from './identities.js';
 
 export { hasBusinessHistory, listIdentities };
 
 type AccountRow = typeof authUsers.$inferSelect;
-type TxLike = DbHandle;
-
-function transaction<T>(db: TxLike, run: (tx: Tx) => Promise<T>): Promise<T> {
-  return (db as Database).transaction(run);
-}
 
 function toSummary(row: { id: string; name: string; systemKey: string | null }): RoleSummary {
   return {
@@ -25,7 +20,7 @@ function toSummary(row: { id: string; name: string; systemKey: string | null }):
   };
 }
 
-async function rolesFor(db: TxLike, businessIds: string[]): Promise<Map<string, RoleSummary[]>> {
+async function rolesFor(db: DbHandle, businessIds: string[]): Promise<Map<string, RoleSummary[]>> {
   const map = new Map<string, RoleSummary[]>();
   if (businessIds.length === 0) return map;
   const rows = await db
@@ -58,7 +53,7 @@ function toAccount(row: AccountRow, roles: RoleSummary[]): Account {
   };
 }
 
-async function getAccountRow(db: TxLike, businessId: string): Promise<AccountRow | null> {
+async function getAccountRow(db: DbHandle, businessId: string): Promise<AccountRow | null> {
   const [row] = await db
     .select()
     .from(authUsers)
@@ -67,13 +62,13 @@ async function getAccountRow(db: TxLike, businessId: string): Promise<AccountRow
   return row ?? null;
 }
 
-async function accountFromRow(db: TxLike, row: AccountRow): Promise<Account> {
+async function accountFromRow(db: DbHandle, row: AccountRow): Promise<Account> {
   const rolesByBusiness = await rolesFor(db, [row.businessId]);
   return toAccount(row, rolesByBusiness.get(row.businessId) ?? []);
 }
 
 export async function listAccounts(
-  db: TxLike,
+  db: DbHandle,
   input: { q?: string; limit: number; offset: number },
 ): Promise<{ items: Account[]; total: number }> {
   // 含启用与停用账户；已删除认证资料的行不存在。
@@ -109,7 +104,7 @@ export async function listAccounts(
 }
 
 export async function getIdentity(
-  db: TxLike,
+  db: DbHandle,
   businessId: string,
 ): Promise<{ businessId: string; name: string; accountActive: boolean } | null> {
   const [row] = await db
@@ -128,7 +123,7 @@ export async function getIdentity(
   return { businessId, name: businessId, accountActive: false };
 }
 
-async function assertRoleIds(db: TxLike, roleIds: readonly string[]) {
+async function assertRoleIds(db: DbHandle, roleIds: readonly string[]) {
   const unique = [...new Set(roleIds)];
   if (unique.length === 0) return unique;
   const rows = await db.select({ id: roles.id }).from(roles).where(inArray(roles.id, unique));
@@ -138,7 +133,7 @@ async function assertRoleIds(db: TxLike, roleIds: readonly string[]) {
   return unique;
 }
 
-async function assignRoles(tx: Tx, businessId: string, roleIds: readonly string[]) {
+async function assignRoles(tx: Transaction, businessId: string, roleIds: readonly string[]) {
   const unique = await assertRoleIds(tx, roleIds);
   await tx.delete(userRoles).where(eq(userRoles.businessId, businessId));
   if (unique.length > 0) {
@@ -147,7 +142,7 @@ async function assignRoles(tx: Tx, businessId: string, roleIds: readonly string[
 }
 
 export async function createAccount(
-  db: TxLike,
+  db: DbHandle,
   input: {
     businessId: string;
     username: string;
@@ -157,7 +152,7 @@ export async function createAccount(
     roleIds?: string[];
   },
 ): Promise<Account> {
-  return transaction(db, async (tx) => {
+  return db.transaction(async (tx) => {
     const existing = await getAccountRow(tx, input.businessId);
     if (existing) fail('CONFLICT', '该业务 ID 已有账户');
     const [usernameTaken] = await tx
@@ -217,7 +212,7 @@ export async function createAccount(
 }
 
 export async function updateAccount(
-  db: TxLike,
+  db: DbHandle,
   businessId: string,
   input: { username?: string; name?: string },
 ): Promise<Account | null> {
@@ -245,40 +240,18 @@ export async function updateAccount(
 }
 
 export async function setAccountStatus(
-  db: TxLike,
+  db: DbHandle,
   businessId: string,
   status: Account['status'],
 ): Promise<Account | null> {
-  return transaction(db, async (tx) => {
+  return db.transaction(async (tx) => {
     const disabling = status === 'disabled';
     // 停用与角色/矩阵保存共用同一把锁，再读管理员数量，避免并发把管理员清零。
     if (disabling) await lockAdminMutation(tx);
     const row = await getAccountRow(tx, businessId);
     if (!row) return null;
     if (disabling && !row.disabled) {
-      const [admin] = await tx
-        .select({ id: userRoles.roleId })
-        .from(userRoles)
-        .innerJoin(roles, eq(roles.id, userRoles.roleId))
-        .where(and(eq(userRoles.businessId, businessId), eq(roles.systemKey, 'admin')))
-        .limit(1);
-      if (admin) {
-        const [others] = await tx
-          .select({ total: count() })
-          .from(userRoles)
-          .innerJoin(roles, eq(roles.id, userRoles.roleId))
-          .innerJoin(authUsers, eq(authUsers.businessId, userRoles.businessId))
-          .where(
-            and(
-              eq(roles.systemKey, 'admin'),
-              eq(authUsers.disabled, false),
-              ne(userRoles.businessId, businessId),
-            ),
-          );
-        if ((others?.total ?? 0) === 0) {
-          fail('CONFLICT', '至少需要一个启用中的平台管理员');
-        }
-      }
+      await assertCanRemoveActiveAdmin(tx, businessId);
     }
     const [updated] = await tx
       .update(authUsers)
@@ -294,11 +267,11 @@ export async function setAccountStatus(
 }
 
 export async function changeOwnPassword(
-  db: TxLike,
+  db: DbHandle,
   authUserId: string,
   input: { currentPassword: string; newPassword: string },
 ): Promise<boolean> {
-  return transaction(db, async (tx) => {
+  return db.transaction(async (tx) => {
     const [user] = await tx
       .select({ id: authUsers.id })
       .from(authUsers)
@@ -326,11 +299,11 @@ export async function changeOwnPassword(
 }
 
 export async function resetPassword(
-  db: TxLike,
+  db: DbHandle,
   businessId: string,
   passwordHash: string,
 ): Promise<boolean> {
-  return transaction(db, async (tx) => {
+  return db.transaction(async (tx) => {
     const row = await getAccountRow(tx, businessId);
     if (!row) return false;
     const updated = await tx
@@ -344,35 +317,13 @@ export async function resetPassword(
   });
 }
 
-export async function deleteAccount(db: TxLike, businessId: string): Promise<boolean> {
-  return transaction(db, async (tx) => {
+export async function deleteAccount(db: DbHandle, businessId: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
     await lockAdminMutation(tx);
     const row = await getAccountRow(tx, businessId);
     if (!row) return false;
     if (!row.disabled) {
-      const [admin] = await tx
-        .select({ id: userRoles.roleId })
-        .from(userRoles)
-        .innerJoin(roles, eq(roles.id, userRoles.roleId))
-        .where(and(eq(userRoles.businessId, businessId), eq(roles.systemKey, 'admin')))
-        .limit(1);
-      if (admin) {
-        const [others] = await tx
-          .select({ total: count() })
-          .from(userRoles)
-          .innerJoin(roles, eq(roles.id, userRoles.roleId))
-          .innerJoin(authUsers, eq(authUsers.businessId, userRoles.businessId))
-          .where(
-            and(
-              eq(roles.systemKey, 'admin'),
-              eq(authUsers.disabled, false),
-              ne(userRoles.businessId, businessId),
-            ),
-          );
-        if ((others?.total ?? 0) === 0) {
-          fail('CONFLICT', '至少需要一个启用中的平台管理员');
-        }
-      }
+      await assertCanRemoveActiveAdmin(tx, businessId);
     }
     // 只删认证资料；业务记录、角色、成员和个人记忆都按 businessId 保留。
     await tx.delete(authUsers).where(eq(authUsers.id, row.id));

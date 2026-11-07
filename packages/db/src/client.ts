@@ -4,6 +4,8 @@ import { schema } from './schema.js';
 
 export type Database = ReturnType<typeof createDb>['db'];
 export type DatabaseClient = SQL;
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+export type DbHandle = Database | Transaction;
 
 const POOL_WAIT_TIMEOUT_MS = 5_000;
 

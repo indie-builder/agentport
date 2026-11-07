@@ -1,8 +1,8 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { connect, createServer, type Socket } from 'node:net';
 import { sql } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'bun:test';
-import type { Database, DatabaseClient } from '../src/client.js';
+import type { DatabaseClient, DbHandle } from '../src/client.js';
 import { createDb } from '../src/client.js';
 import { withAdvisoryLock } from '../src/repo/locks.js';
 
@@ -20,10 +20,8 @@ afterAll(async () => {
   await client.close();
 });
 
-async function backendPid(db: Database): Promise<number> {
-  const result = (await db.execute(sql`select pg_backend_pid() as pid`)) as unknown as Array<{
-    pid: number;
-  }>;
+async function backendPid(db: DbHandle): Promise<number> {
+  const result = await db.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`);
   return Number(result[0]?.pid);
 }
 
@@ -179,8 +177,8 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
     const pids: number[] = [];
     const value = await withAdvisoryLock(client, testKey, async (db) => {
       pids.push(await backendPid(db));
-      pids.push(await db.transaction((tx) => backendPid(tx as unknown as Database)));
-      pids.push(await db.transaction((tx) => backendPid(tx as unknown as Database)));
+      pids.push(await db.transaction((tx) => backendPid(tx)));
+      pids.push(await db.transaction((tx) => backendPid(tx)));
       return 'done';
     });
     expect(value).toBe('done');
@@ -220,9 +218,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
     const faulty = faultyClient(
       client,
       (text) =>
-        text.includes('pg_advisory_unlock')
-          ? { result: [{ unlocked: false }] }
-          : undefined,
+        text.includes('pg_advisory_unlock') ? { result: [{ unlocked: false }] } : undefined,
       releases,
     );
     await expect(withAdvisoryLock(faulty, testKey, async () => 'ignored')).rejects.toMatchObject({

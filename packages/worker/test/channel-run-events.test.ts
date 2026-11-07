@@ -1,11 +1,11 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb, newId, schema } from '@agentport/db';
-import { type ChannelEvent, channelStreamKey } from '@agentport/shared';
+import { type ChannelEvent, channelStreamKey, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import { eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
-import { afterAll, describe, expect, it } from 'bun:test';
 import { publishChannelEventSafely } from '../src/channel-events.js';
-import { finalizeRun, type RunFinishedEvent } from '../src/run-finish.js';
+import { finalizeRun, publishRunFinished, type RunFinishedEvent } from '../src/run-finish.js';
 import { closeRunnerClient, configureRunnerClient } from '../src/runner-client.js';
 
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
@@ -119,6 +119,28 @@ describe.skipIf(!ready)('channel run lifecycle events', () => {
       }),
     ).toBe(false);
 
+    const before = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, fixture.runId));
+    expect(await redis?.xlen(runStreamKey(fixture.runId))).toBe(1);
+    await publishRunFinished({
+      db,
+      logger,
+      runId: fixture.runId,
+      event,
+      audit: { action: 'test.finished.replayed', status: 'ok' },
+    });
+    expect(await redis?.xlen(runStreamKey(fixture.runId))).toBe(2);
+    expect(
+      await db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, fixture.runId)),
+    ).toEqual(before);
+    expect(
+      await db
+        .select({ action: schema.auditLog.action })
+        .from(schema.auditLog)
+        .where(eq(schema.auditLog.target, fixture.runId)),
+    ).toContainEqual({ action: 'test.finished.replayed' });
     const events = (await channelEvents(fixture.channelId)).filter(
       (entry) => entry.type === 'run.finished',
     );

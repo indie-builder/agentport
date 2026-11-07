@@ -5,6 +5,7 @@ import {
 } from './agent-package.js';
 import { slugSchema } from './params.js';
 import { pluginFileInputSchema } from './plugin.js';
+import { parseUrl } from './url.js';
 import { utf8Bytes } from './utf8.js';
 
 /**
@@ -21,17 +22,6 @@ export const NATIVE_PLUGIN_WAIT_TIMEOUT_MS = 150_000;
 
 const pluginNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const githubRepoPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-type ParsedUrl = { username: string; password: string; hostname: string };
-
-/** shared 不带 DOM/Node lib，与 mcp.ts 一样声明最小 URL 形状。 */
-function parseUrl(value: string): ParsedUrl | null {
-  try {
-    return new (globalThis as unknown as { URL: new (value: string) => ParsedUrl }).URL(value);
-  } catch {
-    return null;
-  }
-}
 
 /** 等价于 `/[\s\x00-\x1f\x7f]/`，按码点判断，避开正则里的控制字符转义。 */
 function hasWhitespaceOrControl(value: string): boolean {

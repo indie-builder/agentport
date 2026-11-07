@@ -2,7 +2,7 @@
 // 组件名與注册顺序、官方描述、12 个分组、提示词示例与规则。
 //
 // 组件契约本身以 definitions.ts 的真实 Zod 为唯一来源；这里只搬官方文案，
-// 避免在仓库里手抄 5 个示例和 42 条规则后与上游漂移。
+// 避免在仓库里手抄示例和规则后与上游漂移。
 //
 // 用法：bun run openui:meta（bun run openui:spec 会先跑它）
 import { mkdirSync, writeFileSync } from 'node:fs';

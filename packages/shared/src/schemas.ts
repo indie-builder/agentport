@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { runTriggerSchema } from './ops.js';
 import { publicRunQuestionSchema } from './questions.js';
+import { runErrorKindSchema, runStatusSchema } from './run-state.js';
 import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
 
 /**
@@ -8,17 +9,6 @@ import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
  * 漏声明的字段会被静默丢弃，多余字段同样被丢弃，类型不符则 500 RESPONSE_INVALID。
  * 只覆盖前端消费的端点，不追求覆盖全部路由。
  */
-
-export const runStatusSchema = z.enum([
-  'queued',
-  'running',
-  'succeeded',
-  'failed',
-  'cancelled',
-  'timeout',
-]);
-
-export type RunStatus = z.infer<typeof runStatusSchema>;
 
 /** /api/runs 列表项；costUsd 是 numeric，pg 驱动返回字符串。 */
 export const runListItemSchema = z.object({
@@ -63,9 +53,6 @@ export const runStepSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type RunStep = z.infer<typeof runStepSchema>;
-
-/** 失败分类：infra=平台/沙箱基础设施，agent=模型或工具，sandbox=容器异常退出。 */
-export const runErrorKindSchema = z.enum(['cancelled', 'timeout', 'sandbox', 'agent', 'infra']);
 
 export const runDetailSchema = z.object({
   run: runListItemSchema.extend({

@@ -1,11 +1,11 @@
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { captureOutputDraft } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { persistRunMessages } from '../src/messages.js';
 import {
   lastMessageIdOfRun,
@@ -93,6 +93,8 @@ describe('run outputs mount and identity', () => {
     expect(join(identity.workspacesDir, relative)).toBe(
       join(conversationDir(), 'drafts', identity.runId),
     );
+    expect(prepared.dir).toBe(join(conversationDir(), 'drafts', identity.runId));
+    expect((await stat(prepared.dir)).isDirectory()).toBe(true);
     // 草稿目录真实存在：docker 挂载不会因为缺目录创建成 root 属主的空目录。
     await expect(readFile(join(prepared.hostPath, 'missing'), 'utf8')).rejects.toThrow(/ENOENT/);
   });

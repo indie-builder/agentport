@@ -3,30 +3,12 @@ import { memoryFileNameSchema, validateMemoryContent } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { BusinessIllustration } from '../components/business-illustration.js';
-import { CodeBlock } from '../components/code-block.js';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { DialogShell } from '../components/dialog-shell.js';
-import { SourceEditor } from '../components/source-editor.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
-import { Checkbox } from '../components/ui/checkbox.js';
-import { Dialog } from '../components/ui/dialog.js';
-import { Field, FieldGroup, FieldLabel } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select.js';
 import { api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { formatDateTime } from '../lib/format.js';
 import {
   agentMemoryFileQuery,
+  agentMemoryKeys,
   agentMemoryQuery,
   agentOutputStylesQuery,
   agentRulesQuery,
@@ -34,6 +16,25 @@ import {
   useRollbackMemoryChange,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
+import { BusinessIllustration } from './business-illustration.js';
+import { CodeBlock } from './code-block.js';
+import { ConfirmDialog } from './confirm-dialog.js';
+import { DialogShell } from './dialog-shell.js';
+import { SourceEditor } from './source-editor.js';
+import { EmptyState, ErrorState, LoadingState } from './states.js';
+import { Button, buttonVariants } from './ui/button.js';
+import { Checkbox } from './ui/checkbox.js';
+import { Dialog } from './ui/dialog.js';
+import { Field, FieldGroup, FieldLabel } from './ui/field.js';
+import { Input } from './ui/input.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select.js';
 
 interface DraftCallbacks {
   onDirtyChange?: (dirty: boolean) => void;
@@ -45,8 +46,8 @@ function invalidateAgentMemoryQueries(
   client: ReturnType<typeof useQueryClient>,
   agentId: string,
 ): void {
-  void client.invalidateQueries({ queryKey: ['agent-memory', agentId] });
-  void client.invalidateQueries({ queryKey: ['agent-memory-file', agentId] });
+  void client.invalidateQueries({ queryKey: agentMemoryKeys.list(agentId) });
+  void client.invalidateQueries({ queryKey: agentMemoryKeys.file(agentId) });
   void client.invalidateQueries({ queryKey: ['memory-versions'] });
   void client.invalidateQueries({ queryKey: ['memory-reviews'] });
 }
@@ -168,7 +169,7 @@ export function MemoryPanel({
     onSuccess: (_data, fileName) => {
       toastSuccess(`已删除 ${fileName}`);
       if (selected === fileName) setSelected(null);
-      client.removeQueries({ queryKey: ['agent-memory-file', agentId, fileName] });
+      client.removeQueries({ queryKey: agentMemoryKeys.file(agentId, fileName) });
       invalidateAgentMemoryQueries(client, agentId);
     },
   });
@@ -718,7 +719,6 @@ export function RulesPanel({
 
   const guard = (action: RuleAction): void => {
     if (pending) return;
-    // 只读仍可浏览规则，但不能新建或删除。
     if (action.type !== 'open' && !canWrite) return;
     // 删除始终二次确认；其余动作只有当前草稿会丢时才确认。
     if (dirty || action.type === 'delete') setConfirming(action);

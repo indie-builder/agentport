@@ -8,10 +8,10 @@ import {
   knowledgeImageChunkMetadataSchema,
 } from '@agentport/shared';
 import type { KnowledgeServerInput } from './mcp.js';
+import { QUOTE_LIMIT } from './retrieval.js';
 
 /** SDK 原生视觉输入只接受这四种 MIME；其他格式提示走 description。 */
 const VISUAL_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-const QUOTE_LIMIT = 1200;
 
 export class KnowledgeReadImageError extends Error {
   constructor(

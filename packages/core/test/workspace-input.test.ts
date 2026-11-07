@@ -16,7 +16,6 @@ function agentRow(overrides: Partial<WorkspaceAgentRow> = {}): WorkspaceAgentRow
     allowedTools: ['Bash'],
     disallowedTools: ['WebFetch'],
     enabled: true,
-    timeoutMs: 600_000,
     ...overrides,
   };
 }
@@ -125,7 +124,7 @@ describe('toWorkspaceInput', () => {
         agent: agentRow({ slug: 'lead' }),
         servers: servers('<已配置>'),
         skills: [],
-        subAgents: [agentRow({ slug: 'researcher', description: '查资料', timeoutMs: 120_000 })],
+        subAgents: [agentRow({ slug: 'researcher', description: '查资料' })],
       }),
     );
     // 后台执行由运行时 env 禁用，不再要求模型逐次传 run_in_background。
@@ -185,7 +184,7 @@ describe('toWorkspaceInput', () => {
         agent: agentRow(),
         servers: servers('<已配置>'),
         skills: [],
-        subAgents: [agentRow({ slug: 'researcher', timeoutMs: 120_000 })],
+        subAgents: [agentRow({ slug: 'researcher' })],
       }),
     );
     const child = files.subAgents[0]?.content ?? '';
@@ -263,7 +262,7 @@ describe('toWorkspaceInput', () => {
         subAgents: [],
       }),
     );
-    expect(JSON.parse(files.settingsJson ?? '{}')).toEqual({
+    expect(JSON.parse(files.settingsJson)).toEqual({
       env: {
         CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
         CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',

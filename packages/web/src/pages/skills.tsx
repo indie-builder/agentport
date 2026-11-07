@@ -267,9 +267,7 @@ export function SkillsPage() {
           icon={<BusinessIllustration name="tools" size="compact" />}
           title="技能是可复用的操作流程"
           description={
-            canCreateSkill || canReadMarket
-              ? undefined
-              : '当前账号没有创建技能或访问市场的权限。'
+            canCreateSkill || canReadMarket ? undefined : '当前账号没有创建技能或访问市场的权限。'
           }
           action={
             canCreateSkill ? (
@@ -456,13 +454,10 @@ function MarketSkillsPage({
           replace: true,
         })
       }
-      sort="newest"
-      onSortChange={() => {}}
       count={tooShort ? undefined : (market.data?.length ?? 0)}
       status={
         tooShort ? 'success' : market.isPending || market.isDebouncing ? 'pending' : market.status
       }
-      hideSort
       leadingFilters={
         <SegmentedToggle
           label="技能来源"

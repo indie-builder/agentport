@@ -24,13 +24,14 @@ import { knowledgeImageChunkMetadataSchema, knowledgeLocatorSchema } from '@agen
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { normalizeFaqQuestion } from './faq.js';
+import { supportsImageVectors } from './service.js';
 
 type Db = Database;
 
 const PER_PATH = 50;
 const RRF_K = 60;
 const FUSED = 30;
-const QUOTE_LIMIT = 1200;
+export const QUOTE_LIMIT = 1200;
 const DEFAULT_MIN_VECTOR_SCORE = 0.3;
 
 const ALL_KINDS = ['document', 'faq', 'wiki'] as const;
@@ -505,19 +506,6 @@ function fuse(paths: SearchRow[][]): Candidate[] {
     });
   });
   return [...merged.values()].sort((a, b) => b.rrf - a.rrf).slice(0, FUSED);
-}
-
-/** 同空间图片查询要求 profile 同时具备协议、模型与图片输入能力。 */
-function supportsImageVectors(profile: {
-  embeddingProtocol: string;
-  model: string;
-  imageInputEnabled: boolean;
-}): boolean {
-  return (
-    profile.embeddingProtocol === 'cohere_v2' &&
-    profile.model === 'embed-v4.0' &&
-    profile.imageInputEnabled
-  );
 }
 
 /** 已发布但索引尚未追上线指针的页面数；用于 MCP/管理的可见告警。 */

@@ -42,7 +42,6 @@ export const idPrefixes = {
   knowledgeSyncItem: 'ksit',
   knowledgeWikiPage: 'kwp',
   knowledgeWikiVersion: 'kwv',
-  knowledgeWikiSource: 'kws',
   knowledgeModelProfile: 'kmp',
   outputShare: 'osh',
   memoryChange: 'mch',

@@ -1,6 +1,7 @@
 import { fail } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
+  INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
   type MemoryContentSnapshot,
   type MemoryReviewTarget,
@@ -33,8 +34,6 @@ import {
   readPersonalMemory,
   writePersonalMemoryLocked,
 } from './personal.js';
-
-const INDEX_FILE = 'MEMORY.md';
 
 export async function agentSlug(db: Database, agentId: string): Promise<string> {
   const [row] = await db
@@ -98,10 +97,10 @@ export async function readMemoryTarget(
   if (target.kind === 'agent_memory') {
     const file = await readMemoryFile(workspacesDir, slug, target.name);
     const index =
-      target.name === INDEX_FILE
+      target.name === INDEX_FILE_NAME
         ? null
         : {
-            content: (await readMemoryFile(workspacesDir, slug, INDEX_FILE))?.content ?? null,
+            content: (await readMemoryFile(workspacesDir, slug, INDEX_FILE_NAME))?.content ?? null,
           };
     return { content: file?.content ?? null, globs: null, index };
   }
@@ -161,7 +160,8 @@ function changedFiles(
   if (target.kind !== 'agent_memory') return [];
   const names: string[] = [];
   if ((before.content ?? null) !== (after.content ?? null)) names.push(target.name);
-  if (target.name !== INDEX_FILE && !sameIndex(before.index, after.index)) names.push(INDEX_FILE);
+  if (target.name !== INDEX_FILE_NAME && !sameIndex(before.index, after.index))
+    names.push(INDEX_FILE_NAME);
   return names;
 }
 
@@ -438,20 +438,20 @@ async function finalizeJournalEntry(
   const beforeContent = targetFile ? decodeBase64(targetFile.beforeBase64) : afterContent;
   let beforeIndex: string | null = null;
   let afterIndex: string | null = null;
-  if (target.name !== INDEX_FILE) {
-    const indexFile = entry.files.find((file) => file.name === INDEX_FILE);
-    afterIndex = (await readMemoryFile(workspacesDir, slug, INDEX_FILE))?.content ?? null;
+  if (target.name !== INDEX_FILE_NAME) {
+    const indexFile = entry.files.find((file) => file.name === INDEX_FILE_NAME);
+    afterIndex = (await readMemoryFile(workspacesDir, slug, INDEX_FILE_NAME))?.content ?? null;
     beforeIndex = indexFile ? decodeBase64(indexFile.beforeBase64) : afterIndex;
   }
   const before: MemoryContentSnapshot = {
     content: beforeContent,
     globs: null,
-    index: target.name === INDEX_FILE ? null : { content: beforeIndex },
+    index: target.name === INDEX_FILE_NAME ? null : { content: beforeIndex },
   };
   const after: MemoryContentSnapshot = {
     content: afterContent,
     globs: null,
-    index: target.name === INDEX_FILE ? null : { content: afterIndex },
+    index: target.name === INDEX_FILE_NAME ? null : { content: afterIndex },
   };
   assertJournalMatchesSnapshot(entry, target, before, 'before');
   assertJournalMatchesSnapshot(entry, target, after, 'after');
@@ -595,18 +595,18 @@ async function recordManualSameContent(
     agentId: target.agentId,
     kind: 'agent_memory',
     name: target.name,
-    includeIndexChanges: target.name === INDEX_FILE,
+    includeIndexChanges: target.name === INDEX_FILE_NAME,
     limit: 1,
   });
   // MEMORY.md 的最近记录可能是以主题为 target 的变更：它的 after.index.content 才是 MEMORY 正文。
   const latestTarget = latest?.target;
   const latestIndexContent =
-    latestTarget?.kind === 'agent_memory' && latestTarget.name === INDEX_FILE
+    latestTarget?.kind === 'agent_memory' && latestTarget.name === INDEX_FILE_NAME
       ? (latest?.after.content ?? null)
       : (latest?.after.index?.content ?? null);
   const same =
     latest !== undefined &&
-    (target.name === INDEX_FILE
+    (target.name === INDEX_FILE_NAME
       ? latestIndexContent === current.content
       : sameSnapshot(latest.after, current));
   if (same) return null;
@@ -628,13 +628,13 @@ function assertCandidateLimits(
   if (after.content !== null && Buffer.byteLength(after.content, 'utf8') > MEMORY_FILE_MAX_BYTES) {
     fail('PAYLOAD_TOO_LARGE', `记忆文件不能超过 ${MEMORY_FILE_MAX_BYTES} 字节`);
   }
-  if (target.name === INDEX_FILE && after.content !== null) {
-    const problem = validateMemoryContent(INDEX_FILE, after.content);
+  if (target.name === INDEX_FILE_NAME && after.content !== null) {
+    const problem = validateMemoryContent(INDEX_FILE_NAME, after.content);
     if (problem) fail('INVALID_INPUT', problem);
   }
   const indexContent = after.index?.content ?? null;
-  if (changed.includes(INDEX_FILE) && indexContent !== null) {
-    const problem = validateMemoryContent(INDEX_FILE, indexContent);
+  if (changed.includes(INDEX_FILE_NAME) && indexContent !== null) {
+    const problem = validateMemoryContent(INDEX_FILE_NAME, indexContent);
     if (problem) fail('INVALID_INPUT', problem);
   }
 }
@@ -657,7 +657,9 @@ async function writeAgentMemoryTarget(
       : ('manual' as const);
   // 手工写入在写日志前先分配最终账本 ID，日志与账本使用同一稳定身份。
   const operationId = input.sourceReviewRunId ?? input.reversesChangeId ?? newId('memoryChange');
-  const ordered = [...new Set([target.name, INDEX_FILE])].filter((name) => changed.includes(name));
+  const ordered = [...new Set([target.name, INDEX_FILE_NAME])].filter((name) =>
+    changed.includes(name),
+  );
 
   const entry: MemoryJournalEntry = {
     operation,
@@ -797,7 +799,7 @@ export async function writeMemoryTargetLocked(
         : changedFiles(target, input.before, after);
     // 同内容 PUT 仍会把当前索引作为候选；DELETE 不改索引，不因已有超限索引失败。
     if (input.manualContent !== undefined) {
-      assertCandidateLimits(target, after, input.manualContent === null ? [] : [INDEX_FILE]);
+      assertCandidateLimits(target, after, input.manualContent === null ? [] : [INDEX_FILE_NAME]);
     }
     const partial = input.reversesChangeId !== undefined;
     if (input.before !== undefined) {
@@ -809,7 +811,7 @@ export async function writeMemoryTargetLocked(
           if (expected !== actual) fail('CONFLICT', '目标内容已变化，无法回滚');
         }
       } else if (!sameSnapshot(current, input.before)) {
-        fail('CONFLICT', '目标内容在审核后已被修改，请重新生成');
+        fail('CONFLICT_STALE', '目标内容在审核后已被修改，请重新生成');
       }
     }
     if (changed.length === 0) {
@@ -825,7 +827,7 @@ export async function writeMemoryTargetLocked(
   }
 
   if (input.before !== undefined && !sameSnapshot(current, input.before)) {
-    fail('CONFLICT', '目标内容在审核后已被修改，请重新生成');
+    fail('CONFLICT_STALE', '目标内容在审核后已被修改，请重新生成');
   }
   if (sameSnapshot(current, after)) {
     if (input.before === undefined) return null;

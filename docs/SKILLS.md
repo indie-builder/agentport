@@ -59,7 +59,7 @@
 - **Better Auth / Drizzle**：认证实现以 `packages/api/src/modules/auth` 为准；Drizzle 按本地 lock 锁定版本与 `packages/db/src/schema.ts` 现行写法。常规业务实体主键用应用层 `newId(entity)` TypeID；认证、关联表、幂等派生标识、外部资源等按 `docs/PROJECT-BRIEF.md` §「ID 约定」的例外处理；不采用上游 `serial`/数据库生成 ID 示例。迁移只走 `bun run db:generate` + `bun run db:migrate`。
 - **React Hook Form**：沿用现有 `useZodForm` 与 `components/ui/` 的 Base UI/shadcn 控件，不引入 Radix 或 MUI；示例按本地 lock 版本核对。
 - **Router / Query**：对准现有 React + Vite SPA 入口（`packages/web/src/router.tsx`、`routes/`、`lib/queries.ts`），示例中的包标识与跨技能链接用本地路径修正，不引入 TanStack Start/SSR 或额外依赖；版本差异按 lock。
-- **Bun test / Vitest**：技能文本可能来自高于 lock 的版本，使用前核对已安装版本，不为示例升级依赖；后端用 `bun:test`（`bun run test`，`scripts/test-backend.ts`），前端用 Vitest（`bun run test:web`，根 `vitest.config.ts` 只配置 web project）。
+- **Bun test / Vitest**：技能文本可能来自高于 lock 的版本，使用前核对已安装版本，不为示例升级依赖；后端用 Bun 内置 `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate --parallel=2`，默认排除 web），前端用 Vitest 5.0.5（`bun run test:web` → `packages/web/vitest.config.ts`，jsdom，`packages/web/test/**/*.test.ts`，不加载 `.env`；根 `vitest.config.ts` 只注册 web project）。按路径过滤用 `bun run test -- <paths>` / `bun run test:web -- <paths>`，不使用 pnpm 或 Vitest 的 backend project。
 
 安装依据与许可：`better-auth-best-practices` 按上游 <https://www.better-auth.com/docs/ai-resources/skills> 发布的安装命令装入；上游仓库未提供 LICENSE 文件，此处只登记本地安装与来源事实。
 
@@ -108,7 +108,7 @@
 
 上游 `mblode/agent-skills` 许可 MIT（上游最近推送 2026-10-29），本次用 CLI 1.7.4 安装（`--agent claude-code --agent universal -y`）；canonical 目录在 `.agents/skills/test-audit/`，`.claude/skills/test-audit` 为同相对链接，`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。
 
-只在 `SKILL.md` frontmatter 后加一段中文 `Project convention`，`references/`、`evals/` 保持上游原样。约定：后端执行器为 `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate`，排除 web），前端为 Vitest 5.0.5（`bun run test:web`，`packages/web/vitest.config.ts`）；后端测试由 `packages/worker/test/global-setup.ts` 每轮创建独立随机 PostgreSQL 库与临时 Redis 容器，Docker/PostgreSQL 不可用时依赖设施的套件按设计跳过，不盲目 unskip，先起基础设施，绝不回落共享库 / 共享 Redis（见 `docs/PITFALLS.md`）；基线命令与评审命令一致并按文件比较；E2E 统一 `e2e` / `@e2e-dev/web`，不在 `bun run test` 内，本技能不审计 E2E；主会话不写代码，删改测试由子代理在任务 worktree 执行并附真实证据，不新增阻塞钩子，结论用中文；不引入 crapper / mutator 或新依赖。已安装的 `test-audit` 技能缓存仍写着旧的 Vitest backend project 与覆盖率包，属于外部缓存，不在本次文档同步范围；下次更新技能时按本段修正。升级或重装后补回该段，再跑「完成核验」。
+只在 `SKILL.md` frontmatter 后加一段中文 `Project convention`，`references/`、`evals/` 保持上游原样。约定：后端执行器为 Bun 内置 `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate --parallel=2`，排除 web），前端为 Vitest 5.0.5（`bun run test:web` → `packages/web/vitest.config.ts`，jsdom，`packages/web/test/**/*.test.ts`，不加载 `.env`；根 `vitest.config.ts` 只注册 web project）；按路径过滤用 `bun run test -- <paths>` / `bun run test:web -- <paths>`，不使用 pnpm 或 Vitest backend project；仓库当前未安装 `@vitest/coverage-v8`，需要覆盖率证据时先核对可用工具，不为审计新增依赖。后端测试由 `packages/worker/test/global-setup.ts` 每轮创建独立随机 PostgreSQL 库与临时 Redis 容器，Docker/PostgreSQL 不可用时依赖设施的套件按设计跳过，不盲目 unskip，先起基础设施，绝不回落共享库 / 共享 Redis（见 `docs/PITFALLS.md`）；基线命令与评审命令一致并按文件比较；E2E 统一 `e2e` / `@e2e-dev/web`，不在 `bun run test` 内，本技能不审计 E2E；主会话不写代码，删改测试由子代理在任务 worktree 执行并附真实证据，不新增阻塞钩子，结论用中文；不引入 crapper / mutator 或新依赖。升级或重装后补回该段，再跑「完成核验」。
 
 ### unslop（2026-11-01）
 

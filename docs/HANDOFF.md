@@ -1,7 +1,7 @@
 # 交接摘要（2026-10-20，最终状态）
 
 > 只读历史：本文件是某时间点的状态快照，非待办来源；未完成项以 [REMAINING-TODOS.md](REMAINING-TODOS.md) 为准。
-> 文中的 `pnpm` 命令与测试数字是当次记录；现行命令见 [README](../README.md) 与 [OPERATIONS.md](OPERATIONS.md)，后端测试已迁移到 `bun:test`。
+> 质量基线表中的 `pnpm` 命令与测试数字是当次记录；现行命令见 [README](../README.md) 与 [OPERATIONS.md](OPERATIONS.md)，下方「如何继续」已更新为当前 Bun 命令。
 > 当前状态快照。能力清单见根 [CHANGELOG.md](../CHANGELOG.md)，待决策见 [DECISIONS-PENDING.md](DECISIONS-PENDING.md)，安全状态见 [SECURITY.md](SECURITY.md)，故障处置见 [RUNBOOK.md](RUNBOOK.md)。
 
 ## 一句话现状
@@ -56,7 +56,7 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 7. **会话上下文靠注入最近 20 条消息**，不是 SDK 原生 session resume；长对话会截断。
 8. **子智能体只支持单层**，且继承父会话的 MCP 工具集；子智能体自己的 server 绑定不参与渲染。子智能体内部调用已带 `parentToolUseId` 并在 UI 缩进，但单层约束仍靠 API 校验 + `disallowedTools`，SDK 本身无深度限制。
 9. **评估跑批在 worker 的 `eval-runs` 队列串行（并发 1）**；worker 重启后超过 1 小时仍为 `running` 的跑批会被收敛为 `failed`（`eval run lost`）。
-10. **SSE 事件保留 1 小时、最多 1000 条**；过期后只能从 `messages` 还原主线。每个观众占一条独立 Redis 连接（`XREAD BLOCK`），受 Redis `maxclients` 约束；慢客户端未读事件被 MAXLEN 裁剪时可能静默丢失。
+10. **历史快照：当时 SSE 事件保留 1 小时、最多 1000 条**；过期后只能从 `messages` 还原主线。每个观众占一条独立 Redis 连接（`XREAD BLOCK`），受 Redis `maxclients` 约束；当时慢客户端未读事件被 MAXLEN 裁剪时可能静默丢失。当前已取消条数裁剪，现行预算与 TTL 见 [ARCHITECTURE.md](ARCHITECTURE.md) §7.1。
 11. **分支**：既可从侧栏对整段会话分支（复制全部），也可从任意一条已持久化的用户消息分支（复制到该消息为止，UI 已暴露 `fromMessageId`）。新发/流式消息尚无持久化 id，不显示该入口。
 12. **导入不携带子智能体与工具审批标记**；导入格式当前没有这两个字段。
 13. **Server 地址校验与连接之间的 DNS 重绑定窗口**仍靠网络层 allowlist 兜底。
@@ -77,18 +77,16 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 ```bash
 cd ~/Documents/myself/agentport
 docker compose up -d postgres redis
-pnpm build
-pnpm db:migrate
-pnpm dev            # api + worker + web
-pnpm smoke          # 需要 API 已启动且已设置 ADMIN_PASSWORD
+bun run build
+bun run db:migrate
+bun run dev            # api + worker + web
+bun run smoke          # 需要 API 已启动且已设置 ADMIN_PASSWORD
 ```
 
-跑测试前先停 worker（否则集成用例会被真实消费）：
+`bun run test` 由 globalSetup 每轮创建随机 PostgreSQL 库与独享临时 Redis，默认不需要停开发 worker：
 
 ```bash
-docker compose stop worker api
-set -a; . ./.env; set +a; pnpm test
-docker compose start api worker
+bun run test
 ```
 
 新会话开始时读：`docs/PROJECT-BRIEF.md` → `docs/CAPABILITY-GAP.md` → `docs/DECISIONS-PENDING.md` → `docs/SECURITY.md` → `docs/RUNBOOK.md`。

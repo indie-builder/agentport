@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { Activity, Bot, Plus, Server, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { AttentionPanel } from '../components/attention-panel.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import {
   Collapsible,
@@ -55,7 +56,6 @@ import {
   useOverview,
   useOverviewTimeseries,
 } from '../lib/queries.js';
-import { AttentionPanel } from './ops.js';
 
 const agentColumns: DataColumn<OverviewAgentRow>[] = [
   {
@@ -504,9 +504,7 @@ export function OverviewPage() {
         }
       />
 
-      {error && !data ? (
-        <ErrorState error={error} onRetry={() => void overview.refetch()} />
-      ) : null}
+      {error && !data ? <ErrorState error={error} onRetry={() => void overview.refetch()} /> : null}
 
       {error && data ? (
         <PageNote

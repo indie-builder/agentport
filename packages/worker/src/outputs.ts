@@ -1,4 +1,4 @@
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import {
   outputDraftBlockedReason,
   prepareOutputDraft,
@@ -6,11 +6,16 @@ import {
   setOutputDraftBlocked,
 } from '@agentport/core';
 import { type Database, schema } from '@agentport/db';
-import { type ExecutionSettlement, type OutputRef, outputRefSchema } from '@agentport/shared';
+import {
+  type ExecutionSettlement,
+  OUTPUTS_CONTAINER_DIR,
+  type OutputRef,
+  outputRefSchema,
+  type TerminalRunStatus,
+} from '@agentport/shared';
 import { desc, eq } from 'drizzle-orm';
 
-/** 容器内的交付目录；worker 只把本 run 的草稿挂到这里。 */
-export const OUTPUTS_CONTAINER_DIR = '/mnt/outputs';
+import { toHostWorkspacePath } from './session-workspace.js';
 
 export interface RunOutputsIdentity {
   workspacesDir: string;
@@ -54,7 +59,7 @@ export function promptWithSelectedOutput(prompt: string, output: OutputRef | nul
  */
 export async function prepareRunOutputs(
   input: RunOutputsIdentity & { sourceRunId?: string; sourcePath?: string },
-): Promise<{ hostPath: string }> {
+): Promise<{ dir: string; hostPath: string }> {
   const dir = await prepareOutputDraft({
     root: input.workspacesDir,
     slug: input.slug,
@@ -63,7 +68,7 @@ export async function prepareRunOutputs(
     ...(input.sourceRunId === undefined ? {} : { sourceRunId: input.sourceRunId }),
     ...(input.sourcePath === undefined ? {} : { sourcePath: input.sourcePath }),
   });
-  return { hostPath: join(input.hostWorkspacesDir, relative(input.workspacesDir, dir)) };
+  return { dir, hostPath: toHostWorkspacePath(input, dir) };
 }
 
 /**
@@ -82,7 +87,7 @@ export function outputPublishProblem(input: {
 }
 
 export interface PublishRunOutputsInput {
-  status: 'succeeded' | 'failed' | 'cancelled' | 'timeout';
+  status: TerminalRunStatus;
   userMessageId: string;
   /** 本轮最后一条真实消息；只有工具调用的轮次也要取到，不能依赖助手文本。 */
   afterMessageId: string | (() => Promise<string>);
