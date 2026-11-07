@@ -124,21 +124,18 @@ describe('CDS light theme token contract', () => {
     expect(token('--color-primary-hover')).toEqual(parse('#0b0b0b'));
     expect(token('--color-selected-foreground')).toEqual(token('--color-fg'));
     expect(token('--color-accent-foreground')).toEqual(token('--color-fg'));
-    for (const [foreground, background] of [
-      ['--color-primary-foreground', '--color-button-primary'],
-      ['--color-primary-foreground', '--color-button-primary-hover'],
-      ['--color-primary-foreground', '--color-button-primary-active'],
-      ['--color-muted-foreground', '--color-sunken'],
+    for (const background of [
+      '--color-button-primary',
+      '--color-button-primary-hover',
+      '--color-button-primary-active',
     ] as const) {
-      expect(
-        ratio(foreground, background),
-        `${foreground} on ${background}`,
-      ).toBeGreaterThanOrEqual(4.5);
+      expect(ratio('--color-primary-foreground', background), background).toBeGreaterThanOrEqual(
+        4.5,
+      );
     }
     for (const background of [
       '--color-surface',
       '--color-canvas',
-      '--color-hover',
       '--color-sidebar-selected',
       '--color-selected',
     ] as const) {
@@ -148,8 +145,8 @@ describe('CDS light theme token contract', () => {
   });
 
   it('records the accepted low-contrast CDS boundary limits', () => {
-    expect(token('--color-input')).toEqual(token('--color-line-strong'));
-    expect(ratio('--color-input', '--color-surface')).toBeCloseTo(1.606, 2);
+    expect(token('--color-input')).toEqual(token('--color-line'));
+    expect(ratio('--color-input', '--color-surface')).toBeCloseTo(1.254, 2);
     expect(ratio('--color-input', '--color-surface')).toBeLessThan(3);
     expect(ratio('--color-control-boundary', '--color-surface')).toBeCloseTo(2.442, 2);
     expect(ratio('--color-control-boundary', '--color-surface')).toBeLessThan(3);

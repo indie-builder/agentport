@@ -648,7 +648,7 @@ export function AgentsPage() {
                   </button>
                 </li>
                 <li className="min-w-0">
-                  <Card className="h-52">
+                  <Card interactive className="h-52">
                     <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
                       <img
                         src={digitalTwinPortrait}
@@ -678,7 +678,7 @@ export function AgentsPage() {
                 (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
               return (
                 <li key={agent.id} className="min-w-0">
-                  <Card className="h-52 gap-3">
+                  <Card interactive className="h-52 gap-3">
                     <CardHeader className="grid h-12 grid-cols-[auto_minmax(0,1fr)_auto]! grid-rows-2 items-center">
                       <AgentAvatar agent={agent} className="row-span-2 mr-2 self-center" />
                       <CardTitle className="col-start-2 row-start-1 min-w-0">
@@ -688,7 +688,7 @@ export function AgentsPage() {
                             params={{ agentId: agent.id }}
                             title={agent.name}
                             disabled={importing}
-                            className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
+                            className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             {agent.name}
                           </Link>
@@ -4026,7 +4026,8 @@ export function AgentEditor({
           side="right"
           showCloseButton={false}
           aria-describedby={undefined}
-          className="w-full max-w-120! gap-0 p-0 shadow-content-overlay sm:max-w-120!"
+          // Keep the project shadow.
+          className="w-full max-w-120! gap-0 p-0 shadow-overlay sm:max-w-120!"
         >
           <div className="flex items-start justify-between gap-4 border-b px-5 py-3.5">
             <div className="min-w-0">
@@ -4150,7 +4151,7 @@ function DraftPreview({
   // Collapsible is unstyled; keep the draft border, 8px corners, and compact muted trigger.
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border">
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronRight
           className={cn(
             'size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out-soft',
@@ -4839,7 +4840,7 @@ export function CreateAgentDialog({
           >
             <CollapsibleTrigger
               type="button"
-              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
+              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <ChevronRight
                 className={cn(

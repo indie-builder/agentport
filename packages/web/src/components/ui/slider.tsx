@@ -31,7 +31,7 @@ function Slider({
       thumbAlignment="edge"
       {...props}
     >
-      <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:[&_[data-slot=slider-range]]:bg-muted-foreground data-disabled:[&_[data-slot=slider-thumb]]:bg-sunken data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-40 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col">
+      <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-40 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col">
         <SliderPrimitive.Track
           data-slot="slider-track"
           className="relative grow overflow-hidden rounded-full bg-muted select-none data-[orientation=horizontal]:h-1 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1"
@@ -46,7 +46,7 @@ function Slider({
             data-slot="slider-thumb"
             key={index}
             {...thumbAria}
-            className="relative block size-3 shrink-0 rounded-full border border-control-boundary bg-surface transition-[color,border-color] select-none after:absolute after:-inset-2 hover:border-ring has-[:focus-visible]:border-ring [&_input:focus-visible]:outline-none active:border-ring disabled:pointer-events-none disabled:text-muted-foreground"
+            className="relative block size-3 shrink-0 rounded-full border border-control-boundary bg-surface ring-ring transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:border-transparent hover:ring-2 has-[:focus-visible]:border-transparent has-[:focus-visible]:ring-2 [&_input:focus-visible]:outline-none active:border-transparent active:ring-2 disabled:pointer-events-none disabled:opacity-50"
           />
         ))}
       </SliderPrimitive.Control>

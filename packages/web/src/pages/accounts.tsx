@@ -201,9 +201,7 @@ export function AccountsPage() {
                   清除筛选
                 </Button>
               ) : canManage ? (
-                <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                  新建账户
-                </Button>
+                <Button onClick={() => setCreating(true)}>新建账户</Button>
               ) : undefined
             }
           />

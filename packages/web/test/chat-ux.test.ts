@@ -842,6 +842,10 @@ describe('chat shell layout', () => {
     expect(picker).not.toBeNull();
     expect(picker?.textContent).toContain('选择专家');
     expect(picker?.textContent).not.toContain('Expert');
+    expect(
+      host.querySelector('button[aria-label="显示会话历史"]')?.parentElement?.contains(picker),
+    ).toBe(true);
+    expect(host.querySelectorAll('button[aria-label="选择专家"]')).toHaveLength(1);
     // 没有明确归属时不能输入或发送。
     expect(message().disabled).toBe(true);
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.disabled).toBe(

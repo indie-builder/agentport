@@ -84,11 +84,6 @@ export function ConfirmDialog({
           </Button>
           <Button
             variant={tone === 'default' ? 'default' : 'destructive'}
-            className={
-              tone === 'danger'
-                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80'
-                : undefined
-            }
             aria-busy={pending}
             disabled={pending || confirmDisabled}
             onClick={() => void confirm()}

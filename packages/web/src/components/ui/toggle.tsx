@@ -3,18 +3,18 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
 
 const toggleVariants = cva(
-  "group/toggle inline-flex border border-transparent items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft outline-none hover:bg-hover hover:text-foreground focus-visible:not-aria-invalid:border-ring focus-visible:aria-invalid:border-2 disabled:pointer-events-none disabled:bg-sunken disabled:text-muted-foreground aria-invalid:border-destructive aria-pressed:bg-selected aria-pressed:text-selected-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft outline-none hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-[0.35] aria-invalid:border aria-invalid:border-destructive aria-pressed:bg-selected aria-pressed:text-selected-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default: 'bg-transparent',
-        outline: 'border border-input bg-background hover:bg-hover',
+        outline: 'border border-border bg-transparent hover:bg-hover',
       },
       size: {
         default:
-          'h-8 min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 focus-visible:aria-invalid:px-[calc(--spacing(2.5)-1px)] focus-visible:aria-invalid:has-data-[icon=inline-end]:pr-[calc(--spacing(2)-1px)] focus-visible:aria-invalid:has-data-[icon=inline-start]:pl-[calc(--spacing(2)-1px)]',
-        sm: "h-7 min-w-7 rounded-[min(var(--radius-md),12px)] px-2.5 focus-visible:aria-invalid:px-[calc(--spacing(2.5)-1px)] focus-visible:aria-invalid:has-data-[icon=inline-end]:pr-[calc(--spacing(1.5)-1px)] focus-visible:aria-invalid:has-data-[icon=inline-start]:pl-[calc(--spacing(1.5)-1px)] text-sm has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: 'h-9 min-w-9 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 focus-visible:aria-invalid:px-[calc(--spacing(2.5)-1px)] focus-visible:aria-invalid:has-data-[icon=inline-end]:pr-[calc(--spacing(2)-1px)] focus-visible:aria-invalid:has-data-[icon=inline-start]:pl-[calc(--spacing(2)-1px)]',
+          'h-8 min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        sm: "h-7 min-w-7 rounded-[min(var(--radius-md),12px)] px-2.5 text-sm has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: 'h-9 min-w-9 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
       },
     },
     defaultVariants: {

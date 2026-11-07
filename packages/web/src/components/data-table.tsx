@@ -190,7 +190,8 @@ function ColumnRow({
         {...attributes}
         {...listeners}
         aria-label={`拖动调整「${column.header}」顺序`}
-        className="cursor-grab touch-none rounded-icon border-0 p-1 text-muted-foreground transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
+        // Keep the subdued drag handle, 8px corners, translucent hover, and focus ring.
+        className="cursor-grab touch-none rounded-icon border-0 p-1 text-muted-foreground transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <GripVertical aria-hidden="true" />
       </Button>
@@ -574,7 +575,7 @@ export function DataTable<T extends RowData>({
                           : undefined
                       }
                       className={cn(
-                        'grid min-h-14 w-full items-start gap-3 px-3 text-left duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
+                        'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
                         interactive ? 'cursor-pointer' : 'cursor-default',
                         isOpen && 'bg-hover has-aria-expanded:bg-hover',
                       )}
@@ -667,7 +668,7 @@ export function DataTable<T extends RowData>({
         {/* 浮层必须挂在弹层之外：Popper 容器的 transform 会成为 fixed 的包含块。 */}
         <DragOverlay>
           {draggingColumn ? (
-            <div className="rounded-icon border bg-surface px-2 py-1.5 text-xs shadow-content-overlay">
+            <div className="rounded-icon border bg-surface px-2 py-1.5 text-xs shadow-overlay">
               {draggingColumn.header}
             </div>
           ) : null}

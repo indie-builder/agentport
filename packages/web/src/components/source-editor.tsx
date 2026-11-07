@@ -45,12 +45,13 @@ export function SourceEditor({
       data-disabled={disabled || undefined}
       data-invalid={ariaInvalid || undefined}
       className={cn(
-        'flex w-full overflow-hidden rounded-lg border border-input bg-background font-mono text-sm transition-colors outline-none ring-0 shadow-none [&_.cm-content:focus]:outline-none [&>textarea:focus]:outline-none',
+        'flex w-full overflow-hidden rounded-lg border border-input bg-transparent font-mono text-sm transition-colors',
+        // 输入类控件只留一层焦点信号：边框换色，不叠光环。
         disabled
-          ? 'cursor-not-allowed bg-sunken text-muted-foreground'
+          ? 'cursor-not-allowed bg-control-boundary/50 opacity-50'
           : ariaInvalid
-            ? 'border-destructive'
-            : 'hover:border-control-boundary [&:has(.cm-content:focus,>textarea:focus)]:border-ring',
+            ? 'border-destructive has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-solid has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-2'
+            : 'focus-within:border-input-focus',
         className,
       )}
     >
@@ -66,7 +67,7 @@ export function SourceEditor({
             aria-invalid={ariaInvalid || undefined}
             disabled={disabled}
             readOnly={readOnly}
-            className="field-sizing-content block min-h-16 w-full resize-none border-0 bg-transparent px-2.5 py-2 text-inherit outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+            className="field-sizing-content block min-h-16 w-full resize-none bg-transparent px-2.5 py-2 text-inherit outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
         }
       >

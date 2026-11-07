@@ -603,7 +603,7 @@ function ChatWorkspace({
       deleting={deleteMutation.isPending}
       agent={agent}
       agentOptions={agentOptions}
-      showAgentPicker={agent !== null && (desktop ? historyCollapsed : !historyOpen)}
+      showAgentPicker={desktop ? historyCollapsed : !historyOpen}
       onSwitchAgent={switchAgent}
       historyVisible={desktop ? !historyCollapsed : historyOpen}
       historyPanelId="chat-history"
@@ -683,19 +683,6 @@ function ChatWorkspace({
       hasOlder={Boolean(historyPrefix?.conversationId === conversationId && detail.hasNextPage)}
       loadingOlder={detail.isFetchingNextPage}
       showWelcome={showWelcome}
-      welcomeAction={
-        !agent && (desktop ? historyCollapsed : !historyOpen) ? (
-          <div className="w-44">
-            <AgentPicker
-              agent={null}
-              agentId={null}
-              agentOptions={agentOptions}
-              onSwitchAgent={switchAgent}
-              triggerVariant="field"
-            />
-          </div>
-        ) : null
-      }
       send={stream.send}
       composerRef={composerRef}
     />
@@ -1443,7 +1430,6 @@ function ChatColumn({
   hasOlder,
   loadingOlder,
   showWelcome,
-  welcomeAction,
   send,
   composerRef,
 }: {
@@ -1479,7 +1465,6 @@ function ChatColumn({
   hasOlder: boolean;
   loadingOlder: boolean;
   showWelcome: boolean;
-  welcomeAction: ReactNode;
   send: ReturnType<typeof useChatStream>['send'];
   composerRef: RefObject<HTMLTextAreaElement | null>;
 }) {
@@ -1629,7 +1614,7 @@ function ChatColumn({
           streaming={Boolean(run)}
           onAction={openUiAction}
           openUiSnapshot={openUiSnapshot}
-          welcome={showWelcome ? <WelcomeState action={welcomeAction} /> : null}
+          welcome={showWelcome ? <WelcomeState /> : null}
         />
 
         {/* 运行状态跟着最后一轮走，不再单独占一条横栏；对屏幕阅读器仍播报同一句。 */}
@@ -1698,7 +1683,7 @@ const welcomeSuggestions = [
   { label: '分析问题', icon: Wrench, prompt: '帮我分析一个问题，先了解背景、现象和已有尝试。' },
 ] as const;
 
-function WelcomeState({ action }: { action: ReactNode }) {
+function WelcomeState() {
   return (
     <div className="flex w-full flex-col gap-6 py-10 sm:py-12">
       <div className="flex flex-wrap items-center gap-4 sm:gap-5">
@@ -1714,7 +1699,6 @@ function WelcomeState({ action }: { action: ReactNode }) {
           今天想完成什么？
         </h2>
       </div>
-      {action}
     </div>
   );
 }
