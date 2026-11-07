@@ -533,14 +533,11 @@ async function ensureConnectionState(
   if (record.ready) fail(`连接器 ${spec.name} 已标记完成但缺少试连结果`);
 
   await ctx.app.open('/servers');
-  const card = ctx.browser
-    .locator('[data-slot="server-card"]')
-    .filter({ hasText: spec.name })
-    .first();
-  await card.getByRole('button', { name: `操作 ${spec.name}` }).tap();
+  const row = ctx.browser.locator('tr').filter({ hasText: spec.name }).first();
+  await row.getByRole('button', { name: `操作 ${spec.name}` }).tap();
   await ctx.screen.getByRole('menuitem', '测试连接').tap();
   if (expected) {
-    await expect(ctx.screen.getByText('试连成功')).toBeVisible({ timeout: 30_000 });
+    await expect(row.getByText('试连成功')).toBeVisible({ timeout: 30_000 });
   } else {
     await expect(ctx.screen.getByText(`没有连上 ${spec.name}`, { exact: false })).toBeVisible({
       timeout: 30_000,
@@ -562,11 +559,8 @@ function toolDialog(ctx: Ctx): Locator {
 
 async function openToolDialog(ctx: Ctx, serverName: string): Promise<Locator> {
   await ctx.app.open('/servers');
-  const card = ctx.browser
-    .locator('[data-slot="server-card"]')
-    .filter({ hasText: serverName })
-    .first();
-  await card.getByRole('button', { name: `操作 ${serverName}` }).tap();
+  const row = ctx.browser.locator('tr').filter({ hasText: serverName }).first();
+  await row.getByRole('button', { name: `操作 ${serverName}` }).tap();
   await ctx.screen.getByRole('menuitem', '工具定义').tap();
   const dialog = toolDialog(ctx);
   await dialog.getByRole('heading', { name: `工具定义「${serverName}」` }).waitFor();
@@ -736,7 +730,8 @@ async function addSkillFilesViaUi(
   missing: Array<{ path: string; content: string }>,
 ): Promise<void> {
   await ctx.app.open('/skills');
-  await ctx.screen.getByRole('button', { name: `编辑 ${spec.name}`, exact: true }).tap();
+  await ctx.screen.getByRole('button', { name: `操作 ${spec.name}`, exact: true }).tap();
+  await ctx.screen.getByRole('menuitem', '编辑', { exact: true }).tap();
   const dialog = ctx.browser.locator('[role="dialog"]');
   for (const file of missing) {
     await ctx.browser.locator('#skill-file-path').fill(file.path);
@@ -905,15 +900,18 @@ async function setAccountStatus(
   status: 'active' | 'disabled',
 ): Promise<void> {
   await ctx.app.open('/accounts');
+  const account = accounts.find((item) => item.businessId === businessId);
+  if (!account) throw new Error(`账户 ${businessId} 不在数据集定义中`);
   const row = ctx.browser.locator('tr').filter({ hasText: businessId }).first();
+  await row.getByRole('button', { name: `操作 ${account.name}`, exact: true }).tap();
+  await ctx.screen
+    .getByRole('menuitem', status === 'disabled' ? '停用' : '启用', { exact: true })
+    .tap();
   if (status === 'disabled') {
-    await row.getByRole('button', { name: '停用', exact: true }).tap();
     await ctx.browser
       .locator('[role="dialog"]')
       .getByRole('button', { name: '停用', exact: true })
       .tap();
-  } else {
-    await row.getByRole('button', { name: '启用', exact: true }).tap();
   }
   await poll(
     () => readAccounts(ctx, businessId),
