@@ -91,29 +91,24 @@ export function ChannelPage({ channelId }: { channelId: string }) {
     );
   }
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {detail.isError ? (
-        <div key="notice" className="shrink-0 px-6 pt-2">
-          <PageNote
-            tone="danger"
-            title="刷新失败，已保留加载的内容"
-            description="以下为上次成功加载的内容。"
-            action={
-              <Button variant="outline" size="sm" onClick={() => void detail.refetch()}>
-                重试
-              </Button>
-            }
-          />
-        </div>
-      ) : null}
-      <div key="workspace" className="min-h-0 flex-1">
-        <ChannelWorkspace key={detail.data.id} channel={detail.data} />
-      </div>
-    </div>
+    <ChannelWorkspace
+      key={detail.data.id}
+      channel={detail.data}
+      refreshFailed={detail.isError}
+      onRetryRefresh={() => void detail.refetch()}
+    />
   );
 }
 
-function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
+function ChannelWorkspace({
+  channel,
+  refreshFailed,
+  onRetryRefresh,
+}: {
+  channel: ChannelDetail;
+  refreshFailed: boolean;
+  onRetryRefresh: () => void;
+}) {
   const me = useQuery(meQuery);
   const agents = useAgents();
   const stream = useChannelStream(channel.id);
@@ -382,143 +377,163 @@ function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-6 py-2">
-        <Link
-          to="/channels"
-          aria-label="返回频道列表"
-          title="返回频道列表"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-icon)] text-muted-foreground hover:bg-hover hover:text-fg lg:hidden"
-        >
-          <ArrowLeft aria-hidden="true" />
-        </Link>
-        <h1
-          title={channel.name}
-          className="min-w-0 max-w-[14em] truncate text-lg font-medium tracking-[-0.01em] text-fg"
-        >
-          {channel.name}
-        </h1>
-        {channelRole ? <Badge variant="outline">{ROLE_LABEL[channelRole]}</Badge> : null}
-        {channel.archivedAt ? <Badge>已关闭</Badge> : null}
-        <span className="text-xs text-muted-foreground xl:hidden">
-          {channel.members.length} 成员 · {channel.agentBindings.length} 智能体
-        </span>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 xl:hidden">
-          <MemberAvatars members={channel.members} businessId={businessId} name={user?.user.name} />
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {channel.agentBindings.map((binding) => {
-              const agent = agentById.get(binding.agentId);
-              const status = bindingStatus(
-                binding.status,
-                activeAgentIds.has(binding.agentId),
-                waitingAgentIds.has(binding.agentId),
-              );
-              return (
-                <span
-                  key={binding.agentId}
-                  className="flex min-w-0 items-center gap-1.5 rounded-pill bg-sunken px-2 py-1 text-xs text-muted-foreground"
-                >
-                  <AgentAvatar
-                    agent={agent ?? { name: shortId(binding.agentId), description: '' }}
-                    className="size-4"
-                  />
-                  <span className="max-w-28 truncate text-fg">
-                    {agent?.name ?? shortId(binding.agentId)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className={cn('size-1.5 rounded-full', status.dot)} aria-hidden="true" />
-                    {status.label}
-                  </span>
-                </span>
-              );
-            })}
-            {channel.agentBindings.length === 0 ? (
-              <span className="text-xs text-muted-foreground">尚未绑定智能体</span>
-            ) : null}
-          </div>
-        </div>
-      </header>
+    <div className="flex h-full min-h-0">
+      <ChannelSidebar channelId={channel.id} />
 
-      <div className="flex min-h-0 flex-1">
-        <ChannelSidebar channelId={channel.id} />
-
-        <section className="flex min-w-0 flex-1 flex-col">
-          <MessagePane
-            items={timeline.items}
-            loading={stream.messagesQuery.isPending}
-            error={stream.messagesQuery.isError ? stream.messagesQuery.error : null}
-            onRetry={() => void stream.messagesQuery.refetch()}
-            hasOlder={false}
-            loadingOlder={false}
-            olderDisabled={true}
-            welcome={
-              <EmptyState icon={<MessageSquare className="size-5" />} title="从第一条消息开始" />
-            }
-            approvalItems={[]}
-            liveRunId={null}
-            lastRun={null}
-            historyMetrics={NO_METRICS}
-            currentRunId={null}
-            branchingMessageId={null}
-            running={hasRunning}
-            openUi={false}
-            streaming={hasRunning}
-            renderItemHeader={renderItemHeader}
-            renderItemFooter={renderItemFooter}
-            onVisibleMessageIdsChange={markVisibleRead}
-            scrollPreviousItemPeek={0}
-          />
-          {mention !== null && mentionOptions.length > 0 ? (
-            <MentionMenu
-              options={mentionOptions}
-              selected={mentionIndex}
-              activeAgentIds={activeAgentIds}
-              onPick={pickMention}
+      <section className="flex min-w-0 flex-1 flex-col">
+        <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-6 py-2">
+          <Link
+            to="/channels"
+            aria-label="返回频道列表"
+            title="返回频道列表"
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-icon)] text-muted-foreground hover:bg-hover hover:text-fg lg:hidden"
+          >
+            <ArrowLeft aria-hidden="true" />
+          </Link>
+          <h1
+            title={channel.name}
+            className="min-w-0 max-w-[14em] truncate text-lg font-medium tracking-[-0.01em] text-fg"
+          >
+            {channel.name}
+          </h1>
+          {channelRole ? <Badge variant="outline">{ROLE_LABEL[channelRole]}</Badge> : null}
+          {channel.archivedAt ? <Badge>已关闭</Badge> : null}
+          <span className="text-xs text-muted-foreground xl:hidden">
+            {channel.members.length} 成员 · {channel.agentBindings.length} 智能体
+          </span>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 xl:hidden">
+            <MemberAvatars
+              members={channel.members}
+              businessId={businessId}
+              name={user?.user.name}
             />
-          ) : null}
-          {channel.archivedAt ? (
-            <p className="mx-auto w-full max-w-220 px-6 pb-2 text-sm text-muted-foreground">
-              频道已关闭，历史消息仍可查看。
-            </p>
-          ) : null}
-          <Composer
-            agent={null}
-            send={send}
-            textareaRef={textareaRef}
-            lastRunId={null}
-            welcome={false}
-            historyReady={!stream.messagesQuery.isPending}
-            enabled={canPost}
-            locked={false}
-            canAttach={false}
-            canSend={canPost}
-            sendDenied={
-              channel.archivedAt !== null
-                ? '频道已关闭，不能再发送消息。'
-                : channelRole === 'viewer'
-                  ? '你在该频道是只读成员，不能发送消息。'
-                  : '当前账户没有发送消息的权限。'
-            }
-            value={input}
-            onValueChange={changeInput}
-            onKeyDown={handleKeyDown}
-            placeholder={canPost ? '输入消息，@ 智能体…' : '频道只读'}
-          />
-        </section>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {channel.agentBindings.map((binding) => {
+                const agent = agentById.get(binding.agentId);
+                const status = bindingStatus(
+                  binding.status,
+                  activeAgentIds.has(binding.agentId),
+                  waitingAgentIds.has(binding.agentId),
+                );
+                return (
+                  <span
+                    key={binding.agentId}
+                    className="flex min-w-0 items-center gap-1.5 rounded-pill bg-sunken px-2 py-1 text-xs text-muted-foreground"
+                  >
+                    <AgentAvatar
+                      agent={agent ?? { name: shortId(binding.agentId), description: '' }}
+                      className="size-4"
+                    />
+                    <span className="max-w-28 truncate text-fg">
+                      {agent?.name ?? shortId(binding.agentId)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span
+                        className={cn('size-1.5 rounded-full', status.dot)}
+                        aria-hidden="true"
+                      />
+                      {status.label}
+                    </span>
+                  </span>
+                );
+              })}
+              {channel.agentBindings.length === 0 ? (
+                <span className="text-xs text-muted-foreground">尚未绑定智能体</span>
+              ) : null}
+            </div>
+          </div>
+        </header>
 
-        <ChannelSidebarDetail
-          channel={channel}
-          agents={agents.data ?? []}
-          businessId={businessId}
-          name={user?.user.name}
-          activeAgentIds={activeAgentIds}
-          waitingAgentIds={waitingAgentIds}
-          canManage={canManage}
-          bind={bind}
-          agentToBind={agentToBind}
-          onAgentToBind={setAgentToBind}
+        {refreshFailed ? (
+          <div className="shrink-0 px-6 pt-2">
+            <PageNote
+              tone="danger"
+              title="刷新失败，已保留加载的内容"
+              description="以下为上次成功加载的内容。"
+              action={
+                <Button variant="outline" size="sm" onClick={onRetryRefresh}>
+                  重试
+                </Button>
+              }
+            />
+          </div>
+        ) : null}
+
+        <MessagePane
+          items={timeline.items}
+          loading={stream.messagesQuery.isPending}
+          error={stream.messagesQuery.isError ? stream.messagesQuery.error : null}
+          onRetry={() => void stream.messagesQuery.refetch()}
+          hasOlder={false}
+          loadingOlder={false}
+          olderDisabled={true}
+          welcome={
+            <EmptyState icon={<MessageSquare className="size-5" />} title="从第一条消息开始" />
+          }
+          approvalItems={[]}
+          liveRunId={null}
+          lastRun={null}
+          historyMetrics={NO_METRICS}
+          currentRunId={null}
+          branchingMessageId={null}
+          running={hasRunning}
+          openUi={false}
+          streaming={hasRunning}
+          renderItemHeader={renderItemHeader}
+          renderItemFooter={renderItemFooter}
+          onVisibleMessageIdsChange={markVisibleRead}
+          scrollPreviousItemPeek={0}
         />
-      </div>
+        {mention !== null && mentionOptions.length > 0 ? (
+          <MentionMenu
+            options={mentionOptions}
+            selected={mentionIndex}
+            activeAgentIds={activeAgentIds}
+            onPick={pickMention}
+          />
+        ) : null}
+        {channel.archivedAt ? (
+          <p className="mx-auto w-full max-w-220 px-6 pb-2 text-sm text-muted-foreground">
+            频道已关闭，历史消息仍可查看。
+          </p>
+        ) : null}
+        <Composer
+          agent={null}
+          send={send}
+          textareaRef={textareaRef}
+          lastRunId={null}
+          welcome={false}
+          historyReady={!stream.messagesQuery.isPending}
+          enabled={canPost}
+          locked={false}
+          canAttach={false}
+          canSend={canPost}
+          sendDenied={
+            channel.archivedAt !== null
+              ? '频道已关闭，不能再发送消息。'
+              : channelRole === 'viewer'
+                ? '你在该频道是只读成员，不能发送消息。'
+                : '当前账户没有发送消息的权限。'
+          }
+          value={input}
+          onValueChange={changeInput}
+          onKeyDown={handleKeyDown}
+          placeholder={canPost ? '输入消息，@ 智能体…' : '频道只读'}
+        />
+      </section>
+
+      <ChannelSidebarDetail
+        channel={channel}
+        agents={agents.data ?? []}
+        businessId={businessId}
+        name={user?.user.name}
+        activeAgentIds={activeAgentIds}
+        waitingAgentIds={waitingAgentIds}
+        canManage={canManage}
+        bind={bind}
+        agentToBind={agentToBind}
+        onAgentToBind={setAgentToBind}
+      />
     </div>
   );
 }
