@@ -198,8 +198,7 @@ export function CardRenderer({
   sources?: Array<{ url?: string; title: string; sourceName: string }>;
 }>) {
   return (
-    // 设计系统：卡片不额外套边框或底色，内容与消息流同宽同间距。
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className="cds-card-surface flex min-w-0 flex-col gap-4 rounded-card bg-surface p-3 has-[.cds-card-surface]:transform-none has-[.cds-card-surface]:bg-transparent has-[.cds-card-surface]:p-0 has-[.cds-card-surface]:shadow-none">
       {renderNode(props.children)}
       <SourceStrip sources={props.sources ?? []} />
     </div>
@@ -399,14 +398,16 @@ export function CarouselRenderer({
   return (
     // 官方把翻页按钮放在轨道两侧，聊天 728px 轴线里会溢出；这里移到下方操作行。
     <Carousel opts={{ align: 'start' }} className="@container min-w-0">
-      <CarouselContent>
+      <CarouselContent className="ml-0 py-2">
         {slides.map((slide, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 幻灯片由模型按顺序生成
-          <CarouselItem key={index} className="basis-4/5 @min-[481px]:basis-1/2">
+          <CarouselItem key={index} className="basis-4/5 px-2 @min-[481px]:basis-1/2">
             <div
               className={cn(
                 'flex h-full flex-col gap-3 rounded-card p-3',
-                props.variant === 'sunk' ? 'bg-sunken' : 'bg-chip',
+                props.variant === 'sunk'
+                  ? 'bg-sunken'
+                  : 'cds-card-surface bg-surface has-[.cds-card-surface]:transform-none has-[.cds-card-surface]:bg-transparent has-[.cds-card-surface]:p-0 has-[.cds-card-surface]:shadow-none',
               )}
             >
               {renderNode(slide)}

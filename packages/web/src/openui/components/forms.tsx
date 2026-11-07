@@ -581,7 +581,7 @@ export function SwitchGroupRenderer({
     <div
       className={cn(
         'flex flex-col gap-2',
-        props.variant === 'card' && 'rounded-card bg-chip p-3',
+        props.variant === 'card' && 'cds-card-surface rounded-card bg-surface p-3',
         props.variant === 'sunk' && 'rounded-card bg-sunken p-3',
       )}
     >
@@ -792,11 +792,11 @@ export function OptionCardsRenderer({
             disabled={state.streaming || item.disabled}
             onClick={() => state.toggle(item.value)}
             className={cn(
-              'flex min-w-0 items-start gap-2 rounded-card border p-3 text-left transition-colors',
+              'cds-card-surface flex min-w-0 items-start gap-2 rounded-card border p-3 text-left',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               selected
                 ? 'border-line-strong bg-selected text-selected-foreground'
-                : 'border-line hover:bg-hover',
+                : 'border-transparent bg-surface',
               'disabled:cursor-not-allowed disabled:opacity-50',
             )}
           >

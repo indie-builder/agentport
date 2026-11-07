@@ -648,7 +648,7 @@ export function AgentsPage() {
                   </button>
                 </li>
                 <li className="min-w-0">
-                  <Card interactive className="h-52">
+                  <Card className="h-52">
                     <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
                       <img
                         src={digitalTwinPortrait}
@@ -678,7 +678,7 @@ export function AgentsPage() {
                 (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
               return (
                 <li key={agent.id} className="min-w-0">
-                  <Card interactive className="h-52 gap-3">
+                  <Card className="h-52 gap-3">
                     <CardHeader className="grid h-12 grid-cols-[auto_minmax(0,1fr)_auto]! grid-rows-2 items-center">
                       <AgentAvatar agent={agent} className="row-span-2 mr-2 self-center" />
                       <CardTitle className="col-start-2 row-start-1 min-w-0">

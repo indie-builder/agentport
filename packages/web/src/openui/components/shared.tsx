@@ -219,7 +219,6 @@ export function CardBlockGrid({
   );
 }
 
-/** 卡片块里的单张卡片：可点时有 hover 与焦点环，不可点时保持纯展示。 */
 export function BlockCard({
   clickable,
   onActivate,
@@ -232,10 +231,11 @@ export function BlockCard({
   className?: string;
 }) {
   const base = cn(
-    'flex h-full min-w-0 flex-col gap-3 rounded-card bg-chip p-3 text-left',
+    'cds-card-surface flex h-full min-w-0 flex-col gap-3 rounded-card p-3 text-left',
     clickable &&
-      'cursor-pointer transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
     className,
+    'bg-surface',
   );
   if (!clickable) return <div className={base}>{children}</div>;
   // 卡片内可能已有真实按钮（CompositeCardItem footer）或链接：它自己的动作不能连带触发块级动作。

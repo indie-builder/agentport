@@ -271,6 +271,15 @@ describe('inactive card blocks', () => {
     expect(host.querySelector('[role="button"]')).toBeNull();
     expect(host.querySelector('[tabindex="0"]')).toBeNull();
     const card = cardByText('第二张');
+    expect(host.querySelectorAll('.cds-card-surface:not(:has(.cds-card-surface))')).toHaveLength(4);
+    const layout = host.querySelector('.cds-card-surface:has(.cds-card-surface)');
+    expect(layout).not.toBeNull();
+    for (const utility of ['transform-none', 'bg-transparent', 'p-0', 'shadow-none']) {
+      expect(layout?.classList.contains(`has-[.cds-card-surface]:${utility}`)).toBe(true);
+    }
+    expect(card.classList.contains('cds-card-surface')).toBe(true);
+    expect(card.classList.contains('bg-surface')).toBe(true);
+    expect(card.classList.contains('bg-chip')).toBe(false);
     expect(card.getAttribute('role')).toBeNull();
     await act(async () => {
       card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
