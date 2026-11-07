@@ -157,7 +157,7 @@ function SidebarLink({
         collapsed
           ? ''
           : active
-            ? 'bg-sidebar-selected text-selected-foreground'
+            ? 'bg-sidebar-selected text-selected-foreground shadow-panel hover:shadow-panel-hover'
             : 'text-fg hover:bg-sidebar-hover',
         collapsed && (active ? 'text-selected-foreground' : 'text-fg'),
       )}
@@ -166,7 +166,12 @@ function SidebarLink({
         className={cn(
           'flex shrink-0 items-center justify-center transition-colors duration-150 ease-out-soft',
           collapsed
-            ? cn('size-8 rounded-tag', active ? 'bg-sidebar-selected' : 'hover:bg-sidebar-hover')
+            ? cn(
+                'size-8 rounded-tag',
+                active
+                  ? 'bg-sidebar-selected shadow-panel hover:shadow-panel-hover'
+                  : 'hover:bg-sidebar-hover',
+              )
             : 'size-4',
         )}
       >

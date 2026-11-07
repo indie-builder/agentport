@@ -461,7 +461,7 @@ describe('runtime environments page', () => {
 
     state.search = { view: 'cards' };
     const cards = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
-    expect(cards).toContain('grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3');
+    expect(cards).toContain('grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3');
     expect(cards).toContain('data-slot="card"');
     expect(cards).toContain('数据分析');
     expect(cards).toContain('aaaaaaaa');

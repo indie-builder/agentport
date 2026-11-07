@@ -22,7 +22,7 @@
   --color-selected: #dfe9ea;
   --color-sidebar: #eaf0f0;
   --color-sidebar-hover: #dfe8e9;
-  --color-sidebar-selected: #cfdde0;
+  --color-sidebar-selected: var(--color-surface);
 
   /*
    * 线与文本：分隔线只做分组，边线取 CDS alpha 阶梯。

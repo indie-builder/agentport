@@ -341,7 +341,7 @@ export function SchedulesPage() {
         {items.length > 0 && view === 'cards' ? (
           <ul
             aria-label="定时任务列表"
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+            className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3"
           >
             {items.map((schedule) => {
               const nextDue =

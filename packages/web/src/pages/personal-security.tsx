@@ -398,7 +398,7 @@ function SessionGroup({
         {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
       </div>
       {view === 'cards' ? (
-        <ul className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="mt-3 grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3">
           {sessions.map((session) => (
             <li key={session.id} className="min-w-0">
               <SessionCard session={session} revoke={revoke} onRevoke={onRevoke} />

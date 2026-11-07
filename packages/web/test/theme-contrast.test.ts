@@ -77,7 +77,7 @@ describe('CDS light theme token contract', () => {
     expect(token('--color-selected')).toEqual(parse('#dfe9ea'));
     expect(token('--color-sidebar')).toEqual(parse('#eaf0f0'));
     expect(token('--color-sidebar-hover')).toEqual(parse('#dfe8e9'));
-    expect(token('--color-sidebar-selected')).toEqual(parse('#cfdde0'));
+    expect(token('--color-sidebar-selected')).toEqual(token('--color-surface'));
   });
 
   it('keeps body and helper text readable on every surface', () => {
