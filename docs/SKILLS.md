@@ -153,5 +153,5 @@ pstack 按上游原样使用，冲突处按本表执行，其余以上游为准�
 
 ## 交付
 
-- 按 `docs/DEV-WORKFLOW.md` 交独立 Opus 审查；只有当次授权才 commit/push/merge。
+- 按 `docs/DEV-WORKFLOW.md` 交独立 Opus 审查；提交、推送、PR 合并与收尾统一按该文 §2 执行。
 - 报告：已更新 / 已最新 / 已删除 / 保留的适配 / 限制 / 是否合入 main / 是否需要重载会话。
