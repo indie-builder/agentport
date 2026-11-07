@@ -524,7 +524,13 @@ export function AppShell() {
           />
         )}
         {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
-        <nav aria-label="主导航" className="mt-4 flex-1 overflow-y-auto overflow-x-hidden">
+        <nav
+          aria-label="主导航"
+          className={cn(
+            '-mx-2 mt-4 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2',
+            navCollapsed && '[scrollbar-width:none]',
+          )}
+        >
           {navGroups.map((group) => (
             <div key={group.label} className="mt-0.5">
               <div

@@ -12,7 +12,7 @@
 - **组件与样式栈以 [DESIGN-SYSTEM §12](../../docs/DESIGN-SYSTEM.md#12-实现技术栈硬性) 为准。** 只用 shadcn/ui；交互原语只用 Base UI（`@base-ui/react`），不引入 Radix；Tailwind 4，颜色/字体/圆角/阴影只从 `src/styles.css` 的 `@theme` token 取，禁止硬编码 hex；间距使用 §9 的 `gap-*`/`p-*` 尺度，不新增私有间距令牌。先看 `src/components/ui/` 有无可复用再装官方组件（`bunx --bun shadcn@latest add <name>`）；改源码时保留原语 `aria-*`、焦点与键盘交互，`--overwrite` 前核对 diff。动效、分栏、拖拽、客户端状态、路由与 OpenUI 渲染等其余选型按 §12，本文不复制完整清单。
 - **页面骨架。** 用 `src/components/page.tsx` 的 `Page`/`PageHeader`/`PageToolbar`/`PageSection`；每个渲染状态恰好一个 `h1`，不写页面级 `mt-*`/`mb-*`。
 - **找专家页的扇形「新建专家」入口卡与「创建数字分身」卡为用户刻意要求保留，不得删除或合并到页头；其它页面仍可按设计规范精简。**
-- **卡片深度是共享规范。** 适合卡片的业务复用共享 `Card` 与 DESIGN.md 的深度契约，保留常态投影与已有交互反馈；表格、列表继续按任务使用。
+- **白底立体卡片跨页面适用。** 所有现有业务卡片复用共享 `Card` 与 [DESIGN.md「共享卡片深度」](DESIGN.md#elevation--depth)；已有自定义布局的详情卡可复用 `.cds-card-surface`，不另造阴影或叠装饰边框。整体可点击的卡片用 `interactive`，已有明确交互反馈的卡片沿用；仅内含按钮、链接或表单的静态卡保留常态深度，不据此添加整体上浮。卡片父级滚动容器为首排顶部与四周保留投影和已有交互的绘制余量，并用真实渲染核对；表格、列表与输入继续按各自任务使用。
 
 ## 表单
 

@@ -104,11 +104,11 @@
   /* 底座 Badge 用 rounded-4xl；项目里它是最小的标签圆角，不是最大。 */
   --radius-4xl: var(--radius-tag); /* Badge 小标签 */
 
-  /* 侧栏：224 展开 / 64 收起，过渡 160ms */
+  /* 侧栏：224 展开 / 48 收起，过渡 160ms */
   --sidebar-width: 224px;
-  --sidebar-collapsed: 64px;
+  --sidebar-collapsed: 48px;
   --sidebar-pad: 16px 12px;
-  --sidebar-pad-collapsed: 16px 16px;
+  --sidebar-pad-collapsed: 16px 8px;
 
   /* CDS 动效曲线与时长；--ease-out-soft 对齐参考 ease-swift，是交互/悬停主曲线；--btn-spring 是 15 阶物理弹簧。 */
   --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
