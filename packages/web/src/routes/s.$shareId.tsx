@@ -192,7 +192,7 @@ function SharedFile({ shareId, token, file }: { shareId: string; token: string; 
   };
 
   return (
-    <section className="overflow-hidden rounded-card bg-surface ring-1 ring-line">
+    <section className="cds-card-surface overflow-hidden rounded-card bg-surface">
       <header className="flex flex-col gap-3 border-b px-6 py-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="min-w-0 break-words text-lg font-medium tracking-[-0.01em] text-fg">

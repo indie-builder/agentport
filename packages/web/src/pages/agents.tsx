@@ -1485,14 +1485,14 @@ function RestrictedAgentTabs({
           </TabsList>
         </Tabs>
       </PageTopbar>
-      <PageBody className="gap-5">
+      <PageBody className="gap-5 p-2">
         {description ? (
           <p className="max-w-[70ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
             {description}
           </p>
         ) : null}
         {tab === 'memory' ? (
-          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
             <MemoryPanel
               agentId={agentId}
               canWrite={hasAnyGrant(permissions, 'agents.memory.write')}
@@ -1502,7 +1502,7 @@ function RestrictedAgentTabs({
           </div>
         ) : null}
         {tab === 'rules' ? (
-          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
             <RulesPanel
               agentId={agentId}
               canWrite={hasAnyGrant(permissions, 'agents.rules.write')}
@@ -1512,7 +1512,7 @@ function RestrictedAgentTabs({
           </div>
         ) : null}
         {tab === 'styles' ? (
-          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
             <OutputStylesPanel
               agentId={agentId}
               canWrite={hasAnyGrant(permissions, 'agents.styles.write')}
@@ -1603,7 +1603,7 @@ function ReadonlyAgentFiles({
           </div>
         ))}
       </nav>
-      <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+      <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
         {current ? <CodeBlock code={current.content} lineNumbers /> : null}
       </div>
     </div>
@@ -2754,7 +2754,7 @@ export function AgentEditor({
           ) : null}
         </div>
       </PageTopbar>
-      <PageBody className="gap-5">
+      <PageBody className="gap-5 p-2">
         {agent.description ? (
           <p className="max-w-[70ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
             {agent.description}
@@ -2788,7 +2788,7 @@ export function AgentEditor({
                   if (dirty && !pending) return save();
                 }}
               >
-                <div className="rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+                <div className="cds-card-surface rounded-card bg-surface px-6 py-5">
                   {activeSection === 'identity' ? (
                     <Section id="identity" title="身份">
                       <FieldGroup className="grid gap-5 sm:grid-cols-2">
@@ -3948,7 +3948,7 @@ export function AgentEditor({
             </div>
             <div
               id="agent-files-detail"
-              className="min-w-0 scroll-mt-4 rounded-card bg-surface px-6 py-5 ring-1 ring-line"
+              className="min-w-0 scroll-mt-4 cds-card-surface rounded-card bg-surface px-6 py-5"
             >
               <FilesPreview entry={resolvedEntry} dirty={dirty} files={files} />
             </div>
@@ -3956,7 +3956,7 @@ export function AgentEditor({
         ) : null}
 
         {tab === 'memory' ? (
-          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
             <MemoryPanel
               agentId={agent.id}
               canWrite={canMemoryWrite}
@@ -3967,7 +3967,7 @@ export function AgentEditor({
         ) : null}
 
         {tab === 'rules' ? (
-          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
             <RulesPanel
               agentId={agent.id}
               canWrite={canRulesWrite}
@@ -3978,7 +3978,7 @@ export function AgentEditor({
         ) : null}
 
         {tab === 'styles' ? (
-          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
             <OutputStylesPanel
               agentId={agent.id}
               canWrite={canStylesWrite}

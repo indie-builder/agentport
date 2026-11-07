@@ -516,7 +516,7 @@ export function OverviewPage() {
         />
       </PageTopbar>
 
-      <PageBody>
+      <PageBody className="p-2">
         {error && !data ? (
           <ErrorState error={error} onRetry={() => void overview.refetch()} />
         ) : null}
