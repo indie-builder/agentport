@@ -193,6 +193,7 @@ async function inspectRoute(
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem('agentport:nav-collapsed', '0');
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
 });
 afterEach(() => vi.restoreAllMocks());
@@ -773,24 +774,62 @@ describe('sidebar collapse', () => {
     }
   });
 
-  it('only opens the nav tooltip while collapsed', async () => {
+  it('keeps tooltips closed when keyboard focus previews the collapsed nav', async () => {
     vi.useFakeTimers();
     const view = await inspectRoute('/skills', 'success');
     try {
       const link = navLink(view.host);
-      link.focus();
+      await act(async () => link.focus());
       await act(async () => vi.advanceTimersByTime(1_000));
       expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
 
       const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
-      await act(async () => collapse?.click());
-      // 同一 Link 节点跨状态保留，先失焦再聚焦才会重新触发 tooltip。
+      if (!collapse) throw new Error('missing sidebar toggle');
+      await act(async () => collapse.click());
       await act(async () => navLink(view.host).blur());
-      navLink(view.host).focus();
+      await act(async () => navLink(view.host).focus());
       await act(async () => vi.advanceTimersByTime(1_000));
-      expect(document.querySelector('[data-slot="tooltip-content"]')?.textContent).toBe(
-        RESOURCE_LABEL,
+      expect(navLink(view.host)).toBe(link);
+      expect(document.activeElement).toBe(link);
+      expect(view.host.querySelector('button[aria-label="固定展开侧栏"]')).toBe(collapse);
+      expect(collapse.getAttribute('aria-expanded')).toBe('true');
+      expect(collapse.getAttribute('aria-pressed')).toBe('false');
+      expect(localStorage.getItem('agentport:nav-collapsed')).toBe('1');
+      expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
+
+      await act(async () => {
+        link.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+      expect(document.activeElement).toBe(link);
+      expect(collapse.getAttribute('aria-expanded')).toBe('false');
+
+      await act(async () => view.host.querySelector<HTMLElement>('#main-content')?.focus());
+      await act(async () => link.focus());
+      const logo = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="切换 PACE Logo"]',
       );
+      if (!logo) throw new Error('missing sidebar logo');
+      await act(async () => logo.focus());
+      const preventEscape = (event: KeyboardEvent): void => event.preventDefault();
+      document.addEventListener('keydown', preventEscape);
+      try {
+        await act(async () => {
+          logo.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+          );
+        });
+        expect(document.activeElement).toBe(logo);
+        expect(collapse.getAttribute('aria-expanded')).toBe('true');
+      } finally {
+        document.removeEventListener('keydown', preventEscape);
+      }
+      await act(async () => {
+        logo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+      expect(document.activeElement).toBe(collapse);
+      expect(collapse.getAttribute('aria-expanded')).toBe('false');
+      expect(collapse.getAttribute('aria-label')).toBe('展开侧栏');
+      expect(logo.classList.contains('invisible')).toBe(true);
     } finally {
       vi.useRealTimers();
       await view.close();
