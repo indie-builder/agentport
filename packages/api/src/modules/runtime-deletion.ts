@@ -1,6 +1,4 @@
 import { repo } from '@agentport/db';
-import * as agentsRepo from '@agentport/db/repo/agents.js';
-import * as chatRepo from '@agentport/db/repo/chat.js';
 import type { SQL } from 'bun';
 import { closeSessionSandboxes } from '../queue/session-cleanup.js';
 
@@ -16,17 +14,17 @@ const DELETION_HOLD_TIMEOUT_MS = 40_000;
 export async function deleteAgentWithSandboxes(input: {
   client: SQL;
   redisUrl: string;
-  deletion: agentsRepo.AgentDeletionInput;
-}): Promise<agentsRepo.AgentDeletionSnapshot | null> {
+  deletion: repo.agents.AgentDeletionInput;
+}): Promise<repo.agents.AgentDeletionSnapshot | null> {
   return withAdvisoryLock(
     input.client,
     AGENT_BINDINGS_LOCK_KEY,
     async (lockedDb) => {
-      const snapshot = await agentsRepo.prepareAgentDeletion(lockedDb, input.deletion);
+      const snapshot = await repo.agents.prepareAgentDeletion(lockedDb, input.deletion);
       if (snapshot === null) return null;
       // 事务外等待全部目标关闭；失败直接结束，不进入 tx B。
       await closeSessionSandboxes({ redisUrl: input.redisUrl, targets: snapshot.targets });
-      const deleted = await agentsRepo.deleteAgent(lockedDb, {
+      const deleted = await repo.agents.deleteAgent(lockedDb, {
         ...input.deletion,
         expected: snapshot,
       });
@@ -39,16 +37,16 @@ export async function deleteAgentWithSandboxes(input: {
 export async function deleteConversationWithSandboxes(input: {
   client: SQL;
   redisUrl: string;
-  deletion: chatRepo.ConversationDeletionInput;
-}): Promise<chatRepo.ConversationDeletionSnapshot | null> {
+  deletion: repo.chat.ConversationDeletionInput;
+}): Promise<repo.chat.ConversationDeletionSnapshot | null> {
   return withAdvisoryLock(
     input.client,
     AGENT_BINDINGS_LOCK_KEY,
     async (lockedDb) => {
-      const snapshot = await chatRepo.prepareConversationDeletion(lockedDb, input.deletion);
+      const snapshot = await repo.chat.prepareConversationDeletion(lockedDb, input.deletion);
       if (snapshot === null) return null;
       await closeSessionSandboxes({ redisUrl: input.redisUrl, targets: snapshot.targets });
-      const deleted = await chatRepo.deleteConversation(lockedDb, {
+      const deleted = await repo.chat.deleteConversation(lockedDb, {
         ...input.deletion,
         expected: snapshot,
       });

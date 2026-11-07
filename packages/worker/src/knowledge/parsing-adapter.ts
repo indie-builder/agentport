@@ -1,7 +1,7 @@
 import { type AsrProfile, inspectKnowledgeAudio } from '@agentport/core';
 import type { KnowledgeLocator } from '@agentport/shared';
 import { parseKnowledgeAudio } from './audio.js';
-import type { ChunkDraft, ParsedDocument } from './ingestion.js';
+import type { ChunkDraft } from './ingestion.js';
 import {
   chunkDocument,
   isAtomicBlock,
@@ -11,6 +11,7 @@ import {
   KnowledgeParseError,
   markdownBlocks,
   type ParsedBlock,
+  type ParsedDocument,
   parseDocument,
 } from './parsing.js';
 
@@ -67,21 +68,14 @@ export function createParsingAdapter(
         ...(options.parserKey ? { parserKey: options.parserKey } : {}),
         ...(input.signal ? { signal: input.signal } : {}),
       });
-      return {
-        markdown: doc.markdown,
-        images: doc.images,
-        pageMap: doc.pageMap,
-        blocks: doc.blocks,
-      };
+      return doc;
     },
     chunkMarkdown: chunkForIngestion,
   };
 }
 
-type Block = { content: string; heading: string; locator: Record<string, unknown> };
-
 /** 行拆分的表格/代码块不是原文连续片段：保留整表 ref/bbox，但不保留块级文本区间。 */
-function withoutTextRange(block: Block): Block {
+function withoutTextRange(block: ParsedBlock): ParsedBlock {
   const locator = { ...block.locator };
   delete locator.startOffset;
   delete locator.endOffset;
@@ -95,13 +89,13 @@ function withoutTextRange(block: Block): Block {
  * 表格按行拆分时保留列语义，按 maxChars 预算切块并重复表头。
  * shortcut: 单行超过预算时不拆行，那个 chunk 会超预算；模型窗口真的卡住时再按单元格拆。
  */
-function splitTable(block: Block, maxChars: number): Block[] {
+function splitTable(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   const lines = block.content.split('\n');
   const separator = lines[1] !== undefined && isTableDelimiterLine(lines[1]) ? lines[1] : null;
   const header = separator ? [lines[0] ?? '', separator] : [];
   const head = header.length > 0 ? lines.slice(0, 2) : [lines[0] ?? ''];
   const rows = lines.slice(head.length);
-  const parts: Block[] = [];
+  const parts: ParsedBlock[] = [];
   let current: string[] = [];
   let size = head.join('\n').length;
   const flush = () => {
@@ -120,13 +114,13 @@ function splitTable(block: Block, maxChars: number): Block[] {
 }
 
 /** 代码块按行拆分时每段都自带完整 fence，保证切块后仍是有效 Markdown。 */
-function splitFence(block: Block, maxChars: number): Block[] {
+function splitFence(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   const lines = block.content.split('\n');
   const opener = lines[0] ?? '';
   const closer = lines.at(-1) ?? '';
   const body = lines.slice(1, -1);
   const overhead = opener.length + closer.length + 1;
-  const parts: Block[] = [];
+  const parts: ParsedBlock[] = [];
   let current: string[] = [];
   let size = overhead;
   const flush = () => {
@@ -144,7 +138,7 @@ function splitFence(block: Block, maxChars: number): Block[] {
   return parts;
 }
 
-function clampChunk(block: Block, maxChars: number): Block[] {
+function clampChunk(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   if (block.content.length <= maxChars) return [block];
   if (isTableBlock(block.content)) return splitTable(block, maxChars);
   if (isFenceStart(block.content)) return splitFence(block, maxChars);
@@ -209,7 +203,7 @@ function chunkForIngestion(
   const rows = blocks.flatMap((block) => clampChunk(block, maxChars));
 
   // 表格/代码块必须整块独立成 chunk，不能再被跨块合并；连续散文才交给结构感知合并。
-  const groups: Block[][] = [];
+  const groups: ParsedBlock[][] = [];
   let atomicGroup = false;
   for (const block of rows) {
     const atomic = isAtomicBlock(block.content);

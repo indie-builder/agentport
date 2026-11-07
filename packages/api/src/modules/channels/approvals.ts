@@ -4,7 +4,6 @@ import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { writeAudit } from '../../plugins/audit.js';
 
 const approvalsRepo = repo.channelApprovals;
 function toIso(value: Date | null): string | null {
@@ -54,7 +53,7 @@ export const channelsApprovalsRouter = {
       case 'conflict':
         return fail('CONFLICT', CONFLICT_MESSAGE[result.reason]);
       case 'ok': {
-        await writeAudit(context.db, context.log, {
+        await repo.audit.writeAudit(context.db, context.log, {
           actor: actorOf(context),
           action: 'agent.run.approved',
           target: result.approval.runId,

@@ -1,6 +1,6 @@
 import { channelsContract } from '@agentport/contract/channels';
 import { fail } from '@agentport/core';
-import { newId, repo, schema } from '@agentport/db';
+import { newId, repo } from '@agentport/db';
 import {
   type Channel,
   type ChannelAgentBinding,
@@ -15,7 +15,6 @@ import {
   runEnqueueOptions,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { and, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { type SSEStreamingApi, streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -31,6 +30,7 @@ import {
   subscribeChannel,
 } from '../../queue/producer.js';
 import type { NativeHttpDependencies } from '../chat/http.js';
+import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { channelsControlRouter } from './control.js';
 
@@ -365,20 +365,7 @@ export const channelsMainRouter = {
             );
           } catch {
             try {
-              await context.db
-                .update(schema.agentRuns)
-                .set({
-                  status: 'failed',
-                  endedAt: new Date(),
-                  error: '消息入队失败，请重新发送。',
-                  errorKind: 'infra',
-                })
-                .where(
-                  and(
-                    eq(schema.agentRuns.id, admitted.run.id),
-                    eq(schema.agentRuns.status, 'queued'),
-                  ),
-                );
+              await failQueuedRunEnqueue(context.db, admitted.run.id);
             } catch {
               context.log.warn(
                 { runId: admitted.run.id },
@@ -452,6 +439,7 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
         try {
           await writeEvent(stream, {
             type: 'error',
+            code: 'FORBIDDEN',
             message: '当前账户已无权读取该频道，已停止接收。',
           });
         } finally {

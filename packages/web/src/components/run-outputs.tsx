@@ -1,6 +1,7 @@
 import type { OutputFile, OutputStatus } from '@agentport/shared';
 import { FileText } from 'lucide-react';
 import { cn } from '../lib/cn.js';
+import { outputSelectionMode } from '../lib/output-preview.js';
 import type { OutputSelection } from './conversation-outputs.js';
 import { Button } from './ui/button.js';
 
@@ -11,11 +12,6 @@ const STATUS_LABEL: Record<OutputStatus, string | null> = {
   cancelled: '已停止',
   timeout: '超时',
 };
-
-/** 与成果面板一致：Markdown 默认阅读，其余按源码/下载打开。 */
-function selectionMode(file: OutputFile): OutputSelection['mode'] {
-  return file.mediaType === 'text/markdown' ? 'read' : 'source';
-}
 
 /** 一轮运行发布过的成果入口；没有文件时整块不渲染。 */
 export function RunOutputs({
@@ -40,7 +36,11 @@ export function RunOutputs({
               size="sm"
               title={file.path}
               onClick={() =>
-                onSelect({ runId: file.runId, path: file.path, mode: selectionMode(file) })
+                onSelect({
+                  runId: file.runId,
+                  path: file.path,
+                  mode: outputSelectionMode(file.mediaType),
+                })
               }
               className="h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 text-sm font-normal text-muted-foreground hover:bg-hover hover:text-fg"
             >

@@ -3,7 +3,6 @@ import { repo as pluginRepo } from '@agentport/db';
 import type { PluginFileInput } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { isPgCode } from '../../http/errors.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { type Db, type PluginRow, pluginFiles, toApi, toPluginWrite } from './api.js';
 import { parsePluginFiles } from './parse.js';
 
@@ -36,7 +35,7 @@ export async function adoptNativePlugin(
       toPluginWrite(input, params.pluginId),
       parsedFiles,
     );
-    await writeAudit(deps.db, deps.log, {
+    await pluginRepo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: params.action,
       target: row.id,

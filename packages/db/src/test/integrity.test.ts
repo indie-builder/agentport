@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { eq } from 'drizzle-orm';
 import { createDb } from '../client.js';
 import { newId } from '../id.js';
 import * as chat from '../repo/chat.js';
@@ -7,14 +7,19 @@ import * as evalRepo from '../repo/eval.js';
 import * as maintenance from '../repo/maintenance.js';
 import { agentRuns, agents, conversations } from '../schema.js';
 
-const { db, client } = createDb(
-  process.env.DATABASE_URL ?? 'postgres://agentport:agentport@localhost:5432/agentport',
+const url = process.env.DATABASE_URL;
+if (!url) throw new Error('请通过 bun run test 注入隔离的 DATABASE_URL');
+const { db, client } = createDb(url);
+const ready = await client.unsafe('select 1').then(
+  () => true,
+  () => false,
 );
 const agentId = newId('agent');
 const conversationId = newId('conversation');
 const testSubject = { kind: 'user' as const, businessId: 'integrity-owner' };
 
 beforeAll(async () => {
+  if (!ready) return;
   await db.insert(agents).values({
     id: agentId,
     slug: `integrity-${agentId}`,
@@ -32,11 +37,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.delete(agents).where(eq(agents.id, agentId));
+  if (ready) await db.delete(agents).where(eq(agents.id, agentId));
   await client.close();
 });
 
-describe('history integrity', () => {
+describe.skipIf(!ready)('history integrity', () => {
   it('preserves branch timestamps and history through run pruning and parent deletion', async () => {
     const runId = newId('run');
     const messageId = newId('message');
@@ -319,7 +324,7 @@ describe('history integrity', () => {
   });
 });
 
-describe('database trust boundaries', () => {
+describe.skipIf(!ready)('database trust boundaries', () => {
   it.each([
     [
       'messages',

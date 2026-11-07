@@ -51,6 +51,7 @@ import {
   type EvalResult,
   type EvalRun,
 } from '../lib/api.js';
+import { downloadBlob } from '../lib/browser-files.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
   evalComparisonStatusLabel,
@@ -299,16 +300,10 @@ export function EvalPage() {
     setExporting(true);
     try {
       const data = await api.exportEvalDataset(effectiveAgentId);
-      const url = URL.createObjectURL(
+      downloadBlob(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        'eval-cases.json',
       );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'eval-cases.json';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       toastError(error);
     } finally {
@@ -768,16 +763,10 @@ function EvalRunResults({ id }: { id: string }) {
     setExporting(true);
     try {
       const data = await api.exportEvalRun(id);
-      const url = URL.createObjectURL(
+      downloadBlob(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        'eval-result.json',
       );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'eval-result.json';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       toastError(error);
     } finally {

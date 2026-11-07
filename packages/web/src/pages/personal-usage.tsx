@@ -1,4 +1,5 @@
 import type { PersonalRun, PersonalRunListQuery } from '@agentport/shared';
+import { runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
@@ -39,7 +40,7 @@ import {
 } from '../lib/format.js';
 import { agentsQuery, meQuery, usePersonalRuns, usePersonalUsage } from '../lib/queries.js';
 
-const triggers = ['chat', 'mcp', 'schedule', 'event', 'review', 'channel'] as const;
+const triggers = runTriggerSchema.options;
 type Trigger = (typeof triggers)[number];
 
 const triggerLabel: Record<Trigger, string> = {
@@ -51,7 +52,7 @@ const triggerLabel: Record<Trigger, string> = {
   channel: '频道',
 };
 
-const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
+const statuses = runStatusSchema.options;
 
 // 成本按货币保留 4 位小数；Token 是计数，统一用精确整数加千分位，避免同屏混用 k/M 缩写。
 const tokenCountFormatter = new Intl.NumberFormat('zh-CN');

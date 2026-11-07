@@ -1,11 +1,11 @@
 import { fail } from '@agentport/core';
-import * as repo from '@agentport/db/repo/agents.js';
+import { repo } from '@agentport/db';
 import { grantDependencies, type PermissionId } from '@agentport/shared';
 import { authorize } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 export async function authorizeAgent(
   context: RequestContext,
-  row: repo.AgentRow,
+  row: repo.agents.AgentRow,
   permissionIds: PermissionId | PermissionId[],
 ): Promise<void> {
   const ids = Array.isArray(permissionIds) ? permissionIds : [permissionIds];
@@ -26,8 +26,8 @@ export async function authorizedAgent(
   context: RequestContext,
   id: string,
   permissionIds: PermissionId | PermissionId[],
-): Promise<repo.AgentRow> {
-  const row = await repo.getAgent(context.db, id);
+): Promise<repo.agents.AgentRow> {
+  const row = await repo.agents.getAgent(context.db, id);
   if (!row) return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
   await authorizeAgent(context, row, permissionIds);
   return row;

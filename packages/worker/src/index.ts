@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { McpJsonEntry, WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
 import {
   captureOutputDraft,
@@ -17,6 +17,7 @@ import {
 import { createDb, repo, schema } from '@agentport/db';
 import {
   agentRunJobSchema,
+  CONFIG_CONTAINER_DIR,
   EVAL_RUNS_QUEUE,
   effortSchema,
   errorText,
@@ -28,13 +29,14 @@ import {
   type SandboxTaskInput,
   SESSION_CLEANUP_TIMEOUT_MS,
   serverInputSchema,
+  uiFormatSchema,
   wireFailureKind,
 } from '@agentport/shared';
 import { createBunRedisClient, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
-import { conversationInputsMount, promptWithAttachments } from './attachments.js';
+import { promptWithAttachments } from './attachments.js';
 import { publishChannelEventSafely } from './channel-events.js';
 import { loadConfig } from './config.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
@@ -64,7 +66,12 @@ import {
 import { projectPersonalMemory } from './personal-memory.js';
 import { startReconciler } from './reconcile.js';
 import { checkQueuedRunAccess, type RunAccessDenial, runExecutionSubject } from './run-access.js';
-import { finalizeRun, handOffPendingFinish, type RunFinishedEvent } from './run-finish.js';
+import {
+  finalizeRun,
+  handOffPendingFinish,
+  publishRunFinished,
+  type RunFinishedEvent,
+} from './run-finish.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
   acquireSessionSandbox,
@@ -88,7 +95,11 @@ import { SessionSandboxes, type SessionSandboxLease } from './sandbox/sessions.j
 import { registerSandboxProbe } from './sandbox-probe.js';
 import { startScheduleScheduler } from './scheduler.js';
 import { loadRunServerBindings } from './server-bindings.js';
-import { ensureSessionWorkspace, refreshSessionDirectory } from './session-workspace.js';
+import {
+  ensureSessionWorkspace,
+  refreshSessionDirectory,
+  toHostWorkspacePath,
+} from './session-workspace.js';
 import { runShutdown } from './shutdown.js';
 import { modelProxyUpstream } from './upstream.js';
 
@@ -102,10 +113,6 @@ const workspacesDir = resolve(config.WORKSPACES_DIR);
 // 沙盒挂载的源路径按宿主 daemon 解析；容器里写文件仍用 workspacesDir。
 const hostWorkspacesDir = resolve(config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR);
 
-/** 容器内工作区路径 → 宿主路径，供 docker -v 使用。 */
-function toHostWorkspacePath(dir: string): string {
-  return join(hostWorkspacesDir, relative(workspacesDir, dir));
-}
 // 沙盒在 bridge 网络里访问宿主 API；compose 部署时用服务名或宿主网关覆盖。
 const sandboxApiUrl = config.SANDBOX_API_URL;
 
@@ -253,10 +260,20 @@ async function writeWorkspace(
     agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(db, agent.id) : [];
   const files = renderWorkspace(
     toWorkspaceInput({
-      agent,
+      agent: {
+        ...agent,
+        permissionMode: permissionModeSchema.parse(agent.permissionMode),
+        uiFormat: uiFormatSchema.parse(agent.uiFormat),
+        effort: effortSchema.nullable().parse(agent.effort),
+      },
       servers,
       skills,
-      subAgents,
+      subAgents: subAgents.map((row) => ({
+        ...row,
+        permissionMode: permissionModeSchema.parse(row.permissionMode),
+        uiFormat: uiFormatSchema.parse(row.uiFormat),
+        effort: effortSchema.nullable().parse(row.effort),
+      })),
       rules,
       outputStyles,
       selectedOutputStyle,
@@ -348,14 +365,10 @@ async function writeWorkspace(
   // settings.json 与预览同源（renderWorkspace），outputStyle 写在这里由 project settings 加载。
   // inline settings 与磁盘文件按 key 合并：只覆盖同名 key，未指定的字段仍继承磁盘值。
   const settingsPath = join(dir, '.claude', 'settings.json');
-  if (files.settingsJson !== null) {
-    await writeFile(settingsPath, files.settingsJson, {
-      encoding: 'utf8',
-      mode: WORKSPACE_FILE_MODE,
-    });
-  } else {
-    await rm(settingsPath, { force: true });
-  }
+  await writeFile(settingsPath, files.settingsJson, {
+    encoding: 'utf8',
+    mode: WORKSPACE_FILE_MODE,
+  });
   // mode 只在创建时生效；已存在的工作区（BullMQ 重试复用）要再 chmod 一次。
   await chmod(dir, WORKSPACE_DIR_MODE);
   await chmod(join(dir, '.claude'), WORKSPACE_DIR_MODE);
@@ -387,7 +400,7 @@ function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
     SANDBOX_API_URL: apiUrl,
     // 会话容器把持久 sessions 目录挂到 /home/node/.claude（见 sessions.ts），
     // 这里指定 SDK 使用同一路径；没有会话挂载的一次性容器由 docker.ts 提供 tmpfs。
-    CLAUDE_CONFIG_DIR: '/home/node/.claude',
+    CLAUDE_CONFIG_DIR: CONFIG_CONTAINER_DIR,
   };
   if (modelProxy) {
     env.ANTHROPIC_BASE_URL = modelProxy.url;
@@ -693,13 +706,6 @@ const worker = new Worker(
           ...(personalBusinessId === undefined ? {} : { businessId: personalBusinessId }),
           subAgentSlugs,
         });
-        const inputsMount = await conversationInputsMount({
-          workspacesDir,
-          hostWorkspacesDir,
-          slug: agent.slug,
-          conversationId,
-        });
-        if (inputsMount === null) throw new Error('Session inputs directory was not prepared');
         lease = await acquireSessionSandbox({
           runId,
           manager: sessionSandboxes,
@@ -709,17 +715,37 @@ const worker = new Worker(
             agentId,
             conversationId,
             runtimeEnvironmentId: agent.runtimeEnvironmentId,
-            workspaceDir: toHostWorkspacePath(sessionPaths.workspaceDir),
-            outputsDir: toHostWorkspacePath(sessionPaths.outputsDir),
-            inputsDir: inputsMount.hostPath,
-            memoryDir: toHostWorkspacePath(sessionPaths.memoryDir),
-            sessionsDir: toHostWorkspacePath(sessionPaths.sessionsDir),
+            workspaceDir: toHostWorkspacePath(
+              { workspacesDir, hostWorkspacesDir },
+              sessionPaths.workspaceDir,
+            ),
+            outputsDir: toHostWorkspacePath(
+              { workspacesDir, hostWorkspacesDir },
+              sessionPaths.outputsDir,
+            ),
+            inputsDir: toHostWorkspacePath(
+              { workspacesDir, hostWorkspacesDir },
+              sessionPaths.inputsDir,
+            ),
+            memoryDir: toHostWorkspacePath(
+              { workspacesDir, hostWorkspacesDir },
+              sessionPaths.memoryDir,
+            ),
+            sessionsDir: toHostWorkspacePath(
+              { workspacesDir, hostWorkspacesDir },
+              sessionPaths.sessionsDir,
+            ),
             ...(sessionPaths.personalDir === undefined
               ? {}
-              : { personalDir: toHostWorkspacePath(sessionPaths.personalDir) }),
+              : {
+                  personalDir: toHostWorkspacePath(
+                    { workspacesDir, hostWorkspacesDir },
+                    sessionPaths.personalDir,
+                  ),
+                }),
             subAgentMemoryDirs: sessionPaths.subAgentMemoryDirs.map((dir) => ({
               slug: dir.slug,
-              memoryDir: toHostWorkspacePath(dir.memoryDir),
+              memoryDir: toHostWorkspacePath({ workspacesDir, hostWorkspacesDir }, dir.memoryDir),
             })),
           },
         });
@@ -909,10 +935,7 @@ const worker = new Worker(
             : { sourceRunId: chosenOutput.runId, sourcePath: chosenOutput.path }),
         });
         outputsHostPath = preparedOutputs.hostPath;
-        await refreshSessionDirectory(
-          join(workspacesDir, relative(hostWorkspacesDir, preparedOutputs.hostPath)),
-          stableOutputsDir,
-        );
+        await refreshSessionDirectory(preparedOutputs.dir, stableOutputsDir);
 
         stableOutputsPrepared = true;
         runStartedAt = Date.now();
@@ -1295,14 +1318,17 @@ const worker = new Worker(
             ? {}
             : { failure: new RunFailure(current.errorKind, current.error ?? current.status) }),
         };
-        await publishRun(runId, finishedEvent(), logger);
-        await repo.audit.writeAudit(db, logger, {
-          actor: 'worker',
-          action: 'agent.run.finished',
-          target: runId,
-          status: outcome.status === 'succeeded' ? 'ok' : 'error',
-          dedupeKey: `aud_${runId.slice(4)}`,
-          ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
+        await publishRunFinished({
+          db,
+          logger,
+          runId,
+          event: finishedEvent(),
+          audit: {
+            action: 'agent.run.finished',
+            status: outcome.status === 'succeeded' ? 'ok' : 'error',
+            dedupeKey: `aud_${runId.slice(4)}`,
+            ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
+          },
         });
       }
 

@@ -1,4 +1,4 @@
-import type { OpenUiToolDescriptor } from '@agentport/shared';
+import type { AgentInput, OpenUiToolDescriptor } from '@agentport/shared';
 import type { McpJsonEntry } from './tools.js';
 import type {
   WorkspaceAgent,
@@ -15,9 +15,9 @@ export interface WorkspaceAgentRow {
   model: string;
   systemPromptMd: string;
   maxTurns: number;
-  permissionMode: string;
-  uiFormat: string;
-  effort: string | null;
+  permissionMode: AgentInput['permissionMode'];
+  uiFormat: AgentInput['uiFormat'];
+  effort: NonNullable<AgentInput['effort']> | null;
   allowedTools: string[];
   disallowedTools: string[];
   enabled: boolean;
@@ -25,11 +25,9 @@ export interface WorkspaceAgentRow {
   skills?: WorkspaceSkill[];
   /** 该智能体自己绑定的 MCP server 名；决定 .mcp.json 里哪些名字对它可见。 */
   serverNames?: string[];
-  /** 父智能体派生子智能体时等它多久；子智能体 md 里要写明，否则等待规则是空话。 */
-  timeoutMs: number;
 }
 
-function toAgent(row: WorkspaceAgentRow): WorkspaceAgent {
+export function toWorkspaceAgent(row: WorkspaceAgentRow): WorkspaceAgent {
   return {
     slug: row.slug,
     name: row.name,
@@ -43,14 +41,8 @@ function toAgent(row: WorkspaceAgentRow): WorkspaceAgent {
     allowedTools: row.allowedTools,
     disallowedTools: row.disallowedTools,
     ...(row.serverNames ? { serverNames: row.serverNames } : {}),
-    timeoutMs: row.timeoutMs,
     ...(row.skills ? { skills: row.skills } : {}),
   };
-}
-
-/** DB 行 → 工作区 agent；导出停用子定义等需要绕过启用过滤时单独使用。 */
-export function toWorkspaceAgent(row: WorkspaceAgentRow): WorkspaceAgent {
-  return toAgent(row);
 }
 
 /**
@@ -77,10 +69,10 @@ export function toWorkspaceInput(params: {
 }): WorkspaceInput {
   const { agent } = params;
   return {
-    agent: toAgent(agent),
+    agent: toWorkspaceAgent(agent),
     servers: params.servers,
     skills: params.skills,
-    subAgents: params.subAgents.filter((row) => row.enabled).map(toAgent),
+    subAgents: params.subAgents.filter((row) => row.enabled).map(toWorkspaceAgent),
     ...(params.rules && params.rules.length > 0 ? { rules: params.rules } : {}),
     ...(params.outputStyles && params.outputStyles.length > 0
       ? { outputStyles: params.outputStyles }

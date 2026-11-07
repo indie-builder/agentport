@@ -218,7 +218,7 @@ export function startScheduleScheduler(input: {
   prefix?: string;
 }): ScheduleScheduler {
   const connection = createBunRedisClient(new RedisClient(input.redisUrl));
-  const prefix = input.prefix === undefined ? undefined : input.prefix;
+  const prefix = input.prefix;
   const queueOptions = { connection, ...(prefix === undefined ? {} : { prefix }) };
   const queue = new Queue<ScheduleTriggerJob>(SCHEDULE_TRIGGERS_QUEUE, queueOptions);
   const runsQueue = new Queue<AgentRunJob>(RUNS_QUEUE, queueOptions);

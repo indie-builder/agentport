@@ -1,20 +1,8 @@
 import type { AccessFilter } from '@agentport/shared';
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  getTableColumns,
-  inArray,
-  isNotNull,
-  isNull,
-  or,
-  sql,
-} from 'drizzle-orm';
-import type { Database } from '../client.js';
+import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import {
-  agentMembers,
   agentRuns,
   agentSchedules,
   agents,
@@ -22,11 +10,10 @@ import {
   conversations,
   messages,
 } from '../schema.js';
+import { maintainedAgentScopeWhere } from './access.js';
 import { latestAgentVersion } from './agent-versions.js';
 import { notStale } from './freshness.js';
 import { lockRunResources } from './locks.js';
-
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export type ScheduleRow = typeof agentSchedules.$inferSelect;
 
@@ -38,23 +25,6 @@ export interface ScheduleWrite {
   enabled: boolean;
   createdBy: string;
   executeAsBusinessId: string;
-}
-
-/** 定时任务按专家范围可见：P 全部，W 本人负责，M 本人负责或 canMaintain。 */
-function scheduleAccessWhere(access: AccessFilter) {
-  if (access.scopes.includes('platform')) return undefined;
-  const visible = [];
-  if (access.scopes.includes('maintained_agents')) {
-    visible.push(
-      sql`(exists (select 1 from ${agents} a where a.id = ${agentSchedules.agentId} and a.owner_business_id = ${access.businessId}) or exists (select 1 from ${agentMembers} m where m.agent_id = ${agentSchedules.agentId} and m.business_id = ${access.businessId} and m.can_maintain))`,
-    );
-  }
-  if (access.scopes.includes('owned_agents')) {
-    visible.push(
-      sql`exists (select 1 from ${agents} a where a.id = ${agentSchedules.agentId} and a.owner_business_id = ${access.businessId})`,
-    );
-  }
-  return visible.length === 0 ? sql`false` : or(...visible);
 }
 
 /** 创建定时任务；下次触发时间由 BullMQ 原生 scheduler 展示，不在库里自算。 */
@@ -75,11 +45,11 @@ export async function listSchedules(
     .select({ ...getTableColumns(agentSchedules), agentName: agents.name })
     .from(agentSchedules)
     .leftJoin(agents, eq(agents.id, agentSchedules.agentId))
-    .where(scheduleAccessWhere(access))
+    .where(maintainedAgentScopeWhere(access, agentSchedules.agentId))
     .orderBy(desc(agentSchedules.createdAt));
 }
 
-export async function getSchedule(db: Database | Tx, id: string): Promise<ScheduleRow | null> {
+export async function getSchedule(db: DbHandle, id: string): Promise<ScheduleRow | null> {
   const [row] = await db.select().from(agentSchedules).where(eq(agentSchedules.id, id)).limit(1);
   return row ?? null;
 }

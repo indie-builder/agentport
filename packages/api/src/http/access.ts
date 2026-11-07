@@ -1,17 +1,18 @@
+import { AppError, isAppError } from '@agentport/core';
 import { repo } from '@agentport/db';
 import {
-  type AccessResource,
   type AccessFilter,
+  type AccessResource,
   type AccessScope,
   type AgentAccess,
+  agentScopeAllows,
   PERMISSIONS,
   type PermissionGrant,
   type PermissionId,
   type Principal,
 } from '@agentport/shared';
-import type { RequestContext } from './context.js';
 import { writeCrossUserAudit } from '../plugins/audit.js';
-import { AppError, isAppError } from '@agentport/core';
+import type { RequestContext } from './context.js';
 
 type UserPrincipal = Extract<Principal, { kind: 'user' }>;
 type AgentRelation = Awaited<ReturnType<typeof repo.access.getAgentRelation>>;
@@ -32,25 +33,6 @@ export async function requirePermission(
   const principal = requireUser(context);
   if (!principal.grants.some((grant) => grant.permissionId === permissionId)) {
     throw new AppError('FORBIDDEN', '没有该操作的权限');
-  }
-}
-
-function matchesAgentScope(
-  scope: PermissionGrant['scope'],
-  relation: AgentRelation,
-  businessId: string,
-): boolean {
-  switch (scope) {
-    case 'platform':
-      return true;
-    case 'authorized_agents':
-      return relation.ownerBusinessId === businessId || relation.canUse;
-    case 'maintained_agents':
-      return relation.ownerBusinessId === businessId || relation.canMaintain;
-    case 'owned_agents':
-      return relation.ownerBusinessId === businessId;
-    case 'own_data':
-      return false;
   }
 }
 
@@ -114,7 +96,7 @@ export async function authorize(
     }
     if (resource.agentId === undefined) continue;
     const relation = await relationFor(context, principal, resource.agentId, cached);
-    if (matchesAgentScope(grant.scope, relation, principal.businessId)) {
+    if (agentScopeAllows(grant.scope, relation, principal.businessId)) {
       matched = grant;
       break;
     }
@@ -159,7 +141,7 @@ export async function agentAccess(context: RequestContext, agentId: string): Pro
       continue;
     }
     const grants = principal.grants.filter((grant) => grant.permissionId === definition.id);
-    if (grants.some((grant) => matchesAgentScope(grant.scope, relation, principal.businessId))) {
+    if (grants.some((grant) => agentScopeAllows(grant.scope, relation, principal.businessId))) {
       permissionIds.push(definition.id);
     }
   }

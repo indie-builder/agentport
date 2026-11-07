@@ -2,7 +2,7 @@ import { chatContract } from '@agentport/contract/chat';
 import { AppError, fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { OpenUiToolResult } from '@agentport/shared';
-import { openUiToolResultSchema, segmentOpenUi } from '@agentport/shared';
+import { openUiToolResultSchema } from '@agentport/shared';
 import {
   type CallToolResult,
   Client,
@@ -13,11 +13,10 @@ import { fromJsonSchema } from '@modelcontextprotocol/server';
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { AppContext, RequestContext } from '../../http/context.js';
-import { writeAudit } from '../../plugins/audit.js';
-
 import { buildGeneratedServer } from '../servers/generated.js';
 import { getServerWithSecrets, listTools } from '../servers/repo.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
+import { hasOpenUiBlock } from './openui-actions.js';
 
 const CLIENT_TIMEOUT_MS = 35000;
 async function validateArgs(
@@ -153,16 +152,14 @@ export const chatToolsRouter = {
       return fail('FORBIDDEN', '子智能体的输出没有可执行的界面动作；请刷新后重试');
     }
     const text = message.uiProgram ?? (typeof content?.text === 'string' ? content.text : '');
-    const segmentExists = segmentOpenUi(text).some(
-      (segment) => segment.kind === 'openui' && segment.blockKey === blockKey,
-    );
+    const segmentExists = hasOpenUiBlock(text, blockKey);
     if (!segmentExists) {
       return fail('INVALID_INPUT', `该消息没有 ${blockKey} 这个界面段；请刷新后重试`);
     }
     const catalog = await repo.openui.listOpenUiTools(context.db, conversation.agentId);
     const tool = catalog.find((entry) => entry.name === toolName);
     if (!tool) {
-      await writeAudit(context.db, context.log, {
+      await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'openui.tool.denied',
         target: conversationId,
@@ -190,7 +187,7 @@ export const chatToolsRouter = {
         serverId: tool.serverId,
         toolName: tool.name,
       });
-      await writeAudit(context.db, context.log, {
+      await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'openui.tool.approval_required',
         target: conversationId,
@@ -206,7 +203,7 @@ export const chatToolsRouter = {
     const startedAt = Date.now();
     try {
       const data = extractToolResult(await callTool(context, tool, args));
-      await writeAudit(context.db, context.log, {
+      await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'openui.tool.called',
         target: conversationId,
@@ -218,7 +215,7 @@ export const chatToolsRouter = {
       return { status: 200 as const, body: openUiToolResultSchema.parse({ status: 'ok', data }) };
     } catch (err) {
       const message = err instanceof AppError ? err.message : '工具调用失败';
-      await writeAudit(context.db, context.log, {
+      await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'openui.tool.called',
         target: conversationId,
@@ -256,7 +253,7 @@ export const chatToolsRouter = {
         '没有这条待批准记录；它可能已批准或不属于该会话，请刷新后重试',
       );
     }
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'openui.tool.approved',
       target: conversationId,

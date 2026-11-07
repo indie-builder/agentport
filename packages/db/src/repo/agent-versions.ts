@@ -1,12 +1,11 @@
 import { AppError } from '@agentport/core';
 import type { Agent } from '@agentport/shared';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { agentVersions } from '../schema.js';
 
 export type AgentVersionRow = typeof agentVersions.$inferSelect;
-export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export interface AgentVersionSummary {
   id: string;
@@ -17,7 +16,7 @@ export interface AgentVersionSummary {
 
 /** 事务内写入快照；版本号靠 (agent_id, version) 唯一约束兜底并发。 */
 export async function insertAgentVersion(
-  tx: Tx,
+  tx: Transaction,
   agentId: string,
   snapshot: Agent,
   note: string | null = null,
@@ -82,10 +81,7 @@ export async function listAgentVersions(
 }
 
 /** 最新快照版本号；智能体尚无快照时返回 null。 */
-export async function latestAgentVersion(
-  db: Database | Tx,
-  agentId: string,
-): Promise<number | null> {
+export async function latestAgentVersion(db: DbHandle, agentId: string): Promise<number | null> {
   const [row] = await db
     .select({ max: sql<number | null>`max(${agentVersions.version})` })
     .from(agentVersions)

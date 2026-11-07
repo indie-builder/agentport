@@ -28,7 +28,7 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 - Bun 1.4.3（`packageManager` 已固定，依赖与脚本都用 Bun）
 - Node.js >=24.22.2 <25（24 LTS，当前 24.22.2；镜像基座与尚未迁移的 `node` 脚本使用）
 - Docker Engine 与 Docker Compose
-- 备份需要本机有 `pg_dump`（PostgreSQL 客户端）
+- 备份优先使用宿主 `pg_dump` / `psql`（PostgreSQL 客户端），缺失时回退到 compose 的 postgres 容器
 
 ### 一条命令部署
 
@@ -38,7 +38,7 @@ bun run up        # 生成 .env、起依赖、迁移、构建镜像、冒烟
 # 打开 http://localhost:3000
 ```
 
-首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`，并打印管理员密码；首次部署请先按需修改 `ADMIN_PASSWORD` 再执行 `bun run up`。`ADMIN_PASSWORD` 只在首次初始化（`platform_bootstrap` marker 不存在）时创建管理员 `bootstrap-admin`，之后启动或登录都不再按 `.env` 覆盖已有密码；后续改密走显式账户操作。实现与验收记录见 任务记录。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
+首次运行会从 `.env.example` 生成 `.env`，随机填充 `APP_SECRET_KEY`、`JWT_SECRET`、`REDIS_PASSWORD`、`PLATFORM_MCP_TOKEN` 和 `ADMIN_PASSWORD`；管理员密码写入 `.env`，终端不回显。首次部署如需自定义密码，先复制 `.env.example` 为 `.env`，填写 `APP_SECRET_KEY`、`JWT_SECRET`、`ADMIN_PASSWORD` 等必填项，再执行 `bun run up`。`ADMIN_PASSWORD` 只在首次初始化（`platform_bootstrap` marker 不存在）时创建管理员 `bootstrap-admin`，之后启动或登录都不再按 `.env` 覆盖已有密码；后续改密走显式账户操作。实现与验收记录见 任务记录。运行智能体还需在 `.env` 填写 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`。
 
 `bun run up` 依次完成：`docker compose up -d --wait` 启动 postgres/redis 并等 healthcheck 通过 → 从仓库根构建 `agentport/sandbox:dev`（已存在则跳过，`bun run up --rebuild` 强制重建）→ compose 一次性 `migrate` 服务执行迁移 → 构建并启动 api/worker；compose 的 `--wait --wait-timeout 120` 会等 api 的 `/health/ready` healthcheck 通过 → `bun run smoke`。任一步失败会打印原因并以非零退出。停止服务用 `bun run down`（保留数据卷），`bun run down --clean` 会删除数据卷。
 
@@ -98,10 +98,10 @@ bun -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toSt
 | `bun run test` | 用 `bun:test` 跑后端套件（`scripts/test-backend.ts`，`--isolate`，排除 web）。会加载 `.env`，只把它当作管理连接：每次调用创建随机 PostgreSQL database 并完成迁移，同时启动独享临时 Redis 容器（loopback 随机端口，容器内 db 9），退出只删除本轮资源，不读写开发库或共享 Redis；前置与失败/跳过边界见 [docs/OPERATIONS.md §9.2](docs/OPERATIONS.md#92-后端集成测试与-e2e)。API/worker 配置无需改动 |
 | `bun run test:web` | 用 Vitest 只跑 `packages/web/test`（jsdom，不加载 `.env`，不需要 API、worker、PostgreSQL、Redis） |
 | `bun run test:watch` | 以 `bun:test --watch` 跑后端套件；同一 watch 会话复用本轮隔离资源，退出时清理，热重跑不重建 |
-| `bun run test:e2e` | e2e 端到端测试（`e2e run`，用例在 `tests/*.e2e.ts`）。自动启动或复用 [http://localhost:5173](http://localhost:5173) 的 Vite（不经过 Portless）；API 需另行在 [http://localhost:3000](http://localhost:3000) 运行。前置与凭据见下方说明；配置收全部 `tests/**/*.e2e.ts`，普通套件含要求停 worker 的回放用例，真实对话用例需单独跑（见下） |
+| `bun run test:e2e` | e2e 端到端测试（`e2e run`，默认配置 `e2e.config.ts` 收集 `tests/**/*.e2e.ts`，排除 dev-data、评估执行、运行环境构建与频道用例）。自动启动或复用 [http://localhost:5173](http://localhost:5173) 的 Vite（不经过 Portless）；API 需另行在 [http://localhost:3000](http://localhost:3000) 运行。前置与凭据见下方说明；默认套件仍含要求停 worker 的回放用例，真实对话用例需单独跑（见下）；执行类与频道类专项各自带独享栈 |
 | `bun run db:generate` | 修改 Drizzle schema 后生成迁移 |
 | `bun run db:migrate` | 在宿主机应用迁移（`bun run up` 部署时由 compose 的 `migrate` 服务自动执行） |
-| `bun run backup` | `pg_dump` → `backups/<timestamp>.sql.gz`，保留最近 7 份；需先 export `DATABASE_URL` |
+| `bun run backup` | `pg_dump` + 工作区/知识库/配置 → `backups/<timestamp>.tar.gz`，保留最近 7 份；默认读仓库根 `.env`，可用 `BACKUP_ENV_FILE` 或显式 `DATABASE_URL` |
 | `bun run restore` | `bun run restore <backup-file>`：先留恢复前安全副本，再单事务整库替换并补迁移 |
 | `bun run smoke` | 部署自检（健康、登录、列表、`/mcp` 鉴权）；需 `ADMIN_PASSWORD` 与服务已启动 |
 | `bun run infra:up` | 启动 compose 中的 postgres 与 redis |
@@ -112,7 +112,7 @@ bun -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toSt
 | `bun run --filter @agentport/api start` | 以构建产物启动 api（需先 `bun run build`） |
 | `bun run --filter @agentport/web preview` | 预览 web 构建产物 |
 
-E2E 配置（`e2e.config.ts`）不主动加载 `.env`，浏览器用例连的是 [http://localhost:5173](http://localhost:5173)，不走 Portless。`e2e.config.ts` 的默认凭据是 `admin` / `admin-local-dev-2026`，必须与服务端实际生效的 `ADMIN_USER` / `ADMIN_PASSWORD` 一致，否则用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。需要直写数据库的用例经 `tests/support/fixture.ts` 启动 Bun 子进程，必须显式提供与 API 同库的 `E2E_DATABASE_URL`；频道回放等用例另需 `E2E_REDIS_URL`。先 `bun run build` 供 API 使用 workspace `dist`，E2E 不依赖 Node PostgreSQL 驱动。个别用例另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），且 `e2e.config.ts` 收集全部 `tests/**/*.e2e.ts`，所以普通 `bun run test:e2e` 要停 worker；`tests/smoke.e2e.ts` 里的真实对话用例需要 worker 与模型凭据，只在 `E2E_FULL=1` 时运行，与回放用例前提相反——应单独运行该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。其他前置以各文件与 `e2e.config.ts` 的实际配置为准。
+E2E 配置（`e2e.config.ts`）不主动加载 `.env`，浏览器用例连的是 [http://localhost:5173](http://localhost:5173)，不走 Portless。`e2e.config.ts` 的默认凭据是 `admin` / `admin-local-dev-2026`，必须与服务端实际生效的 `ADMIN_USER` / `ADMIN_PASSWORD` 一致，否则用 `E2E_ADMIN_USER`、`E2E_ADMIN_PASSWORD` 覆盖。需要直写数据库的用例经 `tests/support/fixture.ts` 启动 Bun 子进程，必须显式提供与 API 同库的 `E2E_DATABASE_URL`；频道回放等用例另需 `E2E_REDIS_URL`。先 `bun run build` 供 API 使用 workspace `dist`，E2E 不依赖 Node PostgreSQL 驱动。个别用例另有前置：`tests/chat-replay.e2e.ts` 要求 `E2E_WORKER_PAUSED=1`（即先停 worker），它仍在默认 `e2e.config.ts` 内，所以普通 `bun run test:e2e` 要停 worker。默认配置已排除 `tests/dev-data/**`、`tests/eval-execution.e2e.ts`、`tests/runtime-build.e2e.ts`、`tests/channels.e2e.ts` 与 `tests/channels-business.e2e.ts`：评估执行与运行环境构建由 `bun run e2e:channel:execution` 运行；频道浏览器用例由 `bun run e2e:channel:ui` 运行，`e2e:channel` 跑该链路的 HTTP 断言，`e2e:channel:stack` 只起常驻隔离栈；频道业务回归由 `bun run e2e:channels-business` 运行。前两类由脚本自行创建并校验独享 PostgreSQL、Redis 与受控假模型契约，不要手工设置或伪造这些变量；`e2e:channels-business` 要求 `E2E_APP_URL` 指向已起好的隔离实例，并按其用例前置提供 `E2E_DATABASE_URL` 与管理员凭据。`e2e.execution.config.ts` 与 `e2e.channels.config.ts` 由 `scripts/e2e-channel.ts` 选择，不单独直接运行。`tests/smoke.e2e.ts` 里的真实对话用例需要 worker 与模型凭据，只在 `E2E_FULL=1` 时运行，与回放用例前提相反——应单独运行该用例并启动 worker，不能只给整套加 `E2E_FULL=1`。其他前置以各文件与 `e2e.config.ts` 的实际配置为准。
 
 ## 版本与发布
 

@@ -5,6 +5,7 @@ import { join, parse, resolve, sep } from 'node:path';
 import { fail } from '@agentport/core';
 import {
   hasErrorCode,
+  INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
   type MemoryFile,
   type MemoryFileContent,
@@ -136,9 +137,13 @@ export async function listMemoryFiles(
         if (info) files.push({ name, size: info.size, updatedAt: info.mtime.toISOString() });
       }
       files.sort((a, b) =>
-        a.name === 'MEMORY.md' ? -1 : b.name === 'MEMORY.md' ? 1 : a.name.localeCompare(b.name),
+        a.name === INDEX_FILE_NAME
+          ? -1
+          : b.name === INDEX_FILE_NAME
+            ? 1
+            : a.name.localeCompare(b.name),
       );
-      return { files, initialized: files.some((file) => file.name === 'MEMORY.md') };
+      return { files, initialized: files.some((file) => file.name === INDEX_FILE_NAME) };
     });
   } catch (error) {
     if (hasErrorCode(error, 'ENOENT')) return { files: [], initialized: false };

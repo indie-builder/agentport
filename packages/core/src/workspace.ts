@@ -1,4 +1,12 @@
-import { type OpenUiToolDescriptor, SANDBOX_RUNTIME_ENV } from '@agentport/shared';
+import {
+  type AgentInput,
+  CONFIGURABLE_DISALLOWED_TOOLS,
+  DEFAULT_DISALLOWED_TOOLS,
+  displayNameSchema,
+  type OpenUiToolDescriptor,
+  SANDBOX_RUNTIME_ENV,
+} from '@agentport/shared';
+import { fail } from './errors.js';
 import {
   escapeGeneratedBoundaryLines,
   GENERATED_SUFFIX_END,
@@ -32,8 +40,7 @@ export interface WorkspaceFiles {
     slug: string;
     files: Array<{ path: string; content: string; executable: boolean }>;
   }>;
-  /** 渲染出的 `.claude/settings.json` 内容；null 表示无该文件。 */
-  settingsJson: string | null;
+  settingsJson: string;
 }
 
 export interface WorkspaceAgent {
@@ -43,18 +50,16 @@ export interface WorkspaceAgent {
   model: string;
   systemPrompt: string;
   maxTurns: number;
-  permissionMode?: string;
+  permissionMode?: AgentInput['permissionMode'];
   /** 'openui' 时系统提示词追加生成式 UI 段；缺省按 markdown。 */
-  uiFormat?: string;
-  effort?: string | null;
+  uiFormat?: AgentInput['uiFormat'];
+  effort?: AgentInput['effort'] | null;
   allowedTools?: string[];
   disallowedTools?: string[];
   /** 该智能体自己绑定的 MCP server 名；缺省视为全部（预览等单一视角）。 */
   serverNames?: string[];
   /** 子智能体的技能；父智能体只声明自己的，子技能仅供子智能体原生加载。 */
   skills?: WorkspaceSkill[];
-  /** 独立运行超时；作为子智能体被委派时由主运行总超时约束。 */
-  timeoutMs?: number;
 }
 
 export interface WorkspaceSkill extends SkillProvenance {
@@ -104,7 +109,6 @@ export interface WorkspacePlugin {
   files: Array<{ path: string; content: string; executable: boolean }>;
 }
 
-/** 渲染一个输出风格 `.md`：官方 frontmatter（name/description/keep-coding-instructions）+ 正文。 */
 export function renderOutputStyleMd(style: {
   slug: string;
   description: string;
@@ -149,7 +153,6 @@ function splitGlobs(value: string): string[] {
   return patterns.map((pattern) => pattern.trim()).filter(Boolean);
 }
 
-/** 渲染一条规则文件：有 globs 时写入 frontmatter 的 paths；否则纯 Markdown。 */
 export function renderRuleMd(rule: { slug: string; content: string; globs?: string }): string {
   const globs = splitGlobs(rule.globs ?? '');
   if (globs.length === 0) return `${rule.content.trim()}\n`;
@@ -164,36 +167,18 @@ export function renderRuleMd(rule: { slug: string; content: string; globs?: stri
   ].join('\n');
 }
 
-/**
- * 未显式启用的内置工具默认禁用。Bash 不在此列：运行时默认在沙箱容器内放行。
- * 限制靠裸工具名从上下文移除；allowedTools 只负责自动批准，不负责限制。
- */
-export const DEFAULT_DISALLOWED_TOOLS = [
-  'Read',
-  'Write',
-  'Edit',
-  'Glob',
-  'Grep',
-  'NotebookEdit',
-  'WebFetch',
-  'WebSearch',
-  'Agent',
-  'TaskStop',
-  // 会话间消息工具与「同步等待」相悖：发送方不等对方返回就继续。
-  // ListAgents/SendMessage 可按智能体显式放行（D-19）；Monitor/EndConversation 永远关闭。
-  'ListAgents',
-  'SendMessage',
-  'EndConversation',
-  'Monitor',
-  'SendUserMessage',
-];
-
 /** 子定义声明 memory: project 后，SDK 会用这三个工具读写自己的记忆目录。 */
 const SUBAGENT_FILE_TOOLS = new Set(['Read', 'Write', 'Edit']);
 
 const DESCRIPTION_MAX = 200;
 
-/** 单行摘要：取 system prompt 第一段非空文本，去掉标题标记。 */
+function assertDisplayName(name: string): void {
+  const parsed = displayNameSchema.safeParse(name);
+  if (!parsed.success) {
+    fail('INVALID_INPUT', `显示名无效：${parsed.error.issues[0]?.message}`, { path: '/name' });
+  }
+}
+
 function summarize(prompt: string, fallback: string): string {
   const line =
     prompt
@@ -227,18 +212,7 @@ function rootServers(input: WorkspaceInput): WorkspaceInput['servers'] {
   return bound === undefined ? input.servers : input.servers.filter((s) => bound.includes(s.name));
 }
 
-/**
- * 智能体间沟通的等待语义。
- *
- * 平台里只有三种形式，调用方都必须等到对方给出结果：
- * 1. 委派给子智能体（Agent 工具）
- * 2. 调用平台内其他智能体（/mcp 暴露的 run_<slug> 工具）
- * 3. 调用外部 HTTP→MCP 工具（可能需要人工审批，批准前调用方挂起）
- *
- * 「必须等待」由运行时 env 保证（见 shared 的 SANDBOX_RUNTIME_ENV：
- * 关闭后台任务、限制委派深度），因此不再要求模型逐次传 run_in_background。
- */
-export function delegationWaitSection(input: WorkspaceInput): string[] {
+function delegationWaitSection(input: WorkspaceInput): string[] {
   const subAgents = input.subAgents ?? [];
   const lines: string[] = [];
 
@@ -399,11 +373,8 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   // 智能体可显式放行 ListAgents/SendMessage（D-19）；其余默认项不能通过配置解除。
   const allowedByConfig = new Set(input.toolsAllow ?? []);
   const mayEnable = (tool: string): boolean =>
-    tool === 'Agent' || tool === 'TaskStop'
-      ? hasSubAgents
-      : tool === 'ListAgents' || tool === 'SendMessage'
-        ? allowedByConfig.has(tool)
-        : false;
+    CONFIGURABLE_DISALLOWED_TOOLS.includes(tool) &&
+    (tool === 'Agent' || tool === 'TaskStop' ? hasSubAgents : allowedByConfig.has(tool));
   // 工作区 .mcp.json 是父 + 启用子级的并集；不绑定的 server 必须显式拒绝，
   // 否则 dontAsk 下这些工具仍出现在上下文里，等于把子级工具隐式放行给父级。
   const foreignServers =
@@ -490,6 +461,7 @@ export function renderSubAgentMd(input: {
   servers: Array<{ name: string; entry: McpJsonEntry }>;
   skills?: WorkspaceSkill[];
 }): string {
+  assertDisplayName(input.agent.name);
   return renderAgentMd(
     {
       agent: input.agent,
@@ -507,6 +479,7 @@ export function renderSubAgentMd(input: {
 }
 
 export function renderSkillMd(skill: WorkspaceSkill): string {
+  assertDisplayName(skill.name);
   return [
     '---',
     `name: ${yamlString(skill.slug)}`,
@@ -537,6 +510,7 @@ export function unionById<T extends { id: string }>(lists: readonly (readonly T[
 
 /** 把 DB 中的智能体定义渲染成落盘文件的内容；纯函数，不碰文件系统。 */
 export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
+  assertDisplayName(input.agent.name);
   const mcpServers: Record<string, McpJsonEntry> = {};
   for (const server of input.servers) {
     mcpServers[server.name] = server.entry;

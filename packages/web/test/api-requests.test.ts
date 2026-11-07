@@ -30,14 +30,24 @@ describe('conversation list contract', () => {
   });
 
   it('surfaces a 404 as an error instead of pretending the list is unsupported', async () => {
-    mockFetch(Response.json({ code: 'NOT_FOUND', message: '路由不存在', status: 404, requestId: '', retryable: false }, { status: 404 }));
+    mockFetch(
+      Response.json(
+        { code: 'NOT_FOUND', message: '路由不存在', status: 404, requestId: '', retryable: false },
+        { status: 404 },
+      ),
+    );
     await expect(api.conversations()).rejects.toMatchObject({ status: 404 });
   });
 });
 
 describe('overview contract', () => {
   it('rejects a 404 instead of pretending the endpoint is unsupported', async () => {
-    mockFetch(Response.json({ code: 'NOT_FOUND', message: '路由不存在', status: 404, requestId: '', retryable: false }, { status: 404 }));
+    mockFetch(
+      Response.json(
+        { code: 'NOT_FOUND', message: '路由不存在', status: 404, requestId: '', retryable: false },
+        { status: 404 },
+      ),
+    );
     await expect(api.overview()).rejects.toMatchObject({ status: 404 });
   });
 });
@@ -55,9 +65,26 @@ describe('agent package transfer', () => {
 
   it('sends an expired session back to login on a ZIP download', async () => {
     const assign = vi.fn();
-    vi.stubGlobal('location', { pathname: '/', search: '', hash: '', assign });
+    vi.stubGlobal('location', {
+      origin: 'http://localhost',
+      pathname: '/',
+      search: '',
+      hash: '',
+      assign,
+    });
     sessionStorage.setItem('pace.chat.drafts', JSON.stringify({ '': 'unsent' }));
-    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效', status: 401, requestId: '', retryable: false }, { status: 401 }));
+    mockFetch(
+      Response.json(
+        {
+          code: 'UNAUTHORIZED',
+          message: '登录已失效',
+          status: 401,
+          requestId: '',
+          retryable: false,
+        },
+        { status: 401 },
+      ),
+    );
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     expect(assign).toHaveBeenCalledWith('/login?returnTo=%2F&reason=expired');
     // 401 只负责跳转；草稿要等同账户重新登录后继续可用。
@@ -68,12 +95,24 @@ describe('agent package transfer', () => {
   it('keeps the current deep link and marks the session as expired on a 401', async () => {
     const assign = vi.fn();
     vi.stubGlobal('location', {
+      origin: 'http://localhost',
       pathname: '/plugins/plugin_1',
       search: '?tab=content&file=skills%2Fdemo%2FSKILL.md&mode=source',
       hash: '#top',
       assign,
     });
-    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效', status: 401, requestId: '', retryable: false }, { status: 401 }));
+    mockFetch(
+      Response.json(
+        {
+          code: 'UNAUTHORIZED',
+          message: '登录已失效',
+          status: 401,
+          requestId: '',
+          retryable: false,
+        },
+        { status: 401 },
+      ),
+    );
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     const path = assign.mock.calls[0]?.[0] as string;
     const url = new URL(path, 'http://app.local');
@@ -86,22 +125,67 @@ describe('agent package transfer', () => {
 
   it('keeps 403 responses as plain errors without a login redirect', async () => {
     const assign = vi.fn();
-    vi.stubGlobal('location', { pathname: '/plugins/plugin_1', search: '', hash: '', assign });
-    mockFetch(Response.json({ code: 'FORBIDDEN', message: '没有权限', status: 403, requestId: '', retryable: false }, { status: 403 }));
+    vi.stubGlobal('location', {
+      origin: 'http://localhost',
+      pathname: '/plugins/plugin_1',
+      search: '',
+      hash: '',
+      assign,
+    });
+    mockFetch(
+      Response.json(
+        { code: 'FORBIDDEN', message: '没有权限', status: 403, requestId: '', retryable: false },
+        { status: 403 },
+      ),
+    );
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 403 });
     expect(assign).not.toHaveBeenCalled();
   });
 
   it('redirects from a path that merely starts with login, but not from the login page', async () => {
     const assign = vi.fn();
-    vi.stubGlobal('location', { pathname: '/login-other', search: '', hash: '', assign });
-    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效', status: 401, requestId: '', retryable: false }, { status: 401 }));
+    vi.stubGlobal('location', {
+      origin: 'http://localhost',
+      pathname: '/login-other',
+      search: '',
+      hash: '',
+      assign,
+    });
+    mockFetch(
+      Response.json(
+        {
+          code: 'UNAUTHORIZED',
+          message: '登录已失效',
+          status: 401,
+          requestId: '',
+          retryable: false,
+        },
+        { status: 401 },
+      ),
+    );
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     expect(assign).toHaveBeenCalledOnce();
 
     assign.mockClear();
-    vi.stubGlobal('location', { pathname: '/login', search: '', hash: '', assign });
-    mockFetch(Response.json({ code: 'UNAUTHORIZED', message: '登录已失效', status: 401, requestId: '', retryable: false }, { status: 401 }));
+    vi.stubGlobal('location', {
+      origin: 'http://localhost',
+      pathname: '/login',
+      search: '',
+      hash: '',
+      assign,
+    });
+    mockFetch(
+      Response.json(
+        {
+          code: 'UNAUTHORIZED',
+          message: '登录已失效',
+          status: 401,
+          requestId: '',
+          retryable: false,
+        },
+        { status: 401 },
+      ),
+    );
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     expect(assign).not.toHaveBeenCalled();
   });

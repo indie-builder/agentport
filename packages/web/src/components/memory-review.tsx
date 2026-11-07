@@ -6,6 +6,7 @@ import type {
   MemoryReviewTarget,
 } from '@agentport/shared';
 import {
+  INDEX_FILE_NAME,
   memoryFileNameSchema,
   memoryReviewAfter,
   memoryReviewHasChanges,
@@ -82,7 +83,6 @@ const allTargetKindOptions = [
   { value: 'agent_rule', label: '专家规则' },
 ] as const;
 
-const MEMORY_INDEX_NAME = 'MEMORY.md';
 const NEW_MEMORY_CHOICE = '__new__';
 
 /** 审核要通读长文：源码按可用宽度换行并断开长 token，不让每列各自横向滚动。 */
@@ -640,7 +640,7 @@ function createInitialState(
       targetAgentId: initialAgent?.id ?? '',
       ruleChoice: '__new__',
       newRuleSlug: '',
-      memoryChoice: MEMORY_INDEX_NAME,
+      memoryChoice: INDEX_FILE_NAME,
       newMemoryName: '',
       sourceExpertId: initialAgent?.id ?? '',
       sources: [],
@@ -656,7 +656,7 @@ function createInitialState(
     targetAgentId,
     ruleChoice: target.kind === 'agent_rule' ? target.slug : '__new__',
     newRuleSlug: '',
-    memoryChoice: target.kind === 'agent_memory' ? target.name : MEMORY_INDEX_NAME,
+    memoryChoice: target.kind === 'agent_memory' ? target.name : INDEX_FILE_NAME,
     newMemoryName: '',
     sourceExpertId,
     sources: seed.sources.map((source) => ({
@@ -744,10 +744,10 @@ function CreateMemoryReviewDialog({
     : [{ value: ruleChoice, label: ruleChoice }, ...baseRuleOptions];
   // 已存在的主题在前，MEMORY.md 始终可选；候选文件尚不存在时同样允许创建。
   const memoryFileNames = [
-    MEMORY_INDEX_NAME,
+    INDEX_FILE_NAME,
     ...(memory.data?.files ?? [])
       .map((file) => file.name)
-      .filter((fileName) => fileName !== MEMORY_INDEX_NAME),
+      .filter((fileName) => fileName !== INDEX_FILE_NAME),
   ];
   const baseMemoryOptions = [
     ...memoryFileNames.map((fileName) => ({ value: fileName, label: fileName })),
@@ -821,7 +821,7 @@ function CreateMemoryReviewDialog({
     // 来源专家与目标专家是两件事；换目标不改变已选来源。
     setRuleChoice('__new__');
     setNewRuleSlug('');
-    setMemoryChoice(MEMORY_INDEX_NAME);
+    setMemoryChoice(INDEX_FILE_NAME);
     setNewMemoryName('');
   };
 
@@ -1003,9 +1003,7 @@ function CreateMemoryReviewDialog({
                     triggerClassName="w-full"
                     disabled={create.isPending || !canUseAgents}
                     ariaInvalid={fieldErrors.model ? true : undefined}
-                    ariaDescribedby={
-                      fieldErrors.model ? 'memory-review-model-error' : undefined
-                    }
+                    ariaDescribedby={fieldErrors.model ? 'memory-review-model-error' : undefined}
                   />
                   {fieldErrors.model ? (
                     <FieldError id="memory-review-model-error">{fieldErrors.model}</FieldError>
@@ -1059,7 +1057,7 @@ function CreateMemoryReviewDialog({
                         setTargetAgentId(id);
                         setRuleChoice('__new__');
                         setNewRuleSlug('');
-                        setMemoryChoice(MEMORY_INDEX_NAME);
+                        setMemoryChoice(INDEX_FILE_NAME);
                         setNewMemoryName('');
                         setFieldErrors((previous) =>
                           clearFieldErrors(previous, 'target', 'slug', 'memory', 'form'),
@@ -1585,10 +1583,7 @@ function MemoryReviewDetail({
           : '查看专家规则';
   const targetLink =
     review.target.kind === 'personal' ? (
-      <Link
-        to="/personal/memory"
-        className="text-[var(--color-link)] underline underline-offset-4"
-      >
+      <Link to="/personal/memory" className="text-[var(--color-link)] underline underline-offset-4">
         {targetLinkLabel}
       </Link>
     ) : (
@@ -1629,7 +1624,7 @@ function MemoryReviewDetail({
       onSuccess: () => toastSuccess('已采用提案'),
       onError: (error) =>
         onActionError(
-          error instanceof ApiError && error.status === 409 && error.message.includes('修改')
+          error instanceof ApiError && error.code === 'CONFLICT_STALE'
             ? '目标已被修改，请重新生成。'
             : errorMessage(error),
         ),

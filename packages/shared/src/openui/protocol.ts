@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseUrl } from '../url.js';
 
 /**
  * 生成式 UI 的跨端协议：动作回传、表单状态、工具描述。
@@ -7,15 +8,8 @@ import { z } from 'zod';
 
 /** 只允许 http/https；挡掉 javascript:/data: 等可执行协议。 */
 export function isSafeOpenUrl(url: string): boolean {
-  // shared 的 lib 不含 DOM 类型；用全局构造器在 Node 与浏览器都能解析。
-  const UrlCtor = (globalThis as { URL?: new (input: string) => { protocol: string } }).URL;
-  if (UrlCtor === undefined) return false;
-  try {
-    const protocol = new UrlCtor(url).protocol;
-    return protocol === 'http:' || protocol === 'https:';
-  } catch {
-    return false;
-  }
+  const parsed = parseUrl(url);
+  return parsed !== null && (parsed.protocol === 'http:' || parsed.protocol === 'https:');
 }
 
 /** 动作共有的载荷；前后端与 API 共用这一份，避免字段名再次漂移。 */

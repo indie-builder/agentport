@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { WORKSPACE_DIR_MODE } from '@agentport/core';
 import {
   errorText,
   NATIVE_PLUGIN_TIMEOUT_MS,
@@ -22,7 +23,6 @@ import type { Sandbox, SandboxCreateOptions, SandboxProvider } from './sandbox/p
 /** 结果行上限：快照本身另有 4MiB 业务限制，这里兜住异常输出。 */
 const OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
 const STDERR_TAIL_BYTES = 2 * 1024;
-const WORKSPACE_DIR_MODE = 0o700;
 
 /** 安装动作不写工作区：固定挂载一个空的只读目录即可。 */
 const ACTION_WORKSPACE = 'native-plugin-actions';

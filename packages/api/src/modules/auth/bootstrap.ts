@@ -5,20 +5,20 @@ import {
   type Database,
   newId,
   platformBootstrap,
+  repo,
   rolePermissions,
   roles,
+  type Transaction,
   userRoles,
 } from '@agentport/db';
 import { DEFAULT_ROLES } from '@agentport/shared';
 import { hashPassword } from 'better-auth/crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Config } from '../../config.js';
-import { BOOTSTRAP_ADMIN_BUSINESS_ID, BOOTSTRAP_ID } from './types.js';
-
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+import { BOOTSTRAP_ADMIN_BUSINESS_ID } from './types.js';
 
 /** 插入缺失的四默认角色，返回 admin 角色 ID；已存在的同 systemKey 角色复用。 */
-async function seedDefaultRoles(tx: Tx): Promise<string> {
+async function seedDefaultRoles(tx: Transaction): Promise<string> {
   const now = new Date();
   for (const role of DEFAULT_ROLES) {
     const [existing] = await tx
@@ -68,7 +68,7 @@ export async function ensureBootstrap(db: Database, config: Config): Promise<voi
     const [initialized] = await tx
       .select({ id: platformBootstrap.id })
       .from(platformBootstrap)
-      .where(eq(platformBootstrap.id, BOOTSTRAP_ID))
+      .where(eq(platformBootstrap.id, repo.access.BOOTSTRAP_ID))
       .limit(1);
     if (initialized) return;
 
@@ -115,7 +115,7 @@ export async function ensureBootstrap(db: Database, config: Config): Promise<voi
 
     await tx
       .insert(platformBootstrap)
-      .values({ id: BOOTSTRAP_ID, adminBusinessId, initializedAt: new Date() })
+      .values({ id: repo.access.BOOTSTRAP_ID, adminBusinessId, initializedAt: new Date() })
       .onConflictDoNothing();
   });
 }

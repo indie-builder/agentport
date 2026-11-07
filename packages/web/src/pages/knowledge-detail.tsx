@@ -6,7 +6,7 @@ import {
   knowledgeAudioMetadataSchema,
   knowledgeDocumentStatusSchema,
 } from '@agentport/shared';
-import { type Query, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
@@ -62,8 +62,6 @@ import {
   documentStatusTone,
   isAudioMimeType,
   isAudioUpload,
-  isMissingJob,
-  isTerminalJobStatus,
   jobStatusLabel,
   jobStatusTone,
   jobTypeLabel,
@@ -139,7 +137,9 @@ import {
   type KnowledgeTag,
   type KnowledgeVersionImage,
 } from '../lib/api.js';
+import { readFileBase64 } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
+import { knowledgeTabs as tabs } from '../lib/detail-tabs.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import { knowledgeJobErrorText } from '../lib/knowledge-errors.js';
@@ -147,6 +147,9 @@ import {
   agentAccessQuery,
   agentDetailQuery,
   agentsQuery,
+  isMissingJob,
+  isTerminalKnowledgeJob,
+  knowledgeJobQuery,
   knowledgeKeys,
   knowledgeShouldPoll,
   meQuery,
@@ -193,16 +196,6 @@ import { toastError, toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 import type { knowledgeDetailSearchSchema } from '../routes/-search.js';
-
-const tabs = [
-  { id: 'documents', label: '文档' },
-  { id: 'sources', label: '来源' },
-  { id: 'search', label: '检索测试' },
-  { id: 'evaluations', label: '离线评估' },
-  { id: 'faqs', label: 'FAQ' },
-  { id: 'wiki', label: 'Wiki' },
-  { id: 'jobs', label: '处理记录' },
-] as const;
 
 type TabId = (typeof tabs)[number]['id'];
 type DetailSearch = z.infer<typeof knowledgeDetailSearchSchema>;
@@ -736,7 +729,7 @@ function DocumentsTab({
         continue;
       }
       try {
-        const dataBase64 = await readBase64(file);
+        const dataBase64 = await readFileBase64(file);
         const path = relativePath(file);
         await upload.mutateAsync({
           filename: path,
@@ -2420,22 +2413,6 @@ function ChunkDialog({
   );
 }
 
-/** 引用/文档共用的解析正文查看：顶部是命中片段，下面是完整解析文本。 */
-
-// ---- 文档导入 -------------------------------------------------------------
-
-function readBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`「${file.name}」读取失败`));
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      resolve(result.slice(result.indexOf(',') + 1));
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 /** 文件夹上传保留相对路径（后端只存一个 folderId，不建目录树）。 */
 function relativePath(file: File): string {
   return file.webkitRelativePath || file.name;
@@ -2780,16 +2757,7 @@ function SourcesTab({
       !settledJobs.current.has(entry.id) && !jobs.data?.some((item) => item.id === entry.id),
   );
   const syncJobDetails = useQueries({
-    queries: missingSyncJobs.map((entry) => ({
-      queryKey: knowledgeKeys.job(entry.id),
-      queryFn: () => api.knowledgeJob(entry.id),
-      // 任务已不存在时重试无意义；网络与 5xx 仍按默认重试一次后继续轮询。
-      retry: (failureCount: number, error: unknown) => !isMissingJob(error) && failureCount < 1,
-      refetchInterval: (query: Query<KnowledgeJob>) =>
-        isTerminalJobStatus(query.state.data?.status) || isMissingJob(query.state.error)
-          ? false
-          : 2_000,
-    })),
+    queries: missingSyncJobs.map((entry) => knowledgeJobQuery(entry.id)),
   });
   const knownSyncJobs = new Map<string, KnowledgeJob>();
   for (const item of jobs.data ?? []) knownSyncJobs.set(item.id, item);
@@ -2818,7 +2786,7 @@ function SourcesTab({
     const finished = syncJobs.filter((entry) => {
       if (settledJobs.current.has(entry.id)) return false;
       const job = knownSyncJobs.get(entry.id);
-      return job !== undefined && isTerminalJobStatus(job.status);
+      return job !== undefined && isTerminalKnowledgeJob(job.status);
     });
     if (finished.length === 0) return;
     for (const entry of finished) {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
+import { browserFetch } from './support/browser-api.js';
 import {
   registerRuntimeBuild,
   requireExecutionStack,
@@ -35,20 +36,10 @@ async function apiJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  return browser.evaluate(
-    async (input: { method: string; path: string; body: string | null }) => {
-      const response = await fetch(input.path, {
-        method: input.method,
-        ...(input.body === null
-          ? {}
-          : { headers: { 'content-type': 'application/json' }, body: input.body }),
-      });
-      const text = await response.text();
-      if (!response.ok) throw new Error(`${input.path} ${response.status}: ${text}`);
-      return text === '' ? null : JSON.parse(text);
-    },
-    { method, path, body: body === undefined ? null : JSON.stringify(body) },
-  ) as Promise<T>;
+  const response = await browserFetch(browser, method, path, body);
+  if (response.status < 200 || response.status >= 300)
+    throw new Error(`${path} ${response.status}: ${response.text}`);
+  return (response.text === '' ? null : JSON.parse(response.text)) as T;
 }
 
 test('builds and publishes a runtime environment through worker and Docker', {

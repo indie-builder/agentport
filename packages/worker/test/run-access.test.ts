@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  type AgentRelation,
-  agentPermissionAllows,
-  runExecutionSubject,
-} from '../src/run-access.js';
+import type { AgentRelation } from '@agentport/shared';
+import { agentPermissionAllows, runExecutionSubject } from '../src/run-access.js';
 
 const owner: AgentRelation = {
   exists: true,
@@ -74,6 +71,25 @@ describe('agentPermissionAllows', () => {
         'outsider-a',
       ),
     ).toBe(false);
+    expect(
+      agentPermissionAllows(
+        [
+          { permissionId: 'agents.use', scope: 'owned_agents' },
+          { permissionId: 'schedules.manage', scope: 'platform' },
+        ],
+        'agents.use',
+        outsider,
+        'outsider-a',
+      ),
+    ).toBe(false);
+    expect(
+      agentPermissionAllows(
+        [{ permissionId: 'agents.use', scope: 'own_data' }],
+        'agents.use',
+        owner,
+        'owner-a',
+      ),
+    ).toBe(false);
     // 另一个叶的授权不能拼成这个叶的权限。
     expect(
       agentPermissionAllows(
@@ -103,6 +119,14 @@ describe('agentPermissionAllows', () => {
     expect(
       agentPermissionAllows(grants('maintained_agents'), 'schedules.manage', member, 'member-a'),
     ).toBe(false);
+    expect(
+      agentPermissionAllows(
+        grants('maintained_agents'),
+        'schedules.manage',
+        { ...member, canMaintain: true },
+        'member-a',
+      ),
+    ).toBe(true);
     expect(
       agentPermissionAllows(grants('owned_agents'), 'schedules.manage', owner, 'owner-a'),
     ).toBe(true);

@@ -1,12 +1,11 @@
 import { type Database, repo, schema } from '@agentport/db';
-import type { ExecutionSubject, PermissionGrant } from '@agentport/shared';
+import {
+  type AgentRelation,
+  agentScopeAllows,
+  type ExecutionSubject,
+  type PermissionGrant,
+} from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
-export type AgentRelation = {
-  exists: boolean;
-  ownerBusinessId: string | null;
-  canUse: boolean;
-  canMaintain: boolean;
-};
 
 export type RunAccessDenial = {
   reason: 'account_inactive' | 'permission_denied' | 'invalid_subject';
@@ -42,23 +41,10 @@ export function agentPermissionAllows(
   relation: AgentRelation,
   businessId: string,
 ): boolean {
-  if (!relation.exists) return false;
-  const owner = relation.ownerBusinessId === businessId;
-  return grants.some((grant) => {
-    if (grant.permissionId !== permissionId) return false;
-    switch (grant.scope) {
-      case 'platform':
-        return true;
-      case 'authorized_agents':
-        return owner || relation.canUse;
-      case 'maintained_agents':
-        return owner || relation.canMaintain;
-      case 'owned_agents':
-        return owner;
-      default:
-        return false;
-    }
-  });
+  return grants.some(
+    (grant) =>
+      grant.permissionId === permissionId && agentScopeAllows(grant.scope, relation, businessId),
+  );
 }
 
 /**

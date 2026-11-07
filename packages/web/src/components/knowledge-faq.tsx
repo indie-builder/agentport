@@ -13,6 +13,7 @@ import type {
   KnowledgeFolder,
 } from '../lib/api.js';
 import { api, errorMessage } from '../lib/api.js';
+import { downloadBlob } from '../lib/browser-files.js';
 import {
   isTerminalKnowledgeJob,
   knowledgeKeys,
@@ -1517,14 +1518,7 @@ export function FaqTab({
       { baseId, format, version: exportVersion },
       {
         onSuccess: (blob) => {
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `faqs-${exportVersion}.${format}`;
-          document.body.append(link);
-          link.click();
-          link.remove();
-          setTimeout(() => URL.revokeObjectURL(url), 0);
+          downloadBlob(blob, `faqs-${exportVersion}.${format}`);
         },
         onError: toastError,
       },

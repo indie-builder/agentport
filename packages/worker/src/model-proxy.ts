@@ -91,7 +91,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
   if (!credential) return null;
   const upstreamCredential: string = credential;
 
-  // 进程内的 run 集合只用于快速吊销；token 本身由 DB 校验，重启后仍有效。
   const activeRuns = new Set<string>();
   const upstream = new URL(upstreamBaseUrl);
 
@@ -135,7 +134,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     }
 
     const run = await options.resolveRun(token);
-    if (!run || (activeRuns.size > 0 && !activeRuns.has(run.runId))) {
+    if (!run || !activeRuns.has(run.runId)) {
       // 已结束 / 未签发的 run token：沙盒仍在发请求时，这条日志就是唯一线索。
       logger.warn(
         { path: url.pathname, status: 401, ...(run ? { runId: run.runId } : {}) },

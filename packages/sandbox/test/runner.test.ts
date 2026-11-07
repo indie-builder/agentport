@@ -1,6 +1,6 @@
-import type { Options } from '@anthropic-ai/claude-agent-sdk';
-import * as fsActual from 'node:fs/promises';
 import { describe, expect, it, mock, spyOn } from 'bun:test';
+import * as fsActual from 'node:fs/promises';
+import type { Options } from '@anthropic-ai/claude-agent-sdk';
 import { renderWorkspace } from '../../core/src/workspace.js';
 
 // 外部 I/O 只有 SDK 与 stdin/stdout；runner 的 schema、选项组装和事件编码全走真实代码。
@@ -54,6 +54,7 @@ const io = (() => {
     askResults: [] as unknown[],
     /** 在 init 之后中止 query，模拟用户取消。 */
     abort: false,
+    abortWithResult: false,
     throwAfterMessages: false,
     /** query.close() 是否被显式调用。 */
     closed: false,
@@ -122,7 +123,12 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
         }
       }
       if (io.messages !== null) {
-        yield* io.messages as AsyncIterable<unknown>;
+        for (const message of io.messages) {
+          if (io.abortWithResult && (message as { type?: string }).type === 'result') {
+            (options.abortController as AbortController).abort();
+          }
+          yield message;
+        }
         if (io.abort) (options.abortController as AbortController).abort();
         if (io.abort || io.throwAfterMessages) throw new Error('query ended before result');
         return;
@@ -193,6 +199,7 @@ async function run(
     plugins?: Array<{ name: string; path: string }>;
     pluginErrors?: Array<{ plugin: string; type: string; message: string }>;
     abort?: boolean;
+    abortWithResult?: boolean;
     throwAfterMessages?: boolean;
     channel?: boolean;
   } = {},
@@ -216,6 +223,7 @@ async function run(
   io.pluginErrors = init.pluginErrors;
   io.askResults = [];
   io.abort = init.abort ?? false;
+  io.abortWithResult = init.abortWithResult ?? false;
   io.throwAfterMessages = init.throwAfterMessages ?? false;
   io.closed = false;
   // runner 每个用例重新导入；容器 env 只在这一轮生效，结束后恢复。
@@ -399,6 +407,36 @@ describe('runner task wiring', () => {
     expect(io.closed).toBe(true);
   });
 
+  it('keeps cancelled result usage and session identity with its failure kind', async () => {
+    const { events } = await run(
+      {},
+      [
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          total_cost_usd: 0.25,
+          num_turns: 2,
+          session_id: 'cancelled-session',
+          modelUsage: { model: { inputTokens: 13, outputTokens: 7 } },
+          errors: ['cancelled'],
+        },
+      ],
+      { abortWithResult: true },
+    );
+    expect(events.at(-1)).toMatchObject({
+      type: 'run_finished',
+      status: 'cancelled',
+      failureKind: 'cancelled',
+      costUsd: 0.25,
+      turns: 2,
+      sessionId: 'cancelled-session',
+      inputTokens: 13,
+      outputTokens: 7,
+    });
+    expect(io.closed).toBe(true);
+  });
+
   it('renders child project memory without the platform file-tool deny', () => {
     const child = { slug: 'child', name: 'Child', model: 'm', systemPrompt: 'p', maxTurns: 5 };
     const files = renderWorkspace({
@@ -489,11 +527,17 @@ describe('runner task wiring', () => {
     expect(await call('Bash', '/mnt/outputs/report.md')).toEqual({});
   });
 
-  it('keeps an explicit Bash deny even though Bash is allowed by default', async () => {
-    await run({ extraDisallowedTools: ['Bash'] });
+  it('keeps explicit denies even when configuration allows the tools', async () => {
+    await run({
+      allowSubAgents: true,
+      extraAllowedTools: ['ListAgents', 'SendMessage'],
+      extraDisallowedTools: ['Bash', 'Agent', 'TaskStop', 'ListAgents', 'SendMessage'],
+    });
     const options = io.options as Options;
     expect(options.allowedTools).toContain('Bash');
-    expect(options.disallowedTools).toContain('Bash');
+    for (const tool of ['Bash', 'Agent', 'TaskStop', 'ListAgents', 'SendMessage']) {
+      expect(options.disallowedTools).toContain(tool);
+    }
   });
 
   it('does not auto-approve child-only MCP servers for the parent', async () => {
@@ -562,6 +606,20 @@ describe('runner task wiring', () => {
     const options = io.options as Options;
     expect(options.allowedTools).toContain('Agent');
     expect(options.disallowedTools).not.toContain('Agent');
+    await run({
+      plugins: [
+        {
+          path: '/workspace/.claude/plugins/demo',
+          runtimeName: 'demo',
+          skills: [],
+          mcpServers: [],
+          hasAgents: true,
+        },
+      ],
+      extraDisallowedTools: ['Agent', 'TaskStop'],
+    });
+    expect(io.options?.allowedTools).toContain('Agent');
+    expect(io.options?.disallowedTools).toEqual(expect.arrayContaining(['Agent', 'TaskStop']));
   });
 
   it('fails as infra when bound plugins never load', async () => {

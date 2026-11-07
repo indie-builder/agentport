@@ -76,7 +76,6 @@ import type {
   Plugin,
   PluginInput,
   PluginWithAgentCount,
-  Problem,
   PublicOutputShare,
   PublicQuestionResponse,
   PublicRunQuestion,
@@ -113,9 +112,8 @@ import type {
   WorkspaceFiles,
   WritePersonalMemoryInput,
 } from '@agentport/shared';
-import { loginPath } from './auth-redirect.js';
 import type { ApiClient } from './orpc.js';
-import { ApiError, rpc } from './orpc.js';
+import { ApiError, authenticatedFetch, fetchResponse, responseApiError, rpc } from './orpc.js';
 
 export { ApiError, errorMessage } from './orpc.js';
 
@@ -784,38 +782,13 @@ async function nativeRequest<T>(
     headers['content-type'] =
       body instanceof Blob ? body.type || 'application/zip' : 'application/json';
   }
-  let res: Response;
-  try {
-    res = await fetch(`/api${path}`, {
-      method,
-      credentials: 'include',
-      ...(signal === undefined ? {} : { signal }),
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      ...(body === undefined ? {} : { body: body instanceof Blob ? body : JSON.stringify(body) }),
-    });
-  } catch (error) {
-    // 取消不是连不上：保持 AbortError 原样，让 TanStack Query 静默丢弃这次请求。
-    if (signal?.aborted || (error as { name?: string } | null)?.name === 'AbortError') throw error;
-    throw new ApiError(0, '连不上 API 服务，请确认它已启动并检查网络后重试。');
-  }
-
-  // EventSource 无法自定义 header，前端统一靠 cookie 会话；失效时带着原目标回到登录页。
-  if (res.status === 401 && !path.startsWith('/auth/') && location.pathname !== '/login') {
-    const returnTo = `${location.pathname}${location.search ?? ''}${location.hash ?? ''}`;
-    location.assign(loginPath(returnTo, 'expired'));
-    throw new ApiError(401, '登录已失效，请重新登录后再试。');
-  }
-
-  if (!res.ok) {
-    // 错误响应始终是 Problem JSON，即使成功响应是二进制。
-    const data = (await res.json().catch(() => null)) as Partial<Problem> | null;
-    // 服务端返回 Problem；非 Problem（代理页面、旧版本）时退回状态码文案。
-    throw new ApiError(res.status, data?.message ?? (res.statusText || `HTTP ${res.status}`), {
-      ...(data?.code === undefined ? {} : { code: data.code }),
-      ...(data?.retryable === undefined ? {} : { retryable: data.retryable }),
-      ...(data?.requestId === undefined ? {} : { requestId: data.requestId }),
-    });
-  }
+  const res = await authenticatedFetch(`/api${path}`, {
+    method,
+    ...(signal === undefined ? {} : { signal }),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(body === undefined ? {} : { body: body instanceof Blob ? body : JSON.stringify(body) }),
+  });
+  if (!res.ok) throw await responseApiError(res);
 
   if (res.status === 204) return undefined as T;
   onResponse?.(res);
@@ -844,22 +817,16 @@ async function publicShareRequest<T>(
 ): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`/api/public/output-shares/${encodeURIComponent(id)}${suffix}`, {
+    res = await fetchResponse(`/api/public/output-shares/${encodeURIComponent(id)}${suffix}`, {
       headers: { authorization: `Bearer ${token}` },
       credentials: 'omit',
       cache: 'no-store',
     });
-  } catch {
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === 'AbortError') throw error;
     throw new ApiError(0, '连不上分享服务，请检查网络后重试。');
   }
-  if (!res.ok) {
-    const data = (await res.json().catch(() => null)) as Partial<Problem> | null;
-    throw new ApiError(res.status, data?.message ?? (res.statusText || `HTTP ${res.status}`), {
-      ...(data?.code === undefined ? {} : { code: data.code }),
-      ...(data?.retryable === undefined ? {} : { retryable: data.retryable }),
-      ...(data?.requestId === undefined ? {} : { requestId: data.requestId }),
-    });
-  }
+  if (!res.ok) throw await responseApiError(res);
   return (responseType === 'blob' ? await res.blob() : await res.json()) as T;
 }
 

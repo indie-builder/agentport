@@ -164,11 +164,14 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
     }
     await app.close();
   });
@@ -234,7 +237,10 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
       '/api/knowledge/sources/missing/runs/missing/items',
     ]) {
       const response = await request(app, { method: 'GET', url, headers: { cookie: reader } });
-      expect([200, 404]).toContain(response.statusCode);
+      expect(response.statusCode, response.body).toBe(
+        url === `/api/knowledge/bases/${baseId}/faqs` ? 200 : 404,
+      );
+      if (response.statusCode === 404) expectProblem(response, 'NOT_FOUND');
       expectProblem(await request(app, { method: 'GET', url }), 'UNAUTHORIZED');
     }
     expectProblem(
@@ -244,6 +250,14 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
         headers: { cookie: reader },
       }),
       'FORBIDDEN',
+    );
+    expectProblem(
+      await request(app, {
+        method: 'GET',
+        url: '/api/knowledge/bases/missing/faqs/export',
+        headers: { cookie: admin },
+      }),
+      'NOT_FOUND',
     );
     for (const [url, payload] of [
       [`/api/knowledge/bases/${baseId}/faqs/test`, { q: '查询' }],

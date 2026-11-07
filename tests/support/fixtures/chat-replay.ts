@@ -28,9 +28,7 @@ export async function seedFixture(
 const requireFromApi = createRequire(
   new URL('../../../packages/api/package.json', import.meta.url),
 );
-const { createBunRedisClient, Queue } = requireFromApi(
-  'bullmq',
-) as typeof import('../../../packages/api/node_modules/bullmq/dist/esm/index.js');
+const { createBunRedisClient, Queue } = requireFromApi('bullmq');
 
 async function removeJob(runId: string, required: boolean): Promise<void> {
   const url = process.env.E2E_REDIS_URL;

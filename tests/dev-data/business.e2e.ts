@@ -12,12 +12,11 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { api, DATASET_ID, datasetPath } from '../support/business-dataset.js';
+import { api, DATASET_ID, datasetPath, writeManifest } from '../support/business-dataset.js';
 
 interface AgentRef {
   id: string;
@@ -194,10 +193,6 @@ const MEMORY_THEME = `# 采购策略\n\n- 供应商：云杉包装（虚构）�
 const RULE_CONTENT = `# 采购评审规则\n\n- 所有金额、数量与交期必须能追溯到采购单 QH-PO-2026-001 或附件。\n- 不得引入真实公司、真实联系人或真实报价。\n- 交付结论必须给出下一步责任人和时间点。\n`;
 const STYLE_BODY = `采购简报输出风格：\n\n- 先给一句结论，再列风险与下一步。\n- 数字保留两位小数，金额使用人民币。\n- 不写客套话，不复述附件全文。\n`;
 
-function manifestPath(): string {
-  return resolve(process.cwd(), datasetPath('business'));
-}
-
 function emptyManifest(origin: string | null): BusinessManifest {
   return {
     datasetId: DATASET_ID,
@@ -252,7 +247,7 @@ function emptyManifest(origin: string | null): BusinessManifest {
 
 function readManifest(): BusinessManifest | null {
   try {
-    return JSON.parse(readFileSync(manifestPath(), 'utf8')) as BusinessManifest;
+    return JSON.parse(readFileSync(datasetPath('business'), 'utf8')) as BusinessManifest;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
@@ -261,8 +256,7 @@ function readManifest(): BusinessManifest | null {
 
 function saveManifest(manifest: BusinessManifest): void {
   manifest.updatedAt = new Date().toISOString();
-  mkdirSync(dirname(manifestPath()), { recursive: true });
-  writeFileSync(manifestPath(), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  writeManifest('business', manifest);
 }
 
 function textOf(content: unknown): string {
@@ -1837,7 +1831,7 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   timeout: 10 * 60_000,
 }, async ({ app, browser }) => {
   test.skip(process.env.E2E_DEV_DATA !== '1', '专用数据验收：设置 E2E_DEV_DATA=1 才运行');
-  // 本用例由 `pnpm dev:data:verify` 的标题筛选单独选中；无论是否设置 E2E_DEV_DATA_VERIFY 都只读。
+  // 本用例由 `bun run dev:data:verify` 的标题筛选单独选中；无论是否设置 E2E_DEV_DATA_VERIFY 都只读。
 
   const manifest = must(readManifest(), `缺少 ${datasetPath('business')}；先运行构建`);
   const problems: string[] = [...manifest.gaps];

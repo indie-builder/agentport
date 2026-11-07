@@ -108,7 +108,6 @@ import {
   type RunQuery,
 } from './api.js';
 import { mergeChannelMessages } from './channel-state.js';
-import { bindChatIdentity, useChatStore } from './chat-store.js';
 import { toastError, toastSuccess } from './toast.js';
 import { useDebouncedValue } from './use-debounced-value.js';
 
@@ -123,7 +122,10 @@ export const meQuery = queryOptions<AuthMe>({
   // 身份确认后再把聊天状态交给受保护页面；同一个人重复 /me 不会清草稿。
   queryFn: async () => {
     const identity = await api.me();
-    if (identity.authenticated) bindChatIdentity(identity.user.businessId);
+    if (identity.authenticated) {
+      const { bindChatIdentity } = await import('./chat-store.js');
+      bindChatIdentity(identity.user.businessId);
+    }
     return identity;
   },
   staleTime: 30_000,
@@ -138,6 +140,7 @@ export function clearSessionQueries(client = queryClient): void {
 export async function logoutAccount(): Promise<void> {
   await api.logout().catch(() => undefined);
   clearSessionQueries();
+  const { useChatStore } = await import('./chat-store.js');
   useChatStore.getState().reset();
 }
 
@@ -241,7 +244,6 @@ export const overviewTimeseriesQuery = (days = 7) =>
     staleTime: 15_000,
   });
 
-// ---- 以下为运营层（待办/看板/定时/统计/记忆）的查询与变更，集中在此供各页面复用 ----
 export const attentionQuery = queryOptions<Attention>({
   queryKey: ['attention'],
   queryFn: api.attention,
@@ -253,9 +255,34 @@ export const schedulesQuery = queryOptions<Schedule[]>({
   queryFn: api.schedules,
 });
 
+export const agentMemoryKeys = {
+  list: (...ids: [] | [string]) => ['agent-memory', ...ids] as const,
+  file: (...parts: [] | [string] | [string, string]) => ['agent-memory-file', ...parts] as const,
+};
+
+export const chatKeys = {
+  conversations: (...ids: [] | [string | null]) => ['conversations', ...ids] as const,
+  conversation: (id: string | null) => ['conversation', id] as const,
+  outputs: (id: string | null) => ['conversation-outputs', id] as const,
+  outputContent: (id: string | null, runId: string | null, path: string | null) =>
+    ['conversation-output-content', id, runId, path] as const,
+  outputFile: (id: string | null, runId: string | null, path: string | null) =>
+    ['conversation-output-file', id, runId, path] as const,
+  outputBlob: (id: string | null, runId: string | null, path: string | null) =>
+    ['conversation-output-blob', id, runId, path] as const,
+  search: (options: ConversationSearchOptions) =>
+    [
+      'conversation-search',
+      options.q ?? '',
+      options.agentId ?? null,
+      options.limit ?? 20,
+      options.before ?? null,
+    ] as const,
+};
+
 export const agentMemoryQuery = (id: string) =>
   queryOptions<MemoryFileList>({
-    queryKey: ['agent-memory', id],
+    queryKey: agentMemoryKeys.list(id),
     queryFn: () => api.agentMemory(id),
   });
 
@@ -273,7 +300,7 @@ export const agentOutputStylesQuery = (id: string) =>
 
 export const agentMemoryFileQuery = (id: string, name: string) =>
   queryOptions<MemoryFileContent>({
-    queryKey: ['agent-memory-file', id, name],
+    queryKey: agentMemoryKeys.file(id, name),
     queryFn: () => api.agentMemoryFile(id, name),
   });
 
@@ -431,9 +458,9 @@ function invalidateMemoryContent(client: ReturnType<typeof useQueryClient>): voi
   void client.invalidateQueries({ queryKey: personalMemoryQuery.queryKey });
   void client.invalidateQueries({ queryKey: personalMemoryVersionsQuery.queryKey });
   void client.invalidateQueries({ queryKey: ['memory-versions'] });
-  void client.invalidateQueries({ queryKey: ['agent-memory'] });
+  void client.invalidateQueries({ queryKey: agentMemoryKeys.list() });
   // 采纳主题会同时补索引，两个文件的正文缓存都必须刷新。
-  void client.invalidateQueries({ queryKey: ['agent-memory-file'] });
+  void client.invalidateQueries({ queryKey: agentMemoryKeys.file() });
   void client.invalidateQueries({ queryKey: ['agent-rules'] });
 }
 
@@ -796,7 +823,7 @@ export function useRollbackAgent() {
 
 export function useConversations(agentId: string | null) {
   return useQuery<Conversation[]>({
-    queryKey: ['conversations', agentId],
+    queryKey: chatKeys.conversations(agentId),
     queryFn: ({ signal }) => api.conversations(agentId ?? undefined, signal),
     enabled: agentId !== null,
     staleTime: 0,
@@ -806,13 +833,7 @@ export function useConversations(agentId: string | null) {
 /** 全局历史搜索的 Query options；空 q 返回最近会话，nextBefore 作为下一页游标。 */
 export const searchConversationsOptions = (options: ConversationSearchOptions) =>
   infiniteQueryOptions({
-    queryKey: [
-      'conversation-search',
-      options.q ?? '',
-      options.agentId ?? null,
-      options.limit ?? 20,
-      options.before ?? null,
-    ],
+    queryKey: chatKeys.search(options),
     queryFn: ({ pageParam, signal }) =>
       api.searchConversations(
         { ...options, ...(pageParam === null ? {} : { before: pageParam }) },
@@ -828,7 +849,7 @@ const CONVERSATION_PAGE_SIZE = 50;
 /** 分页返回最新一页，select 再把「新→旧」的页面翻平成时间正序，调用方拿到的仍是 ConversationDetail。 */
 export function useConversation(conversationId: string | null) {
   return useInfiniteQuery({
-    queryKey: ['conversation', conversationId],
+    queryKey: chatKeys.conversation(conversationId),
     queryFn: ({ pageParam, signal }) =>
       api.conversation(
         conversationId ?? '',
@@ -896,7 +917,7 @@ export function useRun(runId: string, poll = true) {
  */
 export function useConversationOutputs(conversationId: string | null) {
   return useInfiniteQuery({
-    queryKey: ['conversation-outputs', conversationId],
+    queryKey: chatKeys.outputs(conversationId),
     queryFn: ({ pageParam, signal }) =>
       api.outputs(
         conversationId ?? '',
@@ -921,7 +942,7 @@ export function useOutputContent(
   path: string | null,
 ) {
   return useQuery<OutputContent>({
-    queryKey: ['conversation-output-content', conversationId, runId, path],
+    queryKey: chatKeys.outputContent(conversationId, runId, path),
     queryFn: ({ signal }) =>
       api.outputContent(conversationId ?? '', runId ?? '', path ?? '', signal),
     enabled: conversationId !== null && runId !== null && path !== null,
@@ -937,7 +958,7 @@ export function useOutputFile(
   enabled: boolean,
 ) {
   return useQuery<{ file: OutputFile }>({
-    queryKey: ['conversation-output-file', conversationId, runId, path],
+    queryKey: chatKeys.outputFile(conversationId, runId, path),
     queryFn: ({ signal }) => api.outputFile(conversationId ?? '', runId ?? '', path ?? '', signal),
     enabled: conversationId !== null && runId !== null && path !== null && enabled,
     staleTime: 5 * 60_000,
@@ -952,7 +973,7 @@ export function useOutputBlob(
   enabled: boolean,
 ) {
   return useQuery<Blob>({
-    queryKey: ['conversation-output-blob', conversationId, runId, path],
+    queryKey: chatKeys.outputBlob(conversationId, runId, path),
     queryFn: ({ signal }) => api.outputBlob(conversationId ?? '', runId ?? '', path ?? '', signal),
     enabled: conversationId !== null && runId !== null && path !== null && enabled,
     staleTime: 5 * 60_000,
@@ -1764,6 +1785,10 @@ type PollableJob = {
   createdAt: string;
   startedAt?: string | null;
 };
+
+export function isMissingJob(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
 
 export function isTerminalKnowledgeJob(status: string | undefined): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
@@ -2605,13 +2630,20 @@ export function useTestKnowledgeSource() {
 }
 
 /** probe 结果落在 job.result；只轮询本次提交的任务，终态后停止。 */
-export function useKnowledgeJobDetail(jobId: string | null) {
-  return useQuery({
+export const knowledgeJobQuery = (jobId: string | null) =>
+  queryOptions({
     queryKey: knowledgeKeys.job(jobId ?? ''),
     queryFn: () => api.knowledgeJob(jobId ?? ''),
     enabled: jobId !== null,
-    refetchInterval: (query) => (isTerminalKnowledgeJob(query.state.data?.status) ? false : 2_000),
+    retry: (failureCount, error) => !isMissingJob(error) && failureCount < 1,
+    refetchInterval: (query) =>
+      isTerminalKnowledgeJob(query.state.data?.status) || isMissingJob(query.state.error)
+        ? false
+        : 2_000,
   });
+
+export function useKnowledgeJobDetail(jobId: string | null) {
+  return useQuery(knowledgeJobQuery(jobId));
 }
 
 export function useKnowledgeDocumentJob(baseId: string, documentId: string, jobId: string | null) {

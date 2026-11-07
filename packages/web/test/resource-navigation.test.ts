@@ -369,11 +369,8 @@ describe('resource toolbar reading order', () => {
             section: 'skills',
             query: '',
             onQueryChange() {},
-            sort: 'newest',
-            onSortChange() {},
             count: 0,
             status: 'success',
-            hideSort: true,
             // biome-ignore lint/correctness/noChildrenProp: Required by the component's props type in createElement.
             children: null,
           }),

@@ -812,18 +812,6 @@ export type KnowledgeSourceInput = z.infer<typeof knowledgeSourceInputSchema>;
 
 export const knowledgeWikiPageStatusSchema = z.enum(['draft', 'published', 'stale', 'failed']);
 
-export const knowledgeWikiPageSchema = z.object({
-  id: z.string(),
-  baseId: z.string(),
-  slug: z.string(),
-  title: z.string(),
-  parentId: z.string().nullable().default(null),
-  position: z.number().int().default(0),
-  status: knowledgeWikiPageStatusSchema,
-  currentVersionId: z.string().nullable(),
-  updatedAt: z.string(),
-});
-
 export const knowledgeWikiLinkSchema = z.object({
   /** null 表示目标页不存在：管理端据此标记坏链接，不伪造页面 ID。 */
   targetPageId: z.string().nullable(),
@@ -860,8 +848,6 @@ export const knowledgeIngestInputSnapshotSchema = z.object({
   mimeType: z.string().min(1),
   expectedCurrentVersionId: z.string().nullable(),
 });
-
-export type KnowledgeIngestInputSnapshot = z.infer<typeof knowledgeIngestInputSnapshotSchema>;
 
 export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
   z.object({
@@ -972,12 +958,6 @@ export const knowledgeListResultSchema = z.object({
   ),
   nextCursor: z.string().nullable(),
 });
-
-export const knowledgeMcpResultSchema = z.union([
-  knowledgeSearchResultSchema,
-  knowledgeReadResultSchema,
-  knowledgeListResultSchema,
-]);
 
 export type KnowledgeSearchResult = z.infer<typeof knowledgeSearchResultSchema>;
 export type KnowledgeReadInput = z.infer<typeof knowledgeReadInputSchema>;

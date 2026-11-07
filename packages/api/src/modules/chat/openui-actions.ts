@@ -31,6 +31,11 @@ export function sourcePairingProblem(action: OpenUiActionRequest): string | null
   if (blockKey === undefined) return '动作缺少来源 UI 段，请刷新页面后重试';
   return null;
 }
+export function hasOpenUiBlock(text: string, blockKey: string): boolean {
+  return segmentOpenUi(text).some(
+    (segment) => segment.kind === 'openui' && segment.blockKey === blockKey,
+  );
+}
 export async function checkOpenUiActionSource(
   db: Database,
   conversationId: string | undefined,
@@ -70,9 +75,7 @@ export async function checkOpenUiActionSource(
     return '动作来源不是主助手消息，请刷新页面后重试';
   }
   const text = row.uiProgram ?? repo.chat.messageText(content) ?? '';
-  const exists = segmentOpenUi(text).some(
-    (segment) => segment.kind === 'openui' && segment.blockKey === blockKey,
-  );
+  const exists = hasOpenUiBlock(text, blockKey);
   if (!exists) {
     return '动作来源的 UI 段已不存在，请刷新页面后重试';
   }

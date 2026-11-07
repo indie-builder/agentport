@@ -1,9 +1,9 @@
-import { SQL } from 'bun';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { AppError, isAppError } from '@agentport/core';
 import { isIdOfType, newId } from '@agentport/db';
 import { errorCode } from '@agentport/shared';
+import { SQL } from 'bun';
 import { HTTPException } from 'hono/http-exception';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { isPgCode, toAppError } from '../src/http/errors.js';
 import { expectProblem, loginCookie, request, startApp, type TestApp } from './helpers.js';
 
@@ -132,6 +132,10 @@ describe('AppError contract', () => {
 
 describe('toAppError mappings', () => {
   it.each([
+    [400, 'INVALID_INPUT'],
+    [404, 'NOT_FOUND'],
+    [409, 'CONFLICT'],
+    [500, 'INTERNAL_ERROR'],
     [413, 'PAYLOAD_TOO_LARGE'],
     [415, 'UNSUPPORTED_MEDIA_TYPE'],
     [429, 'RATE_LIMITED'],

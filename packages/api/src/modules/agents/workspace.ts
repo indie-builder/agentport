@@ -1,7 +1,6 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
 import { renderPlugin, renderWorkspace, toWorkspaceInput, unionById } from '@agentport/core';
 import { repo, type schema } from '@agentport/db';
-import * as agentRepo from '@agentport/db/repo/agents.js';
 import { knowledgeMcpEntry, maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
 import type { AppContext } from '../../http/context.js';
 import { str, strArray } from '../servers/repo.js';
@@ -58,17 +57,17 @@ export async function renderAgentWorkspace(
   app: Pick<AppContext, 'db' | 'config'>,
   agentId: string,
 ): Promise<WorkspaceFiles | null> {
-  const agent = await agentRepo.getAgent(app.db, agentId);
+  const agent = await repo.agents.getAgent(app.db, agentId);
   if (!agent) return null;
   const [skills, subAgentRows] = await Promise.all([
-    agentRepo.getBoundSkills(app.db, agent.id),
-    agentRepo.listSubAgents(app.db, agent.id),
+    repo.agents.getBoundSkills(app.db, agent.id),
+    repo.agents.listSubAgents(app.db, agent.id),
   ]);
   const enabledChildren = subAgentRows.filter((row) => row.enabled);
   const enabledChildIds = enabledChildren.map((row) => row.id);
   const [serversByAgent, childSkills] = await Promise.all([
-    agentRepo.getBoundServersByAgentIds(app.db, [agent.id, ...enabledChildIds]),
-    agentRepo.getBoundSkillsByAgentIds(app.db, enabledChildIds),
+    repo.agents.getBoundServersByAgentIds(app.db, [agent.id, ...enabledChildIds]),
+    repo.agents.getBoundSkillsByAgentIds(app.db, enabledChildIds),
   ]);
   const rootServers = serversByAgent.get(agent.id) ?? [];
   const serverRows = unionById([

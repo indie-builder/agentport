@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { agentRoleSchema, uiFormatSchema } from './agent.js';
+import {
+  agentInputSchema,
+  agentRoleSchema,
+  displayNameSchema,
+  outputStyleInputSchema,
+  permissionModeSchema,
+  ruleInputSchema,
+} from './agent.js';
 import { apiToolInputSchema, httpUrlSchema } from './mcp.js';
 import { slugSchema } from './params.js';
 
@@ -41,25 +48,10 @@ export const AGENT_PACKAGE_LIMITS = {
   tools: 2_000,
 } as const;
 
-/** 平台暂不开放 auto（依赖模型分类器），与手动创建保持一致。 */
-const packagePermissionModeSchema = z.enum(['dontAsk', 'plan', 'default', 'acceptEdits']);
+export const packageRuleSchema = ruleInputSchema.strict();
 
-export const packageRuleSchema = z
-  .object({
-    slug: slugSchema,
-    content: z.string().max(100_000).default(''),
-    globs: z.string().max(1_000).default(''),
-  })
-  .strict();
-
-export const packageOutputStyleSchema = z
-  .object({
-    slug: slugSchema,
-    description: z.string().max(500).default(''),
-    keepCodingInstructions: z.boolean().default(false),
-    body: z.string().max(50_000).default(''),
-    isSelected: z.boolean().default(false),
-  })
+export const packageOutputStyleSchema = outputStyleInputSchema
+  .extend({ isSelected: z.boolean().default(false) })
   .strict();
 
 export const packageToolSchema = apiToolInputSchema
@@ -110,16 +102,27 @@ export const packageServerSchema = z.discriminatedUnion('kind', [
     }),
 ]);
 
+const {
+  uiFormat,
+  maxTurns,
+  maxBudgetUsd,
+  timeoutMs,
+  effort,
+  enabled,
+  allowedTools,
+  disallowedTools,
+} = agentInputSchema.shape;
+
 const platformFields = {
-  permissionMode: packagePermissionModeSchema.default('default'),
-  uiFormat: uiFormatSchema.default('markdown'),
-  maxTurns: z.number().int().positive().default(20),
-  maxBudgetUsd: z.number().positive().default(2),
-  timeoutMs: z.number().int().positive().default(600_000),
-  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
-  enabled: z.boolean().default(true),
-  allowedTools: z.array(z.string()).default([]),
-  disallowedTools: z.array(z.string()).default([]),
+  permissionMode: permissionModeSchema.default('default'),
+  uiFormat,
+  maxTurns,
+  maxBudgetUsd,
+  timeoutMs,
+  effort,
+  enabled,
+  allowedTools,
+  disallowedTools,
 };
 
 /**
@@ -130,7 +133,7 @@ const platformFields = {
 export const packageSubAgentSchema = z
   .object({
     slug: slugSchema,
-    permissionMode: packagePermissionModeSchema.default('default'),
+    permissionMode: permissionModeSchema.default('default'),
     maxBudgetUsd: z.number().positive().default(2),
     timeoutMs: z.number().int().positive().default(600_000),
     enabled: z.boolean().default(true),
@@ -154,7 +157,7 @@ export const agentPackageSidecarSchema = z
     agent: z
       .object({
         slug: slugSchema,
-        name: z.string().min(1).max(128),
+        name: displayNameSchema,
         role: agentRoleSchema,
         description: z.string().max(300).default(''),
         model: z.string().min(1).default('claude-sonnet-5-5'),

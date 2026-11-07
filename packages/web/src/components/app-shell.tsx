@@ -1,28 +1,12 @@
-import type { PermissionId } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
-  Activity,
   ArrowLeft,
-  Brain,
-  Cable,
-  CalendarClock,
-  Container,
-  FlaskConical,
-  Hash,
-  HeartPulse,
-  History,
-  KeyRound,
-  LayoutDashboard,
   LogOut,
   Menu,
-  MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  ScrollText,
-  Share2,
   User,
-  Users,
   Wrench,
   X,
 } from 'lucide-react';
@@ -31,14 +15,16 @@ import { useEffect, useRef, useState } from 'react';
 import {
   type AuthenticatedMe,
   authenticated,
-  can,
+  BUILD_MENU,
   canAny,
   homePath,
   isPersonalPath,
+  type MenuItem,
   OPERATIONS_MENU,
   PERSONAL_NAV_GROUPS,
   PLATFORM_MENU,
   RESOURCE_MENU,
+  ROUTE_META,
   requiredPermissions,
   WORK_MENU,
 } from '../lib/access.js';
@@ -51,97 +37,15 @@ import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip.js';
 
-type NavItem = {
-  to: string;
-  label: string;
-  icon: typeof Cable;
-  permissionIds: readonly PermissionId[];
-  navGroup?: 'resources';
-};
-
-const iconFor: Record<string, typeof Cable> = {
-  '/agents': Users,
-  '/chat': MessagesSquare,
-  '/channels': Hash,
-  '/schedules': CalendarClock,
-  '/skills': Cable,
-  '/eval': FlaskConical,
-  '/operations': LayoutDashboard,
-  '/runs': Activity,
-  '/runtime-environments': Container,
-  '/status': HeartPulse,
-  '/audit': ScrollText,
-  '/accounts': KeyRound,
-  '/roles': Users,
-  '/personal/profile': User,
-  '/personal/memory': Brain,
-  '/personal/reviews': History,
-  '/personal/security': KeyRound,
-  '/personal/shares': Share2,
-  '/personal/usage': Activity,
-};
-
-function menuItems(
-  items: readonly { to: string; label: string; permissionIds: readonly PermissionId[] }[],
-): NavItem[] {
-  return items.map((item) => ({ ...item, icon: iconFor[item.to] ?? Cable }));
-}
-
-const workItems = menuItems(WORK_MENU);
-const resourceItems = menuItems(RESOURCE_MENU);
-const operationsItems = menuItems(OPERATIONS_MENU);
-const platformItems = menuItems(PLATFORM_MENU);
-const personalGroups = PERSONAL_NAV_GROUPS.map((group) => ({
-  label: group.label,
-  items: menuItems(group.items),
-}));
+type NavItem = MenuItem & { navGroup?: 'resources' };
 
 /** 资源入口落到第一个可读资源分类，避免只有连接器权限的人被带到技能页 403。 */
 function resourceHome(me: AuthenticatedMe): string | null {
-  return resourceItems.find((item) => canAny(me, item.permissionIds))?.to ?? null;
+  return RESOURCE_MENU.find((item) => canAny(me, item.permissionIds))?.to ?? null;
 }
 
-const operationsNavTargets = new Set(operationsItems.map((item) => item.to));
-const resourceNavTargets = new Set(resourceItems.map((item) => item.to));
-
-/**
- * 路由归属与文档标题的唯一来源。未列出的路由（`/_shell/$`）既不选中导航，
- * 也不会被当成某个已知分区。
- */
-const routeMeta: Record<string, { nav: string; title: string }> = {
-  '/_shell/agents/': { nav: '/agents', title: '找专家' },
-  '/_shell/agents/$agentId': { nav: '/agents', title: '找专家' },
-  '/_shell/chat': { nav: '/chat', title: '对话' },
-  '/_shell/channels/': { nav: '/channels', title: '频道' },
-  '/_shell/channels/$channelId': { nav: '/channels', title: '频道' },
-  '/_shell/personal/': { nav: '/personal/profile', title: '个人资料' },
-  '/_shell/personal/profile': { nav: '/personal/profile', title: '个人资料' },
-  '/_shell/personal/memory': { nav: '/personal/memory', title: '个人记忆' },
-  '/_shell/personal/reviews': { nav: '/personal/reviews', title: '记忆提案' },
-  '/_shell/personal/security': { nav: '/personal/security', title: '账号安全' },
-  '/_shell/personal/shares': { nav: '/personal/shares', title: '我的分享' },
-  '/_shell/personal/usage': { nav: '/personal/usage', title: '使用记录' },
-  '/_shell/schedules': { nav: '/schedules', title: '定时任务' },
-  '/_shell/skills': { nav: '/skills', title: '资源' },
-  '/_shell/servers': { nav: '/servers', title: '连接器' },
-  '/_shell/plugins/': { nav: '/plugins', title: '插件' },
-  '/_shell/plugins/$pluginId': { nav: '/plugins', title: '插件' },
-  '/_shell/knowledge/': { nav: '/knowledge', title: '知识库' },
-  '/_shell/knowledge/$baseId': { nav: '/knowledge', title: '知识库' },
-  '/_shell/eval': { nav: '/eval', title: '评估' },
-  '/_shell/operations': { nav: '/operations', title: '概况' },
-  '/_shell/runs/': { nav: '/runs', title: '运行' },
-  '/_shell/runs/$runId': { nav: '/runs', title: '运行' },
-  '/_shell/runtime-environments/': { nav: '/runtime-environments', title: '运行环境' },
-  '/_shell/runtime-environments/$environmentId': {
-    nav: '/runtime-environments',
-    title: '运行环境',
-  },
-  '/_shell/status': { nav: '/status', title: '健康' },
-  '/_shell/audit': { nav: '/audit', title: '审计' },
-  '/_shell/accounts': { nav: '/accounts', title: '账户' },
-  '/_shell/roles': { nav: '/roles', title: '角色' },
-};
+const operationsNavTargets = new Set(OPERATIONS_MENU.map((item) => item.to));
+const resourceNavTargets = new Set<string>(RESOURCE_MENU.map((item) => item.to));
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
@@ -215,13 +119,13 @@ function SidebarLink({
 }: {
   to: string;
   label: string;
-  icon: typeof Cable;
+  icon: MenuItem['icon'];
   collapsed: boolean;
   navGroup?: 'resources' | undefined;
   onNavigate?: (() => void) | undefined;
 }) {
   const activeRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
-  const activeNav = routeMeta[activeRoute ?? '']?.nav;
+  const activeNav = ROUTE_META[activeRoute ?? '']?.to;
   // 资源入口指向首个可读资源，任一资源路由都算命中这一项；未知路由不命中。
   const active =
     navGroup === 'resources'
@@ -234,7 +138,7 @@ function SidebarLink({
       onClick={onNavigate}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
-      // 归属由 routeMeta 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
+      // 归属由 ROUTE_META 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
       activeOptions={{ exact: true, includeSearch: false }}
       className={cn(
         'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
@@ -336,51 +240,38 @@ export function AppShell() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const matchedRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
-  const meta = matchedRoute ? routeMeta[matchedRoute] : undefined;
-  const pageTitle = meta?.title ?? '页面不存在';
+  const meta = matchedRoute ? ROUTE_META[matchedRoute] : undefined;
+  const pageTitle = meta?.label ?? '页面不存在';
   const baseTitle = `${pageTitle} · PACE`;
   // 详情页共用同一个路由模板，固定名称无法区分实体（WCAG 2.4.2），改由页面实际 h1 命名。
   const isDetailRoute = Boolean(meta && matchedRoute?.includes('$'));
   const user = authenticated(me.data);
   const home = homePath(me.data);
-  const firstOperations = [...operationsItems, ...platformItems].find((item) =>
+  const firstOperations = [...OPERATIONS_MENU, ...PLATFORM_MENU].find((item) =>
     canAny(me.data, item.permissionIds),
   );
   const isOperationsContext = meta
-    ? operationsNavTargets.has(meta.nav) || platformItems.some((item) => item.to === meta.nav)
+    ? operationsNavTargets.has(meta.to) || PLATFORM_MENU.some((item) => item.to === meta.to)
     : false;
   const personalContext = isPersonalPath(pathname);
-  const visibleWork = workItems.filter((item) => canAny(me.data, item.permissionIds));
-  const visibleOperations = operationsItems.filter((item) => canAny(me.data, item.permissionIds));
-  const visiblePlatform = platformItems.filter((item) => canAny(me.data, item.permissionIds));
-  const visiblePersonalGroups = personalGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter(
-        (item) => item.permissionIds.length === 0 || canAny(me.data, item.permissionIds),
-      ),
-    }))
-    .filter((group) => group.items.length > 0);
+  const visibleWork = WORK_MENU.filter((item) => canAny(me.data, item.permissionIds));
+  const visibleOperations = OPERATIONS_MENU.filter((item) => canAny(me.data, item.permissionIds));
+  const visiblePlatform = PLATFORM_MENU.filter((item) => canAny(me.data, item.permissionIds));
+  const visiblePersonalGroups = PERSONAL_NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => item.permissionIds.length === 0 || canAny(me.data, item.permissionIds),
+    ),
+  })).filter((group) => group.items.length > 0);
   const resourceTarget = user ? resourceHome(user) : null;
-  const buildItems: NavItem[] = [];
-  if (resourceTarget) {
-    buildItems.push({
-      to: resourceTarget,
-      label: '资源',
-      icon: Cable,
-      permissionIds: [] as readonly PermissionId[],
-      navGroup: 'resources',
-    });
-  }
-  if (can(me.data, 'eval.read')) {
-    buildItems.push({
-      to: '/eval',
-      label: '评估',
-      icon: FlaskConical,
-      permissionIds: ['eval.read'] as readonly PermissionId[],
-    });
-  }
-  const navGroups = personalContext
+  const buildItems: NavItem[] = BUILD_MENU.filter((item) =>
+    canAny(me.data, item.permissionIds),
+  ).map((item) =>
+    item.to === '/skills' && resourceTarget
+      ? { ...item, to: resourceTarget, navGroup: 'resources' }
+      : item,
+  );
+  const navGroups: { label: string; items: readonly NavItem[] }[] = personalContext
     ? visiblePersonalGroups
     : isOperationsContext
       ? [
@@ -398,7 +289,7 @@ export function AppShell() {
     : isOperationsContext
       ? home !== null &&
         !operationsNavTargets.has(home) &&
-        !platformItems.some((item) => item.to === home)
+        !PLATFORM_MENU.some((item) => item.to === home)
         ? { to: home, label: '返回工作区', icon: ArrowLeft }
         : null
       : firstOperations

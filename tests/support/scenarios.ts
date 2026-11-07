@@ -1,0 +1,15 @@
+export const scenarios = {
+  'agent-defaults': () => import('./fixtures/agent-defaults.js'),
+  'agent-package-bytes': () => import('./fixtures/agent-package-bytes.js'),
+  'audit-export': () => import('./fixtures/audit-export.js'),
+  'runs-export': () => import('./fixtures/runs-export.js'),
+  'eval-export': () => import('./fixtures/eval-export.js'),
+  'overview-aggregates': () => import('./fixtures/overview-aggregates.js'),
+  'run-cancel': () => import('./fixtures/run-cancel.js'),
+  'chat-history-filter': () => import('./fixtures/chat-history-filter.js'),
+  'chat-history-pages': () => import('./fixtures/chat-history-pages.js'),
+  regression: () => import('./fixtures/regression.js'),
+  channels: () => import('./fixtures/channels.js'),
+  'channels-business': () => import('./fixtures/channels-business.js'),
+  'chat-replay': () => import('./fixtures/chat-replay.js'),
+};

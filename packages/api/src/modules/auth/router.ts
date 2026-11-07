@@ -1,10 +1,10 @@
 import { authContract } from '@agentport/contract/auth';
 import { AppError } from '@agentport/core';
+import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { APIError } from 'better-auth/api';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { accountRouter, permissions, roleRouter } from './accounts.js';
 import { personalAuthRouter } from './personal.js';
 import { clearAuthCookie, principalOf, readSession, revokeUserSessions } from './session.js';
@@ -46,8 +46,8 @@ export const authRouter = os.router({
       throw error;
     }
     await revokeUserSessions(context, principal.authUserId);
-    clearAuthCookie(context);
-    await writeAudit(context.db, context.log, {
+    await clearAuthCookie(context);
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'auth.password.changed',
       status: 'ok',

@@ -1,10 +1,11 @@
 import { personalContract } from '@agentport/contract/personal';
-import { decryptSecrets, fail } from '@agentport/core';
+import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { toOutputShare } from '../output-shares/router.js';
 
 const os = implement(personalContract).$context<RequestContext>();
 
@@ -26,13 +27,7 @@ export const personalRouter = os.router({
     context.responseHeaders.set('cache-control', 'no-store');
     return {
       items: page.items.map((row) => ({
-        id: row.id,
-        runId: row.runId,
-        path: row.path,
-        sha256: row.sha256,
-        createdAt: row.createdAt.toISOString(),
-        revokedAt: null,
-        urlPath: `/s/${row.id}#${decryptSecrets(row.tokenEncrypted, context.config.APP_SECRET_KEY).token}`,
+        ...toOutputShare({ ...row, revokedAt: null }, context),
         conversationId: row.conversationId,
         conversationTitle: row.conversationTitle,
         agentId: row.agentId,

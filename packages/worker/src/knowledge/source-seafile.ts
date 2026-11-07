@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
-import { errorText } from '@agentport/shared';
 import { z } from 'zod';
+import { BINARY_MIME_BY_EXTENSION, extensionOf, TEXT_MIME_BY_EXTENSION } from './source-formats.js';
 import {
   type FetchOptions,
+  sourceFailure as failureOf,
   fetchChecked,
   fetchJson,
+  SourceItemError as ItemError,
   readBytesCapped,
   SourceAuthError,
+  sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
 import { trimSlash } from './source-paths.js';
@@ -44,39 +47,6 @@ const downloadLinkSchema = z.string();
 
 const cursorSchema = z.object({ version: z.literal(1), initial: z.boolean() });
 
-const TEXT_MIME_BY_EXTENSION: Record<string, string> = {
-  '.md': 'text/markdown',
-  '.markdown': 'text/markdown',
-  '.mdx': 'text/markdown',
-  '.txt': 'text/plain',
-  '.html': 'text/html',
-  '.htm': 'text/html',
-  '.csv': 'text/csv',
-  '.json': 'application/json',
-  '.xml': 'application/xml',
-  '.yaml': 'application/yaml',
-  '.yml': 'application/yaml',
-};
-const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.doc': 'application/msword',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.ppt': 'application/vnd.ms-powerpoint',
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.xls': 'application/vnd.ms-excel',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.odt': 'application/vnd.oasis.opendocument.text',
-  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
-  '.odp': 'application/vnd.oasis.opendocument.presentation',
-  '.rtf': 'application/rtf',
-  '.epub': 'application/epub+zip',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-};
-
 type Entry = z.infer<typeof entrySchema>;
 type Auth = {
   repoId: string;
@@ -87,24 +57,6 @@ type Auth = {
   network: Network;
 };
 type Network = { allowLoopback?: boolean; trustedHosts?: readonly string[] };
-
-class ItemError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = 'ItemError';
-  }
-}
-
-function networkOptions(config: SourceConfig): Network {
-  return {
-    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
-    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
-  };
-}
 
 function normalizeRelativePath(value: string): string {
   const trimmed = value.replace(/^\/+|\/+$/g, '');
@@ -153,11 +105,6 @@ function directoryExternalId(repoId: string, relative: string): string {
   return `seafile:dir:${repoId}:${pathHash(relative)}`;
 }
 
-function extensionOf(name: string): string {
-  const dot = name.lastIndexOf('.');
-  return dot < 0 ? '' : name.slice(dot).toLowerCase();
-}
-
 function mimeOf(name: string): string | undefined {
   const extension = extensionOf(name);
   return BINARY_MIME_BY_EXTENSION[extension] ?? TEXT_MIME_BY_EXTENSION[extension];
@@ -168,17 +115,6 @@ function revisionOf(entry: Entry): string | undefined {
     value === undefined ? '' : String(value),
   );
   return parts.some((part) => part !== '') ? parts.join(':') : undefined;
-}
-
-function failureOf(externalId: string, title: string, err: unknown): SourceFailure {
-  const itemError = err instanceof ItemError ? err : undefined;
-  return {
-    externalId,
-    title,
-    code: itemError?.code ?? 'fetch_failed',
-    message: errorText(err).slice(0, 500),
-    retryable: itemError?.retryable ?? true,
-  };
 }
 
 function rethrowAuth(err: unknown): void {
@@ -192,7 +128,7 @@ async function authenticate(config: SourceConfig): Promise<Auth> {
     throw new Error(`seafile repo ID is invalid: ${repoId}`);
   }
   const paths = settings.paths.map(normalizeRelativePath);
-  const network = networkOptions(config);
+  const network = sourceNetworkOptions(config);
   const site = new URL(await validateSourceUrl(config.url, network));
   if (site.search || site.hash) {
     throw new Error('seafile base URL must not contain a query or fragment');

@@ -1,5 +1,12 @@
-import { AGENT_ROLES } from '@agentport/shared';
+import {
+  AGENT_ROLES,
+  knowledgeContentKindSchema,
+  runStatusSchema,
+  runTriggerSchema,
+  runtimeEnvironmentVersionStatusSchema,
+} from '@agentport/shared';
 import { z } from 'zod';
+import { agentSections, agentTabs, knowledgeTabs } from '../lib/detail-tabs.js';
 
 export const resourceSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
@@ -19,13 +26,16 @@ export const agentsSearchSchema = resourceSearchSchema.extend({
   role: z.enum(AGENT_ROLES).optional().catch(undefined),
 });
 
-const agentTabs = ['config', 'memory', 'rules', 'styles', 'files'] as const;
-const agentSections = ['identity', 'behavior', 'capability', 'permissions', 'limits'] as const;
-
 /** 专家详情：任务、配置分区与选中文件都进 URL，刷新和分享后回到同一视图。 */
 export const agentDetailSearchSchema = z.object({
-  tab: z.enum(agentTabs).optional().catch(undefined),
-  section: z.enum(agentSections).optional().catch(undefined),
+  tab: z
+    .enum(agentTabs.map((item) => item.id))
+    .optional()
+    .catch(undefined),
+  section: z
+    .enum(agentSections.map((item) => item.id))
+    .optional()
+    .catch(undefined),
   file: z.string().optional().catch(undefined),
 });
 
@@ -65,9 +75,6 @@ export const auditSearchSchema = z.object({
   target: z.string().optional().catch(undefined),
 });
 
-const runStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'] as const;
-const runTriggers = ['chat', 'mcp', 'schedule', 'event', 'review', 'channel'] as const;
-
 /** 个人记忆提案：专家筛选、选中提案、阶段筛选、列表布局与创建入口都进 URL，链接可复现同一视图。 */
 export const personalReviewsSearchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
@@ -91,15 +98,15 @@ export const personalSharesSearchSchema = z.object({
 export const personalUsageSearchSchema = z.object({
   days: z.coerce.number().int().min(1).max(90).default(30).catch(30),
   agent: z.string().min(1).optional().catch(undefined),
-  status: z.enum(runStatuses).optional().catch(undefined),
-  trigger: z.enum(runTriggers).optional().catch(undefined),
+  status: runStatusSchema.optional().catch(undefined),
+  trigger: runTriggerSchema.optional().catch(undefined),
   cursor: z.string().min(1).max(200).optional().catch(undefined),
   view: listViewSchema,
 });
 
 export const runsSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),
-  status: z.enum(runStatuses).optional().catch(undefined),
+  status: runStatusSchema.optional().catch(undefined),
   view: listViewSchema,
 });
 
@@ -146,8 +153,6 @@ export const evalSearchSchema = z.object({
 
 export const knowledgeSearchSchema = resourceSearchSchema;
 
-const buildStatuses = ['queued', 'building', 'ready', 'failed'] as const;
-
 export const runtimeEnvironmentsSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
   view: listViewSchema,
@@ -155,27 +160,19 @@ export const runtimeEnvironmentsSearchSchema = z.object({
 
 /** 运行环境详情：状态筛选与选中的构建版本进 URL，刷新与分享后回到同一视图。 */
 export const runtimeEnvironmentDetailSearchSchema = z.object({
-  status: z.enum(buildStatuses).optional().catch(undefined),
+  status: runtimeEnvironmentVersionStatusSchema.optional().catch(undefined),
   version: z.string().min(1).optional().catch(undefined),
 });
-
-const knowledgeTabs = [
-  'documents',
-  'search',
-  'evaluations',
-  'faqs',
-  'wiki',
-  'sources',
-  'jobs',
-] as const;
-const knowledgeKinds = ['document', 'faq', 'wiki'] as const;
 
 /**
  * 知识库详情：分区、Wiki 页面、文档与来源选中、检索条件都进 URL。
  * 数组经 Router 默认 JSON 序列化，刷新与分享后回到同一筛选。
  */
 export const knowledgeDetailSearchSchema = z.object({
-  panel: z.enum(knowledgeTabs).optional().catch(undefined),
+  panel: z
+    .enum(knowledgeTabs.map((item) => item.id))
+    .optional()
+    .catch(undefined),
   /** 处理记录按文档过滤；API 参数名为 documentId，URL 用面向用户的 document。 */
   document: z.string().min(1).optional().catch(undefined),
   page: z.string().optional().catch(undefined),
@@ -184,7 +181,7 @@ export const knowledgeDetailSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
   folders: z.array(z.string()).optional().catch(undefined),
   tags: z.array(z.string()).optional().catch(undefined),
-  kinds: z.array(z.enum(knowledgeKinds)).optional().catch(undefined),
+  kinds: z.array(knowledgeContentKindSchema).optional().catch(undefined),
   rerank: z.boolean().optional().catch(undefined),
   minVectorScore: z.coerce.number().min(-1).max(1).optional().catch(undefined),
   onlyRecommended: z.boolean().optional().catch(undefined),

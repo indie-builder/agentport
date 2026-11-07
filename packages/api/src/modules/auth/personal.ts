@@ -1,11 +1,11 @@
 import { authContract } from '@agentport/contract/auth';
 import { AppError } from '@agentport/core';
+import { repo } from '@agentport/db';
 import type { PersonalSession } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { APIError } from 'better-auth/api';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { forwardSetCookie, normalizeSession } from './session.js';
 
 function rethrowAuthError(error: unknown): never {
@@ -80,7 +80,7 @@ export const personalAuthRouter = {
       username: session.user.username ?? '',
       name: session.user.name,
     };
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'auth.profile.updated',
       target: principal.businessId,
@@ -122,7 +122,7 @@ export const personalAuthRouter = {
       })
       .catch(rethrowAuthError);
     forwardSetCookie(revoked.headers, context);
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'auth.session.revoked',
       target: target.id,

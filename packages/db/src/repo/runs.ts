@@ -3,6 +3,7 @@ import type {
   AccessFilter,
   PublicRunQuestion,
   ResolvedRuntimeEnvironment,
+  RunStatus,
   RunTrigger,
 } from '@agentport/shared';
 import {
@@ -19,7 +20,7 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import {
   agentRuns,
@@ -30,18 +31,7 @@ import {
   messages,
   servers,
 } from '../schema.js';
-import { messageText, type Tx } from './chat.js';
-
-export const RUN_STATUSES = [
-  'queued',
-  'running',
-  'succeeded',
-  'failed',
-  'cancelled',
-  'timeout',
-] as const;
-
-export type RunStatus = (typeof RUN_STATUSES)[number];
+import { messageText } from './chat.js';
 
 export interface RunListItem {
   id: string;
@@ -585,7 +575,7 @@ export async function listApprovalRequests(
  * run id 是 uuidv7，按 id 倒序即按创建时间倒序；排除刚创建的本 run。
  */
 export async function inheritApprovals(
-  db: Database | Tx,
+  db: DbHandle,
   input: { conversationId: string; runId: string },
 ): Promise<string[]> {
   const previous = db

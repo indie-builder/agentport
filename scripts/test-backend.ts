@@ -6,6 +6,7 @@ process.chdir(root);
 if (existsSync('.env')) process.loadEnvFile('.env');
 
 const { default: setup } = await import('../packages/worker/test/global-setup.js');
+const args = process.argv.slice(2);
 let child: ReturnType<typeof Bun.spawn> | undefined;
 let interrupted: 'SIGINT' | 'SIGTERM' | undefined;
 const interrupt = (signal: 'SIGINT' | 'SIGTERM') => {
@@ -21,15 +22,7 @@ try {
   try {
     if (!interrupted) {
       child = Bun.spawn(
-        [
-          process.execPath,
-          'test',
-          '--isolate',
-          '--parallel=2',
-          '--timeout=20000',
-          '--path-ignore-patterns=**/web/**',
-          ...process.argv.slice(2),
-        ],
+        [process.execPath, 'test', '--isolate', '--parallel=2', '--timeout=20000', ...args],
         {
           cwd: root,
           env: { ...process.env, ...infra.env, AGENTPORT_BACKEND_TEST: '1' },

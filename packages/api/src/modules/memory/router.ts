@@ -1,7 +1,7 @@
 import { memoryContract } from '@agentport/contract/memory';
 import { fail } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
-import { memoryReviewTargetSchema } from '@agentport/shared';
+import { INDEX_FILE_NAME, memoryReviewTargetSchema } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
 import { authorizeObject, requireUser } from '../../http/access.js';
@@ -10,8 +10,6 @@ import { agentSlug, writeMemoryTarget } from './changes.js';
 import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } from './personal.js';
 
 const os = implement(memoryContract).$context<RequestContext>();
-
-const INDEX_FILE = 'MEMORY.md';
 
 function listVersions(
   context: RequestContext,
@@ -60,7 +58,7 @@ export const memoryRouter = os.router({
       agentId: input.params.id,
       kind: 'agent_memory',
       name: input.params.name,
-      includeIndexChanges: input.params.name === INDEX_FILE,
+      includeIndexChanges: input.params.name === INDEX_FILE_NAME,
       limit: input.query.limit,
       ...(input.query.before === undefined ? {} : { before: input.query.before }),
     });

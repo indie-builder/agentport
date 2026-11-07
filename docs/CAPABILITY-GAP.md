@@ -259,7 +259,7 @@
 | 预览脱敏 | ✅ | 密钥值显示 `<已配置>`；generated 的 Authorization 运行时注入 |
 | 结构化工具审批 | ✅ | `approval_requests(run_id, server_id, tool_name)`；`POST /api/runs/:id/approve`；UI 改读 `/api/runs/:id/approvals` |
 | 日志/落库脱敏 | ✅ | `redactSecrets` 覆盖 Bearer/sk-/ghp_/`KEY=value`/长 base64url；stderr 降为 debug |
-| 输出上限 | ✅ | 沙盒单字段 256 KB；worker 单行 1 MiB、单 run 2000 事件/32 MiB；UI 64 KB 折叠 |
+| 输出上限 | ✅ | 沙盒单字段默认 1 MiB（上限 1 MiB）；worker 单行 8 MiB；单 run 瞬时与落库各 2000 事件/32 MiB；UI 64 KB 折叠 |
 | 导入安全 | ✅ | 导入调用 `assertSafeUrl`；同名不同 kind 拒绝复用；写 `agent.imported` 审计 |
 | 审计补齐 | ✅ | tool CRUD、eval case CRUD、logout、`/mcp` 触发 run 均有审计 |
 | 环境校验 | ✅ | `APP_SECRET_KEY`/`JWT_SECRET` ≥32、`ADMIN_PASSWORD` ≥12 且拒绝占位值 |

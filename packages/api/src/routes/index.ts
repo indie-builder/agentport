@@ -1,8 +1,10 @@
-import { apiContract } from '@agentport/contract';
+import { apiContract, type authNativeContract } from '@agentport/contract';
 import { AppError } from '@agentport/core';
+import { ATTACHMENT_LIMITS } from '@agentport/shared';
+import type { Router } from '@orpc/server';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import type { AppContext, HttpEnv } from '../http/context.js';
+import type { AppContext, HttpEnv, RequestContext } from '../http/context.js';
 import { healthOpenAPIPaths } from '../http/health-openapi.js';
 import { nativeOpenAPIPaths } from '../http/native-openapi.js';
 import { createOpenAPIHandler } from '../http/orpc.js';
@@ -21,6 +23,7 @@ import { evalRouter } from '../modules/eval/router.js';
 import { registerKnowledgeHttp } from '../modules/knowledge/http.js';
 import { KNOWLEDGE_PACKAGE_MAX_BYTES } from '../modules/knowledge/package.js';
 import { knowledgeRouter } from '../modules/knowledge/router.js';
+import { KNOWLEDGE_UPLOAD_BODY_LIMIT } from '../modules/knowledge/use-cases.js';
 import { marketRouter } from '../modules/market/router.js';
 import { registerMemoryHttp } from '../modules/memory/http.js';
 import { memoryRouter } from '../modules/memory/router.js';
@@ -32,8 +35,7 @@ import { overviewRouter } from '../modules/overview/router.js';
 import { personalRouter } from '../modules/personal/router.js';
 import { registerPluginsHttp } from '../modules/plugins/http.js';
 import { pluginsRouter } from '../modules/plugins/router.js';
-import { registerRunsHttp } from '../modules/runs/http.js';
-import { runsRouter } from '../modules/runs/router.js';
+import { registerRunExportHttp, runsRouter } from '../modules/runs/router.js';
 import { runtimeEnvironmentsRouter } from '../modules/runtime-environments/router.js';
 import { registerServersHttp } from '../modules/servers/http.js';
 import { serversRouter } from '../modules/servers/router.js';
@@ -41,27 +43,11 @@ import { registerSkillsHttp } from '../modules/skills/http.js';
 import { skillsRouter } from '../modules/skills/router.js';
 import { registerOpenApi } from '../plugins/openapi.js';
 
-export const apiRouter: {
-  agents: typeof agentsRouter;
-  audit: typeof auditRouter;
-  auth: typeof authRouter;
-  channels: typeof channelsRouter;
-  chat: typeof chatRouter;
-  eval: typeof evalRouter;
-  knowledge: typeof knowledgeRouter;
-  market: typeof marketRouter;
-  memory: typeof memoryRouter;
-  memoryReviews: typeof memoryReviewsRouter;
-  ops: typeof opsRouter;
-  outputShares: typeof outputSharesRouter;
-  overview: typeof overviewRouter;
-  personal: typeof personalRouter;
-  plugins: typeof pluginsRouter;
-  runs: typeof runsRouter;
-  runtimeEnvironments: typeof runtimeEnvironmentsRouter;
-  servers: typeof serversRouter;
-  skills: typeof skillsRouter;
-} = {
+type RpcContract = Omit<typeof apiContract, 'auth'> & {
+  auth: Omit<typeof apiContract.auth, keyof typeof authNativeContract>;
+};
+
+export const apiRouter: Router<RpcContract, RequestContext> = {
   agents: agentsRouter,
   audit: auditRouter,
   auth: authRouter,
@@ -84,10 +70,9 @@ export const apiRouter: {
 };
 
 const JSON_BODY_LIMIT = 1_048_576;
-const KNOWLEDGE_UPLOAD_BODY_LIMIT = 48 * 1024 * 1024;
 
 const bodyLimits: ReadonlyArray<{ route: RegExp; maxSize: number }> = [
-  { route: /^POST \/api\/chat$/, maxSize: 16 * 1024 * 1024 },
+  { route: /^POST \/api\/chat$/, maxSize: ATTACHMENT_LIMITS.bodyBytes },
   { route: /^POST \/api\/servers\/import-file$/, maxSize: 8 * 1024 * 1024 },
   {
     route: /^PUT \/api\/knowledge\/bases\/[^/]+\/documents\/upload$/,
@@ -122,7 +107,7 @@ export function registerRoutes(
   registerOutputSharesHttp(app);
   registerChatHttp(app, native);
   registerChannelsHttp(app, native);
-  registerRunsHttp(app);
+  registerRunExportHttp(app);
   registerOpenApi(app, apiContract, { ...healthOpenAPIPaths, ...nativeOpenAPIPaths });
   const handler = createOpenAPIHandler(apiRouter);
   app.use('/api/*', (c, next) => {

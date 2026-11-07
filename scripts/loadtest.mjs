@@ -228,7 +228,7 @@ async function cleanup(label) {
     return counts;
   } catch (err) {
     console.error(`[cleanup:${label}] 失败：${err.message}`);
-    return null;
+    throw err;
   } finally {
     await client.close();
   }
@@ -481,6 +481,7 @@ async function mcpTest(cookie) {
 
 // ---- 5. 队列 ----
 async function queueTest(cookie, agentId, chatBudget) {
+  if (!chatBudget) return { skipped: 'SSE 测试跳过，未获得 chat 限流预算' };
   // /api/chat 限 20 次/分钟；上一次运行（或 SSE 测试）的请求可能还在同一窗口。
   if (chatBudget.remaining < 10) {
     const waitMs = (chatBudget.resetSeconds + 1) * 1000;

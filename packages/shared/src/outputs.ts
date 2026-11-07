@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { terminalRunStatusSchema } from './run-state.js';
 
 /**
  * 运行产出（conversation-outputs）的类型与解析边界。
@@ -7,7 +8,7 @@ import { z } from 'zod';
  */
 
 /** 终端状态：产出由 worker 在运行结束后发布，不存在 queued/running 的版本。 */
-export const outputStatusSchema = z.enum(['succeeded', 'failed', 'cancelled', 'timeout']);
+export const outputStatusSchema = terminalRunStatusSchema;
 
 export type OutputStatus = z.infer<typeof outputStatusSchema>;
 
@@ -41,8 +42,6 @@ export type OutputRef = z.infer<typeof outputRefSchema>;
 
 /** 公开分享：runId + path 定位一个已发布产出，内容由服务端重新校验 sha256。 */
 export const createOutputShareInputSchema = outputRefSchema;
-
-export type CreateOutputShareInput = z.infer<typeof createOutputShareInputSchema>;
 
 export const outputShareSchema = z.object({
   id: z.string(),

@@ -16,7 +16,7 @@ import {
   useChannelRuns,
 } from './queries.js';
 
-export interface ChannelRunStream {
+interface ChannelRunStream {
   runId: string;
   agentId: string;
   status: 'running' | 'done';
@@ -70,8 +70,9 @@ export function useChannelStream(channelId: string) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在首屏成功后开流；后续消息由 SSE 自己写入缓存，重跑会反复重连。
   useEffect(() => {
     if (!messages.isSuccess) return;
-    if (cursorRef.current.channelId === channelId) return;
-    cursorRef.current = { channelId, after: messages.data?.at(-1)?.seq ?? 0 };
+    if (cursorRef.current.channelId !== channelId) {
+      cursorRef.current = { channelId, after: messages.data?.at(-1)?.seq ?? 0 };
+    }
     const source = new EventSource(
       `/api/channels/${encodeURIComponent(channelId)}/events?after=${cursorRef.current.after}`,
     );
@@ -119,7 +120,7 @@ export function useChannelStream(channelId: string) {
         refreshLifecycle();
         return;
       }
-      if (event.type === 'error' && event.message.includes('无权')) {
+      if (event.type === 'error' && event.code === 'FORBIDDEN') {
         // 撤权后重连只会不断 404；停止重试，页面继续显示已加载的消息。
         source.close();
       }

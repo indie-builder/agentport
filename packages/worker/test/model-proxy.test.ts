@@ -1,8 +1,7 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-
 import type { Logger } from 'pino';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { startModelProxy } from '../src/model-proxy.js';
 
@@ -77,6 +76,49 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 describe('model proxy streaming', () => {
+  it('rejects unissued and revoked runs even when no other run is active', async () => {
+    let upstreamRequests = 0;
+    const upstreamPort = await listen(
+      createServer((_req, res) => {
+        upstreamRequests += 1;
+        res.end('ok');
+      }),
+    );
+    const proxy = await startModelProxy({
+      logger: quiet,
+      upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+      apiKey: 'fake-upstream-key',
+      resolveRun: async (token) => ({ runId: token }),
+    });
+    if (!proxy) throw new Error('proxy did not start');
+    cleanups.push(() => proxy.close());
+    const url = `http://127.0.0.1:${new URL(proxy.url).port}/v1/messages`;
+    const status = async (runId: string) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${runId}` },
+        body: '{}',
+      });
+      await response.text();
+      return response.status;
+    };
+    expect(await status('old-run')).toBe(401);
+    proxy.issueToken('old-run');
+    expect(await status('old-run')).toBe(200);
+    proxy.revokeToken('old-run');
+    expect(await status('old-run')).toBe(401);
+    proxy.issueToken('new-run');
+    expect(await status('old-run')).toBe(401);
+    expect(await status('new-run')).toBe(200);
+    proxy.issueToken('other-run');
+    proxy.revokeToken('new-run');
+    expect(await status('new-run')).toBe(401);
+    expect(await status('other-run')).toBe(200);
+    proxy.revokeToken('other-run');
+    expect(await status('other-run')).toBe(401);
+    expect(upstreamRequests).toBe(3);
+  });
+
   it('stops reading upstream when the downstream client is slow', async () => {
     const CHUNK = Buffer.alloc(1024 * 1024, 0x61);
     const TOTAL_CHUNKS = 64;

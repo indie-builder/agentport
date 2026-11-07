@@ -1,9 +1,7 @@
-import { DEFAULT_DISALLOWED_TOOLS } from '@agentport/core';
+import { CONFIGURABLE_DISALLOWED_TOOLS, DEFAULT_DISALLOWED_TOOLS } from '@agentport/shared';
 
 const blockedAllowedTools = new Set(
-  DEFAULT_DISALLOWED_TOOLS.filter(
-    (tool) => !['Agent', 'TaskStop', 'ListAgents', 'SendMessage'].includes(tool),
-  ),
+  DEFAULT_DISALLOWED_TOOLS.filter((tool) => !CONFIGURABLE_DISALLOWED_TOOLS.includes(tool)),
 );
 export function unsupportedAllowedTool(tools: string[]): string | undefined {
   const tool = tools.find((rule) => blockedAllowedTools.has(rule.split('(')[0]?.trim() ?? rule));

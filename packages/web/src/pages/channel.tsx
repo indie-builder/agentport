@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../components/agent-avatar.js';
 import { AgentPicker } from '../components/agent-picker.js';
+import { Composer, MessagePane } from '../components/chat-thread.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
@@ -43,7 +44,6 @@ import {
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useChannelStream } from '../lib/use-channel-stream.js';
-import { Composer, MessagePane } from './chat.js';
 
 const ROLE_LABEL: Record<ChannelRole, string> = {
   owner: '所有者',
@@ -450,24 +450,19 @@ function ChannelWorkspace({ channel }: { channel: ChannelDetail }) {
             onRetry={() => void stream.messagesQuery.refetch()}
             hasOlder={false}
             loadingOlder={false}
-            onLoadOlder={() => undefined}
             olderDisabled={true}
             welcome={
               <EmptyState icon={<MessageSquare className="size-5" />} title="从第一条消息开始" />
             }
-            approvals={{ pending: null, onApprove: () => undefined }}
             approvalItems={[]}
             liveRunId={null}
             lastRun={null}
             historyMetrics={NO_METRICS}
             currentRunId={null}
-            onSelectOutput={() => undefined}
-            onBranchMessage={() => undefined}
             branchingMessageId={null}
             running={hasRunning}
             openUi={false}
             streaming={hasRunning}
-            onAction={() => undefined}
             renderItemHeader={renderItemHeader}
             renderItemFooter={renderItemFooter}
             onVisibleMessageIdsChange={markVisibleRead}

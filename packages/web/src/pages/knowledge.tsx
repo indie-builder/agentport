@@ -61,6 +61,7 @@ import {
 import { Textarea } from '../components/ui/textarea.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
+import { downloadBlob } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
 import { formatDateTime, formatRelative } from '../lib/format.js';
 import {
@@ -260,14 +261,7 @@ export function KnowledgePage() {
     exporter.mutate(base.id, {
       onSuccess: async (blob) => {
         // 导出就是整库 ZIP；扩展名由浏览器按名称落盘。
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${base.slug}.zip`;
-        document.body.append(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 0);
+        downloadBlob(blob, `${base.slug}.zip`);
         toastSuccess(`已导出「${base.name}」`);
       },
       onError: toastError,

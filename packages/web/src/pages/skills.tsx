@@ -454,13 +454,10 @@ function MarketSkillsPage({
           replace: true,
         })
       }
-      sort="newest"
-      onSortChange={() => {}}
       count={tooShort ? undefined : (market.data?.length ?? 0)}
       status={
         tooShort ? 'success' : market.isPending || market.isDebouncing ? 'pending' : market.status
       }
-      hideSort
       leadingFilters={
         <SegmentedToggle
           label="技能来源"

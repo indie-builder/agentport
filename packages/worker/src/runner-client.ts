@@ -21,6 +21,7 @@ import {
   type SandboxInputCommand,
   type SandboxTaskInput,
   SUPERVISOR_INPUT_MAX_BYTES,
+  type TerminalRunStatus,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import { Deferred, Effect, Exit, type Scope } from 'effect';
@@ -32,8 +33,6 @@ import type {
   SessionSandboxLease,
   SessionSandboxSpec,
 } from './sandbox/sessions.js';
-
-export type RunStatus = 'succeeded' | 'failed' | 'cancelled' | 'timeout';
 
 /** 原生澄清提问的宿主存储；由 index 绑定到 DB repo。 */
 export interface SandboxQuestionCallbacks {
@@ -80,7 +79,7 @@ export function isRetryable(outcome: SandboxRunOutcome): boolean {
 }
 
 export interface SandboxRunOutcome {
-  status: RunStatus;
+  status: TerminalRunStatus;
   sandboxId: string;
   settlement: ExecutionSettlement;
   /** release 已被调用（结果已缓存）；不代表销毁成功，是否停稳只看 settlement。 */
@@ -104,9 +103,6 @@ const PERSIST_OVERFLOW_MESSAGE = '完整输出超过保存上限，已保存部�
 /** 失败时保留的 stderr 上限：2KB 常常只剩最后一行，16KB 才能看到启动错误。 */
 const STDERR_KEEP_CHARS = 16 * 1024;
 
-/** shared 事件类型加上本轮补发的字段；shared 定稿前先在这里收窄。 */
-type StreamEvent = ChatEvent & { streamBlockId?: string };
-
 /** 落库需要的完整事件；text_delta 与块边界只用于展示。 */
 function isPersistable(event: ChatEvent): boolean {
   return (
@@ -123,7 +119,7 @@ function isPersistable(event: ChatEvent): boolean {
  * 每帧 `sdkUuid` 又各不相同，二者都不能当段身份；这里按块边界发号。
  * `assistant_text` 只有完整消息里的 `blockIndex`，用「最近开启且未关闭」的块对齐。
  */
-export function createStreamBlockIds(): (event: ChatEvent) => StreamEvent {
+export function createStreamBlockIds(): (event: ChatEvent) => ChatEvent {
   const open = new Map<string, string>();
   const lastOpen = new Map<string, string>();
   let issued = 0;
@@ -670,7 +666,7 @@ function runInSandboxEffect(
   return Effect.gen(function* () {
     const { logger, runId } = input;
     const events: ChatEvent[] = [];
-    let reportedStatus: RunStatus | undefined;
+    let reportedStatus: TerminalRunStatus | undefined;
     let reportedCost: number | undefined;
     let reportedTurns: number | undefined;
     let reportedError: string | undefined;

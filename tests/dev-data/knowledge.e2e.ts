@@ -1,11 +1,11 @@
-import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { type Browser, test } from '@e2e-dev/web';
 import { type App, expect, type Screen } from 'e2e';
-import { api, DATASET_ID, datasetPath } from '../support/business-dataset.js';
+import { api, DATASET_ID, datasetPath, writeManifest } from '../support/business-dataset.js';
 
 /**
  * 青禾数据集的知识域：真实 UI 创建知识库、手写文档、上传文件、编辑并发布 Wiki；
@@ -34,7 +34,7 @@ const PO_NUMBER = 'QH-PO-2026-001';
 const SUPPLIER = '云杉包装';
 const PRODUCT = '竹纤维随行杯';
 const FEED_URL = 'https://hnrss.org/newest?count=3';
-const BUILD_COMMAND = 'pnpm dev:data';
+const BUILD_COMMAND = 'bun run dev:data';
 
 const DOC_POLL_TIMEOUT_MS = 12 * 60_000;
 const JOB_POLL_TIMEOUT_MS = 15 * 60_000;
@@ -559,11 +559,7 @@ function syncRelations(manifest: KnowledgeManifest): void {
 async function saveManifest(manifest: KnowledgeManifest): Promise<void> {
   manifest.source.updatedAt = nowIso();
   syncRelations(manifest);
-  const file = datasetPath('knowledge');
-  await mkdir(dirname(file), { recursive: true });
-  const temp = `${file}.tmp-${process.pid}`;
-  await writeFile(temp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  await rename(temp, file);
+  writeManifest('knowledge', manifest);
 }
 
 function assertManifestIdentity(manifest: KnowledgeManifest): void {

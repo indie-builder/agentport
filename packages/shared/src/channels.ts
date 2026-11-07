@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { businessIdSchema } from './access.js';
+import { errorCodeSchema } from './errors.js';
+import { terminalRunStatusSchema } from './run-state.js';
 
 export const channelRoleSchema = z.enum(['owner', 'admin', 'member', 'viewer']);
 export type ChannelRole = z.infer<typeof channelRoleSchema>;
@@ -150,9 +152,6 @@ export const channelReadStateSchema = z.object({
   lastReadSeq: seqSchema,
 });
 
-/** 与聊天流一致的终态集合；queued/running 不是 run.finished。 */
-const terminalRunStatusSchema = z.enum(['succeeded', 'failed', 'cancelled', 'timeout']);
-
 /** SSE 事件：先按 seq 回放，再订阅 Redis 频道流。 */
 export const channelEventSchema = z.discriminatedUnion('type', [
   z.object({
@@ -181,7 +180,7 @@ export const channelEventSchema = z.discriminatedUnion('type', [
     approvalId: z.string(),
     toolName: z.string(),
   }),
-  z.object({ type: z.literal('error'), message: z.string() }),
+  z.object({ type: z.literal('error'), code: errorCodeSchema.optional(), message: z.string() }),
 ]);
 export type ChannelEvent = z.infer<typeof channelEventSchema>;
 

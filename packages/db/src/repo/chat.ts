@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
-import type { AccessFilter, ExecutionSubject } from '@agentport/shared';
+import type { AccessFilter, ExecutionSubject, RunTrigger } from '@agentport/shared';
 import { type MessageAttachment, messageAttachments } from '@agentport/shared';
 import {
   and,
@@ -16,7 +16,7 @@ import {
   type SQLWrapper,
   sql,
 } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
   agentRuns,
@@ -30,9 +30,6 @@ import {
 import { channelMemberRole } from './channels.js';
 import { lockAgentBindings, lockRunResources } from './locks.js';
 import { inheritApprovals } from './runs.js';
-
-/** 事务句柄：准入逻辑在事务内复用同一批写函数。 */
-export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 function conversationSubject(subject: ExecutionSubject) {
   return subject.kind === 'user'
@@ -100,7 +97,7 @@ export async function agentEnabled(db: Database, agentId: string): Promise<boole
 }
 
 export async function createConversation(
-  db: Database | Tx,
+  db: DbHandle,
   input: {
     id: string;
     agentId: string;
@@ -140,7 +137,7 @@ export async function renameConversation(
 
 /** 私有入口：频道 lane 不在这里暴露，访问统一走频道成员校验。 */
 export async function getConversation(
-  db: Database | Tx,
+  db: DbHandle,
   conversationId: string,
 ): Promise<Conversation | null> {
   const [row] = await db
@@ -204,7 +201,7 @@ export async function deleteConversation(
  * A/B 都先取绑定锁，再按主体范围重查；目标集合与身份变化由调用方据此拒绝。
  */
 async function readConversationDeletionSnapshot(
-  tx: Tx,
+  tx: Transaction,
   input: ConversationDeletionInput,
 ): Promise<ConversationDeletionSnapshot | null> {
   await lockAgentBindings(tx);
@@ -274,7 +271,7 @@ function sameConversationSnapshot(
 }
 
 async function sandboxTargetsForConversation(
-  tx: Tx,
+  tx: Transaction,
   conversationId: string,
 ): Promise<ConversationSandboxTarget[]> {
   const runRows = await tx
@@ -299,7 +296,7 @@ export interface ListMessagesOptions {
  * 传 limit 时只取最新 N 条，避免把 tool 消息的大 jsonb 全量带给页面。
  */
 export async function listMessages(
-  db: Database | Tx,
+  db: DbHandle,
   conversationId: string,
   options: ListMessagesOptions = {},
 ): Promise<Message[]> {
@@ -413,7 +410,7 @@ const INSERT_CHUNK = 500;
 export type MessageInsert = typeof messages.$inferInsert;
 
 /** 一个 run 的消息逐行 insert 会有上千次往返；按 500 行一条语句批量写。 */
-export async function insertMessages(db: Database | Tx, rows: MessageInsert[]): Promise<void> {
+export async function insertMessages(db: DbHandle, rows: MessageInsert[]): Promise<void> {
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     await db.insert(messages).values(rows.slice(i, i + INSERT_CHUNK));
   }
@@ -430,7 +427,7 @@ export function messageText(content: unknown): string | null {
  * 分支会话在首轮运行前 sdkSessionId 仍指向来源会话，fork 完成后由运行收尾改写。
  */
 export async function getConversationSdkState(
-  db: Database | Tx,
+  db: DbHandle,
   conversationId: string,
 ): Promise<ConversationSdkState | null> {
   const [row] = await db
@@ -447,7 +444,7 @@ export async function getConversationSdkState(
 
 /** 分支首轮需要重映射的页面消息 uuid（该会话已保存、且有 SDK uuid 的那些）。 */
 export async function listConversationMessageUuids(
-  db: Database | Tx,
+  db: DbHandle,
   conversationId: string,
 ): Promise<string[]> {
   const rows = await db
@@ -860,7 +857,7 @@ export async function searchConversations(
 }
 
 export async function appendMessage(
-  db: Database | Tx,
+  db: DbHandle,
   input: {
     id: string;
     conversationId: string;
@@ -892,12 +889,12 @@ export async function appendMessage(
 }
 
 export async function createRun(
-  db: Database | Tx,
+  db: DbHandle,
   input: {
     id: string;
     conversationId: string;
     agentId: string;
-    trigger?: 'chat' | 'mcp' | 'schedule' | 'event' | 'channel';
+    trigger?: RunTrigger;
     agentVersion?: number | null;
     subject: ExecutionSubject;
     channelId?: string;
@@ -972,7 +969,7 @@ export async function admitChatRun(
     agentId: string;
     message: string;
     conversationId?: string;
-    trigger?: 'chat' | 'mcp' | 'schedule' | 'event' | 'channel';
+    trigger?: RunTrigger;
     agentVersion?: number;
     /** 新会话标题；缺省取消息前 80 字。非浏览器入口用它标明来源。 */
     title?: string;
@@ -1202,7 +1199,7 @@ export async function admitChatRun(
 }
 
 export async function consumeChannelContext(
-  db: Database | Tx,
+  db: DbHandle,
   input: { channelId: string; agentId: string; conversationId: string; channelMessageId: string },
 ): Promise<void> {
   await db
@@ -1222,7 +1219,7 @@ export async function consumeChannelContext(
 
 /** 运行收尾：同一事务里更新会话的 SDK 状态并重映射消息 uuid（fork 会换 uuid）。 */
 export async function saveSdkState(
-  db: Database | Tx,
+  db: DbHandle,
   input: {
     conversationId: string;
     sdkSessionId: string;

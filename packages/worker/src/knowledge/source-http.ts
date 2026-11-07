@@ -1,6 +1,8 @@
 import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
+import { errorText } from '@agentport/shared';
 import type { z } from 'zod';
+import type { SourceFailure } from './sources.js';
 
 /**
  * 所有外部来源共用的 HTTP 信任边界：SSRF/DNS 检查、跨域去凭证、响应大小与超时。
@@ -180,6 +182,41 @@ const FORBIDDEN_REQUEST_HEADERS = new Set([
   'proxy-authorization',
 ]);
 
+const HOP_BY_HOP_HEADERS = new Set([
+  'host',
+  'content-length',
+  'transfer-encoding',
+  'connection',
+  'upgrade',
+  'proxy-authorization',
+  'proxy-authenticate',
+  'te',
+  'trailer',
+  'keep-alive',
+]);
+
+export function safeDownloadHeaders(raw: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    const key = name.trim().toLowerCase();
+    if (!key || HOP_BY_HOP_HEADERS.has(key)) continue;
+    if (/[\r\n]/.test(name) || /[\r\n]/.test(value)) continue;
+    headers[key] = value;
+  }
+  return headers;
+}
+
+export function redactUrls(message: string): string {
+  return message.replace(/https?:\/\/[^\s"'<>]+/g, (raw) => {
+    try {
+      const url = new URL(raw);
+      return `${url.origin}${url.pathname}`;
+    } catch {
+      return 'download URL';
+    }
+  });
+}
+
 function checkedHeaders(
   headers: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
@@ -333,4 +370,36 @@ export async function fetchJson<T>(
     throw new Error(`${label} response does not match the expected schema`);
   }
   return parsed.data;
+}
+
+export function sourceNetworkOptions(config: {
+  allowLoopback?: boolean;
+  trustedHosts?: readonly string[];
+}): Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts'> {
+  return {
+    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
+    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
+  };
+}
+
+export class SourceItemError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = 'ItemError';
+  }
+}
+
+export function sourceFailure(externalId: string, title: string, err: unknown): SourceFailure {
+  const itemError = err instanceof SourceItemError ? err : undefined;
+  return {
+    externalId,
+    title,
+    code: itemError?.code ?? 'fetch_failed',
+    message: errorText(err).slice(0, 500),
+    retryable: itemError?.retryable ?? true,
+  };
 }

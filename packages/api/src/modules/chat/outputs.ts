@@ -13,11 +13,11 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import { authorizeObject } from '../../http/access.js';
 import type { AppContext, HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
-import { AppError, isAppError } from '../../http/errors.js';
+import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import { loadReadableConversation } from './access.js';
 import { openUiActionContent } from './openui-actions.js';
 export const PREVIEW_MAX_BYTES = 1024 * 1024;
 export function isTextPreview(mediaType: string): boolean {
@@ -33,19 +33,6 @@ export function decodeUtf8(data: Buffer): string | null {
   } catch {
     return null;
   }
-}
-async function loadConversation(context: RequestContext, id: string) {
-  const conversation = await repo.chat.getConversation(context.db, id);
-  if (!conversation) {
-    throw new AppError('CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请从会话列表重新打开');
-  }
-  await authorizeObject(
-    context,
-    'conversations.read',
-    { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
-    '会话不存在，可能已被删除；请从会话列表重新打开',
-  );
-  return conversation;
 }
 export async function agentSlug(
   context: Pick<AppContext, 'db'>,
@@ -143,7 +130,7 @@ export function safeMediaType(mediaType: string): string {
 const os = implement(chatContract).$context<RequestContext>();
 export const chatOutputsRouter = {
   listOutputs: os.listOutputs.handler(async ({ input, context }) => {
-    const conversation = await loadConversation(context, input.params.id);
+    const conversation = await loadReadableConversation(context, input.params.id);
     const slug = await agentSlug(context, conversation.agentId);
     if (slug === null) return { items: [], nextBefore: null };
     const { limit, before } = input.query;
@@ -163,7 +150,7 @@ export const chatOutputsRouter = {
     }
   }),
   output: os.output.handler(async ({ input, context }) => {
-    const conversation = await loadConversation(context, input.params.id);
+    const conversation = await loadReadableConversation(context, input.params.id);
     const slug = await agentSlug(context, conversation.agentId);
     if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
     try {
@@ -194,7 +181,7 @@ export function registerChatOutputsHttp(app: Hono<HttpEnv>): void {
           query: z.object({ path: outputPathSchema }),
         })
         .parse({ params: c.req.param(), query: c.req.query() });
-      const conversation = await loadConversation(context, input.params.id);
+      const conversation = await loadReadableConversation(context, input.params.id);
       const slug = await agentSlug(context, conversation.agentId);
       if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
       const { file, data } = await readOutputFile({
@@ -228,7 +215,7 @@ export function registerChatOutputsHttp(app: Hono<HttpEnv>): void {
           query: z.object({ path: outputPathSchema }),
         })
         .parse({ params: c.req.param(), query: c.req.query() });
-      const conversation = await loadConversation(context, input.params.id);
+      const conversation = await loadReadableConversation(context, input.params.id);
       const slug = await agentSlug(context, conversation.agentId);
       if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
       const { file, data } = await readOutputFile({

@@ -11,6 +11,7 @@ import { Markdown } from '../components/markdown.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Button } from '../components/ui/button.js';
 import { ApiError, api } from '../lib/api.js';
+import { downloadBlob } from '../lib/browser-files.js';
 import { formatBytes, formatDateTime } from '../lib/format.js';
 import { toastError } from '../lib/toast.js';
 
@@ -182,13 +183,7 @@ function SharedFile({ shareId, token, file }: { shareId: string; token: string; 
     setDownloading(true);
     try {
       const blob = await api.publicOutputShareDownload(shareId, token);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = file.name;
-      link.click();
-      // 立即撤销会让部分浏览器取消下载，留到本轮事件后再释放。
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      downloadBlob(blob, file.name);
     } catch (error) {
       toastError(shareError(error));
     } finally {

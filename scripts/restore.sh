@@ -49,22 +49,7 @@ fi
 
 # 目标库只用调用环境；缺省时从 BACKUP_ENV_FILE 读（与 backup.sh 一致），绝不读归档内的 env。
 if [ -z "${DATABASE_URL:-}" ]; then
-  RAW_URL="$(sed -n 's/^DATABASE_URL=//p' "$ENV_SOURCE" | tail -n 1)"
-  # restore.sh 的最小引导 env 用单引号 + '\'' 转义；只对这种生成格式反解，普通配置保持原读法。
-  SQ_CHAR="'"
-  case "$RAW_URL" in
-    \'*\' )
-      DATABASE_URL="${RAW_URL#\'}"
-      DATABASE_URL="${DATABASE_URL%\'}"
-      DATABASE_URL="${DATABASE_URL//\'\\\'\'/$SQ_CHAR}"
-      ;;
-    *)
-      DATABASE_URL="${RAW_URL%\"}"
-      DATABASE_URL="${DATABASE_URL#\"}"
-      DATABASE_URL="${DATABASE_URL%\'}"
-      DATABASE_URL="${DATABASE_URL#\'}"
-      ;;
-  esac
+  DATABASE_URL="$(database_url_from_env_file "$ENV_SOURCE")"
 fi
 [ -n "$DATABASE_URL" ] || die "DATABASE_URL is empty; export it or set BACKUP_ENV_FILE"
 export DATABASE_URL

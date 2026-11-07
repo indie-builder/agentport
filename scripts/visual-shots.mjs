@@ -27,7 +27,7 @@ Redis 使用已缓存镜像与 loopback 随机端口，API 忽略外部 REDIS_UR
   --seed <mode>           none | minimal | dev-data，默认 minimal
                           minimal：库里没有数据时造 2 个 agent + 1 个频道
                           dev-data：调用 bun run dev:data（重，失败只提示不阻塞）
-  --base-url <url>        复用已有栈，不创建或销毁 PG/Redis/应用服务；只登录、截图、打开
+  --base-url <url>        复用已有栈，不创建或销毁 PG/Redis/应用服务；仍按 --seed 执行，默认 minimal 会在空库写入 agent/频道
   --wait-ms <n>           每页稳定等待毫秒，默认 1200
   --open / --no-open      截图后是否用系统默认程序打开，默认打开
   --full                  截整页长图（按文档实际高度，不被视口截断）
@@ -171,6 +171,7 @@ function readDotEnv() {
     env[key] = value;
   }
   for (const key of ['ADMIN_USER', 'ADMIN_PASSWORD']) {
+    if (process.env[key]) env[key] = process.env[key];
     if (!env[key]) fail(`.env 缺少 ${key}`);
   }
   return env;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
 import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
+import { parseUrl } from './url.js';
 
 /** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge']);
@@ -8,17 +9,6 @@ export type ServerKind = z.infer<typeof serverKindSchema>;
 
 export const SECRET_MASK = '••••';
 export const PREVIEW_SECRET = SECRET_MASK;
-
-// shared 不带 DOM/Node lib，这里声明跨运行时都可用的最小 URL 形状。
-type ParsedUrl = { username: string; password: string; toString(): string };
-
-function parseUrl(value: string): ParsedUrl | null {
-  try {
-    return new (globalThis as unknown as { URL: new (value: string) => ParsedUrl }).URL(value);
-  } catch {
-    return null;
-  }
-}
 
 /** 空值保留为空；已配置密钥不泄露长度或前缀。 */
 export function maskSecret(value: string | null | undefined): string {
@@ -193,20 +183,20 @@ export const apiToolSchema = apiToolInputSchema.and(
 
 export type ApiTool = z.infer<typeof apiToolSchema>;
 
+export const mcpToolSummarySchema = z.object({
+  name: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type McpToolSummary = z.infer<typeof mcpToolSummarySchema>;
+
 /** 测试连接的结果，回显到页面。 */
 export const serverTestResultSchema = z.object({
   ok: z.boolean(),
   serverInfo: z.object({ name: z.string(), version: z.string() }).optional(),
-  tools: z
-    .array(
-      z.object({
-        name: z.string(),
-        title: z.string().optional(),
-        description: z.string().optional(),
-        inputSchema: z.record(z.string(), z.unknown()).optional(),
-      }),
-    )
-    .default([]),
+  tools: z.array(mcpToolSummarySchema).default([]),
   error: z.string().optional(),
   /** stdio 试连实际使用的环境身份；http/generated 不创建沙盒，没有这一项。 */
   runtimeEnvironment: resolvedRuntimeEnvironmentSchema.optional(),

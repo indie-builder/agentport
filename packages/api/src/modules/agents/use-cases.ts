@@ -1,12 +1,14 @@
 import { fail } from '@agentport/core';
 import { repo as allRepo, type Database } from '@agentport/db';
-import * as repo from '@agentport/db/repo/agents.js';
 import type { Agent, AgentInput } from '@agentport/shared';
 import { AGENT_ROLES } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { isPgCode } from '../../http/errors.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { importAgentPackage, type parseAgentPackage } from './package.js';
+import { toAgentConfigValues } from './write.js';
+
+const repo = allRepo.agents;
+
 export function rethrowConflict(err: unknown): never {
   if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他智能体占用，请换一个');
   if (isPgCode(err, '23503'))
@@ -16,24 +18,10 @@ export function rethrowConflict(err: unknown): never {
 export function toWrite(
   input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds' | 'pluginBindings'>,
   ownerBusinessId: string,
-): repo.AgentWrite {
+): allRepo.agents.AgentWrite {
   return {
     slug: input.slug,
-    name: input.name,
-    role: input.role,
-    description: input.description,
-    model: input.model,
-    systemPromptMd: input.systemPrompt,
-    allowedTools: input.allowedTools,
-    disallowedTools: input.disallowedTools,
-    permissionMode: input.permissionMode,
-    uiFormat: input.uiFormat,
-    effort: input.effort ?? null,
-    enabled: input.enabled,
-    maxTurns: input.maxTurns,
-    maxBudgetUsd: String(input.maxBudgetUsd),
-    timeoutMs: input.timeoutMs,
-    runtimeEnvironmentId: input.runtimeEnvironmentId,
+    ...toAgentConfigValues(input),
     createdBy: ownerBusinessId,
     ownerBusinessId,
   };
@@ -63,7 +51,7 @@ export async function validateSubAgents(
       return `「${row.name}」自己还有子智能体；只支持一层委派，请先解除它的子智能体`;
     }
   }
-  const bindings = await repo.listAgentPluginBindings(
+  const bindings = await allRepo.plugins.listAgentPluginBindingInputs(
     db,
     rows.map((row) => row.id),
   );
@@ -103,7 +91,7 @@ export async function createAgent(deps: AgentWriteDependencies, input: AgentInpu
       subAgentIds,
       pluginBindings,
     );
-    await writeAudit(deps.db, deps.log, {
+    await allRepo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: 'agent.created',
       target: row.id,
@@ -116,12 +104,12 @@ export async function createAgent(deps: AgentWriteDependencies, input: AgentInpu
     rethrowConflict(error);
   }
 }
-export async function agentDetail(db: Database, row: repo.AgentRow): Promise<Agent> {
+export async function agentDetail(db: Database, row: allRepo.agents.AgentRow): Promise<Agent> {
   const [serverIds, skillIds, subAgentIds, pluginBindings] = await Promise.all([
     repo.getAgentServerIds(db, row.id),
     repo.getAgentSkillIds(db, row.id),
     repo.getAgentSubAgentIds(db, row.id),
-    repo.listAgentPluginBindings(db, [row.id]),
+    allRepo.plugins.listAgentPluginBindingInputs(db, [row.id]),
   ]);
   return repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings.get(row.id) ?? []);
 }
@@ -129,24 +117,15 @@ function snapshotToWrite(
   snapshot: Agent,
   slug: string,
   currentRole: string,
-): Partial<repo.AgentWrite> {
+): Partial<allRepo.agents.AgentWrite> {
   return {
     slug,
-    name: snapshot.name,
-    role: AGENT_ROLES.some((role) => role === snapshot.role) ? snapshot.role : currentRole,
-    description: snapshot.description,
-    model: snapshot.model,
-    systemPromptMd: snapshot.systemPrompt,
-    allowedTools: snapshot.allowedTools,
-    disallowedTools: snapshot.disallowedTools,
-    permissionMode: snapshot.permissionMode,
-    uiFormat: snapshot.uiFormat ?? 'markdown',
-    effort: snapshot.effort ?? null,
-    enabled: snapshot.enabled,
-    maxTurns: snapshot.maxTurns,
-    maxBudgetUsd: String(snapshot.maxBudgetUsd),
-    timeoutMs: snapshot.timeoutMs,
-    runtimeEnvironmentId: snapshot.runtimeEnvironmentId ?? null,
+    ...toAgentConfigValues({
+      ...snapshot,
+      role: AGENT_ROLES.some((role) => role === snapshot.role) ? snapshot.role : currentRole,
+      uiFormat: snapshot.uiFormat ?? 'markdown',
+      runtimeEnvironmentId: snapshot.runtimeEnvironmentId ?? null,
+    }),
   };
 }
 export async function importAgent(
@@ -155,7 +134,7 @@ export async function importAgent(
   options: Parameters<typeof importAgentPackage>[2],
 ) {
   const result = await importAgentPackage(deps.db, parsed, options);
-  await writeAudit(deps.db, deps.log, {
+  await allRepo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'agent.imported',
     target: result.agent.id,
@@ -176,11 +155,11 @@ export async function importAgent(
 }
 export async function transferAgent(
   deps: AgentWriteDependencies,
-  row: repo.AgentRow,
+  row: allRepo.agents.AgentRow,
   ownerBusinessId: string,
 ) {
   const target = await allRepo.accounts.getIdentity(deps.db, ownerBusinessId);
-  if (!target || !target.accountActive) {
+  if (!target?.accountActive) {
     return fail('INVALID_INPUT', '新负责人必须是已登记且未停用的账户');
   }
   const targetAccess = await allRepo.access.getUserAccess(deps.db, ownerBusinessId);
@@ -195,7 +174,7 @@ export async function transferAgent(
   const transferred = await allRepo.access.transferAgent(deps.db, row.id, ownerBusinessId);
   if (!transferred)
     return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
-  await writeAudit(deps.db, deps.log, {
+  await allRepo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'agent.transferred',
     target: row.id,
@@ -209,7 +188,7 @@ export async function transferAgent(
 }
 export async function restoreAgentVersion(
   deps: AgentWriteDependencies,
-  current: repo.AgentRow,
+  current: allRepo.agents.AgentRow,
   target: {
     version: number;
     snapshot: Agent;
@@ -233,7 +212,7 @@ export async function restoreAgentVersion(
       ).pluginBindings,
     );
     if (!row) return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
-    await writeAudit(deps.db, deps.log, {
+    await allRepo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: 'agent.rolled_back',
       target: row.id,
@@ -241,7 +220,9 @@ export async function restoreAgentVersion(
       status: 'ok',
       requestId: deps.requestId,
     });
-    const restoredPlugins = await repo.listAgentPluginBindings(deps.db, [current.id]);
+    const restoredPlugins = await allRepo.plugins.listAgentPluginBindingInputs(deps.db, [
+      current.id,
+    ]);
     return repo.toAgent(
       row,
       snapshot.serverIds,

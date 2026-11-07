@@ -2,10 +2,10 @@ import { AppError } from '@agentport/core';
 import { authSessions, repo } from '@agentport/db';
 import type { Principal } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
+import { generateCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { RequestContext } from '../../http/context.js';
 import type { Auth } from './better-auth.js';
-import { AUTH_COOKIE } from './types.js';
 
 const sessionViewSchema = z.object({
   session: z.object({ id: z.string() }),
@@ -29,11 +29,17 @@ export function forwardSetCookie(headers: Headers, context: RequestContext): voi
   for (const cookie of headers.getSetCookie()) context.responseHeaders.append('set-cookie', cookie);
 }
 
-export function clearAuthCookie(context: RequestContext): void {
-  const secure = context.config.NODE_ENV === 'production' ? '; Secure' : '';
+export async function clearAuthCookie(context: RequestContext): Promise<void> {
+  const { authCookies } = await context.auth.$context;
+  const { name, attributes } = authCookies.sessionToken;
+  const { domain, ...options } = attributes;
   context.responseHeaders.append(
     'set-cookie',
-    `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`,
+    generateCookie(name, '', {
+      ...options,
+      ...(domain === undefined ? {} : { domain }),
+      maxAge: 0,
+    }),
   );
 }
 
@@ -90,14 +96,10 @@ export async function authenticate(context: RequestContext): Promise<void> {
 
 export async function sessionFromCookie(auth: Auth, cookie: string): Promise<SessionView | null> {
   if (cookie === '') return null;
-  try {
-    return normalizeSession(
-      await auth.api.getSession({
-        headers: new Headers({ cookie }),
-        query: { disableRefresh: true },
-      }),
-    );
-  } catch {
-    return null;
-  }
+  return normalizeSession(
+    await auth.api.getSession({
+      headers: new Headers({ cookie }),
+      query: { disableRefresh: true },
+    }),
+  );
 }

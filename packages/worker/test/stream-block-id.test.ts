@@ -1,5 +1,5 @@
-import type { ChatEvent } from '@agentport/shared';
 import { describe, expect, it } from 'bun:test';
+import type { ChatEvent } from '@agentport/shared';
 import { createStreamBlockIds } from '../src/runner-client.js';
 
 /**
@@ -21,7 +21,9 @@ describe('createStreamBlockIds', () => {
       { type: 'assistant_text', text: 'Hello', blockIndex: 0, sdkUuid: 'msg-1' },
     ]);
 
-    expect(events.map((event) => event.streamBlockId)).toEqual(['b0', 'b0', 'b0', 'b0', 'b0']);
+    const id = events[0]?.streamBlockId;
+    expect(id).toEqual(expect.any(String));
+    expect(events.every((event) => event.streamBlockId === id)).toBe(true);
   });
 
   it('issues a new id when the next SDK message reuses blockIndex 0 without a close', () => {
@@ -35,9 +37,13 @@ describe('createStreamBlockIds', () => {
       { type: 'assistant_text', text: '第二段', blockIndex: 0, sdkUuid: 'msg-2' },
     ]);
 
-    expect(events[3]?.streamBlockId).toBe('b1');
-    expect(events.slice(3).map((event) => event.streamBlockId)).toEqual(['b1', 'b1', 'b1']);
-    expect(events[0]?.streamBlockId).toBe('b0');
+    const first = events[0]?.streamBlockId;
+    const second = events[3]?.streamBlockId;
+    expect(first).toEqual(expect.any(String));
+    expect(second).toEqual(expect.any(String));
+    expect(second).not.toBe(first);
+    expect(events.slice(0, 3).every((event) => event.streamBlockId === first)).toBe(true);
+    expect(events.slice(3).every((event) => event.streamBlockId === second)).toBe(true);
   });
 
   it('distinguishes a sub-agent block from the parent with the same index', () => {
@@ -65,7 +71,10 @@ describe('createStreamBlockIds', () => {
       { type: 'text_delta', text: 'c', blockIndex: 1 },
     ]);
 
-    expect(events.map((event) => event.streamBlockId)).toEqual(['b0', 'b0', 'b1']);
+    expect(events[0]?.streamBlockId).toEqual(expect.any(String));
+    expect(events[1]?.streamBlockId).toBe(events[0]?.streamBlockId);
+    expect(events[2]?.streamBlockId).toEqual(expect.any(String));
+    expect(events[2]?.streamBlockId).not.toBe(events[0]?.streamBlockId);
   });
 
   it('starts a new id for each unbounded complete block of the same parent', () => {
@@ -86,7 +95,9 @@ describe('createStreamBlockIds', () => {
       },
     ]);
 
-    expect(events.map((event) => event.streamBlockId)).toEqual(['b0', 'b1']);
+    expect(events[0]?.streamBlockId).toEqual(expect.any(String));
+    expect(events[1]?.streamBlockId).toEqual(expect.any(String));
+    expect(events[1]?.streamBlockId).not.toBe(events[0]?.streamBlockId);
   });
 
   it('gives a delta, its completed text and the following stop one identity per message', () => {
@@ -102,16 +113,13 @@ describe('createStreamBlockIds', () => {
       { type: 'assistant_block_stop', blockIndex: 0 },
     ]);
 
-    expect(events.map((event) => event.streamBlockId)).toEqual([
-      'b0',
-      'b0',
-      'b0',
-      'b0',
-      'b1',
-      'b1',
-      'b1',
-      'b1',
-    ]);
+    const first = events[0]?.streamBlockId;
+    const second = events[4]?.streamBlockId;
+    expect(first).toEqual(expect.any(String));
+    expect(second).toEqual(expect.any(String));
+    expect(second).not.toBe(first);
+    expect(events.slice(0, 4).every((event) => event.streamBlockId === first)).toBe(true);
+    expect(events.slice(4).every((event) => event.streamBlockId === second)).toBe(true);
   });
 
   it('starts a new id per message when the runner sends no block index at all', () => {
@@ -123,6 +131,10 @@ describe('createStreamBlockIds', () => {
       { type: 'text_delta', text: 'c', sdkUuid: 'frame-3' },
     ]);
 
-    expect(events.map((event) => event.streamBlockId)).toEqual(['b0', 'b0', 'b0', 'b1']);
+    const first = events[0]?.streamBlockId;
+    expect(first).toEqual(expect.any(String));
+    expect(events.slice(0, 3).every((event) => event.streamBlockId === first)).toBe(true);
+    expect(events[3]?.streamBlockId).toEqual(expect.any(String));
+    expect(events[3]?.streamBlockId).not.toBe(first);
   });
 });
