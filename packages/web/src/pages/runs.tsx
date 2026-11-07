@@ -384,7 +384,7 @@ export function RunsPage() {
               ) : (
                 <ul
                   aria-label="运行列表"
-                  className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+                  className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3"
                 >
                   {items.map((run) => (
                     <li key={run.id} className="min-w-0">

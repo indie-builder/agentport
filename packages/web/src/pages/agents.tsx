@@ -618,7 +618,7 @@ export function AgentsPage() {
         {agents.data && (canCreate || filtered.length > 0) ? (
           <ul
             aria-label="专家列表"
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+            className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
           >
             {canCreate ? (
               <>
