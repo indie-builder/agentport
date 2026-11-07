@@ -89,7 +89,7 @@ function SidebarBrand({
         tabIndex={collapsed ? -1 : 0}
         onClick={animateBrand}
         className={cn(
-          'h-8 min-w-0 flex-1 justify-start rounded-[var(--radius-icon)] p-0 focus-visible:not-aria-invalid:border-transparent focus-visible:aria-invalid:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'h-8 min-w-0 flex-1 justify-start rounded-[var(--radius-icon)] p-0',
           collapsed && 'invisible',
         )}
       >
@@ -105,7 +105,7 @@ function SidebarBrand({
         aria-expanded={!collapsed}
         onClick={onToggle}
         className={cn(
-          'size-8 shrink-0 rounded-[var(--radius-icon)] p-0 hover:bg-sidebar-hover aria-expanded:bg-sidebar-hover focus-visible:not-aria-invalid:border-transparent focus-visible:aria-invalid:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'size-8 shrink-0 rounded-[var(--radius-icon)] p-0 hover:bg-sidebar-hover aria-expanded:bg-sidebar-hover',
           collapsed &&
             'absolute left-0 top-0 opacity-0 transition-opacity duration-[140ms] ease-out-soft focus-visible:opacity-100 group-hover/nav:opacity-100',
         )}
@@ -566,7 +566,7 @@ export function AppShell() {
                     aria-label="退出登录"
                     onClick={() => void logout()}
                     className={cn(
-                      'h-8 text-sm text-fg hover:bg-sidebar-hover focus-visible:not-aria-invalid:border-transparent focus-visible:aria-invalid:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      'h-8 text-sm text-fg hover:bg-sidebar-hover',
                       navCollapsed
                         ? 'size-8 rounded-tag p-0'
                         : 'justify-start gap-2.5 rounded-item px-2.5',
@@ -594,7 +594,7 @@ export function AppShell() {
                       : buttonVariants({
                           variant: 'ghost',
                           className:
-                            'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-sidebar-hover focus-visible:not-aria-invalid:border-transparent focus-visible:aria-invalid:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-sidebar-hover',
                         })
                   }
                 >
@@ -662,7 +662,7 @@ export function AppShell() {
                   size="icon-sm"
                   aria-label="关闭导航"
                   // Keep the subdued close icon and translucent hover instead of the ghost defaults.
-                  className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-sidebar-hover focus-visible:not-aria-invalid:border-transparent focus-visible:aria-invalid:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-sidebar-hover"
                 >
                   <X className="size-3" />
                 </Button>
@@ -685,7 +685,7 @@ export function AppShell() {
               aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(true)}
               // Keep the 7px icon corners and translucent hover instead of the regular ghost defaults.
-              className="-ml-1 rounded-[var(--radius-icon)] p-1.5 hover:bg-hover focus-visible:not-aria-invalid:border-transparent focus-visible:aria-invalid:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="-ml-1 rounded-[var(--radius-icon)] p-1.5 hover:bg-hover"
             >
               <Menu aria-hidden="true" />
             </Button>

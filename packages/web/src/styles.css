@@ -38,6 +38,10 @@
    */
   --color-muted: var(--color-sunken);
   --color-subtle: #898781;
+  /*
+   * 复选框/单选框的未选边界与输入边框共用一个 alpha 档，
+   * 比发丝边更重，保证在白底与选中底上仍可见。
+   */
   --color-control-boundary: rgba(0, 0, 0, 0.35);
 
   /* 数据主线保留独立蓝，不参与导航与按钮；失败保留结果状态色。 */
@@ -77,6 +81,7 @@
   --color-scrollbar-thumb: rgb(0 0 0 / 0.16);
   --color-scrollbar-thumb-hover: rgb(60 55 52 / 0.32);
 
+  /* 圆角：CDS 矩阵（卡片 12 / 控件 8 / 标签 6 / Composer 20） */
   --radius-card: 12px;
   --radius-item: 8px; /* 会话条目、新建会话 */
   --radius-icon: 8px; /* 图标按钮、logo、折叠按钮 */
@@ -159,15 +164,29 @@
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
-  --color-input: var(--color-line-strong);
+  /*
+   * 输入家族：默认边线等同 line；普通输入族聚焦改用中性暖灰 subtle #898781（无光晕，对白 3.59:1），
+   * SourceEditor / CodeMirror 沿用中性 input-focus（line / input-focus 对白仅 1.25 / 1.88:1，不达 3:1）；
+   * 不新增 input hover，错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
+   */
+  --color-input: var(--color-line);
+  --color-input-focus: #bdbdbd;
   --color-ring: #4d7079;
 
-  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.12);
-  --shadow-content-overlay: 0 4px 12px rgb(0 0 0 / .08);
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / .05);
-  --shadow-panel: 0 0 0 var(--hairline) var(--color-line);
-  --shadow-panel-hover: 0 0 0 var(--hairline) var(--color-line-strong);
+  /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
+  --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+  --shadow-2xs: 0 1px 1px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 2px 8px 0 rgba(0, 0, 0, 0.08);
+  --shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10);
+  --shadow-composer-hover: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20);
+  --shadow-composer-focus: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20), 0 0 0 var(--hairline) rgba(0, 0, 0, 0.20);
+  --shadow-panel: 0 0 0 var(--hairline) var(--color-line), var(--shadow-sm);
+  --shadow-panel-hover: 0 0 0 var(--hairline) var(--color-line-strong), 0 4px 16px -2px rgba(0, 0, 0, 0.09);
 
+  /*
+   * 底座浮层用 shadow-md / shadow-lg。项目只有一种浮层阴影语言，
+   * 在这里统一覆盖，避免两套阴影同时出现在屏幕上。
+   */
   --shadow-md: var(--shadow-overlay);
   --shadow-lg: var(--shadow-overlay);
 }
@@ -258,10 +277,6 @@
 
   :focus-visible {
     outline: 2px solid var(--color-ring);
-    outline-offset: -2px;
-  }
-
-  .bg-sidebar a:focus-visible {
     outline-offset: 2px;
   }
 
@@ -317,21 +332,9 @@
   }
 
   @media (forced-colors: active) {
-    :focus-visible,
-    [data-slot="input-group"]:has([data-slot="input-group-control"]:focus-visible),
-    [data-slot="combobox-chips"]:has([data-slot="combobox-chip-input"]:focus-visible),
-    [data-slot="source-editor"]:has(.cm-content:focus-visible, > textarea:focus-visible),
-    [data-slot="slider-thumb"]:has(:focus-visible),
-    [data-slot="field-label"]:has([data-slot="field"] :focus-visible) {
-      border-color: Highlight !important;
-      outline-color: Highlight !important;
-      box-shadow: none !important;
-    }
-
-    .bg-sidebar button:focus-visible {
-      border-color: transparent !important;
+    :focus-visible {
       outline: 2px solid Highlight !important;
-      outline-offset: -2px;
+      outline-offset: 2px;
     }
   }
 
@@ -357,8 +360,8 @@
     color: var(--color-fg);
   }
   .agent-create-fan:focus-visible {
-    border-color: var(--color-ring);
-    outline: none;
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
   }
 
   .agent-create-fan__art {
@@ -421,7 +424,7 @@
 
   .agent-create-fan:hover .agent-create-fan__chip,
   .agent-create-fan:focus-visible .agent-create-fan__chip {
-    box-shadow: var(--shadow-content-overlay);
+    box-shadow: var(--shadow-overlay);
   }
   .agent-create-fan:hover .agent-create-fan__chip:nth-child(1),
   .agent-create-fan:focus-visible .agent-create-fan__chip:nth-child(1) {
@@ -610,6 +613,10 @@
     animation: cds-skeleton-sweep 2s linear infinite;
   }
 
+  .cds-focus-glow:focus-visible {
+    border-color: var(--color-subtle);
+  }
+
   .cds-card-surface {
     box-shadow: var(--shadow-panel);
   }
@@ -653,13 +660,5 @@
 
   .message-fade-up {
     animation: message-fade-up .4s var(--ease-overshoot) both;
-  }
-}
-
-@layer utilities {
-  .cds-card-surface:focus-visible {
-    box-shadow: none;
-    outline: var(--hairline) solid var(--color-ring);
-    outline-offset: 0;
   }
 }

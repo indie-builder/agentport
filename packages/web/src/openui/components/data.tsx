@@ -162,7 +162,7 @@ function EditableCell({
         disabled={disabled}
         onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}
       >
-        <SelectTrigger aria-label={label} className="w-full">
+        <SelectTrigger aria-label={label} className="h-8 w-full border-transparent bg-transparent">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -186,10 +186,11 @@ function EditableCell({
           render={
             <Button
               type="button"
-              variant="plain"
+              variant="outline"
+              size="sm"
               aria-label={label}
               disabled={disabled}
-              className="h-8 w-full justify-start border-input bg-surface font-normal hover:not-focus:border-control-boundary focus:not-aria-invalid:border-ring focus-visible:outline-none focus:ring-0 focus:shadow-none"
+              className="h-8 w-full justify-start border-transparent bg-transparent font-normal"
             >
               {value || '选择日期'}
             </Button>
@@ -214,7 +215,10 @@ function EditableCell({
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className={cn(column.type === 'number' && 'text-right font-mono tabular-nums')}
+      className={cn(
+        'h-8 border-transparent bg-transparent',
+        column.type === 'number' && 'text-right font-mono tabular-nums',
+      )}
     />
   );
 }
@@ -353,7 +357,7 @@ export function EditableTableRenderer({
         >
           Reset
         </Button>
-        <Button size="sm" disabled={streaming || dirtyCount === 0} onClick={save}>
+        <Button size="sm" variant="outline" disabled={streaming || dirtyCount === 0} onClick={save}>
           Save Changes
         </Button>
       </div>
@@ -564,7 +568,7 @@ export function ContextCardBlockRenderer({
                 itemBody: itemProps?.body,
               })
             }
-            className="relative overflow-hidden"
+            className="relative overflow-hidden bg-sunken"
           >
             {itemProps?.bgImageSrc ? (
               <img
@@ -630,7 +634,7 @@ export function VisualCardBlockRenderer({
                 itemTag: tagProps?.text,
               })
             }
-            className="relative isolate min-h-40 justify-end overflow-hidden p-0"
+            className="relative isolate min-h-40 justify-end overflow-hidden bg-sunken p-0"
           >
             {itemProps?.bgImageSrc ? (
               <img

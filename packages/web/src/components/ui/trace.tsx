@@ -11,7 +11,7 @@ function Trace({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="trace"
       className={cn(
-        'flex w-full min-w-0 flex-col gap-2 *:has-[>[data-slot=trace-line]]:flex *:has-[>[data-slot=trace-line]]:w-fit *:has-[>[data-slot=trace-line]]:max-w-full *:has-[>[data-slot=trace-line]]:min-w-0 *:has-[>[data-slot=trace-line]]:rounded-icon *:has-[>[data-slot=trace-line]]:text-left *:has-[>[data-slot=trace-line]]:outline-none *:has-[>[data-slot=trace-line]]:focus-visible:outline-2 *:has-[>[data-slot=trace-line]]:focus-visible:outline-solid *:has-[>[data-slot=trace-line]]:focus-visible:outline-ring *:has-[>[data-slot=trace-line]]:focus-visible:outline-offset-0',
+        'flex w-full min-w-0 flex-col gap-2 *:has-[>[data-slot=trace-line]]:flex *:has-[>[data-slot=trace-line]]:w-fit *:has-[>[data-slot=trace-line]]:max-w-full *:has-[>[data-slot=trace-line]]:min-w-0 *:has-[>[data-slot=trace-line]]:rounded-icon *:has-[>[data-slot=trace-line]]:text-left *:has-[>[data-slot=trace-line]]:outline-none *:has-[>[data-slot=trace-line]]:focus-visible:ring-2 *:has-[>[data-slot=trace-line]]:focus-visible:ring-ring',
         className,
       )}
       {...props}
@@ -96,7 +96,7 @@ function TraceCollapsibleTrigger({
     <CollapsibleTrigger
       data-slot="trace-collapsible-trigger"
       className={cn(
-        'group/trace-collapsible-trigger flex w-fit max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-icon text-left text-muted-foreground transition-colors outline-none hover:text-fg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0 has-[[data-status=error]]:text-danger',
+        'group/trace-collapsible-trigger flex w-fit max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-icon text-left text-muted-foreground transition-colors outline-none hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring has-[[data-status=error]]:text-danger',
         className,
       )}
       {...props}
