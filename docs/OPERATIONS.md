@@ -687,13 +687,13 @@ E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，
 
 当前仍无真实 embedding 配置（knowledge profiles 为 0），知识库 manifest 为 `blocked` 且没有实体。`bun run dev:data:verify` 的登录、资产、运行环境和业务 UI 验收可通过，business/knowledge 仅因知识链路缺口失败；因此在补齐真实 embedding 前不能宣称数据集或验收全绿。同名资产接管立即停止、已有对象不覆盖等既有规则不变。
 
-隔离运行配置持久化在本 worktree 未跟踪的 `.env`：`DATABASE_URL` 指向独立持久库 `agentport_business_e2e_dataset`，`REDIS_URL` 使用 db 12，工作区与知识库目录为本树 `data/` 的绝对路径，沙盒镜像为 `agentport/sandbox:business-e2e-68241ba`，模型网关与端口沿用已实测值。主 checkout `.env` 未修改，原开发库未迁移/清理；首次环境准备曾因旧结构不匹配造成两条旧队列任务失败，现服务已隔离到专用库和 Redis 12。复用前先停掉本任务此前启动的 API/worker，再从本树根目录用标准 `bun run dev` 启动，避免新旧进程争用 3000/3426 或连错库；`E2E_APP_URL=https://worktree-business-e2e-dataset.agentport.localhost`。本任务未提交/未合并，附件、成果与记忆投影在本树 `data/`，PG 库独立持久；不要删除 worktree 或 `data/`。
+以下是 `business-e2e-dataset` 工作树的历史验收配置，不是任意当前 worktree 的通用配置，也不代表当前有实例在运行。隔离运行配置持久化在该工作树未跟踪的 `.env`：`DATABASE_URL` 指向独立持久库 `agentport_business_e2e_dataset`，`REDIS_URL` 使用 db 12，工作区与知识库目录为该树 `data/` 的绝对路径，沙盒镜像为 `agentport/sandbox:business-e2e-68241ba`，模型网关与端口沿用已实测值。主 checkout `.env` 未修改，原开发库未迁移/清理；首次环境准备曾因旧结构不匹配造成两条旧队列任务失败，当时服务已隔离到专用库和 Redis 12。后续复用应由最新 `origin/main` 代码接管原有的隔离配置与持久数据，并核对 manifest 路径（`datasetPath()` 固定当前代码根的 `data/dev-dataset`）；完成接管前保留该旧树、不覆盖主目录数据。历史验收地址为 `E2E_APP_URL=https://worktree-business-e2e-dataset.agentport.localhost`（仅记录，不表示当前有服务运行）。实现已由 [PR #139](https://github.com/indie-builder/agentport/pull/139) 合入 main；附件、成果与记忆投影在该树 `data/`，PG 库独立持久，保留 worktree 与 `data/` 是因为这些持久数据与配置路径依赖未入 Git，而非代码未交付；不要删除 worktree 或 `data/`。
 
-`e2e.dev-data.config.ts` 的管理员凭据优先取 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`，未设置时使用专用配置回退值，未必匹配当前 bootstrap；运行前从本树 `.env` 的进程环境安全注入 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`（不要把真实密码写进文档、提交文件或命令历史，也不需要新增 helper）；不要用 `.env` 的 `ADMIN_PASSWORD` 去猜已有库的当前密码，当前隔离库用 bootstrap 凭据可正常登录。
+`e2e.dev-data.config.ts` 的管理员凭据优先取 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`，未设置时使用专用配置回退值，未必匹配当前 bootstrap。运行前通过进程环境注入已确认的现有账号凭据 `E2E_ADMIN_USER`/`E2E_ADMIN_PASSWORD`；不要把真实密码写进文档、提交文件或命令历史，也不需要新增 helper。不要用 `.env` 的 `ADMIN_PASSWORD` 去猜已有库的当前密码或重置账号；该值不是现有账号的实时密码。
 
 数据生成过程还修复了专家摘要缺少的 6 个既有元数据字段（`parentId`/`slug`/`role`/`model`/`uiFormat`/`createdAt`，不下发敏感配置）；相关后端测试 40/40、API build 通过，子专家 UI 解绑/重绑与文件核对、看板 table/cards 均已用真实 UI 验证，且没有新增运行。
 
-日常开发直接使用已生成的持久库与 `data/`：从本树根目录用标准 `bun run dev` 启动即可，不需要运行 `bun run dev:data`。现有数据不要重建，只有缺项首次生成或需要恢复时才运行 `dev:data`，`dev:data:verify` 始终只读。
+日常开发复用已生成的持久库与 `data/`：完成上述隔离配置与持久数据接管后，在最新 `origin/main` 对应的工作树用标准 `bun run dev` 启动复用，不需要运行 `bun run dev:data`；接管前不能把最新代码与默认库或其他数据集混用。现有数据不要重建，只有缺项首次生成或需要恢复时才运行 `dev:data`，`dev:data:verify` 始终只读。
 
 
 ## 本地模型网关
