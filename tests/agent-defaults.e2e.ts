@@ -273,7 +273,7 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
   if (!measured) throw new Error('专家列表未渲染');
   // 两张创建入口卡 + 本次三位员工卡，过滤后恰好 5 张。
   expect(measured.cards).toHaveLength(5);
-  for (const card of measured.cards) expect(card.height).toBeCloseTo(208, 0);
+  for (const card of measured.cards) expect(card.height).toBeCloseTo(176, 0);
   for (const card of measured.cards) expect(card.width).toBeCloseTo(measured.cards[0].width, 0);
 
   const rows = new Map<number, typeof measured.cards>();
@@ -282,7 +282,7 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
     rows.set(key, [...(rows.get(key) ?? []), card]);
   }
   expect(rows.size).toBe(2);
-  expect([...rows.values()].map((row) => row.length).sort()).toEqual([2, 3]);
+  expect([...rows.values()].map((row) => row.length)).toEqual([4, 1]);
   for (const row of rows.values()) {
     row.sort((left, right) => left.x - right.x);
     for (let index = 1; index < row.length; index += 1) {
@@ -290,7 +290,7 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
     }
   }
   expect(measured.dataAvatar).toBeCloseTo(40, 0);
-  expect(measured.twinAvatar).toBeCloseTo(80, 0);
+  expect(measured.twinAvatar).toBeCloseTo(64, 0);
 
   // 完整工牌：只读摘要字段，关闭后焦点回到实际触发器。
   const badge = screen.getByRole('button', `查看 ${full.name} 工牌`);

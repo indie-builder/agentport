@@ -618,7 +618,7 @@ export function AgentsPage() {
         {agents.data && (canCreate || filtered.length > 0) ? (
           <ul
             aria-label="专家列表"
-            className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
           >
             {canCreate ? (
               <>
@@ -632,9 +632,9 @@ export function AgentsPage() {
                       setCreateRole('通用助手');
                       setCreating(true);
                     }}
-                    className="agent-create-fan h-52 w-full disabled:pointer-events-none disabled:opacity-60"
+                    className="agent-create-fan h-full min-h-44 w-full disabled:pointer-events-none disabled:opacity-60"
                   >
-                    <span className="agent-create-fan__art" aria-hidden="true">
+                    <span className="agent-create-fan__art scale-90" aria-hidden="true">
                       {createShowcaseAvatars.map((src) => (
                         <span key={src} className="agent-create-fan__chip">
                           <img src={src} alt="" />
@@ -648,12 +648,12 @@ export function AgentsPage() {
                   </button>
                 </li>
                 <li className="min-w-0">
-                  <Card className="h-52">
+                  <Card className="h-full min-h-44">
                     <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
                       <img
                         src={digitalTwinPortrait}
                         alt=""
-                        className="size-20 rounded-full object-cover"
+                        className="size-16 rounded-full object-cover"
                       />
                       <Button
                         variant="outline"
@@ -678,23 +678,35 @@ export function AgentsPage() {
                 (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
               return (
                 <li key={agent.id} className="min-w-0">
-                  <Card className="h-52 gap-3">
-                    <CardHeader className="grid h-12 grid-cols-[auto_minmax(0,1fr)_auto]! grid-rows-2 items-center">
-                      <AgentAvatar agent={agent} className="row-span-2 mr-2 self-center" />
-                      <CardTitle className="col-start-2 row-start-1 min-w-0">
-                        <h2 className="min-w-0">
-                          <Link
-                            to="/agents/$agentId"
-                            params={{ agentId: agent.id }}
-                            title={agent.name}
-                            disabled={importing}
-                            className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            {agent.name}
-                          </Link>
-                        </h2>
-                      </CardTitle>
-                      <CardAction className="col-start-3 row-start-1 self-start">
+                  <Card className="h-full min-h-44 gap-3">
+                    <CardHeader className="flex flex-row items-start gap-3">
+                      <AgentAvatar agent={agent} />
+                      <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <CardTitle>
+                          <h2 className="min-w-0">
+                            <Link
+                              to="/agents/$agentId"
+                              params={{ agentId: agent.id }}
+                              title={agent.name}
+                              disabled={importing}
+                              className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {agent.name}
+                            </Link>
+                          </h2>
+                        </CardTitle>
+                        <div className="flex min-w-0 flex-wrap items-center gap-1">
+                          <StatusBadge className="max-w-full min-w-0 bg-chip">
+                            <span className="block truncate" title={agentRole}>
+                              {agentRole}
+                            </span>
+                          </StatusBadge>
+                          {!agent.enabled ? (
+                            <StatusBadge className="shrink-0">已停用</StatusBadge>
+                          ) : null}
+                        </div>
+                      </div>
+                      <CardAction>
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
@@ -730,18 +742,8 @@ export function AgentsPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </CardAction>
-                      <div className="col-start-2 row-start-2 flex min-w-0 items-center gap-2">
-                        <StatusBadge className="max-w-full min-w-0 bg-chip">
-                          <span className="block truncate" title={agentRole}>
-                            {agentRole}
-                          </span>
-                        </StatusBadge>
-                        {!agent.enabled ? (
-                          <StatusBadge className="shrink-0">已停用</StatusBadge>
-                        ) : null}
-                      </div>
                     </CardHeader>
-                    <CardContent className="flex h-18 flex-col">
+                    <CardContent className="flex flex-col gap-2">
                       {agent.description.trim() ? (
                         <CardDescription className="line-clamp-2 break-words">
                           {agent.description}
@@ -750,13 +752,13 @@ export function AgentsPage() {
                       {agent.enabled && !canUse ? (
                         <p
                           id={`agent-use-denied-${agent.id}`}
-                          className="mt-auto line-clamp-2 text-xs text-muted-foreground"
+                          className="text-xs text-muted-foreground"
                         >
                           当前账户没有使用该专家的权限，无法开始对话。
                         </p>
                       ) : null}
                     </CardContent>
-                    <CardContent className="flex h-8 items-center justify-between gap-2">
+                    <CardContent className="mt-auto flex items-center justify-between gap-2">
                       {agent.enabled && canUse ? (
                         <Link
                           to="/chat"
