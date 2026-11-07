@@ -109,16 +109,16 @@ function table(): Element | null {
 }
 
 describe('run list view toggle', () => {
-  it('defaults to the table and renders cards instead of rows when the URL asks for cards', async () => {
+  it('defaults to the cards and renders rows instead when the URL asks for the table', async () => {
     const router = await mount();
-    expect(table()).not.toBeNull();
-    expect(cards()).toBeNull();
-
-    await act(async () => {
-      await router.navigate({ to: '/runs', search: { view: 'cards' } });
-    });
     expect(cards()).not.toBeNull();
     expect(table()).toBeNull();
+
+    await act(async () => {
+      await router.navigate({ to: '/runs', search: { view: 'table' } });
+    });
+    expect(table()).not.toBeNull();
+    expect(cards()).toBeNull();
   });
 
   it('opens the card view from a view=cards URL with every run field', async () => {
@@ -147,7 +147,7 @@ describe('run list view toggle', () => {
 
   it('expands the full error text on click and keeps the row from navigating', async () => {
     client.setQueryData(['runs', null, null, 100], { items: [{ ...run, error: longError }] });
-    const router = await mount();
+    const router = await mount('/runs?view=table');
 
     const expand = [...host.querySelectorAll('button')].find(
       (element) => element.textContent?.trim() === '展开全文',
@@ -185,14 +185,14 @@ describe('run list view toggle', () => {
   it('writes the chosen view into the URL when the toggle is clicked', async () => {
     const router = await mount();
     const toggle = [...host.querySelectorAll('button')].find(
-      (element) => element.textContent?.trim() === '卡片',
+      (element) => element.textContent?.trim() === '表格',
     );
-    if (!toggle) throw new Error('Missing card view toggle');
+    if (!toggle) throw new Error('Missing table view toggle');
 
     await act(async () => toggle.click());
-    await vi.waitFor(() => expect(cards()).not.toBeNull());
-    expect(table()).toBeNull();
+    await vi.waitFor(() => expect(table()).not.toBeNull());
+    expect(cards()).toBeNull();
     expect(router.state.location.pathname).toBe('/runs');
-    expect(router.state.location.search).toMatchObject({ view: 'cards' });
+    expect(router.state.location.search).toMatchObject({ view: 'table' });
   });
 });

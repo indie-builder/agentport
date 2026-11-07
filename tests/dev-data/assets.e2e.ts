@@ -899,7 +899,7 @@ async function setAccountStatus(
   businessId: string,
   status: 'active' | 'disabled',
 ): Promise<void> {
-  await ctx.app.open('/accounts');
+  await ctx.app.open('/accounts?view=table');
   const account = accounts.find((item) => item.businessId === businessId);
   if (!account) throw new Error(`账户 ${businessId} 不在数据集定义中`);
   const row = ctx.browser.locator('tr').filter({ hasText: businessId }).first();

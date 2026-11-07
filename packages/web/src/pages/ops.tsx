@@ -248,7 +248,7 @@ type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 export function SchedulesPage() {
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/schedules' });
-  const view: ListView = search.view ?? 'table';
+  const view: ListView = search.view ?? 'cards';
   const setView = (next: ListView): void => {
     void navigate({ to: '/schedules', search: { ...search, view: next }, replace: true });
   };
@@ -313,7 +313,9 @@ export function SchedulesPage() {
       </PageTopbar>
 
       <PageBody>
-        {schedules.isPending ? <LoadingState rows={3} /> : null}
+        {schedules.isPending ? (
+          <LoadingState rows={3} layout={view === 'cards' ? 'cards' : 'rows'} />
+        ) : null}
         {schedules.isError && !schedules.data ? (
           <ErrorState error={schedules.error} onRetry={() => void schedules.refetch()} />
         ) : null}
@@ -341,7 +343,7 @@ export function SchedulesPage() {
         {items.length > 0 && view === 'cards' ? (
           <ul
             aria-label="定时任务列表"
-            className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
           >
             {items.map((schedule) => {
               const nextDue =
@@ -528,14 +530,14 @@ function ScheduleCard({
   onDelete: () => void;
 }) {
   return (
-    <Card className="h-full">
+    <Card size="sm" className="h-full">
       <CardHeader>
         <CardTitle className="min-w-0">
           <h2 className="truncate" title={schedule.name}>
             {schedule.name}
           </h2>
         </CardTitle>
-        <CardDescription className="truncate text-xs">
+        <CardDescription className="truncate text-xs" title={schedule.agentName ?? '已删除的专家'}>
           {schedule.agentName ?? '已删除的专家'}
         </CardDescription>
         <CardAction>

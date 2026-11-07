@@ -10,7 +10,7 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
 }) => {
   const { agentId, runId } = await runFixture('regression', 'seed');
   try {
-    await app.open(`/runs?agent=${agentId}`);
+    await app.open(`/runs?agent=${agentId}&view=table`);
     await expect(screen.getByRole('heading', '运行')).toBeVisible();
     const row = browser.locator('button[data-row]').first();
     await expect(row).toBeVisible();

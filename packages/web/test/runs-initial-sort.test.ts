@@ -65,11 +65,12 @@ async function mount(): Promise<void> {
     validateSearch: (search: Record<string, unknown>) => ({
       agent: typeof search.agent === 'string' ? search.agent : undefined,
       status: search.status as RunStatus | undefined,
+      view: search.view === 'cards' ? 'cards' : search.view === 'table' ? 'table' : undefined,
     }),
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([shell.addChildren([runs])]),
-    history: createMemoryHistory({ initialEntries: ['/runs'] }),
+    history: createMemoryHistory({ initialEntries: ['/runs?view=table'] }),
   });
   await act(async () => {
     await router.load();

@@ -61,7 +61,7 @@ test('runs page exports only the filtered agent runs', { session: 'admin' }, asy
 }) => {
   const fixture = await seed();
   try {
-    await app.open(`/runs?agent=${fixture.ownAgentId}`);
+    await app.open(`/runs?agent=${fixture.ownAgentId}&view=table`);
     await expect(screen.getByRole('heading', '运行')).toBeVisible();
     await expect(screen.getByText('2 行', { exact: true })).toBeVisible();
 
@@ -91,7 +91,7 @@ test('runs page exports only the filtered agent runs', { session: 'admin' }, asy
 
     // 导出完成后按钮恢复，页面筛选不变。
     await expect(screen.getByRole('button', '导出运行', { exact: true })).toBeEnabled();
-    await expect(browser).toHaveURL(new RegExp(`/runs\\?agent=${fixture.ownAgentId}$`));
+    await expect(browser).toHaveURL(new RegExp(`/runs\\?agent=${fixture.ownAgentId}&view=table$`));
   } finally {
     await cleanup(fixture);
   }
@@ -104,7 +104,7 @@ test('runs page status filter narrows the export', { session: 'admin' }, async (
 }) => {
   const fixture = await seed();
   try {
-    await app.open(`/runs?agent=${fixture.ownAgentId}&status=failed`);
+    await app.open(`/runs?agent=${fixture.ownAgentId}&status=failed&view=table`);
     await expect(screen.getByText('1 行', { exact: true })).toBeVisible();
 
     const download = await browser.waitForDownload(() =>

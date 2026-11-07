@@ -8,11 +8,9 @@ import { Skeleton } from './ui/skeleton.js';
 export function LoadingState({
   rows = 3,
   layout = 'rows',
-  columns = 4,
 }: {
   rows?: number;
   layout?: 'rows' | 'cards' | 'list';
-  columns?: 3 | 4;
 }) {
   if (layout === 'list') {
     return (
@@ -30,14 +28,13 @@ export function LoadingState({
     );
   }
 
-  const gridClassName =
-    columns === 3
-      ? 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3'
-      : 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4';
-
   return (
     <div
-      className={layout === 'cards' ? gridClassName : 'flex flex-col gap-2'}
+      className={
+        layout === 'cards'
+          ? 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2'
+          : 'flex flex-col gap-2'
+      }
       aria-busy="true"
       aria-label="加载中"
       role="status"

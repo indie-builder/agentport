@@ -136,7 +136,7 @@ function ShareCard({
   onRevoke: (share: PersonalOutputShare) => void;
 }) {
   return (
-    <Card className="h-full">
+    <Card size="sm" className="h-full">
       <CardHeader>
         <CardTitle className="min-w-0">
           <ShareFile share={share} />
@@ -166,7 +166,7 @@ export function PersonalSharesPage() {
   const search = useSearch({ from: '/_shell/personal/shares' });
   const navigate = useNavigate({ from: '/personal/shares' });
   const cursor = search.cursor ?? null;
-  const view = search.view ?? 'table';
+  const view = search.view ?? 'cards';
   const shares = usePersonalOutputShares(cursor);
   const revoke = useRevokePersonalOutputShare();
   const [target, setTarget] = useState<PersonalOutputShare | null>(null);
@@ -280,9 +280,9 @@ export function PersonalSharesPage() {
           />
         ) : view === 'cards' ? (
           shares.isPending ? (
-            <LoadingState rows={3} layout="cards" columns={3} />
+            <LoadingState rows={3} layout="cards" />
           ) : (
-            <div className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2">
               {(shares.data?.items ?? []).map((share) => (
                 <ShareCard
                   key={share.id}

@@ -6,8 +6,8 @@ import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group.js';
 export type ListView = 'table' | 'cards';
 
 const VIEWS: ReadonlyArray<{ value: ListView; label: string; icon: LucideIcon }> = [
-  { value: 'table', label: '表格', icon: Table2 },
   { value: 'cards', label: '卡片', icon: LayoutGrid },
+  { value: 'table', label: '表格', icon: Table2 },
 ];
 
 export function SegmentedToggle<T extends string>({

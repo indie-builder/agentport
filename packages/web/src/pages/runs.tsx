@@ -173,7 +173,7 @@ function RunCard({ run }: { run: RunListItem }) {
     search: { backTo },
   };
   return (
-    <Card className="h-full">
+    <Card size="sm" className="h-full">
       <CardHeader>
         <CardTitle className="min-w-0">
           <h2 className="min-w-0">
@@ -232,7 +232,7 @@ export function RunsPage() {
   const search = useSearch({ from: '/_shell/runs/' });
   const agentId = search.agent ?? '';
   const status = search.status ?? '';
-  const view: ListView = search.view ?? 'table';
+  const view: ListView = search.view ?? 'cards';
   const setFilter = (patch: {
     agent?: string | undefined;
     status?: RunStatus | undefined;
@@ -380,11 +380,11 @@ export function RunsPage() {
               />
             ) : view === 'cards' ? (
               runs.isPending ? (
-                <LoadingState rows={3} layout="cards" columns={3} />
+                <LoadingState rows={3} layout="cards" />
               ) : (
                 <ul
                   aria-label="运行列表"
-                  className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3"
+                  className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
                 >
                   {items.map((run) => (
                     <li key={run.id} className="min-w-0">

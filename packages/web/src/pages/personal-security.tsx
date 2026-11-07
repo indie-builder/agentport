@@ -68,7 +68,7 @@ function byActivity(a: PersonalSession, b: PersonalSession): number {
 export function PersonalSecurityPage() {
   const search = useSearch({ from: '/_shell/personal/security' });
   const navigate = useNavigate({ from: '/personal/security' });
-  const view = search.view ?? 'table';
+  const view = search.view ?? 'cards';
   const change = useChangePassword();
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -273,7 +273,7 @@ function SessionSection({
 
   let body: ReactNode;
   if (sessions.isPending) {
-    body = <LoadingState rows={3} />;
+    body = <LoadingState rows={3} layout={view === 'cards' ? 'cards' : 'rows'} />;
   } else if (freshness) {
     body = (
       <PageNote
@@ -398,7 +398,7 @@ function SessionGroup({
         {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
       </div>
       {view === 'cards' ? (
-        <ul className="mt-3 grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2">
           {sessions.map((session) => (
             <li key={session.id} className="min-w-0">
               <SessionCard session={session} revoke={revoke} onRevoke={onRevoke} />
@@ -471,7 +471,7 @@ function SessionCard({
   onRevoke: (session: PersonalSession) => void;
 }) {
   return (
-    <Card className="h-full">
+    <Card size="sm" className="h-full">
       <Collapsible className="flex min-h-0 flex-1 flex-col gap-(--card-spacing)">
         <CardHeader>
           <CardTitle className="flex min-w-0 items-center gap-2">

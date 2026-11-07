@@ -73,7 +73,7 @@ async function mount() {
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([shell.addChildren([schedulesRoute])]),
-    history: createMemoryHistory({ initialEntries: ['/schedules'] }),
+    history: createMemoryHistory({ initialEntries: ['/schedules?view=table'] }),
   });
   await act(async () => {
     await router.load();

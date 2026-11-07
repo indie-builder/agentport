@@ -143,7 +143,7 @@ afterEach(async () => {
 
 describe('run detail navigation', () => {
   it('carries list filters into the detail via backTo and restores them on the way back', async () => {
-    const router = await mount('/runs?agent=agent-a&status=failed');
+    const router = await mount('/runs?agent=agent-a&status=failed&view=table');
     const open = host.querySelector<HTMLButtonElement>('button[data-row]');
     if (!open) throw new Error('Missing run row action');
     await act(async () => open.click());
@@ -151,20 +151,20 @@ describe('run detail navigation', () => {
       await vi.waitFor(() => expect(router.state.location.pathname).toBe('/runs/run_1'));
     });
     expect(router.state.location.search).toEqual({
-      backTo: '/runs?agent=agent-a&status=failed',
+      backTo: '/runs?agent=agent-a&status=failed&view=table',
     });
 
     await act(async () => {
       await vi.waitFor(() => expect(host.textContent).toContain('会话标题'));
     });
     const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回来源"]');
-    expect(back?.getAttribute('href')).toBe('/runs?agent=agent-a&status=failed');
+    expect(back?.getAttribute('href')).toBe('/runs?agent=agent-a&status=failed&view=table');
 
     // 选中步骤只改 step，来源 URL 仍在 URL 里。
     const steps = host.querySelectorAll<HTMLButtonElement>('ol button');
     await act(async () => steps[1]?.click());
     expect(router.state.location.search).toMatchObject({
-      backTo: '/runs?agent=agent-a&status=failed',
+      backTo: '/runs?agent=agent-a&status=failed&view=table',
       step: 1,
     });
 
@@ -172,7 +172,11 @@ describe('run detail navigation', () => {
     await act(async () => {
       await vi.waitFor(() => expect(router.state.location.pathname).toBe('/runs'));
     });
-    expect(router.state.location.search).toEqual({ agent: 'agent-a', status: 'failed' });
+    expect(router.state.location.search).toEqual({
+      agent: 'agent-a',
+      status: 'failed',
+      view: 'table',
+    });
   });
 
   it('restores the card view when the detail was opened from cards', async () => {

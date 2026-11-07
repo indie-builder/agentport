@@ -81,7 +81,7 @@ function runDestination(
 
 function RunCard({ run, action }: { run: PersonalRun; action: ReactNode }) {
   return (
-    <Card className="h-full">
+    <Card size="sm" className="h-full">
       <CardHeader>
         <CardTitle className="min-w-0 truncate" title={run.agentName ?? '已删除的专家'}>
           {run.agentName ?? '已删除的专家'}
@@ -129,7 +129,7 @@ export function PersonalUsagePage() {
   const canReadConversations = can(me.data, 'conversations.read');
   const days = search.days ?? 30;
   const cursor = search.cursor ?? null;
-  const view = search.view ?? 'table';
+  const view = search.view ?? 'cards';
   const hasActiveFilter = Boolean(search.agent || search.trigger || search.status);
   const usage = usePersonalUsage(days, canOverview);
   const agents = useQuery({ ...agentsQuery, enabled: canAgents });
@@ -283,7 +283,7 @@ export function PersonalUsagePage() {
               </div>
               {daysControl}
             </div>
-            {usage.isPending ? <LoadingState rows={3} /> : null}
+            {usage.isPending ? <LoadingState rows={2} /> : null}
             {usage.isError ? (
               <ErrorState error={usage.error} onRetry={() => void usage.refetch()} />
             ) : null}
@@ -472,9 +472,9 @@ export function PersonalUsagePage() {
               />
             ) : view === 'cards' ? (
               runs.isPending ? (
-                <LoadingState rows={3} layout="cards" columns={3} />
+                <LoadingState rows={3} layout="cards" />
               ) : (
-                <div className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2">
                   {(runs.data?.items ?? []).map((run) => (
                     <RunCard key={run.id} run={run} action={runAction(run)} />
                   ))}

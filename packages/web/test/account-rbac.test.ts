@@ -229,11 +229,12 @@ async function mount(
   component: () => React.ReactNode,
   searchSchema?: unknown,
 ): Promise<void> {
+  const pathname = path.split('?')[0] as string;
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const page = createRoute({
     getParentRoute: () => shell,
-    path: path.replace(/\$[^/]+/g, (_match) => '$agentId') as never,
+    path: pathname.replace(/\$[^/]+/g, (_match) => '$agentId') as never,
     ...(searchSchema === undefined ? {} : { validateSearch: searchSchema as never }),
     component,
   });
@@ -1160,7 +1161,7 @@ describe('账户管理', () => {
   };
 
   async function openAccounts(): Promise<void> {
-    await mount('/accounts', AccountsPage);
+    await mount('/accounts?view=table', AccountsPage);
     await waitFor(() => maybeButton('新建账户'));
   }
 

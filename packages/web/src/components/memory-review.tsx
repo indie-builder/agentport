@@ -359,7 +359,9 @@ export function MemoryReviews({
           <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
         ) : null}
 
-        {reviews.isPending ? <LoadingState rows={4} /> : null}
+        {reviews.isPending ? (
+          <LoadingState rows={4} layout={view === 'cards' ? 'cards' : 'rows'} />
+        ) : null}
         {reviews.isError ? (
           <ErrorState error={reviews.error} onRetry={() => void reviews.refetch()} />
         ) : null}
@@ -395,7 +397,7 @@ export function MemoryReviews({
               }
             />
           ) : view === 'cards' ? (
-            <div className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2">
               {visibleItems.map((review) => {
                 const target = targetDisplay(review.target, agents.data);
                 const status = decisionDisplay(review, rolledBack(review));
@@ -409,7 +411,7 @@ export function MemoryReviews({
                     .filter(Boolean)
                     .join('、');
                 return (
-                  <Card key={review.runId} className="h-full min-w-0">
+                  <Card key={review.runId} size="sm" className="h-full min-w-0">
                     <CardHeader>
                       <CardTitle className="min-w-0">
                         <h2 className="truncate" title={target.detail ?? target.label}>
