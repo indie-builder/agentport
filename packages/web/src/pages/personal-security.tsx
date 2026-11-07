@@ -9,7 +9,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageSection,
+  PageTopbar,
+} from '../components/page.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
@@ -101,141 +108,148 @@ export function PersonalSecurityPage() {
           if (change.isPending) return;
           setPasswordOpen(next);
         }}
-        className="flex min-w-0 flex-col gap-6"
+        className="flex h-full min-h-0 min-w-0 flex-col gap-6"
       >
-        <PageHeader
-          title="账号安全"
-          actions={
-            <>
-              <ViewToggle
-                value={view}
-                onChange={(next) =>
-                  void navigate({
-                    to: '/personal/security',
-                    search: (current) => ({ ...current, view: next }),
-                  })
-                }
-              />
-              <CollapsibleTrigger disabled={change.isPending} render={<Button variant="outline" />}>
-                {passwordOpen ? '收起' : '修改密码'}
-              </CollapsibleTrigger>
-            </>
-          }
-        />
+        <PageTopbar>
+          <PageHeader
+            title="账号安全"
+            actions={
+              <>
+                <ViewToggle
+                  value={view}
+                  onChange={(next) =>
+                    void navigate({
+                      to: '/personal/security',
+                      search: (current) => ({ ...current, view: next }),
+                    })
+                  }
+                />
+                <CollapsibleTrigger
+                  disabled={change.isPending}
+                  render={<Button variant="outline" />}
+                >
+                  {passwordOpen ? '收起' : '修改密码'}
+                </CollapsibleTrigger>
+              </>
+            }
+          />
+        </PageTopbar>
 
-        <CollapsibleContent animated>
-          <PageSection divided={false} className="w-full">
-            <div className="flex min-w-0 flex-col gap-1">
-              <h2 className="text-base font-medium text-fg">修改密码</h2>
-              <p className="min-w-0 break-words text-sm text-muted-foreground">
-                修改后会撤销全部登录会话，需要用新密码重新登录。
-              </p>
-            </div>
-            <form
-              aria-label="修改密码"
-              noValidate
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
-              }}
-            >
-              <FieldGroup className="gap-4">
-                <Field
-                  orientation="horizontal"
-                  className="items-start gap-x-4"
-                  data-disabled={change.isPending}
-                  data-invalid={formState.errors.currentPassword ? true : undefined}
-                >
-                  <FieldContent className="w-24 flex-none pt-2">
-                    <FieldLabel htmlFor="security-current-password">当前密码</FieldLabel>
-                  </FieldContent>
-                  <div className={FIELD_VALUE}>
-                    <Input
-                      id="security-current-password"
-                      type="password"
-                      autoComplete="current-password"
-                      autoFocus
-                      disabled={change.isPending}
-                      aria-invalid={formState.errors.currentPassword ? true : undefined}
-                      aria-describedby={
-                        formState.errors.currentPassword
-                          ? 'security-current-password-error'
-                          : undefined
-                      }
-                      {...register('currentPassword')}
-                    />
-                    <FieldError id="security-current-password-error">
-                      {formState.errors.currentPassword?.message}
-                    </FieldError>
+        <PageBody>
+          <CollapsibleContent animated>
+            <PageSection divided={false} className="w-full">
+              <div className="flex min-w-0 flex-col gap-1">
+                <h2 className="text-base font-medium text-fg">修改密码</h2>
+                <p className="min-w-0 break-words text-sm text-muted-foreground">
+                  修改后会撤销全部登录会话，需要用新密码重新登录。
+                </p>
+              </div>
+              <form
+                aria-label="修改密码"
+                noValidate
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submit();
+                }}
+              >
+                <FieldGroup className="gap-4">
+                  <Field
+                    orientation="horizontal"
+                    className="items-start gap-x-4"
+                    data-disabled={change.isPending}
+                    data-invalid={formState.errors.currentPassword ? true : undefined}
+                  >
+                    <FieldContent className="w-24 flex-none pt-2">
+                      <FieldLabel htmlFor="security-current-password">当前密码</FieldLabel>
+                    </FieldContent>
+                    <div className={FIELD_VALUE}>
+                      <Input
+                        id="security-current-password"
+                        type="password"
+                        autoComplete="current-password"
+                        autoFocus
+                        disabled={change.isPending}
+                        aria-invalid={formState.errors.currentPassword ? true : undefined}
+                        aria-describedby={
+                          formState.errors.currentPassword
+                            ? 'security-current-password-error'
+                            : undefined
+                        }
+                        {...register('currentPassword')}
+                      />
+                      <FieldError id="security-current-password-error">
+                        {formState.errors.currentPassword?.message}
+                      </FieldError>
+                    </div>
+                  </Field>
+                  <Field
+                    orientation="horizontal"
+                    className="items-start gap-x-4"
+                    data-disabled={change.isPending}
+                    data-invalid={formState.errors.newPassword ? true : undefined}
+                  >
+                    <FieldContent className="w-24 flex-none pt-2">
+                      <FieldLabel htmlFor="security-new-password">新密码</FieldLabel>
+                    </FieldContent>
+                    <div className={FIELD_VALUE}>
+                      <Input
+                        id="security-new-password"
+                        type="password"
+                        autoComplete="new-password"
+                        disabled={change.isPending}
+                        aria-invalid={formState.errors.newPassword ? true : undefined}
+                        aria-describedby={
+                          formState.errors.newPassword ? 'security-new-password-error' : undefined
+                        }
+                        {...register('newPassword')}
+                      />
+                      <FieldError id="security-new-password-error">
+                        {formState.errors.newPassword?.message}
+                      </FieldError>
+                    </div>
+                  </Field>
+                  <Field
+                    orientation="horizontal"
+                    className="items-start gap-x-4"
+                    data-disabled={change.isPending}
+                    data-invalid={formState.errors.confirmPassword ? true : undefined}
+                  >
+                    <FieldContent className="w-24 flex-none pt-2">
+                      <FieldLabel htmlFor="security-confirm-password">确认新密码</FieldLabel>
+                    </FieldContent>
+                    <div className={FIELD_VALUE}>
+                      <Input
+                        id="security-confirm-password"
+                        type="password"
+                        autoComplete="new-password"
+                        disabled={change.isPending}
+                        aria-invalid={formState.errors.confirmPassword ? true : undefined}
+                        aria-describedby={
+                          formState.errors.confirmPassword
+                            ? 'security-confirm-password-error'
+                            : undefined
+                        }
+                        {...register('confirmPassword')}
+                      />
+                      <FieldError id="security-confirm-password-error">
+                        {formState.errors.confirmPassword?.message}
+                      </FieldError>
+                    </div>
+                  </Field>
+                  {formError ? <FieldError>{formError}</FieldError> : null}
+                  <div className="ml-28 flex max-w-112 justify-end">
+                    <Button type="submit" disabled={change.isPending} aria-busy={change.isPending}>
+                      <KeyRound data-icon="inline-start" aria-hidden="true" />
+                      {change.isPending ? '正在修改…' : '保存新密码'}
+                    </Button>
                   </div>
-                </Field>
-                <Field
-                  orientation="horizontal"
-                  className="items-start gap-x-4"
-                  data-disabled={change.isPending}
-                  data-invalid={formState.errors.newPassword ? true : undefined}
-                >
-                  <FieldContent className="w-24 flex-none pt-2">
-                    <FieldLabel htmlFor="security-new-password">新密码</FieldLabel>
-                  </FieldContent>
-                  <div className={FIELD_VALUE}>
-                    <Input
-                      id="security-new-password"
-                      type="password"
-                      autoComplete="new-password"
-                      disabled={change.isPending}
-                      aria-invalid={formState.errors.newPassword ? true : undefined}
-                      aria-describedby={
-                        formState.errors.newPassword ? 'security-new-password-error' : undefined
-                      }
-                      {...register('newPassword')}
-                    />
-                    <FieldError id="security-new-password-error">
-                      {formState.errors.newPassword?.message}
-                    </FieldError>
-                  </div>
-                </Field>
-                <Field
-                  orientation="horizontal"
-                  className="items-start gap-x-4"
-                  data-disabled={change.isPending}
-                  data-invalid={formState.errors.confirmPassword ? true : undefined}
-                >
-                  <FieldContent className="w-24 flex-none pt-2">
-                    <FieldLabel htmlFor="security-confirm-password">确认新密码</FieldLabel>
-                  </FieldContent>
-                  <div className={FIELD_VALUE}>
-                    <Input
-                      id="security-confirm-password"
-                      type="password"
-                      autoComplete="new-password"
-                      disabled={change.isPending}
-                      aria-invalid={formState.errors.confirmPassword ? true : undefined}
-                      aria-describedby={
-                        formState.errors.confirmPassword
-                          ? 'security-confirm-password-error'
-                          : undefined
-                      }
-                      {...register('confirmPassword')}
-                    />
-                    <FieldError id="security-confirm-password-error">
-                      {formState.errors.confirmPassword?.message}
-                    </FieldError>
-                  </div>
-                </Field>
-                {formError ? <FieldError>{formError}</FieldError> : null}
-                <div className="ml-28 flex max-w-112 justify-end">
-                  <Button type="submit" disabled={change.isPending} aria-busy={change.isPending}>
-                    <KeyRound data-icon="inline-start" aria-hidden="true" />
-                    {change.isPending ? '正在修改…' : '保存新密码'}
-                  </Button>
-                </div>
-              </FieldGroup>
-            </form>
-          </PageSection>
-        </CollapsibleContent>
+                </FieldGroup>
+              </form>
+            </PageSection>
+          </CollapsibleContent>
 
-        <SessionSection view={view} onRelogin={relogin} divided={passwordOpen} />
+          <SessionSection view={view} onRelogin={relogin} divided={passwordOpen} />
+        </PageBody>
       </Collapsible>
     </Page>
   );

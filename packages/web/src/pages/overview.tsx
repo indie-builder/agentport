@@ -10,7 +10,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageSection,
+  PageTopbar,
+} from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
@@ -495,146 +502,157 @@ export function OverviewPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="概况"
-        actions={
-          <Link to="/chat" className={buttonVariants({ variant: empty ? 'default' : 'secondary' })}>
-            <Plus data-icon="inline-start" aria-hidden="true" /> 新建对话
-          </Link>
-        }
-      />
-
-      {error && !data ? <ErrorState error={error} onRetry={() => void overview.refetch()} /> : null}
-
-      {error && data ? (
-        <PageNote
-          tone="danger"
-          title="刷新失败，已保留加载的内容"
-          description="以下内容为上次成功加载的结果。"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void overview.refetch()}>
-              重试
-            </Button>
-          }
-        />
-      ) : null}
-
-      {loading ? <LoadingState rows={3} /> : null}
-
-      {empty ? (
-        <PageNote
-          icon={<Bot className="size-4" aria-hidden="true" />}
-          title="开始配置"
-          description="三步开始：接入一个 MCP Server → 创建专家并绑定它 → 在对话里使用。"
-          action={
-            <Link to="/servers" className={cn(buttonVariants({ size: 'sm' }))}>
-              <Plus className="size-3.5" /> 接入 MCP Server
+      <PageTopbar>
+        <PageHeader
+          title="概况"
+          actions={
+            <Link
+              to="/chat"
+              className={buttonVariants({ variant: empty ? 'default' : 'secondary' })}
+            >
+              <Plus data-icon="inline-start" aria-hidden="true" /> 新建对话
             </Link>
           }
         />
-      ) : null}
+      </PageTopbar>
 
-      {data && !empty ? (
-        <>
-          <HealthLine />
-          <PageSection title="平台概况" description={windowLabel} divided={false}>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                {
-                  label: '运行次数',
-                  value: data.counts.runs,
-                  hint: failedCount > 0 ? `${failedCount} 次失败` : null,
-                  icon: Activity,
-                },
-                {
-                  label: '运行成本',
-                  value: formatCost(data.counts.costUsd),
-                  hint:
-                    data.counts.tokens === 0 ? null : `${formatTokens(data.counts.tokens)} tokens`,
-                  icon: Sparkles,
-                },
-                { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
-                { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
-              ].map(({ label, value, hint, icon: Icon }) => (
-                <Card key={label} interactive={false}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-normal text-muted-foreground">{label}</span>
-                      <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-2">
-                    <span className="min-w-0 break-words text-3xl font-medium tabular-nums text-fg [overflow-wrap:anywhere]">
-                      {value}
-                    </span>
-                    {hint ? <CardDescription>{hint}</CardDescription> : null}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </PageSection>
+      <PageBody>
+        {error && !data ? (
+          <ErrorState error={error} onRetry={() => void overview.refetch()} />
+        ) : null}
 
-          {hasAttention ? attentionSection : null}
+        {error && data ? (
+          <PageNote
+            tone="danger"
+            title="刷新失败，已保留加载的内容"
+            description="以下内容为上次成功加载的结果。"
+            action={
+              <Button variant="outline" size="sm" onClick={() => void overview.refetch()}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
 
-          <RunTrendCard days={days} />
+        {loading ? <LoadingState rows={3} /> : null}
 
-          {hasAttention ? null : attentionSection}
-
-          <PageSection
-            title="最近运行"
-            {...(data.counts.running ? { description: `${data.counts.running} 个正在运行` } : {})}
-            actions={
-              <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                查看运行
+        {empty ? (
+          <PageNote
+            icon={<Bot className="size-4" aria-hidden="true" />}
+            title="开始配置"
+            description="三步开始：接入一个 MCP Server → 创建专家并绑定它 → 在对话里使用。"
+            action={
+              <Link to="/servers" className={cn(buttonVariants({ size: 'sm' }))}>
+                <Plus className="size-3.5" /> 接入 MCP Server
               </Link>
             }
-          >
-            {data.recent.length > 0 ? (
-              <DataTable
-                rows={data.recent.slice(0, 6)}
-                columns={runColumns}
-                rowKey={(run) => run.id}
-                rowLabel={(run) =>
-                  `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
-                }
-                label="最近运行"
-                storageKey="pace.overview.run-columns"
-                onRowClick={(run) =>
-                  void navigate({
-                    to: '/runs/$runId',
-                    params: { runId: run.id },
-                    search: { backTo: location.href },
-                  })
-                }
-              />
-            ) : (
-              <PageNote title="发起对话后在这里查看运行" />
-            )}
-          </PageSection>
+          />
+        ) : null}
 
-          <PageSection
-            title="专家运行"
-            actions={
-              <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                管理专家
-              </Link>
-            }
-          >
-            {data.agents.length > 0 ? (
-              <DataTable
-                rows={data.agents}
-                columns={agentColumns}
-                rowKey={(row) => row.agentId}
-                label="专家指标"
-                storageKey="pace.overview.agent-columns"
-                className="max-h-96 overflow-y-auto"
-              />
-            ) : (
-              <PageNote title="创建专家后开始对话" />
-            )}
-          </PageSection>
-        </>
-      ) : null}
+        {data && !empty ? (
+          <>
+            <HealthLine />
+            <PageSection title="平台概况" description={windowLabel} divided={false}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  {
+                    label: '运行次数',
+                    value: data.counts.runs,
+                    hint: failedCount > 0 ? `${failedCount} 次失败` : null,
+                    icon: Activity,
+                  },
+                  {
+                    label: '运行成本',
+                    value: formatCost(data.counts.costUsd),
+                    hint:
+                      data.counts.tokens === 0
+                        ? null
+                        : `${formatTokens(data.counts.tokens)} tokens`,
+                    icon: Sparkles,
+                  },
+                  { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
+                  { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
+                ].map(({ label, value, hint, icon: Icon }) => (
+                  <Card key={label} interactive={false}>
+                    <CardHeader>
+                      <CardTitle className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-normal text-muted-foreground">{label}</span>
+                        <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-2">
+                      <span className="min-w-0 break-words text-3xl font-medium tabular-nums text-fg [overflow-wrap:anywhere]">
+                        {value}
+                      </span>
+                      {hint ? <CardDescription>{hint}</CardDescription> : null}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </PageSection>
+
+            {hasAttention ? attentionSection : null}
+
+            <RunTrendCard days={days} />
+
+            {hasAttention ? null : attentionSection}
+
+            <PageSection
+              title="最近运行"
+              {...(data.counts.running ? { description: `${data.counts.running} 个正在运行` } : {})}
+              actions={
+                <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                  查看运行
+                </Link>
+              }
+            >
+              {data.recent.length > 0 ? (
+                <DataTable
+                  rows={data.recent.slice(0, 6)}
+                  columns={runColumns}
+                  rowKey={(run) => run.id}
+                  rowLabel={(run) =>
+                    `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
+                  }
+                  label="最近运行"
+                  storageKey="pace.overview.run-columns"
+                  onRowClick={(run) =>
+                    void navigate({
+                      to: '/runs/$runId',
+                      params: { runId: run.id },
+                      search: { backTo: location.href },
+                    })
+                  }
+                />
+              ) : (
+                <PageNote title="发起对话后在这里查看运行" />
+              )}
+            </PageSection>
+
+            <PageSection
+              title="专家运行"
+              actions={
+                <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                  管理专家
+                </Link>
+              }
+            >
+              {data.agents.length > 0 ? (
+                <DataTable
+                  rows={data.agents}
+                  columns={agentColumns}
+                  rowKey={(row) => row.agentId}
+                  label="专家指标"
+                  storageKey="pace.overview.agent-columns"
+                  className="max-h-96 overflow-y-auto"
+                />
+              ) : (
+                <PageNote title="创建专家后开始对话" />
+              )}
+            </PageSection>
+          </>
+        ) : null}
+      </PageBody>
     </Page>
   );
 }

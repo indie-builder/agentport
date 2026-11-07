@@ -11,7 +11,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader, PageNote } from '../components/page.js';
+import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
 import {
   isPluginMarkdown,
   PluginDocument,
@@ -89,8 +89,12 @@ export function PluginDetailPage() {
   if (plugin.isPending) {
     return (
       <Page>
-        <PageHeader title="插件详情" />
-        <LoadingState rows={6} />
+        <PageTopbar>
+          <PageHeader title="插件详情" />
+        </PageTopbar>
+        <PageBody>
+          <LoadingState rows={6} />
+        </PageBody>
       </Page>
     );
   }
@@ -99,24 +103,32 @@ export function PluginDetailPage() {
     if (plugin.error instanceof ApiError && plugin.error.status === 404) {
       return (
         <Page>
-          <PageHeader title="插件不存在" />
-          <PageNote
-            tone="danger"
-            title="这个插件不在了"
-            description="它可能已被删除。返回插件列表查看当前可用的插件。"
-            action={
-              <Link to="/plugins" className={buttonVariants({ variant: 'outline' })}>
-                返回插件列表
-              </Link>
-            }
-          />
+          <PageTopbar>
+            <PageHeader title="插件不存在" />
+          </PageTopbar>
+          <PageBody>
+            <PageNote
+              tone="danger"
+              title="这个插件不在了"
+              description="它可能已被删除。返回插件列表查看当前可用的插件。"
+              action={
+                <Link to="/plugins" className={buttonVariants({ variant: 'outline' })}>
+                  返回插件列表
+                </Link>
+              }
+            />
+          </PageBody>
         </Page>
       );
     }
     return (
       <Page>
-        <PageHeader title="插件详情" />
-        <ErrorState error={plugin.error} onRetry={() => void plugin.refetch()} />
+        <PageTopbar>
+          <PageHeader title="插件详情" />
+        </PageTopbar>
+        <PageBody>
+          <ErrorState error={plugin.error} onRetry={() => void plugin.refetch()} />
+        </PageBody>
       </Page>
     );
   }
@@ -161,6 +173,11 @@ function PluginDetailContent({
   onRetry: () => void;
 }) {
   const readme = rootReadme(plugin.files);
+  const description = plugin.description ? (
+    <p className="min-w-0 max-w-[75ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
+      {plugin.description}
+    </p>
+  ) : null;
   // 面板只在首次进入后渲染正文，避免两套文档同时存在；之后 keepMounted 常驻以保留阅读位置。
   const [introVisited, setIntroVisited] = useState(tab === 'intro');
   if (tab === 'intro' && !introVisited) setIntroVisited(true);
@@ -184,7 +201,7 @@ function PluginDetailContent({
 
   return (
     <Page>
-      <div className="flex min-w-0 flex-col gap-2">
+      <PageTopbar className="gap-2">
         <PageHeader
           leading={
             <Link
@@ -207,80 +224,77 @@ function PluginDetailContent({
             </a>
           }
         />
-        {plugin.description ? (
-          // ps-12 对齐标题：返回按钮 icon(2rem) + Header gap-4。
-          <p className="min-w-0 max-w-[60ch] break-words ps-12 text-sm text-muted-foreground">
-            {plugin.description}
-          </p>
-        ) : null}
-      </div>
+      </PageTopbar>
 
       {refetchError ? (
         <ErrorState error={refetchError} onRetry={onRetry} title="刷新失败，已保留加载的内容" />
       ) : null}
 
       {plugin.files.length === 0 ? (
-        <EmptyState
-          illustration={<BusinessIllustration name="documents" />}
-          title="这个插件没有支持文件"
-          description="插件目录里没有可查看的文件。"
-          action={
-            <Link to="/plugins" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-              返回插件列表
-            </Link>
-          }
-        />
+        <PageBody>
+          {description}
+          <EmptyState
+            illustration={<BusinessIllustration name="documents" />}
+            title="这个插件没有支持文件"
+            description="插件目录里没有可查看的文件。"
+            action={
+              <Link to="/plugins" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                返回插件列表
+              </Link>
+            }
+          />
+        </PageBody>
       ) : (
         <Tabs
           value={tab}
           onValueChange={(next) => changeTab(next === 'content' ? 'content' : 'intro')}
-          className="min-w-0 gap-4"
+          className="min-h-0 min-w-0 flex-1 gap-4"
         >
-          <TabsList variant="line" aria-label="插件视图">
-            <TabsTrigger value="intro">简介</TabsTrigger>
-            <TabsTrigger value="content">内容</TabsTrigger>
-          </TabsList>
+          <PageTopbar>
+            <TabsList variant="line" aria-label="插件视图">
+              <TabsTrigger value="intro">简介</TabsTrigger>
+              <TabsTrigger value="content">内容</TabsTrigger>
+            </TabsList>
+          </PageTopbar>
+          <PageBody className="overflow-hidden gap-0">
+            {/* 两个面板都常驻：Base UI 用 hidden/inert 管非活动面板，阅读位置因此随 DOM 保留。 */}
+            <TabsContent value="intro" keepMounted className="min-h-0 flex-1 overflow-y-auto">
+              {introVisited && description ? <div className="pb-4">{description}</div> : null}
+              {introVisited ? (
+                readme ? (
+                  <article className="min-w-0 max-w-[75ch] pb-4">
+                    <PluginDocument
+                      file={readmeForPage(readme, plugin.name)}
+                      mode="read"
+                      files={plugin.files}
+                      onSelectFile={selectFile}
+                    />
+                  </article>
+                ) : (
+                  <InlineEmpty>
+                    <span className="flex flex-col items-center gap-2">
+                      <span>未提供插件说明。</span>
+                      <Button variant="outline" size="sm" onClick={() => changeTab('content')}>
+                        查看插件内容
+                      </Button>
+                    </span>
+                  </InlineEmpty>
+                )
+              ) : null}
+            </TabsContent>
 
-          {/* 两个面板都常驻：Base UI 用 hidden/inert 管非活动面板，阅读位置因此随 DOM 保留。 */}
-          <TabsContent
-            value="intro"
-            keepMounted
-            className="min-h-0 max-h-[calc(100dvh_-_12rem)] overflow-y-auto"
-          >
-            {introVisited ? (
-              readme ? (
-                <article className="min-w-0 max-w-[75ch] pb-4">
-                  <PluginDocument
-                    file={readmeForPage(readme, plugin.name)}
-                    mode="read"
-                    files={plugin.files}
-                    onSelectFile={selectFile}
-                  />
-                </article>
-              ) : (
-                <InlineEmpty>
-                  <span className="flex flex-col items-center gap-2">
-                    <span>未提供插件说明。</span>
-                    <Button variant="outline" size="sm" onClick={() => changeTab('content')}>
-                      查看插件内容
-                    </Button>
-                  </span>
-                </InlineEmpty>
-              )
-            ) : null}
-          </TabsContent>
-
-          <TabsContent value="content" keepMounted className="min-h-0">
-            {contentVisited ? (
-              <PluginContent
-                plugin={plugin}
-                file={file}
-                mode={mode ?? 'read'}
-                onSelectFile={selectFile}
-                onSelectMode={selectMode}
-              />
-            ) : null}
-          </TabsContent>
+            <TabsContent value="content" keepMounted className="min-h-0 flex-1 overflow-hidden">
+              {contentVisited ? (
+                <PluginContent
+                  plugin={plugin}
+                  file={file}
+                  mode={mode ?? 'read'}
+                  onSelectFile={selectFile}
+                  onSelectMode={selectMode}
+                />
+              ) : null}
+            </TabsContent>
+          </PageBody>
         </Tabs>
       )}
     </Page>
@@ -396,7 +410,7 @@ function PluginContent({
   );
 
   return (
-    <div className="flex h-[max(28rem,calc(100dvh_-_12rem))] min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {wide ? (
         <>
           <div className="flex shrink-0 items-center pb-2">

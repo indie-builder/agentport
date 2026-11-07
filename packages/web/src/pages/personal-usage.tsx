@@ -6,7 +6,15 @@ import { Activity } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
-import { Page, PageHeader, PageNote, PageSection, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageSection,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { RunStatusBadge } from '../components/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
@@ -257,248 +265,252 @@ export function PersonalUsagePage() {
 
   return (
     <Page>
-      <PageHeader title="使用记录" />
+      <PageTopbar>
+        <PageHeader title="使用记录" />
+      </PageTopbar>
 
-      {canOverview ? (
-        <PageSection className="gap-3" divided={false}>
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 className="text-base font-medium text-fg">使用汇总</h2>
-              <p className="text-sm text-muted-foreground">
-                {summary
-                  ? `${formatUtcDateTime(summary.since)} – ${formatUtcDateTime(summary.until)}（UTC，按运行创建时间）`
-                  : `最近 ${days} 天（UTC，按运行创建时间）`}
-              </p>
+      <PageBody>
+        {canOverview ? (
+          <PageSection className="gap-3" divided={false}>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h2 className="text-base font-medium text-fg">使用汇总</h2>
+                <p className="text-sm text-muted-foreground">
+                  {summary
+                    ? `${formatUtcDateTime(summary.since)} – ${formatUtcDateTime(summary.until)}（UTC，按运行创建时间）`
+                    : `最近 ${days} 天（UTC，按运行创建时间）`}
+                </p>
+              </div>
+              {daysControl}
             </div>
-            {daysControl}
-          </div>
-          {usage.isPending ? <LoadingState rows={3} /> : null}
-          {usage.isError ? (
-            <ErrorState error={usage.error} onRetry={() => void usage.refetch()} />
-          ) : null}
-          {summary ? (
-            <dl className="grid grid-cols-[96px_minmax(0,1fr)] items-baseline gap-y-2 text-sm">
-              <dt className="text-muted-foreground">运行</dt>
-              <dd className="min-w-0">
-                <div className="grid min-w-0 grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4 lg:grid-cols-7">
-                  <SummaryStat label="总计" value={String(summary.runCount)} />
-                  {statuses.map((status) => (
-                    <SummaryStat
-                      key={status}
-                      label={runStatusLabel[status]}
-                      value={String(summary[status])}
-                    />
-                  ))}
-                </div>
-              </dd>
-              <dt className="text-muted-foreground">Token</dt>
-              <dd className="min-w-0 text-fg">
-                <span className="font-mono tabular-nums">
-                  {formatTokenCount(summary.inputTokens)}
-                </span>
-                {' 输入 / '}
-                <span className="font-mono tabular-nums">
-                  {formatTokenCount(summary.outputTokens)}
-                </span>
-                {' 输出'}
-              </dd>
-              <dt className="text-muted-foreground">已记录成本</dt>
-              <dd className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-fg">
-                {summary.costUsd === null ? (
-                  <span>未记录</span>
-                ) : (
-                  <>
-                    <span className="font-mono tabular-nums">
-                      {`${formatCost(summary.costUsd)} · ${summary.runCount} 次中 ${summary.costRecordedRuns} 次已记录`}
-                    </span>
-                    {summary.costMissingRuns > 0 ? (
-                      <span className="text-muted-foreground">
-                        {`${summary.costMissingRuns} 次运行未记录成本`}
+            {usage.isPending ? <LoadingState rows={3} /> : null}
+            {usage.isError ? (
+              <ErrorState error={usage.error} onRetry={() => void usage.refetch()} />
+            ) : null}
+            {summary ? (
+              <dl className="grid grid-cols-[96px_minmax(0,1fr)] items-baseline gap-y-2 text-sm">
+                <dt className="text-muted-foreground">运行</dt>
+                <dd className="min-w-0">
+                  <div className="grid min-w-0 grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4 lg:grid-cols-7">
+                    <SummaryStat label="总计" value={String(summary.runCount)} />
+                    {statuses.map((status) => (
+                      <SummaryStat
+                        key={status}
+                        label={runStatusLabel[status]}
+                        value={String(summary[status])}
+                      />
+                    ))}
+                  </div>
+                </dd>
+                <dt className="text-muted-foreground">Token</dt>
+                <dd className="min-w-0 text-fg">
+                  <span className="font-mono tabular-nums">
+                    {formatTokenCount(summary.inputTokens)}
+                  </span>
+                  {' 输入 / '}
+                  <span className="font-mono tabular-nums">
+                    {formatTokenCount(summary.outputTokens)}
+                  </span>
+                  {' 输出'}
+                </dd>
+                <dt className="text-muted-foreground">已记录成本</dt>
+                <dd className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-fg">
+                  {summary.costUsd === null ? (
+                    <span>未记录</span>
+                  ) : (
+                    <>
+                      <span className="font-mono tabular-nums">
+                        {`${formatCost(summary.costUsd)} · ${summary.runCount} 次中 ${summary.costRecordedRuns} 次已记录`}
                       </span>
-                    ) : null}
-                  </>
-                )}
-              </dd>
-            </dl>
-          ) : null}
-        </PageSection>
-      ) : null}
+                      {summary.costMissingRuns > 0 ? (
+                        <span className="text-muted-foreground">
+                          {`${summary.costMissingRuns} 次运行未记录成本`}
+                        </span>
+                      ) : null}
+                    </>
+                  )}
+                </dd>
+              </dl>
+            ) : null}
+          </PageSection>
+        ) : null}
 
-      {canRuns ? (
-        <PageSection className="gap-2" divided={canOverview}>
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 className="text-base font-medium text-fg">运行</h2>
-              {canOverview ? (
-                <p className="text-sm text-muted-foreground">汇总不随下面的筛选和分页变化。</p>
+        {canRuns ? (
+          <PageSection className="gap-2" divided={canOverview}>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h2 className="text-base font-medium text-fg">运行</h2>
+                {canOverview ? (
+                  <p className="text-sm text-muted-foreground">汇总不随下面的筛选和分页变化。</p>
+                ) : null}
+              </div>
+              {!canOverview || cursor || runs.data?.nextCursor ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  {canOverview ? null : daysControl}
+                  {cursor ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => patchSearch({ cursor: undefined })}
+                    >
+                      回到最新
+                    </Button>
+                  ) : null}
+                  {runs.data?.nextCursor ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => patchSearch({ cursor: runs.data?.nextCursor ?? undefined })}
+                    >
+                      下一页
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
-            {!canOverview || cursor || runs.data?.nextCursor ? (
-              <div className="flex flex-wrap items-center gap-2">
-                {canOverview ? null : daysControl}
-                {cursor ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => patchSearch({ cursor: undefined })}
-                  >
-                    回到最新
-                  </Button>
-                ) : null}
-                {runs.data?.nextCursor ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => patchSearch({ cursor: runs.data?.nextCursor ?? undefined })}
-                  >
-                    下一页
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-          <PageToolbar>
-            {canAgents ? (
+            <PageToolbar>
+              {canAgents ? (
+                <FilterSelect
+                  value={search.agent ?? ''}
+                  onValueChange={(next) =>
+                    patchSearch({ agent: next || undefined, cursor: undefined })
+                  }
+                  options={agentOptions}
+                  label="按专家筛选"
+                  className="w-full sm:w-36"
+                />
+              ) : null}
               <FilterSelect
-                value={search.agent ?? ''}
+                value={search.status ?? ''}
                 onValueChange={(next) =>
-                  patchSearch({ agent: next || undefined, cursor: undefined })
+                  patchSearch({
+                    status: (next || undefined) as RunStatus | undefined,
+                    cursor: undefined,
+                  })
                 }
-                options={agentOptions}
-                label="按专家筛选"
+                options={[
+                  { value: '', label: '全部状态' },
+                  ...statuses.map((status) => ({ value: status, label: runStatusLabel[status] })),
+                ]}
+                label="按状态筛选"
                 className="w-full sm:w-36"
               />
-            ) : null}
-            <FilterSelect
-              value={search.status ?? ''}
-              onValueChange={(next) =>
-                patchSearch({
-                  status: (next || undefined) as RunStatus | undefined,
-                  cursor: undefined,
-                })
-              }
-              options={[
-                { value: '', label: '全部状态' },
-                ...statuses.map((status) => ({ value: status, label: runStatusLabel[status] })),
-              ]}
-              label="按状态筛选"
-              className="w-full sm:w-36"
-            />
-            <FilterSelect
-              value={search.trigger ?? ''}
-              onValueChange={(next) =>
-                patchSearch({
-                  trigger: (next || undefined) as Trigger | undefined,
-                  cursor: undefined,
-                })
-              }
-              options={[
-                { value: '', label: '全部来源' },
-                ...triggers.map((trigger) => ({ value: trigger, label: triggerLabel[trigger] })),
-              ]}
-              label="按来源筛选"
-              className="w-full sm:w-36"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              aria-pressed={search.status === 'failed'}
-              onClick={() =>
-                patchSearch({
-                  status: search.status === 'failed' ? undefined : 'failed',
-                  cursor: undefined,
-                })
-              }
-            >
-              {search.status === 'failed' ? '清除失败筛选' : '只看失败'}
-            </Button>
-            <div className="ml-auto">
-              <ViewToggle value={view} onChange={(next) => patchSearch({ view: next })} />
-            </div>
-          </PageToolbar>
-
-          {runs.isError && runs.data !== undefined ? (
-            <PageNote
-              tone="danger"
-              title="刷新失败，已保留加载的内容"
-              description="以下为上次成功加载的内容。"
-              action={
-                <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
-                  重试
-                </Button>
-              }
-            />
-          ) : null}
-
-          {runs.isError && runs.data === undefined ? (
-            <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
-          ) : runs.data && runs.data.items.length === 0 ? (
-            <PageNote
-              icon={<Activity className="size-4" aria-hidden="true" />}
-              title={hasActiveFilter ? '没有匹配的运行记录' : '这个窗口还没有运行记录'}
-              action={
-                hasActiveFilter ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      patchSearch({
-                        agent: undefined,
-                        trigger: undefined,
-                        status: undefined,
-                        cursor: undefined,
-                      })
-                    }
-                  >
-                    清除筛选
-                  </Button>
-                ) : (
-                  <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-                    新建对话
-                  </Link>
-                )
-              }
-            />
-          ) : view === 'cards' ? (
-            runs.isPending ? (
-              <LoadingState rows={3} layout="cards" columns={3} />
-            ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {(runs.data?.items ?? []).map((run) => (
-                  <RunCard key={run.id} run={run} action={runAction(run)} />
-                ))}
+              <FilterSelect
+                value={search.trigger ?? ''}
+                onValueChange={(next) =>
+                  patchSearch({
+                    trigger: (next || undefined) as Trigger | undefined,
+                    cursor: undefined,
+                  })
+                }
+                options={[
+                  { value: '', label: '全部来源' },
+                  ...triggers.map((trigger) => ({ value: trigger, label: triggerLabel[trigger] })),
+                ]}
+                label="按来源筛选"
+                className="w-full sm:w-36"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                aria-pressed={search.status === 'failed'}
+                onClick={() =>
+                  patchSearch({
+                    status: search.status === 'failed' ? undefined : 'failed',
+                    cursor: undefined,
+                  })
+                }
+              >
+                {search.status === 'failed' ? '清除失败筛选' : '只看失败'}
+              </Button>
+              <div className="ml-auto">
+                <ViewToggle value={view} onChange={(next) => patchSearch({ view: next })} />
               </div>
-            )
-          ) : (
-            <DataTable
-              rows={runs.data?.items ?? []}
-              columns={columns}
-              rowKey={(run) => run.id}
-              label="我的运行"
-              loading={runs.isPending}
-              empty="没有运行记录"
-              renderExpanded={(run) => (
-                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
-                  <dt className="text-muted-foreground">耗时</dt>
-                  <dd className="font-mono tabular-nums text-fg">
-                    {formatDuration(run.latencyMs)}
-                  </dd>
-                  <dt className="text-muted-foreground">成本</dt>
-                  <dd className="font-mono tabular-nums text-fg">{formatCost(run.costUsd)}</dd>
-                  <dt className="text-muted-foreground">Token</dt>
-                  <dd className="font-mono tabular-nums text-fg">
-                    {`${formatTokens(run.inputTokens)} / ${formatTokens(run.outputTokens)}`}
-                  </dd>
-                  <dt className="text-muted-foreground">运行 ID</dt>
-                  <dd className="font-mono text-xs text-fg" title={run.id}>
-                    {shortId(run.id)}
-                  </dd>
-                </dl>
-              )}
-            />
-          )}
-        </PageSection>
-      ) : null}
+            </PageToolbar>
+
+            {runs.isError && runs.data !== undefined ? (
+              <PageNote
+                tone="danger"
+                title="刷新失败，已保留加载的内容"
+                description="以下为上次成功加载的内容。"
+                action={
+                  <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
+                    重试
+                  </Button>
+                }
+              />
+            ) : null}
+
+            {runs.isError && runs.data === undefined ? (
+              <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
+            ) : runs.data && runs.data.items.length === 0 ? (
+              <PageNote
+                icon={<Activity className="size-4" aria-hidden="true" />}
+                title={hasActiveFilter ? '没有匹配的运行记录' : '这个窗口还没有运行记录'}
+                action={
+                  hasActiveFilter ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        patchSearch({
+                          agent: undefined,
+                          trigger: undefined,
+                          status: undefined,
+                          cursor: undefined,
+                        })
+                      }
+                    >
+                      清除筛选
+                    </Button>
+                  ) : (
+                    <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                      新建对话
+                    </Link>
+                  )
+                }
+              />
+            ) : view === 'cards' ? (
+              runs.isPending ? (
+                <LoadingState rows={3} layout="cards" columns={3} />
+              ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {(runs.data?.items ?? []).map((run) => (
+                    <RunCard key={run.id} run={run} action={runAction(run)} />
+                  ))}
+                </div>
+              )
+            ) : (
+              <DataTable
+                rows={runs.data?.items ?? []}
+                columns={columns}
+                rowKey={(run) => run.id}
+                label="我的运行"
+                loading={runs.isPending}
+                empty="没有运行记录"
+                renderExpanded={(run) => (
+                  <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+                    <dt className="text-muted-foreground">耗时</dt>
+                    <dd className="font-mono tabular-nums text-fg">
+                      {formatDuration(run.latencyMs)}
+                    </dd>
+                    <dt className="text-muted-foreground">成本</dt>
+                    <dd className="font-mono tabular-nums text-fg">{formatCost(run.costUsd)}</dd>
+                    <dt className="text-muted-foreground">Token</dt>
+                    <dd className="font-mono tabular-nums text-fg">
+                      {`${formatTokens(run.inputTokens)} / ${formatTokens(run.outputTokens)}`}
+                    </dd>
+                    <dt className="text-muted-foreground">运行 ID</dt>
+                    <dd className="font-mono text-xs text-fg" title={run.id}>
+                      {shortId(run.id)}
+                    </dd>
+                  </dl>
+                )}
+              />
+            )}
+          </PageSection>
+        ) : null}
+      </PageBody>
     </Page>
   );
 }

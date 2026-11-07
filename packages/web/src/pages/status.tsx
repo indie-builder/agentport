@@ -8,7 +8,14 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
-import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageSection,
+  PageTopbar,
+} from '../components/page.js';
 import { LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
@@ -325,175 +332,181 @@ export function StatusPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="健康"
-        description="运行指标每 10 秒自动刷新。"
-        actions={
-          <Button variant="outline" onClick={refresh} disabled={isFetching}>
-            <RefreshCw
-              data-icon="inline-start"
-              className={isFetching ? 'animate-spin' : undefined}
-              aria-hidden="true"
-            />
-            {isFetching ? '刷新中…' : '刷新'}
-          </Button>
-        }
-      />
-
-      <PageSection title="端点诊断" divided={false}>
-        <div className="flex flex-wrap items-start gap-3 border-b pb-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h3 className="text-sm font-medium text-fg">
-              存活检查{' '}
-              <code className="break-all font-mono text-xs text-muted-foreground">
-                /health/live
-              </code>
-            </h3>
-            {liveState === 'error' ? (
-              <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
-                {live.isError
-                  ? '存活检查请求失败。'
-                  : (live.data?.error ??
-                    `HTTP ${live.data?.httpStatus ?? '未知'}，进程未返回 200。`)}
-              </p>
-            ) : null}
-          </div>
-          <StatusPill state={liveState} />
-        </div>
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h3 className="text-sm font-medium text-fg">
-              就绪检查{' '}
-              <code className="break-all font-mono text-xs text-muted-foreground">
-                /health/ready
-              </code>
-            </h3>
-            {readyProblem ? (
-              <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
-                {readyProblem}
-              </p>
-            ) : null}
-            {!ready.isPending && !ready.isError && ready.data?.body ? (
-              <div className="flex flex-wrap gap-2">
-                <StatusBadge tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}>
-                  数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
-                </StatusBadge>
-                <StatusBadge tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}>
-                  Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
-                </StatusBadge>
-              </div>
-            ) : null}
-          </div>
-          <StatusPill state={readyState} />
-        </div>
-      </PageSection>
-
-      {metrics.isError ? (
-        <PageNote
-          tone="danger"
-          title={data ? '指标刷新失败' : '指标读取失败'}
-          description={
-            data ? '以下保留上次成功读取的指标。' : '指标端点不可达或返回非 200，各区块显示为未知。'
-          }
-          action={
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={metrics.isFetching}
-              onClick={() => void metrics.refetch()}
-            >
-              重试
+      <PageTopbar>
+        <PageHeader
+          title="健康"
+          description="运行指标每 10 秒自动刷新。"
+          actions={
+            <Button variant="outline" onClick={refresh} disabled={isFetching}>
+              <RefreshCw
+                data-icon="inline-start"
+                className={isFetching ? 'animate-spin' : undefined}
+                aria-hidden="true"
+              />
+              {isFetching ? '刷新中…' : '刷新'}
             </Button>
           }
         />
-      ) : null}
+      </PageTopbar>
 
-      <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
-        <PageSection title="进程" actions={<StatusPill state={processState} />}>
-          {data ? (
-            <div className="grid grid-cols-3 gap-4">
-              <Metric label="运行时长" value={formatUptime(data.process.uptimeSeconds)} />
-              <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
-              <Metric label="Bun" value={data.process.bunVersion} />
-            </div>
-          ) : metrics.isPending ? (
-            <LoadingState rows={2} />
-          ) : (
-            <Unknown />
-          )}
-        </PageSection>
-
-        <PageSection title="队列 agent-runs" actions={<StatusPill state={queueState} />}>
-          {queue ? (
-            <>
-              <div className="grid grid-cols-4 gap-4">
-                <Metric label="等待" value={String(queue.waiting)} />
-                <Metric label="运行中" value={String(queue.active)} />
-                <Metric label="失败" value={String(queue.failed)} />
-                <Metric label="延迟" value={String(queue.delayed)} />
-              </div>
-              {queueHealth.condition === 'ok' ? null : (
-                <Reason tone="warn">
-                  {queueHealth.message}
-                  {queueHealth.hint ? ` ${queueHealth.hint}` : ''}
-                </Reason>
-              )}
-            </>
-          ) : metrics.isPending ? (
-            <LoadingState rows={2} />
-          ) : data ? (
-            <Reason>
-              {queueHealth.message}
-              {queueHealth.hint ? ` ${queueHealth.hint}` : ''}
-            </Reason>
-          ) : (
-            <Unknown />
-          )}
-        </PageSection>
-
-        <PageSection title="数据库" actions={<StatusPill state={dbState} />}>
-          {db ? (
-            <>
-              <div className="grid grid-cols-3 gap-4">
-                <Metric label="连接" value={db.connected ? '正常' : '失败'} />
-                <Metric label="Ping" value={db.pingMs === null ? '未测得' : `${db.pingMs} ms`} />
-                <Metric
-                  label="连接上限"
-                  value={db.maxConnections === null ? '未提供' : String(db.maxConnections)}
-                />
-              </div>
-              {!db.connected ? (
-                <Reason>数据库探测失败：检查 DATABASE_URL 与 PostgreSQL 服务。</Reason>
+      <PageBody>
+        <PageSection title="端点诊断" divided={false}>
+          <div className="flex flex-wrap items-start gap-3 border-b pb-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <h3 className="text-sm font-medium text-fg">
+                存活检查{' '}
+                <code className="break-all font-mono text-xs text-muted-foreground">
+                  /health/live
+                </code>
+              </h3>
+              {liveState === 'error' ? (
+                <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                  {live.isError
+                    ? '存活检查请求失败。'
+                    : (live.data?.error ??
+                      `HTTP ${live.data?.httpStatus ?? '未知'}，进程未返回 200。`)}
+                </p>
               ) : null}
-            </>
-          ) : metrics.isPending ? (
-            <LoadingState rows={2} />
-          ) : data ? (
-            <div className="text-sm text-muted-foreground">读不到数据库指标。</div>
-          ) : (
-            <Unknown />
-          )}
-        </PageSection>
-
-        <PageSection title="Redis" actions={<StatusPill state={redisState} />}>
-          {redis ? (
-            <div className="grid grid-cols-2 gap-4">
-              <Metric label="Ping" value={`${redis.pingMs} ms`} />
-              <Metric label="状态" value="PONG" />
             </div>
-          ) : metrics.isPending ? (
-            <LoadingState rows={2} />
-          ) : data ? (
-            <Reason>
-              Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
-            </Reason>
-          ) : (
-            <Unknown />
-          )}
+            <StatusPill state={liveState} />
+          </div>
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <h3 className="text-sm font-medium text-fg">
+                就绪检查{' '}
+                <code className="break-all font-mono text-xs text-muted-foreground">
+                  /health/ready
+                </code>
+              </h3>
+              {readyProblem ? (
+                <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                  {readyProblem}
+                </p>
+              ) : null}
+              {!ready.isPending && !ready.isError && ready.data?.body ? (
+                <div className="flex flex-wrap gap-2">
+                  <StatusBadge tone={ready.data.body.db === 'ok' ? 'success' : 'danger'}>
+                    数据库 {ready.data.body.db === 'ok' ? '正常' : '不可用'}
+                  </StatusBadge>
+                  <StatusBadge tone={ready.data.body.redis === 'ok' ? 'success' : 'danger'}>
+                    Redis {ready.data.body.redis === 'ok' ? '正常' : '不可用'}
+                  </StatusBadge>
+                </div>
+              ) : null}
+            </div>
+            <StatusPill state={readyState} />
+          </div>
         </PageSection>
-      </div>
 
-      <SmokeChecklist />
+        {metrics.isError ? (
+          <PageNote
+            tone="danger"
+            title={data ? '指标刷新失败' : '指标读取失败'}
+            description={
+              data
+                ? '以下保留上次成功读取的指标。'
+                : '指标端点不可达或返回非 200，各区块显示为未知。'
+            }
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={metrics.isFetching}
+                onClick={() => void metrics.refetch()}
+              >
+                重试
+              </Button>
+            }
+          />
+        ) : null}
+
+        <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
+          <PageSection title="进程" actions={<StatusPill state={processState} />}>
+            {data ? (
+              <div className="grid grid-cols-3 gap-4">
+                <Metric label="运行时长" value={formatUptime(data.process.uptimeSeconds)} />
+                <Metric label="内存 RSS" value={formatBytes(data.process.memoryRssBytes)} />
+                <Metric label="Bun" value={data.process.bunVersion} />
+              </div>
+            ) : metrics.isPending ? (
+              <LoadingState rows={2} />
+            ) : (
+              <Unknown />
+            )}
+          </PageSection>
+
+          <PageSection title="队列 agent-runs" actions={<StatusPill state={queueState} />}>
+            {queue ? (
+              <>
+                <div className="grid grid-cols-4 gap-4">
+                  <Metric label="等待" value={String(queue.waiting)} />
+                  <Metric label="运行中" value={String(queue.active)} />
+                  <Metric label="失败" value={String(queue.failed)} />
+                  <Metric label="延迟" value={String(queue.delayed)} />
+                </div>
+                {queueHealth.condition === 'ok' ? null : (
+                  <Reason tone="warn">
+                    {queueHealth.message}
+                    {queueHealth.hint ? ` ${queueHealth.hint}` : ''}
+                  </Reason>
+                )}
+              </>
+            ) : metrics.isPending ? (
+              <LoadingState rows={2} />
+            ) : data ? (
+              <Reason>
+                {queueHealth.message}
+                {queueHealth.hint ? ` ${queueHealth.hint}` : ''}
+              </Reason>
+            ) : (
+              <Unknown />
+            )}
+          </PageSection>
+
+          <PageSection title="数据库" actions={<StatusPill state={dbState} />}>
+            {db ? (
+              <>
+                <div className="grid grid-cols-3 gap-4">
+                  <Metric label="连接" value={db.connected ? '正常' : '失败'} />
+                  <Metric label="Ping" value={db.pingMs === null ? '未测得' : `${db.pingMs} ms`} />
+                  <Metric
+                    label="连接上限"
+                    value={db.maxConnections === null ? '未提供' : String(db.maxConnections)}
+                  />
+                </div>
+                {!db.connected ? (
+                  <Reason>数据库探测失败：检查 DATABASE_URL 与 PostgreSQL 服务。</Reason>
+                ) : null}
+              </>
+            ) : metrics.isPending ? (
+              <LoadingState rows={2} />
+            ) : data ? (
+              <div className="text-sm text-muted-foreground">读不到数据库指标。</div>
+            ) : (
+              <Unknown />
+            )}
+          </PageSection>
+
+          <PageSection title="Redis" actions={<StatusPill state={redisState} />}>
+            {redis ? (
+              <div className="grid grid-cols-2 gap-4">
+                <Metric label="Ping" value={`${redis.pingMs} ms`} />
+                <Metric label="状态" value="PONG" />
+              </div>
+            ) : metrics.isPending ? (
+              <LoadingState rows={2} />
+            ) : data ? (
+              <Reason>
+                Ping 失败：检查 REDIS_URL 与 redis 容器；队列、会话和限流都会同时受影响。
+              </Reason>
+            ) : (
+              <Unknown />
+            )}
+          </PageSection>
+        </div>
+
+        <SmokeChecklist />
+      </PageBody>
     </Page>
   );
 }

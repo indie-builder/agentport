@@ -5,7 +5,14 @@ import { Hash, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge-shared.js';
-import { Page, PageHeader, PageNote, PageSection } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageSection,
+  PageTopbar,
+} from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -33,63 +40,70 @@ export function ChannelsPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="频道"
-        actions={
-          canCreate && (channels.isPending || (channels.isError && channels.data === undefined) || items.length > 0) ? (
-            <Button onClick={() => setCreating(true)}>
-              <Plus aria-hidden="true" />
-              新建频道
-            </Button>
-          ) : undefined
-        }
-      />
-      {channels.isError && channels.data !== undefined ? (
-        <PageNote
-          tone="danger"
-          title="刷新失败，已保留加载的内容"
-          description="以下为上次成功加载的内容。"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void channels.refetch()}>
-              重试
-            </Button>
-          }
-        />
-      ) : null}
-
-      {channels.isPending ? (
-        <LoadingState rows={4} />
-      ) : channels.isError && channels.data === undefined ? (
-        <ErrorState error={channels.error} onRetry={() => void channels.refetch()} />
-      ) : items.length === 0 ? (
-        <EmptyState
-          icon={<Hash className="size-5" />}
-          title="未创建频道"
-          {...(canCreate ? {} : { description: '管理员把你加入频道后，频道会出现在这里。' })}
-          action={
-            canCreate ? (
-              <Button variant="outline" onClick={() => setCreating(true)}>
+      <PageTopbar>
+        <PageHeader
+          title="频道"
+          actions={
+            canCreate &&
+            (channels.isPending ||
+              (channels.isError && channels.data === undefined) ||
+              items.length > 0) ? (
+              <Button onClick={() => setCreating(true)}>
                 <Plus aria-hidden="true" />
                 新建频道
               </Button>
             ) : undefined
           }
         />
-      ) : (
-        <PageSection divided={false}>
-          <ul className="divide-y divide-line overflow-hidden rounded-card border border-line">
-            {items.map((channel, index) => (
-              <li key={channel.id}>
-                <ChannelRow
-                  channel={channel}
-                  memberCount={details[index]?.data?.members.length}
-                  agentCount={details[index]?.data?.agentBindings.length}
-                />
-              </li>
-            ))}
-          </ul>
-        </PageSection>
-      )}
+      </PageTopbar>
+      <PageBody>
+        {channels.isError && channels.data !== undefined ? (
+          <PageNote
+            tone="danger"
+            title="刷新失败，已保留加载的内容"
+            description="以下为上次成功加载的内容。"
+            action={
+              <Button variant="outline" size="sm" onClick={() => void channels.refetch()}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
+
+        {channels.isPending ? (
+          <LoadingState rows={4} />
+        ) : channels.isError && channels.data === undefined ? (
+          <ErrorState error={channels.error} onRetry={() => void channels.refetch()} />
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon={<Hash className="size-5" />}
+            title="未创建频道"
+            {...(canCreate ? {} : { description: '管理员把你加入频道后，频道会出现在这里。' })}
+            action={
+              canCreate ? (
+                <Button variant="default" size="sm" onClick={() => setCreating(true)}>
+                  <Plus aria-hidden="true" />
+                  新建频道
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <PageSection divided={false}>
+            <ul className="divide-y divide-line overflow-hidden rounded-card border border-line">
+              {items.map((channel, index) => (
+                <li key={channel.id}>
+                  <ChannelRow
+                    channel={channel}
+                    memberCount={details[index]?.data?.members.length}
+                    agentCount={details[index]?.data?.agentBindings.length}
+                  />
+                </li>
+              ))}
+            </ul>
+          </PageSection>
+        )}
+      </PageBody>
       {creating ? <CreateChannelDialog onClose={() => setCreating(false)} /> : null}
     </Page>
   );

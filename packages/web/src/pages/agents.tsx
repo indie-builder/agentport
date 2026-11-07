@@ -78,7 +78,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
@@ -444,356 +451,359 @@ export function AgentsPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="找专家"
-        actions={
-          <>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/zip,.zip,text/markdown,.md"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = '';
-                if (!file) return;
-                // agent.md 沿用原语义直接导入；ZIP 先确认环境映射，取消不执行。
-                if (file.name.toLowerCase().endsWith('.md')) void importFile(file);
-                else setPendingImport(file);
-              }}
-            />
-            <Button
-              variant="outline"
-              title="导入专家 ZIP 或 agent.md"
-              disabled={importing}
-              aria-busy={importing}
-              onClick={(event) => {
-                editorTriggerRef.current = event.currentTarget;
-                fileInput.current?.click();
-              }}
-              className={canCreate ? undefined : 'hidden'}
-            >
-              <Upload data-icon="inline-start" /> {importing ? '导入中…' : '导入'}
-            </Button>
-            <Button
-              ref={createButtonRef}
-              disabled={importing}
-              className={canCreate ? undefined : 'hidden'}
-              onClick={(event) => {
-                editorTriggerRef.current = event.currentTarget;
-                setCreateRole(role || '通用助手');
-                setCreating(true);
-              }}
-            >
-              <Plus data-icon="inline-start" /> 新建专家
-            </Button>
-          </>
-        }
-      />
-      <PageToolbar>
-        <SearchInput
-          label="搜索专家"
-          inputId="agents-search"
-          placeholder="搜索专家…"
-          value={query}
-          onChange={(next) =>
-            void navigate({
-              to: '/agents',
-              search: { ...search, q: next || undefined },
-              replace: true,
-            })
+      <PageTopbar>
+        <PageHeader
+          title="找专家"
+          actions={
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/zip,.zip,text/markdown,.md"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (!file) return;
+                  // agent.md 沿用原语义直接导入；ZIP 先确认环境映射，取消不执行。
+                  if (file.name.toLowerCase().endsWith('.md')) void importFile(file);
+                  else setPendingImport(file);
+                }}
+              />
+              <Button
+                variant="outline"
+                title="导入专家 ZIP 或 agent.md"
+                disabled={importing}
+                aria-busy={importing}
+                onClick={(event) => {
+                  editorTriggerRef.current = event.currentTarget;
+                  fileInput.current?.click();
+                }}
+                className={canCreate ? undefined : 'hidden'}
+              >
+                <Upload data-icon="inline-start" /> {importing ? '导入中…' : '导入'}
+              </Button>
+              <Button
+                ref={createButtonRef}
+                disabled={importing}
+                className={canCreate ? undefined : 'hidden'}
+                onClick={(event) => {
+                  editorTriggerRef.current = event.currentTarget;
+                  setCreateRole(role || '通用助手');
+                  setCreating(true);
+                }}
+              >
+                <Plus data-icon="inline-start" /> 新建专家
+              </Button>
+            </>
           }
-          className="w-56 min-w-0"
         />
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <FilterSelect
-            value={status}
-            onValueChange={(next) => {
-              if (next !== 'all' && next !== 'enabled' && next !== 'disabled') return;
+        <PageToolbar>
+          <SearchInput
+            label="搜索专家"
+            inputId="agents-search"
+            placeholder="搜索专家…"
+            value={query}
+            onChange={(next) =>
               void navigate({
                 to: '/agents',
-                search: { ...search, status: next === 'enabled' ? undefined : next },
-              });
-            }}
-            options={[
-              { value: 'enabled', label: '已启用' },
-              { value: 'all', label: '全部' },
-              { value: 'disabled', label: '已停用' },
-            ]}
-            label="按启用状态筛选"
-            className="w-36"
+                search: { ...search, q: next || undefined },
+                replace: true,
+              })
+            }
+            className="w-56 min-w-0"
           />
-          {hasRoleData ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <FilterSelect
-              value={role}
+              value={status}
               onValueChange={(next) => {
-                const valid =
-                  next === '' || AGENT_ROLES.includes(next as (typeof AGENT_ROLES)[number]);
-                if (!valid) return;
+                if (next !== 'all' && next !== 'enabled' && next !== 'disabled') return;
                 void navigate({
                   to: '/agents',
-                  search: {
-                    ...search,
-                    role: next === '' ? undefined : (next as (typeof AGENT_ROLES)[number]),
-                  },
+                  search: { ...search, status: next === 'enabled' ? undefined : next },
                 });
               }}
               options={[
-                { value: '', label: '全部角色' },
-                ...AGENT_ROLES.map((item) => ({ value: item, label: item })),
+                { value: 'enabled', label: '已启用' },
+                { value: 'all', label: '全部' },
+                { value: 'disabled', label: '已停用' },
               ]}
-              label="按角色筛选"
+              label="按启用状态筛选"
               className="w-36"
             />
-          ) : null}
-          <FilterSelect
-            value={sort}
-            onValueChange={(next) => {
-              if (next !== 'newest' && next !== 'name') return;
-              void navigate({
-                to: '/agents',
-                search: { ...search, sort: next === 'newest' ? undefined : next },
-              });
-            }}
-            options={[
-              { value: 'newest', label: '最新创建' },
-              { value: 'name', label: '名称排序' },
-            ]}
-            label="专家排序"
-            className="w-32"
-          />
-        </div>
-      </PageToolbar>
-      {agents.isPending ? <LoadingState rows={4} layout="cards" /> : null}
-      {agents.isError ? (
-        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-      ) : null}
-      {agents.data && agents.data.length === 0 ? (
-        me.isPending ? (
-          <LoadingState rows={4} layout="cards" />
-        ) : me.isError ? (
-          <ErrorState error={me.error} onRetry={() => void me.refetch()} />
-        ) : canCreate ? null : (
-          <PageNote
-            icon={<BusinessIllustration name="agents" size="compact" />}
-            title="暂无可用专家"
-            description="请联系管理员分配。"
-          />
-        )
-      ) : null}
-      {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
-        <PageNote
-          icon={<BusinessIllustration name="search" size="compact" />}
-          title="没有匹配的专家"
-          action={
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
+            {hasRoleData ? (
+              <FilterSelect
+                value={role}
+                onValueChange={(next) => {
+                  const valid =
+                    next === '' || AGENT_ROLES.includes(next as (typeof AGENT_ROLES)[number]);
+                  if (!valid) return;
                   void navigate({
                     to: '/agents',
-                    // 默认隐式按「已启用」筛选；清除必须显式回到全部，否则只剩停用专家时仍是空列表。
-                    search: { ...search, q: undefined, role: undefined, status: 'all' },
-                  })
-                }
-              >
-                清除筛选
-              </Button>
-            </div>
-          }
-        />
-      ) : null}
-
-      {agents.data && (canCreate || filtered.length > 0) ? (
-        <ul
-          aria-label="专家列表"
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-        >
-          {canCreate ? (
-            <>
-              <li className="min-w-0">
-                <button
-                  type="button"
-                  aria-label="新建专家"
-                  disabled={importing}
-                  onClick={(event) => {
-                    editorTriggerRef.current = event.currentTarget as HTMLButtonElement;
-                    setCreateRole('通用助手');
-                    setCreating(true);
-                  }}
-                  className="agent-create-fan h-52 w-full disabled:pointer-events-none disabled:opacity-60"
+                    search: {
+                      ...search,
+                      role: next === '' ? undefined : (next as (typeof AGENT_ROLES)[number]),
+                    },
+                  });
+                }}
+                options={[
+                  { value: '', label: '全部角色' },
+                  ...AGENT_ROLES.map((item) => ({ value: item, label: item })),
+                ]}
+                label="按角色筛选"
+                className="w-36"
+              />
+            ) : null}
+            <FilterSelect
+              value={sort}
+              onValueChange={(next) => {
+                if (next !== 'newest' && next !== 'name') return;
+                void navigate({
+                  to: '/agents',
+                  search: { ...search, sort: next === 'newest' ? undefined : next },
+                });
+              }}
+              options={[
+                { value: 'newest', label: '最新创建' },
+                { value: 'name', label: '名称排序' },
+              ]}
+              label="专家排序"
+              className="w-32"
+            />
+          </div>
+        </PageToolbar>
+      </PageTopbar>
+      <PageBody>
+        {agents.isPending ? <LoadingState rows={4} layout="cards" /> : null}
+        {agents.isError ? (
+          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
+        ) : null}
+        {agents.data && agents.data.length === 0 ? (
+          me.isPending ? (
+            <LoadingState rows={4} layout="cards" />
+          ) : me.isError ? (
+            <ErrorState error={me.error} onRetry={() => void me.refetch()} />
+          ) : canCreate ? null : (
+            <PageNote
+              icon={<BusinessIllustration name="agents" size="compact" />}
+              title="暂无可用专家"
+              description="请联系管理员分配。"
+            />
+          )
+        ) : null}
+        {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
+          <PageNote
+            icon={<BusinessIllustration name="search" size="compact" />}
+            title="没有匹配的专家"
+            action={
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void navigate({
+                      to: '/agents',
+                      // 默认隐式按「已启用」筛选；清除必须显式回到全部，否则只剩停用专家时仍是空列表。
+                      search: { ...search, q: undefined, role: undefined, status: 'all' },
+                    })
+                  }
                 >
-                  <span className="agent-create-fan__art" aria-hidden="true">
-                    {createShowcaseAvatars.map((src) => (
-                      <span key={src} className="agent-create-fan__chip">
-                        <img src={src} alt="" />
-                      </span>
-                    ))}
-                  </span>
-                  <span className="agent-create-fan__label">
-                    <Plus aria-hidden="true" />
-                    <span>新建专家</span>
-                  </span>
-                </button>
-              </li>
-              <li className="min-w-0">
-                <Card className="h-52">
-                  <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
-                    <img
-                      src={digitalTwinPortrait}
-                      alt=""
-                      className="size-20 rounded-full object-cover"
-                    />
-                    <Button
-                      variant="outline"
-                      disabled={importing}
-                      onClick={(event) => {
-                        editorTriggerRef.current = event.currentTarget;
-                        setCreateRole('数字分身');
-                        setCreating(true);
-                      }}
-                    >
-                      <Plus data-icon="inline-start" /> 创建数字分身
-                    </Button>
-                  </CardContent>
-                </Card>
-              </li>
-            </>
-          ) : null}
-          {filtered.map((agent) => {
-            const agentRole = agent.role?.trim() || '通用助手';
-            const canDelete =
-              canDeleteAny &&
-              (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
-            return (
-              <li key={agent.id} className="min-w-0">
-                <Card className="h-52 gap-3">
-                  <CardHeader className="grid h-12 grid-cols-[auto_minmax(0,1fr)_auto]! grid-rows-2 items-center">
-                    <AgentAvatar agent={agent} className="row-span-2 mr-2 self-center" />
-                    <CardTitle className="col-start-2 row-start-1 min-w-0">
-                      <h2 className="min-w-0">
-                        <Link
-                          to="/agents/$agentId"
-                          params={{ agentId: agent.id }}
-                          title={agent.name}
-                          disabled={importing}
-                          className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {agent.name}
-                        </Link>
-                      </h2>
-                    </CardTitle>
-                    <CardAction className="col-start-3 row-start-1 self-start">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`操作 ${agent.name}`}
-                              onClick={(event) => {
-                                editorTriggerRef.current = event.currentTarget;
-                              }}
-                            >
-                              <Ellipsis />
-                            </Button>
-                          }
-                        />
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuGroup>
-                            <DropdownMenuItem
-                              disabled={importing}
-                              onClick={() => openAgent(agent.id)}
-                            >
-                              配置
-                            </DropdownMenuItem>
-                            {canDelete ? (
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onClick={() => setDeleting(agent)}
-                              >
-                                删除
-                              </DropdownMenuItem>
-                            ) : null}
-                          </DropdownMenuGroup>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </CardAction>
-                    <div className="col-start-2 row-start-2 flex min-w-0 items-center gap-2">
-                      <StatusBadge className="max-w-full min-w-0 bg-chip">
-                        <span className="block truncate" title={agentRole}>
-                          {agentRole}
+                  清除筛选
+                </Button>
+              </div>
+            }
+          />
+        ) : null}
+
+        {agents.data && (canCreate || filtered.length > 0) ? (
+          <ul
+            aria-label="专家列表"
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+          >
+            {canCreate ? (
+              <>
+                <li className="min-w-0">
+                  <button
+                    type="button"
+                    aria-label="新建专家"
+                    disabled={importing}
+                    onClick={(event) => {
+                      editorTriggerRef.current = event.currentTarget as HTMLButtonElement;
+                      setCreateRole('通用助手');
+                      setCreating(true);
+                    }}
+                    className="agent-create-fan h-52 w-full disabled:pointer-events-none disabled:opacity-60"
+                  >
+                    <span className="agent-create-fan__art" aria-hidden="true">
+                      {createShowcaseAvatars.map((src) => (
+                        <span key={src} className="agent-create-fan__chip">
+                          <img src={src} alt="" />
                         </span>
-                      </StatusBadge>
-                      {!agent.enabled ? (
-                        <StatusBadge className="shrink-0">已停用</StatusBadge>
-                      ) : null}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex h-18 flex-col">
-                    {agent.description.trim() ? (
-                      <CardDescription className="line-clamp-2 break-words">
-                        {agent.description}
-                      </CardDescription>
-                    ) : null}
-                    {agent.enabled && !canUse ? (
-                      <p
-                        id={`agent-use-denied-${agent.id}`}
-                        className="mt-auto line-clamp-2 text-xs text-muted-foreground"
-                      >
-                        当前账户没有使用该专家的权限，无法开始对话。
-                      </p>
-                    ) : null}
-                  </CardContent>
-                  <CardContent className="flex h-8 items-center justify-between gap-2">
-                    {agent.enabled && canUse ? (
-                      <Link
-                        to="/chat"
-                        search={{ agent: agent.id }}
-                        disabled={importing}
-                        aria-label={`与 ${agent.name} 开始对话`}
-                        className={buttonVariants({ variant: 'secondary' })}
-                      >
-                        开始对话
-                      </Link>
-                    ) : (
+                      ))}
+                    </span>
+                    <span className="agent-create-fan__label">
+                      <Plus aria-hidden="true" />
+                      <span>新建专家</span>
+                    </span>
+                  </button>
+                </li>
+                <li className="min-w-0">
+                  <Card className="h-52">
+                    <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
+                      <img
+                        src={digitalTwinPortrait}
+                        alt=""
+                        className="size-20 rounded-full object-cover"
+                      />
                       <Button
                         variant="outline"
-                        disabled
-                        aria-label={`与 ${agent.name} 开始对话`}
-                        aria-describedby={
-                          agent.enabled ? `agent-use-denied-${agent.id}` : undefined
-                        }
-                        title={
-                          agent.enabled
-                            ? '当前账户没有使用该专家的权限'
-                            : '专家已停用，启用后才能开始对话'
-                        }
+                        disabled={importing}
+                        onClick={(event) => {
+                          editorTriggerRef.current = event.currentTarget;
+                          setCreateRole('数字分身');
+                          setCreating(true);
+                        }}
                       >
-                        开始对话
+                        <Plus data-icon="inline-start" /> 创建数字分身
                       </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      aria-label={`查看 ${agent.name} 工牌`}
-                      title="数字员工工牌"
-                      onClick={(event) => {
-                        badgeTriggerRef.current = event.currentTarget;
-                        setBadgeId(agent.id);
-                      }}
-                    >
-                      <IdCard data-icon="inline-start" />
-                      工牌
-                    </Button>
-                  </CardContent>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-
+                    </CardContent>
+                  </Card>
+                </li>
+              </>
+            ) : null}
+            {filtered.map((agent) => {
+              const agentRole = agent.role?.trim() || '通用助手';
+              const canDelete =
+                canDeleteAny &&
+                (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
+              return (
+                <li key={agent.id} className="min-w-0">
+                  <Card className="h-52 gap-3">
+                    <CardHeader className="grid h-12 grid-cols-[auto_minmax(0,1fr)_auto]! grid-rows-2 items-center">
+                      <AgentAvatar agent={agent} className="row-span-2 mr-2 self-center" />
+                      <CardTitle className="col-start-2 row-start-1 min-w-0">
+                        <h2 className="min-w-0">
+                          <Link
+                            to="/agents/$agentId"
+                            params={{ agentId: agent.id }}
+                            title={agent.name}
+                            disabled={importing}
+                            className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {agent.name}
+                          </Link>
+                        </h2>
+                      </CardTitle>
+                      <CardAction className="col-start-3 row-start-1 self-start">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`操作 ${agent.name}`}
+                                onClick={(event) => {
+                                  editorTriggerRef.current = event.currentTarget;
+                                }}
+                              >
+                                <Ellipsis />
+                              </Button>
+                            }
+                          />
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                disabled={importing}
+                                onClick={() => openAgent(agent.id)}
+                              >
+                                配置
+                              </DropdownMenuItem>
+                              {canDelete ? (
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() => setDeleting(agent)}
+                                >
+                                  删除
+                                </DropdownMenuItem>
+                              ) : null}
+                            </DropdownMenuGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </CardAction>
+                      <div className="col-start-2 row-start-2 flex min-w-0 items-center gap-2">
+                        <StatusBadge className="max-w-full min-w-0 bg-chip">
+                          <span className="block truncate" title={agentRole}>
+                            {agentRole}
+                          </span>
+                        </StatusBadge>
+                        {!agent.enabled ? (
+                          <StatusBadge className="shrink-0">已停用</StatusBadge>
+                        ) : null}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="flex h-18 flex-col">
+                      {agent.description.trim() ? (
+                        <CardDescription className="line-clamp-2 break-words">
+                          {agent.description}
+                        </CardDescription>
+                      ) : null}
+                      {agent.enabled && !canUse ? (
+                        <p
+                          id={`agent-use-denied-${agent.id}`}
+                          className="mt-auto line-clamp-2 text-xs text-muted-foreground"
+                        >
+                          当前账户没有使用该专家的权限，无法开始对话。
+                        </p>
+                      ) : null}
+                    </CardContent>
+                    <CardContent className="flex h-8 items-center justify-between gap-2">
+                      {agent.enabled && canUse ? (
+                        <Link
+                          to="/chat"
+                          search={{ agent: agent.id }}
+                          disabled={importing}
+                          aria-label={`与 ${agent.name} 开始对话`}
+                          className={buttonVariants({ variant: 'secondary' })}
+                        >
+                          开始对话
+                        </Link>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          disabled
+                          aria-label={`与 ${agent.name} 开始对话`}
+                          aria-describedby={
+                            agent.enabled ? `agent-use-denied-${agent.id}` : undefined
+                          }
+                          title={
+                            agent.enabled
+                              ? '当前账户没有使用该专家的权限'
+                              : '专家已停用，启用后才能开始对话'
+                          }
+                        >
+                          开始对话
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        aria-label={`查看 ${agent.name} 工牌`}
+                        title="数字员工工牌"
+                        onClick={(event) => {
+                          badgeTriggerRef.current = event.currentTarget;
+                          setBadgeId(agent.id);
+                        }}
+                      >
+                        <IdCard data-icon="inline-start" />
+                        工牌
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </PageBody>
       <Dialog
         open={badgeAgent !== null}
         onOpenChange={(open) => {
@@ -944,13 +954,10 @@ function ImportAgentDialog({
           </Field>
         </FieldGroup>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             取消
           </Button>
-          <Button
-            size="sm"
-            onClick={() => onImport(environmentId === 'match' ? undefined : environmentId)}
-          >
+          <Button onClick={() => onImport(environmentId === 'match' ? undefined : environmentId)}>
             导入
           </Button>
         </div>
@@ -1115,8 +1122,12 @@ export function AgentDetailPage() {
   if (remove.isSuccess) {
     return (
       <Page>
-        <PageHeader title="专家" />
-        <LoadingState rows={6} />
+        <PageTopbar>
+          <PageHeader title="专家" />
+        </PageTopbar>
+        <PageBody>
+          <LoadingState rows={6} />
+        </PageBody>
       </Page>
     );
   }
@@ -1126,39 +1137,51 @@ export function AgentDetailPage() {
     if (loading) {
       return (
         <Page>
-          <PageHeader title="专家" />
-          <LoadingState rows={6} />
+          <PageTopbar>
+            <PageHeader title="专家" />
+          </PageTopbar>
+          <PageBody>
+            <LoadingState rows={6} />
+          </PageBody>
         </Page>
       );
     }
     if (failed) {
       return (
         <Page>
-          <PageHeader title="专家" />
-          <ErrorState
-            error={summary.error ?? access.error ?? detail.error}
-            onRetry={() => {
-              void summary.refetch();
-              void access.refetch();
-              if (canReadConfig) void detail.refetch();
-            }}
-          />
+          <PageTopbar>
+            <PageHeader title="专家" />
+          </PageTopbar>
+          <PageBody>
+            <ErrorState
+              error={summary.error ?? access.error ?? detail.error}
+              onRetry={() => {
+                void summary.refetch();
+                void access.refetch();
+                if (canReadConfig) void detail.refetch();
+              }}
+            />
+          </PageBody>
         </Page>
       );
     }
     return (
       <Page>
-        <PageHeader title="专家" />
-        <PageNote
-          icon={<Bot />}
-          title="专家不存在"
-          description="它可能已被删除，或当前账户没有访问权限。返回列表重新选择。"
-          action={
-            <Button variant="outline" onClick={backToList}>
-              <ArrowLeft data-icon="inline-start" /> 返回列表
-            </Button>
-          }
-        />
+        <PageTopbar>
+          <PageHeader title="专家" />
+        </PageTopbar>
+        <PageBody>
+          <PageNote
+            icon={<Bot />}
+            title="专家不存在"
+            description="它可能已被删除，或当前账户没有访问权限。返回列表重新选择。"
+            action={
+              <Button variant="outline" onClick={backToList}>
+                <ArrowLeft data-icon="inline-start" /> 返回列表
+              </Button>
+            }
+          />
+        </PageBody>
       </Page>
     );
   }
@@ -1182,7 +1205,7 @@ export function AgentDetailPage() {
 
   return (
     <Page>
-      <div className="flex min-w-0 flex-col gap-2">
+      <PageTopbar className="gap-2">
         <PageHeader
           leading={<AgentAvatar agent={current} className="size-11" />}
           title={current.name}
@@ -1295,17 +1318,19 @@ export function AgentDetailPage() {
             当前账户没有使用该专家的权限，无法开始对话。
           </p>
         ) : null}
-        {current.description ? (
-          <p className="max-w-[70ch] break-words text-sm text-muted-foreground">
-            {current.description}
-          </p>
-        ) : null}
-      </div>
+      </PageTopbar>
       {!hasReadableTab ? (
-        <PageNote
-          title="当前账户只能使用这个专家。"
-          description="查看或修改配置需要对应的维护权限。"
-        />
+        <PageBody>
+          {current.description ? (
+            <p className="max-w-[70ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
+              {current.description}
+            </p>
+          ) : null}
+          <PageNote
+            title="当前账户只能使用这个专家。"
+            description="查看或修改配置需要对应的维护权限。"
+          />
+        </PageBody>
       ) : full ? (
         <AgentEditor
           key={agentId}
@@ -1319,6 +1344,7 @@ export function AgentDetailPage() {
         <RestrictedAgentTabs
           key={agentId}
           agentId={agentId}
+          description={current.description}
           permissions={permissions}
           onPendingChange={setEditorPending}
           externalPending={remove.isPending || toggleEnable.isPending}
@@ -1376,12 +1402,14 @@ type TabId = (typeof tabItems)[number]['id'];
 
 function RestrictedAgentTabs({
   agentId,
+  description,
   permissions,
   onPendingChange,
   externalPending = false,
   settleNavigationRef,
 }: {
   agentId: string;
+  description: string;
   permissions: readonly PermissionId[];
   onPendingChange: (pending: boolean) => void;
   externalPending?: boolean;
@@ -1445,53 +1473,62 @@ function RestrictedAgentTabs({
     blocker.status === 'blocked' && blocker.current?.pathname === blocker.next?.pathname;
 
   return (
-    <div className="flex min-w-0 flex-col gap-5">
-      <Tabs value={tab} onValueChange={(next) => changeTab(next as TabId)}>
-        <TabsList variant="line" aria-label="专家任务">
-          {available.map((item) => (
-            <TabsTrigger key={item.id} value={item.id}>
-              {item.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-      {tab === 'memory' ? (
-        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-          <MemoryPanel
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5">
+      <PageTopbar>
+        <Tabs value={tab} onValueChange={(next) => changeTab(next as TabId)}>
+          <TabsList variant="line" aria-label="专家任务">
+            {available.map((item) => (
+              <TabsTrigger key={item.id} value={item.id}>
+                {item.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </PageTopbar>
+      <PageBody className="gap-5">
+        {description ? (
+          <p className="max-w-[70ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+        {tab === 'memory' ? (
+          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+            <MemoryPanel
+              agentId={agentId}
+              canWrite={hasAnyGrant(permissions, 'agents.memory.write')}
+              onDirtyChange={setChildDirty}
+              onPendingChange={setChildPending}
+            />
+          </div>
+        ) : null}
+        {tab === 'rules' ? (
+          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+            <RulesPanel
+              agentId={agentId}
+              canWrite={hasAnyGrant(permissions, 'agents.rules.write')}
+              onDirtyChange={setChildDirty}
+              onPendingChange={setChildPending}
+            />
+          </div>
+        ) : null}
+        {tab === 'styles' ? (
+          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+            <OutputStylesPanel
+              agentId={agentId}
+              canWrite={hasAnyGrant(permissions, 'agents.styles.write')}
+              onDirtyChange={setChildDirty}
+              onPendingChange={setChildPending}
+            />
+          </div>
+        ) : null}
+        {tab === 'files' ? (
+          <ReadonlyAgentFiles
             agentId={agentId}
-            canWrite={hasAnyGrant(permissions, 'agents.memory.write')}
-            onDirtyChange={setChildDirty}
-            onPendingChange={setChildPending}
+            file={search.file}
+            onFileChange={(file) => navigateSearch({ file })}
           />
-        </div>
-      ) : null}
-      {tab === 'rules' ? (
-        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-          <RulesPanel
-            agentId={agentId}
-            canWrite={hasAnyGrant(permissions, 'agents.rules.write')}
-            onDirtyChange={setChildDirty}
-            onPendingChange={setChildPending}
-          />
-        </div>
-      ) : null}
-      {tab === 'styles' ? (
-        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-          <OutputStylesPanel
-            agentId={agentId}
-            canWrite={hasAnyGrant(permissions, 'agents.styles.write')}
-            onDirtyChange={setChildDirty}
-            onPendingChange={setChildPending}
-          />
-        </div>
-      ) : null}
-      {tab === 'files' ? (
-        <ReadonlyAgentFiles
-          agentId={agentId}
-          file={search.file}
-          onFileChange={(file) => navigateSearch({ file })}
-        />
-      ) : null}
+        ) : null}
+      </PageBody>
       <ConfirmDialog
         open={blocker.status === 'blocked'}
         onClose={() => blocker.reset?.()}
@@ -2546,7 +2583,7 @@ export function AgentEditor({
   const timeoutHintId = agent.parentId !== null ? 'agent-timeout-hint' : undefined;
 
   return (
-    <div className="flex min-w-0 flex-col gap-5">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5">
       {conflict ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 py-2 text-sm">
           <p>配置已被修改，当前草稿已保留。加载最新配置会放弃此草稿。</p>
@@ -2573,676 +2610,426 @@ export function AgentEditor({
           if (!pending) await reload();
         }}
       />
-      <div className="flex min-w-0 flex-wrap items-center gap-3 border-b pb-3">
-        <Tabs
-          value={tab}
-          onValueChange={(next) => changeTab(next as TabId)}
-          className="hidden min-w-0 md:flex"
-        >
-          <TabsList variant="line" aria-label="配置任务">
-            {availableTabs.map((item) => (
-              <TabsTrigger key={item.id} value={item.id} disabled={locked}>
-                {item.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        <Select
-          value={tab}
-          disabled={locked}
-          items={availableTabOptions}
-          onValueChange={(next) => {
-            if (next !== null) changeTab(next as TabId);
-          }}
-        >
-          <SelectTrigger className="w-full md:hidden" aria-label="配置任务">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
+      <PageTopbar>
+        <div className="flex min-w-0 flex-wrap items-center gap-3 border-b pb-3">
+          <Tabs
+            value={tab}
+            onValueChange={(next) => changeTab(next as TabId)}
+            className="hidden min-w-0 md:flex"
+          >
+            <TabsList variant="line" aria-label="配置任务">
               {availableTabs.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
+                <TabsTrigger key={item.id} value={item.id} disabled={locked}>
                   {item.label}
-                </SelectItem>
+                </TabsTrigger>
               ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        {tab === 'config' ? (
-          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
-            <label
-              data-disabled={pending}
-              htmlFor="agent-enabled"
-              className="inline-flex items-center gap-2 rounded-item p-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
-            >
-              <Switch
-                disabled={pending || !canEnable}
-                id="agent-enabled"
-                checked={enabledField.value}
-                onCheckedChange={(enabled) => enabledField.onChange(enabled)}
-                aria-label="启用专家"
-                title={enabledField.value ? '已启用，点击停用' : '已停用，点击启用'}
-              />
-              {enabledField.value ? '已启用' : '已停用'}
-            </label>
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              {dirty ? (
-                <span className="mr-1 inline-flex items-center gap-1.5 text-xs text-warning">
-                  <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
-                  未保存
-                </span>
-              ) : null}
-              {saveHint ? (
-                <span className="mr-1 flex items-center gap-1.5 text-sm text-danger">
-                  <span id="agent-save-hint" role="alert">
-                    {saveHint}
-                  </span>
-                  <Button type="button" variant="link" size="xs" onClick={revealInvalidField}>
-                    去修正
-                  </Button>
-                </span>
-              ) : null}
-              <Button
-                disabled={!dirty || pending || invalidField !== null || !canSave}
-                aria-busy={pending}
-                aria-describedby={saveHint ? 'agent-save-hint' : undefined}
-                onClick={save}
-              >
-                {pending ? (
-                  '保存中…'
-                ) : dirty ? (
-                  '保存更改'
-                ) : (
-                  <>
-                    <Check data-icon="inline-start" /> 已保存
-                  </>
-                )}
-              </Button>
-              {canVersionsRead ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="版本历史"
-                  title="配置版本历史"
-                  disabled={pending}
-                  onClick={() => setHistoryOpen(true)}
-                >
-                  <History />
-                </Button>
-              ) : null}
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      ref={duplicateTriggerRef}
-                      variant="ghost"
-                      size="icon"
-                      aria-label="更多操作"
-                      disabled={pending}
-                    >
-                      <Ellipsis />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-                  <DropdownMenuGroup>
-                    {canClone ? (
-                      <DropdownMenuItem
-                        disabled={pending || dirty}
-                        onClick={() => setDuplicateOpen(true)}
-                      >
-                        <Copy className="size-4" /> 克隆专家
-                      </DropdownMenuItem>
-                    ) : null}
-                    {canExport ? (
-                      <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
-                        <Download className="size-4" /> {exporting ? '导出中…' : '导出 ZIP'}
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuGroup>
-                  {canDelete ? (
-                    <DropdownMenuItem
-                      variant="destructive"
-                      disabled={pending}
-                      onClick={onDeleteRequest}
-                    >
-                      <Trash2 className="size-4" /> 删除专家
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {tab === 'config' ? (
-        <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
-          <nav aria-label="配置分区" className="min-w-0">
-            <ul className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5">
-              {sectionItems.map((item) => (
-                <li key={item.id} className="min-w-0">
-                  <button
-                    type="button"
-                    aria-current={activeSection === item.id ? 'true' : undefined}
-                    onClick={() => focusSection(item.id)}
-                    className={sectionButtonClass(activeSection === item.id)}
-                  >
+            </TabsList>
+          </Tabs>
+          <Select
+            value={tab}
+            disabled={locked}
+            items={availableTabOptions}
+            onValueChange={(next) => {
+              if (next !== null) changeTab(next as TabId);
+            }}
+          >
+            <SelectTrigger className="w-full md:hidden" aria-label="配置任务">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {availableTabs.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
                     {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
-
-          <div className="min-w-0">
-            <form
-              noValidate
-              onSubmit={(event) => {
-                event.preventDefault();
-                // 返回 promise 让调用方（含测试）能等这次校验与保存走完。
-                if (dirty && !pending) return save();
-              }}
-            >
-              <div className="rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-                {activeSection === 'identity' ? (
-                  <Section id="identity" title="身份">
-                    <FieldGroup className="grid gap-5 sm:grid-cols-2">
-                      <Field
-                        data-disabled={configDisabled}
-                        className="gap-1.5"
-                        data-invalid={Boolean(errors.name)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {tab === 'config' ? (
+            <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+              <label
+                data-disabled={pending}
+                htmlFor="agent-enabled"
+                className="inline-flex items-center gap-2 rounded-item p-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
+              >
+                <Switch
+                  disabled={pending || !canEnable}
+                  id="agent-enabled"
+                  checked={enabledField.value}
+                  onCheckedChange={(enabled) => enabledField.onChange(enabled)}
+                  aria-label="启用专家"
+                  title={enabledField.value ? '已启用，点击停用' : '已停用，点击启用'}
+                />
+                {enabledField.value ? '已启用' : '已停用'}
+              </label>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {dirty ? (
+                  <span className="mr-1 inline-flex items-center gap-1.5 text-xs text-warning">
+                    <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+                    未保存
+                  </span>
+                ) : null}
+                {saveHint ? (
+                  <span className="mr-1 flex items-center gap-1.5 text-sm text-danger">
+                    <span id="agent-save-hint" role="alert">
+                      {saveHint}
+                    </span>
+                    <Button type="button" variant="link" size="xs" onClick={revealInvalidField}>
+                      去修正
+                    </Button>
+                  </span>
+                ) : null}
+                <Button
+                  disabled={!dirty || pending || invalidField !== null || !canSave}
+                  aria-busy={pending}
+                  aria-describedby={saveHint ? 'agent-save-hint' : undefined}
+                  onClick={save}
+                >
+                  {pending ? (
+                    '保存中…'
+                  ) : dirty ? (
+                    '保存更改'
+                  ) : (
+                    <>
+                      <Check data-icon="inline-start" /> 已保存
+                    </>
+                  )}
+                </Button>
+                {canVersionsRead ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="版本历史"
+                    title="配置版本历史"
+                    disabled={pending}
+                    onClick={() => setHistoryOpen(true)}
+                  >
+                    <History />
+                  </Button>
+                ) : null}
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        ref={duplicateTriggerRef}
+                        variant="ghost"
+                        size="icon"
+                        aria-label="更多操作"
+                        disabled={pending}
                       >
-                        <FieldLabel htmlFor="agent-name">
-                          名称
-                          <RequiredMark />
+                        <Ellipsis />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+                    <DropdownMenuGroup>
+                      {canClone ? (
+                        <DropdownMenuItem
+                          disabled={pending || dirty}
+                          onClick={() => setDuplicateOpen(true)}
+                        >
+                          <Copy className="size-4" /> 克隆专家
+                        </DropdownMenuItem>
+                      ) : null}
+                      {canExport ? (
+                        <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
+                          <Download className="size-4" /> {exporting ? '导出中…' : '导出 ZIP'}
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuGroup>
+                    {canDelete ? (
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={pending}
+                        onClick={onDeleteRequest}
+                      >
+                        <Trash2 className="size-4" /> 删除专家
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </PageTopbar>
+      <PageBody className="gap-5">
+        {agent.description ? (
+          <p className="max-w-[70ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
+            {agent.description}
+          </p>
+        ) : null}
+        {tab === 'config' ? (
+          <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+            <nav aria-label="配置分区" className="min-w-0">
+              <ul className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5">
+                {sectionItems.map((item) => (
+                  <li key={item.id} className="min-w-0">
+                    <button
+                      type="button"
+                      aria-current={activeSection === item.id ? 'true' : undefined}
+                      onClick={() => focusSection(item.id)}
+                      className={sectionButtonClass(activeSection === item.id)}
+                    >
+                      {item.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            <div className="min-w-0">
+              <form
+                noValidate
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  // 返回 promise 让调用方（含测试）能等这次校验与保存走完。
+                  if (dirty && !pending) return save();
+                }}
+              >
+                <div className="rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+                  {activeSection === 'identity' ? (
+                    <Section id="identity" title="身份">
+                      <FieldGroup className="grid gap-5 sm:grid-cols-2">
+                        <Field
+                          data-disabled={configDisabled}
+                          className="gap-1.5"
+                          data-invalid={Boolean(errors.name)}
+                        >
+                          <FieldLabel htmlFor="agent-name">
+                            名称
+                            <RequiredMark />
+                          </FieldLabel>
+                          <Input
+                            {...rhf.register('name')}
+                            disabled={configDisabled}
+                            id="agent-name"
+                            aria-required="true"
+                            aria-invalid={Boolean(errors.name)}
+                            aria-describedby={errors.name ? 'agent-name-error' : undefined}
+                          />
+                          <FieldError id="agent-name-error">{errors.name?.message}</FieldError>
+                        </Field>
+                        <Field
+                          data-disabled={configDisabled}
+                          className="gap-1.5"
+                          data-invalid={Boolean(errors.role)}
+                        >
+                          <FieldLabel htmlFor="agent-role">角色</FieldLabel>
+                          <Select
+                            disabled={configDisabled}
+                            value={roleField.value}
+                            items={
+                              roleOptions.some((option) => option.value === roleField.value)
+                                ? roleOptions
+                                : [
+                                    { value: roleField.value, label: roleField.value },
+                                    ...roleOptions,
+                                  ]
+                            }
+                            onValueChange={(role) => {
+                              if (role !== null) roleField.onChange(role);
+                            }}
+                          >
+                            <SelectTrigger
+                              id="agent-role"
+                              className="w-full min-w-0"
+                              aria-invalid={Boolean(errors.role)}
+                              aria-describedby={errors.role ? 'agent-role-error' : undefined}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {!roleOptions.some((option) => option.value === roleField.value) ? (
+                                  <SelectItem value={roleField.value} disabled>
+                                    {roleField.value}
+                                  </SelectItem>
+                                ) : null}
+                                {roleOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                          <FieldError id="agent-role-error">{errors.role?.message}</FieldError>
+                        </Field>
+                        <Field
+                          data-disabled={configDisabled}
+                          className="gap-1.5 sm:col-span-2"
+                          data-invalid={Boolean(errors.description)}
+                        >
+                          <FieldLabel htmlFor="agent-desc">描述</FieldLabel>
+                          <Input
+                            {...rhf.register('description')}
+                            disabled={configDisabled}
+                            id="agent-desc"
+                            aria-invalid={Boolean(errors.description)}
+                            aria-describedby={errors.description ? 'agent-desc-error' : undefined}
+                            placeholder="一句话说明它擅长什么"
+                          />
+                          <FieldError id="agent-desc-error">
+                            {errors.description?.message}
+                          </FieldError>
+                        </Field>
+                        <Field className="gap-1.5 sm:col-span-2" data-disabled="true">
+                          <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>
+                          <Input
+                            id="agent-slug"
+                            value={agent.slug}
+                            // Keep monospace technical identifiers instead of the base sans-serif input.
+                            className="font-mono"
+                            disabled
+                            aria-describedby="agent-slug-hint"
+                          />
+                          <FieldDescription id="agent-slug-hint">创建后不可修改</FieldDescription>
+                        </Field>
+                      </FieldGroup>
+                    </Section>
+                  ) : null}
+
+                  {activeSection === 'behavior' ? (
+                    <Section id="behavior" title="行为">
+                      <FieldGroup className="gap-5">
+                        <Field
+                          data-disabled={configDisabled}
+                          orientation="horizontal"
+                          className="gap-3"
+                        >
+                          <FieldLabel htmlFor="agent-model">模型</FieldLabel>
+                          <Input
+                            {...rhf.register('model')}
+                            disabled={configDisabled}
+                            id="agent-model"
+                            list="agent-models"
+                            // Keep monospace technical identifiers instead of the base sans-serif input.
+                            className="w-64 font-mono"
+                          />
+                          <datalist id="agent-models">
+                            {models.map((model) => (
+                              <option key={model} value={model} />
+                            ))}
+                          </datalist>
+                        </Field>
+                        <Field
+                          data-disabled={configDisabled}
+                          orientation="horizontal"
+                          className="gap-3"
+                        >
+                          <FieldLabel htmlFor="agent-effort">推理强度</FieldLabel>
+                          <Select
+                            disabled={configDisabled}
+                            value={effortField.value ?? ''}
+                            onValueChange={(value) => {
+                              if (value !== null) {
+                                effortField.onChange(
+                                  value === '' ? undefined : (value as AgentInput['effort']),
+                                );
+                              }
+                            }}
+                            items={effortOptions}
+                          >
+                            <SelectTrigger id="agent-effort" className="w-40">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {effortOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </FieldGroup>
+
+                      <Field data-disabled={configDisabled} className="gap-1.5">
+                        <FieldLabel htmlFor="agent-prompt">
+                          {roleField.value === '数字分身' ? '工作背景与表达方式' : '系统提示词'}
                         </FieldLabel>
-                        <Input
-                          {...rhf.register('name')}
+                        <Textarea
+                          {...rhf.register('systemPrompt')}
                           disabled={configDisabled}
-                          id="agent-name"
-                          aria-required="true"
-                          aria-invalid={Boolean(errors.name)}
-                          aria-describedby={errors.name ? 'agent-name-error' : undefined}
+                          id="agent-prompt"
+                          rows={16}
+                          // Keep monospace code text instead of the base prose typography.
+                          className="font-mono leading-relaxed"
+                          placeholder="描述角色、边界与工作方式"
                         />
-                        <FieldError id="agent-name-error">{errors.name?.message}</FieldError>
                       </Field>
-                      <Field
-                        data-disabled={configDisabled}
-                        className="gap-1.5"
-                        data-invalid={Boolean(errors.role)}
-                      >
-                        <FieldLabel htmlFor="agent-role">角色</FieldLabel>
-                        <Select
-                          disabled={configDisabled}
-                          value={roleField.value}
-                          items={
-                            roleOptions.some((option) => option.value === roleField.value)
-                              ? roleOptions
-                              : [{ value: roleField.value, label: roleField.value }, ...roleOptions]
-                          }
-                          onValueChange={(role) => {
-                            if (role !== null) roleField.onChange(role);
-                          }}
-                        >
-                          <SelectTrigger
-                            id="agent-role"
-                            className="w-full min-w-0"
-                            aria-invalid={Boolean(errors.role)}
-                            aria-describedby={errors.role ? 'agent-role-error' : undefined}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {!roleOptions.some((option) => option.value === roleField.value) ? (
-                                <SelectItem value={roleField.value} disabled>
-                                  {roleField.value}
-                                </SelectItem>
-                              ) : null}
-                              {roleOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                        <FieldError id="agent-role-error">{errors.role?.message}</FieldError>
-                      </Field>
-                      <Field
-                        data-disabled={configDisabled}
-                        className="gap-1.5 sm:col-span-2"
-                        data-invalid={Boolean(errors.description)}
-                      >
-                        <FieldLabel htmlFor="agent-desc">描述</FieldLabel>
-                        <Input
-                          {...rhf.register('description')}
-                          disabled={configDisabled}
-                          id="agent-desc"
-                          aria-invalid={Boolean(errors.description)}
-                          aria-describedby={errors.description ? 'agent-desc-error' : undefined}
-                          placeholder="一句话说明它擅长什么"
-                        />
-                        <FieldError id="agent-desc-error">{errors.description?.message}</FieldError>
-                      </Field>
-                      <Field className="gap-1.5 sm:col-span-2" data-disabled="true">
-                        <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>
-                        <Input
-                          id="agent-slug"
-                          value={agent.slug}
-                          // Keep monospace technical identifiers instead of the base sans-serif input.
-                          className="font-mono"
-                          disabled
-                          aria-describedby="agent-slug-hint"
-                        />
-                        <FieldDescription id="agent-slug-hint">创建后不可修改</FieldDescription>
-                      </Field>
-                    </FieldGroup>
-                  </Section>
-                ) : null}
 
-                {activeSection === 'behavior' ? (
-                  <Section id="behavior" title="行为">
-                    <FieldGroup className="gap-5">
-                      <Field
-                        data-disabled={configDisabled}
-                        orientation="horizontal"
-                        className="gap-3"
-                      >
-                        <FieldLabel htmlFor="agent-model">模型</FieldLabel>
-                        <Input
-                          {...rhf.register('model')}
-                          disabled={configDisabled}
-                          id="agent-model"
-                          list="agent-models"
-                          // Keep monospace technical identifiers instead of the base sans-serif input.
-                          className="w-64 font-mono"
-                        />
-                        <datalist id="agent-models">
-                          {models.map((model) => (
-                            <option key={model} value={model} />
-                          ))}
-                        </datalist>
-                      </Field>
-                      <Field
-                        data-disabled={configDisabled}
-                        orientation="horizontal"
-                        className="gap-3"
-                      >
-                        <FieldLabel htmlFor="agent-effort">推理强度</FieldLabel>
-                        <Select
-                          disabled={configDisabled}
-                          value={effortField.value ?? ''}
-                          onValueChange={(value) => {
-                            if (value !== null) {
-                              effortField.onChange(
-                                value === '' ? undefined : (value as AgentInput['effort']),
-                              );
-                            }
-                          }}
-                          items={effortOptions}
-                        >
-                          <SelectTrigger id="agent-effort" className="w-40">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {effortOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                    </FieldGroup>
-
-                    <Field data-disabled={configDisabled} className="gap-1.5">
-                      <FieldLabel htmlFor="agent-prompt">
-                        {roleField.value === '数字分身' ? '工作背景与表达方式' : '系统提示词'}
-                      </FieldLabel>
-                      <Textarea
-                        {...rhf.register('systemPrompt')}
-                        disabled={configDisabled}
-                        id="agent-prompt"
-                        rows={16}
-                        // Keep monospace code text instead of the base prose typography.
-                        className="font-mono leading-relaxed"
-                        placeholder="描述角色、边界与工作方式"
+                      <DraftPreview
+                        title="CLAUDE.md 草稿"
+                        view="claude"
+                        control={control}
+                        servers={boundServers}
+                        skills={boundSkills}
+                        subAgents={boundSubAgents}
                       />
-                    </Field>
+                    </Section>
+                  ) : null}
 
-                    <DraftPreview
-                      title="CLAUDE.md 草稿"
-                      view="claude"
-                      control={control}
-                      servers={boundServers}
-                      skills={boundSkills}
-                      subAgents={boundSubAgents}
-                    />
-                  </Section>
-                ) : null}
-
-                {activeSection === 'capability' ? (
-                  <Section id="capability" title="能力">
-                    <div className="flex flex-col gap-4">
-                      <div>
-                        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                            <Plug className="size-4 text-muted-foreground" aria-hidden="true" />
-                            MCP Servers
-                          </h3>
-                          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                            {serverToolSummary}
-                          </span>
-                        </div>
-                        {serversState.isPending ? <LoadingState rows={1} /> : null}
-                        {serversState.isError ? (
-                          <ErrorState
-                            error={serversState.error}
-                            onRetry={() => void serversState.refetch()}
-                          />
-                        ) : null}
-                        {toolQueries.map((query, index) =>
-                          query.isError ? (
+                  {activeSection === 'capability' ? (
+                    <Section id="capability" title="能力">
+                      <div className="flex flex-col gap-4">
+                        <div>
+                          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                            <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                              <Plug className="size-4 text-muted-foreground" aria-hidden="true" />
+                              MCP Servers
+                            </h3>
+                            <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                              {serverToolSummary}
+                            </span>
+                          </div>
+                          {serversState.isPending ? <LoadingState rows={1} /> : null}
+                          {serversState.isError ? (
                             <ErrorState
-                              key={generatedIds[index]}
-                              error={query.error}
-                              onRetry={() => void query.refetch()}
+                              error={serversState.error}
+                              onRetry={() => void serversState.refetch()}
                             />
-                          ) : null,
-                        )}
-                        {!serversState.isPending && serverOptions.length === 0 ? (
-                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                            <span>还没有可绑定的连接器。</span>
-                            <Link
-                              to="/servers"
-                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                            >
-                              去连接器创建
-                            </Link>
-                          </div>
-                        ) : null}
-                        {serverOptions.length > 0 ? (
-                          <Combobox
-                            disabled={pending || !canBindings}
-                            multiple
-                            items={serverOptions}
-                            value={serverOptions.filter((option) =>
-                              serverIdsField.value.includes(option.id),
-                            )}
-                            onValueChange={(picked) => {
-                              serverIdsField.onChange([
-                                ...serverIdsField.value.filter(
-                                  (id) => !serverOptions.some((option) => option.id === id),
-                                ),
-                                ...picked.map((option) => option.id),
-                              ]);
-                            }}
-                            itemToStringLabel={(option) => option.label}
-                            itemToStringValue={(option) => option.id}
-                            isItemEqualToValue={(a, b) => a.id === b.id}
-                            filter={(option, query) =>
-                              `${option.label} ${option.hint}`
-                                .toLowerCase()
-                                .includes(query.trim().toLowerCase())
-                            }
-                          >
-                            <ComboboxChips
-                              aria-label="已选连接器"
-                              data-disabled={bindingsDisabled}
-                              ref={serverAnchor}
-                            >
-                              <ComboboxValue>
-                                {(selected: typeof serverOptions) =>
-                                  selected.map((option) => (
-                                    <ComboboxChip key={option.id} aria-label={option.label}>
-                                      {option.label}
-                                    </ComboboxChip>
-                                  ))
-                                }
-                              </ComboboxValue>
-                              <ComboboxChipsInput
-                                aria-label="MCP Server"
-                                placeholder="搜索并选择 server…"
+                          ) : null}
+                          {toolQueries.map((query, index) =>
+                            query.isError ? (
+                              <ErrorState
+                                key={generatedIds[index]}
+                                error={query.error}
+                                onRetry={() => void query.refetch()}
                               />
-                            </ComboboxChips>
-                            <ComboboxContent anchor={serverAnchor}>
-                              <ComboboxEmpty>没有匹配的 server</ComboboxEmpty>
-                              <ComboboxList>
-                                {(option: (typeof serverOptions)[number]) => (
-                                  <ComboboxItem key={option.id} value={option}>
-                                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                                    <StatusBadge tone="mono">{option.tag}</StatusBadge>
-                                  </ComboboxItem>
-                                )}
-                              </ComboboxList>
-                            </ComboboxContent>
-                          </Combobox>
-                        ) : null}
-                      </div>
-
-                      <div>
-                        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                            <LibraryBig
-                              className="size-4 text-muted-foreground"
-                              aria-hidden="true"
-                            />
-                            知识库
-                          </h3>
-                          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                            已选 {serverIdsField.value.filter((id) => knowledgeIds.has(id)).length}
-                          </span>
-                        </div>
-                        {knowledgeState.isPending ? <LoadingState rows={1} /> : null}
-                        {knowledgeState.isError ? (
-                          <ErrorState
-                            error={knowledgeState.error}
-                            onRetry={() => void knowledgeState.refetch()}
-                          />
-                        ) : null}
-                        {!knowledgeState.isPending && knowledgeOptions.length === 0 ? (
-                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                            <span>还没有可绑定的知识库。</span>
-                            <Link
-                              to="/knowledge"
-                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                            >
-                              去知识库创建
-                            </Link>
-                          </div>
-                        ) : null}
-                        {knowledgeOptions.length > 0 ? (
-                          <Combobox
-                            disabled={pending || !canBindings}
-                            multiple
-                            items={knowledgeOptions}
-                            value={knowledgeOptions.filter((option) =>
-                              serverIdsField.value.includes(option.id),
-                            )}
-                            onValueChange={(picked) => {
-                              setKnowledgeIds(picked.map((option) => option.id));
-                            }}
-                            itemToStringLabel={(option) => option.label}
-                            itemToStringValue={(option) => option.id}
-                            isItemEqualToValue={(a, b) => a.id === b.id}
-                            filter={(option, query) =>
-                              `${option.label} ${option.slug}`
-                                .toLowerCase()
-                                .includes(query.trim().toLowerCase())
-                            }
-                          >
-                            <ComboboxChips
-                              aria-label="已选知识库"
-                              data-disabled={bindingsDisabled}
-                              ref={knowledgeAnchor}
-                            >
-                              <ComboboxValue>
-                                {(selected: typeof knowledgeOptions) =>
-                                  selected.map((option) => (
-                                    <ComboboxChip key={option.id} aria-label={option.label}>
-                                      {option.label}
-                                    </ComboboxChip>
-                                  ))
-                                }
-                              </ComboboxValue>
-                              <ComboboxChipsInput
-                                aria-label="知识库"
-                                placeholder="搜索并选择知识库…"
-                              />
-                            </ComboboxChips>
-                            <ComboboxContent anchor={knowledgeAnchor}>
-                              <ComboboxEmpty>没有匹配的知识库</ComboboxEmpty>
-                              <ComboboxList>
-                                {(option: (typeof knowledgeOptions)[number]) => (
-                                  <ComboboxItem
-                                    key={option.id}
-                                    value={option}
-                                    // 已停用的库不能再新绑；已绑定的仍可保留或解绑。
-                                    disabled={
-                                      option.disabled && !serverIdsField.value.includes(option.id)
-                                    }
-                                  >
-                                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                                    {option.disabled ? <StatusBadge>已停用</StatusBadge> : null}
-                                  </ComboboxItem>
-                                )}
-                              </ComboboxList>
-                            </ComboboxContent>
-                          </Combobox>
-                        ) : null}
-                      </div>
-
-                      <div>
-                        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                            <Sparkles className="size-4 text-muted-foreground" aria-hidden="true" />
-                            技能
-                          </h3>
-                          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                            已选 {skillIdsField.value.length}
-                          </span>
-                        </div>
-                        {skillsState.isPending ? <LoadingState rows={1} /> : null}
-                        {skillsState.isError ? (
-                          <ErrorState
-                            error={skillsState.error}
-                            onRetry={() => void skillsState.refetch()}
-                          />
-                        ) : null}
-                        {!skillsState.isPending && skillOptions.length === 0 ? (
-                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                            <span>还没有可绑定的技能。</span>
-                            <Link
-                              to="/skills"
-                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                            >
-                              去技能页创建或安装
-                            </Link>
-                          </div>
-                        ) : null}
-                        {skillOptions.length > 0 ? (
-                          <Combobox
-                            disabled={pending || !canBindings}
-                            multiple
-                            items={skillOptions}
-                            value={skillOptions.filter((option) =>
-                              skillIdsField.value.includes(option.id),
-                            )}
-                            onValueChange={(picked) => {
-                              skillIdsField.onChange(picked.map((option) => option.id));
-                            }}
-                            itemToStringLabel={(option) => option.label}
-                            itemToStringValue={(option) => option.id}
-                            isItemEqualToValue={(a, b) => a.id === b.id}
-                            filter={(option, query) =>
-                              `${option.label} ${option.hint}`
-                                .toLowerCase()
-                                .includes(query.trim().toLowerCase())
-                            }
-                          >
-                            <ComboboxChips
-                              aria-label="已选技能"
-                              data-disabled={bindingsDisabled}
-                              ref={skillAnchor}
-                            >
-                              <ComboboxValue>
-                                {(selected: typeof skillOptions) =>
-                                  selected.map((option) => (
-                                    <ComboboxChip key={option.id} aria-label={option.label}>
-                                      {option.label}
-                                    </ComboboxChip>
-                                  ))
-                                }
-                              </ComboboxValue>
-                              <ComboboxChipsInput aria-label="技能" placeholder="搜索并选择技能…" />
-                            </ComboboxChips>
-                            <ComboboxContent anchor={skillAnchor}>
-                              <ComboboxEmpty>没有匹配的技能</ComboboxEmpty>
-                              <ComboboxList>
-                                {(option: (typeof skillOptions)[number]) => (
-                                  <ComboboxItem key={option.id} value={option}>
-                                    <span className="min-w-0 flex-1">
-                                      <span className="block truncate">{option.label}</span>
-                                      {option.hint ? (
-                                        <span className="block truncate text-xs text-muted-foreground">
-                                          {option.hint}
-                                        </span>
-                                      ) : null}
-                                    </span>
-                                  </ComboboxItem>
-                                )}
-                              </ComboboxList>
-                            </ComboboxContent>
-                          </Combobox>
-                        ) : null}
-                      </div>
-
-                      <div>
-                        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                            <Puzzle className="size-4 text-muted-foreground" aria-hidden="true" />
-                            插件
-                          </h3>
-                          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                            {pluginBindingsField.value.length > 0
-                              ? `${pluginBindingsField.value.length} 个已启用`
-                              : '未启用'}
-                          </span>
-                        </div>
-                        {agent.parentId !== null ? (
-                          <p className="text-sm text-muted-foreground">
-                            插件在会话级加载，子智能体不能单独绑定。
-                          </p>
-                        ) : pluginsState.isPending ? (
-                          <LoadingState rows={1} />
-                        ) : pluginsState.isError ? (
-                          <ErrorState
-                            error={pluginsState.error}
-                            onRetry={() => void pluginsState.refetch()}
-                          />
-                        ) : pluginOptions.length === 0 ? (
-                          <Link
-                            to="/plugins"
-                            className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                          >
-                            导入插件
-                          </Link>
-                        ) : (
-                          <>
+                            ) : null,
+                          )}
+                          {!serversState.isPending && serverOptions.length === 0 ? (
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                              <span>还没有可绑定的连接器。</span>
+                              <Link
+                                to="/servers"
+                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                              >
+                                去连接器创建
+                              </Link>
+                            </div>
+                          ) : null}
+                          {serverOptions.length > 0 ? (
                             <Combobox
                               disabled={pending || !canBindings}
                               multiple
-                              items={pluginOptions}
-                              value={pluginOptions.filter((option) =>
-                                pluginBindingsField.value.some((b) => b.pluginId === option.id),
+                              items={serverOptions}
+                              value={serverOptions.filter((option) =>
+                                serverIdsField.value.includes(option.id),
                               )}
-                              onValueChange={(picked) =>
-                                setPluginSelection(picked.map((option) => option.id))
-                              }
+                              onValueChange={(picked) => {
+                                serverIdsField.onChange([
+                                  ...serverIdsField.value.filter(
+                                    (id) => !serverOptions.some((option) => option.id === id),
+                                  ),
+                                  ...picked.map((option) => option.id),
+                                ]);
+                              }}
                               itemToStringLabel={(option) => option.label}
                               itemToStringValue={(option) => option.id}
                               isItemEqualToValue={(a, b) => a.id === b.id}
@@ -3253,12 +3040,12 @@ export function AgentEditor({
                               }
                             >
                               <ComboboxChips
-                                aria-label="已启用插件"
+                                aria-label="已选连接器"
                                 data-disabled={bindingsDisabled}
-                                ref={pluginAnchor}
+                                ref={serverAnchor}
                               >
                                 <ComboboxValue>
-                                  {(selected: typeof pluginOptions) =>
+                                  {(selected: typeof serverOptions) =>
                                     selected.map((option) => (
                                       <ComboboxChip key={option.id} aria-label={option.label}>
                                         {option.label}
@@ -3267,14 +3054,446 @@ export function AgentEditor({
                                   }
                                 </ComboboxValue>
                                 <ComboboxChipsInput
-                                  aria-label="插件"
-                                  placeholder="搜索并选择插件…"
+                                  aria-label="MCP Server"
+                                  placeholder="搜索并选择 server…"
                                 />
                               </ComboboxChips>
-                              <ComboboxContent anchor={pluginAnchor}>
-                                <ComboboxEmpty>没有匹配的插件</ComboboxEmpty>
+                              <ComboboxContent anchor={serverAnchor}>
+                                <ComboboxEmpty>没有匹配的 server</ComboboxEmpty>
                                 <ComboboxList>
-                                  {(option: (typeof pluginOptions)[number]) => (
+                                  {(option: (typeof serverOptions)[number]) => (
+                                    <ComboboxItem key={option.id} value={option}>
+                                      <span className="min-w-0 flex-1 truncate">
+                                        {option.label}
+                                      </span>
+                                      <StatusBadge tone="mono">{option.tag}</StatusBadge>
+                                    </ComboboxItem>
+                                  )}
+                                </ComboboxList>
+                              </ComboboxContent>
+                            </Combobox>
+                          ) : null}
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                            <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                              <LibraryBig
+                                className="size-4 text-muted-foreground"
+                                aria-hidden="true"
+                              />
+                              知识库
+                            </h3>
+                            <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                              已选{' '}
+                              {serverIdsField.value.filter((id) => knowledgeIds.has(id)).length}
+                            </span>
+                          </div>
+                          {knowledgeState.isPending ? <LoadingState rows={1} /> : null}
+                          {knowledgeState.isError ? (
+                            <ErrorState
+                              error={knowledgeState.error}
+                              onRetry={() => void knowledgeState.refetch()}
+                            />
+                          ) : null}
+                          {!knowledgeState.isPending && knowledgeOptions.length === 0 ? (
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                              <span>还没有可绑定的知识库。</span>
+                              <Link
+                                to="/knowledge"
+                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                              >
+                                去知识库创建
+                              </Link>
+                            </div>
+                          ) : null}
+                          {knowledgeOptions.length > 0 ? (
+                            <Combobox
+                              disabled={pending || !canBindings}
+                              multiple
+                              items={knowledgeOptions}
+                              value={knowledgeOptions.filter((option) =>
+                                serverIdsField.value.includes(option.id),
+                              )}
+                              onValueChange={(picked) => {
+                                setKnowledgeIds(picked.map((option) => option.id));
+                              }}
+                              itemToStringLabel={(option) => option.label}
+                              itemToStringValue={(option) => option.id}
+                              isItemEqualToValue={(a, b) => a.id === b.id}
+                              filter={(option, query) =>
+                                `${option.label} ${option.slug}`
+                                  .toLowerCase()
+                                  .includes(query.trim().toLowerCase())
+                              }
+                            >
+                              <ComboboxChips
+                                aria-label="已选知识库"
+                                data-disabled={bindingsDisabled}
+                                ref={knowledgeAnchor}
+                              >
+                                <ComboboxValue>
+                                  {(selected: typeof knowledgeOptions) =>
+                                    selected.map((option) => (
+                                      <ComboboxChip key={option.id} aria-label={option.label}>
+                                        {option.label}
+                                      </ComboboxChip>
+                                    ))
+                                  }
+                                </ComboboxValue>
+                                <ComboboxChipsInput
+                                  aria-label="知识库"
+                                  placeholder="搜索并选择知识库…"
+                                />
+                              </ComboboxChips>
+                              <ComboboxContent anchor={knowledgeAnchor}>
+                                <ComboboxEmpty>没有匹配的知识库</ComboboxEmpty>
+                                <ComboboxList>
+                                  {(option: (typeof knowledgeOptions)[number]) => (
+                                    <ComboboxItem
+                                      key={option.id}
+                                      value={option}
+                                      // 已停用的库不能再新绑；已绑定的仍可保留或解绑。
+                                      disabled={
+                                        option.disabled && !serverIdsField.value.includes(option.id)
+                                      }
+                                    >
+                                      <span className="min-w-0 flex-1 truncate">
+                                        {option.label}
+                                      </span>
+                                      {option.disabled ? <StatusBadge>已停用</StatusBadge> : null}
+                                    </ComboboxItem>
+                                  )}
+                                </ComboboxList>
+                              </ComboboxContent>
+                            </Combobox>
+                          ) : null}
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                            <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                              <Sparkles
+                                className="size-4 text-muted-foreground"
+                                aria-hidden="true"
+                              />
+                              技能
+                            </h3>
+                            <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                              已选 {skillIdsField.value.length}
+                            </span>
+                          </div>
+                          {skillsState.isPending ? <LoadingState rows={1} /> : null}
+                          {skillsState.isError ? (
+                            <ErrorState
+                              error={skillsState.error}
+                              onRetry={() => void skillsState.refetch()}
+                            />
+                          ) : null}
+                          {!skillsState.isPending && skillOptions.length === 0 ? (
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                              <span>还没有可绑定的技能。</span>
+                              <Link
+                                to="/skills"
+                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                              >
+                                去技能页创建或安装
+                              </Link>
+                            </div>
+                          ) : null}
+                          {skillOptions.length > 0 ? (
+                            <Combobox
+                              disabled={pending || !canBindings}
+                              multiple
+                              items={skillOptions}
+                              value={skillOptions.filter((option) =>
+                                skillIdsField.value.includes(option.id),
+                              )}
+                              onValueChange={(picked) => {
+                                skillIdsField.onChange(picked.map((option) => option.id));
+                              }}
+                              itemToStringLabel={(option) => option.label}
+                              itemToStringValue={(option) => option.id}
+                              isItemEqualToValue={(a, b) => a.id === b.id}
+                              filter={(option, query) =>
+                                `${option.label} ${option.hint}`
+                                  .toLowerCase()
+                                  .includes(query.trim().toLowerCase())
+                              }
+                            >
+                              <ComboboxChips
+                                aria-label="已选技能"
+                                data-disabled={bindingsDisabled}
+                                ref={skillAnchor}
+                              >
+                                <ComboboxValue>
+                                  {(selected: typeof skillOptions) =>
+                                    selected.map((option) => (
+                                      <ComboboxChip key={option.id} aria-label={option.label}>
+                                        {option.label}
+                                      </ComboboxChip>
+                                    ))
+                                  }
+                                </ComboboxValue>
+                                <ComboboxChipsInput
+                                  aria-label="技能"
+                                  placeholder="搜索并选择技能…"
+                                />
+                              </ComboboxChips>
+                              <ComboboxContent anchor={skillAnchor}>
+                                <ComboboxEmpty>没有匹配的技能</ComboboxEmpty>
+                                <ComboboxList>
+                                  {(option: (typeof skillOptions)[number]) => (
+                                    <ComboboxItem key={option.id} value={option}>
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate">{option.label}</span>
+                                        {option.hint ? (
+                                          <span className="block truncate text-xs text-muted-foreground">
+                                            {option.hint}
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                    </ComboboxItem>
+                                  )}
+                                </ComboboxList>
+                              </ComboboxContent>
+                            </Combobox>
+                          ) : null}
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                            <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                              <Puzzle className="size-4 text-muted-foreground" aria-hidden="true" />
+                              插件
+                            </h3>
+                            <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                              {pluginBindingsField.value.length > 0
+                                ? `${pluginBindingsField.value.length} 个已启用`
+                                : '未启用'}
+                            </span>
+                          </div>
+                          {agent.parentId !== null ? (
+                            <p className="text-sm text-muted-foreground">
+                              插件在会话级加载，子智能体不能单独绑定。
+                            </p>
+                          ) : pluginsState.isPending ? (
+                            <LoadingState rows={1} />
+                          ) : pluginsState.isError ? (
+                            <ErrorState
+                              error={pluginsState.error}
+                              onRetry={() => void pluginsState.refetch()}
+                            />
+                          ) : pluginOptions.length === 0 ? (
+                            <Link
+                              to="/plugins"
+                              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                            >
+                              导入插件
+                            </Link>
+                          ) : (
+                            <>
+                              <Combobox
+                                disabled={pending || !canBindings}
+                                multiple
+                                items={pluginOptions}
+                                value={pluginOptions.filter((option) =>
+                                  pluginBindingsField.value.some((b) => b.pluginId === option.id),
+                                )}
+                                onValueChange={(picked) =>
+                                  setPluginSelection(picked.map((option) => option.id))
+                                }
+                                itemToStringLabel={(option) => option.label}
+                                itemToStringValue={(option) => option.id}
+                                isItemEqualToValue={(a, b) => a.id === b.id}
+                                filter={(option, query) =>
+                                  `${option.label} ${option.hint}`
+                                    .toLowerCase()
+                                    .includes(query.trim().toLowerCase())
+                                }
+                              >
+                                <ComboboxChips
+                                  aria-label="已启用插件"
+                                  data-disabled={bindingsDisabled}
+                                  ref={pluginAnchor}
+                                >
+                                  <ComboboxValue>
+                                    {(selected: typeof pluginOptions) =>
+                                      selected.map((option) => (
+                                        <ComboboxChip key={option.id} aria-label={option.label}>
+                                          {option.label}
+                                        </ComboboxChip>
+                                      ))
+                                    }
+                                  </ComboboxValue>
+                                  <ComboboxChipsInput
+                                    aria-label="插件"
+                                    placeholder="搜索并选择插件…"
+                                  />
+                                </ComboboxChips>
+                                <ComboboxContent anchor={pluginAnchor}>
+                                  <ComboboxEmpty>没有匹配的插件</ComboboxEmpty>
+                                  <ComboboxList>
+                                    {(option: (typeof pluginOptions)[number]) => (
+                                      <ComboboxItem key={option.id} value={option}>
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block truncate">{option.label}</span>
+                                          <span className="block truncate text-xs text-muted-foreground">
+                                            {option.hint}
+                                          </span>
+                                        </span>
+                                      </ComboboxItem>
+                                    )}
+                                  </ComboboxList>
+                                </ComboboxContent>
+                              </Combobox>
+                              {pluginBindingsField.value.length > 0 ? (
+                                <ul className="mt-2 flex flex-col gap-1.5">
+                                  {pluginBindingsField.value.map((binding) => {
+                                    const plugin = pluginCatalog.find(
+                                      (item) => item.id === binding.pluginId,
+                                    );
+                                    const capabilities = canPlugins
+                                      ? pluginCapabilities.get(binding.pluginId)
+                                      : undefined;
+                                    if (!plugin) return null;
+                                    return (
+                                      <li
+                                        key={binding.pluginId}
+                                        className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+                                      >
+                                        <span className="font-medium text-fg">{plugin.name}</span>
+                                        {capabilities?.hasHooks ? (
+                                          <span className="flex items-center gap-1.5">
+                                            <Checkbox
+                                              id={`plugin-${binding.pluginId}-hooks`}
+                                              checked={binding.allowHooks}
+                                              disabled={pending || !canBindings}
+                                              onCheckedChange={(checked) =>
+                                                setPluginPermission(
+                                                  binding.pluginId,
+                                                  'allowHooks',
+                                                  checked === true,
+                                                )
+                                              }
+                                            />
+                                            <label htmlFor={`plugin-${binding.pluginId}-hooks`}>
+                                              允许 hooks
+                                            </label>
+                                          </span>
+                                        ) : null}
+                                        {capabilities && capabilities.mcpServers.length > 0 ? (
+                                          <span className="flex items-center gap-1.5">
+                                            <Checkbox
+                                              id={`plugin-${binding.pluginId}-mcp`}
+                                              checked={binding.allowMcp}
+                                              disabled={pending || !canBindings}
+                                              onCheckedChange={(checked) =>
+                                                setPluginPermission(
+                                                  binding.pluginId,
+                                                  'allowMcp',
+                                                  checked === true,
+                                                )
+                                              }
+                                            />
+                                            <label htmlFor={`plugin-${binding.pluginId}-mcp`}>
+                                              允许 MCP
+                                            </label>
+                                          </span>
+                                        ) : null}
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              ) : null}
+                              <p className="mt-1.5 text-sm text-muted-foreground">
+                                hooks 与 MCP
+                                默认关闭：插件启动的进程以沙盒内用户权限运行，不经过平台的审批与审计。
+                              </p>
+                            </>
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                            <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                              <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
+                              子智能体
+                            </h3>
+                            <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                              {hasSubAgents ? '已启用委派' : '未启用'}
+                            </span>
+                          </div>
+                          {agent.parentId !== null ? (
+                            <p className="text-sm text-muted-foreground">
+                              它本身已经是子智能体，不能再委派。子智能体只支持一层。
+                            </p>
+                          ) : agents.isPending ? (
+                            <LoadingState rows={1} />
+                          ) : agents.isError ? (
+                            <ErrorState
+                              error={agents.error}
+                              onRetry={() => void agents.refetch()}
+                            />
+                          ) : subAgentOptions.length === 0 ? (
+                            agents.data?.length === 0 ? (
+                              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                <span>还没有可委派的专家。</span>
+                                <Link
+                                  to="/agents"
+                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                                >
+                                  新建专家
+                                </Link>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                没有可选的主智能体。只有「没有父级」的智能体才能被委派。
+                              </p>
+                            )
+                          ) : (
+                            <Combobox
+                              disabled={bindingsDisabled}
+                              multiple
+                              items={subAgentOptions}
+                              value={subAgentOptions.filter((option) =>
+                                subAgentIdsField.value.includes(option.id),
+                              )}
+                              onValueChange={(picked) => {
+                                subAgentIdsField.onChange(picked.map((option) => option.id));
+                              }}
+                              itemToStringLabel={(option) => option.label}
+                              itemToStringValue={(option) => option.id}
+                              isItemEqualToValue={(a, b) => a.id === b.id}
+                              filter={(option, query) =>
+                                `${option.label} ${option.hint}`
+                                  .toLowerCase()
+                                  .includes(query.trim().toLowerCase())
+                              }
+                            >
+                              <ComboboxChips
+                                aria-label="已选子智能体"
+                                data-disabled={bindingsDisabled}
+                                ref={subAgentAnchor}
+                              >
+                                <ComboboxValue>
+                                  {(selected: typeof subAgentOptions) =>
+                                    selected.map((option) => (
+                                      <ComboboxChip key={option.id} aria-label={option.label}>
+                                        {option.label}
+                                      </ComboboxChip>
+                                    ))
+                                  }
+                                </ComboboxValue>
+                                <ComboboxChipsInput
+                                  aria-label="子智能体"
+                                  placeholder="搜索并选择子智能体…"
+                                />
+                              </ComboboxChips>
+                              <ComboboxContent anchor={subAgentAnchor}>
+                                <ComboboxEmpty>没有匹配的智能体</ComboboxEmpty>
+                                <ComboboxList>
+                                  {(option: (typeof subAgentOptions)[number]) => (
                                     <ComboboxItem key={option.id} value={option}>
                                       <span className="min-w-0 flex-1">
                                         <span className="block truncate">{option.label}</span>
@@ -3287,391 +3506,100 @@ export function AgentEditor({
                                 </ComboboxList>
                               </ComboboxContent>
                             </Combobox>
-                            {pluginBindingsField.value.length > 0 ? (
-                              <ul className="mt-2 flex flex-col gap-1.5">
-                                {pluginBindingsField.value.map((binding) => {
-                                  const plugin = pluginCatalog.find(
-                                    (item) => item.id === binding.pluginId,
-                                  );
-                                  const capabilities = canPlugins
-                                    ? pluginCapabilities.get(binding.pluginId)
-                                    : undefined;
-                                  if (!plugin) return null;
-                                  return (
-                                    <li
-                                      key={binding.pluginId}
-                                      className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
-                                    >
-                                      <span className="font-medium text-fg">{plugin.name}</span>
-                                      {capabilities?.hasHooks ? (
-                                        <span className="flex items-center gap-1.5">
-                                          <Checkbox
-                                            id={`plugin-${binding.pluginId}-hooks`}
-                                            checked={binding.allowHooks}
-                                            disabled={pending || !canBindings}
-                                            onCheckedChange={(checked) =>
-                                              setPluginPermission(
-                                                binding.pluginId,
-                                                'allowHooks',
-                                                checked === true,
-                                              )
-                                            }
-                                          />
-                                          <label htmlFor={`plugin-${binding.pluginId}-hooks`}>
-                                            允许 hooks
-                                          </label>
-                                        </span>
-                                      ) : null}
-                                      {capabilities && capabilities.mcpServers.length > 0 ? (
-                                        <span className="flex items-center gap-1.5">
-                                          <Checkbox
-                                            id={`plugin-${binding.pluginId}-mcp`}
-                                            checked={binding.allowMcp}
-                                            disabled={pending || !canBindings}
-                                            onCheckedChange={(checked) =>
-                                              setPluginPermission(
-                                                binding.pluginId,
-                                                'allowMcp',
-                                                checked === true,
-                                              )
-                                            }
-                                          />
-                                          <label htmlFor={`plugin-${binding.pluginId}-mcp`}>
-                                            允许 MCP
-                                          </label>
-                                        </span>
-                                      ) : null}
-                                    </li>
-                                  );
-                                })}
-                              </ul>
-                            ) : null}
-                            <p className="mt-1.5 text-sm text-muted-foreground">
-                              hooks 与 MCP
-                              默认关闭：插件启动的进程以沙盒内用户权限运行，不经过平台的审批与审计。
-                            </p>
-                          </>
-                        )}
-                      </div>
-
-                      <div>
-                        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                            <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
-                            子智能体
-                          </h3>
-                          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                            {hasSubAgents ? '已启用委派' : '未启用'}
-                          </span>
+                          )}
                         </div>
-                        {agent.parentId !== null ? (
-                          <p className="text-sm text-muted-foreground">
-                            它本身已经是子智能体，不能再委派。子智能体只支持一层。
-                          </p>
-                        ) : agents.isPending ? (
-                          <LoadingState rows={1} />
-                        ) : agents.isError ? (
-                          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-                        ) : subAgentOptions.length === 0 ? (
-                          agents.data?.length === 0 ? (
-                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                              <span>还没有可委派的专家。</span>
-                              <Link
-                                to="/agents"
-                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                              >
-                                新建专家
-                              </Link>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">
-                              没有可选的主智能体。只有「没有父级」的智能体才能被委派。
-                            </p>
-                          )
-                        ) : (
-                          <Combobox
-                            disabled={bindingsDisabled}
-                            multiple
-                            items={subAgentOptions}
-                            value={subAgentOptions.filter((option) =>
-                              subAgentIdsField.value.includes(option.id),
-                            )}
-                            onValueChange={(picked) => {
-                              subAgentIdsField.onChange(picked.map((option) => option.id));
-                            }}
-                            itemToStringLabel={(option) => option.label}
-                            itemToStringValue={(option) => option.id}
-                            isItemEqualToValue={(a, b) => a.id === b.id}
-                            filter={(option, query) =>
-                              `${option.label} ${option.hint}`
-                                .toLowerCase()
-                                .includes(query.trim().toLowerCase())
-                            }
-                          >
-                            <ComboboxChips
-                              aria-label="已选子智能体"
-                              data-disabled={bindingsDisabled}
-                              ref={subAgentAnchor}
-                            >
-                              <ComboboxValue>
-                                {(selected: typeof subAgentOptions) =>
-                                  selected.map((option) => (
-                                    <ComboboxChip key={option.id} aria-label={option.label}>
-                                      {option.label}
-                                    </ComboboxChip>
-                                  ))
-                                }
-                              </ComboboxValue>
-                              <ComboboxChipsInput
-                                aria-label="子智能体"
-                                placeholder="搜索并选择子智能体…"
-                              />
-                            </ComboboxChips>
-                            <ComboboxContent anchor={subAgentAnchor}>
-                              <ComboboxEmpty>没有匹配的智能体</ComboboxEmpty>
-                              <ComboboxList>
-                                {(option: (typeof subAgentOptions)[number]) => (
-                                  <ComboboxItem key={option.id} value={option}>
-                                    <span className="min-w-0 flex-1">
-                                      <span className="block truncate">{option.label}</span>
-                                      <span className="block truncate text-xs text-muted-foreground">
-                                        {option.hint}
-                                      </span>
-                                    </span>
-                                  </ComboboxItem>
-                                )}
-                              </ComboboxList>
-                            </ComboboxContent>
-                          </Combobox>
-                        )}
-                      </div>
-                      {savedSubAgents.length > 0 ? (
-                        <div className="flex flex-col gap-2">
-                          <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                            <FileText className="size-4 text-muted-foreground" aria-hidden="true" />{' '}
-                            已保存的子智能体文件
-                          </h3>
-                          <div className="flex flex-wrap gap-2">
-                            {savedSubAgents.map((child) => (
-                              <a
-                                key={child.id}
-                                href={`/api/agents/${agent.id}/subagents/${child.id}/file`}
-                                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                              >
-                                <Download />
-                                {child.slug}.md
-                              </a>
-                            ))}
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            技能文件与 MCP 连接配置需来自同一工作区。
-                          </p>
-                          {subAgentIdsField.value.length !== agent.subAgentIds.length ||
-                          subAgentIdsField.value.some((id) => !agent.subAgentIds.includes(id)) ? (
-                            <p className="text-sm text-muted-foreground">
-                              绑定未保存 · 下载的是已保存版本。
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <DraftPreview
-                      title=".mcp.json 与 frontmatter 草稿"
-                      view="files"
-                      control={control}
-                      servers={boundServers}
-                      skills={boundSkills}
-                      subAgents={boundSubAgents}
-                    />
-                  </Section>
-                ) : null}
-
-                {activeSection === 'permissions' ? (
-                  <Section id="permissions" title="权限">
-                    <div className="flex flex-col gap-2 rounded-item bg-warning-soft px-3 py-2 text-sm text-warning">
-                      <p>
-                        内置工具在会话容器内运行；原生文件工具受细粒度边界限制，Bash
-                        默认启用、可执行任意命令，但同样无法越过 Docker 挂载边界写入只读目录（如
-                        /workspace）。启用内置工具会扩大攻击面。
-                      </p>
-                      <p>
-                        平台将绑定连接器的全部工具加入 SDK allowedTools 预批准；工具若设置
-                        requiresApproval，仍须通过服务端审批，可挂起等待批准。请仅绑定可信连接器。
-                      </p>
-                    </div>
-                    <FieldGroup className="gap-5">
-                      <Field
-                        data-disabled={configDisabled}
-                        orientation="horizontal"
-                        className="gap-3"
-                      >
-                        <FieldContent>
-                          <FieldLabel htmlFor="agent-perm">权限模式</FieldLabel>
-                          <FieldDescription id="agent-perm-hint">
-                            default 支持原生澄清问答，dontAsk
-                            拒绝原生提问；其他未预批准的工具请求会被拒绝。
-                            连接器工具仍可能触发服务端审批。
-                          </FieldDescription>
-                        </FieldContent>
-                        <Select
-                          disabled={configDisabled}
-                          value={permissionModeField.value}
-                          onValueChange={(next) => {
-                            if (next !== null) {
-                              permissionModeField.onChange(next as AgentInput['permissionMode']);
-                            }
-                          }}
-                          items={permissionOptions}
-                        >
-                          <SelectTrigger
-                            id="agent-perm"
-                            className="w-64"
-                            aria-describedby="agent-perm-hint"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {permissionOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
+                        {savedSubAgents.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg">
+                              <FileText
+                                className="size-4 text-muted-foreground"
+                                aria-hidden="true"
+                              />{' '}
+                              已保存的子智能体文件
+                            </h3>
+                            <div className="flex flex-wrap gap-2">
+                              {savedSubAgents.map((child) => (
+                                <a
+                                  key={child.id}
+                                  href={`/api/agents/${agent.id}/subagents/${child.id}/file`}
+                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                                >
+                                  <Download />
+                                  {child.slug}.md
+                                </a>
                               ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <Field
-                        data-disabled={configDisabled}
-                        className="gap-1.5"
-                        data-invalid={allowedInvalid}
-                      >
-                        <FieldLabel htmlFor="agent-allowed-tools">自定义允许的工具</FieldLabel>
-                        <Textarea
-                          {...rhf.register('allowedTools')}
-                          disabled={configDisabled}
-                          id="agent-allowed-tools"
-                          rows={3}
-                          // Keep monospace code text instead of the base prose typography.
-                          className="font-mono leading-relaxed"
-                          placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
-                          aria-invalid={allowedInvalid}
-                          aria-describedby={
-                            allowedInvalid
-                              ? 'agent-allowed-tools-error'
-                              : 'agent-allowed-tools-hint'
-                          }
-                        />
-                        {allowedInvalid ? (
-                          <FieldError id="agent-allowed-tools-error">
-                            {errors.allowedTools?.message}
-                          </FieldError>
-                        ) : (
-                          <FieldDescription id="agent-allowed-tools-hint">
-                            每行一个额外允许的工具名或模式，如
-                            mcp__crm__*；不会限制已绑定连接器的工具。
-                          </FieldDescription>
-                        )}
-                      </Field>
-                    </FieldGroup>
-
-                    <div>
-                      <h3 className="mb-2 text-sm font-medium text-fg">内置工具</h3>
-                      <p className="mb-2 max-w-[70ch] text-sm text-muted-foreground">
-                        {agent.parentId === null
-                          ? '主会话可用原生文件工具读写记忆 Markdown 与本轮成果，并只读附件与技能参考；关闭某个工具不等于 Bash 无法读写文件，Bash 仍受 Docker 挂载边界约束。恢复保留已有规则；文件工具的自定义允许项不扩大平台范围，路径禁用规则由 SDK 判断；平台文件边界始终保留。'
-                          : '子智能体默认读写自身记忆目录内的 Markdown；关闭工具不会关闭 MEMORY.md 自动加载。自定义允许项不扩大文件范围，其他禁用规则仍生效；Bash 可访问同一容器的可写挂载。子级禁用规则带路径时也会禁用整个工具。'}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {BUILTIN_TOOLS.map((tool) => {
-                          const fileTool = isFileTool(tool);
-                          const childFileTool = fileTool && agent.parentId !== null;
-                          const fileToolLabels = childFileTool
-                            ? {
-                                on: '默认启用（仅自身记忆）',
-                                off: '已显式禁用',
-                                restore: '默认记忆范围',
-                              }
-                            : {
-                                on: '已启用（受路径限制）',
-                                off: '已禁用',
-                                restore: '默认文件范围',
-                              };
-                          const enabled = fileTool
-                            ? !toolDraft.disallowedTools.includes(tool)
-                            : builtinEnabled(toolDraft, tool);
-                          const fixed = tool === 'Agent' || tool === 'TaskStop';
-                          return (
-                            <Toggle
-                              key={tool}
-                              variant="outline"
-                              size="sm"
-                              pressed={enabled}
-                              onPressedChange={() =>
-                                fileTool ? toggleFileTool(tool) : toggleBuiltin(tool)
-                              }
-                              disabled={fixed || configDisabled}
-                              title={
-                                fixed
-                                  ? enabled
-                                    ? '由子智能体绑定放行；解绑子智能体后自动禁用'
-                                    : '绑定子智能体后自动放行'
-                                  : fileTool
-                                    ? `${enabled ? fileToolLabels.on : fileToolLabels.off}：点击${
-                                        enabled ? '禁用' : `恢复${fileToolLabels.restore}`
-                                      }`
-                                    : enabled
-                                      ? '已放行：点击禁用'
-                                      : '已禁用：点击放行'
-                              }
-                              className="font-mono"
-                            >
-                              {tool}
-                              <span className="sr-only">
-                                {fileTool
-                                  ? `：${enabled ? fileToolLabels.on : fileToolLabels.off}`
-                                  : enabled
-                                    ? '：已启用'
-                                    : '：已禁用'}
-                                {fixed ? '，由子智能体绑定决定' : ''}
-                              </span>
-                            </Toggle>
-                          );
-                        })}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              技能文件与 MCP 连接配置需来自同一工作区。
+                            </p>
+                            {subAgentIdsField.value.length !== agent.subAgentIds.length ||
+                            subAgentIdsField.value.some((id) => !agent.subAgentIds.includes(id)) ? (
+                              <p className="text-sm text-muted-foreground">
+                                绑定未保存 · 下载的是已保存版本。
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
-                    </div>
-                  </Section>
-                ) : null}
 
-                {activeSection === 'limits' ? (
-                  <Section id="limits" title="运行限制">
-                    <FieldGroup className="gap-5">
-                      {agent.parentId === null ? (
-                        <Field data-disabled={pending} orientation="horizontal" className="gap-3">
+                      <DraftPreview
+                        title=".mcp.json 与 frontmatter 草稿"
+                        view="files"
+                        control={control}
+                        servers={boundServers}
+                        skills={boundSkills}
+                        subAgents={boundSubAgents}
+                      />
+                    </Section>
+                  ) : null}
+
+                  {activeSection === 'permissions' ? (
+                    <Section id="permissions" title="权限">
+                      <div className="flex flex-col gap-2 rounded-item bg-warning-soft px-3 py-2 text-sm text-warning">
+                        <p>
+                          内置工具在会话容器内运行；原生文件工具受细粒度边界限制，Bash
+                          默认启用、可执行任意命令，但同样无法越过 Docker 挂载边界写入只读目录（如
+                          /workspace）。启用内置工具会扩大攻击面。
+                        </p>
+                        <p>
+                          平台将绑定连接器的全部工具加入 SDK allowedTools 预批准；工具若设置
+                          requiresApproval，仍须通过服务端审批，可挂起等待批准。请仅绑定可信连接器。
+                        </p>
+                      </div>
+                      <FieldGroup className="gap-5">
+                        <Field
+                          data-disabled={configDisabled}
+                          orientation="horizontal"
+                          className="gap-3"
+                        >
                           <FieldContent>
-                            <FieldLabel htmlFor="agent-runtime-environment">运行环境</FieldLabel>
+                            <FieldLabel htmlFor="agent-perm">权限模式</FieldLabel>
+                            <FieldDescription id="agent-perm-hint">
+                              default 支持原生澄清问答，dontAsk
+                              拒绝原生提问；其他未预批准的工具请求会被拒绝。
+                              连接器工具仍可能触发服务端审批。
+                            </FieldDescription>
                           </FieldContent>
                           <Select
-                            disabled={
-                              pending ||
-                              !canUpdateConfig ||
-                              runtimeState.isPending ||
-                              runtimeState.isError
-                            }
-                            value={runtimeEnvironmentValue}
-                            items={runtimeEnvironmentOptions}
+                            disabled={configDisabled}
+                            value={permissionModeField.value}
                             onValueChange={(next) => {
-                              if (next === null || next === runtimeEnvironmentValue) return;
-                              runtimeEnvironmentField.onChange(next === 'default' ? null : next);
+                              if (next !== null) {
+                                permissionModeField.onChange(next as AgentInput['permissionMode']);
+                              }
                             }}
+                            items={permissionOptions}
                           >
-                            <SelectTrigger id="agent-runtime-environment" className="w-64">
+                            <SelectTrigger
+                              id="agent-perm"
+                              className="w-64"
+                              aria-describedby="agent-perm-hint"
+                            >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectGroup>
-                                {runtimeEnvironmentOptions.map((option) => (
+                                {permissionOptions.map((option) => (
                                   <SelectItem key={option.value} value={option.value}>
                                     {option.label}
                                   </SelectItem>
@@ -3680,244 +3608,386 @@ export function AgentEditor({
                             </SelectContent>
                           </Select>
                         </Field>
-                      ) : null}
-                      {agent.parentId === null && runtimeState.isError ? (
-                        <ErrorState
-                          error={runtimeState.error}
-                          onRetry={() => void runtimeState.refetch()}
-                        />
-                      ) : null}
-                      <Field
-                        data-disabled={configDisabled}
-                        orientation="horizontal"
-                        className="gap-3"
-                        data-invalid={Boolean(errors.maxTurns)}
-                      >
-                        <FieldContent>
-                          <FieldLabel htmlFor="agent-turns">最大轮次</FieldLabel>
-                          <FieldError id="agent-turns-error">{errors.maxTurns?.message}</FieldError>
-                        </FieldContent>
-                        <Input
-                          {...rhf.register('maxTurns', { valueAsNumber: true })}
-                          disabled={configDisabled}
-                          id="agent-turns"
-                          type="number"
-                          min={1}
-                          inputMode="numeric"
-                          aria-invalid={Boolean(errors.maxTurns)}
-                          aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
-                          className="w-40"
-                        />
-                      </Field>
-                      <Field
-                        data-disabled={configDisabled}
-                        orientation="horizontal"
-                        className="gap-3"
-                        data-invalid={Boolean(errors.maxBudgetUsd)}
-                      >
-                        <FieldContent>
-                          <FieldLabel htmlFor="agent-budget">预算上限 (USD)</FieldLabel>
-                          <FieldError id="agent-budget-error">
-                            {errors.maxBudgetUsd?.message}
-                          </FieldError>
-                        </FieldContent>
-                        <Input
-                          {...rhf.register('maxBudgetUsd', { valueAsNumber: true })}
-                          disabled={configDisabled}
-                          id="agent-budget"
-                          type="number"
-                          min={0.01}
-                          step={0.01}
-                          inputMode="decimal"
-                          aria-invalid={Boolean(errors.maxBudgetUsd)}
-                          aria-describedby={errors.maxBudgetUsd ? 'agent-budget-error' : undefined}
-                          className="w-40"
-                        />
-                      </Field>
-                      <Field
-                        data-disabled={configDisabled}
-                        orientation="horizontal"
-                        className="gap-3"
-                        data-invalid={Boolean(errors.timeoutMs)}
-                      >
-                        <FieldContent>
-                          <FieldLabel htmlFor="agent-timeout">独立运行超时 (毫秒)</FieldLabel>
-                          {timeoutHintId ? (
-                            <FieldDescription id={timeoutHintId}>
-                              被委派时使用主运行总超时。
-                            </FieldDescription>
-                          ) : null}
-                          <FieldError id="agent-timeout-error">
-                            {errors.timeoutMs?.message}
-                          </FieldError>
-                        </FieldContent>
-                        <Input
-                          {...rhf.register('timeoutMs', { valueAsNumber: true })}
-                          disabled={configDisabled}
-                          id="agent-timeout"
-                          type="number"
-                          min={1000}
-                          step={1000}
-                          inputMode="numeric"
-                          aria-invalid={Boolean(errors.timeoutMs)}
-                          aria-describedby={
-                            [errors.timeoutMs ? 'agent-timeout-error' : null, timeoutHintId]
-                              .filter(Boolean)
-                              .join(' ') || undefined
-                          }
-                          className="w-40"
-                        />
-                      </Field>
-                      <Field
-                        data-disabled={configDisabled}
-                        orientation="horizontal"
-                        className="gap-3"
-                      >
-                        <FieldLabel htmlFor="agent-ui-format">回复格式</FieldLabel>
-                        <Select
-                          disabled={configDisabled}
-                          value={uiFormatField.value}
-                          onValueChange={(value) => {
-                            if (value !== null) {
-                              uiFormatField.onChange(value as AgentInput['uiFormat']);
+                        <Field
+                          data-disabled={configDisabled}
+                          className="gap-1.5"
+                          data-invalid={allowedInvalid}
+                        >
+                          <FieldLabel htmlFor="agent-allowed-tools">自定义允许的工具</FieldLabel>
+                          <Textarea
+                            {...rhf.register('allowedTools')}
+                            disabled={configDisabled}
+                            id="agent-allowed-tools"
+                            rows={3}
+                            // Keep monospace code text instead of the base prose typography.
+                            className="font-mono leading-relaxed"
+                            placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
+                            aria-invalid={allowedInvalid}
+                            aria-describedby={
+                              allowedInvalid
+                                ? 'agent-allowed-tools-error'
+                                : 'agent-allowed-tools-hint'
                             }
-                          }}
-                          items={uiFormatOptions}
-                        >
-                          <SelectTrigger id="agent-ui-format" className="w-48">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {uiFormatOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                    </FieldGroup>
-                  </Section>
-                ) : null}
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+                          />
+                          {allowedInvalid ? (
+                            <FieldError id="agent-allowed-tools-error">
+                              {errors.allowedTools?.message}
+                            </FieldError>
+                          ) : (
+                            <FieldDescription id="agent-allowed-tools-hint">
+                              每行一个额外允许的工具名或模式，如
+                              mcp__crm__*；不会限制已绑定连接器的工具。
+                            </FieldDescription>
+                          )}
+                        </Field>
+                      </FieldGroup>
 
-      {tab === 'files' ? (
-        <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
-          <nav aria-label="工作区文件" className="hidden min-w-0 md:block">
-            <ul className="flex flex-col gap-0.5">
-              {fileGroups.map((group) => (
-                <Fragment key={group}>
-                  <li className="min-w-0">
-                    <p className="px-2 pt-1 pb-0.5 text-xs text-muted-foreground">{group}</p>
-                  </li>
-                  {fileEntries
-                    .filter((entry) => entry.group === group)
-                    .map((entry) => (
-                      <li key={entry.id} className="min-w-0">
-                        <button
-                          type="button"
-                          aria-current={resolvedId === entry.id ? 'true' : undefined}
-                          onClick={() => setActiveFile(entry.id)}
-                          className={sectionButtonClass(resolvedId === entry.id)}
+                      <div>
+                        <h3 className="mb-2 text-sm font-medium text-fg">内置工具</h3>
+                        <p className="mb-2 max-w-[70ch] text-sm text-muted-foreground">
+                          {agent.parentId === null
+                            ? '主会话可用原生文件工具读写记忆 Markdown 与本轮成果，并只读附件与技能参考；关闭某个工具不等于 Bash 无法读写文件，Bash 仍受 Docker 挂载边界约束。恢复保留已有规则；文件工具的自定义允许项不扩大平台范围，路径禁用规则由 SDK 判断；平台文件边界始终保留。'
+                            : '子智能体默认读写自身记忆目录内的 Markdown；关闭工具不会关闭 MEMORY.md 自动加载。自定义允许项不扩大文件范围，其他禁用规则仍生效；Bash 可访问同一容器的可写挂载。子级禁用规则带路径时也会禁用整个工具。'}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {BUILTIN_TOOLS.map((tool) => {
+                            const fileTool = isFileTool(tool);
+                            const childFileTool = fileTool && agent.parentId !== null;
+                            const fileToolLabels = childFileTool
+                              ? {
+                                  on: '默认启用（仅自身记忆）',
+                                  off: '已显式禁用',
+                                  restore: '默认记忆范围',
+                                }
+                              : {
+                                  on: '已启用（受路径限制）',
+                                  off: '已禁用',
+                                  restore: '默认文件范围',
+                                };
+                            const enabled = fileTool
+                              ? !toolDraft.disallowedTools.includes(tool)
+                              : builtinEnabled(toolDraft, tool);
+                            const fixed = tool === 'Agent' || tool === 'TaskStop';
+                            return (
+                              <Toggle
+                                key={tool}
+                                variant="outline"
+                                size="sm"
+                                pressed={enabled}
+                                onPressedChange={() =>
+                                  fileTool ? toggleFileTool(tool) : toggleBuiltin(tool)
+                                }
+                                disabled={fixed || configDisabled}
+                                title={
+                                  fixed
+                                    ? enabled
+                                      ? '由子智能体绑定放行；解绑子智能体后自动禁用'
+                                      : '绑定子智能体后自动放行'
+                                    : fileTool
+                                      ? `${enabled ? fileToolLabels.on : fileToolLabels.off}：点击${
+                                          enabled ? '禁用' : `恢复${fileToolLabels.restore}`
+                                        }`
+                                      : enabled
+                                        ? '已放行：点击禁用'
+                                        : '已禁用：点击放行'
+                                }
+                                className="font-mono"
+                              >
+                                {tool}
+                                <span className="sr-only">
+                                  {fileTool
+                                    ? `：${enabled ? fileToolLabels.on : fileToolLabels.off}`
+                                    : enabled
+                                      ? '：已启用'
+                                      : '：已禁用'}
+                                  {fixed ? '，由子智能体绑定决定' : ''}
+                                </span>
+                              </Toggle>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </Section>
+                  ) : null}
+
+                  {activeSection === 'limits' ? (
+                    <Section id="limits" title="运行限制">
+                      <FieldGroup className="gap-5">
+                        {agent.parentId === null ? (
+                          <Field data-disabled={pending} orientation="horizontal" className="gap-3">
+                            <FieldContent>
+                              <FieldLabel htmlFor="agent-runtime-environment">运行环境</FieldLabel>
+                            </FieldContent>
+                            <Select
+                              disabled={
+                                pending ||
+                                !canUpdateConfig ||
+                                runtimeState.isPending ||
+                                runtimeState.isError
+                              }
+                              value={runtimeEnvironmentValue}
+                              items={runtimeEnvironmentOptions}
+                              onValueChange={(next) => {
+                                if (next === null || next === runtimeEnvironmentValue) return;
+                                runtimeEnvironmentField.onChange(next === 'default' ? null : next);
+                              }}
+                            >
+                              <SelectTrigger id="agent-runtime-environment" className="w-64">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  {runtimeEnvironmentOptions.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        ) : null}
+                        {agent.parentId === null && runtimeState.isError ? (
+                          <ErrorState
+                            error={runtimeState.error}
+                            onRetry={() => void runtimeState.refetch()}
+                          />
+                        ) : null}
+                        <Field
+                          data-disabled={configDisabled}
+                          orientation="horizontal"
+                          className="gap-3"
+                          data-invalid={Boolean(errors.maxTurns)}
                         >
-                          <span className="inline-flex min-w-0 items-center gap-1.5">
-                            {entry.id === '.mcp.json' ? (
-                              <FileCode aria-hidden="true" />
-                            ) : (
-                              <FileText aria-hidden="true" />
-                            )}
-                            <span className="truncate" title={entry.path}>
-                              {entry.path}
-                              {entry.group === '输出风格' &&
-                              files.data?.selectedOutputStyle &&
-                              entry.id ===
-                                `.claude/output-styles/${files.data.selectedOutputStyle}.md`
-                                ? ' · 已启用'
-                                : ''}
-                            </span>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                </Fragment>
-              ))}
-            </ul>
-          </nav>
-          <div className="flex min-w-0 flex-col gap-3 md:hidden">
-            <Select
-              value={resolvedId}
-              items={fileEntries.map((entry) => ({ value: entry.id, label: entry.path }))}
-              onValueChange={(next) => {
-                if (next !== null) setActiveFile(next);
-              }}
-            >
-              <SelectTrigger className="w-full min-w-0" aria-label="当前文件">
-                <SelectValue className="truncate" placeholder="选择文件" />
-              </SelectTrigger>
-              <SelectContent>
+                          <FieldContent>
+                            <FieldLabel htmlFor="agent-turns">最大轮次</FieldLabel>
+                            <FieldError id="agent-turns-error">
+                              {errors.maxTurns?.message}
+                            </FieldError>
+                          </FieldContent>
+                          <Input
+                            {...rhf.register('maxTurns', { valueAsNumber: true })}
+                            disabled={configDisabled}
+                            id="agent-turns"
+                            type="number"
+                            min={1}
+                            inputMode="numeric"
+                            aria-invalid={Boolean(errors.maxTurns)}
+                            aria-describedby={errors.maxTurns ? 'agent-turns-error' : undefined}
+                            className="w-40"
+                          />
+                        </Field>
+                        <Field
+                          data-disabled={configDisabled}
+                          orientation="horizontal"
+                          className="gap-3"
+                          data-invalid={Boolean(errors.maxBudgetUsd)}
+                        >
+                          <FieldContent>
+                            <FieldLabel htmlFor="agent-budget">预算上限 (USD)</FieldLabel>
+                            <FieldError id="agent-budget-error">
+                              {errors.maxBudgetUsd?.message}
+                            </FieldError>
+                          </FieldContent>
+                          <Input
+                            {...rhf.register('maxBudgetUsd', { valueAsNumber: true })}
+                            disabled={configDisabled}
+                            id="agent-budget"
+                            type="number"
+                            min={0.01}
+                            step={0.01}
+                            inputMode="decimal"
+                            aria-invalid={Boolean(errors.maxBudgetUsd)}
+                            aria-describedby={
+                              errors.maxBudgetUsd ? 'agent-budget-error' : undefined
+                            }
+                            className="w-40"
+                          />
+                        </Field>
+                        <Field
+                          data-disabled={configDisabled}
+                          orientation="horizontal"
+                          className="gap-3"
+                          data-invalid={Boolean(errors.timeoutMs)}
+                        >
+                          <FieldContent>
+                            <FieldLabel htmlFor="agent-timeout">独立运行超时 (毫秒)</FieldLabel>
+                            {timeoutHintId ? (
+                              <FieldDescription id={timeoutHintId}>
+                                被委派时使用主运行总超时。
+                              </FieldDescription>
+                            ) : null}
+                            <FieldError id="agent-timeout-error">
+                              {errors.timeoutMs?.message}
+                            </FieldError>
+                          </FieldContent>
+                          <Input
+                            {...rhf.register('timeoutMs', { valueAsNumber: true })}
+                            disabled={configDisabled}
+                            id="agent-timeout"
+                            type="number"
+                            min={1000}
+                            step={1000}
+                            inputMode="numeric"
+                            aria-invalid={Boolean(errors.timeoutMs)}
+                            aria-describedby={
+                              [errors.timeoutMs ? 'agent-timeout-error' : null, timeoutHintId]
+                                .filter(Boolean)
+                                .join(' ') || undefined
+                            }
+                            className="w-40"
+                          />
+                        </Field>
+                        <Field
+                          data-disabled={configDisabled}
+                          orientation="horizontal"
+                          className="gap-3"
+                        >
+                          <FieldLabel htmlFor="agent-ui-format">回复格式</FieldLabel>
+                          <Select
+                            disabled={configDisabled}
+                            value={uiFormatField.value}
+                            onValueChange={(value) => {
+                              if (value !== null) {
+                                uiFormatField.onChange(value as AgentInput['uiFormat']);
+                              }
+                            }}
+                            items={uiFormatOptions}
+                          >
+                            <SelectTrigger id="agent-ui-format" className="w-48">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {uiFormatOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </FieldGroup>
+                    </Section>
+                  ) : null}
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
+
+        {tab === 'files' ? (
+          <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+            <nav aria-label="工作区文件" className="hidden min-w-0 md:block">
+              <ul className="flex flex-col gap-0.5">
                 {fileGroups.map((group) => (
-                  <SelectGroup key={group}>
-                    <SelectLabel>{group}</SelectLabel>
+                  <Fragment key={group}>
+                    <li className="min-w-0">
+                      <p className="px-2 pt-1 pb-0.5 text-xs text-muted-foreground">{group}</p>
+                    </li>
                     {fileEntries
                       .filter((entry) => entry.group === group)
                       .map((entry) => (
-                        <SelectItem key={entry.id} value={entry.id}>
-                          {entry.path}
-                        </SelectItem>
+                        <li key={entry.id} className="min-w-0">
+                          <button
+                            type="button"
+                            aria-current={resolvedId === entry.id ? 'true' : undefined}
+                            onClick={() => setActiveFile(entry.id)}
+                            className={sectionButtonClass(resolvedId === entry.id)}
+                          >
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              {entry.id === '.mcp.json' ? (
+                                <FileCode aria-hidden="true" />
+                              ) : (
+                                <FileText aria-hidden="true" />
+                              )}
+                              <span className="truncate" title={entry.path}>
+                                {entry.path}
+                                {entry.group === '输出风格' &&
+                                files.data?.selectedOutputStyle &&
+                                entry.id ===
+                                  `.claude/output-styles/${files.data.selectedOutputStyle}.md`
+                                  ? ' · 已启用'
+                                  : ''}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
                       ))}
-                  </SelectGroup>
+                  </Fragment>
                 ))}
-              </SelectContent>
-            </Select>
+              </ul>
+            </nav>
+            <div className="flex min-w-0 flex-col gap-3 md:hidden">
+              <Select
+                value={resolvedId}
+                items={fileEntries.map((entry) => ({ value: entry.id, label: entry.path }))}
+                onValueChange={(next) => {
+                  if (next !== null) setActiveFile(next);
+                }}
+              >
+                <SelectTrigger className="w-full min-w-0" aria-label="当前文件">
+                  <SelectValue className="truncate" placeholder="选择文件" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fileGroups.map((group) => (
+                    <SelectGroup key={group}>
+                      <SelectLabel>{group}</SelectLabel>
+                      {fileEntries
+                        .filter((entry) => entry.group === group)
+                        .map((entry) => (
+                          <SelectItem key={entry.id} value={entry.id}>
+                            {entry.path}
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div
+              id="agent-files-detail"
+              className="min-w-0 scroll-mt-4 rounded-card bg-surface px-6 py-5 ring-1 ring-line"
+            >
+              <FilesPreview entry={resolvedEntry} dirty={dirty} files={files} />
+            </div>
           </div>
-          <div
-            id="agent-files-detail"
-            className="min-w-0 scroll-mt-4 rounded-card bg-surface px-6 py-5 ring-1 ring-line"
-          >
-            <FilesPreview entry={resolvedEntry} dirty={dirty} files={files} />
+        ) : null}
+
+        {tab === 'memory' ? (
+          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+            <MemoryPanel
+              agentId={agent.id}
+              canWrite={canMemoryWrite}
+              onDirtyChange={setChildDirty}
+              onPendingChange={setChildPending}
+            />
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      {tab === 'memory' ? (
-        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-          <MemoryPanel
-            agentId={agent.id}
-            canWrite={canMemoryWrite}
-            onDirtyChange={setChildDirty}
-            onPendingChange={setChildPending}
-          />
-        </div>
-      ) : null}
+        {tab === 'rules' ? (
+          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+            <RulesPanel
+              agentId={agent.id}
+              canWrite={canRulesWrite}
+              onDirtyChange={setChildDirty}
+              onPendingChange={setChildPending}
+            />
+          </div>
+        ) : null}
 
-      {tab === 'rules' ? (
-        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-          <RulesPanel
-            agentId={agent.id}
-            canWrite={canRulesWrite}
-            onDirtyChange={setChildDirty}
-            onPendingChange={setChildPending}
-          />
-        </div>
-      ) : null}
-
-      {tab === 'styles' ? (
-        <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
-          <OutputStylesPanel
-            agentId={agent.id}
-            canWrite={canStylesWrite}
-            onDirtyChange={setChildDirty}
-            onPendingChange={setChildPending}
-          />
-        </div>
-      ) : null}
-
+        {tab === 'styles' ? (
+          <div className="min-w-0 rounded-card bg-surface px-6 py-5 ring-1 ring-line">
+            <OutputStylesPanel
+              agentId={agent.id}
+              canWrite={canStylesWrite}
+              onDirtyChange={setChildDirty}
+              onPendingChange={setChildPending}
+            />
+          </div>
+        ) : null}
+      </PageBody>
       <ConfirmDialog
         open={blocker.status === 'blocked'}
         onClose={() => blocker.reset?.()}
@@ -4826,16 +4896,11 @@ export function CreateAgentDialog({
               </div>
             </CollapsibleContent>
           </Collapsible>
-          <div className="flex justify-end gap-2 border-t pt-3">
-            <Button variant="outline" size="sm" onClick={close} disabled={create.isPending}>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={close} disabled={create.isPending}>
               取消
             </Button>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={create.isPending}
-              aria-busy={create.isPending}
-            >
+            <Button type="submit" disabled={create.isPending} aria-busy={create.isPending}>
               {create.isPending ? '创建中…' : '创建'}
             </Button>
           </div>
@@ -4991,16 +5056,11 @@ function DuplicateAgentDialog({
               <FieldError id="duplicate-agent-slug-error">{errors.slug?.message}</FieldError>
             </Field>
           </FieldGroup>
-          <div className="flex justify-end gap-2 border-t pt-3">
-            <Button variant="outline" size="sm" onClick={close} disabled={duplicate.isPending}>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={close} disabled={duplicate.isPending}>
               取消
             </Button>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={duplicate.isPending}
-              aria-busy={duplicate.isPending}
-            >
+            <Button type="submit" disabled={duplicate.isPending} aria-busy={duplicate.isPending}>
               {duplicate.isPending ? '克隆中…' : '克隆'}
             </Button>
           </div>

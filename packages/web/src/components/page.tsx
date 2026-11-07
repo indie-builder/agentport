@@ -3,7 +3,29 @@ import { cn } from '../lib/cn.js';
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div data-slot="page" className={cn('flex min-w-0 flex-col gap-6', className)}>
+    <div data-slot="page" className={cn('flex h-full min-h-0 min-w-0 flex-col gap-6', className)}>
+      {children}
+    </div>
+  );
+}
+
+export function PageTopbar({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div data-slot="page-topbar" className={cn('flex min-w-0 shrink-0 flex-col gap-6', className)}>
+      {children}
+    </div>
+  );
+}
+
+export function PageBody({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      data-slot="page-body"
+      className={cn(
+        'flex min-h-0 min-w-0 flex-1 flex-col gap-6 overflow-y-auto [&>*]:shrink-0',
+        className,
+      )}
+    >
       {children}
     </div>
   );

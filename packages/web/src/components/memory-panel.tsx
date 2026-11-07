@@ -327,10 +327,7 @@ export function MemoryPanel({
                   if (event.key === 'Escape') setCreating(false);
                 }}
               />
-              <div className="flex gap-2">
-                <Button type="submit" disabled={create.isPending || !name.trim()}>
-                  {create.isPending ? '创建中…' : '创建'}
-                </Button>
+              <div className="flex justify-end gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -338,6 +335,9 @@ export function MemoryPanel({
                   onClick={() => setCreating(false)}
                 >
                   取消
+                </Button>
+                <Button type="submit" disabled={create.isPending || !name.trim()}>
+                  {create.isPending ? '创建中…' : '创建'}
                 </Button>
               </div>
             </form>

@@ -807,14 +807,10 @@ function TestEnvironmentDialog({
           </Field>
         </FieldGroup>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             取消
           </Button>
-          <Button
-            size="sm"
-            disabled={!environmentsAvailable}
-            onClick={() => onConfirm(environmentId)}
-          >
+          <Button disabled={!environmentsAvailable} onClick={() => onConfirm(environmentId)}>
             开始测试
           </Button>
         </div>
@@ -1015,9 +1011,7 @@ function ToolCatalogDialog({
     <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogShell
         title={`工具与试连「${server.name}」`}
-        {...(testedAt || result
-          ? { description: '最近一次试连结果，只代表这一个环境版本。' }
-          : {})}
+        {...(testedAt || result ? { description: '最近一次试连结果，只代表这一个环境版本。' } : {})}
         finalFocus={getReturnFocus}
         className="max-w-2xl sm:max-w-2xl"
       >
@@ -1464,11 +1458,9 @@ function ToolEditorDialog({
                           <Pencil className="size-3.5" />
                         </Button>
                         <Button
-                          variant="ghost"
+                          variant="destructive"
                           size="icon-sm"
                           aria-label={`删除工具 ${tool.name}`}
-                          // Signal deletion on hover while keeping the neutral ghost button at rest.
-                          className="hover:text-danger"
                           disabled={formPending || setEnabled.isPending || remove.isPending}
                           onClick={() => {
                             if (formPending || switching.current || remove.isPending) return;
@@ -2410,14 +2402,13 @@ export function ServerFormDialog({
             </>
           )}
 
-          <div className="flex justify-end gap-2 border-t pt-4">
-            <Button type="button" variant="outline" size="sm" onClick={close} disabled={pending}>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={close} disabled={pending}>
               {viewOnly ? '关闭' : '取消'}
             </Button>
             {viewOnly ? null : (
               <Button
                 type="submit"
-                size="sm"
                 disabled={pending || kind === null || (!creating && !isDirty)}
                 aria-busy={pending}
               >

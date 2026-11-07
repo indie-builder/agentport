@@ -7,7 +7,14 @@ import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { CopyButton } from '../components/copy-button.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
-import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card.js';
@@ -213,124 +220,128 @@ export function PersonalSharesPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="我的分享"
-        actions={
-          <>
-            <ViewToggle
-              value={view}
-              onChange={(next: ListView) =>
-                void navigate({
-                  to: '/personal/shares',
-                  search: (current) => ({ ...current, view: next }),
-                })
-              }
-            />
-            <Button
-              variant="outline"
-              onClick={() => void shares.refetch()}
-              disabled={shares.isFetching}
-            >
-              <RefreshCw
-                data-icon="inline-start"
-                className={shares.isFetching ? 'animate-spin' : undefined}
-                aria-hidden="true"
+      <PageTopbar>
+        <PageHeader
+          title="我的分享"
+          actions={
+            <>
+              <ViewToggle
+                value={view}
+                onChange={(next: ListView) =>
+                  void navigate({
+                    to: '/personal/shares',
+                    search: (current) => ({ ...current, view: next }),
+                  })
+                }
               />
-              {shares.isFetching ? '刷新中…' : '刷新'}
-            </Button>
-          </>
-        }
-      />
-
-      {shares.isError && shares.data !== undefined ? (
-        <PageNote
-          tone="danger"
-          title="刷新失败，已保留加载的内容"
-          description="以下为上次成功加载的内容。"
-          action={
-            <Button variant="outline" size="sm" onClick={() => void shares.refetch()}>
-              重试
-            </Button>
+              <Button
+                variant="outline"
+                onClick={() => void shares.refetch()}
+                disabled={shares.isFetching}
+              >
+                <RefreshCw
+                  data-icon="inline-start"
+                  className={shares.isFetching ? 'animate-spin' : undefined}
+                  aria-hidden="true"
+                />
+                {shares.isFetching ? '刷新中…' : '刷新'}
+              </Button>
+            </>
           }
         />
-      ) : null}
+      </PageTopbar>
 
-      {shares.isError && shares.data === undefined ? (
-        <ErrorState error={shares.error} onRetry={() => void shares.refetch()} />
-      ) : shares.data && shares.data.items.length === 0 ? (
-        <EmptyState
-          illustration={<BusinessIllustration name="sharing" />}
-          title="没有分享链接"
-          description="从会话成果中分享文件。"
-          action={
-            <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
-              去对话
-            </Link>
-          }
-        />
-      ) : view === 'cards' ? (
-        shares.isPending ? (
-          <LoadingState rows={3} layout="cards" columns={3} />
+      <PageBody>
+        {shares.isError && shares.data !== undefined ? (
+          <PageNote
+            tone="danger"
+            title="刷新失败，已保留加载的内容"
+            description="以下为上次成功加载的内容。"
+            action={
+              <Button variant="outline" size="sm" onClick={() => void shares.refetch()}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
+
+        {shares.isError && shares.data === undefined ? (
+          <ErrorState error={shares.error} onRetry={() => void shares.refetch()} />
+        ) : shares.data && shares.data.items.length === 0 ? (
+          <EmptyState
+            illustration={<BusinessIllustration name="sharing" />}
+            title="没有分享链接"
+            description="从会话成果中分享文件。"
+            action={
+              <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
+                去对话
+              </Link>
+            }
+          />
+        ) : view === 'cards' ? (
+          shares.isPending ? (
+            <LoadingState rows={3} layout="cards" columns={3} />
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {(shares.data?.items ?? []).map((share) => (
+                <ShareCard
+                  key={share.id}
+                  share={share}
+                  canOpenConversation={canOpenConversation}
+                  revokePending={revoke.isPending}
+                  onRevoke={requestRevoke}
+                />
+              ))}
+            </div>
+          )
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {(shares.data?.items ?? []).map((share) => (
-              <ShareCard
-                key={share.id}
-                share={share}
-                canOpenConversation={canOpenConversation}
-                revokePending={revoke.isPending}
-                onRevoke={requestRevoke}
-              />
-            ))}
-          </div>
-        )
-      ) : (
-        <DataTable
-          rows={shares.data?.items ?? []}
-          columns={columns}
-          rowKey={(share) => share.id}
-          label="我的会话分享"
-          loading={shares.isPending}
-          empty="没有分享链接"
-        />
-      )}
+          <DataTable
+            rows={shares.data?.items ?? []}
+            columns={columns}
+            rowKey={(share) => share.id}
+            label="我的会话分享"
+            loading={shares.isPending}
+            empty="没有分享链接"
+          />
+        )}
 
-      {cursor || shares.data?.nextCursor ? (
-        <PageToolbar>
-          {cursor ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                void navigate({
-                  to: '/personal/shares',
-                  search: (current) => ({ ...current, cursor: undefined }),
-                })
-              }
-            >
-              回到最新
-            </Button>
-          ) : null}
-          {shares.data?.nextCursor ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto"
-              onClick={() =>
-                void navigate({
-                  to: '/personal/shares',
-                  search: (current) => ({
-                    ...current,
-                    cursor: shares.data?.nextCursor ?? undefined,
-                  }),
-                })
-              }
-            >
-              下一页
-            </Button>
-          ) : null}
-        </PageToolbar>
-      ) : null}
+        {cursor || shares.data?.nextCursor ? (
+          <PageToolbar>
+            {cursor ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void navigate({
+                    to: '/personal/shares',
+                    search: (current) => ({ ...current, cursor: undefined }),
+                  })
+                }
+              >
+                回到最新
+              </Button>
+            ) : null}
+            {shares.data?.nextCursor ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={() =>
+                  void navigate({
+                    to: '/personal/shares',
+                    search: (current) => ({
+                      ...current,
+                      cursor: shares.data?.nextCursor ?? undefined,
+                    }),
+                  })
+                }
+              >
+                下一页
+              </Button>
+            ) : null}
+          </PageToolbar>
+        ) : null}
+      </PageBody>
 
       <ConfirmDialog
         open={target !== null}

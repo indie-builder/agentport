@@ -3,7 +3,14 @@ import { Download, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
-import { Page, PageHeader, PageNote, PageToolbar } from '../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageToolbar,
+  PageTopbar,
+} from '../components/page.js';
 import { SearchInput } from '../components/search-input.js';
 import { ErrorState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
@@ -150,140 +157,144 @@ export function AuditPage() {
 
   return (
     <Page>
-      <PageHeader
-        title="审计"
-        description="输入只保存摘要，不落原文。"
-        actions={
+      <PageTopbar>
+        <PageHeader
+          title="审计"
+          description="输入只保存摘要，不落原文。"
+          actions={
+            <>
+              <Button
+                variant="outline"
+                onClick={() => void exportAudit()}
+                disabled={exporting || searchPending}
+              >
+                <Download data-icon="inline-start" aria-hidden="true" />
+                {exporting ? '导出中…' : searchPending ? '等待筛选…' : '导出审计'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void audit.refetch()}
+                disabled={audit.isFetching}
+              >
+                <RefreshCw
+                  data-icon="inline-start"
+                  className={audit.isFetching ? 'animate-spin' : undefined}
+                  aria-hidden="true"
+                />
+                {audit.isFetching ? '刷新中…' : '刷新'}
+              </Button>
+            </>
+          }
+        />
+
+        <PageToolbar>
+          <SearchInput
+            label="按动作前缀过滤"
+            placeholder="动作前缀，如 auth.login"
+            value={action}
+            onChange={(value) =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, action: value || undefined },
+                replace: true,
+              })
+            }
+            className="w-full sm:w-56"
+          />
+          <SearchInput
+            label="按目标精确筛选"
+            placeholder="目标，如 agent:123"
+            value={target}
+            onChange={(value) =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, target: value || undefined },
+                replace: true,
+              })
+            }
+            className="w-full sm:w-56"
+          />
+          <FilterSelect
+            value={status}
+            onValueChange={(next) =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
+              })
+            }
+            options={statusOptions}
+            label="按状态过滤"
+            className="w-full sm:w-36"
+          />
+        </PageToolbar>
+      </PageTopbar>
+
+      <PageBody>
+        {audit.isError && !audit.data ? (
+          <ErrorState
+            error={audit.error}
+            onRetry={() => void audit.refetch()}
+            title="审计记录没有加载出来"
+          />
+        ) : (
           <>
-            <Button
-              variant="outline"
-              onClick={() => void exportAudit()}
-              disabled={exporting || searchPending}
-            >
-              <Download data-icon="inline-start" aria-hidden="true" />
-              {exporting ? '导出中…' : searchPending ? '等待筛选…' : '导出审计'}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => void audit.refetch()}
-              disabled={audit.isFetching}
-            >
-              <RefreshCw
-                data-icon="inline-start"
-                className={audit.isFetching ? 'animate-spin' : undefined}
-                aria-hidden="true"
+            {audit.isRefetchError ? (
+              <ErrorState
+                error={audit.error}
+                onRetry={() => void audit.refetch()}
+                title="刷新失败，保留已加载的审计记录"
               />
-              {audit.isFetching ? '刷新中…' : '刷新'}
-            </Button>
-          </>
-        }
-      />
-
-      <PageToolbar>
-        <SearchInput
-          label="按动作前缀过滤"
-          placeholder="动作前缀，如 auth.login"
-          value={action}
-          onChange={(value) =>
-            void navigate({
-              to: '/audit',
-              search: { ...search, action: value || undefined },
-              replace: true,
-            })
-          }
-          className="w-full sm:w-56"
-        />
-        <SearchInput
-          label="按目标精确筛选"
-          placeholder="目标，如 agent:123"
-          value={target}
-          onChange={(value) =>
-            void navigate({
-              to: '/audit',
-              search: { ...search, target: value || undefined },
-              replace: true,
-            })
-          }
-          className="w-full sm:w-56"
-        />
-        <FilterSelect
-          value={status}
-          onValueChange={(next) =>
-            void navigate({
-              to: '/audit',
-              search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
-            })
-          }
-          options={statusOptions}
-          label="按状态过滤"
-          className="w-full sm:w-36"
-        />
-      </PageToolbar>
-
-      {audit.isError && !audit.data ? (
-        <ErrorState
-          error={audit.error}
-          onRetry={() => void audit.refetch()}
-          title="审计记录没有加载出来"
-        />
-      ) : (
-        <>
-          {audit.isRefetchError ? (
-            <ErrorState
-              error={audit.error}
-              onRetry={() => void audit.refetch()}
-              title="刷新失败，保留已加载的审计记录"
-            />
-          ) : null}
-          {filtered && !audit.isPending && !searchPending && rows.length === 0 ? (
-            <PageNote
-              title="没有符合当前筛选条件的审计记录"
-              action={
+            ) : null}
+            {filtered && !audit.isPending && !searchPending && rows.length === 0 ? (
+              <PageNote
+                title="没有符合当前筛选条件的审计记录"
+                action={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void navigate({ to: '/audit', search: {} })}
+                  >
+                    清除筛选
+                  </Button>
+                }
+              />
+            ) : (
+              <DataTable
+                rows={rows}
+                columns={columns}
+                rowKey={(row) => row.id}
+                rowLabel={(row) =>
+                  `${row.action}${row.target ? ` ${row.target}` : ''} · ${formatDateTime(row.createdAt)}`
+                }
+                label="审计事件"
+                loading={audit.isPending || searchPending}
+                empty="登录或修改配置后会自动记录对应事件。"
+                renderExpanded={auditDetails}
+              />
+            )}
+            {audit.isFetchNextPageError ? (
+              <ErrorState
+                error={audit.error}
+                onRetry={() => void audit.fetchNextPage()}
+                title="下一页加载失败，保留已加载的审计记录"
+              />
+            ) : audit.hasNextPage ? (
+              <div className="flex justify-center">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => void navigate({ to: '/audit', search: {} })}
+                  disabled={audit.isFetching || searchPending}
+                  onClick={() => void audit.fetchNextPage()}
                 >
-                  清除筛选
+                  {audit.isFetchingNextPage ? '加载中…' : '加载更多'}
                 </Button>
-              }
-            />
-          ) : (
-            <DataTable
-              rows={rows}
-              columns={columns}
-              rowKey={(row) => row.id}
-              rowLabel={(row) =>
-                `${row.action}${row.target ? ` ${row.target}` : ''} · ${formatDateTime(row.createdAt)}`
-              }
-              label="审计事件"
-              loading={audit.isPending || searchPending}
-              empty="登录或修改配置后会自动记录对应事件。"
-              renderExpanded={auditDetails}
-            />
-          )}
-          {audit.isFetchNextPageError ? (
-            <ErrorState
-              error={audit.error}
-              onRetry={() => void audit.fetchNextPage()}
-              title="下一页加载失败，保留已加载的审计记录"
-            />
-          ) : audit.hasNextPage ? (
-            <div className="flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={audit.isFetching || searchPending}
-                onClick={() => void audit.fetchNextPage()}
-              >
-                {audit.isFetchingNextPage ? '加载中…' : '加载更多'}
-              </Button>
-            </div>
-          ) : rows.length > 0 ? (
-            <div className="text-center text-xs text-muted-foreground">已到末尾</div>
-          ) : null}
-        </>
-      )}
+              </div>
+            ) : rows.length > 0 ? (
+              <div className="text-center text-xs text-muted-foreground">已到末尾</div>
+            ) : null}
+          </>
+        )}
+      </PageBody>
     </Page>
   );
 }

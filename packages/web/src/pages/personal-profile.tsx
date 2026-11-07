@@ -8,7 +8,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../components/motion-collapsible.js';
-import { Page, PageHeader, PageSection } from '../components/page.js';
+import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../components/page.js';
 import { Button } from '../components/ui/button.js';
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
@@ -54,99 +54,103 @@ export function PersonalProfilePage() {
 
   return (
     <Page>
-      <PageHeader title="个人资料" />
+      <PageTopbar>
+        <PageHeader title="个人资料" />
+      </PageTopbar>
 
-      <PageSection title="身份" divided={false} className="w-full gap-3">
-        <form
-          aria-label="个人资料"
-          noValidate
-          className="flex w-full min-w-0 flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
-          <FieldGroup>
-            <Field
-              orientation="horizontal"
-              className="items-start gap-x-4"
-              data-disabled={update.isPending}
-              data-invalid={formState.errors.name ? true : undefined}
-            >
-              <FieldContent className="w-24 flex-none pt-2">
-                <FieldLabel htmlFor="personal-name">显示姓名</FieldLabel>
-              </FieldContent>
-              <div className={FIELD_VALUE}>
-                <Input
-                  id="personal-name"
-                  autoComplete="name"
-                  disabled={update.isPending}
-                  aria-invalid={Boolean(formState.errors.name || formError)}
-                  aria-describedby={nameErrorIds.length > 0 ? nameErrorIds.join(' ') : undefined}
-                  {...register('name')}
-                />
-                <FieldError id="personal-name-field-error">
-                  {formState.errors.name?.message}
-                </FieldError>
-                {formError ? <FieldError id="personal-name-error">{formError}</FieldError> : null}
-              </div>
-            </Field>
-          </FieldGroup>
-          <dl className={`${IDENTITY_GRID} gap-y-2 text-sm`}>
-            <dt className="text-muted-foreground">用户名</dt>
-            <dd className="min-w-0 break-words text-fg">{user.user.username}</dd>
-            <dt className="text-muted-foreground">角色</dt>
-            <dd className="min-w-0 break-words text-fg">
-              {user.roles.map((role) => role.name).join('、') || '无角色'}
-            </dd>
-          </dl>
-          <div className="ml-28 flex max-w-112 justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={update.isPending}
-              onClick={() => {
-                setFormError(null);
-                reset({ name: user.user.name });
-              }}
-            >
-              取消
-            </Button>
-            <Button
-              type="submit"
-              disabled={!dirty || update.isPending}
-              aria-busy={update.isPending}
-            >
-              {update.isPending ? '保存中…' : '保存'}
-            </Button>
-          </div>
-        </form>
-      </PageSection>
-
-      <PageSection divided className="w-full gap-3">
-        <Collapsible>
-          <CollapsibleTrigger
-            render={
-              <Button variant="ghost" size="sm" className="group -ml-2.5 text-muted-foreground" />
-            }
+      <PageBody>
+        <PageSection title="身份" divided={false} className="w-full gap-3">
+          <form
+            aria-label="个人资料"
+            noValidate
+            className="flex w-full min-w-0 flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
           >
-            <ChevronDown
-              aria-hidden="true"
-              data-icon="inline-start"
-              className="transition-transform duration-150 ease-out-soft group-data-[panel-open]:rotate-180"
-            />
-            账号详情
-          </CollapsibleTrigger>
-          <CollapsibleContent animated>
-            <dl className={`${IDENTITY_GRID} mt-2 text-sm`}>
-              <dt className="text-muted-foreground">业务 ID</dt>
-              <dd className="min-w-0 break-words font-mono text-xs text-fg">
-                {user.user.businessId}
+            <FieldGroup>
+              <Field
+                orientation="horizontal"
+                className="items-start gap-x-4"
+                data-disabled={update.isPending}
+                data-invalid={formState.errors.name ? true : undefined}
+              >
+                <FieldContent className="w-24 flex-none pt-2">
+                  <FieldLabel htmlFor="personal-name">显示姓名</FieldLabel>
+                </FieldContent>
+                <div className={FIELD_VALUE}>
+                  <Input
+                    id="personal-name"
+                    autoComplete="name"
+                    disabled={update.isPending}
+                    aria-invalid={Boolean(formState.errors.name || formError)}
+                    aria-describedby={nameErrorIds.length > 0 ? nameErrorIds.join(' ') : undefined}
+                    {...register('name')}
+                  />
+                  <FieldError id="personal-name-field-error">
+                    {formState.errors.name?.message}
+                  </FieldError>
+                  {formError ? <FieldError id="personal-name-error">{formError}</FieldError> : null}
+                </div>
+              </Field>
+            </FieldGroup>
+            <dl className={`${IDENTITY_GRID} gap-y-2 text-sm`}>
+              <dt className="text-muted-foreground">用户名</dt>
+              <dd className="min-w-0 break-words text-fg">{user.user.username}</dd>
+              <dt className="text-muted-foreground">角色</dt>
+              <dd className="min-w-0 break-words text-fg">
+                {user.roles.map((role) => role.name).join('、') || '无角色'}
               </dd>
             </dl>
-          </CollapsibleContent>
-        </Collapsible>
-      </PageSection>
+            <div className="ml-28 flex max-w-112 justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={update.isPending}
+                onClick={() => {
+                  setFormError(null);
+                  reset({ name: user.user.name });
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                type="submit"
+                disabled={!dirty || update.isPending}
+                aria-busy={update.isPending}
+              >
+                {update.isPending ? '保存中…' : '保存'}
+              </Button>
+            </div>
+          </form>
+        </PageSection>
+
+        <PageSection divided className="w-full gap-3">
+          <Collapsible>
+            <CollapsibleTrigger
+              render={
+                <Button variant="ghost" size="sm" className="group -ml-2.5 text-muted-foreground" />
+              }
+            >
+              <ChevronDown
+                aria-hidden="true"
+                data-icon="inline-start"
+                className="transition-transform duration-150 ease-out-soft group-data-[panel-open]:rotate-180"
+              />
+              账号详情
+            </CollapsibleTrigger>
+            <CollapsibleContent animated>
+              <dl className={`${IDENTITY_GRID} mt-2 text-sm`}>
+                <dt className="text-muted-foreground">业务 ID</dt>
+                <dd className="min-w-0 break-words font-mono text-xs text-fg">
+                  {user.user.businessId}
+                </dd>
+              </dl>
+            </CollapsibleContent>
+          </Collapsible>
+        </PageSection>
+      </PageBody>
 
       <ConfirmDialog
         open={blocker.status === 'blocked'}
