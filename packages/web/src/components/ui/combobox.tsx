@@ -131,7 +131,7 @@ function ComboboxItem({ className, children, ...props }: ComboboxPrimitive.Item.
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none data-highlighted:bg-hover data-highlighted:text-foreground data-disabled:pointer-events-none data-disabled:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
@@ -169,7 +169,7 @@ function ComboboxChips({
     <ComboboxPrimitive.Chips
       data-slot="combobox-chips"
       className={cn(
-        'flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent bg-clip-padding px-2.5 py-1 text-sm transition-colors focus-within:border-[var(--color-subtle)] has-aria-invalid:border-destructive has-aria-invalid:focus-within:border-destructive has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-2 has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-solid has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-ring has-aria-invalid:has-[[data-slot=combobox-chip-input]:focus-visible]:outline-offset-2 has-data-[slot=combobox-chip]:px-1 dark:bg-input/30 dark:has-aria-invalid:border-destructive/50',
+        'flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-background bg-clip-padding px-2.5 py-1 text-sm transition-colors outline-none hover:border-control-boundary has-[[data-slot=combobox-chip-input]:focus-visible]:outline-2 has-[[data-slot=combobox-chip-input]:focus-visible]:outline-solid has-[[data-slot=combobox-chip-input]:focus-visible]:outline-ring has-[[data-slot=combobox-chip-input]:focus-visible]:outline-offset-2 has-[[data-slot=combobox-chip-input]:disabled]:bg-sunken has-[[data-slot=combobox-chip-input]:disabled]:border-input has-aria-invalid:border-destructive [&_[data-slot=combobox-chip-input]:focus-visible]:outline-none has-data-[slot=combobox-chip]:px-1 dark:bg-input/30 dark:has-aria-invalid:border-destructive/50',
         className,
       )}
       {...props}
@@ -190,7 +190,7 @@ function ComboboxChip({
       data-slot="combobox-chip"
       aria-description="按 Backspace 或 Delete 移除"
       className={cn(
-        'flex h-[calc(--spacing(5.25))] w-fit items-center justify-center gap-1 rounded-sm bg-muted px-1.5 text-xs font-medium whitespace-nowrap text-foreground has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50 has-data-[slot=combobox-chip-remove]:pr-0',
+        'flex h-[calc(--spacing(5.25))] w-fit items-center justify-center gap-1 rounded-sm bg-muted px-1.5 text-xs font-medium whitespace-nowrap text-foreground has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:text-muted-foreground has-data-[slot=combobox-chip-remove]:pr-0',
         className,
       )}
       {...props}
@@ -200,7 +200,7 @@ function ComboboxChip({
         <ComboboxPrimitive.ChipRemove
           aria-label={`移除 ${props['aria-label'] ?? (typeof children === 'string' ? children : '所选项')}`}
           render={<Button variant="ghost" size="icon-xs" />}
-          className="-ml-1 opacity-50 hover:opacity-100"
+          className="-ml-1 text-muted-foreground hover:text-foreground"
           data-slot="combobox-chip-remove"
         >
           <XIcon className="pointer-events-none" />
@@ -215,7 +215,10 @@ function ComboboxChipsInput({ className, ...props }: ComboboxPrimitive.Input.Pro
     <ComboboxPrimitive.Input
       data-slot="combobox-chip-input"
       aria-description="从输入开头按左方向键可选择已选项，再按 Backspace 或 Delete 移除"
-      className={cn('min-w-16 flex-1 text-sm outline-none', className)}
+      className={cn(
+        'min-w-16 flex-1 text-sm outline-none placeholder:text-muted-foreground disabled:text-muted-foreground',
+        className,
+      )}
       {...props}
     />
   );

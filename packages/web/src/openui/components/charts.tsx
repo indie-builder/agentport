@@ -363,7 +363,7 @@ function ChartDataView({
   if (rows.length === 0) return null;
   return (
     <Collapsible>
-      <CollapsibleTrigger className="self-start rounded-item text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <CollapsibleTrigger className="self-start rounded-item text-sm text-muted-foreground transition-colors hover:text-fg outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2">
         数据视图
       </CollapsibleTrigger>
       <CollapsibleContent animated className="pt-2">

@@ -1,10 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-// 焦点/边框统一规约的守卫（docs/DESIGN-SYSTEM.md §9、CLAUDE.md 前端规则）：
-// A. 以边框表达焦点的输入类原语不得再叠 ring-2。
-// B. 可聚焦元素的 focus-visible:ring-2 必须同时带 focus-visible:outline-none，
-//    否则会和全局 :focus-visible 的 2px outline 叠成两层。
 const WEB_SRC = join(process.cwd(), 'packages/web/src');
 const INPUT_PRIMITIVES = new Set([
   'components/ui/input.tsx',
@@ -34,11 +30,9 @@ for (const file of walk(WEB_SRC)) {
   const text = readFileSync(file, 'utf8');
   text.split('\n').forEach((line, i) => {
     const at = `${rel}:${i + 1}`;
-    // 规则 A 只适用于 INPUT_PRIMITIVES：这些原语以边线表达焦点，
-    // 错误态改用 outline 补焦点；任何状态都不得叠 ring（含 aria-invalid 错误环）。
     if (INPUT_PRIMITIVES.has(rel) && /\bring-[23]\b/.test(line)) {
       violations.push(
-        `${at}  输入类原语用边框表达焦点，不得叠 ring-2/ring-3（规则 A）`,
+        `${at}  输入类原语用单层 outline 表达焦点，不得叠 ring-2/ring-3（规则 A）`,
       );
     }
     // 基类 outline-none 与 focus-visible:outline-none 都能压掉全局 :focus-visible 外轮廓。
@@ -51,11 +45,6 @@ for (const file of walk(WEB_SRC)) {
   });
 }
 
-// C. slider 手柄不在 INPUT_PRIMITIVES 里（它用光环而非边框表达焦点）：hover/焦点/按下
-//    统一单层 ring-2，且环出现时边框透明，避免 §9 禁止的「边框 + 光环」两层。
-//    键盘焦点实际落在手柄内部的原生 range input 上，thumb 自身不聚焦，因此焦点态必须写成
-//    has-[:focus-visible]，并压掉内部 input 的全局 outline；写成 focus-visible:* 会永远不命中。
-//    aria-invalid:/dark: 等错误态可另加，不参与这三态的检查。
 const sliderText = readFileSync(join(WEB_SRC, SLIDER), 'utf8');
 const thumbAt = sliderText.indexOf('data-slot="slider-thumb"');
 const thumbJsx =
@@ -76,15 +65,26 @@ if (!thumbClassName) {
       violations.push(`${SLIDER}  slider 手柄 ${state} 态环出现时边框须透明（规则 C）`);
     }
   }
-  // 焦点落在内部 input：has-[:focus-visible]:ring-2 + border-transparent + 内部 outline-none。
   const focusRingTokens = [...tokens].filter(
-    (t) => t.startsWith('has-[:focus-visible]:ring-') && /:ring-\d+$/.test(t),
+    (token) => token.startsWith('has-[:focus-visible]:ring-') && /:ring-\d+$/.test(token),
   );
-  if (focusRingTokens.length !== 1 || focusRingTokens[0] !== 'has-[:focus-visible]:ring-2') {
-    violations.push(`${SLIDER}  slider 手柄焦点态必须用 has-[:focus-visible]:ring-2（规则 C）`);
+  const focusOutlineTokens = [...tokens].filter(
+    (token) => token.startsWith('has-[:focus-visible]:outline-') && /:outline-\d+$/.test(token),
+  );
+  if (focusRingTokens.length !== 1 || focusRingTokens[0] !== 'has-[:focus-visible]:ring-0') {
+    violations.push(`${SLIDER}  slider 手柄焦点态须移除 hover/active 的 ring（规则 C）`);
   }
-  if (!tokens.has('has-[:focus-visible]:border-transparent')) {
-    violations.push(`${SLIDER}  slider 手柄焦态环出现时边框须透明（规则 C）`);
+  if (focusOutlineTokens.length !== 1 || focusOutlineTokens[0] !== 'has-[:focus-visible]:outline-2') {
+    violations.push(`${SLIDER}  slider 手柄焦点态必须且只能用 outline-2（规则 C）`);
+  }
+  for (const token of [
+    'has-[:focus-visible]:outline-solid',
+    'has-[:focus-visible]:outline-ring',
+    'has-[:focus-visible]:outline-offset-2',
+  ]) {
+    if (!tokens.has(token)) {
+      violations.push(`${SLIDER}  slider 手柄焦点态缺少 ${token}（规则 C）`);
+    }
   }
   const staleSelfFocus = [...tokens].some(
     (t) => t.startsWith('focus-visible:ring-') || t.startsWith('focus-visible:border-'),

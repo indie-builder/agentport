@@ -296,6 +296,11 @@ export function BatchActionDialog({
               </Button>
               <Button
                 variant={action === 'delete' ? 'destructive' : 'default'}
+                className={
+                  action === 'delete'
+                    ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80'
+                    : undefined
+                }
                 onClick={submit}
                 disabled={batch.isPending || invalid || selection.ids.length === 0}
                 aria-busy={batch.isPending}

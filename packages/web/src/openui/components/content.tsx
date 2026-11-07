@@ -28,7 +28,7 @@ export function TextContentRenderer({ props }: RenderProps<{ text: string; size?
 
 const MD_VARIANTS = {
   clear: '',
-  card: 'rounded-card bg-chip p-3',
+  card: 'rounded-card border border-line bg-surface p-3',
   sunk: 'rounded-card bg-sunken p-3',
 } as const;
 

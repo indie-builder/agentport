@@ -1582,7 +1582,7 @@ export const ApprovalCard = memo(function ApprovalCard({
       animate={{ opacity: 1 }}
       transition={reduce ? STILL : EXPAND}
       className={cn(
-        'flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2',
+        'flex flex-wrap items-center gap-2 rounded-card border bg-surface px-3 py-2',
         isPending && 'border-line',
       )}
     >

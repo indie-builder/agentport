@@ -31,7 +31,7 @@ export function App() {
                   'border! border-solid! border-line! bg-surface! text-fg! hover:bg-hover! active:bg-hover! focus-visible:outline-2! focus-visible:outline-solid! focus-visible:outline-ring! focus-visible:outline-offset-2! focus-visible:ring-0! focus-visible:shadow-none!',
               }),
               closeButton:
-                'bg-surface border-line text-muted-foreground hover:text-fg focus-visible:outline-2! focus-visible:outline-ring! focus-visible:outline-offset-2! focus-visible:shadow-none!',
+                'bg-surface! border-line! text-muted-foreground! hover:bg-hover! hover:text-fg! focus-visible:outline-2! focus-visible:outline-solid! focus-visible:outline-ring! focus-visible:outline-offset-2! focus-visible:shadow-none!',
             },
           }}
         />

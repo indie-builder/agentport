@@ -326,13 +326,13 @@ export function DatePickerRenderer({
       <PopoverTrigger
         render={
           <UiButton
-            variant="outline"
+            variant="plain"
             id={wiring?.controlId ?? field.name}
             aria-invalid={field.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
             disabled={field.streaming}
             className={cn(
-              'flex h-8 w-full justify-between gap-1.5 px-2.5 font-normal',
+              'flex h-8 w-full justify-between gap-1.5 border-input bg-surface px-2.5 font-normal hover:border-control-boundary aria-invalid:hover:border-destructive',
               label ? 'text-fg' : 'text-muted-foreground',
             )}
           />
@@ -581,7 +581,7 @@ export function SwitchGroupRenderer({
     <div
       className={cn(
         'flex flex-col gap-2',
-        props.variant === 'card' && 'rounded-card bg-chip p-3',
+        props.variant === 'card' && 'rounded-card border border-line bg-surface p-3',
         props.variant === 'sunk' && 'rounded-card bg-sunken p-3',
       )}
     >
@@ -703,26 +703,24 @@ export function ChipsRenderer({
       {items.map((item) => {
         const selected = state.selection.includes(item.value);
         return (
-          <button
+          <UiButton
             key={item.value}
             type="button"
+            variant="outline"
             aria-pressed={selected}
             aria-invalid={state.error ? true : undefined}
             aria-describedby={wiring?.describedBy}
             disabled={state.streaming || item.disabled}
             onClick={() => state.toggle(item.value)}
             className={cn(
-              'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              selected
-                ? 'border-line-strong bg-selected text-selected-foreground'
-                : 'border-line bg-transparent text-muted-foreground hover:bg-hover',
-              'disabled:cursor-not-allowed disabled:opacity-50',
+              'rounded-pill font-normal',
+              selected &&
+                'border-line-strong bg-selected text-selected-foreground hover:bg-selected',
             )}
           >
             {item.icon ? renderNode(item.icon) : null}
             {item.label}
-          </button>
+          </UiButton>
         );
       })}
     </RangeGroup>
@@ -792,26 +790,19 @@ export function OptionCardsRenderer({
             disabled={state.streaming || item.disabled}
             onClick={() => state.toggle(item.value)}
             className={cn(
-              'flex min-w-0 items-start gap-2 rounded-card border p-3 text-left transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'flex min-w-0 items-start gap-2 rounded-card border border-line bg-surface p-3 text-left text-sm transition-colors',
+              'outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2',
               selected
                 ? 'border-line-strong bg-selected text-selected-foreground'
                 : 'border-line hover:bg-hover',
-              'disabled:cursor-not-allowed disabled:opacity-50',
+              'disabled:cursor-not-allowed disabled:border-input disabled:bg-sunken disabled:text-muted-foreground',
             )}
           >
             {item.topContent ? (
               <span className="shrink-0">{renderNode(item.topContent)}</span>
             ) : null}
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span
-                className={cn(
-                  'text-sm font-medium',
-                  selected ? 'text-selected-foreground' : 'text-fg',
-                )}
-              >
-                {item.title}
-              </span>
+              <span className="text-sm font-medium">{item.title}</span>
               {item.subtitle ? (
                 <span className="text-sm text-muted-foreground">{item.subtitle}</span>
               ) : null}

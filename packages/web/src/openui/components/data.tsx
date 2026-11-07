@@ -162,7 +162,7 @@ function EditableCell({
         disabled={disabled}
         onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}
       >
-        <SelectTrigger aria-label={label} className="h-8 w-full border-transparent bg-transparent">
+        <SelectTrigger aria-label={label} className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -186,11 +186,10 @@ function EditableCell({
           render={
             <Button
               type="button"
-              variant="outline"
-              size="sm"
+              variant="plain"
               aria-label={label}
               disabled={disabled}
-              className="h-8 w-full justify-start border-transparent bg-transparent font-normal"
+              className="h-8 w-full justify-start border-input bg-surface font-normal hover:border-control-boundary"
             >
               {value || '选择日期'}
             </Button>
@@ -215,10 +214,7 @@ function EditableCell({
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className={cn(
-        'h-8 border-transparent bg-transparent',
-        column.type === 'number' && 'text-right font-mono tabular-nums',
-      )}
+      className={cn(column.type === 'number' && 'text-right font-mono tabular-nums')}
     />
   );
 }
@@ -357,7 +353,7 @@ export function EditableTableRenderer({
         >
           Reset
         </Button>
-        <Button size="sm" variant="outline" disabled={streaming || dirtyCount === 0} onClick={save}>
+        <Button size="sm" disabled={streaming || dirtyCount === 0} onClick={save}>
           Save Changes
         </Button>
       </div>
@@ -568,7 +564,7 @@ export function ContextCardBlockRenderer({
                 itemBody: itemProps?.body,
               })
             }
-            className="relative overflow-hidden bg-sunken"
+            className="relative overflow-hidden"
           >
             {itemProps?.bgImageSrc ? (
               <img
@@ -580,9 +576,7 @@ export function ContextCardBlockRenderer({
             ) : null}
             <div className="relative flex min-w-0 flex-col gap-1">
               {typeof itemProps?.title === 'string' ? (
-                <span className="text-base font-medium break-words text-fg">
-                  {itemProps.title}
-                </span>
+                <span className="text-base font-medium break-words text-fg">{itemProps.title}</span>
               ) : itemProps?.title ? (
                 renderNode(itemProps.title)
               ) : null}
@@ -636,7 +630,7 @@ export function VisualCardBlockRenderer({
                 itemTag: tagProps?.text,
               })
             }
-            className="relative isolate min-h-40 justify-end overflow-hidden bg-sunken p-0"
+            className="relative isolate min-h-40 justify-end overflow-hidden p-0"
           >
             {itemProps?.bgImageSrc ? (
               <img

@@ -232,9 +232,9 @@ export function BlockCard({
   className?: string;
 }) {
   const base = cn(
-    'flex h-full min-w-0 flex-col gap-3 rounded-card bg-chip p-3 text-left',
+    'flex h-full min-w-0 flex-col gap-3 rounded-card border border-line bg-surface p-3 text-left',
     clickable &&
-      'cursor-pointer transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      'cursor-pointer transition-colors hover:bg-hover outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2',
     className,
   );
   if (!clickable) return <div className={base}>{children}</div>;

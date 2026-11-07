@@ -8,6 +8,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '../../components/ui/accordion.js';
+import { Button } from '../../components/ui/button.js';
 import {
   Carousel,
   CarouselContent,
@@ -406,7 +407,7 @@ export function CarouselRenderer({
             <div
               className={cn(
                 'flex h-full flex-col gap-3 rounded-card p-3',
-                props.variant === 'sunk' ? 'bg-sunken' : 'bg-chip',
+                props.variant === 'sunk' ? 'bg-sunken' : 'border border-line bg-surface',
               )}
             >
               {renderNode(slide)}
@@ -481,7 +482,7 @@ export function ListRenderer({
             {clickable ? (
               <button
                 type="button"
-                className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors hover:bg-hover outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2"
                 onClick={() => void trigger(itemProps.title, undefined, action)}
               >
                 {content}
@@ -507,16 +508,17 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
         const text = String(childProps(item)?.text ?? '');
         if (!text) return null;
         return (
-          <button
+          <Button
             // biome-ignore lint/suspicious/noArrayIndexKey: 追问项文本可能重复，位置即身份
             key={index}
             type="button"
+            variant="outline"
             disabled={streaming}
-            className="rounded-full border border-line px-3 py-1.5 text-sm text-fg transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-auto min-h-8 rounded-pill py-1.5 text-left font-normal whitespace-normal"
             onClick={() => void trigger(text)}
           >
             {text}
-          </button>
+          </Button>
         );
       })}
     </div>
