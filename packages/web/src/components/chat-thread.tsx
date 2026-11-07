@@ -766,7 +766,6 @@ export function MessagePane({
                     : foldableToolRoots(turn.items, structure, approvalHosts, questionsByToolUseId);
                   const foldableIds = new Set(foldableRoots.map((tool) => tool.toolUseId));
                   let tracePlaced = false;
-                  // 每个 item 自带 content-visibility（绘制隔离），越界的悬浮层会被裁掉。
                   return (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
                       {/* 一轮一组：只靠拉开间距划出轮次边界，不加横线。 */}
@@ -888,8 +887,7 @@ export function MessagePane({
                         </Message>
                         {/* 历史读数常驻占位、默认透明：指到或聚焦这一轮才显影。
                             只用 opacity 隐藏——「查看详情」始终留在可访问树与 Tab 序里，
-                            键盘聚焦到它时本轮 group-focus-within 显影，链接不会突然消失。
-                            不用绝对定位——item 的 content-visibility 会裁掉越界内容。 */}
+                            键盘聚焦到它时本轮 group-focus-within 显影，链接不会突然消失。 */}
                         {historyRun ? (
                           <div
                             className={cn(

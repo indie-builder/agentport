@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { agentRuns, agents, conversations, newId } from '../../../packages/db/src/index.js';
-import { db as database, client as sql } from './database.js';
+import { RUN_CANCEL_PAYLOAD, runCancelKey } from '../../../packages/shared/src/run-stream.js';
+import { db as database, redis, client as sql } from './database.js';
 
 interface Fixture {
   agentId: string;
@@ -48,10 +49,18 @@ export async function runStatus(runId: string): Promise<string | undefined> {
   return rows[0]?.status;
 }
 
+export async function cancelRequested(runId: string): Promise<boolean> {
+  return (await redis().get(runCancelKey(runId))) === RUN_CANCEL_PAYLOAD;
+}
+
 export async function cleanup(created: Fixture[]): Promise<void> {
   if (!created.length) return;
   const targets = created.flatMap((f) => [f.agentId, f.conversationId, f.runId]);
   await sql`delete from audit_log where target = any(${sql.array(targets, 'TEXT')})`;
+  await redis().send(
+    'DEL',
+    created.map((f) => runCancelKey(f.runId)),
+  );
   await sql`delete from agents where id = any(${sql.array(
     created.map((f) => f.agentId),
     'TEXT',

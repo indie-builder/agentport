@@ -31,6 +31,10 @@ async function runStatus(runId: string): Promise<string | undefined> {
   return runFixture('run-cancel', 'runStatus', runId);
 }
 
+async function cancelRequested(runId: string): Promise<boolean> {
+  return runFixture('run-cancel', 'cancelRequested', runId);
+}
+
 /**
  * 轮询更新靠 TanStack Query，整页不重载：reload 会把 navigation type 改成 reload。
  * 用字符串表达式读，避免测试文件依赖 DOM 类型。
@@ -70,7 +74,7 @@ test('a succeeded run offers no cancel button', { session: 'admin' }, async ({ a
   await expect(screen.getByRole('button', '取消运行')).toHaveCount(0);
 });
 
-test('cancel a running run from the detail page and poll to cancelled', {
+test('cancel a running run only signals the worker', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
   const fixture = await seedRun('running');
@@ -82,8 +86,8 @@ test('cancel a running run from the detail page and poll to cancelled', {
 
   await cancel.tap();
   await expect(screen.getByText('已请求取消运行')).toBeVisible();
-  await expect(screen.getByText('已取消', { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect.poll(() => runStatus(fixture.runId), { timeout: 15_000 }).toBe('cancelled');
-  await expect(screen.getByRole('button', '取消运行')).toHaveCount(0);
+  await expect.poll(() => cancelRequested(fixture.runId), { timeout: 5_000 }).toBe(true);
+  await expect.poll(() => runStatus(fixture.runId), { timeout: 5_000 }).toBe('running');
+  await expect(screen.getByText('运行中', { exact: true })).toBeVisible();
   expect(await navigationType(browser)).toBe('navigate');
 });
