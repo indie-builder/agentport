@@ -210,7 +210,7 @@ test('personal module opens as profile and exposes direct subpages', { session: 
   // 查询完成前既非空态也非阅读态，先等面板落定再分支。
   await expect(screen.getByRole('region', { name: '个人记忆' })).toBeVisible();
   // 阅读态正文之后说明会随每轮对话带入；空态只展示标题与两个入口。
-  const memoryEmpty = await screen.getByText('还没有个人记忆', { exact: true }).isVisible();
+  const memoryEmpty = await screen.getByText('个人记忆为空', { exact: true }).isVisible();
   if (memoryEmpty) {
     expect(await screen.getByText('每轮对话会带入这些长期信息。').isVisible()).toBe(false);
     await screen.getByRole('button', '自己填写', { exact: true }).tap();

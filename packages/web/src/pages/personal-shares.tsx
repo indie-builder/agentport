@@ -260,8 +260,8 @@ export function PersonalSharesPage() {
       ) : shares.data && shares.data.items.length === 0 ? (
         <EmptyState
           illustration={<BusinessIllustration name="sharing" />}
-          title="还没有分享"
-          description="在会话成果里分享文件后，链接会出现在这里。"
+          title="没有分享链接"
+          description="从会话成果中分享文件。"
           action={
             <Link to="/chat" className={buttonVariants({ size: 'sm' })}>
               去对话
@@ -291,7 +291,7 @@ export function PersonalSharesPage() {
           rowKey={(share) => share.id}
           label="我的会话分享"
           loading={shares.isPending}
-          empty="还没有分享"
+          empty="没有分享链接"
         />
       )}
 

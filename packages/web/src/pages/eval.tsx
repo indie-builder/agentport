@@ -246,6 +246,7 @@ export function EvalPage() {
   const closeRun = (): void => setSearch({ run: undefined });
 
   const cases = useEvalCases(effectiveAgentId);
+  const casesEmpty = cases.isSuccess && cases.data.length === 0;
   const runs = useEvalRuns(effectiveAgentId);
   const runItems = runs.data?.pages.flatMap((page) => page.items) ?? [];
   const start = useStartEvalRun();
@@ -374,11 +375,25 @@ export function EvalPage() {
                       ? '用例加载中，稍后再试'
                       : cases.isError
                         ? '用例加载失败，请重试'
-                        : cases.data.length === 0
+                        : casesEmpty
                           ? '先新建至少一个用例'
                           : null;
 
   const agentOptions = (agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }));
+  const createCaseButton = canManageEval ? (
+    <Button
+      variant="outline"
+      size="sm"
+      ref={createButtonRef}
+      disabled={!effectiveAgentId}
+      onClick={(event) => {
+        dialogTriggerRef.current = event.currentTarget;
+        setCreatingAgentId(effectiveAgentId);
+      }}
+    >
+      <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
+    </Button>
+  ) : null;
 
   return (
     <Page>
@@ -444,6 +459,7 @@ export function EvalPage() {
         <PageSection
           title="用例维护"
           divided={false}
+          className="[&>div:first-child]:items-center"
           actions={
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -486,20 +502,7 @@ export function EvalPage() {
                   {exporting ? '导出中…' : '导出 JSON'}
                 </Button>
               ) : null}
-              {canManageEval ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  ref={createButtonRef}
-                  disabled={!effectiveAgentId}
-                  onClick={(event) => {
-                    dialogTriggerRef.current = event.currentTarget;
-                    setCreatingAgentId(effectiveAgentId);
-                  }}
-                >
-                  <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
-                </Button>
-              ) : null}
+              {casesEmpty ? null : createCaseButton}
             </div>
           }
         >
@@ -521,7 +524,7 @@ export function EvalPage() {
           {agents.isSuccess && !missingAgent && !effectiveAgentId ? (
             <PageNote
               icon={<BusinessIllustration name="agents" size="compact" />}
-              title="还没有专家"
+              title="专家列表为空"
               action={
                 <Link to="/agents" className="text-sm text-fg underline underline-offset-4">
                   前往创建专家
@@ -533,10 +536,11 @@ export function EvalPage() {
           {effectiveAgentId && cases.isError ? (
             <ErrorState error={cases.error} onRetry={() => void cases.refetch()} />
           ) : null}
-          {effectiveAgentId && cases.isSuccess && cases.data.length === 0 ? (
+          {effectiveAgentId && casesEmpty ? (
             <PageNote
               icon={<BusinessIllustration name="review" size="compact" />}
-              title="还没有用例"
+              title="用例为空"
+              action={createCaseButton}
             />
           ) : null}
           {effectiveAgentId && cases.data && cases.data.length > 0 ? (
@@ -593,6 +597,7 @@ export function EvalPage() {
 
         <PageSection
           title="运行历史"
+          className="xl:border-t-0 xl:pt-0 [&>div:first-child]:items-center"
           actions={
             <div className="flex flex-wrap items-center gap-2">
               {terminalRuns.length < 2 ? (
@@ -626,8 +631,12 @@ export function EvalPage() {
           {effectiveAgentId && runs.isSuccess && runItems.length === 0 ? (
             <PageNote
               icon={<BusinessIllustration name="runs" size="compact" />}
-              title="还没有评估运行"
-              description="点「运行评估」开始。"
+              title="评估尚未运行"
+              description={
+                cases.isSuccess && !casesEmpty && canExecuteEval
+                  ? '点「运行评估」开始。'
+                  : undefined
+              }
             />
           ) : null}
           {effectiveAgentId && runItems.length > 0 ? (
@@ -827,7 +836,7 @@ function EvalRunResults({ id }: { id: string }) {
             {running
               ? '正在逐个执行用例…'
               : evalRun.status === 'cancelled'
-                ? '后续用例已停止，还没有结果记录。'
+                ? '后续用例已停止，没有结果记录。'
                 : '评估已完成，没有结果记录。'}
           </p>
         ) : null

@@ -91,7 +91,7 @@ interface DataTableProps<T> {
   storageKey?: string;
   /** 首屏排序方向；只在挂载时生效，之后仍由用户点击调整。 */
   initialSorting?: SortingState;
-  onRowClick?: (row: T) => void;
+  onRowClick?: (row: T, trigger: HTMLElement) => void;
   hideRowCount?: boolean;
   className?: string;
 }
@@ -550,9 +550,9 @@ export function DataTable<T extends RowData>({
                 const isOpen = expanded === key && expandedContent !== null;
                 const interactive = expandedContent !== null || Boolean(onRowClick);
                 const panelId = `${tableId}-row-panel-${key}`;
-                const activate = () => {
+                const activate = (trigger: HTMLElement) => {
                   if (expandedContent !== null) setExpanded(isOpen ? null : key);
-                  onRowClick?.(row.original);
+                  onRowClick?.(row.original, trigger);
                 };
                 return (
                   <Fragment key={key}>
@@ -562,13 +562,15 @@ export function DataTable<T extends RowData>({
                       onClick={
                         interactive
                           ? (event) => {
-                              if (
-                                (event.target as Element).closest(
-                                  'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [contenteditable], [tabindex]',
-                                )
-                              )
-                                return;
-                              activate();
+                              const target = event.target as Element;
+                              if (!event.currentTarget.contains(target)) return;
+                              const control = target.closest(
+                                'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [contenteditable], [tabindex]',
+                              );
+                              if (control && event.currentTarget.contains(control)) return;
+                              event.currentTarget
+                                .querySelector<HTMLButtonElement>('button[data-row]')
+                                ?.click();
                             }
                           : undefined
                       }
@@ -607,7 +609,7 @@ export function DataTable<T extends RowData>({
                                   aria-expanded={expandedContent !== null ? isOpen : undefined}
                                   aria-controls={expandedContent !== null ? panelId : undefined}
                                   onKeyDown={onRowKeyDown}
-                                  onClick={activate}
+                                  onClick={(event) => activate(event.currentTarget)}
                                 >
                                   {expandedContent !== null ? (
                                     isOpen ? (

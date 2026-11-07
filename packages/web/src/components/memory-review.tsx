@@ -364,8 +364,8 @@ export function MemoryReviews({
         items.length === 0 ? (
           <EmptyState
             illustration={<BusinessIllustration name="review" />}
-            title="从对话梳理可采纳的记忆与规则提案"
-            description="选择执行专家和来源会话后生成。"
+            title="没有记忆提案"
+            description="从对话整理可采纳的记忆与规则。"
             action={
               canCreate ? (
                 <Button onClick={() => openCreate()} disabled={agents.isPending || agents.isError}>
@@ -379,7 +379,7 @@ export function MemoryReviews({
           <EmptyState
             icon={<Search className="size-5" />}
             title="当前筛选下没有提案"
-            description="这里只统计当前已加载的记录，可以切回全部查看。"
+            description="仅筛选当前已加载的记录。"
             action={
               <Button variant="outline" onClick={() => onStageChange(null)}>
                 查看全部

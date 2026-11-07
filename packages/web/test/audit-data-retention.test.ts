@@ -341,7 +341,7 @@ describe('eval agent access states', () => {
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [], nextCursor: null });
 
     await mountEval();
-    await actWaitFor(() => expect(host.textContent).toContain('还没有用例'));
+    await actWaitFor(() => expect(host.textContent).toContain('用例为空'));
 
     expect(button('新建用例')).toBeNull();
     expect(button('导入 JSON')).toBeNull();

@@ -36,6 +36,18 @@ function previewKind(mediaType: string): PreviewKind {
   return 'none';
 }
 
+function shareError(error: unknown): Error {
+  let message = '请稍后重试，若仍失败请联系分享者确认链接是否可用。';
+  if (error instanceof ApiError && error.status >= 500) {
+    message = '服务暂时无法提供分享内容，请稍后重试；若仍失败请联系分享者。';
+  } else if (error instanceof ApiError && error.status === 0) {
+    message = '网络连接失败，请检查网络后重试；若仍失败请联系分享者。';
+  } else if (error instanceof SyntaxError) {
+    message = '分享内容格式异常，请稍后重试；若仍失败请联系分享者。';
+  }
+  return new Error(message, { cause: error });
+}
+
 export function readShareToken(): string | null {
   const token = window.location.hash.slice(1);
   return token === '' ? null : token;
@@ -119,8 +131,12 @@ export function ShareView({ shareId, token }: { shareId: string; token: string |
           </>
         ) : state.status === 'error' ? (
           <>
-            <h1 className="text-lg font-medium tracking-[-0.01em] text-fg">分享内容没有加载出来</h1>
-            <ErrorState error={state.error} onRetry={() => setAttempt((value) => value + 1)} />
+            <h1 className="sr-only">共享文件</h1>
+            <ErrorState
+              title="分享内容没有加载出来"
+              error={shareError(state.error)}
+              onRetry={() => setAttempt((value) => value + 1)}
+            />
           </>
         ) : token === null ? null : (
           <SharedFile shareId={shareId} token={token} file={state.file} />
@@ -169,7 +185,7 @@ function SharedFile({ shareId, token, file }: { shareId: string; token: string; 
       const blob = await api.publicOutputShareDownload(shareId, token);
       downloadBlob(blob, file.name);
     } catch (error) {
-      toastError(error);
+      toastError(shareError(error));
     } finally {
       setDownloading(false);
     }
@@ -256,7 +272,7 @@ function SharePreview({
   if (state.status === 'error') {
     return (
       <ErrorState
-        error={state.error}
+        error={shareError(state.error)}
         title="预览没有加载出来"
         onRetry={() => setAttempt((value) => value + 1)}
       />

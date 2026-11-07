@@ -158,7 +158,7 @@ describe('internal skill library empty state', () => {
       await inspect(SkillsPage, (tree) => {
         const note = required(
           tree,
-          (node) => node.type === PageNote && node.props.title === '技能是可复用的操作流程',
+          (node) => node.type === PageNote && node.props.title === '未添加技能',
         );
         expect(String(note.props.title)).not.toContain('暂无');
         const action = required(
@@ -194,7 +194,7 @@ describe('internal skill library empty state', () => {
     await inspect(SkillsPage, (tree) => {
       expect(
         tree.some(
-          (node) => node.type === PageNote && node.props.title === '技能是可复用的操作流程',
+          (node) => node.type === PageNote && node.props.title === '未添加技能',
         ),
       ).toBe(false);
       expect(

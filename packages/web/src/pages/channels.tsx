@@ -64,7 +64,7 @@ export function ChannelsPage() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={<Hash className="size-5" />}
-          title="频道让多人、多个智能体在同一时间线协作"
+          title="未创建频道"
           {...(canCreate ? {} : { description: '管理员把你加入频道后，频道会出现在这里。' })}
           action={
             canCreate ? (

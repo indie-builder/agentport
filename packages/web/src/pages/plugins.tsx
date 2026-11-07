@@ -229,7 +229,7 @@ export function PluginsPage() {
       {plugins.data && plugins.data.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
-          title="插件用文件目录扩展专家能力"
+          title="未安装插件"
           description={canImport || canInstall ? undefined : '当前账号没有导入或安装插件的权限。'}
           action={
             canImport ? (
