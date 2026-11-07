@@ -21,27 +21,27 @@
 
 **硬性规则**
 
-1. **外壳平铺全幅，不再做悬浮白框。** 根容器铺 `canvas` `#FCFCFB`，侧栏复用 `hover` 令牌铺不透明暖灰底，主内容区是贴边的 `surface` `#FFFFFF`；没有外层圆角、没有外边距、没有渐变、没有外壳描边。收起与固定展开态无外壳阴影；只有临时预览侧栏覆盖正文并使用既有 `shadow-overlay`。分区靠底色差异和留白表达，不靠外壳边框。
+1. **外壳平铺全幅，不再做悬浮白框。** 根容器铺 `canvas` `#FCFCFB`，侧栏使用 `sidebar` 令牌铺不透明的极淡陶土暖灰底，主内容区是贴边的 `surface` `#FFFFFF`；没有外层圆角、没有外边距、没有渐变、没有外壳描边。收起与固定展开态无外壳阴影；只有临时预览侧栏覆盖正文并使用既有 `shadow-overlay`。分区靠底色差异和留白表达，不靠外壳边框。
 2. 侧栏不透明暖灰底与主区靠底色差异和留白分开，不加分隔线；临时预览的浮层阴影见 §7。
-3. **聊天三栏顶端平齐，消息列自带 56px 头部。** 历史、消息列与成果栏都从 ChatWorkspace 顶部开始并排，没有横跨三栏的外顶栏；ChatTopBar 位于消息列内的 ChatColumn 头部，高 56px、左右 24px。历史收起时头部依次容纳历史开关、搜索、唯一专家选择、当前会话 h1 与操作菜单、右侧成果开关；历史展开时头部只保留历史开关、会话标题与操作、成果开关，搜索与专家选择移入历史栏：历史头部为专家选择 + 新建，其下是既有「搜索全部会话」与列表。窄桌面历史 Sheet 打开时消息头部隐藏搜索与专家选择，Sheet 的 `HistoryHeader` 显示专家选择、新建与关闭，搜索仍在其下；Sheet 关闭后恢复消息头部。专家选择同一时刻只有一处，允许随历史开合切换 DOM 挂载点，不要求前后同一节点或相同 x/y；头部始终位于消息列顶部且高度不变；消息列随分栏开合移动并伸缩，其它子项沿现有 flex 自然排布，不保留空占位。历史默认收起（0），首次展开 240px，可在 200–360px 间拖动并记忆。历史与消息区同用 `bg-surface`（纯白），外部主导航复用 `hover` 令牌铺不透明暖灰底；登录页保持纯白 `surface`，公开分享页铺 `canvas` 画布。消息区左侧历史按钮使用虚线面板图标 `PanelLeftDashed`，右侧会话成果按钮使用镜像的 `PanelRightDashed`；桌面端（`lg` 起）同时显示「会话成果」文字，窄屏保留图标与无障碍名。两者均为常规 32px ghost 按钮，图形比导航的实线折叠图标更轻。右侧会话成果与专家定义文件不同，不展示 `.claude` 配置树；仅展示服务端真实发布的成果，同路径可选择版本，提供静态阅读/源码与下载、基于此版本修改与固定版本分享。成果属于产生它的对话轮次；分享从对应版本的成果面板发起，链接形如 `/s/<shareId>#<token>`，token 只放 URL 片段。无成果显示真实空态，不从回复猜测文件或伪造卡片。该链路已交付，运行验收证据见任务记录。窗口收窄时历史面板仍可收起；面板切换不得清空输入、变更专家或重建消息流。始终仅一个 h1。
+3. **聊天三栏顶端平齐，消息列自带 56px 头部。** 历史、消息列与成果栏都从 ChatWorkspace 顶部开始并排，没有横跨三栏的外顶栏；ChatTopBar 位于消息列内的 ChatColumn 头部，高 56px、左右 24px。历史收起时头部依次容纳历史开关、搜索、唯一专家选择、当前会话 h1 与操作菜单、右侧成果开关；历史展开时头部只保留历史开关、会话标题与操作、成果开关，搜索与专家选择移入历史栏：历史头部为专家选择 + 新建，其下是既有「搜索全部会话」与列表。窄桌面历史 Sheet 打开时消息头部隐藏搜索与专家选择，Sheet 的 `HistoryHeader` 显示专家选择、新建与关闭，搜索仍在其下；Sheet 关闭后恢复消息头部。专家选择同一时刻只有一处，允许随历史开合切换 DOM 挂载点，不要求前后同一节点或相同 x/y；头部始终位于消息列顶部且高度不变；消息列随分栏开合移动并伸缩，其它子项沿现有 flex 自然排布，不保留空占位。历史默认收起（0），首次展开 240px，可在 200–360px 间拖动并记忆。历史与消息区同用 `bg-surface`（纯白），外部主导航使用 `sidebar` 令牌铺不透明的极淡陶土暖灰底；登录页保持纯白 `surface`，公开分享页铺 `canvas` 画布。消息区左侧历史按钮使用虚线面板图标 `PanelLeftDashed`，右侧会话成果按钮使用镜像的 `PanelRightDashed`；桌面端（`lg` 起）同时显示「会话成果」文字，窄屏保留图标与无障碍名。两者均为常规 32px ghost 按钮，图形比导航的实线折叠图标更轻。右侧会话成果与专家定义文件不同，不展示 `.claude` 配置树；仅展示服务端真实发布的成果，同路径可选择版本，提供静态阅读/源码与下载、基于此版本修改与固定版本分享。成果属于产生它的对话轮次；分享从对应版本的成果面板发起，链接形如 `/s/<shareId>#<token>`，token 只放 URL 片段。无成果显示真实空态，不从回复猜测文件或伪造卡片。该链路已交付，运行验收证据见任务记录。窗口收窄时历史面板仍可收起；面板切换不得清空输入、变更专家或重建消息流。始终仅一个 h1。
 4. 对话、欢迎态与 Composer 共用同一条 832px 阅读轴线；含左右各 24px 内边距的外容器最大 880px。Composer 在 ChatColumn 内正常流、始终同一位置、距底 24px，不用 `position: fixed` 覆盖消息。
 
 ## 2. 色彩
 
 配色与控件外观以 Claude Design System（CDS）为准，仅亮色；全部数值来自 `packages/web/src/styles.css` 的 `@theme`，本文不另造色值。系统是一条暖灰表面阶梯、一层 alpha 发丝边、中性文字与唯一的陶土主操作色；外壳没有渐变，分区只靠画布与表面的底色差异。
 
-根容器铺画布 `canvas #FCFCFB`，侧栏复用 `hover #F3F3F0` 铺不透明暖灰底；主内容区、页面、会话历史、详情阅读区、卡片与标准浮层统一为 `surface #FFFFFF`，临时预览侧栏仍用暖灰实底。中性层为暖灰 `sunken #F9F9F7` / `hover #F3F3F0` / `chip #F6F6F4` / `selected #EAE9E4`；正文 `fg #0b0b0b`。主操作走陶土 `button-primary #D97757` 三态，按钮键盘焦点环同为陶土 `ring #D97757`；界面不再用墨色承载「可点击」。`chart-runs #2A78D6` 只保留为图表数据系列，仅用于数据，不表示导航、按钮、焦点或结果状态。状态色独立表达结果。
+根容器铺画布 `canvas #FCFCFB`，侧栏使用 `sidebar` 铺不透明的极淡陶土暖灰底，具体混色与角色映射见 [DESIGN.md 的 Secondary 与 Navigation](../packages/web/DESIGN.md#secondary)；主内容区、页面、会话历史、详情阅读区、卡片与标准浮层统一为 `surface #FFFFFF`，临时预览侧栏仍用暖灰实底。中性层为暖灰 `sunken #F9F9F7` / `hover #F3F3F0` / `chip #F6F6F4` / `selected #EAE9E4`；正文 `fg #0b0b0b`。主操作走陶土 `button-primary #D97757` 三态，按钮键盘焦点环同为陶土 `ring #D97757`；界面不再用墨色承载「可点击」。`chart-runs #2A78D6` 只保留为图表数据系列，仅用于数据，不表示导航、按钮、焦点或结果状态。状态色独立表达结果。
 
 ### 2.1–2.2 色彩令牌与语义角色
 
-色彩令牌与色值以 `packages/web/DESIGN.md` 的 `colors` frontmatter 与 `packages/web/src/styles.css` `@theme` 为唯一来源，本文件不重复色值。语义角色（用途见 §2.3）：画布/表面/下沉/悬停/chip/选中；正文/辅助/装饰；边线/强边线/控件边界；陶土主操作三态、链接、按钮键盘焦点环；状态（成功/警告/危险）与浅底；数据系列；遮罩。
+色彩令牌与色值以 `packages/web/DESIGN.md` 的 `colors` frontmatter 与 `packages/web/src/styles.css` `@theme` 为唯一来源，本文件不重复色值。语义角色（用途见 §2.3）：画布/表面/下沉/悬停/chip/选中；主侧栏底面/悬停/选中；正文/辅助/装饰；边线/强边线/控件边界；陶土主操作三态、链接、按钮键盘焦点环；状态（成功/警告/危险）与浅底；数据系列；遮罩。
 
 外壳渐变令牌 `shell-start` / `shell-mid` / `shell-end` 与外壳描边令牌已随平铺外壳删除；当前外壳不再使用描边。
 
 ### 2.3 使用规则
 
-- **平铺外壳，只靠底色分层。** 根容器铺 `canvas` `#FCFCFB`，侧栏复用 `hover` 暖灰实底，主区贴边铺 `surface` `#FFFFFF`；外壳没有渐变、圆角或描边，收起与固定展开态无阴影，临时预览仅复用 `shadow-overlay`。`bg-canvas` 的全局含义仍为 `#FCFCFB`；登录页保持纯白 `surface`，公开分享页铺 `canvas` 画布。
-- **导航只标记位置，不上色。** 普通导航文字 `fg`，分组与元信息 `muted-foreground`；主侧栏普通条目 hover 用 `chip`，其它导航沿用 `hover`；当前项用 `selected` 底 + `selected-foreground`，保留当前字重与 `aria-current`，不加彩色竖条。收起态选中仍只落在原图标块。
+- **平铺外壳，只靠底色分层。** 根容器铺 `canvas` `#FCFCFB`，侧栏使用 `sidebar` 极淡陶土暖灰实底，主区贴边铺 `surface` `#FFFFFF`；外壳没有渐变、圆角或描边，收起与固定展开态无阴影，临时预览仅复用 `shadow-overlay`。`bg-canvas` 的全局含义仍为 `#FCFCFB`；登录页保持纯白 `surface`，公开分享页铺 `canvas` 画布。
+- **导航保持深色文字与图标。** 普通导航文字 `fg`，分组与元信息 `muted-foreground`；主侧栏背景、hover 与当前项分别使用 `sidebar`、`sidebar-hover`、`sidebar-selected`，配深色 `selected-foreground`，具体混色见 [DESIGN.md](../packages/web/DESIGN.md#secondary)。这是仅限主侧栏背景的极淡品牌染色例外；其它导航沿用 `hover` / `selected`。保留当前字重与 `aria-current`，不加彩色竖条。收起态选中仍只落在原图标块。
 - **主操作走陶土三态。** 普通主操作 `default` 与显式 `solid`（发送、登录）共用 `button-primary` `#D97757`、hover `#CC5A36`、active `#c6613f` 的实底与白字；保留现有透明 1px 边框占位、全部尺寸和图标。次操作 `outline`（白底细 `line` 边线、深色字）、`secondary`（`hover` 中性浅填充）、`ghost`（透明，hover/展开中性浅底）与 `plain` 保持各自职责；取消、过滤器、菜单触发器不因主操作换色而变成陶土实底。链接用 `link` 深陶土 `#A8482B`，保留现有下划线、hover 与可访问名。焦点：输入族（Input / Textarea / Select / Combobox / InputGroup）用 `.cds-focus-glow` 的 1px 中性暖灰边（`subtle #898781`，对白 3.59:1，无光晕）；仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，按钮类用 `ring` `#D97757`（按钮键盘焦点环仍为陶土，输入框聚焦为中性暖灰），composer 用 `shadow-composer-focus`；状态允许小面积中性呼吸点（见 §11），状态与数据不借用动作色。
 - **分段与 line 页签。** 资源页分段控件为 CDS 胶囊轨道：容器 `sunken` 底 + `rounded-pill`、`p-0.5`；当前项为 `surface` 白 thumb + `fg` 字 + `shadow-sm`，非当前项 `muted-foreground`、hover `fg`，不再叠加 hover 底。页签类分段控件容器仍用 `hover`；当前 tab 用 `selected` + `fg`，1px 边框换 `line`，去掉当前 tab 的小阴影。line 页签与二级导航继续透明、不铺底，现有 2px 指示线改为 `primary` 深色，文字 `fg`，位置与宽度不变，focus 独立可见。
 - **卡片、表格与列表。** 基底纯白，卡片与表格边线用 `line`；行 hover `hover`、行选中 `selected`，文字 `fg` / `muted-foreground`。所有卡片常驻 `.cds-card-surface`（`--shadow-panel`：1px `line` 环 + `var(--shadow-sm)` 两层轻投影）；可交互卡再加 `.cds-card-interactive` 做 hover 上浮 1.5px 并换 `--shadow-panel-hover`，键盘聚焦不位移，纯展示卡不加上浮。Skeleton 用 `sunken`；Progress 活跃主线用 `primary` 深色，终态仍走原结果语义；空态与加载态结构不变。
@@ -223,8 +223,8 @@
 - 「新建会话」位于对话历史头部，为常规 32px ghost 图标按钮；侧栏不设新建会话入口。
 - 分组条目高 32px：展开态 radius 8（`rounded-item`）；收起态为 32×32 图标块，radius 6（`rounded-tag`）。
 - 普通导航文字用 `fg`；分组标题与账号等辅助入口用 `muted-foreground`。底部用户信息作为个人模块入口，保持现有紧凑样式，展开时头像与姓名靠左，按账号入口而非导航选中行呈现；展开与收起行为一致。账号入口不因个人上下文改外观与可访问名，独立「退出登录」另占一项。
-- 侧栏复用 `hover` 令牌铺不透明暖灰底，普通条目 hover 用 `chip`；不加分隔线，不套外层白框。仅临时预览作为浮层使用既有 `shadow-overlay`。
-- 选中态 = `selected` 中性浅底 + `selected-foreground` 深色文字与图标，**没有彩色竖条**。
+- 侧栏用 `sidebar` 实底，普通条目 hover 用 `sidebar-hover`；品牌标记占位、加载栏与底部入口及 Sheet 内同角色共用侧栏 token，具体映射见 [DESIGN.md Navigation](../packages/web/DESIGN.md#navigation)。不加分隔线，不套外层白框。仅临时预览作为浮层使用既有 `shadow-overlay`。
+- 选中态 = `sidebar-selected` 浅底 + `selected-foreground` 深色文字与图标，**没有彩色竖条**。
 
 ## 8. 其他页面
 
@@ -412,6 +412,6 @@
 - 一页多个同等权重标题。
 - 在组件或页面里写死 hex、rgba 或第二套颜色表；所有颜色只从 `styles.css` 的 `@theme` 语义令牌取。
 - 把 Logo 的黄色或木色铺成高饱和度的大面积页面、按钮或选中态；不得为各页面另造强调色。主操作只走陶土三态，数据蓝只用于 `chart-runs`。
-- 把普通图标、正文或整片界面染成陶土或数据蓝；陶土只属于主操作与按钮键盘焦点，正文链接使用既有深陶土 `link`。状态不借动作色，运行中徽章用 `selected` 底与 `fg` 字，圆点用 `fg`，保留状态文字与既有动效；数据蓝只属于图表数据。
+- 把普通图标、正文或整片界面染成陶土或数据蓝；陶土强色属于主操作与按钮键盘焦点，正文链接使用既有深陶土 `link`；主侧栏仅允许 [DESIGN.md](../packages/web/DESIGN.md#secondary) 定义的极淡背景染色，不扩展到图标、文字、状态、数据或危险色。状态不借动作色，运行中徽章用 `selected` 底与 `fg` 字，圆点用 `fg`，保留状态文字与既有动效；数据蓝只属于图表数据。
 - 用次级标签/说明文字去重复布局、标题或控件已经表达的信息（违反 §10）。
 - 除 CDS 双环浮层阴影（含临时预览侧栏）与 Composer 三态阴影外，再新增第二套浮层阴影、彩色光晕或给内容卡片/外壳叠阴影；收起与固定展开侧栏不得加阴影。大面积装饰渐变与玻璃同样禁止（滚动遮罩、骨架扫光等状态渐变除外）。
