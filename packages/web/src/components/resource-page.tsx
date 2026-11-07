@@ -48,7 +48,7 @@ export function ResourcePage({
     <Page>
       <PageTopbar>
         <PageHeader title={label} className="sr-only" />
-        <div className="flex min-h-14 flex-wrap items-center gap-4">
+        <div className="flex min-h-12 flex-wrap items-center gap-4">
           <nav aria-label="资源类型">
             <ul className="inline-flex min-h-8 w-fit max-w-full flex-wrap items-center justify-start gap-x-4 gap-y-2 text-muted-foreground">
               {visibleSections.map(({ to, label: title, icon: Icon }) => (

@@ -1205,7 +1205,7 @@ export function AgentDetailPage() {
 
   return (
     <Page>
-      <PageTopbar className="gap-2">
+      <PageTopbar>
         <PageHeader
           leading={<AgentAvatar agent={current} className="size-11" />}
           title={current.name}

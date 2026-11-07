@@ -821,10 +821,10 @@ describe('schedule delete focus', () => {
     await click('删除 Morning report');
     await click('删除');
     await vi.waitFor(() => expect(container.textContent).not.toContain('Morning report'));
-    const headerCreate = container.querySelector<HTMLButtonElement>(
-      '[data-slot="page-header"] button',
-    );
-    expect(headerCreate?.textContent).toContain('新建定时任务');
+    const headerCreate = [
+      ...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-header"] button'),
+    ].find((element) => element.textContent?.trim() === '新建定时任务');
+    expect(headerCreate).toBeDefined();
     await vi.waitFor(() => expect(document.activeElement).toBe(headerCreate));
   });
 

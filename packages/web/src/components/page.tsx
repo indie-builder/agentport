@@ -3,7 +3,7 @@ import { cn } from '../lib/cn.js';
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div data-slot="page" className={cn('flex h-full min-h-0 min-w-0 flex-col gap-6', className)}>
+    <div data-slot="page" className={cn('flex h-full min-h-0 min-w-0 flex-col gap-4', className)}>
       {children}
     </div>
   );
@@ -11,7 +11,7 @@ export function Page({ children, className }: { children: ReactNode; className?:
 
 export function PageTopbar({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div data-slot="page-topbar" className={cn('flex min-w-0 shrink-0 flex-col gap-6', className)}>
+    <div data-slot="page-topbar" className={cn('flex min-w-0 shrink-0 flex-col gap-3', className)}>
       {children}
     </div>
   );
@@ -50,7 +50,7 @@ export function PageHeader({
   return (
     <div
       data-slot="page-header"
-      className={cn('flex min-h-14 flex-wrap items-center gap-4', className)}
+      className={cn('flex min-h-12 flex-wrap items-center gap-4', className)}
     >
       {leading ? <div className="shrink-0">{leading}</div> : null}
       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -77,7 +77,7 @@ export function PageToolbar({ children, className }: { children: ReactNode; clas
   return (
     <div
       data-slot="page-toolbar"
-      className={cn('flex min-w-0 flex-wrap items-center gap-3', className)}
+      className={cn('flex min-w-0 flex-wrap items-center gap-2', className)}
     >
       {children}
     </div>
