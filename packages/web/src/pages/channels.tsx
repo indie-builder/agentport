@@ -81,7 +81,7 @@ export function ChannelsPage() {
             {...(canCreate ? {} : { description: '管理员把你加入频道后，频道会出现在这里。' })}
             action={
               canCreate ? (
-                <Button variant="default" size="sm" onClick={() => setCreating(true)}>
+                <Button variant="default" onClick={() => setCreating(true)}>
                   <Plus aria-hidden="true" />
                   新建频道
                 </Button>

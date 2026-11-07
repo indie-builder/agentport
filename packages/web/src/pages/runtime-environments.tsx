@@ -110,7 +110,7 @@ export function RuntimeEnvironmentsPage() {
             title="新建第一个运行环境"
             action={
               canCreate ? (
-                <Button ref={createTriggerRef} size="sm" onClick={openCreate}>
+                <Button ref={createTriggerRef} onClick={openCreate}>
                   新建环境
                 </Button>
               ) : undefined
