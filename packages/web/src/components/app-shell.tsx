@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
-import { useEffect, useRef, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import {
   type AuthenticatedMe,
   authenticated,
@@ -49,61 +49,72 @@ const resourceNavTargets = new Set<string>(RESOURCE_MENU.map((item) => item.to))
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
-function useCollapsed(): [boolean, (next: boolean) => void] {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
-  const update = (next: boolean): void => {
-    setCollapsed(next);
-    localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
-  };
-  return [collapsed, update];
-}
+type SidebarMode = 'collapsed' | 'preview' | 'expanded';
 
-/** 展开时 Logo 可点击切图；收起时保留原悬停展开侧栏的行为。 */
-function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  if (collapsed) {
-    return (
-      <div className="relative size-8 shrink-0">
-        <Link
-          to="/"
-          aria-label="返回首页"
-          className="group/logo absolute left-0 top-0 flex size-8 items-center justify-center rounded-icon transition-opacity duration-[140ms] ease-out-soft focus-visible:opacity-100 group-hover/nav:opacity-0 group-has-[button:focus-visible]/nav:opacity-0"
-        >
-          <BrandMark />
-        </Link>
-        <Button
-          variant="ghost"
-          aria-label="展开侧栏"
-          aria-expanded={!collapsed}
-          onClick={onToggle}
-          // Keep 7px corners and the translucent hover; ghost defaults to 9px and opaque muted.
-          className="absolute left-0 top-0 size-8 rounded-[var(--radius-icon)] p-0 opacity-0 transition-opacity duration-[140ms] ease-out-soft hover:bg-hover focus-visible:opacity-100 group-hover/nav:opacity-100"
-        >
-          <PanelLeftOpen className="size-4" />
-        </Button>
-      </div>
-    );
-  }
-
+function SidebarBrand({
+  mode,
+  logoRef,
+  toggleRef,
+  onToggle,
+  onNavigate,
+}: {
+  mode: SidebarMode;
+  logoRef: RefObject<HTMLButtonElement | null>;
+  toggleRef: RefObject<HTMLButtonElement | null>;
+  onToggle: () => void;
+  onNavigate: () => void;
+}) {
+  const collapsed = mode === 'collapsed';
   return (
-    <div className="flex h-8 shrink-0 items-center gap-2">
+    <div className="relative flex h-8 shrink-0 items-center gap-2">
+      <Link
+        to="/"
+        aria-label="返回首页"
+        tabIndex={collapsed ? 0 : -1}
+        onClick={onNavigate}
+        className={cn(
+          'group/logo pointer-events-none absolute left-0 top-0 z-10 flex size-8 items-center justify-center rounded-icon bg-hover transition-opacity duration-[140ms] ease-out-soft focus-visible:pointer-events-auto focus-visible:opacity-100',
+          collapsed
+            ? 'group-hover/nav:opacity-0 group-has-[button:focus-visible]/nav:opacity-0'
+            : 'pointer-events-none opacity-0',
+        )}
+      >
+        <BrandMark />
+      </Link>
       <Button
+        ref={logoRef}
         type="button"
         variant="plain"
         aria-label="切换 PACE Logo"
+        tabIndex={collapsed ? -1 : 0}
         onClick={animateBrand}
-        className="h-8 min-w-0 flex-1 justify-start rounded-[var(--radius-icon)] p-0"
+        className={cn(
+          'h-8 min-w-0 flex-1 justify-start rounded-[var(--radius-icon)] p-0',
+          collapsed && 'invisible',
+        )}
       >
         <Brand className="h-8 self-center" />
       </Button>
       <Button
+        ref={toggleRef}
         variant="ghost"
-        aria-label="收起侧栏"
+        aria-label={
+          mode === 'expanded' ? '收起侧栏' : mode === 'preview' ? '固定展开侧栏' : '展开侧栏'
+        }
+        aria-pressed={mode === 'expanded'}
         aria-expanded={!collapsed}
         onClick={onToggle}
-        // Keep 7px corners and the translucent hover instead of the regular ghost defaults.
-        className="size-8 rounded-[var(--radius-icon)] p-0 hover:bg-hover"
+        className={cn(
+          'size-8 shrink-0 rounded-[var(--radius-icon)] p-0 hover:bg-chip',
+          collapsed &&
+            'absolute left-0 top-0 opacity-0 transition-opacity duration-[140ms] ease-out-soft focus-visible:opacity-100 group-hover/nav:opacity-100',
+        )}
       >
-        <PanelLeftClose className="size-4" />
+        {mode === 'expanded' ? (
+          <PanelLeftClose className="size-4" />
+        ) : (
+          <PanelLeftOpen className="size-4" />
+        )}
       </Button>
     </div>
   );
@@ -143,16 +154,14 @@ function SidebarLink({
       className={cn(
         'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
         collapsed ? 'w-8 justify-center' : 'gap-2.5 rounded-item px-2.5',
-        collapsed ? '' : active ? 'bg-selected text-selected-foreground' : 'text-fg hover:bg-hover',
+        collapsed ? '' : active ? 'bg-selected text-selected-foreground' : 'text-fg hover:bg-chip',
         collapsed && (active ? 'text-selected-foreground' : 'text-fg'),
       )}
     >
       <span
         className={cn(
           'flex shrink-0 items-center justify-center transition-colors duration-150 ease-out-soft',
-          collapsed
-            ? cn('size-8 rounded-tag', active ? 'bg-selected' : 'hover:bg-hover')
-            : 'size-4',
+          collapsed ? cn('size-8 rounded-tag', active ? 'bg-selected' : 'hover:bg-chip') : 'size-4',
         )}
       >
         <Icon aria-hidden="true" />
@@ -297,9 +306,15 @@ export function AppShell() {
         : null;
   const required = requiredPermissions(matchedRoute);
   const allowed = required === null || canAny(me.data, required);
-  const [collapsed, setCollapsed] = useCollapsed();
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() =>
+    localStorage.getItem(COLLAPSE_KEY) === '0' ? 'expanded' : 'collapsed',
+  );
+  const collapsed = sidebarMode === 'collapsed';
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pointerInSidebar = useRef(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
+  const sidebarLogo = useRef<HTMLButtonElement>(null);
+  const sidebarToggle = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
   const locationHref = useRouterState({ select: (state) => state.location.href });
   // 对话与频道详情占满高度；频道列表仍是普通可滚动页面。
@@ -348,6 +363,17 @@ export function AppShell() {
     document.getElementById('main-content')?.focus();
   }, [pathname]);
 
+  useEffect(() => {
+    if (sidebarMode !== 'preview' || mobileOpen) return;
+    const dismiss = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (document.activeElement === sidebarLogo.current) sidebarToggle.current?.focus();
+      setSidebarMode('collapsed');
+    };
+    window.addEventListener('keydown', dismiss);
+    return () => window.removeEventListener('keydown', dismiss);
+  }, [sidebarMode, mobileOpen]);
+
   if (me.isPending) {
     return (
       <div
@@ -357,7 +383,14 @@ export function AppShell() {
         aria-label="加载中"
       >
         <PageHeader title={pageTitle} className="sr-only" />
-        <div className="hidden w-56 shrink-0 p-3 lg:block">
+        <div
+          className="hidden shrink-0 bg-hover lg:block"
+          style={
+            sidebarMode === 'expanded'
+              ? { width: 'var(--sidebar-width)', padding: 'var(--sidebar-pad)' }
+              : { width: 'var(--sidebar-collapsed)', padding: 'var(--sidebar-pad-collapsed)' }
+          }
+        >
           <Skeleton className="mb-3 h-8 w-full" />
           <div className="flex flex-col gap-2">
             <Skeleton className="h-8 w-full" />
@@ -397,128 +430,188 @@ export function AppShell() {
   const rail = collapsed
     ? { width: 'var(--sidebar-collapsed)', padding: 'var(--sidebar-pad-collapsed)' }
     : { width: 'var(--sidebar-width)', padding: 'var(--sidebar-pad)' };
-  const sidebar = (drawer: boolean) => (
-    <motion.aside
-      className={cn(
-        'group/nav flex h-full shrink-0 flex-col overflow-hidden',
-        drawer && 'px-3 py-4',
-      )}
-      initial={false}
-      animate={drawer ? { width: '100%' } : rail}
-      transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-    >
-      {drawer ? (
-        <Link
-          to="/"
-          aria-label="返回首页"
-          onClick={() => setMobileOpen(false)}
-          className="flex h-8 items-center rounded-icon"
-        >
-          <Brand className="h-8 self-center" />
-        </Link>
-      ) : (
-        <SidebarBrand collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      )}
-      {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
-      <nav aria-label="主导航" className="mt-4 flex-1 overflow-y-auto overflow-x-hidden">
-        {navGroups.map((group) => (
-          <div key={group.label} className={cn(drawer || !collapsed ? 'mt-0.5' : 'mt-3')}>
-            {drawer || !collapsed ? (
-              <div className="px-2.5 pb-1.5 pt-4 text-xs text-muted-foreground">{group.label}</div>
-            ) : null}
-            <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <SidebarLink
-                  key={item.to}
-                  to={item.to}
-                  label={item.label}
-                  icon={item.icon}
-                  navGroup={item.navGroup}
-                  collapsed={drawer ? false : collapsed}
-                  onNavigate={drawer ? () => setMobileOpen(false) : undefined}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </nav>
-      {/* 底部：次级运维入口（或返回工作区）与用户信息。 */}
-      <div className={cn('flex flex-col gap-1 pt-4', collapsed && !drawer && 'items-center')}>
-        {bottomEntry ? (
-          <SidebarLink
-            to={bottomEntry.to}
-            label={bottomEntry.label}
-            icon={bottomEntry.icon}
-            collapsed={drawer ? false : collapsed}
-            onNavigate={drawer ? () => setMobileOpen(false) : undefined}
+  const sidebar = (drawer: boolean) => {
+    const navCollapsed = !drawer && collapsed;
+    const onNavigate = (): void => {
+      if (drawer) setMobileOpen(false);
+      else setSidebarMode((mode) => (mode === 'preview' ? 'collapsed' : mode));
+    };
+    return (
+      <motion.aside
+        className={cn(
+          'group/nav flex h-full flex-col overflow-hidden bg-hover',
+          drawer ? 'px-3 py-4' : 'absolute inset-y-0 left-0',
+          !drawer && sidebarMode === 'preview' && 'shadow-overlay',
+        )}
+        initial={false}
+        animate={drawer ? { width: '100%' } : rail}
+        transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+        onPointerEnter={
+          drawer
+            ? undefined
+            : () => {
+                pointerInSidebar.current = true;
+                setSidebarMode((mode) => (mode === 'collapsed' ? 'preview' : mode));
+              }
+        }
+        onPointerLeave={
+          drawer
+            ? undefined
+            : (event) => {
+                pointerInSidebar.current = false;
+                if (!event.currentTarget.contains(document.activeElement)) {
+                  setSidebarMode((mode) => (mode === 'preview' ? 'collapsed' : mode));
+                }
+              }
+        }
+        onFocus={
+          drawer
+            ? undefined
+            : (event) => {
+                if (
+                  !(event.relatedTarget instanceof Node) ||
+                  !event.currentTarget.contains(event.relatedTarget)
+                ) {
+                  setSidebarMode((mode) => (mode === 'collapsed' ? 'preview' : mode));
+                }
+              }
+        }
+        onBlur={
+          drawer
+            ? undefined
+            : (event) => {
+                if (
+                  !pointerInSidebar.current &&
+                  (!(event.relatedTarget instanceof Node) ||
+                    !event.currentTarget.contains(event.relatedTarget))
+                ) {
+                  setSidebarMode((mode) => (mode === 'preview' ? 'collapsed' : mode));
+                }
+              }
+        }
+      >
+        {drawer ? (
+          <Link
+            to="/"
+            aria-label="返回首页"
+            onClick={onNavigate}
+            className="flex h-8 items-center rounded-icon"
+          >
+            <Brand className="h-8 self-center" />
+          </Link>
+        ) : (
+          <SidebarBrand
+            mode={sidebarMode}
+            logoRef={sidebarLogo}
+            toggleRef={sidebarToggle}
+            onNavigate={onNavigate}
+            onToggle={() => {
+              const next = sidebarMode === 'expanded' ? 'collapsed' : 'expanded';
+              setSidebarMode(next);
+              localStorage.setItem(COLLAPSE_KEY, next === 'expanded' ? '0' : '1');
+            }}
           />
-        ) : null}
-        {personalContext ? (
-          drawer || !collapsed ? (
-            <Button
-              variant="ghost"
-              onClick={() => void logout()}
-              className="h-8 justify-start gap-2.5 rounded-item px-2.5 text-sm text-fg hover:bg-hover"
-            >
-              <LogOut aria-hidden="true" />
-              退出登录
-            </Button>
-          ) : (
-            <Tooltip>
+        )}
+        {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
+        <nav aria-label="主导航" className="mt-4 flex-1 overflow-y-auto overflow-x-hidden">
+          {navGroups.map((group) => (
+            <div key={group.label} className="mt-0.5">
+              <div
+                className={cn(
+                  'whitespace-nowrap px-2.5 pb-1.5 pt-4 text-xs text-muted-foreground',
+                  navCollapsed && 'invisible',
+                )}
+              >
+                {group.label}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {group.items.map((item) => (
+                  <SidebarLink
+                    key={item.to}
+                    to={item.to}
+                    label={item.label}
+                    icon={item.icon}
+                    navGroup={item.navGroup}
+                    collapsed={navCollapsed}
+                    onNavigate={onNavigate}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+        {/* 底部：次级运维入口（或返回工作区）与用户信息。 */}
+        <div className={cn('flex flex-col gap-1 pt-4', navCollapsed && 'items-center')}>
+          {bottomEntry ? (
+            <SidebarLink
+              to={bottomEntry.to}
+              label={bottomEntry.label}
+              icon={bottomEntry.icon}
+              collapsed={navCollapsed}
+              onNavigate={onNavigate}
+            />
+          ) : null}
+          {personalContext ? (
+            <Tooltip disabled={!navCollapsed}>
               <TooltipTrigger
                 render={
                   <Button
                     variant="ghost"
                     aria-label="退出登录"
                     onClick={() => void logout()}
-                    className="size-8 rounded-tag p-0 text-fg hover:bg-hover"
+                    className={cn(
+                      'h-8 text-sm text-fg hover:bg-chip',
+                      navCollapsed
+                        ? 'size-8 rounded-tag p-0'
+                        : 'justify-start gap-2.5 rounded-item px-2.5',
+                    )}
                   >
-                    <LogOut />
+                    <LogOut aria-hidden="true" />
+                    <span className={navCollapsed ? 'sr-only' : undefined}>退出登录</span>
                   </Button>
                 }
               />
               <TooltipContent side="right">退出登录</TooltipContent>
             </Tooltip>
-          )
-        ) : null}
-        {drawer || !collapsed ? (
-          <Link
-            to="/personal/profile"
-            aria-label="个人资料"
-            aria-current={personalContext ? 'page' : undefined}
-            onClick={drawer ? () => setMobileOpen(false) : undefined}
-            className={cn(
-              buttonVariants({ variant: 'ghost' }),
-              // 账号入口保持独立外观：紧凑 12px 标签、8px 角、20px 头像，靠左排布。
-              'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground',
-            )}
-          >
-            <span className="flex size-5 items-center justify-center rounded-full bg-sunken text-muted-foreground">
-              <User className="size-3" />
-            </span>
-            <span className="max-w-32 truncate">{user.user.name || user.user.username}</span>
-          </Link>
-        ) : (
-          <Tooltip>
+          ) : null}
+          <Tooltip disabled={!navCollapsed}>
             <TooltipTrigger
               render={
                 <Link
                   to="/personal/profile"
                   aria-label="个人资料"
                   aria-current={personalContext ? 'page' : undefined}
-                  // Keep the circular account surface and translucent hover.
-                  className="flex size-8 items-center justify-center rounded-full bg-sunken p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover"
+                  onClick={onNavigate}
+                  className={
+                    navCollapsed
+                      ? 'flex size-8 items-center justify-center rounded-full bg-sunken p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-chip'
+                      : buttonVariants({
+                          variant: 'ghost',
+                          className:
+                            'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-chip',
+                        })
+                  }
                 >
-                  <User className="size-4" />
+                  <span
+                    className={cn(
+                      'flex shrink-0 items-center justify-center text-muted-foreground',
+                      navCollapsed ? 'size-4' : 'size-5 rounded-full bg-sunken',
+                    )}
+                  >
+                    <User className={navCollapsed ? 'size-4' : 'size-3'} />
+                  </span>
+                  <span className={navCollapsed ? 'sr-only' : 'max-w-32 truncate'}>
+                    {user.user.name || user.user.username}
+                  </span>
                 </Link>
               }
             />
             <TooltipContent side="right">{user.user.name || user.user.username}</TooltipContent>
           </Tooltip>
-        )}
-      </div>
-    </motion.aside>
-  );
+        </div>
+      </motion.aside>
+    );
+  };
 
   // 个人资料与安全对所有已登录用户开放，即使没有任何业务权限也不该被挡。
   const denied = (!personalContext && home === null) || !allowed;
@@ -530,15 +623,21 @@ export function AppShell() {
 
   return (
     <TooltipProvider delay={400}>
-      {/*
-       * 平铺全幅：侧栏直接坐在画布底色上，白面内容区贴边，分区靠底色差异而不是描边。
-       */}
       <div className="flex h-dvh bg-canvas text-fg">
         <a href="#main-content" className="skip-link">
           跳到主要内容
         </a>
 
-        <div className="hidden shrink-0 lg:block">{sidebar(false)}</div>
+        <motion.div
+          className="relative z-20 hidden shrink-0 lg:block"
+          initial={false}
+          animate={{
+            width: sidebarMode === 'expanded' ? 'var(--sidebar-width)' : 'var(--sidebar-collapsed)',
+          }}
+          transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+        >
+          {sidebar(false)}
+        </motion.div>
 
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent
@@ -567,7 +666,7 @@ export function AppShell() {
           </SheetContent>
         </Sheet>
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+        <div className="isolate flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
           {/*
            * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
            * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。
@@ -586,11 +685,7 @@ export function AppShell() {
             </Button>
           </header>
 
-          <main
-            id="main-content"
-            tabIndex={-1}
-            className="min-h-0 flex-1 overflow-hidden"
-          >
+          <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-hidden">
             {immersive ? (
               <div className={cn('h-full', denied && 'p-6')}>{content}</div>
             ) : (
