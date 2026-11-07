@@ -73,7 +73,7 @@ function SidebarBrand({
         tabIndex={collapsed ? 0 : -1}
         onClick={onNavigate}
         className={cn(
-          'group/logo pointer-events-none absolute left-0 top-0 z-10 flex size-8 items-center justify-center rounded-icon bg-hover transition-opacity duration-[140ms] ease-out-soft focus-visible:pointer-events-auto focus-visible:opacity-100',
+          'group/logo pointer-events-none absolute left-0 top-0 z-10 flex size-8 items-center justify-center rounded-icon bg-sidebar transition-opacity duration-[140ms] ease-out-soft focus-visible:pointer-events-auto focus-visible:opacity-100',
           collapsed
             ? 'group-hover/nav:opacity-0 group-has-[button:focus-visible]/nav:opacity-0'
             : 'pointer-events-none opacity-0',
@@ -105,7 +105,7 @@ function SidebarBrand({
         aria-expanded={!collapsed}
         onClick={onToggle}
         className={cn(
-          'size-8 shrink-0 rounded-[var(--radius-icon)] p-0 hover:bg-chip',
+          'size-8 shrink-0 rounded-[var(--radius-icon)] p-0 hover:bg-sidebar-hover aria-expanded:bg-sidebar-hover',
           collapsed &&
             'absolute left-0 top-0 opacity-0 transition-opacity duration-[140ms] ease-out-soft focus-visible:opacity-100 group-hover/nav:opacity-100',
         )}
@@ -154,14 +154,20 @@ function SidebarLink({
       className={cn(
         'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
         collapsed ? 'w-8 justify-center' : 'gap-2.5 rounded-item px-2.5',
-        collapsed ? '' : active ? 'bg-selected text-selected-foreground' : 'text-fg hover:bg-chip',
+        collapsed
+          ? ''
+          : active
+            ? 'bg-sidebar-selected text-selected-foreground'
+            : 'text-fg hover:bg-sidebar-hover',
         collapsed && (active ? 'text-selected-foreground' : 'text-fg'),
       )}
     >
       <span
         className={cn(
           'flex shrink-0 items-center justify-center transition-colors duration-150 ease-out-soft',
-          collapsed ? cn('size-8 rounded-tag', active ? 'bg-selected' : 'hover:bg-chip') : 'size-4',
+          collapsed
+            ? cn('size-8 rounded-tag', active ? 'bg-sidebar-selected' : 'hover:bg-sidebar-hover')
+            : 'size-4',
         )}
       >
         <Icon aria-hidden="true" />
@@ -384,7 +390,7 @@ export function AppShell() {
       >
         <PageHeader title={pageTitle} className="sr-only" />
         <div
-          className="hidden shrink-0 bg-hover lg:block"
+          className="hidden shrink-0 bg-sidebar lg:block"
           style={
             sidebarMode === 'expanded'
               ? { width: 'var(--sidebar-width)', padding: 'var(--sidebar-pad)' }
@@ -439,7 +445,7 @@ export function AppShell() {
     return (
       <motion.aside
         className={cn(
-          'group/nav flex h-full flex-col overflow-hidden bg-hover',
+          'group/nav flex h-full flex-col overflow-hidden bg-sidebar',
           drawer ? 'px-3 py-4' : 'absolute inset-y-0 left-0',
           !drawer && sidebarMode === 'preview' && 'shadow-overlay',
         )}
@@ -560,7 +566,7 @@ export function AppShell() {
                     aria-label="退出登录"
                     onClick={() => void logout()}
                     className={cn(
-                      'h-8 text-sm text-fg hover:bg-chip',
+                      'h-8 text-sm text-fg hover:bg-sidebar-hover',
                       navCollapsed
                         ? 'size-8 rounded-tag p-0'
                         : 'justify-start gap-2.5 rounded-item px-2.5',
@@ -584,18 +590,18 @@ export function AppShell() {
                   onClick={onNavigate}
                   className={
                     navCollapsed
-                      ? 'flex size-8 items-center justify-center rounded-full bg-sunken p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-chip'
+                      ? 'flex size-8 items-center justify-center rounded-full bg-sidebar p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover'
                       : buttonVariants({
                           variant: 'ghost',
                           className:
-                            'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-chip',
+                            'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-sidebar-hover',
                         })
                   }
                 >
                   <span
                     className={cn(
                       'flex shrink-0 items-center justify-center text-muted-foreground',
-                      navCollapsed ? 'size-4' : 'size-5 rounded-full bg-sunken',
+                      navCollapsed ? 'size-4' : 'size-5 rounded-full bg-sidebar',
                     )}
                   >
                     <User className={navCollapsed ? 'size-4' : 'size-3'} />
@@ -656,7 +662,7 @@ export function AppShell() {
                   size="icon-sm"
                   aria-label="关闭导航"
                   // Keep the subdued close icon and translucent hover instead of the ghost defaults.
-                  className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-hover"
+                  className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-sidebar-hover"
                 >
                   <X className="size-3" />
                 </Button>

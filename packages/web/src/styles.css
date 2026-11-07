@@ -25,6 +25,9 @@
   --color-hover: #f3f3f0;
   --color-chip: #f6f6f4;
   --color-selected: #eae9e4;
+  --color-sidebar: color-mix(in srgb, var(--color-button-primary) 4%, var(--color-hover));
+  --color-sidebar-hover: color-mix(in srgb, var(--color-button-primary) 8%, var(--color-hover));
+  --color-sidebar-selected: color-mix(in srgb, var(--color-button-primary) 12%, var(--color-selected));
 
   /*
    * 线与文本：分隔线只做分组，边线取 CDS alpha 阶梯。

@@ -9,6 +9,9 @@ colors:
   chip: "#F6F6F4"
   hover: "#F3F3F0"
   selected: "#EAE9E4"
+  sidebar: "color-mix(in srgb, var(--color-button-primary) 4%, var(--color-hover))"
+  sidebar-hover: "color-mix(in srgb, var(--color-button-primary) 8%, var(--color-hover))"
+  sidebar-selected: "color-mix(in srgb, var(--color-button-primary) 12%, var(--color-selected))"
   accent: "#EAE9E4"
   accent-foreground: "#0b0b0b"
   selected-foreground: "#0b0b0b"
@@ -186,8 +189,14 @@ components:
   menu-item-highlight:
     backgroundColor: "{colors.accent}"
     textColor: "{colors.accent-foreground}"
+  sidebar:
+    backgroundColor: "{colors.sidebar}"
+    textColor: "{colors.fg}"
+  sidebar-item-hover:
+    backgroundColor: "{colors.sidebar-hover}"
+    textColor: "{colors.fg}"
   sidebar-item:
-    backgroundColor: "{colors.selected}"
+    backgroundColor: "{colors.sidebar-selected}"
     textColor: "{colors.selected-foreground}"
     typography: "{typography.label-strong}"
     rounded: "{rounded.item}"
@@ -217,16 +226,16 @@ components:
 
 **Creative North Star: "The Quiet Workbench（静默工作台）"**
 
-PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`，侧栏铺不透明的 `hover #F3F3F0` 暖灰底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。工具、标题与正文是暖墨色，主操作与按钮键盘焦点用陶土 `clay`，状态只在需要时以小面积语义色或呼吸点出现。
+PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`，侧栏铺不透明的 `sidebar` 极淡陶土暖灰底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面和交互背景与品牌色轻微呼应，文字与图标仍为深色，陶土实底主操作保持最强的动作信号。工具、标题与正文是暖墨色，主操作与按钮键盘焦点用陶土 `clay`，状态只在需要时以小面积语义色或呼吸点出现。
 
 这套系统用陶土承担「可执行」与按钮键盘焦点，用暖灰阶梯承担层级：普通主操作、发送、登录共用 `#D97757` → `#CC5A36` → `#c6613f` 三态实底；正文链接用深陶土 `#A8482B`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。唯一的蓝色是运行图表首系列的数据蓝。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
 
-本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，不把本次侧栏暖灰底与三态交互等未覆盖的浏览器证据写成已验收，未覆盖项与规范差异见 Known Gaps 和对应任务记录。视觉令牌与参考项目 open-claude-ui（Claude CDS）对齐；暖灰不透明状态层、链接/危险取更深对比度色、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等为有意适配，见 Do's 与 Known Gaps。
+本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色与控件外观以 Claude Design System（CDS，参考 open-claude-ui）为准，仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。视觉令牌与参考项目 open-claude-ui（Claude CDS）对齐；暖灰不透明状态层、链接/危险取更深对比度色、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等为有意适配，见 Do's 与 Known Gaps。
 
 **Key Characteristics:**
 - 平铺外壳：`canvas #FCFCFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。
 - 陶土动作三态：`#D97757` / `#CC5A36` / `#c6613f`，白字；hover/active 档对比度更高。
-- 暖灰状态层：hover `#F3F3F0`，selected / accent `#EAE9E4`，chip `#F6F6F4`。
+- 暖灰状态层：hover `#F3F3F0`，selected / accent `#EAE9E4`，chip `#F6F6F4`；主侧栏单独使用极淡陶土 `sidebar`、`sidebar-hover`、`sidebar-selected` 背景阶梯。
 - 输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`.cds-focus-glow`：`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`，composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。
 - 正文链接与 `link` 变体用深陶土 `#A8482B`；卡片用 `--shadow-panel`，hover 上浮 1.5px 并换 `--shadow-panel-hover`。
 - 数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为陶土 `#D97757`，输入框聚焦为中性暖灰而非陶土。
@@ -243,9 +252,10 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Secondary
 
-- **浅中性层（Quiet Neutral）** (#F3F3F0)：`secondary` 按钮、ghost 的 hover/展开、分段页签容器与悬停层；主侧栏复用同一 `hover` 令牌作不透明暖灰底，普通导航条目 hover 改用 `chip`。资源页胶囊分段轨道用 `sunken`。它不是文字色。
-- **选中灰（Selected Gray）** (#EAE9E4)：当前导航项、选中页签、菜单键盘高亮、用户消息气泡。它与浅中性层只差一档，靠上下文而不是色相区分。
-- **Chip 底（Chip Surface）** (#F6F6F4)：资源与角色标签的弱色底，以及主侧栏普通条目的 hover 底。
+- **浅中性层（Quiet Neutral）** (#F3F3F0)：`secondary` 按钮、ghost 的 hover/展开、分段页签容器与悬停层。资源页胶囊分段轨道用 `sunken`。它不是文字色。
+- **选中灰（Selected Gray）** (#EAE9E4)：选中页签、页内导航、菜单键盘高亮、用户消息气泡。它与浅中性层只差一档，靠上下文而不是色相区分。
+- **Chip 底（Chip Surface）** (#F6F6F4)：资源与角色标签的弱色底。
+- **侧栏品牌面（Sidebar）**：`sidebar` 在 `hover` 中混入 4% `button-primary`；`sidebar-hover` 在 `hover` 中混入 8%；`sidebar-selected` 在 `selected` 中混入 12%。三者使用不透明 sRGB `color-mix`，色温微暖、饱和度低，悬停与选中逐级加深。只用于主侧栏及其 Sheet 内同角色的底面、品牌标记占位、导航与账号入口背景，不扩展到页内菜单、消息、按钮或状态。文字和图标保留 `fg` / `muted-foreground`；选中项前景继续为 `selected-foreground`。
 
 ### Tertiary
 
@@ -253,8 +263,8 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Neutral
 
-- **画布（Canvas）** (#FCFCFB)：应用根容器与公开分享页的底色，保持全局含义；侧栏另用既有 `hover` 暖灰层。它不再等同于纯白内容面。
-- **纸白（Paper White）** (#FFFFFF)：`surface`、`panel`、卡片、标准弹层、主内容区与输入基底。临时预览侧栏仍用暖灰 `hover` 实底。内容区不得铺渐变。
+- **画布（Canvas）** (#FCFCFB)：应用根容器与公开分享页的底色，保持全局含义；侧栏另用 `sidebar` 极淡陶土暖灰层。它不再等同于纯白内容面。
+- **纸白（Paper White）** (#FFFFFF)：`surface`、`panel`、卡片、标准弹层、主内容区与输入基底。临时预览侧栏仍用 `sidebar` 实底。内容区不得铺渐变。
 - **分隔线（Hairline）** (`rgba(0, 0, 0, 0.10)`)：卡片与弹层的 1px ring、表格与分组分隔、页签当前项边框。只做分组；输入默认边线借用同值 `input`，但分隔本身不表达可编辑。
 - **输入默认边线（Input Boundary）** (`rgba(0, 0, 0, 0.10)`)：Input、Textarea、Select 触发器、Combobox、InputGroup、CodeMirror 搜索输入的默认 1px 发丝边，等同 `line`；不新增 hover 加深。对白约 1.25:1，是已接受的已知限制。
 - **输入聚焦（Focus Boundary）** (`#898781`)：输入族（Input / Textarea / Select / Combobox / InputGroup）真实 `:focus-visible` 时把边线换成中性暖灰 `subtle`，无光晕；对白约 3.59:1，满足非文字 3:1。
@@ -271,7 +281,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Named Rules
 
-**The Flat-Shell Rule.** 应用外壳平铺全幅：根容器铺 `canvas #FCFCFB`，侧栏铺不透明的 `hover #F3F3F0` 暖灰底，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距或描边；收起与固定展开侧栏无阴影，只有临时预览侧栏复用 `shadow-overlay` 覆盖正文。分区靠底色差异与留白表达。
+**The Flat-Shell Rule.** 应用外壳平铺全幅：根容器铺 `canvas #FCFCFB`，侧栏铺不透明的 `sidebar` 极淡陶土暖灰底，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距或描边；收起与固定展开侧栏无阴影，只有临时预览侧栏复用 `shadow-overlay` 覆盖正文。分区靠底色差异与留白表达。
 
 **The Clay-Action Rule.** 主操作与按钮键盘焦点使用陶土：`default` 与显式 `solid` 共用 `#D97757` → `#CC5A36` → `#c6613f` 的实底三态与白字，按钮键盘焦点环 `ring` 同为 `#D97757`。链接用深陶土 `link #A8482B`；蓝色不是动作色。
 
@@ -306,7 +316,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ## Layout
 
-桌面端布局，窗口窄于 `lg` 时侧栏沿用现有 Sheet 抽屉，仍按桌面密度，不为触摸新增尺寸。应用外壳平铺全幅：根容器铺 `canvas` `#FCFCFB`，主侧栏复用 `hover #F3F3F0` 不透明暖灰底，主内容区贴边铺 `surface` `#FFFFFF`；没有外层圆角、外边距、渐变或描边。侧栏收起占 64px；临时预览宽 224px、正文仍只让出 64px；固定展开占 224px 并推开正文。收起与固定展开无外壳阴影，临时预览是浮层例外，复用 `shadow-overlay`，不加 scrim、不锁焦点。三态交互与偏好持久化契约见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。分区靠底色差异和留白表达。
+桌面端布局，窗口窄于 `lg` 时侧栏沿用现有 Sheet 抽屉，仍按桌面密度，不为触摸新增尺寸。应用外壳平铺全幅：根容器铺 `canvas` `#FCFCFB`，主侧栏用 `sidebar` 不透明极淡陶土暖灰底，主内容区贴边铺 `surface` `#FFFFFF`；没有外层圆角、外边距、渐变或描边。侧栏收起占 64px；临时预览宽 224px、正文仍只让出 64px；固定展开占 224px 并推开正文。收起与固定展开无外壳阴影，临时预览是浮层例外，复用 `shadow-overlay`，不加 scrim、不锁焦点。三态交互与偏好持久化契约见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。分区靠底色差异和留白表达。
 
 非 chat 内容区水平、底部各 24px（`px-6 pb-6`）；AppShell 的 main 不承担普通页面的整页滚动。`Page` 是有界纵向 flex 工作面，`PageTopbar` 将页头、资源导航、任务页签和页面全局搜索筛选组成常驻顶部组，`PageBody` 滚动正文；详情完整只读描述放入可滚动内容，不占常驻顶部：专家各权限分支随任务正文滚动，插件在简介滚动区显示、无文件时仍在正文显示；描述保留换行且不截断，长描述不得挤占正文可用高度。聊天与频道对话、角色矩阵、文件阅读器保留自身滚动容器，公开 login/share 页面保持自然文档滚动。原有区块间距仍为 24px，`PageHeader` 单行最小高 56px、不另加顶部或横向 padding，`PageSection` 内部间距 16px、默认顶部 20px。`PageHeader` 与 `PageToolbar` 自身不使用 sticky，排版不变；`PageToolbar` 自身 `gap-3`（12px），控件内部 8px 由组内组合决定；搜索桌面 224px 且可收缩，筛选 144px，排序 128px。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。
 
@@ -430,7 +440,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 
 ### Navigation
 
-- **Sidebar:** 复用 `hover #F3F3F0` 令牌铺不透明暖灰底，不新增主题或改变全局 `canvas`。宽度与三态占位见 Layout，交互见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。条目高 32px；预览与固定展开态 8px 圆角（`rounded-item`），收起态为 32×32 图标块、6px 圆角（`rounded-tag`）。普通文字 `fg`，分组与账号元信息 `muted-foreground`；普通条目 hover 用 `chip #F6F6F4`；当前项仍为 `selected #EAE9E4` + `selected-foreground #0b0b0b`，保留 `aria-current`，不加彩色竖条。收起态状态只落在图标块上。保留 Logo 切图、权限过滤与工作 / 构建、个人、运维上下文分组；进入个人模块后，同一主侧栏把工作 / 构建分组替换为「与专家协作 / 工作记录 / 账号」三组六项（个人记忆、记忆提案、我的分享、使用记录、个人资料、账号安全），不新增第二套导航。
+- **Sidebar:** 用 `sidebar` 令牌铺不透明极淡陶土暖灰底，不新增主题或改变全局 `canvas`。宽度与三态占位见 Layout，交互见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。条目高 32px；预览与固定展开态 8px 圆角（`rounded-item`），收起态为 32×32 图标块、6px 圆角（`rounded-tag`）。普通文字 `fg`，分组与账号元信息 `muted-foreground`；普通条目、折叠按钮、底部运维或返回入口、账号与退出的 hover 用 `sidebar-hover`，折叠按钮的展开背景同档；当前导航项为 `sidebar-selected` + `selected-foreground`，保留 `aria-current`，不加彩色竖条。品牌标记占位、账号头像底与加载栏使用 `sidebar`，窄桌面 Sheet 内同角色共用这些 token。收起态状态只落在图标块上。保留 Logo 切图、权限过滤与工作 / 构建、个人、运维上下文分组；进入个人模块后，同一主侧栏把工作 / 构建分组替换为「与专家协作 / 工作记录 / 账号」三组六项（个人记忆、记忆提案、我的分享、使用记录、个人资料、账号安全），不新增第二套导航。
 - **New conversation:** 只在会话历史头部出现，32px ghost 图标按钮；侧栏不设新建会话条目。
 - **Account / personal entry:** 账号触发器保留紧凑 12px 标签与 8px 圆角；展开时头像与姓名靠左、按账号入口外观呈现，不套用导航选中行；展开与收起状态点击都进入同一「个人」模块（默认个人资料），不直接登出。个人资料只自助编辑显示姓名，username/businessId/角色只读；个人模块包含个人资料、个人记忆、记忆提案、账号安全、我的分享与使用记录；分享表格标题为「我的会话分享」。专家记忆、定时任务与平台凭据不迁入个人模块。登出保持独立动作，位于「返回工作区」与账号入口之间，不占页头。账号入口本身是链接，不再保留账号下拉菜单；通用菜单 hover/键盘高亮仍用 `accent` `#EAE9E4`。
 
@@ -441,7 +451,7 @@ PACE 的世界是一张安静的暖灰工作台。根容器铺 `canvas #FCFCFB`�
 - **Do** 保持外壳平铺全幅：`canvas #FCFCFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、外边距、外框圆角或描边。
 - **Do** 用 `button-primary` 陶土三态（`#D97757` / `#CC5A36` / `#c6613f`）承载 `default` 与 `solid`，配白字。
 - **Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。
-- **Do** 用 `selected` / `accent` `#EAE9E4` 表示当前导航、选中页签、菜单高亮与用户消息。
+- **Do** 主侧栏当前项用 `sidebar-selected` + 深色前景；页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#EAE9E4`。
 - **Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 陶土 ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。
 - **Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。
 - **Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。
