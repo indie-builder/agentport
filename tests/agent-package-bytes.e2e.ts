@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -48,9 +49,10 @@ test('golden export downloads a claude directory zip and re-imports through the 
 
   // 列表页按 slug 过滤，再打开专家详情。
   await app.open(`/agents?q=${encodeURIComponent(fixture.slug)}`);
-  const configure = screen.getByRole('button', `配置 ${fixture.name}`);
-  await expect(configure).toBeVisible();
-  await configure.tap();
+  const actions = screen.getByRole('button', `操作 ${fixture.name}`);
+  await expect(actions).toBeVisible();
+  await actions.tap();
+  await screen.getByRole('menuitem', '配置').tap();
 
   const download = await browser.waitForDownload(async () => {
     await screen.getByRole('button', '更多操作').tap();
@@ -67,17 +69,22 @@ test('golden export downloads a claude directory zip and re-imports through the 
   await screen.getByRole('button', '返回列表', { exact: true }).tap();
   const responsePromise = browser.waitForResponse(/\/api\/import\/agents$/);
   await browser.locator('input[type="file"]').setInputFiles(download.absolutePath);
+  await screen.getByRole('dialog', '导入专家包').getByRole('button', '导入', { exact: true }).tap();
   const response = await responsePromise;
   expect(response.status).toBe(201);
-  const result = (await response.json()) as ImportResult;
-  importedIds.push(result.agent.id);
+  await expect(browser).toHaveURL(/\/agents\/[^/?#]+$/);
+  const importedId = new URL(await browser.url()).pathname.split('/').pop() ?? '';
+  const imported = await browser.evaluate(
+    async (agentId: string) =>
+      (await (await fetch(`/api/agents/${agentId}`)).json()) as ImportResult['agent'],
+    importedId,
+  );
+  importedIds.push(imported.id);
 
   // 同 slug 已存在，导入为带后缀的副本，内容不变。
-  expect(result.agent.slug).toMatch(new RegExp(`^${fixture.slug}-\\d+$`));
-  expect(result.agent.systemPrompt).toBe(prompt);
+  expect(imported.slug).toMatch(new RegExp(`^${fixture.slug}-\\d+$`));
+  expect(imported.systemPrompt).toBe(prompt);
   await expect(screen.getByText('已导入「', { exact: false }).first()).toBeVisible();
-  // 导入后进入副本详情。
-  await expect(browser).toHaveURL(new RegExp(`/agents/${result.agent.id}$`));
   await expect(screen.getByRole('dialog', '导入提示')).toBeVisible();
   await screen.getByRole('button', '关闭', { exact: true }).tap();
   await expect(screen.getByRole('button', '更多操作')).toBeVisible();
@@ -86,12 +93,13 @@ test('golden export downloads a claude directory zip and re-imports through the 
 test('oversize export reports the 1 MiB error and keeps the editor usable', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
-  // 60 万个汉字（UTF-8 约 1.7 MiB）写入 CLAUDE.md 与 agent 行，
-  // 导出必然超过 1 MiB；直写数据库绕开导入请求体上限。
-  const fixture = await seed('提'.repeat(600_000));
+  // 1.5 MB 随机字节转 base64（约 2 MB）不可压缩，压缩后仍超过 1 MiB；
+  // 直写数据库绕开导入请求体上限。
+  const fixture = await seed(randomBytes(1_500_000).toString('base64'));
 
   await app.open(`/agents?q=${encodeURIComponent(fixture.slug)}`);
-  await screen.getByRole('button', `配置 ${fixture.name}`).tap();
+  await screen.getByRole('button', `操作 ${fixture.name}`).tap();
+  await screen.getByRole('menuitem', '配置').tap();
 
   await screen.getByRole('button', '更多操作').tap();
   await screen.getByRole('menuitem', '导出 ZIP').tap();
