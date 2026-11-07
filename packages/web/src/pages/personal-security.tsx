@@ -108,7 +108,7 @@ export function PersonalSecurityPage() {
           if (change.isPending) return;
           setPasswordOpen(next);
         }}
-        className="flex h-full min-h-0 min-w-0 flex-col gap-6"
+        className="flex h-full min-h-0 min-w-0 flex-col gap-4"
       >
         <PageTopbar>
           <PageHeader

@@ -286,6 +286,7 @@ export function RunsPage() {
       <PageTopbar>
         <PageHeader
           title="运行"
+          description={`${filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'} · 排序仅作用于当前显示的记录`}
           actions={
             <>
               {canExport ? (
@@ -327,10 +328,6 @@ export function RunsPage() {
             label="按状态筛选"
             className="w-full sm:w-36"
           />
-          <p className="text-sm text-muted-foreground">
-            {filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'} ·
-            排序仅作用于当前显示的记录
-          </p>
           <div className="ml-auto">
             <ViewToggle value={view} onChange={setView} />
           </div>

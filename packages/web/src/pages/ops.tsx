@@ -20,7 +20,6 @@ import {
   PageHeader,
   PageNote,
   PageSection,
-  PageToolbar,
   PageTopbar,
 } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
@@ -293,23 +292,18 @@ export function SchedulesPage() {
       <PageTopbar>
         <PageHeader
           title="定时任务"
+          {...(items.length > 0 ? { description: `${items.length} 个定时任务` } : {})}
           actions={
-            canManage ? (
-              <Button ref={createButtonRef} onClick={() => setCreating(true)}>
-                <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
-              </Button>
-            ) : null
+            <>
+              {items.length > 0 ? <ViewToggle value={view} onChange={setView} /> : null}
+              {canManage ? (
+                <Button ref={createButtonRef} onClick={() => setCreating(true)}>
+                  <Plus data-icon="inline-start" aria-hidden="true" /> 新建定时任务
+                </Button>
+              ) : null}
+            </>
           }
         />
-
-        {items.length > 0 ? (
-          <PageToolbar>
-            <p className="text-sm text-muted-foreground">{items.length} 个定时任务。</p>
-            <div className="ml-auto">
-              <ViewToggle value={view} onChange={setView} />
-            </div>
-          </PageToolbar>
-        ) : null}
       </PageTopbar>
 
       <PageBody>

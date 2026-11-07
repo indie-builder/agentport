@@ -163,14 +163,16 @@ export function AccountsPage() {
             }}
             className="w-56 min-w-0"
           />
-          <span role="status" className="ml-auto text-xs text-muted-foreground">
-            {accounts.isPending
-              ? '加载中…'
-              : accounts.isError
-                ? '数量不可用'
-                : `共 ${total} 个账户`}
-          </span>
-          <ViewToggle value={view} onChange={setView} />
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <span role="status" className="text-xs text-muted-foreground">
+              {accounts.isPending
+                ? '加载中…'
+                : accounts.isError
+                  ? '数量不可用'
+                  : `共 ${total} 个账户`}
+            </span>
+            <ViewToggle value={view} onChange={setView} />
+          </div>
         </PageToolbar>
       </PageTopbar>
 

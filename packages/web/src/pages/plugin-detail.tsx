@@ -201,7 +201,7 @@ function PluginDetailContent({
 
   return (
     <Page>
-      <PageTopbar className="gap-2">
+      <PageTopbar>
         <PageHeader
           leading={
             <Link
