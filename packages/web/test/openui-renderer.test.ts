@@ -74,6 +74,11 @@ describe('OpenUiBlock', () => {
     expect(host.textContent).toContain('本周完成 12 项');
     expect(host.textContent).toContain('接入');
     expect(host.textContent).toContain('继续分析');
+    const cards = host.querySelectorAll('.cds-card-surface:not(:has(.cds-card-surface))');
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.classList.contains('bg-surface')).toBe(true);
+    expect(cards[0]?.hasAttribute('tabindex')).toBe(false);
+    expect(cards[0]?.hasAttribute('role')).toBe(false);
   });
 
   it('right-aligns numeric columns and uses tabular figures', async () => {

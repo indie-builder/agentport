@@ -619,13 +619,10 @@
 
   .cds-card-surface {
     box-shadow: var(--shadow-panel);
-  }
-
-  .cds-card-interactive {
     transition: box-shadow .2s var(--ease-out-soft), transform .2s var(--ease-out-soft);
   }
 
-  .cds-card-interactive:hover {
+  .cds-card-surface:hover {
     box-shadow: var(--shadow-panel-hover);
     transform: translateY(-1.5px);
   }

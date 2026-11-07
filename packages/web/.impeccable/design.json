@@ -714,12 +714,12 @@
       {
         "name": "panel",
         "value": "0 0 0 var(--hairline) var(--color-line), var(--shadow-sm)",
-        "purpose": "适合卡片的内容与主侧栏导航选中项共用的常态边界和轻投影；纯白 surface，静态卡保留此深度，不叠加装饰性边界。"
+        "purpose": "适合卡片的内容与主侧栏导航选中项共用的常态边界和轻投影；纯白 surface，所有业务卡片默认沿用找专家卡片的常态与 hover 深度，不叠加装饰性边界。"
       },
       {
         "name": "panel-hover",
         "value": "0 0 0 var(--hairline) var(--color-line-strong), 0 4px 16px -2px rgba(0, 0, 0, 0.09)",
-        "purpose": "内容卡与导航选中项共用的 hover 投影（--shadow-panel-hover）；可交互内容卡沿用 translateY(-1.5px)，导航保持原有几何、不位移。"
+        "purpose": "内容卡与导航选中项共用的 hover 投影（--shadow-panel-hover）；所有业务内容卡默认沿用 translateY(-1.5px) 与 200ms --ease-out-soft 过渡，导航保持原有几何、不位移。"
       }
     ],
     "gradients": [],
@@ -910,10 +910,10 @@
       "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-tag, 6px); background: var(--color-sunken, #F7F9F9); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; } .ds-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079); }"
     },
     {
-      "name": "Interactive Card",
+      "name": "Card",
       "kind": "card",
       "refersTo": "card",
-      "description": "可交互示例：与导航选中项共用纯白 surface 及两态共享投影，不叠加装饰边界；父级为完整投影与已有交互保留绘制空间，避免首排顶部和四周被滚动容器裁切；专家网格 p-2 在四周增加 8px 绘制空间，卡高 208px、gap 16px 不变，卡片起点与可用列宽随网格内距调整。共享 Card 与 .cds-card-surface 常驻 shadow-panel 边界和轻投影；.cds-card-interactive 的 hover 上浮 1.5px 并换 shadow-panel-hover。该规范跨页面适用；整体可点击或已有明确交互反馈的卡片才使用此上浮示例，仅内含按钮、链接或表单的静态卡保留常态深度。根只有纵向 16px 与块间距 16px，水平内边距由 Header/Content/Footer 承担；CardTitle 14/22，sm 卡 13/20，描述 13/20。CardFooter 继承白底、顶边与自身内边距，没有统一浅底。",
+      "description": "所有业务卡片的共享示例：与导航选中项共用纯白 surface 及两态共享投影，不叠加装饰边界；父级为完整投影与上浮保留绘制空间，避免首排顶部和四周被滚动容器裁切；专家网格 p-2 在四周增加 8px 绘制空间，卡高 208px、gap 16px 不变，卡片起点与可用列宽随网格内距调整。共享 Card 与 .cds-card-surface 常驻 shadow-panel 边界和轻投影，默认 hover 上浮 1.5px 并换 shadow-panel-hover，阴影与 transform 均以 200ms --ease-out-soft 过渡。该规范跨页面适用，不设 interactive 开关或静态卡例外；不为整卡虚构点击、焦点或 tabIndex，不新增参考没有的 active、selected、disabled 卡片外观；真实控件与业务状态、OpenUI 显式 sunk 等语义变体保持。根只有纵向 16px 与块间距 16px，水平内边距由 Header/Content/Footer 承担；CardTitle 14/22，sm 卡 13/20，描述 13/20。CardFooter 继承白底、顶边与自身内边距，没有统一浅底。",
       "html": "<div class=\"ds-card\"><div class=\"ds-card-header\"><div class=\"ds-card-title\">专家名称</div><div class=\"ds-card-description\">一句话描述该专家能交付什么。</div></div><div class=\"ds-card-content\">正文内容</div></div>",
       "css": ".ds-card { display: flex; flex-direction: column; gap: var(--card-spacing, 16px); padding: var(--card-spacing, 16px) 0; border-radius: var(--radius-card, 12px); background: var(--color-surface, #FFFFFF); color: var(--color-card-foreground, #202B2E); box-shadow: var(--shadow-panel, 0 0 0 var(--hairline, 1px) var(--color-line, rgba(0, 0, 0, 0.10)), 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 2px 8px 0 rgba(0, 0, 0, 0.08)); transition: box-shadow .2s var(--ease-out-soft), transform .2s var(--ease-out-soft); } .ds-card:hover { box-shadow: var(--shadow-panel-hover, 0 0 0 var(--hairline, 1px) var(--color-line-strong, rgba(0, 0, 0, 0.20)), 0 4px 16px -2px rgba(0, 0, 0, 0.09)); transform: translateY(-1.5px); } .ds-card-header { display: grid; gap: 4px; padding: 0 var(--card-spacing, 16px); } .ds-card-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 22px; } .ds-card-description { color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-card-content { padding: 0 var(--card-spacing, 16px); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; }"
     },
@@ -952,13 +952,13 @@
   ],
   "narrative": {
     "northStar": "The Quiet Workbench（静默工作台）",
-    "overview": "2026-11-07 用户决定撤回 #208 / #209 / #210 的全站 UI 重设计，视觉以 #207（`fbf3c332`）的既有 CDS 外观为恢复基线；石青配色、主侧栏导航与书签、Bun 与脚手架保留。同日进一步确认：适合卡片的内容与主侧栏导航选中项共用纯白 `surface` 与共享卡片深度，导航保留既有几何与功能。本次仅同步设计标准，不代表实现已完成或真实渲染验收通过，历史验证记录只覆盖其记录版本。\n\n**Creative North Star: \"The Quiet Workbench（静默工作台）\"**\n\nPACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFCFC`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面与非选中 hover 使用既有浅石青角色，导航当前项采用与卡片一致的纯白表面和共享投影，文字与图标仍为深色，石青实底主操作保持最强的动作信号。工具、标题与正文是深墨色，主操作与按钮键盘焦点用石青，状态只在需要时以小面积语义色或呼吸点出现。\n\n这套系统用石青承担「可执行」与按钮键盘焦点，用浅石青与白色阶梯承担层级：普通主操作、发送、登录共用 `#315D67` → `#284F58` → `#204149` 三态实底；正文链接用深石青 `#2C5660`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。\n\n本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。\n",
+    "overview": "2026-11-07 用户决定撤回 #208 / #209 / #210 的全站 UI 重设计，视觉以 #207（`fbf3c332`）的既有 CDS 外观为恢复基线；石青配色、主侧栏导航与书签、Bun 与脚手架保留。同日进一步确认：所有业务卡片默认沿用找专家卡片的白底、常态深度与 hover 上浮反馈；主侧栏导航选中项共用纯白 `surface` 与共享投影，导航保留既有几何与功能。实现必须同步共享入口与现有调用方；规范本身不代表真实渲染验收通过，历史验证记录只覆盖其记录版本。\n\n**Creative North Star: \"The Quiet Workbench（静默工作台）\"**\n\nPACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFCFC`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面与非选中 hover 使用既有浅石青角色，导航当前项采用与卡片一致的纯白表面和共享投影，文字与图标仍为深色，石青实底主操作保持最强的动作信号。工具、标题与正文是深墨色，主操作与按钮键盘焦点用石青，状态只在需要时以小面积语义色或呼吸点出现。\n\n这套系统用石青承担「可执行」与按钮键盘焦点，用浅石青与白色阶梯承担层级：普通主操作、发送、登录共用 `#315D67` → `#284F58` → `#204149` 三态实底；正文链接用深石青 `#2C5660`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。\n\n本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。\n",
     "keyCharacteristics": [
       "平铺外壳：`canvas #FBFCFC` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。",
       "石青动作三态：`#315D67` / `#284F58` / `#204149`，白字；hover/active 档对比度更高。",
       "浅色状态层：hover `#EDF2F2`，selected / accent `#DFE9EA`，chip `#EFF3F3`；主侧栏底面与非选中 hover 使用浅石青 `sidebar`、`sidebar-hover`，当前项用映射到纯白 `surface` 的 `sidebar-selected` 与共享 `shadow-panel`，hover 换 `shadow-panel-hover`。",
       "输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`.cds-focus-glow`：`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`，composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。",
-      "正文链接与 `link` 变体用深石青 `#2C5660`；卡片常态用 `--shadow-panel`，整体可点击或已有明确交互反馈的卡片才在 hover 上浮 1.5px 并换 `--shadow-panel-hover`。",
+      "正文链接与 `link` 变体用深石青 `#2C5660`；卡片常态用 `--shadow-panel`，所有业务卡片默认在 hover 上浮 1.5px 并换 `--shadow-panel-hover`，过渡为 200ms `--ease-out-soft`。",
       "数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为石青 `#4D7079`，输入框聚焦为中性暖灰而非石青。",
       "AnthropicSans → Inter → 中文回退的 13/20 界面档与 14/22 对话阅读档；CDS 弹簧、入场与呼吸动效按本页当前值。"
     ],
@@ -995,7 +995,7 @@
       },
       {
         "name": "共享卡片深度",
-        "body": "2026-11-07 用户确认找专家卡片的白底与立体感为共享标准：适合卡片的内容与主侧栏导航选中项共用纯白 `surface`、`shadow-panel` 常态深度与 `shadow-panel-hover` 交互反馈。该标准跨页面覆盖现有业务卡片，包括卡片视图、概况指标与趋势、专家配置及其子面板详情卡。内容卡复用共享 `Card`；已有自定义布局的详情卡复用 `.cds-card-surface`，保留原有内边距与内容结构。整体可点击的卡片用 `interactive` / `.cds-card-interactive`；找专家等已有明确交互反馈的卡片保留既有上浮。仅内含按钮、链接或表单不代表整卡可点击，静态卡只保留常态深度，不添加整体上浮。导航选中项只复用表面与投影，保留既有圆角、字号、几何与焦点，不增加上浮。共享投影已含必要边界，不再叠加额外 outline、ring 或边框作为装饰。卡片及其父级滚动容器必须留出投影与已有交互所需的绘制空间，首排顶部与四周不得被裁切；具体实现与尺寸由真实渲染核对，不在规范中猜测。不得以全站减重为由将卡片压平，也不另造页面级平行阴影；表格、列表与输入继续按各自任务使用，不机械改成卡片。",
+        "body": "2026-11-07 用户确认找专家卡片的白底与立体感为共享标准：适合卡片的内容与主侧栏导航选中项共用纯白 `surface`、`shadow-panel` 常态深度与 `shadow-panel-hover` 交互反馈。该标准跨页面覆盖现有业务卡片，包括卡片视图、概况指标与趋势、专家配置及其子面板详情卡。内容卡复用共享 `Card`；已有自定义布局的详情卡复用 `.cds-card-surface`，保留原有内边距与内容结构。所有业务卡片默认沿用找专家卡片的 hover 上浮 1.5px、`--shadow-panel-hover` 与 200ms `--ease-out-soft` 过渡，不设 `interactive` 开关或静态卡例外。视觉反馈不赋予整卡点击语义，不为此新增点击处理、焦点或 `tabIndex`，不新增参考没有的 active、selected、disabled 卡片外观；内部真实按钮、链接与表单保留各自焦点和业务状态。OpenUI 显式 `sunk` 等语义变体保持。导航选中项只复用表面与投影，保留既有圆角、字号、几何与焦点，不增加上浮。共享投影已含必要边界，不再叠加额外 outline、ring 或边框作为装饰。卡片及其父级滚动容器必须留出投影与已有交互所需的绘制空间，首排顶部与四周不得被裁切；具体实现与尺寸由真实渲染核对，不在规范中猜测。不得以全站减重为由将卡片压平，也不另造页面级平行阴影；表格、列表与输入继续按各自任务使用，不机械改成卡片。",
         "section": "elevation"
       }
     ],

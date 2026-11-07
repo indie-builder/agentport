@@ -1581,10 +1581,7 @@ export const ApprovalCard = memo(function ApprovalCard({
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={reduce ? STILL : EXPAND}
-      className={cn(
-        'flex flex-wrap items-center gap-2 rounded-card border bg-chip px-3 py-2',
-        isPending && 'border-line',
-      )}
+      className="cds-card-surface flex flex-wrap items-center gap-2 rounded-card bg-surface px-3 py-2"
     >
       <CircleAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
       {isPending ? (
