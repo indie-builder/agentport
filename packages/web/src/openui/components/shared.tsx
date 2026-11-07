@@ -234,7 +234,7 @@ export function BlockCard({
   const base = cn(
     'flex h-full min-w-0 flex-col gap-3 rounded-card border border-line bg-surface p-3 text-left',
     clickable &&
-      'cursor-pointer transition-colors hover:bg-hover outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2',
+      'cursor-pointer transition-colors hover:bg-hover outline-none focus-visible:border-ring',
     className,
   );
   if (!clickable) return <div className={base}>{children}</div>;

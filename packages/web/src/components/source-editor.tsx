@@ -45,12 +45,12 @@ export function SourceEditor({
       data-disabled={disabled || undefined}
       data-invalid={ariaInvalid || undefined}
       className={cn(
-        'flex w-full overflow-hidden rounded-lg border border-input bg-background font-mono text-sm transition-colors outline-none [&:has(.cm-content:focus-visible,>textarea:focus-visible)]:outline-2 [&:has(.cm-content:focus-visible,>textarea:focus-visible)]:outline-solid [&:has(.cm-content:focus-visible,>textarea:focus-visible)]:outline-ring [&:has(.cm-content:focus-visible,>textarea:focus-visible)]:outline-offset-2 [&_.cm-content:focus-visible]:outline-none [&>textarea:focus-visible]:outline-none',
+        'flex w-full overflow-hidden rounded-lg border border-input bg-background font-mono text-sm transition-colors outline-none ring-0 shadow-none [&_.cm-content:focus]:outline-none [&>textarea:focus]:outline-none',
         disabled
           ? 'cursor-not-allowed bg-sunken text-muted-foreground'
           : ariaInvalid
             ? 'border-destructive'
-            : 'hover:border-control-boundary',
+            : 'hover:border-control-boundary [&:has(.cm-content:focus,>textarea:focus)]:border-ring',
         className,
       )}
     >
@@ -66,7 +66,7 @@ export function SourceEditor({
             aria-invalid={ariaInvalid || undefined}
             disabled={disabled}
             readOnly={readOnly}
-            className="field-sizing-content block min-h-16 w-full resize-none bg-transparent px-2.5 py-2 text-inherit outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+            className="field-sizing-content block min-h-16 w-full resize-none border-0 bg-transparent px-2.5 py-2 text-inherit outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
         }
       >

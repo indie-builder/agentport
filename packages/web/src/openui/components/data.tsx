@@ -189,7 +189,7 @@ function EditableCell({
               variant="plain"
               aria-label={label}
               disabled={disabled}
-              className="h-8 w-full justify-start border-input bg-surface font-normal hover:border-control-boundary"
+              className="h-8 w-full justify-start border-input bg-surface font-normal hover:not-focus:border-control-boundary focus:not-aria-invalid:border-ring focus-visible:outline-none focus:ring-0 focus:shadow-none"
             >
               {value || '选择日期'}
             </Button>

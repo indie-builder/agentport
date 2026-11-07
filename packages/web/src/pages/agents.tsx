@@ -688,7 +688,7 @@ export function AgentsPage() {
                             params={{ agentId: agent.id }}
                             title={agent.name}
                             disabled={importing}
-                            className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
                           >
                             {agent.name}
                           </Link>
@@ -4150,7 +4150,7 @@ function DraftPreview({
   // Collapsible is unstyled; keep the draft border, 8px corners, and compact muted trigger.
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border">
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0">
         <ChevronRight
           className={cn(
             'size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out-soft',
@@ -4839,7 +4839,7 @@ export function CreateAgentDialog({
           >
             <CollapsibleTrigger
               type="button"
-              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
             >
               <ChevronRight
                 className={cn(

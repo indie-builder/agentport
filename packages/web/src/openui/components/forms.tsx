@@ -332,7 +332,7 @@ export function DatePickerRenderer({
             aria-describedby={wiring?.describedBy}
             disabled={field.streaming}
             className={cn(
-              'flex h-8 w-full justify-between gap-1.5 border-input bg-surface px-2.5 font-normal hover:border-control-boundary aria-invalid:hover:border-destructive',
+              'flex h-8 w-full justify-between gap-1.5 border-input bg-surface px-2.5 font-normal hover:not-focus:border-control-boundary focus:not-aria-invalid:border-ring focus-visible:outline-none focus:ring-0 focus:shadow-none aria-invalid:hover:border-destructive',
               label ? 'text-fg' : 'text-muted-foreground',
             )}
           />
@@ -791,7 +791,7 @@ export function OptionCardsRenderer({
             onClick={() => state.toggle(item.value)}
             className={cn(
               'flex min-w-0 items-start gap-2 rounded-card border border-line bg-surface p-3 text-left text-sm transition-colors',
-              'outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2',
+              'outline-none focus-visible:not-aria-invalid:border-ring aria-invalid:border-destructive focus-visible:aria-invalid:border-2 focus-visible:aria-invalid:p-[calc(--spacing(3)-1px)]',
               selected
                 ? 'border-line-strong bg-selected text-selected-foreground'
                 : 'border-line hover:bg-hover',

@@ -19,7 +19,9 @@ export function highlightJson(text: string): ReactNode[] {
     if (start > last) nodes.push(text.slice(last, start));
     const [token] = match;
     const className =
-      match[1] === 'null' ? 'text-[var(--color-code-block-dim)]' : 'text-[var(--color-code-block-fg)]';
+      match[1] === 'null'
+        ? 'text-[var(--color-code-block-dim)]'
+        : 'text-[var(--color-code-block-fg)]';
     nodes.push(
       <span key={index++} className={className}>
         {token}
@@ -117,8 +119,7 @@ export function CodeBlock({
       )}
     >
       {large && (
-        // Keep compact disclosure text and its focus ring; the primitive supplies no styling.
-        <CollapsibleTrigger className="px-3 py-2 text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <CollapsibleTrigger className="px-3 py-2 text-xs hover:underline focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0">
           {expanded ? '收起内容' : '内容过大，点击查看'}
         </CollapsibleTrigger>
       )}
@@ -163,8 +164,7 @@ export function CollapsibleText({ text, className }: { text: string; className?:
   if (text.length <= LARGE_CONTENT_CHARS) return <div className={className}>{text}</div>;
   return (
     <Collapsible open={open} onOpenChange={setOpen} className={className}>
-      {/* Keep compact disclosure text and its focus ring; the primitive supplies no styling. */}
-      <CollapsibleTrigger className="text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <CollapsibleTrigger className="text-xs text-fg hover:underline focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0">
         {open ? '收起内容' : '内容过大，点击查看'}
       </CollapsibleTrigger>
       <CollapsibleContent animated className="pt-1">

@@ -253,7 +253,7 @@ components:
 
 PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`。主操作以石青实底白字形成任务重心，次操作用中性边界或浅底，工具默认透明；标题、正文和普通图标保留深墨色。
 
-这套系统按任务职责分配视觉权重：`default` / `solid` 共用石青实底三态，`outline` 白底中性边，`secondary` 下沉浅底，`ghost` 透明。输入以白底与 `input` 边界表明可编辑，hover 加深到 `control-boundary`；键盘焦点使用单层石青 outline，错误边框独立表达。分段切换是浅轨道与白 thumb，菜单高亮与勾选分别表达当前位置和已选值。内容卡片白底细边，浮层一道轻影；主菜单保留既有颜色、几何、阴影和焦点例外。
+这套系统按任务职责分配视觉权重：`default` / `solid` 共用石青实底三态，`outline` 白底中性边，`secondary` 下沉浅底，`ghost` 透明。输入以白底与 `input` 边界表明可编辑，hover 加深到 `control-boundary`；输入正常聚焦时只将原有 1px 边框换为石青 `ring`；有文本光标的文本输入错误态仍保持 1px，无文本光标的选择/日期字段 invalid 键盘焦点将同一条 `danger` 边向内加粗为 2px 并补偿内边距；不叠 outline、ring 或聚焦阴影。分段切换是浅轨道与白 thumb，菜单高亮与勾选分别表达当前位置和已选值。内容卡片白底细边，浮层一道轻影；主菜单保留既有颜色、几何与可见焦点，投影同样遵守单边界规则。
 
 本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。2026-11-07 用户批准整体内容组件重设计，替换此前主操作必须描边、输入只换中性边线及旧分段选中底的要求。未触及的 PACE 布局、CDS 字体与圆角、Logo、主侧栏菜单及受保护入口继续保留；内容组件外观以本次实现为准，不以“完全按 CDS”覆盖。参考记录为 [Radix Themes Button](https://www.radix-ui.com/themes/docs/components/button)、[Radix Colors](https://www.radix-ui.com/colors/docs/palette-composition/understanding-the-scale)、[Geist Button](https://vercel.com/geist/button)、[Geist Menu](https://vercel.com/geist/menu)、[Geist Materials](https://vercel.com/geist/materials) 与 [Linear custom views](https://linear.app/docs/custom-views)，查证日期 2026-11-07；前两家交互证据来自本轮调研，Linear 仅官方产品画面、未登录。源码决定最终规则，参考产品不替代本地实现证据。
 
@@ -261,9 +261,9 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 - 平铺外壳：`canvas #FBFCFC` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。
 - 石青实底主操作：`default` / `solid` 的背景与边框同步使用 `button-primary` 三态，始终白字，无常驻投影。
 - 浅色状态层：hover `#EDF2F2`，selected / accent `#DFE9EA`，chip `#EFF3F3`；主侧栏单独使用浅石青 `sidebar`、`sidebar-hover`、`sidebar-selected` 背景阶梯。
-- 输入白底、默认 `input = line-strong` 边界，hover 用 `control-boundary`；键盘焦点为单层 2px 石青 outline 与 2px offset，复合输入由外框承担。边界低对比限制见 Known Gaps。
+- 输入白底、默认 `input = line-strong` 边界，hover 用 `control-boundary`；正常鼠标与键盘聚焦都只将现有 1px 边框换为 `ring`，无 outline、ring 或聚焦阴影；有文本光标的文本输入 invalid 保持同一条 1px `danger` 边，无文本光标的选择/日期字段 invalid 键盘焦点将同一条危险边向内加粗为 2px 并补偿内边距，普通态与正常焦点仍为 1px；复合输入由外框承担。边界低对比限制见 Known Gaps。
 - 正文链接与 `link` 变体用深石青；卡片的 `--shadow-panel` / `--shadow-panel-hover` 仅画细边，hover 上浮 1.5px；内容浮层用 `--shadow-content-overlay`，主菜单预览与导航 Sheet 保留 `--shadow-overlay`。
-- 数据蓝只用于图表首系列；内容原语与输入共用石青焦点；主菜单按钮保留旧 ring，导航链接沿用全局 outline。
+- 数据蓝只用于图表首系列；所有组件同一控件/状态只保留一层必要边界，已有边框聚焦换边，无边框操作用贴边焦点；主菜单按钮与导航链接保留既有视觉，全局兜底不新增一层。
 - AnthropicSans → Inter → 中文回退的 13/20 界面档与 14/22 对话阅读档；CDS 弹簧、入场与呼吸动效按本页当前值。
 
 ## Colors
@@ -292,9 +292,9 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 - **纸白（Paper White）** (#FFFFFF)：`surface`、`panel`、卡片、标准弹层、主内容区与输入基底。临时预览侧栏仍用 `sidebar` 实底。内容区不得铺渐变。
 - **分隔线（Hairline）**：`line` 用于卡片与弹层细边、表格和分组分隔、白 thumb 边框；不承担默认输入边界。
 - **输入默认边线（Input Boundary）**：`input` 映射 `line-strong`，用于 Input、Textarea、Select、Combobox、InputGroup、SourceEditor 与 CodeMirror 搜索输入的默认 1px 边界；标准输入族 hover 加深为 `control-boundary`。对白约 1.61:1，仍低于非文字 3:1。
-- **键盘焦点（Focus Outline）**：内容原语用 `ring` 的单层 2px solid outline、2px offset；不再把中性换边当作输入焦点。invalid 保留危险边框并同时显示该 outline。
+- **焦点（Focus）**：输入类正常通过 `:focus` 将现有 1px 边框换为 `ring`，鼠标与键盘一致，hover 不覆盖焦点。有文本光标的文本输入 invalid 仍为同一条 1px `danger` 边；无文本光标的选择/日期字段 invalid 键盘焦点将同一条危险边向内加粗为 2px 并补偿内边距，普通态与正常焦点仍为 1px。无 outline、ring 或聚焦阴影。所有组件同一控件/状态只保留一层必要边界。已有边框优先换同一条边，无边框操作可用 `ring` 的 2px solid outline 与 -2px offset 贴边表达；禁止 border 与分离 outline/ring、光晕或多重 shadow 重复表达，禁止组合控件内外重复画框。实底主操作、选中填充、页签指示线、开关 thumb 和浮层必要深度继续保留。
 
-- **复合输入焦点（Composite Focus）**：InputGroup（含 Composer）外框只观察文本控制器的 `:focus-visible`；SourceEditor 外框只代理 `.cm-content` 或直接 fallback textarea，多选 Combobox 外框只代理 `combobox-chip-input`。被代理的输入不重复画焦点；Chip、移除按钮与 `.cm-search` 内各独立操作控件保留自身可见焦点，不触发编辑输入外框。
+- **复合输入焦点（Composite Focus）**：InputGroup（含 Composer）外框只观察文本控制器的 `:focus`；SourceEditor 外框只代理 `.cm-content` 或直接 fallback textarea，多选 Combobox 外框只代理 `combobox-chip-input`。被代理的文本输入不画第二条边或外圈；Chip、移除按钮与 `.cm-search` 内按钮、复选框保留自身可见焦点，搜索文本框独立聚焦换边，均不触发编辑输入外框。
 - **强边界（Strong Boundary）**：`control-boundary` 用于输入 hover、未选中 checkbox/radio 与 off 开关轨道；对白约 2.43:1、对 `selected` 约 2.39:1，仍低于 3:1。`line-strong` 同时承担输入默认边界与较强分隔。
 - **正文墨（Text Ink）** (#202B2E)：正文、标题、选中项前景与普通图标。
 - **辅助石灰（Helper Gray）** (#505F63)：placeholder、描述、元信息、注释、表头次要信息；承载可读文字。
@@ -305,6 +305,8 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 - **遮罩（Scrim）** (`rgb(0 0 0 / 0.4)`)：Dialog、Sheet 等模态遮罩。
 
 ### Named Rules
+
+**The Single-Boundary Rule.** 同一控件/状态只保留一层必要边界，规则覆盖所有组件。已有边框优先换同一条边，无边框操作使用贴边焦点；禁止 border 与分离 outline/ring、光晕或多重 shadow 重复表达，组合控件不得内外重复画框。保留实底主操作、选中填充、开关 thumb 与必要浮层深度。主菜单保留颜色、布局与几何，阴影同样只保留一道必要软投影，全局兜底不得额外叠层。验收必须实屏 Tab / Shift+Tab，并读取 default、hover+focus、checked/selected+focus、invalid+focus、forced-colors 的边框、轮廓与阴影计算样式并截图；`lint:focus` 与源码断言不能替代这一步。
 
 **The Flat-Shell Rule.** 应用外壳平铺全幅：根容器铺 `canvas #FBFCFC`，侧栏铺不透明的 `sidebar` 浅石青底，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距或描边；收起与固定展开侧栏无阴影，只有临时预览侧栏复用 `shadow-overlay` 覆盖正文。分区靠底色差异与留白表达。
 
@@ -349,7 +351,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 
 资源中心工具区固定两行：首行类型导航与管理操作，次行来源/搜索/筛选/排序/数量；内资源按任务渲染——技能、插件、知识库为单列紧凑列表（56–64px 行，名称、描述与真实元信息），连接器为 `DataTable`（名称/来源/地址/连通状态/工具/专家/操作，明细进详情弹层，`hideRowCount` 避免与工具栏「共 N 个」重复）；专家卡以独立操作行收尾，不设底带或分隔线。列表空态用无框 `PageNote`（仅上下发丝线，按首次无数据 / 筛选无结果 / 无权限给一句事实与一个动作），`EmptyState` 默认无外框。个人模块使用标准 Page / PageHeader / PageSection 骨架，默认个人资料，各分区可直达并提供返回工作区；入口在侧栏底部用户信息，展开与收起行为一致；进入后由同一主侧栏承载六项个人导航，具体几何见下方 Personal。
 
-间距节奏取 4 / 8 / 12 / 16 / 20 / 24px。所有尺寸、宽高、图标 16px / `strokeWidth 1.75`（尺寸档 12/14/16/20/24，默认 16；见 docs/DESIGN-SYSTEM.md §5）、边框 1px、页签指示线与焦点 2px 以当前实现值为准；几何调整只按已批准布局契约进入，不通过新增 border 或页面级 padding 临时改变。
+间距节奏取 4 / 8 / 12 / 16 / 20 / 24px。所有尺寸、宽高、图标 16px / `strokeWidth 1.75`（尺寸档 12/14/16/20/24，默认 16；见 docs/DESIGN-SYSTEM.md §5）、边框 1px、页签指示线 2px，无边框操作的贴边焦点轮廓与无文本光标控件 invalid 键盘焦点边框为 2px，有文本光标的文本输入聚焦始终保持 1px，以当前实现值为准；几何调整只按已批准布局契约进入，不通过新增 border 或页面级 padding 临时改变。
 
 ### Schedules（定时任务）
 
@@ -390,16 +392,16 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 
 ## Elevation & Depth
 
-系统默认是平的。外壳的收起与固定展开态、表格与列表没有投影；卡片的 `.cds-card-surface` 只用 `--shadow-panel` 画细边，可交互卡 hover 上浮 1.5px 并换 `--shadow-panel-hover` 强边。内容浮层用一道轻投影与各组件已有的细边或 ring；Composer 与共享 InputGroup 一样只用边线表达输入与聚焦。主菜单临时预览与导航 Sheet 保留既有多层阴影，属于菜单外壳例外。
+系统默认是平的。外壳的收起与固定展开态、表格与列表没有投影；卡片的 `.cds-card-surface` 只用 `--shadow-panel` 画细边，可交互卡 hover 上浮 1.5px 并换 `--shadow-panel-hover` 强边。内容浮层用一道轻投影，可保留既有真实边框，不叠加装饰 ring；Composer 与共享 InputGroup 一样只用边线表达输入与聚焦。主菜单临时预览与导航 Sheet 也只保留一道必要软投影，不保留多层阴影或描边投影。
 
 ### Shadow Vocabulary
 
-- **Content Overlay**（`--shadow-content-overlay: 0 4px 12px rgb(0 0 0 / .08)`）：内容区 Select、Combobox、DropdownMenu、Popover、Dialog / AlertDialog、普通 Sheet、Toast、图表 tooltip、拖拽预览与建议面板。令牌本身只有一道投影；各组件已有的 `line` 细边或 `ring-1` 独立保留，不把边界塞进阴影令牌。
-- **Navigation Overlay**（`--shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)`）：仅主菜单临时预览与 AppShell 导航 Sheet；导航 Sheet 显式覆盖普通 Sheet 的轻投影。`shadow-md` 与 `shadow-lg` 保留为此值的别名。
+- **Content Overlay**（`--shadow-content-overlay: 0 4px 12px rgb(0 0 0 / .08)`）：内容区 Select、Combobox、DropdownMenu、Popover、Dialog / AlertDialog、普通 Sheet、Toast、图表 tooltip、拖拽预览与建议面板。令牌本身只有一道投影；可保留既有真实边框，不叠加装饰 `ring`，不把边界塞进阴影令牌。
+- **Navigation Overlay**（`--shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.12)`）：仅主菜单临时预览与 AppShell 导航 Sheet；导航 Sheet 显式覆盖普通 Sheet 的轻投影。`shadow-md` 与 `shadow-lg` 保留为此值的别名。
 - **Panel**（`--shadow-panel: 0 0 0 var(--hairline) var(--color-line)`）：卡片常驻细边，无模糊与投影；`--hairline` 在 1× / 2× / 3× 屏分别为 1px / 0.5px / 1⁄3px。
 - **Panel Hover**（`--shadow-panel-hover: 0 0 0 var(--hairline) var(--color-line-strong)`）：仅加深卡片边界，配合 `translateY(-1.5px)`，不增加投影。
 - **Thumb**（`--shadow-sm: 0 1px 2px rgb(0 0 0 / .05)`）：Tabs、资源页胶囊分段与 SegmentedToggle 的选中 thumb 的一道微投影，不用于卡片或内容弹层。
-- **Focus Outline**（`outline: 2px solid var(--color-ring); outline-offset: 2px`）：内容原语、输入与 OpenUI 组合共用单层键盘焦点，无聚焦投影；主菜单按钮保留既有 ring。
+- **Focus Boundary**：已有边框控件只换同一条边；无边框内容操作可用 `outline: 2px solid var(--color-ring); outline-offset: -2px` 贴边焦点，无聚焦投影。FieldLabel 卡片与 Slider thumb 由外框代理，内部控制器不重复画；主菜单按钮与导航链接保留既有焦点。forced-colors 替换边框/贴边轮廓为系统 Highlight，不追加分离外圈。
 - **Modal Scrim**（`rgb(0 0 0 / 0.4)`）：模态遮罩，不是阴影。
 
 ### Named Rules
@@ -410,7 +412,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 
 形态是克制的圆角矩形：外壳本身平铺全幅、没有外框圆角；卡片与线程容器为 12px，Dialog 为 16px，Popover / Select / Combobox / DropdownMenu 为 10px，Composer 为 14px，用户消息气泡为 12px；常规按钮、输入、页签容器、菜单项与侧栏展开条目为 8px。共享 `Button` 的 `size="icon"` 32px / `icon-lg` 36px、紧凑 28/24px 图标按钮、小控件、页签项与侧栏折叠按钮实例均为 8px。徽章、标签与侧栏收起态 32×32 图标块为 6px；头像、胶囊按钮与模型选择器为 9999px。Checkbox 保持 4px。
 
-边线宽度全部沿用既有值：1px border/outline、2px 页签指示线与焦点轮廓。只换颜色，不通过新增边框改变控件尺寸。容器用圆角裁切图片与内容，不使用斜切、硬投影或装饰性几何。
+边线普通态与正常焦点为 1px，页签指示线与贴边焦点轮廓为 2px。无文本光标的操作控件 invalid 键盘焦点将同一条危险边向内加粗为 2px 并补偿内边距，有文本光标的文本输入始终为 1px，不改变控件尺寸。容器用圆角裁切图片与内容，不使用斜切、硬投影或装饰性几何。
 
 ## Components
 
@@ -423,26 +425,26 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 - **Solid:** 发送、登录等显式动作与 `default` 共用同一实底三态外观。
 - **Outline / Secondary / Ghost / Plain:** outline 白底、1px `input` 中性边、`fg` 字，hover 加深到 `control-boundary` 并铺 `hover`，展开铺 `hover`；secondary 默认 `sunken` 浅底，hover / 展开用 `hover`；ghost 透明，hover / 展开用 `hover`；plain 保持透明且不加 hover 底。取消、筛选与菜单触发器保留各自中性职责；局部与行内操作使用 `sm` 28px。
 - **Link:** `#2C5660` 深石青文字，保留下划线 hover 与可访问名，使用独立链接角色表明可点击。导航与下载入口用原生 `Link` / `<a>` 配 `buttonVariants`，保持链接语义与既有外观，不用 `Button` 强制 `role=button`。
-- **Danger / Disabled / Focus:** 行内 destructive 使用 `destructive/10` 浅红底和危险文字，hover 为 `/20`；ConfirmDialog 的最终危险确认与知识库批量删除确认显式使用危险实底白字（hover `/90`、active `/80`）。共享 Button 禁用时为 `sunken` 底、`input` 边与 `muted-foreground` 字，并禁止交互，不使用普遍 opacity 0.35。各 variant 的实际组合以源码为准。所有共享内容按钮用单层 2px `ring` outline 与 2px offset；invalid 保留危险边框，焦点不消失。主菜单按钮显式保留旧 ring，导航链接沿用全局 outline。
+- **Danger / Disabled / Focus:** 行内 destructive 使用 `destructive/10` 浅红底和危险文字，hover 为 `/20`；ConfirmDialog 的最终危险确认与知识库批量删除确认显式使用危险实底白字（hover `/90`、active `/80`）。共享 Button 禁用时为 `sunken` 底、`input` 边与 `muted-foreground` 字，并禁止交互，不使用普遍 opacity 0.35。各 variant 的实际组合以源码为准。共享内容按钮复用现有边框表达键盘焦点，invalid 保留同一条危险边，不加分离外圈；主菜单按钮显式保留旧 ring，导航链接保留旧 outline。
 
 ### Tabs
 
 - **Segmented:** Tabs 容器 `sunken` 浅轨道、8px、3px 内边距、高 32px；项为 8px、13/20，未选中 `muted-foreground`，hover `fg`；当前项为 `surface` 白 thumb、`fg` 字、1px `line` 边框与 `shadow-sm`。
 - **ViewToggle / ReaderToolbar:** 两者共用 SegmentedToggle：`sunken` 浅轨道、8px 圆角、2px 内边距、高 32px，项高 28px；白 thumb 用 `shadow-sm`，120ms 缓出移动，减少动态效果时直接切换。资源页「内部 / 市场」保留既有胶囊轨道及同样的白 thumb。阅读工具栏的复制、下载为 ghost 次操作。
 - **Line:** 列表透明、不铺底；当前项文字 `fg`，2px `button-primary` 石青指示线保留既有位置与宽度，无 thumb 投影。
-- **Focus:** Tabs 与 ToggleGroup 项用单层 2px 石青 outline、2px offset，不改变容器尺寸。
+- **Focus:** Tabs 与 ToggleGroup 项优先换已有边框，line 页签等无边框项用 -2px offset 的贴边焦点。焦点时移除同一项的边界阴影，不能把选中边框、shadow 与分离 outline 叠起来，不改变尺寸。
 
 ### Inputs / Fields
 
-- **Style:** 白底、1px `input = line-strong` 边界、8px 圆角、单行高 32px、13/20；placeholder `muted-foreground`。Input、Textarea、Select、Combobox、InputGroup 与 SourceEditor hover 用 `control-boundary`；CodeMirror 搜索字段只记录其源码默认边线，不虚构独立 hover。多行按原有内容高度伸展；Composer 文本区保留 14/22。
-- **Focus:** Input / Textarea / Select 用单层 2px `ring` outline + 2px offset；InputGroup 外框只代理文本控制器，SourceEditor 外框只代理 `.cm-content` 或直接 fallback textarea，Combobox Chips 外框只代理 `combobox-chip-input`，被代理输入不重复画轮廓。Chip、移除按钮与 `.cm-search` 内各独立操作控件保留自身可见焦点，不触发编辑输入外框。
-- **Invalid / Disabled:** invalid 用 `danger` 边框并保留独立焦点 outline。Input / Textarea / Select / SourceEditor 禁用使用 `sunken` 背景与 `muted-foreground` 字；InputGroup / 多选 Combobox 外框按内部输入是否禁用显示 `sunken` 和 `input` 边，内部输入透明；空内容只禁用发送按钮。Checkbox / Radio 未选中用 `control-boundary`，checked 用墨色 `primary` + 白勾/点，禁用 checked 用 `muted-foreground` 底边；Switch on 用墨底白 thumb、off 用 `control-boundary`，禁用 on 用 `muted-foreground`、off 用 `line-strong`。Toggle 选中为 `selected` + `fg`，禁用为 `sunken` + `muted-foreground`；Tabs、菜单项与字段标签禁用保持辅助文字，不统一降低透明度。Slider 禁用活跃轨道为 `muted-foreground`、thumb 为 `sunken`。各原语 checked 与 unchecked 共用单层石青焦点；卡片式 FieldLabel 由外层 label 表达单层 outline，内部填充控件抑制重复轮廓。forced-colors 保留系统 Highlight outline。
+- **Style:** 白底、1px `input = line-strong` 边界、8px 圆角、单行高 32px、13/20；placeholder `muted-foreground`。Input、Textarea、Select、Combobox、InputGroup 与 SourceEditor hover 用 `control-boundary`；CodeMirror 搜索文本框沿用同一默认、hover 与聚焦换边规则。多行按原有内容高度伸展；Composer 文本区保留 14/22。
+- **Focus:** Input / Textarea / Select、日期与字段选择触发器正常在 `:focus` 时只将现有 1px 边框换为 `ring`，hover 不覆盖焦点。有文本光标的 Input / Textarea、可编辑 Combobox、ChipsInput、InputGroup 与 SourceEditor 文本区在 invalid 焦点时仍保持同一条 1px 危险边，文本光标表达编辑焦点；没有文本光标的 Select、字段型 AgentPicker 与日期触发器在 invalid 键盘焦点时将同一条危险边向内加粗为 2px，并按实际左右内边距各减 1px，普通态与正常焦点仍为 1px。无 outline、ring 或聚焦阴影。InputGroup（含 Composer）外框只代理文本控制器，SourceEditor 外框只代理 `.cm-content` 或直接 fallback textarea，Combobox Chips 外框只代理 `combobox-chip-input`；内部文本输入无第二条边或外圈。Chip、移除按钮与 `.cm-search` 内按钮、复选框保留自身可见焦点，搜索文本框独立聚焦换边，均不触发编辑输入外框。
+- **Invalid / Disabled:** 输入 invalid 始终使用同一条 `danger` 边框，无额外焦点外圈，保留 aria 与错误文字。Input / Textarea / Select / SourceEditor 禁用使用 `sunken` 背景与 `muted-foreground` 字；InputGroup / 多选 Combobox 外框按内部输入是否禁用显示 `sunken` 和 `input` 边，内部输入透明；空内容只禁用发送按钮。Checkbox / Radio 未选中用 `control-boundary`，checked 用墨色 `primary` + 白勾/点，禁用 checked 用 `muted-foreground` 底边；Switch on 用墨底白 thumb、off 用 `control-boundary`，禁用 on 用 `muted-foreground`、off 用 `line-strong`。Toggle 选中为 `selected` + `fg`，禁用为 `sunken` + `muted-foreground`；Tabs、菜单项与字段标签禁用保持辅助文字，不统一降低透明度。Slider 禁用活跃轨道为 `muted-foreground`、thumb 为 `sunken`。Checkbox / Radio / Switch 的 checked 与 unchecked 共用现有边框换色；无文本光标的操作控件（含选择/日期字段与可聚焦 Badge）invalid 保留危险边，键盘焦点将同一条边向内加粗为 2px，不增加外圈。Button / Toggle、Select 与 Badge 按实际内边距减少 1px，含图标侧不对称内距，保持外部尺寸与内容位置；有文本光标的文本输入仍只使用 1px 边。卡片式 FieldLabel 由外层 label 换边表达焦点，内部填充控件保留 1px 危险边并抑制重复焦点。forced-colors 使用系统 Highlight 替换现有边框/贴边轮廓颜色，不恢复分离外圈。
 
 ### Menus / Popovers / Overlays
 
-- **Menu / Select / Combobox / Popover:** 白浮层、独立 1px `line` ring、一道 `shadow-content-overlay`；10px 圆角，菜单项 8px、`4px 6px` 内边距。浮层经 `.cds-overlay-enter` 以 `opacity` + `scale(.96)` 弹入（200ms）。普通文字 `fg`、描述 `muted-foreground`；hover / 键盘高亮用 `hover` + `fg`，已选值另以 Check 标记表达，不将高亮当作选中。危险项高亮为 `destructive/10` 底与危险文字；禁用项使用 `muted-foreground`，保留原语禁止交互。
-- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、1px `line` ring、`shadow-content-overlay` 轻投影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。标准页脚按钮高 32px、间距 8px，取消 outline 在前，确认 default 石青实底白字在后；ConfirmDialog 最终危险确认显式危险实底白字，行内 destructive 为浅红底；不加多余分隔线，真正固定的长表单页脚可用 1px 线分隔正文。普通 Sheet 贴边展示、不设圆角，用既有侧边框与 `shadow-content-overlay`；AppShell 导航 Sheet 显式用 `shadow-overlay` 保留菜单外观。
-- **Tooltip / Toast:** Tooltip 保留既有反色（`fg` 底、白字），不做成白浮层；Toast 白底、1px `line`、`shadow-content-overlay` 轻投影，操作按钮用显式 outline，关闭按钮白底中性 hover。Toast、操作按钮与关闭按钮的焦点都用单层 2px `ring` outline、offset 2；操作按钮只用该 outline，不叠加按钮基类 ring 与焦点阴影，视觉上不出现第二圈光环。
+- **Menu / Select / Combobox / Popover:** 白浮层、一道 `shadow-content-overlay`，无装饰 ring；10px 圆角，菜单项 8px、`4px 6px` 内边距。浮层经 `.cds-overlay-enter` 以 `opacity` + `scale(.96)` 弹入（200ms）。普通文字 `fg`、描述 `muted-foreground`；hover / 键盘高亮用 `hover` + `fg`，已选值另以 Check 标记表达，不将高亮当作选中。危险项高亮为 `destructive/10` 底与危险文字；禁用项使用 `muted-foreground`，保留原语禁止交互。
+- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、一道 `shadow-content-overlay` 轻投影、无装饰 ring、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。标准页脚按钮高 32px、间距 8px，取消 outline 在前，确认 default 石青实底白字在后；ConfirmDialog 最终危险确认显式危险实底白字，行内 destructive 为浅红底；不加多余分隔线，真正固定的长表单页脚可用 1px 线分隔正文。普通 Sheet 贴边展示、不设圆角，用既有侧边框与 `shadow-content-overlay`；AppShell 导航 Sheet 显式用 `shadow-overlay` 保留菜单外观。
+- **Tooltip / Toast:** Tooltip 保留既有反色（`fg` 底、白字），不做成白浮层；Toast 白底、1px `line`、`shadow-content-overlay` 轻投影，操作按钮用显式 outline，关闭按钮白底中性 hover。Toast、操作按钮与关闭按钮复用已有边框表达焦点；无边框部分用贴边轮廓，不叠加按钮基类 ring、分离 outline 或焦点阴影。
 
 ### Cards / Tables / Lists
 
@@ -461,7 +463,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 - **User message:** 右对齐 12px 胶囊、`selected` `#DFE9EA` 底、`fg` 文字、14/22、内边距 12px 16px、最大宽 85%；附件用中性 outline 徽章。助手正文在纯白上无气泡。
 - **Message entrance:** 每轮消息以 `.message-fade-up` 入场（0.4s 上浮淡入）；减少动态效果时直接显示。
 - **Code / Shiki:** 围栏/块级代码为深色面 `code-block` `#0D0D0C`、12px 圆角、1px `white/10` 边线、12/20 等宽；Shiki 背景透明，浅色语法用 `code-block-fg` `#E6E6E4`，关键字/函数/链接用浅石青 `code-syntax-accent`，注释、参数与标点用暖灰层次，复制反馈 2.5s 后衰减回初始态。行内 `code` 仍是浅 chip `#F6F6F6` 配 `fg`。全局选区以 `button-primary #315D67` 的 22% 与透明色混合，配 `fg` 文字；深色代码块内选区以同一令牌的 38% 与透明色混合，配白字。
-- **CodeMirror:** selection / searchMatch 用 `selected`，gutter 用 `muted-foreground`，搜索面板白底 `fg`；搜索字段默认 `input` 边，按钮仍用 `line`。SourceEditor 外框只在 `.cm-content` 或直接 fallback textarea 的 `:focus-visible` 时显示单层石青 outline；`.cm-search` 内各独立操作控件保留自身可见焦点。
+- **CodeMirror:** selection / searchMatch 用 `selected`，gutter 用 `muted-foreground`，搜索面板白底 `fg`；搜索字段默认 `input` 边，按钮默认 `line` 边、键盘聚焦换同一条 `ring` 边，原生 checkbox 以 -2px offset 的系统可见轮廓贴边表达焦点，无额外阴影。SourceEditor 外框只在 `.cm-content` 或直接 fallback textarea 的 `:focus` 时将现有 1px 边框换为 `ring`，invalid 保持 `danger`；`.cm-search` 文本框独立聚焦换边，按钮与复选框保留自身可见焦点，不触发编辑外框。
 - **Charts:** 白底、网格 `line`、坐标与 tooltip 用 `muted-foreground` / `fg`；首系列 `chart-runs` `#2A78D6`，其余系列用中性灰阶并叠加虚线/纹理，失败系列 `chart-failed`（即 `danger`）。图表不播放动画。
 
 ### Navigation
@@ -482,7 +484,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas`，侧栏
 | 容器与数据（6） | card、table、chart、calendar、slider、separator |
 | 内容与展开（7） | accordion、collapsible、carousel、skeleton、message、message-scroller、trace |
 
-OpenUI 继续复用同一套真实原语与官方运行时：可编辑表格显示白底输入边界，保存为主操作；Chips 与 FollowUp 复用共享 Button；BlockCard、OptionCards、列表触发器与图表数据折叠共用单层 2px 石青 outline 与 2px offset，OptionCards 禁用使用 `input` 边、`sunken` 底与 `muted-foreground` 字，保留原生禁用和禁用 cursor；BlockCard、Markdown card、SwitchGroup card 与 Carousel 默认卡面为白底细边，显式 sunk 仍用 `sunken`。审批与查询失败面板使用白工作面；不改变交互库、表单/数据语义或产品布局。Calendar 的日期选中保留 `selected`，Slider 活跃轨道保留墨色 `primary`、白 thumb，键盘焦点由 thumb 外框承担；hover / active 的既有 ring 不是额外键盘焦点层。未绘制统一 Progress，CardFooter 未设置统一浅底。
+OpenUI 继续复用同一套真实原语与官方运行时：可编辑表格显示白底输入边界，保存为主操作；Chips 与 FollowUp 复用共享 Button；BlockCard、OptionCards 等有边框操作复用已有边框聚焦换色，列表触发器与图表数据折叠等无边框操作用贴边焦点，OptionCards 禁用使用 `input` 边、`sunken` 底与 `muted-foreground` 字，保留原生禁用和禁用 cursor；BlockCard、Markdown card、SwitchGroup card 与 Carousel 默认卡面为白底细边，显式 sunk 仍用 `sunken`。审批与查询失败面板使用白工作面；不改变交互库、表单/数据语义或产品布局。Calendar 的日期选中保留 `selected`，Slider 活跃轨道保留墨色 `primary`、白 thumb，键盘焦点由 thumb 外框承担；hover / active / focus 共用同一手柄边界，不再添加 ring 或分离 outline。未绘制统一 Progress，CardFooter 未设置统一浅底。
 
 ## Do's and Don'ts
 
@@ -492,7 +494,7 @@ OpenUI 继续复用同一套真实原语与官方运行时：可编辑表格显�
 - **Do** 用 `button-primary` 三态实底与同色边承载 `default` / `solid`，白字，无常驻投影；中性次操作与透明工具按职责分层。
 - **Do** 用 `input = line-strong` 表达输入默认边界，hover 用 `control-boundary`；分隔仍用 `line`。低于 3:1 的边界只作为已知限制记录，不视为可访问性达标依据。
 - **Do** 主侧栏当前项用 `sidebar-selected` + 深色前景；内容 Toggle / 日期 / 用户消息用 `selected`，分段当前项用白 thumb，菜单高亮用 `hover` 并保留独立勾选。
-- **Do** 内容原语与 OpenUI 组合焦点保持单层 2px 石青 outline 与 2px offset；复合外框只代理编辑输入，独立操作控件保留自身可见焦点，错误用危险边框且不吞掉焦点。主菜单按钮保留既有 ring。
+- **Do** 输入正常聚焦只将现有 1px 边框换为 `ring`；有文本光标的文本输入 invalid 保持 1px `danger` 边，无文本光标的选择/日期字段 invalid 键盘焦点将同一条危险边向内加粗为 2px 并补偿内边距，普通态与正常焦点仍为 1px，不叠外圈；复合外框只代理文本焦点。所有组件已有边框优先换同一条边，无边框操作用贴边焦点，独立操作控件保留自身可见焦点。主菜单保留既有视觉，全局兜底不得额外叠层。
 - **Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。
 - **Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。
 - **Do** 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。
@@ -503,8 +505,8 @@ OpenUI 继续复用同一套真实原语与官方运行时：可编辑表格显�
 - **Don't** 给外壳加回渐变、外边距、圆角或描边，也不要把外壳白框铺到画布后面；收起与固定展开侧栏不得加阴影，仅临时预览可用既有 `shadow-overlay`。
 - **Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。
 - **Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。
-- **Don't** 恢复旧中性换边焦点或给已有 outline 的控件叠加第二圈；不得把主菜单 ring 例外扩展成新内容原语规则。
-- **Don't** 给内容浮层叠多层投影、给卡片加投影或给 Composer 加聚焦阴影；内容用 `shadow-content-overlay`，主菜单预览与导航 Sheet 的 `shadow-overlay` 例外保留，不扩展其用途。
+- **Don't** 给任何控件用 border 与分离 outline/ring、光晕或多重 shadow 重复表达同一状态，也不得让复合控件内外重复画框；主菜单同样遵守单边界规则。
+- **Don't** 给内容浮层叠多层投影、给卡片加投影或给 Composer 加聚焦阴影；内容用 `shadow-content-overlay`，主菜单预览与导航 Sheet 的 `shadow-overlay` 同样只允许一道软投影，不含描边投影。
 - **Don't** 重新引入深色主题、第二套主题提供器、重复品牌别名或页面级硬编码色值。
 - **Don't** 让 Markdown 标题小于正文，或新增第二个阅读正文字号。
 - **Don't** 在已批准布局契约之外临时改变宽高、内边距或断点；几何调整先更新规范与契约，配色、字体、焦点与动效仍按本页主题成果。

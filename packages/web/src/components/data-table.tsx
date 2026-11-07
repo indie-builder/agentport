@@ -190,8 +190,7 @@ function ColumnRow({
         {...attributes}
         {...listeners}
         aria-label={`拖动调整「${column.header}」顺序`}
-        // Keep the subdued drag handle, 8px corners, translucent hover, and focus ring.
-        className="cursor-grab touch-none rounded-icon border-0 p-1 text-muted-foreground transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="cursor-grab touch-none rounded-icon border-0 p-1 text-muted-foreground transition-none hover:bg-hover active:cursor-grabbing active:not-aria-[haspopup]:translate-y-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-0"
       >
         <GripVertical aria-hidden="true" />
       </Button>
