@@ -9,11 +9,11 @@ import {
   removeConversationOutputs,
 } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
-import { type ChatEvent, type PermissionId, wireFailureKind } from '@agentport/shared';
+import type { PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
-import { type SSEStreamingApi, streamSSE } from 'hono/streaming';
+import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import {
   accessFilter,
@@ -24,11 +24,12 @@ import {
 } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
-import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { subscribeRun } from '../../queue/producer.js';
+import { authorizeRun, RUN_MISSING } from '../runs/access.js';
+import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
 import { deleteConversationWithSandboxes } from '../runtime-deletion.js';
+import { CONVERSATION_MISSING, loadReadableConversation } from './access.js';
 import { cancelAgentRun } from './cancel-run.js';
 import type { NativeHttpDependencies } from './http.js';
 import { chatStateRouter } from './openui-state.js';
@@ -40,20 +41,6 @@ const chatRepo = repo.chat;
 const TERMINAL_RECHECK_MS = 2000;
 
 type RunRow = NonNullable<Awaited<ReturnType<typeof chatRepo.getRun>>>;
-const CONVERSATION_MISSING = '会话不存在，可能已被删除；请从会话列表重新打开';
-const RUN_MISSING = '运行记录不存在，可能已被清理；请刷新运行列表';
-async function loadConversation(context: RequestContext, id: string) {
-  const conversation = await chatRepo.getConversation(context.db, id);
-  if (!conversation) throw new AppError('CONVERSATION_NOT_FOUND', CONVERSATION_MISSING);
-  await authorizeObject(
-    context,
-    'conversations.read',
-    { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
-    CONVERSATION_MISSING,
-  );
-  return conversation;
-}
-
 function hasPlatformScope(context: RequestContext, permissionId: PermissionId): boolean {
   const principal = context.principal;
   return (
@@ -63,39 +50,7 @@ function hasPlatformScope(context: RequestContext, permissionId: PermissionId): 
     )
   );
 }
-async function loadRun(context: RequestContext, id: string) {
-  const run = await chatRepo.getRun(context.db, id);
-  if (!run) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
-  if (run.channelId !== null) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
-  await authorizeObject(
-    context,
-    'runs.read',
-    { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
-    RUN_MISSING,
-  );
-  return run;
-}
-function terminalEvent(run: RunRow): ChatEvent | null {
-  switch (run.status) {
-    case 'succeeded':
-    case 'failed':
-    case 'cancelled':
-    case 'timeout':
-      return {
-        type: 'run_finished',
-        status: run.status,
-        ...(run.costUsd !== null ? { costUsd: Number(run.costUsd) } : {}),
-        ...(run.turns !== null ? { turns: run.turns } : {}),
-        ...(run.error !== null ? { error: run.error } : {}),
-        ...(run.errorKind === null ? {} : { failureKind: wireFailureKind(run.errorKind) }),
-      };
-    default:
-      return null;
-  }
-}
-async function writeEvent(stream: SSEStreamingApi, event: ChatEvent): Promise<void> {
-  await stream.writeSSE({ data: JSON.stringify(event) });
-}
+
 const os = implement(chatContract).$context<RequestContext>();
 export const chatMainRouter = {
   startRun: os.startRun.handler(async ({ input, context }) => {
@@ -128,7 +83,7 @@ export const chatMainRouter = {
     };
   }),
   conversation: os.conversation.handler(async ({ input, context }) => {
-    const conversation = await loadConversation(context, input.params.id);
+    const conversation = await loadReadableConversation(context, input.params.id);
     const { limit, before } = input.query;
     if (
       before !== undefined &&
@@ -182,7 +137,7 @@ export const chatMainRouter = {
     };
   }),
   renameConversation: os.renameConversation.handler(async ({ input, context }) => {
-    await loadConversation(context, input.params.id);
+    await loadReadableConversation(context, input.params.id);
     const conversation = await chatRepo.renameConversation(
       context.db,
       input.params.id,
@@ -191,7 +146,7 @@ export const chatMainRouter = {
     if (!conversation) {
       return fail('CONVERSATION_NOT_FOUND', CONVERSATION_MISSING);
     }
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'conversation.renamed',
       target: conversation.id,
@@ -207,7 +162,7 @@ export const chatMainRouter = {
     };
   }),
   deleteConversation: os.deleteConversation.handler(async ({ input, context }) => {
-    await loadConversation(context, input.params.id);
+    await loadReadableConversation(context, input.params.id);
     const deleted = await deleteConversationWithSandboxes({
       client: context.client,
       redisUrl: context.config.REDIS_URL,
@@ -248,7 +203,7 @@ export const chatMainRouter = {
         context.log.warn({ err, conversationId: deleted.id }, 'input cleanup failed');
       }),
     ]);
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'conversation.deleted',
       target: input.params.id,
@@ -273,8 +228,8 @@ export const chatMainRouter = {
       { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
       RUN_MISSING,
     );
-    if (terminalEvent(run) === null && (await cancelAgentRun(context, runId)) !== null) {
-      await writeAudit(context.db, context.log, {
+    if (terminalRunEvent(run) === null && (await cancelAgentRun(context, runId)) !== null) {
+      await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'agent.run.cancelled',
         target: runId,
@@ -285,7 +240,7 @@ export const chatMainRouter = {
     return { ok: true };
   }),
   branchConversation: os.branchConversation.handler(async ({ input, context }) => {
-    await loadConversation(context, input.params.id);
+    await loadReadableConversation(context, input.params.id);
     const principal = requireUser(context);
     await authorize(context, 'conversations.create', {
       createdBy: principal.businessId,
@@ -381,7 +336,7 @@ export const chatMainRouter = {
         return fail('CONFLICT', '该会话的历史附件不可用，无法按历史点分支；请稍后重试');
       }
     }
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'conversation.branched',
       target: result.conversation.id,
@@ -426,7 +381,7 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
         .object({ params: z.object({ runId: z.string().min(1) }) })
         .parse({ params: c.req.param(), query: c.req.query() });
       const { runId } = input.params;
-      const run = await loadRun(context, runId);
+      const run = await authorizeRun(context, runId, 'runs.read');
       deps.timeout(c.req.raw, 0);
       c.header('Cache-Control', 'no-cache, no-transform');
       c.header('X-Accel-Buffering', 'no');
@@ -478,7 +433,7 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
           if (current === null) {
             finishing = true;
             try {
-              await writeEvent(stream, {
+              await writeChatEvent(stream, {
                 type: 'run_unavailable',
                 message: '运行记录已不存在，已停止接收。',
               });
@@ -498,7 +453,7 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
             }
           } catch {
             finishing = true;
-            await writeEvent(stream, {
+            await writeChatEvent(stream, {
               type: 'run_unavailable',
               message: '当前账户已无权读取该运行，已停止接收。',
             }).catch((err: unknown) => {
@@ -507,15 +462,15 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
             finish();
             return;
           }
-          const missed = terminalEvent(current);
+          const missed = terminalRunEvent(current);
           if (!missed) {
             scheduleRecheck();
             return;
           }
           finishing = true;
           try {
-            await writeEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
-            await writeEvent(stream, missed);
+            await writeChatEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
+            await writeChatEvent(stream, missed);
           } catch (err) {
             context.log.error({ err, runId }, 'sse write failed');
           }
@@ -535,7 +490,7 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
                 event.type === 'run_unavailable';
               if (terminal) finishing = true;
               try {
-                await writeEvent(stream, event);
+                await writeChatEvent(stream, event);
               } catch (err) {
                 context.log.error({ err, runId }, 'sse write failed');
                 finish();
@@ -548,7 +503,7 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
         } catch (err) {
           context.log.error({ err, runId }, 'sse subscribe failed');
           try {
-            await writeEvent(stream, {
+            await writeChatEvent(stream, {
               type: 'error',
               message: '事件流中断，请刷新页面或重试',
             });
@@ -560,12 +515,12 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
           subscription.close();
           return;
         }
-        const finished = terminalEvent(run);
+        const finished = terminalRunEvent(run);
         if (finished) {
           finishing = true;
           try {
-            await writeEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
-            await writeEvent(stream, finished);
+            await writeChatEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
+            await writeChatEvent(stream, finished);
           } catch (err) {
             context.log.error({ err, runId }, 'sse write failed');
           }

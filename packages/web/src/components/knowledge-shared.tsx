@@ -6,7 +6,6 @@ import type {
   KnowledgeLocator,
   KnowledgeVersionOrigin,
 } from '../lib/api.js';
-import { ApiError } from '../lib/api.js';
 import { useFormBlocker } from '../lib/form.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 
@@ -100,15 +99,6 @@ export function isAudioUpload(file: { name: string; type: string }): boolean {
 
 export function isAudioMimeType(mimeType: string): boolean {
   return AUDIO_MIME_TYPES.has(mimeType.split(';')[0]?.trim().toLowerCase() ?? '');
-}
-
-export function isTerminalJobStatus(status: string | undefined): boolean {
-  return status === 'succeeded' || status === 'failed' || status === 'cancelled';
-}
-
-/** 删除来源会级联删除它的任务：详情 404 表示任务已不存在，不是暂时故障。 */
-export function isMissingJob(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 404;
 }
 
 export function treeFolders(

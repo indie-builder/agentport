@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { MessagePane } from '../src/components/chat-thread.js';
 import type { ConversationDetail } from '../src/lib/api.js';
 import {
   type ChatItem,
@@ -10,7 +11,6 @@ import {
   mergeOlderHistory,
   snapshotHistory,
 } from '../src/lib/chat-state.js';
-import { MessagePane } from '../src/pages/chat.js';
 
 // jsdom 没有真实滚动几何；只把「回到底部」这一个副作用换成 spy，
 // MessageScroller 的 Provider/Item 仍是真实实现，验证的是 ScrollToLatest 的判定。

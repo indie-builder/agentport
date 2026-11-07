@@ -23,7 +23,13 @@ type OutputShareRow = repo.outputShares.OutputShareRow;
 const CONVERSATION_MISSING = '会话不存在，可能已被删除；请从会话列表重新打开';
 const SHARE_MISSING = '分享不存在或已失效';
 
-function toOutputShare(row: OutputShareRow, context: RequestContext): OutputShare {
+export function toOutputShare(
+  row: Pick<
+    OutputShareRow,
+    'id' | 'runId' | 'path' | 'sha256' | 'createdAt' | 'revokedAt' | 'tokenEncrypted'
+  >,
+  context: RequestContext,
+): OutputShare {
   return {
     id: row.id,
     runId: row.runId,

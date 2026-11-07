@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
 
-/** 智能体可配置的权限模式，与 Agent SDK 的 PermissionMode 对齐。 */
-export const permissionModeSchema = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk', 'auto']);
+/** 平台支持的权限模式；SDK 的 auto 依赖模型分类器，平台不开放。 */
+export const permissionModeSchema = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk']);
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 
 /** 内置工具列表，前端用来渲染「允许/禁止」开关。 */
@@ -19,6 +19,31 @@ export const BUILTIN_TOOLS = [
   'Agent',
   'TaskStop',
 ] as const;
+
+export const DEFAULT_DISALLOWED_TOOLS: readonly string[] = [
+  'Read',
+  'Write',
+  'Edit',
+  'Glob',
+  'Grep',
+  'NotebookEdit',
+  'WebFetch',
+  'WebSearch',
+  'Agent',
+  'TaskStop',
+  'ListAgents',
+  'SendMessage',
+  'EndConversation',
+  'Monitor',
+  'SendUserMessage',
+];
+
+export const CONFIGURABLE_DISALLOWED_TOOLS: readonly string[] = [
+  'Agent',
+  'TaskStop',
+  'ListAgents',
+  'SendMessage',
+];
 
 export const AGENT_ROLES = [
   '通用助手',
@@ -50,9 +75,15 @@ export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 /** 助手回复的渲染格式：Markdown（默认）或生成式 UI（围栏内的 OpenUI Lang）。 */
 export const uiFormatSchema = z.enum(['markdown', 'openui']);
 
+export const displayNameSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .refine((value) => !/[\r\n]/.test(value), '显示名不能包含换行');
+
 export const agentInputSchema = z.object({
   slug: slugSchema,
-  name: z.string().min(1).max(128),
+  name: displayNameSchema,
   /** 角色/岗位的展示名（如「前端工程师」），仅用于展示与头像匹配。 */
   role: agentRoleSchema,
   description: z.string().max(300).default(''),
@@ -151,14 +182,14 @@ export type AgentOptions = z.infer<typeof agentOptionsSchema>;
 
 export const agentDuplicateInputSchema = z.object({
   slug: slugSchema,
-  name: z.string().trim().min(1).max(128),
+  name: z.string().trim().pipe(displayNameSchema),
 });
 export type AgentDuplicateInput = z.infer<typeof agentDuplicateInputSchema>;
 
 /** 技能：可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md。 */
 export const skillInputSchema = z.object({
   slug: slugSchema,
-  name: z.string().min(1).max(128),
+  name: displayNameSchema,
   description: z.string().min(1).max(500),
   body: z.string().default(''),
   /** SKILL.md frontmatter 的来源描述字段，导入/安装时原样保留。 */
@@ -330,7 +361,7 @@ export const workspaceFilesSchema = z.object({
       }),
     )
     .default([]),
-  settingsJson: z.string().nullable().default(null),
+  settingsJson: z.string(),
 });
 
 export type WorkspaceFiles = z.infer<typeof workspaceFilesSchema>;

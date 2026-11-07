@@ -1,6 +1,15 @@
 import { isAlias, isMap, parseDocument, visit } from 'yaml';
 import { fail } from './errors.js';
 
+export function splitHeading(body: string): { body: string; displayName?: string } {
+  const lines = body.split('\n');
+  const first = lines.findIndex((line) => line.trim() !== '');
+  const heading = first === -1 ? null : /^#[ \t]+(.+?)[ \t]*\r?$/.exec(lines[first] ?? '');
+  if (!heading?.[1]?.trim()) return { body };
+  lines.splice(first, 1);
+  return { body: lines.join('\n'), displayName: heading[1].trim() };
+}
+
 /** 与 API 导入路由、官方 SKILL.md 的 128 KiB 上限一致（按 UTF-8 字节）。 */
 const MAX_BYTES = 131_072;
 

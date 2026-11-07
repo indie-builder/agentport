@@ -3,6 +3,7 @@ import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
 import { fail, isAppError } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import {
+  INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
   type MemoryContentSnapshot,
   type MemoryReview,
@@ -207,7 +208,7 @@ function validateProposalAfter(target: MemoryReviewTarget, after: MemoryContentS
     if (problem) fail('INVALID_INPUT', problem);
   }
   if (after.index?.content != null) {
-    const problem = validateMemoryContent('MEMORY.md', after.index.content);
+    const problem = validateMemoryContent(INDEX_FILE_NAME, after.index.content);
     if (problem) fail('INVALID_INPUT', problem);
   }
 }

@@ -2,6 +2,7 @@ import type { ChatEvent, ConversationMessage, ProgressTodo } from '@agentport/sh
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
+import { MessagePane } from '../src/components/chat-thread.js';
 import {
   applyEvent,
   type ChatItem,
@@ -10,7 +11,6 @@ import {
   mergeOlderHistory,
   snapshotHistory,
 } from '../src/lib/chat-state.js';
-import { MessagePane } from '../src/pages/chat.js';
 
 vi.mock('@/components/ui/button', async () => import('../src/components/ui/button.js'));
 

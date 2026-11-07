@@ -2,24 +2,28 @@ import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
+  CONFIG_CONTAINER_DIR,
+  CONFIGURABLE_DISALLOWED_TOOLS,
+  DEFAULT_DISALLOWED_TOOLS,
   errorText,
+  INPUTS_CONTAINER_DIR,
+  MEMORY_CONTAINER_DIR,
   type NativeQuestion,
+  OUTPUTS_CONTAINER_DIR,
   type ProgressTodo,
   progressTodoSchema,
   SANDBOX_RUNTIME_ENV,
   type SandboxTask,
+  SUBAGENT_MEMORY_CONTAINER_DIR,
   sandboxTaskSchema,
+  type TerminalRunStatus,
+  type WireFailureKind,
 } from '@agentport/shared';
 import { forkSession, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import {
   createFileBoundaryHook,
   createPersonalMemoryHook,
-  INPUTS_DIR,
-  OUTPUTS_DIR,
   PERSONAL_MEMORY_FILE,
-  PLUGINS_DIR,
-  SKILLS_DIR,
-  SUBAGENT_MEMORY_DIR,
 } from './memory-permissions.js';
 import { createQuestionChannel } from './questions.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
@@ -28,9 +32,6 @@ import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
  * 容器内入口：在只读挂载的 /workspace 上运行 Agent SDK。
  * 从 stdin 读一行 JSON 任务，向 stdout 逐行写 NDJSON 事件。
  * stdout 只放协议数据；日志一律写 stderr。
- *
- * 事件形状与 @agentport/shared 的 ChatEvent 一致，但镜像不打包 workspace 依赖，
- * 所以此处只保留结构类型；宿主侧仍会用 chatEventSchema 做一次校验。
  */
 interface RunnerEvent {
   type:
@@ -70,24 +71,18 @@ interface RunnerEvent {
   content?: string;
   /** 顶层 TodoWrite 成功确认后的完整清单快照；省略表示本事件不改清单。 */
   todos?: ProgressTodo[];
-  status?: 'succeeded' | 'failed' | 'cancelled' | 'timeout';
+  status?: Exclude<TerminalRunStatus, 'timeout'>;
   costUsd?: number;
   turns?: number;
   inputTokens?: number;
   outputTokens?: number;
   error?: string;
   /** 失败分类；只在 status !== 'succeeded' 时出现。 */
-  failureKind?: FailureKind;
+  failureKind?: WireFailureKind;
 }
 
-/**
- * runner 内部的失败分类。宿主只能看到 stdout 上的事件，所以分类必须随 run_finished
- * 一起过线；否则 worker 无法区分「模型报错」和「基础设施断了」。
- */
-type FailureKind = 'agent' | 'infra' | 'cancelled';
-
-const configDir = process.env.CLAUDE_CONFIG_DIR ?? '/home/node/.claude';
-const memoryDirectory = '/mnt/agent-memory';
+const configDir = process.env.CLAUDE_CONFIG_DIR ?? CONFIG_CONTAINER_DIR;
+const memoryDirectory = MEMORY_CONTAINER_DIR;
 const workspaceDir = '/workspace';
 // 频道 run 由 worker 在容器 env 里标记；私聊不设置，token 口径保持原样。
 const channelRun = process.env.PACE_RUN_TRIGGER === 'channel';
@@ -239,11 +234,6 @@ function todoSnapshot(input: {
   return parsed.data;
 }
 
-/** 会话 transcript 是否已在挂载目录里；缺失意味着挂载/清理出错，不能假装是空会话。 */
-async function sessionExists(sessionId: string): Promise<boolean> {
-  return (await findSessionFile(sessionId)) !== null;
-}
-
 /** transcript 文件名是 `<sessionId>.jsonl`，跨 project 目录查找（cwd 编码可能变化）。 */
 async function findSessionFile(sessionId: string): Promise<string | null> {
   const projects = join(configDir, 'projects');
@@ -306,12 +296,12 @@ const allowedTools = [
   // 同一容器里的 Bash 也能看到这些挂载；这里约束的是原生文件工具，不声称进程隔离。
   ...(task.subAgents.length === 0
     ? []
-    : [`Read(/${SUBAGENT_MEMORY_DIR}/**)`, `Edit(/${SUBAGENT_MEMORY_DIR}/**)`]),
+    : [`Read(/${SUBAGENT_MEMORY_CONTAINER_DIR}/**)`, `Edit(/${SUBAGENT_MEMORY_CONTAINER_DIR}/**)`]),
   // 本轮产出草稿：独立 rw 挂载，交付文件用原生 Read/Write/Edit 直接写这里。
-  `Read(/${OUTPUTS_DIR}/**)`,
-  `Edit(/${OUTPUTS_DIR}/**)`,
+  `Read(/${OUTPUTS_CONTAINER_DIR}/**)`,
+  `Edit(/${OUTPUTS_CONTAINER_DIR}/**)`,
   // 本会话附件：只读挂载，主会话可用原生 Read 读取任意文件类型。
-  `Read(/${INPUTS_DIR}/**)`,
+  `Read(/${INPUTS_CONTAINER_DIR}/**)`,
   ...task.mcpServers.map((name) => `mcp__${name}__*`),
   // 插件 MCP 只在绑定方显式授权后才出现在 task.plugins 里。
   ...pluginServers.map((server) => `mcp__${server}__*`),
@@ -327,28 +317,16 @@ const allowedByConfig = new Set(task.extraAllowedTools);
 // 父会话只自动批准自己的 server。只属于子级的 server 不写进会话级 disallowedTools：
 // 子智能体继承会话权限，server 级 deny 会把它们自己的工具一起移除。
 // 父级误调用这些 server 由 sub-agent-permissions 的 PreToolUse hook 拒绝。
-const baseDisallowed = [
-  'Glob',
-  'Grep',
-  'NotebookEdit',
-  'WebFetch',
-  'WebSearch',
-  'Agent',
-  'TaskStop',
-  // 平台只支持「同步等待返回」这一种沟通模型。会话间消息工具会让调用方
-  // 在对方返回前结束本轮，与平台约定相反，因此默认禁用。
-  'ListAgents',
-  'SendMessage',
-  'SendUserMessage',
-  'EndConversation',
-  'Monitor',
+const configurableTools = new Set<string>(CONFIGURABLE_DISALLOWED_TOOLS);
+const disallowedTools = [
+  ...DEFAULT_DISALLOWED_TOOLS.filter((tool) => {
+    if (tool === 'Read' || tool === 'Write' || tool === 'Edit') return false;
+    if (!configurableTools.has(tool)) return true;
+    if (tool === 'Agent' || tool === 'TaskStop') return !(task.allowSubAgents || hasPluginAgents);
+    return !allowedByConfig.has(tool);
+  }),
   ...task.extraDisallowedTools,
 ];
-const disallowedTools = baseDisallowed.filter((tool) => {
-  if (tool === 'Agent' || tool === 'TaskStop') return !(task.allowSubAgents || hasPluginAgents);
-  if (tool === 'ListAgents' || tool === 'SendMessage') return !allowedByConfig.has(tool);
-  return true;
-});
 
 // outputStyle 由下面 settingSources: ['project'] 从 .claude/settings.json 原生加载；
 // 不再手工解析同一文件再 inline 覆盖，避免两处合并语义漂移。
@@ -363,7 +341,7 @@ function emit(event: RunnerEvent): void {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
-function failRun(kind: FailureKind, message: string): void {
+function failRun(kind: WireFailureKind, message: string): void {
   if (emittedTerminal) return;
   log(`run failed (${kind}): ${message}`);
   emit({
@@ -404,7 +382,7 @@ async function resolveSession(input: SandboxTask): Promise<{
   error?: string;
 }> {
   if (input.resumeSessionId === undefined) return {};
-  if (!(await sessionExists(input.resumeSessionId))) {
+  if ((await findSessionFile(input.resumeSessionId)) === null) {
     return {
       error: `SDK session ${input.resumeSessionId} is missing from the mounted transcript directory`,
     };
@@ -489,10 +467,10 @@ if (session.error !== undefined) {
               hooks: [
                 createFileBoundaryHook(
                   memoryDirectory,
-                  SKILLS_DIR,
-                  PLUGINS_DIR,
-                  OUTPUTS_DIR,
-                  INPUTS_DIR,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
                   {
                     subAgentSlugs: new Set(task.subAgents.map((sub) => sub.slug)),
                   },
@@ -697,6 +675,7 @@ if (session.error !== undefined) {
           emit({
             type: 'run_finished',
             status: 'cancelled',
+            failureKind: 'cancelled',
             costUsd: message.total_cost_usd,
             turns: message.num_turns,
             // fork 后 session id 会变；以 result 为准，宿主据此更新会话。
@@ -720,7 +699,6 @@ if (session.error !== undefined) {
                   message.subtype === 'success'
                     ? message.result
                     : `${message.subtype}: ${message.errors.join('; ')}`,
-                // SDK 返回的失败都来自模型/工具层；基础设施故障走下面的 catch。
                 failureKind: 'agent',
               }),
         });

@@ -1,21 +1,10 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import type { scenarios } from './scenarios.js';
 
-interface Scenarios {
-  'agent-defaults': typeof import('./fixtures/agent-defaults.js');
-  'agent-package-bytes': typeof import('./fixtures/agent-package-bytes.js');
-  'audit-export': typeof import('./fixtures/audit-export.js');
-  'runs-export': typeof import('./fixtures/runs-export.js');
-  'eval-export': typeof import('./fixtures/eval-export.js');
-  'overview-aggregates': typeof import('./fixtures/overview-aggregates.js');
-  'run-cancel': typeof import('./fixtures/run-cancel.js');
-  'chat-history-filter': typeof import('./fixtures/chat-history-filter.js');
-  'chat-history-pages': typeof import('./fixtures/chat-history-pages.js');
-  regression: typeof import('./fixtures/regression.js');
-  channels: typeof import('./fixtures/channels.js');
-  'channels-business': typeof import('./fixtures/channels-business.js');
-  'chat-replay': typeof import('./fixtures/chat-replay.js');
-}
+type Scenarios = {
+  [K in keyof typeof scenarios]: Awaited<ReturnType<(typeof scenarios)[K]>>;
+};
 
 type Arguments<F> = F extends (...args: infer A) => unknown ? A : never;
 type Result<F> = F extends (...args: never[]) => infer R ? Awaited<R> : never;

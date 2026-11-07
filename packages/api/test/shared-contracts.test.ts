@@ -1,7 +1,6 @@
+import { describe, expect, it } from 'bun:test';
 import {
   AGENT_ROLES,
-  type Agent,
-  type AgentInput,
   agentInputSchema,
   agentSchema,
   commonEnvSchema,
@@ -10,7 +9,6 @@ import {
   parseEnv,
   previewMcpEntry,
 } from '@agentport/shared';
-import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 import { loadConfig as workerConfig } from '../../worker/src/config.js';
 import { loadConfig as apiConfig } from '../src/config.js';
@@ -133,8 +131,6 @@ describe('standard agent occupations', () => {
       });
       expect(agent.role).toBe(role);
     }
-    expect('' as AgentInput['role']).toBeTypeOf('string');
-    expect('' as Agent['role']).toBeTypeOf('string');
   });
 });
 

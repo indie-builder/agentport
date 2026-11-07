@@ -4,6 +4,13 @@ import { ATTACHMENT_LIMITS, chatAttachmentInputsSchema } from './attachments.js'
 import { openUiActionSchema } from './openui/protocol.js';
 import { outputRefSchema } from './outputs.js';
 import { nativeQuestionsSchema, publicRunQuestionSchema } from './questions.js';
+import {
+  type RunErrorKind,
+  runStatusSchema,
+  terminalRunStatusSchema,
+  type WireFailureKind,
+  wireFailureKindSchema,
+} from './run-state.js';
 import { utf8Bytes } from './utf8.js';
 
 /**
@@ -171,7 +178,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('run_finished'),
-    status: z.enum(['succeeded', 'failed', 'cancelled', 'timeout']),
+    status: terminalRunStatusSchema,
     /**
      * 本轮助手文本块落库后的消息信息（按块序号）。前端用它回填流式项，
      * 之后的表单状态与 Query/Mutation 才有可归属的消息。
@@ -199,7 +206,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     outputTokens: z.number().optional(),
     error: z.string().optional(),
     /** 失败分类，由沙盒 runner 给出；成功时缺省。宿主据此决定是否重试。 */
-    failureKind: z.enum(['agent', 'infra', 'cancelled']).optional(),
+    failureKind: wireFailureKindSchema.optional(),
   }),
   z.object({ type: z.literal('run_unavailable'), message: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
@@ -208,9 +215,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
 export type ChatEvent = z.infer<typeof chatEventSchema>;
 
 /** 事件里的失败分类只有三档；sandbox 与 timeout 都归入不可重试的服务端失败。 */
-export function wireFailureKind(
-  reason: 'cancelled' | 'timeout' | 'sandbox' | 'agent' | 'infra',
-): 'agent' | 'infra' | 'cancelled' {
+export function wireFailureKind(reason: RunErrorKind): WireFailureKind {
   if (reason === 'cancelled') return 'cancelled';
   if (reason === 'infra') return 'infra';
   return 'agent';
@@ -303,11 +308,6 @@ export type SandboxTask = z.infer<typeof sandboxTaskSchema>;
 /** 宿主侧构造的形状：默认值由 runner 解析时补齐。 */
 export type SandboxTaskInput = z.input<typeof sandboxTaskSchema>;
 
-export const RUNS_QUEUE = 'agent-runs';
-
-/** 评估跑批队列：只传 id，worker 自己读用例，避免 API 重启丢失进程内状态。 */
-export const EVAL_RUNS_QUEUE = 'eval-runs';
-
 export const evalRunJobSchema = z.object({ evalRunId: z.string() });
 
 export type EvalRunJob = z.infer<typeof evalRunJobSchema>;
@@ -377,7 +377,7 @@ export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 /** 一条消息所属运行的读数；只含前端读数行需要的字段。 */
 export const conversationRunMetricsSchema = z.object({
   runId: z.string(),
-  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout']),
+  status: runStatusSchema,
   turns: z.number().nullable().default(null),
   durationMs: z.number().nullable().default(null),
   /** 结束时刻；历史轮次用它标出「这轮是什么时候跑完的」。 */
@@ -411,8 +411,6 @@ export const conversationSearchMatchSchema = z.object({
   kind: z.enum(['id', 'title', 'message']),
   excerpt: z.string().nullable(),
 });
-
-export type ConversationSearchMatch = z.infer<typeof conversationSearchMatchSchema>;
 
 /** 每个会话最多一项；同一会话同时命中多处时按 id → title → message 取优先级最高的一项。 */
 export const conversationSearchItemSchema = z.object({

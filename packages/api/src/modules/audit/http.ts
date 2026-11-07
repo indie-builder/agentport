@@ -7,7 +7,7 @@ import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { auditOptions, toItem } from './router.js';
 
-const exportQuerySchema = auditQuerySchema.extend({
+export const auditExportQuerySchema = auditQuerySchema.extend({
   limit: z.coerce.number().int().positive().max(1000).default(1000),
 });
 
@@ -18,7 +18,7 @@ export function registerAuditHttp(app: Hono<HttpEnv>): void {
     async (c) => {
       const context = requestContext(c);
 
-      const parsed = exportQuerySchema.safeParse(
+      const parsed = auditExportQuerySchema.safeParse(
         Object.fromEntries(new URL(context.request.url).searchParams),
       );
       if (!parsed.success)

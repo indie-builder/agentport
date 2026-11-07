@@ -1,4 +1,4 @@
-import type { AgentSummary } from '@agentport/shared';
+import type { AGENT_ROLES, AgentSummary } from '@agentport/shared';
 import backendEngineer from '../assets/agents/backend-engineer.png';
 import contentOps from '../assets/agents/content-ops.png';
 import createBackend from '../assets/agents/create-backend.png';
@@ -67,7 +67,7 @@ function hash(value: string): number {
   return h;
 }
 
-const occupationAvatars: Record<string, string> = {
+const occupationAvatars: Record<(typeof AGENT_ROLES)[number], string> = {
   通用助手: supportBot,
   前端工程师: frontendEngineer,
   后端工程师: backendEngineer,
@@ -86,7 +86,10 @@ const occupationAvatars: Record<string, string> = {
 export type AgentDisplay = Pick<AgentSummary, 'name' | 'description' | 'role' | 'slug'>;
 
 export function agentAvatar(agent: AgentDisplay): string {
-  const occupation = agent.role ? occupationAvatars[agent.role] : undefined;
+  const occupation =
+    agent.role && Object.hasOwn(occupationAvatars, agent.role)
+      ? occupationAvatars[agent.role as (typeof AGENT_ROLES)[number]]
+      : undefined;
   if (occupation) return occupation;
   const slug = agent.slug ?? '';
   const identity = `${agent.name} ${slug} ${agent.description}`;

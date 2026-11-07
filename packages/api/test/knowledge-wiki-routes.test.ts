@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { repo } from '@agentport/db';
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
+import { repo } from '@agentport/db';
 import { getKnowledgeQueue } from '../src/queue/producer.js';
 import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
@@ -179,11 +179,14 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -396,8 +399,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       currentVersionId: null,
     });
     expect(
-      (await app.client.unsafe('select 1 from knowledge_wiki_sources where page_id = $1', [page.id]))
-        ,
+      await app.client.unsafe('select 1 from knowledge_wiki_sources where page_id = $1', [page.id]),
     ).toEqual([]);
 
     const publish = await request(app, {
@@ -497,11 +499,13 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(publish.statusCode, publish.body).toBe(200);
 
-    const indexRows = await app.client.unsafe<{
-      id: string;
-      content_hash: string | null;
-      metadata: { wikiPageId?: string; wikiVersionId?: string };
-    }[]>(
+    const indexRows = await app.client.unsafe<
+      {
+        id: string;
+        content_hash: string | null;
+        metadata: { wikiPageId?: string; wikiVersionId?: string };
+      }[]
+    >(
       `select id, content_hash, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
@@ -538,10 +542,12 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       payload: { versionId: second?.id },
     });
     expect(rollback.statusCode, rollback.body).toBe(201);
-    const updated = await app.client.unsafe<{
-      id: string;
-      metadata: { wikiVersionId?: string };
-    }[]>(
+    const updated = await app.client.unsafe<
+      {
+        id: string;
+        metadata: { wikiVersionId?: string };
+      }[]
+    >(
       `select id, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
@@ -580,7 +586,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     const versionId = detail.json<{ versions: Array<{ id: string }> }>().versions[0]?.id ?? '';
 
-    // 在内容寻址的目标路径放一个目录，让 writeFile 以 EISDIR 失败。
     const blobPath = blobPathFor(markdown);
     await mkdir(blobPath, { recursive: true });
     let publish: Awaited<ReturnType<typeof request>>;
@@ -595,6 +600,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     } finally {
       await rm(blobPath, { recursive: true, force: true });
     }
+
+    const leftovers = await readdir(dirname(blobPath));
+    expect(leftovers.filter((name) => name.startsWith(`${basename(blobPath)}.tmp-`))).toEqual([]);
 
     expect(await repo.knowledge.getWikiPage(app.db, page.id)).toMatchObject({
       status: 'draft',
@@ -662,7 +670,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       payload: { versionId: w1?.id },
     });
     expect(publishFirst.statusCode, publishFirst.body).toBe(200);
-    const indexRows = await app.client.unsafe<{ id: string; metadata: { wikiVersionId?: string } }[]>(
+    const indexRows = await app.client.unsafe<
+      { id: string; metadata: { wikiVersionId?: string } }[]
+    >(
       `select id, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
@@ -697,7 +707,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       status: 'published',
       currentVersionId: w1?.id,
     });
-    const indexAfter = await app.client.unsafe<{ id: string; metadata: { wikiVersionId?: string } }[]>(
+    const indexAfter = await app.client.unsafe<
+      { id: string; metadata: { wikiVersionId?: string } }[]
+    >(
       `select id, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
@@ -720,8 +732,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       model: 'manual',
       generatedBy: 'manual',
     });
-    const create = spyOn(repo.knowledge, 'createJob')
-      .mockRejectedValueOnce(new Error('insert job failed'));
+    const create = spyOn(repo.knowledge, 'createJob').mockRejectedValueOnce(
+      new Error('insert job failed'),
+    );
     let publish: Awaited<ReturnType<typeof request>>;
     try {
       publish = await request(app, {
@@ -837,7 +850,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       currentVersionId: current?.id,
     });
     // 准备失败不改索引指针、不追加任务。
-    const indexRows = await app.client.unsafe<{ id: string; metadata: { wikiVersionId?: string } }[]>(
+    const indexRows = await app.client.unsafe<
+      { id: string; metadata: { wikiVersionId?: string } }[]
+    >(
       `select id, metadata from knowledge_documents
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
@@ -859,12 +874,14 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(res.statusCode, res.body).toBe(202);
     const { jobId } = res.json<{ jobId: string }>();
 
-    const job = await app.client.unsafe<{
-      type: string;
-      base_id: string;
-      status: string;
-      payload: { pageId: string; instruction: string };
-    }[]>('select type, base_id, status, payload from knowledge_jobs where id = $1', [jobId]);
+    const job = await app.client.unsafe<
+      {
+        type: string;
+        base_id: string;
+        status: string;
+        payload: { pageId: string; instruction: string };
+      }[]
+    >('select type, base_id, status, payload from knowledge_jobs where id = $1', [jobId]);
     expect(job[0]).toMatchObject({ type: 'wiki_generate', base_id: baseId, status: 'queued' });
     expect(job[0]?.payload).toMatchObject({ pageId: page.id, instruction: '写短一些' });
   });
@@ -1369,11 +1386,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
           currentVersionId: null,
         });
         expect(
-          (
-            await app.client.unsafe('select 1 from knowledge_wiki_sources where page_id = $1', [
-              page.id,
-            ])
-          ),
+          await app.client.unsafe('select 1 from knowledge_wiki_sources where page_id = $1', [
+            page.id,
+          ]),
         ).toEqual([]);
 
         const publish = await request(app, {

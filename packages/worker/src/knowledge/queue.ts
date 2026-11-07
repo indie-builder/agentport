@@ -179,16 +179,17 @@ export async function startKnowledgeWorker(
           .catch(() => undefined);
       }, CANCEL_POLL_MS);
 
+      let terminal = false;
       try {
-        // close 可能发生在认领期间：已经拿到的任务不再执行。
-        if (closing) throw new KnowledgeCancelled();
+        const pendingCancel = (await scanner.get(knowledgeCancelKey(row.id))) !== null;
+        if (closing || pendingCancel || controller.signal.aborted) throw new KnowledgeCancelled();
         const result = await dispatchKnowledgeJob(row, { ...dispatch, signal: controller.signal });
         // 先读 cancel key 再判断 signal：读取期间 timeout/关闭/轮询触发的 abort 也必须算取消。
         const cancelRequested = (await scanner.get(knowledgeCancelKey(row.id))) !== null;
         if (cancelRequested || controller.signal.aborted) {
           throw new KnowledgeCancelled();
         }
-        await finish(config.db, row, {
+        terminal = await finish(config.db, row, {
           status: 'succeeded',
           ...result,
         });
@@ -199,7 +200,7 @@ export async function startKnowledgeWorker(
           throw err;
         }
         if (controller.signal.aborted || err instanceof KnowledgeCancelled) {
-          await finish(config.db, row, {
+          terminal = await finish(config.db, row, {
             status: timedOut ? 'failed' : 'cancelled',
             error: timedOut ? '任务超时' : 'cancelled',
           });
@@ -213,12 +214,12 @@ export async function startKnowledgeWorker(
           await resetToQueued(config.db, row.id, error);
           throw err;
         }
-        await finish(config.db, row, { status: 'failed', error });
+        terminal = await finish(config.db, row, { status: 'failed', error });
       } finally {
         activeJobs.delete(controller);
         clearTimeout(timeout);
         clearInterval(cancelWatch);
-        await scanner.del(knowledgeCancelKey(row.id)).catch(() => undefined);
+        if (terminal) await scanner.del(knowledgeCancelKey(row.id)).catch(() => undefined);
       }
     },
     {
@@ -260,6 +261,6 @@ async function finish(
   db: KnowledgeDeps['db'],
   job: KnowledgeJobRow,
   input: repo.knowledge.FinishJobInput,
-): Promise<void> {
-  await repo.knowledge.finishJob(db, job.id, input);
+): Promise<boolean> {
+  return (await repo.knowledge.finishJob(db, job.id, input)) !== null;
 }

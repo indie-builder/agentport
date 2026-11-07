@@ -1,3 +1,4 @@
 [test]
-root = "./packages"
+root = "."
+pathIgnorePatterns = ["**/.claude/**", "**/.agents/**", "**/.git/**", "**/tmp/**", "**/node_modules/**", "**/docs/**", "**/scripts/**", "**/data/**", "**/tests/fixtures/**", "**/packages/web/**"]
 preload = ["./packages/worker/test/setup-env.ts"]

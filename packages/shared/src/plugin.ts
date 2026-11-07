@@ -14,6 +14,11 @@ export const pluginFilePathSchema = z
   .regex(
     /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._\-/]+$/,
     '路径必须是相对路径，且不能包含 .. 或绝对路径',
+  )
+  .refine(
+    (path) =>
+      path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'),
+    '插件路径不能包含空段、. 或 ..',
   );
 
 export const pluginFileInputSchema = z.object({
@@ -36,12 +41,7 @@ export const pluginCapabilitiesSchema = z.object({
 export const pluginInputSchema = z.object({
   slug: slugSchema,
   /** SDK 看到的插件名；缺省与原目录名一致。 */
-  runtimeName: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9][a-z0-9-_]*$/, '仅允许小写字母、数字、- 和 _')
-    .optional(),
+  runtimeName: slugSchema.optional(),
   name: z.string().min(1).max(128),
   description: z.string().max(500).default(''),
   version: z.string().max(64).default(''),

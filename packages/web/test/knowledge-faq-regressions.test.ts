@@ -1347,95 +1347,81 @@ describe('FAQ history and bulk actions', () => {
     ).toEqual({ action: 'delete', items: [{ documentId: 'kdoc_faq' }] });
   });
 
-  it('splits more than 100 selected FAQs into sequential batch calls', async () => {
-    baseHandlers();
-    const many = Array.from({ length: 101 }, (_, index) => ({
-      ...faqSummary,
-      id: `kdoc_many_${index}`,
-      title: `FAQ ${index}`,
-      currentVersionId: null,
-      faq: { ...faq, question: `批量问题 ${index}？` },
-    }));
-    const batchCalls = () =>
-      calls.filter(
-        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/batch',
+  it.each([
+    { action: 'disable', label: '停用', success: 'FAQ 已批量停用' },
+    { action: 'delete', label: '删除', success: 'FAQ 已批量删除' },
+    { action: 'enable', label: '启用', success: 'FAQ 已批量启用' },
+  ])(
+    'splits 101 selected FAQs into sequential $action batch calls',
+    async ({ action, label, success }) => {
+      baseHandlers();
+      const many = Array.from({ length: 101 }, (_, index) => ({
+        ...faqSummary,
+        id: `kdoc_many_${index}`,
+        title: `FAQ ${index}`,
+        currentVersionId: null,
+        faq: { ...faq, question: `批量问题 ${index}？` },
+      }));
+      const batchCalls = () =>
+        calls.filter(
+          (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/batch',
+        );
+      let active = 0;
+      let maxActive = 0;
+      let requestCount = 0;
+      const firstResponse = Promise.withResolvers<void>();
+      server.use(
+        http.get('/api/knowledge/bases/kb_1/faqs', ({ request }) => {
+          const cursor = new URL(request.url).searchParams.get('cursor');
+          const start = cursor === null ? 0 : Number(cursor);
+          const next = start + 50 < many.length ? String(start + 50) : null;
+          return HttpResponse.json({ items: many.slice(start, start + 50), nextCursor: next });
+        }),
+        http.post('/api/knowledge/bases/kb_1/faqs/batch', async ({ request }) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          requestCount += 1;
+          if (requestCount === 1) await firstResponse.promise;
+          else await vi.waitFor(() => expect(client?.isFetching()).toBe(0));
+          active -= 1;
+          const body = (await request.json()) as {
+            action: string;
+            items: Array<{ documentId: string }>;
+          };
+          return HttpResponse.json({
+            results: body.items.map((item) => ({
+              documentId: item.documentId,
+              status: 'succeeded',
+            })),
+          });
+        }),
       );
-    let active = 0;
-    let maxActive = 0;
-    server.use(
-      http.get('/api/knowledge/bases/kb_1/faqs', ({ request }) => {
-        const cursor = new URL(request.url).searchParams.get('cursor');
-        const start = cursor === null ? 0 : Number(cursor);
-        const next = start + 50 < many.length ? String(start + 50) : null;
-        return HttpResponse.json({ items: many.slice(start, start + 50), nextCursor: next });
-      }),
-      http.post('/api/knowledge/bases/kb_1/faqs/batch', async ({ request }) => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        active -= 1;
-        const body = (await request.json()) as {
-          action: string;
-          items: Array<{ documentId: string }>;
-        };
-        return HttpResponse.json({
-          results: body.items.map((item) => ({
-            documentId: item.documentId,
-            status: 'succeeded',
-          })),
-        });
-      }),
-    );
-    await mount('/knowledge/kb_1', { panel: 'faqs' });
-    await waitFor(() => document.querySelectorAll('[aria-label^="选择 "]').length === 101);
-    expect(await selectAllFaqs()).toBe(101);
-    expect(document.body.textContent).toContain('已选 101 个');
+      await mount('/knowledge/kb_1', { panel: 'faqs' });
+      await waitFor(() => document.querySelectorAll('[aria-label^="选择 "]').length === 101);
+      expect(await selectAllFaqs()).toBe(101);
+      expect(document.body.textContent).toContain('已选 101 个');
 
-    await click(button('停用'));
-    await waitFor(() => batchCalls().length === 2);
-    await waitFor(() =>
-      vi.mocked(toastSuccess).mock.calls.some(([text]) => text === 'FAQ 已批量停用'),
-    );
-    expect(batchCalls()[0]?.body).toEqual({
-      action: 'disable',
-      items: many.slice(0, 100).map((item) => ({ documentId: item.id })),
-    });
-    expect(batchCalls()[1]?.body).toEqual({
-      action: 'disable',
-      items: many.slice(100).map((item) => ({ documentId: item.id })),
-    });
-
-    await selectAllFaqs();
-    await click(button('删除'));
-    await click(button('删除', dialog('批量删除 FAQ')));
-    await waitFor(() => batchCalls().length === 4);
-    await waitFor(() =>
-      vi.mocked(toastSuccess).mock.calls.some(([text]) => text === 'FAQ 已批量删除'),
-    );
-    expect(batchCalls()[2]?.body).toEqual({
-      action: 'delete',
-      items: many.slice(0, 100).map((item) => ({ documentId: item.id })),
-    });
-    expect(batchCalls()[3]?.body).toEqual({
-      action: 'delete',
-      items: many.slice(100).map((item) => ({ documentId: item.id })),
-    });
-
-    await waitFor(() => document.body.textContent?.includes('已选 101 个') === false);
-    await selectAllFaqs();
-    await click(button('启用'));
-    await waitFor(() => batchCalls().length === 6);
-    await waitFor(() =>
-      vi.mocked(toastSuccess).mock.calls.some(([text]) => text === 'FAQ 已批量启用'),
-    );
-    expect(batchCalls()[4]?.body).toEqual({
-      action: 'enable',
-      items: many.slice(0, 100).map((item) => ({ documentId: item.id })),
-    });
-    expect(batchCalls()[5]?.body).toEqual({
-      action: 'enable',
-      items: many.slice(100).map((item) => ({ documentId: item.id })),
-    });
-    expect(maxActive).toBe(1);
-  });
+      await click(button(label));
+      if (action === 'delete') await click(button('删除', dialog('批量删除 FAQ')));
+      try {
+        await waitFor(() => batchCalls().length === 1 && active === 1);
+        expect(batchCalls()).toHaveLength(1);
+      } finally {
+        firstResponse.resolve();
+      }
+      await waitFor(() => batchCalls().length === 2);
+      await waitFor(() => vi.mocked(toastSuccess).mock.calls.some(([text]) => text === success));
+      expect(batchCalls()).toHaveLength(2);
+      expect(batchCalls()[0]?.body).toEqual({
+        action,
+        items: many.slice(0, 100).map((item) => ({ documentId: item.id })),
+      });
+      expect(batchCalls()[1]?.body).toEqual({
+        action,
+        items: many.slice(100).map((item) => ({ documentId: item.id })),
+      });
+      expect(maxActive).toBe(1);
+      await waitFor(() => client?.isFetching() === 0 && client.isMutating() === 0);
+    },
+  );
 });

@@ -1,39 +1,14 @@
 import { type KnowledgeContract, knowledgeContract } from '@agentport/contract/knowledge';
-import { AppError, isAppError } from '@agentport/core';
-import type { KnowledgeFaqImportResult, PermissionId } from '@agentport/shared';
+
+import type { KnowledgeFaqImportResult } from '@agentport/shared';
 import { implement, ORPCError, type Router } from '@orpc/server';
-import { actorOf, authorize, requirePermission } from '../../http/access.js';
+import { requirePermission } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { problem, toAppError } from '../../http/errors.js';
 import * as useCases from './use-cases.js';
+import { depsOf } from './use-cases.js';
 
 const os = implement(knowledgeContract).$context<RequestContext>();
-
-function depsOf(context: RequestContext): useCases.KnowledgeDeps {
-  return {
-    db: context.db,
-    config: context.config,
-    log: context.log,
-    requestId: context.requestId,
-    actor: actorOf(context),
-  };
-}
-
-async function scoped(
-  context: RequestContext,
-  permissionId: PermissionId,
-  objectId: string,
-  notFoundMessage = '对象不存在',
-): Promise<void> {
-  try {
-    await authorize(context, permissionId, { objectId });
-  } catch (err) {
-    if (isAppError(err) && err.code === 'FORBIDDEN') {
-      throw new AppError('NOT_FOUND', notFoundMessage);
-    }
-    throw err;
-  }
-}
 
 export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.router({
   bases: {
@@ -59,12 +34,12 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
     folders: os.bases.folders.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.id);
+
       return useCases.listFolders(depsOf(context), input.params.id, input.query);
     }),
     createFolder: os.bases.createFolder.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.id);
+
       return useCases.createFolder(depsOf(context), input.params.id, input.body);
     }),
     tags: os.bases.tags.handler(async ({ input, context }) => {
@@ -81,17 +56,17 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
     upload: os.bases.upload.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.id);
+
       return useCases.uploadDocument(depsOf(context), input.params.id, input.body);
     }),
     createManual: os.bases.createManual.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.id);
+
       return useCases.createManualDocument(depsOf(context), input.params.id, input.body);
     }),
     createUrl: os.bases.createUrl.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.id);
+
       return useCases.createUrlDocument(depsOf(context), input.params.id, input.body);
     }),
     search: os.bases.search.handler(async ({ input, context }) => {
@@ -100,24 +75,24 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
     rebuild: os.bases.rebuild.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.execute');
-      await scoped(context, 'knowledge.execute', input.params.id);
+
       return useCases.rebuildBase(depsOf(context), input.params.id, input.body);
     }),
     batch: os.bases.batch.handler(async ({ input, context }) => {
       const permissionId =
         input.body.action === 'reprocess' ? 'knowledge.execute' : 'knowledge.content.manage';
       await requirePermission(context, permissionId);
-      await scoped(context, permissionId, input.params.id);
+
       return useCases.batchDocuments(depsOf(context), input.params.id, input.body);
     }),
     sources: os.bases.sources.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.id);
+
       return useCases.listSources(depsOf(context), input.params.id, input.query);
     }),
     createSource: os.bases.createSource.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.sources.manage');
-      await scoped(context, 'knowledge.sources.manage', input.params.id);
+
       return useCases.createSource(
         depsOf(context),
         input.params.id,
@@ -126,29 +101,29 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
     wikiPages: os.bases.wikiPages.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.id);
+
       return useCases.listWikiPages(depsOf(context), input.params.id, input.query);
     }),
     createWikiPage: os.bases.createWikiPage.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.id);
+
       return useCases.createWikiPage(depsOf(context), input.params.id, input.body);
     }),
     faqs: os.bases.faqs.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.id);
+
       return useCases.listFaqs(depsOf(context), input.params.id, input.query);
     }),
     createFaq: os.bases.createFaq.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.id);
+
       return useCases.createFaq(depsOf(context), input.params.id, input.body);
     }),
     faqBatch: os.bases.faqBatch.handler(async ({ input, context }) => {
       const permissionId =
         input.body.action === 'publish' ? 'knowledge.publish' : 'knowledge.content.manage';
       await requirePermission(context, permissionId);
-      await scoped(context, permissionId, input.params.id);
+
       try {
         const body = await useCases.faqBatch(depsOf(context), input.params.id, input.body);
         return { status: 200, body };
@@ -172,18 +147,18 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
     importFaqs: os.bases.importFaqs.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.import');
-      await scoped(context, 'knowledge.import', input.params.id);
+
       const body = await useCases.importFaqs(depsOf(context), input.params.id, input.body);
       return { status: body.committed ? 202 : 200, body };
     }),
     testFaqs: os.bases.testFaqs.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.execute');
-      await scoped(context, 'knowledge.execute', input.params.id);
+
       return useCases.testFaqs(depsOf(context), input.params.id, input.body);
     }),
     evaluate: os.bases.evaluate.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.execute');
-      await scoped(context, 'knowledge.execute', input.params.id);
+
       return useCases.evaluateBase(depsOf(context), input.params.id, input.body);
     }),
   },
@@ -230,27 +205,27 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
     versions: os.documents.versions.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.documentId);
+
       return useCases.listVersions(depsOf(context), input.params.documentId, input.query);
     }),
     rollback: os.documents.rollback.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.publish');
-      await scoped(context, 'knowledge.publish', input.params.documentId);
+
       return useCases.rollbackDocument(depsOf(context), input.params.documentId, input.body);
     }),
     manual: os.documents.manual.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.documentId);
+
       return useCases.getManualDocument(depsOf(context), input.params.documentId);
     }),
     saveManual: os.documents.saveManual.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.documentId);
+
       return useCases.saveManualDraft(depsOf(context), input.params.documentId, input.body);
     }),
     publish: os.documents.publish.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.publish');
-      await scoped(context, 'knowledge.publish', input.params.documentId);
+
       return useCases.publishManualDocument(depsOf(context), input.params.documentId, input.body);
     }),
   },
@@ -273,32 +248,32 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
   sources: {
     update: os.sources.update.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.sources.manage');
-      await scoped(context, 'knowledge.sources.manage', input.params.sourceId);
+
       return useCases.updateSource(depsOf(context), input.params.sourceId, input.body);
     }),
     remove: os.sources.remove.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.sources.manage');
-      await scoped(context, 'knowledge.sources.manage', input.params.sourceId);
+
       return useCases.deleteSource(depsOf(context), input.params.sourceId, input.query.documents);
     }),
     test: os.sources.test.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.sources.manage');
-      await scoped(context, 'knowledge.sources.manage', input.params.sourceId);
+
       return useCases.testSource(depsOf(context), input.params.sourceId);
     }),
     sync: os.sources.sync.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.execute');
-      await scoped(context, 'knowledge.execute', input.params.sourceId);
+
       return useCases.syncSource(depsOf(context), input.params.sourceId);
     }),
     runs: os.sources.runs.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.sourceId);
+
       return useCases.listSourceRuns(depsOf(context), input.params.sourceId, input.query);
     }),
     runItems: os.sources.runItems.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.sourceId);
+
       return useCases.listSourceRunItems(
         depsOf(context),
         input.params.sourceId,
@@ -310,69 +285,69 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
   wiki: {
     get: os.wiki.get.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.pageId);
+
       return useCases.getWikiPage(depsOf(context), input.params.pageId, input.query);
     }),
     update: os.wiki.update.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.publish');
-      await scoped(context, 'knowledge.publish', input.params.pageId);
+
       return useCases.updateWikiPage(depsOf(context), input.params.pageId, input.body);
     }),
     generate: os.wiki.generate.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.execute');
-      await scoped(context, 'knowledge.execute', input.params.pageId);
+
       return useCases.generateWiki(depsOf(context), input.params.pageId, input.body);
     }),
     versions: os.wiki.versions.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.pageId);
+
       return useCases.listWikiVersions(depsOf(context), input.params.pageId, input.query);
     }),
     links: os.wiki.links.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.pageId);
+
       return useCases.wikiLinks(depsOf(context), input.params.pageId);
     }),
     diff: os.wiki.diff.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.pageId);
+
       return useCases.wikiDiff(depsOf(context), input.params.pageId, input.query);
     }),
     publish: os.wiki.publish.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.publish');
-      await scoped(context, 'knowledge.publish', input.params.pageId);
+
       return useCases.publishWiki(depsOf(context), input.params.pageId, input.body.versionId);
     }),
     rollback: os.wiki.rollback.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.publish');
-      await scoped(context, 'knowledge.publish', input.params.pageId);
+
       return useCases.rollbackWiki(depsOf(context), input.params.pageId, input.body.versionId);
     }),
   },
   faqs: {
     remove: os.faqs.remove.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.documentId);
+
       await useCases.deleteFaq(depsOf(context), input.params.documentId);
     }),
     get: os.faqs.get.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
-      await scoped(context, 'knowledge.read', input.params.documentId);
+
       return useCases.getFaq(depsOf(context), input.params.documentId);
     }),
     update: os.faqs.update.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.documentId);
+
       return useCases.updateFaq(depsOf(context), input.params.documentId, input.body);
     }),
     publish: os.faqs.publish.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.publish');
-      await scoped(context, 'knowledge.publish', input.params.documentId);
+
       return useCases.publishFaq(depsOf(context), input.params.documentId, input.body);
     }),
     status: os.faqs.status.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
-      await scoped(context, 'knowledge.content.manage', input.params.documentId);
+
       return useCases.setFaqStatus(depsOf(context), input.params.documentId, input.body.enabled);
     }),
   },

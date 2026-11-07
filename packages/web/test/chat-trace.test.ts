@@ -3,10 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { MessagePane } from '../src/components/chat-thread.js';
 import type { ApprovalRequest } from '../src/lib/api.js';
 import { type ChatItem, historyToItems } from '../src/lib/chat-state.js';
 import type { RunMetrics } from '../src/lib/chat-store.js';
-import { MessagePane } from '../src/pages/chat.js';
 
 // 读数行里有「查看详情」链接；这里只验证可见性，不需要真实路由上下文。
 vi.mock('@tanstack/react-router', async (original) => {

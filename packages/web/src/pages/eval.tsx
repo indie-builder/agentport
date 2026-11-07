@@ -43,6 +43,7 @@ import {
   type EvalResult,
   type EvalRun,
 } from '../lib/api.js';
+import { downloadBlob } from '../lib/browser-files.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
   evalComparisonStatusLabel,
@@ -149,9 +150,7 @@ const runColumns: DataColumn<EvalRun>[] = [
   },
 ];
 
-export function buildEvalPassRatePoints(
-  runs: EvalRun[],
-): { label: string; ratePct: number }[] {
+export function buildEvalPassRatePoints(runs: EvalRun[]): { label: string; ratePct: number }[] {
   return [...runs]
     .filter((run) => run.status !== 'running' && run.total > 0)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -177,13 +176,7 @@ export function EvalPassRateChart({ runs }: { runs: EvalRun[] }) {
           margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
         >
           <CartesianGrid vertical={false} />
-          <XAxis
-            dataKey="label"
-            tickLine={false}
-            axisLine={false}
-            tickMargin={8}
-            minTickGap={24}
-          />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
           <YAxis
             domain={[0, 100]}
             allowDecimals={false}
@@ -299,16 +292,10 @@ export function EvalPage() {
     setExporting(true);
     try {
       const data = await api.exportEvalDataset(effectiveAgentId);
-      const url = URL.createObjectURL(
+      downloadBlob(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        'eval-cases.json',
       );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'eval-cases.json';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       toastError(error);
     } finally {
@@ -762,16 +749,10 @@ function EvalRunResults({ id }: { id: string }) {
     setExporting(true);
     try {
       const data = await api.exportEvalRun(id);
-      const url = URL.createObjectURL(
+      downloadBlob(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        'eval-result.json',
       );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'eval-result.json';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       toastError(error);
     } finally {

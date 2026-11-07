@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { personalMemoryDir } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import { AGENT_MEMORY_MAX_BYTES, MEMORY_FILE_MAX_BYTES } from '@agentport/shared';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { readMemoryFile, writeMemoryFile } from '../src/modules/agents/memory-files.js';
 import { decodePackage } from '../src/modules/agents/package-zip.js';
@@ -60,7 +60,9 @@ describe.skipIf(!ready)('memory changes', () => {
   }, 60_000);
 
   beforeEach(async () => {
-    await app.client.unsafe('delete from memory_changes where business_id = $1', [ADMIN_BUSINESS_ID]);
+    await app.client.unsafe('delete from memory_changes where business_id = $1', [
+      ADMIN_BUSINESS_ID,
+    ]);
     await app.client.unsafe('delete from user_preferences where business_id = $1', [
       ADMIN_BUSINESS_ID,
     ]);
@@ -292,7 +294,7 @@ describe.skipIf(!ready)('memory changes', () => {
 
     // 手工删除规则后，历史 after 已不存在，不能再回滚。
     await repo.rules.deleteRule(app.db, agent.id, 'style');
-    expectProblem(await rollback(changeId), 'CONFLICT');
+    expectProblem(await rollback(changeId), 'CONFLICT_STALE');
   });
 
   it('refuses rollback while the target agent has an active run', async () => {
@@ -348,7 +350,7 @@ describe.skipIf(!ready)('memory changes', () => {
       after: { content: 'new', globs: 'src/**', index: null },
     });
 
-    expectProblem(await rollback(changeId), 'CONFLICT');
+    expectProblem(await rollback(changeId), 'CONFLICT_STALE');
     const rule = await app.client.unsafe<{ content: string; globs: string }[]>(
       'select content, globs from agent_rules where agent_id = $1 and slug = $2',
       [agent.id, 'style'],
@@ -425,11 +427,9 @@ describe.skipIf(!ready)('memory changes', () => {
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(
       '# 索引\n- [B.md](B.md)\n',
     );
-    const [change] = (
-      await app.client.unsafe<{ index_content: string }[]>(
-        "select after->'index'->>'content' as index_content from memory_changes where agent_id = $1 and target->>'name' = 'B.md'",
-        [agent.id],
-      )
+    const [change] = await app.client.unsafe<{ index_content: string }[]>(
+      "select after->'index'->>'content' as index_content from memory_changes where agent_id = $1 and target->>'name' = 'B.md'",
+      [agent.id],
     );
     expect(change?.index_content).toBe('# 索引\n- [B.md](B.md)\n');
   });
@@ -664,11 +664,9 @@ describe.skipIf(!ready)('memory changes', () => {
       payload: { content: '# 部署\n' },
     });
     expect(put.statusCode, put.body).toBe(200);
-    const [change] = (
-      await app.client.unsafe<{ id: string }[]>(
-        "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
-        [agent.id],
-      )
+    const [change] = await app.client.unsafe<{ id: string }[]>(
+      "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
+      [agent.id],
     );
     if (!change) throw new Error('theme write did not record a change');
 
@@ -694,11 +692,9 @@ describe.skipIf(!ready)('memory changes', () => {
       });
     await put('deploy.md', 'v1');
     await put('deploy.md', 'v2');
-    const [second] = (
-      await app.client.unsafe<{ id: string }[]>(
-        "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md' order by created_at desc limit 1",
-        [agent.id],
-      )
+    const [second] = await app.client.unsafe<{ id: string }[]>(
+      "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md' order by created_at desc limit 1",
+      [agent.id],
     );
     if (!second) throw new Error('theme update did not record a change');
     // 该版本只改主题正文，索引在前后的快照相同。
@@ -866,8 +862,9 @@ describe.skipIf(!ready)('memory changes', () => {
         headers: auth(),
         payload: { content: '# 部署\n' },
       });
-    const spy = spyOn(app.db, 'transaction')
-      .mockRejectedValueOnce(new Error('injected database commit failure') as never);
+    const spy = spyOn(app.db, 'transaction').mockRejectedValueOnce(
+      new Error('injected database commit failure') as never,
+    );
     let failed: Awaited<ReturnType<typeof put>>;
     try {
       failed = await put();
@@ -899,11 +896,9 @@ describe.skipIf(!ready)('memory changes', () => {
       headers: auth(),
       payload: { content: '# 部署\n' },
     });
-    const [change] = (
-      await app.client.unsafe<{ id: string }[]>(
-        "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
-        [agent.id],
-      )
+    const [change] = await app.client.unsafe<{ id: string }[]>(
+      "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
+      [agent.id],
     );
     if (!change) throw new Error('theme write did not record a change');
     const reversed = await rollback(change.id);
@@ -995,11 +990,9 @@ describe.skipIf(!ready)('memory changes', () => {
       });
     const first = await put();
     expect(first.statusCode, first.body).toBe(200);
-    const [change] = (
-      await app.client.unsafe<{ id: string }[]>(
-        "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
-        [agent.id],
-      )
+    const [change] = await app.client.unsafe<{ id: string }[]>(
+      "select id from memory_changes where agent_id = $1 and target->>'name' = 'deploy.md'",
+      [agent.id],
     );
     if (!change) throw new Error('theme write did not record a change');
 

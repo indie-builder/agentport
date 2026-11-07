@@ -1,3 +1,4 @@
+import { errorCodeForStatus } from '@agentport/contract/errors';
 import { AppError, isAppError } from '@agentport/core';
 import { type ErrorCode, errorCode, type Problem } from '@agentport/shared';
 import { ORPCError, ValidationError } from '@orpc/contract';
@@ -7,19 +8,9 @@ import { z } from 'zod';
 
 export { AppError, isAppError } from '@agentport/core';
 
-const statusCodes: Partial<Record<number, ErrorCode>> = {
-  400: 'INVALID_INPUT',
-  401: 'UNAUTHORIZED',
-  403: 'FORBIDDEN',
-  404: 'NOT_FOUND',
-  409: 'CONFLICT',
-  413: 'PAYLOAD_TOO_LARGE',
-  415: 'UNSUPPORTED_MEDIA_TYPE',
-  429: 'RATE_LIMITED',
-  500: 'INTERNAL_ERROR',
-  502: 'UPSTREAM_FAILED',
-  503: 'SERVICE_UNAVAILABLE',
-};
+function isErrorCode(code: string): code is ErrorCode {
+  return Object.hasOwn(errorCode, code);
+}
 
 export function toAppError(error: unknown): AppError {
   if (isAppError(error)) return error;
@@ -36,11 +27,8 @@ export function toAppError(error: unknown): AppError {
         cause: error,
       });
     }
-    if (error.code in errorCode) {
-      const code = Object.keys(errorCode).find((key): key is ErrorCode => key === error.code);
-      if (code !== undefined) return new AppError(code, error.message, { cause: error });
-    }
-    const code = statusCodes[error.status] ?? 'INTERNAL_ERROR';
+    if (isErrorCode(error.code)) return new AppError(error.code, error.message, { cause: error });
+    const code = errorCodeForStatus(error.status);
     const first = error.cause instanceof ValidationError ? error.cause.issues[0] : undefined;
     return new AppError(
       code,
@@ -58,7 +46,7 @@ export function toAppError(error: unknown): AppError {
     );
   }
   if (error instanceof HTTPException) {
-    return new AppError(statusCodes[error.status] ?? 'INTERNAL_ERROR', error.message, {
+    return new AppError(errorCodeForStatus(error.status), error.message, {
       cause: error,
     });
   }

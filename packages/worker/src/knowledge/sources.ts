@@ -14,6 +14,7 @@ import {
   readCapped,
   SourceAuthError,
   type SourceUrlOptions,
+  sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
 import { probeIma, readIma } from './source-ima.js';
@@ -26,10 +27,6 @@ import { probeYuque, readYuque } from './source-yuque.js';
 export { SourceAuthError, validateSourceUrl } from './source-http.js';
 export type { FetchOptions, SourceUrlOptions };
 
-/**
- * External knowledge sources for the worker. This leaf has no DB/shared imports so
- * the ingestion jobs can adopt it without a schema change.
- */
 export type SourceConfig = {
   type:
     | 'rss'
@@ -96,14 +93,6 @@ export type SourceSnapshot = {
   /** False when the source cannot prove it listed everything (feeds roll items off). */
   complete: boolean;
 };
-
-/** SourceConfig carries the deployment allowlist; each reader forwards it to every hop. */
-function urlOptions(config: SourceConfig): SourceUrlOptions {
-  return {
-    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
-    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
-  };
-}
 
 const MAX_FEISHU_BLOCKS = 50_000;
 
@@ -265,8 +254,9 @@ async function readRss(
   cursor: Record<string, unknown> | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SourceSnapshot> {
+  signal?.throwIfAborted();
   const previous = parseCursor('rss', rssCursorSchema, cursor);
-  const origins = urlOptions(config);
+  const origins = sourceNetworkOptions(config);
   const feedUrl = await validateSourceUrl(config.url, origins);
   const feedOrigin = feedUrl.origin;
   const headers = Object.fromEntries(
@@ -288,6 +278,7 @@ async function readRss(
   const itemHashes: Record<string, string> = {};
 
   for (const entry of entries) {
+    signal?.throwIfAborted();
     const title = entry.title.trim() || 'untitled';
     const externalId = `${feedUrl.href}:${entry.id}`;
 
@@ -296,7 +287,7 @@ async function readRss(
     if (entry.link) {
       try {
         // fetchChecked re-validates, including every redirect hop.
-        const page = await fetchChecked(entry.link, origins);
+        const page = await fetchChecked(entry.link, { ...origins, ...(signal ? { signal } : {}) });
         const pageType = page.headers.get('content-type');
         // Binary pages are skipped before decoding: UTF-8 would corrupt them.
         if (pageType === null || textContentType(pageType)) {
@@ -305,8 +296,8 @@ async function readRss(
         } else {
           await page.body?.cancel();
         }
-      } catch {
-        // Full-text extraction is best effort; the feed summary is the fallback.
+      } catch (err) {
+        if (signal?.aborted || (err instanceof Error && err.name === 'AbortError')) throw err;
       }
     }
     if (!body) body = htmlToMarkdown(entry.html) || htmlToMarkdown(entry.summary);
@@ -451,7 +442,7 @@ async function readGitlab(
     }
   }
 
-  const origins = urlOptions(config);
+  const origins = sourceNetworkOptions(config);
   const base = new URL(await validateSourceUrl(config.url, origins));
   const apiBase = /\/api\/v4\/?$/.test(base.pathname)
     ? base.href.replace(/\/$/, '')
@@ -615,7 +606,7 @@ async function readGithub(
     }
   }
 
-  const origins = urlOptions(config);
+  const origins = sourceNetworkOptions(config);
   const base = new URL(
     await validateSourceUrl(config.url.trim() || GITHUB_DEFAULT_API_BASE, origins),
   );
@@ -1388,37 +1379,30 @@ async function feishuAuthFor(
   settings: FeishuSettings,
   signal: AbortSignal | undefined,
 ): Promise<{ auth: FeishuAuth; base: string }> {
-  const origins = urlOptions(config);
+  const origins = sourceNetworkOptions(config);
   const base = feishuApiBase(config, settings);
   await validateSourceUrl(base, origins);
 
-  const accessToken = config.credentials.accessToken?.trim();
-  let token = accessToken;
-  if (!token) {
-    // The API stores appId in config and only the secret in encrypted credentials.
-    const appId = (config.credentials.appId ?? String(config.settings.appId ?? '')).trim();
-    const appSecret = config.credentials.appSecret?.trim();
-    if (!appId || !appSecret) {
-      throw new Error('feishu credentials must provide accessToken or appId + appSecret');
-    }
-    const response = await fetchChecked(`${base}/open-apis/auth/v3/tenant_access_token/internal`, {
-      method: 'POST',
-      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-      headers: { 'content-type': 'application/json; charset=utf-8' },
-      authOrigin: new URL(base).origin,
-      ...origins,
-      ...(signal === undefined ? {} : { signal }),
-    });
-    const parsed = tenantTokenSchema.safeParse(
-      JSON.parse(await readCapped(response, 'feishu token')),
-    );
-    if (!parsed.success)
-      throw new Error('feishu token response does not match the expected schema');
-    assertFeishuCode(parsed.data, 'token');
-    const exchanged = parsed.data.tenant_access_token;
-    if (!exchanged) throw new Error('feishu token response had no tenant_access_token');
-    token = exchanged;
+  const appId = String(config.settings.appId ?? '').trim();
+  const appSecret = config.credentials.appSecret?.trim();
+  if (!appId || !appSecret) {
+    throw new Error('feishu requires settings.appId and credentials.appSecret');
   }
+  const response = await fetchChecked(`${base}/open-apis/auth/v3/tenant_access_token/internal`, {
+    method: 'POST',
+    body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+    authOrigin: new URL(base).origin,
+    ...origins,
+    ...(signal === undefined ? {} : { signal }),
+  });
+  const parsed = tenantTokenSchema.safeParse(
+    JSON.parse(await readCapped(response, 'feishu token')),
+  );
+  if (!parsed.success) throw new Error('feishu token response does not match the expected schema');
+  assertFeishuCode(parsed.data, 'token');
+  const token = parsed.data.tenant_access_token;
+  if (!token) throw new Error('feishu token response had no tenant_access_token');
 
   return {
     base,
@@ -1704,7 +1688,7 @@ export async function probeSource(config: SourceConfig, signal?: AbortSignal): P
   const signalOptions = signal === undefined ? {} : { signal };
   switch (config.type) {
     case 'rss': {
-      const origins = urlOptions(config);
+      const origins = sourceNetworkOptions(config);
       const feedUrl = await validateSourceUrl(config.url, origins);
       const headers = Object.fromEntries(
         Object.entries(config.credentials).filter(([name]) => name.trim() !== ''),
@@ -1722,7 +1706,7 @@ export async function probeSource(config: SourceConfig, signal?: AbortSignal): P
       const settings = gitlabConfigSchema.parse(config.settings);
       const token = config.credentials.token?.trim();
       if (!token) throw new Error('gitlab credentials.token is required');
-      const origins = urlOptions(config);
+      const origins = sourceNetworkOptions(config);
       const base = new URL(await validateSourceUrl(config.url, origins));
       const apiBase = /\/api\/v4\/?$/.test(base.pathname)
         ? base.href.replace(/\/$/, '')
@@ -1752,7 +1736,7 @@ export async function probeSource(config: SourceConfig, signal?: AbortSignal): P
       const token = config.credentials.token?.trim();
       if (!token) throw new Error('github credentials.token is required');
       const project = parseGithubProject(settings.project);
-      const origins = urlOptions(config);
+      const origins = sourceNetworkOptions(config);
       const base = new URL(
         await validateSourceUrl(config.url.trim() || GITHUB_DEFAULT_API_BASE, origins),
       );

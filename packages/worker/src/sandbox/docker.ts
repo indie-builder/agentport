@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
+import { CONFIG_CONTAINER_DIR } from '@agentport/shared';
 import {
   type Sandbox,
   SandboxCleanupError,
@@ -30,7 +31,6 @@ function network(egress: DockerSandboxOptions['egress']): string {
   return egress === 'none' ? 'none' : 'bridge';
 }
 
-const CONFIG_DIR = '/home/node/.claude';
 /** 给容器留 5s 自行退出；容器内 runner 已收到 SIGTERM。 */
 const STOP_GRACE_SECONDS = '5';
 const CLEANUP_TIMEOUT_MS = 10_000;
@@ -133,7 +133,7 @@ export async function resolveLocalImageId(image: string): Promise<string | null>
  */
 function readOnlyArgs(extraMounts: SandboxCreateOptions['extraMounts']): string[] {
   const configDirMounted = (extraMounts ?? []).some(
-    (mount) => resolve(mount.containerPath) === CONFIG_DIR,
+    (mount) => resolve(mount.containerPath) === CONFIG_CONTAINER_DIR,
   );
   return [
     '--read-only',
@@ -141,7 +141,7 @@ function readOnlyArgs(extraMounts: SandboxCreateOptions['extraMounts']): string[
     '/tmp:rw,noexec,nosuid,size=64m',
     ...(configDirMounted
       ? []
-      : ['--tmpfs', `${CONFIG_DIR}:rw,noexec,nosuid,size=64m,uid=1000,gid=1000`]),
+      : ['--tmpfs', `${CONFIG_CONTAINER_DIR}:rw,noexec,nosuid,size=64m,uid=1000,gid=1000`]),
     '--cap-drop',
     'ALL',
     '--security-opt',

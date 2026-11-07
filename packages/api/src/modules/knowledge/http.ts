@@ -1,13 +1,13 @@
-import { AppError, isAppError } from '@agentport/core';
-import type { PermissionId } from '@agentport/shared';
+import { AppError } from '@agentport/core';
 import type { Hono } from 'hono';
-import { actorOf, authorize, requirePermission } from '../../http/access.js';
+import { requirePermission } from '../../http/access.js';
 import type { HttpContext, HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { problem, toAppError } from '../../http/errors.js';
 import { requireTrustedOrigin } from '../auth/origin.js';
 import { authenticate } from '../auth/session.js';
 import * as useCases from './use-cases.js';
+import { depsOf } from './use-cases.js';
 
 function param(c: HttpContext, name: string): string {
   const value = c.req.param(name);
@@ -15,31 +15,6 @@ function param(c: HttpContext, name: string): string {
     throw new AppError('INVALID_INPUT', '缺少路径参数');
   }
   return value;
-}
-
-function depsOf(context: RequestContext): useCases.KnowledgeDeps {
-  return {
-    db: context.db,
-    config: context.config,
-    log: context.log,
-    requestId: context.requestId,
-    actor: actorOf(context),
-  };
-}
-
-async function scoped(
-  context: RequestContext,
-  permissionId: PermissionId,
-  objectId: string,
-): Promise<void> {
-  try {
-    await authorize(context, permissionId, { objectId });
-  } catch (err) {
-    if (isAppError(err) && err.code === 'FORBIDDEN') {
-      throw new AppError('NOT_FOUND', '对象不存在');
-    }
-    throw err;
-  }
 }
 
 function native(handler: (context: RequestContext, c: HttpContext) => Promise<Response>) {
@@ -117,7 +92,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     '/api/knowledge/bases/:id/export',
     native(async (context, c) => {
       await requirePermission(context, 'knowledge.export');
-      await scoped(context, 'knowledge.export', param(c, 'id'));
+
       const pkg = await useCases.exportPackage(depsOf(context), param(c, 'id'));
       return new Response(new Uint8Array(pkg.body), {
         headers: {
@@ -147,7 +122,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     '/api/knowledge/bases/:id/faqs/export',
     native(async (context, c) => {
       await requirePermission(context, 'knowledge.export');
-      await scoped(context, 'knowledge.export', param(c, 'id'));
+
       const format = c.req.query('format') === 'csv' ? 'csv' : 'json';
       const version = c.req.query('version') === 'draft' ? 'draft' : 'published';
       const exported = await useCases.exportFaqs(depsOf(context), param(c, 'id'), {

@@ -19,9 +19,7 @@ import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotoc
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { KnowledgeReadImageError, readKnowledgeImage } from './read-image.js';
-import { type SearchKnowledgeResult, searchKnowledge } from './retrieval.js';
-
-const QUOTE_LIMIT = 1200;
+import { QUOTE_LIMIT, type SearchKnowledgeResult, searchKnowledge } from './retrieval.js';
 
 export interface KnowledgeServerInput {
   db: Database;

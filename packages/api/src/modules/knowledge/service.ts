@@ -1,3 +1,6 @@
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { sha256Hex } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { knowledgeEnqueueOptions } from '@agentport/shared';
@@ -78,4 +81,35 @@ export async function ensureKnowledgeServer(
     .returning();
   if (!row) throw new Error('knowledge server insert returned no row');
   return row;
+}
+
+export function blobPathFor(knowledgeDir: string, sha: string): string {
+  return join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
+}
+
+export async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
+  const sha = sha256Hex(data);
+  const target = blobPathFor(knowledgeDir, sha);
+  await mkdir(dirname(target), { recursive: true });
+  const temp = `${target}.tmp-${newId('knowledgeJob')}`;
+  try {
+    await writeFile(temp, data);
+    await rename(temp, target);
+  } catch (err) {
+    await rm(temp, { force: true }).catch(() => {});
+    throw err;
+  }
+  return sha;
+}
+
+export function supportsImageVectors(profile: {
+  embeddingProtocol: string;
+  model: string;
+  imageInputEnabled: boolean;
+}): boolean {
+  return (
+    profile.embeddingProtocol === 'cohere_v2' &&
+    profile.model === 'embed-v4.0' &&
+    profile.imageInputEnabled
+  );
 }

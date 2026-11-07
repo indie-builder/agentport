@@ -1,7 +1,6 @@
 import { serversContract } from '@agentport/contract/servers';
 import { fail, isAppError, parseMcpJson } from '@agentport/core';
 import { repo as dbRepo } from '@agentport/db';
-import type { ApiToolPatch } from '@agentport/db/repo/servers.js';
 import {
   connectorCatalogSchema,
   maskSecret,
@@ -274,7 +273,7 @@ export const serversRouter = os.router({
     update: os.tools.update.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
       const body = input.body;
-      const patch: ApiToolPatch = {};
+      const patch: dbRepo.servers.ApiToolPatch = {};
       if (body.name !== undefined) patch.name = body.name;
       if (body.description !== undefined) patch.description = body.description;
       if (body.method !== undefined) patch.method = body.method;

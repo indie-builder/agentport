@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import {
   AppError,
@@ -42,9 +41,10 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { Config } from '../../config.js';
+import { actorOf } from '../../http/access.js';
+import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { publishKnowledgeCancel } from '../../queue/producer.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 import {
@@ -71,11 +71,14 @@ import {
   type RetrievalEvaluationReport,
 } from './retrieval-evaluation.js';
 import {
+  blobPathFor,
   createJob,
   documentWire,
   enqueueKnowledgeJob,
   ensureKnowledgeServer,
   type KnowledgeDocumentRow,
+  storeBlob,
+  supportsImageVectors,
 } from './service.js';
 
 export type KnowledgeDeps = {
@@ -85,6 +88,16 @@ export type KnowledgeDeps = {
   requestId: string;
   actor: string;
 };
+
+export function depsOf(context: RequestContext): KnowledgeDeps {
+  return {
+    db: context.db,
+    config: context.config,
+    log: context.log,
+    requestId: context.requestId,
+    actor: actorOf(context),
+  };
+}
 
 type PageQuery = { cursor?: string | undefined; limit?: number | undefined };
 
@@ -114,7 +127,7 @@ type FullChunkRow = typeof schema.knowledgeChunks.$inferSelect;
 const URL_FETCH_TIMEOUT_MS = 20_000;
 const MAX_URL_BYTES = 32 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
-const UPLOAD_BODY_LIMIT = 48 * 1024 * 1024;
+export const KNOWLEDGE_UPLOAD_BODY_LIMIT = 48 * 1024 * 1024;
 const MANUAL_BODY_LIMIT = 2 * 1024 * 1024;
 const FAQ_IMPORT_BODY_LIMIT = 3 * 1024 * 1024;
 
@@ -162,10 +175,6 @@ function toBase(row: Awaited<ReturnType<typeof repo.knowledge.createBase>>) {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
-}
-
-function toDocument(row: DocumentRow, tags: string[]) {
-  return documentWire(row, tags);
 }
 
 function toChunk(row: ChunkRow) {
@@ -276,16 +285,6 @@ function toProfile(row: {
   };
 }
 
-async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
-  const sha = sha256Hex(data);
-  const target = join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
-  await mkdir(dirname(target), { recursive: true });
-  const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temp, data);
-  await rename(temp, target);
-  return sha;
-}
-
 function decodeBase64(value: string): Buffer | null {
   const data = Buffer.from(value, 'base64');
   if (data.length === 0) return null;
@@ -324,20 +323,6 @@ async function assertKnowledgeEndpoint(
   await assertSafeUrl(raw, config.NODE_ENV);
 }
 
-function supportsImageVectors(profile: {
-  embeddingProtocol: string;
-  model: string;
-  imageInputEnabled: boolean;
-  enabled: boolean;
-}): boolean {
-  return (
-    profile.enabled &&
-    profile.embeddingProtocol === 'cohere_v2' &&
-    profile.model === 'embed-v4.0' &&
-    profile.imageInputEnabled
-  );
-}
-
 function imageCapabilityProblem(input: {
   kind: 'embedding' | 'rerank' | 'asr';
   model: string;
@@ -347,7 +332,7 @@ function imageCapabilityProblem(input: {
   if (!input.imageInputEnabled) return null;
   if (input.kind === 'asr') return 'ASR profile 不支持图片输入';
   if (input.kind !== 'embedding') return '只有 embedding profile 可以开启图片输入';
-  if (input.embeddingProtocol !== 'cohere_v2' || input.model !== 'embed-v4.0') {
+  if (!supportsImageVectors(input)) {
     return '图片输入需要 embeddingProtocol=cohere_v2 且 model=embed-v4.0';
   }
   return null;
@@ -364,7 +349,11 @@ async function imageSettingsProblem(
 ): Promise<string | null> {
   if (!embedding) return 'embedding profile 不存在，可能已被删除';
   if (!settings.imageProcessing.enabled) return null;
-  if (!settings.imageProcessing.imageVectorEnabled || supportsImageVectors(embedding)) return null;
+  if (
+    !settings.imageProcessing.imageVectorEnabled ||
+    (embedding.enabled && supportsImageVectors(embedding))
+  )
+    return null;
   return (
     '图片向量需要当前 embedding profile 为 cohere_v2 + embed-v4.0 且开启图片输入；' +
     '请先创建并切换到满足条件的 profile'
@@ -999,7 +988,7 @@ export async function createBase(
       settings: input.settings,
     });
     await ensureKnowledgeServer(deps.db, { slug: row.slug, id: row.id, serverId: server.id });
-    await writeAudit(deps.db, deps.log, {
+    await repo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: 'knowledge.base.created',
       target: row.id,
@@ -1105,7 +1094,7 @@ export async function deleteBase(deps: KnowledgeDeps, id: string): Promise<void>
     sql`select agent_id from agent_servers where server_id = ${row.serverId}`,
   );
   await repo.servers.deleteServer(deps.db, row.serverId);
-  await writeAudit(deps.db, deps.log, {
+  await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.base.deleted',
     target: row.id,
@@ -1210,14 +1199,14 @@ export async function listDocuments(
     page.items.map((row) => row.id),
   );
   return {
-    items: page.items.map((row) => toDocument(row, tags.get(row.id) ?? [])),
+    items: page.items.map((row) => documentWire(row, tags.get(row.id) ?? [])),
     nextCursor: page.nextCursor,
   };
 }
 
 async function documentWithTags(deps: KnowledgeDeps, row: DocumentRow) {
   const tags = await repo.knowledge.getDocumentTagNames(deps.db, [row.id]);
-  return toDocument(row, tags.get(row.id) ?? []);
+  return documentWire(row, tags.get(row.id) ?? []);
 }
 
 async function enqueue(
@@ -1253,23 +1242,17 @@ export async function uploadDocument(
 ) {
   const base = await repo.knowledge.getBase(deps.db, id);
   if (!base) notFound('知识库');
-  assertBodyBytes(body.dataBase64, UPLOAD_BODY_LIMIT);
+  assertBodyBytes(body.dataBase64, KNOWLEDGE_UPLOAD_BODY_LIMIT);
   const data = decodeBase64(body.dataBase64);
   if (!data) throw new AppError('INVALID_INPUT', 'dataBase64 不是合法的 base64');
   if (data.length > MAX_UPLOAD_BYTES) {
     throw new AppError('PAYLOAD_TOO_LARGE', '文件解码后超过 32MiB 上限');
   }
-  let audio: Awaited<ReturnType<typeof inspectKnowledgeAudio>>;
-  try {
-    audio = await inspectKnowledgeAudio({
-      data,
-      filename: body.filename,
-      mimeType: body.mimeType,
-    });
-  } catch (err) {
-    if (isAppError(err)) throw err;
-    throw err;
-  }
+  const audio = await inspectKnowledgeAudio({
+    data,
+    filename: body.filename,
+    mimeType: body.mimeType,
+  });
   if (audio) {
     if (base.status !== 'active') throw new AppError('CONFLICT', '知识库未启用，不能上传音频');
     if (!base.asrProfileId) {
@@ -1325,7 +1308,7 @@ export async function uploadDocument(
     { type: 'ingest', documentId: document.id, publish: 'automatic' },
     { baseId: base.id, documentId: document.id },
   );
-  await writeAudit(deps.db, deps.log, {
+  await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.document.uploaded',
     target: document.id,
@@ -1400,7 +1383,7 @@ export async function deleteDocument(deps: KnowledgeDeps, documentId: string) {
   if (!row) notFound('文档');
   const wikiPagesMarkedStale = await repo.knowledge.markWikiStaleByDocument(deps.db, row.id);
   await repo.knowledge.deleteDocument(deps.db, row.id);
-  await writeAudit(deps.db, deps.log, {
+  await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.document.deleted',
     target: row.id,
@@ -1531,7 +1514,6 @@ export async function createChunk(
     });
   } catch (err) {
     await discardUncommittedVersion(deps.db, dir, versionId);
-    if (isAppError(err)) throw err;
     throw err;
   }
   const jobId = await enqueueChunkReindex(deps, row.baseId, row.id);
@@ -1602,7 +1584,6 @@ export async function updateChunk(
     });
   } catch (err) {
     await discardUncommittedVersion(deps.db, dir, versionId);
-    if (isAppError(err)) throw err;
     throw err;
   }
   const jobId = contentChanged
@@ -1645,7 +1626,6 @@ export async function deleteChunk(
     });
   } catch (err) {
     await discardUncommittedVersion(deps.db, dir, versionId);
-    if (isAppError(err)) throw err;
     throw err;
   }
   return {
@@ -1778,7 +1758,7 @@ export async function saveManualDraft(
   );
   try {
     await enqueueKnowledgeJob(job);
-    await writeAudit(deps.db, deps.log, {
+    await repo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: 'knowledge.document.manual_draft_saved',
       target: document.id,
@@ -1879,7 +1859,7 @@ async function importDocument(
       },
       { baseId: input.baseId, documentId: document.id },
     );
-    await writeAudit(deps.db, deps.log, {
+    await repo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: `knowledge.document.${input.sourceType}_imported`,
       target: document.id,
@@ -2390,7 +2370,6 @@ export async function updateSource(deps: KnowledgeDeps, sourceId: string, body: 
     };
   } catch (err) {
     if (isPgCode(err, '23505')) throw new AppError('CONFLICT', '存在重复的来源范围');
-    if (isAppError(err)) throw err;
     throw err;
   }
 }
@@ -2642,10 +2621,7 @@ async function prepareWikiIndex(
     .limit(1);
   if (!version) return null;
   const data = Buffer.from(version.markdown, 'utf8');
-  const sha = createHash('sha256').update(data).digest('hex');
-  const blobPath = join(deps.config.KNOWLEDGE_DIR, 'blobs', sha.slice(0, 2), sha);
-  await mkdir(dirname(blobPath), { recursive: true });
-  await writeFile(blobPath, data);
+  const sha = await storeBlob(deps.config.KNOWLEDGE_DIR, data);
   return {
     versionId: version.id,
     sizeBytes: data.length,
@@ -2759,7 +2735,6 @@ export async function createWikiPage(
         .delete(schema.knowledgeWikiPages)
         .where(eq(schema.knowledgeWikiPages.id, row.id))
         .catch(() => undefined);
-      if (isAppError(err)) throw err;
       throw err;
     }
   }
@@ -3107,11 +3082,9 @@ async function writeVersionFiles(
   deps: KnowledgeDeps,
   documentId: string,
   versionId: string,
-  blobSha: string,
   markdown: string,
   faqJson: string,
 ): Promise<void> {
-  const blobPath = join(deps.config.KNOWLEDGE_DIR, 'blobs', blobSha.slice(0, 2), blobSha);
   const markdownPath = join(
     deps.config.KNOWLEDGE_DIR,
     'docs',
@@ -3119,8 +3092,7 @@ async function writeVersionFiles(
     versionId,
     'markdown.md',
   );
-  await mkdir(dirname(blobPath), { recursive: true });
-  await writeFile(blobPath, faqJson);
+  await storeBlob(deps.config.KNOWLEDGE_DIR, Buffer.from(faqJson, 'utf8'));
   await mkdir(dirname(markdownPath), { recursive: true });
   await writeFile(markdownPath, markdown);
 }
@@ -3142,7 +3114,7 @@ async function writeFaqVersion(deps: KnowledgeDeps, input: WriteFaqVersionInput)
   const mimeType = 'application/json';
   const blobSha = sha256Hex(faqJson);
   const markdownSha256 = sha256Hex(markdown);
-  await writeVersionFiles(deps, input.document.id, versionId, blobSha, markdown, faqJson);
+  await writeVersionFiles(deps, input.document.id, versionId, markdown, faqJson);
   const payload: KnowledgeJobPayload = {
     type: 'ingest',
     documentId: input.document.id,
@@ -3182,7 +3154,7 @@ async function writeFaqVersion(deps: KnowledgeDeps, input: WriteFaqVersionInput)
     return { version, job };
   });
   await enqueueKnowledgeJob(job);
-  await writeAudit(deps.db, deps.log, {
+  await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: input.auditAction,
     target: input.document.id,
@@ -3308,7 +3280,7 @@ async function prepareImportDraft(
   const markdown = faqMarkdown(input.faq);
   const faqJson = JSON.stringify(input.faq, null, 2);
   const blobSha = sha256Hex(faqJson);
-  await writeVersionFiles(deps, input.documentId, versionId, blobSha, markdown, faqJson);
+  await writeVersionFiles(deps, input.documentId, versionId, markdown, faqJson);
   return {
     draft: {
       ...input,
@@ -3685,24 +3657,18 @@ export async function importFaqs(
       }),
     );
   }
-  let saved: Awaited<ReturnType<typeof repo.knowledge.saveFaqImportDrafts>>;
-  try {
-    saved = await repo.knowledge.saveFaqImportDrafts(deps.db, {
-      baseId: base.id,
-      importBatchId,
-      mode: input.mode,
-      expectedState: targets.map(existingState),
-      drafts: prepared.map(
-        (item) =>
-          item.draft as unknown as Parameters<
-            typeof repo.knowledge.saveFaqImportDrafts
-          >[1]['drafts'][number],
-      ),
-    });
-  } catch (err) {
-    if (isAppError(err)) throw err;
-    throw err;
-  }
+  const saved = await repo.knowledge.saveFaqImportDrafts(deps.db, {
+    baseId: base.id,
+    importBatchId,
+    mode: input.mode,
+    expectedState: targets.map(existingState),
+    drafts: prepared.map(
+      (item) =>
+        item.draft as unknown as Parameters<
+          typeof repo.knowledge.saveFaqImportDrafts
+        >[1]['drafts'][number],
+    ),
+  });
   const jobs = new Map(saved.items.map((item) => [item.documentId, item]));
   for (const item of saved.items) {
     await enqueueKnowledgeJob({ id: item.jobId }).catch((err: unknown) => {
@@ -3715,7 +3681,7 @@ export async function importFaqs(
       ? { ...result, expectedVersionId: item.expectedVersionId, jobId: item.jobId }
       : result;
   });
-  await writeAudit(deps.db, deps.log, {
+  await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.faq.imported',
     target: base.id,
@@ -3963,7 +3929,7 @@ export async function listModelProfiles(deps: KnowledgeDeps, view: 'selection' |
     name: row.name,
     kind: row.kind,
     enabled: row.enabled,
-    supportsImageVectors: row.kind === 'embedding' && supportsImageVectors(row),
+    supportsImageVectors: row.kind === 'embedding' && row.enabled && supportsImageVectors(row),
   }));
 }
 
@@ -4085,7 +4051,10 @@ export async function deleteModelProfile(deps: KnowledgeDeps, profileId: string)
   }
 }
 
-export async function testModelProfile(deps: KnowledgeDeps, profileId: string) {
+export async function testModelProfile(
+  deps: KnowledgeDeps,
+  profileId: string,
+): Promise<{ ok: true } | { ok: false; kind: KnowledgeModelError['kind'] }> {
   const row = await repo.knowledge.getModelProfileWithSecret(deps.db, profileId);
   if (!row) notFound('模型 profile');
   if (row.kind === 'asr') {
@@ -4200,9 +4169,9 @@ export async function getVersionDetails(deps: KnowledgeDeps, versionId: string) 
 export async function getVersionContent(deps: KnowledgeDeps, versionId: string) {
   const version = await repo.knowledge.getVersion(deps.db, versionId);
   if (!version) notFound('版本');
-  const data = await readFile(
-    join(deps.config.KNOWLEDGE_DIR, 'blobs', version.blobSha256.slice(0, 2), version.blobSha256),
-  ).catch(() => null);
+  const data = await readFile(blobPathFor(deps.config.KNOWLEDGE_DIR, version.blobSha256)).catch(
+    () => null,
+  );
   if (!data) notFound('原件');
   return { data, mimeType: version.mimeType, filename: version.originalFilename };
 }
@@ -4264,7 +4233,7 @@ export async function importPackage(deps: KnowledgeDeps, archive: Buffer) {
     throw new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试');
   }
   const result = await importKnowledgePackage(deps.db, deps.config.KNOWLEDGE_DIR, archive);
-  await writeAudit(deps.db, deps.log, {
+  await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.base.imported',
     target: result.baseId,

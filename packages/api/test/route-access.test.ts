@@ -1,8 +1,8 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { contractProcedure } from '@agentport/contract/base';
 import { type PermissionId, permissionIdSchema } from '@agentport/shared';
 import { oc } from '@orpc/contract';
 import { implement } from '@orpc/server';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 import { agentAccess, authorize, requirePermission } from '../src/http/access.js';
 import type { RequestContext } from '../src/http/context.js';
@@ -222,23 +222,16 @@ describe.skipIf(!ready)('route access', () => {
   it('rejects a procedure without explicit access metadata instead of running it', async () => {
     let reached = false;
     const bare = oc.route({ method: 'GET', path: '/undeclared' }).input(z.object({}));
-    const bareRouter = implement({ undeclared: bare } as never)
-      .$context<RequestContext>()
-      .router({
-        undeclared: () => {
-          reached = true;
-          return { ok: true };
-        },
-      } as never);
-    let rejected = false;
-    try {
-      const bareApp = buildTestApp(runtime, bareRouter);
-      const res = await request(bareApp, { method: 'GET', url: '/api/undeclared' });
-      rejected = res.statusCode === 500;
-    } catch {
-      rejected = true;
-    }
-    expect(rejected).toBe(true);
+    const implementation = implement({ undeclared: bare }).$context<RequestContext>();
+    const bareRouter = {
+      undeclared: implementation.undeclared.handler(() => {
+        reached = true;
+        return { ok: true };
+      }),
+    };
+    expect(() => buildTestApp(runtime, bareRouter)).toThrow(
+      'contract procedure undeclared is missing access metadata',
+    );
     expect(reached).toBe(false);
   });
 
@@ -452,14 +445,17 @@ describe.skipIf(!ready)('route access', () => {
       expect(res.statusCode, res.body).toBe(200);
     }
 
-    const audit = await runtime.client.unsafe<{
-      actor: string;
-      actor_kind: string;
-      subject_business_id: string | null;
-      target: string | null;
-    }[]>(
+    const audit = await runtime.client.unsafe<
+      {
+        actor: string;
+        actor_kind: string;
+        subject_business_id: string | null;
+        target: string | null;
+      }[]
+    >(
       `select actor, actor_kind, subject_business_id, target from audit_log
-        where action = 'access.cross_user.runs.read' and target = any($1::text[])`, [runtime.client.array(runIds, 'TEXT')],
+        where action = 'access.cross_user.runs.read' and target = any($1::text[])`,
+      [runtime.client.array(runIds, 'TEXT')],
     );
     expect(audit.map((row) => row.target).sort()).toEqual([...runIds].sort());
     for (const row of audit) {
@@ -473,11 +469,13 @@ describe.skipIf(!ready)('route access', () => {
     expect(
       (await authorize(admin, { permissionId: 'agents.read', agentId: agentA })).statusCode,
     ).toBe(200);
-    const audit = await runtime.client.unsafe<{
-      actor: string;
-      actor_kind: string;
-      subject_business_id: string | null;
-    }[]>(
+    const audit = await runtime.client.unsafe<
+      {
+        actor: string;
+        actor_kind: string;
+        subject_business_id: string | null;
+      }[]
+    >(
       `select actor, actor_kind, subject_business_id from audit_log
         where action = 'access.cross_user.agents.read' and target = $1`,
       [agentA],

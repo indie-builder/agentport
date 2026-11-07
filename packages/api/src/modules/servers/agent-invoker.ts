@@ -2,10 +2,11 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fail } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { RUN_QUEUE_MAX_WAITING, runEnqueueOptions } from '@agentport/shared';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { AppContext } from '../../http/context.js';
 import { getQueue } from '../../queue/producer.js';
 import { cancelAgentRun } from '../chat/cancel-run.js';
+import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import type { AgentInvoker } from './agent-tools.js';
 
 const writeAudit = repo.audit.writeAudit;
@@ -85,16 +86,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
         } catch (err) {
           // 只收口仍由本次调用持有的 queued run；worker 已领取或已终态时不得覆盖。
           try {
-            const [failed] = await app.db
-              .update(schema.agentRuns)
-              .set({
-                status: 'failed',
-                endedAt: new Date(),
-                error: '消息入队失败，请重新发送。',
-                errorKind: 'infra',
-              })
-              .where(and(eq(schema.agentRuns.id, run.id), eq(schema.agentRuns.status, 'queued')))
-              .returning({ id: schema.agentRuns.id });
+            const failed = await failQueuedRunEnqueue(app.db, run.id);
             if (failed) {
               await getQueue()
                 .getJob(run.id)
@@ -102,7 +94,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
                 .catch(() => undefined);
             }
           } catch {
-            // 清理也失败时没有可安全回显的细节，仍然返回固定的入队失败。
+            app.log.warn({ runId: run.id }, 'MCP enqueue failure cleanup failed');
           }
           // 不把 Redis 连接串/凭证回给 MCP 客户端；原始错误只作为 cause 留在本地。
           fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试', { cause: err });

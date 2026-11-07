@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
+import { browserFetch } from './support/browser-api.js';
 import { fixture as runFixture } from './support/fixture.js';
 
 /**
@@ -120,39 +121,13 @@ async function nodeApi<T = unknown>(
   return { status: response.status, json, text };
 }
 
-interface ApiResponse {
-  status: number;
-  text: string;
-}
-
-/** 同源请求：复用浏览器里的登录 cookie。 */
-async function apiRaw(
-  browser: Browser,
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<ApiResponse> {
-  return browser.evaluate(
-    async (input: { method: string; path: string; body: string | null }) => {
-      const response = await fetch(input.path, {
-        method: input.method,
-        ...(input.body === null
-          ? {}
-          : { headers: { 'content-type': 'application/json' }, body: input.body }),
-      });
-      return { status: response.status, text: await response.text() };
-    },
-    { method, path, body: body === undefined ? null : JSON.stringify(body) },
-  );
-}
-
 async function apiJson<T>(
   browser: Browser,
   method: string,
   path: string,
   body?: unknown,
 ): Promise<{ status: number; json: T | null }> {
-  const response = await apiRaw(browser, method, path, body);
+  const response = await browserFetch(browser, method, path, body);
   let json: T | null = null;
   try {
     json = response.text === '' ? null : (JSON.parse(response.text) as T);
@@ -166,7 +141,7 @@ async function loginAs(
   browser: Browser,
   account: Pick<Account, 'username' | 'password'>,
 ): Promise<void> {
-  const result = await apiRaw(browser, 'POST', '/api/auth/login', {
+  const result = await browserFetch(browser, 'POST', '/api/auth/login', {
     username: account.username,
     password: account.password,
   });

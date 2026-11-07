@@ -1,12 +1,8 @@
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
+import { browserFetch } from './support/browser-api.js';
 import { fixture as runFixture } from './support/fixture.js';
 
-/**
- * 迁移自 e2e/regression.spec.ts 的其余 4 条。
- * Playwright 用 `page.getByRole(...).click()` 导航；e2e 用 `app.open()` 直达，
- * 更稳定且不依赖侧栏交互。
- */
 test('runs page lists executions and opens detail', { session: 'admin' }, async ({
   app,
   screen,
@@ -18,9 +14,6 @@ test('runs page lists executions and opens detail', { session: 'admin' }, async 
     await expect(screen.getByRole('heading', '运行')).toBeVisible();
     const row = browser.locator('button[data-row]').first();
     await expect(row).toBeVisible();
-    const empty = await screen.getByText('没有匹配的运行', { exact: false }).isVisible();
-    const table = await browser.locator('section[aria-label], table').first().isVisible();
-    expect(empty || table).toBe(true);
     await row.tap();
     await expect(browser).toHaveURL(new RegExp(`/runs/${runId}(?:\\?.*)?$`));
     await expect(screen.getByRole('button', '重跑')).toBeVisible();
@@ -55,14 +48,45 @@ test('audit page shows recorded actions', { session: 'admin' }, async ({ app, sc
 
 test('skills page supports create', { session: 'admin' }, async ({ app, screen, browser }) => {
   const slug = `e2e-skill-${Date.now().toString(36)}`;
-  await app.open('/skills');
-  await screen.getByRole('button', '新建技能').first().tap();
-  await browser.locator('#skill-name').fill('E2E 技能');
-  await browser.locator('#skill-slug').fill(slug);
-  await browser.locator('#skill-desc').fill('端到端测试创建的技能');
-  await screen.getByRole('button', '保存').tap();
-  await expect(screen.getByText('技能已创建')).toBeVisible();
-  await expect(screen.getByText(slug, { exact: false }).first()).toBeVisible();
+  const name = `E2E 技能 ${slug}`;
+  let skillId: string | undefined;
+  let creation: Promise<void> | undefined;
+  const errors: unknown[] = [];
+  try {
+    await app.open('/skills');
+    await screen.getByRole('button', '新建技能').first().tap();
+    await browser.locator('#skill-name').fill(name);
+    await browser.locator('#skill-slug').fill(slug);
+    await browser.locator('#skill-desc').fill('端到端测试创建的技能');
+    creation = browser.waitForResponse(/\/api\/skills$/).then(async (response) => {
+      if (response.status === 201) skillId = (await response.json<{ id: string }>()).id;
+    });
+    await Promise.all([screen.getByRole('button', '保存').tap(), creation]);
+    await expect(screen.getByText('技能已创建')).toBeVisible();
+    await expect(screen.getByRole('button', { name, exact: true })).toBeVisible();
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    await creation?.catch((error) => {
+      if (!errors.includes(error)) errors.push(error);
+    });
+    if (skillId !== undefined) {
+      try {
+        const response = await browserFetch(browser, 'DELETE', `/api/skills/${skillId}`);
+        if (response.status !== 204 && response.status !== 404) {
+          errors.push(
+            new Error(`清理 skills/${skillId} 失败 ${response.status}：${response.text}`),
+          );
+        }
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new AggregateError(errors, 'regression 技能清理失败');
+  }
 });
 
 test('skill cancel preserves unsaved form until discard is confirmed', {

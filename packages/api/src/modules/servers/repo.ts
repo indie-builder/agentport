@@ -1,8 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
-import { type Database, newId, schema } from '@agentport/db';
-import type { ServerRow } from '@agentport/db/repo/servers.js';
-import * as serverRepo from '@agentport/db/repo/servers.js';
+import { type Database, newId, repo, schema } from '@agentport/db';
 import type {
   ApiTool,
   ApiToolInput,
@@ -32,11 +30,11 @@ export async function recordTestResult(
   toolCount: number | null,
   runtimeEnvironment: ResolvedRuntimeEnvironment | null,
 ): Promise<void> {
-  await serverRepo.recordTestResult(db, id, ok, toolCount, runtimeEnvironment);
+  await repo.servers.recordTestResult(db, id, ok, toolCount, runtimeEnvironment);
 }
 
 /** DB 行 + 解密后的 env/headers → 共享 Server 形状（仍含明文 secret）。 */
-export function toApiServer(row: ServerRow, keyB64url: string): Server {
+export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Server {
   const secrets = row.secretsEncrypted ? decryptSecrets(row.secretsEncrypted, keyB64url) : {};
   const config = row.config;
   const base = {
@@ -112,19 +110,19 @@ function randomToken(): string {
 }
 
 export async function listServers(db: Db, key: string): Promise<Server[]> {
-  const rows = await serverRepo.listServers(db);
+  const rows = await repo.servers.listServers(db);
   // 知识库连接器由知识库生命周期管理，不出现在用户可编辑的连接器列表里。
   return rows
     .filter((row) => row.kind !== 'knowledge')
     .map((row) => maskServer(toApiServer(row, key)));
 }
 
-export async function getServerRow(db: Db, id: string): Promise<ServerRow | null> {
-  return serverRepo.getServer(db, id);
+export async function getServerRow(db: Db, id: string): Promise<repo.servers.ServerRow | null> {
+  return repo.servers.getServer(db, id);
 }
 
 export async function getServer(db: Db, id: string, key: string): Promise<Server | null> {
-  const row = await serverRepo.getServer(db, id);
+  const row = await repo.servers.getServer(db, id);
   return row ? maskServer(toApiServer(row, key)) : null;
 }
 
@@ -134,13 +132,13 @@ export async function getServerWithSecrets(
   id: string,
   key: string,
 ): Promise<Server | null> {
-  const row = await serverRepo.getServer(db, id);
+  const row = await repo.servers.getServer(db, id);
   return row ? toApiServer(row, key) : null;
 }
 
 export async function createServer(db: Db, input: ServerInput, key: string): Promise<Server> {
   const split = splitInput(input, key);
-  const row = await serverRepo.createServer(db, {
+  const row = await repo.servers.createServer(db, {
     name: input.name,
     kind: input.kind,
     description: input.description,
@@ -229,7 +227,7 @@ export async function updateServer(
   // 整个「读 → 解密合并 → 加密写」放进一个事务并先锁行：否则并发 PATCH
   // 会用各自的旧快照覆盖对方，rotate 也会把并发改过的 baseUrl 写回去。
   return db.transaction(async (tx) => {
-    const row = await serverRepo.lockServer(tx, id);
+    const row = await repo.servers.lockServer(tx, id);
     if (!row) return null;
     // 并发编辑：调用方带上首次加载的 updatedAt，不匹配就不写。
     if (
@@ -289,7 +287,7 @@ export async function updateServer(
       key,
       typeof row.config.mcpToken === 'string' ? row.config.mcpToken : undefined,
     );
-    const updated = await serverRepo.updateServer(
+    const updated = await repo.servers.updateServer(
       tx,
       id,
       {
@@ -305,10 +303,10 @@ export async function updateServer(
 }
 
 export async function deleteServer(db: Db, id: string): Promise<boolean> {
-  return serverRepo.deleteServer(db, id);
+  return repo.servers.deleteServer(db, id);
 }
 
-export function toApiTool(row: serverRepo.ApiToolRow): ApiTool {
+export function toApiTool(row: repo.servers.ApiToolRow): ApiTool {
   return {
     id: row.id,
     serverId: row.serverId,
@@ -325,12 +323,12 @@ export function toApiTool(row: serverRepo.ApiToolRow): ApiTool {
 }
 
 export async function listTools(db: Db, serverId: string): Promise<ApiTool[]> {
-  const rows = await serverRepo.listApiTools(db, serverId);
+  const rows = await repo.servers.listApiTools(db, serverId);
   return rows.map(toApiTool);
 }
 
 export async function createTool(db: Db, serverId: string, input: ApiToolInput): Promise<ApiTool> {
-  const row = await serverRepo.createApiTool(db, {
+  const row = await repo.servers.createApiTool(db, {
     serverId,
     name: input.name,
     description: input.description,
@@ -347,19 +345,19 @@ export async function updateTool(
   db: Db,
   serverId: string,
   toolId: string,
-  patch: serverRepo.ApiToolPatch,
+  patch: repo.servers.ApiToolPatch,
 ): Promise<ApiTool | null> {
-  const row = await serverRepo.updateApiTool(db, serverId, toolId, patch);
+  const row = await repo.servers.updateApiTool(db, serverId, toolId, patch);
   return row ? toApiTool(row) : null;
 }
 
 export async function deleteTool(db: Db, serverId: string, toolId: string): Promise<boolean> {
-  return serverRepo.deleteApiTool(db, serverId, toolId);
+  return repo.servers.deleteApiTool(db, serverId, toolId);
 }
 
 /** 只读 mcpToken，供测试连接与平台内部使用。 */
 export async function getMcpToken(db: Db, id: string): Promise<string | null> {
-  const row = await serverRepo.getServer(db, id);
+  const row = await repo.servers.getServer(db, id);
   const token = row?.config.mcpToken;
   return typeof token === 'string' ? token : null;
 }
@@ -368,10 +366,10 @@ export async function getMcpToken(db: Db, id: string): Promise<string | null> {
 export async function rotateMcpToken(db: Db, id: string): Promise<string | null> {
   // token 在锁内生成并写回：与并发 PATCH 串行化，不会出现「PATCH 又写回旧 token」。
   return db.transaction(async (tx) => {
-    const row = await serverRepo.lockServer(tx, id);
+    const row = await repo.servers.lockServer(tx, id);
     if (row?.kind !== 'generated') return null;
     const token = randomToken();
-    const updated = await serverRepo.updateServer(tx, id, {
+    const updated = await repo.servers.updateServer(tx, id, {
       config: { ...row.config, mcpToken: token },
     });
     return updated ? token : null;

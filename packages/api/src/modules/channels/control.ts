@@ -1,20 +1,19 @@
 import { channelsContract } from '@agentport/contract/channels';
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { type ChatEvent, wireFailureKind } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
-import { type SSEStreamingApi, streamSSE } from 'hono/streaming';
+import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { publishChannelEvent, subscribeRun } from '../../queue/producer.js';
 import { cancelAgentRun } from '../chat/cancel-run.js';
 import type { NativeHttpDependencies } from '../chat/http.js';
+import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
 
 const channelControl = repo.channelControl;
 const TERMINAL_RECHECK_MS = 2000;
@@ -27,24 +26,7 @@ function toActiveRun(run: ControlRun) {
     startedAt: run.startedAt?.toISOString() ?? null,
   };
 }
-function terminalEvent(run: repo.channelControl.ChannelRunRow): ChatEvent | null {
-  switch (run.status) {
-    case 'succeeded':
-    case 'failed':
-    case 'cancelled':
-    case 'timeout':
-      return {
-        type: 'run_finished',
-        status: run.status,
-        ...(run.costUsd !== null ? { costUsd: Number(run.costUsd) } : {}),
-        ...(run.turns !== null ? { turns: run.turns } : {}),
-        ...(run.error !== null ? { error: run.error } : {}),
-        ...(run.errorKind === null ? {} : { failureKind: wireFailureKind(run.errorKind) }),
-      };
-    default:
-      return null;
-  }
-}
+
 function notFound(message = '频道不存在或你不是频道成员'): never {
   return fail('NOT_FOUND', message);
 }
@@ -99,9 +81,7 @@ async function cancelRunBatch(
   }
   return { cancelled, failedRunIds };
 }
-async function writeEvent(stream: SSEStreamingApi, event: ChatEvent): Promise<void> {
-  await stream.writeSSE({ data: JSON.stringify(event) });
-}
+
 const os = implement(channelsContract).$context<RequestContext>();
 export const channelsControlRouter = {
   activeRuns: os.activeRuns.handler(async ({ input, context }) => {
@@ -133,7 +113,7 @@ export const channelsControlRouter = {
       case 'ok': {
         const cancelled = await cancelRun(context, id, result.run);
         if (cancelled) {
-          await writeAudit(context.db, context.log, {
+          await repo.audit.writeAudit(context.db, context.log, {
             actor: actorOf(context),
             action: 'agent.run.cancelled',
             target: result.run.id,
@@ -165,7 +145,7 @@ export const channelsControlRouter = {
             { channelId: id, failedRunIds: cancel.failedRunIds },
             'channel disconnect left runs uncancelled',
           );
-          await writeAudit(context.db, context.log, {
+          await repo.audit.writeAudit(context.db, context.log, {
             actor: actorOf(context),
             action: 'channel.agent.disconnected',
             target: agentId,
@@ -179,7 +159,7 @@ export const channelsControlRouter = {
           });
           throw new AppError('SERVICE_UNAVAILABLE', '智能体已断开，但部分运行未能停止，请重试');
         }
-        await writeAudit(context.db, context.log, {
+        await repo.audit.writeAudit(context.db, context.log, {
           actor: actorOf(context),
           action: 'channel.agent.disconnected',
           target: agentId,
@@ -210,7 +190,7 @@ export const channelsControlRouter = {
             { channelId: id, failedRunIds: cancel.failedRunIds },
             'channel close left runs uncancelled',
           );
-          await writeAudit(context.db, context.log, {
+          await repo.audit.writeAudit(context.db, context.log, {
             actor: actorOf(context),
             action: 'channel.closed',
             target: id,
@@ -220,7 +200,7 @@ export const channelsControlRouter = {
           });
           throw new AppError('SERVICE_UNAVAILABLE', '频道已关闭，但部分运行未能停止，请重试');
         }
-        await writeAudit(context.db, context.log, {
+        await repo.audit.writeAudit(context.db, context.log, {
           actor: actorOf(context),
           action: 'channel.closed',
           target: id,
@@ -280,7 +260,7 @@ export function registerChannelRunEventsHttp(
       };
       const lostAccess = async (): Promise<void> => {
         try {
-          await writeEvent(stream, {
+          await writeChatEvent(stream, {
             type: 'run_unavailable',
             message: '运行记录已不存在，或当前账户已无权读取该频道运行，已停止接收。',
           });
@@ -312,15 +292,15 @@ export function registerChannelRunEventsHttp(
           await lostAccess();
           return;
         }
-        const missed = terminalEvent(current.run);
+        const missed = terminalRunEvent(current.run);
         if (!missed) {
           scheduleRecheck();
           return;
         }
         finishing = true;
         try {
-          await writeEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
-          await writeEvent(stream, missed);
+          await writeChatEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
+          await writeChatEvent(stream, missed);
         } catch (err) {
           context.log.error({ err, runId }, 'channel run sse write failed');
         }
@@ -346,7 +326,7 @@ export function registerChannelRunEventsHttp(
               finishing = true;
               context.log.error({ runId }, 'channel run sse membership check failed');
               try {
-                await writeEvent(stream, {
+                await writeChatEvent(stream, {
                   type: 'error',
                   message: '事件流中断，请刷新页面或重试',
                 });
@@ -368,7 +348,7 @@ export function registerChannelRunEventsHttp(
               event.type === 'run_unavailable';
             if (terminal) finishing = true;
             try {
-              await writeEvent(stream, event);
+              await writeChatEvent(stream, event);
             } catch (err) {
               context.log.error({ err, runId }, 'channel run sse write failed');
               finish();
@@ -381,7 +361,7 @@ export function registerChannelRunEventsHttp(
       } catch (err) {
         context.log.error({ err, runId }, 'channel run sse subscribe failed');
         try {
-          await writeEvent(stream, {
+          await writeChatEvent(stream, {
             type: 'error',
             message: '事件流中断，请刷新页面或重试',
           });
@@ -393,12 +373,12 @@ export function registerChannelRunEventsHttp(
         subscription.close();
         return;
       }
-      const finished = terminalEvent(run);
+      const finished = terminalRunEvent(run);
       if (finished) {
         finishing = true;
         try {
-          await writeEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
-          await writeEvent(stream, finished);
+          await writeChatEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
+          await writeChatEvent(stream, finished);
         } catch (err) {
           context.log.error({ err, runId }, 'channel run sse write failed');
         }

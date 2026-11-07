@@ -7,7 +7,7 @@ metadata:
   source: Generated from https://github.com/vitest-dev/vitest, scripts located at https://github.com/antfu/skills
 ---
 
-> **Project convention (applies to this file and the linked references):** This repo pins Vitest 5.0.5 in the root `package.json`; the skill text is generated from 5.1.0-beta.1. Verify an API against the installed version before using it, do not use 5.1-only features, and do not upgrade Vitest as part of a task. Run tests through the existing root `vitest.config.ts` projects (`backend` and `web`, with `packages/web/vitest.config.ts`) via `pnpm test` / `pnpm test:watch`, not with ad-hoc configs.
+> **Project convention (applies to this file and the linked references):** This repo pins Vitest 5.0.5 in the root `package.json`; the skill text is generated from 5.1.0-beta.1. Verify an API against the installed version before using it, do not use 5.1-only features, and do not upgrade Vitest as part of a task. Backend tests use Bun's built-in runner (`bun run test` → `scripts/test-backend.ts`, `bun:test --isolate`), not Vitest. Vitest only owns the web suite: `bun run test:web` runs `packages/web/vitest.config.ts` (jsdom, `packages/web/test/**/*.test.ts`, no `.env`), and the root `vitest.config.ts` only registers that web project. Filter with `bun run test:web -- <paths>` or `bunx vitest run --config packages/web/vitest.config.ts <paths>`; do not add ad-hoc configs or pnpm commands.
 
 Vitest is a next-generation testing framework powered by Vite. It provides a Jest-compatible API with native ESM, TypeScript, and JSX support out of the box. Vitest shares the same config, transformers, resolvers, and plugins with your Vite app.
 

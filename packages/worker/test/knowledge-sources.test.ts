@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { sanitizeSegment, trimSlash, uniquePath } from '../src/knowledge/source-paths.js';
 import {
   probeSource,
@@ -707,6 +707,10 @@ async function handleArticle(request: IncomingMessage, response: ServerResponse)
     );
     return;
   }
+  if (url.pathname === '/articles/missing') {
+    response.writeHead(503).end('unavailable');
+    return;
+  }
   if (url.pathname === '/articles/atom') {
     response.writeHead(200, { 'content-type': 'text/html' });
     response.end('<html><body><article><p>Atom full text from page</p></article></body></html>');
@@ -784,9 +788,9 @@ function feishuConfig(settings: Record<string, unknown> = {}): SourceConfig {
   return {
     type: 'feishu',
     url: `${mainUrl}/feishu`,
-    credentials: { appId: 'cli_app', appSecret: 'cli_secret' },
+    credentials: { appSecret: 'cli_secret' },
     allowLoopback: true,
-    settings: { spaceId: 'spc1', ...settings },
+    settings: { appId: 'cli_app', spaceId: 'spc1', ...settings },
   };
 }
 
@@ -794,9 +798,9 @@ function feishuDriveConfig(settings: Record<string, unknown> = {}): SourceConfig
   return {
     type: 'feishu',
     url: `${mainUrl}/feishu`,
-    credentials: { appId: 'cli_app', appSecret: 'cli_secret' },
+    credentials: { appSecret: 'cli_secret' },
     allowLoopback: true,
-    settings: { folderToken: 'fld1', ...settings },
+    settings: { appId: 'cli_app', folderToken: 'fld1', ...settings },
   };
 }
 
@@ -894,6 +898,47 @@ describe('RSS/Atom/JSON sources', () => {
 
     expect(cursorOf(snapshot).initial).toBe(true);
     expect(Object.keys(cursorOf(snapshot).itemHashes ?? {})).toHaveLength(2);
+    expect(second?.completeness).toBe('summary');
+
+    const arrived = Promise.withResolvers<void>();
+    const disconnected = Promise.withResolvers<void>();
+    const paths: string[] = [];
+    const upstream = await startServer((request, response) => {
+      const path = request.url ?? '';
+      paths.push(path);
+      if (path === '/feed') {
+        xml(
+          response,
+          `<rss version="2.0"><channel><title>Cancel</title>
+          <item><guid>1</guid><title>first</title><link>${upstream.url}/held</link><description>summary</description></item>
+          <item><guid>2</guid><title>later</title><link>${upstream.url}/later</link><description>summary</description></item>
+        </channel></rss>`,
+        );
+        return;
+      }
+      response.once('close', () => disconnected.resolve());
+      response.writeHead(200, { 'content-type': 'text/html' });
+      response.write('<article>held');
+      arrived.resolve();
+    });
+    const controller = new AbortController();
+    const reading = readSource(rssConfig(`${upstream.url}/feed`), undefined, controller.signal);
+    const outcome = reading.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    try {
+      await within(2000, arrived.promise, 'article request did not arrive');
+      controller.abort();
+      await within(2000, disconnected.promise, 'article request did not abort');
+      expect(await outcome).toBeInstanceOf(Error);
+      expect(((await outcome) as Error).name).toBe('AbortError');
+      expect(paths).toEqual(['/feed', '/held']);
+    } finally {
+      controller.abort();
+      await upstream.close();
+      await outcome;
+    }
   });
 
   it('marks later reads and carries stable content hashes in the cursor', async () => {
@@ -1273,22 +1318,6 @@ describe('Feishu source', () => {
   it('can start from a selected wiki node', async () => {
     const snapshot = await readSource(feishuConfig({ nodeToken: 'nod1' }));
     expect(snapshot.items.map((item) => item.path).sort()).toEqual(['Guide.md', 'Guide/Child.md']);
-  });
-
-  it('supports a direct access token without exchanging app credentials', async () => {
-    const snapshot = await readSource({
-      ...feishuConfig(),
-      credentials: { accessToken: 'direct-token' },
-    });
-
-    expect(snapshot.items).toHaveLength(3);
-    expect(
-      state.mainRequests.some((request) => request.path.endsWith('/tenant_access_token/internal')),
-    ).toBe(false);
-    expect(
-      state.mainRequests.find((request) => request.path.endsWith('/wiki/v2/spaces/spc1/nodes'))
-        ?.headers.authorization,
-    ).toBe('Bearer direct-token');
   });
 
   it('reads Drive folders, docx blocks and text files', async () => {

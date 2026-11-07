@@ -67,11 +67,10 @@ function topLevelOf(path: string): string {
   return first ?? path;
 }
 
-/** 空段与 `.` 会让 join 指向目录（或原目录），写入时整次运行失败；导入阶段就拒。 */
 function assertCleanPath(path: string): void {
-  const segments = path.split('/');
-  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
-    fail('INVALID_INPUT', '插件路径不能包含空段、. 或 ..', { path });
+  const result = pluginFilePathSchema.safeParse(path);
+  if (!result.success) {
+    fail('INVALID_INPUT', result.error.issues[0]?.message ?? '插件路径非法', { path });
   }
 }
 

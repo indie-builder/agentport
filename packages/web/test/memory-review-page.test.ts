@@ -733,7 +733,7 @@ describe('记忆提案', () => {
       items: [makeReview({ runId: 'run-conflict' })],
     });
     vi.mocked(api.applyMemoryReview).mockRejectedValue(
-      new ApiError(409, '目标内容在审核后已被修改，请重新发起审核', { code: 'CONFLICT' }),
+      new ApiError(409, '审核目标的版本已过期', { code: 'CONFLICT_STALE' }),
     );
     await mount();
     const dialog = await openFirstDetail();

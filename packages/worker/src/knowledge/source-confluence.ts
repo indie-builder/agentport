@@ -1,12 +1,20 @@
-import { errorText } from '@agentport/shared';
 import { z } from 'zod';
 import {
+  BINARY_MIME_BY_EXTENSION,
+  EXTENSION_BY_MIME,
+  extensionOf,
+  TEXT_MIME_BY_EXTENSION,
+} from './source-formats.js';
+import {
   type FetchOptions,
+  sourceFailure as failureOf,
   fetchBytes,
   fetchChecked,
   fetchJson,
+  SourceItemError as ItemError,
   readBytesCapped,
   SourceAuthError,
+  sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, trimSlash, uniquePath } from './source-paths.js';
@@ -140,80 +148,6 @@ const dcAttachmentListSchema = z.object({
   _links: z.object({ next: z.string().optional() }).optional(),
 });
 
-const TEXT_MIME_BY_EXTENSION: Record<string, string> = {
-  '.md': 'text/markdown',
-  '.markdown': 'text/markdown',
-  '.mdx': 'text/markdown',
-  '.txt': 'text/plain',
-  '.html': 'text/html',
-  '.htm': 'text/html',
-  '.csv': 'text/csv',
-  '.json': 'application/json',
-  '.xml': 'application/xml',
-  '.yaml': 'application/yaml',
-  '.yml': 'application/yaml',
-};
-
-const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.doc': 'application/msword',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.ppt': 'application/vnd.ms-powerpoint',
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.xls': 'application/vnd.ms-excel',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.odt': 'application/vnd.oasis.opendocument.text',
-  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
-  '.odp': 'application/vnd.oasis.opendocument.presentation',
-  '.rtf': 'application/rtf',
-  '.epub': 'application/epub+zip',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-};
-
-const EXTENSION_BY_MIME: Record<string, string> = {
-  'application/pdf': 'pdf',
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-  'application/rtf': 'rtf',
-  'application/epub+zip': 'epub',
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-  'text/plain': 'txt',
-  'text/html': 'html',
-  'text/csv': 'csv',
-  'text/markdown': 'md',
-  'application/json': 'json',
-  'application/xml': 'xml',
-};
-
-class ItemError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = 'ItemError';
-  }
-}
-
-function networkOptions(config: SourceConfig): Network {
-  return {
-    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
-    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
-  };
-}
-
 function requireValue(value: string | undefined, message: string): string {
   const trimmed = value?.trim() ?? '';
   if (trimmed === '') throw new Error(message);
@@ -222,7 +156,7 @@ function requireValue(value: string | undefined, message: string): string {
 
 async function authenticate(config: SourceConfig): Promise<Auth> {
   const settings = settingsSchema.parse(config.settings);
-  const network = networkOptions(config);
+  const network = sourceNetworkOptions(config);
   const site = new URL(await validateSourceUrl(settings.siteUrl || config.url, network));
   if (site.search || site.hash) {
     throw new Error('confluence site URL must not contain a query or fragment');
@@ -403,24 +337,8 @@ async function fetchJsonWithNext<T>(
   return { data: parsed.data, ...(next === undefined ? {} : { next }) };
 }
 
-function failureOf(externalId: string, title: string, err: unknown): SourceFailure {
-  const itemError = err instanceof ItemError ? err : undefined;
-  return {
-    externalId,
-    title,
-    code: itemError?.code ?? 'fetch_failed',
-    message: errorText(err).slice(0, 500),
-    retryable: itemError?.retryable ?? true,
-  };
-}
-
 function rethrowAuth(err: unknown): void {
   if (err instanceof SourceAuthError) throw err;
-}
-
-function extensionOf(value: string): string {
-  const dot = value.lastIndexOf('.');
-  return dot < 0 ? '' : value.slice(dot).toLowerCase();
 }
 
 function mimeOfFile(name: string, declared: string | undefined): string | undefined {

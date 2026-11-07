@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import type { DbHandle } from '../client.js';
 import {
   agentMembers,
   agentRuns,
@@ -14,7 +15,6 @@ import {
   userPreferences,
   userRoles,
 } from '../schema.js';
-import type { DbHandle } from './access.js';
 
 /**
  * 历史业务身份的并集：没有身份登记表，登记事实来自认证账户与全部业务关联。

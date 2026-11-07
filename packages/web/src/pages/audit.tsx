@@ -9,6 +9,7 @@ import { ErrorState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { type AuditEntry, type AuditStatus, api } from '../lib/api.js';
+import { downloadBlob } from '../lib/browser-files.js';
 import {
   auditStatusLabel,
   auditStatusVariant,
@@ -136,16 +137,10 @@ export function AuditPage() {
         ...(status === 'all' ? {} : { status }),
         ...(settledTarget ? { target: settledTarget } : {}),
       });
-      const url = URL.createObjectURL(
+      downloadBlob(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        'audit.json',
       );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'audit.json';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       toastError(error);
     } finally {

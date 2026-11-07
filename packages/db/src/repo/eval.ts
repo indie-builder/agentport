@@ -1,32 +1,8 @@
 import type { AccessFilter } from '@agentport/shared';
-import { and, asc, desc, eq, isNull, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
-import {
-  agentMembers,
-  agents,
-  type EvalCaseSnapshot,
-  evalCases,
-  evalResults,
-  evalRuns,
-} from '../schema.js';
-
-/** 评估资料按专家范围可见：P 全部，W 本人负责，M 本人负责或 canMaintain。 */
-function evalAccessWhere(access: AccessFilter, agentIdColumn: SQLWrapper): SQL | undefined {
-  if (access.scopes.includes('platform')) return undefined;
-  const visible: SQL[] = [];
-  if (access.scopes.includes('maintained_agents')) {
-    visible.push(
-      sql`(exists (select 1 from ${agents} a where a.id = ${agentIdColumn} and a.owner_business_id = ${access.businessId})
-        or exists (select 1 from ${agentMembers} m where m.agent_id = ${agentIdColumn} and m.business_id = ${access.businessId} and m.can_maintain))`,
-    );
-  }
-  if (access.scopes.includes('owned_agents')) {
-    visible.push(
-      sql`exists (select 1 from ${agents} a where a.id = ${agentIdColumn} and a.owner_business_id = ${access.businessId})`,
-    );
-  }
-  return visible.length === 0 ? sql`false` : sql`(${sql.join(visible, sql` or `)})`;
-}
+import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../schema.js';
+import { maintainedAgentScopeWhere } from './access.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
@@ -62,7 +38,7 @@ export async function listCases(
   agentId?: string,
 ): Promise<EvalCase[]> {
   const filters: SQL[] = [];
-  const accessWhere = evalAccessWhere(access, evalCases.agentId);
+  const accessWhere = maintainedAgentScopeWhere(access, evalCases.agentId);
   if (accessWhere) filters.push(accessWhere);
   if (agentId !== undefined) filters.push(eq(evalCases.agentId, agentId));
   return db
@@ -188,7 +164,7 @@ export async function listRuns(
   options: { agentId?: string; cursor?: string; limit: number; access: AccessFilter },
 ): Promise<EvalRunPage | null> {
   const filters: SQL[] = [];
-  const accessWhere = evalAccessWhere(options.access, evalRuns.agentId);
+  const accessWhere = maintainedAgentScopeWhere(options.access, evalRuns.agentId);
   if (accessWhere) filters.push(accessWhere);
   if (options.agentId !== undefined) filters.push(eq(evalRuns.agentId, options.agentId));
   if (options.cursor !== undefined) {

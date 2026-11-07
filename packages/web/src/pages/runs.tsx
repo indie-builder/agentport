@@ -1,3 +1,4 @@
+import { runStatusSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RefreshCw } from 'lucide-react';
@@ -20,6 +21,7 @@ import {
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { api, errorMessage, type RunListItem, type RunStatus } from '../lib/api.js';
+import { downloadBlob } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
 import {
   formatCost,
@@ -33,7 +35,7 @@ import {
 import { meQuery, useAgents, useRuns } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
 
-const statuses: RunStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'];
+const statuses = runStatusSchema.options;
 
 function ExpandableError({ error }: { error: string }) {
   const [open, setOpen] = useState(false);
@@ -247,16 +249,10 @@ export function RunsPage() {
         ...(agentId ? { agentId } : {}),
         ...(status ? { status } : {}),
       });
-      const url = URL.createObjectURL(
+      downloadBlob(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        'runs.json',
       );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'runs.json';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       toastError(error);
     } finally {

@@ -1,4 +1,4 @@
-import { RUNTIME_ENVIRONMENT_BUILDS_QUEUE } from '@agentport/shared';
+import { RUNTIME_ENVIRONMENT_BUILDS_QUEUE, runtimeBuildEnqueueOptions } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
@@ -6,7 +6,6 @@ import {
   RUNTIME_ENVIRONMENT_BUILD_JOB,
   RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS,
   type RuntimeEnvironmentBuildStore,
-  runtimeEnvironmentBuildEnqueueOptions,
 } from './build.js';
 
 const RECONCILE_MS = 5 * 60_000;
@@ -37,7 +36,7 @@ export interface RuntimeEnvironmentBuildQueueLike {
   add: (
     name: string,
     data: { versionId: string },
-    opts: ReturnType<typeof runtimeEnvironmentBuildEnqueueOptions>,
+    opts: ReturnType<typeof runtimeBuildEnqueueOptions>,
   ) => Promise<unknown>;
 }
 
@@ -95,7 +94,7 @@ export async function reconcileRuntimeEnvironmentBuilds(
       await queue.add(
         RUNTIME_ENVIRONMENT_BUILD_JOB,
         { versionId: row.id },
-        runtimeEnvironmentBuildEnqueueOptions(row.id),
+        runtimeBuildEnqueueOptions(row.id),
       );
       requeued += 1;
       logger.warn({ versionId: row.id }, 'runtime environment build re-enqueued');

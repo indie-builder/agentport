@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { CONFIGURABLE_DISALLOWED_TOOLS, permissionModeSchema } from '@agentport/shared';
 import { parseMarkdownFrontmatter } from '../src/markdown-frontmatter.js';
 import { renderRuleMd, renderWorkspace } from '../src/workspace.js';
 
@@ -61,7 +62,9 @@ describe('renderClaudeMd skill access rules', () => {
 
 describe('clarifying questions prompt', () => {
   it('tells the main session to ask before guessing when the mode can prompt', () => {
-    for (const permissionMode of ['default', 'acceptEdits', 'plan', 'auto']) {
+    for (const permissionMode of permissionModeSchema.options.filter(
+      (mode) => mode !== 'dontAsk',
+    )) {
       const { claudeMd } = renderWorkspace({ agent: { ...agent, permissionMode }, servers: [] });
       expect(claudeMd).toContain('AskUserQuestion');
       expect(claudeMd).toContain('澄清提问');
@@ -90,7 +93,7 @@ describe('native todo tracking', () => {
   it('enables TodoWrite instead of the Task tools in the rendered settings env', () => {
     const files = renderWorkspace({ agent, servers: [] });
 
-    expect(JSON.parse(files.settingsJson ?? '{}').env).toMatchObject({
+    expect(JSON.parse(files.settingsJson).env).toMatchObject({
       CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
       CLAUDE_CODE_ENABLE_TASKS: '0',
     });
@@ -299,7 +302,6 @@ describe('timeout semantics', () => {
     model: 'm',
     systemPrompt: 'p',
     maxTurns: 7,
-    timeoutMs: 120_000,
   };
 
   it('does not advertise a per-child delegated timeout', () => {
@@ -340,10 +342,19 @@ describe('parent agent md tool whitelist', () => {
     expect(agentMd).toContain('tools: ["Bash", "mcp__custom__*"]');
   });
 
-  it('keeps an explicit Bash deny in the rendered frontmatter', () => {
-    const { agentMd } = renderWorkspace({ agent, servers: [], toolsDeny: ['Bash'] });
-
-    expect(agentMd).toMatch(/disallowedTools: \[[^\]]*"Bash"/);
+  it('keeps explicit denies in the rendered frontmatter even when tools are enabled', () => {
+    const toolsDeny = ['Bash', ...CONFIGURABLE_DISALLOWED_TOOLS];
+    for (const subAgents of [[], [{ ...agent, slug: 'child' }]]) {
+      const { agentMd } = renderWorkspace({
+        agent,
+        servers: [],
+        subAgents,
+        toolsAllow: [...toolsDeny],
+        toolsDeny,
+      });
+      const fields = parseMarkdownFrontmatter(agentMd, 'agent', '/agent').fields;
+      expect(fields.get('disallowedTools')).toEqual(expect.arrayContaining(toolsDeny));
+    }
   });
 
   it('lets sub-agents inherit Bash instead of denying it', () => {

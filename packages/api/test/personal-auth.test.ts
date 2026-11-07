@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { auditLog, authSessions, authUsers } from '@agentport/db';
 import { and, desc, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   adminCookie,
   cookieOf,
@@ -100,7 +100,7 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
 
   it('rejects identity fields, blank names, anonymous callers and untrusted origins', async () => {
     const admin = await adminCookie(app);
-    const { account, cookie } = await accountAndCookie(app, admin, '只读身份');
+    const { cookie } = await accountAndCookie(app, admin, '只读身份');
 
     for (const payload of [
       { name: '合法', username: 'hijack' },
@@ -141,8 +141,6 @@ describe.skipIf(!ready)('personal profile and session routes', () => {
       payload: { name: '跨站' },
     });
     expectProblem(evil, 'FORBIDDEN');
-
-    expect(account.businessId).toBeTruthy();
   });
 
   it('rejects a disabled account and its old session', async () => {

@@ -1,5 +1,9 @@
 import { type AnyColumn, sql } from 'drizzle-orm';
 
+export function touchUpdatedAt(column: AnyColumn) {
+  return sql`greatest(now(), date_trunc('milliseconds', ${column}) + interval '1 millisecond')`;
+}
+
 /**
  * 乐观锁条件：行的 updated_at 与客户端回传的一致。
  * 原始 sql 无法用 builder 表达：Postgres 的 now() 带微秒，JS Date 只有毫秒，

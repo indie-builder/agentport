@@ -82,6 +82,15 @@ export type RuntimeEnvironmentVersionSummary = z.infer<
   typeof runtimeEnvironmentVersionSummarySchema
 >;
 
+export function runtimeBuildEnqueueOptions(versionId: string) {
+  return {
+    jobId: versionId,
+    attempts: 1,
+    removeOnComplete: 100,
+    removeOnFail: 200,
+  };
+}
+
 /** 构建任务载荷；BullMQ 的 jobId 也是 versionId。 */
 export const runtimeEnvironmentBuildJobSchema = z.object({ versionId: z.string().min(1) });
 export type RuntimeEnvironmentBuildJob = z.infer<typeof runtimeEnvironmentBuildJobSchema>;

@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
@@ -7,10 +8,9 @@ import { PassThrough } from 'node:stream';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { type AgentRunJob, RUNS_QUEUE, runCancelKey, runStreamKey } from '@agentport/shared';
 import { Queue } from 'bullmq';
-import { eq } from 'drizzle-orm';
 import { RedisClient } from 'bun';
+import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import {
   createTestAccount,
   expectProblem,
@@ -128,6 +128,7 @@ mock.module('../src/sandbox/docker.js', () => ({
                   event: {
                     type: 'run_finished',
                     status: 'cancelled',
+                    failureKind: 'cancelled',
                     costUsd: 0.25,
                     turns: 2,
                     sessionId: 'sdk-pending',
@@ -415,6 +416,64 @@ describe('unconfirmed stop handoff', () => {
     await rm(workdir, { recursive: true, force: true });
     // app.close 与 helper 的临时探测也会结束各自 pool；这里只兜底收尾剩余连接。
     for (const handle of mocks.dbHandles) await handle.client.close().catch(() => undefined);
+  });
+
+  it('publishes the database terminal result when the producer loses its final CAS', async () => {
+    mocks.destroyFailures = 0;
+    const fixture = await createFixture('lost-cas');
+    const started = new Promise<void>((resolve) => {
+      mocks.onStarted = resolve;
+    });
+    const processor = mocks.processors.get(RUNS_QUEUE);
+    expect(processor).toBeDefined();
+    const processing = processor?.(fixture.job);
+    await started;
+    await db
+      .update(schema.agentRuns)
+      .set({
+        status: 'failed',
+        endedAt: new Date(),
+        error: 'external terminal',
+        errorKind: 'infra',
+        costUsd: '0.7500',
+        turns: 9,
+      })
+      .where(eq(schema.agentRuns.id, fixture.runId));
+    mocks.child?.stdout.write(
+      `${JSON.stringify({
+        type: 'settled',
+        runId: fixture.runId,
+        code: 0,
+        signal: null,
+        stopped: true,
+      })}\n`,
+    );
+    await expect(processing).resolves.toBeUndefined();
+    expect(await runRow(fixture.runId)).toMatchObject({
+      status: 'failed',
+      error: 'external terminal',
+      errorKind: 'infra',
+      costUsd: '0.7500',
+      turns: 9,
+    });
+    const finished = (await readStream(fixture.runId)).filter(
+      (event) => event.type === 'run_finished',
+    );
+    expect(finished).toHaveLength(1);
+    expect(finished[0]).toMatchObject({
+      status: 'failed',
+      error: 'external terminal',
+      failureKind: 'infra',
+      costUsd: 0.75,
+      turns: 9,
+    });
+    const audits = await db
+      .select({ action: schema.auditLog.action, status: schema.auditLog.status })
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.target, fixture.runId));
+    expect(audits.filter((row) => row.action === 'agent.run.finished')).toEqual([
+      { action: 'agent.run.finished', status: 'error' },
+    ]);
   });
 
   it('keeps the run and its memory occupancy until reconcile confirms cleanup', async () => {

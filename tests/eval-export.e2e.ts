@@ -2,33 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
+import { browserFetch } from './support/browser-api.js';
 import { fixture as runFixture } from './support/fixture.js';
-
-interface ApiRequest {
-  path: string;
-  payload: { [key: string]: string };
-}
 
 async function apiPost<T extends object>(
   browser: Browser,
   path: string,
-  payload: ApiRequest['payload'],
+  payload: { [key: string]: string },
 ): Promise<T> {
-  return browser.evaluate(
-    async (input: ApiRequest) => {
-      const res = await fetch(input.path, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(input.payload),
-      });
-      const body = await res.text();
-      if (res.status !== 201) {
-        throw new Error(`${input.path} ${res.status}: ${body}`);
-      }
-      return JSON.parse(body);
-    },
-    { path, payload },
-  ) as Promise<T>;
+  const response = await browserFetch(browser, 'POST', path, payload);
+  if (response.status !== 201) throw new Error(`${path} ${response.status}: ${response.text}`);
+  return JSON.parse(response.text) as T;
 }
 
 async function createAgent(browser: Browser): Promise<{ id: string; name: string }> {

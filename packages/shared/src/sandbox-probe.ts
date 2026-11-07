@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { type McpToolSummary, mcpToolSummarySchema } from './mcp.js';
 import { utf8Bytes } from './utf8.js';
 
 /** stdio 试连独立队列：与 agent run 分开，试连不会占住运行并发。 */
@@ -29,19 +30,11 @@ export const sandboxProbeTaskSchema = z.object({
   env: z.record(z.string(), z.string()).default({}),
 });
 
-export const sandboxProbeToolSchema = z.object({
-  name: z.string(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  inputSchema: z.record(z.string(), z.unknown()).optional(),
-});
-export type SandboxProbeTool = z.infer<typeof sandboxProbeToolSchema>;
-
 /** 容器 stdout 的单行结果；durationMs/stderr 由宿主侧补，避免进程内自计时。 */
 export const sandboxProbeOutputSchema = z.object({
   ok: z.boolean(),
   serverInfo: z.object({ name: z.string(), version: z.string() }).optional(),
-  tools: z.array(sandboxProbeToolSchema).default([]),
+  tools: z.array(mcpToolSummarySchema).default([]),
   error: z.string().optional(),
 });
 export type SandboxProbeOutput = z.infer<typeof sandboxProbeOutputSchema>;
@@ -60,7 +53,7 @@ export function limitToolCatalog(
     description?: string | undefined;
     inputSchema?: Record<string, unknown> | undefined;
   }>,
-): SandboxProbeTool[] {
+): McpToolSummary[] {
   const catalog = tools.map((tool) => ({
     name: tool.name,
     ...(tool.title !== undefined ? { title: tool.title } : {}),

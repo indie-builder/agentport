@@ -18,11 +18,11 @@ import {
   runEnqueueOptions,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { getQueue } from '../../queue/producer.js';
+import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime-deletion.js';
 import {
   actionBytes,
@@ -259,21 +259,13 @@ export async function startRun(
     );
   } catch {
     try {
-      await deps.db
-        .update(schema.agentRuns)
-        .set({
-          status: 'failed',
-          endedAt: new Date(),
-          error: '消息入队失败，请重新发送。',
-          errorKind: 'infra',
-        })
-        .where(and(eq(schema.agentRuns.id, run.id), eq(schema.agentRuns.status, 'queued')));
+      await failQueuedRunEnqueue(deps.db, run.id);
     } catch {
       deps.log.warn({ runId: run.id }, 'chat enqueue failure cleanup failed');
     }
     fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
   }
-  await writeAudit(deps.db, deps.log, {
+  await repo.audit.writeAudit(deps.db, deps.log, {
     actor: principal.businessId,
     action: 'agent.run.requested',
     target: run.id,
@@ -302,7 +294,7 @@ export async function startRun(
     requestId: deps.requestId,
   });
   if (inherited.length > 0) {
-    await writeAudit(deps.db, deps.log, {
+    await repo.audit.writeAudit(deps.db, deps.log, {
       actor: principal.businessId,
       action: 'agent.run.approvals_inherited',
       target: run.id,

@@ -4,10 +4,12 @@ import { buildSkillDraft, slugify } from '../src/skill-draft.js';
 describe('slugify', () => {
   it('produces a valid slug', () => {
     expect(slugify('Drill Agent · 抓取用户', 'fallback')).toMatch(/^[a-z0-9][a-z0-9-_]*$/);
-    expect(slugify('Drill Agent', 'x').length).toBeLessThanOrEqual(64);
+    expect(slugify('Drill Agent'.repeat(100), 'x')).toHaveLength(64);
   });
   it('falls back when nothing usable', () => {
-    expect(slugify('中文', 'run-abc12345')).toMatch(/^[a-z0-9][a-z0-9-_]*$/);
+    expect(slugify('中文', 'run-abc12345')).toBe('run-abc12345');
+    expect(slugify('', 'run-abc12345')).toBe('run-abc12345');
+    expect(slugify('_draft', 'fallback')).toBe('skill-_draft');
   });
 });
 
@@ -29,7 +31,6 @@ describe('buildSkillDraft', () => {
     expect(draft.body).toContain('## 适用场景');
     expect(draft.body).toContain('## 使用到的工具');
     expect(draft.body).toContain('mcp__crm__get_user');
-    // duplicate tool names are de-duplicated
     expect(draft.body.match(/mcp__crm__get_user/g)?.length).toBe(1);
     expect(draft.body).toContain('## 参考做法');
     expect(draft.body).toContain('Leanne Graham');

@@ -52,6 +52,26 @@ workspaces_sha256() {
 
 file_bytes() { wc -c <"$1" | tr -d ' '; }
 
+database_url_from_env_file() {
+  local file="${1:-${BACKUP_ENV_FILE:-$ROOT/.env}}" raw url sq_char="'"
+  raw="$(sed -n 's/^DATABASE_URL=//p' "$file" | tail -n 1)"
+  # restore.sh 的最小引导 env 用单引号 + '\'' 转义；只对这种生成格式反解，普通配置保持原读法。
+  case "$raw" in
+    \'*\' )
+      url="${raw#\'}"
+      url="${url%\'}"
+      url="${url//\'\\\'\'/$sq_char}"
+      ;;
+    *)
+      url="${raw%\"}"
+      url="${url#\"}"
+      url="${url%\'}"
+      url="${url#\'}"
+      ;;
+  esac
+  printf '%s' "$url"
+}
+
 compose() { docker compose -f "$ROOT/docker-compose.yml" "$@"; }
 compose_available() { command -v docker >/dev/null 2>&1 && compose version >/dev/null 2>&1; }
 

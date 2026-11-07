@@ -59,16 +59,16 @@ for (const [key, value] of Object.entries(values)) {
     : `${text.replace(/\s*$/, '')}\n${line}\n`;
 }
 fs.writeFileSync(file, text);
-console.log(`已生成 ADMIN_PASSWORD=${adminPassword}`);
 NODE
-  echo "已从 .env.example 生成 .env（APP_SECRET_KEY / JWT_SECRET / REDIS_PASSWORD / PLATFORM_MCP_TOKEN / ADMIN_PASSWORD 已随机填充）"
+  echo "已从 .env.example 生成 .env（APP_SECRET_KEY / JWT_SECRET / REDIS_PASSWORD / PLATFORM_MCP_TOKEN / ADMIN_PASSWORD 已随机填充，密码写入 .env 不回显）"
   echo "提示：请按需修改 .env 中的 ADMIN_PASSWORD 后重新部署；运行智能体还需填写 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN"
 fi
 chmod 600 .env
 
-ADMIN_PASSWORD="$(env_get ADMIN_PASSWORD)"
+ADMIN_USER="${ADMIN_USER:-$(env_get ADMIN_USER)}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(env_get ADMIN_PASSWORD)}"
 [ -n "$ADMIN_PASSWORD" ] ||
-  fail ".env 中 ADMIN_PASSWORD 为空：请设置至少 12 字符的密码后重新运行"
+  fail "ADMIN_PASSWORD 为空：在 .env 中设置或通过环境变量传入至少 12 字符的密码后重新运行"
 
 echo "==> 启动 postgres / redis"
 docker compose up -d --wait --wait-timeout 120 postgres redis || {
@@ -103,7 +103,7 @@ fi
 
 echo "==> 冒烟测试"
 BASE_URL="$BASE_URL" \
-ADMIN_USER="$(env_get ADMIN_USER)" \
+ADMIN_USER="$ADMIN_USER" \
 ADMIN_PASSWORD="$ADMIN_PASSWORD" \
 PLATFORM_MCP_TOKEN="$(env_get PLATFORM_MCP_TOKEN)" \
   bash scripts/smoke.sh || fail "冒烟测试失败"

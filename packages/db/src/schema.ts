@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AgentInput,
   ChatEvent,
   KnowledgeBaseSettings,
   KnowledgeFaq,
@@ -11,8 +12,16 @@ import type {
   MemoryReviewTarget,
   NativeQuestions,
   ResolvedRuntimeEnvironment,
+  RunErrorKind,
+  RunStatus,
+  RunTrigger,
 } from '@agentport/shared';
-import { DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
+import {
+  DEFAULT_RUNTIME_DOCKERFILE,
+  runErrorKindSchema,
+  runStatusSchema,
+  runTriggerSchema,
+} from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -105,10 +114,13 @@ export const agents = pgTable(
     /** [] 继承所有已绑定 MCP server 的工具；非空为显式自动批准规则，禁用用 disallowedTools。 */
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
     disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
-    permissionMode: text('permission_mode').notNull().default('default'),
+    permissionMode: text('permission_mode')
+      .$type<AgentInput['permissionMode']>()
+      .notNull()
+      .default('default'),
     /** 助手回复格式：markdown 或生成式 UI（OpenUI Lang 围栏）。 */
-    uiFormat: text('ui_format').notNull().default('markdown'),
-    effort: text('effort'),
+    uiFormat: text('ui_format').$type<AgentInput['uiFormat']>().notNull().default('markdown'),
+    effort: text('effort').$type<NonNullable<AgentInput['effort']>>(),
     enabled: boolean('enabled').notNull().default(true),
     maxTurns: integer('max_turns').notNull().default(20),
     maxBudgetUsd: numeric('max_budget_usd', { precision: 10, scale: 4 }).notNull().default('2'),
@@ -644,12 +656,12 @@ export const agentRuns = pgTable(
       { onDelete: 'set null' },
     ),
     status: text('status', {
-      enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout'],
+      enum: runStatusSchema.options as [RunStatus, ...RunStatus[]],
     })
       .notNull()
       .default('queued'),
     /** 本次运行由谁发起：对话 / 外部 MCP / 定时 / 事件 / 记忆审核 / 频道。 */
-    trigger: text('trigger', { enum: ['chat', 'mcp', 'schedule', 'event', 'review', 'channel'] })
+    trigger: text('trigger', { enum: runTriggerSchema.options as [RunTrigger, ...RunTrigger[]] })
       .notNull()
       .default('chat'),
     /** 执行主体：自然人（initiatedBy）或服务（serviceId）。 */
@@ -680,7 +692,7 @@ export const agentRuns = pgTable(
     pendingFinish: jsonb('pending_finish').$type<Extract<ChatEvent, { type: 'run_finished' }>>(),
     /** 失败分类：决定 BullMQ 是否重试，也用于运行详情展示。 */
     errorKind: text('error_kind', {
-      enum: ['cancelled', 'timeout', 'sandbox', 'agent', 'infra'],
+      enum: runErrorKindSchema.options as [RunErrorKind, ...RunErrorKind[]],
     }),
     costUsd: numeric('cost_usd', { precision: 10, scale: 4 }),
     turns: integer('turns'),
@@ -1900,5 +1912,3 @@ export const schema = {
   knowledgeWikiSources,
   knowledgeDocumentTags,
 };
-
-export { sql };

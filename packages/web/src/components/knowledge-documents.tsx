@@ -11,6 +11,7 @@ import type {
 import { errorMessage } from '../lib/api.js';
 import { knowledgeJobErrorText } from '../lib/knowledge-errors.js';
 import {
+  isTerminalKnowledgeJob,
   useBatchKnowledgeDocuments,
   useKnowledgeDocumentJob,
   useKnowledgeDocumentManual,
@@ -19,13 +20,7 @@ import {
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 import { DialogShell } from './dialog-shell.js';
-import {
-  DraftGuardDialogs,
-  isTerminalJobStatus,
-  treeFolders,
-  useDraftGuard,
-  versionLabel,
-} from './knowledge-shared.js';
+import { DraftGuardDialogs, treeFolders, useDraftGuard, versionLabel } from './knowledge-shared.js';
 import { SourceEditor } from './source-editor.js';
 import { ErrorState, LoadingState } from './states.js';
 import { StatusBadge } from './status-badge.js';
@@ -385,7 +380,7 @@ export function ManualDraftDialog({
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useKnowledgeDocumentJob(baseId, documentId, jobId);
-  const pending = save.isPending || (jobId !== null && !isTerminalJobStatus(job.data?.status));
+  const pending = save.isPending || (jobId !== null && !isTerminalKnowledgeJob(job.data?.status));
   const draft = manual.data;
   const dirty = initial !== null && content !== initial.content;
   const guard = useDraftGuard(dirty, pending, onClose);
@@ -397,7 +392,7 @@ export function ManualDraftDialog({
     }
   }, [draft, initial]);
   useEffect(() => {
-    if (!jobId || !isTerminalJobStatus(job.data?.status)) return;
+    if (!jobId || !isTerminalKnowledgeJob(job.data?.status)) return;
     if (job.data?.status === 'succeeded') {
       setJobId(null);
       toastSuccess('草稿已解析，可在版本列表发布');

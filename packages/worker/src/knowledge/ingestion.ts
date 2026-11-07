@@ -10,7 +10,6 @@ import {
 } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type {
-  KnowledgeAudioMetadata,
   KnowledgeImageProcessing,
   KnowledgeLocator,
   KnowledgeSourceProbeResult,
@@ -24,7 +23,7 @@ import {
 import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { describeKnowledgeImage, type ImageQueryFn } from './image-processing.js';
-import { KnowledgeParseError, type ParsedBlock } from './parsing.js';
+import { KnowledgeParseError, type ParsedDocument, type ParsedImage } from './parsing.js';
 import { SourceAuthError } from './sources.js';
 
 // 契约 §6.3：解析/分块与来源适配由 sources.ts / parsing.ts 实现，本模块只依赖这些形状。
@@ -45,22 +44,8 @@ export interface WikiUpdateInput {
   jobIds: string[];
 }
 
-export interface ParsedImage {
-  name: string;
-  data: Uint8Array;
-  mimeType: string;
-  page: number;
-}
-
-export interface ParsedDocument {
-  markdown: string;
-  images: ParsedImage[];
-  pageMap: Array<{ page: number; startOffset: number; endOffset: number }>;
-  /** 解析器真实块与定位（bbox/ref/page/offset）；缺省时按 markdown 重新分块。 */
-  blocks?: ParsedBlock[];
-  /** 仅音频转录取值；持久化到版本 metadata，外部输入不得覆盖。 */
-  audio?: KnowledgeAudioMetadata;
-}
+export type IngestionDocument = Omit<ParsedDocument, 'blocks'> &
+  Partial<Pick<ParsedDocument, 'blocks'>>;
 
 export interface ChunkDraft {
   kind: 'text' | 'table' | 'image';
@@ -155,12 +140,12 @@ export interface KnowledgeDeps {
     /** 仅音频摄取注入；普通文档不依赖 ASR 可用性。 */
     asr?: AsrProfile;
     asrProfileName?: string;
-  }) => Promise<ParsedDocument>;
+  }) => Promise<IngestionDocument>;
   chunkMarkdown: (
     markdown: string,
-    pageMap: ParsedDocument['pageMap'],
+    pageMap: IngestionDocument['pageMap'],
     options: { chunkTokens: number; overlap: number },
-    blocks?: ParsedDocument['blocks'],
+    blocks?: IngestionDocument['blocks'],
   ) => ChunkDraft[];
   connectors: Partial<Record<KnowledgeSourceRow['type'], KnowledgeConnector>>;
   /** 解密来源/模型凭证；与 API 共用 APP_SECRET_KEY。 */
@@ -262,8 +247,13 @@ async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
   if (existing) return sha;
   await mkdir(dirname(target), { recursive: true });
   const temp = `${target}.tmp-${newId('knowledgeJob')}`;
-  await writeFile(temp, data);
-  await rename(temp, target);
+  try {
+    await writeFile(temp, data);
+    await rename(temp, target);
+  } catch (err) {
+    await rm(temp, { force: true }).catch(() => {});
+    throw err;
+  }
   return sha;
 }
 
@@ -271,7 +261,7 @@ async function writeParsed(
   knowledgeDir: string,
   documentId: string,
   versionId: string,
-  parsed: ParsedDocument,
+  parsed: IngestionDocument,
 ): Promise<void> {
   const dir = versionDir(knowledgeDir, documentId, versionId);
   await mkdir(dir, { recursive: true });
@@ -473,7 +463,7 @@ function imageRefOf(image: ParsedImage) {
 async function imageDrafts(
   deps: KnowledgeDeps,
   client: EmbeddingClient,
-  parsed: ParsedDocument,
+  parsed: IngestionDocument,
   settings: KnowledgeImageProcessing,
   signal: AbortSignal,
 ): Promise<{ drafts: ChunkDraft[]; warnings: Map<string, string[]> }> {
@@ -778,7 +768,7 @@ async function ingestContent(
   await setStep(deps, input.jobId, 'parsing', 10);
   const audio = input.markdown === undefined ? await resolveAsrProfile(deps, base) : undefined;
   // 解析器被 abort 时抛的是上游错误；这里统一归成取消，避免被当成可重试的解析失败。
-  const parsed: ParsedDocument =
+  const parsed: IngestionDocument =
     input.markdown === undefined
       ? await deps
           .parse({

@@ -12,7 +12,7 @@ import type { SQL } from 'bun';
  * 官方 UserPromptSubmit additionalContext 单次上限为 10,000 字符，这里留出余量。
  * 平台不是依赖官方用户级 CLAUDE.md 自动发现，而是把本文件只读挂载进沙盒后每轮经官方 hook 注入。
  */
-const PERSONAL_MEMORY_LIMIT_MESSAGE = '个人偏好最多 9000 个字符，请精简后保存';
+const PERSONAL_MEMORY_LIMIT_MESSAGE = `个人偏好最多 ${PERSONAL_MEMORY_MAX_CHARS} 个字符，请精简后保存`;
 
 /** 入口与审核采纳共用：超限直接拒绝，不静默截断。 */
 function assertPersonalMemoryLimit(content: string): void {

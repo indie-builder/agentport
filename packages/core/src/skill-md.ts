@@ -1,6 +1,6 @@
 import { type SkillInput, skillInputSchema } from '@agentport/shared';
 import { fail } from './errors.js';
-import { parseMarkdownFrontmatter } from './markdown-frontmatter.js';
+import { parseMarkdownFrontmatter, splitHeading } from './markdown-frontmatter.js';
 
 /** 官方 SKILL.md 的来源描述字段：解析时保留，导出时原样写回 frontmatter。 */
 export interface SkillProvenance {
@@ -56,16 +56,6 @@ function provenanceOf(fields: Map<string, unknown>): SkillProvenance {
   return provenance;
 }
 
-/** 首个非空行是 H1 时作为显示名，并且只移除这一行。 */
-function splitHeading(body: string): { body: string; displayName?: string } {
-  const lines = body.split('\n');
-  const first = lines.findIndex((line) => line.trim() !== '');
-  const heading = first === -1 ? null : /^#[ \t]+(.+?)[ \t]*\r?$/.exec(lines[first] ?? '');
-  if (!heading?.[1]?.trim()) return { body: body.trim() };
-  lines.splice(first, 1);
-  return { body: lines.join('\n').trim(), displayName: heading[1].trim() };
-}
-
 function fieldOf(path: PropertyKey | undefined): string {
   // slug 由 frontmatter 的 name 推导，报错时仍指向用户写的字段。
   const field = String(path ?? 'name');
@@ -90,13 +80,13 @@ export function parseSkillMd(
     invalid(`不支持的 SKILL.md 前置字段：${unknown.join('、')}（可能改变运行时行为）`);
   }
 
-  const { body, displayName } = splitHeading(rawBody);
+  const { body: instructions, displayName } = splitHeading(rawBody);
   const rawName = fields.get('name');
   const parsed = skillInputSchema.safeParse({
     slug: options?.slug ?? rawName,
     name: displayName ?? rawName,
     description: fields.get('description'),
-    body,
+    body: instructions.trim(),
   });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

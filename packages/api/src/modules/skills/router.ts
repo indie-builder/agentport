@@ -5,7 +5,6 @@ import type { SkillWithAgentCount } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { writeAudit } from '../../plugins/audit.js';
 import { rethrowConflict, toApi } from './api.js';
 
 const repo = skillRepo.skills;
@@ -23,7 +22,7 @@ export const skillsRouter = os.router({
   create: os.create.handler(async ({ context, input: routeInput }) => {
     try {
       const row = await repo.createSkill(context.db, routeInput.body);
-      await writeAudit(context.db, context.log, {
+      await skillRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'skill.created',
         target: row.id,
@@ -40,7 +39,7 @@ export const skillsRouter = os.router({
     const { skill, warnings } = parseSkillMd(routeInput.body.skillMd);
     try {
       const row = await repo.createSkill(context.db, skill);
-      await writeAudit(context.db, context.log, {
+      await skillRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'skill.imported',
         target: row.id,
@@ -76,7 +75,7 @@ export const skillsRouter = os.router({
         input.expectedUpdatedAt === undefined ? undefined : new Date(input.expectedUpdatedAt),
       );
       if (!row) return notFound();
-      await writeAudit(context.db, context.log, {
+      await skillRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'skill.updated',
         target: row.id,
@@ -92,7 +91,7 @@ export const skillsRouter = os.router({
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
     const ok = await repo.deleteSkill(context.db, routeInput.params.id);
     if (!ok) return notFound();
-    await writeAudit(context.db, context.log, {
+    await skillRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'skill.deleted',
       target: routeInput.params.id,
@@ -122,7 +121,7 @@ export const skillsRouter = os.router({
       path,
       routeInput.body.content,
     );
-    await writeAudit(context.db, context.log, {
+    await skillRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'skill.file.written',
       target: skill.id,
@@ -142,7 +141,7 @@ export const skillsRouter = os.router({
     if (!skill) return notFound();
     const ok = await filesRepo.deleteSkillFile(context.db, skill.id, routeInput.params.path);
     if (!ok) return notFound();
-    await writeAudit(context.db, context.log, {
+    await skillRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'skill.file.deleted',
       target: skill.id,

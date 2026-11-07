@@ -48,6 +48,21 @@ function assertSchedulableCron(cron: string | undefined): void {
   }
 }
 
+async function reportScheduleSyncFailure(
+  context: RequestContext,
+  scheduleId: string,
+  err: unknown,
+): Promise<void> {
+  context.log.warn({ err, scheduleId }, 'schedule sync failed');
+  await repo.audit.writeAudit(context.db, context.log, {
+    actor: actorOf(context),
+    action: 'schedule.sync_failed',
+    target: scheduleId,
+    status: 'error',
+    requestId: context.requestId,
+  });
+}
+
 export const opsRouter = os.router({
   attention: os.attention.handler(async ({ context }) => {
     const [approvals, failed] = await Promise.all([
@@ -128,14 +143,7 @@ export const opsRouter = os.router({
           await upsertScheduler(queue, row);
           nextDueAt = await schedulerNextRun(queue, row.id);
         } catch (err) {
-          context.log.warn({ err, scheduleId: row.id }, 'schedule sync failed');
-          await repo.audit.writeAudit(context.db, context.log, {
-            actor: actorOf(context),
-            action: 'schedule.sync_failed',
-            target: row.id,
-            status: 'error',
-            requestId: context.requestId,
-          });
+          await reportScheduleSyncFailure(context, row.id, err);
         }
       }
       return toSchedule({ ...row, agentName: agent.name }, nextDueAt);
@@ -189,14 +197,7 @@ export const opsRouter = os.router({
           nextDueAt = await schedulerNextRun(queue, row.id);
         }
       } catch (err) {
-        context.log.warn({ err, scheduleId: row.id }, 'schedule sync failed');
-        await repo.audit.writeAudit(context.db, context.log, {
-          actor: actorOf(context),
-          action: 'schedule.sync_failed',
-          target: row.id,
-          status: 'error',
-          requestId: context.requestId,
-        });
+        await reportScheduleSyncFailure(context, row.id, err);
       }
       return toSchedule(row, nextDueAt);
     }),
@@ -227,14 +228,7 @@ export const opsRouter = os.router({
       try {
         await removeScheduler(getScheduleQueue(context.config.REDIS_URL), input.params.id);
       } catch (err) {
-        context.log.warn({ err, scheduleId: input.params.id }, 'schedule sync failed');
-        await repo.audit.writeAudit(context.db, context.log, {
-          actor: actorOf(context),
-          action: 'schedule.sync_failed',
-          target: input.params.id,
-          status: 'error',
-          requestId: context.requestId,
-        });
+        await reportScheduleSyncFailure(context, input.params.id, err);
       }
       return undefined;
     }),

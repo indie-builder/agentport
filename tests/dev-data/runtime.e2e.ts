@@ -4,6 +4,7 @@ import { expect, type Screen } from 'e2e';
 import {
   api,
   DATASET_ID,
+  DatasetApiError,
   manifestExists,
   readManifest,
   writeManifest,
@@ -27,7 +28,6 @@ const ENVIRONMENT_NAME = '【青禾演示】采购运行环境';
 const NORMAL_SCENARIO = 'normal-dockerfile';
 const FAILURE_SCENARIO = 'run-exit-1';
 
-/** 与 packages/shared/src/runtime-environment.ts 的 DEFAULT_RUNTIME_DOCKERFILE 一致，再带数据集标记。 */
 const NORMAL_DOCKERFILE = `# syntax=docker/dockerfile:1
 ARG RUNTIME_BASE_IMAGE=agentport/sandbox:dev
 FROM \${RUNTIME_BASE_IMAGE}
@@ -40,7 +40,6 @@ WORKDIR /app
 # ${DATASET_ID}：正常版本结束
 `;
 
-/** 失败验收：RUN 明确非零退出，构建必须失败且日志保留意图与 exit code。 */
 const FAILURE_DOCKERFILE = `${NORMAL_DOCKERFILE}
 RUN echo "qinghe-devdata-failure-marker" && exit 1
 `;
@@ -148,7 +147,6 @@ async function fetchVersion(
   return api<RuntimeEnvironmentVersion>(browser, rvPath(environmentId, versionId));
 }
 
-/** 版本不存在说明固定对象被删除/替换；不静默重建。 */
 async function fetchVersionOrConflict(
   browser: Browser,
   environmentId: string,
@@ -156,8 +154,11 @@ async function fetchVersionOrConflict(
 ): Promise<RuntimeEnvironmentVersion> {
   try {
     return await fetchVersion(browser, environmentId, versionId);
-  } catch {
-    conflict(`manifest 记录的版本 ${versionId} 已不存在`);
+  } catch (error) {
+    if (error instanceof DatasetApiError && error.status === 404) {
+      conflict(`manifest 记录的版本 ${versionId} 已不存在`);
+    }
+    throw error;
   }
 }
 
@@ -216,7 +217,6 @@ async function createEnvironment(browser: Browser, screen: Screen): Promise<stri
   return id;
 }
 
-/** 保存 Dockerfile 后按业务 API 确认，避免只凭 toast 判定。 */
 async function saveDockerfile(
   browser: Browser,
   screen: Screen,
@@ -247,7 +247,6 @@ async function ensureDockerfile(
   await saveDockerfile(browser, screen, environmentId, dockerfile);
 }
 
-/** 点 UI「构建新版本」并从 202 响应里立刻拿版本 ID。 */
 async function startBuild(
   browser: Browser,
   screen: Screen,
@@ -297,7 +296,6 @@ async function publishVersion(
 function assertSuccessEvidence(version: RuntimeEnvironmentVersion): void {
   if (version.status !== 'ready') gap(`正常版本 ${version.id} 未就绪（${version.status}）`);
   if (version.imageId === null) gap(`正常版本 ${version.id} 没有真实镜像 ID`);
-  // verify.ts 在只读、无网络、uid 1000 的容器里检查 bash 与 runner；这行是原生 sandbox 可用的证据。
   if (!version.buildLog.includes('verify: ok')) {
     gap(
       `正常版本 ${version.id} 构建日志缺少「verify: ok」，无法证明原生 sandbox（含 bash）校验通过`,
@@ -361,10 +359,10 @@ function newManifest(origin: string, environmentId: string): RuntimeManifest {
 
 async function readReadyManifest(): Promise<RuntimeManifest> {
   if (!(await manifestExists('runtime'))) {
-    gap('缺少 runtime manifest，请先执行 pnpm dev:data');
+    gap('缺少 runtime manifest，请先执行 bun run dev:data');
   }
   const manifest = await loadManifest();
-  if (manifest === null) gap('缺少 runtime manifest，请先执行 pnpm dev:data');
+  if (manifest === null) gap('缺少 runtime manifest，请先执行 bun run dev:data');
   if (manifest.dataset !== DATASET_ID)
     conflict(`manifest dataset 为 ${manifest.dataset}，期望 ${DATASET_ID}`);
   if (typeof manifest.runtimeEnvironmentId !== 'string' || manifest.runtimeEnvironmentId === '')
@@ -373,7 +371,6 @@ async function readReadyManifest(): Promise<RuntimeManifest> {
   return manifest;
 }
 
-/** 纯读验收：只发 GET（通过业务 API）与页面导航，不写 manifest、不构建、不发布。 */
 async function verifyDataset(browser: Browser): Promise<void> {
   const manifest = await readReadyManifest();
   const environment = await fetchEnvironment(browser, manifest.runtimeEnvironmentId);
@@ -462,7 +459,6 @@ test('dev data: 青禾采购运行环境（正常版本发布 + RUN 非零失败
       );
     }
   } else if (named.length > 0) {
-    // 无 manifest 时归属不明，不能按名称或 Dockerfile 推断；立即停止交人工确认。
     conflict(
       `已存在同名环境 ${named.map((candidate) => candidate.id).join('、')}，但 manifest 未记录其归属`,
     );
@@ -521,36 +517,47 @@ test('dev data: 青禾采购运行环境（正常版本发布 + RUN 非零失败
   recordVersion(manifest, 'success', successVersion, NORMAL_SCENARIO);
   await writeManifest('runtime', manifest);
 
-  // 失败版本：同一基座上显式 RUN exit 1，只跑一次；重跑只读取已记录 ID。
-  let failureVersion: RuntimeEnvironmentVersion;
-  if (manifest.versions.failure !== null) {
-    failureVersion = await pollVersion(
-      browser,
-      environment.id,
-      manifest.versions.failure.id,
-      '失败验收',
-    );
-  } else {
-    await ensureDockerfile(browser, screen, app, environment.id, FAILURE_DOCKERFILE);
-    const queued = await startBuild(browser, screen, environment.id);
-    recordVersion(manifest, 'failure', queued, FAILURE_SCENARIO);
+  const originalDockerfile = (await fetchEnvironment(browser, environment.id)).dockerfile;
+  const errors: unknown[] = [];
+  try {
+    let failureVersion: RuntimeEnvironmentVersion;
+    if (manifest.versions.failure !== null) {
+      failureVersion = await pollVersion(
+        browser,
+        environment.id,
+        manifest.versions.failure.id,
+        '失败验收',
+      );
+    } else {
+      await ensureDockerfile(browser, screen, app, environment.id, FAILURE_DOCKERFILE);
+      const queued = await startBuild(browser, screen, environment.id);
+      recordVersion(manifest, 'failure', queued, FAILURE_SCENARIO);
+      await writeManifest('runtime', manifest);
+      failureVersion = await pollVersion(browser, environment.id, queued.id, '失败验收');
+    }
+    assertFailureEvidence(failureVersion);
+    recordVersion(manifest, 'failure', failureVersion, FAILURE_SCENARIO);
     await writeManifest('runtime', manifest);
-    failureVersion = await pollVersion(browser, environment.id, queued.id, '失败验收');
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    try {
+      await ensureDockerfile(browser, screen, app, environment.id, originalDockerfile);
+    } catch (error) {
+      errors.push(error);
+    }
   }
-  assertFailureEvidence(failureVersion);
-  recordVersion(manifest, 'failure', failureVersion, FAILURE_SCENARIO);
-  await writeManifest('runtime', manifest);
-
-  // 最终草稿恢复为正常 Dockerfile；失败构建只留版本记录，线上指针仍是成功版本。
-  if (failureVersion.status === 'failed') {
-    await ensureDockerfile(browser, screen, app, environment.id, NORMAL_DOCKERFILE);
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new AggregateError(errors, '运行环境失败验收与 Dockerfile 恢复均失败');
   }
   const finalEnvironment = await waitForEnvironment(
     browser,
     environment.id,
     (candidate) =>
-      candidate.onlineVersionId === successVersion.id && candidate.dockerfile === NORMAL_DOCKERFILE,
-    `线上指针 ${successVersion.id} 或正常草稿未生效`,
+      candidate.onlineVersionId === successVersion.id &&
+      candidate.dockerfile === originalDockerfile,
+    `线上指针 ${successVersion.id} 或原草稿未恢复`,
   );
   if (finalEnvironment.isDefault) conflict('数据集环境不能是平台默认环境');
   if (finalEnvironment.onlineVersionId !== manifest.publishedVersionId) {
@@ -559,7 +566,7 @@ test('dev data: 青禾采购运行环境（正常版本发布 + RUN 非零失败
   manifest.relations = {
     environmentId: environment.id,
     successVersionId: successVersion.id,
-    failureVersionId: failureVersion.id,
+    failureVersionId: manifest.versions.failure?.id ?? null,
     publishedVersionId: manifest.publishedVersionId,
   };
   manifest.status = manifest.gaps.length === 0 ? 'ready' : 'partial';
@@ -571,7 +578,10 @@ test('dev data verify: 青禾运行环境只读验收', { session: 'admin', tags
   app,
   browser,
 }) => {
-  test.skip(process.env.E2E_DEV_DATA !== '1', '专用数据验收用例：仅 pnpm dev:data:verify 时运行');
+  test.skip(
+    process.env.E2E_DEV_DATA !== '1',
+    '专用数据验收用例：仅 bun run dev:data:verify 时运行',
+  );
   await app.open('/runtime-environments');
   await verifyDataset(browser);
 });

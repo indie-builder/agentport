@@ -3,30 +3,25 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import {
   errorText,
+  INPUTS_CONTAINER_DIR,
+  OUTPUTS_CONTAINER_DIR,
   PERSONAL_MEMORY_FILENAME,
   PERSONAL_MEMORY_MAX_BYTES,
   PERSONAL_MEMORY_MAX_CHARS,
+  SUBAGENT_MEMORY_CONTAINER_DIR,
+  USER_CONTAINER_DIR,
 } from '@agentport/shared';
 import type { HookCallback, PreToolUseHookSpecificOutput } from '@anthropic-ai/claude-agent-sdk';
 
 const MEMORY_TOOLS = new Set(['Read', 'Write', 'Edit']);
 const OTHER_FILE_TOOLS = new Set(['Glob', 'Grep', 'NotebookEdit']);
 
-/** 本轮产出草稿的容器内路径；worker 以独立 rw 挂载到这里。 */
-export const OUTPUTS_DIR = '/mnt/outputs';
-
-/** 本会话附件输入的容器内路径；worker 仅在会话输入目录存在时只读挂载。 */
-export const INPUTS_DIR = '/mnt/inputs';
-
 /** 工作区技能与插件资源根；文件工具对它们只读。 */
-export const SKILLS_DIR = '/workspace/.claude/skills';
-export const PLUGINS_DIR = '/workspace/.claude/plugins';
-
-/** 子智能体 project 记忆根：每个子只允许自己的 `<slug>/` 子目录。 */
-export const SUBAGENT_MEMORY_DIR = '/workspace/.claude/agent-memory';
+const SKILLS_DIR = '/workspace/.claude/skills';
+const PLUGINS_DIR = '/workspace/.claude/plugins';
 
 /** 个人记忆由宿主只读挂载到 /mnt/user；每轮用户提交前注入，恢复会话也读最新文件。 */
-export const PERSONAL_MEMORY_FILE = `/mnt/user/${PERSONAL_MEMORY_FILENAME}`;
+export const PERSONAL_MEMORY_FILE = `${USER_CONTAINER_DIR}/${PERSONAL_MEMORY_FILENAME}`;
 
 const PERSONAL_MEMORY_LIMIT_MESSAGE = `个人偏好最多 ${PERSONAL_MEMORY_MAX_CHARS} 个字符，本轮未启动`;
 
@@ -93,8 +88,8 @@ export function createFileBoundaryHook(
   memoryDir: string,
   skillsDir = SKILLS_DIR,
   pluginsDir = PLUGINS_DIR,
-  outputsDir = OUTPUTS_DIR,
-  inputsDir = INPUTS_DIR,
+  outputsDir = OUTPUTS_CONTAINER_DIR,
+  inputsDir = INPUTS_CONTAINER_DIR,
   options: {
     /** 子智能体 project 记忆根；缺省为容器内官方目录。 */
     projectMemoryDir?: string;
@@ -102,7 +97,7 @@ export function createFileBoundaryHook(
     subAgentSlugs?: ReadonlySet<string>;
   } = {},
 ): HookCallback {
-  const projectMemoryDir = options.projectMemoryDir ?? SUBAGENT_MEMORY_DIR;
+  const projectMemoryDir = options.projectMemoryDir ?? SUBAGENT_MEMORY_CONTAINER_DIR;
   const knownSubAgents = options.subAgentSlugs ?? new Set<string>();
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};

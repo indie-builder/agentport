@@ -1,5 +1,5 @@
-import { sql } from '@agentport/db';
 import { RedisClient, version } from 'bun';
+import { sql } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import type { Logger } from 'pino';
 import { getKnowledgeQueue, getQueue } from '../queue/producer.js';

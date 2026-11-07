@@ -29,7 +29,7 @@
 | H4 | 预览只显示 `<已配置>` 占位；generated 的 Authorization 省略并注明运行时注入 |
 | H9 + M4 | 新表 `approval_requests(run_id, server_id, tool_name)`；审批严格绑定三元组，UI 改读结构化端点，删除正则匹配 |
 | H10 | `redactSecrets` 覆盖 Bearer/sk-/ghp_/KEY=value/长 base64url；stderr 降为 debug；落库前脱敏 |
-| H12 | 沙盒单字段 256 KB 截断；worker 单行 1 MiB、单 run 2000 事件/32 MiB 上限；UI 64 KB 折叠 |
+| H12 | 沙盒单字段默认 1 MiB 截断（上限同为 1 MiB）；worker 单行 8 MiB；单 run 瞬时与落库各 2000 事件/32 MiB；UI 64 KB 折叠 |
 | M9 | 重试时在同一事务内先删 `run_id` 对应的 assistant/tool 消息（保留 user） |
 | M10 | 导入调用 `assertSafeUrl`；同名不同 kind 拒绝复用；写 `agent.imported` 审计 |
 | M11 | 补 tool CRUD、eval case CRUD、logout、`/mcp` 触发 run 的审计 |
@@ -59,10 +59,10 @@
 
 | 编号 | 严重度 | 问题 | 状态 |
 |---|---|---|---|
-| M12a | Medium | 沙盒拿到模型主密钥：worker 把 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 直接注入容器 env，沙盒内的进程可以读取 | **已修复（D-17）**：worker 起回环模型代理，沙盒只拿 `ANTHROPIC_BASE_URL=<proxy>` 与按 run 的 token；真实凭证只在 worker 内存。会话容器复用时 token 每轮重新签发，run 结束时从代理内存集合移除并尝试清空 DB hash（与容器是否停稳无关）；内存移除不保证独立于 DB 立即失效，清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。未配置凭证时才回退直接注入，并在启动日志警告 |
-| M12b | — | 工作区 `.mcp.json` 权限、长期 MCP token 落盘 | **已修复**（循环 13）：目录 0700 / 文件 0600（`core/mcp-token.ts`），重试复用后再次 `chmod`；generated server 改用按 run 签发的短期 token（32 字节随机，DB 只存 sha256 与过期时间）。实际清理边界：run 结束（不论容器是否停稳）都会尝试清空本轮 MCP token；DB 清空失败只记 warning，该 token 可能保留到过期时间。模型 token 结束时从代理内存集合移除并尝试清空 DB hash；清 hash 成功或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受。`.mcp.json` 只在 runner 停稳后 best-effort 删除，删除失败会记录错误、禁止复用并在仍持有 lease 时销毁容器，但持久工作区里的文件可能留到下一轮刷新才被覆盖；文件中本轮 token 可能已清空或仍在有效期内，stdio/http 上游 secrets 不受本轮 token 撤销影响。长期 `mcpToken` 仅作外部客户端回退；实测 macOS Docker Desktop bind mount 下容器内 uid 1000 可读 0600 文件。这里的「已修复」只指平台签发凭证的落盘与撤销；上游长期 secret 仍可被同容器进程读取，见下方真实信任边界 |
+| M12a | Medium | 沙盒拿到模型主密钥：worker 把 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 直接注入容器 env，沙盒内的进程可以读取 | **已修复（D-17）**：worker 起回环模型代理，沙盒只拿 `ANTHROPIC_BASE_URL=<proxy>` 与按 run 的 token；真实凭证只在 worker 内存。会话容器复用时 token 每轮重新签发，run 结束时从代理内存集合移除并尝试清空 DB hash（与容器是否停稳无关）；代理要求 DB hash 匹配、run 状态为 `running`，且 run 同时存在于该代理进程的 `activeRuns` 集合；内存撤销后，即使 DB 清空或终态落库失败，也不会放行新请求，集合为空时同样拒绝。未配置凭证时才回退直接注入，并在启动日志警告 |
+| M12b | — | 工作区 `.mcp.json` 权限、长期 MCP token 落盘 | **已修复**（循环 13）：目录 0700 / 文件 0600（`core/mcp-token.ts`），重试复用后再次 `chmod`；generated server 改用按 run 签发的短期 token（32 字节随机，DB 只存 sha256 与过期时间）。实际清理边界：run 结束（不论容器是否停稳）都会尝试清空本轮 MCP token；DB 清空失败只记 warning，该 token 可能保留到过期时间。模型代理要求 DB hash 匹配、run 状态为 `running`，且 run 同时存在于本进程的 `activeRuns` 集合。模型 token 结束时从集合移除并尝试清空 DB hash；内存撤销后，即使 DB 清空或终态落库失败，也不会放行新请求。`.mcp.json` 只在 runner 停稳后 best-effort 删除，删除失败会记录错误、禁止复用并在仍持有 lease 时销毁容器，但持久工作区里的文件可能留到下一轮刷新才被覆盖；文件中本轮 MCP token 可能已清空或仍在有效期内；模型 token 在本进程撤销后不能用于新请求。stdio/http 上游 secrets 不受本轮 token 撤销影响。长期 `mcpToken` 仅作外部客户端回退；实测 macOS Docker Desktop bind mount 下容器内 uid 1000 可读 0600 文件。这里的「已修复」只指平台签发凭证的落盘与撤销；上游长期 secret 仍可被同容器进程读取，见下方真实信任边界 |
 
-**M12 现在的边界**：平台签发的 MCP 凭证与模型凭证都不再以长期明文进入沙盒。模型代理只转发 `/v1/messages` 等白名单路径，避免变成开放代理；未启用代理时启动日志会明确警告。stdio / http server 自己的 env/headers 仍会解密写入 `.mcp.json`（0600），这些上游 secrets 可能是长期凭证，run 结束不会被撤销。run 结束（不论容器是否停稳）都会尝试清空本轮 token：模型 token 结束时从代理内存集合移除并尝试清空 DB hash（内存移除不保证独立于 DB 立即失效，清 hash 或 run 状态成功落库为非 running 后 DB 不再匹配，两者都失败时 token 仍可能被接受）；MCP token 的 DB 清空失败时可能保留到过期时间。`.mcp.json` 只在 runner 停稳后 best-effort 删除，删除失败时记录错误、禁止复用并销毁容器，持久工作区文件可能留到下一轮刷新覆盖；文件残留期间本轮 token 是否仍有效取决于清空是否成功，上游长期 secret 仍可能有效。Linux 宿主 uid 非 1000 时容器读取 0600 bind mount 的行为未验证。
+**M12 现在的边界**：平台签发的 MCP 凭证与模型凭证都不再以长期明文进入沙盒。模型代理只转发 `/v1/messages` 等白名单路径，避免变成开放代理；未启用代理时启动日志会明确警告。stdio / http server 自己的 env/headers 仍会解密写入 `.mcp.json`（0600），这些上游 secrets 可能是长期凭证，run 结束不会被撤销。run 结束（不论容器是否停稳）都会尝试清空本轮 token：模型代理要求 DB hash 匹配、run 状态为 `running`，且 run 同时存在于本进程的 `activeRuns` 集合；模型 token 结束时从集合移除并尝试清空 DB hash，内存撤销后，即使 DB 清空或终态落库失败，也不会放行新请求；MCP token 的 DB 清空失败时可能保留到过期时间。`.mcp.json` 只在 runner 停稳后 best-effort 删除，删除失败时记录错误、禁止复用并销毁容器，持久工作区文件可能留到下一轮刷新覆盖；文件残留期间本轮 MCP token 是否仍有效取决于 DB 清空是否成功及是否过期；模型 token 在本进程撤销后不能用于新请求，上游长期 secret 仍可能有效。Linux 宿主 uid 非 1000 时容器读取 0600 bind mount 的行为未验证。
 
 **上游 MCP 长期凭据的真实信任边界**：用户为原生 stdio/HTTP MCP 配置的 env/headers 凭据由 worker 解密后写入工作区 `.mcp.json`（目录 0700、文件 0600，`/workspace` 以只读方式绑定）。这些措施只能减少部分外部修改/访问，**不能阻止同一容器内以相同 uid 运行的进程读取凭据并按上游权限使用**；默认启用的 Bash、技能/插件执行内容及 stdio 子进程都可能读取。PreToolUse hook 只约束原生文件工具与 MCP 调用，不是进程隔离；`${VAR}`/headersHelper 等是配置取值机制，不是同容器 secret 隔离。平台签发的 generated/knowledge MCP token 是按 run 签发、可随 run 结束尝试清空的短期凭据；模型凭据经回环代理与按 run token 隔离（D-17）。二者与用户自带的长期上游凭据边界不同，per-run 撤销不会撤销上游长期 secret。因此只应把受信任的代码与该任务所需最小权限凭据绑定到原生 MCP；本说明不新增审批弹窗、不默认关闭 Bash，也不表示已实现上游统一代理。删除/目录回收的关闭确认修复在系统架构任务中实施，未完成前不宣称「凭据无残留」。
 

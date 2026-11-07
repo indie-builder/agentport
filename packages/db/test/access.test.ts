@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import {
   type AccessScope,
@@ -9,11 +10,10 @@ import {
 } from '@agentport/shared';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
+import type { Transaction } from '../src/client.js';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
-import type { Tx } from '../src/repo/access.js';
 import * as access from '../src/repo/access.js';
 import * as accounts from '../src/repo/accounts.js';
 import * as agentRepo from '../src/repo/agents.js';
@@ -126,7 +126,7 @@ async function activeAdminIds(): Promise<string[]> {
  * 没有共享锁时第二条会读到旧状态并同时成功，因此该用例能稳定暴露竞态。
  */
 async function overlapAdminMutations(
-  first: (tx: Tx) => Promise<unknown>,
+  first: (tx: Transaction) => Promise<unknown>,
   second: () => Promise<unknown>,
 ): Promise<{ first: boolean; second: boolean }> {
   let release!: () => void;

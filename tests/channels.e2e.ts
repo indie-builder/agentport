@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
+import { browserFetch } from './support/browser-api.js';
 import { fixture as runFixture } from './support/fixture.js';
 
 /**
@@ -9,7 +10,7 @@ import { fixture as runFixture } from './support/fixture.js';
  * `scripts/e2e-channel.ts` 的本地假 SSE 承接。数据经 UI 或同源 API 创建，
  * 需要精确时间线的场景（审批）直写 fixture，与 run-cancel 用例一致。
  *
- * 入口：`pnpm e2e:channel:ui`（起隔离栈 → 跑本文件 → 清理）。
+ * 入口：`bun run e2e:channel:ui`（起隔离栈 → 跑本文件 → 清理）。
  */
 const REPLY_PREFIX = 'E2E-CHANNEL-REPLY';
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
@@ -45,39 +46,13 @@ test.afterEach(async () => {
   created.servers.length = 0;
 });
 
-interface ApiResponse {
-  status: number;
-  text: string;
-}
-
-/** 同源请求：复用浏览器里的登录 cookie，行为和页面自己的 fetch 一致。 */
-async function apiRaw(
-  browser: Browser,
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<ApiResponse> {
-  return browser.evaluate(
-    async (input: { method: string; path: string; body: string | null }) => {
-      const response = await fetch(input.path, {
-        method: input.method,
-        ...(input.body === null
-          ? {}
-          : { headers: { 'content-type': 'application/json' }, body: input.body }),
-      });
-      return { status: response.status, text: await response.text() };
-    },
-    { method, path, body: body === undefined ? null : JSON.stringify(body) },
-  );
-}
-
 async function apiJson<T>(
   browser: Browser,
   method: string,
   path: string,
   body?: unknown,
 ): Promise<{ status: number; json: T | null }> {
-  const response = await apiRaw(browser, method, path, body);
+  const response = await browserFetch(browser, method, path, body);
   let json: T | null = null;
   try {
     json = response.text === '' ? null : (JSON.parse(response.text) as T);
@@ -151,7 +126,7 @@ async function addMember(
 }
 
 async function loginAs(browser: Browser, account: TestAccount): Promise<void> {
-  const result = await apiRaw(browser, 'POST', '/api/auth/login', {
+  const result = await browserFetch(browser, 'POST', '/api/auth/login', {
     username: account.username,
     password: account.password,
   });

@@ -25,7 +25,6 @@ const agent = {
   effort: 'high' as const,
   allowedTools: [],
   disallowedTools: [],
-  timeoutMs: 90_000,
   skills: [{ slug: 'search', name: '搜索', description: '查资料', body: '' }],
   serverNames: ['web'],
 };
@@ -129,6 +128,10 @@ describe('official workspace file parsing', () => {
       systemPrompt: agent.systemPrompt,
     });
     expectInvalid(() => parseClaudeMd('没有标题'), '/CLAUDE.md');
+    for (const name of ['first\nsecond', 'first\rsecond', 'first\r\nsecond']) {
+      expectInvalid(() => renderWorkspace({ agent: { ...agent, name }, servers: [] }), '/name');
+      expectInvalid(() => renderSubAgentMd({ agent: { ...agent, name }, servers: [] }), '/name');
+    }
   });
 
   it('reads a CRLF-encoded CLAUDE.md without absorbing the generated OpenUI section', () => {
@@ -149,6 +152,12 @@ describe('official workspace file parsing', () => {
     expect(renderSkillMd({ slug: 's', name: 'S', description: 'd', body: 'step' })).toBe(
       '---\nname: "s"\ndescription: "d"\n---\n\n# S\n\nstep\n',
     );
+    for (const name of ['first\nsecond', 'first\rsecond', 'first\r\nsecond']) {
+      expectInvalid(
+        () => renderSkillMd({ slug: 's', name, description: 'd', body: 'step' }),
+        '/name',
+      );
+    }
   });
 });
 
@@ -160,6 +169,7 @@ describe('generated suffix round-trips user prose verbatim', () => {
     heading: '你是助手。\n\n## 工具使用\n\n用户自己的同名标题，必须保留。',
     repeatedHeading: '第一段\n\n## 工具使用\n\n第二段\n\n## 工具使用\n\n第三段',
     delegationNote: `正文。\n\n${DELEGATION_NOTE}\n\n后续正文。`,
+    repeatedDescription: 'first\nsecond\n\nfirst\nsecond\n\n# 正文标题',
     loneStart: `正文。\n\n${START}\n\n后面还有正文。`,
     loneEnd: `正文。\n\n${END}\n\n后面还有正文。`,
     completeExample: `正文。\n\n${START}\n示例内容\n${END}`,
@@ -178,13 +188,20 @@ describe('generated suffix round-trips user prose verbatim', () => {
 
   it('round-trips the child definition prompt without using the delegation note as a boundary', () => {
     for (const prompt of Object.values(prompts)) {
-      const content = renderSubAgentMd({
-        agent: { ...agent, systemPrompt: prompt },
-        servers: [
-          { name: 'web', entry: { type: 'http', url: 'https://example.com', headers: {} } },
-        ],
-      });
-      expect(parseChildAgentMd(content, '/child').systemPrompt).toBe(prompt);
+      for (const description of ['查资料', 'first\nsecond', 'first\r\nsecond', 'first\n\nsecond']) {
+        const content = renderSubAgentMd({
+          agent: { ...agent, description, systemPrompt: prompt },
+          servers: [
+            { name: 'web', entry: { type: 'http', url: 'https://example.com', headers: {} } },
+          ],
+        });
+        for (const encoded of [content, content.replace(/\r?\n/g, '\r\n')]) {
+          const parsed = parseChildAgentMd(encoded, '/child');
+          expect(parsed.systemPrompt).toBe(prompt);
+          expect(parsed.description).toBe(description);
+          expect(parsed.name).toBe(agent.name);
+        }
+      }
     }
   });
 
@@ -230,8 +247,14 @@ describe('generated suffix round-trips user prose verbatim', () => {
   });
 
   it('accepts a rendered child definition whose user prompt is empty', () => {
-    const content = renderSubAgentMd({ agent: { ...agent, systemPrompt: '' }, servers: [] });
-    expect(parseChildAgentMd(content, '/child').systemPrompt).toBe('');
+    for (const description of ['查资料', 'first\nsecond', 'first\r\nsecond', 'first\n\nsecond']) {
+      const content = renderSubAgentMd({
+        agent: { ...agent, description, systemPrompt: '' },
+        servers: [],
+      });
+      expect(parseChildAgentMd(content, '/child').systemPrompt).toBe('');
+      expect(parseChildAgentMd(content, '/child').description).toBe(description);
+    }
   });
 
   it('keeps hand-written files without a generated suffix as the whole instruction', () => {
@@ -254,5 +277,28 @@ describe('generated suffix round-trips user prose verbatim', () => {
     expect(parseChildAgentMd(child, '/child').systemPrompt).toBe(
       `${DELEGATION_NOTE}\n\n用户全文。`,
     );
+    const frontmatter = '---\nname: kid\ndescription: "first\\nsecond"\nmodel: m\n---\n\n';
+    for (const prompt of [
+      'KEEP PREFIX\n\n# Internal heading\n\nKEEP SUFFIX',
+      '没有标题。\n\n原样保留。',
+      'first\nsecond\n\n没有标题时也不删除描述。',
+    ]) {
+      for (const content of [frontmatter + prompt, (frontmatter + prompt).replace(/\n/g, '\r\n')]) {
+        const parsed = parseChildAgentMd(content, '/child');
+        expect(parsed.name).toBe('kid');
+        expect(parsed.systemPrompt).toBe(prompt);
+      }
+    }
+    for (const prompt of [
+      'first\nsecond extra\n\n正文。',
+      'first\nother\n\n正文。',
+      ' first\nsecond\n\n正文。',
+      'first\nsecond \n\n正文。',
+      ' first\nsecond ',
+    ]) {
+      const parsed = parseChildAgentMd(`${frontmatter}# Kid\n\n${prompt}`, '/child');
+      expect(parsed.name).toBe('Kid');
+      expect(parsed.systemPrompt).toBe(prompt.trim());
+    }
   });
 });

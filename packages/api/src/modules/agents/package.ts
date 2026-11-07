@@ -18,7 +18,7 @@ import {
   toWorkspaceInput,
   unionById,
 } from '@agentport/core';
-import type { Database } from '@agentport/db';
+import type { Database, Transaction } from '@agentport/db';
 import {
   agentOutputStyles,
   agentRules,
@@ -32,8 +32,6 @@ import {
   skillFiles,
   skills,
 } from '@agentport/db';
-import type { AgentRow } from '@agentport/db/repo/agents.js';
-import * as agentRepo from '@agentport/db/repo/agents.js';
 import type {
   Agent,
   AgentInput,
@@ -62,13 +60,13 @@ import { isPgCode } from '../../http/errors.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
 import { decodePackage, encodePackage } from './package-zip.js';
 import { unsupportedAllowedTool } from './validation.js';
+import { toAgentConfigValues } from './write.js';
 
 type ServerRow = typeof servers.$inferSelect;
 type SkillRow = typeof skills.$inferSelect;
 type ToolRow = typeof apiTools.$inferSelect;
 type RuleRow = typeof agentRules.$inferSelect;
 type StyleRow = typeof agentOutputStyles.$inferSelect;
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 export interface AgentPackageImportResult {
   agent: Agent;
   createdServers: string[];
@@ -327,9 +325,9 @@ export async function buildAgentPackage(
   db: Database,
   key: string,
   selfUrl: string,
-  row: AgentRow,
+  row: repo.agents.AgentRow,
 ): Promise<AgentPackageFiles> {
-  const children = await agentRepo.listSubAgents(db, row.id);
+  const children = await repo.agents.listSubAgents(db, row.id);
   checkExportLimit(
     children.length,
     AGENT_PACKAGE_LIMITS.subAgents,
@@ -337,7 +335,7 @@ export async function buildAgentPackage(
   );
   const agentIds = [row.id, ...children.map((child) => child.id)];
   const [serversByAgent, skillsByAgent, rulesMap, stylesMap] = await Promise.all([
-    agentRepo.getBoundServersByAgentIds(db, agentIds),
+    repo.agents.getBoundServersByAgentIds(db, agentIds),
     boundSkillsByAgent(db, agentIds),
     rulesByAgent(db, agentIds),
     stylesByAgent(db, agentIds),
@@ -509,7 +507,7 @@ export async function buildAgentPackage(
     fail('INVALID_INPUT', message, path === undefined ? undefined : { path });
   }
   files[AGENT_PACKAGE_SIDECAR] = `${JSON.stringify(parsed.data, null, 2)}\n`;
-  const pluginBindings = await agentRepo.listAgentPluginBindings(db, [row.id]);
+  const pluginBindings = await repo.plugins.listAgentPluginBindingInputs(db, [row.id]);
   const boundPlugins = pluginBindings.get(row.id) ?? [];
   const warnings =
     boundPlugins.length === 0
@@ -969,25 +967,9 @@ function toAgentValues(
   input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds' | 'runtimeEnvironmentId'>,
   runtimeEnvironmentId: string | null = null,
 ) {
-  return {
-    name: input.name,
-    role: input.role,
-    description: input.description,
-    model: input.model,
-    systemPromptMd: input.systemPrompt,
-    allowedTools: input.allowedTools,
-    disallowedTools: input.disallowedTools,
-    permissionMode: input.permissionMode,
-    uiFormat: input.uiFormat,
-    effort: input.effort ?? null,
-    enabled: input.enabled,
-    maxTurns: input.maxTurns,
-    maxBudgetUsd: String(input.maxBudgetUsd),
-    timeoutMs: input.timeoutMs,
-    runtimeEnvironmentId,
-  };
+  return toAgentConfigValues({ ...input, runtimeEnvironmentId });
 }
-async function uniqueSlug(tx: Tx, base: string): Promise<string> {
+async function uniqueSlug(tx: Transaction, base: string): Promise<string> {
   const taken = async (candidate: string): Promise<boolean> => {
     const rows = await tx
       .select({ id: agents.id })
@@ -1003,7 +985,7 @@ async function uniqueSlug(tx: Tx, base: string): Promise<string> {
   return `${prefix}-${n}`;
 }
 async function insertAgentFiles(
-  tx: Tx,
+  tx: Transaction,
   agentId: string,
   rules: PackageRuleInput[],
   styles: PackageStyleInput[],
@@ -1274,7 +1256,7 @@ export async function importAgentPackage(
       await insertAgentFiles(tx, row.id, parsed.rules, parsed.styles);
       const createdSubAgents: string[] = [];
       const childIds: string[] = [];
-      const childSnapshots: ReturnType<typeof agentRepo.toAgent>[] = [];
+      const childSnapshots: ReturnType<typeof repo.agents.toAgent>[] = [];
       for (const child of parsed.children) {
         const childSlug = await uniqueSlug(tx, child.input.slug);
         if (childSlug !== child.input.slug) {
@@ -1305,20 +1287,20 @@ export async function importAgentPackage(
             .values(childSkillIds.map((skillId) => ({ agentId: childRow.id, skillId })));
         }
         await insertAgentFiles(tx, childRow.id, child.rules, child.outputStyles);
-        childSnapshots.push(agentRepo.toAgent(childRow, childServerIds, childSkillIds));
+        childSnapshots.push(repo.agents.toAgent(childRow, childServerIds, childSkillIds));
         childIds.push(childRow.id);
         createdSubAgents.push(childRow.slug);
       }
       await repo.agentVersions.insertAgentVersion(
         tx,
         row.id,
-        agentRepo.toAgent(row, serverIds, skillIds, childIds),
+        repo.agents.toAgent(row, serverIds, skillIds, childIds),
       );
       for (const snapshot of childSnapshots) {
         await repo.agentVersions.insertAgentVersion(tx, snapshot.id, snapshot);
       }
       return {
-        agent: agentRepo.toAgent(row, serverIds, skillIds, childIds),
+        agent: repo.agents.toAgent(row, serverIds, skillIds, childIds),
         createdServers,
         reusedServers,
         createdSkills,

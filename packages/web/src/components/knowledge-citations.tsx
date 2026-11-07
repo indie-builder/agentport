@@ -12,6 +12,7 @@ import {
   type KnowledgeSearchHit,
   type KnowledgeSearchScores,
 } from '../lib/api.js';
+import { fetchResponse, responseApiError } from '../lib/orpc.js';
 import {
   useKnowledgeFaq,
   useKnowledgeMarkdown,
@@ -417,13 +418,12 @@ async function fetchVersionImage(
   name: string,
   signal: AbortSignal,
 ): Promise<Blob> {
-  const res = await fetch(api.knowledgeVersionImageUrl(versionId, name), {
+  const res = await fetchResponse(api.knowledgeVersionImageUrl(versionId, name), {
     credentials: 'include',
     signal,
   });
   if (res.ok) return res.blob();
-  const data = (await res.json().catch(() => null)) as { message?: string } | null;
-  throw new ApiError(res.status, data?.message ?? `HTTP ${res.status}`);
+  throw await responseApiError(res);
 }
 
 type LoadedImage =
@@ -463,7 +463,7 @@ export function KnowledgeImage({
         setImage({
           status: 'error',
           message:
-            error instanceof ApiError
+            error instanceof ApiError && error.status !== 0
               ? imageFailureMessage(error.status)
               : '连不上服务，请稍后重试。',
         });
@@ -701,9 +701,7 @@ export function KnowledgeHitDialog({
               <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground">
                 <ChevronDown className="size-3.5" aria-hidden="true" /> 父块上下文
               </summary>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {citation.parentContent}
-              </p>
+              <p className="mt-2 text-sm text-muted-foreground">{citation.parentContent}</p>
             </details>
           ) : null}
           {citation.target.kind === 'faq' ? (

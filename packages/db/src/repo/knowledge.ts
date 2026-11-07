@@ -13,7 +13,7 @@ import {
   knowledgeJobPayloadSchema,
 } from '@agentport/shared';
 import { and, asc, desc, eq, gt, inArray, isNull, type SQL, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
   knowledgeBases,
@@ -49,7 +49,6 @@ export type KnowledgeSyncItemRow = typeof knowledgeSyncItems.$inferSelect;
 export type KnowledgeWikiPageRow = typeof knowledgeWikiPages.$inferSelect;
 export type KnowledgeWikiVersionRow = typeof knowledgeWikiVersions.$inferSelect;
 export type KnowledgeModelProfileRow = typeof knowledgeModelProfiles.$inferSelect;
-export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 /** 一次成功读取看到的来源授权；凭证只保留密文，仅在内存中传递。 */
 export type SourceReadSnapshot = {
@@ -96,56 +95,56 @@ export function readableDocumentSql(alias: string): SQL {
   return sql`${d}.status = 'ready'
     and ${d}.current_version_id is not null
     and ${d}.disabled_reason is null
-    and (${d}.source_connection_id is null or exists (
-      select 1 from knowledge_sources s
-      where s.id = ${d}.source_connection_id
-        and s.base_id = ${d}.base_id
-        and s.status in ('active', 'paused')
-        and exists (
-          select 1 from knowledge_document_source_ranges dsr
-          join knowledge_source_ranges r on r.id = dsr.range_id
-          where dsr.document_id = ${d}.id
-            and r.source_id = s.id
-            and r.enabled
-            and (
-              jsonb_array_length(r.paths) = 0
-              or (${d}.source_path is not null and exists (
-                select 1 from jsonb_array_elements_text(r.paths) p
-                where ${d}.source_path = p
-                  or left(${d}.source_path, char_length(p) + 1) = p || '/'
-              ))
-            )
-        )
-    ))`;
+    and (${d}.source_connection_id is null or ${sourceScopeSql({
+      id: sql`${d}.id`,
+      baseId: sql`${d}.base_id`,
+      sourceConnectionId: sql`${d}.source_connection_id`,
+      sourcePath: sql`${d}.source_path`,
+    })})`;
+}
+
+function sourceScopeSql(document: {
+  id: SQL;
+  baseId: SQL;
+  sourceConnectionId: SQL;
+  sourcePath: SQL;
+}): SQL {
+  return sql`exists (
+    select 1 from knowledge_sources s
+    where s.id = ${document.sourceConnectionId}
+      and s.base_id = ${document.baseId}
+      and s.status in ('active', 'paused')
+      and exists (
+        select 1 from knowledge_document_source_ranges dsr
+        join knowledge_source_ranges r on r.id = dsr.range_id
+        where dsr.document_id = ${document.id}
+          and r.source_id = s.id
+          and r.enabled
+          and (
+            jsonb_array_length(r.paths) = 0
+            or (${document.sourcePath} is not null and exists (
+              select 1 from jsonb_array_elements_text(r.paths) p
+              where ${document.sourcePath} = p
+                or left(${document.sourcePath}, char_length(p) + 1) = p || '/'
+            ))
+          )
+      )
+  )`;
 }
 
 /** 发布前只核对来源/范围授权；文档自身的 ready/current 由发布动作建立。 */
 async function sourceScopeAllowsDocument(
-  db: Database | Tx,
+  db: DbHandle,
   document: KnowledgeDocumentRow,
 ): Promise<boolean> {
   if (document.sourceConnectionId === null) return true;
-  const pathClause =
-    document.sourcePath === null
-      ? sql`false`
-      : sql`(${document.sourcePath} = p or left(${document.sourcePath}, char_length(p) + 1) = p || '/')`;
   const result = await db.execute<{ ok: boolean }>(sql`
-    select exists (
-      select 1 from knowledge_sources s
-      where s.id = ${document.sourceConnectionId}
-        and s.base_id = ${document.baseId}
-        and s.status in ('active', 'paused')
-        and exists (
-          select 1 from knowledge_document_source_ranges dsr
-          join knowledge_source_ranges r on r.id = dsr.range_id
-          where dsr.document_id = ${document.id}
-            and r.source_id = s.id
-            and r.enabled
-            and (jsonb_array_length(r.paths) = 0 or exists (
-              select 1 from jsonb_array_elements_text(r.paths) p where ${pathClause}
-            ))
-        )
-    ) as ok
+    select ${sourceScopeSql({
+      id: sql`${document.id}`,
+      baseId: sql`${document.baseId}`,
+      sourceConnectionId: sql`${document.sourceConnectionId}`,
+      sourcePath: sql`${document.sourcePath}::text`,
+    })} as ok
   `);
   return result[0]?.ok === true;
 }
@@ -192,7 +191,10 @@ export async function getSourceReadSnapshot(
  * 快照仍与线上来源一致：在 source 共享锁下比较 type/baseId/config/密文与全部范围。
  * config 用 jsonb 相等（忽略键顺序）；范围按 id 与字段逐一比较，忽略时间戳。
  */
-async function sourceSnapshotMatchesTx(tx: Tx, snapshot: SourceReadSnapshot): Promise<boolean> {
+async function sourceSnapshotMatchesTx(
+  tx: Transaction,
+  snapshot: SourceReadSnapshot,
+): Promise<boolean> {
   const [source] = await tx
     .select({ id: knowledgeSources.id })
     .from(knowledgeSources)
@@ -247,7 +249,7 @@ function rangeCoversSourcePath(
 
 /** 草稿只能由同文档、同库、已成功的 draft ingest 任务发布，且任务输入必须就是该版本。 */
 async function draftIndexJobAllowsVersionTx(
-  tx: Tx,
+  tx: Transaction,
   document: Pick<KnowledgeDocumentRow, 'id' | 'baseId'>,
   version: Pick<
     KnowledgeVersionRow,
@@ -424,7 +426,7 @@ export async function listFolders(
   return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
 }
 
-export async function getFolder(db: Database | Tx, id: string): Promise<KnowledgeFolderRow | null> {
+export async function getFolder(db: DbHandle, id: string): Promise<KnowledgeFolderRow | null> {
   const [row] = await db
     .select()
     .from(knowledgeFolders)
@@ -440,7 +442,7 @@ function escapeLike(value: string): string {
 
 /** 改名或移动后整棵子树的物化路径一起重写；路径唯一冲突交给 409。 */
 async function rewriteFolderPath(
-  tx: Tx,
+  tx: Transaction,
   folder: KnowledgeFolderRow,
   nextParentId: string | null,
   nextName: string,
@@ -518,7 +520,7 @@ export async function upsertTag(
 }
 
 export async function upsertTags(
-  db: Database | Tx,
+  db: DbHandle,
   baseId: string,
   names: string[],
 ): Promise<KnowledgeTagRow[]> {
@@ -621,7 +623,7 @@ export interface CreateDocumentInput {
 }
 
 export async function createDocument(
-  db: Database | Tx,
+  db: DbHandle,
   input: CreateDocumentInput,
 ): Promise<KnowledgeDocumentRow> {
   const [row] = await db
@@ -711,7 +713,7 @@ export interface DocumentPatch {
 }
 
 export async function updateDocument(
-  db: Database | Tx,
+  db: DbHandle,
   id: string,
   patch: DocumentPatch,
 ): Promise<KnowledgeDocumentRow | null> {
@@ -826,7 +828,7 @@ export interface CreateVersionInput {
 /** 版本号在 INSERT 内用按文档过滤的 coalesce(max)+1 子查询算出，单次往返即可。
  * 同文档并发没有行锁兜底，仍可能撞唯一索引；冲突原样抛出，不自动重试。 */
 export async function createVersion(
-  db: Database | Tx,
+  db: DbHandle,
   input: CreateVersionInput,
 ): Promise<KnowledgeVersionRow> {
   const { id, ...rest } = input;
@@ -1210,7 +1212,7 @@ export interface NewChunk {
 const INSERT_CHUNK = 500;
 
 export async function insertChunks(
-  db: Database | Tx,
+  db: DbHandle,
   input: {
     baseId: string;
     documentId: string;
@@ -1688,7 +1690,7 @@ function sameFaqState(a: KnowledgeFaqImportState, b: KnowledgeFaqImportState): b
 
 /** excludeBatchId 用于批发布时忽略本批刚建的草稿，对比旧集合是否被外部改动。 */
 async function faqStateSnapshot(
-  tx: Tx,
+  tx: Transaction,
   baseId: string,
   excludeBatchId?: string,
 ): Promise<KnowledgeFaqImportState[]> {
@@ -2143,10 +2145,7 @@ export interface CreateJobInput {
   result?: KnowledgeSourceProbeResult | null;
 }
 
-export async function createJob(
-  db: Database | Tx,
-  input: CreateJobInput,
-): Promise<KnowledgeJobRow> {
+export async function createJob(db: DbHandle, input: CreateJobInput): Promise<KnowledgeJobRow> {
   const [row] = await db
     .insert(knowledgeJobs)
     .values({ id: newId('knowledgeJob'), ...input })
@@ -2449,7 +2448,7 @@ function rangeKey(range: { kind: string; externalId: string; ref: string | null 
 }
 
 /** 范围删除/停用/路径收缩后，移除不再被任何有效范围覆盖的条目归属。 */
-async function pruneSourceRangeMemberships(tx: Tx, sourceId: string): Promise<void> {
+async function pruneSourceRangeMemberships(tx: Transaction, sourceId: string): Promise<void> {
   await tx.execute(sql`
     delete from knowledge_document_source_ranges dsr
     using knowledge_source_ranges r, knowledge_documents d
@@ -2476,7 +2475,7 @@ async function pruneSourceRangeMemberships(tx: Tx, sourceId: string): Promise<vo
 }
 
 async function replaceRangesTx(
-  tx: Tx,
+  tx: Transaction,
   sourceId: string,
   ranges: RangeInput[],
 ): Promise<KnowledgeSourceRangeRow[]> {
@@ -2871,10 +2870,7 @@ export async function createWikiPage(
   return row;
 }
 
-export async function getWikiPage(
-  db: Database | Tx,
-  id: string,
-): Promise<KnowledgeWikiPageRow | null> {
+export async function getWikiPage(db: DbHandle, id: string): Promise<KnowledgeWikiPageRow | null> {
   const [row] = await db
     .select()
     .from(knowledgeWikiPages)
@@ -2927,7 +2923,7 @@ export interface SaveWikiVersionInput {
  * chunk.versionId 等于文档 currentVersionId（旧版本 chunk 不能再当证据）。
  */
 async function usableSourceChunks(
-  tx: Database | Tx,
+  tx: DbHandle,
   page: KnowledgeWikiPageRow,
   chunkIds: string[],
 ): Promise<{
@@ -2958,7 +2954,7 @@ async function usableSourceChunks(
   return { usable: rows, unusable: wanted.size - rows.length };
 }
 
-async function latestWikiVersionId(db: Database | Tx, pageId: string): Promise<string | null> {
+async function latestWikiVersionId(db: DbHandle, pageId: string): Promise<string | null> {
   const [row] = await db
     .select({ id: knowledgeWikiVersions.id })
     .from(knowledgeWikiVersions)
@@ -3018,7 +3014,11 @@ export { saveWikiDraft as saveWikiVersion };
  * 与范围撤权统一锁序：先来源、再文档、最后 Wiki 页/关联。
  * 撤权事务按 source -> document -> wiki page -> sources 表写，这里在取完前两级后重核来源。
  */
-async function lockWikiSourceScope(tx: Tx, baseId: string, chunkIds: string[]): Promise<void> {
+async function lockWikiSourceScope(
+  tx: Transaction,
+  baseId: string,
+  chunkIds: string[],
+): Promise<void> {
   const wanted = [...new Set(chunkIds)];
   if (wanted.length === 0) return;
   const rows = await tx
@@ -3058,10 +3058,9 @@ async function lockWikiSourceScope(tx: Tx, baseId: string, chunkIds: string[]): 
 /**
  * 发布指定版本：只切指针，不复制内容。来源必须仍可检索，
  * 否则 409——草稿不能绕过来源撤权。
- * Tx 版本不自开事务，供发布方把索引文档/任务与页面指针一次提交。
  */
 export async function publishWikiVersionTx(
-  tx: Tx,
+  tx: Transaction,
   pageId: string,
   versionId: string,
 ): Promise<KnowledgeWikiPageRow | null> {
@@ -3270,7 +3269,7 @@ export interface WikiPageStructurePatch {
 
 /** 结构/标题变更的唯一写入口；调用方负责先锁页面并完成 expectedVersion 校验。 */
 async function applyWikiStructureTx(
-  tx: Tx,
+  tx: Transaction,
   page: KnowledgeWikiPageRow,
   patch: Omit<WikiPageStructurePatch, 'expectedVersionId'>,
 ): Promise<KnowledgeWikiPageRow> {
@@ -3396,7 +3395,7 @@ export async function getWikiVersionDiff(
   };
 }
 
-async function markWikiStaleByDocumentsTx(tx: Tx, documentIds: string[]): Promise<number> {
+async function markWikiStaleByDocumentsTx(tx: Transaction, documentIds: string[]): Promise<number> {
   if (documentIds.length === 0) return 0;
   const linked = await tx
     .select({ pageId: knowledgeWikiSources.pageId })
@@ -3427,7 +3426,7 @@ async function markWikiStaleByDocumentsTx(tx: Tx, documentIds: string[]): Promis
   return pageIds.length;
 }
 
-async function markWikiStaleByDocumentTx(tx: Tx, documentId: string): Promise<number> {
+async function markWikiStaleByDocumentTx(tx: Transaction, documentId: string): Promise<number> {
   return markWikiStaleByDocumentsTx(tx, [documentId]);
 }
 

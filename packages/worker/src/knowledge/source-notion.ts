@@ -1,11 +1,13 @@
 import { errorText } from '@agentport/shared';
 import { z } from 'zod';
+import { BINARY_MIME_BY_EXTENSION, extensionOf } from './source-formats.js';
 import {
   type FetchOptions,
   fetchChecked,
   fetchJson,
   readBytesCapped,
   SourceAuthError,
+  sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
@@ -203,36 +205,11 @@ const TEXT_MIME_BY_EXTENSION: Record<string, string> = {
   '.yml': 'application/yaml',
 };
 
-const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.doc': 'application/msword',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.ppt': 'application/vnd.ms-powerpoint',
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.xls': 'application/vnd.ms-excel',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.odt': 'application/vnd.oasis.opendocument.text',
-  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
-  '.odp': 'application/vnd.oasis.opendocument.presentation',
-  '.rtf': 'application/rtf',
-  '.epub': 'application/epub+zip',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-};
-
 const EXTENSION_BY_MIME: Record<string, string> = Object.fromEntries(
   Object.entries({ ...TEXT_MIME_BY_EXTENSION, ...BINARY_MIME_BY_EXTENSION }).map(
     ([extension, mime]) => [mime, extension],
   ),
 );
-
-function extensionOf(name: string): string {
-  const dot = name.lastIndexOf('.');
-  return dot < 0 ? '' : name.slice(dot).toLowerCase();
-}
 
 /** 扩展名优先：下载响应头常缺失或误报文本，不能拿它覆盖真实原件类型。 */
 function mimeForName(name: string, contentType: string | null): string {
@@ -301,8 +278,7 @@ type NotionContext = {
 
 function notionNetwork(config: SourceConfig, signal: AbortSignal | undefined) {
   return {
-    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
-    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
+    ...sourceNetworkOptions(config),
     ...(signal === undefined ? {} : { signal }),
   };
 }

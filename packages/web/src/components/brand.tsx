@@ -87,7 +87,6 @@ export async function animateBrand(event: MouseEvent<HTMLElement>) {
     }
     image.setAttribute('src', nextSource);
   } catch {
-    // 图片或动效失败时保留当前 Logo。
   } finally {
     incoming.style.opacity = '';
     incoming.style.transform = '';

@@ -1,21 +1,21 @@
+import { describe, expect, it, jest } from 'bun:test';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/db';
+import type { RuntimeEnvironmentBuildJob } from '@agentport/shared';
 import type { Job } from 'bullmq';
 import type { Logger } from 'pino';
-import { describe, expect, it, jest } from 'bun:test';
-import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 import {
   createRuntimeEnvironmentBuildHandler,
   executeRuntimeEnvironmentBuild,
   type RuntimeEnvironmentBuildClaim,
-  type RuntimeEnvironmentBuildJob,
   type RuntimeEnvironmentBuildStore,
-  type SpawnFn,
 } from '../src/runtime-environments/build.js';
+import type { SpawnFn } from '../src/runtime-environments/command.js';
+import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 
 const SANDBOX_IMAGE = 'repo/sandbox:dev';
 const DOCKERFILE = 'ARG RUNTIME_BASE_IMAGE\nFROM ${RUNTIME_BASE_IMAGE}\n';

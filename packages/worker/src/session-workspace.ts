@@ -1,6 +1,13 @@
 import { chmod, cp, lstat, mkdir, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { conversationInputsDir, personalMemoryDir, WORKSPACE_DIR_MODE } from '@agentport/core';
+
+export function toHostWorkspacePath(
+  input: { workspacesDir: string; hostWorkspacesDir: string },
+  dir: string,
+): string {
+  return join(input.hostWorkspacesDir, relative(input.workspacesDir, dir));
+}
 
 /** 只预建目录，不改内容；刷新必须由调用方持有会话 lease。 */
 export async function ensureSessionWorkspace(input: {

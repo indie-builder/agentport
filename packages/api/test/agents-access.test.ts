@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -5,7 +6,6 @@ import { join } from 'node:path';
 import { newId } from '@agentport/db';
 import type { PermissionGrant } from '@agentport/shared';
 import { hashPassword } from 'better-auth/crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { AUTH_COOKIE } from '../src/modules/auth/types.js';
 import {
@@ -177,7 +177,9 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     for (const roleId of customRoles) {
       await app.client.unsafe('delete from roles where id = $1', [roleId]);
     }
-    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(seeded, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [
+      app.client.array(seeded, 'TEXT'),
+    ]);
     await app.close();
     await isolated?.close();
     await rm(workspaces, { recursive: true, force: true });
@@ -481,6 +483,30 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       payload: { description: 'write mismatch' },
     });
     expect(writeDenied.statusCode, writeDenied.body).toBe(404);
+    const [beforeNoop] = await app.client.unsafe<{ updated_at: Date; slug: string }[]>(
+      'select updated_at, slug from agents where id = $1',
+      [agent.id],
+    );
+    if (!beforeNoop) throw new Error('agent missing before empty patch');
+    for (const payload of [
+      {},
+      { expectedUpdatedAt: beforeNoop.updated_at.toISOString() },
+      { slug: beforeNoop.slug },
+    ]) {
+      const empty = await request(app, {
+        method: 'PATCH',
+        url: `/api/agents/${agent.id}`,
+        headers: { cookie: cantWrite.cookie },
+        payload,
+      });
+      expect(empty.statusCode, empty.body).toBe(400);
+      expect(empty.json<{ code: string }>().code).toBe('INVALID_INPUT');
+    }
+    const [afterNoop] = await app.client.unsafe<{ updated_at: Date }[]>(
+      'select updated_at from agents where id = $1',
+      [agent.id],
+    );
+    expect(afterNoop?.updated_at.toISOString()).toBe(beforeNoop.updated_at.toISOString());
 
     const matched = await makeMaintainer(
       'matched',

@@ -3,14 +3,11 @@ import { join } from 'node:path';
 import { agentsContract } from '@agentport/contract/agents';
 import { fail, parseAgentMd } from '@agentport/core';
 import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db';
-import * as repo from '@agentport/db/repo/agents.js';
-import type { Agent } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
 import { accessFilter, agentAccess, authorize, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
-import { writeAudit } from '../../plugins/audit.js';
 import {
   readMemoryTarget,
   withMemoryTargetLock,
@@ -31,6 +28,7 @@ import {
 } from './use-cases.js';
 import { unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
+import { toAgentPatch } from './write.js';
 
 type OutputStyleRow = Awaited<ReturnType<typeof allRepo.outputStyles.listOutputStyles>>[number];
 function toOutputStyle(row: OutputStyleRow) {
@@ -56,19 +54,14 @@ async function authorizeSubAgentBindings(
     await authorizeAgent(context, child, 'agents.bindings.manage');
   }
 }
-const unsupportedPermissionModes = new Set(['auto']);
-function unsupportedPermissionMode(mode: string | undefined): string | undefined {
-  return mode !== undefined && unsupportedPermissionModes.has(mode)
-    ? `permissionMode "${mode}" 依赖模型分类器，平台暂不开放；可用 dontAsk、plan、default、acceptEdits`
-    : undefined;
-}
+
 function invalid(message: string) {
   return fail('INVALID_INPUT', message);
 }
 function notFound() {
   return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
 }
-function toSummary(row: repo.AgentRow, serverIds?: string[]) {
+function toSummary(row: allRepo.agents.AgentRow, serverIds?: string[]) {
   return {
     id: row.id,
     name: row.name,
@@ -79,7 +72,7 @@ function toSummary(row: repo.AgentRow, serverIds?: string[]) {
     slug: row.slug,
     role: row.role,
     model: row.model,
-    uiFormat: row.uiFormat as Agent['uiFormat'],
+    uiFormat: row.uiFormat,
     parentId: row.parentId,
     createdAt: row.createdAt.toISOString(),
     ...(serverIds === undefined ? {} : { serverIds }),
@@ -90,6 +83,8 @@ function assertSlugUnchanged(current: string, next: string | undefined): string 
     ? 'slug 是工作区目录名，创建后不能修改；需要新名称请另建智能体'
     : undefined;
 }
+const repo = allRepo.agents;
+
 const os = implement(agentsContract).$context<RequestContext>();
 export const agentsRouter = os.router({
   list: os.list.handler(async ({ context }) => {
@@ -108,8 +103,6 @@ export const agentsRouter = os.router({
     const input = routeInput.body;
     const toolError = unsupportedAllowedTool(routeInput.body.allowedTools ?? []);
     if (toolError) return invalid(toolError);
-    const modeError = unsupportedPermissionMode(input.permissionMode);
-    if (modeError) return invalid(modeError);
     const { subAgentIds } = input;
     const subAgentError = await validateSubAgents(context.db, null, subAgentIds);
     if (subAgentError) return invalid(subAgentError);
@@ -140,7 +133,7 @@ export const agentsRouter = os.router({
         principal.businessId,
       );
       if (!row) return notFound();
-      await writeAudit(context.db, context.log, {
+      await allRepo.audit.writeAudit(context.db, context.log, {
         actor: principal.businessId,
         action: 'agent.duplicated',
         target: row.id,
@@ -168,7 +161,7 @@ export const agentsRouter = os.router({
         subAgentIds,
         pluginBindings,
       );
-      await writeAudit(context.db, context.log, {
+      await allRepo.audit.writeAudit(context.db, context.log, {
         actor: principal.businessId,
         action: 'agent.imported',
         target: row.id,
@@ -249,8 +242,6 @@ export const agentsRouter = os.router({
     const input = routeInput.body;
     const toolError = unsupportedAllowedTool(routeInput.body.allowedTools ?? []);
     if (toolError) return invalid(toolError);
-    const modeError = unsupportedPermissionMode(input.permissionMode);
-    if (modeError) return invalid(modeError);
     const envError =
       input.runtimeEnvironmentId === undefined
         ? undefined
@@ -283,10 +274,15 @@ export const agentsRouter = os.router({
       input.pluginBindings,
       input.subAgentIds,
     ];
-    if (configFields.some((field) => field !== undefined)) {
+    const updatesConfig = configFields.some((field) => field !== undefined);
+    const updatesBindings = bindingFields.some((field) => field !== undefined);
+    if (!updatesConfig && !updatesBindings && input.enabled === undefined) {
+      return invalid('请至少提供一个可修改字段');
+    }
+    if (updatesConfig) {
       await authorizeAgent(context, current, 'agents.config.update');
     }
-    if (bindingFields.some((field) => field !== undefined)) {
+    if (updatesBindings) {
       await authorizeAgent(context, current, 'agents.bindings.manage');
     }
     if (input.enabled !== undefined) {
@@ -305,24 +301,7 @@ export const agentsRouter = os.router({
     if (current.parentId !== null && (input.pluginBindings?.length ?? 0) > 0) {
       return invalid('子智能体不能绑定插件；插件在会话级加载');
     }
-    const patch: Partial<repo.AgentWrite> = {};
-    if (input.name !== undefined) patch.name = input.name;
-    if (input.role !== undefined) patch.role = input.role;
-    if (input.description !== undefined) patch.description = input.description;
-    if (input.model !== undefined) patch.model = input.model;
-    if (input.systemPrompt !== undefined) patch.systemPromptMd = input.systemPrompt;
-    if (input.allowedTools !== undefined) patch.allowedTools = input.allowedTools;
-    if (input.disallowedTools !== undefined) patch.disallowedTools = input.disallowedTools;
-    if (input.permissionMode !== undefined) patch.permissionMode = input.permissionMode;
-    if (input.uiFormat !== undefined) patch.uiFormat = input.uiFormat;
-    if (input.effort !== undefined) patch.effort = input.effort;
-    if (input.enabled !== undefined) patch.enabled = input.enabled;
-    if (input.maxTurns !== undefined) patch.maxTurns = input.maxTurns;
-    if (input.maxBudgetUsd !== undefined) patch.maxBudgetUsd = String(input.maxBudgetUsd);
-    if (input.timeoutMs !== undefined) patch.timeoutMs = input.timeoutMs;
-    if (input.runtimeEnvironmentId !== undefined) {
-      patch.runtimeEnvironmentId = input.runtimeEnvironmentId;
-    }
+    const patch = toAgentPatch(input);
     try {
       const row = await repo.updateAgent(
         context.db,
@@ -336,7 +315,7 @@ export const agentsRouter = os.router({
         input.pluginBindings,
       );
       if (!row) return notFound();
-      await writeAudit(context.db, context.log, {
+      await allRepo.audit.writeAudit(context.db, context.log, {
         actor: principal.businessId,
         action: 'agent.updated',
         target: row.id,
@@ -389,7 +368,7 @@ export const agentsRouter = os.router({
     }).catch((err: unknown) => {
       context.log.warn({ err, agentId: current.id }, 'input cleanup failed');
     });
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.deleted',
       target: current.id,
@@ -474,12 +453,10 @@ export const agentsRouter = os.router({
   }),
   memory: os.memory.handler(async ({ context, input: routeInput }) => {
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.memory.read');
-    if (!row) return notFound();
     return listMemoryFiles(context.config.WORKSPACES_DIR, row.slug);
   }),
   memoryFile: os.memoryFile.handler(async ({ context, input: routeInput }) => {
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.memory.read');
-    if (!row) return notFound();
     const file = await readMemoryFile(
       context.config.WORKSPACES_DIR,
       row.slug,
@@ -491,7 +468,6 @@ export const agentsRouter = os.router({
   writeMemory: os.writeMemory.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.memory.write');
-    if (!row) return notFound();
     const slug = row.slug;
     const target = {
       kind: 'agent_memory',
@@ -519,7 +495,7 @@ export const agentsRouter = os.router({
         return written;
       },
     );
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.memory.write',
       target: row.id,
@@ -532,7 +508,6 @@ export const agentsRouter = os.router({
   deleteMemory: os.deleteMemory.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.memory.write');
-    if (!row) return notFound();
     const target = {
       kind: 'agent_memory',
       agentId: row.id,
@@ -561,7 +536,7 @@ export const agentsRouter = os.router({
       },
     );
     if (!removed) return notFound();
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.memory.delete',
       target: row.id,
@@ -573,7 +548,6 @@ export const agentsRouter = os.router({
   }),
   rules: os.rules.handler(async ({ context, input: routeInput }) => {
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.rules.read');
-    if (!row) return notFound();
     const rows = await allRepo.rules.listRules(context.db, row.id);
     return rows.map((r) => ({
       id: r.id,
@@ -588,34 +562,38 @@ export const agentsRouter = os.router({
   writeRule: os.writeRule.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.rules.write');
-    if (!agent) return notFound();
     const target = {
       kind: 'agent_rule',
       agentId: agent.id,
       slug: routeInput.params.slug,
     } as const;
-    const row = await withMemoryTargetLock(context.client, target, principal.businessId, async () => {
-      await writeMemoryTargetLocked(context.db, {
-        workspacesDir: context.config.WORKSPACES_DIR,
-        businessId: principal.businessId,
-        target,
-        after: { content: routeInput.body.content, globs: routeInput.body.globs, index: null },
-        logger: context.log,
-      });
-      const [rule] = await context.db
-        .select()
-        .from(schema.agentRules)
-        .where(
-          and(
-            eq(schema.agentRules.agentId, agent.id),
-            eq(schema.agentRules.slug, routeInput.params.slug),
-          ),
-        )
-        .limit(1);
-      if (!rule) throw new Error('rule disappeared after write');
-      return rule;
-    });
-    await writeAudit(context.db, context.log, {
+    const row = await withMemoryTargetLock(
+      context.client,
+      target,
+      principal.businessId,
+      async () => {
+        await writeMemoryTargetLocked(context.db, {
+          workspacesDir: context.config.WORKSPACES_DIR,
+          businessId: principal.businessId,
+          target,
+          after: { content: routeInput.body.content, globs: routeInput.body.globs, index: null },
+          logger: context.log,
+        });
+        const [rule] = await context.db
+          .select()
+          .from(schema.agentRules)
+          .where(
+            and(
+              eq(schema.agentRules.agentId, agent.id),
+              eq(schema.agentRules.slug, routeInput.params.slug),
+            ),
+          )
+          .limit(1);
+        if (!rule) throw new Error('rule disappeared after write');
+        return rule;
+      },
+    );
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.rule.written',
       target: agent.id,
@@ -636,7 +614,6 @@ export const agentsRouter = os.router({
   deleteRule: os.deleteRule.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.rules.write');
-    if (!agent) return notFound();
     const target = {
       kind: 'agent_rule',
       agentId: agent.id,
@@ -669,7 +646,7 @@ export const agentsRouter = os.router({
       },
     );
     if (!removed) return notFound();
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.rule.deleted',
       target: agent.id,
@@ -681,19 +658,17 @@ export const agentsRouter = os.router({
   }),
   outputStyles: os.outputStyles.handler(async ({ context, input: routeInput }) => {
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.styles.read');
-    if (!row) return notFound();
     const rows = await allRepo.outputStyles.listOutputStyles(context.db, row.id);
     return rows.map(toOutputStyle);
   }),
   writeOutputStyle: os.writeOutputStyle.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.styles.write');
-    if (!agent) return notFound();
     const row = await allRepo.outputStyles.upsertOutputStyle(context.db, agent.id, {
       slug: routeInput.params.slug,
       ...routeInput.body,
     });
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.output_style.written',
       target: agent.id,
@@ -706,14 +681,13 @@ export const agentsRouter = os.router({
   unselectOutputStyle: os.unselectOutputStyle.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.styles.write');
-    if (!agent) return notFound();
     const ok = await allRepo.outputStyles.unselectOutputStyle(
       context.db,
       agent.id,
       routeInput.params.slug,
     );
     if (!ok) return fail('NOT_FOUND', '该输出风格不存在，可能已被删除');
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.output_style.unselected',
       target: agent.id,
@@ -726,14 +700,13 @@ export const agentsRouter = os.router({
   deleteOutputStyle: os.deleteOutputStyle.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.styles.write');
-    if (!agent) return notFound();
     const removed = await allRepo.outputStyles.deleteOutputStyle(
       context.db,
       agent.id,
       routeInput.params.slug,
     );
     if (!removed) return fail('NOT_FOUND', '该输出风格不存在，可能已被删除');
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.output_style.deleted',
       target: agent.id,
@@ -745,14 +718,12 @@ export const agentsRouter = os.router({
   }),
   members: os.members.handler(async ({ context, input: routeInput }) => {
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.members.manage');
-    if (!row) return notFound();
     const members = await allRepo.access.listAgentMembers(context.db, row.id);
     return { ownerBusinessId: row.ownerBusinessId, members };
   }),
   setMember: os.setMember.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.members.manage');
-    if (!row) return notFound();
     if (!(await allRepo.accounts.hasBusinessHistory(context.db, routeInput.params.businessId))) {
       return invalid('该业务 ID 尚未登记为人员，无法授权；请先在账户中添加该人员');
     }
@@ -761,7 +732,7 @@ export const agentsRouter = os.router({
       canUse: routeInput.body.canUse,
       canMaintain: routeInput.body.canMaintain,
     });
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.member.updated',
       target: row.id,
@@ -774,7 +745,6 @@ export const agentsRouter = os.router({
   deleteMember: os.deleteMember.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.members.manage');
-    if (!row) return notFound();
     if (routeInput.params.businessId === row.ownerBusinessId) {
       return invalid('负责人不是可删除的成员行；需要变更负责人请使用转交');
     }
@@ -784,7 +754,7 @@ export const agentsRouter = os.router({
       routeInput.params.businessId,
     );
     if (!removed) return fail('NOT_FOUND', '该成员不存在，可能已被移除');
-    await writeAudit(context.db, context.log, {
+    await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.member.deleted',
       target: row.id,
@@ -797,7 +767,6 @@ export const agentsRouter = os.router({
   transfer: os.transfer.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.transfer');
-    if (!row) return notFound();
     return transferAgent(
       {
         db: context.db,

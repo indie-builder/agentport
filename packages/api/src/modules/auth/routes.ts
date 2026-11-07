@@ -1,11 +1,10 @@
+import { authNativeContract, loginBodySchema } from '@agentport/contract/auth';
 import { AppError } from '@agentport/core';
-import { loginBodySchema } from '@agentport/contract/auth';
+import { repo } from '@agentport/db';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import type { HttpEnv } from '../../http/context.js';
+import type { AppContext, HttpEnv } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
-import { writeAudit } from '../../plugins/audit.js';
-import type { AppContext } from '../../http/context.js';
 import { ensureBootstrap } from './bootstrap.js';
 import { requireTrustedOrigin } from './origin.js';
 import {
@@ -17,6 +16,11 @@ import {
 } from './session.js';
 
 export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): void {
+  const loginAccess = authNativeContract.login['~orpc'].meta.access;
+  const logoutAccess = authNativeContract.logout['~orpc'].meta.access;
+  if (loginAccess === undefined || logoutAccess === undefined) {
+    throw new Error('native auth contract is missing access metadata');
+  }
   let bootstrapReady: Promise<void> | undefined;
   function ensureBootstrapReady(): Promise<void> {
     bootstrapReady ??= ensureBootstrap(runtime.db, runtime.config).catch((error) => {
@@ -34,10 +38,11 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
         throw new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试');
       },
     }),
-    access({ kind: 'public', reason: 'login' }),
+    access(loginAccess),
     async (c) => {
       const context = c.get('context');
-      await context.limit(10, 'auth.login');
+      const rateLimit = authNativeContract.login['~orpc'].meta.rateLimit;
+      if (rateLimit !== undefined) await context.limit(rateLimit, 'auth.login');
       requireTrustedOrigin(context);
       if (
         !context.request.headers
@@ -77,7 +82,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
       }
       if (!result.ok) {
         context.log.warn({ username }, 'login failed');
-        await writeAudit(context.db, context.log, {
+        await repo.audit.writeAudit(context.db, context.log, {
           actor: 'anonymous',
           action: 'auth.login.failed',
           input: { username },
@@ -91,7 +96,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
       if (session === null) throw new Error('better-auth sign-in did not persist a session');
       if (session.user.disabled) {
         await revokeUserSessions(context, session.user.id);
-        await writeAudit(context.db, context.log, {
+        await repo.audit.writeAudit(context.db, context.log, {
           actor: 'anonymous',
           action: 'auth.login.failed',
           input: { username },
@@ -101,7 +106,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
         throw new AppError('UNAUTHORIZED', 'account disabled');
       }
       forwardSetCookie(result.headers, context);
-      await writeAudit(context.db, context.log, {
+      await repo.audit.writeAudit(context.db, context.log, {
         actor: session.user.businessId,
         action: 'auth.login.succeeded',
         status: 'ok',
@@ -111,7 +116,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
     },
   );
 
-  app.post('/api/auth/logout', access({ kind: 'public', reason: 'logout' }), async (c) => {
+  app.post('/api/auth/logout', access(logoutAccess), async (c) => {
     const context = c.get('context');
     requireTrustedOrigin(context);
     const headers = context.request.headers;
@@ -121,7 +126,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
     if (await context.auth.api.getSession({ headers }))
       throw new Error('better-auth session revocation failed');
     forwardSetCookie(result.headers, context);
-    await writeAudit(context.db, context.log, {
+    await repo.audit.writeAudit(context.db, context.log, {
       actor: session?.user.businessId ?? 'anonymous',
       action: 'auth.logout',
       status: 'ok',

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
-import { useChatStore } from '../src/lib/chat-store.js';
-import * as queries from '../src/lib/queries.js';
+
+let useChatStore: typeof import('../src/lib/chat-store.js')['useChatStore'];
+let queries: typeof import('../src/lib/queries.js');
 
 vi.mock('../src/lib/api.js', async (original) => {
   const actual = await original<typeof import('../src/lib/api.js')>();
@@ -52,8 +53,10 @@ function seedChatState() {
   sessionStorage.setItem('unrelated', 'keep');
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.restoreAllMocks();
+  ({ useChatStore } = await import('../src/lib/chat-store.js'));
+  queries = await import('../src/lib/queries.js');
   queries.queryClient.setDefaultOptions({
     queries: { retry: false, refetchOnWindowFocus: false },
   });

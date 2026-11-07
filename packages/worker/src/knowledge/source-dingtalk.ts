@@ -1,10 +1,15 @@
 import { errorText } from '@agentport/shared';
 import { z } from 'zod';
 import {
+  sourceFailure as failureOf,
   fetchChecked,
   fetchJson,
+  SourceItemError as ItemError,
   readBytesCapped,
+  redactUrls,
   SourceAuthError,
+  safeDownloadHeaders,
+  sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
@@ -30,19 +35,6 @@ const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
-
-const HOP_BY_HOP_HEADERS = new Set([
-  'host',
-  'content-length',
-  'transfer-encoding',
-  'connection',
-  'upgrade',
-  'proxy-authorization',
-  'proxy-authenticate',
-  'te',
-  'trailer',
-  'keep-alive',
-]);
 
 const settingsSchema = z.object({
   clientId: z.string().trim().min(1),
@@ -118,17 +110,6 @@ const blocksSchema = z.object({
     .optional(),
 });
 
-class ItemError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = 'ItemError';
-  }
-}
-
 type Settings = z.infer<typeof settingsSchema>;
 type Node = z.infer<typeof nodeSchema>;
 
@@ -136,16 +117,6 @@ type Auth = {
   settings: Settings;
   headers: Record<string, string>;
 };
-
-function origins(config: SourceConfig): {
-  trustedHosts?: readonly string[];
-  allowLoopback?: boolean;
-} {
-  return {
-    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
-    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
-  };
-}
 
 function signalOption(signal: AbortSignal | undefined): { signal?: AbortSignal } {
   return signal === undefined ? {} : { signal };
@@ -191,25 +162,6 @@ async function authenticate(config: SourceConfig, signal: AbortSignal | undefine
 function revisionOf(node: Node): string {
   if (typeof node.modifiedTimestamp === 'number') return String(node.modifiedTimestamp);
   return (node.modifiedTimestamp ?? node.modifiedTime ?? '').trim();
-}
-
-function failureOf(externalId: string, title: string, err: unknown): SourceFailure {
-  if (err instanceof ItemError) {
-    return {
-      externalId,
-      title,
-      code: err.code,
-      message: err.message.slice(0, 500),
-      retryable: err.retryable,
-    };
-  }
-  return {
-    externalId,
-    title,
-    code: 'fetch_failed',
-    message: errorText(err).slice(0, 500),
-    retryable: true,
-  };
 }
 
 function isAbort(err: unknown, signal: AbortSignal | undefined): boolean {
@@ -376,44 +328,18 @@ async function requestDownloadInfo(
   return { url, headers: info?.headers ?? {} };
 }
 
-/** 签名 URL 的 header 只能来自本次 API 响应；路由/hop-by-hop 头与 CR/LF 一律丢弃。 */
-function safeDownloadHeaders(raw: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = {};
-  for (const [name, value] of Object.entries(raw)) {
-    const key = name.trim().toLowerCase();
-    if (!key || HOP_BY_HOP_HEADERS.has(key)) continue;
-    if (/[\r\n]/.test(name) || /[\r\n]/.test(value)) continue;
-    headers[key] = value;
-  }
-  return headers;
-}
-
-/** 预签名 URL 的 query 可能带着长期令牌，失败信息里必须去掉。 */
-function sanitizeDownloadError(err: unknown): Error {
-  const message = errorText(err);
-  const redacted = message.replace(/https?:\/\/[^\s"'<>]+/g, (raw) => {
-    try {
-      const url = new URL(raw);
-      return `${url.origin}${url.pathname}`;
-    } catch {
-      return 'download URL';
-    }
-  });
-  return new Error(redacted);
-}
-
 async function downloadSigned(
   config: SourceConfig,
   info: { url: string; headers: Record<string, string> },
   signal: AbortSignal | undefined,
 ): Promise<{ bytes: Buffer; contentType: string | null }> {
   try {
-    const target = await validateSourceUrl(info.url, origins(config));
+    const target = await validateSourceUrl(info.url, sourceNetworkOptions(config));
     const response = await fetchChecked(target.href, {
       headers: safeDownloadHeaders(info.headers),
       authOrigin: target.origin,
       authFailure: 'item',
-      ...origins(config),
+      ...sourceNetworkOptions(config),
       ...signalOption(signal),
     });
     return {
@@ -422,7 +348,7 @@ async function downloadSigned(
     };
   } catch (err) {
     if (err instanceof SourceAuthError || isAbort(err, signal)) throw err;
-    throw sanitizeDownloadError(err);
+    throw new Error(redactUrls(errorText(err)));
   }
 }
 
