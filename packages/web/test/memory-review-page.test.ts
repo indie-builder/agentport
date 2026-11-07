@@ -383,7 +383,7 @@ describe('记忆提案', () => {
     expect(host.querySelectorAll('h1')).toHaveLength(1);
   });
 
-  it('默认渲染列表，view=cards 渲染卡片，切换写入 URL 并保留阶段筛选', async () => {
+  it('默认渲染卡片，view=table 渲染列表，切换写入 URL 并保留阶段筛选', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [
         makeReview({
@@ -398,13 +398,6 @@ describe('记忆提案', () => {
     });
     const router = await mount('/personal/reviews?stage=pending');
     await vi.waitFor(() => expect(host.textContent).toContain('补充长期偏好'));
-    expect(host.querySelector('ul')).toBeTruthy();
-    expect(host.querySelectorAll('[data-slot="card"]')).toHaveLength(0);
-
-    await click(button('卡片', host));
-    await vi.waitFor(() =>
-      expect(router.state.location.search).toMatchObject({ view: 'cards', stage: 'pending' }),
-    );
     expect(host.querySelector('ul')).toBeNull();
     const cards = [...host.querySelectorAll<HTMLElement>('[data-slot="card"]')];
     expect(cards).toHaveLength(2);
@@ -412,6 +405,13 @@ describe('记忆提案', () => {
     expect(cards[0]?.textContent).toContain('成本');
     expect(cards[0]?.textContent).toContain('补充长期偏好');
     expect(cards[0]?.querySelector('button[aria-label^="查看"]')).toBeTruthy();
+
+    await click(button('表格', host));
+    await vi.waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ view: 'table', stage: 'pending' }),
+    );
+    expect(host.querySelector('ul')).toBeTruthy();
+    expect(host.querySelectorAll('[data-slot="card"]')).toHaveLength(0);
   });
 
   it('按 URL 的专家筛选请求列表', async () => {

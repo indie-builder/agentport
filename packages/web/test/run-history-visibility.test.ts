@@ -84,6 +84,7 @@ async function mount(path = '/') {
     validateSearch: (search: Record<string, unknown>) => ({
       agent: typeof search.agent === 'string' ? search.agent : undefined,
       status: search.status as RunStatus | undefined,
+      view: search.view === 'cards' ? 'cards' : search.view === 'table' ? 'table' : undefined,
     }),
   });
   const router = createRouter({
@@ -193,15 +194,15 @@ describe('overview retained run history', () => {
 
 describe('run list scope disclosure', () => {
   it.each([
-    { path: '/runs', agent: null, status: null, scope: '最近 100 条运行' },
+    { path: '/runs?view=table', agent: null, status: null, scope: '最近 100 条运行' },
     {
-      path: '/runs?status=failed',
+      path: '/runs?status=failed&view=table',
       agent: null,
       status: 'failed',
       scope: '符合筛选条件的最近 100 条运行',
     },
     {
-      path: '/runs?agent=deleted-agent&status=failed',
+      path: '/runs?agent=deleted-agent&status=failed&view=table',
       agent: 'deleted-agent',
       status: 'failed',
       scope: '符合筛选条件的最近 100 条运行',

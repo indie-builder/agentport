@@ -160,7 +160,7 @@ describe('使用记录的任务视角', () => {
       items: [chatRun, reviewRun],
       nextCursor: null,
     });
-    await mount('/personal/usage', me);
+    await mount('/personal/usage?view=table', me);
     await vi.waitFor(() => expect(rows()).toHaveLength(2));
 
     // 末尾空表头是列设置操作列。
@@ -191,7 +191,7 @@ describe('使用记录的任务视角', () => {
       items: [chatRun],
       nextCursor: null,
     });
-    await mount('/personal/usage', me);
+    await mount('/personal/usage?view=table', me);
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
 
     expect(host.textContent).not.toContain('60.0 s');
@@ -210,7 +210,7 @@ describe('使用记录的任务视角', () => {
       items: [chatRun, reviewRun],
       nextCursor: null,
     });
-    await mount('/personal/usage', me);
+    await mount('/personal/usage?view=table', me);
     await vi.waitFor(() => expect(rows()).toHaveLength(2));
 
     const [chat, review] = rows();
@@ -227,7 +227,7 @@ describe('使用记录的任务视角', () => {
       items: [chatRun, reviewRun],
       nextCursor: null,
     });
-    await mount('/personal/usage', me);
+    await mount('/personal/usage?view=table', me);
     await vi.waitFor(() => expect(rows()).toHaveLength(2));
 
     for (const [row, runId] of [
@@ -239,7 +239,7 @@ describe('使用记录的任务视角', () => {
         '查看运行',
       ]);
       expect(link(row, '查看运行').getAttribute('href')).toBe(
-        `/runs/${runId}?backTo=${encodeURIComponent('/personal/usage?days=30')}`,
+        `/runs/${runId}?backTo=${encodeURIComponent('/personal/usage?view=table&days=30')}`,
       );
     }
   });
@@ -250,7 +250,7 @@ describe('使用记录的任务视角', () => {
       items: [chatRun],
       nextCursor: null,
     });
-    await mount('/personal/usage', me);
+    await mount('/personal/usage?view=table', me);
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
 
     const row = rows()[0];
@@ -274,7 +274,7 @@ describe('使用记录的任务视角', () => {
       items: [chatRun],
       nextCursor: null,
     });
-    await mount('/personal/usage', me);
+    await mount('/personal/usage?view=table', me);
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
 
     expect(host.querySelector('[aria-label="统计窗口"]')).not.toBeNull();

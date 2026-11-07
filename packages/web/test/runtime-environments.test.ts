@@ -452,34 +452,36 @@ describe('runtime environments page', () => {
     await page.unmount();
   });
 
-  it('renders the table by default and the cards when view=cards', () => {
+  it('renders the cards by default and the table when view=table', () => {
     state.environments = [environment];
     state.search = {};
-    const table = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
-    expect(table).toContain('线上版本');
-    expect(table).not.toContain('data-slot="card"');
-
-    state.search = { view: 'cards' };
     const cards = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
-    expect(cards).toContain('grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3');
+    expect(cards).toContain(
+      'grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2',
+    );
     expect(cards).toContain('data-slot="card"');
     expect(cards).toContain('数据分析');
     expect(cards).toContain('aaaaaaaa');
     expect(cards).toContain('线上版本');
     expect(cards).toContain('更新时间');
+
+    state.search = { view: 'table' };
+    const table = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
+    expect(table).toContain('线上版本');
+    expect(table).not.toContain('data-slot="card"');
   });
 
   it('writes the chosen view to the URL and keeps the query', async () => {
     state.environments = [environment];
     state.search = { q: '数据' };
     const page = await mountPage(createElement(RuntimeEnvironmentsPage));
-    await click(button('卡片'));
+    await click(button('表格'));
     const options = state.navigate.mock.calls.at(-1)?.[0] as {
       search?: (current: Record<string, string | undefined>) => object;
       replace?: boolean;
     };
     expect(options.replace).toBe(true);
-    expect(options.search?.({ q: '数据' })).toEqual({ q: '数据', view: 'cards' });
+    expect(options.search?.({ q: '数据' })).toEqual({ q: '数据', view: 'table' });
     await page.unmount();
   });
 });

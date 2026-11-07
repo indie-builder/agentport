@@ -56,7 +56,7 @@ export function RuntimeEnvironmentsPage() {
   const me = useQuery(meQuery);
   const canCreate = can(me.data, 'runtime_environments.create');
   const openCreate = (): void => setCreating(true);
-  const view = search.view ?? 'table';
+  const view = search.view ?? 'cards';
   const setView = (next: 'table' | 'cards'): void => {
     void navigate({
       to: '/runtime-environments',
@@ -99,7 +99,9 @@ export function RuntimeEnvironmentsPage() {
       </PageTopbar>
 
       <PageBody>
-        {environments.isPending ? <LoadingState rows={4} /> : null}
+        {environments.isPending ? (
+          <LoadingState rows={4} layout={view === 'cards' ? 'cards' : 'rows'} />
+        ) : null}
         {environments.isError ? (
           <ErrorState error={environments.error} onRetry={() => void environments.refetch()} />
         ) : null}
@@ -187,17 +189,18 @@ export function RuntimeEnvironmentsPage() {
         {shown.length > 0 && view === 'cards' ? (
           <ul
             aria-label="运行环境列表"
-            className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
           >
             {shown.map((environment) => (
               <li key={environment.id} className="min-w-0">
-                <Card className="h-full">
+                <Card size="sm" className="h-full">
                   <CardHeader>
                     <CardTitle className="flex min-w-0 items-center gap-2">
                       <Link
                         to="/runtime-environments/$environmentId"
                         params={{ environmentId: environment.id }}
                         className="min-w-0 truncate font-medium text-fg hover:underline"
+                        title={environment.name}
                       >
                         {environment.name}
                       </Link>

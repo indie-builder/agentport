@@ -103,7 +103,7 @@ export function PersonalReviewsPage() {
             search: (current) => ({ ...current, stage: next ?? undefined }),
           })
         }
-        view={search.view ?? 'table'}
+        view={search.view ?? 'cards'}
         onViewChange={(next) =>
           void navigate({
             to: '/personal/reviews',

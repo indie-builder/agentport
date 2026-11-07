@@ -163,18 +163,19 @@ async function mount(options: {
   validateSearch?: (input: unknown) => unknown;
   me: AuthMe;
 }) {
+  const pathname = options.path.split('?')[0] as string;
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const page = createRoute({
     getParentRoute: () => shell,
-    path: options.path,
+    path: pathname,
     component: options.component,
     ...(options.validateSearch === undefined
       ? {}
       : { validateSearch: options.validateSearch as never }),
   });
   const stubs = ['/login', '/chat', '/personal/reviews', '/personal/memory', '/runs/$runId']
-    .filter((path) => path !== options.path)
+    .filter((path) => path !== pathname)
     .map((path) =>
       createRoute({
         getParentRoute: () => shell,
@@ -483,7 +484,7 @@ describe('账号安全', () => {
     expect(logout).not.toHaveBeenCalled();
   });
 
-  it('默认列表，切换到卡片后详情仍可展开、撤销仍在并写回 URL', async () => {
+  it('默认卡片，切换到表格后详情仍可展开、撤销仍在并写回 URL', async () => {
     vi.spyOn(api, 'me').mockResolvedValue(meWith([]));
     vi.spyOn(api, 'meSessions').mockResolvedValue({
       items: [sessionOther, sessionCurrent],
@@ -497,12 +498,6 @@ describe('账号安全', () => {
     });
     await vi.waitFor(() => expect(host.textContent).toContain('当前会话'));
     expect(host.querySelectorAll('ul')).toHaveLength(2);
-    expect(host.querySelector('[data-slot="card"]')).toBeNull();
-
-    await click(button('卡片'));
-    await vi.waitFor(() =>
-      expect((router.state.location.search as { view?: string }).view).toBe('cards'),
-    );
     await vi.waitFor(() => expect(host.querySelectorAll('[data-slot="card"]')).toHaveLength(2));
 
     const [currentCard, otherCard] = [...host.querySelectorAll('[data-slot="card"]')];
@@ -567,7 +562,7 @@ describe('使用记录', () => {
       return { items: [], nextCursor: null };
     });
     await mount({
-      path: '/personal/usage',
+      path: '/personal/usage?view=table',
       component: PersonalUsagePage,
       validateSearch: personalUsageSearchSchema,
       me,
@@ -658,7 +653,7 @@ describe('使用记录', () => {
       nextCursor: null,
     });
     await mount({
-      path: '/personal/usage',
+      path: '/personal/usage?view=table',
       component: PersonalUsagePage,
       validateSearch: personalUsageSearchSchema,
       me,
@@ -782,7 +777,7 @@ describe('我的分享', () => {
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
   });
 
-  it('默认渲染表格，切换到卡片后写回 URL 并保留分享动作', async () => {
+  it('默认渲染卡片，切换视图时写回 URL 并保留分享动作', async () => {
     vi.spyOn(api, 'personalOutputShares').mockResolvedValue({
       items: [share],
       nextCursor: null,
@@ -796,7 +791,16 @@ describe('我的分享', () => {
       me,
     });
     await vi.waitFor(() => expect(host.textContent).toContain('季度总结'));
-    expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).not.toBeNull();
+    await vi.waitFor(() => expect(host.querySelector('[data-slot="card"]')).not.toBeNull());
+    expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).toBeNull();
+
+    await click(button('表格'));
+    await vi.waitFor(() =>
+      expect((router.state.location.search as { view?: string }).view).toBe('table'),
+    );
+    await vi.waitFor(() =>
+      expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).not.toBeNull(),
+    );
     expect(host.querySelector('[data-slot="card"]')).toBeNull();
 
     await click(button('卡片'));
@@ -814,14 +818,6 @@ describe('我的分享', () => {
     expect(card.textContent).toContain('查看分享');
     expect(card.textContent).toContain('复制链接');
     expect(card.textContent).toContain('撤销');
-
-    await click(button('表格'));
-    await vi.waitFor(() =>
-      expect((router.state.location.search as { view?: string }).view).toBe('table'),
-    );
-    await vi.waitFor(() =>
-      expect(host.querySelector('[role="table"][aria-label="我的会话分享"]')).not.toBeNull(),
-    );
   });
 
   it('直接打开 view=cards 时渲染卡片视图', async () => {

@@ -92,7 +92,7 @@ export function AccountsPage() {
   const accounts = useAccounts({ q: settled, limit: PAGE_SIZE, offset });
   const canManage = can(me.data, 'accounts.manage');
   const canManageRoles = can(me.data, 'roles.manage');
-  const view = search.view ?? 'table';
+  const view = search.view ?? 'cards';
   const setView = (next: 'table' | 'cards'): void => {
     void navigate({
       to: '/accounts',
@@ -175,7 +175,9 @@ export function AccountsPage() {
       </PageTopbar>
 
       <PageBody>
-        {accounts.isPending ? <LoadingState rows={4} /> : null}
+        {accounts.isPending ? (
+          <LoadingState rows={4} layout={view === 'cards' ? 'cards' : 'rows'} />
+        ) : null}
         {accounts.isError ? (
           <ErrorState error={accounts.error} onRetry={() => void accounts.refetch()} />
         ) : null}
@@ -257,14 +259,16 @@ export function AccountsPage() {
         {items.length > 0 && view === 'cards' ? (
           <ul
             aria-label="账户列表"
-            className="grid grid-cols-1 gap-4 p-2 sm:grid-cols-2 xl:grid-cols-3"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
           >
             {items.map((account) => (
               <li key={account.businessId} className="min-w-0">
-                <Card className="h-full">
+                <Card size="sm" className="h-full">
                   <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
                     <CardTitle className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">{account.name}</span>
+                      <span className="truncate" title={account.name}>
+                        {account.name}
+                      </span>
                       <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
                     </CardTitle>
                     <CardAction className="col-start-2 row-start-1">
