@@ -590,3 +590,27 @@
 - **现象**：知识库列表页新增个人置顶查询后，只改了自己的 `knowledge-management.test.ts`，另三个也渲染 `KnowledgePage` 的文件（`knowledge-audio`、`knowledge-source-forms`、`knowledge-create-flow`）报 `expected [ 'GET /api/knowledge/bases/pins' ] to deeply equal []`。
 - **原因**：这些文件各自维护 MSW handler，`msw.assertClean()` 把任何未配置请求当作失败；页面新增 Query 等于给所有渲染它的文件加了必配路由。中途 `await cleanup()` 会 `resetHandlers()`，之后还需要重新注册默认 handler。
 - **规避**：新增列表级查询时先 `grep -l "<页面组件>" packages/web/test` 找出所有渲染该页面的文件，逐文件补默认 handler；用例内覆盖同一路由时用更靠后的 `server.use` 覆盖默认值，不要在共享 helper 里写死业务返回。
+
+## 频道：SSE 初始游标不能取乐观消息的 seq
+
+- **现象**：离开频道再返回后频道直播流不再收到新消息，EventSource 持续重连，服务端日志是未来游标 400。
+- **原因**：前端频道消息缓存里可能有乐观消息，seq 用 `Number.MAX_SAFE_INTEGER` 占位；SSE effect 从缓存尾部取 seq 作为 `after`，服务端判定游标超过 maxSeq 拒绝。
+- **规避**：初始游标只取 id 不以 `local-` 开头的已落库消息；任何从消息缓存推导 SSE 游标的逻辑都要排除乐观项。
+
+## 频道：markRead 去掉频道行锁后必须用 greatest 防回退
+
+- **现象**：快速滚动或并发标记已读时，last_read_seq 可能被较旧的请求覆盖，未读数反弹。
+- **原因**：原先靠 channels 行 FOR UPDATE 串行化；去掉行锁后多个读标记事务按各自算出的 target 直接覆盖。
+- **规避**：更新用 `greatest(last_read_seq, target)` 并在 returning 里取最终值；target 仍需夹到当前 max(seq)。并发语义靠单行原子更新，不重新引入频道行锁。
+
+## 验收：visual-shots 的 minimal 种子只有频道没有消息
+
+- **现象**：`bun run visual:shots --full --route /channels/<id> --seed minimal` 只能截到空频道，验证不了多用户作者、历史分页和设置弹层内的成员列表。
+- **原因**：minimal 种子只创建 2 个 agent、1 个频道和绑定，不写消息，也没有第二个成员。
+- **规避**：先跑 `--keep` 起隔离栈，从输出拿临时库名，用 `docker compose exec -T postgres psql -U agentport -d <临时库>` 直接插第二个账号、channel_members 和 channel_messages（保持 business_id 与 auth 表一致），再用 `--base-url http://localhost:5173 --seed none` 截详情；设置弹层等交互态用 ego-browser 登录后点开再截。收尾删除 Redis 容器与临时库。
+
+## 接口：非幂等操作提交后不要返回可重试 5xx
+
+- **现象**：移除频道成员/智能体的 DELETE 已提交删除，但随后取消其活动 run 失败，接口返回 503（AppError 默认 retryable=true）；客户端按提示重试同一个 DELETE 得到 404，残留 run 仍不会取消，“稍后重试”永远不可能成功。
+- **原因**：把事务提交后的清理失败当成了整个操作失败；DELETE 不像 close/disconnect 那样可幂等重放，重试语义与已完成的删除结果冲突。
+- **规避**：主操作已提交后，清理失败只记 warn 日志并按成功返回；若确实需要把清理失败暴露给调用方，改成幂等操作或把失败项放进成功响应体，不要返回可重试 5xx。close/disconnect 这类可幂等重放的操作才保留 503。

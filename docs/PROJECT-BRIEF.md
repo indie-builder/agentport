@@ -442,7 +442,7 @@ approval_requests.channel_id text nullable fk channels(id) on delete cascade
 approval_requests.approved_by_business_id text nullable
 ```
 
-人发消息只写一条频道时间线；显式 `mentions` 与 opt-in `mentionAll` 才唤醒 agent。每个 `(channel_id, agent_id)` 复用一个 lane，lane 内的 user message 指向来源频道消息，run 也记录频道与触发消息。准入按绑定的 `context_seq` 增量拼入频道上下文：只取游标之后、触发消息之前的 human/agent/system 消息，最多最新 20 条，前缀（含分隔与省略提示，不含当前消息）不超过 8000 字符，超限从最早整条丢弃并标注「更早的消息已省略」；成功准入在同一事务把游标推进到触发消息 seq，旧消息重放不回退，失败或拒绝随事务回滚。没有新消息时保持原 content 不变，不新增频道消息。游标不在准入时推进：只有 run 被确认执行后（消息持久化事务内）才把游标推进到触发消息 seq，queued 取消与入队失败不吞上下文。频道 run 不投影也不注入触发者的个人记忆。助手回复与 `channel_messages` 投影同事务写入，可重试中间尝试不投影到频道；最终回复投影由 `source_message_id` 唯一索引去重。lane 首次创建者仅供溯源，频道成员角色与 active 绑定决定执行准入；私有会话列表和搜索排除 lane。频道关闭后 `postMessage` 与 `admitChatRun` 在频道行锁内拒绝新消息与新 run。审批不设 denied/expired 持久状态机，仅记录 `approved_at` 与 `approved_by_business_id`。
+人发消息只写一条频道时间线；显式 `mentions` 与 opt-in `mentionAll` 才唤醒 agent，单条消息显式 mention 最多 5 个，`mentionAll` 解析后超过 5 个整条拒绝；频道消息列表首屏取最新一页，`before` 游标加载更早消息。每个 `(channel_id, agent_id)` 复用一个 lane，lane 内的 user message 指向来源频道消息，run 也记录频道与触发消息。准入按绑定的 `context_seq` 增量拼入频道上下文：只取游标之后、触发消息之前的 human/agent/system 消息，最多最新 20 条，前缀（含分隔与省略提示，不含当前消息）不超过 8000 字符，超限从最早整条丢弃并标注「更早的消息已省略」；准入只读取游标，不推进。没有新消息时保持原 content 不变，不新增频道消息。游标只在 run 被确认执行后（消息持久化事务内）推进到触发消息 seq，旧消息重放不回退，queued 取消与入队失败不吞上下文。频道 run 不投影也不注入触发者的个人记忆。助手回复与 `channel_messages` 投影同事务写入，可重试中间尝试不投影到频道；最终回复投影由 `source_message_id` 唯一索引去重。lane 首次创建者仅供溯源，频道成员角色与 active 绑定决定执行准入；私有会话列表和搜索排除 lane。频道关闭后 `postMessage` 与 `admitChatRun` 在频道行锁内拒绝新消息与新 run。审批不设 denied/expired 持久状态机，仅记录 `approved_at` 与 `approved_by_business_id`。
 
 知识库是一组独立的内容表，不挂在专家定义下（字段契约见 [ARCHITECTURE.md §6.1](ARCHITECTURE.md#61-存储与数据模型)）：
 

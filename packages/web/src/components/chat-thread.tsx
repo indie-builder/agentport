@@ -713,6 +713,8 @@ export function MessagePane({
             {!loading && items.length > 0
               ? turns.map((turn, turnIndex) => {
                   const messageId = turn.user ? userMessageId(turn.items) : undefined;
+                  const firstUser = turn.items.find((item) => item.kind === 'user');
+                  const turnSelf = firstUser?.kind === 'user' ? firstUser.self !== false : true;
                   const latest = turnIndex === turns.length - 1;
                   const assistantText = turn.items
                     .flatMap((item) => (item.kind === 'text' ? [item.text] : []))
@@ -770,15 +772,21 @@ export function MessagePane({
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
                       {/* 一轮一组：只靠拉开间距划出轮次边界，不加横线。 */}
                       <div className={cn('group/turn message-fade-up', turnIndex > 0 && 'pt-2')}>
-                        <Message align={turn.user ? 'end' : 'start'} className="text-base">
+                        <Message
+                          align={turn.user ? (turnSelf ? 'end' : 'start') : 'start'}
+                          className="text-base"
+                        >
                           <MessageContent
                             className={cn(
                               'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
                               turn.user &&
+                                turnSelf &&
                                 'w-fit max-w-[85%] rounded-[var(--radius-bubble)] bg-selected px-4 py-3 text-fg',
                             )}
                           >
-                            <span className="sr-only">{turn.user ? '用户' : '助手'}</span>
+                            <span className="sr-only">
+                              {turn.user ? (turnSelf ? '我' : '成员') : '助手'}
+                            </span>
                             <MessageGroup className="min-w-0 gap-4">
                               {turn.items.map((item, index) => {
                                 // 有归属的子调用由父行渲染，不在顶层重复出现。
@@ -1090,6 +1098,7 @@ function ScrollToLatest({ userItem }: { userItem: UserChatItem | null }) {
   useEffect(() => {
     if (userItem === null || sameUserItem(seen.current, userItem)) return;
     seen.current = userItem;
+    if (userItem.self === false) return;
     scrollToEnd();
   }, [userItem, scrollToEnd]);
   return null;

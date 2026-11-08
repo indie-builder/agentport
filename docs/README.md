@@ -41,6 +41,7 @@
 | [USER-STORIES.md](USER-STORIES.md) | 用户故事与验收 |
 | [REMAINING-TODOS.md](REMAINING-TODOS.md) | 当前项目级待办（唯一待办来源） |
 | [CAPABILITY-GAP.md](CAPABILITY-GAP.md) | 能力差距分析 |
+| [research/channel-architecture-review-2026-11-08.md](research/channel-architecture-review-2026-11-08.md) | 频道实现、Claude Agent SDK 基座与多智能体协作模式的只读调研与交接清单 |
 | [HANDOFF.md](HANDOFF.md) | 某时间点的状态快照 |
 | [CHANGELOG.md](CHANGELOG.md) | 转指仓库根 `../CHANGELOG.md` |
 

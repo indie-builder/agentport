@@ -1,9 +1,10 @@
 import { fail } from '@agentport/core';
-import type { ChannelRole } from '@agentport/shared';
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
+import { CHANNEL_MAX_WAKE_AGENTS, type ChannelRole } from '@agentport/shared';
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import {
+  agentRuns,
   agents,
   authUsers,
   channelAgentBindings,
@@ -16,14 +17,23 @@ import {
 export type ChannelSubject = { businessId: string };
 
 export type ChannelRow = typeof channels.$inferSelect;
-export type ChannelMemberRow = typeof channelMembers.$inferSelect;
+export type ChannelMemberRow = typeof channelMembers.$inferSelect & {
+  name: string | null;
+  image: string | null;
+};
 export type ChannelAgentBindingRow = typeof channelAgentBindings.$inferSelect;
 export type ChannelMessageRow = typeof channelMessages.$inferSelect;
+export type ChannelActiveRunRow = Pick<
+  typeof agentRuns.$inferSelect,
+  'id' | 'agentId' | 'status' | 'initiatedBy' | 'startedAt'
+>;
 
 export type ChannelListItemRow = ChannelRow & {
   role: ChannelRole | null;
   lastReadSeq: number;
   unreadCount: number;
+  memberCount: number;
+  agentCount: number;
   lastMessage: {
     id: string;
     seq: number;
@@ -96,10 +106,18 @@ export async function listChannels(
       lastReadSeq: channelMembers.lastReadSeq,
       unreadCount: sql<number>`(
         select count(*)::int from ${channelMessages} m
-        where m.channel_id = ${channels.id}
+        where m.channel_id = ${sql.raw('"channels"."id"')}
           and m.seq > coalesce(${channelMembers.lastReadSeq}, 0)
           and m.author_business_id is distinct from ${subject.businessId}
       )`,
+      memberCount: sql<number>`(
+        select count(*)::int from ${channelMembers} cm
+        where cm.channel_id = ${sql.raw('"channels"."id"')}
+      )`.mapWith(Number),
+      agentCount: sql<number>`(
+        select count(*)::int from ${channelAgentBindings} cab
+        where cab.channel_id = ${sql.raw('"channels"."id"')}
+      )`.mapWith(Number),
       lastId: last.id,
       lastSeq: last.seq,
       lastKind: last.kind,
@@ -131,6 +149,8 @@ export async function listChannels(
     role: row.role,
     lastReadSeq: row.lastReadSeq ?? 0,
     unreadCount: row.unreadCount,
+    memberCount: row.memberCount,
+    agentCount: row.agentCount,
     lastMessage:
       row.lastId === null || row.lastSeq === null || row.lastKind === null
         ? null
@@ -188,8 +208,17 @@ export async function getChannelDetail(
   }
   const [members, agentBindings] = await Promise.all([
     db
-      .select()
+      .select({
+        channelId: channelMembers.channelId,
+        businessId: channelMembers.businessId,
+        role: channelMembers.role,
+        lastReadSeq: channelMembers.lastReadSeq,
+        createdAt: channelMembers.createdAt,
+        name: authUsers.name,
+        image: authUsers.image,
+      })
       .from(channelMembers)
+      .leftJoin(authUsers, eq(authUsers.businessId, channelMembers.businessId))
       .where(eq(channelMembers.channelId, channelId))
       .orderBy(asc(channelMembers.createdAt), asc(channelMembers.businessId)),
     db
@@ -263,7 +292,7 @@ export async function addMember(
       return { kind: 'forbidden', reason: 'owner_only' };
     }
     const [account] = await tx
-      .select({ disabled: authUsers.disabled })
+      .select({ disabled: authUsers.disabled, name: authUsers.name, image: authUsers.image })
       .from(authUsers)
       .where(eq(authUsers.businessId, input.businessId))
       .limit(1);
@@ -276,7 +305,63 @@ export async function addMember(
       .values({ channelId, businessId: input.businessId, role: input.role })
       .returning();
     if (!member) throw new Error('channel member insert returned no row');
-    return { kind: 'ok', member };
+    return { kind: 'ok', member: { ...member, name: account.name, image: account.image } };
+  });
+}
+
+export async function updateMemberRole(
+  db: Database,
+  subject: ChannelSubject,
+  channelId: string,
+  businessId: string,
+  role: ChannelRole,
+): Promise<
+  | { kind: 'ok'; member: ChannelMemberRow }
+  | NotFound
+  | { kind: 'forbidden'; reason: 'channel_role' | 'owner_only' }
+  | { kind: 'conflict'; reason: 'last_owner' }
+> {
+  return db.transaction(async (tx) => {
+    const [channel] = await tx
+      .select({ id: channels.id })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .for('update');
+    if (!channel) return { kind: 'not_found', target: 'channel' };
+    const callerRole = await channelMemberRole(tx, channelId, subject.businessId);
+    if (callerRole === null) return { kind: 'not_found', target: 'channel' };
+    if (!allows(callerRole, 'manage')) {
+      return { kind: 'forbidden', reason: 'channel_role' };
+    }
+    const targetRole = await channelMemberRole(tx, channelId, businessId);
+    if (targetRole === null) return { kind: 'not_found', target: 'member' };
+    if (callerRole !== 'owner' && (targetRole === 'owner' || role === 'owner')) {
+      return { kind: 'forbidden', reason: 'owner_only' };
+    }
+    if (targetRole === 'owner' && role !== 'owner') {
+      const [owners] = await tx
+        .select({ total: count() })
+        .from(channelMembers)
+        .where(and(eq(channelMembers.channelId, channelId), eq(channelMembers.role, 'owner')));
+      if ((owners?.total ?? 0) <= 1) return { kind: 'conflict', reason: 'last_owner' };
+    }
+    const [member] = await tx
+      .update(channelMembers)
+      .set({ role })
+      .where(
+        and(eq(channelMembers.channelId, channelId), eq(channelMembers.businessId, businessId)),
+      )
+      .returning();
+    if (!member) throw new Error('channel member update returned no row');
+    const [account] = await tx
+      .select({ name: authUsers.name, image: authUsers.image })
+      .from(authUsers)
+      .where(eq(authUsers.businessId, businessId))
+      .limit(1);
+    return {
+      kind: 'ok',
+      member: { ...member, name: account?.name ?? null, image: account?.image ?? null },
+    };
   });
 }
 
@@ -286,7 +371,7 @@ export async function removeMember(
   channelId: string,
   businessId: string,
 ): Promise<
-  | { kind: 'ok' }
+  | { kind: 'ok'; runs: ChannelActiveRunRow[] }
   | NotFound
   | { kind: 'forbidden'; reason: 'channel_role' | 'owner_only' }
   | { kind: 'conflict'; reason: 'last_owner' }
@@ -320,7 +405,24 @@ export async function removeMember(
       .where(
         and(eq(channelMembers.channelId, channelId), eq(channelMembers.businessId, businessId)),
       );
-    return { kind: 'ok' };
+    const runs = await tx
+      .select({
+        id: agentRuns.id,
+        agentId: agentRuns.agentId,
+        status: agentRuns.status,
+        initiatedBy: agentRuns.initiatedBy,
+        startedAt: agentRuns.startedAt,
+      })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.channelId, channelId),
+          eq(agentRuns.initiatedBy, businessId),
+          inArray(agentRuns.status, ['queued', 'running']),
+        ),
+      )
+      .orderBy(asc(agentRuns.createdAt), asc(agentRuns.id));
+    return { kind: 'ok', runs };
   });
 }
 
@@ -409,7 +511,11 @@ export async function removeAgentBinding(
   subject: ChannelSubject,
   channelId: string,
   agentId: string,
-): Promise<{ kind: 'ok' } | NotFound | { kind: 'forbidden'; reason: 'channel_role' }> {
+): Promise<
+  | { kind: 'ok'; runs: ChannelActiveRunRow[] }
+  | NotFound
+  | { kind: 'forbidden'; reason: 'channel_role' }
+> {
   return db.transaction(async (tx) => {
     const [channel] = await tx
       .select({ id: channels.id })
@@ -432,7 +538,24 @@ export async function removeAgentBinding(
       )
       .returning({ agentId: channelAgentBindings.agentId });
     if (!removed) return { kind: 'not_found', target: 'agent' };
-    return { kind: 'ok' };
+    const runs = await tx
+      .select({
+        id: agentRuns.id,
+        agentId: agentRuns.agentId,
+        status: agentRuns.status,
+        initiatedBy: agentRuns.initiatedBy,
+        startedAt: agentRuns.startedAt,
+      })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.channelId, channelId),
+          eq(agentRuns.agentId, agentId),
+          inArray(agentRuns.status, ['queued', 'running']),
+        ),
+      )
+      .orderBy(asc(agentRuns.createdAt), asc(agentRuns.id));
+    return { kind: 'ok', runs };
   });
 }
 
@@ -463,24 +586,40 @@ export async function listMessages(
   db: Database,
   subject: ChannelSubject,
   channelId: string,
-  options: { after: number; limit: number },
+  options: { after?: number; before?: number; limit: number },
 ): Promise<
   { kind: 'ok'; items: ChannelMessageRow[]; createdBy: string; maxSeq: number } | NotFound
 > {
   const channel = await getChannelReadAccess(db, subject, channelId);
   if (!channel) return { kind: 'not_found', target: 'channel' };
-  const items = await db
-    .select()
-    .from(channelMessages)
-    .where(
-      and(
-        eq(channelMessages.channelId, channelId),
-        gt(channelMessages.seq, options.after),
-        readCondition(subject, channelId),
-      ),
-    )
-    .orderBy(asc(channelMessages.seq))
-    .limit(options.limit);
+  const items =
+    options.before === undefined
+      ? await db
+          .select()
+          .from(channelMessages)
+          .where(
+            and(
+              eq(channelMessages.channelId, channelId),
+              gt(channelMessages.seq, options.after ?? 0),
+              readCondition(subject, channelId),
+            ),
+          )
+          .orderBy(asc(channelMessages.seq))
+          .limit(options.limit)
+      : (
+          await db
+            .select()
+            .from(channelMessages)
+            .where(
+              and(
+                eq(channelMessages.channelId, channelId),
+                lt(channelMessages.seq, options.before),
+                readCondition(subject, channelId),
+              ),
+            )
+            .orderBy(desc(channelMessages.seq))
+            .limit(options.limit)
+        ).reverse();
   if (items.length === 0 && !(await getChannelReadAccess(db, subject, channelId))) {
     return { kind: 'not_found', target: 'channel' };
   }
@@ -546,6 +685,7 @@ export async function postMessage(
   | NotFound
   | { kind: 'forbidden'; reason: 'channel_role' }
   | { kind: 'invalid_mentions' }
+  | { kind: 'too_many_wakes' }
 > {
   return db.transaction(async (tx) => {
     const [channel] = await tx
@@ -560,6 +700,21 @@ export async function postMessage(
       return { kind: 'forbidden', reason: 'channel_role' };
     }
     if (channel.archivedAt !== null) fail('CONFLICT', '频道已关闭，不能发送消息');
+    if (input.clientMessageId !== undefined) {
+      const [replayed] = await tx
+        .select()
+        .from(channelMessages)
+        .where(
+          and(
+            eq(channelMessages.channelId, channelId),
+            eq(channelMessages.clientMessageId, input.clientMessageId),
+          ),
+        )
+        .limit(1);
+      if (replayed) {
+        return { kind: 'ok', message: replayed, duplicate: true, wakeAgentIds: [] };
+      }
+    }
     // 唤醒会拉起 run：只有真实 owner/admin/member 可以带 @ 发言。
     let wakeAgentIds: string[] = [];
     if ((input.mentions?.length ?? 0) > 0 || input.mentionAll === true) {
@@ -567,6 +722,7 @@ export async function postMessage(
       if (role === 'viewer') return { kind: 'forbidden', reason: 'channel_role' };
       const resolved = await resolveWakeAgents(tx, channelId, input);
       if (resolved === null) return { kind: 'invalid_mentions' };
+      if (resolved.length > CHANNEL_MAX_WAKE_AGENTS) return { kind: 'too_many_wakes' };
       wakeAgentIds = resolved;
     }
     const [inserted] = await tx
@@ -647,36 +803,26 @@ export async function markRead(
     const [channel] = await tx
       .select({ id: channels.id })
       .from(channels)
-      .where(eq(channels.id, channelId))
-      .for('update');
+      .where(eq(channels.id, channelId));
     if (!channel) return { kind: 'not_found', target: 'channel' };
     const role = await channelMemberRole(tx, channelId, subject.businessId);
     if (role === null) return { kind: 'not_found', target: 'channel' };
-    const [current] = await tx
-      .select({ lastReadSeq: channelMembers.lastReadSeq })
-      .from(channelMembers)
-      .where(
-        and(
-          eq(channelMembers.channelId, channelId),
-          eq(channelMembers.businessId, subject.businessId),
-        ),
-      );
-    if (!current) return { kind: 'not_found', target: 'channel' };
     const [latest] = await tx
       .select({ max: sql<string | number | null>`max(${channelMessages.seq})` })
       .from(channelMessages)
       .where(eq(channelMessages.channelId, channelId));
-    const max = Number(latest?.max ?? 0);
-    const lastReadSeq = Math.max(current.lastReadSeq, Math.min(seq, max));
-    await tx
+    const target = Math.min(seq, Number(latest?.max ?? 0));
+    const [updated] = await tx
       .update(channelMembers)
-      .set({ lastReadSeq })
+      .set({ lastReadSeq: sql`greatest(${channelMembers.lastReadSeq}, ${target})` })
       .where(
         and(
           eq(channelMembers.channelId, channelId),
           eq(channelMembers.businessId, subject.businessId),
         ),
-      );
-    return { kind: 'ok', lastReadSeq };
+      )
+      .returning({ lastReadSeq: channelMembers.lastReadSeq });
+    if (!updated) return { kind: 'not_found', target: 'channel' };
+    return { kind: 'ok', lastReadSeq: updated.lastReadSeq };
   });
 }

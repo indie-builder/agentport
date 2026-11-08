@@ -2,17 +2,14 @@ import type { ChannelRole } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { agentRuns, channelAgentBindings, channelMembers, channels } from '../schema.js';
-import { channelMemberRole } from './channels.js';
+import { type ChannelActiveRunRow, channelMemberRole } from './channels.js';
 
 export type ChannelRunRow = typeof agentRuns.$inferSelect;
 
 /** 控制面只关心活动状态；终态 run 不再占用 lane。 */
 const ACTIVE_STATUSES = ['queued', 'running'] as const;
 
-export type ControlRun = Pick<
-  ChannelRunRow,
-  'id' | 'agentId' | 'status' | 'initiatedBy' | 'startedAt'
->;
+export type ControlRun = ChannelActiveRunRow;
 
 type NotFound = { kind: 'not_found'; target: 'channel' | 'run' | 'agent' };
 type Forbidden = { kind: 'forbidden'; reason: 'channel_role' | 'run_owner' | 'owner_only' };

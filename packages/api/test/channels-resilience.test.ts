@@ -113,8 +113,9 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
           while (boundary >= 0) {
             const frame = buffer.slice(0, boundary);
             buffer = buffer.slice(boundary + 2);
-            if (frame.startsWith('data: ')) {
-              const event = JSON.parse(frame.slice(6)) as ChannelEvent;
+            const line = frame.split('\n').find((entry) => entry.startsWith('data: '));
+            if (line) {
+              const event = JSON.parse(line.slice(6)) as ChannelEvent;
               events.push(event);
               for (const waiter of waiters) if (waiter.predicate(event)) waiter.resolve(event);
             }

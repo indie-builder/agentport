@@ -1,5 +1,5 @@
 import { type ChannelListItem, channelCreateSchema } from '@agentport/shared';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Hash, Plus } from 'lucide-react';
 import { useState } from 'react';
@@ -39,7 +39,7 @@ import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
 import { formatRelative } from '../lib/format.js';
-import { channelQuery, meQuery, useChannels, useCreateChannel } from '../lib/queries.js';
+import { meQuery, useChannels, useCreateChannel } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -58,10 +58,6 @@ export function ChannelsPage() {
   const showCreate =
     canCreate &&
     (channels.isPending || (channels.isError && channels.data === undefined) || items.length > 0);
-  // 列表只带最后一条消息；成员/智能体数量按详情补齐，数量少且与列表同屏可见。
-  const details = useQueries({
-    queries: items.map((channel) => ({ ...channelQuery(channel.id), staleTime: 30_000 })),
-  });
 
   return (
     <Page>
@@ -123,13 +119,9 @@ export function ChannelsPage() {
                 aria-label="频道列表"
                 className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
               >
-                {items.map((channel, index) => (
+                {items.map((channel) => (
                   <li key={channel.id} className="min-w-0">
-                    <ChannelCard
-                      channel={channel}
-                      memberCount={details[index]?.data?.members.length}
-                      agentCount={details[index]?.data?.agentBindings.length}
-                    />
+                    <ChannelCard channel={channel} />
                   </li>
                 ))}
               </ul>
@@ -147,10 +139,8 @@ export function ChannelsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((channel, index) => {
+                  {items.map((channel) => {
                     const last = channel.lastMessage;
-                    const memberCount = details[index]?.data?.members.length;
-                    const agentCount = details[index]?.data?.agentBindings.length;
                     return (
                       <TableRow key={channel.id}>
                         <TableCell className="max-w-72">
@@ -176,10 +166,10 @@ export function ChannelsPage() {
                           </span>
                         </TableCell>
                         <TableCell className="tabular-nums text-muted-foreground">
-                          {memberCount ?? '—'}
+                          {channel.memberCount}
                         </TableCell>
                         <TableCell className="tabular-nums text-muted-foreground">
-                          {agentCount ?? '—'}
+                          {channel.agentCount}
                         </TableCell>
                         <TableCell>
                           {channel.unreadCount > 0 ? (
@@ -217,15 +207,7 @@ export function ChannelsPage() {
   );
 }
 
-function ChannelCard({
-  channel,
-  memberCount,
-  agentCount,
-}: {
-  channel: ChannelListItem;
-  memberCount: number | undefined;
-  agentCount: number | undefined;
-}) {
+function ChannelCard({ channel }: { channel: ChannelListItem }) {
   const last = channel.lastMessage;
 
   return (
@@ -266,8 +248,7 @@ function ChannelCard({
         </CardContent>
         <CardContent className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
           <span className="min-w-0 truncate">
-            {memberCount === undefined ? '成员 —' : `${memberCount} 成员`} ·{' '}
-            {agentCount === undefined ? '智能体 —' : `${agentCount} 智能体`}
+            {channel.memberCount} 成员 · {channel.agentCount} 智能体
           </span>
           <span className="shrink-0 whitespace-nowrap">{formatRelative(channel.updatedAt)}</span>
         </CardContent>

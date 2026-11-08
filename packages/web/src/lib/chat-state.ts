@@ -27,6 +27,8 @@ export type ChatItem =
       messageId?: string;
       /** 产生这一轮运行的 id；没有助手输出时，终态读数由这条用户消息承载。 */
       runId?: string;
+      authorBusinessId?: string;
+      self?: boolean;
     }
   | {
       id?: string;

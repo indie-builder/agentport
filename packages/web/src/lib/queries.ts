@@ -12,6 +12,7 @@ import type {
   ChannelDetail,
   ChannelListItem,
   ChannelMessage,
+  ChannelRole,
   ChatRequest,
   ConnectorCatalogItem,
   ConversationSummary,
@@ -2985,14 +2986,18 @@ export const channelQuery = (id: string) =>
     staleTime: 0,
   });
 
-const CHANNEL_MESSAGES_PAGE_SIZE = 200;
+export const CHANNEL_MESSAGES_PAGE_SIZE = 200;
 
-/** 首屏取最前一页；后续消息由频道 SSE 按 seq 补齐，重取只能并入不能替换。 */
+/** 取最新一页；更早消息由频道页按 before 游标补齐，重取只能并入不能替换。 */
 export const channelMessagesQuery = (id: string) =>
   queryOptions<ChannelMessage[]>({
     queryKey: ['channel-messages', id],
     queryFn: ({ signal }) =>
-      api.channelMessages(id, { after: 0, limit: CHANNEL_MESSAGES_PAGE_SIZE }, signal),
+      api.channelMessages(
+        id,
+        { before: Number.MAX_SAFE_INTEGER, limit: CHANNEL_MESSAGES_PAGE_SIZE },
+        signal,
+      ),
     staleTime: 0,
   });
 
@@ -3023,11 +3028,11 @@ export function useChannelMessages(id: string) {
   const client = useQueryClient();
   return useQuery({
     ...channelMessagesQuery(id),
-    // 缓存可能已被 SSE 补齐到第 200 条之后，重取整页只能并入，否则中间区间永久丢失。
+    // 缓存可能已补入更早消息与 SSE 消息，重取最新页只能并入，否则更早区间永久丢失。
     queryFn: async ({ signal }) => {
       const page = await api.channelMessages(
         id,
-        { after: 0, limit: CHANNEL_MESSAGES_PAGE_SIZE },
+        { before: Number.MAX_SAFE_INTEGER, limit: CHANNEL_MESSAGES_PAGE_SIZE },
         signal,
       );
       return mergeChannelMessages(
@@ -3051,6 +3056,86 @@ export function useCreateChannel() {
   return useMutation({
     mutationFn: (input: { name: string; description?: string | null }) => api.createChannel(input),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['channels'] }),
+  });
+}
+
+export function useUpdateChannel(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name?: string; description?: string | null }) =>
+      api.updateChannel(id, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useAddChannelMember(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { businessId: string; role: ChannelRole }) =>
+      api.addChannelMember(id, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useUpdateChannelMember(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { businessId: string; role: ChannelRole }) =>
+      api.updateChannelMember(id, vars.businessId, vars.role),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useRemoveChannelMember(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (businessId: string) => api.removeChannelMember(id, businessId),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useRemoveChannelAgent(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (agentId: string) => api.removeChannelAgent(id, agentId),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useDisconnectChannelAgent(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (agentId: string) => api.disconnectChannelAgent(id, agentId),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useCloseChannel(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.closeChannel(id),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
   });
 }
 
