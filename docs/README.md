@@ -6,7 +6,7 @@
 
 | 文档 | 用途 |
 |---|---|
-| [`../CLAUDE.md`](../CLAUDE.md) | 根规则与模块规则入口（各包专属规则见其「模块规则」表） |
+| [`../AGENTS.md`](../AGENTS.md) | 根规则与模块规则入口（各包专属规则见其「模块规则」表） |
 | [DEV-WORKFLOW.md](DEV-WORKFLOW.md) | **研发流程规范**：文档体系、任务生命周期、任务跟踪与按需恢复、踩坑流程、门禁策略 |
 | [PITFALLS.md](PITFALLS.md) | 跨任务踩坑汇总（现象 → 原因 → 规避），开工前/报错时读 |
 | [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) | 工程规约：布局契约、组件交互与无障碍、异步状态、信息表达、动效、技术栈、禁止项（视觉数值以 `packages/web/DESIGN.md` 为准） |

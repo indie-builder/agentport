@@ -55,7 +55,7 @@
 
 新增技能的适配以 `SKILL.md` 顶部一段 `Project convention` 为主，`references/` 与其余文件维持上游原样；例外是 `router-core` 的 `data-loading/SKILL.md`、`ssr/SKILL.md` 也改了本地路径引用。`vite`、`pnpm` 未改动；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。升级或重装后按本组规则补回适配，再跑「完成核验」。本组实际适配范围以各 `SKILL.md` 的 `Project convention` 为准，不在本文写死数量。
 
-- **Fastify（已退役）**：后端已迁移到 Hono + oRPC，不再给新代码套用 Fastify 入口约定。`fastify-best-practices` 技能只作历史参考；当前入口、校验与授权以 [packages/api/CLAUDE.md](../packages/api/CLAUDE.md) 和 [ARCHITECTURE](ARCHITECTURE.md) §1.3 为准。原生 HTTP 边界（auth、MCP、SSE、文件）直接使用 Hono 的 `Request`/`Response`。
+- **Fastify（已退役）**：后端已迁移到 Hono + oRPC，不再给新代码套用 Fastify 入口约定。`fastify-best-practices` 技能只作历史参考；当前入口、校验与授权以 [packages/api/AGENTS.md](../packages/api/AGENTS.md) 和 [ARCHITECTURE](ARCHITECTURE.md) §1.3 为准。原生 HTTP 边界（auth、MCP、SSE、文件）直接使用 Hono 的 `Request`/`Response`。
 - **Better Auth / Drizzle**：认证实现以 `packages/api/src/modules/auth` 为准；Drizzle 按本地 lock 锁定版本与 `packages/db/src/schema.ts` 现行写法。常规业务实体主键用应用层 `newId(entity)` TypeID；认证、关联表、幂等派生标识、外部资源等按 `docs/PROJECT-BRIEF.md` §「ID 约定」的例外处理；不采用上游 `serial`/数据库生成 ID 示例。迁移只走 `bun run db:generate` + `bun run db:migrate`。
 - **React Hook Form**：沿用现有 `useZodForm` 与 `components/ui/` 的 Base UI/shadcn 控件，不引入 Radix 或 MUI；示例按本地 lock 版本核对。
 - **Router / Query**：对准现有 React + Vite SPA 入口（`packages/web/src/router.tsx`、`routes/`、`lib/queries.ts`），示例中的包标识与跨技能链接用本地路径修正，不引入 TanStack Start/SSR 或额外依赖；版本差异按 lock。
