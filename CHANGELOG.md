@@ -14,6 +14,7 @@
 ### 规则文件
 
 - 规则文件改以 `AGENTS.md` 为真源：根与 `packages/*` 的 `CLAUDE.md` 改为指向同级 `AGENTS.md` 的相对软链接。中立格式持有正文，Claude 系 Harness 经链接读取，Codex、Cursor 等直接读 `AGENTS.md`，不产生第二份副本。
+- `.gitignore` 忽略 `.workbuddy/`：本地智能体工作记忆属会话产物，只在本机有效，不入库。
 
 ## [0.14.0] - 2026-10-25
 
