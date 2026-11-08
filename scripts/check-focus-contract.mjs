@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-// 焦点/边框统一规约的守卫（docs/DESIGN-SYSTEM.md §9、CLAUDE.md 前端规则）：
+// 焦点/边框统一规约的守卫（docs/DESIGN-SYSTEM.md §9、AGENTS.md 前端规则）：
 // A. 以边框表达焦点的输入类原语不得再叠 ring-2。
 // B. 可聚焦元素的 focus-visible:ring-2 必须同时带 focus-visible:outline-none，
 //    否则会和全局 :focus-visible 的 2px outline 叠成两层。

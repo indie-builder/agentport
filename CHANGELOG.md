@@ -13,7 +13,7 @@
 
 ### 规则文件
 
-- 根与 `packages/*` 各加 `AGENTS.md` 软链接指向同级 `CLAUDE.md`：非 Claude Harness 读同一份规则，真源仍为 `CLAUDE.md`，不产生第二份副本。
+- 规则文件改以 `AGENTS.md` 为真源：根与 `packages/*` 的 `CLAUDE.md` 改为指向同级 `AGENTS.md` 的相对软链接。中立格式持有正文，Claude 系 Harness 经链接读取，Codex、Cursor 等直接读 `AGENTS.md`，不产生第二份副本。
 
 ## [0.14.0] - 2026-10-25
 
