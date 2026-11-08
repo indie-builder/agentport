@@ -6,7 +6,7 @@ import { useKnowledgeBaseSummary, useKnowledgeModelProfileSelections } from '../
 import { DuplicateBaseDialog } from './knowledge-duplicate-dialog.js';
 import { ExpertUsage } from './knowledge-expert-usage.js';
 import { jobStatusLabel, jobStatusTone, jobTypeLabel } from './knowledge-shared.js';
-import { PageSection, PageToolbar } from './page.js';
+import { PageSection } from './page.js';
 import { ErrorState, LoadingState } from './states.js';
 import { StatusBadge } from './status-badge.js';
 import { Button } from './ui/button.js';
@@ -88,26 +88,28 @@ export function KnowledgeOverview({
       {base.description ? (
         <p className="min-w-0 break-words text-sm leading-relaxed text-fg">{base.description}</p>
       ) : null}
-      {canCreate ? (
-        <PageToolbar>
-          <Button
-            ref={copyButtonRef}
-            variant="outline"
-            className="ml-auto"
-            onClick={() => setDuplicating(true)}
-          >
-            <Copy data-icon="inline-start" aria-hidden="true" /> 复制知识库
-          </Button>
-        </PageToolbar>
-      ) : null}
       <PageSection
         title="配置"
         divided={false}
         actions={
-          profiles.isError ? (
-            <Button variant="link" size="xs" onClick={() => void profiles.refetch()}>
-              重试
-            </Button>
+          profiles.isError || canCreate ? (
+            <>
+              {profiles.isError ? (
+                <Button variant="link" size="xs" onClick={() => void profiles.refetch()}>
+                  重试
+                </Button>
+              ) : null}
+              {canCreate ? (
+                <Button
+                  ref={copyButtonRef}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDuplicating(true)}
+                >
+                  <Copy data-icon="inline-start" aria-hidden="true" /> 复制知识库
+                </Button>
+              ) : null}
+            </>
           ) : undefined
         }
       >
@@ -153,7 +155,7 @@ export function KnowledgeOverview({
         ) : null}
         {summary.data ? (
           <>
-            <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
+            <dl className="grid max-w-2xl gap-x-8 gap-y-2 sm:grid-cols-3">
               <CountItem label="文档" count={summary.data.documents} />
               <CountItem label="FAQ" count={summary.data.faqs} />
               <CountItem label="Wiki" count={summary.data.wikiPages} />

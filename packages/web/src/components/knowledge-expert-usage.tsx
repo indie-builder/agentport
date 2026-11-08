@@ -2,7 +2,7 @@ import type { KnowledgeBase } from '@agentport/shared';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { agentAccessQuery, agentDetailQuery, agentsQuery } from '../lib/queries.js';
-import { ErrorState, InlineEmpty, LoadingState } from './states.js';
+import { ErrorState, LoadingState } from './states.js';
 import { Button } from './ui/button.js';
 
 /**
@@ -99,7 +99,7 @@ export function ExpertUsage({
       ) : null}
       {agents.isSuccess && used.length === 0 && unknown === 0 && !pending ? (
         <div className="flex flex-col gap-1">
-          <InlineEmpty>没有被任何专家使用</InlineEmpty>
+          <span className="text-sm text-fg">没有被任何专家使用</span>
           <span className="text-sm text-muted-foreground">在专家的能力配置中绑定此知识库。</span>
           <Link to="/agents" className="self-start text-xs text-fg underline underline-offset-2">
             选择专家
