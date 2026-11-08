@@ -98,7 +98,8 @@ vi.mock('@tanstack/react-router', () => ({
   Link: 'a',
   useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
   useNavigate: () => vi.fn(),
-  useSearch: () => ({}),
+  // 这些用例检查配置任务里的草稿预览；概览页有独立用例。
+  useSearch: () => ({ tab: 'config' }),
   useParams: () => ({ agentId: 'parent' }),
   useLocation: () => ({ state: undefined }),
 }));

@@ -98,7 +98,7 @@
 
 沙盒及 API/worker 都以 uid 1000 运行时，才能对 0700 记忆目录读写一致：请用 Compose 启动 API/worker。本地 `bun run dev` 以宿主 uid 运行时仍可正常跑智能体，但原生记忆跨宿主 uid 与容器内 uid 1000 的 0700 目录可能不可写，记忆功能不保证；需要持久记忆时用 Compose。不要递归 chown 未核对的宿主目录，也不要以 0777 绕过错误。已有外部数据卷应先备份并确认属主后再启用。
 
-runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`。主会话的 `Read`/`Write`/`Edit` 通过绝对路径许可与 SDK PreToolUse 双重约束，只放行目录内普通 `.md` 文件；子智能体使用官方 `memory: project`，宿主按 slug 把它自己的 `.claude/agent-memory/<slug>/` 挂进工作区，已登记子智能体只允许读写自己的子目录，兄弟、父级与未登记调用方拒绝。这是原生文件工具边界，不是 OS 级秘密隔离：Bash 不经过该路径 hook，同一容器内的 Bash 仍可按挂载权限访问这些目录；软链接、硬链接、非普通文件、相对路径及工具越界请求在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。
+runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`autoMemoryDirectory`；`writeMode=proposal_only` 或 `enabled=false` 时关闭 auto-memory 并把记忆目录（含子智能体记忆）改为只读挂载，容器内 Bash 也无法写入。主会话的 `Read`/`Write`/`Edit` 通过绝对路径许可与 SDK PreToolUse 双重约束，只放行目录内普通 `.md` 文件；子智能体使用官方 `memory: project`，宿主按 slug 把它自己的 `.claude/agent-memory/<slug>/` 挂进工作区，已登记子智能体只允许访问自己的子目录，可写性跟随父专家策略，兄弟、父级与未登记调用方拒绝。这是原生文件工具边界，不是 OS 级秘密隔离：Bash 不经过该路径 hook，同一容器内的 Bash 仍可按挂载权限访问这些目录；软链接、硬链接、非普通文件、相对路径及工具越界请求在检查时点拒绝。API 与沙盒访问同一存储；请把该目录单独纳入文件备份。
 
 官方启动只自动加载 `MEMORY.md` 的前 200 行或 25KB（先到者为准），主题文件不预载，由模型按需用标准文件工具读取。平台只在自己控制的写入口拒绝超限：手工保存 `PUT /api/agents/:id/memory/:name`、记忆提案采纳与版本回滚会对 `MEMORY.md` 执行 200 行 / 25KB 校验，主题单文件沿用 200000 UTF-8 字节上限。平台入口的校验与补链已实现，shared/web/worker 与 API、跨端独立 review 均 PASS；验证及独立评审通过，随本任务 PR 交付。SDK 原生文件工具直接写 `MEMORY.md` 不受平台拦截，超限内容仍会写成功并提示模型精简，下次启动仍只加载前 200 行 / 25KB；这些原生写入也不进入 `memory_changes`，不能宣称覆盖全部记忆历史。专项测试不调用付费模型，真实跨 run 的自动写入、主题读取仍需模型验收。
 

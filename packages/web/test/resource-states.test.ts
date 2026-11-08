@@ -43,7 +43,8 @@ vi.mock('@tanstack/react-router', () => ({
 
 const state = vi.hoisted(() => ({
   saving: false,
-  search: {} as Record<string, string | undefined>,
+  // 编辑器用例针对配置任务；概览的默认落点由页面级用例覆盖。
+  search: { tab: 'config' } as Record<string, string | undefined>,
 }));
 vi.mock('../src/lib/queries.js', async (original) => {
   const queries = await original<typeof import('../src/lib/queries.js')>();
@@ -231,7 +232,7 @@ function text(tree: Element[]) {
 afterEach(() => {
   for (const queryClient of clients.splice(0)) queryClient.clear();
   state.saving = false;
-  state.search = {};
+  state.search = { tab: 'config' };
   vi.restoreAllMocks();
 });
 

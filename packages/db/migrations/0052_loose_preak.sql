@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "memory_policy" jsonb DEFAULT '{"enabled":true,"writeMode":"native_auto","injectPersonalMemory":true,"injectRules":true,"topicLimit":20}'::jsonb NOT NULL;

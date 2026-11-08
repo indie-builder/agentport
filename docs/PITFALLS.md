@@ -424,6 +424,12 @@
 - **原因**：`refreshSessionDirectory`（`packages/worker/src/session-workspace.ts`）同时服务定义工作区与产出目录，却无条件跳过 `.claude/agent-memory` 以保住工作区的挂载根 inode；产出目录没有挂载根，同名目录只是普通用户文件，被当挂载根跳过就不再复制或删除。
 - **规避**：保留挂载根改为显式选项 `preserveMemoryMount`，只在定义工作区调用时传 `true`（`packages/worker/src/index.ts`），产出保持整棵替换；新增刷新调用前先确认目标是否真有挂载根，不按目录名猜语义。
 
+## 安全：记忆策略只收窄 SDK 文件工具，不收窄挂载权限
+
+- **现象**：`writeMode=proposal_only` 时 hook 已拒绝 `Write`/`Edit`，容器内 Bash 仍能直接写 `/mnt/agent-memory`，运行期写入策略形同虚设。
+- **原因**：挂载决策只看 `policy.enabled`，记忆目录恒为 rw；PreToolUse 只覆盖原生文件工具，Bash 写入走的是内核挂载权限。
+- **规避**：挂载可写性必须与策略同源——只有 `enabled && writeMode === 'native_auto'` 才 rw，`proposal_only` 只读，关闭专家记忆时不挂（`memoryMountFor`，`packages/worker/src/sandbox/sessions.ts`）；子智能体记忆跟随同一可写性。只读是挂载身份的一部分，切换 `writeMode` 触发容器重建，不能只改运行中容器的属性。
+
 ## 测试：生产 ESM/CJS 互操作不能用测试运行结果代替
 
 - **现象**：ExcelJS 等 CJS 依赖在旧 Vitest 入口里导入全绿，构建后的 API 以原生 ESM 启动却报具名导出缺失。

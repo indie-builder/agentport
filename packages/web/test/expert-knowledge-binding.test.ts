@@ -16,7 +16,8 @@ vi.mock('@/components/ui/separator', () => import('../src/components/ui/separato
 vi.mock('@tanstack/react-router', () => ({
   useBlocker: () => ({ status: 'idle' }),
   useNavigate: () => () => {},
-  useSearch: () => ({}),
+  // 这些用例检查配置任务的绑定选择器；概览页有独立用例。
+  useSearch: () => ({ tab: 'config' }),
   Link: 'a',
 }));
 

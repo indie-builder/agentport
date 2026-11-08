@@ -109,7 +109,7 @@ async function click(element: HTMLElement): Promise<void> {
 }
 
 async function renderEditor(): Promise<void> {
-  // 任务状态唯一来源是 URL，用真实 Router 才能验证「点开完整文件才请求」这条契约。
+  // 任务状态唯一来源是 URL，用真实 Router 才能验证「点开文件与版本才请求」这条契约。
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const detail = createRoute({
@@ -162,6 +162,27 @@ beforeEach(() => {
     value: vi.fn(),
   });
   agentFiles = vi.spyOn(api, 'agentFiles').mockResolvedValue(files);
+  // 默认落在概览：概览按权限读取记忆、规则、风格与运行，这里给空数据。
+  vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue({
+    policy: {
+      enabled: true,
+      writeMode: 'native_auto',
+      injectPersonalMemory: true,
+      injectRules: true,
+      topicLimit: 20,
+    },
+    index: { present: true, lines: 0, bytes: 0, maxLines: 200, maxBytes: 25 * 1024 },
+    topics: { count: 0, bytes: 0, unlinked: [], stale: [] },
+    rules: { count: 0, bytes: 0 },
+    personal: { chars: 0, maxChars: 9000 },
+    unaccounted: { count: 0, names: [] },
+    health: [],
+    recentChanges: [],
+    changesTotal: 0,
+  });
+  vi.spyOn(api, 'agentRules').mockResolvedValue([]);
+  vi.spyOn(api, 'agentOutputStyles').mockResolvedValue([]);
+  vi.spyOn(api, 'runs').mockResolvedValue({ items: [] });
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(['me'], allAccessMe);
   host = document.createElement('div');
@@ -182,7 +203,7 @@ describe('agent files on demand', () => {
     await renderEditor();
     expect(agentFiles).not.toHaveBeenCalled();
 
-    await click(button('完整文件'));
+    await click(button('文件与版本'));
     await waitFor(() => agentFiles.mock.calls.length > 0);
 
     expect(agentFiles).toHaveBeenCalledWith('expert');

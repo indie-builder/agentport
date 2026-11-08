@@ -464,6 +464,54 @@ export async function eventFollowerCount(redis: RedisClient, runId: string): Pro
   return list.split('\n').filter((line) => line.includes(`${name} `) || line.endsWith(name)).length;
 }
 
+/**
+ * 记忆相关测试文件共用的一把会话级 advisory 锁。
+ * 记忆账本按写入人（businessId）清理、个人记忆也按 businessId 存放，两者都以登录主体为键，
+ * 无法按文件唯一；并行时一个文件的 beforeEach/afterAll 清理会删掉另一个文件正在断言的行。
+ * 因此凡是要读写管理员个人记忆或管理员署名的记忆账本的文件，都必须在整个 describe 期间持锁。
+ */
+export const MEMORY_TEST_LOCK = 'agentport.memory-tests';
+
+/**
+ * 在独立连接上取锁；返回的函数恢复连接设置、解锁并归还连接。
+ * 等锁不受 statement_timeout 限制，但连接归还池后会继续被同进程复用，
+ * 因此释放前必须把原来的 statement_timeout 还回去，否则后续查询失去超时保护。
+ */
+export async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
+  const reserved = await client.reserve();
+  let originalTimeout: string | undefined;
+  try {
+    const rows = await reserved.unsafe<{ value: string }[]>(
+      "select current_setting('statement_timeout') as value",
+    );
+    originalTimeout = rows[0]?.value;
+    if (originalTimeout === undefined) throw new Error('cannot read statement_timeout');
+    await reserved.unsafe('set statement_timeout = 0');
+    await reserved.unsafe('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
+  } catch (err) {
+    // 取锁失败也必须归还连接，且尽量把超时设置还原，避免污染连接池。
+    if (originalTimeout !== undefined) {
+      await reserved
+        .unsafe('select set_config($1, $2, false)', ['statement_timeout', originalTimeout])
+        .catch(() => undefined);
+    }
+    reserved.release();
+    throw err;
+  }
+  return async () => {
+    try {
+      // 先还原超时再解锁：解锁本身很快，不会撞上恢复后的上限。
+      await reserved.unsafe('select set_config($1, $2, false)', [
+        'statement_timeout',
+        originalTimeout,
+      ]);
+      await reserved.unsafe('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
+    } finally {
+      reserved.release();
+    }
+  };
+}
+
 /** 只删本次测试创建的目标；级联会带走 tools / agent_servers / conversations。 */
 export async function cleanup(
   app: TestApp,

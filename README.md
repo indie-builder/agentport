@@ -172,7 +172,7 @@ agentport/
 - **密钥**：MCP 的 env/headers 使用 AES-256-GCM 加密入库，API 返回时脱敏为 `••••`；日志对 authorization、cookie、token、secret 等字段脱敏。
 - **工作区密钥**：每次运行会把解密后的 MCP env/headers 写入会话工作区的 `data/workspaces/<slug>/session-sandboxes/<conversationId>/workspace/.mcp.json`，供沙盒内进程使用。目录 0700、文件 0600；终态停稳后删除，删除失败时禁止复用该容器并在仍持有 lease 时销毁。MCP 凭据使用按 run 签发的短期 token（DB 只存 sha256）。但工作区仍含明文 MCP 密钥，不要提交或打包。模型凭证已代理（D-17）：worker 启动回环代理（默认 `MODEL_PROXY_PORT=3426`），沙盒只拿到代理地址与按 run 签发的短期 token，真实密钥只存在于 worker 进程；未配置任何凭证时才回退直接注入并在启动日志警告（见 [SECURITY.md](docs/SECURITY.md) M12a）。
 - **SSRF**：只允许 http/https；连接测试与工具运行时都会解析 DNS 并拒绝私网、回环、link-local 地址；开发模式放行 localhost。DNS 重绑定无法在应用层彻底消除，出站仍建议配合网络 allowlist。
-- **沙盒**：只读根文件系统、只读工作区挂载（长期记忆目录 `agent-memory/` 单独 rw 挂载）、`--cap-drop ALL`、`no-new-privileges`、非 root 用户、内存/CPU/PID 限制；内置工具默认禁用，只放行绑定的 MCP 工具，以及长期记忆目录的 `Read`/`Edit`（`Edit` 含 `Write`，越界由 `PreToolUse` 拒绝）；有子智能体时才放行 `Agent`。
+- **沙盒**：只读根文件系统、只读工作区挂载（长期记忆目录 `agent-memory/` 与子智能体记忆仅在专家策略 `writeMode=native_auto` 时 rw 挂载，`proposal_only` 只读，关闭专家记忆时不挂）、`--cap-drop ALL`、`no-new-privileges`、非 root 用户、内存/CPU/PID 限制；内置工具默认禁用，只放行绑定的 MCP 工具，以及长期记忆目录的 `Read`/`Edit`（`Edit` 含 `Write`，越界由 `PreToolUse` 拒绝）；有子智能体时才放行 `Agent`。
 - **工具审批**：标记 `requiresApproval` 的工具会**挂起同一次调用**（MCP 工具内部轮询 DB，默认最多 300s，`APPROVAL_WAIT_MS`），在运行详情页批准后直接继续并返回结果，不需要模型重发；超时按拒绝处理。未标记的工具在 `dontAsk` 下直接拒绝。
 - **出站**：`SANDBOX_EGRESS` 默认 `open`（bridge 直连，**不隔离出站**，便于本地开发）。需要出站管控时显式设 `proxy` 并配置 `HTTPS_PROXY`/`HTTP_PROXY`；只设 `proxy` 不设代理时 worker 启动即失败（fail-closed），不会静默降级。`none` 完全断网（此时模型与 MCP 不可用）。需要硬隔离时用 `none` 或独立出站网关。
 - **平台端点**：`/mcp` 只校验单个 `PLATFORM_MCP_TOKEN`；`/mcp/:serverId` 使用每个 generated server 的 Bearer token。`/health/live`、`/health/ready` 供容器探针使用、不校验登录；`/health/metrics` 需要登录，不要暴露到公网。

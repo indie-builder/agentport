@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import type { ChatEvent, ResolvedRuntimeEnvironment, SandboxInputCommand } from '@agentport/shared';
+import {
+  type ChatEvent,
+  type ResolvedRuntimeEnvironment,
+  resolveMemoryPolicy,
+  type SandboxInputCommand,
+} from '@agentport/shared';
 import pino from 'pino';
 import {
   type Sandbox,
@@ -9,6 +14,7 @@ import {
   type SandboxCreateOptions,
   type SandboxProvider,
 } from '../src/sandbox/provider.js';
+import { memoryMountFor, type SessionSandboxSpec } from '../src/sandbox/sessions.js';
 import {
   advanceTimersByTimeAsync,
   runOnlyPendingTimersAsync,
@@ -141,7 +147,7 @@ class FakeProvider implements SandboxProvider {
   }
 }
 
-function spec(overrides: Partial<Parameters<typeof baseSpec>[0]> = {}) {
+function spec(overrides: Partial<ReturnType<typeof baseSpec>> = {}) {
   return { ...baseSpec(), ...overrides };
 }
 
@@ -154,6 +160,7 @@ function baseSpec() {
     outputsDir: '/host/outputs',
     inputsDir: '/host/inputs',
     memoryDir: '/host/memory',
+    memoryWritable: true,
     sessionsDir: '/host/sessions',
     personalDir: '/host/user',
   };
@@ -200,7 +207,7 @@ async function createManager(
 
 async function acquire(
   sessions: Awaited<ReturnType<typeof createManager>>,
-  target: ReturnType<typeof spec>,
+  target: SessionSandboxSpec,
   signal?: AbortSignal,
   runId = 'run_1',
 ) {
@@ -313,7 +320,7 @@ describe('session sandboxes', () => {
     expect(create?.extraMounts).toEqual([
       { hostPath: '/host/outputs', containerPath: '/mnt/outputs' },
       { hostPath: '/host/inputs', containerPath: '/mnt/inputs', readonly: true },
-      { hostPath: '/host/memory', containerPath: '/mnt/agent-memory' },
+      { hostPath: '/host/memory', containerPath: '/mnt/agent-memory', readonly: false },
       { hostPath: '/host/sessions', containerPath: '/home/node/.claude' },
       { hostPath: '/host/user', containerPath: '/mnt/user', readonly: true },
     ]);
@@ -352,7 +359,86 @@ describe('session sandboxes', () => {
     await sessions.close();
   });
 
-  it('mounts every child memory directory rw under the project memory root', async () => {
+  it('omits the personal memory mount when injectPersonalMemory is off', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    const target: SessionSandboxSpec = { ...baseSpec() };
+    delete target.personalDir;
+
+    const lease = await acquire(sessions, target);
+    const mounts = provider.creates[0]?.extraMounts ?? [];
+    expect(mounts).toContainEqual({
+      hostPath: '/host/memory',
+      containerPath: '/mnt/agent-memory',
+      readonly: false,
+    });
+    expect(mounts.some((mount) => mount.containerPath === '/mnt/user')).toBe(false);
+
+    await lease.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it('omits the expert memory mount when the memory policy is disabled', async () => {
+    const provider = new FakeProvider();
+    const sessions = await createManager(provider);
+    // 关闭策略时 worker 不传 memoryDir / memoryWritable；夹具默认带这两个键，这里按同样方式删掉。
+    expect(memoryMountFor(resolveMemoryPolicy({ enabled: false }), '/host/memory')).toEqual({});
+    const target: SessionSandboxSpec = {
+      ...spec({ subAgentMemoryDirs: [{ slug: 'child', memoryDir: '/host/child' }] }),
+    };
+    delete target.memoryDir;
+    delete target.memoryWritable;
+
+    const lease = await acquire(sessions, target);
+    const mounts = provider.creates[0]?.extraMounts ?? [];
+    expect(mounts.some((mount) => mount.containerPath === '/mnt/agent-memory')).toBe(false);
+    // 关闭专家记忆不改子智能体记忆的挂载集合；父策略不允许运行期写入时它是只读的。
+    expect(mounts).toContainEqual({
+      hostPath: '/host/child',
+      containerPath: '/workspace/.claude/agent-memory/child',
+      readonly: true,
+    });
+    expect(mounts).toContainEqual({
+      hostPath: '/host/user',
+      containerPath: '/mnt/user',
+      readonly: true,
+    });
+
+    await lease.release({ reuse: false });
+    await sessions.close();
+  });
+
+  it.each([
+    { writeMode: 'native_auto', readonly: false },
+    { writeMode: 'proposal_only', readonly: true },
+  ] as const)(
+    'binds expert and child memory with readonly=$readonly for writeMode=$writeMode',
+    async ({ writeMode, readonly }) => {
+      const provider = new FakeProvider();
+      const sessions = await createManager(provider);
+      const target = spec({
+        ...memoryMountFor(resolveMemoryPolicy({ writeMode }), '/host/memory'),
+        subAgentMemoryDirs: [{ slug: 'child', memoryDir: '/host/child' }],
+      });
+
+      const lease = await acquire(sessions, target);
+      expect(provider.creates[0]?.extraMounts).toEqual(
+        expect.arrayContaining([
+          { hostPath: '/host/memory', containerPath: '/mnt/agent-memory', readonly },
+          {
+            hostPath: '/host/child',
+            containerPath: '/workspace/.claude/agent-memory/child',
+            readonly,
+          },
+        ]),
+      );
+
+      await lease.release({ reuse: false });
+      await sessions.close();
+    },
+  );
+
+  it('mounts every child memory directory writable under the project memory root', async () => {
     const provider = new FakeProvider();
     const sessions = await createManager(provider);
     const target = spec({
@@ -365,8 +451,16 @@ describe('session sandboxes', () => {
     const lease = await acquire(sessions, target);
     expect(provider.creates[0]?.extraMounts).toEqual(
       expect.arrayContaining([
-        { hostPath: '/host/memory-alpha', containerPath: '/workspace/.claude/agent-memory/alpha' },
-        { hostPath: '/host/memory-beta', containerPath: '/workspace/.claude/agent-memory/beta' },
+        {
+          hostPath: '/host/memory-alpha',
+          containerPath: '/workspace/.claude/agent-memory/alpha',
+          readonly: false,
+        },
+        {
+          hostPath: '/host/memory-beta',
+          containerPath: '/workspace/.claude/agent-memory/beta',
+          readonly: false,
+        },
       ]),
     );
 
@@ -427,6 +521,8 @@ describe('session sandboxes', () => {
     { outputsDir: '/host/outputs-2' },
     { inputsDir: '/host/inputs-2' },
     { memoryDir: '/host/memory-2' },
+    // 只读与可写是两种挂载：切换 writeMode 必须换容器，运行中的 bind mount 不能热改。
+    { memoryWritable: false },
     { sessionsDir: '/host/sessions-2' },
     { personalDir: '/host/user-2' },
     { personalDir: undefined },

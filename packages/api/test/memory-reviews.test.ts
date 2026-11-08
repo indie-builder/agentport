@@ -14,6 +14,7 @@ import { MEMORY_REVIEW_MAX_BYTES } from '../src/modules/memory-reviews/router.js
 import { closeProducer, getQueue } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,
+  acquireMemoryLock,
   cleanup,
   createAgent,
   createTestAccount,
@@ -68,9 +69,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// 三个记忆测试文件并行时共用同一把会话级 advisory 锁：它们都会删写同一行管理员个人偏好。
-const MEMORY_TEST_LOCK = 'agentport.memory-tests';
-
+// 三个记忆测试文件共用同一把会话级 advisory 锁（见 helpers.acquireMemoryLock）。
 interface AgentRef {
   id: string;
   slug: string;
@@ -91,17 +90,6 @@ describe.skipIf(!ready)('memory reviews', () => {
   const agentSlugs: string[] = [];
   const jobs: JobRecord[] = [];
   let messageSeq = 0;
-
-  async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
-    const reserved = await client.reserve();
-    // 等锁可能超过连接默认的 statement_timeout。
-    await reserved.unsafe('set statement_timeout = 0');
-    await reserved.unsafe('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
-    return async () => {
-      await reserved.unsafe('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
-      reserved.release();
-    };
-  }
 
   beforeAll(async () => {
     root = await mkdtemp(join(await realpath(tmpdir()), 'memory-reviews-'));
@@ -558,6 +546,44 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     expectProblem(disabledModel, 'AGENT_DISABLED');
     await app.client.unsafe('update agents set enabled = true where id = $1', [owner.id]);
+  });
+
+  it('keeps rule proposals open while expert memory is disabled', async () => {
+    const agent = await newAgent();
+    const conversationId = await newConversation(agent.id);
+    await seedMessage(conversationId, 'user', '回答要先给结论');
+    await repo.rules.upsertRule(app.db, agent.id, {
+      slug: 'style',
+      content: '旧规则',
+      globs: '',
+    });
+    const saved = await request(app, {
+      method: 'PUT',
+      url: `/api/agents/${agent.id}/memory/policy`,
+      headers: auth(),
+      payload: { policy: { enabled: false } },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+
+    // 规则由 injectRules 独立控制，停用记忆不该连带拒绝规则提案。
+    const rule = await postReview(
+      reviewBody({
+        modelAgentId: agent.id,
+        target: { kind: 'agent_rule', agentId: agent.id, slug: 'style' },
+        sources: [{ conversationId }],
+      }),
+    );
+    expect(rule.statusCode, rule.body).toBe(202);
+
+    // 记忆提案仍按停用策略拒绝。
+    const memory = await postReview(
+      reviewBody({
+        modelAgentId: agent.id,
+        target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
+        sources: [{ conversationId }],
+      }),
+    );
+    expectProblem(memory, 'CONFLICT');
   });
 
   it('creates a review run without writing messages or touching the SDK session', async () => {

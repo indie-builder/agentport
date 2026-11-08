@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { effortSchema, permissionModeSchema } from './agent.js';
 import { ATTACHMENT_LIMITS, chatAttachmentInputsSchema } from './attachments.js';
+import { DEFAULT_MEMORY_POLICY, memoryPolicySchema } from './memory.js';
 import { openUiActionSchema } from './openui/protocol.js';
 import { outputRefSchema } from './outputs.js';
 import { nativeQuestionsSchema, publicRunQuestionSchema } from './questions.js';
@@ -301,6 +302,11 @@ export const sandboxTaskSchema = z
      * 与 resumeSessionId 同时出现；fork 结果写回会话行。
      */
     forkFromMessageUuid: z.uuid().optional(),
+    /**
+     * 专家记忆策略：runner 据此决定是否启用 auto-memory、是否安装个人记忆 hook
+     * 以及是否放行记忆目录写入。缺省按平台默认策略，旧调用方无需改动。
+     */
+    memoryPolicy: memoryPolicySchema.default(DEFAULT_MEMORY_POLICY),
   })
   .strict();
 

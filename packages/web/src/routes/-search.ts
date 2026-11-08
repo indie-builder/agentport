@@ -6,7 +6,14 @@ import {
   runtimeEnvironmentVersionStatusSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
-import { agentSections, agentTabs, knowledgeTabs } from '../lib/detail-tabs.js';
+import {
+  agentInstructions,
+  agentSections,
+  agentTabs,
+  knowledgeTabs,
+  legacyAgentTabs,
+  memoryViews,
+} from '../lib/detail-tabs.js';
 
 export const resourceSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
@@ -26,14 +33,26 @@ export const agentsSearchSchema = resourceSearchSchema.extend({
   role: z.enum(AGENT_ROLES).optional().catch(undefined),
 });
 
-/** 专家详情：任务、配置分区与选中文件都进 URL，刷新和分享后回到同一视图。 */
+/**
+ * 专家详情：任务、配置分区、专家记忆子视图、指令分段与选中文件都进 URL，
+ * 刷新和分享后回到同一视图。旧书签的 `tab=rules|styles` 仍可解析，进入后由页面规范化。
+ */
 export const agentDetailSearchSchema = z.object({
   tab: z
-    .enum(agentTabs.map((item) => item.id))
+    .enum([...agentTabs.map((item) => item.id), ...legacyAgentTabs])
+    .optional()
+    .catch(undefined),
+  /** 「指令」页内的项目规则 / 输出风格；缺省 rules。 */
+  instruction: z
+    .enum(agentInstructions.map((item) => item.id))
     .optional()
     .catch(undefined),
   section: z
     .enum(agentSections.map((item) => item.id))
+    .optional()
+    .catch(undefined),
+  view: z
+    .enum(memoryViews.map((item) => item.id))
     .optional()
     .catch(undefined),
   file: z.string().optional().catch(undefined),

@@ -1,4 +1,4 @@
-import type { AgentInput, OpenUiToolDescriptor } from '@agentport/shared';
+import type { AgentInput, MemoryPolicy, OpenUiToolDescriptor } from '@agentport/shared';
 import type { McpJsonEntry } from './tools.js';
 import type {
   WorkspaceAgent,
@@ -66,6 +66,8 @@ export function toWorkspaceInput(params: {
   openuiTools?: OpenUiToolDescriptor[];
   /** 已按绑定授权过滤的插件；预览与运行共用同一份。 */
   plugins?: WorkspacePlugin[];
+  /** 专家记忆策略；worker 传已解析的策略，未传时按默认（可读可写）渲染。 */
+  memoryPolicy?: MemoryPolicy;
 }): WorkspaceInput {
   const { agent } = params;
   return {
@@ -84,5 +86,6 @@ export function toWorkspaceInput(params: {
     ...(params.openuiTools && params.openuiTools.length > 0
       ? { openuiTools: params.openuiTools }
       : {}),
+    ...(params.memoryPolicy ? { memoryPolicy: params.memoryPolicy } : {}),
   };
 }

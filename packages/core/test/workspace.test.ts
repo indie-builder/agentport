@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { CONFIGURABLE_DISALLOWED_TOOLS, permissionModeSchema } from '@agentport/shared';
+import {
+  CONFIGURABLE_DISALLOWED_TOOLS,
+  DEFAULT_MEMORY_POLICY,
+  permissionModeSchema,
+} from '@agentport/shared';
 import { parseMarkdownFrontmatter } from '../src/markdown-frontmatter.js';
 import { renderRuleMd, renderWorkspace } from '../src/workspace.js';
 
@@ -197,6 +201,81 @@ describe('native file access wording', () => {
     expect(claudeMd).not.toContain(
       '其他路径的原生文件工具请求，以及子智能体的原生文件工具请求均被拒绝',
     );
+  });
+});
+
+describe('expert memory policy wording', () => {
+  const memoryLines = (claudeMd: string): string[] =>
+    claudeMd.split('\n').filter((line) => line.includes('/mnt/agent-memory/'));
+
+  it('claims read and write only under native_auto', () => {
+    const { claudeMd } = renderWorkspace({
+      agent,
+      servers: [],
+      memoryPolicy: { ...DEFAULT_MEMORY_POLICY, writeMode: 'native_auto' },
+    });
+
+    expect(claudeMd).toContain('`Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/`');
+    expect(claudeMd).not.toContain('专家记忆已停用');
+    expect(claudeMd).not.toContain('本轮只读');
+    expect(claudeMd).not.toContain('记忆提案');
+  });
+
+  it('keeps memory read-only under proposal_only and points at memory proposals', () => {
+    const { claudeMd } = renderWorkspace({
+      agent,
+      servers: [],
+      memoryPolicy: { ...DEFAULT_MEMORY_POLICY, writeMode: 'proposal_only' },
+    });
+
+    expect(claudeMd).toContain('只能用 `Read` 访问 `/mnt/agent-memory/`');
+    expect(claudeMd).toContain('本轮只读');
+    expect(claudeMd).toContain('记忆提案');
+    // 不能再宣称可写，否则模型会照文案写只读目录并收到 EROFS。
+    expect(claudeMd).not.toContain('`Write`、`Edit` 访问 `/mnt/agent-memory/`');
+  });
+
+  it('does not advertise the memory directory when expert memory is disabled', () => {
+    const { claudeMd } = renderWorkspace({
+      agent,
+      servers: [],
+      memoryPolicy: { ...DEFAULT_MEMORY_POLICY, enabled: false },
+    });
+
+    expect(claudeMd).toContain('专家记忆已停用');
+    expect(claudeMd).not.toContain('`Write`、`Edit` 访问 `/mnt/agent-memory/`');
+    expect(claudeMd).not.toContain('只能用 `Read` 访问 `/mnt/agent-memory/`');
+    // 记忆目录未挂载：不再有任何“可用 Read 访问”的宣称。
+    expect(claudeMd).not.toMatch(/可用 `Read` 访问 `\/mnt\/agent-memory\//);
+  });
+
+  it('keeps the sub-agent memory clause in step with its real writability', () => {
+    const readWrite =
+      '已登记的子智能体只允许读写自己的 project 记忆（`.claude/agent-memory/<slug>/` 内的 Markdown）；';
+    const readOnly =
+      '已登记的子智能体只允许读取自己的 project 记忆（`.claude/agent-memory/<slug>/` 内的 Markdown），写入会被拒绝；';
+    for (const { memoryPolicy, writable } of [
+      { memoryPolicy: { ...DEFAULT_MEMORY_POLICY, enabled: false }, writable: false },
+      {
+        memoryPolicy: { ...DEFAULT_MEMORY_POLICY, writeMode: 'proposal_only' as const },
+        writable: false,
+      },
+      { memoryPolicy: DEFAULT_MEMORY_POLICY, writable: true },
+    ]) {
+      const { claudeMd } = renderWorkspace({ agent, servers: [], memoryPolicy });
+
+      expect(claudeMd).toContain(writable ? readWrite : readOnly);
+      expect(claudeMd).not.toContain(writable ? readOnly : readWrite);
+      expect(claudeMd).toContain('.claude/agent-memory/<slug>/');
+      expect(claudeMd).toContain('.claude/skills/<slug>/references/');
+    }
+  });
+
+  it('defaults to the native_auto wording when no policy is passed', () => {
+    const { claudeMd } = renderWorkspace({ agent, servers: [] });
+
+    expect(claudeMd).toContain('`Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/`');
+    expect(memoryLines(claudeMd)).toHaveLength(1);
   });
 });
 
