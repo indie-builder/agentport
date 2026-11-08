@@ -190,9 +190,15 @@ function mockMe() {
   server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
 }
 
+/** 置顶是列表页的附加查询；默认没有置顶项，用例按需覆盖。 */
+function mockPins(baseIds: string[] = []) {
+  server.use(http.get('/api/knowledge/bases/pins', () => HttpResponse.json({ baseIds })));
+}
+
 beforeEach(() => {
   msw.reset();
   mockMe();
+  mockPins();
   vi.mocked(toastError).mockClear();
   vi.stubGlobal(
     'ResizeObserver',
@@ -252,6 +258,7 @@ async function mount(path: string, search: Record<string, string> = {}) {
     validateSearch: z.object({
       q: z.string().optional(),
       sort: z.enum(['newest', 'name']).optional(),
+      status: z.enum(['active', 'disabled']).optional(),
     }),
     component: KnowledgePage,
   });
@@ -599,6 +606,62 @@ describe('knowledge library list', () => {
     expect(router.state.location.pathname).toBe('/knowledge');
   });
 
+  it('filters the list by status from the toolbar and clears every filter together', async () => {
+    const disabled = {
+      ...base,
+      id: 'kb_2',
+      name: '研发手册',
+      slug: 'engineering',
+      status: 'disabled',
+    };
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ items: [base, disabled], nextCursor: null }),
+      ),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    const router = await mount('/knowledge');
+    expect(document.body.textContent).toContain('共 2 个知识库');
+
+    await chooseFilter('按启用状态筛选', '启用');
+    expect(router.state.location.search).toMatchObject({ status: 'active' });
+    expect(document.body.textContent).toContain('产品手册');
+    expect(document.body.textContent).not.toContain('研发手册');
+    // 数量按过滤后的可见项计。
+    expect(document.body.textContent).toContain('共 1 个知识库');
+
+    await chooseFilter('按启用状态筛选', '停用');
+    expect(router.state.location.search).toMatchObject({ status: 'disabled' });
+    expect(document.body.textContent).toContain('研发手册');
+    expect(document.body.textContent).not.toContain('产品手册');
+    expect(document.body.textContent).toContain('共 1 个知识库');
+
+    // 回到全部状态：URL 不再带 status，列表恢复完整。
+    await chooseFilter('按启用状态筛选', '全部状态');
+    expect(router.state.location.search.status).toBeUndefined();
+    expect(document.body.textContent).toContain('共 2 个知识库');
+
+    // 关键词与状态同时无结果时，清除筛选把两者一起清空。
+    await chooseFilter('按启用状态筛选', '停用');
+    await act(async () => {
+      const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索知识库"]');
+      if (!input) throw new Error('Missing search input');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        '不存在',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    expect(router.state.location.search).toMatchObject({ q: '不存在', status: 'disabled' });
+    expect(document.body.textContent).toContain('没有匹配的知识库');
+
+    await click(button('清除筛选'));
+    expect(router.state.location.search).toEqual({});
+    expect(document.body.textContent).toContain('产品手册');
+    expect(document.body.textContent).toContain('研发手册');
+  });
+
   it('pulls the remaining base pages so the count covers the whole library', async () => {
     server.use(
       http.get('/api/knowledge/bases', ({ request }) =>
@@ -618,8 +681,85 @@ describe('knowledge library list', () => {
   });
 });
 
+describe('knowledge base pins', () => {
+  const engineering = {
+    ...base,
+    id: 'kb_2',
+    slug: 'engineering',
+    name: '研发手册',
+    createdAt: '2026-01-03T00:00:00Z',
+  };
+
+  function rowNames(): string[] {
+    return [...document.querySelectorAll<HTMLElement>('ul > li h2')].map(
+      (item) => item.textContent ?? '',
+    );
+  }
+
+  function lastPinBody(): unknown {
+    return calls
+      .filter((item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/pin')
+      .at(-1)?.body;
+  }
+
+  it('moves a pinned base to the top and toggles it back from the row menu', async () => {
+    let pinnedIds: string[] = [];
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ items: [base, engineering], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/bases/pins', () => HttpResponse.json({ baseIds: pinnedIds })),
+      http.put('/api/knowledge/bases/kb_1/pin', async ({ request }) => {
+        const body = (await request.json()) as { pinned: boolean };
+        pinnedIds = body.pinned ? ['kb_1'] : [];
+        return HttpResponse.json({ pinned: body.pinned });
+      }),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    await mount('/knowledge');
+
+    // 默认按创建时间倒序，置顶图标不出现。
+    expect(rowNames()).toEqual(['研发手册', '产品手册']);
+    expect(document.querySelector('[title="已置顶"]')).toBeNull();
+
+    await openMenu('操作 产品手册');
+    await chooseMenuItem('置顶');
+    expect(lastPinBody()).toEqual({ pinned: true });
+    await waitFor(() => rowNames()[0] === '产品手册');
+    expect(rowNames()).toEqual(['产品手册', '研发手册']);
+    expect(document.querySelector('[title="已置顶"]')).not.toBeNull();
+
+    // 菜单在置顶后重新打开时已经变成「取消置顶」，再点一次恢复原顺序。
+    await openMenu('操作 产品手册');
+    await chooseMenuItem('取消置顶');
+    expect(lastPinBody()).toEqual({ pinned: false });
+    await waitFor(() => rowNames()[0] === '研发手册');
+    expect(rowNames()).toEqual(['研发手册', '产品手册']);
+    expect(document.querySelector('[title="已置顶"]')).toBeNull();
+  });
+
+  it('falls back to unpinned rows without a toast when the pin list fails', async () => {
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ items: [base, engineering], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/bases/pins', () =>
+        HttpResponse.json(
+          { code: 'INTERNAL_ERROR', status: 500, message: '置顶读取失败' },
+          { status: 500 },
+        ),
+      ),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    await mount('/knowledge');
+    expect(rowNames()).toEqual(['研发手册', '产品手册']);
+    expect(document.querySelector('[title="已置顶"]')).toBeNull();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+});
+
 describe('knowledge library lifecycle', () => {
-  it('renames a base', async () => {
+  it('edits a base name and description from the row menu', async () => {
     baseHandlers();
     server.use(
       http.patch('/api/knowledge/bases/kb_1', () =>
@@ -628,10 +768,14 @@ describe('knowledge library lifecycle', () => {
     );
     await mount('/knowledge');
     await openMenu('操作 产品手册');
-    await chooseMenuItem('重命名');
-    await fill('knowledge-base-name', '研发手册');
-    await click(button('保存', dialog('重命名知识库')));
-    expect(patchBody('/api/knowledge/bases/kb_1')).toEqual({ name: '研发手册' });
+    await chooseMenuItem('编辑信息');
+    await fill('knowledge-base-info-name', '研发手册');
+    await fill('knowledge-base-info-description', '研发内部知识');
+    await click(button('保存', dialog('编辑信息')));
+    expect(patchBody('/api/knowledge/bases/kb_1')).toEqual({
+      name: '研发手册',
+      description: '研发内部知识',
+    });
   });
 
   it('toggles base status without resending other settings', async () => {
@@ -766,6 +910,34 @@ describe('knowledge folder and tag management', () => {
         (item) => item.method === 'DELETE' && item.path === '/api/knowledge/folders/kfd_1',
       ),
     ).toBe(true);
+  });
+
+  it('renames a tag inline and refreshes the list', async () => {
+    folderHandlers();
+    let renamed = false;
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/tags', () =>
+        HttpResponse.json([
+          {
+            id: 'ktag_1',
+            baseId: 'kb_1',
+            name: renamed ? '流程规范' : '流程',
+            createdAt: '',
+          },
+        ]),
+      ),
+      http.patch('/api/knowledge/tags/ktag_1', () => {
+        renamed = true;
+        return HttpResponse.json({ id: 'ktag_1', baseId: 'kb_1', name: '流程规范', createdAt: '' });
+      }),
+    );
+    await mount('/knowledge/kb_1');
+    await click(button('管理标签'));
+    await click(button('重命名标签 流程', dialog('管理标签')));
+    await fill('knowledge-tag-rename', '流程规范');
+    await click(button('保存', dialog('管理标签')));
+    expect(patchBody('/api/knowledge/tags/ktag_1')).toEqual({ name: '流程规范' });
+    expect(dialog('管理标签').textContent).toContain('流程规范');
   });
 
   it('adds and removes a tag', async () => {
@@ -3358,6 +3530,7 @@ describe('knowledge UX guards', () => {
 
     await cleanup();
     mockMe();
+    mockPins();
     server.use(
       http.get('/api/knowledge/bases', () =>
         HttpResponse.json({ code: 'INTERNAL', message: '列表失败' }, { status: 500 }),
@@ -3412,7 +3585,7 @@ describe('knowledge UX guards', () => {
     await flush();
     expect(document.body.textContent).toContain('没有匹配的知识库');
     expect(document.body.textContent).not.toContain('还没有知识库');
-    await click(button('清除搜索'));
+    await click(button('清除筛选'));
     expect(document.body.textContent).toContain('产品手册');
   });
 
@@ -3619,12 +3792,12 @@ describe('knowledge UX guards', () => {
     await mount('/knowledge');
 
     await openMenu('操作 产品手册');
-    await chooseMenuItem('重命名');
-    await fill('knowledge-base-name', '研发手册');
-    await click(button('取消', dialog('重命名知识库')));
+    await chooseMenuItem('编辑信息');
+    await fill('knowledge-base-info-name', '研发手册');
+    await click(button('取消', dialog('编辑信息')));
     expect(dialog('放弃未保存的更改？')).toBeDefined();
     await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
-    expect(document.body.textContent).not.toContain('重命名知识库');
+    expect(dialogShown('编辑信息')).toBe(false);
 
     await cleanup();
     mockMe();
@@ -5029,20 +5202,31 @@ function jobRequest(): URL | undefined {
 }
 
 describe('knowledge detail business line', () => {
-  it('orders the five task tabs and exposes status, expert usage and settings in the header', async () => {
+  it('orders the task tabs and exposes status, expert usage, edit and settings in the header', async () => {
     documentList();
     await mount('/knowledge/kb_1');
 
     const labels = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].map((item) =>
       item.textContent?.trim(),
     );
-    expect(labels).toEqual(['文档', '来源', '检索测试', '离线评估', 'FAQ', 'Wiki', '处理记录']);
+    expect(labels).toEqual([
+      '概览',
+      '文档',
+      '来源',
+      '检索测试',
+      '离线评估',
+      'FAQ',
+      'Wiki',
+      '处理记录',
+    ]);
     expect(document.querySelector('[data-slot="page-header"]')?.textContent).toContain('启用');
     expect(findButton('使用此库的专家')).toBeDefined();
+    expect(findButton('编辑信息')).toBeDefined();
     expect(findButton('设置')).toBeDefined();
     // 页头操作与默认按钮同高（32px），不再用更矮的 sm。
     expect(findButton('使用此库的专家')?.className).toContain('h-8');
     expect(findButton('使用此库的专家')?.className).not.toContain('h-7');
+    expect(findButton('编辑信息')?.className).toContain('h-8');
     expect(findButton('设置')?.className).toContain('h-8');
     expect(findButton('设置')?.className).not.toContain('h-7');
 
@@ -5061,6 +5245,7 @@ describe('knowledge detail business line', () => {
     expect(findButton('新建文件夹')).toBeUndefined();
     expect(findButton('管理标签')).toBeUndefined();
     expect(findButton('操作 上线流程')).toBeUndefined();
+    expect(findButton('编辑信息')).toBeUndefined();
     expect(findButton('设置')).toBeUndefined();
     expect(findButton('使用此库的专家')).toBeUndefined();
     expect(calls.some((item) => item.path === '/api/agents')).toBe(false);

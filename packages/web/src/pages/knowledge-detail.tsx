@@ -1,5 +1,4 @@
 import {
-  type KnowledgeBase,
   type KnowledgeDocument,
   type KnowledgeJob,
   type KnowledgeSourceInput,
@@ -45,6 +44,7 @@ import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
+import { BaseInfoDialog } from '../components/knowledge-base-info.js';
 import { KnowledgeImage, stripImageReferences } from '../components/knowledge-citations.js';
 import {
   BatchActionDialog,
@@ -52,7 +52,9 @@ import {
   ManualDraftDialog,
 } from '../components/knowledge-documents.js';
 import { KnowledgeEvaluations } from '../components/knowledge-evaluations.js';
+import { ExpertUsage } from '../components/knowledge-expert-usage.js';
 import { FaqTab } from '../components/knowledge-faq.js';
+import { KnowledgeOverview } from '../components/knowledge-overview.js';
 import { SearchTab } from '../components/knowledge-search.js';
 import { KnowledgeSettingsDialog } from '../components/knowledge-settings.js';
 import {
@@ -144,9 +146,6 @@ import { useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration, formatRelative } from '../lib/format.js';
 import { knowledgeJobErrorText } from '../lib/knowledge-errors.js';
 import {
-  agentAccessQuery,
-  agentDetailQuery,
-  agentsQuery,
   isMissingJob,
   isTerminalKnowledgeJob,
   knowledgeJobQuery,
@@ -181,6 +180,7 @@ import {
   useKnowledgeTags,
   useKnowledgeVersionDetails,
   usePublishKnowledgeDocumentVersion,
+  useRenameKnowledgeTag,
   useReprocessKnowledgeDocument,
   useRetryKnowledgeJob,
   useRollbackKnowledgeDocument,
@@ -312,6 +312,8 @@ export function KnowledgeDetailPage() {
   const canReadAgents = can(me.data, 'agents.read');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTrigger, setSettingsTrigger] = useState<HTMLElement | null>(null);
+  const [editingOpen, setEditingOpen] = useState(false);
+  const [editTrigger, setEditTrigger] = useState<HTMLElement | null>(null);
   const [expertsOpen, setExpertsOpen] = useState(false);
 
   const go = (patch: Partial<DetailSearch>, replace = false): void => {
@@ -376,6 +378,17 @@ export function KnowledgeDetailPage() {
                   <Button
                     variant="outline"
                     onClick={(event) => {
+                      setEditTrigger(event.currentTarget);
+                      setEditingOpen(true);
+                    }}
+                  >
+                    编辑信息
+                  </Button>
+                ) : null}
+                {base.data && caps.update ? (
+                  <Button
+                    variant="outline"
+                    onClick={(event) => {
                       setSettingsTrigger(event.currentTarget);
                       setSettingsOpen(true);
                     }}
@@ -411,6 +424,23 @@ export function KnowledgeDetailPage() {
                   onRetry={() => void base.refetch()}
                 />
               ) : null}
+              <TabsContent value="overview">
+                <KnowledgeOverview
+                  base={base.data}
+                  canCreate={can(me.data, 'knowledge.create')}
+                  canUpload={caps.content}
+                  canReadAgents={canReadAgents}
+                  onOpenJobs={() => go({ panel: 'jobs', document: undefined })}
+                  onOpenDocuments={() => go({ panel: 'documents' })}
+                  onDuplicated={(nextBaseId) =>
+                    void navigate({
+                      to: '/knowledge/$baseId',
+                      params: { baseId: nextBaseId },
+                      search: {},
+                    })
+                  }
+                />
+              </TabsContent>
               <TabsContent value="documents">
                 <DocumentsTab
                   baseId={baseId}
@@ -473,6 +503,13 @@ export function KnowledgeDetailPage() {
             </>
           ) : null}
         </PageBody>
+        {base.data && editingOpen ? (
+          <BaseInfoDialog
+            base={base.data}
+            finalFocus={() => (editTrigger?.isConnected ? editTrigger : null)}
+            onClose={() => setEditingOpen(false)}
+          />
+        ) : null}
         {base.data && settingsOpen ? (
           <KnowledgeSettingsDialog
             base={base.data}
@@ -482,104 +519,6 @@ export function KnowledgeDetailPage() {
         ) : null}
       </Page>
     </Tabs>
-  );
-}
-
-/**
- * 关系只在弹层打开时查询。/api/agents 摘要没有绑定信息，必须逐个读 access，
- * 再只为拥有 agents.config.read 的专家取详情；读不到的专家标为无法确认，不当作未使用。
- */
-function ExpertUsage({ base, enabled }: { base: KnowledgeBase; enabled: boolean }) {
-  const agents = useQuery({ ...agentsQuery, enabled });
-  const agentIds = agents.data?.map((agent) => agent.id) ?? [];
-  const accessQueries = useQueries({
-    queries: agentIds.map((id) => ({ ...agentAccessQuery(id), enabled })),
-  });
-  const readableIds = agentIds.filter((_id, index) =>
-    accessQueries[index]?.data?.permissionIds.includes('agents.config.read'),
-  );
-  const detailQueries = useQueries({
-    queries: readableIds.map((id) => ({ ...agentDetailQuery(id), enabled })),
-  });
-  const detailById = new Map(readableIds.map((id, index) => [id, detailQueries[index]]));
-  const pending =
-    agents.isPending ||
-    accessQueries.some((query) => query.isPending) ||
-    detailQueries.some((query) => query.isPending);
-  const failed = [
-    ...accessQueries.filter((query) => query.isError),
-    ...detailQueries.filter((query) => query.isError),
-  ];
-  const used: Array<{ id: string; name: string }> = [];
-  let unknown = failed.length;
-  (agents.data ?? []).forEach((agent, index) => {
-    const access = accessQueries[index];
-    if (access?.isError) return;
-    if (!access?.data?.permissionIds.includes('agents.config.read')) {
-      unknown += access?.isSuccess ? 1 : 0;
-      return;
-    }
-    const detail = detailById.get(agent.id);
-    if (detail?.isError) return;
-    if (!detail?.data) return;
-    if ((detail.data.serverIds ?? []).includes(base.serverId)) {
-      used.push({ id: agent.id, name: agent.name });
-    }
-  });
-
-  const retry = (): void => {
-    for (const query of [...accessQueries, ...detailQueries]) {
-      if (query.isError) void query.refetch();
-    }
-  };
-
-  return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <span className="text-sm font-medium text-fg">使用此库的专家</span>
-      {agents.isPending || (pending && used.length === 0) ? <LoadingState rows={2} /> : null}
-      {agents.isError ? (
-        <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-      ) : null}
-      {failed.length > 0 ? (
-        <Button variant="link" size="xs" className="self-start" onClick={retry}>
-          部分关系没有加载出来，重试
-        </Button>
-      ) : null}
-      {used.length > 0 ? (
-        <ul className="flex flex-col gap-1">
-          {used.map((agent) => (
-            <li key={agent.id} className="flex min-w-0 items-center justify-between gap-2">
-              <Link
-                to="/agents/$agentId"
-                params={{ agentId: agent.id }}
-                search={{ tab: 'config', section: 'capability' }}
-                className="min-w-0 truncate text-sm text-fg underline underline-offset-2"
-              >
-                {agent.name}
-              </Link>
-              <span className="shrink-0 text-sm text-muted-foreground">配置 · 能力</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {used.length > 0 ? (
-        <Link to="/agents" className="self-start text-xs text-fg underline underline-offset-2">
-          选择其他专家
-        </Link>
-      ) : null}
-      {agents.isSuccess && used.length === 0 && unknown === 0 && !pending ? (
-        <div className="flex flex-col gap-1">
-          <InlineEmpty>没有被任何专家使用</InlineEmpty>
-          <span className="text-sm text-muted-foreground">在专家的能力配置中绑定此知识库。</span>
-          <Link to="/agents" className="self-start text-xs text-fg underline underline-offset-2">
-            选择专家
-          </Link>
-        </div>
-      ) : null}
-      {unknown > 0 ? (
-        <span className="text-xs text-muted-foreground">部分专家的使用关系无法确认</span>
-      ) : null}
-    </div>
   );
 }
 
@@ -1426,12 +1365,31 @@ function FolderDialog({
 function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void }) {
   const tags = useKnowledgeTags(baseId);
   const create = useCreateKnowledgeTag(baseId);
+  const rename = useRenameKnowledgeTag(baseId);
   const remove = useDeleteKnowledgeTag(baseId);
   const [name, setName] = useState('');
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeTag | null>(null);
   const trimmed = name.trim();
-  const pending = create.isPending || remove.isPending;
+  const pending = create.isPending || rename.isPending || remove.isPending;
   const guard = useDraftGuard(trimmed !== '', pending, onClose);
+
+  function submitRename() {
+    if (!editing) return;
+    const next = editing.name.trim();
+    const current = tags.data?.find((tag) => tag.id === editing.id)?.name;
+    if (next === '' || next === current) return;
+    rename.mutate(
+      { tagId: editing.id, name: next },
+      {
+        onSuccess: () => {
+          setEditing(null);
+          toastSuccess('标签已重命名');
+        },
+        onError: toastError,
+      },
+    );
+  }
 
   return (
     <>
@@ -1485,16 +1443,71 @@ function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void })
                   key={tag.id}
                   className="flex items-center gap-2 border-b py-2 text-sm last:border-b-0"
                 >
-                  <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`删除标签 ${tag.name}`}
-                    disabled={pending}
-                    onClick={() => setDeleting(tag)}
-                  >
-                    <Trash2 />
-                  </Button>
+                  {editing?.id === tag.id ? (
+                    <form
+                      className="flex min-w-0 flex-1 items-center gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        submitRename();
+                      }}
+                    >
+                      <Input
+                        id="knowledge-tag-rename"
+                        className="min-w-0 flex-1"
+                        value={editing.name}
+                        maxLength={64}
+                        disabled={rename.isPending}
+                        autoFocus
+                        onChange={(event) => setEditing({ id: tag.id, name: event.target.value })}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Escape') return;
+                          event.preventDefault();
+                          setEditing(null);
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={rename.isPending}
+                        onClick={() => setEditing(null)}
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={
+                          rename.isPending ||
+                          editing.name.trim() === '' ||
+                          editing.name.trim() === tag.name
+                        }
+                        aria-busy={rename.isPending}
+                      >
+                        保存
+                      </Button>
+                    </form>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`重命名标签 ${tag.name}`}
+                        disabled={pending}
+                        onClick={() => setEditing({ id: tag.id, name: tag.name })}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`删除标签 ${tag.name}`}
+                        disabled={pending}
+                        onClick={() => setDeleting(tag)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

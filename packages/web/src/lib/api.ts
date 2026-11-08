@@ -1,3 +1,4 @@
+import type { KnowledgeBaseActivityItem } from '@agentport/contract/knowledge';
 import type {
   AccessScope,
   Account,
@@ -27,6 +28,7 @@ import type {
   EvalRunExport,
   KnowledgeBase,
   KnowledgeBaseSettings,
+  KnowledgeBaseSummary,
   KnowledgeChunk,
   KnowledgeDocument,
   KnowledgeDocumentVersion,
@@ -568,6 +570,8 @@ export interface KnowledgeRetrievalEvaluationReport {
 }
 
 export type KnowledgeManualDraft = ApiOutput<ApiClient['knowledge']['documents']['manual']>;
+
+export type KnowledgeChunkPreview = ApiOutput<ApiClient['knowledge']['bases']['chunkPreview']>;
 
 export type KnowledgeSearchResponse = KnowledgeSearchResult;
 export type KnowledgeWikiLinks = KnowledgeWikiLinksResult;
@@ -1417,6 +1421,30 @@ export const api = {
     rpc.knowledge.bases.list({ query }, clientOptions(signal)),
   knowledgeBase: (id: string): Promise<KnowledgeBase> =>
     rpc.knowledge.bases.get({ params: { id } }),
+  /** 置顶是当前账号的个人偏好，只返回 ID，列表排序在客户端完成。 */
+  knowledgeBasePins: (signal?: AbortSignal): Promise<{ baseIds: string[] }> =>
+    rpc.knowledge.bases.pins({}, clientOptions(signal)),
+  setKnowledgeBasePin: (baseId: string, pinned: boolean): Promise<{ pinned: boolean }> =>
+    rpc.knowledge.bases.setPin({ params: { id: baseId }, body: { pinned } }),
+  knowledgeBaseSummary: (id: string, signal?: AbortSignal): Promise<KnowledgeBaseSummary> =>
+    rpc.knowledge.bases.summary({ params: { id } }, clientOptions(signal)),
+  // 概览的活动流只读最近一页；20 条足够覆盖一次会话内产生的动作。
+  knowledgeBaseActivity: (
+    id: string,
+    cursor?: string,
+  ): Promise<KnowledgePage<KnowledgeBaseActivityItem>> =>
+    rpc.knowledge.bases.activity({
+      params: { id },
+      query: { limit: 20, ...(cursor === undefined ? {} : { cursor }) },
+    }),
+  previewKnowledgeChunks: (
+    id: string,
+    body: { sample: string; chunkTokens?: number; chunkOverlap?: number },
+  ): Promise<KnowledgeChunkPreview> => rpc.knowledge.bases.chunkPreview({ params: { id }, body }),
+  duplicateKnowledgeBase: (
+    id: string,
+    body: { name?: string; slug?: string; description?: string },
+  ): Promise<KnowledgeBase> => rpc.knowledge.bases.duplicate({ params: { id }, body }),
   createKnowledgeBase: (input: KnowledgeBaseInput): Promise<KnowledgeBase> =>
     rpc.knowledge.bases.create({ body: input }),
   updateKnowledgeBase: (id: string, patch: KnowledgeBasePatch): Promise<KnowledgeBase> =>
@@ -1444,6 +1472,8 @@ export const api = {
     rpc.knowledge.bases.tags({ params: { id: baseId } }),
   createKnowledgeTag: (baseId: string, name: string): Promise<KnowledgeTag> =>
     rpc.knowledge.bases.createTag({ params: { id: baseId }, body: { name } }),
+  renameKnowledgeTag: (tagId: string, name: string): Promise<KnowledgeTag> =>
+    rpc.knowledge.tags.update({ params: { tagId }, body: { name } }),
   deleteKnowledgeTag: async (tagId: string): Promise<void> => {
     await rpc.knowledge.tags.remove({ params: { tagId } });
   },

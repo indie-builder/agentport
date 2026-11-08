@@ -5,9 +5,12 @@ import {
   ChevronRight,
   CirclePause,
   CirclePlay,
+  Copy,
   Download,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   Settings,
   Trash2,
@@ -17,6 +20,9 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { FilterSelect } from '../components/filter-select.js';
+import { BaseInfoDialog } from '../components/knowledge-base-info.js';
+import { DuplicateBaseDialog } from '../components/knowledge-duplicate-dialog.js';
 import {
   KnowledgeProfilesDialog,
   KnowledgeSettingsDialog,
@@ -72,8 +78,10 @@ import {
   useDeleteKnowledgeBase,
   useExportKnowledgeBase,
   useImportKnowledgeBase,
+  useKnowledgeBasePins,
   useKnowledgeBases,
   useKnowledgeModelProfileSelections,
+  useSetKnowledgeBasePin,
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -101,23 +109,40 @@ const baseFormSchema = z.object({
 
 type BaseForm = z.infer<typeof baseFormSchema>;
 
+/** 启停状态筛选：缺省即全部，选项值与 URL 的 status 一一对应。 */
+const statusFilterOptions = [
+  { value: 'all', label: '全部状态' },
+  { value: 'active', label: '启用' },
+  { value: 'disabled', label: '停用' },
+];
+
 /** 列表只返回 base 本身；文档数在详情页看，不在行上为每个库多拉一页文档。 */
 function KnowledgeRow({
   base,
-  onRename,
+  pinned,
+  pinPending,
+  onTogglePin,
+  onEdit,
+  onDuplicate,
   onSettings,
   onToggleStatus,
   onExport,
   onDelete,
   canUpdate,
+  canCreate,
   canExport,
   canDelete,
 }: {
   base: KnowledgeBase;
+  pinned: boolean;
+  pinPending: boolean;
   canUpdate: boolean;
+  canCreate: boolean;
   canExport: boolean;
   canDelete: boolean;
-  onRename: (trigger: HTMLElement) => void;
+  onTogglePin: () => void;
+  onEdit: (trigger: HTMLElement) => void;
+  onDuplicate: (trigger: HTMLElement) => void;
   onSettings: (trigger: HTMLElement) => void;
   onToggleStatus: (trigger: HTMLElement) => void;
   onExport: (trigger: HTMLElement) => void;
@@ -135,6 +160,12 @@ function KnowledgeRow({
       <div className="flex min-h-14 items-center gap-4 py-2.5">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-2">
+            {pinned ? (
+              // 置顶只给图标，不加可见文字；title 提供悬停说明。
+              <span className="flex shrink-0 items-center" title="已置顶">
+                <Pin className="size-3.5 text-muted-foreground" aria-hidden="true" />
+              </span>
+            ) : null}
             <h2 className="min-w-0 truncate text-base font-medium text-fg" title={base.name}>
               {base.name}
             </h2>
@@ -166,9 +197,19 @@ function KnowledgeRow({
             />
             <DropdownMenuContent align="end" sideOffset={4} className="w-40">
               <DropdownMenuGroup>
+                {/* 置顶是个人偏好：所有能读知识库的人都能切换，不看 update 权限。 */}
+                <DropdownMenuItem disabled={pinPending} onClick={onTogglePin}>
+                  {pinned ? <PinOff /> : <Pin />}
+                  {pinned ? '取消置顶' : '置顶'}
+                </DropdownMenuItem>
                 {canUpdate ? (
-                  <DropdownMenuItem onClick={(event) => onRename(event.currentTarget)}>
-                    <Pencil /> 重命名
+                  <DropdownMenuItem onClick={(event) => onEdit(event.currentTarget)}>
+                    <Pencil /> 编辑信息
+                  </DropdownMenuItem>
+                ) : null}
+                {canCreate ? (
+                  <DropdownMenuItem onClick={(event) => onDuplicate(event.currentTarget)}>
+                    <Copy /> 复制知识库
                   </DropdownMenuItem>
                 ) : null}
                 {canUpdate ? (
@@ -216,8 +257,13 @@ export function KnowledgePage() {
   const search = useSearch({ from: '/_shell/knowledge/' });
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
+  const status = search.status;
   const bases = useKnowledgeBases();
   const baseItems = bases.data ?? [];
+  // 置顶是个人偏好：读取失败时静默按全部未置顶处理，不打断列表也不 toast。
+  const pins = useKnowledgeBasePins();
+  const pinnedIds = new Set(pins.data?.baseIds ?? []);
+  const setPin = useSetKnowledgeBasePin();
   // 知识库是小型集合：一次取完剩余分页（每页 50，仅取元数据），
   // 这样「共 N 个」是真实总数，本地搜索也覆盖整库，而不是假装首屏就是全部。
   const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = bases;
@@ -232,7 +278,8 @@ export function KnowledgePage() {
   const importer = useImportKnowledgeBase();
   const importInput = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
-  const [renaming, setRenaming] = useState<KnowledgeBase | null>(null);
+  const [editing, setEditing] = useState<KnowledgeBase | null>(null);
+  const [duplicating, setDuplicating] = useState<KnowledgeBase | null>(null);
   const [configuring, setConfiguring] = useState<KnowledgeBase | null>(null);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [deleting, setDeleting] = useState<KnowledgeBase | null>(null);
@@ -245,6 +292,8 @@ export function KnowledgePage() {
   } | null>(null);
   // 创建成功的弹层卸载、blocker 注销后才导航：同一 tick 内跳转仍会被旧的 dirty/pending 拦下。
   const [createdBaseId, setCreatedBaseId] = useState<string | null>(null);
+  // 复制同理：弹层先关闭（结算 blocker），下一轮再进入新库。
+  const [duplicatedBaseId, setDuplicatedBaseId] = useState<string | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -252,6 +301,12 @@ export function KnowledgePage() {
     setCreatedBaseId(null);
     void navigate({ to: '/knowledge/$baseId', params: { baseId: createdBaseId } });
   }, [creating, createdBaseId, navigate]);
+
+  useEffect(() => {
+    if (duplicating || duplicatedBaseId === null) return;
+    setDuplicatedBaseId(null);
+    void navigate({ to: '/knowledge/$baseId', params: { baseId: duplicatedBaseId } });
+  }, [duplicating, duplicatedBaseId, navigate]);
 
   const boundAgents = deleting
     ? (agents.data?.filter((agent) => (agent.serverIds ?? []).includes(deleting.serverId)) ?? [])
@@ -287,7 +342,13 @@ export function KnowledgePage() {
     });
   };
 
+  // 置顶项整体排在前面，组内继续沿用当前排序规则。
+  const compareBases = (a: KnowledgeBase, b: KnowledgeBase): number =>
+    sort === 'name'
+      ? a.name.localeCompare(b.name, 'zh-CN')
+      : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   const visible = baseItems
+    .filter((base) => status === undefined || base.status === status)
     .filter((base) => {
       const term = query.trim().toLocaleLowerCase();
       return (
@@ -297,17 +358,30 @@ export function KnowledgePage() {
         )
       );
     })
-    .sort((a, b) =>
-      sort === 'name'
-        ? a.name.localeCompare(b.name, 'zh-CN')
-        : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
+    .sort((a, b) => {
+      const pinnedA = pinnedIds.has(a.id);
+      if (pinnedA !== pinnedIds.has(b.id)) return pinnedA ? -1 : 1;
+      return compareBases(a, b);
+    });
 
-  const setQuery = (next: string): void => {
+  // 关键词只换当前地址（不新增历史）；筛选与排序 push，便于后退回到上一组条件。
+  const setSearch = (
+    patch: {
+      q?: string | undefined;
+      sort?: 'newest' | 'name' | undefined;
+      status?: 'active' | 'disabled' | undefined;
+    },
+    replace = false,
+  ): void => {
+    const next = { ...search, ...patch };
     void navigate({
       to: '/knowledge',
-      search: { ...(search.sort ? { sort: search.sort } : {}), ...(next ? { q: next } : {}) },
-      replace: true,
+      search: {
+        ...(next.q ? { q: next.q } : {}),
+        ...(next.sort === undefined || next.sort === 'newest' ? {} : { sort: next.sort }),
+        ...(next.status === undefined ? {} : { status: next.status }),
+      },
+      replace,
     });
   };
 
@@ -315,20 +389,16 @@ export function KnowledgePage() {
   const initialPending = bases.isPending && baseItems.length === 0;
   const initialError = bases.isError && baseItems.length === 0;
   const refreshError = (bases.isError || isFetchNextPageError) && baseItems.length > 0;
-  const filteredEmpty = baseItems.length > 0 && visible.length === 0 && query.trim() !== '';
+  const filtering = query.trim() !== '' || status !== undefined;
+  const filteredEmpty = baseItems.length > 0 && visible.length === 0 && filtering;
 
   return (
     <ResourcePage
       section="knowledge"
       query={query}
-      onQueryChange={setQuery}
+      onQueryChange={(next) => setSearch({ q: next }, true)}
       sort={sort}
-      onSortChange={(next) =>
-        void navigate({
-          to: '/knowledge',
-          search: { ...(query ? { q: query } : {}), ...(next === 'newest' ? {} : { sort: next }) },
-        })
-      }
+      onSortChange={(next) => setSearch({ sort: next })}
       count={visible.length}
       status={
         bases.isPending
@@ -338,6 +408,17 @@ export function KnowledgePage() {
             : hasNextPage
               ? 'pending'
               : 'success'
+      }
+      filters={
+        <FilterSelect
+          value={status ?? 'all'}
+          onValueChange={(next) =>
+            setSearch({ status: next === 'active' || next === 'disabled' ? next : undefined })
+          }
+          options={statusFilterOptions}
+          label="按启用状态筛选"
+          className="w-36"
+        />
       }
       leadingFilters={
         // 搜索在已加载的库里本地过滤；还有更多时直接显示加载入口，避免被当成全库搜索。
@@ -458,9 +539,21 @@ export function KnowledgePage() {
             <KnowledgeRow
               key={base.id}
               base={base}
-              onRename={(trigger) => {
+              pinned={pinnedIds.has(base.id)}
+              pinPending={setPin.isPending && setPin.variables?.baseId === base.id}
+              onTogglePin={() =>
+                setPin.mutate(
+                  { baseId: base.id, pinned: !pinnedIds.has(base.id) },
+                  { onError: toastError },
+                )
+              }
+              onEdit={(trigger) => {
                 setActionFocus(trigger);
-                setRenaming(base);
+                setEditing(base);
+              }}
+              onDuplicate={(trigger) => {
+                setActionFocus(trigger);
+                setDuplicating(base);
               }}
               onSettings={(trigger) => {
                 setActionFocus(trigger);
@@ -485,6 +578,7 @@ export function KnowledgePage() {
                 download(base);
               }}
               canUpdate={canUpdate}
+              canCreate={canCreate}
               canExport={canExport}
               canDelete={canDelete}
               onDelete={(trigger) => {
@@ -511,8 +605,12 @@ export function KnowledgePage() {
         <PageNote
           title="没有匹配的知识库"
           action={
-            <Button variant="outline" size="sm" onClick={() => setQuery('')}>
-              清除搜索
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSearch({ q: undefined, status: undefined })}
+            >
+              清除筛选
             </Button>
           }
         />
@@ -529,11 +627,22 @@ export function KnowledgePage() {
           }}
         />
       ) : null}
-      {renaming ? (
-        <RenameBaseDialog
-          base={renaming}
+      {editing ? (
+        <BaseInfoDialog
+          base={editing}
           finalFocus={() => (actionFocus?.isConnected ? actionFocus : null)}
-          onClose={() => setRenaming(null)}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
+      {duplicating ? (
+        <DuplicateBaseDialog
+          base={duplicating}
+          finalFocus={() => (actionFocus?.isConnected ? actionFocus : null)}
+          onClose={() => setDuplicating(null)}
+          onDuplicated={(baseId) => {
+            setDuplicating(null);
+            setDuplicatedBaseId(baseId);
+          }}
         />
       ) : null}
       {configuring ? (
@@ -571,83 +680,6 @@ export function KnowledgePage() {
         />
       ) : null}
     </ResourcePage>
-  );
-}
-
-function RenameBaseDialog({
-  base,
-  onClose,
-  finalFocus,
-}: {
-  base: KnowledgeBase;
-  onClose: () => void;
-  finalFocus: () => HTMLElement | null;
-}) {
-  const update = useUpdateKnowledgeBase();
-  const [name, setName] = useState(base.name);
-  const trimmed = name.trim();
-  const pending = update.isPending;
-  const dirty = name !== base.name;
-  const guard = useDraftGuard(dirty, pending, onClose);
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
-      <DialogShell title="重命名知识库" closeDisabled={pending} finalFocus={finalFocus}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            update.mutate(
-              { baseId: base.id, patch: { name: trimmed } },
-              {
-                onSuccess: () => {
-                  toastSuccess('已重命名');
-                  guard.finish();
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
-          <FieldGroup>
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="knowledge-base-name">
-                名称 <RequiredMark />
-              </FieldLabel>
-              <Input
-                id="knowledge-base-name"
-                value={name}
-                disabled={pending}
-                maxLength={120}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </Field>
-          </FieldGroup>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button
-              type="submit"
-              disabled={pending || trimmed === '' || trimmed === base.name}
-              aria-busy={pending}
-            >
-              {pending ? '保存中…' : '保存'}
-            </Button>
-          </div>
-        </form>
-        <DraftGuardDialogs guard={guard} draft="重命名草稿会丢失。" pending={pending} />
-      </DialogShell>
-    </Dialog>
   );
 }
 

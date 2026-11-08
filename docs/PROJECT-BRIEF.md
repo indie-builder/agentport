@@ -452,6 +452,7 @@ knowledge_bases      (id, slug unique, name, description, status, server_id uniq
                       settings jsonb)
 knowledge_folders    (id, base_id fk, parent_id fk, name, path)          -- 物化路径 /a/b
 knowledge_tags / knowledge_document_tags                                 -- 文档标签
+knowledge_base_pins  (business_id, base_id fk on delete cascade, pinned_at) -- 按用户维度的列表置顶
 knowledge_documents  (id, base_id, folder_id, title,
                       source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,github,feed,manual,
                         lark_wiki,lark_drive,notion,confluence,yuque,dingtalk,ima,seafile,nextcloud),

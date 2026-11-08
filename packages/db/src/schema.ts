@@ -1305,6 +1305,25 @@ export const knowledgeBases = pgTable(
   ],
 );
 
+/**
+ * 知识库置顶：个人偏好，按 businessId 维度记录；知识库删除时级联清理。
+ * 复合唯一索引即联合主键，重复置顶由 unique 冲突吃掉，不依赖额外去重。
+ */
+export const knowledgeBasePins = pgTable(
+  'knowledge_base_pins',
+  {
+    businessId: text('business_id').notNull(),
+    baseId: text('base_id')
+      .notNull()
+      .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('knowledge_base_pins_pk').on(t.businessId, t.baseId),
+    index('knowledge_base_pins_business_idx').on(t.businessId, t.pinnedAt.desc()),
+  ],
+);
+
 export const knowledgeFolders = pgTable(
   'knowledge_folders',
   {
@@ -1903,6 +1922,7 @@ export const schema = {
   memoryChanges,
   knowledgeModelProfiles,
   knowledgeBases,
+  knowledgeBasePins,
   knowledgeFolders,
   knowledgeTags,
   knowledgeDocuments,

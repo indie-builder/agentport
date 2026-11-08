@@ -578,3 +578,15 @@
 - **现象**：按旧盘记录恢复出的镜像内容与历史一致，但当前 worker 仍不能用它跑新的会话运行：历史镜像内没有 `bun`，默认基座还缺 `session-supervisor` 与 `bash`。
 - **原因**：当前会话容器以 `bun` 为入口执行 `dist/session-supervisor.js`（`packages/worker/src/sandbox/sessions.ts`）；创建容器时按环境线上版本冻结的 `imageId` 取镜像（`resolveOnlineRuntimeEnvironment` 只选 `ready` 且 `imageId` 非空的版本），`baseImageId` 决定构建基座，不参与会话容器的镜像选择。OCI 恢复只还原内容，不保证镜像满足当前入口命令和工具链。
 - **规避**：接管旧运行环境前，分别核对镜像内 `bun`、`session-supervisor` 与 `bash`，并与当前 worker 的入口命令对照；需要重新执行时基于由当前 Dockerfile 构建并验证具备 Bun、supervisor 与 bash 的基座构建并发布新版本，不能凭 tag 认定基座能力，不改冻结 ID、不为旧 runner 加兼容层。启动命令只是配置加载方式，不等于镜像可直接运行。
+
+## 接口：前后端各兜一次同一个默认值，服务端的兜底分支会变成死代码
+
+- **现象**：复制知识库弹层把 slug 预填成 `源slug-copy` 并始终随请求发送，服务端 `body.slug ?? 自动挑一个未占用 slug` 的自增分支因此永远走不到；同一源库第二次复制直接 409。单测只测接口，仍全绿，形成假安全感。
+- **原因**：同一个决策（副本 slug）在 UI 与服务端各表达一次，且 UI 侧不是「留空交给服务端」，而是自己算了一个看起来等价的值；接口测试与 UI 行为不同源。
+- **规避**：默认值只在一处决定。需要服务端兜底的字段，UI 留空并显示建议值（placeholder）；提交时只在用户真的填了才带该字段。接口测试同时覆盖「未传 → 自动挑选」与「显式传已占用值 → 409」，UI 测试断言「默认不传该字段」。
+
+## 测试：给共用页面新增查询后，其他测试文件的「未配置请求」断言会集体失败
+
+- **现象**：知识库列表页新增个人置顶查询后，只改了自己的 `knowledge-management.test.ts`，另三个也渲染 `KnowledgePage` 的文件（`knowledge-audio`、`knowledge-source-forms`、`knowledge-create-flow`）报 `expected [ 'GET /api/knowledge/bases/pins' ] to deeply equal []`。
+- **原因**：这些文件各自维护 MSW handler，`msw.assertClean()` 把任何未配置请求当作失败；页面新增 Query 等于给所有渲染它的文件加了必配路由。中途 `await cleanup()` 会 `resetHandlers()`，之后还需要重新注册默认 handler。
+- **规避**：新增列表级查询时先 `grep -l "<页面组件>" packages/web/test` 找出所有渲染该页面的文件，逐文件补默认 handler；用例内覆盖同一路由时用更靠后的 `server.use` 覆盖默认值，不要在共享 helper 里写死业务返回。

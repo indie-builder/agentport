@@ -11,6 +11,7 @@ import {
   useCreateKnowledgeModelProfile,
   useKnowledgeModelProfileSelections,
   useKnowledgeModelProfiles,
+  usePreviewKnowledgeChunks,
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -18,9 +19,9 @@ import { useZodForm } from '../lib/use-zod-form.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from './knowledge-shared.js';
-import { Collapsible, CollapsibleContent } from './motion-collapsible.js';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './motion-collapsible.js';
 import { RequiredMark } from './required-mark.js';
-import { ErrorState } from './states.js';
+import { ErrorState, LoadingState } from './states.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Dialog } from './ui/dialog.js';
@@ -44,6 +45,56 @@ const FAILURE_TEXT: Record<string, string> = {
   unavailable: '连不上端点，请检查地址与网络',
   bad_response: '端点响应不符合 embedding/rerank/ASR 格式',
 };
+
+/** 预览样本自带标题、列表与表格，便于一眼看出标题面包屑、段落合并与整表保留。 */
+const PREVIEW_SAMPLE = `# 发布流程
+
+上线前需要完成以下检查，确认无误后再通知值班同学执行发布。
+
+## 上线检查
+
+- 确认变更单已审批通过
+- 回滚方案已同步给值班
+- 监控与告警在看板上可见
+
+## 值班分工
+
+| 角色 | 职责 | 时间 |
+| --- | --- | --- |
+| 发布负责人 | 执行发布与回滚 | 20:00 |
+| 观察员 | 跟踪错误率与延迟 | 20:10 |
+| 记录员 | 记录关键时间点 | 全程 |
+
+发布完成后观察 30 分钟，错误率与延迟回到基线视为发布成功；出现异常时按回滚方案处理，并在处理记录里补齐原因。`;
+
+const PREVIEW_EXCERPT_CHARS = 200;
+
+function previewExcerpt(content: string): string {
+  return content.length > PREVIEW_EXCERPT_CHARS
+    ? `${content.slice(0, PREVIEW_EXCERPT_CHARS)}…`
+    : content;
+}
+
+/** 分块参数的表单校验；保存与预览共用同一份边界与文案。 */
+function chunkSettingErrors(
+  chunkTokens: string,
+  chunkOverlap: string,
+): { chunkTokens?: string; chunkOverlap?: string } {
+  const next: { chunkTokens?: string; chunkOverlap?: string } = {};
+  const tokens = Number(chunkTokens);
+  const overlap = Number(chunkOverlap);
+  if (!Number.isInteger(tokens) || tokens < 200 || tokens > 4000) {
+    next.chunkTokens = '分块长度需为 200–4000 的整数';
+  }
+  if (
+    !Number.isInteger(overlap) ||
+    overlap < 0 ||
+    overlap >= (Number.isInteger(tokens) ? tokens : 200)
+  ) {
+    next.chunkOverlap = '分块重叠需为 0 到小于分块长度的整数';
+  }
+  return next;
+}
 
 /** 库级设置：分块参数、Wiki 自动更新、重排 profile，以及整库重建入口。 */
 export function KnowledgeSettingsDialog({
@@ -71,6 +122,9 @@ export function KnowledgeSettingsDialog({
   const [asrProfileId, setAsrProfileId] = useState(base.asrProfileId ?? 'none');
   const [chunkTokens, setChunkTokens] = useState(String(base.settings.chunkTokens));
   const [chunkOverlap, setChunkOverlap] = useState(String(base.settings.chunkOverlap));
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewSample, setPreviewSample] = useState(PREVIEW_SAMPLE);
+  const preview = usePreviewKnowledgeChunks(base.id);
   const [errors, setErrors] = useState<{
     chunkTokens?: string;
     chunkOverlap?: string;
@@ -124,23 +178,30 @@ export function KnowledgeSettingsDialog({
   const image = settings.imageProcessing;
   const patchImage = (next: Partial<KnowledgeBaseSettings['imageProcessing']>): void =>
     setSettings({ ...settings, imageProcessing: { ...image, ...next } });
+  // 失败时不再展示上一次的结果，避免把旧预览当成这次的切分。
+  const previewResult = preview.isError ? null : (preview.data ?? null);
+
+  // 预览用表单里的当前值，未保存也能先看切分结果；纯计算，不改库也不清空草稿。
+  const runPreview = (): void => {
+    const chunkIssues = chunkSettingErrors(chunkTokens, chunkOverlap);
+    const otherErrors = { ...errors };
+    delete otherErrors.chunkTokens;
+    delete otherErrors.chunkOverlap;
+    setErrors({ ...otherErrors, ...chunkIssues });
+    if (chunkIssues.chunkTokens !== undefined || chunkIssues.chunkOverlap !== undefined) return;
+    preview.mutate({
+      sample: previewSample,
+      chunkTokens: Number(chunkTokens),
+      chunkOverlap: Number(chunkOverlap),
+    });
+  };
 
   const save = (event: React.FormEvent): void => {
     event.preventDefault();
     const tokens = Number(chunkTokens);
     const overlap = Number(chunkOverlap);
     const model = image.model?.trim() || null;
-    const nextErrors: typeof errors = {};
-    if (!Number.isInteger(tokens) || tokens < 200 || tokens > 4000) {
-      nextErrors.chunkTokens = '分块长度需为 200–4000 的整数';
-    }
-    if (
-      !Number.isInteger(overlap) ||
-      overlap < 0 ||
-      overlap >= (Number.isInteger(tokens) ? tokens : 200)
-    ) {
-      nextErrors.chunkOverlap = '分块重叠需为 0 到小于分块长度的整数';
-    }
+    const nextErrors: typeof errors = chunkSettingErrors(chunkTokens, chunkOverlap);
     if (image.enabled && model === null) {
       nextErrors.imageModel = '请填写视觉模型 ID';
     }
@@ -305,6 +366,87 @@ export function KnowledgeSettingsDialog({
                 <FieldError id="knowledge-settings-chunk-overlap-error">
                   {errors.chunkOverlap}
                 </FieldError>
+              </Field>
+              <Field className="gap-1.5 sm:col-span-2">
+                <Collapsible open={previewOpen} onOpenChange={setPreviewOpen}>
+                  <CollapsibleTrigger className="w-fit text-sm font-medium text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    分块预览
+                  </CollapsibleTrigger>
+                  <CollapsibleContent animated>
+                    <div className="flex flex-col gap-3 pt-2">
+                      <Field className="gap-1.5">
+                        <FieldLabel htmlFor="knowledge-settings-preview-sample">
+                          示例文本
+                        </FieldLabel>
+                        <Textarea
+                          id="knowledge-settings-preview-sample"
+                          value={previewSample}
+                          rows={8}
+                          maxLength={20000}
+                          disabled={preview.isPending}
+                          onChange={(event) => setPreviewSample(event.target.value)}
+                        />
+                      </Field>
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={preview.isPending}
+                          aria-busy={preview.isPending}
+                          onClick={runPreview}
+                        >
+                          {preview.isPending ? '预览中…' : '预览'}
+                        </Button>
+                      </div>
+                      {preview.isPending ? <LoadingState rows={2} /> : null}
+                      {preview.isError ? (
+                        <ErrorState
+                          title="分块预览没有生成"
+                          error={preview.error}
+                          onRetry={runPreview}
+                        />
+                      ) : null}
+                      {previewResult === null ? null : (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-muted-foreground">
+                            {previewResult.stats.count} 块 · 平均 {previewResult.stats.avgChars}{' '}
+                            字符 · 最小 {previewResult.stats.minChars} · 最大{' '}
+                            {previewResult.stats.maxChars}
+                          </p>
+                          <ul className="flex flex-col gap-2">
+                            {previewResult.chunks.map((chunk) => (
+                              <li
+                                key={chunk.index}
+                                className="flex flex-col gap-1 rounded-item border border-line p-3"
+                              >
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <p className="min-w-0 truncate text-sm font-medium">
+                                    第 {chunk.index + 1} 块
+                                    {chunk.heading === '' ? null : (
+                                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                        {chunk.heading}
+                                      </span>
+                                    )}
+                                  </p>
+                                  <span className="shrink-0 text-xs text-muted-foreground">
+                                    {chunk.length} 字符
+                                  </span>
+                                </div>
+                                <p className="whitespace-pre-wrap text-xs text-muted-foreground">
+                                  {previewExcerpt(chunk.content)}
+                                </p>
+                              </li>
+                            ))}
+                          </ul>
+                          {previewResult.truncated ? (
+                            <p className="text-xs text-muted-foreground">仅显示前 50 块</p>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </Field>
               <Field className="gap-1.5 sm:col-span-2">
                 <FieldLabel htmlFor="knowledge-settings-asr">音频转录</FieldLabel>
@@ -841,7 +983,9 @@ function ProfileForm({
 
   const save = handleSubmit(async (values: ProfileFormValues) => {
     const imgCapable =
-      values.kind === 'embedding' && values.protocol === 'cohere_v2' && values.model === 'embed-v4.0';
+      values.kind === 'embedding' &&
+      values.protocol === 'cohere_v2' &&
+      values.model === 'embed-v4.0';
     const input = {
       name: values.name.trim(),
       endpointUrl: values.endpointUrl.trim(),
@@ -929,7 +1073,9 @@ function ProfileForm({
             aria-invalid={Boolean(errors.endpointUrl)}
             aria-describedby={errors.endpointUrl ? 'knowledge-profile-endpoint-error' : undefined}
           />
-          <FieldError id="knowledge-profile-endpoint-error">{errors.endpointUrl?.message}</FieldError>
+          <FieldError id="knowledge-profile-endpoint-error">
+            {errors.endpointUrl?.message}
+          </FieldError>
         </Field>
         <Field className="gap-1.5" data-invalid={Boolean(errors.model)}>
           <FieldLabel htmlFor="knowledge-profile-model">

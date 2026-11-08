@@ -1845,7 +1845,10 @@ export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): 
 
 export const knowledgeKeys = {
   bases: ['knowledge', 'bases'] as const,
+  pins: ['knowledge', 'base-pins'] as const,
   base: (id: string) => ['knowledge', 'base', id] as const,
+  summary: (id: string) => ['knowledge', 'base-summary', id] as const,
+  activity: (id: string) => ['knowledge', 'base-activity', id] as const,
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
   documentVersions: (documentId: string) => ['knowledge', 'document-versions', documentId] as const,
   manual: (documentId: string) => ['knowledge', 'manual', documentId] as const,
@@ -1887,6 +1890,24 @@ export function useKnowledgeBases(enabled = true) {
   });
 }
 
+/** 置顶只影响列表排序，读取失败时页面按未置顶处理，不重试也不打断列表。 */
+export function useKnowledgeBasePins() {
+  return useQuery({
+    queryKey: knowledgeKeys.pins,
+    queryFn: ({ signal }) => api.knowledgeBasePins(signal),
+    retry: false,
+  });
+}
+
+export function useSetKnowledgeBasePin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { baseId: string; pinned: boolean }) =>
+      api.setKnowledgeBasePin(vars.baseId, vars.pinned),
+    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.pins }),
+  });
+}
+
 export function useKnowledgeBase(id: string) {
   return useQuery({
     queryKey: knowledgeKeys.base(id),
@@ -1895,10 +1916,52 @@ export function useKnowledgeBase(id: string) {
   });
 }
 
+export function useKnowledgeBaseSummary(id: string) {
+  return useQuery({
+    queryKey: knowledgeKeys.summary(id),
+    queryFn: ({ signal }) => api.knowledgeBaseSummary(id, signal),
+    staleTime: 0,
+    // 最近一条任务仍活跃时刷新计数与任务状态；终态、超过轮询窗口或没有任务时不轮询。
+    refetchInterval: (query) =>
+      knowledgeShouldPoll(query.state.data?.lastJob ? [query.state.data.lastJob] : [])
+        ? 3_000
+        : false,
+  });
+}
+
+/** 概览只展示最近一页活动，不需要翻页；进入概览时按 staleTime 0 重新取一次。 */
+export function useKnowledgeBaseActivity(id: string) {
+  return useQuery({
+    queryKey: knowledgeKeys.activity(id),
+    queryFn: () => api.knowledgeBaseActivity(id).then((page) => page.items),
+    staleTime: 0,
+  });
+}
+
 export function useCreateKnowledgeBase() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: KnowledgeBaseInput) => api.createKnowledgeBase(input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.bases }),
+  });
+}
+
+/** 分块预览是纯计算，不写库也不影响缓存，所以用 mutation 而不是 query。 */
+export function usePreviewKnowledgeChunks(baseId: string) {
+  return useMutation({
+    mutationFn: (input: { sample: string; chunkTokens?: number; chunkOverlap?: number }) =>
+      api.previewKnowledgeChunks(baseId, input),
+  });
+}
+
+/** 复制只复制库与配置；文档、Wiki 与索引留在原库，由服务端决定默认名与 slug 落点。 */
+export function useDuplicateKnowledgeBase() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      baseId: string;
+      body: { name?: string; slug?: string; description?: string };
+    }) => api.duplicateKnowledgeBase(vars.baseId, vars.body),
     onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.bases }),
   });
 }
@@ -1977,6 +2040,15 @@ export function useCreateKnowledgeTag(baseId: string) {
   const invalidate = useKnowledgeStructureInvalidate(baseId);
   return useMutation({
     mutationFn: (name: string) => api.createKnowledgeTag(baseId, name),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRenameKnowledgeTag(baseId: string) {
+  const invalidate = useKnowledgeStructureInvalidate(baseId);
+  return useMutation({
+    mutationFn: (vars: { tagId: string; name: string }) =>
+      api.renameKnowledgeTag(vars.tagId, vars.name),
     onSuccess: invalidate,
   });
 }

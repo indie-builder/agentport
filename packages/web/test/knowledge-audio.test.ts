@@ -229,6 +229,7 @@ afterAll(() => msw.close());
 beforeEach(() => {
   msw.reset();
   server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
+  server.use(http.get('/api/knowledge/bases/pins', () => HttpResponse.json({ baseIds: [] })));
   vi.mocked(toastError).mockClear();
   vi.stubGlobal(
     'ResizeObserver',

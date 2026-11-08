@@ -473,7 +473,7 @@ data/workspaces/<agent-slug>/
 | `$KNOWLEDGE_DIR/wiki-sdk/<jobId>/` | Wiki 生成时的平台私有临时 cwd（同时作 HOME / `CLAUDE_CONFIG_DIR`） | 不是 Claude 官方目录约定，也不进入专家工作区或导出包；任务结束即删除 |
 | `knowledgedata:/knowledge` | 上述目录的 compose 命名卷 | api 与 worker 必须同卷；随 `bun run backup` 归档为 `knowledge/` |
 
-`knowledge_documents` 增 `content_kind`（document/faq/wiki）、`source_connection_id` 与 `disabled_reason`；`knowledge_document_source_ranges` 以 `(document_id,range_id)` 联合主键记录真实范围归属。模型 profile 的 `kind` 为 `embedding/rerank/asr`；ASR 行维度为 null、固定 openai 转录协议且不允许图片输入，知识库用 `asr_profile_id` 外键绑定，删除被引用 profile 走 `RESTRICT`。音频不新增表/版本列：转录事实只存版本的 `metadata.audio`（协议、profile 名与 model 快照、真实 duration、段级 UTF-16 偏移与毫秒时码），原件仍走既有 blob。关键 schema 事实：`knowledge_chunks.search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用不写），`embedding vector(1024)` 由 `customType` 映射；GIN 全文索引与 HNSW 向量部分索引（`WHERE enabled AND embedding IS NOT NULL`）在迁移里手写。embedding profile 的 `dimensions` 由 schema 的 check 约束固定为 1024。chunk、版本、Wiki、任务等业务实体都用 `newId()` 生成 TypeID（`kb_`、`kdoc_`、`kchk_`、`kjob_`…，见 `packages/db/src/id.ts`）。`insertChunks` 按 500 行分批执行 `INSERT`，避免单条语句超过 PostgreSQL 绑定参数上限；返回顺序与输入一致。
+`knowledge_documents` 增 `content_kind`（document/faq/wiki）、`source_connection_id` 与 `disabled_reason`；`knowledge_document_source_ranges` 以 `(document_id,range_id)` 联合主键记录真实范围归属。模型 profile 的 `kind` 为 `embedding/rerank/asr`；ASR 行维度为 null、固定 openai 转录协议且不允许图片输入，知识库用 `asr_profile_id` 外键绑定，删除被引用 profile 走 `RESTRICT`。音频不新增表/版本列：转录事实只存版本的 `metadata.audio`（协议、profile 名与 model 快照、真实 duration、段级 UTF-16 偏移与毫秒时码），原件仍走既有 blob。关键 schema 事实：`knowledge_chunks.search_vector` 是 `to_tsvector('simple', search_text)` 的生成列（应用不写），`embedding vector(1024)` 由 `customType` 映射；GIN 全文索引与 HNSW 向量部分索引（`WHERE enabled AND embedding IS NOT NULL`）在迁移里手写。embedding profile 的 `dimensions` 由 schema 的 check 约束固定为 1024。chunk、版本、Wiki、任务等业务实体都用 `newId()` 生成 TypeID（`kb_`、`kdoc_`、`kchk_`、`kjob_`…，见 `packages/db/src/id.ts`）。`insertChunks` 按 500 行分批执行 `INSERT`，避免单条语句超过 PostgreSQL 绑定参数上限；返回顺序与输入一致。`knowledge_base_pins` 只存按用户维度的列表置顶（`(business_id, base_id)` 唯一索引当联合主键，`base_id` 随库级联删除），不参与检索、不进数据包、也不写审计。
 
 删除文档/知识库删除行与引用，blob与解析目录由`cleanup`按“无版本引用且超过24小时”回收。知识对账器启动时及每5分钟检查当天UTC清理任务，复用同一队列每日创建一条；入队失败保留queued供后续补投。`POST /bases/:id/rebuild`与知识库“设置”中的整库重建入口贯通，重建前提示人工分块更改会被覆盖。
 
@@ -570,7 +570,7 @@ SDK 生成与管理端手工保存都只追加草稿版本，不移动已发布�
 
 ### 6.8 当前实现状态
 
-知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId` 含文档/检索/离线评估/FAQ/Wiki/来源/任务七个页签。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘。
+知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、编辑信息、复制知识库、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId` 含概览/文档/来源/检索测试/离线评估/FAQ/Wiki/处理记录八个页签，页头可编辑基本信息，概览页签汇总配置、内容计数与最近任务并可直接复制知识库。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘。
 
 **当前仍处于评审整改与隔离验收阶段**：上述源码存在不等于整体完成；FAQ、Wiki、来源/范围即时撤权、版本 COW、ZIP 往返等链路仍在按评审意见修复与复测，模块测试或类型检查通过不能写成端到端通过。音频 ASR 的 core/shared/DB/API/worker/Web 本地链路与九种新增来源的 shared/API/DB/worker/Web 已落，但来源叶模块仍在独立评审收尾；真实转录质量与费用、真实 Lark/Notion/Confluence/语雀/钉钉/IMA/Seafile/Nextcloud 账号与配额、真实飞书/GitLab/GitHub/Feed 企业源均未验收。真实 embedding/rerank/视觉模型、Docling Office 与 Cohere 服务也仍未验收；GraphRAG 需要 Neo4j 与抽取模型费用，属待依赖，不部署、不声称可用。
 

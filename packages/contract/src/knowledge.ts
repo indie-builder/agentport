@@ -5,6 +5,7 @@ import {
   knowledgeBaseInputSchema,
   knowledgeBaseSchema,
   knowledgeBaseSettingsSchema,
+  knowledgeBaseSummarySchema,
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
   knowledgeDocumentStatusSchema,
@@ -52,6 +53,18 @@ const pageQuery = z.object({
 function pageOf<T extends z.ZodTypeAny>(item: T) {
   return z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 }
+
+/** 知识库活动流的一条审计记录；targetKind 由服务端按真实归属判定。 */
+export const knowledgeBaseActivityItemSchema = z.object({
+  id: z.string(),
+  action: z.string(),
+  actor: z.string(),
+  status: z.string(),
+  targetKind: z.enum(['base', 'document', 'tag']),
+  createdAt: z.string(),
+});
+
+export type KnowledgeBaseActivityItem = z.infer<typeof knowledgeBaseActivityItemSchema>;
 
 export const knowledgeFolderSchema = z.object({
   id: z.string(),
@@ -569,6 +582,17 @@ const chunkMutationResultSchema = z.object({
 });
 
 const basesContract = {
+  // 置顶是个人偏好，路径必须排在 `{id}` 之前：静态段优先，避免被当作 baseId。
+  pins: contractProcedure
+    .route({ method: 'GET', path: '/knowledge/bases/pins' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(z.object({}))
+    .output(z.object({ baseIds: z.array(z.string()) })),
+  setPin: contractProcedure
+    .route({ method: 'PUT', path: '/knowledge/bases/{id}/pin' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(z.object({ params: idParams, body: z.object({ pinned: z.boolean() }) }))
+    .output(z.object({ pinned: z.boolean() })),
   list: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
@@ -584,6 +608,48 @@ const basesContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(z.object({ params: idParams }))
     .output(knowledgeBaseSchema),
+  summary: contractProcedure
+    .route({ method: 'GET', path: '/knowledge/bases/{id}/summary' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(z.object({ params: idParams }))
+    .output(knowledgeBaseSummarySchema),
+  activity: contractProcedure
+    .route({ method: 'GET', path: '/knowledge/bases/{id}/activity' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(z.object({ params: idParams, query: pageQuery }))
+    .output(pageOf(knowledgeBaseActivityItemSchema)),
+  chunkPreview: contractProcedure
+    .route({ method: 'POST', path: '/knowledge/bases/{id}/chunk-preview' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(
+      z.object({
+        params: idParams,
+        body: z.object({
+          sample: z.string().trim().min(1).max(20_000),
+          chunkTokens: z.number().int().min(200).max(4000).optional(),
+          chunkOverlap: z.number().int().min(0).max(1000).optional(),
+        }),
+      }),
+    )
+    .output(
+      z.object({
+        chunks: z.array(
+          z.object({
+            index: z.number().int(),
+            heading: z.string(),
+            content: z.string(),
+            length: z.number().int(),
+          }),
+        ),
+        stats: z.object({
+          count: z.number().int(),
+          avgChars: z.number().int(),
+          minChars: z.number().int(),
+          maxChars: z.number().int(),
+        }),
+        truncated: z.boolean(),
+      }),
+    ),
   update: contractProcedure
     .route({ method: 'PATCH', path: '/knowledge/bases/{id}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.update' } })
@@ -594,6 +660,20 @@ const basesContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.delete' } })
     .input(z.object({ params: idParams }))
     .output(z.void()),
+  duplicate: contractProcedure
+    .route({ method: 'POST', path: '/knowledge/bases/{id}/duplicate', successStatus: 201 })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.create' } })
+    .input(
+      z.object({
+        params: idParams,
+        body: z.object({
+          name: z.string().trim().min(1).max(120).optional(),
+          slug: slugSchema.optional(),
+          description: z.string().max(500).optional(),
+        }),
+      }),
+    )
+    .output(knowledgeBaseSchema),
   folders: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/{id}/folders' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
@@ -746,6 +826,16 @@ const foldersContract = {
 };
 
 const tagsContract = {
+  update: contractProcedure
+    .route({ method: 'PATCH', path: '/knowledge/tags/{tagId}' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
+    .input(
+      z.object({
+        params: z.object({ tagId: z.string().min(1) }),
+        body: z.object({ name: z.string().trim().min(1).max(64) }),
+      }),
+    )
+    .output(knowledgeTagSchema),
   remove: contractProcedure
     .route({ method: 'DELETE', path: '/knowledge/tags/{tagId}', successStatus: 204 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })

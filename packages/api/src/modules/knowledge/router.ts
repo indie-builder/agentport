@@ -12,6 +12,14 @@ const os = implement(knowledgeContract).$context<RequestContext>();
 
 export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.router({
   bases: {
+    pins: os.bases.pins.handler(async ({ context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.listPins(depsOf(context));
+    }),
+    setPin: os.bases.setPin.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.setPin(depsOf(context), input.params.id, input.body.pinned);
+    }),
     list: os.bases.list.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
       return useCases.listBases(depsOf(context), input.query);
@@ -24,6 +32,18 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       await requirePermission(context, 'knowledge.read');
       return useCases.getBase(depsOf(context), input.params.id);
     }),
+    summary: os.bases.summary.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.getBaseSummary(depsOf(context), input.params.id);
+    }),
+    activity: os.bases.activity.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.listBaseActivity(depsOf(context), input.params.id, input.query);
+    }),
+    chunkPreview: os.bases.chunkPreview.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.previewChunks(depsOf(context), input.params.id, input.body);
+    }),
     update: os.bases.update.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.update');
       return useCases.updateBase(depsOf(context), input.params.id, input.body);
@@ -31,6 +51,10 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     remove: os.bases.remove.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.delete');
       await useCases.deleteBase(depsOf(context), input.params.id);
+    }),
+    duplicate: os.bases.duplicate.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.create');
+      return useCases.duplicateBase(depsOf(context), input.params.id, input.body);
     }),
     folders: os.bases.folders.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
@@ -173,6 +197,10 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
   },
   tags: {
+    update: os.tags.update.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.content.manage');
+      return useCases.renameTag(depsOf(context), input.params.tagId, input.body.name);
+    }),
     remove: os.tags.remove.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
       await useCases.deleteTag(depsOf(context), input.params.tagId);

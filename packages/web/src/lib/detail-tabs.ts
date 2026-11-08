@@ -42,6 +42,7 @@ export const memoryViews = [
 export type MemoryView = (typeof memoryViews)[number]['id'];
 
 export const knowledgeTabs = [
+  { id: 'overview', label: '概览' },
   { id: 'documents', label: '文档' },
   { id: 'sources', label: '来源' },
   { id: 'search', label: '检索测试' },

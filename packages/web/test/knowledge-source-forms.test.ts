@@ -61,6 +61,7 @@ afterAll(() => msw.close());
 
 beforeEach(() => {
   msw.reset();
+  server.use(http.get('/api/knowledge/bases/pins', () => HttpResponse.json({ baseIds: [] })));
   vi.stubGlobal(
     'ResizeObserver',
     class {
