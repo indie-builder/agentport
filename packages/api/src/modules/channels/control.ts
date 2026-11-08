@@ -23,6 +23,7 @@ function toActiveRun(run: ControlRun) {
     runId: run.id,
     agentId: run.agentId,
     status: run.status,
+    initiatedBy: run.initiatedBy,
     startedAt: run.startedAt?.toISOString() ?? null,
   };
 }
@@ -64,7 +65,7 @@ type CancelRunBatchResult = {
   cancelled: number;
   failedRunIds: string[];
 };
-async function cancelRunBatch(
+export async function cancelRunBatch(
   context: RequestContext,
   channelId: string,
   runs: ControlRun[],

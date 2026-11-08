@@ -19,6 +19,7 @@ import {
 interface ChannelRunStream {
   runId: string;
   agentId: string;
+  initiatedBy: string | null;
   status: 'running' | 'done';
   /** 本 run 的流式块；落库回复到达后整条流被移除。 */
   items: ChatItem[];
@@ -71,7 +72,10 @@ export function useChannelStream(channelId: string) {
   useEffect(() => {
     if (!messages.isSuccess) return;
     if (cursorRef.current.channelId !== channelId) {
-      cursorRef.current = { channelId, after: messages.data?.at(-1)?.seq ?? 0 };
+      cursorRef.current = {
+        channelId,
+        after: messages.data?.findLast((message) => !message.id.startsWith('local-'))?.seq ?? 0,
+      };
     }
     const source = new EventSource(
       `/api/channels/${encodeURIComponent(channelId)}/events?after=${cursorRef.current.after}`,
@@ -132,6 +136,15 @@ export function useChannelStream(channelId: string) {
   useEffect(() => {
     const active = runs.data ?? [];
     const live = new Set(active.map((run) => run.runId));
+    setStreams((previous) => {
+      let next: Record<string, ChannelRunStream> | null = null;
+      for (const [runId, item] of Object.entries(previous)) {
+        if (item.status !== 'running' || live.has(runId)) continue;
+        next ??= { ...previous };
+        next[runId] = { ...item, status: 'done' };
+      }
+      return next ?? previous;
+    });
     for (const [runId, source] of runSources.current) {
       if (live.has(runId)) continue;
       source.close();
@@ -146,6 +159,7 @@ export function useChannelStream(channelId: string) {
               [run.runId]: {
                 runId: run.runId,
                 agentId: run.agentId,
+                initiatedBy: run.initiatedBy,
                 status: 'running',
                 items: [],
               },
@@ -166,6 +180,17 @@ export function useChannelStream(channelId: string) {
         const parsed = chatEventSchema.safeParse(raw);
         if (!parsed.success) return;
         const event = parsed.data;
+        if (event.type === 'run_started') {
+          setStreams((previous) => {
+            const current = previous[run.runId];
+            if (current === undefined) return previous;
+            return {
+              ...previous,
+              [run.runId]: { ...current, status: 'running', items: [] },
+            };
+          });
+          return;
+        }
         setStreams((previous) => {
           const current = previous[run.runId];
           if (current === undefined) return previous;
@@ -202,7 +227,7 @@ export function useChannelStream(channelId: string) {
     [],
   );
 
-  const lastSeq = messages.data?.at(-1)?.seq ?? 0;
+  const lastSeq = messages.data?.findLast((message) => !message.id.startsWith('local-'))?.seq ?? 0;
   return {
     messages: messages.data ?? [],
     messagesQuery: messages,

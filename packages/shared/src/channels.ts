@@ -6,6 +6,8 @@ import { terminalRunStatusSchema } from './run-state.js';
 export const channelRoleSchema = z.enum(['owner', 'admin', 'member', 'viewer']);
 export type ChannelRole = z.infer<typeof channelRoleSchema>;
 
+export const CHANNEL_MAX_WAKE_AGENTS = 5;
+
 const channelMessageKindSchema = z.enum(['human', 'agent', 'system']);
 const channelAgentStatusSchema = z.enum(['active', 'paused', 'disconnected']);
 
@@ -29,6 +31,8 @@ export const channelMemberSchema = z.object({
   businessId: z.string(),
   role: channelRoleSchema,
   lastReadSeq: seqSchema,
+  name: z.string().nullable(),
+  image: z.string().nullable(),
   createdAt: z.string(),
 });
 export type ChannelMember = z.infer<typeof channelMemberSchema>;
@@ -75,6 +79,8 @@ export const channelListItemSchema = channelSchema.extend({
   role: channelRoleSchema.nullable(),
   lastReadSeq: seqSchema,
   unreadCount: z.number().int().nonnegative().safe(),
+  memberCount: z.number().int().nonnegative().safe(),
+  agentCount: z.number().int().nonnegative().safe(),
   lastMessage: channelLastMessageSchema.nullable(),
 });
 export type ChannelListItem = z.infer<typeof channelListItemSchema>;
@@ -127,16 +133,21 @@ export const channelMessageInputSchema = z
     // 幂等标识不 trim：' a' 与 'a' 是不同客户端的 key。
     clientMessageId: z.string().min(1).max(160).optional(),
     /** 显式 @ 的 agentId；只唤醒频道内 active 且 enabled 的绑定。 */
-    mentions: z.array(z.string().min(1)).max(50).optional(),
+    mentions: z.array(z.string().min(1)).max(CHANNEL_MAX_WAKE_AGENTS).optional(),
     /** @all：只唤醒绑定上 autoWakeOnAll=true 的 active agent。 */
     mentionAll: z.boolean().optional(),
   })
   .strict();
 
-export const channelMessagesQuerySchema = z.object({
-  after: cursorSchema,
-  limit: z.coerce.number().int().min(1).max(200).default(50),
-});
+export const channelMessagesQuerySchema = z
+  .object({
+    after: cursorSchema,
+    before: z.coerce.number().int().positive().safe().optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+  })
+  .refine((value) => value.before === undefined || value.after === 0, {
+    message: 'before 与 after 不能同时使用',
+  });
 
 export const channelEventsQuerySchema = z.object({
   after: cursorSchema,

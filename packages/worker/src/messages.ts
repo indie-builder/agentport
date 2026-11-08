@@ -407,6 +407,12 @@ export async function persistRunMessages(
         }
       }
     }
+    if (channelMessage !== undefined && lane.channelId !== null) {
+      await tx
+        .update(schema.channels)
+        .set({ updatedAt: new Date() })
+        .where(eq(schema.channels.id, lane.channelId));
+    }
     // 会话的 SDK 状态必须与输出同事务：先落消息再单独存 session，
     // 失败时会出现「页面有历史、transcript 缺一截」的静默错位。
     if (input.sdkSessionId !== undefined) {

@@ -1,7 +1,7 @@
 import type { ChannelDetail, ChannelMember, ChannelMessage, ChannelRole } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArrowLeft, CircleStop, Hash, MessageSquare, Plus, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, CircleStop, Hash, MessageSquare, ShieldAlert } from 'lucide-react';
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../components/agent-avatar.js';
-import { AgentPicker } from '../components/agent-picker.js';
+import { ChannelSettingsButton } from '../components/channel-settings.js';
 import { Composer, MessagePane } from '../components/chat-thread.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
@@ -31,11 +31,11 @@ import type { RunMetrics } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
 import { shortId } from '../lib/format.js';
 import {
+  CHANNEL_MESSAGES_PAGE_SIZE,
   channelMessagesQuery,
   meQuery,
   useAgents,
   useApproveChannelApproval,
-  useBindChannelAgent,
   useChannel,
   useChannelApprovals,
   useChannels,
@@ -113,7 +113,6 @@ function ChannelWorkspace({
   const agents = useAgents();
   const stream = useChannelStream(channel.id);
   const approvals = useChannelApprovals(channel.id);
-  const bind = useBindChannelAgent(channel.id);
   const stop = useStopChannelRun(channel.id);
   const approve = useApproveChannelApproval(channel.id);
   const { mutate: markRead } = useMarkChannelRead(channel.id);
@@ -123,7 +122,6 @@ function ChannelWorkspace({
   // 频道角色只在本频道的成员行里；平台管理员非成员时为 null。
   const selfMember = channel.members.find((item) => item.businessId === businessId);
   const channelRole = selfMember?.role ?? null;
-  const canManage = channelRole === 'owner' || channelRole === 'admin';
   const canPost =
     channel.archivedAt === null &&
     // 发言权以频道角色为准；me 未加载时按不可发处理，避免只读成员闪出输入框。
@@ -132,16 +130,27 @@ function ChannelWorkspace({
       : me.isSuccess && can(me.data, 'conversations.create'));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastReadRef = useRef(0);
+  const inputRef = useRef('');
+  const pendingSend = useRef<{
+    clientMessageId: string;
+    body: string;
+    mentionIds: string[];
+  } | null>(null);
   const [input, setInput] = useState('');
   const [caret, setCaret] = useState(0);
   const [mentions, setMentions] = useState<MentionTarget[]>([]);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [agentToBind, setAgentToBind] = useState<string | null>(null);
+  const [olderExhausted, setOlderExhausted] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   const agentById = useMemo(
     () => new Map((agents.data ?? []).map((agent) => [agent.id, agent])),
     [agents.data],
+  );
+  const memberById = useMemo(
+    () => new Map(channel.members.map((member) => [member.businessId, member])),
+    [channel.members],
   );
   const boundAgents = useMemo(
     () =>
@@ -159,6 +168,14 @@ function ChannelWorkspace({
     for (const run of stream.activeRuns) map.set(run.runId, run.agentId);
     for (const item of Object.values(stream.streams)) {
       if (!map.has(item.runId)) map.set(item.runId, item.agentId);
+    }
+    return map;
+  }, [stream.activeRuns, stream.streams]);
+  const runInitiator = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const run of stream.activeRuns) map.set(run.runId, run.initiatedBy);
+    for (const item of Object.values(stream.streams)) {
+      if (!map.has(item.runId)) map.set(item.runId, item.initiatedBy);
     }
     return map;
   }, [stream.activeRuns, stream.streams]);
@@ -182,7 +199,15 @@ function ChannelWorkspace({
     const persistedRuns = new Set<string>();
     for (const message of stream.messages) {
       if (message.kind === 'human') {
-        items.push({ kind: 'user', id: message.id, text: message.body });
+        items.push({
+          kind: 'user',
+          id: message.id,
+          text: message.body,
+          ...(message.authorBusinessId === null
+            ? {}
+            : { authorBusinessId: message.authorBusinessId }),
+          self: message.authorBusinessId === businessId,
+        });
         continue;
       }
       if (message.kind === 'agent') {
@@ -221,7 +246,7 @@ function ChannelWorkspace({
       });
     }
     return { items, meta };
-  }, [stream.messages, stream.streams]);
+  }, [businessId, stream.messages, stream.streams]);
 
   const hasRunning =
     stream.activeRuns.length > 0 ||
@@ -257,11 +282,46 @@ function ChannelWorkspace({
     );
   };
 
+  const persistedCount = stream.messages.filter(
+    (message) => !message.id.startsWith('local-'),
+  ).length;
+  const hasOlder = !olderExhausted && persistedCount >= CHANNEL_MESSAGES_PAGE_SIZE;
+
+  const loadOlder = useCallback(async (): Promise<void> => {
+    if (loadingOlder) return;
+    const first = stream.messages.find((message) => !message.id.startsWith('local-'));
+    if (first === undefined) return;
+    setLoadingOlder(true);
+    try {
+      const page = await api.channelMessages(channel.id, {
+        before: first.seq,
+        limit: CHANNEL_MESSAGES_PAGE_SIZE,
+      });
+      client.setQueryData<ChannelMessage[]>(channelMessagesQuery(channel.id).queryKey, (previous) =>
+        mergeChannelMessages(previous ?? [], page),
+      );
+      if (page.length < CHANNEL_MESSAGES_PAGE_SIZE) setOlderExhausted(true);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [channel.id, client, loadingOlder, stream.messages]);
+
   const send = async (): Promise<void> => {
     const body = input.trim();
     if (!body || !canPost) return;
     const mentionIds = pruneMentions(input, mentions);
-    const clientMessageId = crypto.randomUUID();
+    const pending = pendingSend.current;
+    const clientMessageId =
+      pending !== null &&
+      pending.body === body &&
+      pending.mentionIds.length === mentionIds.length &&
+      pending.mentionIds.every((id, index) => id === mentionIds[index])
+        ? pending.clientMessageId
+        : crypto.randomUUID();
+    const sentMentions = mentions;
+    pendingSend.current = { clientMessageId, body, mentionIds };
     const optimistic: ChannelMessage = {
       id: `local-${clientMessageId}`,
       channelId: channel.id,
@@ -277,6 +337,7 @@ function ChannelWorkspace({
     };
     setMessages((previous) => mergeChannelMessages(previous, [optimistic]));
     setInput('');
+    inputRef.current = '';
     setMentions([]);
     setMention(null);
     try {
@@ -285,11 +346,16 @@ function ChannelWorkspace({
         clientMessageId,
         ...(mentionIds.length === 0 ? {} : { mentions: mentionIds }),
       });
+      if (pendingSend.current?.clientMessageId === clientMessageId) pendingSend.current = null;
       setMessages((previous) => mergeChannelMessages(previous, [saved]));
       void client.invalidateQueries({ queryKey: ['channels'] });
     } catch (error) {
       setMessages((previous) => previous.filter((item) => item.id !== optimistic.id));
-      setInput((current) => current || body);
+      if (inputRef.current === '') {
+        setInput(body);
+        inputRef.current = body;
+        setMentions(sentMentions);
+      }
       toastError(error);
     }
   };
@@ -302,6 +368,7 @@ function ChannelWorkspace({
 
   const changeInput = (next: string, position: number | null): void => {
     const at = position ?? next.length;
+    inputRef.current = next;
     setInput(next);
     setCaret(at);
     setMention(mentionQueryAt(next, at));
@@ -314,6 +381,7 @@ function ChannelWorkspace({
 
   const pickMention = (target: MentionTarget): void => {
     const result = applyMention(input, caret, target.name);
+    inputRef.current = result.text;
     setInput(result.text);
     setCaret(result.caret);
     setMentions((previous) =>
@@ -352,28 +420,50 @@ function ChannelWorkspace({
 
   const renderItemHeader = useCallback(
     (item: ChatItem) => {
+      if (item.kind === 'user') {
+        if (item.self !== false) return null;
+        const member =
+          item.authorBusinessId === undefined ? undefined : memberById.get(item.authorBusinessId);
+        return <ChannelMemberHeader member={member} authorBusinessId={item.authorBusinessId} />;
+      }
       const agentId = timeline.meta.get(item)?.headerAgentId;
       if (agentId === undefined) return null;
       return <ChannelAgentHeader agent={agentById.get(agentId)} agentId={agentId} />;
     },
-    [agentById, timeline],
+    [agentById, memberById, timeline],
   );
 
   const renderItemFooter = useCallback(
     (item: ChatItem) => {
       const control = timeline.meta.get(item)?.control;
       if (control === undefined) return null;
+      const manages =
+        channel.archivedAt === null &&
+        (channelRole === 'owner' ||
+          channelRole === 'admin' ||
+          (channelRole === 'member' && runInitiator.get(control.runId) === businessId));
       return (
         <RunControls
           runId={control.runId}
           active={control.active}
+          canStop={manages}
+          canApprove={manages}
           approvals={pendingApprovals}
           stop={stop}
           approve={approve}
         />
       );
     },
-    [approve, pendingApprovals, stop, timeline],
+    [
+      approve,
+      businessId,
+      channel.archivedAt,
+      channelRole,
+      pendingApprovals,
+      runInitiator,
+      stop,
+      timeline,
+    ],
   );
 
   return (
@@ -402,11 +492,7 @@ function ChannelWorkspace({
             {channel.members.length} 成员 · {channel.agentBindings.length} 智能体
           </span>
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 xl:hidden">
-            <MemberAvatars
-              members={channel.members}
-              businessId={businessId}
-              name={user?.user.name}
-            />
+            <MemberAvatars members={channel.members} />
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               {channel.agentBindings.map((binding) => {
                 const agent = agentById.get(binding.agentId);
@@ -442,6 +528,22 @@ function ChannelWorkspace({
               ) : null}
             </div>
           </div>
+          <div className="ml-auto flex shrink-0 items-center">
+            <ChannelSettingsButton
+              channel={channel}
+              businessId={businessId}
+              role={channelRole}
+              agents={agents.data ?? []}
+            />
+          </div>
+          {channel.description ? (
+            <p
+              title={channel.description}
+              className="w-full min-w-0 truncate text-sm text-muted-foreground"
+            >
+              {channel.description}
+            </p>
+          ) : null}
         </header>
 
         {refreshFailed ? (
@@ -464,9 +566,10 @@ function ChannelWorkspace({
           loading={stream.messagesQuery.isPending}
           error={stream.messagesQuery.isError ? stream.messagesQuery.error : null}
           onRetry={() => void stream.messagesQuery.refetch()}
-          hasOlder={false}
-          loadingOlder={false}
-          olderDisabled={true}
+          onLoadOlder={loadOlder}
+          hasOlder={hasOlder}
+          loadingOlder={loadingOlder}
+          olderDisabled={loadingOlder}
           welcome={
             <EmptyState icon={<MessageSquare className="size-5" />} title="从第一条消息开始" />
           }
@@ -525,14 +628,8 @@ function ChannelWorkspace({
       <ChannelSidebarDetail
         channel={channel}
         agents={agents.data ?? []}
-        businessId={businessId}
-        name={user?.user.name}
         activeAgentIds={activeAgentIds}
         waitingAgentIds={waitingAgentIds}
-        canManage={canManage}
-        bind={bind}
-        agentToBind={agentToBind}
-        onAgentToBind={setAgentToBind}
       />
     </div>
   );
@@ -558,15 +655,31 @@ function ChannelAgentHeader({
   );
 }
 
-function MemberAvatars({
-  members,
-  businessId,
-  name,
+function ChannelMemberHeader({
+  member,
+  authorBusinessId,
 }: {
-  members: readonly ChannelMember[];
-  businessId: string | null;
-  name: string | undefined;
+  member: ChannelMember | undefined;
+  authorBusinessId: string | undefined;
 }) {
+  const removed = member === undefined && authorBusinessId !== undefined;
+  const label = member !== undefined ? memberLabel(member) : removed ? '已移除的成员' : '成员';
+  const initial = member !== undefined ? memberInitial(member) : removed ? '—' : '成员';
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+      {member?.image ? (
+        <img src={member.image} alt="" className="size-5 shrink-0 rounded-full object-cover" />
+      ) : (
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sunken text-2xs font-medium text-muted-foreground">
+          {initial}
+        </span>
+      )}
+      <span className="min-w-0 truncate font-medium text-fg">{label}</span>
+    </div>
+  );
+}
+
+function MemberAvatars({ members }: { members: readonly ChannelMember[] }) {
   const visible = members.slice(0, 5);
   const hidden = members.length - visible.length;
   return (
@@ -576,10 +689,10 @@ function MemberAvatars({
         {visible.map((item) => (
           <span
             key={item.businessId}
-            title={`${memberLabel(item.businessId, businessId, name)} · ${ROLE_LABEL[item.role]}`}
+            title={`${memberLabel(item)} · ${ROLE_LABEL[item.role]}`}
             className="flex size-6 items-center justify-center rounded-full border border-line bg-sunken text-2xs font-medium text-muted-foreground"
           >
-            {memberInitial(item.businessId, businessId, name)}
+            {memberInitial(item)}
           </span>
         ))}
       </div>
@@ -636,28 +749,14 @@ function ChannelSidebar({ channelId }: { channelId: string }) {
 function ChannelSidebarDetail({
   channel,
   agents,
-  businessId,
-  name,
   activeAgentIds,
   waitingAgentIds,
-  canManage,
-  bind,
-  agentToBind,
-  onAgentToBind,
 }: {
   channel: ChannelDetail;
   agents: { id: string; name: string; description: string; enabled: boolean }[];
-  businessId: string | null;
-  name: string | undefined;
   activeAgentIds: ReadonlySet<string>;
   waitingAgentIds: ReadonlySet<string>;
-  canManage: boolean;
-  bind: ReturnType<typeof useBindChannelAgent>;
-  agentToBind: string | null;
-  onAgentToBind: (value: string | null) => void;
 }) {
-  const bound = new Set(channel.agentBindings.map((binding) => binding.agentId));
-  const bindable = agents.filter((agent) => !bound.has(agent.id));
   const agentName = new Map(agents.map((agent) => [agent.id, agent.name]));
   return (
     <aside className="hidden w-72 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line px-4 py-4 xl:flex">
@@ -669,11 +768,9 @@ function ChannelSidebarDetail({
           {channel.members.map((item) => (
             <li key={item.businessId} className="flex min-w-0 items-center gap-2 text-sm">
               <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-sunken text-2xs font-medium text-muted-foreground">
-                {memberInitial(item.businessId, businessId, name)}
+                {memberInitial(item)}
               </span>
-              <span className="min-w-0 truncate text-fg">
-                {memberLabel(item.businessId, businessId, name)}
-              </span>
+              <span className="min-w-0 truncate text-fg">{memberLabel(item)}</span>
               <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                 {ROLE_LABEL[item.role]}
               </span>
@@ -707,45 +804,6 @@ function ChannelSidebarDetail({
             );
           })}
         </ul>
-        {canManage && bindable.length > 0 ? (
-          <div className="flex flex-col gap-2">
-            <AgentPicker
-              triggerVariant="field"
-              agent={bindable.find((agent) => agent.id === agentToBind) ?? null}
-              agentId={agentToBind}
-              agentOptions={bindable.map((agent) => ({
-                value: agent.id,
-                label: agent.name,
-                agent,
-              }))}
-              onSwitchAgent={(id) => onAgentToBind(id)}
-              placeholder="选择智能体"
-              triggerAriaLabel="选择要绑定的智能体"
-              triggerClassName="w-full"
-            />
-            <Button
-              size="sm"
-              disabled={agentToBind === null || bind.isPending}
-              aria-busy={bind.isPending}
-              onClick={() => {
-                if (agentToBind === null) return;
-                bind.mutate(
-                  { agentId: agentToBind },
-                  {
-                    onSuccess: () => {
-                      onAgentToBind(null);
-                      toastSuccess('智能体已加入频道');
-                    },
-                    onError: (error) => toastError(error),
-                  },
-                );
-              }}
-            >
-              <Plus aria-hidden="true" />
-              绑定智能体
-            </Button>
-          </div>
-        ) : null}
       </section>
     </aside>
   );
@@ -754,20 +812,26 @@ function ChannelSidebarDetail({
 function RunControls({
   runId,
   active,
+  canStop,
+  canApprove,
   approvals,
   stop,
   approve,
 }: {
   runId: string;
   active: boolean;
+  canStop: boolean;
+  canApprove: boolean;
   approvals: readonly ChannelApproval[];
   stop: ReturnType<typeof useStopChannelRun>;
   approve: ReturnType<typeof useApproveChannelApproval>;
 }) {
   const pendingApprovals = approvals.filter((approval) => approval.runId === runId);
+  const showStop = active && canStop;
+  if (!showStop && pendingApprovals.length === 0) return null;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
-      {active ? (
+      {showStop ? (
         <Button
           variant="outline"
           size="sm"
@@ -795,20 +859,22 @@ function RunControls({
             <span className="min-w-0 break-words text-fg">
               需要批准：{approval.serverName ?? approval.serverId} · {approval.toolName}
             </span>
-            <Button
-              size="sm"
-              variant="default"
-              disabled={approve.isPending && approve.variables === approval.id}
-              aria-busy={approve.isPending && approve.variables === approval.id}
-              onClick={() =>
-                approve.mutate(approval.id, {
-                  onSuccess: () => toastSuccess('已批准'),
-                  onError: (error) => toastError(error),
-                })
-              }
-            >
-              批准
-            </Button>
+            {canApprove ? (
+              <Button
+                size="sm"
+                variant="default"
+                disabled={approve.isPending && approve.variables === approval.id}
+                aria-busy={approve.isPending && approve.variables === approval.id}
+                onClick={() =>
+                  approve.mutate(approval.id, {
+                    onSuccess: () => toastSuccess('已批准'),
+                    onError: (error) => toastError(error),
+                  })
+                }
+              >
+                批准
+              </Button>
+            ) : null}
           </div>
         );
       })}
@@ -870,20 +936,12 @@ function bindingStatus(
   return { label: '空闲', dot: 'bg-subtle' };
 }
 
-function memberLabel(
-  businessId: string,
-  ownId: string | null,
-  ownName: string | undefined,
-): string {
-  if (businessId === ownId && ownName) return ownName;
-  return shortId(businessId);
+function memberLabel(member: ChannelMember): string {
+  return member.name ?? shortId(member.businessId);
 }
 
-function memberInitial(
-  businessId: string,
-  ownId: string | null,
-  ownName: string | undefined,
-): string {
-  if (businessId === ownId && ownName) return ownName.slice(0, 1).toUpperCase();
-  return shortId(businessId).slice(0, 2).toUpperCase();
+function memberInitial(member: ChannelMember): string {
+  return member.name
+    ? member.name.slice(0, 1).toUpperCase()
+    : shortId(member.businessId).slice(0, 2).toUpperCase();
 }

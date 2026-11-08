@@ -11,6 +11,7 @@ import {
   channelMessagesQuerySchema,
   channelReadInputSchema,
   channelReadStateSchema,
+  channelRoleSchema,
   channelSchema,
   channelUpdateSchema,
   idParams,
@@ -55,6 +56,16 @@ export const channelsContract = {
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'POST', path: '/channels/{id}/members', successStatus: 201 })
     .input(z.object({ params: idParams, body: channelMemberInputSchema }))
+    .output(channelMemberSchema),
+  updateMember: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({ method: 'PATCH', path: '/channels/{id}/members/{businessId}', successStatus: 200 })
+    .input(
+      z.object({
+        params: z.object({ id: z.string().min(1), businessId: z.string().min(1) }),
+        body: z.object({ role: channelRoleSchema }),
+      }),
+    )
     .output(channelMemberSchema),
   removeMember: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
@@ -114,6 +125,7 @@ export const channelsContract = {
             runId: z.string(),
             agentId: z.string(),
             status: runStatusSchema,
+            initiatedBy: z.string().nullable(),
             startedAt: z.string().nullable(),
           }),
         ),

@@ -2,6 +2,7 @@ import { channelsContract } from '@agentport/contract/channels';
 import { fail } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import {
+  CHANNEL_MAX_WAKE_AGENTS,
   type Channel,
   type ChannelAgentBinding,
   type ChannelDetail,
@@ -32,12 +33,14 @@ import {
 import type { NativeHttpDependencies } from '../chat/http.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { channelsApprovalsRouter } from './approvals.js';
-import { channelsControlRouter } from './control.js';
+import { cancelRunBatch, channelsControlRouter } from './control.js';
 
 const channelRepo = repo.channels;
 const SSE_BATCH = 200;
 const SSE_POLL_MS = 3000;
+const SSE_FALLBACK_POLL_MS = 30_000;
 const LANE_BUSY_NOTICE = '当前智能体正在处理上一轮消息，本条已保存；请等它结束后再 @ 继续。';
+const WAKE_FAILED_NOTICE = '智能体启动失败，请重新 @ 该智能体。';
 function subjectFor(context: RequestContext): {
   businessId: string;
 } {
@@ -65,6 +68,8 @@ function toMember(row: repo.channels.ChannelMemberRow): ChannelMember {
     businessId: row.businessId,
     role: row.role,
     lastReadSeq: row.lastReadSeq,
+    name: row.name,
+    image: row.image,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -100,6 +105,8 @@ function toListItem(row: repo.channels.ChannelListItemRow): ChannelListItem {
     role: row.role,
     lastReadSeq: row.lastReadSeq,
     unreadCount: row.unreadCount,
+    memberCount: row.memberCount,
+    agentCount: row.agentCount,
     lastMessage:
       row.lastMessage === null
         ? null
@@ -133,6 +140,22 @@ async function publishMessage(
     );
   }
 }
+async function postWakeFailureNotice(
+  context: RequestContext,
+  channelId: string,
+  agentId: string,
+): Promise<void> {
+  try {
+    const notice = await channelRepo.postSystemMessage(context.db, {
+      channelId,
+      agentId,
+      body: WAKE_FAILED_NOTICE,
+    });
+    if (notice !== null) await publishMessage(context, channelId, toMessage(notice));
+  } catch (err) {
+    context.log.warn({ err, channelId, agentId }, 'channel wake failure notice failed');
+  }
+}
 function forbidden(message: string): never {
   return fail('FORBIDDEN', message);
 }
@@ -153,8 +176,20 @@ const auditRead = async (
     privateContent: true,
   });
 };
-async function writeEvent(stream: SSEStreamingApi, event: ChannelEvent): Promise<void> {
-  await stream.writeSSE({ data: JSON.stringify(event) });
+async function writeEvent(
+  stream: SSEStreamingApi,
+  event: ChannelEvent,
+  id?: string,
+): Promise<void> {
+  await stream.writeSSE({
+    ...(id === undefined ? {} : { id }),
+    data: JSON.stringify(event),
+  });
+}
+function parseEventCursor(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 const os = implement(channelsContract).$context<RequestContext>();
 export const channelsMainRouter = {
@@ -219,6 +254,27 @@ export const channelsMainRouter = {
         return toMember(result.member);
     }
   }),
+  updateMember: os.updateMember.handler(async ({ input, context }) => {
+    const result = await channelRepo.updateMemberRole(
+      context.db,
+      subjectFor(context),
+      input.params.id,
+      input.params.businessId,
+      input.body.role,
+    );
+    switch (result.kind) {
+      case 'not_found':
+        return result.target === 'member' ? notFound('成员不存在') : notFound();
+      case 'forbidden':
+        return result.reason === 'owner_only'
+          ? forbidden('仅频道 owner 可以授予或修改 owner')
+          : forbidden('当前频道角色无权管理成员');
+      case 'conflict':
+        return conflict('最后一个 owner 不能降级');
+      case 'ok':
+        return toMember(result.member);
+    }
+  }),
   removeMember: os.removeMember.handler(async ({ input, context }) => {
     const result = await channelRepo.removeMember(
       context.db,
@@ -235,8 +291,16 @@ export const channelsMainRouter = {
           : forbidden('当前频道角色无权管理成员');
       case 'conflict':
         return conflict('最后一个 owner 不能移除');
-      case 'ok':
+      case 'ok': {
+        const cancel = await cancelRunBatch(context, input.params.id, result.runs);
+        if (cancel.failedRunIds.length > 0) {
+          context.log.warn(
+            { channelId: input.params.id, failedRunIds: cancel.failedRunIds },
+            'channel member removal left runs uncancelled',
+          );
+        }
         return undefined;
+      }
     }
   }),
   addAgent: os.addAgent.handler(async ({ input, context }) => {
@@ -280,8 +344,16 @@ export const channelsMainRouter = {
         return result.target === 'agent' ? notFound('智能体绑定不存在') : notFound();
       case 'forbidden':
         return forbidden('当前频道角色无权管理智能体绑定');
-      case 'ok':
+      case 'ok': {
+        const cancel = await cancelRunBatch(context, input.params.id, result.runs);
+        if (cancel.failedRunIds.length > 0) {
+          context.log.warn(
+            { channelId: input.params.id, failedRunIds: cancel.failedRunIds },
+            'channel agent removal left runs uncancelled',
+          );
+        }
         return undefined;
+      }
     }
   }),
   messages: os.messages.handler(async ({ input, context }) => {
@@ -289,7 +361,11 @@ export const channelsMainRouter = {
       context.db,
       subjectFor(context),
       input.params.id,
-      input.query,
+      {
+        after: input.query.after,
+        limit: input.query.limit,
+        ...(input.query.before === undefined ? {} : { before: input.query.before }),
+      },
     );
     if (result.kind === 'not_found') return notFound();
     await auditRead(context, { id: input.params.id, createdBy: result.createdBy });
@@ -325,6 +401,8 @@ export const channelsMainRouter = {
         return forbidden('viewer 不能发言');
       case 'invalid_mentions':
         return fail('INVALID_INPUT', '只能 @ 已绑定且状态正常的智能体');
+      case 'too_many_wakes':
+        return fail('INVALID_INPUT', `一次最多唤醒 ${CHANNEL_MAX_WAKE_AGENTS} 个智能体`);
       case 'ok': {
         const message = toMessage(result.message);
         await publishMessage(context, id, message);
@@ -350,6 +428,7 @@ export const channelsMainRouter = {
               if (notice !== null) await publishMessage(context, id, toMessage(notice));
               continue;
             }
+            await postWakeFailureNotice(context, id, agentId);
             throw err;
           }
           try {
@@ -372,6 +451,7 @@ export const channelsMainRouter = {
                 'channel enqueue failure cleanup failed',
               );
             }
+            await postWakeFailureNotice(context, id, agentId);
             return fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
           }
         }
@@ -398,19 +478,26 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
       .parse({ params: c.req.param(), query: c.req.query() });
     const { id } = input.params;
     const subject = subjectFor(context);
+    const readAccess = await channelRepo.getChannelReadAccess(context.db, subject, id);
+    if (!readAccess) return notFound();
+    if (input.query.after > readAccess.maxSeq) {
+      return fail('INVALID_INPUT', '事件游标超过频道当前消息序号');
+    }
+    const lastEventId = parseEventCursor(c.req.header('Last-Event-ID'));
+    const initialCursor =
+      lastEventId === undefined
+        ? input.query.after
+        : Math.min(Math.max(input.query.after, lastEventId), readAccess.maxSeq);
     const initial = await channelRepo.listMessages(context.db, subject, id, {
-      after: input.query.after,
+      after: initialCursor,
       limit: SSE_BATCH,
     });
     if (initial.kind === 'not_found') return notFound();
-    if (input.query.after > initial.maxSeq) {
-      return fail('INVALID_INPUT', '事件游标超过频道当前消息序号');
-    }
     await auditRead(context, { id, createdBy: initial.createdBy });
     deps.timeout(c.req.raw, 0);
     c.header('Cache-Control', 'no-cache, no-transform');
     c.header('X-Accel-Buffering', 'no');
-    let cursor = input.query.after;
+    let cursor = initialCursor;
     return streamSSE(c, async (stream) => {
       await stream.write('retry: 3000\n\n');
       let resolveClosed!: () => void;
@@ -457,12 +544,16 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
           }
           const message = toMessage(row);
           cursor = message.seq;
-          await writeEvent(stream, {
-            type: 'message.created',
-            channelId: id,
-            seq: message.seq,
-            message,
-          });
+          await writeEvent(
+            stream,
+            {
+              type: 'message.created',
+              channelId: id,
+              seq: message.seq,
+              message,
+            },
+            String(message.seq),
+          );
         }
       };
       const catchUp = async (): Promise<void> => {
@@ -510,14 +601,29 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
         return;
       }
       if (closed) return;
+      let pollInterval = SSE_FALLBACK_POLL_MS;
+      let polling = false;
       const schedulePoll = (): void => {
         if (closed) return;
+        polling = true;
         pollTimer = setTimeout(() => {
           pollTimer = undefined;
           void enqueueCatchUp().finally(schedulePoll);
-        }, SSE_POLL_MS);
+        }, pollInterval);
       };
-      schedulePoll();
+      const startPolling = (interval: number): void => {
+        if (closed) return;
+        if (pollTimer !== undefined) {
+          if (pollInterval === interval) return;
+          pollInterval = interval;
+          clearTimeout(pollTimer);
+          pollTimer = undefined;
+          schedulePoll();
+          return;
+        }
+        pollInterval = interval;
+        if (!polling) schedulePoll();
+      };
       try {
         subscription = await subscribeChannel(
           id,
@@ -532,6 +638,7 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
                 { channelId: id },
                 'channel redis subscription ended; DB polling continues',
               );
+              startPolling(SSE_POLL_MS);
               return;
             }
             await enqueueCatchUp();
@@ -556,10 +663,12 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
           { err, channelId: id },
           'channel sse subscribe failed; DB polling continues',
         );
+        startPolling(SSE_POLL_MS);
         await ended;
         return;
       }
       if (closed) subscription.close();
+      else startPolling(SSE_FALLBACK_POLL_MS);
       await ended;
     });
   });

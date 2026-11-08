@@ -17,7 +17,9 @@ import type {
   ChannelAgentBinding,
   ChannelDetail,
   ChannelListItem,
+  ChannelMember,
   ChannelMessage,
+  ChannelRole,
   ConnectorCatalogItem,
   ConversationBranch,
   ConversationSearchResponse,
@@ -288,6 +290,7 @@ export interface ChannelActiveRun {
   runId: string;
   agentId: string;
   status: RunStatus;
+  initiatedBy: string | null;
   startedAt: string | null;
 }
 
@@ -1144,7 +1147,7 @@ export const api = {
     rpc.channels.detail({ params: { id } }, clientOptions(signal)),
   channelMessages: (
     id: string,
-    options: { after?: number; limit?: number } = {},
+    options: { after?: number; before?: number; limit?: number } = {},
     signal?: AbortSignal,
   ): Promise<ChannelMessage[]> =>
     rpc.channels.messages({ params: { id }, query: options }, clientOptions(signal)),
@@ -1156,6 +1159,28 @@ export const api = {
     id: string,
     input: { agentId: string; autoWakeOnAll?: boolean },
   ): Promise<ChannelAgentBinding> => rpc.channels.addAgent({ params: { id }, body: input }),
+  updateChannel: (
+    id: string,
+    input: { name?: string; description?: string | null },
+  ): Promise<Channel> => rpc.channels.update({ params: { id }, body: input }),
+  addChannelMember: (
+    id: string,
+    input: { businessId: string; role: ChannelRole },
+  ): Promise<ChannelMember> => rpc.channels.addMember({ params: { id }, body: input }),
+  updateChannelMember: (
+    id: string,
+    businessId: string,
+    role: ChannelRole,
+  ): Promise<ChannelMember> =>
+    rpc.channels.updateMember({ params: { id, businessId }, body: { role } }),
+  removeChannelMember: (id: string, businessId: string): Promise<void> =>
+    rpc.channels.removeMember({ params: { id, businessId } }),
+  removeChannelAgent: (id: string, agentId: string): Promise<void> =>
+    rpc.channels.removeAgent({ params: { id, agentId } }),
+  disconnectChannelAgent: (id: string, agentId: string): Promise<void> =>
+    rpc.channels.disconnectAgent({ params: { id, agentId } }),
+  closeChannel: (id: string): Promise<{ id: string; archivedAt: string }> =>
+    rpc.channels.close({ params: { id } }),
   channelRuns: (id: string, signal?: AbortSignal): Promise<{ items: ChannelActiveRun[] }> =>
     rpc.channels.activeRuns({ params: { id }, query: { status: 'active' } }, clientOptions(signal)),
   channelApprovals: (id: string, signal?: AbortSignal): Promise<{ items: ChannelApproval[] }> =>
