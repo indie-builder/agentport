@@ -619,7 +619,7 @@ describe('knowledge library list', () => {
 });
 
 describe('knowledge library lifecycle', () => {
-  it('renames a base', async () => {
+  it('edits a base name and description from the row menu', async () => {
     baseHandlers();
     server.use(
       http.patch('/api/knowledge/bases/kb_1', () =>
@@ -628,10 +628,14 @@ describe('knowledge library lifecycle', () => {
     );
     await mount('/knowledge');
     await openMenu('操作 产品手册');
-    await chooseMenuItem('重命名');
-    await fill('knowledge-base-name', '研发手册');
-    await click(button('保存', dialog('重命名知识库')));
-    expect(patchBody('/api/knowledge/bases/kb_1')).toEqual({ name: '研发手册' });
+    await chooseMenuItem('编辑信息');
+    await fill('knowledge-base-info-name', '研发手册');
+    await fill('knowledge-base-info-description', '研发内部知识');
+    await click(button('保存', dialog('编辑信息')));
+    expect(patchBody('/api/knowledge/bases/kb_1')).toEqual({
+      name: '研发手册',
+      description: '研发内部知识',
+    });
   });
 
   it('toggles base status without resending other settings', async () => {
@@ -3619,12 +3623,12 @@ describe('knowledge UX guards', () => {
     await mount('/knowledge');
 
     await openMenu('操作 产品手册');
-    await chooseMenuItem('重命名');
-    await fill('knowledge-base-name', '研发手册');
-    await click(button('取消', dialog('重命名知识库')));
+    await chooseMenuItem('编辑信息');
+    await fill('knowledge-base-info-name', '研发手册');
+    await click(button('取消', dialog('编辑信息')));
     expect(dialog('放弃未保存的更改？')).toBeDefined();
     await click(button('放弃并关闭', dialog('放弃未保存的更改？')));
-    expect(document.body.textContent).not.toContain('重命名知识库');
+    expect(dialogShown('编辑信息')).toBe(false);
 
     await cleanup();
     mockMe();
@@ -5029,20 +5033,31 @@ function jobRequest(): URL | undefined {
 }
 
 describe('knowledge detail business line', () => {
-  it('orders the five task tabs and exposes status, expert usage and settings in the header', async () => {
+  it('orders the task tabs and exposes status, expert usage, edit and settings in the header', async () => {
     documentList();
     await mount('/knowledge/kb_1');
 
     const labels = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].map((item) =>
       item.textContent?.trim(),
     );
-    expect(labels).toEqual(['文档', '来源', '检索测试', '离线评估', 'FAQ', 'Wiki', '处理记录']);
+    expect(labels).toEqual([
+      '概览',
+      '文档',
+      '来源',
+      '检索测试',
+      '离线评估',
+      'FAQ',
+      'Wiki',
+      '处理记录',
+    ]);
     expect(document.querySelector('[data-slot="page-header"]')?.textContent).toContain('启用');
     expect(findButton('使用此库的专家')).toBeDefined();
+    expect(findButton('编辑信息')).toBeDefined();
     expect(findButton('设置')).toBeDefined();
     // 页头操作与默认按钮同高（32px），不再用更矮的 sm。
     expect(findButton('使用此库的专家')?.className).toContain('h-8');
     expect(findButton('使用此库的专家')?.className).not.toContain('h-7');
+    expect(findButton('编辑信息')?.className).toContain('h-8');
     expect(findButton('设置')?.className).toContain('h-8');
     expect(findButton('设置')?.className).not.toContain('h-7');
 
@@ -5061,6 +5076,7 @@ describe('knowledge detail business line', () => {
     expect(findButton('新建文件夹')).toBeUndefined();
     expect(findButton('管理标签')).toBeUndefined();
     expect(findButton('操作 上线流程')).toBeUndefined();
+    expect(findButton('编辑信息')).toBeUndefined();
     expect(findButton('设置')).toBeUndefined();
     expect(findButton('使用此库的专家')).toBeUndefined();
     expect(calls.some((item) => item.path === '/api/agents')).toBe(false);

@@ -24,6 +24,10 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       await requirePermission(context, 'knowledge.read');
       return useCases.getBase(depsOf(context), input.params.id);
     }),
+    summary: os.bases.summary.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.getBaseSummary(depsOf(context), input.params.id);
+    }),
     update: os.bases.update.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.update');
       return useCases.updateBase(depsOf(context), input.params.id, input.body);
@@ -31,6 +35,10 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     remove: os.bases.remove.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.delete');
       await useCases.deleteBase(depsOf(context), input.params.id);
+    }),
+    duplicate: os.bases.duplicate.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.create');
+      return useCases.duplicateBase(depsOf(context), input.params.id, input.body);
     }),
     folders: os.bases.folders.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');

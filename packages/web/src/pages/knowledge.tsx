@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CirclePause,
   CirclePlay,
+  Copy,
   Download,
   MoreHorizontal,
   Pencil,
@@ -17,6 +18,8 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { BaseInfoDialog } from '../components/knowledge-base-info.js';
+import { DuplicateBaseDialog } from '../components/knowledge-duplicate-dialog.js';
 import {
   KnowledgeProfilesDialog,
   KnowledgeSettingsDialog,
@@ -104,20 +107,24 @@ type BaseForm = z.infer<typeof baseFormSchema>;
 /** 列表只返回 base 本身；文档数在详情页看，不在行上为每个库多拉一页文档。 */
 function KnowledgeRow({
   base,
-  onRename,
+  onEdit,
+  onDuplicate,
   onSettings,
   onToggleStatus,
   onExport,
   onDelete,
   canUpdate,
+  canCreate,
   canExport,
   canDelete,
 }: {
   base: KnowledgeBase;
   canUpdate: boolean;
+  canCreate: boolean;
   canExport: boolean;
   canDelete: boolean;
-  onRename: (trigger: HTMLElement) => void;
+  onEdit: (trigger: HTMLElement) => void;
+  onDuplicate: (trigger: HTMLElement) => void;
   onSettings: (trigger: HTMLElement) => void;
   onToggleStatus: (trigger: HTMLElement) => void;
   onExport: (trigger: HTMLElement) => void;
@@ -167,8 +174,13 @@ function KnowledgeRow({
             <DropdownMenuContent align="end" sideOffset={4} className="w-40">
               <DropdownMenuGroup>
                 {canUpdate ? (
-                  <DropdownMenuItem onClick={(event) => onRename(event.currentTarget)}>
-                    <Pencil /> 重命名
+                  <DropdownMenuItem onClick={(event) => onEdit(event.currentTarget)}>
+                    <Pencil /> 编辑信息
+                  </DropdownMenuItem>
+                ) : null}
+                {canCreate ? (
+                  <DropdownMenuItem onClick={(event) => onDuplicate(event.currentTarget)}>
+                    <Copy /> 复制知识库
                   </DropdownMenuItem>
                 ) : null}
                 {canUpdate ? (
@@ -232,7 +244,8 @@ export function KnowledgePage() {
   const importer = useImportKnowledgeBase();
   const importInput = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
-  const [renaming, setRenaming] = useState<KnowledgeBase | null>(null);
+  const [editing, setEditing] = useState<KnowledgeBase | null>(null);
+  const [duplicating, setDuplicating] = useState<KnowledgeBase | null>(null);
   const [configuring, setConfiguring] = useState<KnowledgeBase | null>(null);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [deleting, setDeleting] = useState<KnowledgeBase | null>(null);
@@ -245,6 +258,8 @@ export function KnowledgePage() {
   } | null>(null);
   // 创建成功的弹层卸载、blocker 注销后才导航：同一 tick 内跳转仍会被旧的 dirty/pending 拦下。
   const [createdBaseId, setCreatedBaseId] = useState<string | null>(null);
+  // 复制同理：弹层先关闭（结算 blocker），下一轮再进入新库。
+  const [duplicatedBaseId, setDuplicatedBaseId] = useState<string | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -252,6 +267,12 @@ export function KnowledgePage() {
     setCreatedBaseId(null);
     void navigate({ to: '/knowledge/$baseId', params: { baseId: createdBaseId } });
   }, [creating, createdBaseId, navigate]);
+
+  useEffect(() => {
+    if (duplicating || duplicatedBaseId === null) return;
+    setDuplicatedBaseId(null);
+    void navigate({ to: '/knowledge/$baseId', params: { baseId: duplicatedBaseId } });
+  }, [duplicating, duplicatedBaseId, navigate]);
 
   const boundAgents = deleting
     ? (agents.data?.filter((agent) => (agent.serverIds ?? []).includes(deleting.serverId)) ?? [])
@@ -458,9 +479,13 @@ export function KnowledgePage() {
             <KnowledgeRow
               key={base.id}
               base={base}
-              onRename={(trigger) => {
+              onEdit={(trigger) => {
                 setActionFocus(trigger);
-                setRenaming(base);
+                setEditing(base);
+              }}
+              onDuplicate={(trigger) => {
+                setActionFocus(trigger);
+                setDuplicating(base);
               }}
               onSettings={(trigger) => {
                 setActionFocus(trigger);
@@ -485,6 +510,7 @@ export function KnowledgePage() {
                 download(base);
               }}
               canUpdate={canUpdate}
+              canCreate={canCreate}
               canExport={canExport}
               canDelete={canDelete}
               onDelete={(trigger) => {
@@ -529,11 +555,22 @@ export function KnowledgePage() {
           }}
         />
       ) : null}
-      {renaming ? (
-        <RenameBaseDialog
-          base={renaming}
+      {editing ? (
+        <BaseInfoDialog
+          base={editing}
           finalFocus={() => (actionFocus?.isConnected ? actionFocus : null)}
-          onClose={() => setRenaming(null)}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
+      {duplicating ? (
+        <DuplicateBaseDialog
+          base={duplicating}
+          finalFocus={() => (actionFocus?.isConnected ? actionFocus : null)}
+          onClose={() => setDuplicating(null)}
+          onDuplicated={(baseId) => {
+            setDuplicating(null);
+            setDuplicatedBaseId(baseId);
+          }}
         />
       ) : null}
       {configuring ? (
@@ -571,83 +608,6 @@ export function KnowledgePage() {
         />
       ) : null}
     </ResourcePage>
-  );
-}
-
-function RenameBaseDialog({
-  base,
-  onClose,
-  finalFocus,
-}: {
-  base: KnowledgeBase;
-  onClose: () => void;
-  finalFocus: () => HTMLElement | null;
-}) {
-  const update = useUpdateKnowledgeBase();
-  const [name, setName] = useState(base.name);
-  const trimmed = name.trim();
-  const pending = update.isPending;
-  const dirty = name !== base.name;
-  const guard = useDraftGuard(dirty, pending, onClose);
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
-      <DialogShell title="重命名知识库" closeDisabled={pending} finalFocus={finalFocus}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            update.mutate(
-              { baseId: base.id, patch: { name: trimmed } },
-              {
-                onSuccess: () => {
-                  toastSuccess('已重命名');
-                  guard.finish();
-                },
-                onError: toastError,
-              },
-            );
-          }}
-        >
-          <FieldGroup>
-            <Field className="gap-1.5">
-              <FieldLabel htmlFor="knowledge-base-name">
-                名称 <RequiredMark />
-              </FieldLabel>
-              <Input
-                id="knowledge-base-name"
-                value={name}
-                disabled={pending}
-                maxLength={120}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </Field>
-          </FieldGroup>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button
-              type="submit"
-              disabled={pending || trimmed === '' || trimmed === base.name}
-              aria-busy={pending}
-            >
-              {pending ? '保存中…' : '保存'}
-            </Button>
-          </div>
-        </form>
-        <DraftGuardDialogs guard={guard} draft="重命名草稿会丢失。" pending={pending} />
-      </DialogShell>
-    </Dialog>
   );
 }
 

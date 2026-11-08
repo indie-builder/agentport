@@ -1812,6 +1812,7 @@ export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): 
 export const knowledgeKeys = {
   bases: ['knowledge', 'bases'] as const,
   base: (id: string) => ['knowledge', 'base', id] as const,
+  summary: (id: string) => ['knowledge', 'base-summary', id] as const,
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
   documentVersions: (documentId: string) => ['knowledge', 'document-versions', documentId] as const,
   manual: (documentId: string) => ['knowledge', 'manual', documentId] as const,
@@ -1861,10 +1862,30 @@ export function useKnowledgeBase(id: string) {
   });
 }
 
+export function useKnowledgeBaseSummary(id: string) {
+  return useQuery({
+    queryKey: knowledgeKeys.summary(id),
+    queryFn: ({ signal }) => api.knowledgeBaseSummary(id, signal),
+    staleTime: 0,
+  });
+}
+
 export function useCreateKnowledgeBase() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: KnowledgeBaseInput) => api.createKnowledgeBase(input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.bases }),
+  });
+}
+
+/** 复制只复制库与配置；文档、Wiki 与索引留在原库，由服务端决定默认名与 slug 落点。 */
+export function useDuplicateKnowledgeBase() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      baseId: string;
+      body: { name?: string; slug?: string; description?: string };
+    }) => api.duplicateKnowledgeBase(vars.baseId, vars.body),
     onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.bases }),
   });
 }

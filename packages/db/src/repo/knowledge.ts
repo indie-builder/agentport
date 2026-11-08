@@ -304,6 +304,8 @@ export interface CreateBaseInput {
   rerankProfileId: string | null;
   /** 绑定音频转录模型时必须存在、kind=asr 且启用；null 表示关闭。 */
   asrProfileId?: string | null | undefined;
+  /** 省略时按表默认 active；复制已有库时沿用源库状态。 */
+  status?: 'active' | 'disabled' | undefined;
   settings: KnowledgeBaseSettings;
 }
 
@@ -392,6 +394,110 @@ export async function deleteBase(db: Database, id: string): Promise<boolean> {
     .where(eq(knowledgeBases.id, id))
     .returning({ id: knowledgeBases.id });
   return rows.length > 0;
+}
+
+/** 复制知识库时按唯一索引判占用；最终仍由 knowledge_bases_slug_idx 裁决并发冲突。 */
+export async function baseSlugExists(db: Database, slug: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: knowledgeBases.id })
+    .from(knowledgeBases)
+    .where(eq(knowledgeBases.slug, slug))
+    .limit(1);
+  return row !== undefined;
+}
+
+export interface BaseSummaryCounts {
+  documents: number;
+  faqs: number;
+  wikiPages: number;
+  sources: number;
+  folders: number;
+  tags: number;
+  lastJob: {
+    id: string;
+    type: string;
+    status: KnowledgeJobRow['status'];
+    createdAt: Date;
+    updatedAt: Date;
+  } | null;
+}
+
+/**
+ * 概览计数走单条 SQL：每类实体一次子查询，最近任务用 lateral 只取一条。
+ * wiki 页数以 knowledge_wiki_pages 为准（docs 里 content_kind='wiki' 只是它的检索索引），
+ * 所以 documents 只统计 content_kind='document'，三类互不重叠。
+ * knowledge_jobs 没有 updated_at，lastJob.updatedAt 取 ended_at/started_at/created_at 的最近值。
+ */
+export async function getBaseSummary(
+  db: Database,
+  baseId: string,
+): Promise<BaseSummaryCounts | null> {
+  const rows = await db.execute<{
+    documents: number;
+    faqs: number;
+    wiki_pages: number;
+    sources: number;
+    folders: number;
+    tags: number;
+    last_job_id: string | null;
+    last_job_type: string | null;
+    last_job_status: string | null;
+    last_job_created_at: Date | string | null;
+    last_job_updated_at: Date | string | null;
+  }>(sql`
+    select
+      (select count(*)::int from knowledge_documents d
+        where d.base_id = b.id and d.content_kind = 'document') as documents,
+      (select count(*)::int from knowledge_documents d
+        where d.base_id = b.id and d.content_kind = 'faq') as faqs,
+      (select count(*)::int from knowledge_wiki_pages p where p.base_id = b.id) as wiki_pages,
+      (select count(*)::int from knowledge_sources s where s.base_id = b.id) as sources,
+      (select count(*)::int from knowledge_folders f where f.base_id = b.id) as folders,
+      (select count(*)::int from knowledge_tags t where t.base_id = b.id) as tags,
+      last_job.id as last_job_id,
+      last_job.type as last_job_type,
+      last_job.status as last_job_status,
+      last_job.created_at as last_job_created_at,
+      last_job.updated_at as last_job_updated_at
+    from knowledge_bases b
+    left join lateral (
+      select j.id, j.type, j.status, j.created_at,
+        coalesce(j.ended_at, j.started_at, j.created_at) as updated_at
+      from knowledge_jobs j
+      where j.base_id = b.id
+      order by j.created_at desc, j.id desc
+      limit 1
+    ) as last_job on true
+    where b.id = ${baseId}
+  `);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    documents: row.documents,
+    faqs: row.faqs,
+    wikiPages: row.wiki_pages,
+    sources: row.sources,
+    folders: row.folders,
+    tags: row.tags,
+    lastJob:
+      row.last_job_id === null ||
+      row.last_job_type === null ||
+      row.last_job_status === null ||
+      row.last_job_created_at === null ||
+      row.last_job_updated_at === null
+        ? null
+        : {
+            id: row.last_job_id,
+            type: row.last_job_type,
+            status: row.last_job_status as KnowledgeJobRow['status'],
+            createdAt: toDate(row.last_job_created_at),
+            updatedAt: toDate(row.last_job_updated_at),
+          },
+  };
+}
+
+function toDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
 }
 
 // ---------------------------------------------------------------------------

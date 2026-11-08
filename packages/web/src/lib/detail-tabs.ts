@@ -15,6 +15,7 @@ export const agentTabs = [
 ] as const;
 
 export const knowledgeTabs = [
+  { id: 'overview', label: '概览' },
   { id: 'documents', label: '文档' },
   { id: 'sources', label: '来源' },
   { id: 'search', label: '检索测试' },

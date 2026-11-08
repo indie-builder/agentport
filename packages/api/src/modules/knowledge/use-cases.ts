@@ -952,6 +952,8 @@ export async function createBase(
     embeddingProfileId: string;
     rerankProfileId: string | null;
     asrProfileId: string | null;
+    /** 省略时按表默认 active；复制已有库时沿用源库状态。 */
+    status?: 'active' | 'disabled' | undefined;
     settings: KnowledgeBaseSettings;
   },
 ) {
@@ -985,6 +987,7 @@ export async function createBase(
       embeddingProfileId: input.embeddingProfileId,
       rerankProfileId: input.rerankProfileId,
       asrProfileId: input.asrProfileId,
+      status: input.status,
       settings: input.settings,
     });
     await ensureKnowledgeServer(deps.db, { slug: row.slug, id: row.id, serverId: server.id });
@@ -1102,6 +1105,88 @@ export async function deleteBase(deps: KnowledgeDeps, id: string): Promise<void>
     status: 'ok',
     requestId: deps.requestId,
   });
+}
+
+export async function getBaseSummary(deps: KnowledgeDeps, id: string) {
+  const summary = await repo.knowledge.getBaseSummary(deps.db, id);
+  if (!summary) notFound('知识库');
+  return {
+    documents: summary.documents,
+    faqs: summary.faqs,
+    wikiPages: summary.wikiPages,
+    sources: summary.sources,
+    folders: summary.folders,
+    tags: summary.tags,
+    lastJob:
+      summary.lastJob === null
+        ? null
+        : {
+            id: summary.lastJob.id,
+            type: summary.lastJob.type,
+            status: summary.lastJob.status,
+            createdAt: summary.lastJob.createdAt.toISOString(),
+            updatedAt: summary.lastJob.updatedAt.toISOString(),
+          },
+  };
+}
+
+const DUPLICATE_NAME_MAX = 120;
+const DUPLICATE_SLUG_MAX = 64;
+const DUPLICATE_SLUG_SUFFIX = '-copy';
+
+/** slug 上限 64：截断源 slug 让后缀完整保留；末尾字符仍是源 slug 的合法字符。 */
+function slugWithSuffix(sourceSlug: string, suffix: string): string {
+  return `${sourceSlug.slice(0, DUPLICATE_SLUG_MAX - suffix.length)}${suffix}`;
+}
+
+/**
+ * 副本 slug：先试 `-copy`，被占用就依次试 `-2`、`-3`……直到找到空位。
+ * 每个候选都查唯一索引，命中数量受库里已有副本数限制，不会无限循环；
+ * 真正的并发抢占仍由 knowledge_bases_slug_idx 与 createBase 的冲突映射兜底。
+ */
+async function availableCopySlug(deps: KnowledgeDeps, sourceSlug: string): Promise<string> {
+  const preferred = slugWithSuffix(sourceSlug, DUPLICATE_SLUG_SUFFIX);
+  if (!(await repo.knowledge.baseSlugExists(deps.db, preferred))) return preferred;
+  for (let index = 2; ; index += 1) {
+    const candidate = slugWithSuffix(sourceSlug, `-${index}`);
+    if (!(await repo.knowledge.baseSlugExists(deps.db, candidate))) return candidate;
+  }
+}
+
+/**
+ * 复制知识库只派生配置，不搬内容：profiles / settings / status / description 沿用源库，
+ * 文档、FAQ、Wiki、来源、文件夹、标签都留在源库。创建路径仍走 createBase，不另写一套。
+ */
+export async function duplicateBase(
+  deps: KnowledgeDeps,
+  id: string,
+  body: {
+    name?: string | undefined;
+    slug?: string | undefined;
+    description?: string | undefined;
+  },
+) {
+  const source = await repo.knowledge.getBase(deps.db, id);
+  if (!source) notFound('知识库');
+  const row = await createBase(deps, {
+    slug: body.slug ?? (await availableCopySlug(deps, source.slug)),
+    name: body.name ?? `${source.name.slice(0, DUPLICATE_NAME_MAX - 3)} 副本`,
+    description: body.description ?? source.description,
+    embeddingProfileId: source.embeddingProfileId,
+    rerankProfileId: source.rerankProfileId,
+    asrProfileId: source.asrProfileId,
+    status: source.status,
+    settings: source.settings,
+  });
+  await repo.audit.writeAudit(deps.db, deps.log, {
+    actor: deps.actor,
+    action: 'knowledge.base.duplicated',
+    target: row.id,
+    input: { sourceId: source.id, slug: row.slug },
+    status: 'ok',
+    requestId: deps.requestId,
+  });
+  return row;
 }
 
 // ---- folders / tags -------------------------------------------------------

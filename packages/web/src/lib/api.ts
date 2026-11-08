@@ -25,6 +25,7 @@ import type {
   EvalRunExport,
   KnowledgeBase,
   KnowledgeBaseSettings,
+  KnowledgeBaseSummary,
   KnowledgeChunk,
   KnowledgeDocument,
   KnowledgeDocumentVersion,
@@ -1407,6 +1408,12 @@ export const api = {
     rpc.knowledge.bases.list({ query }, clientOptions(signal)),
   knowledgeBase: (id: string): Promise<KnowledgeBase> =>
     rpc.knowledge.bases.get({ params: { id } }),
+  knowledgeBaseSummary: (id: string, signal?: AbortSignal): Promise<KnowledgeBaseSummary> =>
+    rpc.knowledge.bases.summary({ params: { id } }, clientOptions(signal)),
+  duplicateKnowledgeBase: (
+    id: string,
+    body: { name?: string; slug?: string; description?: string },
+  ): Promise<KnowledgeBase> => rpc.knowledge.bases.duplicate({ params: { id }, body }),
   createKnowledgeBase: (input: KnowledgeBaseInput): Promise<KnowledgeBase> =>
     rpc.knowledge.bases.create({ body: input }),
   updateKnowledgeBase: (id: string, patch: KnowledgeBasePatch): Promise<KnowledgeBase> =>

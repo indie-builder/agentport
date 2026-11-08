@@ -5,6 +5,7 @@ import {
   knowledgeBaseInputSchema,
   knowledgeBaseSchema,
   knowledgeBaseSettingsSchema,
+  knowledgeBaseSummarySchema,
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
   knowledgeDocumentStatusSchema,
@@ -584,6 +585,11 @@ const basesContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(z.object({ params: idParams }))
     .output(knowledgeBaseSchema),
+  summary: contractProcedure
+    .route({ method: 'GET', path: '/knowledge/bases/{id}/summary' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(z.object({ params: idParams }))
+    .output(knowledgeBaseSummarySchema),
   update: contractProcedure
     .route({ method: 'PATCH', path: '/knowledge/bases/{id}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.update' } })
@@ -594,6 +600,20 @@ const basesContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.delete' } })
     .input(z.object({ params: idParams }))
     .output(z.void()),
+  duplicate: contractProcedure
+    .route({ method: 'POST', path: '/knowledge/bases/{id}/duplicate', successStatus: 201 })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.create' } })
+    .input(
+      z.object({
+        params: idParams,
+        body: z.object({
+          name: z.string().trim().min(1).max(120).optional(),
+          slug: slugSchema.optional(),
+          description: z.string().max(500).optional(),
+        }),
+      }),
+    )
+    .output(knowledgeBaseSchema),
   folders: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/{id}/folders' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })

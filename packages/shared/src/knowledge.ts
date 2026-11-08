@@ -569,6 +569,27 @@ export const knowledgeJobStatusSchema = z.enum([
   'cancelled',
 ]);
 
+/** 知识库概览：各实体计数与最近一条任务；lastJob 只带列表可读字段，不含 payload。 */
+export const knowledgeBaseSummarySchema = z.object({
+  documents: z.number().int().nonnegative(),
+  faqs: z.number().int().nonnegative(),
+  wikiPages: z.number().int().nonnegative(),
+  sources: z.number().int().nonnegative(),
+  folders: z.number().int().nonnegative(),
+  tags: z.number().int().nonnegative(),
+  lastJob: z
+    .object({
+      id: z.string(),
+      type: z.string(),
+      status: knowledgeJobStatusSchema,
+      createdAt: z.string(),
+      updatedAt: z.string(),
+    })
+    .nullable(),
+});
+
+export type KnowledgeBaseSummary = z.infer<typeof knowledgeBaseSummarySchema>;
+
 export const knowledgeSourceProbeCheckSchema = z.object({
   rangeId: z.string(),
   ok: z.boolean(),
