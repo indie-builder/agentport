@@ -910,10 +910,11 @@ export function useConversation(conversationId: string | null) {
   });
 }
 
-export function useRuns(query: RunQuery = {}) {
+export function useRuns(query: RunQuery = {}, enabled = true) {
   return useQuery<RunList>({
     queryKey: ['runs', query.agentId ?? null, query.status ?? null, query.limit ?? 50],
     queryFn: () => api.runs(query),
+    enabled,
     staleTime: 5_000,
     // 运行期间列表有变化，轮询跟进；全部结束后停止。
     refetchInterval: (query) =>

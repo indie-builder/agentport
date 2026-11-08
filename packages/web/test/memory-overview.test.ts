@@ -138,8 +138,8 @@ describe('memory overview', () => {
     expect(text).toContain('42 行');
     expect(text).toContain('占上限 21%');
     expect(text).toContain('上限 200 行 / 25 KB');
-    expect(text).toContain('项目规则');
-    expect(text).toContain('2 条');
+    // 项目规则的规模只在「指令」页呈现，不在记忆概览里重复。
+    expect(text).not.toContain('项目规则');
     expect(text).toContain('当前个人记忆');
     expect(text).toContain('120 字符');
     expect(text).toContain('上限 9000 字符');

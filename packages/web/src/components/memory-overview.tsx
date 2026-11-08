@@ -1,6 +1,6 @@
 import type { AgentMemoryAssembly, AgentMemoryOverview, MemoryHealth } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Gauge, ScrollText, UserRound } from 'lucide-react';
+import { FileText, Gauge, UserRound } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatBytes, formatDateTime } from '../lib/format.js';
 import { agentMemoryAssemblyQuery, agentMemoryOverviewQuery } from '../lib/queries.js';
@@ -270,7 +270,7 @@ export function MemoryOverview({
         <ErrorState error={overview.error} onRetry={() => void overview.refetch()} />
       ) : null}
       <div className="flex flex-col gap-2">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <KpiCard
             label="主题文件数"
             value={`${data.topics.count} 个`}
@@ -282,12 +282,6 @@ export function MemoryOverview({
             value={`${data.index.lines} 行`}
             hint={`占上限 ${indexShare}% · 上限 ${data.index.maxLines} 行 / ${formatBytes(data.index.maxBytes)}`}
             icon={Gauge}
-          />
-          <KpiCard
-            label="项目规则"
-            value={`${data.rules.count} 条`}
-            hint={formatBytes(data.rules.bytes)}
-            icon={ScrollText}
           />
           <KpiCard
             label="当前个人记忆"

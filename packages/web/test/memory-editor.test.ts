@@ -424,6 +424,19 @@ describe('memory subview switching', () => {
 });
 
 describe('rule editor', () => {
+  it('opens the first rule by default instead of the empty state', async () => {
+    vi.mocked(api.agentRules).mockResolvedValue([rule, secondRule]);
+    mount(createElement(RulesPanel, { agentId: 'expert' }));
+
+    const view = await waitFor(() => editorView('rule-content'));
+    expect(view.state.doc.toString()).toBe('# 规则');
+    expect(document.querySelector('label[for="rule-content"]')?.textContent).toBe(
+      '规则内容（Markdown）',
+    );
+    expect(button('保存规则').disabled).toBe(true);
+    expect(host.textContent).not.toContain('选择或新建规则');
+  });
+
   it('edits rule markdown with the source editor and marks the draft dirty', async () => {
     const onDirtyChange = vi.fn();
     mount(createElement(RulesPanel, { agentId: 'expert', onDirtyChange }));
@@ -466,6 +479,17 @@ describe('rule editor', () => {
 });
 
 describe('output style editor', () => {
+  it('opens the first output style by default instead of the empty state', async () => {
+    vi.mocked(api.agentOutputStyles).mockResolvedValue([selectedStyle, secondStyle]);
+    mount(createElement(OutputStylesPanel, { agentId: 'expert' }));
+
+    const view = await waitFor(() => editorView('output-style-body'));
+    expect(view.state.doc.toString()).toBe('# 风格');
+    expect(document.querySelector('label[for="output-style-body"]')?.textContent).toBe('风格内容');
+    expect(button('风格保存').disabled).toBe(true);
+    expect(host.textContent).not.toContain('选择或新建输出风格');
+  });
+
   it('edits style markdown with the source editor and marks the draft dirty', async () => {
     const onDirtyChange = vi.fn();
     mount(createElement(OutputStylesPanel, { agentId: 'expert', onDirtyChange }));

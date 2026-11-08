@@ -2,7 +2,7 @@ import type { MemoryChange, OutputStyle } from '@agentport/shared';
 import { memoryFileNameSchema, validateMemoryContent } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { type MemoryView, memoryViews } from '../lib/detail-tabs.js';
@@ -762,6 +762,8 @@ export function RulesPanel({
   const client = useQueryClient();
   const rules = useQuery(agentRulesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
+  // 默认选中只做一次：之后的删除、新建与用户切换都按原逻辑处理。
+  const autoSelected = useRef(false);
   const [creating, setCreating] = useState(false);
   const [slug, setSlug] = useState('');
   const [draft, setDraft] = useState('');
@@ -843,6 +845,20 @@ export function RulesPanel({
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
   useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+
+  // 列表就绪但还没有选中项、也不在新建时，默认打开第一条；
+  // 有选中项或草稿时不会覆盖，避免抢走正在编辑的内容。
+  useEffect(() => {
+    if (autoSelected.current || rules.data === undefined) return;
+    autoSelected.current = true;
+    if (selected !== null || creating) return;
+    const first = rules.data[0];
+    if (!first) return;
+    setSelected(first.slug);
+    setDraft(first.content);
+    setGlobs(first.globs);
+    setBaseline({ content: first.content, globs: first.globs });
+  }, [rules.data, selected, creating]);
 
   const submit = (): void => {
     if (pending || !canWrite) return;
@@ -1044,6 +1060,8 @@ export function OutputStylesPanel({
   const client = useQueryClient();
   const styles = useQuery(agentOutputStylesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
+  // 默认选中只做一次：之后的删除、新建与用户切换都按原逻辑处理。
+  const autoSelected = useRef(false);
   const [creating, setCreating] = useState(false);
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
@@ -1163,6 +1181,25 @@ export function OutputStylesPanel({
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
   useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+
+  // 列表就绪但还没有选中项、也不在新建时，默认打开第一条；
+  // 有选中项或草稿时不会覆盖，避免抢走正在编辑的内容。
+  useEffect(() => {
+    if (autoSelected.current || styles.data === undefined) return;
+    autoSelected.current = true;
+    if (selected !== null || creating) return;
+    const first = styles.data[0];
+    if (!first) return;
+    setSelected(first.slug);
+    setDescription(first.description);
+    setKeepCodingInstructions(first.keepCodingInstructions);
+    setBody(first.body);
+    setBaseline({
+      description: first.description,
+      keepCodingInstructions: first.keepCodingInstructions,
+      body: first.body,
+    });
+  }, [styles.data, selected, creating]);
 
   const submit = (): void => {
     if (pending || !canWrite) return;
