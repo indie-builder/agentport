@@ -5,6 +5,8 @@
 > 对本仓库的所有回复、总结、提交说明都用中文；代码、命令、标识符、路径保持原样。
 >
 > 文档入口见 [docs/README.md](docs/README.md)；研发流程规范见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)；跨任务踩坑见 [docs/PITFALLS.md](docs/PITFALLS.md)，开工前或报错时先读。各包专属规则见「模块规则」。
+>
+> 同目录 `AGENTS.md`（根与各 `packages/*`）是指向本文件的软链接，供非 Claude Harness 读取同一份规则。**唯一真源是本文件**：只改 `CLAUDE.md`，不要用实体副本替换链接，也不要因两者内容相同而视为重复。
 
 ## 0. 第一性原则：文件系统即智能体定义（最高约束）
 
