@@ -1310,7 +1310,7 @@ function CreateMemoryReviewDialog({
                           );
                           return (
                             <li key={conversation.id}>
-                              <div className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-hover">
+                              <div className="flex items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out-soft hover:bg-hover">
                                 <Checkbox
                                   id={`memory-review-source-${conversation.id}`}
                                   checked={checked}

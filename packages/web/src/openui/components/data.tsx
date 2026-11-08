@@ -72,7 +72,7 @@ export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unkn
       <TableBody>
         {Array.from({ length: rowCount }, (_, rowIndex) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 行由模型按顺序生成
-          <TableRow key={rowIndex}>
+          <TableRow key={rowIndex} className="hover:bg-transparent">
             {columns.map((column, columnIndex) => {
               const cell = rows[columnIndex]?.[rowIndex];
               return (

@@ -1591,7 +1591,7 @@ function ReadonlyAgentFiles({
                   aria-current={entry.id === current?.id ? 'true' : undefined}
                   onClick={() => onFileChange(entry.id)}
                   className={cn(
-                    'flex h-8 items-center truncate rounded-item px-2 text-left text-sm transition-colors',
+                    'flex h-8 items-center truncate rounded-item px-2 text-left text-sm transition-colors duration-150 ease-out-soft',
                     entry.id === current?.id
                       ? 'bg-selected font-medium text-selected-foreground'
                       : 'text-fg hover:bg-hover',
@@ -2545,7 +2545,7 @@ export function AgentEditor({
 
   const sectionButtonClass = (active: boolean): string =>
     cn(
-      'flex w-full items-center rounded-icon px-2 py-1.5 text-sm transition-colors md:text-left',
+      'flex w-full items-center rounded-icon px-2 py-1.5 text-sm transition-colors duration-150 ease-out-soft md:text-left',
       active
         ? 'bg-selected font-medium text-selected-foreground'
         : 'text-muted-foreground hover:bg-hover',
@@ -2651,7 +2651,7 @@ export function AgentEditor({
               <label
                 data-disabled={pending}
                 htmlFor="agent-enabled"
-                className="inline-flex items-center gap-2 rounded-item p-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-fg"
+                className="inline-flex items-center gap-2 rounded-item p-1 text-sm text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-fg"
               >
                 <Switch
                   disabled={pending || !canEnable}

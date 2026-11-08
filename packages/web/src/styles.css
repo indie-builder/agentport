@@ -496,9 +496,10 @@
     transform-origin: 50%;
     transition:
       transform var(--dur-slow) var(--btn-spring),
-      color var(--dur-fast) ease,
-      background-color var(--dur-fast) ease,
-      border-color var(--dur-fast) ease;
+      opacity 150ms var(--ease-out-soft),
+      color 150ms var(--ease-out-soft),
+      background-color 150ms var(--ease-out-soft),
+      border-color 150ms var(--ease-out-soft);
   }
 
   .cds-btn-squish:active {

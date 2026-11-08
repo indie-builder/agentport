@@ -190,7 +190,7 @@ export function KnowledgeEvaluations({
           </TableHeader>
           <TableBody>
             {report.results.map((result) => (
-              <TableRow key={result.q}>
+              <TableRow key={result.q} className="hover:bg-transparent">
                 <TableCell>{result.q}</TableCell>
                 <TableCell>{result.hit ? '命中' : '未命中'}</TableCell>
                 <TableCell className="text-right font-mono tabular-nums">
@@ -211,7 +211,7 @@ export function KnowledgeEvaluations({
                 </TableCell>
               </TableRow>
             ))}
-            <TableRow>
+            <TableRow className="hover:bg-transparent">
               <TableCell>总体</TableCell>
               <TableCell>—</TableCell>
               <TableCell className="text-right font-mono tabular-nums">

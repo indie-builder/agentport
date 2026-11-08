@@ -150,7 +150,7 @@ export function WikiTab({
                   onClick={() => onSelect(page.id)}
                   style={{ paddingLeft: `${8 + depth * 12}px` }}
                   className={cn(
-                    'flex w-full flex-col gap-0.5 rounded-item py-1.5 pr-2 text-left text-sm transition-colors',
+                    'flex w-full flex-col gap-0.5 rounded-item py-1.5 pr-2 text-left text-sm transition-colors duration-150 ease-out-soft',
                     page.id === pageId
                       ? 'bg-selected font-medium text-selected-foreground'
                       : 'text-muted-foreground hover:bg-hover hover:text-fg',

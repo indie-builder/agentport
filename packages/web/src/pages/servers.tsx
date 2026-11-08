@@ -1383,8 +1383,7 @@ function ToolEditorDialog({
             <Table>
               <caption className="sr-only">生成的工具定义</caption>
               <TableHeader>
-                {/* Keep table headings static when the pointer crosses the header. */}
-                <TableRow className="hover:bg-transparent">
+                <TableRow>
                   <TableHead>名称</TableHead>
                   <TableHead className="w-20">方法</TableHead>
                   <TableHead>路径</TableHead>
@@ -1398,8 +1397,7 @@ function ToolEditorDialog({
               </TableHeader>
               <TableBody>
                 {tools.data.map((tool) => (
-                  // Keep tool rows on the same light chip hover surface as server rows.
-                  <TableRow key={tool.id} className="h-14 hover:bg-chip">
+                  <TableRow key={tool.id} className="h-14">
                     <TableCell>
                       <span className="font-mono text-xs text-fg">{tool.name}</span>
                       {tool.description ? (
