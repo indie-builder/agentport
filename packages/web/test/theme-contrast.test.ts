@@ -70,11 +70,11 @@ function ratio(foreground: string, background: string): number {
 }
 
 describe('CDS light theme token contract', () => {
-  it('keeps the petrol surface ladder', () => {
+  it('keeps the neutral content ladder and petrol sidebar', () => {
     expect(token('--color-surface')).toEqual(parse('#ffffff'));
-    expect(token('--color-canvas')).toEqual(parse('#fbfcfc'));
-    expect(token('--color-sunken')).toEqual(parse('#f7f9f9'));
-    expect(token('--color-selected')).toEqual(parse('#dfe9ea'));
+    expect(token('--color-canvas')).toEqual(parse('#fbfbfb'));
+    expect(token('--color-sunken')).toEqual(parse('#f7f7f7'));
+    expect(token('--color-selected')).toEqual(parse('#e6e6e6'));
     expect(token('--color-sidebar')).toEqual(parse('#eaf0f0'));
     expect(token('--color-sidebar-hover')).toEqual(parse('#dfe8e9'));
     expect(token('--color-sidebar-selected')).toEqual(token('--color-surface'));

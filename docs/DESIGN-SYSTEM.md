@@ -9,7 +9,7 @@
 ## 1. 整体结构
 
 ```
-根容器 #FBFCFC（画布 canvas）
+根容器 #FBFBFB（画布 canvas）
 ├─ 侧栏（默认收起 48px；临时预览 224px 覆盖正文；固定展开 224px 推开正文；不透明浅石青底）
 └─ 主区：平铺全幅，表面 #FFFFFF，无外边距、无圆角、无描边、无阴影
    └─ 普通页面：内容左右 24px、底部 24px，顶部最小 48px 页头
@@ -21,16 +21,16 @@
 
 **硬性规则**
 
-1. **外壳平铺全幅，不再做悬浮白框。** 根容器铺 `canvas` `#FBFCFC`，侧栏使用 `sidebar` 令牌铺不透明的浅石青底，主内容区是贴边的 `surface` `#FFFFFF`；没有外层圆角、没有外边距、没有渐变、没有外壳描边。收起与固定展开态无外壳阴影；只有临时预览侧栏覆盖正文并使用既有 `shadow-overlay`。分区靠底色差异和留白表达，不靠外壳边框。
+1. **外壳平铺全幅，不再做悬浮白框。** 根容器铺 `canvas` `#FBFBFB`，侧栏使用 `sidebar` 令牌铺不透明的浅石青底，主内容区是贴边的 `surface` `#FFFFFF`；没有外层圆角、没有外边距、没有渐变、没有外壳描边。收起与固定展开态无外壳阴影；只有临时预览侧栏覆盖正文并使用既有 `shadow-overlay`。分区靠底色差异和留白表达，不靠外壳边框。
 2. 侧栏不透明浅石青底与主区靠底色差异和留白分开，不加分隔线；临时预览的浮层阴影见 §7。
 3. **聊天三栏顶端平齐，消息列自带 56px 头部。** 历史、消息列与成果栏都从 ChatWorkspace 顶部开始并排，没有横跨三栏的外顶栏；ChatTopBar 位于消息列内的 ChatColumn 头部，高 56px、左右 24px。历史收起时头部依次容纳历史开关、搜索、唯一专家选择、当前会话 h1 与操作菜单、右侧成果开关；历史展开时头部只保留历史开关、会话标题与操作、成果开关，搜索与专家选择移入历史栏：历史头部为专家选择 + 新建，其下是既有「搜索全部会话」与列表。窄桌面历史 Sheet 打开时消息头部隐藏搜索与专家选择，Sheet 的 `HistoryHeader` 显示专家选择、新建与关闭，搜索仍在其下；Sheet 关闭后恢复消息头部。专家选择同一时刻只有一处，允许随历史开合切换 DOM 挂载点，不要求前后同一节点或相同 x/y；头部始终位于消息列顶部且高度不变；消息列随分栏开合移动并伸缩，其它子项沿现有 flex 自然排布，不保留空占位。历史默认收起（0），首次展开 240px，可在 200–360px 间拖动并记忆。历史与消息区同用 `bg-surface`（纯白），外部主导航使用 `sidebar` 令牌铺不透明的浅石青底；登录页保持纯白 `surface`，公开分享页铺 `canvas` 画布。消息区左侧历史按钮使用虚线面板图标 `PanelLeftDashed`，右侧会话成果按钮使用镜像的 `PanelRightDashed`；桌面端（`lg` 起）同时显示「会话成果」文字，窄屏保留图标与无障碍名。两者均为常规 32px ghost 按钮，图形比导航的实线折叠图标更轻。右侧会话成果与专家定义文件不同，不展示 `.claude` 配置树；仅展示服务端真实发布的成果，同路径可选择版本，提供静态阅读/源码与下载、基于此版本修改与固定版本分享。成果属于产生它的对话轮次；分享从对应版本的成果面板发起，链接形如 `/s/<shareId>#<token>`，token 只放 URL 片段。无成果显示真实空态，不从回复猜测文件或伪造卡片。该链路已交付，运行验收证据见任务记录。窗口收窄时历史面板仍可收起；面板切换不得清空输入、变更专家或重建消息流。始终仅一个 h1。
 4. 对话、欢迎态与 Composer 共用同一条 832px 阅读轴线；含左右各 24px 内边距的外容器最大 880px。Composer 在 ChatColumn 内正常流、始终同一位置、距底 24px，不用 `position: fixed` 覆盖消息。
 
 ## 2. 色彩
 
-颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS），仅亮色；全部数值来自 `packages/web/src/styles.css` 的 `@theme`，本文不另造色值。系统由浅石青表面阶梯、纯白内容面、alpha 发丝边、深墨文字与石青主操作组成；外壳没有渐变，分区只靠画布与表面的底色差异。
+颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS），仅亮色；全部数值来自 `packages/web/src/styles.css` 的 `@theme`，本文不另造色值。系统由中性灰表面阶梯、浅石青侧栏、纯白内容面、alpha 发丝边、深墨文字与石青主操作组成；外壳没有渐变，分区只靠画布与表面的底色差异。
 
-根容器铺画布 `canvas #FBFCFC`，侧栏使用 `sidebar` 铺不透明的浅石青底，具体角色值与映射见 [DESIGN.md 的 Secondary 与 Navigation](../packages/web/DESIGN.md#secondary)；主内容区、页面、会话历史、详情阅读区、卡片与标准浮层统一为 `surface #FFFFFF`，临时预览侧栏仍用浅石青实底。浅色层为 `sunken #F7F9F9` / `hover #EDF2F2` / `chip #EFF3F3` / `selected #DFE9EA`；正文 `fg #202B2E`。主操作走石青 `button-primary #315D67` 三态，按钮键盘焦点环使用独立石青 `ring #4D7079`；通用 `primary #0B0B0B` 保留复选框、Slider 活跃轨道与 line 页签的控件语义。`chart-runs #2A78D6` 只保留为图表数据系列，仅用于数据，不表示导航、按钮、焦点或结果状态。状态色独立表达结果。
+根容器铺画布 `canvas #FBFBFB`，侧栏使用 `sidebar` 铺不透明的浅石青底，具体角色值与映射见 [DESIGN.md 的 Secondary 与 Navigation](../packages/web/DESIGN.md#secondary)；主内容区、页面、会话历史、详情阅读区、卡片与标准浮层统一为 `surface #FFFFFF`，临时预览侧栏仍用浅石青实底。浅色层为 `sunken #F7F7F7` / `hover #F0F0F0` / `chip #F2F2F2` / `selected #E6E6E6`；正文 `fg #202B2E`。主操作走石青 `button-primary #315D67` 三态，按钮键盘焦点环使用独立石青 `ring #4D7079`；通用 `primary #0B0B0B` 保留复选框、Slider 活跃轨道与 line 页签的控件语义。`chart-runs #2A78D6` 只保留为图表数据系列，仅用于数据，不表示导航、按钮、焦点或结果状态。状态色独立表达结果。
 
 ### 2.1–2.2 色彩令牌与语义角色
 
@@ -40,11 +40,11 @@
 
 ### 2.3 使用规则
 
-- **平铺外壳，只靠底色分层。** 根容器铺 `canvas` `#FBFCFC`，侧栏使用 `sidebar` 浅石青实底，主区贴边铺 `surface` `#FFFFFF`；外壳没有渐变、圆角或描边，收起与固定展开态无阴影，临时预览仅复用 `shadow-overlay`。`bg-canvas` 的全局含义仍为 `#FBFCFC`；登录页保持纯白 `surface`，公开分享页铺 `canvas` 画布。
+- **平铺外壳，只靠底色分层。** 根容器铺 `canvas` `#FBFBFB`，侧栏使用 `sidebar` 浅石青实底，主区贴边铺 `surface` `#FFFFFF`；外壳没有渐变、圆角或描边，收起与固定展开态无阴影，临时预览仅复用 `shadow-overlay`。`bg-canvas` 的全局含义仍为 `#FBFBFB`；登录页保持纯白 `surface`，公开分享页铺 `canvas` 画布。
 - **导航保持深色文字与图标。** 普通导航文字 `fg`，分组与元信息 `muted-foreground`；主侧栏底面与非选中 hover 使用 `sidebar`、`sidebar-hover`；当前项与找专家卡片共用纯白 `surface`、常态 `shadow-panel` 和 hover `shadow-panel-hover`，配深色 `selected-foreground`，具体角色与深度见 [DESIGN.md](../packages/web/DESIGN.md#navigation)。导航保留原有几何与可见键盘焦点，不增加上浮或装饰性边界；其它导航沿用 `hover` / `selected`。保留当前字重与 `aria-current`，不加彩色竖条。收起态选中仍只落在原图标块。
 - **主操作走石青三态。** 普通主操作 `default` 与显式 `solid`（发送、登录）共用 `button-primary` `#315D67`、hover `#284F58`、active `#204149` 的实底与白字；保留现有透明 1px 边框占位、全部尺寸和图标。次操作 `outline`（白底细 `line` 边线、深色字）、`secondary`（`hover` 中性浅填充）、`ghost`（透明，hover/展开中性浅底）与 `plain` 保持各自职责；取消、过滤器、菜单触发器不因主操作换色而变成石青实底。链接用 `link` 深石青 `#2C5660`，保留现有下划线、hover 与可访问名。焦点：输入族（Input / Textarea / Select / Combobox / InputGroup）用 `.cds-focus-glow` 的 1px 中性暖灰边（`subtle #898781`，对白 3.59:1，无光晕）；仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，按钮类用 `ring` `#4D7079`（按钮键盘焦点环仍为石青，输入框聚焦为中性暖灰），composer 用 `shadow-composer-focus`；状态允许小面积中性呼吸点（见 §11），状态与数据不借用动作色。
 - **分段与 line 页签。** 资源页分段控件为 CDS 胶囊轨道：容器 `sunken` 底 + `rounded-pill`、`p-0.5`；当前项为 `surface` 白 thumb + `fg` 字 + `shadow-sm`，非当前项 `muted-foreground`、hover `fg`，不再叠加 hover 底。页签类分段控件容器仍用 `hover`；当前 tab 用 `selected` + `fg`，1px 边框换 `line`，去掉当前 tab 的小阴影。line 页签与二级导航继续透明、不铺底，现有 2px 指示线改为 `primary` 深色，文字 `fg`，位置与宽度不变，focus 独立可见。
-- **卡片、表格与列表。** 适合卡片的内容与主侧栏导航选中项共用 DESIGN.md「共享卡片深度」：纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`，必要边界由共享投影承担，不叠加装饰性 outline、ring 或边框。所有业务内容卡复用共享 `Card` 或 `.cds-card-surface`，默认沿用找专家卡片的 hover 上浮、阴影与过渡，不区分静态卡与整体可点击卡；整卡不因视觉反馈新增点击、焦点或 `tabIndex`，内部真实控件与业务状态保留，导航几何保持不变。卡片及其父级滚动容器须保留完整投影与已有交互所需绘制空间，首排顶部与四周不能裁切；具体实现值以真实渲染核对。表格与列表继续使用纯白基底、`line` 分隔、行 hover `hover` 与行选中 `selected`，文字 `fg` / `muted-foreground`，不机械卡片化；输入沿用自身边界契约。Skeleton 用 `sunken`；当前没有共享 Progress 视觉原语，任务进度沿用真实实现；空态与加载态结构不变。
+- **卡片、表格与列表。** 适合卡片的内容与主侧栏导航选中项共用 DESIGN.md「共享卡片深度」：纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`，必要边界由共享投影承担，不叠加装饰性 outline、ring 或边框。所有业务内容卡复用共享 `Card` 或 `.cds-card-surface`，默认沿用找专家卡片的 hover 上浮、阴影与过渡，不区分静态卡与整体可点击卡；整卡不因视觉反馈新增点击、焦点或 `tabIndex`，内部真实控件与业务状态保留，导航几何保持不变。卡片及其父级滚动容器须保留完整投影与已有交互所需绘制空间，首排顶部与四周不能裁切；具体实现值以真实渲染核对。表格与列表继续使用纯白基底、`line` 分隔、行 hover `hover` 与行选中 `selected`（150ms `--ease-out-soft`，不位移、不加投影；表头与静态行不响应 hover），文字 `fg` / `muted-foreground`，不机械卡片化；输入沿用自身边界契约。Skeleton 用 `sunken`；当前没有共享 Progress 视觉原语，任务进度沿用真实实现；空态与加载态结构不变。
 - **可编辑边界单独可访问。** 输入框、Textarea、InputGroup、Select 可编辑触发器与 SourceEditor 使用白底 + 1px `input`（`rgba(0, 0, 0, 0.10)`，等同 `line`）边框；不新增 hover 加深。输入族（Input / Textarea / Select 触发器 / Combobox / InputGroup）聚焦用 `.cds-focus-glow`：1px 中性暖灰边（`subtle #898781`，无光晕）；SourceEditor 与 CodeMirror 搜索仍把边线换成 `input-focus` `#BDBDBD`；composer 文本聚焦由 InputGroup 外框保持 `input` 并换 `shadow-composer-focus`（1px 内环 + 外阴影），不叠加 2px 光环。invalid 保留 `danger` 边框，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补足焦点，错误边框不能代替焦点。未选中的 checkbox/radio 用 `control-boundary`（`rgba(0, 0, 0, 0.35)`），checked/on 用墨色 `primary` 配白色勾/点/thumb，off switch 用 `control-boundary` 与白 thumb。`subtle #898781` 只用于输入族聚焦边，不承担默认可编辑边界；发丝边、`control-boundary` 与 `input-focus` 均低于 3:1，是已接受并公开记录的视觉限制；中性聚焦边对白约 3.59:1。错误、禁用、焦点优先级与形状、尺寸、状态属性不变。
 - **消息。** 用户消息由浅蓝底改为 `selected` 中性浅底 + `fg`，保留现有胶囊形状、对齐与宽度；附件用中性 `outline`。助手正文仍在白底上无气泡。
 - **浮层与菜单。** 标准浮层使用白表面、`line` 边线与统一 overlay 阴影；临时预览侧栏保留浅石青实底、仅复用该阴影，不加 scrim、不锁焦点。菜单项 hover/键盘高亮用 `accent` + `accent-foreground`，危险项用 `danger` 且不被普通 hover 覆盖；菜单内搜索等可编辑边界用 `input`。Dialog、AlertDialog、Sheet、Popover、Tooltip、Toast 共用同一表面与阴影，遮罩用 `scrim`；tooltip 若既有反色则保留深底白字。确认框的 default 为石青 实底主操作、取消用 `outline`，危险确认保持 `destructive`。Toast 操作按钮用显式 `outline` 中性次操作；Sonner 自带规则特异性更高，允许 toast 根与操作按钮用中性语义令牌做必要的 `!important` 覆盖，不保留旧的蓝色专用覆盖；关闭按钮白底、中性 hover，保留时长、位置、关闭与屏幕阅读器提示。
@@ -61,27 +61,27 @@
 | 前景 / 背景 | 实算 |
 |---|---:|
 | `fg #202B2E` / 白 | 14.52:1 |
-| `fg` / `selected #DFE9EA` | 11.74:1 |
+| `fg` / `selected #E6E6E6` | 11.63:1 |
 | `muted-foreground #505F63`（含 placeholder）/ 白 | 6.65:1 |
-| `muted-foreground` / selected | 5.38:1 |
-| `muted-foreground` / `sunken #F7F9F9` | 6.29:1 |
-| `muted-foreground` / `chip #EFF3F3` | 5.95:1 |
-| `muted-foreground` / `hover #EDF2F2` | 5.88:1 |
+| `muted-foreground` / selected | 5.33:1 |
+| `muted-foreground` / `sunken #F7F7F7` | 6.21:1 |
+| `muted-foreground` / `chip #F2F2F2` | 5.94:1 |
+| `muted-foreground` / `hover #F0F0F0` | 5.83:1 |
 | `muted-foreground` / `code #F6F6F6` | 6.15:1 |
 | 白 / `button-primary` normal、hover、active | 7.26 / 8.94 / 10.97:1 |
 | `primary #0B0B0B` / 白（通用控件） | 19.68:1 |
-| `ring #4D7079` / 白、canvas、selected、sidebar-selected | 5.37 / 5.23 / 4.34 / 5.37:1 |
+| `ring #4D7079` / 白、canvas、selected、sidebar-selected | 5.37 / 5.19 / 4.30 / 5.37:1 |
 | `fg` / sidebar、sidebar-hover、sidebar-selected | 12.60 / 11.65 / 14.52:1 |
 | `muted-foreground` / sidebar、sidebar-hover、sidebar-selected | 5.77 / 5.34 / 6.65:1 |
 | `subtle #898781` / 白（输入族聚焦边） | 3.59:1 |
-| `control-boundary` `rgba(0,0,0,.35)` / 白、selected | 2.44 / 2.39:1（既有缺口，低于 3:1） |
+| `control-boundary` `rgba(0,0,0,.35)` / 白、selected | 2.44 / 2.38:1（既有缺口，低于 3:1） |
 | 输入默认 `input` `rgba(0,0,0,.10)` / 白 | 1.25:1（既有缺口，低于 3:1） |
 | `line-strong` `rgba(0,0,0,.20)` / 白 | 1.61:1（仅作较强分隔） |
-| `link #2C5660` / 白、selected | 8.05 / 6.51:1 |
+| `link #2C5660` / 白、selected | 8.05 / 6.45:1 |
 | `input-focus #BDBDBD` / 白（SourceEditor / CodeMirror 搜索聚焦） | 1.88:1（既有缺口，低于 3:1） |
-| success / selected | 4.57:1 |
-| warning / selected | 4.98:1 |
-| danger / selected | 5.32:1 |
+| success / selected | 4.52:1 |
+| warning / selected | 4.93:1 |
+| danger / selected | 5.27:1 |
 | `chart-runs #2A78D6` / 白 | 4.42:1 |
 | danger / danger-soft | 5.70:1 |
 | `code-syntax-accent #ACCAD0` / code-block | 11.22:1 |
@@ -180,7 +180,7 @@
 - 消息流最大宽 832px，居中。每轮消息以 `.message-fade-up` 入场（0.4s 上浮淡入，`--ease-overshoot`）；减少动态效果时直接显示。每一轮用户消息是一个独立 `selected` 中性浅底胶囊（右对齐，`fg` 正文），助手回复紧随其后、按轮次成组；轮与轮之间只靠间距分开，不画横线——横线是重复信号，结构已经由胶囊、正文与读数行表达。仍在排队或运行、尚未产出回复的轮次显示「等待回复…」，不留空白；已到终态的轮次显示实际结果或失败原因，不显示等待。
 - 运行读数（完成 · 轮次 · 耗时 · token · 成本 · 查看详情）是该轮的自然收尾：最新一轮常驻显示，更早的轮次常驻占位、默认透明，指到或键盘聚焦该轮时显影（`opacity` 150ms）；完整完成时刻放在 `title` 里。读数来自会话详情按 `run_id` 批量带回的指标，不逐条查。
 - 运行中的状态沿用同一条读数行的位置与字号：脉冲圆点 +「等待回复／正在调用 X」+ 等宽计时，中断时追加重连。它跟在最后一轮回复下方，**不做成横跨整列的工具栏**；停止入口放在输入框发送位（运行中发送位换成停止），用户不必到消息流里找。
-- 用户消息：右对齐，**`bg-selected` 浅石青底胶囊配 `fg` 正文**（radius 12px，padding 12px 16px），附件使用普通 `outline` Badge 与 `muted-foreground` 小字；助手消息不套用实底。
+- 用户消息：右对齐，**`bg-selected` 中性灰底胶囊配 `fg` 正文**（radius 12px，padding 12px 16px），附件使用普通 `outline` Badge 与 `muted-foreground` 小字；助手消息不套用实底。
 - 助手消息：左对齐，无气泡，`base` 14px 正文；可含标题、列表、卡片。
 - 生成式 UI（智能体 `uiFormat=openui`）：围栏内程序使用项目组件与令牌，块间距16px；围栏外散文照常走Markdown，按出现顺序排列。`@ToAssistant` 才发新用户消息，原生变量/查询/修改由OpenUI运行时执行，不覆盖输入草稿。每段的查询错误、重试、保存失败与待批入口就近显示，不能把会话级OpenUI审批指到运行审批页。批准工具时明确显示工具名、8小时会话范围；运行级审批仍沿用原语义。补丁输出期间保留上轮完整界面，不把半个root合并成新界面。
 - 生成式内容采用OpenUI官方shadcn示例的组件组合，官方chat库补足示例未覆盖的指标卡等。底层仍是Base UI与本项目令牌，不引入Radix或第二主题；组件契约不为视觉调整而改名/改字段。
@@ -232,13 +232,13 @@
 
 1. 同一个外壳：侧栏浅石青实底、主区平铺全宽 `surface` 底，无外边距、无圆角、无描边；临时预览与固定展开行为统一按 §7。
 2. 普通页面顶部为 PageHeader：单行最小高 48px（`min-h-12`，不另加顶部或横向 padding），名称在左、主操作在右；内容自然换行可增高，不用固定高度裁切。
-3. 一般列表用行：行高 56–64px，1px `line` 分隔线，悬停 `hover`。技能、连接器、插件、知识库四类资源共用资源中心：类型导航与管理操作在首行，来源、搜索、筛选、排序与数量在第二行，排列参考用户指定的 https://www.workbuddy.cn/app/experts，视觉仍使用本规范令牌。专家不再属于资源中心，改为业务入口「找专家」（`/agents`）。
+3. 一般列表用行：行高 56–64px，1px `line` 分隔线，悬停 `hover`，150ms `--ease-out-soft`，不位移、不加投影。技能、连接器、插件、知识库四类资源共用资源中心：类型导航与管理操作在首行，来源、搜索、筛选、排序与数量在第二行，排列参考用户指定的 https://www.workbuddy.cn/app/experts，视觉仍使用本规范令牌。专家不再属于资源中心，改为业务入口「找专家」（`/agents`）。
 4. 资源中心沿用 `ResourcePage` 的顶层布局，类型入口使用有名称的导航与真实路由链接，当前项通过 `aria-current="page"` 表达，保留 line 页签外观；页内任务切换仍使用 Base UI Tabs。资源操作区固定两行，与列表共享 24px 内容边：首行最小高 48px，类型导航居左、创建/导入等管理操作居右；次行 PageToolbar 紧随 12px，按 DOM 顺序为来源切换（`leadingFilters`）→ 搜索（224px，可收缩）→ 筛选 → 排序 → 结果数量（右侧）。PageToolbar 自身 `gap-2`（8px），组内 8px 由内部组合决定；普通桌面同排，放不下自然换行，不横向溢出、不隐藏控件。技能「内部 / 市场」用 `sunken` 胶囊分段控件（`surface` thumb + `shadow-sm`）区别于资源导航；市场保留既有「总榜 / 趋势 / 新热」榜单切换，搜索时隐藏榜单切换、只展示搜索结果。内资源按任务选择形态：技能、插件、知识库使用单列紧凑列表（行 56–64px，操作在行内菜单；技能为名称 / 描述 / 专家数 / 来源，插件为名称 / 描述 / 来源 / 版本 / 单行能力摘要 / 专家数，知识库为名称 + 状态 / 描述 / 更新时间），连接器使用 `DataTable`（名称 / 来源 / 地址 / 连通状态 / 工具 / 专家 / 操作）。技能市场使用轻量两列条目，窄桌面降为一列；每条只呈现名称、真实来源与真实安装数，安装使用描边按钮，不添加宣传区、推荐语或无数据支持的热度、市场与分类。专家入口（`/agents`）有 `agents.create` 权限时，专家网格始终先显示两张入口卡（扇形「新建专家」卡 + 「创建数字分身」卡），均打开同一创建 Dialog；工具栏「新建专家 / 导入」保留。这两张入口卡为用户刻意要求保留的创建入口，不得删除、合并或改为仅页头入口。专家配置使用独立路由页 `/agents/$agentId`（页头头像 + 名称 + 返回/删除，完整描述放入可滚动正文），不再用右侧抽屉；技能与连接器的编辑仍用弹层或抽屉，插件与知识库详情使用独立路由页并执行 §9「阅读工具栏」契约。
-5. 表格：表头使用 `xs` 12px 弱色，常规单元格沿用共享 Table 的 `sm` 13px，数字右对齐 + 等宽；`base` 14px 用于常规卡片标题（`Card` 默认 14/22），紧凑列表卡片（`Card size="sm"`）标题 13/20，不覆盖表格数据字号。列设置入口固定在表头行最右侧的 32px 操作列，用 `Columns3` 图标按钮打开，不再单独占一行；行数只保留为表格上方一行弱化文字；工具栏已显示「共 N 个」时（如连接器页）用 `DataTable` 的 `hideRowCount` 隐去表内重复计数。
+5. 表格：表头使用 `xs` 12px 弱色，常规单元格沿用共享 Table 的 `sm` 13px，数字右对齐 + 等宽；`base` 14px 用于常规卡片标题（`Card` 默认 14/22），紧凑列表卡片（`Card size="sm"`）标题 13/20，不覆盖表格数据字号。表头行不响应 hover；空态行、展开详情行与无行级操作的表（权限矩阵、趋势明细、检索评估结果等）显式关闭 hover，`DataTable` 数据行保留行 hover 作为扫读反馈；数据行 hover 只换 `hover` 浅底（150ms `--ease-out-soft`），选中用 `selected`，不上浮、不加投影。列设置入口固定在表头行最右侧的 32px 操作列，用 `Columns3` 图标按钮打开，不再单独占一行；行数只保留为表格上方一行弱化文字；工具栏已显示「共 N 个」时（如连接器页）用 `DataTable` 的 `hideRowCount` 隐去表内重复计数。
 6. 主按钮：普通主操作 `default` 使用石青实底 `button-primary` `#315D67` 配白字，悬停 `#284F58`、按下 `#204149`，保留透明 1px 边框占位；取消与次操作使用 `outline` / `secondary` / `ghost` 中性变体。发送与登录的显式 `solid` 使用同一石青三态实底。常规 32px 高、8px 圆角；紧凑操作 28px 高、8px 圆角。链接用 `link` 深石青 `#2C5660`，选中用墨色 `primary`，用户消息为 `selected` 中性浅底配 `fg` 正文。
 7. 账号入口采用整页 `surface` 底与无外框窄表单，最大宽 320px；Logo 居中显示高 96px，与表单间隔 32px。去掉可见「登录」标题，保留屏幕阅读器用的单一 h1「进入 PACE」，文档标题为 PACE。账号、密码和主按钮高 44px；字段组间距 20px，按钮文案为「登录」/「正在登录…」/「重试」；登录成功回到工作区（`/` 按账户权限落到第一个可用入口，无业务权限时进入个人资料）。不加宣传文案、额外入口或装饰性卡片，保留完整校验、错误提示与提交保护。
 8. 个人模块进入后由侧栏个人上下文提供六项真实路由，内容顶部不放横向 chip；六页与普通页面同宽、左对齐的 Page，PageHeader 与内容同宽，不再嵌套 768/896 的次级宽度轴；整页不再限制 1024px，长文本阅读宽度仍按 75ch、短字段仍按 448px；六页都从单行最小高 48px 的 PageHeader 开始，恰好一个 h1。PageHeader 下第一个顶层分区不画顶部分隔线，其后的顶层分区用 1px 分隔线加 20px 上内距隔开（折叠/条件区块按当前渲染顺序判断谁在第一）。组内间距 8/12、子组 16、区块 24；分区标题 14px medium、正文 13px、元信息 12px（个人模块表格视图主信息 14px、次要 13px、元信息与表头 12px；默认卡片视图沿用 §8.10 的紧凑列表卡片标题 13/20（我的分享文件名作为主信息保持 14/22），不套用 §8.5 的表格数据字号）；局部操作贴内容边界，全页动作 32px。个人资料先呈现姓名与用户名，角色用于确认当前身份，业务 ID 收进按需展开的「账号详情」；短字段最大宽 448px、横向标签列 96px，字段值与取消 / 保存右对齐，只有姓名可编辑，个人资料与账号安全表单共用同一字段尺度。个人记忆以当前已保存正文为阅读态首要内容，并在内容行说明每轮对话会带入这些长期信息；空态、阅读、编辑与版本历史共用同一条内容轴；阅读正文限 75ch 以便长文阅读，编辑区与版本历史用整条内容宽；空态左对齐任务轴；「编辑」进入 SourceEditor，保存 / 取消与未保存状态就近出现，版本历史经「版本历史」入口按需展开、与正文同一内容带，不设常驻版本侧栏；「从对话整理」连接记忆提案创建，下载为次操作。记忆提案列表以待审核优先，生成中与已处理可切换；创建按来源（最多 10 段本人会话）→ 目标 → 执行专家 → 确认摘要分步展开；列表中目标与决策状态为主、摘要为次、成本为元信息；详情在单个 Dialog 内竖向滚动，先呈现目标与完整修改前后（含索引变化），再呈现理由与证据，最后是采用 / 拒绝 / 重新生成与「查看目标」，长段落完整换行不截断。我的分享只在表格视图显示一处行数，文件名为主信息，来源会话摘要两行、可显式展开全文并保留来源跳转；显式提供「查看分享」「复制链接」，撤销为次要危险动作并在确认弹层内显示失败，游标分页在两种视图下都保留，位于当前视图的列表之后；表格标题为「我的会话分享」，只列未撤销链接，不承诺来源文件仍存在。使用记录统计窗口与汇总合并为紧凑区，运行明细更早进入首屏；汇总为无卡片三行 dl（运行 / Token / 已记录成本），状态以小网格呈现并保留全部计数（含 0），成本保留已记录次数与 UTC 窗口；主表保留专家、来源、状态、时间与去向五列，动作在同一视野可见，耗时/成本/Token 折入 DataTable 展开详情，运行 ID 降为次信息，显式提供「回到对话」「审核提案」「查看运行」及复用 status 过滤的「只看失败」，不改变查询、汇总或权限。账号安全先呈现当前会话与其他会话，当前会话独立分组且不提供撤销；其他会话主行显示最近活动时间、IP 与撤销动作，完整 UA、登录时间与到期按需展开全文；「修改密码」是独立入口、按需展开，表单与个人资料同尺度，提交前说明撤销全部会话。会话列表受 Better Auth 默认鲜度限制，登录态过旧时在会话区提示重新登录但不自动登出，不使用无法从现有字段得出的地理位置、设备名或风险等级。管理员个人页同样只显示本人数据。
-9. 公开分享页 `/s/<shareId>#<token>` 不经过应用外壳与登录态：纯 `canvas` `#FBFCFC` 底、最大宽 728px（公开分享独立阅读宽度，不是聊天 832 轴线）、顶部品牌标记，正文复用阅读/源码/图片（仅 PNG/JPEG/GIF/WebP）与 PDF（与会话成果共用 `BlobPdf` 原生 iframe，支持与 header 门槛一致）预览与下载，其余格式沿用既有行为，只有单一 h1 与「由 PACE 分享」页脚。无效或已撤销统一显示「链接无效或已撤销」，不暴露分享对象是否存在。
+9. 公开分享页 `/s/<shareId>#<token>` 不经过应用外壳与登录态：纯 `canvas` `#FBFBFB` 底、最大宽 728px（公开分享独立阅读宽度，不是聊天 832 轴线）、顶部品牌标记，正文复用阅读/源码/图片（仅 PNG/JPEG/GIF/WebP）与 PDF（与会话成果共用 `BlobPdf` 原生 iframe，支持与 header 门槛一致）预览与下载，其余格式沿用既有行为，只有单一 h1 与「由 PACE 分享」页脚。无效或已撤销统一显示「链接无效或已撤销」，不暴露分享对象是否存在。
 10. 表格 / 卡片切换：运行、定时任务、运行环境、账户、我的分享、使用记录、记忆提案、账号安全与频道在业务适合卡片浏览时提供统一切换（`view=table|cards` 进 URL，默认 `cards`，显式 `view=table` 保留表格，刷新与分享保持同一视图）；记忆提案的阶段筛选使用独立参数 `stage`，不占用 `view`。切换控件用共享 `ViewToggle`，卡片选项在前：没有筛选工具行时放 PageHeader actions；有筛选工具行时放工具行右端，与结果计数成组（组内 12px）。卡片必须等量呈现表格字段（字段标签不可省）与全部操作，网格按可用宽度自动分列 `grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))]`、`gap-4`、`p-2`；列表卡片使用共享 `Card` 的 `size="sm"`（内距 12px、`CardTitle` 13/20、块间距 12px）。表格视图不变。记忆提案与账号安全的 `view=table` 使用字段齐备的分隔列表，不渲染 `<table>`。审计日志与角色权限矩阵保持表格，不提供卡片；角色矩阵占用页头与工具栏之后的可用高度，同一容器承担双轴滚动，角色列头纵向固定、功能行头横向固定。个人记忆的版本历史保持折叠列表。频道是入口卡，见第 11 条，不适用本条的 size=sm 与字段标签要求。
 11. 频道列表默认卡片视图，`view` 进 URL、缺省 `cards`；列表非空时页头右侧依次为「卡片 / 表格」切换与「新建频道」主操作，description 显示频道数。卡片沿用专家卡外观与默认 `Card` 内距，整卡为进入频道的真实链接且卡内不嵌套交互；不套用第 10 条的 `size="sm"` 与字段标签要求。表格与卡片都以真实频道链接进入。表格列为频道、最近消息、成员、智能体、未读、更新时间与操作，宽表只在容器内横向滚动；卡片呈现名称、最近消息、成员/智能体计数、未读与更新时间。频道详情与聊天同构：左侧频道列表、消息列与右侧成员/智能体面板从工作区顶部并排，消息列自带最小高 56px 头部（窄桌面可换行增高；返回入口仅窄桌面显示，`xl` 以下显示成员/智能体摘要），消息流与输入区沿用聊天阅读轴；详情刷新失败提示收在消息列内，成员绑定、审批、只读与权限动作照旧。
 
@@ -248,11 +248,12 @@
 
 | 场景 | 统一约定 |
 |---|---|
+| 指针反馈（统一规则） | 按内容面、连续行、控件三层区分，视觉数值（底色、投影、时长与曲线）以 [DESIGN.md「共享交互状态契约」](../packages/web/DESIGN.md#elevation--depth) 为准。**内容面**（卡片、独立瓦片、可拖拽对象）沿用共享卡片契约，hover 换 `shadow-panel-hover` 并上浮，视觉反馈不赋予整面点击语义。**连续行**（表格行、列表行、树行、导航项、菜单项、频道左栏）保持平面，不随卡片上浮；hover 沿用各区域既有底色，表格与列表用 `hover`，主侧栏用 `sidebar-hover`，菜单与页内导航沿用既有 `accent` / `selected` 状态；菜单键盘高亮保持即时，150ms 只约束表格、列表、树行与普通导航项，不强制菜单统一过渡时长；表头行不响应；空态行、展开详情行与无行级操作的表（权限矩阵、趋势明细、检索评估结果等）显式关闭 hover，`DataTable` 数据行保留行 hover 作为扫读反馈；选中继续用 `selected` / `sidebar-selected`。主侧栏选中项是连续行的既有例外：白面配 `shadow-panel` / `shadow-panel-hover`，只换投影、不上浮。**控件**（Button、Toggle、TabsTrigger、分段控件、可点击 Badge）hover 按 variant 换底色或前景；Button 的 active 保留 `.cds-btn-squish` 的 `scale(0.975)` 与 60ms 按压，Toggle、TabsTrigger、分段控件与可点击 Badge 沿用各自选中/按压状态；所有控件都不套卡片上浮，焦点沿用既有 ring 或边界。**输入**（Input / Textarea / Select / Combobox / InputGroup）不响应 hover 抬升，聚焦沿用既有边界与焦点契约。**浮层与容器**（Dialog、Sheet、Popover、Composer、Toast）不响应 hover 上浮，使用各自表面深度。 |
 | Input / Textarea / Select / Combobox / 搜索 | 单行高 32px，圆角 8px；多行与多选可随内容增高。默认 1px `input` 发丝边（`rgba(0, 0, 0, 0.10)`，等同 `line`），无 hover 加深、无投影；字段布局通过 Field / FieldGroup 表达 |
 | 焦点与边框（统一规则） | 每个控件只允许一层常驻焦点信号，错误态可另加独立 outline：① **有既有边框的输入类**（Input / Textarea / Select 触发器 / Combobox / InputGroup / SourceEditor）→ 输入族普通聚焦用 `.cds-focus-glow`：1px 边框换成中性暖灰 `subtle`（`#898781`，无光晕）；仅 SourceEditor 把那条 1px 边框换成 `input-focus`（`#BDBDBD`）；composer 文本控制器聚焦由 InputGroup 外框保持 `input` 并换 `shadow-composer-focus`；**均不加 2px 光环**。错误态保留危险边框，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点（错误边框不等于焦点）。② **无边框或边框透明的按钮类**（Button / TabsTrigger / Toggle / Switch / Checkbox / Badge / 折叠触发 / 拖拽手柄等）→ 用单层 `focus-visible:ring-2 ring-ring`，并且必须带 `focus-visible:outline-none`（避免叠加全局 `:focus-visible` 的 2px outline）；invalid 时危险边框与焦点环共存，不吞焦点。③ 全局 `:focus-visible` 只作兜底。**例外：已选中的填充控件**（选中的 checkbox / radio / switch 等）填充本身已是深色 `primary`，换边框无法表达焦点，改用单层 `data-checked:focus-visible:outline-2 outline-ring outline-offset-2`（2px 背景色间隔的外轮廓，仍算一层焦点信号）；未选中时沿用各原语既有的单层焦点表达。普通字段标签由控件自身表达焦点，卡片式字段标签统一由外层标签的单层焦点表达。同类填充控件出现时沿用此例外，不得改用 `ring` 叠层。错误边框与焦点外轮廓可同时存在（各表达一种语义，不算叠层）。原则：**输入类的聚焦边界（中性暖灰边或 `input-focus` 浅线）算同一焦点信号**；其余控件边框与光环二者取其一，唯一例外是错误态用 outline 补焦点。实底主按钮（`default` 与 `solid`）聚焦时用单层 `focus-visible:ring-2 ring-ring`，并留 `ring-offset-2` + `ring-offset-background` 的 2px 背景色间隔，invalid 时该 offset 不消失。InputGroup / Combobox 由外框承担焦点，内部输入不重复画框。自动校验：`bun run lint:focus`（已接入手动触发的 CI，检查输入类原语无 `ring-2`、`focus-visible:ring-2` 必配 `outline-none`）。 |
 | 错误 / 禁用 | 错误使用危险色边框与字段提示；输入类错误态保留危险边框并用 2px `ring` outline 补焦点，不叠 ring；Field 的 data-invalid 与控件 aria-invalid 同步；禁用同步 data-disabled 与 disabled，保持可读，提交中关闭按钮与取消均不可丢弃请求 |
-| 按钮 | 同一工作面的主要任务使用常规 32px `default` 石青实底按钮，次操作按职责使用中性 `outline` / `secondary` / `ghost`；表单提交为主操作，取消在前、确认在后。角色新建只增加草稿，保存才是主操作；评估新建用例为次操作，运行评估为主操作。局部与行内操作使用 `sm` 28px，圆角均为 8px；卡片内普通操作用 ghost，专家卡「开始对话」用 secondary。删除、撤销与放弃使用 destructive。页头已有同一主操作时，重复空态入口使用 `outline sm`；没有同动作页头入口时，空态的主要任务使用 `default`。发送与登录显式使用同一石青三态 `solid`。按动作职责逐处核对 variant，不机械批量替换；导航与下载保留链接语义，`buttonVariants` 与 Button 本体保持一致 |
-| 卡片 | 技能、连接器、插件、知识库不套统一卡片模板：技能、插件、知识库用单列紧凑列表（名称、描述、真实元信息与操作菜单），连接器用 `DataTable`（明细进详情弹层）；卡片仍用于运行等适合浏览的场景，复用共享 `Card` 与 DESIGN.md「共享卡片深度」契约：内容卡与导航选中项共用纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`，不另叠装饰边界。该标准跨页面适用于已有业务卡片，已有自定义布局的详情卡复用 `.cds-card-surface` 并保留内部结构。所有业务卡片默认沿用找专家卡片的 hover 上浮、阴影与过渡，不设 `interactive` 开关或静态卡例外；不为整卡虚构点击、焦点或 `tabIndex`，不新增参考没有的 active、selected、disabled 卡片外观。内部按钮、链接、表单的真实焦点和业务状态继续生效；OpenUI 显式 `sunk` 等语义变体保持，导航不位移。卡片父级须为首排顶部及四周保留完整投影与上浮的绘制空间，并以真实渲染核对滚动裁切；不为表格、列表或输入机械套卡片 |
+| 按钮 | 同一工作面的主要任务使用常规 32px `default` 石青实底按钮，次操作按职责使用中性 `outline` / `secondary` / `ghost`；表单提交为主操作，取消在前、确认在后。角色新建只增加草稿，保存才是主操作；评估新建用例为次操作，运行评估为主操作。局部与行内操作使用 `sm` 28px，圆角均为 8px；卡片内普通操作用 ghost，专家卡「开始对话」用 secondary。删除、撤销与放弃使用 destructive。页头已有同一主操作时，重复空态入口使用 `outline sm`；没有同动作页头入口时，空态的主要任务使用 `default`。发送与登录显式使用同一石青三态 `solid`。按动作职责逐处核对 variant，不机械批量替换；导航与下载保留链接语义，`buttonVariants` 与 Button 本体保持一致。按钮是控件契约：hover 只按 variant 换底色或前景（150ms `--ease-out-soft`），active 保留 `scale(0.975)` 与 60ms 按压，不套卡片上浮或投影，焦点沿用既有 ring |
+| 卡片 | 技能、连接器、插件、知识库不套统一卡片模板：技能、插件、知识库用单列紧凑列表（名称、描述、真实元信息与操作菜单），连接器用 `DataTable`（明细进详情弹层）；卡片仍用于运行等适合浏览的场景，复用共享 `Card` 与 DESIGN.md「共享卡片深度」契约：内容卡与导航选中项共用纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`，不另叠装饰边界。该标准跨页面适用于已有业务卡片，已有自定义布局的详情卡复用 `.cds-card-surface` 并保留内部结构。所有业务卡片默认沿用找专家卡片的 hover 上浮、阴影与过渡，不设 `interactive` 开关或静态卡例外；不为整卡虚构点击、焦点或 `tabIndex`，不新增参考没有的 active、selected、disabled 卡片外观。内部按钮、链接、表单的真实焦点和业务状态继续生效；OpenUI 显式 `sunk` 等语义变体保持，导航不位移。卡片父级须为首排顶部及四周保留完整投影与上浮的绘制空间，并以真实渲染核对滚动裁切；不为表格、列表、输入、按钮或浮层机械套卡片。连续行按「指针反馈（统一规则）」只换底色，不随卡片上浮 |
 | 专家卡 | 所有已创建专家卡与两张创建入口卡采用 176px 最小高度（`min-h-44`），同一网格行等高，内容较多时自然增高；同列宽、16px 网格 gap 与 16px 内部 padding。网格按可用宽度使用 `repeat(auto-fill, minmax(min(100%, 256px), 1fr))` 自动分列，`p-2` 在四周保留 8px 投影与 hover 上浮绘制空间；1440px 桌面固定展开侧栏时目标四列，1200px 时三列，1280px / 1440px 收起侧栏时四列。40px 圆形插画头像（「创建数字分身」入口为 64px）。已创建卡按紧凑身份卡分组：头像、名称链接与角色紧邻，角色在名称下方用 12/16 `muted-foreground` 纯文本，单行截断并用 `title` 保留全文，空角色回退「通用助手」；停用状态仍用默认中性 `StatusBadge`，以 `shrink-0` 保持与角色同行。右上角只保留「更多」操作菜单。头部、正文与操作行之间各隔 12px，不固定头部或中部高度；正文 `CardContent` 用 `flex-1 justify-center` 占据剩余高度并垂直居中，简介占全宽、最多两行，权限原因完整换行、不截断，空介绍不造占位文案；底部为独立 32px 操作行，同一行 `gap-2`（8px），随卡片高度贴底，「开始对话」用 secondary 中性次操作并保持自身内容宽度，与右侧带 `IdCard` 图标的 ghost「工牌」按钮同一行两端对齐，禁用时用 outline + disabled；列表页唯一石青实底主操作为顶部「新建专家」。每张已有专家/分身卡提供可访问名为「查看 ${name} 工牌」的按钮，打开工牌专用的插画式实体证件：沿用 Base UI Dialog 的焦点、Esc/外部点击关闭与关闭后返回原触发器，但作为明确例外使用透明 DialogContent，不套标准头部或白色弹框外壳，标题「${name} 的工牌」仅 sr-only，关闭按钮保持可达，且不改动全局 DialogShell 契约。视觉为居中的 96px 挂绳装饰与扣环连接 360px 宽竖式卡套，内含 96px 原插画头像；卡套以真实 DOM 展示身份「数字员工」、姓名、岗位、启停、完整介绍、员工编号（真实 id）与上岗时间（创建时间，使用真实 `createdAt`，含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」）。短视口整体单层滚动，长姓名与介绍不截断；白底中性 token，现有插画配色例外沿用，不新增动效。工牌只读使用列表摘要，不请求专家详情，不展示提示词、成员资料、二维码等虚构统计；无创建或配置权限仍可查看已有工牌。「开始对话」使用 secondary 次操作并直接选中该专家进入 `/chat`（列表页唯一石青实底主操作为顶部「新建专家」）；无使用权限时在卡片内显示可见的权限原因，并以 `aria-describedby` 关联「开始对话」；停用专家与无使用权限都不提供可执行的「开始对话」，但工牌仍可查看。不设 CardFooter、底带或分隔线；卡片不显示连接器/技能计数与 slug，技术信息只留在配置页。删除统一放操作菜单。配色、圆角、共享白底投影与 hover 上浮继续遵循 DESIGN.md |
 | 创建专家 | Dialog 前置名称、角色、职责与工作方式；模型与 slug 收进「高级设置」；保留导入专家包与 `agent.md`；数字分身既是角色选项，也有独立入口卡 |
 | 专家创建入口卡 | 有 `agents.create` 权限时与专家卡同网格常驻在最前：扇形「新建专家」卡保留原六张插画、悬停/聚焦展开顺序与动画，插画整体缩至 90% 为紧凑列宽保留完整绘制空间；「创建数字分身」卡用 64px 专属头像 + 描边按钮。两卡与专家卡统一 176px 最小高度（`min-h-44`）、同一网格行等高、同列宽、16px gap；导入中禁用，无创建权限不显示 |
@@ -327,7 +328,7 @@
 >
 > 这是每个页面、区块、卡片、弹层的**默认约束**，不是建议。视觉做得再对，只要靠一堆次级标签和说明文字来解释结构，就算没遵守本规约。评审 UI 时先过这一节。
 >
-> 布局与文案调整同时遵守 [CLAUDE.md「决策标准」](../CLAUDE.md#决策标准) 的 UX/DX/AX 原则，并保留现有功能。
+> 布局与文案调整同时遵守 [AGENTS.md「决策标准」](../AGENTS.md#决策标准) 的 UX/DX/AX 原则，并保留现有功能。
 
 ### 10.1 核心规则
 
@@ -380,7 +381,7 @@
 
 - 本项目 `@theme` 动效曲线：`--ease-out-soft` = `cubic-bezier(0.16, 1, 0.3, 1)`（对齐 CDS `ease-swift`，交互/悬停主曲线）、`--ease-out` = `cubic-bezier(0.165, 0.84, 0.44, 1)`、`--ease-overshoot` = `cubic-bezier(0.34, 1.3, 0.64, 1)`、`--ease-pulse` = `cubic-bezier(0.4, 0, 0.2, 1)`；CDS `ease-enter` 同值曲线（`cubic-bezier(0.22,1,0.36,1)`）仍用于侧栏、品牌切图与聊天工作区的 Motion 配置；其余参考曲线（`ease-expand`/`ease-snap`/`ease-pop`/`ease-rise`/`ease-fall`）暂未接入。
 - `@theme` 时长令牌为 `--dur-fast` 60ms 与 `--dur-slow` 0.45s；CDS 参考阶梯 `--dur-snap` 120ms / `--dur-base` 200ms / `--dur-sheet` 300ms 按场景在 utility 内联。只过渡实际变化的属性，禁止 `transition-all`。
-- 按钮按压走 15 阶物理弹簧 `--btn-spring`（`linear(0, 0.2459, … 1)`），active 时 `scale(0.975)`；`.cds-btn-squish` 把 `transform` 绑定到 `--dur-slow` + `--btn-spring`，颜色/边框走 60ms。弹簧按压允许出现在所有共享 `Button`。
+- 按钮按压走 15 阶物理弹簧 `--btn-spring`（`linear(0, 0.2459, … 1)`），active 时 `scale(0.975)`；`.cds-btn-squish` 把 `transform` 绑定到 `--dur-slow` + `--btn-spring`，颜色、背景与边框走 150ms `--ease-out-soft`，`:active` 的 transform 仍走 60ms `ease-out`。弹簧按压允许出现在所有共享 `Button`。
 - 侧栏宽度过渡 160ms；标签淡出 90ms；预览与固定展开状态 Logo 切图为 300ms 轻推接力；品牌标记与固定/收起控件切换沿用 140ms 过渡。
 - 允许的动效：局部交互与状态反馈（悬停背景、展开折叠、浮层显隐、流式光标、复制/安装结果）、消息入场 `message-fade-up`（0.4s、`--ease-overshoot`）、卡片 hover 上浮 1.5px（200ms、`--ease-out-soft`）、执行过程展开 `timeline-expand`（200ms、`--ease-expand`）、滚动遮罩 `scroll-fade-y`（上下 28px 渐隐）、等待点 `quiet-dots`（1.9s、`--ease-pulse`）与状态呼吸点（`dot-pulse` 1.2s）、普通输入聚焦换中性暖灰 1px 边。
 - 浮层（Dialog / Sheet / Popover / 菜单 / 选择器 / Combobox / Tooltip）统一由 `.cds-overlay-enter` 驱动 `opacity` + `scale(.96)` → `1` 的过渡（200ms、`--ease-out`），Base UI 的 `data-starting-style` / `data-ending-style` 在动画结束后卸载；Positioner、Portal、焦点与关闭保护保持不变。

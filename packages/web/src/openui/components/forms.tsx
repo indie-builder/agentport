@@ -712,7 +712,7 @@ export function ChipsRenderer({
             disabled={state.streaming || item.disabled}
             onClick={() => state.toggle(item.value)}
             className={cn(
-              'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors',
+              'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors duration-150 ease-out-soft',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               selected
                 ? 'border-line-strong bg-selected text-selected-foreground'

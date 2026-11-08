@@ -13,13 +13,13 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-canvas: #fbfcfc;
+  --color-canvas: #fbfbfb;
   --color-surface: #ffffff;
   --color-panel: #ffffff;
-  --color-sunken: #f7f9f9;
-  --color-hover: #edf2f2;
-  --color-chip: #eff3f3;
-  --color-selected: #dfe9ea;
+  --color-sunken: #f7f7f7;
+  --color-hover: #f0f0f0;
+  --color-chip: #f2f2f2;
+  --color-selected: #e6e6e6;
   --color-sidebar: #eaf0f0;
   --color-sidebar-hover: #dfe8e9;
   --color-sidebar-selected: var(--color-surface);
@@ -496,9 +496,10 @@
     transform-origin: 50%;
     transition:
       transform var(--dur-slow) var(--btn-spring),
-      color var(--dur-fast) ease,
-      background-color var(--dur-fast) ease,
-      border-color var(--dur-fast) ease;
+      opacity 150ms var(--ease-out-soft),
+      color 150ms var(--ease-out-soft),
+      background-color 150ms var(--ease-out-soft),
+      border-color 150ms var(--ease-out-soft);
   }
 
   .cds-btn-squish:active {

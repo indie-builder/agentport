@@ -65,7 +65,7 @@
 
 ### 1.2 状态与副作用库的职责边界
 
-- **客户端状态**：Zustand 统一管理跨组件、非服务端的交互状态，按业务域复用现有 store；服务端数据归 TanStack Query，可导航状态归 TanStack Router，平台表单归 RHF/`useZodForm`，生成式表单归 OpenUI 官方运行时，组件私有临时状态留本地。细则见 [packages/web/CLAUDE.md](../packages/web/CLAUDE.md#状态与复用)。
+- **客户端状态**：Zustand 统一管理跨组件、非服务端的交互状态，按业务域复用现有 store；服务端数据归 TanStack Query，可导航状态归 TanStack Router，平台表单归 RHF/`useZodForm`，生成式表单归 OpenUI 官方运行时，组件私有临时状态留本地。细则见 [packages/web/AGENTS.md](../packages/web/AGENTS.md#状态与复用)。
 - **任务/请求内副作用**：Effect 只管单个任务内的类型化错误、取消/超时、资源释放与并发。Hono 请求生命周期与 oRPC 过程、BullMQ 分发与重试、`SessionSandboxes` 容器生命周期、Claude Agent SDK 唯一执行循环各自负责，Effect 不接管，也不做全仓机械改写。公共契约在 `packages/core/src/effect-runtime.ts`（`DbError` / `RunFailure` / `runProgram`）；api/worker 按各自语义用 `Effect.runPromiseExit` / `Effect.runPromise` 进入，边界细则见各包规则。
 
 ### 1.3 API 组织与 HTTP 契约

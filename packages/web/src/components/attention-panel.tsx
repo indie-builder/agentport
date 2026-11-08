@@ -43,7 +43,7 @@ export function AttentionPanel() {
                   to="/runs/$runId"
                   params={{ runId: item.runId }}
                   search={{ backTo: location.href }}
-                  className="-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5 hover:bg-hover"
+                  className="-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5 transition-colors duration-150 ease-out-soft hover:bg-hover"
                 >
                   <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
                   <span className="min-w-0 flex-1">
@@ -65,7 +65,7 @@ export function AttentionPanel() {
                   to="/runs/$runId"
                   params={{ runId: item.runId }}
                   search={{ backTo: location.href }}
-                  className="-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5 hover:bg-hover"
+                  className="-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5 transition-colors duration-150 ease-out-soft hover:bg-hover"
                 >
                   <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
                   <span className="min-w-0 flex-1">

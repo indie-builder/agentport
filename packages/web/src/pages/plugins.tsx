@@ -508,12 +508,7 @@ function InstallPluginDialog({
                 <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
                   取消
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={pending}
-                  aria-busy={pending}
-                  className="transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft"
-                >
+                <Button type="submit" disabled={pending} aria-busy={pending}>
                   {pending ? '安装中…' : '安装'}
                 </Button>
               </div>
@@ -578,7 +573,6 @@ function InstallPluginDialog({
                               size="sm"
                               disabled={pending}
                               aria-busy={importing}
-                              className="transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft"
                               onClick={() => addToLibrary(item.pluginId)}
                             >
                               {importing ? '加入中…' : '加入插件库'}

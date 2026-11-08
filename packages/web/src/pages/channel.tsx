@@ -386,7 +386,7 @@ function ChannelWorkspace({
             to="/channels"
             aria-label="返回频道列表"
             title="返回频道列表"
-            className="inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-icon)] text-muted-foreground hover:bg-hover hover:text-fg lg:hidden"
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-icon)] text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-fg lg:hidden"
           >
             <ArrowLeft aria-hidden="true" />
           </Link>
@@ -611,7 +611,7 @@ function ChannelSidebar({ channelId }: { channelId: string }) {
                 params={{ channelId: channel.id }}
                 aria-current={channel.id === channelId ? 'page' : undefined}
                 className={cn(
-                  'flex h-8 min-w-0 items-center gap-2 rounded-item px-2.5 text-sm',
+                  'flex h-8 min-w-0 items-center gap-2 rounded-item px-2.5 text-sm transition-colors duration-150 ease-out-soft',
                   channel.id === channelId
                     ? 'bg-selected text-selected-foreground'
                     : 'text-muted-foreground hover:bg-hover hover:text-fg',

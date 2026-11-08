@@ -195,7 +195,7 @@ function ColumnRow({
       >
         <GripVertical aria-hidden="true" />
       </Button>
-      <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-icon px-2 py-1.5 text-xs hover:bg-hover">
+      <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-icon px-2 py-1.5 text-xs transition-colors duration-150 ease-out-soft hover:bg-hover">
         <Checkbox checked={checked} onCheckedChange={() => onToggle()} />
         {column.header}
       </label>
@@ -438,7 +438,7 @@ export function DataTable<T extends RowData>({
           <TableHeader role="rowgroup" className="block">
             <TableRow
               role="row"
-              className="grid items-center gap-3 px-3 pb-2 hover:bg-transparent"
+              className="grid items-center gap-3 px-3 pb-2"
               style={{ gridTemplateColumns: template }}
             >
               {visible.map((column, index) => {
@@ -526,7 +526,7 @@ export function DataTable<T extends RowData>({
           <TableBody role="rowgroup" className="block">
             {loading && rows.length === 0 ? (
               Array.from({ length: 5 }, (_, i) => `skeleton-${i}`).map((key) => (
-                <TableRow key={key} role="row" className="block">
+                <TableRow key={key} role="row" className="block hover:bg-transparent">
                   <TableCell role="cell" colSpan={visible.length + 1} className="block p-0">
                     <Skeleton className="h-14" />
                   </TableCell>
@@ -575,7 +575,7 @@ export function DataTable<T extends RowData>({
                           : undefined
                       }
                       className={cn(
-                        'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
+                        'grid min-h-14 w-full items-start gap-3 rounded-item px-3 text-left transition-colors duration-150 ease-out-soft hover:bg-hover has-aria-expanded:bg-transparent',
                         interactive ? 'cursor-pointer' : 'cursor-default',
                         isOpen && 'bg-hover has-aria-expanded:bg-hover',
                       )}

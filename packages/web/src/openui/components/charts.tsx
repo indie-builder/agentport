@@ -381,7 +381,7 @@ function ChartDataView({
           <TableBody>
             {rows.map((row, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: 数据视图与图表同序、只读渲染，索引就是行身份
-              <TableRow key={`${row.category}-${index}`}>
+              <TableRow key={`${row.category}-${index}`} className="hover:bg-transparent">
                 <TableCell>{row.category}</TableCell>
                 {columns.map((column) => (
                   <TableCell key={column.key} className="text-right font-mono tabular-nums">

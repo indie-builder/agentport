@@ -570,7 +570,6 @@ function MarketSkillsPage({
                       title={
                         !installed && !canInstall ? '当前账户没有安装市场技能的权限' : undefined
                       }
-                      className="transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft"
                       onClick={() => installSkill(item)}
                     >
                       {installed ? '已安装' : pending ? '安装中…' : '安装'}
