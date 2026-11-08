@@ -482,7 +482,7 @@ export function ListRenderer({
             {clickable ? (
               <button
                 type="button"
-                className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex w-full min-w-0 items-start gap-2.5 py-2 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => void trigger(itemProps.title, undefined, action)}
               >
                 {content}
@@ -513,7 +513,7 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
             key={index}
             type="button"
             disabled={streaming}
-            className="rounded-full border border-line px-3 py-1.5 text-sm text-fg transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full border border-line px-3 py-1.5 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => void trigger(text)}
           >
             {text}

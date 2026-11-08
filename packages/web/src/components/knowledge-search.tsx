@@ -136,7 +136,7 @@ function MultiFilter({
           options.map((option) => (
             <span
               key={option.value}
-              className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-sm text-fg hover:bg-hover"
+              className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover"
             >
               <Checkbox
                 aria-label={option.label}
@@ -189,7 +189,7 @@ function KindFilter({
           return (
             <span
               key={kind}
-              className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-xs text-fg hover:bg-hover"
+              className="flex cursor-pointer items-center gap-2 rounded-item px-1 py-1 text-xs text-fg transition-colors duration-150 ease-out-soft hover:bg-hover"
             >
               <Checkbox
                 aria-label={contentKindLabel[kind]}

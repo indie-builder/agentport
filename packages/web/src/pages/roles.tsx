@@ -761,7 +761,7 @@ const PermissionMatrix = memo(function PermissionMatrix({
     <section className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-card ring-1 ring-line [&>[data-slot=table-container]]:h-full [&>[data-slot=table-container]]:overflow-auto">
       <Table aria-label="角色权限矩阵">
         <TableHeader className="sticky top-0 z-20">
-          <TableRow className="hover:bg-transparent">
+          <TableRow>
             <TableHead scope="col" className="sticky left-0 z-20 border-r border-line bg-sunken">
               功能
             </TableHead>
