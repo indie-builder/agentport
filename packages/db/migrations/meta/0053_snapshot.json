@@ -1421,7 +1421,8 @@
           "name": "memory_policy",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'{\"enabled\":true,\"writeMode\":\"native_auto\",\"injectPersonalMemory\":true,\"injectRules\":true,\"topicLimit\":20}'::jsonb"
         },
         "created_at": {
           "name": "created_at",
