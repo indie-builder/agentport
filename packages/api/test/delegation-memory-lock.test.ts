@@ -5,6 +5,7 @@ import { type DatabaseClient, newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import {
+  acquireMemoryLock,
   cleanup,
   createAgent,
   expectProblem,
@@ -22,9 +23,6 @@ import {
 
 const ready = await infraReady;
 
-// 与 personal-memory.test.ts 共用会话级锁：两者都会以管理员身份写 memory_changes。
-const MEMORY_TEST_LOCK = 'agentport.memory-tests';
-
 describe.skipIf(!ready)('delegation memory occupancy', () => {
   let app: TestApp;
   let cookie: string;
@@ -35,23 +33,14 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
   const runIds: string[] = [];
   const scheduleIds: string[] = [];
 
-  async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
-    const reserved = await client.reserve();
-    // 等锁可能超过连接默认的 statement_timeout。
-    await reserved.unsafe('set statement_timeout = 0');
-    await reserved.unsafe('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
-    return async () => {
-      await reserved.unsafe('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
-      reserved.release();
-    };
-  }
-
   beforeAll(async () => {
     // macOS 的 tmpdir 是符号链接；记忆文件写入会拒绝符号链接路径。
     workspaces = await mkdtemp(join(await realpath(tmpdir()), 'delegation-memory-'));
     app = await startApp({ WORKSPACES_DIR: workspaces });
     // 有 worker 消费时排队 run 会被真实执行，chat 准入断言失去意义。
     expect(await queueIdle, 'worker must be stopped before admission tests').toBe(true);
+    // 与 memory-changes / memory-reviews / memory-overview 共用同一把会话级锁：这几个文件
+    // 都以管理员身份写 memory_changes 或管理员个人记忆并按 businessId 清理，并行会互相删行。
     releaseLock = await acquireMemoryLock(app.client);
     cookie = await loginCookie(app);
   }, 60_000);

@@ -22,10 +22,12 @@ import {
   effortSchema,
   errorText,
   knowledgeMcpEntry,
+  type MemoryPolicy,
   messageAttachments,
   permissionModeSchema,
   previewMcpEntry,
   RUNS_QUEUE,
+  resolveMemoryPolicy,
   type SandboxTaskInput,
   SESSION_CLEANUP_TIMEOUT_MS,
   serverInputSchema,
@@ -63,7 +65,7 @@ import {
   recordOutputSandboxSettlement,
   selectedOutput,
 } from './outputs.js';
-import { projectPersonalMemory } from './personal-memory.js';
+import { personalMemoryBusinessIdForRun, projectPersonalMemory } from './personal-memory.js';
 import { startReconciler } from './reconcile.js';
 import { checkQueuedRunAccess, type RunAccessDenial, runExecutionSubject } from './run-access.js';
 import {
@@ -91,7 +93,7 @@ import { createRuntimeEnvironmentResolver } from './runtime-environments/resolve
 import { DockerSandboxProvider, resolveLocalImageId } from './sandbox/docker.js';
 import { SandboxCleanupError } from './sandbox/provider.js';
 import { closeSessionRuntime, startSessionCleanupChannel } from './sandbox/session-cleanup.js';
-import { SessionSandboxes, type SessionSandboxLease } from './sandbox/sessions.js';
+import { memoryMountFor, SessionSandboxes, type SessionSandboxLease } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
 import { startScheduleScheduler } from './scheduler.js';
 import { loadRunServerBindings } from './server-bindings.js';
@@ -99,6 +101,7 @@ import {
   ensureSessionWorkspace,
   refreshSessionDirectory,
   toHostWorkspacePath,
+  writeRulesDirectory,
 } from './session-workspace.js';
 import { runShutdown } from './shutdown.js';
 import { modelProxyUpstream } from './upstream.js';
@@ -254,6 +257,8 @@ async function writeWorkspace(
   }>,
   selectedOutputStyle: string | null,
   plugins: WorkspacePlugin[],
+  /** 本轮已解析的专家记忆策略：CLAUDE.md 的记忆文案必须与记忆挂载权限同源。 */
+  memoryPolicy: MemoryPolicy,
 ): Promise<{ dir: string; hasSubAgents: boolean }> {
   // 生成式 UI 的工具目录与提示词、执行桥同源：这里查一次，渲染时写进 CLAUDE.md。
   const openuiTools =
@@ -279,6 +284,7 @@ async function writeWorkspace(
       selectedOutputStyle,
       openuiTools,
       plugins,
+      memoryPolicy,
     }),
   );
 
@@ -320,17 +326,7 @@ async function writeWorkspace(
     }
   }
   // 项目规则每次重建：写到 .claude/rules/<slug>.md，由 project source 随会话加载。
-  const rulesDir = join(dir, '.claude', 'rules');
-  await rm(rulesDir, { recursive: true, force: true });
-  if (files.rules.length > 0) {
-    await mkdir(rulesDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
-    for (const rule of files.rules) {
-      await writeFile(join(rulesDir, `${rule.slug}.md`), rule.content, {
-        encoding: 'utf8',
-        mode: WORKSPACE_FILE_MODE,
-      });
-    }
-  }
+  await writeRulesDirectory(join(dir, '.claude', 'rules'), files.rules);
   // 自定义输出风格：写到 .claude/output-styles/<slug>.md；选中者写进 .claude/settings.json。
   const stylesDir = join(dir, '.claude', 'output-styles');
   await rm(stylesDir, { recursive: true, force: true });
@@ -685,6 +681,8 @@ const worker = new Worker(
           .limit(1);
         if (!agent) throw new Error(`agent ${agentId} not found`);
         agentSlugForRun = agent.slug;
+        // 同一行已带 memoryPolicy 列：直接解析，避免为本轮再查一次 agent。
+        const memoryPolicy = resolveMemoryPolicy(agent.memoryPolicy);
         // 单层委派：只取直接子智能体。容器取得前查一次并沿用到结束；A 保证准入到结束集合稳定。
         const subAgentRows: SubAgentRow[] = await db
           .select()
@@ -694,8 +692,12 @@ const worker = new Worker(
         const enabledChildren = subAgentRows.filter((row) => row.enabled);
         const subAgentSlugs = enabledChildren.map((row) => row.slug).sort();
         // 频道 run 共享 lane，不投影也不挂载任何参与者偏好；用户 run 先按 DB 重写，崩溃后不带旧投影。
-        const personalBusinessId =
-          subject.kind === 'user' && run.channelId === null ? subject.businessId : undefined;
+        // 专家策略关闭个人记忆注入时，投影与 /mnt/user 挂载一起跳过（身份边界仍由 helper 保证）。
+        const personalBusinessId = personalMemoryBusinessIdForRun({
+          subject,
+          channelId: run.channelId,
+          policy: memoryPolicy,
+        });
         if (personalBusinessId !== undefined) {
           await projectPersonalMemory(db, client, workspacesDir, personalBusinessId);
         }
@@ -727,9 +729,11 @@ const worker = new Worker(
               { workspacesDir, hostWorkspacesDir },
               sessionPaths.inputsDir,
             ),
-            memoryDir: toHostWorkspacePath(
-              { workspacesDir, hostWorkspacesDir },
-              sessionPaths.memoryDir,
+            // 记忆策略决定挂载方式：关闭时不挂 /mnt/agent-memory，只有 native_auto 可写；
+            // 容器重建由挂载集合（含 readonly）变化触发。
+            ...memoryMountFor(
+              memoryPolicy,
+              toHostWorkspacePath({ workspacesDir, hostWorkspacesDir }, sessionPaths.memoryDir),
             ),
             sessionsDir: toHostWorkspacePath(
               { workspacesDir, hostWorkspacesDir },
@@ -888,8 +892,14 @@ const worker = new Worker(
           serverNames: serverNamesByAgent.get(row.id) ?? [],
         }));
 
-        const ruleRows = await repo.rules.listRules(db, agentId);
-        const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
+        // injectRules=false 时不渲染也不查询规则；writeWorkspace 仍会先清理旧 .claude/rules。
+        const rules = memoryPolicy.injectRules
+          ? (await repo.rules.listRules(db, agentId)).map((r) => ({
+              slug: r.slug,
+              content: r.content,
+              globs: r.globs,
+            }))
+          : [];
 
         const styleRows = await repo.outputStyles.listOutputStyles(db, agentId);
         const outputStyles = styleRows.map((r) => ({
@@ -914,6 +924,7 @@ const worker = new Worker(
           outputStyles,
           selectedOutputStyle,
           runPlugins,
+          memoryPolicy,
         );
         await refreshSessionDirectory(workspaceDir, stableWorkspaceDir, {
           preserveMemoryMount: true,
@@ -965,6 +976,7 @@ const worker = new Worker(
             skills: (childSkills.get(row.id) ?? []).map((skill) => skill.slug),
           })),
           userMessageUuid,
+          memoryPolicy,
           // 首次空会话不 resume：没有 transcript 时传了只会让 CLI 找不到会话。
           ...(sdkState.sdkSessionId === null ? {} : { resumeSessionId: sdkState.sdkSessionId }),
           ...(sdkState.forkFromSdkMessageUuid === null

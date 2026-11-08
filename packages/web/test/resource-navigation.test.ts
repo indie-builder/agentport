@@ -205,7 +205,8 @@ const agent: Agent = {
 
 beforeEach(() => {
   state.pending = false;
-  state.search = {};
+  // 专家编辑器用例针对配置任务；概览的默认落点由页面级用例覆盖。
+  state.search = { tab: 'config' };
   state.blocker = undefined;
   vi.clearAllMocks();
 });

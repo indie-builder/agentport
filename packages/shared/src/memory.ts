@@ -20,6 +20,46 @@ export const AGENT_MEMORY_MAX_LINES = 200;
 export const AGENT_MEMORY_MAX_BYTES = 25 * 1024;
 /** 任何记忆文件的底层大小上限。 */
 export const MEMORY_FILE_MAX_BYTES = 200_000;
+/** 主题文件超过该天数没有更新即视为陈旧，只提示、不自动删除。 */
+export const MEMORY_TOPIC_STALE_DAYS = 60;
+
+/** 专家记忆写入方式：`native_auto` 由 SDK auto-memory 直接写，`proposal_only` 只能经记忆提案写入。 */
+export const memoryWriteModeSchema = z.enum(['native_auto', 'proposal_only']);
+
+/**
+ * 专家记忆策略：只约束运行期如何挂载/注入记忆，不改变官方记忆文件本身。
+ * - `enabled=false`：运行期不挂载、不加载专家记忆；新的记忆提案被拒绝（409），手工浏览/编辑仍可用。
+ * - `writeMode=native_auto`：SDK auto-memory 开启，模型可直接写记忆目录。
+ * - `writeMode=proposal_only`：关闭 auto-memory，运行期不可写，只能经记忆提案写入。
+ * - `injectPersonalMemory=false`：该专家运行时不注入当前用户的个人记忆。
+ * - `injectRules=false`：该专家运行时不渲染项目规则。
+ * - `topicLimit`：主题文件（非 MEMORY.md）数量上限，超出时新的主题创建/提案采纳被拒绝（409）。
+ */
+export const memoryPolicySchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    writeMode: memoryWriteModeSchema.default('native_auto'),
+    injectPersonalMemory: z.boolean().default(true),
+    injectRules: z.boolean().default(true),
+    topicLimit: z.number().int().min(3).max(48).default(20),
+  })
+  .strict();
+
+export type MemoryPolicy = z.infer<typeof memoryPolicySchema>;
+
+export const DEFAULT_MEMORY_POLICY: MemoryPolicy = {
+  enabled: true,
+  writeMode: 'native_auto',
+  injectPersonalMemory: true,
+  injectRules: true,
+  topicLimit: 20,
+};
+
+/** 读取已落库的策略；缺失或非法时整体回落默认值，不让半套策略进入运行期。 */
+export function resolveMemoryPolicy(value: unknown): MemoryPolicy {
+  const parsed = memoryPolicySchema.safeParse(value ?? {});
+  return parsed.success ? parsed.data : { ...DEFAULT_MEMORY_POLICY };
+}
 
 /**
  * 个人偏好正文上限：9000 个 Unicode 字符（按码点计，不是 UTF-8 字节）。
@@ -129,8 +169,8 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function indexHasLink(indexContent: string, name: string): boolean {
-  // 只识别带标签的普通行内链接并排除图片；目标是平面文件名的相对路径（可带 ./ 与 title）。
+/** 索引正文里是否有指向该平面文件名（可带 ./ 与 title）的普通行内链接；图片不算链接。 */
+export function memoryIndexLinksFile(indexContent: string, name: string): boolean {
   const link = `(?<!!)\\[[^\\]\\n]*\\]\\(\\s*(?:\\./)?${escapeRegExp(name)}(?:\\s+(?:"[^"\\n]*"|'[^'\\n]*'|\\([^)\\n]*\\)))?\\s*\\)`;
   return new RegExp(link).test(indexContent);
 }
@@ -145,7 +185,7 @@ export function memoryIndexContentAfter(
   indexContent: string | null,
 ): string | null {
   if (content === null || name === INDEX_FILE_NAME) return indexContent;
-  if (indexHasLink(indexContent ?? '', name)) return indexContent;
+  if (memoryIndexLinksFile(indexContent ?? '', name)) return indexContent;
   const index = indexContent ?? '';
   const separator = index === '' || index.endsWith('\n') ? '' : '\n';
   return `${index}${separator}- [${name}](${name})\n`;
@@ -197,7 +237,8 @@ export function memoryReviewHasChanges(
   );
 }
 
-function lineCount(content: string): number {
+/** 空串 0 行；否则去掉且仅去掉一个末尾换行后按 \n 计数。 */
+export function countMemoryLines(content: string): number {
   if (content === '') return 0;
   const withoutTrailingNewline = content.endsWith('\n') ? content.slice(0, -1) : content;
   return withoutTrailingNewline.split('\n').length;
@@ -216,7 +257,7 @@ export function validateMemoryContent(name: string, content: string): string | n
   if (bytes > AGENT_MEMORY_MAX_BYTES) {
     return `MEMORY.md 不能超过 ${AGENT_MEMORY_MAX_BYTES} 字节（UTF-8）；请把详细内容移到主题文件`;
   }
-  if (lineCount(content) > AGENT_MEMORY_MAX_LINES) {
+  if (countMemoryLines(content) > AGENT_MEMORY_MAX_LINES) {
     return `MEMORY.md 不能超过 ${AGENT_MEMORY_MAX_LINES} 行；请把详细内容移到主题文件`;
   }
   return null;
@@ -284,3 +325,113 @@ export const memoryChangeSchema = z.object({
 });
 
 export type MemoryChange = z.infer<typeof memoryChangeSchema>;
+
+/** 一条记忆健康提示；level 只表达严重度，不触发任何自动修复。 */
+export const memoryHealthSchema = z
+  .object({
+    code: z.string(),
+    level: z.enum(['ok', 'warn', 'danger']),
+    title: z.string(),
+    detail: z.string(),
+  })
+  .strict();
+
+export type MemoryHealth = z.infer<typeof memoryHealthSchema>;
+
+/** 专家记忆概览：只读派生自策略、记忆文件、规则、个人记忆与账本，不新增存储。 */
+export const agentMemoryOverviewSchema = z
+  .object({
+    policy: memoryPolicySchema,
+    index: z
+      .object({
+        present: z.boolean(),
+        lines: z.number().int(),
+        bytes: z.number().int(),
+        maxLines: z.number().int(),
+        maxBytes: z.number().int(),
+      })
+      .strict(),
+    topics: z
+      .object({
+        count: z.number().int(),
+        bytes: z.number().int(),
+        /** 索引里没有链接的主题文件名，按名称排序。 */
+        unlinked: z.array(z.string()),
+        /** 超过 MEMORY_TOPIC_STALE_DAYS 未更新的主题文件名，按名称排序。 */
+        stale: z.array(z.string()),
+      })
+      .strict(),
+    rules: z
+      .object({
+        count: z.number().int(),
+        bytes: z.number().int(),
+      })
+      .strict(),
+    personal: z
+      .object({
+        chars: z.number().int(),
+        maxChars: z.number().int(),
+      })
+      .strict(),
+    unaccounted: z
+      .object({
+        count: z.number().int(),
+        names: z.array(z.string()),
+      })
+      .strict(),
+    health: z.array(memoryHealthSchema),
+    /** 最近变更的轻量投影：只带文件名、时间与首行摘要，不回传前后全文。 */
+    recentChanges: z.array(
+      z
+        .object({
+          name: z.string(),
+          createdAt: z.string(),
+          /** 变更后正文的首个非空行，最长 120 个字符。 */
+          summary: z.string(),
+        })
+        .strict(),
+    ),
+    /** `memory_changes` 中该专家记忆变更的真实总数，与 recentChanges 的截断长度无关。 */
+    changesTotal: z.number().int(),
+  })
+  .strict();
+
+export type AgentMemoryOverview = z.infer<typeof agentMemoryOverviewSchema>;
+
+/**
+ * 运行期装配视图：描述一次运行里实际会加载什么、以什么方式加载。
+ * path 为沙盒内可见路径；个人记忆不在专家记忆目录内，单独按 /mnt/user 投影。
+ */
+export const agentMemoryAssemblySchema = z
+  .object({
+    blocks: z.array(
+      z
+        .object({
+          kind: z.enum(['personal', 'index', 'rule', 'topic']),
+          name: z.string(),
+          path: z.string(),
+          /** 文件正文的 UTF-8 字节数；个人记忆按其上限口径用码点数。 */
+          chars: z.number().int(),
+          /** 本次装配未读取正文时为 null。 */
+          lines: z.number().int().nullable(),
+          trigger: z.enum(['every-run', 'on-demand', 'skipped']),
+          reason: z.string().nullable(),
+          /** 仅规则使用；其余为 null。 */
+          globs: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    /** 四项单位各不相同：个人记忆按码点，其余按 UTF-8 字节。 */
+    totals: z
+      .object({
+        personalChars: z.number().int(),
+        indexBytes: z.number().int(),
+        rulesBytes: z.number().int(),
+        topicBytes: z.number().int(),
+      })
+      .strict(),
+    notes: z.array(z.string()),
+  })
+  .strict();
+
+export type AgentMemoryAssembly = z.infer<typeof agentMemoryAssemblySchema>;

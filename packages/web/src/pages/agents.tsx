@@ -1,6 +1,14 @@
 import { effortSchema, permissionModeSchema } from '@agentport/shared';
 import { downloadBlob } from '../lib/browser-files.js';
-import { agentSections as sectionItems, agentTabs as tabItems } from '../lib/detail-tabs.js';
+import {
+  type AgentInstruction,
+  type AgentSection,
+  type AgentTab,
+  agentInstructions as instructionItems,
+  type MemoryView,
+  agentSections as sectionItems,
+  agentTabs as tabItems,
+} from '../lib/detail-tabs.js';
 // 只引用纯函数子路径：core 根入口还导出 node:crypto 相关模块，浏览器不能加载。
 
 import type { McpJsonEntry } from '@agentport/core/tools';
@@ -67,6 +75,7 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 import digitalTwinPortrait from '../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../components/agent-avatar.js';
+import { AgentOverview } from '../components/agent-overview.js';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
@@ -1194,10 +1203,6 @@ export function AgentDetailPage() {
   const canDelete = hasAnyGrant(permissions, 'agents.delete');
   const canViewRuns = can(me.data, 'runs.read');
   const roleLabel = current.role?.trim() || '通用助手';
-  const readableTabs = new Set(
-    tabItems.map((item) => item.id).filter((id) => hasAnyGrant(permissions, TAB_PERMISSIONS[id])),
-  );
-  const hasReadableTab = readableTabs.size > 0;
   // 配置任务已由工具栏承载删除；页头只在工具栏确实渲染（详情已就绪）时让出入口。
   const configTabActive =
     full !== null && canReadConfig && activeAgentTab(search.tab, permissions) === 'config';
@@ -1319,23 +1324,12 @@ export function AgentDetailPage() {
           </p>
         ) : null}
       </PageTopbar>
-      {!hasReadableTab ? (
-        <PageBody>
-          {current.description ? (
-            <p className="max-w-[70ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
-              {current.description}
-            </p>
-          ) : null}
-          <PageNote
-            title="当前账户只能使用这个专家。"
-            description="查看或修改配置需要对应的维护权限。"
-          />
-        </PageBody>
-      ) : full ? (
+      {full ? (
         <AgentEditor
           key={agentId}
           agent={full}
           permissions={permissions}
+          canViewRuns={canViewRuns}
           deletePending={remove.isPending}
           onPendingChange={setEditorPending}
           onDeleteRequest={() => setDeleting(true)}
@@ -1344,7 +1338,8 @@ export function AgentDetailPage() {
         <RestrictedAgentTabs
           key={agentId}
           agentId={agentId}
-          description={current.description}
+          agent={current}
+          canViewRuns={canViewRuns}
           permissions={permissions}
           onPendingChange={setEditorPending}
           externalPending={remove.isPending || toggleEnable.isPending}
@@ -1397,26 +1392,127 @@ export function AgentDetailPage() {
   );
 }
 
-type SectionId = (typeof sectionItems)[number]['id'];
-type TabId = (typeof tabItems)[number]['id'];
+type SectionId = AgentSection;
+type TabId = AgentTab;
+
+/**
+ * 「指令」任务：项目规则与输出风格共用一张卡片，分段只在两者都可读时出现。
+ * 分段切换会卸载另一个面板，所以带草稿时先确认；脏与在途状态继续回传给任务级保护。
+ */
+function AgentInstructions({
+  agentId,
+  permissions,
+  instruction,
+  onInstructionChange,
+  onDirtyChange,
+  onPendingChange,
+}: {
+  agentId: string;
+  permissions: readonly PermissionId[];
+  instruction: AgentInstruction;
+  onInstructionChange: (next: AgentInstruction) => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
+}) {
+  const options = instructionItems.filter((item) =>
+    hasAnyGrant(permissions, INSTRUCTION_PERMISSIONS[item.id]),
+  );
+  const [dirty, setDirty] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [pendingInstruction, setPendingInstruction] = useState<AgentInstruction | null>(null);
+
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
+  useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
+  useEffect(() => () => onPendingChange(false), [onPendingChange]);
+
+  const apply = (next: AgentInstruction): void => {
+    setPendingInstruction(null);
+    onInstructionChange(next);
+  };
+  const switchInstruction = (next: AgentInstruction): void => {
+    if (next === instruction || pending) return;
+    if (dirty) setPendingInstruction(next);
+    else apply(next);
+  };
+
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      {options.length > 1 ? (
+        <Tabs
+          value={instruction}
+          onValueChange={(next) => switchInstruction(next as AgentInstruction)}
+        >
+          <TabsList aria-label="指令类型">
+            {options.map((item) => (
+              <TabsTrigger
+                key={item.id}
+                value={item.id}
+                aria-disabled={pending}
+                title={pending ? '正在保存，稍后可切换' : undefined}
+                className={
+                  pending
+                    ? 'cursor-not-allowed hover:text-muted-foreground aria-disabled:pointer-events-auto'
+                    : undefined
+                }
+              >
+                {item.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      ) : null}
+      <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
+        {instruction === 'rules' ? (
+          <RulesPanel
+            agentId={agentId}
+            canWrite={hasAnyGrant(permissions, 'agents.rules.write')}
+            onDirtyChange={setDirty}
+            onPendingChange={setPending}
+          />
+        ) : (
+          <OutputStylesPanel
+            agentId={agentId}
+            canWrite={hasAnyGrant(permissions, 'agents.styles.write')}
+            onDirtyChange={setDirty}
+            onPendingChange={setPending}
+          />
+        )}
+      </div>
+      <ConfirmDialog
+        open={pendingInstruction !== null}
+        onClose={() => setPendingInstruction(null)}
+        title="放弃未保存的修改并切换？"
+        description="当前指令还有未保存的内容，切换后会丢失。"
+        confirmLabel="放弃并切换"
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          if (pendingInstruction) apply(pendingInstruction);
+        }}
+      />
+    </div>
+  );
+}
 
 function RestrictedAgentTabs({
   agentId,
-  description,
+  agent,
+  canViewRuns,
   permissions,
   onPendingChange,
   externalPending = false,
   settleNavigationRef,
 }: {
   agentId: string;
-  description: string;
+  agent: Agent | AgentSummary;
+  canViewRuns: boolean;
   permissions: readonly PermissionId[];
   onPendingChange: (pending: boolean) => void;
   externalPending?: boolean;
   settleNavigationRef: RefObject<(() => void) | null>;
 }) {
   const available = tabItems.filter(
-    (item) => item.id !== 'config' && hasAnyGrant(permissions, TAB_PERMISSIONS[item.id]),
+    (item) => item.id !== 'config' && canOpenTab(item.id, permissions),
   );
   const navigate = useNavigate({ from: '/agents/$agentId' });
   const search = useSearch({ from: '/_shell/agents/$agentId' });
@@ -1429,9 +1525,28 @@ function RestrictedAgentTabs({
     return () => onPendingChange(false);
   }, [childPending, onPendingChange]);
 
-  const permittedTab = (value: unknown): TabId =>
-    available.some((item) => item.id === value) ? (value as TabId) : (available[0]?.id ?? 'memory');
+  const permittedTab = (value: unknown): TabId => {
+    const requested = normalizeTab(value);
+    return available.some((item) => item.id === requested)
+      ? (requested as TabId)
+      : (available[0]?.id ?? 'overview');
+  };
   const tab = permittedTab(search.tab);
+  const instruction = activeInstruction(
+    asInstruction(search.tab) ?? search.instruction,
+    permissions,
+  );
+  // 旧书签 tab=rules|styles 改写为 instructions + instruction，replace 不堆历史。
+  useEffect(() => {
+    const legacy = asInstruction(search.tab);
+    if (!legacy) return;
+    void navigate({
+      to: '/agents/$agentId',
+      params: { agentId },
+      search: (current) => ({ ...current, tab: 'instructions', instruction: legacy }),
+      replace: true,
+    });
+  }, [search.tab, navigate, agentId]);
 
   const blocker = useBlocker({
     shouldBlockFn: ({ current, next }) => {
@@ -1454,7 +1569,12 @@ function RestrictedAgentTabs({
 
   if (available.length === 0) return null;
 
-  const navigateSearch = (next: { tab?: TabId; file?: string }): void => {
+  const navigateSearch = (next: {
+    tab?: TabId | undefined;
+    instruction?: AgentInstruction | undefined;
+    view?: MemoryView | undefined;
+    file?: string | undefined;
+  }): void => {
     void navigate({
       to: '/agents/$agentId',
       params: { agentId },
@@ -1486,47 +1606,49 @@ function RestrictedAgentTabs({
         </Tabs>
       </PageTopbar>
       <PageBody className="gap-5 p-2">
-        {description ? (
-          <p className="max-w-[70ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
-            {description}
-          </p>
+        {tab === 'overview' ? (
+          <AgentOverview
+            agentId={agentId}
+            agent={agent}
+            config={null}
+            permissions={permissions}
+            canViewRuns={canViewRuns}
+            onNavigate={navigateSearch}
+          />
         ) : null}
         {tab === 'memory' ? (
           <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
             <MemoryPanel
               agentId={agentId}
               canWrite={hasAnyGrant(permissions, 'agents.memory.write')}
+              view={search.view ?? 'overview'}
+              onViewChange={(view) => navigateSearch({ view })}
               onDirtyChange={setChildDirty}
               onPendingChange={setChildPending}
             />
           </div>
         ) : null}
-        {tab === 'rules' ? (
-          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
-            <RulesPanel
-              agentId={agentId}
-              canWrite={hasAnyGrant(permissions, 'agents.rules.write')}
-              onDirtyChange={setChildDirty}
-              onPendingChange={setChildPending}
-            />
-          </div>
-        ) : null}
-        {tab === 'styles' ? (
-          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
-            <OutputStylesPanel
-              agentId={agentId}
-              canWrite={hasAnyGrant(permissions, 'agents.styles.write')}
-              onDirtyChange={setChildDirty}
-              onPendingChange={setChildPending}
-            />
-          </div>
+        {tab === 'instructions' && instruction ? (
+          <AgentInstructions
+            agentId={agentId}
+            permissions={permissions}
+            instruction={instruction}
+            onInstructionChange={(next) => navigateSearch({ instruction: next })}
+            onDirtyChange={setChildDirty}
+            onPendingChange={setChildPending}
+          />
         ) : null}
         {tab === 'files' ? (
-          <ReadonlyAgentFiles
-            agentId={agentId}
-            file={search.file}
-            onFileChange={(file) => navigateSearch({ file })}
-          />
+          <div className="flex min-w-0 flex-col gap-3">
+            <p className="max-w-[70ch] text-sm text-muted-foreground">
+              这里展示只读投影，编辑请到配置、专家记忆或指令。
+            </p>
+            <ReadonlyAgentFiles
+              agentId={agentId}
+              file={search.file}
+              onFileChange={(file) => navigateSearch({ file })}
+            />
+          </div>
         ) : null}
       </PageBody>
       <ConfirmDialog
@@ -1578,7 +1700,7 @@ function ReadonlyAgentFiles({
   }
   return (
     <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
-      <nav aria-label="完整文件" className="min-w-0">
+      <nav aria-label="文件与版本" className="min-w-0">
         {[...new Set(entries.map((entry) => entry.group))].map((group) => (
           <div key={group} className="mb-3 flex flex-col gap-0.5">
             <div className="px-2 py-1 text-xs text-muted-foreground">{group}</div>
@@ -1866,22 +1988,57 @@ function TransferAgentDialog({
   );
 }
 
-const TAB_PERMISSIONS: Record<TabId, PermissionId> = {
-  config: 'agents.config.read',
-  memory: 'agents.memory.read',
+/**
+ * 概览没有权限叶，所有能打开该专家的人都可见；「指令」页只要规则或输出风格之一可读即可进入。
+ * 内层分段再按各自权限决定渲染哪一项。
+ */
+const TAB_PERMISSIONS: Record<TabId, readonly PermissionId[] | null> = {
+  overview: null,
+  config: ['agents.config.read'],
+  memory: ['agents.memory.read'],
+  instructions: ['agents.rules.read', 'agents.styles.read'],
+  files: ['agents.files.read'],
+};
+
+const INSTRUCTION_PERMISSIONS: Record<AgentInstruction, PermissionId> = {
   rules: 'agents.rules.read',
   styles: 'agents.styles.read',
-  files: 'agents.files.read',
 };
+
+function canOpenTab(id: TabId, permissions: readonly PermissionId[]): boolean {
+  const required = TAB_PERMISSIONS[id];
+  return required === null || required.some((permission) => hasAnyGrant(permissions, permission));
+}
+
+function asInstruction(value: unknown): AgentInstruction | undefined {
+  return value === 'rules' || value === 'styles' ? value : undefined;
+}
+
+/** 旧书签的 rules / styles 指向合并后的「指令」页。 */
+function normalizeTab(value: unknown): TabId | undefined {
+  if (asInstruction(value)) return 'instructions';
+  return tabItems.some((item) => item.id === value) ? (value as TabId) : undefined;
+}
 
 /** URL 里的任务可能没有读权限，回落到第一个可读任务，页面与页头共用同一判定。 */
 function activeAgentTab(value: unknown, permissions: readonly PermissionId[]): TabId {
-  const available = tabItems.filter((item) => hasAnyGrant(permissions, TAB_PERMISSIONS[item.id]));
-  const tab = (typeof value === 'string' ? value : undefined) as TabId | undefined;
-  const requested = tab ?? available[0]?.id ?? 'config';
+  const available = tabItems.filter((item) => canOpenTab(item.id, permissions));
+  const requested = normalizeTab(value) ?? available[0]?.id ?? 'overview';
   return available.some((item) => item.id === requested)
     ? requested
-    : (available[0]?.id ?? 'config');
+    : (available[0]?.id ?? 'overview');
+}
+
+/** 指令分段只保留有读权的一项；URL 值失效时回落到第一个可读项。 */
+function activeInstruction(
+  value: unknown,
+  permissions: readonly PermissionId[],
+): AgentInstruction | undefined {
+  const available = instructionItems.filter((item) =>
+    hasAnyGrant(permissions, INSTRUCTION_PERMISSIONS[item.id]),
+  );
+  const requested = asInstruction(value) ?? available[0]?.id;
+  return available.some((item) => item.id === requested) ? requested : available[0]?.id;
 }
 
 /** 普通连接器与知识库共用一个 serverIds：只替换知识库那部分，其余绑定原样保留。 */
@@ -1912,6 +2069,7 @@ const errorSections: Record<string, SectionId> = {
 export function AgentEditor({
   agent,
   permissions,
+  canViewRuns = false,
   deletePending = false,
   onDirtyChange,
   onPendingChange,
@@ -1919,6 +2077,7 @@ export function AgentEditor({
 }: {
   agent: Agent;
   permissions: readonly PermissionId[];
+  canViewRuns?: boolean;
   deletePending?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
@@ -1928,15 +2087,13 @@ export function AgentEditor({
   const canUpdateConfig = allow('agents.config.update');
   const canEnable = allow('agents.enable');
   const canBindings = allow('agents.bindings.manage');
-  const canRulesWrite = allow('agents.rules.write');
-  const canStylesWrite = allow('agents.styles.write');
   const canMemoryWrite = allow('agents.memory.write');
   const canVersionsRead = allow('agents.versions.read');
   const canVersionsRestore = allow('agents.versions.restore');
   const canClone = allow('agents.clone');
   const canExport = allow('agents.export');
   const canDelete = allow('agents.delete');
-  const availableTabs = tabItems.filter((item) => allow(TAB_PERMISSIONS[item.id]));
+  const availableTabs = tabItems.filter((item) => canOpenTab(item.id, permissions));
   const availableTabOptions = availableTabs.map((item) => ({ value: item.id, label: item.label }));
   const update = useUpdateAgent();
   const me = useQuery(meQuery);
@@ -2046,11 +2203,32 @@ export function AgentEditor({
   const sectionFromUrl = search.section ?? 'identity';
   // 任务只认 URL：确认放行后才换 URL，子面板才会卸载，草稿不会提前丢。
   const tab = activeAgentTab(search.tab, permissions);
+  const instruction = activeInstruction(
+    asInstruction(search.tab) ?? search.instruction,
+    permissions,
+  );
   const [activeSection, setActiveSectionState] = useState<SectionId>(sectionFromUrl);
   const activeFile = search.file ?? '.mcp.json';
   useEffect(() => setActiveSectionState(sectionFromUrl), [sectionFromUrl]);
-  // 任务、分区与文件都进 URL：刷新或分享后回到同一视图。
-  const navigateSearch = (next: { tab?: TabId; section?: SectionId; file?: string }): void => {
+  // 旧书签 tab=rules|styles 改写为 instructions + instruction，replace 不堆历史。
+  useEffect(() => {
+    const legacy = asInstruction(search.tab);
+    if (!legacy) return;
+    void navigate({
+      to: '/agents/$agentId',
+      params: { agentId: agent.id },
+      search: (current) => ({ ...current, tab: 'instructions', instruction: legacy }),
+      replace: true,
+    });
+  }, [search.tab, navigate, agent.id]);
+  // 任务、分区、指令分段与文件都进 URL：刷新或分享后回到同一视图。
+  const navigateSearch = (next: {
+    tab?: TabId | undefined;
+    instruction?: AgentInstruction | undefined;
+    section?: SectionId | undefined;
+    view?: MemoryView | undefined;
+    file?: string | undefined;
+  }): void => {
     void navigate({
       to: '/agents/$agentId',
       params: { agentId: agent.id },
@@ -2197,7 +2375,7 @@ export function AgentEditor({
     setTab(next);
   };
 
-  // 进入「完整文件」时滚回该栏顶部，避免停在上一份长文件的中段。
+  // 进入「文件与版本」时滚回该栏顶部，避免停在上一份长文件的中段。
   useEffect(() => {
     if (tab !== 'files') return;
     const el = document.getElementById('agent-files-detail');
@@ -2755,10 +2933,16 @@ export function AgentEditor({
         </div>
       </PageTopbar>
       <PageBody className="gap-5 p-2">
-        {agent.description ? (
-          <p className="max-w-[70ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
-            {agent.description}
-          </p>
+        {tab === 'overview' ? (
+          <AgentOverview
+            agentId={agent.id}
+            agent={agent}
+            config={agent}
+            permissions={permissions}
+            canReadKnowledge={canKnowledge}
+            canViewRuns={canViewRuns}
+            onNavigate={navigateSearch}
+          />
         ) : null}
         {tab === 'config' ? (
           <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -3878,79 +4062,96 @@ export function AgentEditor({
         ) : null}
 
         {tab === 'files' ? (
-          <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
-            <nav aria-label="工作区文件" className="hidden min-w-0 md:block">
-              <ul className="flex flex-col gap-0.5">
-                {fileGroups.map((group) => (
-                  <Fragment key={group}>
-                    <li className="min-w-0">
-                      <p className="px-2 pt-1 pb-0.5 text-xs text-muted-foreground">{group}</p>
-                    </li>
-                    {fileEntries
-                      .filter((entry) => entry.group === group)
-                      .map((entry) => (
-                        <li key={entry.id} className="min-w-0">
-                          <button
-                            type="button"
-                            aria-current={resolvedId === entry.id ? 'true' : undefined}
-                            onClick={() => setActiveFile(entry.id)}
-                            className={sectionButtonClass(resolvedId === entry.id)}
-                          >
-                            <span className="inline-flex min-w-0 items-center gap-1.5">
-                              {entry.id === '.mcp.json' ? (
-                                <FileCode aria-hidden="true" />
-                              ) : (
-                                <FileText aria-hidden="true" />
-                              )}
-                              <span className="truncate" title={entry.path}>
-                                {entry.path}
-                                {entry.group === '输出风格' &&
-                                files.data?.selectedOutputStyle &&
-                                entry.id ===
-                                  `.claude/output-styles/${files.data.selectedOutputStyle}.md`
-                                  ? ' · 已启用'
-                                  : ''}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                  </Fragment>
-                ))}
-              </ul>
-            </nav>
-            <div className="flex min-w-0 flex-col gap-3 md:hidden">
-              <Select
-                value={resolvedId}
-                items={fileEntries.map((entry) => ({ value: entry.id, label: entry.path }))}
-                onValueChange={(next) => {
-                  if (next !== null) setActiveFile(next);
-                }}
-              >
-                <SelectTrigger className="w-full min-w-0" aria-label="当前文件">
-                  <SelectValue className="truncate" placeholder="选择文件" />
-                </SelectTrigger>
-                <SelectContent>
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="max-w-[70ch] text-sm text-muted-foreground">
+                这里展示只读投影，编辑请到配置、专家记忆或指令。
+              </p>
+              {canVersionsRead ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  <History data-icon="inline-start" /> 版本历史
+                </Button>
+              ) : null}
+            </div>
+            <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+              <nav aria-label="工作区文件" className="hidden min-w-0 md:block">
+                <ul className="flex flex-col gap-0.5">
                   {fileGroups.map((group) => (
-                    <SelectGroup key={group}>
-                      <SelectLabel>{group}</SelectLabel>
+                    <Fragment key={group}>
+                      <li className="min-w-0">
+                        <p className="px-2 pt-1 pb-0.5 text-xs text-muted-foreground">{group}</p>
+                      </li>
                       {fileEntries
                         .filter((entry) => entry.group === group)
                         .map((entry) => (
-                          <SelectItem key={entry.id} value={entry.id}>
-                            {entry.path}
-                          </SelectItem>
+                          <li key={entry.id} className="min-w-0">
+                            <button
+                              type="button"
+                              aria-current={resolvedId === entry.id ? 'true' : undefined}
+                              onClick={() => setActiveFile(entry.id)}
+                              className={sectionButtonClass(resolvedId === entry.id)}
+                            >
+                              <span className="inline-flex min-w-0 items-center gap-1.5">
+                                {entry.id === '.mcp.json' ? (
+                                  <FileCode aria-hidden="true" />
+                                ) : (
+                                  <FileText aria-hidden="true" />
+                                )}
+                                <span className="truncate" title={entry.path}>
+                                  {entry.path}
+                                  {entry.group === '输出风格' &&
+                                  files.data?.selectedOutputStyle &&
+                                  entry.id ===
+                                    `.claude/output-styles/${files.data.selectedOutputStyle}.md`
+                                    ? ' · 已启用'
+                                    : ''}
+                                </span>
+                              </span>
+                            </button>
+                          </li>
                         ))}
-                    </SelectGroup>
+                    </Fragment>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div
-              id="agent-files-detail"
-              className="min-w-0 scroll-mt-4 cds-card-surface rounded-card bg-surface px-6 py-5"
-            >
-              <FilesPreview entry={resolvedEntry} dirty={dirty} files={files} />
+                </ul>
+              </nav>
+              <div className="flex min-w-0 flex-col gap-3 md:hidden">
+                <Select
+                  value={resolvedId}
+                  items={fileEntries.map((entry) => ({ value: entry.id, label: entry.path }))}
+                  onValueChange={(next) => {
+                    if (next !== null) setActiveFile(next);
+                  }}
+                >
+                  <SelectTrigger className="w-full min-w-0" aria-label="当前文件">
+                    <SelectValue className="truncate" placeholder="选择文件" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fileGroups.map((group) => (
+                      <SelectGroup key={group}>
+                        <SelectLabel>{group}</SelectLabel>
+                        {fileEntries
+                          .filter((entry) => entry.group === group)
+                          .map((entry) => (
+                            <SelectItem key={entry.id} value={entry.id}>
+                              {entry.path}
+                            </SelectItem>
+                          ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div
+                id="agent-files-detail"
+                className="min-w-0 scroll-mt-4 cds-card-surface rounded-card bg-surface px-6 py-5"
+              >
+                <FilesPreview entry={resolvedEntry} dirty={dirty} files={files} />
+              </div>
             </div>
           </div>
         ) : null}
@@ -3960,32 +4161,23 @@ export function AgentEditor({
             <MemoryPanel
               agentId={agent.id}
               canWrite={canMemoryWrite}
+              view={search.view ?? 'overview'}
+              onViewChange={(view) => navigateSearch({ view })}
               onDirtyChange={setChildDirty}
               onPendingChange={setChildPending}
             />
           </div>
         ) : null}
 
-        {tab === 'rules' ? (
-          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
-            <RulesPanel
-              agentId={agent.id}
-              canWrite={canRulesWrite}
-              onDirtyChange={setChildDirty}
-              onPendingChange={setChildPending}
-            />
-          </div>
-        ) : null}
-
-        {tab === 'styles' ? (
-          <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
-            <OutputStylesPanel
-              agentId={agent.id}
-              canWrite={canStylesWrite}
-              onDirtyChange={setChildDirty}
-              onPendingChange={setChildPending}
-            />
-          </div>
+        {tab === 'instructions' && instruction ? (
+          <AgentInstructions
+            agentId={agent.id}
+            permissions={permissions}
+            instruction={instruction}
+            onInstructionChange={(next) => navigateSearch({ instruction: next })}
+            onDirtyChange={setChildDirty}
+            onPendingChange={setChildPending}
+          />
         ) : null}
       </PageBody>
       <ConfirmDialog
@@ -4327,14 +4519,14 @@ function previewEntry(server: Server): McpJsonEntry {
 
 type FileEntry = { id: string; path: string; group: string; content: string };
 
-/** 加载中或失败时也保留根文件入口，完整文件视图与重试界面才始终可达。 */
+/** 加载中或失败时也保留根文件入口，文件与版本视图和重试界面才始终可达。 */
 const baseFileEntries: FileEntry[] = [
   { id: '.mcp.json', path: '.mcp.json', group: '根文件', content: '' },
   { id: 'CLAUDE.md', path: 'CLAUDE.md', group: '根文件', content: '' },
   { id: 'preview:agent-md', path: 'agent md', group: '根文件', content: '' },
 ];
 
-/** 完整文件视图的唯一清单来源：group 只承载导航结构，id 用作稳定选择键。 */
+/** 文件与版本视图的唯一清单来源：group 只承载导航结构，id 用作稳定选择键。 */
 function listWorkspaceFiles(files: AgentFiles): FileEntry[] {
   return [
     { id: '.mcp.json', path: '.mcp.json', group: '根文件', content: files.mcpJson },
@@ -4389,7 +4581,7 @@ function listWorkspaceFiles(files: AgentFiles): FileEntry[] {
   ];
 }
 
-/** 完整文件来自上次保存；编辑中的草稿在内联预览里。文件切换由外层的三栏布局承载。 */
+/** 文件与版本来自上次保存；编辑中的草稿在内联预览里。文件切换由外层的三栏布局承载。 */
 function FilesPreview({
   entry,
   dirty,

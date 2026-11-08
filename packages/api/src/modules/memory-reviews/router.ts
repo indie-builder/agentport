@@ -3,6 +3,7 @@ import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
 import { fail, isAppError } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import {
+  DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
   type MemoryContentSnapshot,
@@ -24,8 +25,11 @@ import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { getQueue } from '../../queue/producer.js';
+import { listMemoryFiles } from '../agents/memory-files.js';
 import {
+  agentSlug,
   assertNoPendingReviewWrite,
+  assertTopicCapacity,
   discardReviewWriteJournal,
   memorySnapshot,
   readMemoryTarget,
@@ -262,6 +266,27 @@ async function authorizeReviewTarget(
   );
 }
 
+/**
+ * 提案准入：记忆提案本身是允许路径，proposal_only 不拒绝；
+ * 只有专家记忆停用（仅限记忆目标，规则由 injectRules 独立控制）、
+ * 或新建记忆主题已到数量上限时才返回 409。
+ */
+async function assertProposalAllowed(
+  context: RequestContext,
+  target: MemoryReviewTarget,
+): Promise<void> {
+  if (target.kind !== 'agent_memory') return;
+  const policy =
+    (await repo.agents.getAgentMemoryPolicy(context.db, target.agentId)) ?? DEFAULT_MEMORY_POLICY;
+  if (!policy.enabled) fail('CONFLICT', '该专家的记忆已停用，暂不接受新的记忆提案');
+  if (target.name === INDEX_FILE_NAME) return;
+  const slug = await agentSlug(context.db, target.agentId);
+  const files = (await listMemoryFiles(context.config.WORKSPACES_DIR, slug)).files;
+  const existing = files.some((file) => file.name === target.name);
+  if (existing) return;
+  await assertTopicCapacity(context.db, context.config.WORKSPACES_DIR, slug, target.agentId);
+}
+
 export const memoryReviewsRouter = os.router({
   create: os.create.handler(async ({ input, context }) => {
     const businessId = requireUser(context).businessId;
@@ -301,6 +326,7 @@ export const memoryReviewsRouter = os.router({
       '智能体不存在，可能已被删除；请刷新后重新选择',
     );
     await authorizeReviewTarget(context, input.body.target, 'personal_memory.review');
+    await assertProposalAllowed(context, input.body.target);
 
     const loaded: Array<{ source: MemoryReviewSource; messages: SnapshotMessage[] }> = [];
     for (const source of input.body.sources) {

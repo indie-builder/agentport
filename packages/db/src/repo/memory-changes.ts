@@ -1,4 +1,9 @@
-import type { MemoryChange, MemoryContentSnapshot, MemoryReviewTarget } from '@agentport/shared';
+import {
+  INDEX_FILE_NAME,
+  type MemoryChange,
+  type MemoryContentSnapshot,
+  type MemoryReviewTarget,
+} from '@agentport/shared';
 import { and, desc, eq, lt, or, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -76,7 +81,7 @@ export async function listPersonalByUser(
     .limit(options.limit);
 }
 
-export interface ListMemoryChangesOptions {
+export interface MemoryChangeFilterOptions {
   agentId: string;
   kind: 'personal' | 'agent_memory' | 'agent_rule';
   slug?: string;
@@ -85,14 +90,14 @@ export interface ListMemoryChangesOptions {
   /** MEMORY.md 的历史还包含实际改动了伴随索引的主题变更。 */
   includeIndexChanges?: boolean;
   before?: Date;
+}
+
+export interface ListMemoryChangesOptions extends MemoryChangeFilterOptions {
   limit: number;
 }
 
-/** 专家记忆/规则版本：按目标类型过滤，规则再按 slug、记忆按文件名收窄。 */
-export async function listFiltered(
-  db: Database,
-  options: ListMemoryChangesOptions,
-): Promise<MemoryChangeRow[]> {
+/** 列表、计数与按文件归并都必须复用同一组过滤条件，避免口径漂移。 */
+function changeFilters(options: MemoryChangeFilterOptions): SQL[] {
   const filters: SQL[] = [
     eq(memoryChanges.agentId, options.agentId),
     sql`${memoryChanges.target}->>'kind' = ${options.kind}`,
@@ -114,12 +119,66 @@ export async function listFiltered(
     }
   }
   if (options.before) filters.push(lt(memoryChanges.createdAt, options.before));
+  return filters;
+}
+
+/** 专家记忆/规则版本：按目标类型过滤，规则再按 slug、记忆按文件名收窄。 */
+export async function listFiltered(
+  db: Database,
+  options: ListMemoryChangesOptions,
+): Promise<MemoryChangeRow[]> {
   return db
     .select()
     .from(memoryChanges)
-    .where(and(...filters))
+    .where(and(...changeFilters(options)))
     .orderBy(desc(memoryChanges.createdAt), desc(memoryChanges.id))
     .limit(options.limit);
+}
+
+/** 与 listFiltered 同源的计数：不受 LIMIT 影响，用于概览里的真实总数。 */
+export async function countFiltered(
+  db: Database,
+  options: MemoryChangeFilterOptions,
+): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(memoryChanges)
+    .where(and(...changeFilters(options)));
+  return row?.total ?? 0;
+}
+
+/**
+ * 每个目标文件最近一次平台写入时间：一次 group by 取代「取最近 N 条再在内存归并」，
+ * 不会因为历史条数增长而把较早的记账误判成未记账。
+ * 主题变更若同时改动了伴随索引，也把这次时间记到 MEMORY.md 上。
+ */
+export async function latestCreatedAtByTarget(
+  db: Database,
+  agentId: string,
+  kind: MemoryChangeFilterOptions['kind'],
+): Promise<Map<string, Date>> {
+  const rows = await db.execute<{ name: string | null; latest: Date | string }>(sql`
+    select entries.name as name, max(entries.created_at) as latest
+    from (
+      select ${memoryChanges.target}->>'name' as name, ${memoryChanges.createdAt} as created_at
+      from ${memoryChanges}
+      where ${memoryChanges.agentId} = ${agentId}
+        and ${memoryChanges.target}->>'kind' = ${kind}
+      union all
+      select ${INDEX_FILE_NAME}::text as name, ${memoryChanges.createdAt} as created_at
+      from ${memoryChanges}
+      where ${memoryChanges.agentId} = ${agentId}
+        and ${memoryChanges.target}->>'kind' = ${kind}
+        and ${memoryChanges.before}->'index' IS DISTINCT FROM ${memoryChanges.after}->'index'
+    ) entries
+    group by entries.name
+  `);
+  const latest = new Map<string, Date>();
+  for (const row of rows) {
+    if (row.name === null) continue;
+    latest.set(row.name, row.latest instanceof Date ? row.latest : new Date(row.latest));
+  }
+  return latest;
 }
 
 export function toMemoryChange(row: MemoryChangeRow): MemoryChange {

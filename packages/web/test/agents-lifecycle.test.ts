@@ -91,6 +91,20 @@ async function click(element: HTMLElement) {
   await act(async () => element.click());
   await flush();
 }
+function tab(text: string): HTMLElement {
+  const element = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+    (item) => item.textContent?.trim() === text,
+  );
+  if (!element) throw new Error(`Missing tab: ${text}`);
+  return element;
+}
+/** 详情页默认落在概览；配置相关的断言先切到配置任务。 */
+async function openConfig() {
+  await click(link('Expert'));
+  await waitFor(() => tab('配置'));
+  await click(tab('配置'));
+  await waitFor(() => document.querySelector('#agent-name'));
+}
 function link(text: string, scope: ParentNode = document): HTMLAnchorElement {
   const element = [...scope.querySelectorAll<HTMLAnchorElement>('a')].find(
     (item) => item.textContent?.trim() === text || item.getAttribute('aria-label') === text,
@@ -211,8 +225,7 @@ async function mountAgentProbe(id: string) {
 }
 
 async function openHistory(dirty = false) {
-  await click(link('Expert'));
-  await waitFor(() => document.querySelector('#agent-name'));
+  await openConfig();
   if (dirty) await editName('Unsaved draft');
   await click(button('版本历史'));
 }
@@ -242,6 +255,8 @@ async function importFile(warnings: string[]) {
   });
   await chooseFile('expert.zip');
   await click(button('导入', dialog('导入专家包')));
+  await waitFor(() => tab('配置'));
+  await click(tab('配置'));
   await waitFor(() => document.querySelector('#agent-name'));
 }
 
@@ -270,6 +285,28 @@ beforeEach(() => {
   vi.spyOn(api, 'skills').mockResolvedValue([]);
   vi.spyOn(api, 'runtimeEnvironments').mockResolvedValue([defaultEnvironment, namedEnvironment]);
   vi.spyOn(api, 'agentVersions').mockResolvedValue(versions);
+  // 默认落在概览：这几项按权限发请求，统一给空数据，避免走真实 fetch 桩。
+  vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue({
+    policy: {
+      enabled: true,
+      writeMode: 'native_auto',
+      injectPersonalMemory: true,
+      injectRules: true,
+      topicLimit: 20,
+    },
+    index: { present: true, lines: 0, bytes: 0, maxLines: 200, maxBytes: 25 * 1024 },
+    topics: { count: 0, bytes: 0, unlinked: [], stale: [] },
+    rules: { count: 0, bytes: 0 },
+    personal: { chars: 0, maxChars: 9000 },
+    unaccounted: { count: 0, names: [] },
+    health: [],
+    recentChanges: [],
+    changesTotal: 0,
+  });
+  vi.spyOn(api, 'agentRules').mockResolvedValue([]);
+  vi.spyOn(api, 'agentOutputStyles').mockResolvedValue([]);
+  vi.spyOn(api, 'knowledgeBases').mockResolvedValue({ items: [], nextCursor: null });
+  vi.spyOn(api, 'runs').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'agentVersion').mockResolvedValue({
     version: 1,
     snapshot: restored,
@@ -509,14 +546,15 @@ describe('expert creation lifecycle', () => {
     expect(start?.getAttribute('href')).toBe('/chat?agent=new-expert');
     expect(start?.getAttribute('role')).not.toBe('button');
     expect(button('返回列表')).toBeDefined();
-    expect(button('更多操作')).toBeDefined();
+    await click(tab('配置'));
     await waitFor(() => document.querySelector('#agent-name'));
+    expect(button('更多操作')).toBeDefined();
     expect(field().value).toBe('New expert');
   });
 
   it('explains connector preapproval separately from built-in tools and the sandbox default mode', async () => {
     await mount();
-    await click(link('Expert'));
+    await openConfig();
     await click(await waitFor(() => button('权限')));
     const section = document.getElementById('agent-permissions');
     expect(section?.textContent).toContain('内置工具');
@@ -985,8 +1023,7 @@ describe('expert discovery', () => {
 describe('expert detail navigation', () => {
   it('labels the memory task as expert memory and links run history out of the tabs', async () => {
     await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     expect(host.textContent).toContain('专家记忆');
     expect(host.textContent).not.toContain('运行统计');
     expect(link('查看运行').getAttribute('href')).toBe('/runs?agent=expert');
@@ -1003,6 +1040,7 @@ describe('expert file tool permissions', () => {
   }
   async function openPermissions(): Promise<HTMLElement> {
     await click(await waitFor(() => link('Expert')));
+    await click(await waitFor(() => tab('配置')));
     await click(await waitFor(() => button('权限')));
     await waitFor(() => document.getElementById('agent-permissions'));
     return document.getElementById('agent-permissions') as HTMLElement;
@@ -1294,8 +1332,7 @@ describe('expert deletion lifecycle', () => {
     const request = deferred<void>();
     vi.spyOn(api, 'deleteAgent').mockReturnValue(request.promise);
     const router = await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     await editName('Draft kept');
     await click(button('更多操作'));
     await waitFor(() => menuItem('删除专家'));
@@ -1329,8 +1366,7 @@ describe('expert deletion lifecycle', () => {
 
   it('shows the header delete entry only when the config toolbar is not on screen', async () => {
     await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
 
     // 配置任务由工具栏承载删除，页头菜单不再重复。
     await click(button('专家管理操作'));
@@ -1341,7 +1377,7 @@ describe('expert deletion lifecycle', () => {
 
     await click(button('专家管理操作'));
     const filesTab = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find(
-      (item) => item.textContent?.trim() === '完整文件',
+      (item) => item.textContent?.trim() === '文件与版本',
     );
     if (!filesTab) throw new Error('Missing files tab');
     await click(filesTab);
@@ -1365,8 +1401,7 @@ describe('expert deletion lifecycle', () => {
     const request = deferred<void>();
     vi.spyOn(api, 'deleteAgent').mockReturnValue(request.promise);
     await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     await editName('Draft kept');
     await click(button('更多操作'));
     await waitFor(() => menuItem('删除专家'));
@@ -1388,15 +1423,14 @@ describe('expert same-page task guard', () => {
   it('asks before a same-path history move unmounts a dirty child panel and keeps the main draft', async () => {
     vi.spyOn(api, 'agentRules').mockResolvedValue([]);
     const router = await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     await editName('Main draft');
     // 直接 push 一个不同 tab 的同 pathname 记录，才能用 history.back 触发 POP。
     await act(async () => {
       await router.navigate({
         to: '/agents/$agentId',
         params: { agentId: 'expert' },
-        search: { tab: 'rules' },
+        search: { tab: 'instructions', instruction: 'rules' },
       });
     });
     await flush();
@@ -1414,7 +1448,10 @@ describe('expert same-page task guard', () => {
     await click(button('取消', confirmation));
     await flush();
     expect(document.getElementById('rule-slug')?.value).toBe('no-console');
-    expect(router.state.location.search).toMatchObject({ tab: 'rules' });
+    expect(router.state.location.search).toMatchObject({
+      tab: 'instructions',
+      instruction: 'rules',
+    });
 
     await click(button('配置'));
     const again = dialog('放弃未保存的修改并切换？');
@@ -1431,13 +1468,12 @@ describe('expert same-page task guard', () => {
     const save = deferred<Awaited<ReturnType<typeof api.writeAgentRule>>>();
     vi.spyOn(api, 'writeAgentRule').mockReturnValue(save.promise);
     const router = await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     await act(async () => {
       await router.navigate({
         to: '/agents/$agentId',
         params: { agentId: 'expert' },
-        search: { tab: 'rules' },
+        search: { tab: 'instructions', instruction: 'rules' },
       });
     });
     await flush();
@@ -1463,7 +1499,10 @@ describe('expert same-page task guard', () => {
     await act(async () => save.reject(new Error('Save unavailable')));
     await flush();
     expect(document.getElementById('rule-slug')?.value).toBe('no-console');
-    expect(router.state.location.search).toMatchObject({ tab: 'rules' });
+    expect(router.state.location.search).toMatchObject({
+      tab: 'instructions',
+      instruction: 'rules',
+    });
   });
 });
 
@@ -1700,6 +1739,8 @@ describe('expert review details', () => {
     await chooseFile('expert.zip');
     await selectRole('默认环境', 'agent-import-environment');
     await click(button('导入', dialog('导入专家包')));
+    await waitFor(() => tab('配置'));
+    await click(tab('配置'));
     await waitFor(() => document.querySelector('#agent-name'));
     await click(button('运行限制'));
     await flush();
@@ -1718,6 +1759,8 @@ describe('expert review details', () => {
     await chooseFile('agent.md', '# Expert');
     expect(importMd).toHaveBeenCalledWith('# Expert');
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await waitFor(() => tab('配置'));
+    await click(tab('配置'));
     await waitFor(() => document.querySelector('#agent-name'));
   });
 
@@ -1748,8 +1791,7 @@ describe('expert draft previews', () => {
     const render = vi.mocked(renderWorkspace);
     render.mockClear();
     await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     expect(render).not.toHaveBeenCalled();
 
     await editName('每按键草稿');
@@ -1765,8 +1807,7 @@ describe('expert draft previews', () => {
     const render = vi.mocked(renderWorkspace);
     render.mockClear();
     await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     await click(button('行为'));
     expect(render).not.toHaveBeenCalled();
     expect(document.querySelector<HTMLTextAreaElement>('#agent-prompt')?.value).toBe('初始提示词');
@@ -1783,8 +1824,7 @@ describe('expert draft previews', () => {
 
   it('keeps unsaved fields when switching config sections', async () => {
     await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     await editName('分区草稿');
     await click(button('行为'));
     expect(document.querySelector('#agent-name')).toBeNull();
@@ -1803,8 +1843,7 @@ describe('expert draft previews', () => {
     const update = vi.spyOn(api, 'updateAgent').mockResolvedValue(saved);
     vi.mocked(api.agents).mockResolvedValue([saved]);
     await mount();
-    await click(link('Expert'));
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openConfig();
     await editName('配置验收草稿');
     await click(button('行为'));
     await waitFor(() => document.querySelector('#agent-prompt'));

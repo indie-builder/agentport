@@ -19,7 +19,7 @@
 
 - 容器内 SDK 选项只在 `runner.ts` 装配：`settingSources: ['project']`、settings、permissionMode、allowedTools/disallowedTools、hooks、skills/plugins、resume/fork。不要新增平台私有的运行定义格式或第二套消息循环。
 - 改动 SDK 选项或行为前，先核对官方文档与已安装的 `sdk.d.ts`（根规则）；本文件不替代官方文档。
-- 保持现有边界：workspace 只读；`/mnt/outputs` rw；`/mnt/inputs` 与个人记忆只读；记忆与子智能体路径由 PreToolUse hook 按挂载根和身份收窄。`dontAsk` 下未预批准的工具不自动放行。
+- 保持现有边界：workspace 只读；`/mnt/outputs` rw；`/mnt/inputs` 与个人记忆只读；专家记忆与子智能体记忆的挂载可写性由 worker 按记忆策略决定（只有 `native_auto` 可写），记忆与子智能体路径由 PreToolUse hook 按挂载根和身份收窄。`dontAsk` 下未预批准的工具不自动放行。
 - 凭证只从 supervisor 的 `start` 帧进入进程环境；不把真实 token 写日志或落盘。
 
 ## 验证

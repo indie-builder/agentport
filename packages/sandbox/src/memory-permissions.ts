@@ -80,8 +80,8 @@ function inside(local: string): boolean {
  * - 主会话可写记忆目录内的普通 .md，也可在本轮产出目录内读写交付文件；
  *   只读可及本轮附件（任意普通文件）、技能参考文件（`.claude/skills/<slug>/references/`）
  *   与插件技能资源（`.claude/plugins/<slug>/skills/<name>/`）。
- * - 子智能体只可读写自己的 project 记忆目录（`.claude/agent-memory/<slug>/` 内的 .md）；
- *   未登记的调用方、兄弟目录、父级记忆/产出/附件一律拒绝。
+ * - 子智能体只可读写自己的 project 记忆目录（`.claude/agent-memory/<slug>/` 内的 .md），
+ *   可写性跟随父专家的运行期策略；未登记的调用方、兄弟目录、父级记忆/产出/附件一律拒绝。
  * 其余文件工具请求一律拒绝。
  */
 export function createFileBoundaryHook(
@@ -95,10 +95,13 @@ export function createFileBoundaryHook(
     projectMemoryDir?: string;
     /** 本次加载的已知子智能体 slug；未登记的子智能体不放行任何文件。 */
     subAgentSlugs?: ReadonlySet<string>;
+    /** 主会话与已登记子智能体是否可写记忆目录；proposal_only 或未启用记忆时为 false，只保留读。 */
+    memoryWritable?: boolean;
   } = {},
 ): HookCallback {
   const projectMemoryDir = options.projectMemoryDir ?? SUBAGENT_MEMORY_CONTAINER_DIR;
   const knownSubAgents = options.subAgentSlugs ?? new Set<string>();
+  const memoryWritable = options.memoryWritable ?? true;
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
     if (!MEMORY_TOOLS.has(input.tool_name) && !OTHER_FILE_TOOLS.has(input.tool_name)) return {};
@@ -109,7 +112,11 @@ export function createFileBoundaryHook(
       permissionDecisionReason:
         'File tools are limited to native memory, this run’s outputs, and skill reference Markdown.',
     };
-    const deny = { hookSpecificOutput: output };
+    // 特定拒绝理由要能直接读给模型听，不能只留下笼统的边界文案。
+    const deny = (reason?: string): { hookSpecificOutput: PreToolUseHookSpecificOutput } => {
+      if (reason !== undefined) output.permissionDecisionReason = reason;
+      return { hookSpecificOutput: output };
+    };
     const allow = (): { hookSpecificOutput: PreToolUseHookSpecificOutput } => {
       output.permissionDecision = 'allow';
       // 允许分支不带拒绝文案，避免日志与排障误判。
@@ -117,9 +124,9 @@ export function createFileBoundaryHook(
       return { hookSpecificOutput: rest };
     };
     // Glob/Grep/NotebookEdit 与所有非文件工具一样不在放行范围。
-    if (!MEMORY_TOOLS.has(input.tool_name)) return deny;
+    if (!MEMORY_TOOLS.has(input.tool_name)) return deny();
     const args = input.tool_input;
-    if (typeof args !== 'object' || args === null || !('file_path' in args)) return deny;
+    if (typeof args !== 'object' || args === null || !('file_path' in args)) return deny();
     const path = args.file_path;
     if (
       typeof path !== 'string' ||
@@ -127,32 +134,40 @@ export function createFileBoundaryHook(
       path.includes('\0') ||
       path.split(sep).some((part) => part === '..' || part === '.')
     )
-      return deny;
+      return deny();
 
     const hasMarkdown = path.endsWith('.md');
     // 记忆目录与产出目录：主会话可读写（记忆仅 .md，产出交付文件不限类型）。
     // 本轮附件：只读，扩展名不限；技能参考与插件资源：只读 .md，且必须落在各自目录约定里。
-    // 子智能体：只读写自己的 project 记忆 Markdown，base 固定为它的 slug 目录。
+    // 子智能体：只能在自己的 project 记忆 Markdown 内活动，可写性跟随父专家的运行期策略。
     let base: string;
     let writable: boolean;
     if (input.agent_id !== undefined) {
       const slug = input.agent_type ?? '';
-      if (!knownSubAgents.has(slug) || !hasMarkdown) return deny;
+      if (!knownSubAgents.has(slug) || !hasMarkdown) return deny();
       base = join(projectMemoryDir, slug);
-      writable = true;
-      if (!inside(relative(base, path))) return deny;
+      if (!inside(relative(base, path))) return deny();
+      // 只读策略下子智能体记忆目录同样是 ro 挂载；先在 hook 层说清原因，
+      // 否则写入会被放行后撞上 EROFS，模型只看到文件系统错误。
+      if (!memoryWritable && input.tool_name !== 'Read') {
+        return deny('当前策略不允许运行期写入子智能体记忆，请把建议写进最终回复。');
+      }
+      writable = memoryWritable;
     } else {
       const inputsLocal = relative(inputsDir, path);
       const memoryLocal = relative(memoryDir, path);
       const outputLocal = relative(outputsDir, path);
       if (inside(inputsLocal)) {
-        if (input.tool_name !== 'Read') return deny;
+        if (input.tool_name !== 'Read') return deny();
         base = inputsDir;
         writable = false;
       } else if (inside(memoryLocal)) {
-        if (!hasMarkdown) return deny;
+        if (!hasMarkdown) return deny();
+        // proposal_only（或未启用专家记忆）下读仍放行，Write/Edit 在 hook 层直接拒绝；
+        // allowedTools 里同时移除了 Edit 预批准，两层共同约束原生文件工具。
+        if (!memoryWritable && input.tool_name !== 'Read') return deny();
         base = memoryDir;
-        writable = true;
+        writable = memoryWritable;
       } else if (inside(outputLocal)) {
         base = outputsDir;
         writable = true;
@@ -172,19 +187,19 @@ export function createFileBoundaryHook(
           kind === 'references' &&
           rest.length > 0 &&
           /^[a-z0-9][a-z0-9_-]*$/.test(slug ?? '');
-        if (!insidePluginSkill && !insideSkillRefs) return deny;
+        if (!insidePluginSkill && !insideSkillRefs) return deny();
         base = insidePluginSkill ? pluginsDir : skillsDir;
         writable = false;
       }
     }
     const local = relative(base, path);
-    if (!inside(local)) return deny;
+    if (!inside(local)) return deny();
 
     try {
       // Recheck every call: neither a symlink nor a hard link may alias another agent's files.
       const root = await lstat(base);
       if (!root.isDirectory() || root.isSymbolicLink() || (await realpath(base)) !== base)
-        return deny;
+        return deny();
       const parts = local.split(sep);
       let current = base;
       for (const [index, part] of parts.entries()) {
@@ -198,17 +213,17 @@ export function createFileBoundaryHook(
             input.tool_name !== 'Write' ||
             !writable
           )
-            return deny;
+            return deny();
           // Write creates missing parents; all existing ancestors have already passed the boundary.
           return allow();
         }
-        if (entry.isSymbolicLink() || (await realpath(current)) !== current) return deny;
+        if (entry.isSymbolicLink() || (await realpath(current)) !== current) return deny();
         const last = index === parts.length - 1;
-        if (last ? !entry.isFile() || entry.nlink !== 1 : !entry.isDirectory()) return deny;
+        if (last ? !entry.isFile() || entry.nlink !== 1 : !entry.isDirectory()) return deny();
       }
       return allow();
     } catch {
-      return deny;
+      return deny();
     }
   };
 }

@@ -1,6 +1,11 @@
-import { chmod, cp, lstat, mkdir, readdir, rm } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { conversationInputsDir, personalMemoryDir, WORKSPACE_DIR_MODE } from '@agentport/core';
+import {
+  conversationInputsDir,
+  personalMemoryDir,
+  WORKSPACE_DIR_MODE,
+  WORKSPACE_FILE_MODE,
+} from '@agentport/core';
 
 export function toHostWorkspacePath(
   input: { workspacesDir: string; hostWorkspacesDir: string },
@@ -26,7 +31,7 @@ export async function ensureSessionWorkspace(input: {
   sessionsDir: string;
   /** 用户个人记忆宿主目录，只读挂载到沙盒 /mnt/user；服务主体为 undefined。 */
   personalDir?: string;
-  /** 子智能体项目记忆宿主目录，按 slug 排序后 rw 挂载到沙盒项目记忆根。 */
+  /** 子智能体项目记忆宿主目录，按 slug 排序后挂载到沙盒项目记忆根；可写性跟随父专家策略。 */
   subAgentMemoryDirs: Array<{ slug: string; memoryDir: string }>;
 }> {
   const agent = join(input.workspacesDir, input.slug);
@@ -85,10 +90,30 @@ export async function ensureSessionWorkspace(input: {
 }
 
 /**
+ * 每次运行重建 `.claude/rules`：先删旧目录，空数组时不再创建。
+ * 关闭规则注入后不能留下上一轮的文件，否则 SDK 仍会按 project source 加载。
+ */
+export async function writeRulesDirectory(
+  rulesDir: string,
+  rules: ReadonlyArray<{ slug: string; content: string }>,
+): Promise<void> {
+  await rm(rulesDir, { recursive: true, force: true });
+  if (rules.length === 0) return;
+  await mkdir(rulesDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+  for (const rule of rules) {
+    await writeFile(join(rulesDir, `${rule.slug}.md`), rule.content, {
+      encoding: 'utf8',
+      mode: WORKSPACE_FILE_MODE,
+    });
+  }
+}
+
+/**
  * 先检查完整来源，保持已挂载根的 inode；容器只能在独占 lease 中观察这次更新。
- * `preserveMemoryMount` 只给工作区定义使用：`.claude/agent-memory` 是子智能体记忆的 rw
- * 挂载根，保留它和 `.claude` 的 inode，其他定义照常整棵替换；来源里同名的记忆目录也不得
- * 覆盖挂载子树。产出没有挂载根，默认按普通目录整棵替换（含同名的 `.claude/agent-memory`）。
+ * `preserveMemoryMount` 只给工作区定义使用：`.claude/agent-memory` 是子智能体记忆的挂载根
+ * （可写性由记忆策略决定，只读时仍是挂载根），保留它和 `.claude` 的 inode，其他定义照常整棵替换；
+ * 来源里同名的记忆目录也不得覆盖挂载子树。产出没有挂载根，默认按普通目录整棵替换
+ * （含同名的 `.claude/agent-memory`）。
  */
 export async function refreshSessionDirectory(
   source: string,

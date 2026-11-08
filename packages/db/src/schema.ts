@@ -7,6 +7,7 @@ import type {
   KnowledgeLocator,
   KnowledgeSourceProbeResult,
   MemoryContentSnapshot,
+  MemoryPolicy,
   MemoryReviewProposal,
   MemoryReviewSource,
   MemoryReviewTarget,
@@ -17,6 +18,7 @@ import type {
   RunTrigger,
 } from '@agentport/shared';
 import {
+  DEFAULT_MEMORY_POLICY,
   DEFAULT_RUNTIME_DOCKERFILE,
   runErrorKindSchema,
   runStatusSchema,
@@ -138,6 +140,11 @@ export const agents = pgTable(
       (): AnyPgColumn => runtimeEnvironments.id,
       { onDelete: 'restrict' },
     ),
+    /** 专家记忆策略：运行期挂载/注入方式与主题数量上限；不进专家版本快照。 */
+    memoryPolicy: jsonb('memory_policy')
+      .$type<MemoryPolicy>()
+      .notNull()
+      .default(DEFAULT_MEMORY_POLICY),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

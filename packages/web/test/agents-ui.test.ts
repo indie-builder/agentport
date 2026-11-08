@@ -149,6 +149,10 @@ vi.mock('../src/lib/queries.js', () => ({
     error: null,
     refetch: () => {},
   }),
+  useRuns: () => ({ data: { items: [] }, isPending: false, isError: false, error: null }),
+  agentMemoryOverviewQuery: (id: string) => ({ queryKey: ['agent-memory-overview', id] }),
+  agentRulesQuery: (id: string) => ({ queryKey: ['agent-rules', id] }),
+  agentOutputStylesQuery: (id: string) => ({ queryKey: ['agent-output-styles', id] }),
 }));
 vi.mock('@tanstack/react-query', async () => {
   const { allAccessMe } = await import('./me-fixture.js');
@@ -291,7 +295,8 @@ beforeEach(() => {
   state.detail = { isPending: false, isError: false };
   state.blockerOptions = [];
   state.blockerStatus = 'idle';
-  state.search = {};
+  // 编辑器用例针对配置任务；概览的默认落点由页面级用例覆盖。
+  state.search = { tab: 'config' };
   vi.clearAllMocks();
 });
 
@@ -1293,10 +1298,10 @@ describe('expert editor regressions', () => {
       if (pass !== 0) return;
       const tabs = tree.find((node) => node.type === Tabs);
       if (!tabs) throw new Error('Missing task tabs');
-      (tabs.props.onValueChange as (value: string) => void)('styles');
+      (tabs.props.onValueChange as (value: string) => void)('instructions');
       selectSection(tree, '行为');
     });
-    expect(state.search).toMatchObject({ tab: 'styles', section: 'behavior' });
+    expect(state.search).toMatchObject({ tab: 'instructions', section: 'behavior' });
   });
 
   it('switches tasks immediately when nothing is unsaved', async () => {
@@ -1304,13 +1309,13 @@ describe('expert editor regressions', () => {
       if (pass === 0) {
         const tabs = tree.find((node) => node.type === Tabs);
         if (!tabs) throw new Error('Missing task tabs');
-        (tabs.props.onValueChange as (value: string) => void)('rules');
+        (tabs.props.onValueChange as (value: string) => void)('instructions');
         return;
       }
       const confirmation = tree.find((node) => node.type === ConfirmDialog && node.props.open);
       expect(confirmation).toBeUndefined();
     });
-    expect(state.search.tab).toBe('rules');
+    expect(state.search.tab).toBe('instructions');
   });
 
   it('disables the more menu while a save is in flight', async () => {

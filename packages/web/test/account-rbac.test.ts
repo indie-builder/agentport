@@ -224,6 +224,13 @@ function dialog(titlePrefix: string): HTMLElement {
   return element;
 }
 
+/** 详情默认落在概览；配置相关断言先切到配置任务。 */
+async function openAgentConfig(): Promise<void> {
+  await waitFor(() => maybeButton('配置'));
+  await click(button('配置'));
+  await waitFor(() => document.querySelector('#agent-name'));
+}
+
 async function mount(
   path: string,
   component: () => React.ReactNode,
@@ -334,7 +341,7 @@ describe('专家详情只认完整配置', () => {
     );
 
     await mount('/agents/$agentId', AgentDetailPage);
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openAgentConfig();
 
     expect(document.querySelector<HTMLInputElement>('#agent-name')?.value).toBe('专家一');
     expect(calls.some((call) => call.method === 'GET' && call.path === '/api/agents/agt_1')).toBe(
@@ -460,7 +467,7 @@ describe('专家配置权限拆分', () => {
     );
 
     await mount('/agents/$agentId', AgentDetailPage);
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openAgentConfig();
     await waitFor(() => calls.some((call) => call.path === '/api/agents/options'));
 
     expect(calls.some((call) => call.path === '/api/agents/options')).toBe(true);
@@ -479,7 +486,7 @@ describe('专家配置权限拆分', () => {
     editorAccess(['agents.read', 'agents.config.read']);
 
     await mount('/agents/$agentId', AgentDetailPage);
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openAgentConfig();
 
     expect(field('agent-name').disabled).toBe(true);
     await click(button('行为'));
@@ -498,7 +505,7 @@ describe('专家配置权限拆分', () => {
     route('PATCH', /^\/api\/agents\/agt_1$/, () => json({ ...fullAgent, enabled: false }));
 
     await mount('/agents/$agentId', AgentDetailPage);
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openAgentConfig();
     expect(field('agent-name').disabled).toBe(true);
 
     const toggle = document.querySelector<HTMLElement>('[role="switch"]');
@@ -518,7 +525,7 @@ describe('专家配置权限拆分', () => {
     route('PATCH', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
 
     await mount('/agents/$agentId', AgentDetailPage);
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openAgentConfig();
     await type(field('agent-name'), '新名字');
     await click(button('保存更改'));
 
@@ -544,7 +551,7 @@ describe('专家配置权限拆分', () => {
     route('PATCH', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
 
     await mount('/agents/$agentId', AgentDetailPage);
-    await waitFor(() => document.querySelector('#agent-name'));
+    await openAgentConfig();
     await type(field('agent-name'), '新名字');
     await click(button('保存更改'));
 
@@ -1048,9 +1055,7 @@ describe('角色权限矩阵', () => {
     const cached = client.getQueryData(['role-matrix']);
     expect(cached).toEqual(current);
     handlers = handlers.filter((item) => !(item.method === 'GET' && item.match.test('/api/roles')));
-    route('GET', /^\/api\/roles$/, () =>
-      problem(503, '角色矩阵暂时不可用', 'SERVICE_UNAVAILABLE'),
-    );
+    route('GET', /^\/api\/roles$/, () => problem(503, '角色矩阵暂时不可用', 'SERVICE_UNAVAILABLE'));
 
     await click(button('重新加载'));
     await click(button('重新加载', dialog('放弃当前草稿并重新加载？')));
@@ -1060,7 +1065,9 @@ describe('角色权限矩阵', () => {
     expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
     expect(cell('成员', '查看专家').closest('td')?.getAttribute('data-changed')).toBe('true');
     expect(button('保存更改').disabled).toBe(false);
-    expect(document.querySelector('[aria-label="未保存权限变更"]')?.textContent).toContain('项权限未保存');
+    expect(document.querySelector('[aria-label="未保存权限变更"]')?.textContent).toContain(
+      '项权限未保存',
+    );
     expect(document.body.textContent).toContain('矩阵已被其他操作修改');
     expect(document.querySelector('[role="status"]')?.textContent).toBe(feedback);
     expect(document.querySelector('[aria-label="未保存权限变更"]')?.textContent).toBe(count);

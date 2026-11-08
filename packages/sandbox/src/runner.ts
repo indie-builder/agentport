@@ -25,6 +25,7 @@ import {
   createPersonalMemoryHook,
   PERSONAL_MEMORY_FILE,
 } from './memory-permissions.js';
+import { memoryRuntimeSettings } from './memory-runtime.js';
 import { createQuestionChannel } from './questions.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
 
@@ -257,6 +258,7 @@ async function findSessionFile(sessionId: string): Promise<string | null> {
 const { task, readLine, close: closeInput } = await openTaskInput();
 const maxFieldBytes = task.maxFieldBytes ?? DEFAULT_MAX_FIELD_BYTES;
 const permissionMode = task.permissionMode ?? 'dontAsk';
+const memoryRuntime = memoryRuntimeSettings(task.memoryPolicy);
 
 /**
  * 插件 MCP 工具名是 `mcp__plugin_<plugin>_<server>__<tool>`，插件名与 server 名里
@@ -290,13 +292,19 @@ const allowedTools = [
   // 插件技能的支持资源同样在只读挂载内：.claude/plugins/<slug>/skills/<name>/**。
   ...(task.plugins.length === 0 ? [] : ['Read(//workspace/.claude/plugins/*/skills/*/**)']),
   // Edit(path) also authorizes Write; Write(path) is not a file permission rule.
-  `Edit(/${memoryDirectory}/**)`,
-  // 子智能体 project 记忆：宿主按 slug 逐个 rw 挂载，dontAsk 下为文件工具预批准该根；
+  // proposal_only / 未启用专家记忆时必须拿掉这条写权限：SDK 的 auto-memory 已关闭，
+  // 模型只能经记忆提案由平台写入；预批准写目录会让提案制形同虚设。
+  ...(memoryRuntime.allowMemoryWrite ? [`Edit(/${memoryDirectory}/**)`] : []),
+  // 子智能体 project 记忆：可写性跟随父专家策略，worker 按同一策略把各 slug 目录挂成 rw 或 ro；
+  // 只有策略允许写入时才预批准 Edit，只读策略下写请求留给 hook 与只读挂载拒绝。
   // 具体到每个子的身份再由 PreToolUse hook 按 agent_id/agent_type 收窄。
   // 同一容器里的 Bash 也能看到这些挂载；这里约束的是原生文件工具，不声称进程隔离。
   ...(task.subAgents.length === 0
     ? []
-    : [`Read(/${SUBAGENT_MEMORY_CONTAINER_DIR}/**)`, `Edit(/${SUBAGENT_MEMORY_CONTAINER_DIR}/**)`]),
+    : [
+        `Read(/${SUBAGENT_MEMORY_CONTAINER_DIR}/**)`,
+        ...(memoryRuntime.allowMemoryWrite ? [`Edit(/${SUBAGENT_MEMORY_CONTAINER_DIR}/**)`] : []),
+      ]),
   // 本轮产出草稿：独立 rw 挂载，交付文件用原生 Read/Write/Edit 直接写这里。
   `Read(/${OUTPUTS_CONTAINER_DIR}/**)`,
   `Edit(/${OUTPUTS_CONTAINER_DIR}/**)`,
@@ -450,8 +458,9 @@ if (session.error !== undefined) {
         // 跨 run 累积；平台侧只做浏览/编辑，不另造记忆格式。
         settings: {
           enableAllProjectMcpServers: true,
-          autoMemoryEnabled: true,
-          autoMemoryDirectory: memoryDirectory,
+          autoMemoryEnabled: memoryRuntime.autoMemoryEnabled,
+          // 关闭时不要传空串或伪造目录：absence 才是 SDK 的“未启用”。
+          ...(memoryRuntime.autoMemoryEnabled ? { autoMemoryDirectory: memoryDirectory } : {}),
         },
         // 容器进程 env 与工作区 settings 同源；这里再兜一层，避免 project settings 未加载时丢约束。
         env: { ...process.env, ...SANDBOX_RUNTIME_ENV },
@@ -473,6 +482,7 @@ if (session.error !== undefined) {
                   undefined,
                   {
                     subAgentSlugs: new Set(task.subAgents.map((sub) => sub.slug)),
+                    memoryWritable: memoryRuntime.allowMemoryWrite,
                   },
                 ),
                 createSubAgentBoundaryHook({
@@ -492,7 +502,14 @@ if (session.error !== undefined) {
             },
           ],
           // 个人记忆每轮重新读取：恢复会话也拿到宿主最新保存的内容，不依赖会话恢复缓存。
-          UserPromptSubmit: [{ hooks: [createPersonalMemoryHook(PERSONAL_MEMORY_FILE, log)] }],
+          // injectPersonalMemory=false 时既不投影也不挂载，hook 必须一并缺席。
+          ...(memoryRuntime.installPersonalHook
+            ? {
+                UserPromptSubmit: [
+                  { hooks: [createPersonalMemoryHook(PERSONAL_MEMORY_FILE, log)] },
+                ],
+              }
+            : {}),
         },
         // SDK 自己按名字补 Skill(name) 权限；这里不要放通配的 Skill。
         // 插件技能名带 `<plugin>:` 前缀，必须把完整名一并列出，否则会被当成未启用的技能。

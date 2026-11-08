@@ -11,6 +11,7 @@ import { decodePackage } from '../src/modules/agents/package-zip.js';
 import { memorySha256, writeMemoryJournal } from '../src/modules/memory/journal.js';
 import {
   ADMIN_BUSINESS_ID,
+  acquireMemoryLock,
   cleanup,
   createAgent,
   createTestAccount,
@@ -26,9 +27,7 @@ import {
 
 const ready = await infraReady;
 
-// 三个记忆测试文件并行时共用同一把会话级 advisory 锁：它们都会删写同一行管理员个人偏好。
-const MEMORY_TEST_LOCK = 'agentport.memory-tests';
-
+// 三个记忆测试文件共用同一把会话级 advisory 锁（见 helpers.acquireMemoryLock）。
 interface AgentRef {
   id: string;
   slug: string;
@@ -40,17 +39,6 @@ describe.skipIf(!ready)('memory changes', () => {
   let root: string;
   let releaseLock: (() => Promise<void>) | undefined;
   const agentSlugs: string[] = [];
-
-  async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
-    const reserved = await client.reserve();
-    // 等锁可能超过连接默认的 statement_timeout。
-    await reserved.unsafe('set statement_timeout = 0');
-    await reserved.unsafe('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
-    return async () => {
-      await reserved.unsafe('select pg_advisory_unlock(hashtext($1))', [MEMORY_TEST_LOCK]);
-      reserved.release();
-    };
-  }
 
   beforeAll(async () => {
     root = await mkdtemp(join(await realpath(tmpdir()), 'memory-changes-'));
@@ -710,6 +698,52 @@ describe.skipIf(!ready)('memory changes', () => {
 
     await put('deploy.md', 'v3');
     expectProblem(await rollback(second.id), 'CONFLICT');
+  });
+
+  it('rejects a rollback that would exceed the topic limit', async () => {
+    const agent = await newAgent();
+    const put = (name: string, content: string) =>
+      request(app, {
+        method: 'PUT',
+        url: `/api/agents/${agent.id}/memory/${name}`,
+        headers: auth(),
+        payload: { content },
+      });
+    for (const name of ['a.md', 'b.md', 'c.md']) {
+      expect((await put(name, `# ${name}\n`)).statusCode).toBe(200);
+    }
+    expect(
+      (
+        await request(app, {
+          method: 'PUT',
+          url: `/api/agents/${agent.id}/memory/policy`,
+          headers: auth(),
+          payload: { policy: { topicLimit: 3 } },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    // 删除一个主题留下可回滚的版本，再用新主题把数量补回上限。
+    expect(
+      (
+        await request(app, {
+          method: 'DELETE',
+          url: `/api/agents/${agent.id}/memory/b.md`,
+          headers: auth(),
+        })
+      ).statusCode,
+    ).toBe(204);
+    expect((await put('d.md', '# d.md\n')).statusCode).toBe(200);
+
+    const [change] = await app.client.unsafe<{ id: string }[]>(
+      "select id from memory_changes where agent_id = $1 and target->>'name' = 'b.md' order by created_at desc limit 1",
+      [agent.id],
+    );
+    if (!change) throw new Error('theme delete did not record a change');
+    const rejected = await rollback(change.id);
+    expectProblem(rejected, 'CONFLICT');
+    expect(rejected.json<{ message: string }>().message).toContain('主题数量已达上限 3');
+    expect(await readMemoryFile(root, agent.slug, 'b.md')).toBeNull();
   });
 
   it('applies the index line and 25KB limits to manual saves', async () => {

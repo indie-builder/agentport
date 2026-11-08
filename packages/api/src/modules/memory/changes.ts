@@ -1,6 +1,7 @@
 import { fail } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
+  DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
   type MemoryContentSnapshot,
@@ -29,6 +30,7 @@ import {
   type MemoryJournalEntry,
   writeMemoryJournal,
 } from './journal.js';
+import { countMemoryTopics } from './overview.js';
 import {
   type MemoryWriteLogger,
   readPersonalMemory,
@@ -639,6 +641,23 @@ function assertCandidateLimits(
   }
 }
 
+/**
+ * 新建主题（非 MEMORY.md）时校验策略上限：人工 PUT、提案采纳与回滚共用同一入口，不重复校验。
+ * 停用只拒绝新的记忆提案，不阻止手工编辑，因此这里只看主题数量。
+ */
+export async function assertTopicCapacity(
+  db: Database,
+  workspacesDir: string,
+  slug: string,
+  agentId: string,
+): Promise<void> {
+  const policy = (await repo.agents.getAgentMemoryPolicy(db, agentId)) ?? DEFAULT_MEMORY_POLICY;
+  const topics = await countMemoryTopics(workspacesDir, slug);
+  if (topics >= policy.topicLimit) {
+    fail('CONFLICT', `主题数量已达上限 ${policy.topicLimit}，请先合并或删除现有主题`);
+  }
+}
+
 /** 专家记忆的双文件写入：日志先落盘，目标与索引依次 rename，账本提交后删日志。 */
 async function writeAgentMemoryTarget(
   db: Database,
@@ -797,6 +816,10 @@ export async function writeMemoryTargetLocked(
       input.before === undefined
         ? changedFiles(target, current, after)
         : changedFiles(target, input.before, after);
+    // 只有「原本不存在、现在写入正文」才算新建主题；修改与删除不受上限影响。
+    if (target.name !== INDEX_FILE_NAME && current.content === null && after.content !== null) {
+      await assertTopicCapacity(db, input.workspacesDir, slug, target.agentId);
+    }
     // 同内容 PUT 仍会把当前索引作为候选；DELETE 不改索引，不因已有超限索引失败。
     if (input.manualContent !== undefined) {
       assertCandidateLimits(target, after, input.manualContent === null ? [] : [INDEX_FILE_NAME]);

@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -6,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pino from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { DockerSandboxProvider } from '../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
 import { SessionSandboxes } from '../src/sandbox/sessions.js';
@@ -197,6 +197,8 @@ async function incident(
       agentId: `agent-${randomUUID()}`,
       conversationId: randomUUID(),
       runtimeEnvironmentId: null,
+      // 这套用例的任务按默认策略（native_auto）起步，记忆挂载保持可写，与运行期设置一致。
+      memoryWritable: true,
       ...dirs,
     },
   };

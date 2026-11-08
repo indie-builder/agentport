@@ -180,6 +180,32 @@ async function replaceContent(id: string, value: string) {
 function currentFile(): string | undefined {
   return document.querySelector<HTMLElement>('[aria-current="true"]')?.textContent?.trim();
 }
+async function typeInto(id: string, value: string) {
+  const element = document.getElementById(id);
+  if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+    throw new Error(`Missing input: ${id}`);
+  }
+  await act(async () => {
+    const prototype =
+      element instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await flush();
+}
+
+/** 记忆页签默认落在概览；文件编辑器在「文件」子视图。 */
+async function openMemoryFiles() {
+  await click(tab('文件'));
+  await waitFor(() => editorView('memory-content'));
+}
+
+/** 「项目规则 / 输出风格」已并入「指令」页，用指令任务进入。 */
+async function openInstructions() {
+  await click(tab('指令'));
+}
 
 async function mount(initialEntries: string[] = ['/agents/expert?tab=memory']) {
   const rootRoute = createRootRoute({ component: Outlet });
@@ -240,6 +266,28 @@ beforeEach(() => {
   });
   vi.spyOn(api, 'agentMemory').mockResolvedValue(memoryList);
   vi.spyOn(api, 'agentMemoryFile').mockResolvedValue(memoryFile);
+  vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue({
+    policy: {
+      enabled: true,
+      writeMode: 'native_auto',
+      injectPersonalMemory: true,
+      injectRules: true,
+      topicLimit: 20,
+    },
+    index: { present: true, lines: 1, bytes: 1, maxLines: 200, maxBytes: 25 * 1024 },
+    topics: { count: 0, bytes: 0, unlinked: [], stale: [] },
+    rules: { count: 0, bytes: 0 },
+    personal: { chars: 0, maxChars: 9000 },
+    unaccounted: { count: 0, names: [] },
+    health: [],
+    recentChanges: [],
+    changesTotal: 0,
+  });
+  vi.spyOn(api, 'agentMemoryAssembly').mockResolvedValue({
+    blocks: [],
+    totals: { personalChars: 0, indexBytes: 0, rulesBytes: 0, topicBytes: 0 },
+    notes: [],
+  });
   vi.spyOn(api, 'writeAgentMemoryFile').mockResolvedValue(memoryFile);
   vi.spyOn(api, 'agentRules').mockResolvedValue([rule]);
   vi.spyOn(api, 'agentOutputStyles').mockResolvedValue([style]);
@@ -265,10 +313,10 @@ afterEach(async () => {
 describe('restricted expert task navigation', () => {
   it('confirms before switching a dirty task and keeps the draft and URL on cancel', async () => {
     const router = await mount();
-    await waitFor(() => editorView('memory-content'));
+    await openMemoryFiles();
     await replaceContent('memory-content', '# 未保存的记忆');
 
-    await click(tab('项目规则'));
+    await openInstructions();
     expect(dialog('放弃未保存的修改并切换？')).toBeDefined();
     expect(router.state.location.search.tab).toBe('memory');
     expect(editorView('memory-content').state.doc.toString()).toBe('# 未保存的记忆');
@@ -278,9 +326,9 @@ describe('restricted expert task navigation', () => {
     expect(router.state.location.search.tab).toBe('memory');
     expect(editorView('memory-content').state.doc.toString()).toBe('# 未保存的记忆');
 
-    await click(tab('项目规则'));
+    await openInstructions();
     await click(button('放弃并切换'));
-    await waitFor(() => router.state.location.search.tab === 'rules');
+    await waitFor(() => router.state.location.search.tab === 'instructions');
     expect(document.getElementById('memory-content')).toBeNull();
     expect(button('新建规则')).toBeDefined();
     expect(configGet).not.toHaveBeenCalled();
@@ -288,7 +336,7 @@ describe('restricted expert task navigation', () => {
 
   it('confirms before leaving the page and keeps the draft when the route change is cancelled', async () => {
     const router = await mount();
-    await waitFor(() => editorView('memory-content'));
+    await openMemoryFiles();
     await replaceContent('memory-content', '# 未保存的记忆');
 
     await click(button('返回列表'));
@@ -306,12 +354,12 @@ describe('restricted expert task navigation', () => {
     const saved = deferred<MemoryFileContent>();
     vi.spyOn(api, 'writeAgentMemoryFile').mockReturnValue(saved.promise);
     const router = await mount();
-    await waitFor(() => editorView('memory-content'));
+    await openMemoryFiles();
     await replaceContent('memory-content', '# 保存中的记忆');
     await click(button('记忆保存'));
 
     expect(button('返回列表').disabled).toBe(true);
-    await click(tab('项目规则'));
+    await openInstructions();
     expect(router.state.location.search.tab).toBe('memory');
     expect(editorView('memory-content').state.doc.toString()).toBe('# 保存中的记忆');
 
@@ -329,8 +377,8 @@ describe('restricted expert task navigation', () => {
     void navigation;
     expect(router.state.location.pathname).toBe('/agents/expert');
 
-    await click(tab('项目规则'));
-    await waitFor(() => router.state.location.search.tab === 'rules');
+    await openInstructions();
+    await waitFor(() => router.state.location.search.tab === 'instructions');
     expect(dialog('当前操作尚未完成')).toBeUndefined();
   });
 
@@ -338,7 +386,7 @@ describe('restricted expert task navigation', () => {
     const deletion = deferred<void>();
     vi.spyOn(api, 'deleteAgent').mockReturnValue(deletion.promise);
     const router = await mount();
-    await waitFor(() => editorView('memory-content'));
+    await openMemoryFiles();
 
     // 直接记录 blockerFn 返回的 Promise：后续返回列表的导航可能完成 navigate Promise，掩盖这里。
     let blockerSettled = false;
@@ -377,13 +425,13 @@ describe('restricted expert task navigation', () => {
   it('keeps a failed save as a draft and still protects the task switch', async () => {
     vi.spyOn(api, 'writeAgentMemoryFile').mockRejectedValue(new Error('save failed'));
     const router = await mount();
-    await waitFor(() => editorView('memory-content'));
+    await openMemoryFiles();
     await replaceContent('memory-content', '# 保存失败的记忆');
     await click(button('记忆保存'));
     await waitFor(() => vi.mocked(toastError).mock.calls.length > 0);
 
     expect(editorView('memory-content').state.doc.toString()).toBe('# 保存失败的记忆');
-    await click(tab('项目规则'));
+    await openInstructions();
     expect(dialog('放弃未保存的修改并切换？')).toBeDefined();
     expect(router.state.location.search.tab).toBe('memory');
     await click(button('取消', dialog('放弃未保存的修改并切换？')));
@@ -392,7 +440,7 @@ describe('restricted expert task navigation', () => {
 
   it('blocks a same-path browser back while dirty', async () => {
     const router = await mount(['/agents/expert?tab=rules', '/agents/expert?tab=memory']);
-    await waitFor(() => editorView('memory-content'));
+    await openMemoryFiles();
     await replaceContent('memory-content', '# 未保存的记忆');
 
     await act(async () => {
@@ -408,14 +456,15 @@ describe('restricted expert task navigation', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     await click(button('放弃并切换'));
-    await waitFor(() => router.state.location.search.tab === 'rules');
+    await waitFor(() => router.state.location.search.tab === 'instructions');
     expect(button('新建规则')).toBeDefined();
   });
 
-  it('restores a permitted task from the URL and falls back without loading the config body', async () => {
+  it('restores a permitted task from the URL and normalizes the legacy rules tab', async () => {
     const rulesRouter = await mount(['/agents/expert?tab=rules']);
     await waitFor(() => button('新建规则'));
-    expect(rulesRouter.state.location.search.tab).toBe('rules');
+    await waitFor(() => rulesRouter.state.location.search.tab === 'instructions');
+    expect(rulesRouter.state.location.search.instruction).toBe('rules');
     expect(configGet).not.toHaveBeenCalled();
 
     await act(async () => root.unmount());
@@ -425,10 +474,48 @@ describe('restricted expert task navigation', () => {
     client.setQueryData(['me'], me);
     client.setQueryData(['agents'], [agent]);
     const fallbackRouter = await mount(['/agents/expert?tab=config']);
-    await waitFor(() => editorView('memory-content'));
+    await waitFor(() => tab('概览'));
+    // 没有配置读权：配置任务不出现在页签里，正文也不会加载配置。
+    expect(
+      [...document.querySelectorAll<HTMLElement>('[role="tab"]')].map((item) =>
+        item.textContent?.trim(),
+      ),
+    ).not.toContain('配置');
     expect(document.getElementById('agent-name')).toBeNull();
     expect(fallbackRouter.state.location.search.tab).toBe('config');
+    await click(tab('专家记忆'));
+    await openMemoryFiles();
     expect(configGet).not.toHaveBeenCalled();
+  });
+
+  it('normalizes the legacy styles tab and switches the instruction section through the URL', async () => {
+    const router = await mount(['/agents/expert?tab=styles']);
+    await waitFor(() => button('新建风格'));
+    await waitFor(() => router.state.location.search.tab === 'instructions');
+    expect(router.state.location.search.instruction).toBe('styles');
+
+    await click(tab('项目规则'));
+    await waitFor(() => router.state.location.search.instruction === 'rules');
+    expect(button('新建规则')).toBeDefined();
+  });
+
+  it('asks before switching the instruction section with an unsaved draft', async () => {
+    const router = await mount(['/agents/expert?tab=instructions&instruction=rules']);
+    await waitFor(() => button('新建规则'));
+    await click(button('新建规则'));
+    await typeInto('rule-slug', 'no-console');
+
+    await click(tab('输出风格'));
+    const confirmation = dialog('放弃未保存的修改并切换？');
+    expect(router.state.location.search.instruction).toBe('rules');
+    await click(button('取消', confirmation));
+    expect(document.getElementById('rule-slug')?.value).toBe('no-console');
+
+    await click(tab('输出风格'));
+    await click(button('放弃并切换', dialog('放弃未保存的修改并切换？')));
+    await waitFor(() => router.state.location.search.instruction === 'styles');
+    expect(document.getElementById('rule-slug')).toBeNull();
+    expect(button('新建风格')).toBeDefined();
   });
 
   it('keeps the selected workspace file in the URL', async () => {
