@@ -190,9 +190,15 @@ function mockMe() {
   server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
 }
 
+/** 置顶是列表页的附加查询；默认没有置顶项，用例按需覆盖。 */
+function mockPins(baseIds: string[] = []) {
+  server.use(http.get('/api/knowledge/bases/pins', () => HttpResponse.json({ baseIds })));
+}
+
 beforeEach(() => {
   msw.reset();
   mockMe();
+  mockPins();
   vi.mocked(toastError).mockClear();
   vi.stubGlobal(
     'ResizeObserver',
@@ -672,6 +678,83 @@ describe('knowledge library list', () => {
     expect(document.body.textContent).toContain('研发手册');
     expect(document.body.textContent).toContain('共 2 个知识库');
     expect(calls.some((item) => item.path.includes('cursor=kb_cursor'))).toBe(true);
+  });
+});
+
+describe('knowledge base pins', () => {
+  const engineering = {
+    ...base,
+    id: 'kb_2',
+    slug: 'engineering',
+    name: '研发手册',
+    createdAt: '2026-01-03T00:00:00Z',
+  };
+
+  function rowNames(): string[] {
+    return [...document.querySelectorAll<HTMLElement>('ul > li h2')].map(
+      (item) => item.textContent ?? '',
+    );
+  }
+
+  function lastPinBody(): unknown {
+    return calls
+      .filter((item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/pin')
+      .at(-1)?.body;
+  }
+
+  it('moves a pinned base to the top and toggles it back from the row menu', async () => {
+    let pinnedIds: string[] = [];
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ items: [base, engineering], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/bases/pins', () => HttpResponse.json({ baseIds: pinnedIds })),
+      http.put('/api/knowledge/bases/kb_1/pin', async ({ request }) => {
+        const body = (await request.json()) as { pinned: boolean };
+        pinnedIds = body.pinned ? ['kb_1'] : [];
+        return HttpResponse.json({ pinned: body.pinned });
+      }),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    await mount('/knowledge');
+
+    // 默认按创建时间倒序，置顶图标不出现。
+    expect(rowNames()).toEqual(['研发手册', '产品手册']);
+    expect(document.querySelector('[title="已置顶"]')).toBeNull();
+
+    await openMenu('操作 产品手册');
+    await chooseMenuItem('置顶');
+    expect(lastPinBody()).toEqual({ pinned: true });
+    await waitFor(() => rowNames()[0] === '产品手册');
+    expect(rowNames()).toEqual(['产品手册', '研发手册']);
+    expect(document.querySelector('[title="已置顶"]')).not.toBeNull();
+
+    // 菜单在置顶后重新打开时已经变成「取消置顶」，再点一次恢复原顺序。
+    await openMenu('操作 产品手册');
+    await chooseMenuItem('取消置顶');
+    expect(lastPinBody()).toEqual({ pinned: false });
+    await waitFor(() => rowNames()[0] === '研发手册');
+    expect(rowNames()).toEqual(['研发手册', '产品手册']);
+    expect(document.querySelector('[title="已置顶"]')).toBeNull();
+  });
+
+  it('falls back to unpinned rows without a toast when the pin list fails', async () => {
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ items: [base, engineering], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/bases/pins', () =>
+        HttpResponse.json(
+          { code: 'INTERNAL_ERROR', status: 500, message: '置顶读取失败' },
+          { status: 500 },
+        ),
+      ),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    await mount('/knowledge');
+    expect(rowNames()).toEqual(['研发手册', '产品手册']);
+    expect(document.querySelector('[title="已置顶"]')).toBeNull();
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
 
@@ -3447,6 +3530,7 @@ describe('knowledge UX guards', () => {
 
     await cleanup();
     mockMe();
+    mockPins();
     server.use(
       http.get('/api/knowledge/bases', () =>
         HttpResponse.json({ code: 'INTERNAL', message: '列表失败' }, { status: 500 }),

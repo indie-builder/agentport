@@ -12,6 +12,14 @@ const os = implement(knowledgeContract).$context<RequestContext>();
 
 export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.router({
   bases: {
+    pins: os.bases.pins.handler(async ({ context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.listPins(depsOf(context));
+    }),
+    setPin: os.bases.setPin.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.setPin(depsOf(context), input.params.id, input.body.pinned);
+    }),
     list: os.bases.list.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
       return useCases.listBases(depsOf(context), input.query);

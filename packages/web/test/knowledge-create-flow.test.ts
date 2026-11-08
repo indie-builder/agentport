@@ -71,6 +71,7 @@ afterAll(() => close());
 beforeEach(() => {
   reset();
   server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
+  server.use(http.get('/api/knowledge/bases/pins', () => HttpResponse.json({ baseIds: [] })));
   vi.mocked(toastSuccess).mockClear();
   vi.stubGlobal(
     'ResizeObserver',

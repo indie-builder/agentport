@@ -16,6 +16,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, type SQL, sql } from 'drizzle-
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
+  knowledgeBasePins,
   knowledgeBases,
   knowledgeChunks,
   knowledgeDocumentSourceRanges,
@@ -396,6 +397,32 @@ export async function deleteBase(db: Database, id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/** 个人置顶的知识库 ID，按置顶时间倒序；列表用它把置顶组排到最前。 */
+export async function listPinnedBaseIds(db: Database, businessId: string): Promise<string[]> {
+  const rows = await db
+    .select({ baseId: knowledgeBasePins.baseId })
+    .from(knowledgeBasePins)
+    .where(eq(knowledgeBasePins.businessId, businessId))
+    .orderBy(desc(knowledgeBasePins.pinnedAt));
+  return rows.map((row) => row.baseId);
+}
+
+/** 置顶幂等：重复置顶由联合唯一索引吃掉，不刷新首次置顶时间；取消时不存在即成功。 */
+export async function setBasePin(
+  db: Database,
+  businessId: string,
+  baseId: string,
+  pinned: boolean,
+): Promise<void> {
+  if (pinned) {
+    await db.insert(knowledgeBasePins).values({ businessId, baseId }).onConflictDoNothing();
+    return;
+  }
+  await db
+    .delete(knowledgeBasePins)
+    .where(and(eq(knowledgeBasePins.businessId, businessId), eq(knowledgeBasePins.baseId, baseId)));
+}
+
 /** 复制知识库时按唯一索引判占用；最终仍由 knowledge_bases_slug_idx 裁决并发冲突。 */
 export async function baseSlugExists(db: Database, slug: string): Promise<boolean> {
   const [row] = await db
@@ -671,6 +698,19 @@ export async function deleteFolder(db: Database, id: string): Promise<boolean> {
     .where(eq(knowledgeFolders.id, id))
     .returning({ id: knowledgeFolders.id });
   return rows.length > 0;
+}
+
+export async function findTagByName(
+  db: Database,
+  baseId: string,
+  name: string,
+): Promise<KnowledgeTagRow | null> {
+  const [row] = await db
+    .select()
+    .from(knowledgeTags)
+    .where(and(eq(knowledgeTags.baseId, baseId), eq(knowledgeTags.name, name)))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function upsertTag(

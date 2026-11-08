@@ -148,12 +148,47 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     });
   }
 
+  function patchDocument(documentId: string, payload: Record<string, unknown>) {
+    return request(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/documents/${documentId}`,
+      headers: { cookie },
+      payload,
+    });
+  }
+
+  function deleteTag(tagId: string) {
+    return request(app, {
+      method: 'DELETE',
+      url: `/api/knowledge/tags/${tagId}`,
+      headers: { cookie },
+    });
+  }
+
   it('feeds base, document and tag events newest first with their target kind', async () => {
     const baseId = await createBase();
     // 文档与标签的审计 target 是自身 id，活动流按库归属回连，不是直接命中 baseId。
-    await uploadDocument(baseId);
+    const documentId = await uploadDocument(baseId);
     const tag = await createTag(baseId, '流程');
     expect((await renameTag(tag.id, '流程规范')).statusCode).toBe(200);
+
+    // 新建标签与重命名常在同一个请求序列里前后脚发生，先把四条事件的时间固定下来。
+    await app.client.unsafe(
+      "update audit_log set created_at = '2026-01-01T00:00:00Z'::timestamptz where action = 'knowledge.base.created' and target = $1",
+      [baseId],
+    );
+    await app.client.unsafe(
+      "update audit_log set created_at = '2026-01-01T00:00:01Z'::timestamptz where action = 'knowledge.document.uploaded' and target = $1",
+      [documentId],
+    );
+    await app.client.unsafe(
+      "update audit_log set created_at = '2026-01-01T00:00:02Z'::timestamptz where action = 'knowledge.tag.created' and target = $1",
+      [tag.id],
+    );
+    await app.client.unsafe(
+      "update audit_log set created_at = '2026-01-01T00:00:03Z'::timestamptz where action = 'knowledge.tag.renamed' and target = $1",
+      [tag.id],
+    );
 
     const res = await activity(baseId);
     expect(res.statusCode, res.body).toBe(200);
@@ -161,6 +196,7 @@ describe.skipIf(!ready)('knowledge base activity', () => {
 
     expect(page.items.map((item) => [item.action, item.targetKind])).toEqual([
       ['knowledge.tag.renamed', 'tag'],
+      ['knowledge.tag.created', 'tag'],
       ['knowledge.document.uploaded', 'document'],
       ['knowledge.base.created', 'base'],
     ]);
@@ -179,7 +215,7 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     const tag = await createTag(baseId, '规范');
     expect((await renameTag(tag.id, '规范 V2')).statusCode).toBe(200);
 
-    // 请求间隔可能落在同一微秒内，先把三条审计的时间固定下来，游标断言才有确定顺序。
+    // 请求间隔可能落在同一微秒内，先把四条审计的时间固定下来，游标断言才有确定顺序。
     await app.client.unsafe(
       "update audit_log set created_at = '2026-01-01T00:00:00Z'::timestamptz where action = 'knowledge.base.created' and target = $1",
       [baseId],
@@ -189,7 +225,11 @@ describe.skipIf(!ready)('knowledge base activity', () => {
       [documentId],
     );
     await app.client.unsafe(
-      "update audit_log set created_at = '2026-01-03T00:00:00Z'::timestamptz where action = 'knowledge.tag.renamed' and target = $1",
+      "update audit_log set created_at = '2026-01-03T00:00:00Z'::timestamptz where action = 'knowledge.tag.created' and target = $1",
+      [tag.id],
+    );
+    await app.client.unsafe(
+      "update audit_log set created_at = '2026-01-04T00:00:00Z'::timestamptz where action = 'knowledge.tag.renamed' and target = $1",
       [tag.id],
     );
 
@@ -198,14 +238,17 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     const page1 = first.json<ActivityPage>();
     expect(page1.items.map((item) => item.action)).toEqual([
       'knowledge.tag.renamed',
-      'knowledge.document.uploaded',
+      'knowledge.tag.created',
     ]);
     expect(page1.nextCursor).toBe(page1.items[1]?.id ?? null);
 
     const second = await activity(baseId, { limit: '2', cursor: page1.nextCursor ?? '' });
     expect(second.statusCode, second.body).toBe(200);
     const page2 = second.json<ActivityPage>();
-    expect(page2.items.map((item) => item.action)).toEqual(['knowledge.base.created']);
+    expect(page2.items.map((item) => item.action)).toEqual([
+      'knowledge.document.uploaded',
+      'knowledge.base.created',
+    ]);
     expect(page2.nextCursor).toBeNull();
   });
 
@@ -258,6 +301,80 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     );
     expect(digests).toHaveLength(2);
     expect(digests[0]?.input_digest).not.toBe(digests[1]?.input_digest);
+  });
+
+  it('records a document update only when a field actually changes', async () => {
+    const baseId = await createBase();
+    const documentId = await uploadDocument(baseId);
+
+    const actionsOf = async () =>
+      (await activity(baseId)).json<ActivityPage>().items.map((item) => item.action);
+
+    // 空 patch 与提交原值都不算变更，不能凭空多出一条「更新文档」。
+    expect((await patchDocument(documentId, {})).statusCode).toBe(200);
+    expect(await actionsOf()).not.toContain('knowledge.document.updated');
+
+    const patched = await patchDocument(documentId, { title: '改过的标题' });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json<{ title: string }>().title).toBe('改过的标题');
+
+    // 再提交同一个标题仍然没有字段变更。
+    expect((await patchDocument(documentId, { title: '改过的标题' })).statusCode).toBe(200);
+
+    const page = (await activity(baseId)).json<ActivityPage>();
+    const updated = page.items.filter((item) => item.action === 'knowledge.document.updated');
+    expect(updated).toHaveLength(1);
+    expect(updated[0]?.targetKind).toBe('document');
+
+    // 审计只落 input 摘要，不存原文。
+    const digests = await app.client.unsafe<{ input_digest: string | null }[]>(
+      "select input_digest from audit_log where action = 'knowledge.document.updated' and target = $1",
+      [documentId],
+    );
+    expect(digests).toHaveLength(1);
+    expect(digests[0]?.input_digest).not.toBeNull();
+  });
+
+  it('records a rebuild and a tag creation, but not a tag deletion', async () => {
+    const baseId = await createBase();
+    const tag = await createTag(baseId, '运维');
+
+    const rebuilt = await request(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${baseId}/rebuild`,
+      headers: { cookie },
+      payload: { chunksOnly: true },
+    });
+    expect(rebuilt.statusCode, rebuilt.body).toBe(202);
+
+    const entries = async () =>
+      (await activity(baseId))
+        .json<ActivityPage>()
+        .items.map((item) => [item.action, item.targetKind]);
+    expect(await entries()).toContainEqual(['knowledge.base.rebuilt', 'base']);
+    expect(await entries()).toContainEqual(['knowledge.tag.created', 'tag']);
+
+    // 删除类事件的 target 行没了，活动流的 exists 回连必然落空：审计照写，只是不进活动流。
+    expect((await deleteTag(tag.id)).statusCode).toBe(204);
+    expect(await entries()).not.toContainEqual(['knowledge.tag.deleted', 'tag']);
+    const auditRows = await app.client.unsafe<{ id: string }[]>(
+      "select id from audit_log where action = 'knowledge.tag.deleted' and target = $1",
+      [tag.id],
+    );
+    expect(auditRows).toHaveLength(1);
+  });
+
+  it('creates a tag idempotently, so repeating the name yields one activity entry', async () => {
+    const baseId = await createBase();
+    const first = await createTag(baseId, '重复标签');
+    const second = await createTag(baseId, '重复标签');
+    expect(second.id).toBe(first.id);
+
+    const created = (await activity(baseId))
+      .json<ActivityPage>()
+      .items.filter((item) => item.action === 'knowledge.tag.created');
+    expect(created).toHaveLength(1);
+    expect(created[0]?.targetKind).toBe('tag');
   });
 
   it('returns not found for a missing base', async () => {

@@ -441,6 +441,14 @@ describe('knowledge base overview', () => {
         HttpResponse.json({
           items: [
             {
+              id: 'aud_5',
+              action: 'knowledge.document.updated',
+              actor: 'bus_ops',
+              status: 'ok',
+              targetKind: 'document',
+              createdAt: minutesAgo(1),
+            },
+            {
               id: 'aud_4',
               action: 'knowledge.base.updated',
               actor: 'bus_admin',
@@ -481,6 +489,7 @@ describe('knowledge base overview', () => {
 
     expect(document.body.textContent).toContain('最近活动');
     expect(document.body.textContent).toContain('更新知识库');
+    expect(document.body.textContent).toContain('更新文档');
     expect(document.body.textContent).toContain('重命名标签');
     expect(document.body.textContent).toContain('· 4 分钟前');
     expect(document.body.textContent).toContain('创建知识库');

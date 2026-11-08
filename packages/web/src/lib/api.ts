@@ -1411,6 +1411,11 @@ export const api = {
     rpc.knowledge.bases.list({ query }, clientOptions(signal)),
   knowledgeBase: (id: string): Promise<KnowledgeBase> =>
     rpc.knowledge.bases.get({ params: { id } }),
+  /** 置顶是当前账号的个人偏好，只返回 ID，列表排序在客户端完成。 */
+  knowledgeBasePins: (signal?: AbortSignal): Promise<{ baseIds: string[] }> =>
+    rpc.knowledge.bases.pins({}, clientOptions(signal)),
+  setKnowledgeBasePin: (baseId: string, pinned: boolean): Promise<{ pinned: boolean }> =>
+    rpc.knowledge.bases.setPin({ params: { id: baseId }, body: { pinned } }),
   knowledgeBaseSummary: (id: string, signal?: AbortSignal): Promise<KnowledgeBaseSummary> =>
     rpc.knowledge.bases.summary({ params: { id } }, clientOptions(signal)),
   // 概览的活动流只读最近一页；20 条足够覆盖一次会话内产生的动作。

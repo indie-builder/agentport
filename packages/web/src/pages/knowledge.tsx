@@ -9,6 +9,8 @@ import {
   Download,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   Settings,
   Trash2,
@@ -76,8 +78,10 @@ import {
   useDeleteKnowledgeBase,
   useExportKnowledgeBase,
   useImportKnowledgeBase,
+  useKnowledgeBasePins,
   useKnowledgeBases,
   useKnowledgeModelProfileSelections,
+  useSetKnowledgeBasePin,
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -115,6 +119,9 @@ const statusFilterOptions = [
 /** 列表只返回 base 本身；文档数在详情页看，不在行上为每个库多拉一页文档。 */
 function KnowledgeRow({
   base,
+  pinned,
+  pinPending,
+  onTogglePin,
   onEdit,
   onDuplicate,
   onSettings,
@@ -127,10 +134,13 @@ function KnowledgeRow({
   canDelete,
 }: {
   base: KnowledgeBase;
+  pinned: boolean;
+  pinPending: boolean;
   canUpdate: boolean;
   canCreate: boolean;
   canExport: boolean;
   canDelete: boolean;
+  onTogglePin: () => void;
   onEdit: (trigger: HTMLElement) => void;
   onDuplicate: (trigger: HTMLElement) => void;
   onSettings: (trigger: HTMLElement) => void;
@@ -150,6 +160,12 @@ function KnowledgeRow({
       <div className="flex min-h-14 items-center gap-4 py-2.5">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-2">
+            {pinned ? (
+              // 置顶只给图标，不加可见文字；title 提供悬停说明。
+              <span className="flex shrink-0 items-center" title="已置顶">
+                <Pin className="size-3.5 text-muted-foreground" aria-hidden="true" />
+              </span>
+            ) : null}
             <h2 className="min-w-0 truncate text-base font-medium text-fg" title={base.name}>
               {base.name}
             </h2>
@@ -181,6 +197,11 @@ function KnowledgeRow({
             />
             <DropdownMenuContent align="end" sideOffset={4} className="w-40">
               <DropdownMenuGroup>
+                {/* 置顶是个人偏好：所有能读知识库的人都能切换，不看 update 权限。 */}
+                <DropdownMenuItem disabled={pinPending} onClick={onTogglePin}>
+                  {pinned ? <PinOff /> : <Pin />}
+                  {pinned ? '取消置顶' : '置顶'}
+                </DropdownMenuItem>
                 {canUpdate ? (
                   <DropdownMenuItem onClick={(event) => onEdit(event.currentTarget)}>
                     <Pencil /> 编辑信息
@@ -239,6 +260,10 @@ export function KnowledgePage() {
   const status = search.status;
   const bases = useKnowledgeBases();
   const baseItems = bases.data ?? [];
+  // 置顶是个人偏好：读取失败时静默按全部未置顶处理，不打断列表也不 toast。
+  const pins = useKnowledgeBasePins();
+  const pinnedIds = new Set(pins.data?.baseIds ?? []);
+  const setPin = useSetKnowledgeBasePin();
   // 知识库是小型集合：一次取完剩余分页（每页 50，仅取元数据），
   // 这样「共 N 个」是真实总数，本地搜索也覆盖整库，而不是假装首屏就是全部。
   const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = bases;
@@ -317,6 +342,11 @@ export function KnowledgePage() {
     });
   };
 
+  // 置顶项整体排在前面，组内继续沿用当前排序规则。
+  const compareBases = (a: KnowledgeBase, b: KnowledgeBase): number =>
+    sort === 'name'
+      ? a.name.localeCompare(b.name, 'zh-CN')
+      : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   const visible = baseItems
     .filter((base) => status === undefined || base.status === status)
     .filter((base) => {
@@ -328,11 +358,11 @@ export function KnowledgePage() {
         )
       );
     })
-    .sort((a, b) =>
-      sort === 'name'
-        ? a.name.localeCompare(b.name, 'zh-CN')
-        : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
+    .sort((a, b) => {
+      const pinnedA = pinnedIds.has(a.id);
+      if (pinnedA !== pinnedIds.has(b.id)) return pinnedA ? -1 : 1;
+      return compareBases(a, b);
+    });
 
   // 关键词只换当前地址（不新增历史）；筛选与排序 push，便于后退回到上一组条件。
   const setSearch = (
@@ -509,6 +539,14 @@ export function KnowledgePage() {
             <KnowledgeRow
               key={base.id}
               base={base}
+              pinned={pinnedIds.has(base.id)}
+              pinPending={setPin.isPending && setPin.variables?.baseId === base.id}
+              onTogglePin={() =>
+                setPin.mutate(
+                  { baseId: base.id, pinned: !pinnedIds.has(base.id) },
+                  { onError: toastError },
+                )
+              }
               onEdit={(trigger) => {
                 setActionFocus(trigger);
                 setEditing(base);

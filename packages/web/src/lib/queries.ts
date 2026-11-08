@@ -1811,6 +1811,7 @@ export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): 
 
 export const knowledgeKeys = {
   bases: ['knowledge', 'bases'] as const,
+  pins: ['knowledge', 'base-pins'] as const,
   base: (id: string) => ['knowledge', 'base', id] as const,
   summary: (id: string) => ['knowledge', 'base-summary', id] as const,
   activity: (id: string) => ['knowledge', 'base-activity', id] as const,
@@ -1852,6 +1853,24 @@ export function useKnowledgeBases(enabled = true) {
     enabled,
     // 调用方（专家绑定等）只关心已加载的库；分页方法仍保留在结果上。
     select: (data) => data.pages.flatMap((page) => page.items),
+  });
+}
+
+/** 置顶只影响列表排序，读取失败时页面按未置顶处理，不重试也不打断列表。 */
+export function useKnowledgeBasePins() {
+  return useQuery({
+    queryKey: knowledgeKeys.pins,
+    queryFn: ({ signal }) => api.knowledgeBasePins(signal),
+    retry: false,
+  });
+}
+
+export function useSetKnowledgeBasePin() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { baseId: string; pinned: boolean }) =>
+      api.setKnowledgeBasePin(vars.baseId, vars.pinned),
+    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.pins }),
   });
 }
 

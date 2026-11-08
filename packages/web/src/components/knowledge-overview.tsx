@@ -54,9 +54,14 @@ const activityActionLabel: Record<string, string> = {
   'knowledge.base.updated': '更新知识库',
   'knowledge.base.duplicated': '复制知识库',
   'knowledge.base.imported': '导入知识库',
+  'knowledge.base.rebuilt': '重建索引',
   'knowledge.document.uploaded': '上传文档',
+  'knowledge.document.updated': '更新文档',
+  'knowledge.document.reprocessed': '重新解析文档',
   'knowledge.document.manual_draft_saved': '保存手写文档',
+  'knowledge.tag.created': '新建标签',
   'knowledge.tag.renamed': '重命名标签',
+  'knowledge.tag.deleted': '删除标签',
   'knowledge.faq.imported': '导入 FAQ',
 };
 

@@ -945,6 +945,22 @@ export async function listBases(deps: KnowledgeDeps, query: PageQuery) {
   return { items: page.items.map(toBase), nextCursor: page.nextCursor };
 }
 
+/**
+ * 置顶是个人偏好：没有用户主体时不报错，按「未置顶」返回；
+ * 这不是管理变更，也不写审计。
+ */
+export async function listPins(deps: KnowledgeDeps) {
+  if (deps.actor === '' || deps.actor === 'anonymous') return { baseIds: [] };
+  return { baseIds: await repo.knowledge.listPinnedBaseIds(deps.db, deps.actor) };
+}
+
+export async function setPin(deps: KnowledgeDeps, baseId: string, pinned: boolean) {
+  const base = await repo.knowledge.getBase(deps.db, baseId);
+  if (!base) notFound('知识库');
+  await repo.knowledge.setBasePin(deps.db, deps.actor, baseId, pinned);
+  return { pinned };
+}
+
 export async function createBase(
   deps: KnowledgeDeps,
   input: {
@@ -1375,7 +1391,18 @@ export async function listTags(deps: KnowledgeDeps, id: string) {
 
 export async function createTag(deps: KnowledgeDeps, id: string, name: string) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
+  // upsertTag 幂等：同名标签重复 POST 不算新建，直接返回原行，免得活动流里多一条假创建。
+  const existing = await repo.knowledge.findTagByName(deps.db, id, name);
+  if (existing) return toTag(existing);
   const row = await repo.knowledge.upsertTag(deps.db, id, name);
+  await repo.audit.writeAudit(deps.db, deps.log, {
+    actor: deps.actor,
+    action: 'knowledge.tag.created',
+    target: row.id,
+    input: { baseId: row.baseId },
+    status: 'ok',
+    requestId: deps.requestId,
+  });
   return toTag(row);
 }
 
@@ -1399,7 +1426,21 @@ export async function renameTag(deps: KnowledgeDeps, tagId: string, name: string
 }
 
 export async function deleteTag(deps: KnowledgeDeps, tagId: string): Promise<void> {
+  // 删除后标签行随之消失，审计要留 baseId 归属，只能在删前读一次。
+  const [tag] = await deps.db
+    .select({ baseId: schema.knowledgeTags.baseId })
+    .from(schema.knowledgeTags)
+    .where(eq(schema.knowledgeTags.id, tagId));
+  if (!tag) notFound('标签');
   if (!(await repo.knowledge.deleteTag(deps.db, tagId))) notFound('标签');
+  await repo.audit.writeAudit(deps.db, deps.log, {
+    actor: deps.actor,
+    action: 'knowledge.tag.deleted',
+    target: tagId,
+    input: { baseId: tag.baseId },
+    status: 'ok',
+    requestId: deps.requestId,
+  });
 }
 
 // ---- documents ------------------------------------------------------------
@@ -1555,15 +1596,40 @@ export async function getDocument(deps: KnowledgeDeps, documentId: string) {
   return documentWithTags(deps, row);
 }
 
+type UpdateDocumentBody = {
+  title?: string | undefined;
+  folderId?: string | null | undefined;
+  status?: 'ready' | 'disabled' | undefined;
+  tags?: string[] | undefined;
+};
+
+function sameTagSet(left: string[], right: string[]): boolean {
+  const a = [...new Set(left)].sort();
+  const b = [...new Set(right)].sort();
+  return a.length === b.length && a.every((name, index) => name === b[index]);
+}
+
+/**
+ * 与知识库一致：审计只记被改动的字段名，不记值；空 patch 或提交原值都不算变更，
+ * 免得活动流里出现「更新文档」却没有实际改动。
+ */
+function changedDocumentFields(
+  current: DocumentRow,
+  body: UpdateDocumentBody,
+  currentTags: string[],
+): string[] {
+  const fields: string[] = [];
+  if (body.title !== undefined && body.title !== current.title) fields.push('title');
+  if (body.folderId !== undefined && body.folderId !== current.folderId) fields.push('folderId');
+  if (body.status !== undefined && body.status !== current.status) fields.push('status');
+  if (body.tags !== undefined && !sameTagSet(body.tags, currentTags)) fields.push('tags');
+  return fields;
+}
+
 export async function updateDocument(
   deps: KnowledgeDeps,
   documentId: string,
-  body: {
-    title?: string | undefined;
-    folderId?: string | null | undefined;
-    status?: 'ready' | 'disabled' | undefined;
-    tags?: string[] | undefined;
-  },
+  body: UpdateDocumentBody,
 ) {
   const current = await repo.knowledge.getDocument(deps.db, documentId);
   if (!current) notFound('文档');
@@ -1587,6 +1653,11 @@ export async function updateDocument(
       throw new AppError('CONFLICT', '当前版本没有可用分块，请先重新摄取');
     }
   }
+  const currentTags =
+    tags === undefined
+      ? []
+      : ((await repo.knowledge.getDocumentTagNames(deps.db, [current.id])).get(current.id) ?? []);
+  const fields = changedDocumentFields(current, body, currentTags);
   const row = await repo.knowledge.updateDocument(deps.db, current.id, {
     ...patch,
     ...(patch.status === 'disabled' ? { disabledReason: 'manual' } : {}),
@@ -1604,6 +1675,16 @@ export async function updateDocument(
       row.id,
       tags.map((name) => idByName.get(name)!),
     );
+  }
+  if (fields.length > 0) {
+    await repo.audit.writeAudit(deps.db, deps.log, {
+      actor: deps.actor,
+      action: 'knowledge.document.updated',
+      target: row.id,
+      input: { baseId: row.baseId, fields },
+      status: 'ok',
+      requestId: deps.requestId,
+    });
   }
   return documentWithTags(deps, row);
 }
@@ -1653,6 +1734,14 @@ export async function reprocessDocument(
     },
     { baseId: row.baseId, documentId: row.id },
   );
+  await repo.audit.writeAudit(deps.db, deps.log, {
+    actor: deps.actor,
+    action: 'knowledge.document.reprocessed',
+    target: row.id,
+    input: { baseId: row.baseId },
+    status: 'ok',
+    requestId: deps.requestId,
+  });
   return { jobId: job.id };
 }
 
@@ -2249,6 +2338,17 @@ export async function rebuildBase(
     },
     { baseId: base.id, documentId: null },
   );
+  await repo.audit.writeAudit(deps.db, deps.log, {
+    actor: deps.actor,
+    action: 'knowledge.base.rebuilt',
+    target: base.id,
+    input: {
+      chunksOnly: body.chunksOnly,
+      confirmOverwriteManualChunks: body.confirmOverwriteManualChunks,
+    },
+    status: 'ok',
+    requestId: deps.requestId,
+  });
   return { jobId: job.id };
 }
 
@@ -2453,6 +2553,14 @@ export async function batchDocuments(
           },
           { baseId: base.id, documentId: document.id },
         );
+        await repo.audit.writeAudit(deps.db, deps.log, {
+          actor: deps.actor,
+          action: 'knowledge.document.reprocessed',
+          target: document.id,
+          input: { baseId: base.id },
+          status: 'ok',
+          requestId: deps.requestId,
+        });
         results.push({ documentId, status: 'succeeded', jobId: job.id });
       }
     } catch (err) {
