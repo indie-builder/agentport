@@ -13,13 +13,13 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-canvas: #fbfcfc;
+  --color-canvas: #fbfbfb;
   --color-surface: #ffffff;
   --color-panel: #ffffff;
-  --color-sunken: #f7f9f9;
-  --color-hover: #edf2f2;
-  --color-chip: #eff3f3;
-  --color-selected: #dfe9ea;
+  --color-sunken: #f7f7f7;
+  --color-hover: #f0f0f0;
+  --color-chip: #f2f2f2;
+  --color-selected: #e6e6e6;
   --color-sidebar: #eaf0f0;
   --color-sidebar-hover: #dfe8e9;
   --color-sidebar-selected: var(--color-surface);

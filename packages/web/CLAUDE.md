@@ -5,7 +5,7 @@
 ## 视觉与设计
 
 - **仅桌面端。** 使用桌面布局与控件规格，不做移动端适配、手机断点、触摸尺寸或替代导航；保留窗口缩放、容器伸缩与无障碍行为。
-- **视觉与组件外观单一来源是本包 [DESIGN.md](DESIGN.md)（impeccable，`packages/web/DESIGN.md`）。** 仓库级工程规约（布局/交互/无障碍/信息表达）见 [docs/DESIGN-SYSTEM.md](../../docs/DESIGN-SYSTEM.md)，布局几何沿用其中用户批准的布局契约；颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；OpenUI 桌面基准仅保留为历史参考。本文不复制 hex/token 表；旧规则里的视觉具体值以 DESIGN.md 与 `src/styles.css` 的令牌为准，若发现有值缺失，报告缺口，不静默删除。
+- **视觉与组件外观单一来源是本包 [DESIGN.md](DESIGN.md)（impeccable，`packages/web/DESIGN.md`）。** 仓库级工程规约（布局/交互/无障碍/信息表达）见 [docs/DESIGN-SYSTEM.md](../../docs/DESIGN-SYSTEM.md)，布局几何沿用其中用户批准的布局契约；颜色采用用户选定的石青，石青用于左侧导航、主操作与链接，内容区底色、hover、选中与 chip 使用中性黑白灰；字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；OpenUI 桌面基准仅保留为历史参考。本文不复制 hex/token 表；旧规则里的视觉具体值以 DESIGN.md 与 `src/styles.css` 的令牌为准，若发现有值缺失，报告缺口，不静默删除。
 - **改 UI 前必读 §9（组件与交互契约）与 §10（信息表达）；涉及动效再按 §11 核对实际实现与 `src/styles.css`。** 品牌 Logo 与插画保留原配色（插画低饱和背景是图形色彩例外）；普通图标继承所属文字色，危险用 `danger`。主操作为石青实底三态，次操作为细边或中性浅底，按钮键盘焦点环为石青 `ring`、输入框聚焦为中性暖灰边；状态与数据不借用动作色，`chart-runs` 只用于图表数据。
 - **布局优先。** 删掉标语、解释结构的辅助文案和重复次级标签；界面靠分组、对齐、间距与层级说明结构。字段标签、格式/约束、错误、风险与无障碍说明按 §10 保留。
 - **图标与边线。** lucide 16px、`strokeWidth={1.75}` 由 `src/App.tsx` 的 `LucideProvider` 统一设置，组件内不再逐个传；1px 线、留白与控件尺寸按 §9，不用新增 border 改变控件尺寸。图表描边沿用图表自身数值，不按图标规则改。
