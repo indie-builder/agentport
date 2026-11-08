@@ -288,10 +288,45 @@ describe.skipIf(!ready)('agent memory overview', () => {
       summary: 'R'.repeat(120),
     });
     expect(Object.keys(latest ?? {}).sort()).toEqual(['createdAt', 'name', 'summary']);
+    // 标题行的 Markdown 符号不进摘要：其余 4 条都以 `# 主题 N` 开头。
+    expect(overview.recentChanges.map((change) => change.summary)).toEqual([
+      'R'.repeat(120),
+      '主题 5',
+      '主题 4',
+      '主题 3',
+      '主题 2',
+    ]);
+    expect(overview.recentChanges.every((change) => !change.summary.startsWith('#'))).toBe(true);
     // 正文第二行与 before/after 全文都不出现在投影里。
     expect(response.body).not.toContain('第 6 条变更正文不应回传');
     expect(response.body).not.toContain('"before"');
     expect(overview.unaccounted.count).toBe(0);
+  });
+
+  it('strips multi-level markdown headings from the change summary', async () => {
+    const created = await createAgent(app, cookie, {
+      slug: unique('memory-heading'),
+      track: agentSlugs,
+    });
+    const agentId = created.json<{ id: string }>().id;
+    const write = await request(app, {
+      method: 'PUT',
+      url: `/api/agents/${agentId}/memory/heading.md`,
+      headers: { cookie },
+      payload: { content: '\n## 禁用表达\n\n正文保留在文件里。\n' },
+    });
+    expect(write.statusCode, write.body).toBe(200);
+
+    const overview = (await getOverview(agentId)).json<AgentMemoryOverview>();
+    const summary = overview.recentChanges[0]?.summary ?? '';
+    // 只影响展示：摘要去掉标题符号，文件正文原样保留。
+    expect(summary).toBe('禁用表达');
+    expect(summary).not.toContain('#');
+    const file = await request(app, {
+      url: `/api/agents/${agentId}/memory/heading.md`,
+      headers: { cookie },
+    });
+    expect(file.json<{ content: string }>().content).toBe('\n## 禁用表达\n\n正文保留在文件里。\n');
   });
 
   it('keeps a file accounted when its ledger entry is older than the newest 200 rows', async () => {

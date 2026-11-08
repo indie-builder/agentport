@@ -203,7 +203,7 @@ function unaccountedFiles(files: MemoryFile[], latest: Map<string, Date>): strin
     .map((file) => file.name);
 }
 
-/** 最近变更只回轻量投影：变更后正文的首个非空行，截断到 120 个字符。 */
+/** 最近变更只回轻量投影：变更后正文的首个非空行去掉 Markdown 标题符号，截断到 120 个字符。 */
 function recentChange(
   row: repo.memoryChanges.MemoryChangeRow,
 ): AgentMemoryOverview['recentChanges'][number] {
@@ -212,7 +212,8 @@ function recentChange(
     (row.after.content ?? '')
       .split('\n')
       .find((line) => line.trim() !== '')
-      ?.trim() ?? '';
+      ?.trim()
+      .replace(/^#{1,6}\s*/, '') ?? '';
   return {
     name,
     createdAt: row.createdAt.toISOString(),
