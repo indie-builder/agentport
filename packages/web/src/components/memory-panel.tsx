@@ -5,6 +5,7 @@ import { Download, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { type MemoryView, memoryViews } from '../lib/detail-tabs.js';
 import { formatDateTime } from '../lib/format.js';
 import {
   agentMemoryFileQuery,
@@ -20,6 +21,8 @@ import { BusinessIllustration } from './business-illustration.js';
 import { CodeBlock } from './code-block.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 import { DialogShell } from './dialog-shell.js';
+import { MemoryOverview } from './memory-overview.js';
+import { MemoryPolicyPanel } from './memory-policy.js';
 import { SourceEditor } from './source-editor.js';
 import { EmptyState, ErrorState, LoadingState } from './states.js';
 import { Button, buttonVariants } from './ui/button.js';
@@ -35,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.js';
 
 interface DraftCallbacks {
   onDirtyChange?: (dirty: boolean) => void;
@@ -128,8 +132,118 @@ function MemoryReviewLink({ agentId }: { agentId: string }) {
   );
 }
 
-/** 浏览/编辑 Claude Code 原生 auto-memory：MEMORY.md 索引 + 主题 Markdown。 */
+/**
+ * 专家记忆页签：概览（默认）/ 文件 / 策略三个子视图。
+ * 子视图由路由 search 承载，刷新、后退与复制链接都直达当前视图；
+ * 文件与策略的草稿都计入 dirty，切换前统一确认放弃。
+ */
 export function MemoryPanel({
+  agentId,
+  canWrite = true,
+  view: viewProp,
+  onViewChange,
+  onDirtyChange,
+  onPendingChange,
+}: {
+  agentId: string;
+  canWrite?: boolean;
+  /** 受控子视图；未传时退回组件内状态，便于单独挂载。 */
+  view?: MemoryView | undefined;
+  onViewChange?: ((next: MemoryView) => void) | undefined;
+} & DraftCallbacks) {
+  const [localView, setLocalView] = useState<MemoryView>('overview');
+  const view = viewProp ?? localView;
+  const [filesDirty, setFilesDirty] = useState(false);
+  const [filesPending, setFilesPending] = useState(false);
+  const [policyDirty, setPolicyDirty] = useState(false);
+  const [policyPending, setPolicyPending] = useState(false);
+  const [pendingView, setPendingView] = useState<MemoryView | null>(null);
+  const dirty = filesDirty || policyDirty;
+  const pending = filesPending || policyPending;
+
+  // 路由离开与任务切换仍由父级用合并后的状态统一保护。
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
+  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+
+  const applyView = (next: MemoryView): void => {
+    setLocalView(next);
+    onViewChange?.(next);
+  };
+
+  const switchView = (next: MemoryView): void => {
+    if (next === view || pending) return;
+    if (dirty) setPendingView(next);
+    else applyView(next);
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Tabs
+        className="gap-4"
+        value={view}
+        onValueChange={(next) => {
+          if (next === 'overview' || next === 'files' || next === 'policy') switchView(next);
+        }}
+      >
+        <TabsList aria-label="专家记忆视图">
+          {memoryViews.map((item) => (
+            <TabsTrigger
+              key={item.id}
+              value={item.id}
+              aria-disabled={pending}
+              title={pending ? '正在保存，稍后可切换' : undefined}
+              // 共享原语对 aria-disabled 关掉指针事件；这里要保留 title 提示，只禁用动作。
+              className={
+                pending
+                  ? 'cursor-not-allowed hover:text-muted-foreground aria-disabled:pointer-events-auto'
+                  : undefined
+              }
+            >
+              {item.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent value="overview">
+          <MemoryOverview agentId={agentId} onOpenFiles={() => switchView('files')} />
+        </TabsContent>
+        <TabsContent value="files">
+          <MemoryFilesPanel
+            agentId={agentId}
+            canWrite={canWrite}
+            onDirtyChange={setFilesDirty}
+            onPendingChange={setFilesPending}
+          />
+        </TabsContent>
+        <TabsContent value="policy">
+          <MemoryPolicyPanel
+            agentId={agentId}
+            canWrite={canWrite}
+            onDirtyChange={setPolicyDirty}
+            onPendingChange={setPolicyPending}
+          />
+        </TabsContent>
+      </Tabs>
+      <ConfirmDialog
+        open={pendingView !== null}
+        onClose={() => setPendingView(null)}
+        title="放弃未保存的修改？"
+        description="当前视图还有未保存的内容，切换后会丢失。"
+        confirmLabel="放弃并继续"
+        confirmDisabled={pending}
+        tone="default"
+        onConfirm={async () => {
+          if (pendingView) applyView(pendingView);
+          setPendingView(null);
+        }}
+      />
+    </div>
+  );
+}
+
+/** 浏览/编辑 Claude Code 原生 auto-memory：MEMORY.md 索引 + 主题 Markdown。 */
+function MemoryFilesPanel({
   agentId,
   canWrite = true,
   onDirtyChange,

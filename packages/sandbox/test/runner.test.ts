@@ -333,6 +333,36 @@ describe('runner task wiring', () => {
     expect(matchers?.[0]?.hooks[0]).toBeTypeOf('function');
   });
 
+  it('turns off auto-memory and memory write approval under proposal_only', async () => {
+    await run({ memoryPolicy: { writeMode: 'proposal_only' } });
+    const options = io.options as Options;
+    expect(options.settings).toMatchObject({ autoMemoryEnabled: false });
+    expect(options.settings).not.toHaveProperty('autoMemoryDirectory');
+    expect(options.allowedTools).toContain('Read(//mnt/agent-memory/**)');
+    expect(options.allowedTools).not.toContain('Edit(//mnt/agent-memory/**)');
+    // 个人记忆是独立开关，默认仍安装 hook。
+    expect(options.hooks?.UserPromptSubmit).toHaveLength(1);
+  });
+
+  it('turns off auto-memory and memory write approval when expert memory is disabled', async () => {
+    await run({ memoryPolicy: { enabled: false } });
+    const options = io.options as Options;
+    expect(options.settings).toMatchObject({ autoMemoryEnabled: false });
+    expect(options.settings).not.toHaveProperty('autoMemoryDirectory');
+    expect(options.allowedTools).not.toContain('Edit(//mnt/agent-memory/**)');
+  });
+
+  it('omits the personal memory hook when injectPersonalMemory is false', async () => {
+    await run({ memoryPolicy: { injectPersonalMemory: false } });
+    const options = io.options as Options;
+    expect(options.hooks?.UserPromptSubmit).toBeUndefined();
+    // 专家记忆不受个人记忆开关影响。
+    expect(options.settings).toMatchObject({
+      autoMemoryEnabled: true,
+      autoMemoryDirectory: '/mnt/agent-memory',
+    });
+  });
+
   it('sets the sandbox runtime env on the SDK process', async () => {
     await run({});
     expect(io.options?.env).toMatchObject({
@@ -493,6 +523,25 @@ describe('runner task wiring', () => {
 
     await run({});
     expect(io.options?.allowedTools).not.toContain('Read(//workspace/.claude/agent-memory/**)');
+  });
+
+  it('keeps child project memory read-only unless the parent policy allows writes', async () => {
+    await run({
+      subAgents: [{ slug: 'child', servers: [], skills: [] }],
+      memoryPolicy: { writeMode: 'proposal_only' },
+    });
+    let options = io.options as Options;
+    expect(options.allowedTools).toContain('Read(//workspace/.claude/agent-memory/**)');
+    expect(options.allowedTools).not.toContain('Edit(//workspace/.claude/agent-memory/**)');
+
+    await run({ subAgents: [{ slug: 'child', servers: [], skills: [] }] });
+    options = io.options as Options;
+    expect(options.allowedTools).toEqual(
+      expect.arrayContaining([
+        'Read(//workspace/.claude/agent-memory/**)',
+        'Edit(//workspace/.claude/agent-memory/**)',
+      ]),
+    );
   });
 
   it('keeps the file boundary hook off non-file tools and sub-agents', async () => {

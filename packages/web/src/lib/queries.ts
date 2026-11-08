@@ -1,6 +1,8 @@
 import type {
   Agent,
   AgentInput,
+  AgentMemoryAssembly,
+  AgentMemoryOverview,
   AgentOptions,
   AgentPatch,
   ApiTool,
@@ -21,6 +23,7 @@ import type {
   MemoryChange,
   MemoryFileContent,
   MemoryFileList,
+  MemoryPolicy,
   MemoryReview,
   MemoryReviewTarget,
   NativePluginImportInput,
@@ -258,6 +261,9 @@ export const schedulesQuery = queryOptions<Schedule[]>({
 export const agentMemoryKeys = {
   list: (...ids: [] | [string]) => ['agent-memory', ...ids] as const,
   file: (...parts: [] | [string] | [string, string]) => ['agent-memory-file', ...parts] as const,
+  /** 概览与装配挂在列表前缀下：记忆写入失效列表时统计一起刷新。 */
+  overview: (id: string) => ['agent-memory', id, 'overview'] as const,
+  assembly: (id: string) => ['agent-memory', id, 'assembly'] as const,
 };
 
 export const chatKeys = {
@@ -285,6 +291,33 @@ export const agentMemoryQuery = (id: string) =>
     queryKey: agentMemoryKeys.list(id),
     queryFn: () => api.agentMemory(id),
   });
+
+/** 记忆概览只读派生数据：策略、索引/主题/规则/个人记忆规模、健康提示与最近账本。 */
+export const agentMemoryOverviewQuery = (id: string) =>
+  queryOptions<AgentMemoryOverview>({
+    queryKey: agentMemoryKeys.overview(id),
+    queryFn: () => api.agentMemoryOverview(id),
+  });
+
+/** 运行期装配视图；与概览分开请求，任一失败不阻塞另一块。 */
+export const agentMemoryAssemblyQuery = (id: string) =>
+  queryOptions<AgentMemoryAssembly>({
+    queryKey: agentMemoryKeys.assembly(id),
+    queryFn: () => api.agentMemoryAssembly(id),
+  });
+
+/** 策略同时决定概览里的健康提示与装配里的 skipped 原因，两份快照都要失效。 */
+export function useUpdateAgentMemoryPolicy() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; policy: MemoryPolicy }) =>
+      api.updateAgentMemoryPolicy(vars.agentId, vars.policy),
+    onSuccess: (_data, vars) => {
+      void client.invalidateQueries({ queryKey: agentMemoryKeys.overview(vars.agentId) });
+      void client.invalidateQueries({ queryKey: agentMemoryKeys.assembly(vars.agentId) });
+    },
+  });
+}
 
 export const agentRulesQuery = (id: string) =>
   queryOptions<Rule[]>({

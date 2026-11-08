@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { link, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,7 +8,6 @@ import type {
   PreToolUseHookInput,
   UserPromptSubmitHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createFileBoundaryHook, createPersonalMemoryHook } from '../src/memory-permissions.js';
 
 let dir: string;
@@ -132,6 +132,36 @@ describe('native memory filesystem boundary', () => {
       expect(await check(tool, { file_path: join(memory, 'MEMORY.md') }, 'child')).toMatchObject(
         decision('deny'),
       );
+    }
+  });
+
+  it('keeps memory reads but denies writes when memoryWritable is false', async () => {
+    const readOnlyHook = createFileBoundaryHook(
+      memory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { memoryWritable: false },
+    );
+    const call = (tool: string, file_path: string) =>
+      readOnlyHook(
+        {
+          hook_event_name: 'PreToolUse',
+          session_id: 's',
+          transcript_path: '/tmp/t',
+          cwd: memory,
+          tool_name: tool,
+          tool_input: { file_path },
+          tool_use_id: 't',
+        },
+        't',
+        { signal: new AbortController().signal },
+      );
+
+    expect(await call('Read', join(memory, 'MEMORY.md'))).toMatchObject(decision('allow'));
+    for (const tool of ['Write', 'Edit']) {
+      expect(await call(tool, join(memory, 'MEMORY.md'))).toMatchObject(decision('deny'));
     }
   });
 
@@ -426,6 +456,62 @@ describe('subagent project memory boundary', () => {
           decision('deny'),
         );
       }
+    }
+  });
+
+  it('follows the parent memory policy for child writes', async () => {
+    const readOnlyHook = createFileBoundaryHook(
+      memory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        projectMemoryDir: projectMemory,
+        subAgentSlugs: new Set(['child']),
+        memoryWritable: false,
+      },
+    );
+    const callWith =
+      (target: ReturnType<typeof createFileBoundaryHook>) => (tool: string, file_path: string) =>
+        target(
+          {
+            hook_event_name: 'PreToolUse',
+            session_id: 's',
+            transcript_path: '/tmp/t',
+            cwd: memory,
+            tool_name: tool,
+            tool_input: { file_path },
+            tool_use_id: 't',
+            agent_id: 'agent-child',
+            agent_type: 'child',
+          },
+          'tool',
+          { signal: new AbortController().signal },
+        );
+
+    // 只读策略：读仍放行，写先被 hook 拒绝并给出可读理由，而不是撞 EROFS。
+    const readOnly = callWith(readOnlyHook);
+    const existing = join(projectMemory, 'child', 'MEMORY.md');
+    expect(await readOnly('Read', existing)).toMatchObject(decision('allow'));
+    for (const tool of ['Write', 'Edit']) {
+      const denied = await readOnly(tool, existing);
+      expect(denied, tool).toMatchObject(decision('deny'));
+      expect(denied.hookSpecificOutput?.permissionDecisionReason).toContain(
+        '当前策略不允许运行期写入子智能体记忆',
+      );
+    }
+    // 兄弟目录仍按原有边界拒绝，理由不变。
+    const sibling = await readOnly('Write', join(projectMemory, 'sibling', 'MEMORY.md'));
+    expect(sibling).toMatchObject(decision('deny'));
+    expect(sibling.hookSpecificOutput?.permissionDecisionReason).not.toContain(
+      '当前策略不允许运行期写入子智能体记忆',
+    );
+
+    // native_auto：子智能体恢复可写。
+    const writable = callWith(childHook);
+    for (const tool of ['Read', 'Write', 'Edit']) {
+      expect(await writable(tool, existing), tool).toMatchObject(decision('allow'));
     }
   });
 

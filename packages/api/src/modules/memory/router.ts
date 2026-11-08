@@ -7,9 +7,12 @@ import { and, eq } from 'drizzle-orm';
 import { authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { agentSlug, writeMemoryTarget } from './changes.js';
+import { buildMemoryAssembly, buildMemoryOverview, countMemoryTopics } from './overview.js';
 import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } from './personal.js';
 
 const os = implement(memoryContract).$context<RequestContext>();
+
+const MISSING_AGENT = '智能体不存在，可能已被删除；请刷新后重新选择';
 
 function listVersions(
   context: RequestContext,
@@ -80,6 +83,74 @@ export const memoryRouter = os.router({
       ...(input.query.before === undefined ? {} : { before: input.query.before }),
     });
     return { items: rows.map((row) => repo.memoryChanges.toMemoryChange(row)) };
+  }),
+  agentMemoryOverview: os.agentMemoryOverview.handler(async ({ input, context }) => {
+    await authorizeObject(
+      context,
+      'agents.memory.read',
+      { agentId: input.params.id },
+      MISSING_AGENT,
+    );
+    return buildMemoryOverview({
+      db: context.db,
+      workspacesDir: context.config.WORKSPACES_DIR,
+      agentId: input.params.id,
+      slug: await agentSlug(context.db, input.params.id),
+      businessId: requireUser(context).businessId,
+    });
+  }),
+  agentMemoryAssembly: os.agentMemoryAssembly.handler(async ({ input, context }) => {
+    await authorizeObject(
+      context,
+      'agents.memory.read',
+      { agentId: input.params.id },
+      MISSING_AGENT,
+    );
+    return buildMemoryAssembly({
+      db: context.db,
+      workspacesDir: context.config.WORKSPACES_DIR,
+      agentId: input.params.id,
+      slug: await agentSlug(context.db, input.params.id),
+      businessId: requireUser(context).businessId,
+    });
+  }),
+  updateAgentMemoryPolicy: os.updateAgentMemoryPolicy.handler(async ({ input, context }) => {
+    await authorizeObject(
+      context,
+      'agents.memory.write',
+      { agentId: input.params.id },
+      MISSING_AGENT,
+    );
+    const current = await repo.agents.getAgentMemoryPolicy(context.db, input.params.id);
+    if (current === null) fail('NOT_FOUND', MISSING_AGENT);
+    const slug = await agentSlug(context.db, input.params.id);
+    const topics = await countMemoryTopics(context.config.WORKSPACES_DIR, slug);
+    if (input.body.policy.topicLimit < topics) {
+      fail(
+        'CONFLICT',
+        `现有 ${topics} 个主题超过上限 ${input.body.policy.topicLimit}，请先合并或删除`,
+      );
+    }
+    const updated = await repo.agents.updateAgentMemoryPolicy(
+      context.db,
+      input.params.id,
+      input.body.policy,
+    );
+    if (!updated) fail('NOT_FOUND', MISSING_AGENT);
+    await repo.audit.writeAudit(context.db, context.log, {
+      actor: requireUser(context).businessId,
+      action: 'agent.memory.policy.updated',
+      target: input.params.id,
+      // 只记录策略字段的前后值，不落任何记忆正文。
+      input: {
+        agentId: input.params.id,
+        before: current,
+        after: input.body.policy,
+      },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return { policy: input.body.policy };
   }),
   rollback: os.rollback.handler(async ({ input, context }) => {
     const businessId = requireUser(context).businessId;

@@ -6,6 +6,7 @@ import {
   errorText,
   INPUTS_CONTAINER_DIR,
   MEMORY_CONTAINER_DIR,
+  type MemoryPolicy,
   OUTPUTS_CONTAINER_DIR,
   type ResolvedRuntimeEnvironment,
   redactSecrets,
@@ -37,13 +38,20 @@ export interface SessionSandboxSpec {
   workspaceDir: string;
   outputsDir: string;
   inputsDir: string;
-  memoryDir: string;
+  /** 专家记忆目录，挂载到 /mnt/agent-memory；策略关闭时省略，不挂该路径。 */
+  memoryDir?: string;
+  /**
+   * 记忆挂载是否可写，专家记忆与子智能体记忆共用；缺省 false，即只读。
+   * 由 `memoryMountFor` 按记忆策略派生：只有 `native_auto` 允许容器内写入。
+   */
+  memoryWritable?: boolean;
   sessionsDir: string;
   /** 个人记忆目录，只读挂载到 /mnt/user；未接入时省略。 */
   personalDir?: string;
   /**
-   * 子智能体项目记忆宿主目录，按 slug 排序后逐个 rw 挂载到
+   * 子智能体项目记忆宿主目录，按 slug 排序后逐个挂载到
    * `/workspace/.claude/agent-memory/<slug>`；缺省表示本次没有子智能体记忆。
+   * 可写性跟随 `memoryWritable`（父专家策略不允许运行期写入时只读）。
    */
   subAgentMemoryDirs?: Array<{ slug: string; memoryDir: string }>;
 }
@@ -164,13 +172,33 @@ interface SessionEntry {
   lastUsedSeq: number;
 }
 
+/**
+ * 记忆策略 → 记忆挂载：`enabled=false` 不挂 `/mnt/agent-memory`；只有 `native_auto` 允许容器内写。
+ * `proposal_only` 按只读挂载，容器内 Bash 不能绕过 SDK 文件工具写记忆目录。
+ */
+export function memoryMountFor(
+  policy: MemoryPolicy,
+  memoryDir: string,
+): Pick<SessionSandboxSpec, 'memoryDir' | 'memoryWritable'> {
+  if (!policy.enabled) return {};
+  return { memoryDir, memoryWritable: policy.writeMode === 'native_auto' };
+}
+
 function mountsFor(
   spec: SessionSandboxSpec,
 ): NonNullable<Parameters<SandboxProvider['create']>[0]['extraMounts']> {
   return [
     { hostPath: spec.outputsDir, containerPath: OUTPUTS_CONTAINER_DIR },
     { hostPath: spec.inputsDir, containerPath: INPUTS_CONTAINER_DIR, readonly: true },
-    { hostPath: spec.memoryDir, containerPath: MEMORY_CONTAINER_DIR },
+    ...(spec.memoryDir === undefined
+      ? []
+      : [
+          {
+            hostPath: spec.memoryDir,
+            containerPath: MEMORY_CONTAINER_DIR,
+            readonly: spec.memoryWritable !== true,
+          },
+        ]),
     { hostPath: spec.sessionsDir, containerPath: CONFIG_CONTAINER_DIR },
     ...(spec.personalDir === undefined
       ? []
@@ -178,6 +206,7 @@ function mountsFor(
     ...(spec.subAgentMemoryDirs ?? []).map((dir) => ({
       hostPath: dir.memoryDir,
       containerPath: `${SUBAGENT_MEMORY_CONTAINER_DIR}/${dir.slug}`,
+      readonly: spec.memoryWritable !== true,
     })),
   ];
 }

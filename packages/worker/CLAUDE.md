@@ -14,7 +14,7 @@
 - 执行前从 run 行重查执行主体与权限；job/client 里的身份字段不参与判定，不降级成 system/admin。
 - 重试仅限「停稳已确认 + 基础设施瞬时故障」；重试前把行改回 queued 再抛错。业务失败不重试，停稳未确认不得重跑。
 - 终态用 CAS 只写一次；频道 lifecycle 只由 CAS 胜者发布。生产者 CAS 落空但 DB 已终态时，沿用 DB 终态补发 run 事件与审计。停稳后、消息已保存且不再重试才发布产出；停止未确认时只交接 `pendingFinish`，保持 running，等 reconcile 确认容器销毁。
-- 每轮重新渲染工作区（`renderWorkspace` / `toWorkspaceInput`）；workspace 只读挂载，outputs 单独 rw，inputs 与个人记忆只读，子智能体记忆按现有 per-slug 规则挂载。解绑的 agents/skills/plugins 旧文件必须清掉。
+- 每轮重新渲染工作区（`renderWorkspace` / `toWorkspaceInput`）；workspace 只读挂载，outputs 单独 rw，inputs 与个人记忆只读；专家记忆与子智能体记忆只在 `writeMode=native_auto` 时 rw，其余（含 `proposal_only`）只读，`enabled=false` 时不挂专家记忆。解绑的 agents/skills/plugins 旧文件必须清掉。
 - 会话容器复用走 `SessionSandboxes`；空闲回收、reconcile 与关闭都由这里管理，不新建第二个容器生命周期。
 
 ## 凭证与清理

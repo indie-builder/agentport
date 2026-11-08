@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>记忆控制台 · 原型</title>
+<style>
+  :root{
+    --canvas:#FBFCFC; --surface:#FFFFFF; --sunken:#F7F9F9; --chip:#EFF3F3;
+    --hover:#EDF2F2; --selected:#DFE9EA; --sidebar:#EAF0F0; --sidebar-hover:#DFE8E9;
+    --fg:#202B2E; --muted:#505F63; --subtle:#898781;
+    --primary:#315D67; --primary-hover:#284F58; --primary-active:#204149;
+    --link:#2C5660; --ring:#4D7079;
+    --success:#187646; --success-soft:#E9F3EC;
+    --warning:#8A5600; --warning-soft:#FBF3E4;
+    --danger:#B42318; --danger-soft:#FCEBE9;
+    --chart:#2A78D6; --teal:#6E8F97; --pale:#B9CDD1;
+    --line:rgba(0,0,0,.10); --line-strong:rgba(0,0,0,.20);
+    --shadow:0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+    --shadow-hover:0 4px 10px rgba(16,24,40,.06), 0 2px 4px rgba(16,24,40,.05);
+    --sans:"Inter Variable", Inter, -apple-system, "PingFang SC", "Hiragino Sans", system-ui, sans-serif;
+    --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--canvas);color:var(--fg);
+    font-family:var(--sans);font-size:14px;line-height:22px;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit}
+  .app{display:grid;grid-template-columns:232px 1fr;height:100vh}
+
+  /* ---------- sidebar ---------- */
+  .sidebar{
+    background:var(--sidebar);display:flex;flex-direction:column;
+    padding:14px 10px 10px;border-right:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:center;gap:9px;padding:4px 8px 16px}
+  .brand-mark{
+    width:22px;height:22px;border-radius:6px;background:var(--primary);
+    display:grid;place-items:center;color:#fff;font-size:11px;font-weight:600;letter-spacing:.02em;
+  }
+  .brand-name{font-size:13px;font-weight:600;letter-spacing:-.01em}
+  .nav-group{margin-bottom:14px}
+  .nav-label{
+    font-size:11px;line-height:16px;color:var(--subtle);
+    padding:0 10px 6px;letter-spacing:.04em;
+  }
+  .nav-item{
+    display:flex;align-items:center;gap:9px;height:32px;padding:0 10px;
+    border-radius:8px;color:var(--fg);font-size:13px;cursor:default;
+    transition:background .16s ease;
+  }
+  .nav-item svg{width:15px;height:15px;stroke:var(--muted);fill:none;stroke-width:1.5}
+  .nav-item:hover{background:var(--sidebar-hover)}
+  .nav-item.active{background:var(--surface);font-weight:500;box-shadow:var(--shadow)}
+  .nav-item.active svg{stroke:var(--primary)}
+  .nav-item .count{
+    margin-left:auto;font-size:11px;color:var(--muted);background:var(--chip);
+    border-radius:999px;padding:0 6px;line-height:18px;
+  }
+  .sidebar-foot{margin-top:auto;display:flex;align-items:center;gap:9px;padding:8px 8px 4px;border-top:1px solid var(--line)}
+  .avatar{width:24px;height:24px;border-radius:999px;background:var(--selected);display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--primary)}
+  .sidebar-foot div{font-size:12px;line-height:16px}
+  .sidebar-foot span{display:block;color:var(--subtle);font-size:11px}
+
+  /* ---------- main ---------- */
+  main{overflow:auto;background:var(--surface)}
+  .topbar{
+    position:sticky;top:0;z-index:20;height:48px;display:flex;align-items:center;gap:8px;
+    padding:0 20px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.92);
+    backdrop-filter:saturate(160%) blur(8px);
+  }
+  .crumb{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .crumb b{color:var(--fg);font-weight:500}
+  .crumb .sep{color:var(--subtle)}
+  .top-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .proto-chip{
+    font-size:11px;line-height:18px;padding:0 7px;border-radius:5px;
+    background:var(--warning-soft);color:var(--warning);border:1px solid rgba(138,86,0,.14);
+  }
+  .sync{font-size:12px;color:var(--subtle)}
+  .page{padding:22px 24px 56px;max-width:1220px}
+  .page-head{display:flex;align-items:flex-start;gap:16px;margin-bottom:16px}
+  h1{font-size:20px;line-height:28px;font-weight:500;letter-spacing:-.02em;margin:0}
+  .sub{margin:4px 0 0;font-size:13px;color:var(--muted);max-width:64ch}
+  .actions{margin-left:auto;display:flex;gap:8px;flex-shrink:0}
+  .btn{
+    height:32px;padding:0 11px;border-radius:8px;border:1px solid var(--line);
+    background:var(--surface);color:var(--fg);font-size:13px;font-weight:500;
+    display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  }
+  .btn:hover{background:var(--hover)}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn.primary:hover{background:var(--primary-hover)}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  .btn.ghost:hover{background:var(--hover);color:var(--fg)}
+  .btn.sm{height:28px;font-size:12px;padding:0 9px}
+
+  /* tabs */
+  .tabs{
+    display:inline-flex;gap:2px;padding:3px;background:var(--hover);
+    border-radius:8px;margin-bottom:20px;
+  }
+  .tab{
+    height:28px;padding:0 12px;border:0;background:transparent;border-radius:6px;
+    font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;
+  }
+  .tab:hover{color:var(--fg)}
+  .tab.on{background:var(--selected);color:var(--fg)}
+
+  /* generic card */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+  .card-head{display:flex;align-items:flex-start;gap:10px;padding:15px 18px 0}
+  .card-head h2{font-size:14px;line-height:22px;font-weight:500;margin:0}
+  .card-head p{margin:2px 0 0;font-size:12px;color:var(--subtle);line-height:18px}
+  .card-body{padding:14px 18px 18px}
+  .card-tools{margin-left:auto;display:flex;gap:6px;align-items:center}
+
+  /* KPI */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+  .kpi{padding:14px 16px 13px}
+  .kpi .k-label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .kpi .k-value{font-size:22px;line-height:30px;font-weight:500;letter-spacing:-.02em;margin-top:6px;font-variant-numeric:tabular-nums}
+  .kpi .k-value small{font-size:12px;font-weight:400;color:var(--subtle);letter-spacing:0;margin-left:4px}
+  .kpi .k-foot{font-size:11px;line-height:16px;color:var(--subtle);margin-top:4px}
+  .kpi .k-foot.warn{color:var(--warning)}
+  .kpi .k-foot.ok{color:var(--success)}
+  .dot{width:6px;height:6px;border-radius:999px;display:inline-block;flex-shrink:0}
+  .dot.ok{background:var(--success)}
+  .dot.warn{background:#C98A16}
+  .dot.bad{background:var(--danger)}
+  .dot.idle{background:var(--subtle)}
+
+  .grid-2{display:grid;grid-template-columns:1.85fr 1fr;gap:14px;margin-bottom:14px;align-items:start}
+  .grid-2b{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+  /* layers */
+  .layers{display:flex;align-items:stretch;gap:0;padding:2px 0 4px}
+  .layer{
+    flex:1;border:1px solid var(--line);border-radius:10px;padding:12px 13px 11px;
+    background:var(--surface);position:relative;transition:box-shadow .2s ease, transform .2s ease;
+  }
+  .layer:hover{box-shadow:var(--shadow-hover);transform:translateY(-1.5px)}
+  .layer .ly-tag{
+    display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:5px;
+    background:var(--chip);color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.03em;
+  }
+  .layer .ly-title{font-size:13px;font-weight:500;margin-top:8px}
+  .layer .ly-num{font-size:19px;line-height:26px;font-weight:500;letter-spacing:-.02em;margin-top:2px;font-variant-numeric:tabular-nums}
+  .layer .ly-num small{font-size:11px;color:var(--subtle);font-weight:400;margin-left:3px}
+  .layer .ly-meta{font-size:11px;line-height:16px;color:var(--subtle);margin-top:7px;padding-top:7px;border-top:1px dashed var(--line)}
+  .layer .ly-meta b{display:block;font-weight:500;color:var(--muted);font-size:11px}
+  .lconn{width:26px;display:grid;place-items:center;color:var(--subtle);flex-shrink:0}
+  .lconn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.4}
+  .layer.hl{border-color:rgba(49,93,103,.28);background:linear-gradient(180deg,rgba(223,233,234,.45),rgba(255,255,255,0) 62%)}
+  .layer.hl .ly-tag{background:var(--selected);color:var(--primary)}
+  .entries{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+  .entries span{display:block;font-size:11px;line-height:16px;color:var(--subtle)}
+  .entries b{display:block;font-size:12px;line-height:18px;font-weight:500;margin-top:1px}
+  .entries b.warn{color:var(--warning)}
+
+  /* health */
+  .health{display:flex;flex-direction:column;gap:0}
+  .h-row{display:flex;gap:9px;padding:9px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+  .h-row:last-child{border-bottom:0;padding-bottom:0}
+  .h-row:first-child{padding-top:0}
+  .h-row .dot{margin-top:7px}
+  .h-main{flex:1;min-width:0}
+  .h-title{font-size:12.5px;line-height:19px;font-weight:500}
+  .h-desc{font-size:11.5px;line-height:17px;color:var(--subtle);margin-top:1px}
+  .badge{
+    display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:6px;
+    font-size:11px;font-weight:500;background:var(--sunken);color:var(--muted);flex-shrink:0;
+  }
+  .badge.warn{background:var(--warning-soft);color:var(--warning)}
+  .badge.bad{background:var(--danger-soft);color:var(--danger)}
+  .badge.ok{background:var(--success-soft);color:var(--success)}
+  .badge.line{background:transparent;border:1px solid var(--line)}
+
+  /* funnel */
+  .funnel{display:flex;flex-direction:column;gap:11px}
+  .f-row{display:grid;grid-template-columns:112px 1fr 54px;align-items:center;gap:10px}
+  .f-label{font-size:12px;color:var(--muted)}
+  .f-track{height:8px;border-radius:999px;background:var(--sunken);overflow:hidden}
+  .f-bar{height:100%;border-radius:999px;background:var(--primary)}
+  .f-bar.b2{background:var(--teal)}
+  .f-bar.b3{background:var(--pale)}
+  .f-val{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--fg)}
+  .f-val small{color:var(--subtle);font-size:11px}
+
+  /* timeline */
+  .tl{position:relative;padding-left:16px}
+  .tl:before{content:"";position:absolute;left:4px;top:5px;bottom:5px;width:1px;background:var(--line)}
+  .tl-item{position:relative;padding:0 0 13px}
+  .tl-item:last-child{padding-bottom:0}
+  .tl-item:before{
+    content:"";position:absolute;left:-14.5px;top:6px;width:7px;height:7px;border-radius:999px;
+    background:var(--surface);border:1.5px solid var(--pale);
+  }
+  .tl-item.ok:before{border-color:var(--success)}
+  .tl-item.warn:before{border-color:#C98A16}
+  .tl-when{font-size:11px;color:var(--subtle);line-height:15px}
+  .tl-what{font-size:12.5px;line-height:19px;margin-top:1px}
+  .tl-what code{font-family:var(--mono);font-size:11px;background:var(--sunken);padding:1px 4px;border-radius:4px}
+
+  /* table */
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .tbl th{
+    text-align:left;font-weight:500;font-size:11px;color:var(--subtle);
+    padding:0 10px 8px;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  .tbl td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .tbl tr:last-child td{border-bottom:0}
+  .tbl tbody tr{cursor:pointer}
+  .tbl tbody tr:hover td{background:var(--sunken)}
+  .tbl tbody tr.on td{background:var(--selected)}
+  .tbl .fname{font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;gap:7px}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* assembly */
+  .scene-bar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .seg{display:inline-flex;padding:3px;background:var(--hover);border-radius:8px}
+  .seg button{height:28px;padding:0 12px;border:0;background:transparent;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer}
+  .seg button.on{background:var(--selected);color:var(--fg)}
+  .scene-bar .hint{font-size:12px;color:var(--subtle);margin-left:2px}
+  .scene-bar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .select{
+    height:32px;padding:0 26px 0 10px;border-radius:8px;border:1px solid var(--line);
+    background:var(--surface) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%23898781' stroke-width='1.3' stroke-linecap='round'/></svg>") no-repeat right 8px center;
+    font-size:12.5px;color:var(--fg);appearance:none;font-family:inherit;
+  }
+  .budget{padding:16px 18px}
+  .budget-top{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+  .budget-top h2{font-size:14px;font-weight:500;margin:0}
+  .budget-top .val{font-size:20px;font-weight:500;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .budget-top .val small{font-size:12px;color:var(--subtle);font-weight:400;margin-left:4px;letter-spacing:0}
+  .budget-top .right{margin-left:auto;font-size:12px;color:var(--subtle)}
+  .stack{display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--sunken);margin-bottom:10px}
+  .stack i{display:block;height:100%}
+  .stack i.s1{background:var(--chart)}
+  .stack i.s2{background:var(--primary)}
+  .stack i.s3{background:var(--teal)}
+  .stack i.s4{background:var(--pale)}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .legend i{width:8px;height:8px;border-radius:3px;display:inline-block}
+  .blocks{margin-top:14px}
+  .blk-head{display:grid;grid-template-columns:20px 1fr 118px 86px;gap:12px;font-size:11px;color:var(--subtle);padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .blk-head .a{text-align:right}
+  .blk{display:grid;grid-template-columns:20px 1fr 118px 86px;gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}
+  .blk:first-child,.blk-head + .blk{border-top:0}
+  .blk .ord{font-size:11px;color:var(--subtle);font-variant-numeric:tabular-nums;padding-top:2px}
+  .blk .name{font-size:13px;font-weight:500;display:flex;align-items:center;gap:7px}
+  .blk .path{font-family:var(--mono);font-size:11px;color:var(--subtle);margin-top:2px}
+  .blk .why{font-size:11.5px;color:var(--muted);margin-top:5px;line-height:17px}
+  .blk .src{font-size:11.5px;color:var(--muted);text-align:right}
+  .blk .chars{font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
+  .blk .chars small{display:block;font-size:10.5px;color:var(--subtle)}
+  .blk.off{opacity:.55}
+  .code{
+    margin-top:7px;background:var(--sunken);border:1px solid var(--line);border-radius:7px;
+    padding:7px 9px;font-family:var(--mono);font-size:10.5px;line-height:16px;color:var(--muted);
+    white-space:pre-wrap;max-height:58px;overflow:hidden;
+  }
+  .callout{
+    display:flex;gap:9px;padding:11px 13px;border-radius:9px;background:var(--warning-soft);
+    border:1px solid rgba(138,86,0,.14);font-size:12px;line-height:19px;color:#6B4500;margin-top:14px;
+  }
+  .callout.info{background:var(--sunken);border-color:var(--line);color:var(--muted)}
+  .callout b{font-weight:600}
+
+  /* policy */
+  .policy{display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start}
+  .form-card{margin-bottom:14px}
+  .fld{display:grid;grid-template-columns:200px 1fr;gap:18px;padding:14px 0;border-top:1px solid var(--line)}
+  .fld:first-of-type{border-top:0;padding-top:0}
+  .fld-l{font-size:13px;font-weight:500;line-height:20px}
+  .fld-l span{display:block;font-size:11.5px;line-height:17px;color:var(--subtle);font-weight:400;margin-top:2px}
+  .fld-r{min-width:0}
+  .switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;user-select:none}
+  .switch input{position:absolute;opacity:0;pointer-events:none}
+  .track{
+    width:34px;height:20px;border-radius:999px;background:var(--line-strong);position:relative;
+    transition:background .18s ease;flex-shrink:0;
+  }
+  .track:after{
+    content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .18s ease;
+  }
+  .switch input:checked + .track{background:var(--primary)}
+  .switch input:checked + .track:after{transform:translateX(14px)}
+  .switch .s-label{font-size:12.5px;color:var(--muted)}
+  .radios{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .radio{
+    border:1px solid var(--line);border-radius:9px;padding:10px 11px;cursor:pointer;
+    background:var(--surface);transition:border-color .16s ease, background .16s ease;
+  }
+  .radio:hover{background:var(--sunken)}
+  .radio.on{border-color:rgba(49,93,103,.45);background:rgba(223,233,234,.32)}
+  .radio .r-top{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500}
+  .radio .r-desc{font-size:11px;line-height:16px;color:var(--subtle);margin-top:5px}
+  .radio .mark{width:13px;height:13px;border-radius:999px;border:1.5px solid var(--line-strong);flex-shrink:0}
+  .radio.on .mark{border-color:var(--primary);box-shadow:inset 0 0 0 3px var(--surface),inset 0 0 0 8px var(--primary)}
+  .inline{display:flex;align-items:center;gap:8px}
+  .input{
+    height:32px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:var(--surface);
+    font-family:inherit;font-size:12.5px;color:var(--fg);width:96px;
+  }
+  .input:focus{outline:none;border-color:var(--subtle)}
+  .helper{font-size:11.5px;line-height:17px;color:var(--subtle);margin-top:6px}
+  .readonly{
+    display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px;border-radius:6px;
+    background:var(--sunken);border:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);
+  }
+  .rail{position:sticky;top:64px;display:flex;flex-direction:column;gap:12px}
+  .rail .card-body{padding-top:12px}
+  .sum{display:flex;flex-direction:column;gap:8px;font-size:12px}
+  .sum-row{display:flex;gap:10px;align-items:baseline}
+  .sum-row .k{color:var(--subtle);min-width:74px;flex-shrink:0}
+  .sum-row .v{color:var(--fg);font-weight:500}
+  .sum-row .v.mono{font-family:var(--mono);font-size:11.5px;font-weight:400}
+  .rail .btn{width:100%;justify-content:center}
+  .impact{font-size:12px;line-height:19px;color:var(--muted)}
+  .impact b{color:var(--fg);font-weight:500}
+
+  /* topics */
+  .topics{display:grid;grid-template-columns:1fr 342px;gap:14px;align-items:start}
+  .toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .search{
+    flex:1;height:32px;display:flex;align-items:center;gap:7px;padding:0 10px;
+    border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--subtle);font-size:12.5px;
+  }
+  .search svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5}
+  .tl-card{position:sticky;top:64px}
+  .tl-head{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+  .tl-head .n{font-family:var(--mono);font-size:12.5px}
+  .tl-head .m{font-size:11px;color:var(--subtle);margin-top:3px}
+  .tl-body{padding:14px 16px 16px}
+  .tl-item .diff{font-family:var(--mono);font-size:10.5px;color:var(--subtle);margin-top:2px}
+  .tl-item .diff .add{color:var(--success)}
+  .tl-item .diff .del{color:var(--danger)}
+  .tl-actions{display:flex;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .hidden{display:none}
+  @media (max-width:1100px){
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    .grid-2,.grid-2b,.policy,.topics{grid-template-columns:1fr}
+    .rail,.tl-card{position:static}
+    .radios{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">P</div>
+      <div class="brand-name">PACE</div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">工作</div>
+      <div class="nav-item"><svg viewBox="0 0 16 16"><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2.2"/><path d="M2.2 6.2h11.6M6.2 6.2v7.6"/></svg>工作台</div>
+      <div class="nav-item"><svg viewBox="0 0 16 16"><path d="M13.4 8.6c0 2.5-2.4 4.5-5.4 4.5-.7 0-1.4-.1-2-.3L2.6 14l.9-2.4C2.6 10.7 2 9.7 2 8.6 2 6.1 4.4 4.1 7.4 4.1s6 2 6 4.5Z"/></svg>对话</div>
+      <div class="nav-item active"><svg viewBox="0 0 16 16"><circle cx="8" cy="5.2" r="2.6"/><path d="M2.8 13.4c.5-2.5 2.7-3.8 5.2-3.8s4.7 1.3 5.2 3.8"/></svg>专家<span class="count">12</span></div>
+      <div class="nav-item"><svg viewBox="0 0 16 16"><path d="M3 3.6h4.4c.9 0 1.6.7 1.6 1.6v7.2c0-.7-.6-1.3-1.3-1.3H3V3.6Z"/><path d="M13 3.6H8.6c-.9 0-1.6.7-1.6 1.6v7.2c0-.7.6-1.3 1.3-1.3H13V3.6Z"/></svg>知识库</div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">个人</div>
+      <div class="nav-item"><svg viewBox="0 0 16 16"><path d="M8 2.4c2.1 0 3.8 1.7 3.8 3.8 0 2.8-3.8 6.4-3.8 6.4S4.2 9 4.2 6.2C4.2 4.1 5.9 2.4 8 2.4Z"/><circle cx="8" cy="6.2" r="1.4"/></svg>个人记忆</div>
+      <div class="nav-item"><svg viewBox="0 0 16 16"><path d="M3.4 4.2h9.2M3.4 8h9.2M3.4 11.8h5.6"/></svg>记忆提案<span class="count">2</span></div>
+      <div class="nav-item"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5.2v3.2l2 1.2"/></svg>运行记录</div>
+    </div>
+
+    <div class="sidebar-foot">
+      <div class="avatar">王</div>
+      <div>王砚<span>平台管理员</span></div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="crumb">
+        <span>专家</span><span class="sep">/</span><b>采购策略顾问</b><span class="sep">/</span><span>记忆</span>
+      </div>
+      <div class="top-right">
+        <span class="sync">2 分钟前同步</span>
+        <span class="proto-chip">原型 v1</span>
+      </div>
+    </div>
+
+    <div class="page">
+      <div class="page-head">
+        <div>
+          <h1>记忆</h1>
+          <p class="sub">专家级长期记忆：主题文件、索引与规则，按策略装配进每次运行的上下文。</p>
+        </div>
+        <div class="actions">
+          <button class="btn">导出 ZIP</button>
+          <button class="btn primary">新建提案</button>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab on" data-view="overview">概览</button>
+        <button class="tab" data-view="assembly">装配预览</button>
+        <button class="tab" data-view="policy">策略</button>
+        <button class="tab" data-view="topics">主题与版本</button>
+      </div>
+
+      <!-- ================= 概览 ================= -->
+      <section id="v-overview">
+        <div class="kpis">
+          <div class="card kpi">
+            <div class="k-label">主题文件</div>
+            <div class="k-value">5 <small>个</small></div>
+            <div class="k-foot warn"><span class="dot warn"></span> 1 个未进索引，模型看不到</div>
+          </div>
+          <div class="card kpi">
+            <div class="k-label">索引占用</div>
+            <div class="k-value">182 <small>/ 200 行</small></div>
+            <div class="k-foot warn"><span class="dot warn"></span> 91%，接近加载上限</div>
+          </div>
+          <div class="card kpi">
+            <div class="k-label">近 30 天沉淀</div>
+            <div class="k-value">9 <small>条</small></div>
+            <div class="k-foot"><span class="dot ok"></span> 提案采纳 7 · 手工编辑 2</div>
+          </div>
+          <div class="card kpi">
+            <div class="k-label">近 30 天注入</div>
+            <div class="k-value">36 <small>次</small></div>
+            <div class="k-foot"><span class="dot ok"></span> 覆盖 14 个会话</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h2>记忆分层</h2>
+                <p>四层是加载方式的划分，不是四套存储。原始对话不进上下文。</p>
+              </div>
+              <div class="card-tools"><span class="badge line">当前架构</span></div>
+            </div>
+            <div class="card-body">
+              <div class="layers">
+                <div class="layer">
+                  <span class="ly-tag">L0</span>
+                  <div class="ly-title">会话层</div>
+                  <div class="ly-num">42 <small>会话 / 3,412 消息</small></div>
+                  <div class="ly-meta"><b>不注入</b>仅作提案取材</div>
+                </div>
+                <div class="lconn"><svg viewBox="0 0 16 16"><path d="M3 8h9M9.4 4.8 12.6 8l-3.2 3.2"/></svg></div>
+                <div class="layer">
+                  <span class="ly-tag">L1</span>
+                  <div class="ly-title">主题层</div>
+                  <div class="ly-num">5 <small>个文件</small></div>
+                  <div class="ly-meta"><b>按需读取</b>模型用 Read 打开</div>
+                </div>
+                <div class="lconn"><svg viewBox="0 0 16 16"><path d="M3 8h9M9.4 4.8 12.6 8l-3.2 3.2"/></svg></div>
+                <div class="layer hl">
+                  <span class="ly-tag">L2</span>
+                  <div class="ly-title">索引层</div>
+                  <div class="ly-num">182 <small>行 / 5.9 KB</small></div>
+                  <div class="ly-meta"><b>每轮加载</b>决定“知道有哪些主题”</div>
+                </div>
+                <div class="lconn"><svg viewBox="0 0 16 16"><path d="M3 8h9M9.4 4.8 12.6 8l-3.2 3.2"/></svg></div>
+                <div class="layer">
+                  <span class="ly-tag">L3</span>
+                  <div class="ly-title">画像层</div>
+                  <div class="ly-num">3,120 <small>字符 / 35%</small></div>
+                  <div class="ly-meta"><b>每轮注入</b>仅私有会话</div>
+                </div>
+              </div>
+              <div class="callout info" style="margin-top:14px">
+                <div><b>沉淀率 27%。</b>42 个会话里，平台识别出 18 个含可复用信息，最终 7 个主题进入索引。缺口在“没有自动触发”：现在只有人工点「新建提案」才会沉淀。</div>
+              </div>
+              <div class="entries">
+                <div><span>提案采纳</span><b>进账本 · 可回滚</b></div>
+                <div><span>手工编辑</span><b>进账本 · 可回滚</b></div>
+                <div><span>运行期原生写入</span><b class="warn">不进账本 · 已 3 次</b></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div><h2>健康检查</h2><p>只读推导，不需要新增存储。</p></div>
+            </div>
+            <div class="card-body">
+              <div class="health">
+                <div class="h-row">
+                  <span class="dot warn"></span>
+                  <div class="h-main">
+                    <div class="h-title">索引接近加载上限</div>
+                    <div class="h-desc">182 / 200 行。超出部分不会加载，且没有提示。建议合并 2 个低频主题。</div>
+                  </div>
+                  <span class="badge warn">合并建议</span>
+                </div>
+                <div class="h-row">
+                  <span class="dot bad"></span>
+                  <div class="h-main">
+                    <div class="h-title">1 个主题未进索引</div>
+                    <div class="h-desc">bid-evaluation.md 没有链接行，模型不知道它存在。</div>
+                  </div>
+                  <span class="badge bad">修复</span>
+                </div>
+                <div class="h-row">
+                  <span class="dot warn"></span>
+                  <div class="h-main">
+                    <div class="h-title">1 个主题长期未使用</div>
+                    <div class="h-desc">category-benchmark.md 68 天未被读取，占索引 12 行。</div>
+                  </div>
+                  <span class="badge warn">归档</span>
+                </div>
+                <div class="h-row">
+                  <span class="dot warn"></span>
+                  <div class="h-main">
+                    <div class="h-title">账本缺口 3 次</div>
+                    <div class="h-desc">SDK 原生写入不进 memory_changes，这 3 次改动不可回滚。</div>
+                  </div>
+                  <span class="badge warn">补账</span>
+                </div>
+                <div class="h-row">
+                  <span class="dot ok"></span>
+                  <div class="h-main">
+                    <div class="h-title">个人记忆占用 35%</div>
+                    <div class="h-desc">3,120 / 9,000 字符，注入余量充足。</div>
+                  </div>
+                  <span class="badge ok">正常</span>
+                </div>
+                <div class="h-row">
+                  <span class="dot ok"></span>
+                  <div class="h-main">
+                    <div class="h-title">频道隔离已生效</div>
+                    <div class="h-desc">频道运行不投影、不注入触发者个人记忆。</div>
+                  </div>
+                  <span class="badge line">设计如此</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2b">
+          <div class="card">
+            <div class="card-head"><div><h2>沉淀漏斗</h2><p>从已有会话到进入索引，每一段的通过率。</p></div></div>
+            <div class="card-body">
+              <div class="funnel">
+                <div class="f-row"><div class="f-label">已有会话</div><div class="f-track"><div class="f-bar b3" style="width:100%"></div></div><div class="f-val">42</div></div>
+                <div class="f-row"><div class="f-label">含可复用信息</div><div class="f-track"><div class="f-bar b3" style="width:43%"></div></div><div class="f-val">18 <small>43%</small></div></div>
+                <div class="f-row"><div class="f-label">生成提案</div><div class="f-track"><div class="f-bar b2" style="width:29%"></div></div><div class="f-val">12 <small>29%</small></div></div>
+                <div class="f-row"><div class="f-label">人工采纳</div><div class="f-track"><div class="f-bar b2" style="width:21%"></div></div><div class="f-val">9 <small>21%</small></div></div>
+                <div class="f-row"><div class="f-label">进入索引</div><div class="f-track"><div class="f-bar" style="width:17%"></div></div><div class="f-val">7 <small>17%</small></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div><h2>最近变更</h2><p>平台写入与原生写入合并呈现。</p></div><div class="card-tools"><button class="btn ghost sm">全部版本</button></div></div>
+            <div class="card-body">
+              <div class="tl">
+                <div class="tl-item ok">
+                  <div class="tl-when">11-06 14:20 · 提案采纳</div>
+                  <div class="tl-what"><code>procurement-strategy.md</code> 新增供应商分级规则</div>
+                </div>
+                <div class="tl-item">
+                  <div class="tl-when">11-04 09:12 · 手工编辑</div>
+                  <div class="tl-what"><code>MEMORY.md</code> 调整主题顺序与摘要</div>
+                </div>
+                <div class="tl-item warn">
+                  <div class="tl-when">11-02 18:05 · 原生写入（未记账）</div>
+                  <div class="tl-what"><code>supplier-risk.md</code> 运行中自动追加，版本不可回滚</div>
+                </div>
+                <div class="tl-item">
+                  <div class="tl-when">10-28 11:40 · 回滚</div>
+                  <div class="tl-what"><code>bid-evaluation.md</code> 恢复到 10-21 版本</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 装配预览 ================= -->
+      <section id="v-assembly" class="hidden">
+        <div class="scene-bar">
+          <div class="seg" id="scene">
+            <button class="on" data-scene="private">私有会话</button>
+            <button data-scene="channel">频道会话</button>
+            <button data-scene="service">服务主体</button>
+          </div>
+          <span class="hint" id="scene-hint">注入个人记忆 + 专家记忆 + 规则</span>
+          <div class="right">
+            <select class="select"><option>最近一次会话 · 采购合规评审</option><option>会话 11-06 09:32</option></select>
+          </div>
+        </div>
+
+        <div class="card budget" style="margin-bottom:14px">
+          <div class="budget-top">
+            <h2>记忆预算</h2>
+            <div class="val" id="used-val">11,240 <small>/ 16,000 字符</small></div>
+            <div class="right" id="used-pct">已用 70% · 剩余 4,760</div>
+          </div>
+          <div class="stack" id="stack">
+            <i class="s1" style="width:19.5%"></i>
+            <i class="s2" style="width:36.8%"></i>
+            <i class="s3" style="width:14%"></i>
+            <i class="s4" style="width:29.7%"></i>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--chart)"></i>个人记忆 3,120</span>
+            <span><i style="background:var(--primary)"></i>专家索引 5,880</span>
+            <span><i style="background:var(--teal)"></i>规则 2,240</span>
+            <span><i style="background:var(--pale)"></i>未用 4,760</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div><h2>本轮注入清单</h2><p>按实际拼接顺序排列。改动策略后这里会实时变化。</p></div>
+            <div class="card-tools"><span class="badge line">只读推导</span></div>
+          </div>
+          <div class="card-body">
+            <div class="blocks" id="blocks">
+              <div class="blk-head"><div>#</div><div>对象</div><div class="a">触发方式</div><div class="a">字符</div></div>
+              <div class="blk" data-scene="private">
+                <div class="ord">01</div>
+                <div>
+                  <div class="name">个人记忆 <span class="badge">user</span></div>
+                  <div class="path">/mnt/user/CLAUDE.md</div>
+                  <div class="why">UserPromptSubmit hook 每轮注入，超 9,000 字符拒绝本轮。</div>
+                  <div class="code">偏好先给结论再给依据；对外文档使用中文；不接受未标注来源的数据。</div>
+                </div>
+                <div class="src">每轮 · hook 注入</div>
+                <div class="chars">3,120<small>字符 · 35%</small></div>
+              </div>
+
+              <div class="blk">
+                <div class="ord">02</div>
+                <div>
+                  <div class="name">专家索引 <span class="badge">MEMORY.md</span></div>
+                  <div class="path">/mnt/agent-memory/MEMORY.md</div>
+                  <div class="why">启动加载前 200 行或 25 KB；主题正文不预载。</div>
+                  <div class="code">- [采购策略](procurement-strategy.md) — 品类策略、供应商分级
+- [供应商风险](supplier-risk.md) — 风险信号与处置
+- [合同条款](contract-clauses.md) — 红线与例外</div>
+                </div>
+                <div class="src">每轮 · 启动加载</div>
+                <div class="chars">5,880<small>182 行 · 23 KB</small></div>
+              </div>
+
+              <div class="blk">
+                <div class="ord">03</div>
+                <div>
+                  <div class="name">规则 · 合规红线 <span class="badge">rule</span></div>
+                  <div class="path">.claude/rules/compliance.md</div>
+                  <div class="why">globs 匹配本轮工作目录，按 project source 加载。</div>
+                </div>
+                <div class="src">本轮匹配</div>
+                <div class="chars">1,240<small>字符</small></div>
+              </div>
+
+              <div class="blk">
+                <div class="ord">04</div>
+                <div>
+                  <div class="name">规则 · 输出格式 <span class="badge">rule</span></div>
+                  <div class="path">.claude/rules/output-format.md</div>
+                  <div class="why">固定结构：结论 / 依据 / 风险 / 下一步。</div>
+                </div>
+                <div class="src">本轮匹配</div>
+                <div class="chars">1,000<small>字符</small></div>
+              </div>
+
+              <div class="blk off">
+                <div class="ord">05</div>
+                <div>
+                  <div class="name">规则 · 品牌语气 <span class="badge">rule</span></div>
+                  <div class="path">.claude/rules/brand-voice.md</div>
+                  <div class="why">globs 只覆盖 docs/**，本轮未匹配，不加载。</div>
+                </div>
+                <div class="src">未匹配</div>
+                <div class="chars">0<small>跳过</small></div>
+              </div>
+            </div>
+
+            <div class="callout" id="scene-callout">
+              <div><b>为什么主题不在清单里：</b>5 个主题文件按需读取，只有模型判断需要时才 Read，不占固定预算。本轮实际读取 2 个（procurement-strategy、contract-clauses），已计入运行记录，不计入上表。</div>
+            </div>
+
+            <div style="margin-top:16px">
+              <div class="card-head" style="padding:0 0 8px"><div><h2 style="font-size:13px">未进入本轮上下文</h2></div></div>
+              <table class="tbl">
+                <thead><tr><th>对象</th><th>原因</th><th style="text-align:right">影响</th></tr></thead>
+                <tbody>
+                  <tr><td><span class="fname">bid-evaluation.md</span></td><td>未加入索引，模型不知道它存在</td><td style="text-align:right"><span class="badge bad">需修复</span></td></tr>
+                  <tr><td><span class="fname">category-benchmark.md</span></td><td>68 天未被读取，可能已过期</td><td style="text-align:right"><span class="badge warn">建议归档</span></td></tr>
+                  <tr><td>主题预载</td><td>策略关闭（默认），改为模型按需读取</td><td style="text-align:right"><span class="badge line">可配置</span></td></tr>
+                  <tr><td>检索索引</td><td>当前未建设，依赖文件名与索引摘要</td><td style="text-align:right"><span class="badge line">阶段 4</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 策略 ================= -->
+      <section id="v-policy" class="hidden">
+        <div class="policy">
+          <div>
+            <div class="card form-card">
+              <div class="card-head"><div><h2>基础</h2><p>关闭后，本专家的记忆整体不参与运行。</p></div></div>
+              <div class="card-body">
+                <div class="fld">
+                  <div class="fld-l">启用专家记忆<span>控制挂载、加载与提案入口</span></div>
+                  <div class="fld-r">
+                    <label class="switch"><input type="checkbox" id="p-enabled" checked><span class="track"></span><span class="s-label">已启用</span></label>
+                    <div class="helper">关闭后不再挂载 agent-memory、不加载 MEMORY.md，已有文件与版本保留。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card form-card">
+              <div class="card-head"><div><h2>运行期写入</h2><p>决定模型在一次运行里能不能改自己的记忆。</p></div></div>
+              <div class="card-body">
+                <div class="radios" id="write-mode">
+                  <div class="radio on" data-mode="native">
+                    <div class="r-top"><span class="mark"></span>模型自动写入</div>
+                    <div class="r-desc">SDK auto-memory 开启，模型自行整理主题。写入不进账本，不可回滚。</div>
+                  </div>
+                  <div class="radio" data-mode="proposal">
+                    <div class="r-top"><span class="mark"></span>仅提案</div>
+                    <div class="r-desc">关闭 auto-memory，只能通过记忆提案写入。全部进账本，可回滚。</div>
+                  </div>
+                  <div class="radio" data-mode="readonly">
+                    <div class="r-top"><span class="mark"></span>运行期只读</div>
+                    <div class="r-desc">运行中不可写；平台手工编辑与提案仍可用。</div>
+                  </div>
+                </div>
+                <div class="helper" id="write-helper">当前选择会保留“边干边记”的效率，但记忆改动无法追溯。建议对长期运行的专家改为“仅提案”。</div>
+              </div>
+            </div>
+
+            <div class="card form-card">
+              <div class="card-head"><div><h2>自动生成提案</h2><p>只生成待审提案，永不自动写入。</p></div></div>
+              <div class="card-body">
+                <div class="fld">
+                  <div class="fld-l">触发方式<span>当前为关闭，只能人工新建</span></div>
+                  <div class="fld-r">
+                    <div class="inline">
+                      <select class="select" id="auto-mode">
+                        <option value="off">关闭</option>
+                        <option value="session">会话结束后</option>
+                        <option value="turns">每 N 轮</option>
+                      </select>
+                      <div class="inline hidden" id="turns-wrap">
+                        <input class="input" type="number" value="10" min="3" max="50" />
+                        <span class="helper" style="margin:0">轮</span>
+                      </div>
+                    </div>
+                    <div class="helper">沿用现有 review 运行；每个会话窗口最多 1 次，每个专家每天最多 3 次，超限跳过并记录原因。</div>
+                  </div>
+                </div>
+                <div class="fld">
+                  <div class="fld-l">自动采纳<span>固定关闭</span></div>
+                  <div class="fld-r">
+                    <span class="readonly">不变式：提案必须人工确认</span>
+                    <div class="helper">确认制是产品承诺；自动触发只降低操作成本，不改变写入责任。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card form-card">
+              <div class="card-head"><div><h2>注入范围</h2><p>决定哪些对象进入上下文，以及预算。</p></div></div>
+              <div class="card-body">
+                <div class="fld">
+                  <div class="fld-l">个人记忆<span>跨专家通用偏好</span></div>
+                  <div class="fld-r">
+                    <label class="switch"><input type="checkbox" id="p-personal" checked><span class="track"></span><span class="s-label">注入</span></label>
+                    <div class="helper">只在私有会话生效；频道运行与服务主体固定不注入，此开关不改变该边界。</div>
+                  </div>
+                </div>
+                <div class="fld">
+                  <div class="fld-l">项目规则<span>agent_rules</span></div>
+                  <div class="fld-r">
+                    <label class="switch"><input type="checkbox" id="p-rules" checked><span class="track"></span><span class="s-label">加载</span></label>
+                    <div class="helper">按 globs 匹配工作路径；关闭后规则文件不渲染到本轮工作区。</div>
+                  </div>
+                </div>
+                <div class="fld">
+                  <div class="fld-l">主题预载<span>按关键词预读</span></div>
+                  <div class="fld-r">
+                    <label class="switch"><input type="checkbox" id="p-preload"><span class="track"></span><span class="s-label">关闭</span></label>
+                    <div class="helper">开启后按用户输入匹配最多 3 个主题正文，可能增加 2–6 K 字符。默认关闭，由模型按需读取。</div>
+                  </div>
+                </div>
+                <div class="fld">
+                  <div class="fld-l">记忆预算<span>单轮注入字符上限</span></div>
+                  <div class="fld-r">
+                    <div class="inline"><input class="input" id="p-budget" type="number" value="16000" step="1000" style="width:110px" /><span class="helper" style="margin:0">字符</span></div>
+                    <div class="helper">超出时按“索引 → 规则 → 预载主题”的顺序截断，并记录被截断项。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card form-card">
+              <div class="card-head"><div><h2>容量</h2><p>官方加载限制不可改；平台上限可按专家调整。</p></div></div>
+              <div class="card-body">
+                <div class="fld">
+                  <div class="fld-l">主题数量上限<span>超出时要求先合并</span></div>
+                  <div class="fld-r">
+                    <div class="inline"><input class="input" id="p-topics" type="number" value="20" min="3" max="48" style="width:88px" /><span class="helper" style="margin:0">个（当前 5）</span></div>
+                  </div>
+                </div>
+                <div class="fld">
+                  <div class="fld-l">单主题上限<span>固定</span></div>
+                  <div class="fld-r"><span class="readonly">200,000 字节</span></div>
+                </div>
+                <div class="fld">
+                  <div class="fld-l">索引上限<span>官方加载行为</span></div>
+                  <div class="fld-r"><span class="readonly">200 行 / 25 KB</span><div class="helper">超限部分不会加载；平台在写入时拒绝，运行期原生写入可能绕过，需要健康检查兜底。</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rail">
+            <div class="card">
+              <div class="card-head"><div><h2>配置摘要</h2><p>保存后对本专家下一次运行生效。</p></div></div>
+              <div class="card-body">
+                <div class="sum">
+                  <div class="sum-row"><span class="k">记忆</span><span class="v" id="s-enabled">已启用</span></div>
+                  <div class="sum-row"><span class="k">写入方式</span><span class="v" id="s-write">模型自动写入</span></div>
+                  <div class="sum-row"><span class="k">自动提案</span><span class="v" id="s-auto">关闭</span></div>
+                  <div class="sum-row"><span class="k">个人记忆</span><span class="v" id="s-personal">注入</span></div>
+                  <div class="sum-row"><span class="k">主题预载</span><span class="v mono" id="s-preload">关闭</span></div>
+                  <div class="sum-row"><span class="k">记忆预算</span><span class="v mono" id="s-budget">16,000 字符</span></div>
+                  <div class="sum-row"><span class="k">主题上限</span><span class="v mono" id="s-topics">20 个</span></div>
+                </div>
+                <div style="height:12px"></div>
+                <div class="impact" id="impact">
+                  预计本轮注入 <b>11,240</b> 字符（<b>70%</b>）。自动写入保持开启，记忆改动不进版本账本。
+                </div>
+                <div style="display:flex;gap:8px;margin-top:14px">
+                  <button class="btn primary">保存策略</button>
+                  <button class="btn">重置</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><div><h2>对应实现</h2><p>原型里的每个开关都有落点。</p></div></div>
+              <div class="card-body">
+                <div class="sum">
+                  <div class="sum-row"><span class="k">启用</span><span class="v mono">autoMemoryEnabled + 挂载</span></div>
+                  <div class="sum-row"><span class="k">写入方式</span><span class="v mono">工具白名单 + 账本</span></div>
+                  <div class="sum-row"><span class="k">自动提案</span><span class="v mono">run 终态后入队 review</span></div>
+                  <div class="sum-row"><span class="k">预算</span><span class="v mono">hook 拼接截断</span></div>
+                  <div class="sum-row"><span class="k">存储</span><span class="v mono">agents.memory_policy</span></div>
+                </div>
+                <div class="helper">不新增记忆表、不引入外部服务；权威仍是官方文件与现有账本。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 主题与版本 ================= -->
+      <section id="v-topics" class="hidden">
+        <div class="topics">
+          <div class="card">
+            <div class="card-head"><div><h2>主题文件</h2><p>MEMORY.md 为索引，其余为主题正文。</p></div><div class="card-tools"><span class="badge line">5 个</span></div></div>
+            <div class="card-body">
+              <div class="toolbar">
+                <div class="search"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3 3"/></svg>搜索文件名或索引摘要</div>
+                <button class="btn sm">筛选</button>
+                <button class="btn sm primary">新建主题</button>
+              </div>
+              <table class="tbl" id="topic-table">
+                <thead>
+                  <tr><th>文件</th><th style="text-align:right">大小</th><th>索引</th><th style="text-align:right">使用</th><th>最近使用</th><th>来源</th></tr>
+                </thead>
+                <tbody>
+                  <tr class="on" data-name="procurement-strategy.md">
+                    <td><span class="fname"><span class="dot ok"></span>procurement-strategy.md</span></td>
+                    <td class="num" style="text-align:right">8.4 KB</td>
+                    <td><span class="badge ok">已链接</span></td>
+                    <td class="num" style="text-align:right">12</td>
+                    <td>2 天前</td>
+                    <td>提案采纳</td>
+                  </tr>
+                  <tr data-name="supplier-risk.md">
+                    <td><span class="fname"><span class="dot ok"></span>supplier-risk.md</span></td>
+                    <td class="num" style="text-align:right">3.1 KB</td>
+                    <td><span class="badge ok">已链接</span></td>
+                    <td class="num" style="text-align:right">4</td>
+                    <td>9 天前</td>
+                    <td>原生写入</td>
+                  </tr>
+                  <tr data-name="contract-clauses.md">
+                    <td><span class="fname"><span class="dot ok"></span>contract-clauses.md</span></td>
+                    <td class="num" style="text-align:right">2.2 KB</td>
+                    <td><span class="badge ok">已链接</span></td>
+                    <td class="num" style="text-align:right">6</td>
+                    <td>15 天前</td>
+                    <td>手工编辑</td>
+                  </tr>
+                  <tr data-name="bid-evaluation.md">
+                    <td><span class="fname"><span class="dot bad"></span>bid-evaluation.md</span></td>
+                    <td class="num" style="text-align:right">5.6 KB</td>
+                    <td><span class="badge bad">未链接</span></td>
+                    <td class="num" style="text-align:right">0</td>
+                    <td>从未</td>
+                    <td>手工编辑</td>
+                  </tr>
+                  <tr data-name="category-benchmark.md">
+                    <td><span class="fname"><span class="dot warn"></span>category-benchmark.md</span></td>
+                    <td class="num" style="text-align:right">12.9 KB</td>
+                    <td><span class="badge ok">已链接</span></td>
+                    <td class="num" style="text-align:right">1</td>
+                    <td>68 天前</td>
+                    <td>提案采纳</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="callout info" style="margin-top:14px">
+                <div><b>“使用”是新信号：</b>平台在每次运行结束后，从工具调用记录里统计主题 Read 次数，只存计数与最近时间，不复制正文，也不建检索索引。</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card tl-card">
+            <div class="tl-head">
+              <div class="n" id="tl-name">procurement-strategy.md</div>
+              <div class="m" id="tl-meta">8.4 KB · 12 次使用 · 已链接</div>
+            </div>
+            <div class="tl-body">
+              <div class="tl">
+                <div class="tl-item ok">
+                  <div class="tl-when">11-06 14:20 · 提案采纳</div>
+                  <div class="tl-what">新增供应商分级与例外审批</div>
+                  <div class="diff"><span class="add">+412</span> <span class="del">-88</span> · run_8f21</div>
+                </div>
+                <div class="tl-item">
+                  <div class="tl-when">10-28 10:06 · 手工编辑</div>
+                  <div class="tl-what">修正品类策略中的金额阈值</div>
+                  <div class="diff"><span class="add">+76</span> <span class="del">-12</span> · 王砚</div>
+                </div>
+                <div class="tl-item warn">
+                  <div class="tl-when">10-21 17:32 · 原生写入（未记账）</div>
+                  <div class="tl-what">运行中自动追加，无 before 快照</div>
+                  <div class="diff">不可回滚</div>
+                </div>
+                <div class="tl-item">
+                  <div class="tl-when">10-14 09:18 · 回滚</div>
+                  <div class="tl-what">恢复到 10-11 版本</div>
+                  <div class="diff">change_mc_4a02</div>
+                </div>
+              </div>
+              <div class="tl-actions">
+                <button class="btn sm">查看内容</button>
+                <button class="btn sm">回滚</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+  // tabs
+  const tabs = document.querySelectorAll('.tab');
+  const views = {overview:'v-overview', assembly:'v-assembly', policy:'v-policy', topics:'v-topics'};
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.toggle('on', x === t));
+    Object.entries(views).forEach(([k, id]) => {
+      document.getElementById(id).classList.toggle('hidden', k !== t.dataset.view);
+    });
+    window.scrollTo({top:0});
+  }));
+
+  // scene switch
+  const sceneHint = {private:'注入个人记忆 + 专家记忆 + 规则', channel:'不注入个人记忆；专家记忆与规则照常', service:'无个人记忆；仅专家记忆与规则'};
+  const sceneBtns = document.querySelectorAll('#scene button');
+  sceneBtns.forEach(b => b.addEventListener('click', () => {
+    sceneBtns.forEach(x => x.classList.toggle('on', x === b));
+    const scene = b.dataset.scene;
+    sceneHint && (document.getElementById('scene-hint').textContent = sceneHint[scene]);
+    const personal = document.querySelector('.blk[data-scene="private"]');
+    personal.classList.toggle('off', scene !== 'private');
+    const callout = document.getElementById('scene-callout');
+    if (scene === 'private') {
+      callout.innerHTML = '<div><b>为什么主题不在清单里：</b>5 个主题文件按需读取，只有模型判断需要时才 Read，不占固定预算。本轮实际读取 2 个（procurement-strategy、contract-clauses），已计入运行记录，不计入上表。</div>';
+      document.getElementById('used-val').innerHTML = '11,240 <small>/ 16,000 字符</small>';
+      document.getElementById('used-pct').textContent = '已用 70% · 剩余 4,760';
+    } else {
+      callout.innerHTML = '<div><b>频道运行边界：</b>频道是共享执行上下文，平台不投影也不注入触发者的个人记忆。个人记忆条目已从清单移除，预算相应释放。</div>';
+      document.getElementById('used-val').innerHTML = '8,120 <small>/ 16,000 字符</small>';
+      document.getElementById('used-pct').textContent = '已用 51% · 剩余 7,880';
+    }
+  }));
+
+  // policy radios
+  const writeHelper = {
+    native: '当前选择会保留“边干边记”的效率，但记忆改动无法追溯。建议对长期运行的专家改为“仅提案”。',
+    proposal: '关闭 auto-memory，模型只能通过提案写入。每次写入都有 before/after 与来源，可回滚；代价是运行中不会即时落盘。',
+    readonly: '运行期完全不可写，适合把记忆当作稳定知识资产的专家。平台手工编辑与提案路径仍可用。'
+  };
+  const writeLabel = {native:'模型自动写入', proposal:'仅提案', readonly:'运行期只读'};
+  const radios = document.querySelectorAll('#write-mode .radio');
+  radios.forEach(r => r.addEventListener('click', () => {
+    radios.forEach(x => x.classList.toggle('on', x === r));
+    const mode = r.dataset.mode;
+    document.getElementById('write-helper').textContent = writeHelper[mode];
+    document.getElementById('s-write').textContent = writeLabel[mode];
+    const impact = document.getElementById('impact');
+    if (mode === 'native') impact.innerHTML = '预计本轮注入 <b>11,240</b> 字符（<b>70%</b>）。自动写入保持开启，记忆改动不进版本账本。';
+    if (mode === 'proposal') impact.innerHTML = '预计本轮注入 <b>11,240</b> 字符（<b>70%</b>）。运行中不写盘，提案采纳后可回滚。';
+    if (mode === 'readonly') impact.innerHTML = '预计本轮注入 <b>11,240</b> 字符（<b>70%</b>）。运行期只读，主题不会被模型改写。';
+  }));
+
+  // auto proposal
+  const autoMode = document.getElementById('auto-mode');
+  autoMode.addEventListener('change', () => {
+    const v = autoMode.value;
+    document.getElementById('turns-wrap').classList.toggle('hidden', v !== 'turns');
+    document.getElementById('s-auto').textContent = v === 'off' ? '关闭' : v === 'session' ? '会话结束后' : '每 10 轮';
+  });
+
+  // switches -> summary
+  const bind = (id, target, on, off) => {
+    const el = document.getElementById(id);
+    el.addEventListener('change', () => {
+      document.getElementById(target).textContent = el.checked ? on : off;
+      if (id === 'p-preload') document.getElementById('s-preload').textContent = el.checked ? '开启（最多 3 个）' : '关闭';
+    });
+  };
+  bind('p-enabled','s-enabled','已启用','已停用');
+  bind('p-personal','s-personal','注入','不注入');
+  bind('p-rules','s-rules','加载','不加载');
+  bind('p-preload','s-preload','开启（最多 3 个）','关闭');
+
+  // number inputs -> summary
+  const budget = document.getElementById('p-budget');
+  budget.addEventListener('input', () => {
+    const v = Number(budget.value || 0);
+    document.getElementById('s-budget').textContent = v.toLocaleString('en-US') + ' 字符';
+  });
+  const topics = document.getElementById('p-topics');
+  topics.addEventListener('input', () => {
+    document.getElementById('s-topics').textContent = (topics.value || 0) + ' 个';
+  });
+
+  // topic table selection
+  const rows = document.querySelectorAll('#topic-table tbody tr');
+  rows.forEach(r => r.addEventListener('click', () => {
+    rows.forEach(x => x.classList.toggle('on', x === r));
+    const name = r.dataset.name;
+    document.getElementById('tl-name').textContent = name;
+    const cells = r.querySelectorAll('td');
+    document.getElementById('tl-meta').textContent = cells[1].textContent.trim() + ' · ' + (cells[3].textContent.trim() === '0' ? '从未使用' : cells[3].textContent.trim() + ' 次使用') + ' · ' + cells[2].textContent.trim();
+  }));
+</script>
+</body>
+</html>

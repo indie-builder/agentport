@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -7,10 +8,8 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 import type { ChatEvent, SandboxTaskInput } from '@agentport/shared';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { renderWorkspace, type WorkspaceAgent } from '../../core/src/workspace.js';
 import { type DockerSandboxOptions, DockerSandboxProvider } from '../src/sandbox/docker.js';
@@ -733,6 +732,8 @@ describeDocker('session sandbox with the real SDK native CLI', () => {
       outputsDir: dirs.outputs,
       inputsDir: dirs.inputs,
       memoryDir: dirs.memory,
+      // 这套用例验证 native_auto 下的记忆读写与边界，专家与子智能体记忆都按可写挂载。
+      memoryWritable: true,
       sessionsDir: dirs.sessions,
     };
   }

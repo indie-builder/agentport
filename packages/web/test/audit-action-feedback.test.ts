@@ -246,6 +246,28 @@ beforeEach(() => {
   vi.spyOn(api, 'agentMemory').mockResolvedValue(memoryList);
   vi.spyOn(api, 'agentMemoryFile').mockResolvedValue(memoryFile);
   vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [memoryChange] });
+  vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue({
+    policy: {
+      enabled: true,
+      writeMode: 'native_auto',
+      injectPersonalMemory: true,
+      injectRules: true,
+      topicLimit: 20,
+    },
+    index: { present: true, lines: 1, bytes: 1, maxLines: 200, maxBytes: 25 * 1024 },
+    topics: { count: 0, bytes: 0, unlinked: [], stale: [] },
+    rules: { count: 0, bytes: 0 },
+    personal: { chars: 0, maxChars: 9000 },
+    unaccounted: { count: 0, names: [] },
+    health: [],
+    recentChanges: [],
+    changesTotal: 0,
+  });
+  vi.spyOn(api, 'agentMemoryAssembly').mockResolvedValue({
+    blocks: [],
+    totals: { personalChars: 0, indexBytes: 0, rulesBytes: 0, topicBytes: 0 },
+    notes: [],
+  });
   vi.spyOn(api, 'rollbackMemoryChange').mockResolvedValue(memoryChange);
 });
 
@@ -300,6 +322,9 @@ describe('permission feedback stays visible and the action stays disabled', () =
 
   it('explains why rollback waits for the dirty memory draft and keeps it disabled', async () => {
     await mount(createElement(MemoryPanel, { agentId: 'agent-1' }));
+    // 记忆页签默认落在概览，回滚入口在「文件」子视图。
+    await act(async () => buttonByVisibleText('文件').click());
+    await flush();
 
     await waitFor(() => editorView('memory-content'));
     expect(host.textContent).not.toContain('先保存或放弃当前草稿再回滚。');

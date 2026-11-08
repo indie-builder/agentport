@@ -6,6 +6,7 @@ import {
   ensureSessionWorkspace,
   refreshSessionDirectory,
   toHostWorkspacePath,
+  writeRulesDirectory,
 } from '../src/session-workspace.js';
 
 let root = '';
@@ -325,5 +326,25 @@ describe('stable session workspace', () => {
       /link|regular/i,
     );
     expect(await readFile(join(paths.outputsDir, 'existing.txt'), 'utf8')).toBe('preserved');
+  });
+
+  it('clears old rules and writes nothing when the rule list is empty', async () => {
+    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const rulesDir = join(root, 'run', '.claude', 'rules');
+    await mkdir(rulesDir, { recursive: true });
+    await writeFile(join(rulesDir, 'old.md'), '# old');
+
+    await writeRulesDirectory(rulesDir, []);
+
+    await expect(lstat(rulesDir)).rejects.toThrow();
+  });
+
+  it('writes each rule when the policy allows rule injection', async () => {
+    root = await mkdtemp(join(tmpdir(), 'session-workspace-'));
+    const rulesDir = join(root, 'run', '.claude', 'rules');
+
+    await writeRulesDirectory(rulesDir, [{ slug: 'demo', content: '# rule\n' }]);
+
+    expect(await readFile(join(rulesDir, 'demo.md'), 'utf8')).toBe('# rule\n');
   });
 });

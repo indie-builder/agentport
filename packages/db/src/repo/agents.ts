@@ -1,5 +1,11 @@
 import { AppError } from '@agentport/core';
-import type { AccessFilter, Agent, AgentDuplicateInput } from '@agentport/shared';
+import {
+  type AccessFilter,
+  type Agent,
+  type AgentDuplicateInput,
+  type MemoryPolicy,
+  resolveMemoryPolicy,
+} from '@agentport/shared';
 import {
   and,
   asc,
@@ -161,6 +167,36 @@ export async function listAgents(
 export async function getAgent(db: DbHandle, id: string): Promise<AgentRow | null> {
   const [row] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   return row ?? null;
+}
+
+/** 只读记忆策略：行不存在返回 null；已落库 JSON 非法时按默认策略运行。 */
+export async function getAgentMemoryPolicy(
+  db: DbHandle,
+  agentId: string,
+): Promise<MemoryPolicy | null> {
+  const [row] = await db
+    .select({ memoryPolicy: agents.memoryPolicy })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1);
+  return row ? resolveMemoryPolicy(row.memoryPolicy) : null;
+}
+
+/**
+ * 记忆策略单独持久化：不推进 updatedAt，也不写专家版本快照，
+ * 避免策略变更被当成配置变更导致编辑冲突。
+ */
+export async function updateAgentMemoryPolicy(
+  db: DbHandle,
+  agentId: string,
+  policy: MemoryPolicy,
+): Promise<boolean> {
+  const rows = await db
+    .update(agents)
+    .set({ memoryPolicy: policy })
+    .where(eq(agents.id, agentId))
+    .returning({ id: agents.id });
+  return rows.length > 0;
 }
 
 /**

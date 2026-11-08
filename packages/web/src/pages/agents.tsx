@@ -1,6 +1,10 @@
 import { effortSchema, permissionModeSchema } from '@agentport/shared';
 import { downloadBlob } from '../lib/browser-files.js';
-import { agentSections as sectionItems, agentTabs as tabItems } from '../lib/detail-tabs.js';
+import {
+  type MemoryView,
+  agentSections as sectionItems,
+  agentTabs as tabItems,
+} from '../lib/detail-tabs.js';
 // 只引用纯函数子路径：core 根入口还导出 node:crypto 相关模块，浏览器不能加载。
 
 import type { McpJsonEntry } from '@agentport/core/tools';
@@ -1454,7 +1458,7 @@ function RestrictedAgentTabs({
 
   if (available.length === 0) return null;
 
-  const navigateSearch = (next: { tab?: TabId; file?: string }): void => {
+  const navigateSearch = (next: { tab?: TabId; view?: MemoryView; file?: string }): void => {
     void navigate({
       to: '/agents/$agentId',
       params: { agentId },
@@ -1496,6 +1500,8 @@ function RestrictedAgentTabs({
             <MemoryPanel
               agentId={agentId}
               canWrite={hasAnyGrant(permissions, 'agents.memory.write')}
+              view={search.view ?? 'overview'}
+              onViewChange={(view) => navigateSearch({ view })}
               onDirtyChange={setChildDirty}
               onPendingChange={setChildPending}
             />
@@ -2050,7 +2056,12 @@ export function AgentEditor({
   const activeFile = search.file ?? '.mcp.json';
   useEffect(() => setActiveSectionState(sectionFromUrl), [sectionFromUrl]);
   // 任务、分区与文件都进 URL：刷新或分享后回到同一视图。
-  const navigateSearch = (next: { tab?: TabId; section?: SectionId; file?: string }): void => {
+  const navigateSearch = (next: {
+    tab?: TabId;
+    section?: SectionId;
+    view?: MemoryView;
+    file?: string;
+  }): void => {
     void navigate({
       to: '/agents/$agentId',
       params: { agentId: agent.id },
@@ -3960,6 +3971,8 @@ export function AgentEditor({
             <MemoryPanel
               agentId={agent.id}
               canWrite={canMemoryWrite}
+              view={search.view ?? 'overview'}
+              onViewChange={(view) => navigateSearch({ view })}
               onDirtyChange={setChildDirty}
               onPendingChange={setChildPending}
             />

@@ -1,4 +1,6 @@
 import type {
+  AgentMemoryAssembly,
+  AgentMemoryOverview,
   MemoryChange,
   MemoryFileContent,
   MemoryFileList,
@@ -82,6 +84,28 @@ const secondStyle: OutputStyle = {
   slug: 'verbose',
   description: '详细',
   body: '# 第二种风格',
+};
+const memoryOverview: AgentMemoryOverview = {
+  policy: {
+    enabled: true,
+    writeMode: 'native_auto',
+    injectPersonalMemory: true,
+    injectRules: true,
+    topicLimit: 20,
+  },
+  index: { present: true, lines: 1, bytes: 4, maxLines: 200, maxBytes: 25 * 1024 },
+  topics: { count: 0, bytes: 0, unlinked: [], stale: [] },
+  rules: { count: 1, bytes: 4 },
+  personal: { chars: 0, maxChars: 9000 },
+  unaccounted: { count: 0, names: [] },
+  health: [{ code: 'healthy', level: 'ok', title: '记忆状态正常', detail: '没有需要处理的问题。' }],
+  recentChanges: [],
+  changesTotal: 0,
+};
+const memoryAssembly: AgentMemoryAssembly = {
+  blocks: [],
+  totals: { personalChars: 0, indexBytes: 0, rulesBytes: 0, topicBytes: 0 },
+  notes: [],
 };
 
 function deferred<T>() {
@@ -169,10 +193,24 @@ function mount(element: ReactElement) {
   act(() => root.render(createElement(QueryClientProvider, { client }, element)));
 }
 
+/** 记忆页签默认落在概览；文件相关用例先切到「文件」子视图。 */
+async function mountFiles(
+  props: {
+    canWrite?: boolean | undefined;
+    onDirtyChange?: ((dirty: boolean) => void) | undefined;
+    onPendingChange?: ((pending: boolean) => void) | undefined;
+  } = {},
+) {
+  mount(createElement(MemoryPanel, { agentId: 'expert', ...props }));
+  await click(button('文件'));
+}
+
 beforeEach(() => {
   vi.spyOn(api, 'agentMemory').mockResolvedValue(memoryList);
   vi.spyOn(api, 'agentMemoryFile').mockResolvedValue(memoryFile);
   vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue(memoryOverview);
+  vi.spyOn(api, 'agentMemoryAssembly').mockResolvedValue(memoryAssembly);
   vi.spyOn(api, 'agentRules').mockResolvedValue([rule]);
   vi.spyOn(api, 'agentOutputStyles').mockResolvedValue([style]);
 });
@@ -187,7 +225,7 @@ afterEach(async () => {
 describe('memory file editor', () => {
   it('edits markdown with the source editor and marks the draft dirty', async () => {
     const onDirtyChange = vi.fn();
-    mount(createElement(MemoryPanel, { agentId: 'expert', onDirtyChange }));
+    await mountFiles({ onDirtyChange });
 
     const view = await waitFor(() => editorView('memory-content'));
     expect(view.state.doc.toString()).toBe('# 记忆');
@@ -209,7 +247,7 @@ describe('memory file editor', () => {
   it('takes the memory editor out of editing while saving', async () => {
     const saved = deferred<MemoryFileContent>();
     vi.spyOn(api, 'writeAgentMemoryFile').mockReturnValue(saved.promise);
-    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+    await mountFiles();
 
     await waitFor(() => editorView('memory-content'));
     await replaceContent('memory-content', '# 新记忆');
@@ -225,7 +263,7 @@ describe('memory file editor', () => {
   });
 
   it('提供原生记忆下载，无写权限时不显示任何写动作', async () => {
-    mount(createElement(MemoryPanel, { agentId: 'expert', canWrite: false }));
+    await mountFiles({ canWrite: false });
 
     await waitFor(() => editorView('memory-content'));
     const download = host.querySelector<HTMLAnchorElement>('a[download]');
@@ -238,7 +276,7 @@ describe('memory file editor', () => {
 
   it('无写权限且记忆未初始化时不显示初始化动作', async () => {
     vi.mocked(api.agentMemory).mockResolvedValue({ files: [], initialized: false });
-    mount(createElement(MemoryPanel, { agentId: 'expert', canWrite: false }));
+    await mountFiles({ canWrite: false });
 
     await waitFor(() => host.textContent?.includes('初始化记忆'));
     expect(buttonOrNull('初始化 MEMORY.md')).toBeUndefined();
@@ -249,7 +287,7 @@ describe('memory file editor', () => {
     const rollback = vi
       .spyOn(api, 'rollbackMemoryChange')
       .mockResolvedValue({ ...memoryChange, id: 'chg_2', reversesChangeId: 'chg_1' });
-    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+    await mountFiles();
 
     await waitFor(() => buttonOrNull('查看'));
     expect(api.agentMemoryVersions).toHaveBeenCalledWith(
@@ -278,7 +316,7 @@ describe('memory file editor', () => {
       ],
       initialized: true,
     });
-    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+    await mountFiles();
 
     await waitFor(() => buttonOrNull('topic.md'));
     await click(button('topic.md'));
@@ -299,7 +337,7 @@ describe('memory file editor', () => {
     vi.mocked(api.agentMemoryFile)
       .mockResolvedValueOnce(memoryFile)
       .mockResolvedValue({ ...memoryFile, content: '# 外部更新' });
-    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+    await mountFiles();
 
     await waitFor(() => editorView('memory-content'));
     await replaceContent('memory-content', '# 新记忆');
@@ -315,7 +353,7 @@ describe('memory file editor', () => {
     vi.mocked(api.agentMemoryFile)
       .mockResolvedValueOnce(memoryFile)
       .mockResolvedValue({ ...memoryFile, content: '# 外部更新' });
-    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+    await mountFiles();
 
     await waitFor(() => editorView('memory-content'));
     await replaceContent('memory-content', '# 未保存草稿');
@@ -339,7 +377,7 @@ describe('memory file editor', () => {
       initialized: true,
     });
     vi.mocked(api.agentMemoryVersions).mockResolvedValue({ items: [topicCreation] });
-    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+    await mountFiles();
 
     await waitFor(() => buttonOrNull('查看'));
     expect(host.textContent).toContain('- [topic.md](topic.md)');
@@ -358,6 +396,30 @@ describe('memory file editor', () => {
     const confirm = await waitFor(() => document.querySelector<HTMLElement>('[role="dialog"]'));
     expect(confirm?.textContent).toContain('删除新建的主题「topic.md」');
     expect(confirm?.textContent).toContain('MEMORY.md');
+  });
+});
+
+describe('memory subview switching', () => {
+  it('子视图有未保存草稿时切换先确认，取消后停留在原视图', async () => {
+    const onViewChange = vi.fn();
+    mount(createElement(MemoryPanel, { agentId: 'expert', view: 'files', onViewChange }));
+    const view = await waitFor(() => editorView('memory-content'));
+    await replaceContent('memory-content', '# 未保存草稿');
+
+    await click(button('策略'));
+    const dialog = await waitFor(() =>
+      [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find((item) =>
+        item.textContent?.includes('放弃未保存的修改？'),
+      ),
+    );
+    expect(onViewChange).not.toHaveBeenCalled();
+
+    await click(button('取消', dialog));
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    expect(onViewChange).not.toHaveBeenCalled();
+    expect(editorView('memory-content')).toBe(view);
+    expect(view.state.doc.toString()).toBe('# 未保存草稿');
+    expect(host.textContent).not.toContain('启用专家记忆');
   });
 });
 
@@ -532,7 +594,7 @@ describe('readonly uninitialized memory', () => {
       updatedAt: '2026-01-01T00:00:00Z',
     });
     const create = vi.spyOn(api, 'writeAgentMemoryFile');
-    mount(createElement(MemoryPanel, { agentId: 'expert', canWrite: false }));
+    await mountFiles({ canWrite: false });
 
     const view = await waitFor(() => editorView('memory-content'));
     expect(view.state.doc.toString()).toBe('# 笔记');
@@ -548,7 +610,7 @@ describe('readonly uninitialized memory', () => {
   it('offers no initialization action when readonly memory has no files', async () => {
     vi.mocked(api.agentMemory).mockResolvedValue({ files: [], initialized: false });
     const create = vi.spyOn(api, 'writeAgentMemoryFile');
-    mount(createElement(MemoryPanel, { agentId: 'expert', canWrite: false }));
+    await mountFiles({ canWrite: false });
 
     await waitFor(() => expect(host.textContent).toContain('初始化记忆'));
     expect(
@@ -567,7 +629,7 @@ describe('background refresh errors keep cached editors', () => {
       if (fail) throw new Error('列表刷新失败');
       return memoryList;
     });
-    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+    await mountFiles();
 
     const view = await waitFor(() => editorView('memory-content'));
     const node = document.getElementById('memory-content');
@@ -596,7 +658,7 @@ describe('background refresh errors keep cached editors', () => {
       if (fail) throw new Error('文件刷新失败');
       return memoryFile;
     });
-    mount(createElement(MemoryPanel, { agentId: 'expert' }));
+    await mountFiles();
 
     const view = await waitFor(() => editorView('memory-content'));
     const node = document.getElementById('memory-content');

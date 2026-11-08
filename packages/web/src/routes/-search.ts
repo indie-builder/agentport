@@ -6,7 +6,7 @@ import {
   runtimeEnvironmentVersionStatusSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
-import { agentSections, agentTabs, knowledgeTabs } from '../lib/detail-tabs.js';
+import { agentSections, agentTabs, knowledgeTabs, memoryViews } from '../lib/detail-tabs.js';
 
 export const resourceSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
@@ -26,7 +26,7 @@ export const agentsSearchSchema = resourceSearchSchema.extend({
   role: z.enum(AGENT_ROLES).optional().catch(undefined),
 });
 
-/** 专家详情：任务、配置分区与选中文件都进 URL，刷新和分享后回到同一视图。 */
+/** 专家详情：任务、配置分区、专家记忆子视图与选中文件都进 URL，刷新和分享后回到同一视图。 */
 export const agentDetailSearchSchema = z.object({
   tab: z
     .enum(agentTabs.map((item) => item.id))
@@ -34,6 +34,10 @@ export const agentDetailSearchSchema = z.object({
     .catch(undefined),
   section: z
     .enum(agentSections.map((item) => item.id))
+    .optional()
+    .catch(undefined),
+  view: z
+    .enum(memoryViews.map((item) => item.id))
     .optional()
     .catch(undefined),
   file: z.string().optional().catch(undefined),

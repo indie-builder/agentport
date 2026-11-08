@@ -14,6 +14,15 @@ export const agentTabs = [
   { id: 'files', label: '完整文件' },
 ] as const;
 
+/** 专家记忆的子视图：概览 / 文件 / 策略，写进 URL search。 */
+export const memoryViews = [
+  { id: 'overview', label: '概览' },
+  { id: 'files', label: '文件' },
+  { id: 'policy', label: '策略' },
+] as const;
+
+export type MemoryView = (typeof memoryViews)[number]['id'];
+
 export const knowledgeTabs = [
   { id: 'documents', label: '文档' },
   { id: 'sources', label: '来源' },

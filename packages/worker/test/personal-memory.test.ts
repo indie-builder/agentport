@@ -1,11 +1,12 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { personalMemoryDir } from '@agentport/core';
 import { createDb, schema } from '@agentport/db';
+import { DEFAULT_MEMORY_POLICY } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { projectPersonalMemory } from '../src/personal-memory.js';
+import { personalMemoryBusinessIdForRun, projectPersonalMemory } from '../src/personal-memory.js';
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
@@ -158,5 +159,46 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
       client.release();
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('personalMemoryBusinessIdForRun', () => {
+  const user = { kind: 'user' as const, businessId: 'user-1' };
+
+  it('returns the business ID only for private user runs with injection enabled', () => {
+    expect(
+      personalMemoryBusinessIdForRun({
+        subject: user,
+        channelId: null,
+        policy: DEFAULT_MEMORY_POLICY,
+      }),
+    ).toBe('user-1');
+  });
+
+  it('skips projection when injectPersonalMemory is false', () => {
+    expect(
+      personalMemoryBusinessIdForRun({
+        subject: user,
+        channelId: null,
+        policy: { ...DEFAULT_MEMORY_POLICY, injectPersonalMemory: false },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not relax the channel and service boundaries', () => {
+    expect(
+      personalMemoryBusinessIdForRun({
+        subject: user,
+        channelId: 'channel-1',
+        policy: DEFAULT_MEMORY_POLICY,
+      }),
+    ).toBeUndefined();
+    expect(
+      personalMemoryBusinessIdForRun({
+        subject: { kind: 'service', serviceId: 'system' },
+        channelId: null,
+        policy: DEFAULT_MEMORY_POLICY,
+      }),
+    ).toBeUndefined();
   });
 });

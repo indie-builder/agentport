@@ -5,6 +5,8 @@ import type {
   AgentAccess,
   AgentInput,
   AgentMember,
+  AgentMemoryAssembly,
+  AgentMemoryOverview,
   AgentPatch,
   ApiTool,
   ApiToolInput,
@@ -51,6 +53,7 @@ import type {
   MemoryChange,
   MemoryFileContent,
   MemoryFileList,
+  MemoryPolicy,
   MemoryReview,
   MessageAttachment,
   NativePluginImportInput,
@@ -1020,6 +1023,13 @@ export const api = {
     rpc.agents.deleteOutputStyle({ params: { id, slug } }),
   agentMemoryFile: (id: string, name: string): Promise<MemoryFileContent> =>
     rpc.agents.memoryFile({ params: { id, name } }),
+  agentMemoryOverview: (id: string): Promise<AgentMemoryOverview> =>
+    rpc.memory.agentMemoryOverview({ params: { id } }),
+  agentMemoryAssembly: (id: string): Promise<AgentMemoryAssembly> =>
+    rpc.memory.agentMemoryAssembly({ params: { id } }),
+  /** 整份策略替换：不提供局部 patch。 */
+  updateAgentMemoryPolicy: (id: string, policy: MemoryPolicy): Promise<{ policy: MemoryPolicy }> =>
+    rpc.memory.updateAgentMemoryPolicy({ params: { id }, body: { policy } }),
   writeAgentMemoryFile: (id: string, name: string, content: string): Promise<MemoryFileContent> =>
     rpc.agents.writeMemory({ params: { id, name }, body: { content } }),
   deleteAgentMemoryFile: (id: string, name: string): Promise<void> =>

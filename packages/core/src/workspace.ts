@@ -2,7 +2,9 @@ import {
   type AgentInput,
   CONFIGURABLE_DISALLOWED_TOOLS,
   DEFAULT_DISALLOWED_TOOLS,
+  DEFAULT_MEMORY_POLICY,
   displayNameSchema,
+  type MemoryPolicy,
   type OpenUiToolDescriptor,
   SANDBOX_RUNTIME_ENV,
 } from '@agentport/shared';
@@ -94,6 +96,11 @@ export interface WorkspaceInput {
   toolsDeny?: string[];
   /** 生成式 UI 可调用的工具；必须与执行桥的工具目录同源，提示词里没有的调用一律拒绝。 */
   openuiTools?: OpenUiToolDescriptor[];
+  /**
+   * 专家记忆策略：决定 CLAUDE.md 里主会话记忆的可读/可写说明，必须与 worker 的挂载权限同源。
+   * 缺省按默认策略（可读可写），未解析策略的预览等调用方保持既有文案。
+   */
+  memoryPolicy?: MemoryPolicy;
 }
 
 /** 插件的已授权形态：文件树已按授权裁剪，manifest 未授权组件不会再出现在里面。 */
@@ -244,6 +251,35 @@ function delegationWaitSection(input: WorkspaceInput): string[] {
   return lines;
 }
 
+/** 技能参考文件对所有策略都只读可用，与记忆策略无关。 */
+const SKILL_REFERENCE_CLAUSE =
+  '只读可用 `Read` 打开 `.claude/skills/<slug>/references/` 下的 Markdown。';
+
+/**
+ * 子智能体记忆的可写性与父策略同源：worker 按同一策略把各 slug 目录挂成 rw 或 ro，
+ * runner 也只在 `native_auto` 下预批准 `Edit`。文案若越权宣称可写，子智能体会写只读目录（EROFS）。
+ */
+function subAgentMemoryClause(policy: MemoryPolicy): string {
+  const writable = policy.enabled && policy.writeMode === 'native_auto';
+  const capability = writable ? '读写' : '读取';
+  const suffix = writable ? '' : '，写入会被拒绝';
+  return `已登记的子智能体只允许${capability}自己的 project 记忆（\`.claude/agent-memory/<slug>/\` 内的 Markdown）${suffix}；其他目录与未登记子智能体的原生文件工具请求均被拒绝。`;
+}
+
+/**
+ * 主会话记忆文案必须与挂载权限同源：worker 只在 `enabled && writeMode=native_auto` 时把
+ * `/mnt/agent-memory/` 挂成可写，`proposal_only` 只读、`enabled=false` 不挂载。
+ * 文案若仍宣称可写，模型会照做并向只读目录写入（EROFS）。
+ */
+function memoryAccessLine(policy: MemoryPolicy): string {
+  const main = !policy.enabled
+    ? '专家记忆已停用：本轮不挂载 `/mnt/agent-memory/`，不要读取或写入该目录。'
+    : policy.writeMode === 'proposal_only'
+      ? '主会话只能用 `Read` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；该目录本轮只读，`Write`、`Edit` 会被拒绝。需要改进记忆时，把建议写进最终回复，由用户或管理员通过记忆提案审核后写入。'
+      : '主会话可用 `Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；';
+  return `${main}${SKILL_REFERENCE_CLAUSE}${subAgentMemoryClause(policy)}`;
+}
+
 function renderClaudeMd(input: WorkspaceInput): string {
   const { agent, skills = [] } = input;
   const servers = rootServers(input);
@@ -313,7 +349,7 @@ function renderClaudeMd(input: WorkspaceInput): string {
       : []),
     '',
     `业务能力使用 \`mcp__*\` MCP 工具；${bashCapability ?? '`Bash` 已被显式禁用'}，网络工具仍禁用。`,
-    '主会话可用 `Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；只读可用 `Read` 打开 `.claude/skills/<slug>/references/` 下的 Markdown。已登记的子智能体只允许读写自己的 project 记忆（`.claude/agent-memory/<slug>/` 内的 Markdown）；其他目录与未登记子智能体的原生文件工具请求均被拒绝。',
+    memoryAccessLine(input.memoryPolicy ?? DEFAULT_MEMORY_POLICY),
     `交付给用户的文件写到 \`/mnt/outputs/\`。完成后告诉用户打开右上角「会话成果」即可预览或下载，只用这个叫法。修改已有交付时继续用同一路径覆盖，本轮没有新增或修改的文件不必重写；原生文件工具在目录之外不可写${bashCapability ? '，`Bash` 在容器内执行，可访问容器内已挂载的目录' : ''}。`,
     '如需更多能力，请让管理员在平台中为智能体绑定对应的 MCP Server。',
     '',
