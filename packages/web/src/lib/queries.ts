@@ -1813,6 +1813,7 @@ export const knowledgeKeys = {
   bases: ['knowledge', 'bases'] as const,
   base: (id: string) => ['knowledge', 'base', id] as const,
   summary: (id: string) => ['knowledge', 'base-summary', id] as const,
+  activity: (id: string) => ['knowledge', 'base-activity', id] as const,
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
   documentVersions: (documentId: string) => ['knowledge', 'document-versions', documentId] as const,
   manual: (documentId: string) => ['knowledge', 'manual', documentId] as const,
@@ -1867,6 +1868,20 @@ export function useKnowledgeBaseSummary(id: string) {
     queryKey: knowledgeKeys.summary(id),
     queryFn: ({ signal }) => api.knowledgeBaseSummary(id, signal),
     staleTime: 0,
+    // 最近一条任务仍活跃时刷新计数与任务状态；终态、超过轮询窗口或没有任务时不轮询。
+    refetchInterval: (query) =>
+      knowledgeShouldPoll(query.state.data?.lastJob ? [query.state.data.lastJob] : [])
+        ? 3_000
+        : false,
+  });
+}
+
+/** 概览只展示最近一页活动，不需要翻页；进入概览时按 staleTime 0 重新取一次。 */
+export function useKnowledgeBaseActivity(id: string) {
+  return useQuery({
+    queryKey: knowledgeKeys.activity(id),
+    queryFn: () => api.knowledgeBaseActivity(id).then((page) => page.items),
+    staleTime: 0,
   });
 }
 
@@ -1875,6 +1890,14 @@ export function useCreateKnowledgeBase() {
   return useMutation({
     mutationFn: (input: KnowledgeBaseInput) => api.createKnowledgeBase(input),
     onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.bases }),
+  });
+}
+
+/** 分块预览是纯计算，不写库也不影响缓存，所以用 mutation 而不是 query。 */
+export function usePreviewKnowledgeChunks(baseId: string) {
+  return useMutation({
+    mutationFn: (input: { sample: string; chunkTokens?: number; chunkOverlap?: number }) =>
+      api.previewKnowledgeChunks(baseId, input),
   });
 }
 
@@ -1964,6 +1987,15 @@ export function useCreateKnowledgeTag(baseId: string) {
   const invalidate = useKnowledgeStructureInvalidate(baseId);
   return useMutation({
     mutationFn: (name: string) => api.createKnowledgeTag(baseId, name),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRenameKnowledgeTag(baseId: string) {
+  const invalidate = useKnowledgeStructureInvalidate(baseId);
+  return useMutation({
+    mutationFn: (vars: { tagId: string; name: string }) =>
+      api.renameKnowledgeTag(vars.tagId, vars.name),
     onSuccess: invalidate,
   });
 }

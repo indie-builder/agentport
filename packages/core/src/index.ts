@@ -11,6 +11,26 @@ export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-ru
 export { AppError, fail, isAppError } from './errors.js';
 export { inspectKnowledgeAudio } from './knowledge-audio.js';
 export {
+  chunkBlocks,
+  chunkDocument,
+  emptyHeading,
+  fenceCloser,
+  fenceStartMarker,
+  isAtomicBlock,
+  isFenceStart,
+  isTableBlock,
+  isTableDelimiterLine,
+  KnowledgeParseError,
+  lineAtOffset,
+  markdownBlocks,
+  type PageRange,
+  type ParsedBlock,
+  type ParsedDocument,
+  type ParsedImage,
+  type ParseErrorCode,
+  splitLines,
+} from './knowledge-chunking.js';
+export {
   type AsrProfile,
   type AudioTranscript,
   embedImages,

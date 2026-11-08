@@ -180,6 +180,7 @@ import {
   useKnowledgeTags,
   useKnowledgeVersionDetails,
   usePublishKnowledgeDocumentVersion,
+  useRenameKnowledgeTag,
   useReprocessKnowledgeDocument,
   useRetryKnowledgeJob,
   useRollbackKnowledgeDocument,
@@ -427,8 +428,10 @@ export function KnowledgeDetailPage() {
                 <KnowledgeOverview
                   base={base.data}
                   canCreate={can(me.data, 'knowledge.create')}
+                  canUpload={caps.content}
                   canReadAgents={canReadAgents}
                   onOpenJobs={() => go({ panel: 'jobs', document: undefined })}
+                  onOpenDocuments={() => go({ panel: 'documents' })}
                   onDuplicated={(nextBaseId) =>
                     void navigate({
                       to: '/knowledge/$baseId',
@@ -1362,12 +1365,31 @@ function FolderDialog({
 function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void }) {
   const tags = useKnowledgeTags(baseId);
   const create = useCreateKnowledgeTag(baseId);
+  const rename = useRenameKnowledgeTag(baseId);
   const remove = useDeleteKnowledgeTag(baseId);
   const [name, setName] = useState('');
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeTag | null>(null);
   const trimmed = name.trim();
-  const pending = create.isPending || remove.isPending;
+  const pending = create.isPending || rename.isPending || remove.isPending;
   const guard = useDraftGuard(trimmed !== '', pending, onClose);
+
+  function submitRename() {
+    if (!editing) return;
+    const next = editing.name.trim();
+    const current = tags.data?.find((tag) => tag.id === editing.id)?.name;
+    if (next === '' || next === current) return;
+    rename.mutate(
+      { tagId: editing.id, name: next },
+      {
+        onSuccess: () => {
+          setEditing(null);
+          toastSuccess('标签已重命名');
+        },
+        onError: toastError,
+      },
+    );
+  }
 
   return (
     <>
@@ -1421,16 +1443,71 @@ function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void })
                   key={tag.id}
                   className="flex items-center gap-2 border-b py-2 text-sm last:border-b-0"
                 >
-                  <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`删除标签 ${tag.name}`}
-                    disabled={pending}
-                    onClick={() => setDeleting(tag)}
-                  >
-                    <Trash2 />
-                  </Button>
+                  {editing?.id === tag.id ? (
+                    <form
+                      className="flex min-w-0 flex-1 items-center gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        submitRename();
+                      }}
+                    >
+                      <Input
+                        id="knowledge-tag-rename"
+                        className="min-w-0 flex-1"
+                        value={editing.name}
+                        maxLength={64}
+                        disabled={rename.isPending}
+                        autoFocus
+                        onChange={(event) => setEditing({ id: tag.id, name: event.target.value })}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Escape') return;
+                          event.preventDefault();
+                          setEditing(null);
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={rename.isPending}
+                        onClick={() => setEditing(null)}
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={
+                          rename.isPending ||
+                          editing.name.trim() === '' ||
+                          editing.name.trim() === tag.name
+                        }
+                        aria-busy={rename.isPending}
+                      >
+                        保存
+                      </Button>
+                    </form>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`重命名标签 ${tag.name}`}
+                        disabled={pending}
+                        onClick={() => setEditing({ id: tag.id, name: tag.name })}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`删除标签 ${tag.name}`}
+                        disabled={pending}
+                        onClick={() => setDeleting(tag)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

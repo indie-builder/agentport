@@ -1,3 +1,4 @@
+import type { KnowledgeBaseActivityItem } from '@agentport/contract/knowledge';
 import type {
   AccessScope,
   Account,
@@ -566,6 +567,8 @@ export interface KnowledgeRetrievalEvaluationReport {
 }
 
 export type KnowledgeManualDraft = ApiOutput<ApiClient['knowledge']['documents']['manual']>;
+
+export type KnowledgeChunkPreview = ApiOutput<ApiClient['knowledge']['bases']['chunkPreview']>;
 
 export type KnowledgeSearchResponse = KnowledgeSearchResult;
 export type KnowledgeWikiLinks = KnowledgeWikiLinksResult;
@@ -1410,6 +1413,19 @@ export const api = {
     rpc.knowledge.bases.get({ params: { id } }),
   knowledgeBaseSummary: (id: string, signal?: AbortSignal): Promise<KnowledgeBaseSummary> =>
     rpc.knowledge.bases.summary({ params: { id } }, clientOptions(signal)),
+  // 概览的活动流只读最近一页；20 条足够覆盖一次会话内产生的动作。
+  knowledgeBaseActivity: (
+    id: string,
+    cursor?: string,
+  ): Promise<KnowledgePage<KnowledgeBaseActivityItem>> =>
+    rpc.knowledge.bases.activity({
+      params: { id },
+      query: { limit: 20, ...(cursor === undefined ? {} : { cursor }) },
+    }),
+  previewKnowledgeChunks: (
+    id: string,
+    body: { sample: string; chunkTokens?: number; chunkOverlap?: number },
+  ): Promise<KnowledgeChunkPreview> => rpc.knowledge.bases.chunkPreview({ params: { id }, body }),
   duplicateKnowledgeBase: (
     id: string,
     body: { name?: string; slug?: string; description?: string },
@@ -1441,6 +1457,8 @@ export const api = {
     rpc.knowledge.bases.tags({ params: { id: baseId } }),
   createKnowledgeTag: (baseId: string, name: string): Promise<KnowledgeTag> =>
     rpc.knowledge.bases.createTag({ params: { id: baseId }, body: { name } }),
+  renameKnowledgeTag: (tagId: string, name: string): Promise<KnowledgeTag> =>
+    rpc.knowledge.tags.update({ params: { tagId }, body: { name } }),
   deleteKnowledgeTag: async (tagId: string): Promise<void> => {
     await rpc.knowledge.tags.remove({ params: { tagId } });
   },

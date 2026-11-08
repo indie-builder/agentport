@@ -500,6 +500,74 @@ function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
 
+export interface BaseActivityEntry {
+  id: string;
+  action: string;
+  actor: string;
+  status: string;
+  targetKind: 'base' | 'document' | 'tag';
+  createdAt: Date;
+}
+
+/**
+ * 知识库活动流：单条 SQL 同时取库自身、库内文档与库内标签的审计行。
+ * 文档与标签的审计 target 是自身 id，用 exists 子查询回连库归属，避免先取 id 列表再拼 in；
+ * targetKind 也在 SQL 里判定，调用方不再逐条回查。
+ * 只读聚合：不写审计、不改任何行。已删除文档的删除事件因目标行已不存在而不在流内。
+ */
+export async function listBaseActivity(
+  db: Database,
+  baseId: string,
+  options: PageOptions = {},
+): Promise<Page<BaseActivityEntry>> {
+  const limit = pageLimit(options);
+  const cursor = options.cursor
+    ? sql`and (a.created_at, a.id) < (
+        select c.created_at, c.id from audit_log c where c.id = ${options.cursor}
+      )`
+    : sql.empty();
+  const rows = await db.execute<{
+    id: string;
+    action: string;
+    actor: string;
+    status: string;
+    target_kind: BaseActivityEntry['targetKind'];
+    created_at: Date | string;
+  }>(sql`
+    select a.id, a.action, a.actor, a.status,
+      case
+        when a.target = ${baseId} then 'base'
+        when exists (
+          select 1 from knowledge_documents d where d.id = a.target and d.base_id = ${baseId}
+        ) then 'document'
+        else 'tag'
+      end as target_kind,
+      a.created_at
+    from audit_log a
+    where (
+        a.target = ${baseId}
+        or exists (
+          select 1 from knowledge_documents d where d.id = a.target and d.base_id = ${baseId}
+        )
+        or exists (
+          select 1 from knowledge_tags t where t.id = a.target and t.base_id = ${baseId}
+        )
+      )
+      ${cursor}
+    order by a.created_at desc, a.id desc
+    limit ${limit + 1}
+  `);
+  const items = rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    actor: row.actor,
+    status: row.status,
+    targetKind: row.target_kind,
+    createdAt: toDate(row.created_at),
+  }));
+  return { items: items.slice(0, limit), nextCursor: nextCursor(items, limit) };
+}
+
 // ---------------------------------------------------------------------------
 // 文件夹 / 标签
 
@@ -670,6 +738,19 @@ export async function listTags(db: Database, baseId: string): Promise<KnowledgeT
     .from(knowledgeTags)
     .where(eq(knowledgeTags.baseId, baseId))
     .orderBy(asc(knowledgeTags.name));
+}
+
+export async function updateTag(
+  db: Database,
+  id: string,
+  name: string,
+): Promise<KnowledgeTagRow | null> {
+  const [row] = await db
+    .update(knowledgeTags)
+    .set({ name })
+    .where(eq(knowledgeTags.id, id))
+    .returning();
+  return row ?? null;
 }
 
 export async function deleteTag(db: Database, id: string): Promise<boolean> {

@@ -153,7 +153,10 @@ export const evalSearchSchema = z.object({
   head: z.string().min(1).optional().catch(undefined),
 });
 
-export const knowledgeSearchSchema = resourceSearchSchema;
+export const knowledgeSearchSchema = resourceSearchSchema.extend({
+  // 缺省表示不筛选；显式写入 active / disabled 才只看对应启停状态的库。
+  status: z.enum(['active', 'disabled']).optional().catch(undefined),
+});
 
 export const runtimeEnvironmentsSearchSchema = z.object({
   q: z.string().optional().catch(undefined),

@@ -591,6 +591,96 @@ describe('knowledge base settings', () => {
   });
 });
 
+describe('knowledge settings chunk preview', () => {
+  const previewFixture = {
+    chunks: [
+      { index: 0, heading: '发布流程 > 上线检查', content: '确认变更单已审批通过', length: 42 },
+      { index: 1, heading: '发布流程 > 值班分工', content: '| 角色 | 职责 | 时间 |', length: 88 },
+    ],
+    stats: { count: 2, avgChars: 65, minChars: 42, maxChars: 88 },
+    truncated: false,
+  };
+
+  function previewCalls() {
+    return calls.filter(
+      (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/chunk-preview',
+    );
+  }
+
+  it('previews with the sample and the unsaved chunk fields', async () => {
+    server.use(
+      profilesHandler([embeddingProfile, rerankProfile]),
+      http.post('/api/knowledge/bases/kb_1/chunk-preview', () => HttpResponse.json(previewFixture)),
+    );
+    await mountSettings();
+    await click(button('分块预览'));
+    const sample = document.getElementById(
+      'knowledge-settings-preview-sample',
+    ) as HTMLTextAreaElement;
+    expect(sample.value).toContain('# 发布流程');
+    expect(sample.maxLength).toBe(20000);
+
+    await fill('knowledge-settings-chunk-tokens', '1000');
+    await fill('knowledge-settings-chunk-overlap', '150');
+    await click(button('预览'));
+
+    const body = previewCalls()[0]?.body as
+      | { sample: string; chunkTokens: number; chunkOverlap: number }
+      | undefined;
+    // 预览用表单里的当前值，不依赖已保存设置。
+    expect(body).toMatchObject({ chunkTokens: 1000, chunkOverlap: 150 });
+    expect(body?.sample).toContain('值班分工');
+    // 预览不写库：没有触发设置保存。
+    expect(
+      calls.some((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1'),
+    ).toBe(false);
+
+    expect(document.body.textContent).toContain('2 块 · 平均 65 字符 · 最小 42 · 最大 88');
+    expect(document.body.textContent).toContain('发布流程 > 上线检查');
+    expect(document.body.textContent).toContain('42 字符');
+    expect(
+      (document.getElementById('knowledge-settings-chunk-tokens') as HTMLInputElement).value,
+    ).toBe('1000');
+  });
+
+  it('keeps the form values when the preview request fails', async () => {
+    server.use(
+      profilesHandler([embeddingProfile, rerankProfile]),
+      http.post('/api/knowledge/bases/kb_1/chunk-preview', () =>
+        HttpResponse.json({ code: 'INTERNAL_ERROR', message: '预览失败' }, { status: 500 }),
+      ),
+    );
+    await mountSettings();
+    await click(button('分块预览'));
+    await fill('knowledge-settings-chunk-tokens', '900');
+    await fill('knowledge-settings-chunk-overlap', '90');
+    await click(button('预览'));
+
+    expect(previewCalls().length).toBe(1);
+    expect(document.body.textContent).toContain('分块预览没有生成');
+    expect(
+      (document.getElementById('knowledge-settings-chunk-tokens') as HTMLInputElement).value,
+    ).toBe('900');
+    expect(
+      (document.getElementById('knowledge-settings-chunk-overlap') as HTMLInputElement).value,
+    ).toBe('90');
+    // 失败后仍可保存同一份草稿。
+    expect(button('保存设置').disabled).toBe(false);
+  });
+
+  it('refuses to preview chunk fields that cannot be saved', async () => {
+    server.use(profilesHandler([embeddingProfile, rerankProfile]));
+    await mountSettings();
+    await click(button('分块预览'));
+    await fill('knowledge-settings-chunk-overlap', '900');
+    await fill('knowledge-settings-chunk-tokens', '800');
+    await click(button('预览'));
+    // 预览与保存同一份边界：重叠不小于长度时不发请求，沿用字段错误。
+    expect(previewCalls().length).toBe(0);
+    expect(document.body.textContent).toContain('分块重叠需为 0 到小于分块长度的整数');
+  });
+});
+
 describe('knowledge settings draft protection', () => {
   it('asks before discarding edited chunk settings', async () => {
     server.use(profilesHandler([embeddingProfile, rerankProfile]));

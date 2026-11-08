@@ -231,6 +231,9 @@ function overviewHandlers(job: typeof summary.lastJob = summary.lastJob) {
     http.get('/api/knowledge/bases/kb_1/summary', () =>
       HttpResponse.json({ ...summary, lastJob: job }),
     ),
+    http.get('/api/knowledge/bases/kb_1/activity', () =>
+      HttpResponse.json({ items: [], nextCursor: null }),
+    ),
     http.get('/api/knowledge/model-profiles', () =>
       HttpResponse.json([
         {
@@ -279,6 +282,50 @@ describe('knowledge base overview', () => {
     const router = await mount('/knowledge/kb_1', { panel: 'overview' });
     await click(button('处理记录'));
     expect(router.state.location.search).toMatchObject({ panel: 'jobs' });
+  });
+
+  it('points an empty base at the documents tab', async () => {
+    overviewHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/summary', () =>
+        HttpResponse.json({ ...summary, documents: 0, faqs: 0, wikiPages: 0, lastJob: null }),
+      ),
+      http.get('/api/knowledge/bases/kb_1/documents', () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+      http.get('/api/knowledge/bases/kb_1/folders', () => HttpResponse.json([])),
+      http.get('/api/knowledge/bases/kb_1/tags', () => HttpResponse.json([])),
+    );
+    const router = await mount('/knowledge/kb_1', { panel: 'overview' });
+
+    expect(valueFor('文档')).toBe('0');
+    expect(document.body.textContent).toContain('这个库还没有内容');
+    await click(button('上传文档'));
+    expect(router.state.location.search).toMatchObject({ panel: 'documents' });
+  });
+
+  it('omits the empty next step once any content exists', async () => {
+    overviewHandlers();
+    await mount('/knowledge/kb_1', { panel: 'overview' });
+
+    expect(document.body.textContent).not.toContain('这个库还没有内容');
+    expect(findButton('上传文档')).toBeUndefined();
+  });
+
+  it('hides the empty next step from a reader without content management', async () => {
+    server.use(http.get('/api/auth/me', () => HttpResponse.json(meWith(['knowledge.read']))));
+    overviewHandlers();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/summary', () =>
+        HttpResponse.json({ ...summary, documents: 0, faqs: 0, wikiPages: 0, lastJob: null }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'overview' });
+
+    // 计数照常可读，只是没有动作可做：整块下一步都不出现，不留空话。
+    expect(valueFor('文档')).toBe('0');
+    expect(document.body.textContent).not.toContain('这个库还没有内容');
+    expect(findButton('上传文档')).toBeUndefined();
   });
 
   it('saves name and description from the header edit dialog', async () => {
@@ -384,5 +431,103 @@ describe('knowledge base overview', () => {
     expect(findButton('复制知识库')).toBeUndefined();
     expect(findButton('编辑信息')).toBeUndefined();
     expect(findButton('设置')).toBeUndefined();
+  });
+
+  it('lists recent activity with Chinese action names and the raw actor', async () => {
+    overviewHandlers();
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/activity', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'aud_4',
+              action: 'knowledge.base.updated',
+              actor: 'bus_admin',
+              status: 'ok',
+              targetKind: 'base',
+              createdAt: minutesAgo(1),
+            },
+            {
+              id: 'aud_3',
+              action: 'knowledge.tag.renamed',
+              actor: 'bus_ops',
+              status: 'ok',
+              targetKind: 'tag',
+              createdAt: minutesAgo(4),
+            },
+            {
+              id: 'aud_2',
+              action: 'knowledge.not_mapped_action',
+              actor: 'bus_ops',
+              status: 'ok',
+              targetKind: 'base',
+              createdAt: minutesAgo(90),
+            },
+            {
+              id: 'aud_1',
+              action: 'knowledge.base.created',
+              actor: 'bus_admin',
+              status: 'ok',
+              targetKind: 'base',
+              createdAt: minutesAgo(60 * 24 * 30),
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
+    );
+    await mount('/knowledge/kb_1', { panel: 'overview' });
+
+    expect(document.body.textContent).toContain('最近活动');
+    expect(document.body.textContent).toContain('更新知识库');
+    expect(document.body.textContent).toContain('重命名标签');
+    expect(document.body.textContent).toContain('· 4 分钟前');
+    expect(document.body.textContent).toContain('创建知识库');
+    // 没映射过的 action 原样显示，不猜中文名。
+    expect(document.body.textContent).toContain('knowledge.not_mapped_action');
+    expect(document.body.textContent).toContain('bus_ops');
+    expect(document.body.textContent).toContain('bus_admin');
+  });
+
+  it('omits the activity section when the base has no events', async () => {
+    overviewHandlers();
+    await mount('/knowledge/kb_1', { panel: 'overview' });
+
+    expect(document.body.textContent).toContain('文档摄取');
+    expect(document.body.textContent).not.toContain('最近活动');
+  });
+
+  it('reports an activity load failure with a retry that recovers', async () => {
+    overviewHandlers();
+    let attempts = 0;
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/activity', () => {
+        attempts += 1;
+        return attempts === 1
+          ? HttpResponse.json({ title: 'boom' }, { status: 500 })
+          : HttpResponse.json({
+              items: [
+                {
+                  id: 'aud_1',
+                  action: 'knowledge.base.created',
+                  actor: 'bus_admin',
+                  status: 'ok',
+                  targetKind: 'base',
+                  createdAt: new Date(Date.now() - 60_000).toISOString(),
+                },
+              ],
+              nextCursor: null,
+            });
+      }),
+    );
+    await mount('/knowledge/kb_1', { panel: 'overview' });
+
+    expect(document.body.textContent).toContain('最近活动');
+    expect(document.body.textContent).toContain('内容没有加载出来');
+
+    await click(button('重试'));
+    await waitFor(() => document.body.textContent?.includes('创建知识库') ?? false);
+    expect(document.body.textContent).not.toContain('内容没有加载出来');
   });
 });

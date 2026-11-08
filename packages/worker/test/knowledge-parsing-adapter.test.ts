@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 
 const fixture = (name: string): string =>
@@ -631,6 +631,39 @@ describe('createParsingAdapter().chunkMarkdown', () => {
       expect(chunk.content.endsWith('\n```')).toBe(true);
     }
     expect(chunks.flatMap((chunk) => chunk.content.split('\n').slice(1, -1))).toEqual(table);
+  });
+
+  it('matches the chunk preview for the same markdown, including clamp and atomic grouping', () => {
+    // 与 packages/api/test/knowledge-chunk-preview.test.ts 里的样本逐字相同：
+    // 两边都调 core 的 chunkBlocks，块数必须一致，否则用户按预览调参会被误导。
+    const rows = Array.from(
+      { length: 20 },
+      (_, index) => `| 项目${index} | 指标${index}说明文本 |`,
+    );
+    const markdown = [
+      '# 数据报告',
+      '',
+      `段落哨兵${'长段落用于验证超长块会被二次切分。'.repeat(40)}`,
+      '',
+      '| 名称 | 说明 |',
+      '| --- | --- |',
+      ...rows,
+      '',
+      `尾段哨兵${'收尾段落同样参与合并与切分。'.repeat(12)}`,
+    ].join('\n');
+
+    const chunks = chunkForIngestion(markdown, [], { chunkTokens: 200, overlap: 0 });
+
+    expect(chunks).toHaveLength(8);
+    expect(chunks.every((chunk) => chunk.content.length <= 200)).toBe(true);
+    const table = chunks.filter((chunk) => chunk.content.includes('| 名称 | 说明 |'));
+    expect(table).toHaveLength(3);
+    for (const chunk of table) {
+      expect(chunk.kind).toBe('table');
+      expect(chunk.content.startsWith('| 名称 | 说明 |\n| --- | --- |')).toBe(true);
+      expect(chunk.content).not.toContain('段落哨兵');
+      expect(chunk.content).not.toContain('尾段哨兵');
+    }
   });
 });
 

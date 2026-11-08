@@ -35,6 +35,34 @@
 | `screens/05-overview.png` | 概览整页长图 |
 | `screens/06-copy-overview.png` | 副本概览（计数全 0） |
 
+## 第二轮：管理能力补齐（同日）
+
+同一套环境与账号，追加种子：第二个知识库「归档手册」并置为停用，用于筛选验证。
+
+| 检查 | 结果 |
+|---|---|
+| 列表「按启用状态筛选」选「停用」后只剩归档库，URL 为 `?status=disabled`；切回「全部状态」恢复两个库 | 通过（`07-list-status-filter.png`） |
+| 「管理标签」弹层行内重命名「流程」→「已发布流程」，列表立即显示新名 | 通过（`08-tag-rename.png`） |
+| 概览「最近活动」显示创建知识库 / 更新知识库 / 导入文档 / 重命名标签，按时间倒序，操作者在右 | 通过（`09-overview-activity.png`） |
+| 设置弹层「分块预览」按表单当前分块长度与重叠切分示例文本，输出「4 块 · 平均 60 字符 · 最小 29 · 最大 114」 | 通过（`10-chunk-preview.png`） |
+| 副本（空库）概览显示「这个库还没有内容」+「上传文档」，受 `knowledge.content.manage` 控制 | 通过（`11-empty-overview.png`） |
+| 浏览器控制台无 error / pageerror | 通过 |
+
+| 文件 | 内容 |
+|---|---|
+| `screens/07-list-status-filter.png` | 列表按停用筛选 |
+| `screens/08-tag-rename.png` | 标签行内重命名 |
+| `screens/09-overview-activity.png` | 概览含最近活动 |
+| `screens/10-chunk-preview.png` | 设置弹层分块预览 |
+| `screens/11-empty-overview.png` | 空库概览与下一步 |
+
+### 第二轮未覆盖
+
+- 分块预览只在浏览器验证了默认样例与一次切分；超长样本截断（>50 块）由 api 测试覆盖。
+- 最近活动只覆盖 base / document / tag 三类 target；`updateDocument` 等尚未写审计的动作不会出现（后续如需请单独补写入）。
+- 状态筛选的键盘操作只走了默认 Tab 顺序，未逐项验证方向键。
+
+
 ## 复现
 
 ```bash

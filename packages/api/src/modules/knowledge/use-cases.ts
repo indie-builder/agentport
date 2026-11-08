@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import {
   AppError,
+  chunkBlocks,
   decryptSecrets,
   embedImages,
   embedTexts,
@@ -10,6 +11,7 @@ import {
   inspectKnowledgeAudio,
   isAppError,
   KnowledgeModelError,
+  markdownBlocks,
   rerankDocuments,
   segmentForSearch,
   sha256Hex,
@@ -1012,26 +1014,71 @@ export async function getBase(deps: KnowledgeDeps, id: string) {
   return toBase(row);
 }
 
-export async function updateBase(
-  deps: KnowledgeDeps,
-  id: string,
-  body: {
-    name?: string | undefined;
-    description?: string | undefined;
-    status?: 'active' | 'disabled' | undefined;
-    embeddingProfileId?: string | undefined;
-    rerankProfileId?: string | null | undefined;
-    asrProfileId?: string | null | undefined;
-    settings?:
-      | {
-          chunkTokens?: number | undefined;
-          chunkOverlap?: number | undefined;
-          wikiAutoUpdate?: boolean | undefined;
-          imageProcessing?: Partial<KnowledgeBaseSettings['imageProcessing']> | undefined;
-        }
-      | undefined;
-  },
-) {
+type UpdateBaseBody = {
+  name?: string | undefined;
+  description?: string | undefined;
+  status?: 'active' | 'disabled' | undefined;
+  embeddingProfileId?: string | undefined;
+  rerankProfileId?: string | null | undefined;
+  asrProfileId?: string | null | undefined;
+  settings?:
+    | {
+        chunkTokens?: number | undefined;
+        chunkOverlap?: number | undefined;
+        wikiAutoUpdate?: boolean | undefined;
+        imageProcessing?: Partial<KnowledgeBaseSettings['imageProcessing']> | undefined;
+      }
+    | undefined;
+};
+
+function settingsChanged(current: KnowledgeBaseSettings, next: KnowledgeBaseSettings): boolean {
+  if (
+    current.chunkTokens !== next.chunkTokens ||
+    current.chunkOverlap !== next.chunkOverlap ||
+    current.wikiAutoUpdate !== next.wikiAutoUpdate
+  ) {
+    return true;
+  }
+  const keys = Object.keys(next.imageProcessing) as Array<
+    keyof KnowledgeBaseSettings['imageProcessing']
+  >;
+  return keys.some((key) => current.imageProcessing[key] !== next.imageProcessing[key]);
+}
+
+/**
+ * 审计只记被改动的字段名，不记值；空 patch 或提交了与原值相同的字段都不算变更，
+ * 免得活动流里出现「更新知识库」却没有实际改动。
+ */
+function changedBaseFields(
+  current: NonNullable<Awaited<ReturnType<typeof repo.knowledge.getBase>>>,
+  body: UpdateBaseBody,
+  settings: KnowledgeBaseSettings,
+): string[] {
+  const fields: string[] = [];
+  if (body.name !== undefined && body.name !== current.name) fields.push('name');
+  if (body.description !== undefined && body.description !== current.description) {
+    fields.push('description');
+  }
+  if (body.status !== undefined && body.status !== current.status) fields.push('status');
+  if (
+    body.embeddingProfileId !== undefined &&
+    body.embeddingProfileId !== current.embeddingProfileId
+  ) {
+    fields.push('embeddingProfileId');
+  }
+  if (body.rerankProfileId !== undefined && body.rerankProfileId !== current.rerankProfileId) {
+    fields.push('rerankProfileId');
+  }
+  if (body.asrProfileId !== undefined && body.asrProfileId !== current.asrProfileId) {
+    fields.push('asrProfileId');
+  }
+  if (body.settings !== undefined && settingsChanged(current.settings, settings)) {
+    fields.push('settings');
+  }
+  return fields;
+}
+
+export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBaseBody) {
   const current = await repo.knowledge.getBase(deps.db, id);
   if (!current) notFound('知识库');
   const settingsPatch = body.settings;
@@ -1082,11 +1129,22 @@ export async function updateBase(
   const settingsProblem = await imageSettingsProblem(settings, embedding);
   if (settingsProblem !== null) throw new AppError('CONFLICT', settingsProblem);
   const { settings: _settings, ...rest } = body;
+  const fields = changedBaseFields(current, body, settings);
   const row = await repo.knowledge.updateBase(deps.db, current.id, {
     ...rest,
     ...(settingsPatch === undefined ? {} : { settings }),
   });
   if (!row) notFound('知识库');
+  if (fields.length > 0) {
+    await repo.audit.writeAudit(deps.db, deps.log, {
+      actor: deps.actor,
+      action: 'knowledge.base.updated',
+      target: row.id,
+      input: { fields },
+      status: 'ok',
+      requestId: deps.requestId,
+    });
+  }
   return toBase(row);
 }
 
@@ -1127,6 +1185,74 @@ export async function getBaseSummary(deps: KnowledgeDeps, id: string) {
             createdAt: summary.lastJob.createdAt.toISOString(),
             updatedAt: summary.lastJob.updatedAt.toISOString(),
           },
+  };
+}
+
+/**
+ * 活动流只读：库不存在按对象不存在处理，其余口径由 repo 的单条 SQL 决定。
+ * 与概览其它读数一致，时间统一转 ISO 字符串出 wire。
+ */
+export async function listBaseActivity(deps: KnowledgeDeps, id: string, query: PageQuery) {
+  if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
+  const page = await repo.knowledge.listBaseActivity(deps.db, id, pageOptions(query));
+  return {
+    items: page.items.map((entry) => ({
+      id: entry.id,
+      action: entry.action,
+      actor: entry.actor,
+      status: entry.status,
+      targetKind: entry.targetKind,
+      createdAt: entry.createdAt.toISOString(),
+    })),
+    nextCursor: page.nextCursor,
+  };
+}
+
+const CHUNK_PREVIEW_MAX_CHUNKS = 50;
+
+/**
+ * 分块预览：只按传入样本与当前/草稿分块参数算一次切分，不读写库内容、不入队、不调模型。
+ * chunkTokens 是字符预算，与 worker 摄取时的口径一致。
+ */
+export async function previewChunks(
+  deps: KnowledgeDeps,
+  id: string,
+  body: { sample: string; chunkTokens?: number | undefined; chunkOverlap?: number | undefined },
+) {
+  const row = await repo.knowledge.getBase(deps.db, id);
+  if (!row) notFound('知识库');
+  const chunkTokens = body.chunkTokens ?? row.settings.chunkTokens;
+  const chunkOverlap = body.chunkOverlap ?? row.settings.chunkOverlap;
+  if (chunkOverlap >= chunkTokens) {
+    throw new AppError('INVALID_INPUT', '分块重叠必须小于分块长度');
+  }
+  const blocks = markdownBlocks(body.sample, (line, offset = 0, endOffset = offset) => ({
+    page: 'unknown',
+    line,
+    startOffset: offset,
+    endOffset,
+  }));
+  // 与摄取共用 chunkBlocks：clamp 超长块、表格/代码独立成块，预览块数才与真实分块一致。
+  const chunks = chunkBlocks(blocks, body.sample, {
+    chunkSize: chunkTokens,
+    chunkOverlap,
+  });
+  const lengths = chunks.map((chunk) => chunk.content.length);
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  return {
+    chunks: chunks.slice(0, CHUNK_PREVIEW_MAX_CHUNKS).map((chunk, index) => ({
+      index,
+      heading: chunk.heading,
+      content: chunk.content,
+      length: chunk.content.length,
+    })),
+    stats: {
+      count: chunks.length,
+      avgChars: lengths.length === 0 ? 0 : Math.round(total / lengths.length),
+      minChars: lengths.length === 0 ? 0 : Math.min(...lengths),
+      maxChars: lengths.length === 0 ? 0 : Math.max(...lengths),
+    },
+    truncated: chunks.length > CHUNK_PREVIEW_MAX_CHUNKS,
   };
 }
 
@@ -1251,6 +1377,25 @@ export async function createTag(deps: KnowledgeDeps, id: string, name: string) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
   const row = await repo.knowledge.upsertTag(deps.db, id, name);
   return toTag(row);
+}
+
+export async function renameTag(deps: KnowledgeDeps, tagId: string, name: string) {
+  try {
+    const row = await repo.knowledge.updateTag(deps.db, tagId, name);
+    if (!row) notFound('标签');
+    await repo.audit.writeAudit(deps.db, deps.log, {
+      actor: deps.actor,
+      action: 'knowledge.tag.renamed',
+      target: row.id,
+      input: { name: row.name, baseId: row.baseId },
+      status: 'ok',
+      requestId: deps.requestId,
+    });
+    return toTag(row);
+  } catch (err) {
+    if (isPgCode(err, '23505')) throw new AppError('CONFLICT', '同名标签已存在');
+    throw err;
+  }
 }
 
 export async function deleteTag(deps: KnowledgeDeps, tagId: string): Promise<void> {

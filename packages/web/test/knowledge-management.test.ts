@@ -252,6 +252,7 @@ async function mount(path: string, search: Record<string, string> = {}) {
     validateSearch: z.object({
       q: z.string().optional(),
       sort: z.enum(['newest', 'name']).optional(),
+      status: z.enum(['active', 'disabled']).optional(),
     }),
     component: KnowledgePage,
   });
@@ -599,6 +600,62 @@ describe('knowledge library list', () => {
     expect(router.state.location.pathname).toBe('/knowledge');
   });
 
+  it('filters the list by status from the toolbar and clears every filter together', async () => {
+    const disabled = {
+      ...base,
+      id: 'kb_2',
+      name: '研发手册',
+      slug: 'engineering',
+      status: 'disabled',
+    };
+    server.use(
+      http.get('/api/knowledge/bases', () =>
+        HttpResponse.json({ items: [base, disabled], nextCursor: null }),
+      ),
+      http.get('/api/agents', () => HttpResponse.json([])),
+    );
+    const router = await mount('/knowledge');
+    expect(document.body.textContent).toContain('共 2 个知识库');
+
+    await chooseFilter('按启用状态筛选', '启用');
+    expect(router.state.location.search).toMatchObject({ status: 'active' });
+    expect(document.body.textContent).toContain('产品手册');
+    expect(document.body.textContent).not.toContain('研发手册');
+    // 数量按过滤后的可见项计。
+    expect(document.body.textContent).toContain('共 1 个知识库');
+
+    await chooseFilter('按启用状态筛选', '停用');
+    expect(router.state.location.search).toMatchObject({ status: 'disabled' });
+    expect(document.body.textContent).toContain('研发手册');
+    expect(document.body.textContent).not.toContain('产品手册');
+    expect(document.body.textContent).toContain('共 1 个知识库');
+
+    // 回到全部状态：URL 不再带 status，列表恢复完整。
+    await chooseFilter('按启用状态筛选', '全部状态');
+    expect(router.state.location.search.status).toBeUndefined();
+    expect(document.body.textContent).toContain('共 2 个知识库');
+
+    // 关键词与状态同时无结果时，清除筛选把两者一起清空。
+    await chooseFilter('按启用状态筛选', '停用');
+    await act(async () => {
+      const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索知识库"]');
+      if (!input) throw new Error('Missing search input');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        '不存在',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    expect(router.state.location.search).toMatchObject({ q: '不存在', status: 'disabled' });
+    expect(document.body.textContent).toContain('没有匹配的知识库');
+
+    await click(button('清除筛选'));
+    expect(router.state.location.search).toEqual({});
+    expect(document.body.textContent).toContain('产品手册');
+    expect(document.body.textContent).toContain('研发手册');
+  });
+
   it('pulls the remaining base pages so the count covers the whole library', async () => {
     server.use(
       http.get('/api/knowledge/bases', ({ request }) =>
@@ -770,6 +827,34 @@ describe('knowledge folder and tag management', () => {
         (item) => item.method === 'DELETE' && item.path === '/api/knowledge/folders/kfd_1',
       ),
     ).toBe(true);
+  });
+
+  it('renames a tag inline and refreshes the list', async () => {
+    folderHandlers();
+    let renamed = false;
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/tags', () =>
+        HttpResponse.json([
+          {
+            id: 'ktag_1',
+            baseId: 'kb_1',
+            name: renamed ? '流程规范' : '流程',
+            createdAt: '',
+          },
+        ]),
+      ),
+      http.patch('/api/knowledge/tags/ktag_1', () => {
+        renamed = true;
+        return HttpResponse.json({ id: 'ktag_1', baseId: 'kb_1', name: '流程规范', createdAt: '' });
+      }),
+    );
+    await mount('/knowledge/kb_1');
+    await click(button('管理标签'));
+    await click(button('重命名标签 流程', dialog('管理标签')));
+    await fill('knowledge-tag-rename', '流程规范');
+    await click(button('保存', dialog('管理标签')));
+    expect(patchBody('/api/knowledge/tags/ktag_1')).toEqual({ name: '流程规范' });
+    expect(dialog('管理标签').textContent).toContain('流程规范');
   });
 
   it('adds and removes a tag', async () => {
@@ -3416,7 +3501,7 @@ describe('knowledge UX guards', () => {
     await flush();
     expect(document.body.textContent).toContain('没有匹配的知识库');
     expect(document.body.textContent).not.toContain('还没有知识库');
-    await click(button('清除搜索'));
+    await click(button('清除筛选'));
     expect(document.body.textContent).toContain('产品手册');
   });
 

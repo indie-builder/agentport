@@ -1,16 +1,11 @@
-import { type AsrProfile, inspectKnowledgeAudio } from '@agentport/core';
+import { type AsrProfile, chunkBlocks, inspectKnowledgeAudio } from '@agentport/core';
 import type { KnowledgeLocator } from '@agentport/shared';
 import { parseKnowledgeAudio } from './audio.js';
 import type { ChunkDraft } from './ingestion.js';
 import {
-  chunkDocument,
-  isAtomicBlock,
-  isFenceStart,
   isTableBlock,
-  isTableDelimiterLine,
   KnowledgeParseError,
   markdownBlocks,
-  type ParsedBlock,
   type ParsedDocument,
   parseDocument,
 } from './parsing.js';
@@ -74,77 +69,6 @@ export function createParsingAdapter(
   };
 }
 
-/** 行拆分的表格/代码块不是原文连续片段：保留整表 ref/bbox，但不保留块级文本区间。 */
-function withoutTextRange(block: ParsedBlock): ParsedBlock {
-  const locator = { ...block.locator };
-  delete locator.startOffset;
-  delete locator.endOffset;
-  delete locator.line;
-  delete locator.charStart;
-  delete locator.charEnd;
-  return { ...block, locator };
-}
-
-/**
- * 表格按行拆分时保留列语义，按 maxChars 预算切块并重复表头。
- * shortcut: 单行超过预算时不拆行，那个 chunk 会超预算；模型窗口真的卡住时再按单元格拆。
- */
-function splitTable(block: ParsedBlock, maxChars: number): ParsedBlock[] {
-  const lines = block.content.split('\n');
-  const separator = lines[1] !== undefined && isTableDelimiterLine(lines[1]) ? lines[1] : null;
-  const header = separator ? [lines[0] ?? '', separator] : [];
-  const head = header.length > 0 ? lines.slice(0, 2) : [lines[0] ?? ''];
-  const rows = lines.slice(head.length);
-  const parts: ParsedBlock[] = [];
-  let current: string[] = [];
-  let size = head.join('\n').length;
-  const flush = () => {
-    if (current.length === 0) return;
-    parts.push(withoutTextRange({ ...block, content: [...head, ...current].join('\n') }));
-    current = [];
-    size = head.join('\n').length;
-  };
-  for (const row of rows) {
-    if (current.length > 0 && size + row.length + 1 > maxChars) flush();
-    current.push(row);
-    size += row.length + 1;
-  }
-  flush();
-  return parts;
-}
-
-/** 代码块按行拆分时每段都自带完整 fence，保证切块后仍是有效 Markdown。 */
-function splitFence(block: ParsedBlock, maxChars: number): ParsedBlock[] {
-  const lines = block.content.split('\n');
-  const opener = lines[0] ?? '';
-  const closer = lines.at(-1) ?? '';
-  const body = lines.slice(1, -1);
-  const overhead = opener.length + closer.length + 1;
-  const parts: ParsedBlock[] = [];
-  let current: string[] = [];
-  let size = overhead;
-  const flush = () => {
-    if (current.length === 0) return;
-    parts.push(withoutTextRange({ ...block, content: [opener, ...current, closer].join('\n') }));
-    current = [];
-    size = overhead;
-  };
-  for (const line of body) {
-    if (current.length > 0 && size + line.length + 1 > maxChars) flush();
-    current.push(line);
-    size += line.length + 1;
-  }
-  flush();
-  return parts;
-}
-
-function clampChunk(block: ParsedBlock, maxChars: number): ParsedBlock[] {
-  if (block.content.length <= maxChars) return [block];
-  if (isTableBlock(block.content)) return splitTable(block, maxChars);
-  if (isFenceStart(block.content)) return splitFence(block, maxChars);
-  return [block];
-}
-
 /** 解析器的通用 locator → 固定结构；只搬真实存在的坐标，不补默认值。 */
 function toKnowledgeLocator(locator: Record<string, unknown>, heading: string): KnowledgeLocator {
   const isNumber = (value: unknown): value is number => typeof value === 'number';
@@ -176,6 +100,7 @@ function toKnowledgeLocator(locator: Record<string, unknown>, heading: string): 
 /**
  * chunkTokens 是**字符**预算（1 token ≈ 1 字符的保守上界，中文实际更省）。
  * 不按 4 字符/1 token 放大，否则中文块会超过 embedding 模型窗口。
+ * clamp 与原子分组都在 core 的 chunkBlocks 里，预览走同一个函数，块数与内容不会漂。
  */
 function chunkForIngestion(
   markdown: string,
@@ -183,10 +108,8 @@ function chunkForIngestion(
   options: { chunkTokens: number; overlap: number },
   parsedBlocks?: ParsedDocument['blocks'],
 ): ChunkDraft[] {
-  const maxChars = Math.max(200, options.chunkTokens);
-  const overlap = Math.max(0, Math.min(options.overlap, maxChars - 1));
   // 有解析器真实块时直接沿用其 page/bbox/ref/offset；只在缺失时回退到 Markdown 重算。
-  const blocks: ParsedBlock[] =
+  const blocks =
     parsedBlocks !== undefined && parsedBlocks.length > 0
       ? parsedBlocks
       : markdownBlocks(markdown, (line, offset = 0, endOffset) => {
@@ -200,31 +123,10 @@ function chunkForIngestion(
             ...(range ? { page: range.page } : {}),
           };
         });
-  const rows = blocks.flatMap((block) => clampChunk(block, maxChars));
-
-  // 表格/代码块必须整块独立成 chunk，不能再被跨块合并；连续散文才交给结构感知合并。
-  const groups: ParsedBlock[][] = [];
-  let atomicGroup = false;
-  for (const block of rows) {
-    const atomic = isAtomicBlock(block.content);
-    const last = groups.at(-1);
-    if (!atomic && last && !atomicGroup) {
-      last.push(block);
-      continue;
-    }
-    groups.push([block]);
-    atomicGroup = atomic;
-  }
-
-  const chunks = groups.flatMap((group) =>
-    chunkDocument(
-      { markdown, blocks: group, images: [], pageMap },
-      {
-        chunkSize: maxChars,
-        chunkOverlap: overlap,
-      },
-    ),
-  );
+  const chunks = chunkBlocks(blocks, markdown, {
+    chunkSize: options.chunkTokens,
+    chunkOverlap: options.overlap,
+  });
   return chunks.map((chunk) => {
     const locator = toKnowledgeLocator(chunk.locator, chunk.heading);
     return {

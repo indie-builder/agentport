@@ -28,6 +28,14 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       await requirePermission(context, 'knowledge.read');
       return useCases.getBaseSummary(depsOf(context), input.params.id);
     }),
+    activity: os.bases.activity.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.listBaseActivity(depsOf(context), input.params.id, input.query);
+    }),
+    chunkPreview: os.bases.chunkPreview.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      return useCases.previewChunks(depsOf(context), input.params.id, input.body);
+    }),
     update: os.bases.update.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.update');
       return useCases.updateBase(depsOf(context), input.params.id, input.body);
@@ -181,6 +189,10 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
   },
   tags: {
+    update: os.tags.update.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.content.manage');
+      return useCases.renameTag(depsOf(context), input.params.tagId, input.body.name);
+    }),
     remove: os.tags.remove.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
       await useCases.deleteTag(depsOf(context), input.params.tagId);

@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { FilterSelect } from '../components/filter-select.js';
 import { BaseInfoDialog } from '../components/knowledge-base-info.js';
 import { DuplicateBaseDialog } from '../components/knowledge-duplicate-dialog.js';
 import {
@@ -103,6 +104,13 @@ const baseFormSchema = z.object({
 });
 
 type BaseForm = z.infer<typeof baseFormSchema>;
+
+/** 启停状态筛选：缺省即全部，选项值与 URL 的 status 一一对应。 */
+const statusFilterOptions = [
+  { value: 'all', label: '全部状态' },
+  { value: 'active', label: '启用' },
+  { value: 'disabled', label: '停用' },
+];
 
 /** 列表只返回 base 本身；文档数在详情页看，不在行上为每个库多拉一页文档。 */
 function KnowledgeRow({
@@ -228,6 +236,7 @@ export function KnowledgePage() {
   const search = useSearch({ from: '/_shell/knowledge/' });
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
+  const status = search.status;
   const bases = useKnowledgeBases();
   const baseItems = bases.data ?? [];
   // 知识库是小型集合：一次取完剩余分页（每页 50，仅取元数据），
@@ -309,6 +318,7 @@ export function KnowledgePage() {
   };
 
   const visible = baseItems
+    .filter((base) => status === undefined || base.status === status)
     .filter((base) => {
       const term = query.trim().toLocaleLowerCase();
       return (
@@ -324,11 +334,24 @@ export function KnowledgePage() {
         : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
-  const setQuery = (next: string): void => {
+  // 关键词只换当前地址（不新增历史）；筛选与排序 push，便于后退回到上一组条件。
+  const setSearch = (
+    patch: {
+      q?: string | undefined;
+      sort?: 'newest' | 'name' | undefined;
+      status?: 'active' | 'disabled' | undefined;
+    },
+    replace = false,
+  ): void => {
+    const next = { ...search, ...patch };
     void navigate({
       to: '/knowledge',
-      search: { ...(search.sort ? { sort: search.sort } : {}), ...(next ? { q: next } : {}) },
-      replace: true,
+      search: {
+        ...(next.q ? { q: next.q } : {}),
+        ...(next.sort === undefined || next.sort === 'newest' ? {} : { sort: next.sort }),
+        ...(next.status === undefined ? {} : { status: next.status }),
+      },
+      replace,
     });
   };
 
@@ -336,20 +359,16 @@ export function KnowledgePage() {
   const initialPending = bases.isPending && baseItems.length === 0;
   const initialError = bases.isError && baseItems.length === 0;
   const refreshError = (bases.isError || isFetchNextPageError) && baseItems.length > 0;
-  const filteredEmpty = baseItems.length > 0 && visible.length === 0 && query.trim() !== '';
+  const filtering = query.trim() !== '' || status !== undefined;
+  const filteredEmpty = baseItems.length > 0 && visible.length === 0 && filtering;
 
   return (
     <ResourcePage
       section="knowledge"
       query={query}
-      onQueryChange={setQuery}
+      onQueryChange={(next) => setSearch({ q: next }, true)}
       sort={sort}
-      onSortChange={(next) =>
-        void navigate({
-          to: '/knowledge',
-          search: { ...(query ? { q: query } : {}), ...(next === 'newest' ? {} : { sort: next }) },
-        })
-      }
+      onSortChange={(next) => setSearch({ sort: next })}
       count={visible.length}
       status={
         bases.isPending
@@ -359,6 +378,17 @@ export function KnowledgePage() {
             : hasNextPage
               ? 'pending'
               : 'success'
+      }
+      filters={
+        <FilterSelect
+          value={status ?? 'all'}
+          onValueChange={(next) =>
+            setSearch({ status: next === 'active' || next === 'disabled' ? next : undefined })
+          }
+          options={statusFilterOptions}
+          label="按启用状态筛选"
+          className="w-36"
+        />
       }
       leadingFilters={
         // 搜索在已加载的库里本地过滤；还有更多时直接显示加载入口，避免被当成全库搜索。
@@ -537,8 +567,12 @@ export function KnowledgePage() {
         <PageNote
           title="没有匹配的知识库"
           action={
-            <Button variant="outline" size="sm" onClick={() => setQuery('')}>
-              清除搜索
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSearch({ q: undefined, status: undefined })}
+            >
+              清除筛选
             </Button>
           }
         />
