@@ -590,3 +590,10 @@
 - **现象**：知识库列表页新增个人置顶查询后，只改了自己的 `knowledge-management.test.ts`，另三个也渲染 `KnowledgePage` 的文件（`knowledge-audio`、`knowledge-source-forms`、`knowledge-create-flow`）报 `expected [ 'GET /api/knowledge/bases/pins' ] to deeply equal []`。
 - **原因**：这些文件各自维护 MSW handler，`msw.assertClean()` 把任何未配置请求当作失败；页面新增 Query 等于给所有渲染它的文件加了必配路由。中途 `await cleanup()` 会 `resetHandlers()`，之后还需要重新注册默认 handler。
 - **规避**：新增列表级查询时先 `grep -l "<页面组件>" packages/web/test` 找出所有渲染该页面的文件，逐文件补默认 handler；用例内覆盖同一路由时用更靠后的 `server.use` 覆盖默认值，不要在共享 helper 里写死业务返回。
+
+## 测试：宿主机 HTTP_PROXY 会让本机桩服务器整段失效
+
+- **现象**：`bun run test packages/worker/test/knowledge-parsing.test.ts` 里 19 条 Docling 用例整块失败，收到的却是默认夹具（`docling-success.json`）的内容；单独跑其中一条（`-t "builds markdown from JSON items…"`）却通过，看起来像测试并行污染。
+- **原因**：Bun 的 `fetch` 会继承 `HTTP_PROXY` / `http_proxy`，对 `127.0.0.1` 也不绕过。请求行走代理形态（`GET http://127.0.0.1:63184/json-only/v1/convert/file HTTP/1.1`），桩服务器拿到的 `req.url` 是绝对 URL，`path.replace(/\/v1\/convert\/file$/, '')` 得到 `http://127.0.0.1:63184/json-only`，所有路由都不再匹配，全部落到默认夹具；只有不带路径前缀的那条用例看起来正常。
+- **规避**：`scripts/test-backend.ts` 在 spawn 测试子进程时清掉 `HTTP(S)_PROXY` / `ALL_PROXY`（大小写都清），并给 `NO_PROXY` 补齐 `127.0.0.1,localhost,::1`。手工跑单文件时也要带 `NO_PROXY=127.0.0.1,localhost`，否则会得到与代码无关的红色结果。
+- **排查手法**：在桩服务器的请求回调里打印 `req.url` —— 若出现绝对 URL 或缺少前缀，先在环境变量上找原因，不要改业务代码或测试断言。
