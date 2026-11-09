@@ -641,6 +641,9 @@ export const channelMessages = pgTable(
     uniqueIndex('channel_messages_source_message_idx')
       .on(t.sourceMessageId)
       .where(isNotNull(t.sourceMessageId)),
+    uniqueIndex('channel_messages_agent_run_uniq')
+      .on(t.channelId, t.runId)
+      .where(sql`${t.kind} = 'agent' and ${t.runId} is not null`),
     check('channel_messages_kind_check', sql`${t.kind} in ('human', 'agent', 'system')`),
   ],
 );
