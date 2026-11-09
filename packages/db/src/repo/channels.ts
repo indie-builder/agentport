@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import { CHANNEL_MAX_WAKE_AGENTS, type ChannelRole } from '@agentport/shared';
+import { ACTIVE_RUN_STATUSES, CHANNEL_MAX_WAKE_AGENTS, type ChannelRole } from '@agentport/shared';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
@@ -418,7 +418,7 @@ export async function removeMember(
         and(
           eq(agentRuns.channelId, channelId),
           eq(agentRuns.initiatedBy, businessId),
-          inArray(agentRuns.status, ['queued', 'running']),
+          inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         ),
       )
       .orderBy(asc(agentRuns.createdAt), asc(agentRuns.id));
@@ -551,7 +551,7 @@ export async function removeAgentBinding(
         and(
           eq(agentRuns.channelId, channelId),
           eq(agentRuns.agentId, agentId),
-          inArray(agentRuns.status, ['queued', 'running']),
+          inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         ),
       )
       .orderBy(asc(agentRuns.createdAt), asc(agentRuns.id));

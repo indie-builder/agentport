@@ -1,5 +1,6 @@
 import { AppError } from '@agentport/core';
 import {
+  ACTIVE_RUN_STATUSES,
   type AccessFilter,
   type Agent,
   type AgentDuplicateInput,
@@ -276,7 +277,7 @@ async function assertAgentsIdle(db: DbHandle, agentIds: string[]): Promise<void>
     .where(
       and(
         inArray(agentRuns.agentId, agentIds),
-        inArray(agentRuns.status, ['queued', 'running']),
+        inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         ne(agentRuns.trigger, 'review'),
       ),
     )

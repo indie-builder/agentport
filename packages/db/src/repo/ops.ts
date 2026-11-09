@@ -1,4 +1,4 @@
-import type { AccessFilter } from '@agentport/shared';
+import { ACTIVE_RUN_STATUSES, type AccessFilter } from '@agentport/shared';
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
@@ -189,7 +189,7 @@ export async function listPendingApprovals(db: Database) {
         isNotNull(approvalRequests.runId),
         isNull(approvalRequests.approvedAt),
         sql`(${approvalRequests.expiresAt} is null or ${approvalRequests.expiresAt} > now())`,
-        inArray(agentRuns.status, ['queued', 'running']),
+        inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
       ),
     )
     .orderBy(asc(approvalRequests.createdAt));

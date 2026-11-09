@@ -16,11 +16,13 @@ import {
 } from '@agentport/core';
 import { createDb, repo, schema } from '@agentport/db';
 import {
+  ACTIVE_RUN_STATUSES,
   agentRunJobSchema,
   CONFIG_CONTAINER_DIR,
   EVAL_RUNS_QUEUE,
   effortSchema,
   errorText,
+  isActiveRunStatus,
   knowledgeMcpEntry,
   type MemoryPolicy,
   messageAttachments,
@@ -454,7 +456,7 @@ async function sweepStaleWorkspaces(): Promise<number> {
   const liveRuns = await db
     .select({ id: schema.agentRuns.id })
     .from(schema.agentRuns)
-    .where(inArray(schema.agentRuns.status, ['queued', 'running']));
+    .where(inArray(schema.agentRuns.status, [...ACTIVE_RUN_STATUSES]));
   const liveIds = new Set(liveRuns.map((run) => run.id));
   let removed = 0;
   const agents = await readdir(workspacesDir, { withFileTypes: true }).catch(
@@ -570,7 +572,7 @@ const worker = new Worker(
       .where(eq(schema.agentRuns.id, runId))
       .limit(1);
     // 排队取消由 API 的 queued → cancelled 更新负责发布终态，worker 不重复发布。
-    if (run?.status !== 'queued' && run?.status !== 'running') {
+    if (!isActiveRunStatus(run?.status)) {
       logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
       return;
     }
@@ -1311,7 +1313,7 @@ const worker = new Worker(
       });
       if (!won) {
         const current = await repo.chat.getRun(db, runId);
-        if (!current || current.status === 'queued' || current.status === 'running') {
+        if (!current || isActiveRunStatus(current.status)) {
           logger.warn(
             { runId, status: current?.status },
             'run disappeared or is no longer terminal',

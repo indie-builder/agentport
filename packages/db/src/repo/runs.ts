@@ -6,6 +6,7 @@ import type {
   RunStatus,
   RunTrigger,
 } from '@agentport/shared';
+import { isActiveRunStatus } from '@agentport/shared';
 import {
   and,
   asc,
@@ -356,7 +357,7 @@ export async function isRunActive(db: Database, runId: string): Promise<boolean>
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
     .limit(1);
-  return row?.status === 'queued' || row?.status === 'running';
+  return isActiveRunStatus(row?.status);
 }
 
 /**

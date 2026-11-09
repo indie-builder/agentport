@@ -1,3 +1,4 @@
+import { ACTIVE_RUN_STATUSES, isActiveRunStatus } from '@agentport/shared';
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { agentRuns, approvalRequests, servers } from '../schema.js';
@@ -50,7 +51,7 @@ export async function listChannelApprovals(
       and(
         eq(approvalRequests.channelId, input.channelId),
         eq(agentRuns.channelId, input.channelId),
-        inArray(agentRuns.status, ['queued', 'running']),
+        inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         isNull(approvalRequests.approvedAt),
         or(isNull(approvalRequests.expiresAt), gt(approvalRequests.expiresAt, new Date())),
       ),
@@ -123,7 +124,7 @@ export async function approveChannelApproval(
     if (role === 'member' && run.initiatedBy !== input.businessId) {
       return { kind: 'forbidden', reason: 'channel_role' };
     }
-    if (run.status !== 'queued' && run.status !== 'running') {
+    if (!isActiveRunStatus(run.status)) {
       return { kind: 'conflict', reason: 'run_inactive' };
     }
     if (approval.approvedAt !== null) return { kind: 'conflict', reason: 'decided' };
