@@ -347,7 +347,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     expect(detail?.results).toHaveLength(1);
   });
 
-  it('refuses an already claimed redelivery and keeps the persisted results', async () => {
+  it('skips an already claimed redelivery and keeps the persisted results', async () => {
     const { evalRunId, snapshot } = await seed([
       { name: 'alpha', prompt: 'prompt-alpha', expectation: 'reply:prompt-alpha' },
       { name: 'beta', prompt: 'prompt-beta', expectation: 'reply:prompt-beta' },
@@ -371,16 +371,13 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       .where(eq(schema.evalRuns.id, evalRunId));
     mocks.queueAdd.mockClear();
 
-    await expect(
-      runEvalJob({ db, logger, redisUrl: 'redis://unused', job: { data: { evalRunId } } }),
-    ).rejects.toThrow('execution was interrupted');
+    await runEvalJob({ db, logger, redisUrl: 'redis://unused', job: { data: { evalRunId } } });
 
-    // 不重跑：没有新的 case 子 run，已落库的结果与 passed 原样保留。
+    // 不重跑、不预占：没有新的 case 子 run，已落库的结果与 passed 原样保留，租约保持 running。
     expect(mocks.queueAdd).not.toHaveBeenCalled();
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
-    expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 1 });
-    expect(detail?.evalRun.error).toContain('execution was interrupted');
-    expect(detail?.evalRun.finishedAt).not.toBeNull();
+    expect(detail?.evalRun).toMatchObject({ status: 'running', passed: 1, error: null });
+    expect(detail?.evalRun.finishedAt).toBeNull();
     expect(detail?.results).toHaveLength(1);
     expect(detail?.results[0]).toMatchObject({ passed: true, output: 'reply:prompt-alpha' });
   });
