@@ -11,6 +11,8 @@ import {
 const RECONCILE_MS = 5 * 60_000;
 /** 刚认领的 building 行先放过一轮：探测与认领并发时状态仍有瞬时窗口。 */
 const BUILDING_GRACE_MS = 5 * 60_000;
+/** queued 行陈旧阈值：job 已入队却长期未被消费（队列卡住/worker 不消费）时判 failed，避免永久排队中。 */
+const QUEUED_STALE_MS = 2 * RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS;
 
 export const RUNTIME_ENVIRONMENT_BUILD_LOST_ERROR =
   'runtime environment build worker lost track of this build';
@@ -87,8 +89,19 @@ export async function reconcileRuntimeEnvironmentBuilds(
       continue;
     }
 
-    // queued：job 仍在队列里就不动；Redis 丢数据才会得到 null/终态。
-    if (state !== null && ACTIVE_STATES.has(state)) continue;
+    // queued：正在被认领则放过；job 存在但长期未被消费则判陈旧失败；job 丢失/终态则重入队。
+    if (state === 'active') continue;
+    if (state !== null && ACTIVE_STATES.has(state)) {
+      if (now - row.createdAt.getTime() > QUEUED_STALE_MS) {
+        await store.failBuild(row.id, '构建排队超时');
+        failed += 1;
+        logger.warn(
+          { versionId: row.id },
+          'stale queued runtime environment build reconciled as failed',
+        );
+      }
+      continue;
+    }
     try {
       if (state !== null) await queue.remove(row.id).catch(() => undefined);
       await queue.add(
