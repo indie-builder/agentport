@@ -663,6 +663,18 @@
 
 **状态**：本工作树实现，全量 typecheck 与 build 通过；shared 12、api 78（三文件组合连跑三次）、worker/sandbox 与 web 记忆相关套件通过；独立终审 PASS WITH FIXES，必修项已修复并复核。真实模型记忆质量与跨 run 召回未审计，不能据此宣称已上线。
 
+## D-80 ✅ 频道延期项按实际业务与市面实践取舍（2026-11-09）
+
+**决定**：以「单机自用、内部小团队多账户、D-21 暂不对外」为实际业务前提，9 项延期能力取舍如下：
+- 做：CH-04 唤醒 outbox（M）、CH-12 审批参数与审计（M）、CH-11 共享工作现场轻量版（M）、CH-02 频道 run 专家记忆只读（S）、CH-14 拆两半（删除 paused 死状态、@all 补人工入口，S）、CH-17 agent 审计主体与频道授权收敛（M）。
+- 挂条件：CH-03 维持 D-16 方案 A，D-21 对外翻转前升级；CH-17 完整独立 agent 身份/频道级 token 仅在对外前做；CH-18 thread/per-task session 在出现真实并行需求前不做，串行拒绝写为已知限制。
+- 不做：CH-19 自由 agent 到 agent 自动协作；需要时只做「agent 建议、人确认」的显式 handoff，带预算、深度与终止条件。
+- 顺序：CH-04 → CH-12 → CH-11 最小版 → CH-02 只读 → CH-14 → CH-17 最小版。
+
+**依据**：Slack/Teams/Discord/Linear/GitHub Copilot/Claude Tag 等产品做法、OpenAI Agents SDK/AutoGen/CrewAI/LangGraph/Devin 等框架做法与当前代码现状三路调研汇合；市场证据与逐项理由见 docs/research/channel-architecture-review-2026-11-08.md 第 9 节。关键判断：显式编排优于自由群聊；并行单位是 task/session + 独立工作区；审批需展示参数并记双身份；shared 记忆不等于全局可读；socket proxy 不是多租户边界。
+
+**状态**：CH-04 已在本 PR 实现（channel_wakes 事务性 outbox、agent_runs 触发唯一索引、请求路径同步派发 + 启动/30 秒扫尾恢复）；其余项按上述顺序排期。D-21 仍为「暂不对外」，本决定不改变对外程度。
+
 ---
 
 ## 决策记录格式

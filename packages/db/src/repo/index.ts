@@ -5,6 +5,7 @@ export * as agents from './agents.js';
 export * as audit from './audit.js';
 export * as channelApprovals from './channel-approvals.js';
 export * as channelControl from './channel-control.js';
+export * as channelWakes from './channel-wakes.js';
 export * as channels from './channels.js';
 export * as chat from './chat.js';
 export * as evalRepo from './eval.js';

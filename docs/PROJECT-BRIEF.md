@@ -429,6 +429,17 @@ channel_messages(id text pk, channel_id text fk cascade, seq bigserial,
 -- 索引 (channel_id, seq)；partial unique (channel_id, client_message_id) where client_message_id is not null
 -- partial unique (source_message_id) where source_message_id is not null
 
+channel_wakes(id text pk,  -- 派生 ID：channel_message_id:agent_id
+              channel_id text fk cascade, channel_message_id text fk cascade,
+              agent_id text fk cascade,
+              status text check in (pending,dispatching,enqueued,skipped,failed) default pending,
+              attempts int not null default 0, next_attempt_at timestamptz not null default now(),
+              claimed_at timestamptz nullable, last_error text nullable,
+              created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+              unique (channel_message_id, agent_id))
+-- 索引 (status, next_attempt_at)；agent_runs partial unique
+-- (channel_id, channel_trigger_message_id, agent_id) where channel_id is not null
+
 -- M2：只新增可空列，私有对话 channel_id 保持 null
 conversations.channel_id text nullable fk channels(id) on delete cascade
 -- partial unique (channel_id, agent_id) where channel_id is not null

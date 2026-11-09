@@ -713,8 +713,8 @@ describe.skipIf(!ready)('channel lane context injection', () => {
     );
     await finish(second);
 
-    const old = await admit(channelId, agentId, m2.message.id, owner, 'm2');
-    expect(await laneUserContent(old.run.id)).toEqual({ type: 'text', text: 'm2' });
+    const old = await admit(channelId, agentId, m1.message.id, owner, 'm1');
+    expect(await laneUserContent(old.run.id)).toEqual({ type: 'text', text: 'm1' });
     expect(await bindingContextSeq(channelId, agentId)).toBe(m4.message.seq);
     await finish(old);
 

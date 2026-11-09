@@ -648,6 +648,41 @@ export const channelMessages = pgTable(
   ],
 );
 
+export const channelWakes = pgTable(
+  'channel_wakes',
+  {
+    id: text('id').primaryKey(),
+    channelId: text('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    channelMessageId: text('channel_message_id')
+      .notNull()
+      .references(() => channelMessages.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    status: text('status', {
+      enum: ['pending', 'dispatching', 'enqueued', 'skipped', 'failed'],
+    })
+      .notNull()
+      .default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('channel_wakes_message_agent_idx').on(t.channelMessageId, t.agentId),
+    index('channel_wakes_status_next_idx').on(t.status, t.nextAttemptAt),
+    check(
+      'channel_wakes_status_check',
+      sql`${t.status} in ('pending', 'dispatching', 'enqueued', 'skipped', 'failed')`,
+    ),
+  ],
+);
+
 export const agentRuns = pgTable(
   'agent_runs',
   {
@@ -751,6 +786,9 @@ export const agentRuns = pgTable(
       t.startedAt.desc().nullsLast(),
       t.id.desc(),
     ),
+    uniqueIndex('agent_runs_channel_trigger_idx')
+      .on(t.channelId, t.channelTriggerMessageId, t.agentId)
+      .where(isNotNull(t.channelId)),
   ],
 );
 
@@ -1903,6 +1941,7 @@ export const schema = {
   channelMembers,
   channelAgentBindings,
   channelMessages,
+  channelWakes,
   agentRuns,
   approvalRequests,
   agentSchedules,

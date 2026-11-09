@@ -13,7 +13,6 @@ import {
   channelEventsQuerySchema,
   idParams,
   RUN_QUEUE_MAX_WAITING,
-  runEnqueueOptions,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
@@ -22,7 +21,6 @@ import { z } from 'zod';
 import { authorize, authorizeObject, requireUser } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
-import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import {
   getQueue,
@@ -31,16 +29,15 @@ import {
   subscribeChannel,
 } from '../../queue/producer.js';
 import type { NativeHttpDependencies } from '../chat/http.js';
-import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
+import { toMessage } from './mappers.js';
+import { dispatchChannelWakes } from './wakes.js';
 
 const channelRepo = repo.channels;
 const SSE_BATCH = 200;
 const SSE_POLL_MS = 3000;
 const SSE_FALLBACK_POLL_MS = 30_000;
-const LANE_BUSY_NOTICE = '当前智能体正在处理上一轮消息，本条已保存；请等它结束后再 @ 继续。';
-const WAKE_FAILED_NOTICE = '智能体启动失败，请重新 @ 该智能体。';
 function subjectFor(context: RequestContext): {
   businessId: string;
 } {
@@ -84,21 +81,6 @@ function toBinding(row: repo.channels.ChannelAgentBindingRow): ChannelAgentBindi
     createdAt: row.createdAt.toISOString(),
   };
 }
-function toMessage(row: repo.channels.ChannelMessageRow): ChannelMessage {
-  return {
-    id: row.id,
-    channelId: row.channelId,
-    seq: row.seq,
-    kind: row.kind,
-    authorBusinessId: row.authorBusinessId,
-    agentId: row.agentId,
-    runId: row.runId,
-    body: row.body,
-    clientMessageId: row.clientMessageId,
-    sourceMessageId: row.sourceMessageId,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
 function toListItem(row: repo.channels.ChannelListItemRow): ChannelListItem {
   return {
     ...toChannel(row),
@@ -138,22 +120,6 @@ async function publishMessage(
       { err, channelId, seq: message.seq },
       'channel event publish failed; SSE will recover from DB replay',
     );
-  }
-}
-async function postWakeFailureNotice(
-  context: RequestContext,
-  channelId: string,
-  agentId: string,
-): Promise<void> {
-  try {
-    const notice = await channelRepo.postSystemMessage(context.db, {
-      channelId,
-      agentId,
-      body: WAKE_FAILED_NOTICE,
-    });
-    if (notice !== null) await publishMessage(context, channelId, toMessage(notice));
-  } catch (err) {
-    context.log.warn({ err, channelId, agentId }, 'channel wake failure notice failed');
   }
 }
 function forbidden(message: string): never {
@@ -406,55 +372,12 @@ export const channelsMainRouter = {
       case 'ok': {
         const message = toMessage(result.message);
         await publishMessage(context, id, message);
-        for (const agentId of result.wakeAgentIds) {
-          const agentVersion = await repo.agentVersions.latestAgentVersion(context.db, agentId);
-          let admitted: Awaited<ReturnType<typeof repo.chat.admitChatRun>>;
-          try {
-            admitted = await repo.chat.admitChatRun(context.db, {
-              agentId,
-              message: input.body.body,
-              subject: { kind: 'user', businessId: principal.businessId },
-              ...(agentVersion === null ? {} : { agentVersion }),
-              trigger: 'channel',
-              channel: { channelId: id, channelMessageId: message.id },
-            });
-          } catch (err) {
-            if (err instanceof AppError && err.code === 'CONFLICT') {
-              const notice = await channelRepo.postSystemMessage(context.db, {
-                channelId: id,
-                agentId,
-                body: LANE_BUSY_NOTICE,
-              });
-              if (notice !== null) await publishMessage(context, id, toMessage(notice));
-              continue;
-            }
-            await postWakeFailureNotice(context, id, agentId);
-            throw err;
-          }
-          try {
-            await getQueue().add(
-              'run',
-              {
-                runId: admitted.run.id,
-                agentId,
-                conversationId: admitted.conversationId,
-                prompt: input.body.body,
-              },
-              runEnqueueOptions(admitted.run.id),
-            );
-          } catch {
-            try {
-              await failQueuedRunEnqueue(context.db, admitted.run.id);
-            } catch {
-              context.log.warn(
-                { runId: admitted.run.id },
-                'channel enqueue failure cleanup failed',
-              );
-            }
-            await postWakeFailureNotice(context, id, agentId);
-            return fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
-          }
-        }
+        await dispatchChannelWakes({
+          db: context.db,
+          log: context.log,
+          queue: getQueue(),
+          channelMessageId: message.id,
+        });
         return { status: result.duplicate ? (200 as const) : (201 as const), body: message };
       }
     }
