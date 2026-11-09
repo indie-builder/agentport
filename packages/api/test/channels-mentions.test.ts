@@ -520,7 +520,7 @@ describe.skipIf(!ready)('channel mentions', () => {
     expect(cancel.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
   });
 
-  it('compensates a failed enqueue and keeps the channel message', async () => {
+  it('retries the wake when the enqueue fails and keeps the channel message', async () => {
     const channel = await createChannel();
     const agent = await createBoundAgent(channel.id);
     const queue = getQueue();
@@ -535,11 +535,16 @@ describe.skipIf(!ready)('channel mentions', () => {
       add.mockRestore();
     }
 
-    expect(posted.statusCode, posted.body).toBe(503);
-    expect(posted.json<{ code: string }>().code).toBe('SERVICE_UNAVAILABLE');
+    expect(posted.statusCode, posted.body).toBe(201);
     const runs = await channelRuns(channel.id);
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ status: 'failed' });
+    expect(runs[0]).toMatchObject({ status: 'queued' });
+    const wakes = await app.client.unsafe<{ status: string; attempts: number }[]>(
+      'select status, attempts from channel_wakes where channel_id = $1 and agent_id = $2',
+      [channel.id, agent.id],
+    );
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]).toMatchObject({ status: 'pending', attempts: 1 });
 
     const messages = await call('GET', `/api/channels/${channel.id}/messages`, owner.cookie);
     expect(messages.statusCode, messages.body).toBe(200);

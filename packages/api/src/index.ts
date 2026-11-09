@@ -5,13 +5,19 @@ import * as Bun from 'bun';
 import { serveStatic } from 'hono/bun';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
-import { closeProducer } from './queue/producer.js';
+import { startChannelWakeSweeper } from './modules/channels/wakes.js';
+import { closeProducer, getQueue } from './queue/producer.js';
 
 const config = loadConfig();
 const runtime = await buildApp(config, {
   timeout: (request, seconds) => server.timeout(request, seconds),
 });
 installProcessGuards(runtime.log);
+const stopChannelWakeSweeper = startChannelWakeSweeper({
+  db: runtime.db,
+  log: runtime.log,
+  queue: getQueue(),
+});
 const { app } = runtime;
 const webDist = process.env.WEB_DIST ? resolve(process.env.WEB_DIST) : undefined;
 if (webDist && existsSync(webDist)) {
@@ -54,6 +60,7 @@ async function shutdown(signal: string): Promise<void> {
   ]);
   clearTimeout(graceTimer);
   await closing;
+  await stopChannelWakeSweeper();
   let code = 0;
   try {
     await closeProducer();

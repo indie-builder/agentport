@@ -421,3 +421,98 @@ agent 动作有独立审计主体；频道成员触发 agent 时权限来源明�
 - CH-02（记忆边界需产品决策）、CH-03（D-16 部署方案）、CH-04（wake outbox）、CH-11（共享工作现场）、CH-12（审批参数与审计）、CH-14（paused/@all）、CH-17（agent 身份）、CH-18（thread/per-task session）、CH-19（agent 自主协作）。
 
 本批没有新增表或迁移，没有引入 wake outbox，没有改变频道的“人驱动共享频道”定位。
+
+延期项的按功能维度取舍见第 9 节。§8 中「没有引入 wake outbox」是上一批历史状态，CH-04 已在 D-80 后落地。
+
+## 9. 按功能维度的延期取舍（2026-11-09）
+
+> 本节是第 8 节「延后」清单的取舍落档，不改写第 1-8 节的调研事实与实施记录。
+> 前提：本项目实际形态是单机自用、内部小团队多账户（D-74）；D-21 暂不对外；D-16 方案 A 已接受。市面功能为外部多租户设计，取舍先过这道闸。
+> 每条的「市场事实」指外部产品或官方文档的可核对做法；「本项目判断」指基于上述前提对当前项目应做与否的结论。
+
+**取舍总览**
+
+| 条目 | 结论 | 规模 | 排期 / 条件 |
+|---|---|---|---|
+| CH-04 唤醒可靠性 | 做 | M | 排第一 |
+| CH-12 审批参数与审计 | 做 | M | 第二 |
+| CH-11 共享工作现场 | 轻量版 | M | 第三；全量投影不做 |
+| CH-02 记忆边界 | 只读策略 | S | 第四；频道级记忆缓做 |
+| CH-14 死状态与 @all | 拆两半 | S | 第五 |
+| CH-17 agent 身份 | 最小版 | M | 第六；完整版挂「对外」条件 |
+| CH-03 沙盒隔离 | 维持 D-16 方案 A | — | 挂「对外」条件，不提前做 |
+| CH-18 线程 / 并行 | 暂不做 | — | 写成已知限制 |
+| CH-19 A2A 协作 | 不做 | — | 真需要时只做人工确认的 handoff |
+
+### 9.1 CH-04 唤醒可靠性：做，M，排第一
+
+- 市场事实：Slack Events API 对失败投递做重试，并用 `event_id` 去重（https://docs.slack.dev/apis/events-api/）；AWS 推荐 Transactional Outbox 模式，把业务数据和待发送消息同事务落库，再由独立流程可靠投递（https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html）。
+- 本项目判断：唤醒与入队不是原子的，崩溃窗口没有补偿，直接导致「消息已保存但没有 run」，属于内部多账户也会真实踩到的可靠性缺口，应做且排第一。
+- 做法：新增 `channel_wakes` 表，与频道消息同事务落库；`(channel_message_id, agent_id)` 唯一约束；补偿扫描补触发未完成的唤醒；失败写系统提示。`agent_runs` 再加 `(channel_id, channel_trigger_message_id, agent_id)` 部分唯一索引兜底。
+- 代码事实：频道消息与 `channel_wakes` 行同事务落库后，请求路径调用 `dispatchChannelWakes`，再逐条认领并调 `admitChatRun` 和 `queue.add`（`packages/api/src/modules/channels/router.ts:372-380`、`packages/api/src/modules/channels/wakes.ts:187-228`）；入队失败处理在 `packages/api/src/modules/channels/wakes.ts`；同一 `clientMessageId` 重放返回 duplicate、`wakeAgentIds` 为空（`packages/db/src/repo/channels.ts:704-716`）。
+
+### 9.2 CH-12 审批参数与审计：做，M
+
+- 市场事实：GitHub PR review 在批准前展示 diff（https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/approving-a-pull-request-with-required-reviews）；Asana AI Action Log 记录 agent 动作（https://www.asana.com/inside-asana/ai-agents-built-for-teams-context-transparency）；ChatGPT workspace agents 的审批动作可配置（https://openai.com/index/introducing-workspace-agents-in-chatgpt/）。
+- 本项目判断：内部共享频道里，成员在看不到工具参数的情况下批准调用，且管理动作没有审计链，收益明确、成本可控，应做。
+- 做法：`approval_requests` 增加可空脱敏参数列；频道 create / update / 成员 / 绑定 / 发消息补审计；`audit` 的 `actorKind` 增加 `agent`。采用最小审计，不依赖完整 CH-17。
+- 代码事实：`approval_requests` 只有 `serverId` / `toolName`，没有工具参数（`packages/db/src/schema.ts:829-863`）；`actorKind` 只有 `user` / `service` / `anonymous`（`packages/db/src/repo/audit.ts:12`、`packages/db/src/schema.ts:982`）；频道 create / update / 成员 / 绑定 / 发消息未写审计（`packages/api/src/modules/channels/router.ts`）。
+
+### 9.3 CH-11 共享工作现场：轻量版，M
+
+- 市场事实：Linear Agent 用 activity 类型记录过程（https://linear.app/developers/agent-interaction）；Claude Tag 在线程内展示 checklist 与产物（https://claude.com/docs/claude-tag/concepts/how-it-works）；GitHub Copilot coding agent 提供 session 日志（https://docs.github.com/en/enterprise-cloud@latest/early-access/copilot/coding-agent/responsible-use-of-copilot-coding-agent）。
+- 本项目判断：频道定位是共享工作现场，但全量投影工具调用和子智能体是 L 级改动，且与 CH-18 的 thread/session 设计重复；先做轻量版即可闭合「看得到过程、答得了提问、拿得到产物」。
+- 做法：提供频道作用域的 run 详情、提问回答与 outputs 读取，复用现有 `getRunDetail` / `questionsRepo` / `listOutputFiles`，授权按频道成员判断；不做工具 / 子智能体全量投影进频道时间线。
+- 风险：频道 lane 内容可能含触发者私有上下文，共享范围需产品确认。
+- 代码事实：`getRunDetail` 在 `packages/db/src/repo/runs.ts:657`；`questionsRepo` 在 `packages/api/src/modules/runs/questions.ts:11`；`listOutputFiles` 在 `packages/api/src/modules/chat/outputs.ts:2,138`；频道 run 被 `/api/runs` 拒绝（`packages/api/src/modules/runs/access.ts:19`）；频道只投影主助手文本（`packages/worker/src/messages.ts:164-178`）。
+
+### 9.4 CH-02 记忆边界：只读策略，S
+
+- 市场事实：ChatGPT in Slack 不带入个人 memory（https://help.openai.com/en/articles/12462158）；Asana memories 遵守任务隐私（https://help.asana.com/s/article/understanding-access-control-for-ai-teammates）；Claude Tag 把频道 notes 与 workspace notes 分层（https://claude.com/docs/claude-tag/concepts/how-it-works）。
+- 本项目判断：内部多账户频道的记忆写入边界必须先收紧；频道级记忆是新产品能力，当前没有真实需求，缓做。只读策略成本最小且能消除「一个用户私聊信息出现在另一个用户频道回答中」的主要风险。
+- 做法：频道 run 强制专家记忆只读（worker 挂载时用 `readOnly` 覆盖，提示词同步说明只读）；文档与 UI 写明限制；频道级记忆缓做。
+- 代码事实：频道 run 已排除触发者个人记忆（`packages/worker/src/personal-memory.ts`）；专家记忆仍按 agent 记忆策略共享（`packages/worker/src/index.ts:686-703`、`docs/ARCHITECTURE.md:419`）。
+
+### 9.5 CH-14 死状态与 @all：拆两半，S
+
+- 第一半，删除 `paused` 死状态：本项目判断是删除。全仓没有 `paused` 的写入路径，唯一的状态写入是 `disconnected`，违反零死代码；`paused` 只存在于 schema、类型和「已暂停」展示中。
+- 代码事实：绑定状态枚举含 `active` / `paused` / `disconnected`，默认 `active`（`packages/db/src/schema.ts:598-602`）；插入绑定时不写状态（`packages/db/src/repo/channels.ts:496-500`）；唯一状态更新为 `disconnected`（`packages/db/src/repo/channel-control.ts:129-137`）；前端仍渲染「已暂停」（`packages/web/src/pages/channel.tsx:928,933`、`packages/web/src/components/channel-settings.tsx:62`）。
+- 第二半，保留 @all 并补人工 UI 入口：市场事实是 Slack `@channel` 仅限人工发送且需确认影响人数（https://slack.com/help/articles/202009646-Notify-a-channel-or-workspace），Teams 的 @all 需 owner 开启。本项目判断是保留而不是删除，因为后端能力已存在且限制明确；当前缺的是人工入口与提示。
+- 代码事实：显式 mentions 的唤醒上限为 5（`packages/shared/src/channels.ts:9,136`；`packages/api/src/modules/channels/router.ts:371`）；`mentionAll` / `autoWakeOnAll` 已进入契约与 API（`packages/shared/src/channels.ts:118-123,138`），Web 只透传 `autoWakeOnAll` 字段，没有设置入口或 @all 发送选项（`packages/web/src/lib/api.ts:303,1160`、`packages/web/src/lib/queries.ts:3145`）。
+
+### 9.6 CH-17 agent 身份：最小版 M，完整版挂「对外」条件
+
+- 市场事实：Slack 的 bot 使用独立 bot token 与身份（https://docs.slack.dev/authentication/tokens）；Asana 把 agent 的有效权限定义为 agent 权限与触发用户权限的交集（https://asana.com/inside-asana/how-asana-thinks-about-agentic-ai-security）；Claude Tag 使用 service accounts（https://claude.com/docs/claude-tag/concepts/agent-identity）。
+- 本项目判断：内部场景下「成员触发即授权」自洽，独立 token / ACL 是 L 级安全改造；等 D-21 对外翻转再做。当前只做 agent 审计主体与频道授权入口收敛，作为最小身份闭环。
+- 代码事实：频道 run 的 subject 是触发者用户（`packages/api/src/modules/channels/wakes.ts:190-197`）；审计没有 agent actor 类型（`packages/db/src/repo/audit.ts`）。
+
+### 9.7 CH-03 沙盒隔离：维持 D-16 方案 A，挂「对外」条件
+
+- 市场共识：socket proxy 只是缩小 Docker API 暴露面，不是租户边界（https://docs.docker.com/engine/security/）；单租户容器够用，多租户才需要 microVM（https://e2b.dev/security）。
+- 本项目判断：当前是单机自用、内部小团队，维持 D-16 方案 A；不提前做 socket proxy、独立沙盒节点或 microVM。只有 D-21 翻转、引入外部用户或第三方 agent 时才重新评估。
+- 代码事实：D-16 与 2026-10-31 备注见 `docs/DECISIONS-PENDING.md`；worker 直挂 `docker.sock`（`packages/worker`）。
+
+### 9.8 CH-18 线程 / 并行：暂不做
+
+- 市场事实：主流并行单位是 task/session 加独立工作区——Devin 每个 session 使用独立 VM（https://docs.devin.ai/work-with-devin/advanced-capabilities）；Cursor 每个 agent 使用独立 worktree（https://cursor.com/blog/agent-best-practices）。
+- 本项目判断：做对的并行是 thread / per-task session 加独立 session 与容器，属 L 级数据模型改动；内部没有真实并行需求，暂不做。把「同一 agent 忙碌时拒绝新 run」写清楚为已知限制。
+- 代码事实：同一 lane 有 queued / running 时拒绝新 run（`packages/db/src/repo/chat.ts:1151-1161`）；忙碌 lane 写 system 提示并跳过（`packages/api/src/modules/channels/wakes.ts:198-208`）。
+
+### 9.9 CH-19 A2A 协作：不做
+
+- 市场事实：未找到自由群聊的官方证据，Linear / Slack / Asana 均为 human 触发，agent 之间不会自动互相唤醒；主流框架依靠显式编排与终止条件（AutoGen termination：https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/termination.html；OpenAI handoffs：https://openai.github.io/openai-agents-python/handoffs/）；Claude Agent Teams 官方确认要求交互式会话，Agent SDK 不可用（https://code.claude.com/docs/en/agent-teams）。
+- 本项目判断：频道定位是「人驱动共享频道」，不做 agent 自主协作。真出现需求时，只做「agent 建议、人确认」的 handoff，且必须有确认步骤、深度 / 预算上限与终止条件。
+- 代码事实：只从人类消息解析 mentions，agent 回复不触发 run（`packages/db/src/repo/channels.ts:630-669`）；没有共享任务表、mailbox 或 artifact 表（`packages/db/src/schema.ts`）。
+
+### 9.10 建议实施顺序
+
+1. CH-04 唤醒可靠性。
+2. CH-12 审批参数与审计。
+3. CH-11 共享工作现场最小版。
+4. CH-02 记忆只读策略。
+5. CH-14 两半（删除 `paused`、补 @all 人工入口）。
+6. CH-17 agent 身份最小版。
+
+CH-03、CH-18、CH-19 挂条件不做：CH-03 等 D-21 对外翻转，CH-18 等真实并行需求，CH-19 只在出现 agent 交接需求时做人工确认版。
+
+以上取舍已由 D-80 确认；CH-04 已在本批实现，其余项按第 9.10 顺序排期。

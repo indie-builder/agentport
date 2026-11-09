@@ -588,10 +588,10 @@ describe.skipIf(!ready)('channel control', () => {
     const [first, second] = runs;
     if (!first || !second) throw new Error('expected two channel runs');
     // 正常准入会因 lane 忙碌拒绝第二条；把两条 run 收拢到同一 lane 以覆盖批量取消。
-    await app.client.unsafe('update agent_runs set agent_id = $2 where id = $1', [
-      second.id,
-      first.agent_id,
-    ]);
+    await app.client.unsafe(
+      'update agent_runs set agent_id = $2, channel_trigger_message_id = null where id = $1',
+      [second.id, first.agent_id],
+    );
     const agentId = first.agent_id;
     await setRunStatus(first.id, 'running');
     await setRunStatus(second.id, 'running');

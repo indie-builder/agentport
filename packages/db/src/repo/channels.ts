@@ -12,6 +12,7 @@ import {
   channelMessages,
   channels,
 } from '../schema.js';
+import { createChannelWakes } from './channel-wakes.js';
 
 /** 频道权限只来自真实成员关系；平台范围不能替代成员身份。 */
 export type ChannelSubject = { businessId: string };
@@ -739,6 +740,11 @@ export async function postMessage(
       .returning();
     if (inserted) {
       await tx.update(channels).set({ updatedAt: new Date() }).where(eq(channels.id, channelId));
+      await createChannelWakes(tx, {
+        channelId,
+        channelMessageId: inserted.id,
+        agentIds: wakeAgentIds,
+      });
       return { kind: 'ok', message: inserted, duplicate: false, wakeAgentIds };
     }
     if (input.clientMessageId === undefined) {
