@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "channel_messages_agent_run_uniq" ON "channel_messages" USING btree ("channel_id","run_id") WHERE "channel_messages"."kind" = 'agent' and "channel_messages"."run_id" is not null;
