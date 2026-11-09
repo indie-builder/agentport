@@ -11,7 +11,7 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { checkUserAgentAccess } from './run-access.js';
 
@@ -164,6 +164,35 @@ export async function processScheduleTrigger(
         prompt: schedule.prompt,
       });
       return enqueued ? 'fired' : 'failed';
+    }
+    // 入队耗尽把运行标成 failed(infra)：重投时重新排队补投，避免触发永久丢失。
+    if (
+      existing?.status === 'failed' &&
+      existing.errorKind === 'infra' &&
+      existing.startedAt === null
+    ) {
+      const requeued = await input.db
+        .update(schema.agentRuns)
+        .set({ status: 'queued', endedAt: null, error: null, errorKind: null })
+        .where(
+          and(
+            eq(schema.agentRuns.id, runId),
+            eq(schema.agentRuns.status, 'failed'),
+            eq(schema.agentRuns.errorKind, 'infra'),
+            isNull(schema.agentRuns.startedAt),
+          ),
+        )
+        .returning({ id: schema.agentRuns.id });
+      if (requeued.length === 1) {
+        const enqueued = await enqueueRun(input.db, input.logger, input.runsQueue, {
+          runId,
+          agentId: existing.agentId,
+          conversationId: existing.conversationId,
+          prompt: schedule.prompt,
+        });
+        return enqueued ? 'fired' : 'failed';
+      }
+      return 'duplicate';
     }
     // 运行已开始或已结束：同一触发不必再跑一次。
     if (existing) return 'duplicate';
