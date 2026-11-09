@@ -1,6 +1,6 @@
 import { fail } from '@agentport/core';
 import type { NativeQuestions, PublicQuestionResponse, RunQuestion } from '@agentport/shared';
-import { questionResponseSchema } from '@agentport/shared';
+import { questionPhase, questionResponseSchema } from '@agentport/shared';
 import { and, asc, eq } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
@@ -157,7 +157,7 @@ export async function respondToQuestion(
       fail('CONFLICT', '这次提问已经回答过，不能覆盖');
     }
     if (run.status !== 'running') fail('CONFLICT', '运行已结束，无法回答这次提问');
-    if (row.expiresAt.getTime() <= Date.now()) fail('CONFLICT', '这次提问已过期，无法回答');
+    if (questionPhase(row) !== 'pending') fail('CONFLICT', '这次提问已过期，无法回答');
 
     const [updated] = await tx
       .update(runQuestions)
