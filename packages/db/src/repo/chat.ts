@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
 import type { AccessFilter, ExecutionSubject, RunTrigger } from '@agentport/shared';
-import { type MessageAttachment, messageAttachments } from '@agentport/shared';
+import { ACTIVE_RUN_STATUSES, type MessageAttachment, messageAttachments } from '@agentport/shared';
 import {
   and,
   asc,
@@ -227,7 +227,10 @@ async function readConversationDeletionSnapshot(
     .select({ id: agentRuns.id })
     .from(agentRuns)
     .where(
-      and(eq(agentRuns.conversationId, input.id), inArray(agentRuns.status, ['queued', 'running'])),
+      and(
+        eq(agentRuns.conversationId, input.id),
+        inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
+      ),
     )
     .limit(1);
   if (active) fail('CONFLICT', '该会话仍有运行未结束，请等待完成或取消后再删除');
@@ -1151,7 +1154,7 @@ export async function admitChatRun(
       .where(
         and(
           eq(agentRuns.conversationId, conversationId),
-          inArray(agentRuns.status, ['queued', 'running']),
+          inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         ),
       )
       .limit(1);
@@ -1265,7 +1268,7 @@ export async function cancelRun(db: Database, runId: string): Promise<AgentRun |
   const [row] = await db
     .update(agentRuns)
     .set({ status: 'cancelled', endedAt: new Date() })
-    .where(and(eq(agentRuns.id, runId), inArray(agentRuns.status, ['queued', 'running'])))
+    .where(and(eq(agentRuns.id, runId), inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES])))
     .returning();
   return row ?? null;
 }

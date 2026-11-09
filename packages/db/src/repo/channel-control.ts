@@ -1,13 +1,10 @@
-import type { ChannelRole } from '@agentport/shared';
+import { ACTIVE_RUN_STATUSES, type ChannelRole } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { agentRuns, channelAgentBindings, channelMembers, channels } from '../schema.js';
 import { type ChannelActiveRunRow, channelMemberRole } from './channels.js';
 
 export type ChannelRunRow = typeof agentRuns.$inferSelect;
-
-/** 控制面只关心活动状态；终态 run 不再占用 lane。 */
-const ACTIVE_STATUSES = ['queued', 'running'] as const;
 
 export type ControlRun = ChannelActiveRunRow;
 
@@ -44,7 +41,7 @@ function activeRuns(
     .where(
       and(
         eq(agentRuns.channelId, channelId),
-        inArray(agentRuns.status, ACTIVE_STATUSES),
+        inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         ...(options.agentId === undefined ? [] : [eq(agentRuns.agentId, options.agentId)]),
       ),
     )

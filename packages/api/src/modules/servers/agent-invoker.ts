@@ -1,7 +1,12 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fail } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
-import { RUN_QUEUE_MAX_WAITING, runEnqueueOptions } from '@agentport/shared';
+import {
+  isActiveRunStatus,
+  isTerminalRunStatus,
+  RUN_QUEUE_MAX_WAITING,
+  runEnqueueOptions,
+} from '@agentport/shared';
 import { eq } from 'drizzle-orm';
 import type { AppContext } from '../../http/context.js';
 import { getQueue } from '../../queue/producer.js';
@@ -128,12 +133,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
           const current = await repo.chat.getRun(app.db, run.id);
           if (!current) fail('RUN_NOT_FOUND', 'run disappeared');
           status = current.status;
-          if (
-            status === 'succeeded' ||
-            status === 'failed' ||
-            status === 'cancelled' ||
-            status === 'timeout'
-          ) {
+          if (isTerminalRunStatus(status)) {
             if (status !== 'succeeded') {
               fail(
                 'UPSTREAM_FAILED',
@@ -146,7 +146,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
           }
         }
         // 停止信号仍然有效，worker 写入的终态优先保留。
-        if (status === 'queued' || status === 'running') {
+        if (isActiveRunStatus(status)) {
           await abortRun({ reason: 'deadline' }, `agent run ${run.id} timed out`);
         }
 

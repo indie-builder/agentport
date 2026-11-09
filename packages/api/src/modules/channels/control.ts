@@ -1,6 +1,7 @@
 import { channelsContract } from '@agentport/contract/channels';
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
+import { isActiveRunStatus } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -56,7 +57,7 @@ async function cancelRun(
   channelId: string,
   run: ControlRun,
 ): Promise<boolean> {
-  if (run.status !== 'queued' && run.status !== 'running') return false;
+  if (!isActiveRunStatus(run.status)) return false;
   const result = await cancelAgentRun(context, run.id);
   if (result === 'queued') await publishChannelFinished(context, channelId, run);
   return result !== null;

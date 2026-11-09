@@ -1,6 +1,7 @@
 import { fail } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
+  ACTIVE_RUN_STATUSES,
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
@@ -65,7 +66,7 @@ export async function assertNoActiveRun(db: Database, agentId: string): Promise<
     .where(
       and(
         inArray(schema.agentRuns.agentId, occupied),
-        inArray(schema.agentRuns.status, ['queued', 'running']),
+        inArray(schema.agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         ne(schema.agentRuns.trigger, 'review'),
       ),
     )
