@@ -12,7 +12,7 @@ import {
   knowledgeFaqImportMetadataSchema,
   knowledgeJobPayloadSchema,
 } from '@agentport/shared';
-import { and, asc, desc, eq, gt, inArray, isNull, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -950,6 +950,31 @@ export async function updateDocument(
     .where(eq(knowledgeDocuments.id, id))
     .returning();
   return row ?? null;
+}
+
+export async function settleProcessingDocument(db: Database, documentId: string): Promise<void> {
+  await db
+    .update(knowledgeDocuments)
+    .set({ status: 'failed', updatedAt: new Date() })
+    .where(
+      and(
+        eq(knowledgeDocuments.id, documentId),
+        eq(knowledgeDocuments.status, 'processing'),
+        isNull(knowledgeDocuments.currentVersionId),
+        isNull(knowledgeDocuments.disabledReason),
+      ),
+    );
+  await db
+    .update(knowledgeDocuments)
+    .set({ status: 'ready', updatedAt: new Date() })
+    .where(
+      and(
+        eq(knowledgeDocuments.id, documentId),
+        eq(knowledgeDocuments.status, 'processing'),
+        isNotNull(knowledgeDocuments.currentVersionId),
+        isNull(knowledgeDocuments.disabledReason),
+      ),
+    );
 }
 
 /** 用户显式删除：级联版本、分块与标签关联，返回是否真的删除了一行。 */

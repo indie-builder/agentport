@@ -1291,6 +1291,9 @@ export async function runReindex(
       if (err instanceof KnowledgeCancelled) throw err;
       // profile 不匹配是整库配置问题，逐个吞掉只会让每个文档都静默失败。
       if (err instanceof KnowledgeProfileMismatch) throw err;
+      if (!document.currentVersionId) {
+        await settleDocumentStatus(deps, document, 'failed');
+      }
       failed += 1;
       deps.logger.warn({ err, documentId: document.id }, 'reindex document failed');
       // 临时模型/解析故障保持原类型，交给队列现有分类器重试；永久失败继续汇总。

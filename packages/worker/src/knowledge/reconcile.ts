@@ -93,6 +93,16 @@ export async function reconcileKnowledgeJobs(
         });
         if (finished) {
           failed += 1;
+          if (row.documentId !== null) {
+            await repo.knowledge
+              .settleProcessingDocument(db, row.documentId)
+              .catch((err: unknown) => {
+                logger.warn(
+                  { err, documentId: row.documentId },
+                  'knowledge document settle failed',
+                );
+              });
+          }
           logger.warn({ jobId: row.id, error }, 'knowledge job reconciled as failed');
         }
       } catch (err) {
