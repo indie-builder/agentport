@@ -11,9 +11,6 @@ import { loadUserAgentAccess } from './run-access.js';
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
 
-/** 已认领的批次被重投说明上次执行被中断；不续跑，交由 processor 收口为 failed。 */
-const EVAL_INTERRUPTED_ERROR = 'eval run execution was interrupted; start a new evaluation';
-
 /** DB/infra 原文含 SQL 与参数；对外只落固定、可操作的说明。 */
 export const EVAL_FAILURE_PUBLIC_MESSAGE =
   'eval run failed due to a database or infrastructure error; start a new evaluation';
@@ -200,9 +197,13 @@ export async function executeEvalRun(input: {
     const claimed = yield* dbQuery(() => evalRepo.claimEvalRun(db, evalRunId));
     if (!claimed) {
       const current = yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId));
+      // claimedAt 视作执行方持有的租约：重投只让位，绝不把在跑的批次判失败（死 worker 由 reconcile 兜底）。
       if (current?.status === 'running' && current.claimedAt !== null) {
-        // 已认领的重投不续跑、不重跑 case：明确失败，保留已落库结果与 passed。
-        return yield* Effect.fail(new UnrecoverableError(EVAL_INTERRUPTED_ERROR));
+        logger.info(
+          { evalRunId },
+          'eval run already claimed by a live worker, skipping duplicate delivery',
+        );
+        return;
       }
       logger.info({ evalRunId }, 'eval run no longer running, skipping duplicate delivery');
       return;

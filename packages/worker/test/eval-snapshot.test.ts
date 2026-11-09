@@ -480,7 +480,7 @@ describe('executeEvalRun case snapshot', () => {
     expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
   });
 
-  it('rejects a redelivery of an already claimed batch so it is not rerun', async () => {
+  it('skips a redelivery of an already claimed batch so it is not rerun', async () => {
     const snapshot: SnapshotCase[] = [
       { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
     ];
@@ -501,9 +501,7 @@ describe('executeEvalRun case snapshot', () => {
         claimedAt: new Date(),
       });
 
-    await expect(
-      executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId }),
-    ).rejects.toThrow('execution was interrupted');
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
     expect(mocks.queueAdd).not.toHaveBeenCalled();
     expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
