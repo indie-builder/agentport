@@ -427,6 +427,10 @@ export async function publishRun(runId: string, event: ChatEvent, logger: Logger
   ]);
 }
 
+export async function clearRunCancel(runId: string, logger: Logger): Promise<void> {
+  await getPublisher(logger).send('DEL', [runCancelKey(runId)]);
+}
+
 /** 频道事件只是唤醒信号：Redis 黑洞时必须有界返回，不能拖住 run 收尾。 */
 const CHANNEL_PUBLISH_TIMEOUT_MS = 2_000;
 

@@ -3,7 +3,7 @@ import type { ChatEvent, RunErrorKind } from '@agentport/shared';
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { publishChannelEventSafely } from './channel-events.js';
-import { publishRun } from './runner-client.js';
+import { clearRunCancel, publishRun } from './runner-client.js';
 
 export type RunFinishedEvent = Extract<ChatEvent, { type: 'run_finished' }>;
 
@@ -68,6 +68,9 @@ export async function finalizeRun(input: {
       agentId: schema.agentRuns.agentId,
     });
   if (row === undefined) return false;
+  await clearRunCancel(input.runId, input.logger).catch((err: unknown) => {
+    input.logger.warn({ err, runId: input.runId }, 'clear run cancel failed');
+  });
   // 频道终态只在 CAS 胜出后发一次；失败只记日志，不回滚也不触发重试。
   if (row.channelId !== null) {
     await publishChannelEventSafely(
