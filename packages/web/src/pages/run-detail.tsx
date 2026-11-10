@@ -35,6 +35,7 @@ import {
   meQuery,
   useApproveRun,
   useCancelRun,
+  useDenyRun,
   useRerun,
   useRun,
   useRunApprovals,
@@ -81,6 +82,7 @@ export function RunDetailPage() {
   const cancelMutation = useCancelRun();
   const draftMutation = useSkillDraftFromRun();
   const approveMutation = useApproveRun();
+  const denyMutation = useDenyRun();
   const approvalInFlight = useRef(false);
   // 来源页把进入前的 URL 带在 backTo 里；直接打开详情就回到运行列表。
   const backTo = search.backTo ?? '/runs';
@@ -133,6 +135,26 @@ export function RunDetailPage() {
             data.waiting
               ? '已批准工具；仍在等待的调用可继续，无需重发消息'
               : '已记录后续调用许可；本次调用不会恢复。',
+          ),
+        onError: (error) => toastError(error),
+      },
+    );
+  };
+
+  const deny = (item: ApprovalRequest): void => {
+    if (!run.data || approvalInFlight.current) return;
+    approvalInFlight.current = true;
+    denyMutation.mutate(
+      { runId: run.data.run.id, serverId: item.serverId, toolName: item.toolName },
+      {
+        onSettled: () => {
+          approvalInFlight.current = false;
+        },
+        onSuccess: (data) =>
+          toastSuccess(
+            data.waiting
+              ? '已拒绝工具；等待中的调用会立即收到拒绝'
+              : '已拒绝工具；本次调用不会执行。',
           ),
         onError: (error) => toastError(error),
       },
@@ -269,7 +291,11 @@ export function RunDetailPage() {
   );
   const start = detail.startedAt ?? steps[0]?.at ?? null;
   const failed = detail.status === 'failed' || detail.status === 'timeout';
-  const pending = (approvals.data?.items ?? []).filter((item) => item.approvedAt === null);
+  const approvalItems = approvals.data?.items ?? [];
+  const pending = approvalItems.filter(
+    (item) => item.approvedAt === null && item.deniedAt === null,
+  );
+  const denied = approvalItems.filter((item) => item.deniedAt !== null);
   const activeIndex = selected !== null && selected < steps.length ? selected : steps.length - 1;
   const activeStep = steps[activeIndex];
 
@@ -333,57 +359,88 @@ export function RunDetailPage() {
           />
         ) : null}
 
-        {pending.length > 0 ? (
+        {pending.length > 0 || denied.length > 0 ? (
           <div
-            role={detail.status === 'running' ? 'alert' : undefined}
+            role={detail.status === 'running' && pending.length > 0 ? 'alert' : undefined}
             className="flex flex-wrap items-center gap-3 border-y border-line bg-warning-soft px-4 py-2.5"
           >
             <CircleAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
             <span className="min-w-0 [overflow-wrap:anywhere] text-xs text-fg">
-              {detail.status === 'running'
-                ? `有 ${pending.length} 个工具待审批；请查看各项是否仍在等待。`
-                : '已结束运行的未批准请求不再生效，重新运行会重新请求批准。'}
+              {pending.length > 0
+                ? detail.status === 'running'
+                  ? `有 ${pending.length} 个工具待审批；请查看各项是否仍在等待。`
+                  : '已结束运行的未批准请求不再生效，重新运行会重新请求批准。'
+                : `已拒绝 ${denied.length} 个工具调用。`}
             </span>
-            {detail.status === 'running' ? (
-              <div className="ml-auto flex min-w-0 max-w-full flex-wrap gap-2">
-                {pending.map((item) => {
-                  // mutation 是全局状态：按当前 mutation 的变量判断是哪一条在批准。
-                  const approving =
-                    approveMutation.isPending &&
-                    approveMutation.variables?.serverId === item.serverId &&
-                    approveMutation.variables.toolName === item.toolName;
-                  return (
-                    <div
-                      key={item.id}
-                      className="flex min-w-0 max-w-full flex-wrap items-center gap-2"
-                    >
-                      <span className="min-w-0 [overflow-wrap:anywhere] text-2xs text-muted-foreground">
-                        {item.waiting
-                          ? `等待至 ${formatDateTime(item.expiresAt)}`
-                          : '本次调用已结束等待'}
-                      </span>
-                      {canApprove ? (
-                        <Button
-                          size="sm"
-                          className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
-                          disabled={approveMutation.isPending}
-                          aria-busy={approving}
-                          onClick={() => approve(item)}
-                        >
-                          <span className="min-w-0 [overflow-wrap:anywhere]">
-                            {approving
-                              ? `批准中… ${item.serverName ?? item.serverId} / ${item.toolName}`
-                              : item.waiting
-                                ? `批准 ${item.serverName ?? item.serverId} / ${item.toolName}`
-                                : `批准后续 ${item.serverName ?? item.serverId} / ${item.toolName}`}
-                          </span>
-                        </Button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
+            <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2">
+              {detail.status === 'running'
+                ? pending.map((item) => {
+                    // mutation 是全局状态：按当前 mutation 的变量判断是哪一条在决定。
+                    const deciding = approveMutation.isPending || denyMutation.isPending;
+                    const approving =
+                      approveMutation.isPending &&
+                      approveMutation.variables?.serverId === item.serverId &&
+                      approveMutation.variables.toolName === item.toolName;
+                    const denying =
+                      denyMutation.isPending &&
+                      denyMutation.variables?.serverId === item.serverId &&
+                      denyMutation.variables.toolName === item.toolName;
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex min-w-0 max-w-full flex-wrap items-center gap-2"
+                      >
+                        <span className="min-w-0 [overflow-wrap:anywhere] text-2xs text-muted-foreground">
+                          {item.waiting
+                            ? `等待至 ${formatDateTime(item.expiresAt)}`
+                            : '本次调用已结束等待'}
+                        </span>
+                        {canApprove ? (
+                          <>
+                            <Button
+                              size="sm"
+                              className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
+                              disabled={deciding}
+                              aria-busy={approving}
+                              onClick={() => approve(item)}
+                            >
+                              <span className="min-w-0 [overflow-wrap:anywhere]">
+                                {approving
+                                  ? `批准中… ${item.serverName ?? item.serverId} / ${item.toolName}`
+                                  : item.waiting
+                                    ? `批准 ${item.serverName ?? item.serverId} / ${item.toolName}`
+                                    : `批准后续 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+                              </span>
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-auto min-h-7 max-w-full py-1 whitespace-normal"
+                              disabled={deciding}
+                              aria-busy={denying}
+                              onClick={() => deny(item)}
+                            >
+                              <span className="min-w-0 [overflow-wrap:anywhere]">
+                                {denying
+                                  ? `拒绝中… ${item.serverName ?? item.serverId} / ${item.toolName}`
+                                  : `拒绝 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+                              </span>
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                : null}
+              {denied.map((item) => (
+                <span
+                  key={item.id}
+                  className="min-w-0 self-center border-l border-line pl-2 [overflow-wrap:anywhere] text-2xs text-muted-foreground"
+                >
+                  已拒绝 {item.serverName ?? item.serverId} / {item.toolName}
+                </span>
+              ))}
+            </div>
           </div>
         ) : null}
 

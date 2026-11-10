@@ -1527,7 +1527,7 @@ function ChatColumn({
   // 两个入参直接来自 query 数据；缓存住身份，流式期间 WebSocket 增量不会让工具行的 memo 失效。
   // 运行进入终态后仍需展示未批准的兜底审批，供用户批准后续调用，因此不按 run 过滤。
   const pendingApprovals = useMemo(
-    () => approvalItems.filter((item) => item.approvedAt === null),
+    () => approvalItems.filter((item) => item.approvedAt === null && item.deniedAt === null),
     [approvalItems],
   );
   const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);

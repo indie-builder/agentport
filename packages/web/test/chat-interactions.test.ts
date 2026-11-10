@@ -48,7 +48,15 @@ vi.mock('react', async (original) => ({
 }));
 
 function approval(serverName: string | null, id = serverName ?? 'unknown'): ApprovalRequest {
-  return { id, serverId: id, serverName, toolName: 'write', approvedAt: null, createdAt: '' };
+  return {
+    id,
+    serverId: id,
+    serverName,
+    toolName: 'write',
+    approvedAt: null,
+    deniedAt: null,
+    createdAt: '',
+  };
 }
 function findElement(
   node: ReactElement,

@@ -84,6 +84,7 @@ const approval = (id: string, serverName: string): ApprovalRequest => ({
   serverName,
   toolName: 'write',
   approvedAt: null,
+  deniedAt: null,
   createdAt: '',
 });
 

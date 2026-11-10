@@ -1582,7 +1582,7 @@ export const ApprovalCard = memo(function ApprovalCard({
   onApprove: (item: ApprovalRequest) => void;
 }) {
   const busy = pending === item.id;
-  const isPending = item.waiting && item.approvedAt === null;
+  const isPending = item.waiting && item.approvedAt === null && item.deniedAt === null;
   const reduce = useReducedMotion();
   return (
     <motion.div

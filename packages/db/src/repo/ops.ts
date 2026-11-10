@@ -188,6 +188,7 @@ export async function listPendingApprovals(db: Database) {
       and(
         isNotNull(approvalRequests.runId),
         isNull(approvalRequests.approvedAt),
+        isNull(approvalRequests.deniedAt),
         sql`(${approvalRequests.expiresAt} is null or ${approvalRequests.expiresAt} > now())`,
         inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
       ),

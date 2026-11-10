@@ -44,6 +44,7 @@ export const runsContract = {
             toolName: z.string(),
             createdAt: z.string(),
             approvedAt: z.string().nullable(),
+            deniedAt: z.string().nullable(),
             expiresAt: z.string().nullable(),
             waiting: z.boolean(),
           }),
@@ -64,6 +65,23 @@ export const runsContract = {
         serverId: z.string(),
         toolName: z.string(),
         approvedAt: z.string(),
+        waiting: z.boolean(),
+      }),
+    ),
+  deny: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'runs.approve' } })
+    .route({ method: 'POST', path: '/runs/{id}/deny', successStatus: 200 })
+    .input(
+      z.object({
+        params: idParams,
+        body: z.object({ serverId: z.string().min(1), toolName: z.string().min(1) }),
+      }),
+    )
+    .output(
+      z.object({
+        serverId: z.string(),
+        toolName: z.string(),
+        deniedAt: z.string(),
         waiting: z.boolean(),
       }),
     ),

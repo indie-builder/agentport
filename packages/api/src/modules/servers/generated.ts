@@ -19,6 +19,8 @@ export interface GeneratedServerInput {
    * 若只用构造期的 approvals，批准后同一连接内的调用仍然会被拒。
    */
   refreshApprovals?: () => Promise<string[]>;
+  denied?: string[];
+  refreshDenied?: () => Promise<string[]>;
   /**
    * run 是否仍在执行。run 结束（完成/失败/取消）后挂起的调用不应继续执行，
    * 也不应在执行前把请求发到上游；无 run 上下文时不传。
@@ -56,13 +58,21 @@ export function callCancelledMessage(toolName: string): string {
   return `调用已取消：${toolName}。运行已结束或请求已断开；已发送的上游请求可能仍在处理。`;
 }
 
+export function approvalDeniedMessage(toolName: string): string {
+  return `已拒绝：${toolName}。用户拒绝了本次调用。`;
+}
+
 function cancelledResult(toolName: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: callCancelledMessage(toolName) }] };
 }
 
+function deniedResult(toolName: string): CallToolResult {
+  return { isError: true, content: [{ type: 'text', text: approvalDeniedMessage(toolName) }] };
+}
+
 const APPROVAL_POLL_MS = 500;
 
-type ApprovalOutcome = 'approved' | 'timeout' | 'cancelled';
+type ApprovalOutcome = 'approved' | 'denied' | 'timeout' | 'cancelled';
 
 /**
  * 挂起等待批准：轮询 DB，批准返回 approved，超时返回 timeout；
@@ -79,6 +89,8 @@ async function waitForApproval(
   if (signal.aborted) return 'cancelled';
   if (input.isRunActive && !(await input.isRunActive())) return 'cancelled';
   if (signal.aborted) return 'cancelled';
+  const deniedBeforeWait = input.refreshDenied ? await input.refreshDenied() : (input.denied ?? []);
+  if (deniedBeforeWait.includes(toolName)) return 'denied';
   await input.onApprovalRequired?.(toolName, args, new Date(deadline));
   while (Date.now() < deadline) {
     try {
@@ -96,6 +108,8 @@ async function waitForApproval(
     if (input.isRunActive && !(await input.isRunActive())) return 'cancelled';
     if (Date.now() >= deadline) return 'timeout';
     if (approvals.includes(toolName)) return 'approved';
+    const denied = input.refreshDenied ? await input.refreshDenied() : (input.denied ?? []);
+    if (denied.includes(toolName)) return 'denied';
   }
   return 'timeout';
 }
@@ -253,6 +267,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
             );
             if (outcome.accepted) {
               if (outcome.value === 'cancelled') return cancelledResult(tool.name);
+              if (outcome.value === 'denied') return deniedResult(tool.name);
               if (outcome.value === 'timeout') {
                 return {
                   isError: true,

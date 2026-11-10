@@ -458,6 +458,7 @@ export interface ApprovalRequestRow {
   toolName: string;
   createdAt: Date;
   approvedAt: Date | null;
+  deniedAt: Date | null;
   expiresAt: Date | null;
 }
 
@@ -470,6 +471,7 @@ export interface RequestedApproval {
   toolName: string;
   createdAt: Date;
   approvedAt: Date | null;
+  deniedAt: Date | null;
   expiresAt: Date | null;
 }
 
@@ -501,6 +503,7 @@ export async function requestApproval(
     toolName: approvalRequests.toolName,
     createdAt: approvalRequests.createdAt,
     approvedAt: approvalRequests.approvedAt,
+    deniedAt: approvalRequests.deniedAt,
     expiresAt: approvalRequests.expiresAt,
   };
   const [inserted] = await db
@@ -557,6 +560,24 @@ export async function getApprovedToolNames(
   return rows.map((row) => row.toolName);
 }
 
+export async function getDeniedToolNames(
+  db: Database,
+  runId: string,
+  serverId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ toolName: approvalRequests.toolName })
+    .from(approvalRequests)
+    .where(
+      and(
+        eq(approvalRequests.runId, runId),
+        eq(approvalRequests.serverId, serverId),
+        isNotNull(approvalRequests.deniedAt),
+      ),
+    );
+  return rows.map((row) => row.toolName);
+}
+
 export async function listApprovalRequests(
   db: Database,
   runId: string,
@@ -570,6 +591,7 @@ export async function listApprovalRequests(
       toolName: approvalRequests.toolName,
       createdAt: approvalRequests.createdAt,
       approvedAt: approvalRequests.approvedAt,
+      deniedAt: approvalRequests.deniedAt,
       expiresAt: approvalRequests.expiresAt,
     })
     .from(approvalRequests)
@@ -651,6 +673,7 @@ export async function approveTool(
           eq(approvalRequests.runId, runId),
           eq(approvalRequests.serverId, serverId),
           eq(approvalRequests.toolName, toolName),
+          isNull(approvalRequests.deniedAt),
         ),
       )
       .returning({
@@ -660,6 +683,47 @@ export async function approveTool(
         waiting: sql<boolean>`coalesce(${approvalRequests.expiresAt} > now(), false)`,
       });
     return row && row.approvedAt !== null ? { ...row, approvedAt: row.approvedAt } : null;
+  });
+}
+
+export async function denyTool(
+  db: Database,
+  runId: string,
+  serverId: string,
+  toolName: string,
+  deniedByBusinessId: string,
+): Promise<{ serverId: string; toolName: string; deniedAt: Date; waiting: boolean } | null> {
+  return db.transaction(async (tx) => {
+    const [run] = await tx
+      .select({ status: agentRuns.status })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId))
+      .limit(1)
+      .for('update');
+    if (!run) return null;
+    if (run.status !== 'running') {
+      fail('CONFLICT', '运行已结束或尚未开始，无法拒绝；请刷新运行状态');
+    }
+
+    const [row] = await tx
+      .update(approvalRequests)
+      .set({ deniedAt: sql`now()`, deniedByBusinessId })
+      .where(
+        and(
+          eq(approvalRequests.runId, runId),
+          eq(approvalRequests.serverId, serverId),
+          eq(approvalRequests.toolName, toolName),
+          isNull(approvalRequests.approvedAt),
+          isNull(approvalRequests.deniedAt),
+        ),
+      )
+      .returning({
+        serverId: approvalRequests.serverId,
+        toolName: approvalRequests.toolName,
+        deniedAt: approvalRequests.deniedAt,
+        waiting: sql<boolean>`coalesce(${approvalRequests.expiresAt} > now(), false)`,
+      });
+    return row && row.deniedAt !== null ? { ...row, deniedAt: row.deniedAt } : null;
   });
 }
 
