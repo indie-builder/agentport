@@ -1075,13 +1075,10 @@ const worker = new Worker(
           }
         }
       }
-      await repo.runs.clearRunMcpToken(db, runId).catch((err: unknown) => {
-        logger.warn({ err, runId }, 'failed to clear run mcp token');
+      await repo.runs.clearRunTokens(db, runId).catch((err: unknown) => {
+        logger.warn({ err, runId }, 'failed to clear run tokens');
       });
       modelProxy?.revokeToken(runId);
-      await repo.runs.clearModelToken(db, runId).catch((err: unknown) => {
-        logger.warn({ err, runId }, 'failed to clear model token');
-      });
 
       let outputSettlementError: string | undefined;
       if (outputsHostPath !== null) {
