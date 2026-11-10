@@ -301,7 +301,7 @@ describe('composer attachments', () => {
     expect(useChatStore.getState().pendingAttachments).toHaveLength(1);
     expect(useChatStore.getState().pendingAttachments[0]?.name).toBe('notes.md');
     expect(host.querySelector('[aria-label="待发送资料"]')?.textContent).toContain('notes.md');
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
   });
 
   it('does not send a request when the conversation changes while reading attachments', async () => {

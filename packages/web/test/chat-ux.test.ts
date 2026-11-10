@@ -256,7 +256,7 @@ it('fills a suggested task and returns focus to the composer without sending', a
   await act(async () => suggestion.click());
   expect(message().value).toBe('帮我把一个目标拆成可执行的步骤，先询问我需要完成什么。');
   expect(document.activeElement).toBe(message());
-  expect(useChatStore.getState().run).toBeNull();
+  expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
   expect(useChatStore.getState().items).toEqual([]);
 });
 
@@ -269,10 +269,10 @@ describe('confirmed chat UX defects', () => {
       useChatStore.setState({
         conversationId: 'conversation-a',
         items: [{ kind: 'text', text: 'old reply' }],
-        run: {
+        phase: {
+          kind: 'detached',
           runId: 'run-old',
-          conversationId: 'conversation-a',
-          status: 'detached',
+          reason: 'protocol',
           startedAt: 1,
         },
         lastRun: { runId: 'run-old', status: 'failed', durationMs: 1 },
@@ -285,7 +285,7 @@ describe('confirmed chat UX defects', () => {
       input: 'unfinished draft',
       conversationId: null,
       items: [],
-      run: null,
+      phase: { kind: 'idle' },
       lastRun: null,
       lastRunId: null,
       historyOpen: false,
@@ -388,12 +388,10 @@ describe('confirmed chat UX defects', () => {
         useChatStore.setState({
           conversationId: 'conversation-a',
           items: [{ kind: 'user', text: 'old prompt', id: 'message-a' }],
-          run: {
-            runId: 'run-live',
-            conversationId: 'conversation-a',
-            status,
-            startedAt: Date.now(),
-          },
+          phase:
+            status === 'queued'
+              ? { kind: 'submitting', startedAt: Date.now() }
+              : { kind: 'streaming', runId: 'run-live', startedAt: Date.now() },
         });
       });
       await mount('/chat?agent=agent-a&conversation=conversation-a');
@@ -523,10 +521,9 @@ describe('confirmed chat UX defects', () => {
         useChatStore
           .getState()
           .setItems((items) => [...items, { kind: 'user', text: 'third prompt' }]);
-        useChatStore.getState().setRun({
+        useChatStore.getState().setPhase({
+          kind: 'streaming',
           runId: 'run-live',
-          conversationId: 'conversation-a',
-          status: 'streaming',
           startedAt: Date.now(),
         });
       });
@@ -721,8 +718,8 @@ describe('live terminal outcomes across a follow-up send', () => {
     // 发送会清空最新读数，旧轮原因与链接必须仍从会话详情缓存读到，且不串到新轮。
     expect(useChatStore.getState().lastRun).toBeNull();
     expect(host.textContent).toContain(error);
-    // 已接受但事件流尚未 onopen：沿用 reconnecting 文案，等连接打开才进入「等待回复」。
-    expect(host.textContent).toContain('连接已中断，正在重连');
+    // 已接受但事件流尚未 onopen：首连显示正在连接，等连接打开才进入「等待回复」。
+    expect(host.textContent).toContain('正在连接…');
     const oldLink = host.querySelector('a[href^="/runs/run-a"]');
     const oldTurn = oldLink?.closest('[data-message-id]');
     expect(oldTurn?.textContent).toContain('first prompt');
@@ -1892,10 +1889,9 @@ describe('live run question failures', () => {
         { kind: 'tool', toolUseId: 'toolu_1', name: 'AskUserQuestion', startedAt: 1 },
         { kind: 'tool', toolUseId: 'toolu_2', name: 'Read', startedAt: 2 },
       ],
-      run: {
+      phase: {
+        kind: 'streaming',
         runId: 'run-live',
-        conversationId: 'conversation-a',
-        status: 'streaming',
         startedAt: Date.now(),
       },
     });

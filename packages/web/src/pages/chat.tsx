@@ -69,7 +69,7 @@ import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet.js';
 import { can } from '../lib/access.js';
 import { type ApprovalRequest, api } from '../lib/api.js';
 import { type ChatItem, mergeOlderHistory, titleFromDetail } from '../lib/chat-state.js';
-import { type RunMetrics, type RunState, useChatStore } from '../lib/chat-store.js';
+import { type ChatPhase, isActivePhase, type RunMetrics, useChatStore } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatRelative } from '../lib/format.js';
@@ -287,7 +287,9 @@ function ChatWorkspace({
     agent: item,
   }));
   const items = useChatStore((state) => state.items);
-  const run = useChatStore((state) => state.run);
+  const phase = useChatStore((state) => state.phase);
+  const runId = isActivePhase(phase) ? phase.runId : null;
+  const running = phase.kind !== 'idle';
   const lastRun = useChatStore((state) => state.lastRun);
   const lastRunId = useChatStore((state) => state.lastRunId);
   const historyOpen = useChatStore((state) => state.historyOpen);
@@ -314,9 +316,9 @@ function ChatWorkspace({
 
   const conversations = useConversations(agentId);
   const detail = useConversation(conversationId);
-  const runApprovals = useRunApprovals(run?.runId || lastRunId, Boolean(run?.runId));
+  const runApprovals = useRunApprovals(runId || lastRunId, runId !== null);
   // 提问状态来自 Query：SSE 快照和回答结果都写这里，不在 Zustand 里再存一份。
-  const runQuestions = useRunQuestions(run?.runId || lastRunId, Boolean(run?.runId));
+  const runQuestions = useRunQuestions(runId || lastRunId, runId !== null);
   const questionsByToolUseId = useMemo(
     () => new Map((runQuestions.data?.items ?? []).map((item) => [item.toolUseId, item])),
     [runQuestions.data],
@@ -362,8 +364,8 @@ function ChatWorkspace({
 
   // 空态或运行结束后把焦点交还输入框，键盘用户不用再找一次。
   useEffect(() => {
-    if (agentId && !run && items.length === 0) composerRef.current?.focus();
-  }, [agentId, run, items.length]);
+    if (agentId && !running && items.length === 0) composerRef.current?.focus();
+  }, [agentId, running, items.length]);
 
   const history = useMemo(
     () =>
@@ -456,8 +458,8 @@ function ChatWorkspace({
 
   const cancel = (): void => {
     // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
-    if (!run?.runId) return;
-    cancelMutation.mutate(run.runId);
+    if (!runId) return;
+    cancelMutation.mutate(runId);
   };
 
   // 引用只挂在输入框上，不自动发送：用户仍可改写文案或取消引用再发。
@@ -469,12 +471,12 @@ function ChatWorkspace({
   // 固定身份：工具行的 memo 依赖这个回调，每次渲染都换新函数会让整列重渲染。
   const approve = useCallback(
     (item: ApprovalRequest): void => {
-      const runId = run?.runId || lastRunId;
-      if (!runId || approvalInFlight.current) return;
+      const activeRunId = runId || lastRunId;
+      if (!activeRunId || approvalInFlight.current) return;
       approvalInFlight.current = true;
-      approveMutation.mutate({ ...item, runId });
+      approveMutation.mutate({ ...item, runId: activeRunId });
     },
-    [run?.runId, lastRunId, approveMutation.mutate],
+    [runId, lastRunId, approveMutation.mutate],
   );
 
   // URL 是选中的会话：历史、新建、切换 agent 都只改 URL，store 由下面的同步 effect 收敛。
@@ -516,7 +518,6 @@ function ChatWorkspace({
   useEffect(() => {
     const store = useChatStore.getState();
     if (store.conversationId === conversationId) return;
-    if (store.run?.conversationId === conversationId) return;
     stream.closeStream();
     stream.hydratedRef.current = null;
     store.resetConversation(conversationId);
@@ -529,21 +530,21 @@ function ChatWorkspace({
   // 加载期间开始新一轮时先等它结束，避免合并打断流式基准。
   useEffect(() => {
     const data = detail.data;
-    if (!data || run || !historyPrefix) return;
+    if (!data || running || !historyPrefix) return;
     const items = useChatStore.getState().items;
     const merged = mergeOlderHistory(historyPrefix, data, items);
     if (!merged) return;
     setHistoryPrefix(merged.snapshot);
     useChatStore.getState().setItems(merged.items);
-  }, [detail.data, run, historyPrefix, setHistoryPrefix]);
+  }, [detail.data, running, historyPrefix, setHistoryPrefix]);
 
   const loadOlder = useCallback((): void => {
-    if (!detail.hasNextPage || detail.isFetching || run) return;
+    if (!detail.hasNextPage || detail.isFetching || running) return;
     // fetchNextPage 默认吞掉错误（结果里带 isFetchNextPageError），重试按钮保持可见。
     void detail.fetchNextPage().then((result) => {
       if (result.isFetchNextPageError) toastError(result.error);
     });
-  }, [detail.hasNextPage, detail.isFetching, detail.fetchNextPage, run]);
+  }, [detail.hasNextPage, detail.isFetching, detail.fetchNextPage, running]);
 
   const switchAgent = (id: string): void => {
     if (id === agentId) return;
@@ -555,7 +556,10 @@ function ChatWorkspace({
   };
 
   const showWelcome =
-    items.length === 0 && !run && !detail.isError && (conversationId === null || !detail.isPending);
+    items.length === 0 &&
+    !running &&
+    !detail.isError &&
+    (conversationId === null || !detail.isPending);
 
   // inSheet 决定浮层挂在哪棵子树：抽屉会把外部 portal 当作外部节点隐藏。
   const renderHistoryPanel = (inSheet: boolean) => (
@@ -654,7 +658,7 @@ function ChatWorkspace({
       onRetryStream={stream.retryStream}
       reconcileRun={stream.reconcileRun}
       items={items}
-      run={run}
+      phase={phase}
       lastRun={lastRun}
       lastRunId={lastRunId}
       approving={approveMutation.isPending ? (approveMutation.variables?.id ?? null) : null}
@@ -663,7 +667,7 @@ function ChatWorkspace({
       questionsByToolUseId={questionsByToolUseId}
       questionsError={runQuestions.isError ? runQuestions.error : null}
       onRetryQuestions={() => void runQuestions.refetch()}
-      liveRunId={run?.runId ?? null}
+      liveRunId={runId}
       onApprove={approve}
       onCancel={cancel}
       onPickSuggestion={(text) => {
@@ -734,7 +738,7 @@ function ChatWorkspace({
   );
 
   // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
-  if (conversationId && detail.isError && items.length === 0 && !run) {
+  if (conversationId && detail.isError && items.length === 0 && !running) {
     return (
       <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
@@ -755,7 +759,7 @@ function ChatWorkspace({
 
   // 深链会话还没回填历史时不给输入框：此时还不知道会话属于哪个 agent。
   // 自己发送时 store 已有本轮消息，不会闪这一屏。
-  if (conversationId && !run && items.length === 0 && hydrated.current !== conversationId) {
+  if (conversationId && !running && items.length === 0 && hydrated.current !== conversationId) {
     return (
       <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
@@ -1410,7 +1414,7 @@ function ChatColumn({
   onRetryStream,
   reconcileRun,
   items,
-  run,
+  phase,
   lastRun,
   lastRunId,
   approving,
@@ -1445,7 +1449,7 @@ function ChatColumn({
   onRetryStream: () => void;
   reconcileRun: ReturnType<typeof useChatStream>['reconcileRun'];
   items: ChatItem[];
-  run: RunState | null;
+  phase: ChatPhase;
   lastRun: RunMetrics | null;
   lastRunId: string | null;
   approving: string | null;
@@ -1531,7 +1535,10 @@ function ChatColumn({
     [approvalItems],
   );
   const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);
-  const runFooter = run ? <RunFooter run={run} items={items} onRetry={onRetryStream} /> : null;
+  const runFooter =
+    phase.kind !== 'idle' ? (
+      <RunFooter phase={phase} items={items} onRetry={onRetryStream} />
+    ) : null;
   // 历史轮次的读数由会话详情一次带回；运行中的 run 交给 runFooter，不在这里显示。
   const historyMetrics = useMemo(() => {
     const map = new Map<string, RunMetrics>();
@@ -1582,13 +1589,13 @@ function ChatColumn({
         {header}
         <MessagePane
           items={items}
-          loading={detail.isPending && conversationId !== null && !run}
+          loading={detail.isPending && conversationId !== null && phase.kind === 'idle'}
           error={detail.isError ? detail.error : null}
           onRetry={() => void detail.refetch()}
           hasOlder={hasOlder}
           loadingOlder={loadingOlder}
           onLoadOlder={onLoadOlder}
-          olderDisabled={detail.isFetching || Boolean(run)}
+          olderDisabled={detail.isFetching || phase.kind !== 'idle'}
           approvals={approvals}
           approvalItems={pendingApprovals}
           questionsByToolUseId={questionsByToolUseId}
@@ -1596,7 +1603,7 @@ function ChatColumn({
           lastRun={lastRun}
           historyMetrics={historyMetrics}
           runFooter={runFooter}
-          currentRunId={run?.runId ?? lastRunId}
+          currentRunId={isActivePhase(phase) ? phase.runId : lastRunId}
           runOutputs={{
             byRun: outputsByRun,
             byAnchor: outputsByAnchor,
@@ -1609,9 +1616,9 @@ function ChatColumn({
             if (conversationId) onBranchMessage(conversationId, messageId);
           }}
           branchingMessageId={branchingMessageId}
-          running={Boolean(run)}
+          running={phase.kind !== 'idle'}
           openUi={agent?.uiFormat === 'openui'}
-          streaming={Boolean(run)}
+          streaming={phase.kind !== 'idle'}
           onAction={openUiAction}
           openUiSnapshot={openUiSnapshot}
           welcome={showWelcome ? <WelcomeState /> : null}
@@ -1619,9 +1626,11 @@ function ChatColumn({
 
         {/* 运行状态跟着最后一轮走，不再单独占一条横栏；对屏幕阅读器仍播报同一句。 */}
         <div aria-live="polite" role="status" className="sr-only">
-          {run ? runStatusText(run, items) : ''}
+          {phase.kind !== 'idle' ? runStatusText(phase, items) : ''}
         </div>
-        {run?.runId ? <RunReconciliation run={run} reconcileRun={reconcileRun} /> : null}
+        {isActivePhase(phase) ? (
+          <RunReconciliation phase={phase} reconcileRun={reconcileRun} />
+        ) : null}
         {agentsError ? (
           <ErrorState
             error={agentsError}

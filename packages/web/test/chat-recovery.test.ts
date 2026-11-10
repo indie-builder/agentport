@@ -106,10 +106,10 @@ function disconnected() {
   const stream = mountStream();
   const store = useChatStore.getState();
   store.resetConversation('conversation-a');
-  store.setRun({
+  store.setPhase({
+    kind: 'detached',
     runId: 'run-a',
-    conversationId: 'conversation-a',
-    status: 'detached',
+    reason: 'protocol',
     startedAt: 0,
   });
   store.setItems([{ kind: 'text', text: 'partial' }]);
@@ -155,7 +155,7 @@ describe('authoritative disconnected recovery', () => {
         { id: '1:0', kind: 'user', text: 'prompt', messageId: '1', runId: 'run-a' },
         { id: '2:0', kind: 'text', text: 'authoritative reply', runId: 'run-a' },
       ]);
-      expect(useChatStore.getState().run).toBeNull();
+      expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
       expect(useChatStore.getState().lastRun?.status).toBe(status);
     },
   );
@@ -208,11 +208,11 @@ describe('authoritative disconnected recovery', () => {
     const newRecovery = stream.reconcileRun(terminal);
     oldHistory.resolve(history);
     await oldRecovery;
-    expect(useChatStore.getState().run?.runId).toBe('run-a');
+    expect(useChatStore.getState().phase).toMatchObject({ runId: 'run-a' });
     expect(useChatStore.getState().items).toEqual([{ kind: 'text', text: 'partial' }]);
     newHistory.resolve(history);
     await newRecovery;
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
     expect(useChatStore.getState().items).toContainEqual({
       id: '2:0',
       kind: 'text',
@@ -230,10 +230,10 @@ describe('authoritative disconnected recovery', () => {
       { kind: 'user', text: 'prompt', runId: 'run-a' },
       { kind: 'text', text: 'partial' },
     ]);
-    store.setRun({
+    store.setPhase({
+      kind: 'detached',
       runId: 'run-a',
-      conversationId: 'conversation-a',
-      status: 'detached',
+      reason: 'protocol',
       startedAt: 0,
     });
     stream.hydratedRef.current = 'conversation-a';
@@ -252,12 +252,12 @@ describe('authoritative disconnected recovery', () => {
       'earlier',
       'later',
     ]);
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
   });
 
   it('keeps a healthy stream in control of buffered messages', async () => {
     const stream = disconnected();
-    useChatStore.getState().setRun((run) => run && { ...run, status: 'streaming' });
+    useChatStore.getState().setPhase({ kind: 'streaming', runId: 'run-a', startedAt: 0 });
     const fetchHistory = vi.spyOn(api, 'conversation').mockResolvedValue(history);
     const expected = useChatStore.getState();
     await stream.reconcileRun(terminal);
@@ -273,7 +273,7 @@ describe('authoritative disconnected recovery', () => {
     ]);
     vi.spyOn(api, 'conversation').mockRejectedValue(new Error('offline'));
     await stream.reconcileRun(terminal);
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
     expect(useChatStore.getState().items).toEqual([
       { kind: 'text', text: 'partial' },
       expect.objectContaining({ kind: 'tool', toolUseId: 'tool-a', endedAt: expect.any(Number) }),

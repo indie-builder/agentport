@@ -3,7 +3,7 @@ import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type ConversationDetail, type RunDetail } from '../src/lib/api.js';
-import { useChatStore } from '../src/lib/chat-store.js';
+import { isActivePhase, useChatStore } from '../src/lib/chat-store.js';
 import { useConversation, useConversations, useRun, useRunApprovals } from '../src/lib/queries.js';
 import { useChatStream } from '../src/lib/use-chat-stream.js';
 
@@ -90,18 +90,19 @@ async function mount(probe: () => ReactElement | null) {
 }
 function ChatProbe() {
   const id = useChatStore((state) => state.conversationId);
-  const active = useChatStore((state) => state.run);
+  const phase = useChatStore((state) => state.phase);
+  const activeRunId = isActivePhase(phase) ? phase.runId : null;
   const last = useChatStore((state) => state.lastRunId);
   const detail = useConversation(id);
-  useRunApprovals(active?.runId || last, Boolean(active));
+  useRunApprovals(activeRunId || last, activeRunId !== null);
   useConversations('agent-a');
   stream = useChatStream({ agentId: 'agent-a', onAccepted() {}, history: detail });
   return null;
 }
 
 function ActiveRunProbe() {
-  const run = useChatStore((state) => state.run);
-  return run?.runId ? createElement(RunDetailProbe, { runId: run.runId }) : null;
+  const phase = useChatStore((state) => state.phase);
+  return isActivePhase(phase) ? createElement(RunDetailProbe, { runId: phase.runId }) : null;
 }
 
 function RunDetailProbe({ runId }: { runId: string }) {
@@ -158,7 +159,11 @@ describe('history restoration', () => {
       messageId: '1',
       runId: 'run-a',
     });
-    expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'reconnecting' });
+    expect(useChatStore.getState().phase).toMatchObject({
+      kind: 'connecting',
+      runId: 'run-a',
+      attempt: 1,
+    });
   });
 
   it('keeps earlier turns once and replaces the latest partial answer when SSE replays', async () => {
@@ -203,7 +208,7 @@ describe('history restoration', () => {
     useChatStore.getState().resetConversation('conversation-a');
     await mount(ChatProbe);
     expect(useChatStore.getState().lastRunId).toBe('run-a');
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
     expect(Source.instances).toHaveLength(0);
     expect(useChatStore.getState().items).toContainEqual({
       id: '2:0',
@@ -221,7 +226,11 @@ describe('history restoration', () => {
     await mount(RestoreProbe);
     expect(api.run).toHaveBeenCalledTimes(1);
     expect(client.getQueryData(['run', 'run-a'])).toEqual(run);
-    expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'reconnecting' });
+    expect(useChatStore.getState().phase).toMatchObject({
+      kind: 'connecting',
+      runId: 'run-a',
+      attempt: 1,
+    });
     expect(Source.instances).toHaveLength(1);
   });
 
@@ -270,7 +279,7 @@ describe('history restoration', () => {
         costUsd: 0.025,
         ...(status === 'succeeded' ? {} : { error: 'Stopped by server' }),
       });
-      expect(useChatStore.getState().run).toBeNull();
+      expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
       expect(Source.instances).toHaveLength(0);
     },
   );
@@ -331,7 +340,11 @@ describe('history restoration', () => {
     vi.mocked(api.run).mockRejectedValue(new Error('offline'));
     useChatStore.getState().resetConversation('conversation-a');
     await mount(ChatProbe);
-    expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'detached' });
+    expect(useChatStore.getState().phase).toMatchObject({
+      kind: 'detached',
+      runId: 'run-a',
+      reason: 'history',
+    });
     await act(async () => stream.retryStream());
     expect(Source.instances).toHaveLength(1);
     expect(useChatStore.getState().items).toEqual([
@@ -394,9 +407,10 @@ describe('history restoration', () => {
     await act(async () => pending.resolve(run));
     await flush();
     expect(api.run).toHaveBeenCalledTimes(1);
-    expect(useChatStore.getState().run).toMatchObject({
+    expect(useChatStore.getState().phase).toMatchObject({
+      kind: 'connecting',
       runId: 'run-a',
-      status: 'reconnecting',
+      attempt: 1,
     });
     expect(useChatStore.getState().items).toContainEqual({
       id: '1:0',
@@ -423,7 +437,7 @@ describe('history restoration', () => {
     await flush();
     expect(useChatStore.getState().conversationId).toBe('conversation-b');
     expect(useChatStore.getState().items).toEqual([]);
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
     expect(useChatStore.getState().lastRunId).toBeNull();
     expect(Source.instances).toHaveLength(0);
   });
@@ -474,11 +488,16 @@ describe('approval final refresh', () => {
     };
     vi.mocked(api.runApprovals).mockResolvedValue({ items: [approval] });
     await act(async () => {
-      useChatStore.getState().setRun((value) => value && { ...value, status: 'detached' });
+      useChatStore.getState().setPhase({
+        kind: 'detached',
+        runId: 'run-a',
+        reason: 'protocol',
+        startedAt: 0,
+      });
       await stream.reconcileRun({ ...run.run, status: 'failed' });
     });
     await flush();
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
     expect(client.getQueryData(['run-approvals', 'run-a'])).toEqual({ items: [approval] });
   });
 
@@ -486,7 +505,12 @@ describe('approval final refresh', () => {
     useChatStore.getState().resetConversation('conversation-a');
     await mount(ChatProbe);
     await act(async () => {
-      useChatStore.getState().setRun((value) => value && { ...value, status: 'detached' });
+      useChatStore.getState().setPhase({
+        kind: 'detached',
+        runId: 'run-a',
+        reason: 'protocol',
+        startedAt: 0,
+      });
       await stream.reconcileRun({
         ...run.run,
         status: 'failed',

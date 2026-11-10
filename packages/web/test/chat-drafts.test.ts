@@ -156,7 +156,7 @@ async function reload() {
     conversationId: null,
     input: '',
     items: [],
-    run: null,
+    phase: { kind: 'idle' },
     lastRun: null,
     lastRunId: null,
   });

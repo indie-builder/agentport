@@ -43,9 +43,11 @@ import { can } from '../lib/access.js';
 import type { ApprovalRequest } from '../lib/api.js';
 import { type ChatItem, latestTopLevelTodos, toolFailed } from '../lib/chat-state.js';
 import {
+  type ActiveChatPhase,
+  isActivePhase,
+  type LiveChatPhase,
   type RunMetrics,
   type RunOutcome,
-  type RunState,
   useChatStore,
 } from '../lib/chat-store.js';
 import { cn } from '../lib/cn.js';
@@ -205,14 +207,15 @@ export function Composer({
   const canCancelRun = can(me.data, 'runs.cancel');
   const storeInput = useChatStore((state) => state.input);
   const setInput = useChatStore((state) => state.setInput);
-  const run = useChatStore((state) => state.run);
+  const phase = useChatStore((state) => state.phase);
   const outputRef = useChatStore((state) => state.outputRef);
   const setOutputRef = useChatStore((state) => state.setOutputRef);
   const pendingAttachments = useChatStore((state) => state.pendingAttachments);
   const setPendingAttachments = useChatStore((state) => state.setPendingAttachments);
   const input = value ?? storeInput;
   const enabledValue = enabled ?? agent !== null;
-  const locked = lockedProp ?? Boolean(run);
+  const runId = isActivePhase(phase) ? phase.runId : null;
+  const locked = lockedProp ?? phase.kind !== 'idle';
   const attachments = canAttach ? pendingAttachments : [];
   const hasContent = Boolean(input.trim()) || attachments.length > 0;
   const attachmentsLocked = !enabledValue || !historyReady || locked;
@@ -333,7 +336,7 @@ export function Composer({
                 </Link>
               ) : null}
             </div>
-            {run?.runId && onCancel ? (
+            {runId && onCancel ? (
               // 运行中发送位换成停止：动作在用户正在打字的地方，不用到消息流里找。
               canCancelRun ? (
                 <InputGroupButton
@@ -473,19 +476,19 @@ function elapsed(ms: number): string {
 }
 
 export function RunReconciliation({
-  run,
+  phase,
   reconcileRun,
 }: {
-  run: RunState;
+  phase: ActiveChatPhase;
   reconcileRun: ReturnType<typeof useChatStream>['reconcileRun'];
 }) {
   // 健康事件流会自己补终态；只在连接未开/断开时靠详情回读，恢复后自动停。
-  const runQuery = useRun(run.runId, run.status !== 'streaming');
+  const runQuery = useRun(phase.runId, phase.kind !== 'streaming');
   useEffect(() => {
-    if (runQuery.data && (run.status !== 'streaming' || runQuery.data.run.status === 'cancelled')) {
+    if (runQuery.data && (phase.kind !== 'streaming' || runQuery.data.run.status === 'cancelled')) {
       reconcileRun(runQuery.data.run);
     }
-  }, [runQuery.data, run.status, reconcileRun]);
+  }, [runQuery.data, phase.kind, reconcileRun]);
   return runQuery.isError ? (
     <ErrorState error={runQuery.error} onRetry={() => void runQuery.refetch()} />
   ) : null;
@@ -493,11 +496,11 @@ export function RunReconciliation({
 
 /** 运行中的临时读数：跟着本轮回复走，与完成后的读数行同一位置、同一行高。 */
 export function RunFooter({
-  run,
+  phase,
   items,
   onRetry,
 }: {
-  run: RunState;
+  phase: LiveChatPhase;
   items: ChatItem[];
   onRetry: () => void;
 }) {
@@ -505,30 +508,28 @@ export function RunFooter({
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setNow(Date.now());
-    if (!run.runId) return;
+    if (phase.kind === 'submitting') return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [run]);
+  }, [phase]);
 
-  const broken = run.status === 'reconnecting' || run.status === 'detached';
+  const spinning = phase.kind === 'connecting' || phase.kind === 'recovering';
+  const broken = spinning || phase.kind === 'detached';
 
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-xs tabular-nums text-muted-foreground">
       <span
         className="status-dot shrink-0"
-        data-kind={run.status === 'detached' ? 'error' : 'running'}
+        data-kind={phase.kind === 'detached' ? 'error' : 'running'}
         aria-hidden="true"
       />
-      <span className="min-w-0 break-words text-fg">{runStatusText(run, items)}</span>
+      <span className="min-w-0 break-words text-fg">{runStatusText(phase, items)}</span>
       <span aria-hidden="true">·</span>
-      <span>{elapsed(now - run.startedAt)}</span>
+      <span>{elapsed(now - phase.startedAt)}</span>
       {broken ? (
-        <RefreshCw
-          className={cn('size-3', run.status === 'reconnecting' && 'animate-spin')}
-          aria-hidden="true"
-        />
+        <RefreshCw className={cn('size-3', spinning && 'animate-spin')} aria-hidden="true" />
       ) : null}
-      {run.status === 'detached' ? (
+      {phase.kind === 'detached' ? (
         <Button variant="link" size="xs" className="h-auto p-0" onClick={onRetry}>
           重连
         </Button>
@@ -537,10 +538,13 @@ export function RunFooter({
   );
 }
 
-export function runStatusText(run: RunState, items: ChatItem[]): string {
-  if (run.status === 'queued') return '任务已提交，正在准备';
-  if (run.status === 'reconnecting') return '连接已中断，正在重连';
-  if (run.status === 'detached') return '连接已中断 · 运行状态未知';
+export function runStatusText(phase: LiveChatPhase, items: ChatItem[]): string {
+  if (phase.kind === 'submitting') return '任务已提交，正在准备';
+  if (phase.kind === 'connecting') {
+    return phase.attempt <= 1 ? '正在连接…' : '连接已中断，正在重连';
+  }
+  if (phase.kind === 'recovering') return '正在读取已保存结果…';
+  if (phase.kind === 'detached') return '连接已中断 · 运行状态未知';
   const tool = runningTool(items);
   if (tool?.name === 'AskUserQuestion') return '等待你的回答';
   return tool ? `正在调用 ${tool.name}` : '等待回复';

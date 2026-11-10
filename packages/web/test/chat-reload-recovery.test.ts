@@ -330,7 +330,7 @@ describe('reopening a conversation while its run state is ambiguous', () => {
     // 历史已经保存了回答：即使运行记录被清理，也要照常显示。
     expect(visibleTexts()).toEqual(['问题', '已保存回答']);
     // 不能再保留一个永远 detached、让页面继续等待/轮询的假运行。
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
   });
 
   it('rebuilds an active run from its own prompt when the loaded page starts mid-reply', async () => {
