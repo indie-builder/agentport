@@ -29,7 +29,11 @@ import { authorizeRun, RUN_MISSING } from '../runs/access.js';
 import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
 import { deleteConversationWithSandboxes } from '../runtime-deletion.js';
-import { CONVERSATION_MISSING, loadReadableConversation } from './access.js';
+import {
+  CONVERSATION_MISSING,
+  loadReadableConversation,
+  loadWritableConversation,
+} from './access.js';
 import { cancelAgentRun } from './cancel-run.js';
 import type { NativeHttpDependencies } from './http.js';
 import { chatStateRouter } from './openui-state.js';
@@ -135,12 +139,12 @@ export const chatMainRouter = {
     };
   }),
   renameConversation: os.renameConversation.handler(async ({ input, context }) => {
-    await loadReadableConversation(context, input.params.id);
-    const conversation = await chatRepo.renameConversation(
-      context.db,
-      input.params.id,
-      input.body.title,
-    );
+    await loadWritableConversation(context, input.params.id);
+    const conversation = await chatRepo.renameConversation(context.db, {
+      id: input.params.id,
+      title: input.body.title,
+      access: accessFilter(context, 'conversations.update'),
+    });
     if (!conversation) {
       return fail('CONVERSATION_NOT_FOUND', CONVERSATION_MISSING);
     }
