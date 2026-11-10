@@ -589,7 +589,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     expect(await exists(blocked)).not.toBeNull();
   });
 
-  it('removes an agent session-sandboxes while keeping parent/child/personal memory and other agents', async () => {
+  it('blocks deleting a parent agent while it still has child agents', async () => {
     const child = await newAgent('lifecycle-child');
     const parent = await newAgent('lifecycle-parent', [child.id]);
     const other = await newAgent('lifecycle-other');
@@ -616,20 +616,18 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     await makeDir(personalDir, 'personal memory');
 
     const fake = await startResponder();
-    const response = await deleteAgent(parent.id);
-    expect(response.statusCode, response.body).toBe(204);
+    expectProblem(await deleteAgent(parent.id), 'CONFLICT');
 
     expect(fake.calls).toEqual([
       { conversationId: parentConversation, sandboxIds: ['sandbox-parent'] },
     ]);
-    expect(await repo.agents.getAgent(app.db, parent.id)).toBeNull();
-    expect(await repo.chat.getConversation(app.db, parentConversation)).toBeNull();
-    expect(await exists(parentSessions)).toBeNull();
+    expect(await repo.agents.getAgent(app.db, parent.id)).not.toBeNull();
+    expect(await repo.chat.getConversation(app.db, parentConversation)).not.toBeNull();
+    expect(await exists(parentSessions)).not.toBeNull();
 
-    // 子专家解除绑定后继续存在；其会话、容器目录与记忆都保留。
     const childAfter = await repo.agents.getAgent(app.db, child.id);
     expect(childAfter?.id).toBe(child.id);
-    expect(childAfter?.parentId).toBeNull();
+    expect(childAfter?.parentId).toBe(parent.id);
     expect(await repo.chat.getConversation(app.db, childConversation)).not.toBeNull();
     expect(await exists(childSession)).not.toBeNull();
     expect(await exists(workspace(child.slug, 'agent-memory'))).not.toBeNull();

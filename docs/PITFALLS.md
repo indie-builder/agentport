@@ -626,3 +626,9 @@
 - **现象**：run 终态失败时在线端出现两条提示，一条来自本地 run 流，一条来自持久频道消息。
 - **原因**：终态 notice 只落库时，在线端要等 `run.finished` 的 SSE catch-up 才拿到；前端若不按 runId 丢弃本地流锚点，流内失败提示与持久 notice 会同时显示。
 - **规避**：写库方同时发布 `message.created`；前端收到任何带 runId 的持久消息时丢弃对应本地流，并保留 `run.finished` catch-up 作为发布失败的兜底。
+
+## 数据库：ON DELETE RESTRICT 报 23001，不是 23503
+
+- **现象**：父专家删除改为 `ON DELETE restrict` 后，按 23503 捕获外键冲突的映射不生效，删除返回 500。
+- **原因**：PostgreSQL 对 `RESTRICT` 立即检查报 `23001 restrict_violation`，`NO ACTION` 才报 `23503 foreign_key_violation`；Drizzle 还会把错误包在 cause 链里。
+- **规避**：捕获时同时接受 23001/23503，并核对 `constraint` 名，避免把其他外键（如 `memory_reviews.model_agent_id`）误映射成子专家错误。
