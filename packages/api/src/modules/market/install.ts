@@ -1,10 +1,9 @@
-import { fail, type ParsedSkill, parseSkillMd } from '@agentport/core';
+import { fail, isAppError, type ParsedSkill, parseSkillMd } from '@agentport/core';
 import { type MarketInstallInput, skillFileInputSchema, slugSchema } from '@agentport/shared';
+import { readCappedText } from './fetch-body.js';
 
 const DOWNLOAD_URL = 'https://skills.sh/api/download';
 const TIMEOUT_MS = 30_000;
-// 快照 JSON 可能被上游放大；先按响应头挡掉明显超限的包。
-const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 const MAX_FILES = 500;
 const MAX_FILE_CHARS = 200_000;
 const MAX_TOTAL_CHARS = 10 * 1024 * 1024;
@@ -93,15 +92,12 @@ export async function installFromMarket(input: MarketInstallInput): Promise<{
       retryable: true,
     });
   }
-  const length = Number(response.headers.get('content-length'));
-  if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) {
-    fail('INVALID_INPUT', '技能快照超过大小限制，无法安装');
-  }
-
   let body: { files?: unknown };
   try {
-    body = (await response.json()) as { files?: unknown };
+    const text = await readCappedText(response, '技能快照超过大小限制，无法安装');
+    body = JSON.parse(text) as { files?: unknown };
   } catch (err) {
+    if (isAppError(err)) throw err;
     fail('UPSTREAM_FAILED', '技能快照格式不正确，请稍后重试', { cause: err, retryable: true });
   }
   if (!Array.isArray(body.files)) {

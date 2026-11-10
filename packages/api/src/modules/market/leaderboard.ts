@@ -1,5 +1,6 @@
 import { fail } from '@agentport/core';
 import type { MarketSkill, MarketView } from '@agentport/shared';
+import { readCappedText } from './fetch-body.js';
 
 const BASE_URL = 'https://www.skills.sh';
 const TIMEOUT_MS = 10_000;
@@ -94,7 +95,7 @@ export async function fetchLeaderboard(view: MarketView): Promise<MarketSkill[]>
       await response.body?.cancel();
       throw new Error(`skills.sh responded ${response.status}`);
     }
-    const data = parseLeaderboard(await response.text());
+    const data = parseLeaderboard(await readCappedText(response, '技能市场榜单响应超过大小限制'));
     cache.set(view, { at: Date.now(), data });
     return data;
   } catch (err) {

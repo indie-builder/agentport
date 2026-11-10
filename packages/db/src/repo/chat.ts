@@ -124,13 +124,12 @@ export async function createConversation(
 /** 只改标题：lastMessageAt 由 messages 触发器维护，这里不动。 */
 export async function renameConversation(
   db: Database,
-  conversationId: string,
-  title: string,
+  input: { id: string; title: string; access: AccessFilter },
 ): Promise<Conversation | null> {
   const [row] = await db
     .update(conversations)
-    .set({ title })
-    .where(eq(conversations.id, conversationId))
+    .set({ title: input.title })
+    .where(and(eq(conversations.id, input.id), conversationAccessWhere(input.access)))
     .returning();
   return row ?? null;
 }

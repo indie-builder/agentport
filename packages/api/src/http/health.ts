@@ -25,7 +25,7 @@ export interface HealthMetrics {
 const CHECK_TIMEOUT_MS = 1_500;
 const JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
 
-const activeRedis = new Set<RedisClient>();
+let redisClient: RedisClient | null = null;
 
 async function attempt<T>(log: Logger, name: string, fn: () => Promise<T>): Promise<T | null> {
   let timer: NodeJS.Timeout | undefined;
@@ -84,9 +84,13 @@ export async function collectMetrics(deps: AppContext): Promise<HealthMetrics> {
   };
 }
 
+function getRedisClient(url: string): RedisClient {
+  redisClient ??= new RedisClient(url, { connectionTimeout: CHECK_TIMEOUT_MS });
+  return redisClient;
+}
+
 export async function pingRedis(deps: AppContext): Promise<number> {
-  const client = new RedisClient(deps.config.REDIS_URL, { connectionTimeout: CHECK_TIMEOUT_MS });
-  activeRedis.add(client);
+  const client = getRedisClient(deps.config.REDIS_URL);
   const started = Date.now();
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -97,16 +101,20 @@ export async function pingRedis(deps: AppContext): Promise<number> {
       }),
     ]);
     return Date.now() - started;
+  } catch (err) {
+    if (redisClient === client) {
+      client.close();
+      redisClient = null;
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
-    activeRedis.delete(client);
-    client.close();
   }
 }
 
 export function closeHealth(): void {
-  for (const client of activeRedis) client.close();
-  activeRedis.clear();
+  redisClient?.close();
+  redisClient = null;
 }
 
 export function registerHealthHttp(app: Hono<HttpEnv>): void {

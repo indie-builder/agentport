@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises';
-import { BlockList, isIP } from 'node:net';
+import { isIP } from 'node:net';
+import { isLoopbackAddress, isPrivateAddress } from '@agentport/core/net-guard';
 import { errorText } from '@agentport/shared';
 import type { z } from 'zod';
 import type { SourceFailure } from './sources.js';
@@ -25,55 +26,8 @@ const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 /** An error body only classifies the failure; never let a stalled one hold the request. */
 const ERROR_BODY_TIMEOUT_MS = 2_000;
 
-const PRIVATE_V4: Array<[string, number]> = [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.168.0.0', 16],
-  ['100.64.0.0', 10],
-  ['192.0.0.0', 24],
-  ['192.88.99.0', 24],
-  ['224.0.0.0', 4],
-  ['240.0.0.0', 4],
-  ['255.255.255.255', 32],
-];
-const PRIVATE_V6: Array<[string, number]> = [
-  ['::', 128],
-  ['::1', 128],
-  ['::ffff:0:0', 96],
-  ['fc00::', 7],
-  ['fe80::', 10],
-  ['ff00::', 8],
-  ['2001:db8::', 32],
-];
-
-const privateV4 = new BlockList();
-for (const [network, prefix] of PRIVATE_V4) privateV4.addSubnet(network, prefix, 'ipv4');
-const privateV6 = new BlockList();
-for (const [network, prefix] of PRIVATE_V6) privateV6.addSubnet(network, prefix, 'ipv6');
-
 function stripBrackets(host: string): string {
   return host.replace(/^\[|\]$/g, '');
-}
-
-function isLoopbackAddress(ip: string): boolean {
-  const bare = stripBrackets(ip).toLowerCase();
-  const embedded = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(bare)?.[1];
-  if (embedded) return embedded.startsWith('127.');
-  if (isIP(bare) === 4) return bare.startsWith('127.');
-  if (isIP(bare) === 6) return bare === '::1';
-  return bare === 'localhost';
-}
-
-function isPrivateAddress(ip: string): boolean {
-  const bare = stripBrackets(ip);
-  const embedded = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(bare)?.[1];
-  if (embedded) return privateV4.check(embedded, 'ipv4');
-  if (isIP(bare) === 4) return privateV4.check(bare, 'ipv4');
-  if (isIP(bare) === 6) return privateV6.check(bare, 'ipv6');
-  return true;
 }
 
 /**
