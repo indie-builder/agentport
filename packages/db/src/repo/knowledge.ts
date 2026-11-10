@@ -1398,6 +1398,7 @@ export async function activateDocumentVersion(
       .set({
         currentVersionId: input.versionId,
         contentHash: version.blobSha256,
+        ...(document.status === 'disabled' ? {} : { status: 'ready' }),
         updatedAt: new Date(),
       })
       .where(eq(knowledgeDocuments.id, input.documentId))
