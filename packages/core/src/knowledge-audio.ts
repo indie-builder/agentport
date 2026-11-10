@@ -4,7 +4,7 @@ import { fail } from './errors.js';
 
 export type KnowledgeAudioFormat = 'mp3' | 'wav' | 'm4a' | 'flac' | 'ogg';
 
-export interface KnowledgeAudioInspection {
+interface KnowledgeAudioInspection {
   format: KnowledgeAudioFormat;
   mimeType: string;
 }

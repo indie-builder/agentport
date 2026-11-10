@@ -35,13 +35,13 @@ function isComplete(result: ParseResult): boolean {
   );
 }
 
-export interface OpenUiDiagnostic {
+interface OpenUiDiagnostic {
   blockKey: string;
   code: 'missing-baseline' | 'merge-failed' | 'invalid-program';
   message: string;
 }
 
-export interface OpenUiResolution {
+interface OpenUiResolution {
   /** 完整混合文本：本轮 Markdown 与每段完整程序，未提段追加在末尾。 */
   text: string;
   diagnostics: OpenUiDiagnostic[];

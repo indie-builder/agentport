@@ -28,7 +28,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
   const otherMaintainer = {} as TestAccount;
   let runA: string;
   let conversationA: string;
-  let runB: string;
   let conversationB: string;
   let serviceRun: string;
 
@@ -79,7 +78,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     ({ runId: runA, conversationId: conversationA } = await seedRun(app, agentId, {
       subject: { kind: 'user', businessId: userA.businessId },
     }));
-    ({ runId: runB, conversationId: conversationB } = await seedRun(app, agentId, {
+    ({ conversationId: conversationB } = await seedRun(app, agentId, {
       subject: { kind: 'user', businessId: userB.businessId },
     }));
     ({ runId: serviceRun } = await seedRun(app, agentId, {

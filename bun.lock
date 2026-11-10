@@ -30,7 +30,6 @@
         "@agentport/db": "workspace:*",
         "@agentport/shared": "workspace:*",
         "@modelcontextprotocol/client": "catalog:",
-        "@modelcontextprotocol/node": "2.1.2",
         "@modelcontextprotocol/server": "2.4.0",
         "@orpc/contract": "1.16.1",
         "@orpc/openapi": "1.16.1",
@@ -54,6 +53,7 @@
         "zod": "catalog:",
       },
       "devDependencies": {
+        "@modelcontextprotocol/node": "2.1.2",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "nodemon": "3.1.14",

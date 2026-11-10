@@ -527,6 +527,10 @@ export async function cleanup(
     await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [app.client.array(runIds, 'TEXT')]);
   }
   if (agentSlugs.length > 0) {
+    await app.client.unsafe(
+      'delete from agents where parent_id in (select id from agents where slug = any($1::text[]))',
+      [app.client.array(agentSlugs, 'TEXT')],
+    );
     await app.client.unsafe('delete from agents where slug = any($1::text[])', [app.client.array(agentSlugs, 'TEXT')]);
   }
   if (skillSlugs.length > 0) {

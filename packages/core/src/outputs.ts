@@ -312,7 +312,7 @@ async function discardDraft(conversationRoot: string, runId: string): Promise<vo
   await removeQuietly(baseFileOf(conversationRoot, runId));
 }
 
-export interface OutputDraftIdentity extends ConversationIdentity {
+interface OutputDraftIdentity extends ConversationIdentity {
   runId: string;
 }
 
@@ -353,7 +353,7 @@ export async function outputDraftBlockedReason(input: OutputDraftIdentity): Prom
     });
 }
 
-export interface PrepareOutputDraftInput {
+interface PrepareOutputDraftInput {
   root: string;
   slug: string;
   conversationId: string;
@@ -496,7 +496,7 @@ export async function captureOutputDraft(input: {
   if (previous !== null) await removeQuietly(previous);
 }
 
-export interface PublishOutputSnapshotInput {
+interface PublishOutputSnapshotInput {
   root: string;
   slug: string;
   conversationId: string;
@@ -612,7 +612,7 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
   await discardDraft(conversationRoot, runId);
 }
 
-export interface ListOutputFilesInput {
+interface ListOutputFilesInput {
   root: string;
   slug: string;
   conversationId: string;
@@ -684,7 +684,7 @@ export async function listOutputFiles(input: ListOutputFilesInput): Promise<Outp
   return { items: page, nextBefore };
 }
 
-export interface ReadOutputFileInput {
+interface ReadOutputFileInput {
   root: string;
   slug: string;
   conversationId: string;
@@ -708,7 +708,7 @@ export async function readOutputFile(
   return { file: fileOf(manifest, entry), data: await readRegularFile(input, full, path) };
 }
 
-export interface CopyConversationOutputsInput {
+interface CopyConversationOutputsInput {
   root: string;
   slug: string;
   sourceConversationId: string;
@@ -779,7 +779,7 @@ export async function copyConversationOutputs(input: CopyConversationOutputsInpu
   }
 }
 
-export interface RemoveConversationOutputsInput {
+interface RemoveConversationOutputsInput {
   root: string;
   slug: string;
   conversationId: string;

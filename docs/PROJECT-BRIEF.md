@@ -331,7 +331,7 @@ servers(
   name text unique,
   kind text check (kind in ('stdio','http','generated','knowledge')),  -- knowledge 仅平台内部写
   config jsonb,              -- command/args/url/headers 等非敏感字段
-  secrets_encrypted bytea,   -- AES-256-GCM：env、Authorization 等
+  secrets_encrypted text,    -- AES-256-GCM：env、Authorization 等
   created_at timestamptz,
   updated_at timestamptz
 )
@@ -342,9 +342,8 @@ api_tools(
   name text,
   description text,
   method text,
-  url_template text,
+  path_template text,
   input_schema jsonb,        -- JSON Schema（由 zod 生成）
-  auth_ref text,             -- 指向 servers.secrets_encrypted 中的键
   unique (server_id, name)
 )
 
@@ -354,8 +353,8 @@ agents(
   name text,
   model text,
   system_prompt_md text,     -- 渲染为 CLAUDE.md
-  tools_allow jsonb,         -- 例如 ["mcp__crm-api__*"]
-  tools_deny jsonb,          -- 显式拒绝的工具名，默认空；平台默认在代码中
+  allowed_tools jsonb,       -- 例如 ["mcp__crm-api__*"]
+  disallowed_tools jsonb,    -- 显式拒绝的工具名，默认空；平台默认在代码中
   max_turns int,
   max_budget_usd numeric,
   timeout_ms int,

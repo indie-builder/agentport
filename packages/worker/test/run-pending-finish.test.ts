@@ -290,7 +290,7 @@ async function createFixture(label: string) {
   const childId = newId('agent');
   const conversationId = newId('conversation');
   const runId = newId('run');
-  cleanupIds.agents.push(agentId, childId);
+  cleanupIds.agents.push(childId, agentId);
   cleanupIds.conversations.push(conversationId);
   cleanupIds.runs.push(runId);
   await db.insert(schema.agents).values([

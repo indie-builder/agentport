@@ -1,6 +1,6 @@
 import type { WorkspacePlugin } from './workspace.js';
 
-export interface PluginRenderFile {
+interface PluginRenderFile {
   path: string;
   content: string;
   executable: boolean;

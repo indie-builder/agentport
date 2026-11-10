@@ -62,7 +62,7 @@
 
 - **现象**：`bun run test` 全量跑时，`agents`、`servers`、`knowledge-routes` 等随机有文件报 `UNAUTHORIZED: not logged in`，每轮命中的文件都不一样，单独跑又全过。
 - **原因**：多个测试文件并行登录同一管理员时，better-auth 偶发返回 200、也下发了 cookie，但会话行没写进库。实测证据：失败的那张 cookie 重试仍 401、换一个 app 实例也 401，而会话表里既有会话完好、行数没有减少——所以不是缓存、不是 CASCADE、不是限流、也不是连接池。
-- **规避**：登录接口已加「下发的 cookie 回读一次，读不到就重试一次登录」（`packages/api/src/features/auth/routes.ts`；探测用 `disableRefresh: true`，避免为探测多写一次会话）。排查同类抖动时用 `--no-file-parallelism` 与基线对比，不要凭一次全量结果认定回归。
+- **规避**：登录接口已加「下发的 cookie 回读一次，读不到就重试一次登录」（`packages/api/src/modules/auth/routes.ts`；探测用 `disableRefresh: true`，避免为探测多写一次会话）。排查同类抖动时用 `--no-file-parallelism` 与基线对比，不要凭一次全量结果认定回归。
 
 ## 测试：`RATE_LIMIT_DISABLED` 在构建 app 时读取
 
@@ -632,3 +632,9 @@
 - **现象**：父专家删除改为 `ON DELETE restrict` 后，按 23503 捕获外键冲突的映射不生效，删除返回 500。
 - **原因**：PostgreSQL 对 `RESTRICT` 立即检查报 `23001 restrict_violation`，`NO ACTION` 才报 `23503 foreign_key_violation`；Drizzle 还会把错误包在 cause 链里。
 - **规避**：捕获时同时接受 23001/23503，并核对 `constraint` 名，避免把其他外键（如 `memory_reviews.model_agent_id`）误映射成子专家错误。
+
+## 测试：清理专家时先删父专家会违反 `agents_parent_id_agents_id_fk`
+
+- **现象**：全量 `bun run test` 时，`packages/api/test/agent-package-zip.test.ts` 与 `packages/worker/test/run-pending-finish.test.ts` 的 afterAll 报 `agents_parent_id_agents_id_fk` 违反。
+- **原因**：`agents.parent_id` 是 `onDelete: 'restrict'`；测试清理按 slug/id 批量删除专家时不保证先删子专家，先删父专家会被数据库拒绝。
+- **规避**：测试清理先删 `parent_id is not null` 的子专家，再删其余专家；worker 测试的清理数组按「子在前、父在后」入栈，不要只依赖单条 `delete from agents where slug = any(...)`。
