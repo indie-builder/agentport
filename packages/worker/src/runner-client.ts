@@ -49,6 +49,7 @@ export interface SandboxQuestionCallbacks {
   ): Promise<RunQuestion>;
   list(): Promise<RunQuestion[]>;
   close(reason: string, requestId?: string): Promise<RunQuestion[]>;
+  expireStale?(): Promise<void>;
 }
 
 export interface SandboxRunInput {
@@ -254,6 +255,11 @@ function createQuestionRuntime(input: {
           if (stopped || pending.size === 0) break;
           const callbacks = input.callbacks;
           if (callbacks === undefined) break;
+          try {
+            await callbacks.expireStale?.();
+          } catch (err) {
+            input.logger.warn({ err }, 'question expire sweep failed');
+          }
           let items: RunQuestion[];
           try {
             items = await callbacks.list();

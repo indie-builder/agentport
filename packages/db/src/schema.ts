@@ -806,7 +806,7 @@ export const runQuestions = pgTable(
     requestId: text('request_id').notNull(),
     toolUseId: text('tool_use_id').notNull(),
     questions: jsonb('questions').$type<NativeQuestions>().notNull(),
-    status: text('status', { enum: ['pending', 'answered', 'declined', 'closed'] })
+    status: text('status', { enum: ['pending', 'answered', 'declined', 'closed', 'expired'] })
       .notNull()
       .default('pending'),
     answers: jsonb('answers').$type<Record<string, string>>(),
@@ -819,7 +819,7 @@ export const runQuestions = pgTable(
     uniqueIndex('run_questions_run_request_idx').on(t.runId, t.requestId),
     check(
       'run_questions_status_check',
-      sql`${t.status} in ('pending', 'answered', 'declined', 'closed')`,
+      sql`${t.status} in ('pending', 'answered', 'declined', 'closed', 'expired')`,
     ),
   ],
 );

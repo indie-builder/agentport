@@ -1,7 +1,7 @@
 import { fail } from '@agentport/core';
 import type { NativeQuestions, PublicQuestionResponse, RunQuestion } from '@agentport/shared';
 import { questionPhase, questionResponseSchema } from '@agentport/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, lte } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, runQuestions } from '../schema.js';
@@ -58,6 +58,26 @@ export async function listQuestions(db: Database, runId: string): Promise<RunQue
     .from(runQuestions)
     .where(eq(runQuestions.runId, runId))
     .orderBy(asc(runQuestions.createdAt), asc(runQuestions.id));
+  return rows.map(toRunQuestion);
+}
+
+/** 把已越过时限的 pending 提问固化为 expired，让轮到下一次轮询的宿主能回写 decline。 */
+export async function expireStaleQuestions(
+  db: Database,
+  input: { runId: string; now?: Date },
+): Promise<RunQuestion[]> {
+  const now = input.now ?? new Date();
+  const rows = await db
+    .update(runQuestions)
+    .set({ status: 'expired', closeReason: '超时未回答', resolvedAt: now })
+    .where(
+      and(
+        eq(runQuestions.runId, input.runId),
+        eq(runQuestions.status, 'pending'),
+        lte(runQuestions.expiresAt, now),
+      ),
+    )
+    .returning();
   return rows.map(toRunQuestion);
 }
 
@@ -129,7 +149,7 @@ export async function respondToQuestion(
   requestId: string,
   response: PublicQuestionResponse,
 ): Promise<RunQuestion | null> {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [run] = await tx
       .select({ status: agentRuns.status })
       .from(agentRuns)
@@ -152,12 +172,20 @@ export async function respondToQuestion(
         ? row.status === 'declined'
         : row.status === 'answered' && answers !== null && sameAnswers(row.answers, answers);
     if (row.status !== 'pending') {
-      if (unchanged) return toRunQuestion(row);
+      if (unchanged) return { question: toRunQuestion(row) };
       if (row.status === 'closed') fail('CONFLICT', '这次提问已关闭，无法回答');
+      if (row.status === 'expired') fail('CONFLICT', '这次提问已过期，无法回答');
       fail('CONFLICT', '这次提问已经回答过，不能覆盖');
     }
     if (run.status !== 'running') fail('CONFLICT', '运行已结束，无法回答这次提问');
-    if (questionPhase(row) !== 'pending') fail('CONFLICT', '这次提问已过期，无法回答');
+    if (questionPhase(row) !== 'pending') {
+      await tx
+        .update(runQuestions)
+        .set({ status: 'expired', closeReason: '超时未回答', resolvedAt: new Date() })
+        .where(and(eq(runQuestions.id, row.id), eq(runQuestions.status, 'pending')));
+      // 固化过期后再报 409，不能在同一事务里抛错回滚掉这条写入。
+      return { expired: true };
+    }
 
     const [updated] = await tx
       .update(runQuestions)
@@ -170,27 +198,37 @@ export async function respondToQuestion(
       .where(eq(runQuestions.id, row.id))
       .returning();
     if (!updated) fail('INTERNAL_ERROR', '回答写入失败');
-    return toRunQuestion(updated);
+    return { question: toRunQuestion(updated) };
   });
+  if (result === null) return null;
+  if ('expired' in result) fail('CONFLICT', '这次提问已过期，无法回答');
+  return result.question;
 }
 
-/** 只关闭仍 pending 的问题；已回答/已拒答的记录不可覆盖。 */
+/** 只关闭仍 pending 的问题；已回答/已拒答的记录不可覆盖。过期项记为 expired。 */
 export async function closeQuestions(
   db: Database,
   runId: string,
   reason: string,
   requestId?: string,
 ): Promise<RunQuestion[]> {
-  const rows = await db
-    .update(runQuestions)
-    .set({ status: 'closed', closeReason: reason, resolvedAt: new Date() })
-    .where(
-      and(
-        eq(runQuestions.runId, runId),
-        eq(runQuestions.status, 'pending'),
-        ...(requestId === undefined ? [] : [eq(runQuestions.requestId, requestId)]),
-      ),
-    )
-    .returning();
-  return rows.map(toRunQuestion);
+  const now = new Date();
+  const matching = and(
+    eq(runQuestions.runId, runId),
+    eq(runQuestions.status, 'pending'),
+    ...(requestId === undefined ? [] : [eq(runQuestions.requestId, requestId)]),
+  );
+  return db.transaction(async (tx) => {
+    const expired = await tx
+      .update(runQuestions)
+      .set({ status: 'expired', closeReason: '超时未回答', resolvedAt: now })
+      .where(and(matching, lte(runQuestions.expiresAt, now)))
+      .returning();
+    const closed = await tx
+      .update(runQuestions)
+      .set({ status: 'closed', closeReason: reason, resolvedAt: now })
+      .where(matching)
+      .returning();
+    return [...expired, ...closed].map(toRunQuestion);
+  });
 }

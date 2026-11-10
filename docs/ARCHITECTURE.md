@@ -217,7 +217,7 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 
 US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户答案，继续同一次工具调用。问题与答案属于运行数据，智能体定义仍由官方文件表达；不新增自定义提问工具或第二执行循环。
 
-当前固定方案：supervisor 保留常驻 stdin 通道；本轮 runner 经 supervisor 发问题请求，worker 先持久化运行问题再发布 SSE 快照；用户经鉴权 API 回答，worker 沿现有 PG 轮询模式把答案回传给本轮 runner。消息内容保留问题最终快照，使历史与分支只读展示不依赖 run 保留期。等待计入原整体运行 timeout，停止/超时使待答问题关闭。
+当前固定方案：supervisor 保留常驻 stdin 通道；本轮 runner 经 supervisor 发问题请求，worker 先持久化运行问题再发布 SSE 快照；用户经鉴权 API 回答，worker 沿现有 PG 轮询模式把答案回传给本轮 runner。消息内容保留问题最终快照，使历史与分支只读展示不依赖 run 保留期。等待计入原整体运行 timeout；到 `expiresAt` 仍未回答的 pending 提问由 worker 轮询清扫落库为 `expired` 并回写 decline，运行继续；停止/整体超时按 `expired` 或 `closed` 关闭待答问题。
 
 权限边界：官方 `dontAsk` 直接拒绝需要交互的工具、不会进入回调；新建默认采用 `default`，显式模式不重写。回调只处理主会话原生提问，其余未预批准工具拒绝；文件访问hook、禁用工具、子级边界与MCP服务端审批保留。回答问题不表示批准副作用。子智能体官方暂不支持原生提问。
 

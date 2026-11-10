@@ -98,15 +98,19 @@ export const publicQuestionResponseSchema = z.union([
 ]);
 export type PublicQuestionResponse = z.infer<typeof publicQuestionResponseSchema>;
 
-export const runQuestionStatusSchema = z.enum(['pending', 'answered', 'declined', 'closed']);
+export const runQuestionStatusSchema = z.enum([
+  'pending',
+  'answered',
+  'declined',
+  'closed',
+  'expired',
+]);
 export type RunQuestionStatus = z.infer<typeof runQuestionStatusSchema>;
-
-export type RunQuestionPhase = RunQuestionStatus | 'expired';
 
 export function questionPhase(
   question: { status: RunQuestionStatus; expiresAt: Date },
   now: Date = new Date(),
-): RunQuestionPhase {
+): RunQuestionStatus {
   if (question.status !== 'pending') return question.status;
   return question.expiresAt.getTime() <= now.getTime() ? 'expired' : 'pending';
 }

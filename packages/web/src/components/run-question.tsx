@@ -22,6 +22,7 @@ const statusLabel: Record<RunQuestionStatus, string> = {
   answered: '已回答',
   declined: '暂不回答',
   closed: '已关闭',
+  expired: '已过期',
 };
 
 type PublicQuestion = PublicRunQuestion['questions'][number];
