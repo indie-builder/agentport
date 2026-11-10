@@ -595,7 +595,7 @@ export const channelAgentBindings = pgTable(
     conversationId: text('conversation_id').references(() => conversations.id, {
       onDelete: 'set null',
     }),
-    status: text('status', { enum: ['active', 'paused', 'disconnected'] })
+    status: text('status', { enum: ['active', 'disconnected'] })
       .notNull()
       .default('active'),
     contextSeq: bigint('context_seq', { mode: 'number' }).notNull().default(0),
@@ -607,10 +607,7 @@ export const channelAgentBindings = pgTable(
     uniqueIndex('channel_agent_bindings_channel_agent_idx').on(t.channelId, t.agentId),
     index('channel_agent_bindings_agent_idx').on(t.agentId),
     index('channel_agent_bindings_conversation_idx').on(t.conversationId),
-    check(
-      'channel_agent_bindings_status_check',
-      sql`${t.status} in ('active', 'paused', 'disconnected')`,
-    ),
+    check('channel_agent_bindings_status_check', sql`${t.status} in ('active', 'disconnected')`),
   ],
 );
 

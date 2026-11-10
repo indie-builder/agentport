@@ -136,7 +136,7 @@ describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigge
   async function newChannelLane(
     input: {
       role?: 'owner' | 'admin' | 'member' | 'viewer';
-      status?: 'active' | 'paused' | 'disconnected';
+      status?: 'active' | 'disconnected';
       conversationChannelId?: string;
       bindingChannelId?: string;
       bindingConversationId?: string;

@@ -9,7 +9,7 @@ export type ChannelRole = z.infer<typeof channelRoleSchema>;
 export const CHANNEL_MAX_WAKE_AGENTS = 5;
 
 const channelMessageKindSchema = z.enum(['human', 'agent', 'system']);
-const channelAgentStatusSchema = z.enum(['active', 'paused', 'disconnected']);
+const channelAgentStatusSchema = z.enum(['active', 'disconnected']);
 
 /** seq / lastReadSeq 走 bigint(mode: number)，wire 上限定非负安全整数。 */
 const seqSchema = z.number().int().nonnegative().safe();
@@ -119,6 +119,12 @@ export const channelAgentInputSchema = z
   .object({
     agentId: z.string().min(1),
     autoWakeOnAll: z.boolean().default(false),
+  })
+  .strict();
+
+export const channelAgentWakeInputSchema = z
+  .object({
+    autoWakeOnAll: z.boolean(),
   })
   .strict();
 

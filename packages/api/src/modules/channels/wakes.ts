@@ -21,7 +21,7 @@ const WAKE_STOP_TIMEOUT_MS = 5_000;
 const LANE_BUSY_NOTICE = '当前智能体正在处理上一轮消息，本条已保存；请等它结束后再 @ 继续。';
 const WAKE_FAILED_NOTICE = '智能体启动失败，请重新 @ 该智能体。';
 const AGENT_GONE_NOTICE = '该智能体已不在频道内，本条消息未执行。';
-const BINDING_INACTIVE_NOTICE = '该智能体在频道内已暂停或断开，本条消息未执行。';
+const BINDING_INACTIVE_NOTICE = '该智能体在频道内已断开，本条消息未执行。';
 const AGENT_DISABLED_NOTICE = '该智能体已停用，本条消息未执行。';
 
 type WakeContext = {

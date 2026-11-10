@@ -1,6 +1,7 @@
 import {
   channelAgentBindingSchema,
   channelAgentInputSchema,
+  channelAgentWakeInputSchema,
   channelCreateSchema,
   channelDetailSchema,
   channelListItemSchema,
@@ -87,6 +88,16 @@ export const channelsContract = {
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'POST', path: '/channels/{id}/agents', successStatus: 201 })
     .input(z.object({ params: idParams, body: channelAgentInputSchema }))
+    .output(channelAgentBindingSchema),
+  updateAgent: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({ method: 'PATCH', path: '/channels/{id}/agents/{agentId}', successStatus: 200 })
+    .input(
+      z.object({
+        params: z.object({ id: z.string().min(1), agentId: z.string().min(1) }),
+        body: channelAgentWakeInputSchema,
+      }),
+    )
     .output(channelAgentBindingSchema),
   removeAgent: contractProcedure
     .meta({ access: { kind: 'authenticated' } })

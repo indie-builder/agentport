@@ -1060,7 +1060,7 @@ export async function admitChatRun(
         .for('update');
       if (!binding) fail('AGENT_NOT_FOUND', '该智能体未加入频道，无法触发');
       if (binding.status !== 'active') {
-        fail('CONFLICT', '该智能体在频道内已暂停或断开，无法触发');
+        fail('CONFLICT', '该智能体在频道内已断开，无法触发');
       }
       // 只补注入上次游标之后、触发消息之前的新消息；limit+1 用来判断是否还有更早的。
       const contextRows = await tx

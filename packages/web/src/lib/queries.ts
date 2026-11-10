@@ -3179,6 +3179,18 @@ export function useBindChannelAgent(id: string) {
   });
 }
 
+export function useUpdateChannelAgent(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; autoWakeOnAll: boolean }) =>
+      api.updateChannelAgent(id, vars.agentId, { autoWakeOnAll: vars.autoWakeOnAll }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
 export function useStopChannelRun(id: string) {
   const client = useQueryClient();
   return useMutation({

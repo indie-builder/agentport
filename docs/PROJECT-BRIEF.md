@@ -416,7 +416,7 @@ channel_members(channel_id text fk cascade, business_id text,
 
 channel_agent_bindings(channel_id text fk cascade, agent_id text fk agents cascade,
                        conversation_id text fk conversations set null,
-                       status text check in (active,paused,disconnected) default active,
+                       status text check in (active,disconnected) default active,
                        context_seq bigint not null default 0,
                        auto_wake_on_all boolean default false, added_by text,
                        created_at timestamptz, unique (channel_id, agent_id))
@@ -457,7 +457,7 @@ approval_requests.arguments_summary jsonb nullable
 approval_requests.authorization_expires_at timestamptz nullable
 ```
 
-人发消息只写一条频道时间线；显式 `mentions` 与 opt-in `mentionAll` 才唤醒 agent，单条消息显式 mention 最多 5 个，`mentionAll` 解析后超过 5 个整条拒绝；频道消息列表首屏取最新一页，`before` 游标加载更早消息。每个 `(channel_id, agent_id)` 复用一个 lane，lane 内的 user message 指向来源频道消息，run 也记录频道与触发消息。准入按绑定的 `context_seq` 增量拼入频道上下文：只取游标之后、触发消息之前的 human/agent/system 消息，最多最新 20 条，前缀（含分隔与省略提示，不含当前消息）不超过 8000 字符，超限从最早整条丢弃并标注「更早的消息已省略」；准入只读取游标，不推进。没有新消息时保持原 content 不变，不新增频道消息。游标只在 run 被确认执行后（消息持久化事务内）推进到触发消息 seq，旧消息重放不回退，queued 取消与入队失败不吞上下文。频道 run 不投影也不注入触发者的个人记忆。助手回复与 `channel_messages` 投影同事务写入，可重试中间尝试不投影到频道；最终回复投影由 `source_message_id` 唯一索引去重。lane 首次创建者仅供溯源，频道成员角色与 active 绑定决定执行准入；私有会话列表和搜索排除 lane。频道关闭后 `postMessage` 与 `admitChatRun` 在频道行锁内拒绝新消息与新 run。审批行以 `approved_at` 或 `denied_at` 记录终态（二者互斥，不设 `expired` 持久状态机）；私有 run 的批准与拒绝经 `POST /api/runs/:id/approve|deny`、`runs.approve` 权限；频道审批沿用频道成员角色判定，暂未提供频道侧拒绝入口。
+人发消息只写一条频道时间线；显式 `mentions` 与 opt-in `mentionAll` 才唤醒 agent，`mentionAll` 只命中 `auto_wake_on_all=true`、active 且专家已启用的绑定，解析后合计最多唤醒 5 个（`CHANNEL_MAX_WAKE_AGENTS`），超限整条消息拒绝且不落库；频道设置可逐个绑定开关「响应 @all」，频道输入区「通知全部（N）」发送前确认并显示影响人数，未开启的绑定不会被 @all 唤醒；频道消息列表首屏取最新一页，`before` 游标加载更早消息。每个 `(channel_id, agent_id)` 复用一个 lane，lane 内的 user message 指向来源频道消息，run 也记录频道与触发消息。准入按绑定的 `context_seq` 增量拼入频道上下文：只取游标之后、触发消息之前的 human/agent/system 消息，最多最新 20 条，前缀（含分隔与省略提示，不含当前消息）不超过 8000 字符，超限从最早整条丢弃并标注「更早的消息已省略」；准入只读取游标，不推进。没有新消息时保持原 content 不变，不新增频道消息。游标只在 run 被确认执行后（消息持久化事务内）推进到触发消息 seq，旧消息重放不回退，queued 取消与入队失败不吞上下文。频道 run 不投影也不注入触发者的个人记忆。助手回复与 `channel_messages` 投影同事务写入，可重试中间尝试不投影到频道；最终回复投影由 `source_message_id` 唯一索引去重。lane 首次创建者仅供溯源，频道成员角色与 active 绑定决定执行准入；私有会话列表和搜索排除 lane。频道关闭后 `postMessage` 与 `admitChatRun` 在频道行锁内拒绝新消息与新 run。审批行以 `approved_at` 或 `denied_at` 记录终态（二者互斥，不设 `expired` 持久状态机）；私有 run 的批准与拒绝经 `POST /api/runs/:id/approve|deny`、`runs.approve` 权限；频道审批沿用频道成员角色判定，暂未提供频道侧拒绝入口。
 
 知识库是一组独立的内容表，不挂在专家定义下（字段契约见 [ARCHITECTURE.md §6.1](ARCHITECTURE.md#61-存储与数据模型)）：
 

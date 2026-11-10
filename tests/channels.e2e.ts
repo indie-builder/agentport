@@ -83,8 +83,16 @@ async function createAgent(browser: Browser, tag: string): Promise<{ id: string;
   return { id: result.json.id, name };
 }
 
-async function bindAgent(browser: Browser, channelId: string, agentId: string): Promise<void> {
-  const result = await apiJson(browser, 'POST', `/api/channels/${channelId}/agents`, { agentId });
+async function bindAgent(
+  browser: Browser,
+  channelId: string,
+  agentId: string,
+  autoWakeOnAll?: boolean,
+): Promise<void> {
+  const result = await apiJson(browser, 'POST', `/api/channels/${channelId}/agents`, {
+    agentId,
+    ...(autoWakeOnAll === undefined ? {} : { autoWakeOnAll }),
+  });
   assert(result.status === 201, `绑定智能体失败：${result.status}`);
 }
 
@@ -203,13 +211,19 @@ test('binds an agent to a channel and shows it in the detail', { session: 'admin
   await app.open(`/channels/${channel.id}`);
   await expect(screen.getByRole('heading', { name: /智能体\s*0/ })).toBeVisible();
 
-  await screen.getByLabel('选择要绑定的智能体').tap();
+  await screen.getByRole('button', '频道设置').tap();
+  const settings = screen.getByRole('dialog', '频道设置');
+  await expect(settings).toBeVisible();
+  await settings.getByLabel('选择要绑定的智能体').tap();
   await screen.getByRole('option', { name: agent.name, exact: false }).tap();
-  await screen.getByRole('button', '绑定智能体').tap();
+  await settings.getByRole('button', '绑定智能体').tap();
+  await expect(screen.getByText('智能体已绑定')).toBeVisible();
+  await settings.getByRole('button', '关闭').tap();
+  await expect(settings).toBeHidden();
 
-  await expect(screen.getByText('智能体已加入频道')).toBeVisible();
-  await expect(screen.getByText(agent.name, { visible: true })).toBeVisible();
-  await expect(screen.getByText('空闲', { visible: true })).toBeVisible();
+  const sidebar = screen.getByRole('complementary');
+  await expect(sidebar.getByText(agent.name, { visible: true })).toBeVisible();
+  await expect(sidebar.getByText('空闲', { visible: true })).toBeVisible();
   const rows = await runFixture('channels', 'bindingCount', channel.id, agent.id);
   expect(rows[0]?.count).toBe('1');
 });
@@ -304,7 +318,9 @@ test('stops a running channel run', { session: 'admin' }, async ({ app, screen, 
   await expect(stop).toBeVisible({ timeout: 90_000 });
   await stop.tap();
 
-  await expect(screen.getByText('运行已停止。')).toBeVisible({ timeout: 90_000 });
+  await expect(screen.getByText('运行已停止，打开运行详情查看状态。')).toBeVisible({
+    timeout: 90_000,
+  });
   await expect.poll(() => latestRunStatus(channel.id), { timeout: 60_000 }).toBe('cancelled');
 });
 
@@ -409,6 +425,100 @@ test('shows unread from another member and clears it after reading', { session: 
       { timeout: 30_000 },
     )
     .toBe(0);
+});
+
+test('@all requires explicit opt-in and a send confirmation', { session: 'admin' }, async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/channels');
+  const first = await createAgent(browser, 'all-first');
+  const second = await createAgent(browser, 'all-second');
+  const channel = await createChannel(browser, 'all');
+  await bindAgent(browser, channel.id, first.id);
+  await bindAgent(browser, channel.id, second.id);
+
+  await app.open(`/channels/${channel.id}`);
+  await expect(screen.getByRole('heading', { name: channel.name, level: 1 })).toBeVisible();
+  await expect(screen.getByText(first.name, { visible: true })).toBeVisible();
+  await expect(screen.getByText(second.name, { visible: true })).toBeVisible();
+  await expect(screen.getByRole('button', { name: /通知全部/ })).toHaveCount(0);
+
+  await screen.getByRole('button', '频道设置').tap();
+  const settings = screen.getByRole('dialog', '频道设置');
+  await expect(settings).toBeVisible();
+  await screen.getByRole('switch', `${first.name} 响应 @all`).tap();
+  await expect(screen.getByText(`已开启「${first.name}」的 @all 响应`)).toBeVisible();
+  await settings.getByRole('button', '关闭').tap();
+  await expect(settings).toBeHidden();
+
+  const notify = screen.getByRole('button', '通知全部（1）');
+  await expect(notify).toBeVisible({ timeout: 30_000 });
+  await notify.tap();
+  await expect(screen.getByText('将唤醒 1 个智能体')).toBeVisible();
+
+  const body = `E2E 通知全部 ${uniqueSuffix()}`;
+  await screen.getByRole('textbox', '消息').fill(body);
+  await screen.getByRole('button', '发送消息').tap();
+
+  const confirm = screen.getByRole('dialog', '发送通知全部？');
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText(`将唤醒 1 个智能体：${first.name}。`);
+  await expect(confirm).not.toContainText(second.name);
+  await confirm.getByRole('button', '发送').tap();
+
+  const reply = channelReplyLocator(browser, body);
+  await expect(reply).toHaveCount(1, { timeout: 120_000 });
+  await expect(reply).toBeVisible({ timeout: 120_000 });
+  await expect(screen.getByRole('listitem').filter({ hasText: first.name })).toContainText('空闲', {
+    timeout: 60_000,
+  });
+
+  const firstLanes = await runFixture('channels', 'laneCount', channel.id, first.id);
+  expect(firstLanes[0]?.count).toBe('1');
+  const secondLanes = await runFixture('channels', 'laneCount', channel.id, second.id);
+  expect(secondLanes[0]?.count).toBe('0');
+  const runs = await runFixture('channels', 'runCount', channel.id);
+  expect(runs[0]?.count).toBe('1');
+});
+
+test('@all above the wake limit rejects the message without persisting it', {
+  session: 'admin',
+}, async ({ app, screen, browser }) => {
+  await app.open('/channels');
+  const channel = await createChannel(browser, 'all-limit');
+  for (let index = 0; index < 6; index += 1) {
+    const agent = await createAgent(browser, `all-limit-${index}`);
+    await bindAgent(browser, channel.id, agent.id, true);
+  }
+
+  await app.open(`/channels/${channel.id}`);
+  await expect(screen.getByRole('button', '通知全部（6）')).toBeDisabled({ timeout: 30_000 });
+  await expect(screen.getByText('超过单次上限 5 个，请在频道设置中调整')).toBeVisible();
+
+  const body = `E2E 超限通知全部 ${uniqueSuffix()}`;
+  const posted = await apiJson<{ code: string }>(
+    browser,
+    'POST',
+    `/api/channels/${channel.id}/messages`,
+    { body, mentionAll: true },
+  );
+  assert(posted.status === 400, `超限 @all 应当 400（实际 ${posted.status}）`);
+  assert(
+    posted.json?.code === 'INVALID_INPUT',
+    `超限 @all 错误码应为 INVALID_INPUT（实际 ${posted.json?.code}）`,
+  );
+
+  const messages = await apiJson<Array<{ body: string }>>(
+    browser,
+    'GET',
+    `/api/channels/${channel.id}/messages`,
+  );
+  assert(messages.status === 200 && messages.json !== null, `读取消息失败：${messages.status}`);
+  assert(!messages.json.some((message) => message.body === body), '超限 @all 的正文不应落库');
+  const runs = await runFixture('channels', 'runCount', channel.id);
+  expect(runs[0]?.count).toBe('0');
 });
 
 test('a viewer can read the channel but cannot post', { session: 'admin' }, async ({

@@ -354,10 +354,10 @@ describe.skipIf(!ready)('channel mentions', () => {
       await createAgent(app, adminCookie, { slug: unique('channel-agent'), track: agentSlugs })
     ).json<Agent>();
 
-    const paused = await createBoundAgent(channel.id);
+    const disconnected = await createBoundAgent(channel.id);
     await app.client.unsafe(
-      "update channel_agent_bindings set status = 'paused' where channel_id = $1 and agent_id = $2",
-      [channel.id, paused.id],
+      "update channel_agent_bindings set status = 'disconnected' where channel_id = $1 and agent_id = $2",
+      [channel.id, disconnected.id],
     );
 
     const disabled = await createBoundAgent(channel.id);
@@ -367,7 +367,7 @@ describe.skipIf(!ready)('channel mentions', () => {
 
     const rejected: Array<[string, string, string[]]> = [
       [owner.cookie, `invalid-unbound-${unique('c')}`, [unbound.id]],
-      [owner.cookie, `invalid-paused-${unique('c')}`, [paused.id]],
+      [owner.cookie, `invalid-disconnected-${unique('c')}`, [disconnected.id]],
       [owner.cookie, `invalid-disabled-${unique('c')}`, [disabled.id]],
     ];
     for (const [cookie, clientMessageId, mentions] of rejected) {

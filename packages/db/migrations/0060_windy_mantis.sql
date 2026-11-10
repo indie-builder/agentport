@@ -1,0 +1,2 @@
+ALTER TABLE "channel_agent_bindings" DROP CONSTRAINT "channel_agent_bindings_status_check";--> statement-breakpoint
+ALTER TABLE "channel_agent_bindings" ADD CONSTRAINT "channel_agent_bindings_status_check" CHECK ("channel_agent_bindings"."status" in ('active', 'disconnected'));
