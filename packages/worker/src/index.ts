@@ -685,6 +685,8 @@ const worker = new Worker(
         agentSlugForRun = agent.slug;
         // 同一行已带 memoryPolicy 列：直接解析，避免为本轮再查一次 agent。
         const memoryPolicy = resolveMemoryPolicy(agent.memoryPolicy);
+        const runMemoryPolicy: MemoryPolicy =
+          run.channelId === null ? memoryPolicy : { ...memoryPolicy, writeMode: 'proposal_only' };
         // 单层委派：只取直接子智能体。容器取得前查一次并沿用到结束；A 保证准入到结束集合稳定。
         const subAgentRows: SubAgentRow[] = await db
           .select()
@@ -698,7 +700,7 @@ const worker = new Worker(
         const personalBusinessId = personalMemoryBusinessIdForRun({
           subject,
           channelId: run.channelId,
-          policy: memoryPolicy,
+          policy: runMemoryPolicy,
         });
         if (personalBusinessId !== undefined) {
           await projectPersonalMemory(db, client, workspacesDir, personalBusinessId);
@@ -734,7 +736,7 @@ const worker = new Worker(
             // 记忆策略决定挂载方式：关闭时不挂 /mnt/agent-memory，只有 native_auto 可写；
             // 容器重建由挂载集合（含 readonly）变化触发。
             ...memoryMountFor(
-              memoryPolicy,
+              runMemoryPolicy,
               toHostWorkspacePath({ workspacesDir, hostWorkspacesDir }, sessionPaths.memoryDir),
             ),
             sessionsDir: toHostWorkspacePath(
@@ -895,7 +897,7 @@ const worker = new Worker(
         }));
 
         // injectRules=false 时不渲染也不查询规则；writeWorkspace 仍会先清理旧 .claude/rules。
-        const rules = memoryPolicy.injectRules
+        const rules = runMemoryPolicy.injectRules
           ? (await repo.rules.listRules(db, agentId)).map((r) => ({
               slug: r.slug,
               content: r.content,
@@ -926,7 +928,7 @@ const worker = new Worker(
           outputStyles,
           selectedOutputStyle,
           runPlugins,
-          memoryPolicy,
+          runMemoryPolicy,
         );
         await refreshSessionDirectory(workspaceDir, stableWorkspaceDir, {
           preserveMemoryMount: true,
@@ -978,7 +980,7 @@ const worker = new Worker(
             skills: (childSkills.get(row.id) ?? []).map((skill) => skill.slug),
           })),
           userMessageUuid,
-          memoryPolicy,
+          memoryPolicy: runMemoryPolicy,
           // 首次空会话不 resume：没有 transcript 时传了只会让 CLI 找不到会话。
           ...(sdkState.sdkSessionId === null ? {} : { resumeSessionId: sdkState.sdkSessionId }),
           ...(sdkState.forkFromSdkMessageUuid === null
