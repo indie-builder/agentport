@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
-import type { RequestContext } from '../../http/context.js';
 import { getTrustedOrigins, isTrustedOrigin } from '../../config.js';
+import type { RequestContext } from '../../http/context.js';
 
 export function isOriginAllowed(context: RequestContext): boolean {
   const origin = context.request.headers.get('origin');

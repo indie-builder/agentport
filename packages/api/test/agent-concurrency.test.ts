@@ -1,5 +1,5 @@
-import type { Agent } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it, jest, spyOn } from 'bun:test';
+import type { Agent } from '@agentport/shared';
 import {
   cleanup,
   createAgent,
@@ -28,7 +28,9 @@ describe.skipIf(!ready)('agent update concurrency', () => {
   afterAll(async () => {
     if (createdIds.length > 0) {
       // audit_log 没有外键，删 agent 不会带走它。
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(createdIds, 'TEXT')]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(createdIds, 'TEXT'),
+      ]);
     }
     await cleanup(app, { agentSlugs: createdSlugs });
     await app.close();
@@ -60,11 +62,13 @@ describe.skipIf(!ready)('agent update concurrency', () => {
   };
 
   const versionRows = async (id: string) => {
-    const rows = await app.client.unsafe<{
-      version: number;
-      snapshot: Agent;
-      note: string | null;
-    }[]>('select version, snapshot, note from agent_versions where agent_id = $1 order by version', [
+    const rows = await app.client.unsafe<
+      {
+        version: number;
+        snapshot: Agent;
+        note: string | null;
+      }[]
+    >('select version, snapshot, note from agent_versions where agent_id = $1 order by version', [
       id,
     ]);
     return rows;

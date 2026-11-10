@@ -1,10 +1,10 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { type NativeQuestion, type RunQuestion, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it } from 'bun:test';
 import { buildMessageRows } from '../src/messages.js';
 import {
   closeRunnerClient,

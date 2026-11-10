@@ -1,5 +1,5 @@
-import type { Agent, WorkspaceFiles } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import type { Agent, WorkspaceFiles } from '@agentport/shared';
 import {
   cleanup,
   infraReady,
@@ -27,7 +27,9 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
 
   afterAll(async () => {
     if (agentIds.length > 0) {
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(agentIds, 'TEXT')]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(agentIds, 'TEXT'),
+      ]);
     }
     await cleanup(app, { agentSlugs });
     await app.close();

@@ -1,5 +1,5 @@
-import { newId } from '@agentport/db';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { newId } from '@agentport/db';
 import {
   createAgent,
   createTestAccount,
@@ -235,11 +235,13 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       url: `/api/runs/${runA}`,
       headers: { cookie: admin },
     });
-    const audit = await app.client.unsafe<{
-      actor: string;
-      actor_kind: string;
-      subject_business_id: string | null;
-    }[]>(
+    const audit = await app.client.unsafe<
+      {
+        actor: string;
+        actor_kind: string;
+        subject_business_id: string | null;
+      }[]
+    >(
       `select actor, actor_kind, subject_business_id from audit_log
         where action = 'access.cross_user.runs.read' and target = $1 and actor = $2`,
       [runA, adminBusinessId],

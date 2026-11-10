@@ -1,10 +1,10 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { SourceAuthError } from '../src/knowledge/source-http.js';
 import { probeIma, readIma } from '../src/knowledge/source-ima.js';
 import type { SourceConfig } from '../src/knowledge/sources.js';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 type RequestRecord = {
   url: string;
@@ -40,7 +40,8 @@ function installFetch(
   handler: (record: RequestRecord) => Response | Promise<Response>,
 ): RequestRecord[] {
   const records: RequestRecord[] = [];
-  stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
+  stubFetch(
+    mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       const record: RequestRecord = {
         url,
@@ -768,7 +769,8 @@ describe('readIma', () => {
     const requestStarted = new Promise<void>((resolve) => {
       started = resolve;
     });
-    stubFetch(mock(
+    stubFetch(
+      mock(
         (_input: string | URL | Request, init?: RequestInit) =>
           new Promise<Response>((_resolve, reject) => {
             const fail = () => reject(new DOMException('aborted', 'AbortError'));

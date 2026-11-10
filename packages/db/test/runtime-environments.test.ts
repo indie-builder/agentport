@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'bun:test';
+import { eq } from 'drizzle-orm';
 import { createDb } from '../src/client.js';
 import { isIdOfType, newId } from '../src/id.js';
 import * as agentVersionsRepo from '../src/repo/agent-versions.js';

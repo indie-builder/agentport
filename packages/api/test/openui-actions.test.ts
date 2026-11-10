@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getQueue } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -42,8 +42,9 @@ describe.skipIf(!ready)('openui actions', () => {
         .catch(() => undefined);
     }
     if (conversationIds.length > 0) {
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(conversationIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(conversationIds, 'TEXT'),
+      ]);
     }
     await cleanup(app, { agentSlugs, runIds });
     await app.close();

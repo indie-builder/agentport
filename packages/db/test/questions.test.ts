@@ -1,13 +1,13 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { QUESTION_LIMITS } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sql';
-import { afterAll, describe, expect, it } from 'bun:test';
-import { waitFor } from './fixtures/wait-for.js';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';
 import * as questions from '../src/repo/questions.js';
 import { agents, schema } from '../src/schema.js';
+import { waitFor } from './fixtures/wait-for.js';
 
 const { client } = createDb(process.env.DATABASE_URL ?? '');
 const db = drizzle(client, { schema });

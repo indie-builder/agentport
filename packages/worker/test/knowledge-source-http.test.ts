@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import {
   fetchBytes,
   fetchChecked,
   readBytesCapped,
   SourceAuthError,
 } from '../src/knowledge/source-http.js';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 type Call = { url: string; init: RequestInit };
 
@@ -17,7 +17,8 @@ function headersOf(init: RequestInit): Headers {
 }
 
 function mockFetch(handler: (url: string, init: RequestInit) => Promise<Response>): void {
-  stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
+  stubFetch(
+    mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const request = init ?? {};
       calls.push({ url, init: request });

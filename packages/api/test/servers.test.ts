@@ -1,5 +1,5 @@
-import { SECRET_MASK, type Server } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { SECRET_MASK, type Server } from '@agentport/shared';
 import { buildApp } from '../src/app.js';
 import {
   cleanup,

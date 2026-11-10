@@ -1,5 +1,5 @@
-import { createServer, type Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { createServer, type Server } from 'node:http';
 import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
 
 const SEARCH_TTL_MS = 5 * 60 * 1000;
@@ -60,7 +60,10 @@ afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-let market: Promise<typeof import('../src/modules/market/search.js') & typeof import('../src/modules/market/leaderboard.js')>;
+let market: Promise<
+  typeof import('../src/modules/market/search.js') &
+    typeof import('../src/modules/market/leaderboard.js')
+>;
 
 function loadMarket() {
   market ??= (async () => {

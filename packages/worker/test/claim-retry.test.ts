@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { testAccess } from './fixtures/access.js';
 
 const { agentOwnership, conversationSubject, userSubject } = testAccess(import.meta.url);

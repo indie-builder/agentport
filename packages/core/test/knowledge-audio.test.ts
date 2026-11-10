@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'bun:test';
+import { readFile } from 'node:fs/promises';
 import { inspectKnowledgeAudio } from '../src/knowledge-audio.js';
 
 const read = (name: string): Promise<Uint8Array> =>

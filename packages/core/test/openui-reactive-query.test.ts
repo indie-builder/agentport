@@ -1,3 +1,4 @@
+import { describe, expect, mock, test } from 'bun:test';
 import { createOpenUiDefinitions } from '@agentport/shared';
 import {
   action,
@@ -11,7 +12,6 @@ import {
   markReactive,
   type ParseResult,
 } from '@openuidev/lang-core';
-import { describe, expect, mock, test } from 'bun:test';
 import { waitFor } from './fixtures/wait-for.js';
 
 /**

@@ -1,5 +1,5 @@
-import { connectorCatalogSchema } from '@agentport/shared';
 import { describe, expect, it } from 'bun:test';
+import { connectorCatalogSchema } from '@agentport/shared';
 import { connectorCatalog } from '../src/modules/servers/connector-catalog-data.js';
 
 describe('connector catalog seed', () => {

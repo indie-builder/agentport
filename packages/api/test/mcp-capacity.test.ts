@@ -1,9 +1,9 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { AgentInvoker } from '../src/modules/servers/agent-tools.js';
 import { registerServersHttp } from '../src/modules/servers/http.js';
 import type { AppRuntime } from '../src/types.js';

@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { repo } from '@agentport/db';
 import type { PublicRunQuestion, RunQuestion } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { requestRunCancel } from '../src/queue/producer.js';
 import {
   cleanup,

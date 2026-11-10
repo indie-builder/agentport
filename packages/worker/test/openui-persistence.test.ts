@@ -1,7 +1,7 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent } from '@agentport/shared';
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'bun:test';
 import { persistRunMessages } from '../src/messages.js';
 import { testAccess } from './fixtures/access.js';
 

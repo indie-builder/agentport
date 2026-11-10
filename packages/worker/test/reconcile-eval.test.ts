@@ -1,8 +1,8 @@
+import { afterAll, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import { createDb, newId, schema } from '@agentport/db';
 import type { Queue } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 
 const { EVAL_LOST_ERROR, reconcileOrphanedEvalRuns } = await import('../src/reconcile.js');

@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { NativePluginAction, NativePluginOutput } from '@agentport/shared';
 import { zipSync } from 'fflate';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import {
   cleanup,
   expectProblem,
@@ -93,7 +93,9 @@ describe.skipIf(!ready)('native plugin routes', () => {
 
   afterAll(async () => {
     if (pluginIds.length > 0) {
-      await app.client.unsafe('delete from plugins where id = any($1::text[])', [app.client.array(pluginIds, 'TEXT')]);
+      await app.client.unsafe('delete from plugins where id = any($1::text[])', [
+        app.client.array(pluginIds, 'TEXT'),
+      ]);
     }
     await cleanup(app, {});
     await app.close();

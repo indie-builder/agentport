@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,7 +8,6 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import { chatEventSchema, RUNS_QUEUE } from '@agentport/shared';
 import type { UserPromptSubmitHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { createPersonalMemoryHook } from '../../sandbox/src/memory-permissions.js';
 import { SandboxCleanupError } from '../src/sandbox/provider.js';
 import { testAccess } from './fixtures/access.js';

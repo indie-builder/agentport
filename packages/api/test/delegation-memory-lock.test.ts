@@ -1,9 +1,9 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseClient, newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import {
   acquireMemoryLock,
   cleanup,
@@ -47,15 +47,21 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
 
   afterEach(async () => {
     if (runIds.length > 0) {
-      await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [app.client.array(runIds, 'TEXT')]);
+      await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [
+        app.client.array(runIds, 'TEXT'),
+      ]);
       runIds.length = 0;
     }
     if (scheduleIds.length > 0) {
-      await app.client.unsafe('delete from agent_schedules where id = any($1::text[])', [app.client.array(scheduleIds, 'TEXT')]);
+      await app.client.unsafe('delete from agent_schedules where id = any($1::text[])', [
+        app.client.array(scheduleIds, 'TEXT'),
+      ]);
       scheduleIds.length = 0;
     }
     // 每次清理本用例产生的运行，避免下一条用例看到残留占用。
-    await app.client.unsafe('delete from agent_runs where agent_id = any($1::text[])', [app.client.array(agentIds, 'TEXT')]);
+    await app.client.unsafe('delete from agent_runs where agent_id = any($1::text[])', [
+      app.client.array(agentIds, 'TEXT'),
+    ]);
   });
 
   afterAll(async () => {

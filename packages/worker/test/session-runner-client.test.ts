@@ -1,12 +1,12 @@
-import { RedisClient } from 'bun';
+import { afterAll, afterEach, describe, expect, it, jest, mock, spyOn } from 'bun:test';
 import { RunFailure } from '@agentport/core';
 import type { ChatEvent, ExecutionSettlement } from '@agentport/shared';
 import { runCancelKey } from '@agentport/shared';
+import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { afterAll, afterEach, describe, expect, it, jest, mock, spyOn } from 'bun:test';
-import { advanceTimersByTimeAsync, waitFor } from './fixtures/native-test.js';
 import { SandboxCleanupError } from '../src/sandbox/provider.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
+import { advanceTimersByTimeAsync, waitFor } from './fixtures/native-test.js';
 
 const cancelHandlers = new Map<string, Set<unknown>>();
 const redisMock = {
@@ -130,10 +130,12 @@ describe('subscription preparation cancellation', () => {
           jest.useFakeTimers();
           redisMock[pending].mockImplementationOnce(() => new Promise(() => undefined));
           // Unsubscribe must not make shutdown depend on the same disconnected Redis.
-          redisMock.unsubscribe.mockImplementationOnce(async (channel: string, listener: unknown) => {
-            cancelHandlers.get(channel)?.delete(listener);
-            return new Promise<void>(() => undefined);
-          });
+          redisMock.unsubscribe.mockImplementationOnce(
+            async (channel: string, listener: unknown) => {
+              cancelHandlers.get(channel)?.delete(listener);
+              return new Promise<void>(() => undefined);
+            },
+          );
           const { lease } = fixture();
           const acquire = mock(async () => lease);
           const closing = new AbortController();

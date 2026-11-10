@@ -1,8 +1,8 @@
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   closeRunnerClient,
   configureRunnerClient,

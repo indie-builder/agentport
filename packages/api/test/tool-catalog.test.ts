@@ -1,6 +1,6 @@
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Server } from '@agentport/shared';
 import * as mcpClientModule from '@modelcontextprotocol/client';
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import * as ssrfModule from '../src/modules/servers/ssrf.js';
 
 const realMcpClient = { ...mcpClientModule };
@@ -10,13 +10,13 @@ const realSsrf = { ...ssrfModule };
  * testConnection 的目录上限走真实 Effect 流程，只 mock MCP client 边界：
  * 不建连接，断言失败/成功与 close 语义。stdio 已移到沙盒，这里用 http。
  */
-const mocks = ({
+const mocks = {
   tools: [] as unknown[],
   connect: mock(async () => undefined),
   listTools: mock(async () => ({ tools: [] as unknown[] })),
   getServerVersion: mock(() => ({ name: 'fixture-mcp', version: '1.2.3' })),
   close: mock(async () => undefined),
-});
+};
 
 mock.module('@modelcontextprotocol/client', () => ({
   ...realMcpClient,

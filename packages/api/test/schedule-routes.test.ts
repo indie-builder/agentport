@@ -1,9 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
-import { SCHEDULE_TRIGGERS_QUEUE, type ScheduleTriggerJob } from '@agentport/shared';
-import { RedisClient } from 'bun';
-import { createBunRedisClient, Queue } from 'bullmq';
-import * as scheduleSyncModule from '../src/modules/ops/schedule-sync.js';
 import {
   afterAll,
   afterEach,
@@ -15,7 +9,12 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
-
+import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
+import { SCHEDULE_TRIGGERS_QUEUE, type ScheduleTriggerJob } from '@agentport/shared';
+import { createBunRedisClient, Queue } from 'bullmq';
+import { RedisClient } from 'bun';
+import * as scheduleSyncModule from '../src/modules/ops/schedule-sync.js';
 
 const realScheduleSync = { ...scheduleSyncModule };
 
@@ -140,9 +139,12 @@ describe.skipIf(!ready)('schedule routes', () => {
     }
     if (app) {
       if (scheduleIds.length > 0) {
-        await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(scheduleIds, 'TEXT')]);
-        await app.client.unsafe('delete from agent_schedules where id = any($1::text[])', [app.client.array(scheduleIds, 'TEXT')],
-        );
+        await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+          app.client.array(scheduleIds, 'TEXT'),
+        ]);
+        await app.client.unsafe('delete from agent_schedules where id = any($1::text[])', [
+          app.client.array(scheduleIds, 'TEXT'),
+        ]);
       }
       await cleanup(app, { agentSlugs: [agentSlug] });
       await app.close();

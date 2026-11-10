@@ -1,5 +1,5 @@
-import { drizzle } from 'drizzle-orm/bun-sql';
 import { expect, it } from 'bun:test';
+import { drizzle } from 'drizzle-orm/bun-sql';
 import type { RequestContext } from '../src/http/context.js';
 import { overviewRouter } from '../src/modules/overview/router.js';
 
@@ -68,9 +68,7 @@ it('loads overview with three concurrent queries and one combined counts stateme
   expect(counts?.text).toContain(`<> 'knowledge'`);
   expect(counts?.text).toContain('filter (where');
   expect(
-    counts?.values.some(
-      (value) => typeof value === 'string' && !Number.isNaN(Date.parse(value)),
-    ),
+    counts?.values.some((value) => typeof value === 'string' && !Number.isNaN(Date.parse(value))),
   ).toBe(true);
   expect(result.counts).toEqual({
     servers: 0,

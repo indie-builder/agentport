@@ -1,7 +1,7 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, describe, expect, it } from 'bun:test';
 import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
 import { eventFollowerCount, infraReady, testConfig, unique, waitFor } from './helpers.js';
 

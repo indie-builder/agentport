@@ -2366,8 +2366,7 @@ export async function publishFaqImport(
       const version = versionById.get(item.versionId);
       if (!version) throw new AppError('NOT_FOUND', 'FAQ 草稿版本不存在');
       const current = documentById.get(item.documentId);
-      const manualDisabled =
-        current?.status === 'disabled' && current.disabledReason === 'manual';
+      const manualDisabled = current?.status === 'disabled' && current.disabledReason === 'manual';
       const enabled = manualDisabled ? false : metadata.enabled;
       const [row] = await tx
         .update(knowledgeDocuments)

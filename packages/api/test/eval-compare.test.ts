@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -331,10 +331,12 @@ describe.skipIf(!ready)('eval run comparison', () => {
     const { base, head } = await pair({ basePassed: false, headPassed: true });
     const snapshot = async () => {
       const runs = await app.client.unsafe(
-        'select * from eval_runs where id = any($1::text[]) order by id', [app.client.array([base, head], 'TEXT')],
+        'select * from eval_runs where id = any($1::text[]) order by id',
+        [app.client.array([base, head], 'TEXT')],
       );
       const results = await app.client.unsafe(
-        'select * from eval_results where eval_run_id = any($1::text[]) order by id', [app.client.array([base, head], 'TEXT')],
+        'select * from eval_results where eval_run_id = any($1::text[]) order by id',
+        [app.client.array([base, head], 'TEXT')],
       );
       return { runs: runs, results: results };
     };

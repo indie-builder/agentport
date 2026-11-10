@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
@@ -5,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import {
   type ChunkDraft,
   type KnowledgeDeps,
@@ -93,7 +93,9 @@ beforeEach(async () => {
 afterEach(async () => {
   if (baseIds.length > 0) {
     // delete cascade 掉 wiki 页/版本/来源、job、文档与 chunk。
-    await dbHandle.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [dbHandle.client.array(baseIds, 'TEXT')]);
+    await dbHandle.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+      dbHandle.client.array(baseIds, 'TEXT'),
+    ]);
     baseIds.length = 0;
   }
   await rm(knowledgeDir, { recursive: true, force: true });

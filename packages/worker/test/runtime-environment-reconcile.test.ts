@@ -1,5 +1,5 @@
-import type { Logger } from 'pino';
 import { describe, expect, it } from 'bun:test';
+import type { Logger } from 'pino';
 import {
   RUNTIME_ENVIRONMENT_BUILD_LOST_ERROR,
   type RuntimeEnvironmentBuildPending,

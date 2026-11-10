@@ -60,10 +60,10 @@ describe.skipIf(!ready)('run runtime environment identity', () => {
         `sha256:${'2'.repeat(64)}`,
       ],
     );
-    await app.client.unsafe('update runtime_environments set online_version_id = $1 where id = $2', [
-      onlineVersionId,
-      environmentId,
-    ]);
+    await app.client.unsafe(
+      'update runtime_environments set online_version_id = $1 where id = $2',
+      [onlineVersionId, environmentId],
+    );
     await app.client.unsafe('update agents set runtime_environment_id = $1 where id = $2', [
       environmentId,
       agentId,
@@ -98,9 +98,10 @@ describe.skipIf(!ready)('run runtime environment identity', () => {
 
   afterAll(async () => {
     await cleanup(app, { agentSlugs, runIds });
-    await app.client.unsafe('update runtime_environments set online_version_id = null where id = $1', [
-      environmentId,
-    ]);
+    await app.client.unsafe(
+      'update runtime_environments set online_version_id = null where id = $1',
+      [environmentId],
+    );
     await app.client.unsafe('delete from runtime_environment_versions where environment_id = $1', [
       environmentId,
     ]);

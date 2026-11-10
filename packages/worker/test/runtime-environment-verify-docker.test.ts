@@ -1,8 +1,8 @@
+import { describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'bun:test';
 import { verifyRuntimeEnvironmentImage } from '../src/runtime-environments/verify.js';
 
 /**

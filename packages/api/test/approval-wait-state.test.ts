@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
@@ -150,7 +150,8 @@ describe.skipIf(!ready)('approval wait state', () => {
       toolName,
       expiresAt: new Date(Date.now() + 120_000),
     });
-    const [row] = await app.client.unsafe<{ expires_at: Date; approved_at: Date | null }[]>(
+    const [row] = await app.client
+      .unsafe<{ expires_at: Date; approved_at: Date | null }[]>(
         'select expires_at, approved_at from approval_requests where run_id = $1',
         [runId],
       )

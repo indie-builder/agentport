@@ -1,7 +1,7 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createServer, type Server } from 'node:http';
 import { createDb, repo } from '@agentport/db';
 import { sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { searchKnowledge } from '../src/modules/knowledge/retrieval.js';
 
 const SECRET_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
@@ -240,8 +240,9 @@ describe('searchKnowledge', () => {
 
   afterEach(async () => {
     await client.unsafe('delete from knowledge_bases where id = $1', [baseId]);
-    await client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [client.array([profileId, rerankProfileId], 'TEXT')],
-    );
+    await client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+      client.array([profileId, rerankProfileId], 'TEXT'),
+    ]);
     await client.unsafe('delete from servers where name like $1', ['kb-retrieval-%']);
     documentIds.length = 0;
   });

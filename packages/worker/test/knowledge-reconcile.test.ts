@@ -1,11 +1,10 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
 import { type Job, Queue, Worker } from 'bullmq';
 import { and, eq, gte, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { KNOWLEDGE_TIMEOUT_MS } from '../src/knowledge/queue.js';
 import {
   ensureDailyCleanup,
@@ -13,6 +12,7 @@ import {
   type KnowledgeQueueLike,
   reconcileKnowledgeJobs,
 } from '../src/knowledge/reconcile.js';
+import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 
 async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;

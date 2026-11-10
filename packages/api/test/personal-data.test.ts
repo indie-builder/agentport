@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,7 +12,6 @@ import {
   personalUsageSummarySchema,
   utcWindowStart,
 } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -269,18 +269,27 @@ describe.skipIf(!ready)('personal data', () => {
   afterAll(async () => {
     await cleanup(app, { agentSlugs });
     if (channelIds.length > 0) {
-      await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(channelIds, 'TEXT')]);
+      await app.client.unsafe('delete from channels where id = any($1::text[])', [
+        app.client.array(channelIds, 'TEXT'),
+      ]);
     }
     if (directAgentIds.length > 0) {
-      await app.client.unsafe('delete from agents where id = any($1::text[])', [app.client.array(directAgentIds, 'TEXT')]);
+      await app.client.unsafe('delete from agents where id = any($1::text[])', [
+        app.client.array(directAgentIds, 'TEXT'),
+      ]);
     }
     if (accountIds.length > 0) {
-      await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(accountIds, 'TEXT')],
-      );
-      await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(accountIds, 'TEXT')]);
+      await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [
+        app.client.array(accountIds, 'TEXT'),
+      ]);
+      await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [
+        app.client.array(accountIds, 'TEXT'),
+      ]);
     }
     if (roleIds.length > 0) {
-      await app.client.unsafe('delete from roles where id = any($1::text[])', [app.client.array(roleIds, 'TEXT')]);
+      await app.client.unsafe('delete from roles where id = any($1::text[])', [
+        app.client.array(roleIds, 'TEXT'),
+      ]);
     }
     await app.close();
   });

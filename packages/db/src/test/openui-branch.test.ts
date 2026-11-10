@@ -1,6 +1,6 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'bun:test';
 
 /**
  * 分支复制的是已合并的 canonical 程序与段状态。blockKey 是段序号（s0/s1），

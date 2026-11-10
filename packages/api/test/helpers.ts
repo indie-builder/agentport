@@ -1,3 +1,4 @@
+import { expect } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,6 @@ import {
   type Server,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { expect } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { type Config, loadConfig } from '../src/config.js';
 import { AUTH_COOKIE, BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/modules/auth/types.js';
@@ -428,9 +428,7 @@ export async function seedRun(
       subject.kind === 'user' ? subject.businessId : null,
       subject.kind === 'service' ? subject.serviceId : null,
       options.mcpTokenHash ?? null,
-      options.mcpTokenHash === undefined
-        ? null
-        : new Date(Date.now() + 5 * 60_000).toISOString(),
+      options.mcpTokenHash === undefined ? null : new Date(Date.now() + 5 * 60_000).toISOString(),
     ],
   );
   return { runId, conversationId };
@@ -524,23 +522,33 @@ export async function cleanup(
 ): Promise<void> {
   const { serverNames = [], agentSlugs = [], skillSlugs = [], runIds = [] } = targets;
   if (runIds.length > 0) {
-    await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [app.client.array(runIds, 'TEXT')]);
+    await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [
+      app.client.array(runIds, 'TEXT'),
+    ]);
   }
   if (agentSlugs.length > 0) {
     await app.client.unsafe(
       'delete from agents where parent_id in (select id from agents where slug = any($1::text[]))',
       [app.client.array(agentSlugs, 'TEXT')],
     );
-    await app.client.unsafe('delete from agents where slug = any($1::text[])', [app.client.array(agentSlugs, 'TEXT')]);
+    await app.client.unsafe('delete from agents where slug = any($1::text[])', [
+      app.client.array(agentSlugs, 'TEXT'),
+    ]);
   }
   if (skillSlugs.length > 0) {
-    await app.client.unsafe('delete from skills where slug = any($1::text[])', [app.client.array(skillSlugs, 'TEXT')]);
+    await app.client.unsafe('delete from skills where slug = any($1::text[])', [
+      app.client.array(skillSlugs, 'TEXT'),
+    ]);
   }
   if (serverNames.length > 0) {
-    await app.client.unsafe('delete from servers where name = any($1::text[])', [app.client.array(serverNames, 'TEXT')]);
+    await app.client.unsafe('delete from servers where name = any($1::text[])', [
+      app.client.array(serverNames, 'TEXT'),
+    ]);
   }
   const ids = [...serverNames, ...agentSlugs, ...skillSlugs, ...runIds];
   if (ids.length > 0) {
-    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(ids, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+      app.client.array(ids, 'TEXT'),
+    ]);
   }
 }

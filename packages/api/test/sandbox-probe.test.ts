@@ -1,7 +1,7 @@
-import { SANDBOX_PROBES_QUEUE, type Server } from '@agentport/shared';
-import { RedisClient } from 'bun';
-import { createBunRedisClient, type Job, Queue, Worker } from 'bullmq';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { SANDBOX_PROBES_QUEUE, type Server } from '@agentport/shared';
+import { createBunRedisClient, type Job, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import { testStdioInSandbox } from '../src/modules/servers/sandbox-probe.js';
 import {
   cleanup,

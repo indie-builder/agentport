@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import * as fsModule from 'node:fs/promises';
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -5,7 +6,6 @@ import { join } from 'node:path';
 import { personalMemoryDir, personalMemoryPath } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { type MemoryReviewTarget, PERSONAL_MEMORY_MAX_CHARS } from '@agentport/shared';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import {
   createTestAccount,
@@ -123,18 +123,18 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(dir.isDirectory()).toBe(true);
     expect(dir.mode & 0o777).toBe(0o700);
 
-    const [row] = (
-      await app.client.unsafe<{
+    const [row] = await app.client.unsafe<
+      {
         target: unknown;
         before: unknown;
         after: unknown;
         source_review_run_id: string | null;
         state: string;
         business_id: string;
-      }[]>(
-        'select target, before, after, source_review_run_id, state, business_id from memory_changes where id = $1',
-        [body.changeId],
-      )
+      }[]
+    >(
+      'select target, before, after, source_review_run_id, state, business_id from memory_changes where id = $1',
+      [body.changeId],
     );
     expect(row).toMatchObject({
       target: { kind: 'personal' },

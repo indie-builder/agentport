@@ -1,13 +1,13 @@
+import { afterEach, expect, it, mock } from 'bun:test';
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { afterEach, expect, it, mock } from 'bun:test';
-import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
 import { buildGeneratedServer } from '../src/modules/servers/generated.js';
+import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
 
 type ToolContext = { mcpReq: { signal: AbortSignal } };
 type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<CallToolResult>;
 
-const mcp = ({ handlers: new Map<string, ToolHandler>() });
+const mcp = { handlers: new Map<string, ToolHandler>() };
 
 mock.module('@modelcontextprotocol/server', () => ({
   McpServer: class {
@@ -101,11 +101,7 @@ it('keeps the execution pool free while calls wait for approval', async () => {
   expect(fifth.isError).toBe(true);
   expect(JSON.stringify(fifth.content)).toContain('需要批准');
   expect(onApprovalRequired).toHaveBeenCalledTimes(5);
-  expect(onApprovalRequired).toHaveBeenLastCalledWith(
-    'approve-tool',
-    expect.any(Object),
-    null,
-  );
+  expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', expect.any(Object), null);
 
   const results = await Promise.all(waiting);
   for (const result of results) expect(result.isError).toBe(true);

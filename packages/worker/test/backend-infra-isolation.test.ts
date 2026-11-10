@@ -1,6 +1,6 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '@agentport/db';
 import { RedisClient } from 'bun';
-import { afterAll, describe, expect, it } from 'bun:test';
 import setup, {
   type IsolatedRedis,
   startRedisContainer,

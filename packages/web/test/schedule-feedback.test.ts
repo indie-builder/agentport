@@ -1117,7 +1117,13 @@ describe('schedule stale conflict recovery', () => {
     msw.server.use(
       http.patch('/api/schedules/sch_1', () =>
         HttpResponse.json(
-          { code: 'NOT_FOUND', message: '定时任务不存在', status: 404, requestId: '', retryable: false },
+          {
+            code: 'NOT_FOUND',
+            message: '定时任务不存在',
+            status: 404,
+            requestId: '',
+            retryable: false,
+          },
           { status: 404 },
         ),
       ),

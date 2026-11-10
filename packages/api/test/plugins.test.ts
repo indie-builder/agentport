@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { type DatabaseClient, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
@@ -75,7 +75,9 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
   afterAll(async () => {
     await cleanup(app, { agentSlugs });
     if (pluginIds.length > 0) {
-      await app.client.unsafe('delete from plugins where id = any($1::text[])', [app.client.array(pluginIds, 'TEXT')]);
+      await app.client.unsafe('delete from plugins where id = any($1::text[])', [
+        app.client.array(pluginIds, 'TEXT'),
+      ]);
     }
     await app.close();
   });

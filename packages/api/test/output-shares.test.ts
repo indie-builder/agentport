@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { decryptSecrets, prepareOutputDraft, publishOutputSnapshot } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import { type OutputShare, outputShareSchema, problemSchema } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { buildApp } from '../src/app.js';
 import {
@@ -44,7 +44,9 @@ describe.skipIf(!ready || isolated === null)('output shares', () => {
   afterAll(async () => {
     await sessions.close();
     await cleanup(app, { agentSlugs });
-    await app.client.unsafe('delete from conversations where id = any($1::text[])', [app.client.array(conversationIds, 'TEXT')]);
+    await app.client.unsafe('delete from conversations where id = any($1::text[])', [
+      app.client.array(conversationIds, 'TEXT'),
+    ]);
     for (const slug of agentSlugs) {
       await rm(join(app.config.WORKSPACES_DIR, slug, 'conversation-outputs'), {
         recursive: true,
@@ -171,11 +173,13 @@ describe.skipIf(!ready || isolated === null)('output shares', () => {
     expect(share.sha256).toBe(sha256(body));
     expect(share.revokedAt).toBeNull();
 
-    const rows = await app.client.unsafe<{
-      token_hash: string;
-      token_encrypted: string;
-      sha256: string;
-    }[]>('select token_hash, token_encrypted, sha256 from output_shares where id = $1', [share.id]);
+    const rows = await app.client.unsafe<
+      {
+        token_hash: string;
+        token_encrypted: string;
+        sha256: string;
+      }[]
+    >('select token_hash, token_encrypted, sha256 from output_shares where id = $1', [share.id]);
     const row = rows[0];
     expect(row).toBeDefined();
     expect(row?.token_hash).toBe(sha256(token));

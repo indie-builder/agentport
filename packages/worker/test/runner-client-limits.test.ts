@@ -1,3 +1,4 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
@@ -8,8 +9,6 @@ import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it } from 'bun:test';
-import { probeBunRedis } from './fixtures/bun-redis.js';
 import { persistRunMessages } from '../src/messages.js';
 import {
   closeRunnerClient,
@@ -19,6 +18,7 @@ import {
 } from '../src/runner-client.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
 import { testAccess } from './fixtures/access.js';
+import { probeBunRedis } from './fixtures/bun-redis.js';
 
 const { agentOwnership, userSubject } = testAccess(import.meta.url);
 

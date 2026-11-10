@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
 import { DbError } from '@agentport/core';
 import { EVAL_RUNS_QUEUE } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { waitFor } from './fixtures/native-test.js';
 
 type FailedHandler = (job: { id?: string; data?: unknown } | undefined, error: unknown) => void;

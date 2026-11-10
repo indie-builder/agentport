@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId } from '@agentport/db';
 import type { Agent, Channel, ChannelMessage } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getQueue } from '../src/queue/producer.js';
 import {
   cleanup,
@@ -161,19 +161,28 @@ describe.skipIf(!ready)('channel run private entry points', () => {
         .catch(() => undefined);
     }
     if (channelIds.length > 0) {
-      await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(channelIds, 'TEXT')])
+      await app.client
+        .unsafe('delete from channels where id = any($1::text[])', [
+          app.client.array(channelIds, 'TEXT'),
+        ])
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs, serverNames });
     if (privateConversationIds.length > 0) {
-      await app.client.unsafe('delete from conversations where id = any($1::text[])', [app.client.array(privateConversationIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from conversations where id = any($1::text[])', [
+        app.client.array(privateConversationIds, 'TEXT'),
+      ]);
     }
     const businessIds = [owner.businessId, member.businessId];
-    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
-    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
-    );
-    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
     await app.close();
   });
 

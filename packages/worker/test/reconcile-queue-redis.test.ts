@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { createDb, newId, schema } from '@agentport/db';
@@ -5,7 +6,6 @@ import type { AgentRunJob } from '@agentport/shared';
 import { Queue, Worker } from 'bullmq';
 import { eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { testAccess } from './fixtures/access.js';
 import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';

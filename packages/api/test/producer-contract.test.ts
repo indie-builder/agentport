@@ -1,3 +1,4 @@
+import { afterAll, afterEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   RUN_PERSISTED_MAX_BYTES,
   RUN_PERSISTED_MAX_EVENTS,
@@ -8,8 +9,12 @@ import {
   runStreamKey,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { closeProducer, publishRun, requestRunCancel, subscribeRun } from '../src/queue/producer.js';
+import {
+  closeProducer,
+  publishRun,
+  requestRunCancel,
+  subscribeRun,
+} from '../src/queue/producer.js';
 import { infraReady, testConfig, unique, waitFor } from './helpers.js';
 
 const ready = await infraReady;
@@ -50,7 +55,9 @@ describe.skipIf(!ready)('producer shared stream contract', () => {
 
   it('rejects when the XADD command fails', async () => {
     const { runId } = runKey();
-    const spy = spyOn(RedisClient.prototype, 'send').mockRejectedValueOnce(new Error('xadd failed'));
+    const spy = spyOn(RedisClient.prototype, 'send').mockRejectedValueOnce(
+      new Error('xadd failed'),
+    );
     try {
       await expect(publishRun(runId, { type: 'text_delta', text: 'hello' })).rejects.toThrow(
         'xadd failed',
@@ -85,8 +92,7 @@ describe.skipIf(!ready)('producer shared stream contract', () => {
     expect(calls.some(([command]) => command === 'SUBSCRIBE')).toBe(false);
     expect(
       calls.some(
-        ([command, args]) =>
-          command === 'CLIENT' && args[1] === runEventsConnectionName(runId),
+        ([command, args]) => command === 'CLIENT' && args[1] === runEventsConnectionName(runId),
       ),
     ).toBe(true);
 

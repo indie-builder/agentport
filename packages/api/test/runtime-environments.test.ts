@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import type {
   RuntimeEnvironment,
   RuntimeEnvironmentVersion,
   RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
 import { DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { getRuntimeEnvironmentBuildQueue } from '../src/queue/producer.js';
 import {
   cleanup,
@@ -42,14 +42,19 @@ describe.skipIf(!ready)('runtime environments', () => {
         if (envIds.length > 0) {
           // 复合外键：先清线上指针，再删版本，最后删环境。
           await app.client.unsafe(
-            'update runtime_environments set online_version_id = null where id = any($1::text[])', [app.client.array(envIds, 'TEXT')],
+            'update runtime_environments set online_version_id = null where id = any($1::text[])',
+            [app.client.array(envIds, 'TEXT')],
           );
           await app.client.unsafe(
-            'delete from runtime_environment_versions where environment_id = any($1::text[])', [app.client.array(envIds, 'TEXT')],
+            'delete from runtime_environment_versions where environment_id = any($1::text[])',
+            [app.client.array(envIds, 'TEXT')],
           );
-          await app.client.unsafe('delete from runtime_environments where id = any($1::text[])', [app.client.array(envIds, 'TEXT')],
-          );
-          await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(envIds, 'TEXT')]);
+          await app.client.unsafe('delete from runtime_environments where id = any($1::text[])', [
+            app.client.array(envIds, 'TEXT'),
+          ]);
+          await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+            app.client.array(envIds, 'TEXT'),
+          ]);
         }
       }
     } finally {
@@ -359,8 +364,9 @@ describe.skipIf(!ready)('runtime environments', () => {
   it('marks the version failed with a readable error when enqueueing fails', async () => {
     const env = await createEnv();
     const queue = getRuntimeEnvironmentBuildQueue();
-    const add = spyOn(queue, 'add')
-      .mockRejectedValueOnce(new Error('redis://:secret@127.0.0.1:1 refused'));
+    const add = spyOn(queue, 'add').mockRejectedValueOnce(
+      new Error('redis://:secret@127.0.0.1:1 refused'),
+    );
     let res: Awaited<ReturnType<typeof request>>;
     try {
       res = await request(app, {

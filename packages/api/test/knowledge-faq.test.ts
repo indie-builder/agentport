@@ -1,11 +1,11 @@
+import { describe, expect, it } from 'bun:test';
 import {
+  knowledgeFaqInputSchema as faqInputSchema,
   type KnowledgeFaqTransferEntry,
   type KnowledgeSearchHit,
-  knowledgeFaqInputSchema as faqInputSchema,
 } from '@agentport/shared';
 import { Workbook } from 'exceljs';
 import { unzipSync, zipSync } from 'fflate';
-import { describe, expect, it } from 'bun:test';
 import {
   type FaqExistingEntry,
   type FaqParsedRow,

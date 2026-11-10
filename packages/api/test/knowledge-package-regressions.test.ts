@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppError } from '@agentport/core';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { assertPackageCapacity } from '../src/modules/knowledge/package.js';
 import {
@@ -143,11 +143,14 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -219,14 +222,16 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     baseIds.push(result.baseId);
     expect(result.counts).toMatchObject({ documents: 1, versions: 0, chunks: 0 });
 
-    const documentRows = await app.client.unsafe<{
-      id: string;
-      status: string;
-      size_bytes: string;
-      content_hash: string | null;
-      current_version_id: string | null;
-      metadata: { originalFilename?: string };
-    }[]>(
+    const documentRows = await app.client.unsafe<
+      {
+        id: string;
+        status: string;
+        size_bytes: string;
+        content_hash: string | null;
+        current_version_id: string | null;
+        metadata: { originalFilename?: string };
+      }[]
+    >(
       'select id, status, size_bytes, content_hash, current_version_id, metadata from knowledge_documents where base_id = $1',
       [result.baseId],
     );
@@ -389,12 +394,14 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     const result = imported.json<{ baseId: string }>();
     baseIds.push(result.baseId);
 
-    const documents = await app.client.unsafe<{
-      id: string;
-      source_type: string;
-      source_id: string | null;
-      source_connection_id: string | null;
-    }[]>(
+    const documents = await app.client.unsafe<
+      {
+        id: string;
+        source_type: string;
+        source_id: string | null;
+        source_connection_id: string | null;
+      }[]
+    >(
       'select id, source_type, source_id, source_connection_id from knowledge_documents where base_id = $1',
       [result.baseId],
     );
@@ -404,11 +411,13 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
       source_connection_id: null,
     });
 
-    const versions = await app.client.unsafe<{
-      version: number;
-      origin: string;
-      metadata: Record<string, unknown>;
-    }[]>(
+    const versions = await app.client.unsafe<
+      {
+        version: number;
+        origin: string;
+        metadata: Record<string, unknown>;
+      }[]
+    >(
       'select version, origin, metadata from knowledge_document_versions where document_id = $1 order by version',
       [documents[0]!.id],
     );

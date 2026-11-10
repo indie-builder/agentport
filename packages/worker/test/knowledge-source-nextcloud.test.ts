@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { probeNextcloud, readNextcloud } from '../src/knowledge/source-nextcloud.js';
 import { SourceAuthError, type SourceConfig } from '../src/knowledge/sources.js';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 const SITE = 'http://127.0.0.1:9';
 const fixtureFile = (name: string): Buffer =>

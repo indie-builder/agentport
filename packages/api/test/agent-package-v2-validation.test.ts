@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Agent } from '@agentport/shared';
 import { AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
@@ -61,8 +61,12 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
          select id from skills where slug = any($2::text[])`,
         [app.client.array(agentSlugs, 'TEXT'), app.client.array(skillSlugs, 'TEXT')],
       );
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(targets.map(({ id }) => id), 'TEXT')],
-      );
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(
+          targets.map(({ id }) => id),
+          'TEXT',
+        ),
+      ]);
       await cleanup(app, { agentSlugs, skillSlugs });
     } finally {
       await app.close();

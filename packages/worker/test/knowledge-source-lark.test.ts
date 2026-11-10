@@ -1,7 +1,6 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import { parseDocument } from '../src/knowledge/parsing.js';
 import {
@@ -10,6 +9,7 @@ import {
   SourceAuthError,
   type SourceConfig,
 } from '../src/knowledge/sources.js';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 type Call = { method: string; url: URL; headers: Headers; body: string };
 
@@ -58,7 +58,8 @@ function sha256(value: Uint8Array): string {
 }
 
 function mockFetch(): void {
-  stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
+  stubFetch(
+    mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input));
       const request = init ?? {};
       const headers = new Headers(request.headers);

@@ -1,9 +1,9 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { KnowledgeCancelled } from '../src/knowledge/ingestion.js';
 import {
   runWikiGenerate,

@@ -1,11 +1,11 @@
-import type { Logger } from 'pino';
 import { describe, expect, it } from 'bun:test';
-import { waitFor } from './fixtures/native-test.js';
+import type { Logger } from 'pino';
 import {
   type DefaultEnvironmentDeps,
   ensureDefaultEnvironment,
   startDefaultEnvironmentRetry,
 } from '../src/runtime-environments/default.js';
+import { waitFor } from './fixtures/native-test.js';
 
 const IMAGE = 'agentport/sandbox:dev';
 const IMAGE_ID = `sha256:${'c'.repeat(64)}`;

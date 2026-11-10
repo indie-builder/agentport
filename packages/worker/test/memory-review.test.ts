@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,7 +14,6 @@ import {
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { executeMemoryReview, type MemoryReviewQueryFn } from '../src/memory-review.js';
 import { probeBunRedis } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';

@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Agent, Server, Skill, WorkspaceFiles } from '@agentport/shared';
 import { AGENT_PACKAGE_SIDECAR } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,

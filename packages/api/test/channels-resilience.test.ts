@@ -1,8 +1,13 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { connect } from 'node:net';
 import { repo } from '@agentport/db';
-import { channelStreamKey, type Channel, type ChannelEvent, type ChannelMessage } from '@agentport/shared';
+import {
+  type Channel,
+  type ChannelEvent,
+  type ChannelMessage,
+  channelStreamKey,
+} from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { closeProducer } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -43,13 +48,22 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
 
   afterAll(async () => {
     await server.close();
-    await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(ids, 'TEXT')]);
-    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(ids, 'TEXT')]);
+    await app.client.unsafe('delete from channels where id = any($1::text[])', [
+      app.client.array(ids, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+      app.client.array(ids, 'TEXT'),
+    ]);
     const businessIds = [owner.businessId, member.businessId];
-    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
-    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
-    );
-    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
     await app.close();
   });
 
@@ -287,10 +301,7 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
 
     // Slow consumer: do not read for a while so the server's cached page fills the socket buffer.
     await Bun.sleep(300);
-    const removed = await call(
-      'DELETE',
-      `/api/channels/${value.id}/members/${member.businessId}`,
-    );
+    const removed = await call('DELETE', `/api/channels/${value.id}/members/${member.businessId}`);
     expect(removed.statusCode, removed.body).toBe(204);
 
     const chunks: Buffer[] = [];

@@ -1,5 +1,5 @@
-import type { Agent, WorkspaceFiles } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import type { Agent, WorkspaceFiles } from '@agentport/shared';
 import {
   cleanup,
   expectProblem,

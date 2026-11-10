@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
+import { randomBytes } from 'node:crypto';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';

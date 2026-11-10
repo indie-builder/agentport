@@ -1,9 +1,8 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import type { ExecutionSettlement } from '@agentport/shared';
 import { runCancelKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, describe, expect, it } from 'bun:test';
-import { probeBunRedis } from './fixtures/bun-redis.js';
 import {
   acquireSessionSandbox,
   closeRunnerClient,
@@ -12,6 +11,7 @@ import {
   runInSandbox,
 } from '../src/runner-client.js';
 import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
+import { probeBunRedis } from './fixtures/bun-redis.js';
 
 async function probeRedis(): Promise<boolean> {
   return probeBunRedis(process.env.REDIS_URL);

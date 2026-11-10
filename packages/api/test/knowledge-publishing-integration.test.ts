@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -6,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
 import type { KnowledgeFaq, KnowledgeFaqTransferEntry } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { knowledgeConnectors } from '../../worker/src/knowledge/connector-adapter.js';
 import type { KnowledgeDeps } from '../../worker/src/knowledge/ingestion.js';
 import { createParsingAdapter } from '../../worker/src/knowledge/parsing-adapter.js';
@@ -417,11 +417,14 @@ describe.skipIf(!ready)(
 
     afterAll(async () => {
       if (baseIds.length > 0) {
-        await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+        await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+          app.client.array(baseIds, 'TEXT'),
+        ]);
       }
       if (profileIds.length > 0) {
-        await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-        );
+        await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+          app.client.array(profileIds, 'TEXT'),
+        ]);
       }
       await app.close();
       await new Promise<void>((resolve) => fixture.close(() => resolve()));
@@ -697,11 +700,13 @@ describe.skipIf(!ready)(
     }
 
     async function writeSnapshot(baseId: string) {
-      const counts = await app.client.unsafe<{
-        documents: string;
-        versions: string;
-        jobs: string;
-      }[]>(
+      const counts = await app.client.unsafe<
+        {
+          documents: string;
+          versions: string;
+          jobs: string;
+        }[]
+      >(
         `select
          (select count(*) from knowledge_documents where base_id = $1) as documents,
          (select count(*) from knowledge_document_versions v
@@ -1309,10 +1314,12 @@ describe.skipIf(!ready)(
         stats: { listed: 1, created: 1, updated: 0, disabled: 0, failed: 0 },
       });
 
-      const sourceDocument = await app.client.unsafe<{
-        id: string;
-        current_version_id: string;
-      }[]>(
+      const sourceDocument = await app.client.unsafe<
+        {
+          id: string;
+          current_version_id: string;
+        }[]
+      >(
         `select id, current_version_id from knowledge_documents
        where base_id = $1 and source_connection_id = $2
        order by created_at desc limit 1`,

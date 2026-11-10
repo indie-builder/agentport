@@ -1,6 +1,6 @@
+import { afterEach, describe, expect, it, jest, mock, spyOn } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { afterEach, describe, expect, it, jest, mock, spyOn } from 'bun:test';
 import { advanceTimersByTimeAsync, waitFor } from './fixtures/native-test.js';
 
 interface Reply {
@@ -380,8 +380,9 @@ describe('docker sandbox provider', () => {
     // 有限超时：第一次取 deadline，第二次进入轮询，之后时间越界退出。
     const start = Date.now();
     let clockCalls = 0;
-    const clock = spyOn(Date, 'now')
-      .mockImplementation(() => (clockCalls++ < 2 ? start : start + 20_000));
+    const clock = spyOn(Date, 'now').mockImplementation(() =>
+      clockCalls++ < 2 ? start : start + 20_000,
+    );
 
     try {
       await expect(provider.destroy(sandbox)).rejects.toThrow(/still in progress/);

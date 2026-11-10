@@ -1,10 +1,10 @@
+import { describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it } from 'bun:test';
 
 // 真实 CLI 的启动开销小，15s 足够覆盖冷启动；不因单次慢而放宽全部测试。
 const TIMEOUT = 15_000;

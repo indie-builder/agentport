@@ -1,9 +1,9 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { getKnowledgeQueue } from '../src/queue/producer.js';
 import { infraReady, loginCookie, request, type TestApp, testConfig, unique } from './helpers.js';
@@ -135,12 +135,15 @@ describe.skipIf(!ready)('knowledge content routes', () => {
   afterEach(async () => {
     route = '/ok';
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
       baseIds.length = 0;
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
       profileIds.length = 0;
     }
   });

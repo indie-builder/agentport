@@ -1,10 +1,10 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createDb } from '@agentport/db';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 // 这些用例只用临时目录 + stub 的 pg_dump/pg_restore/bun，不触真实数据库或工作区卷。
 // 唯一例外是配置损坏的哨兵用例：它只在本轮隔离随机库里读写一张自建表，不碰开发库。

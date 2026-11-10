@@ -1,5 +1,5 @@
-import { recentUtcDays, utcWindowStart } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { recentUtcDays, utcWindowStart } from '@agentport/shared';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
 const DAY_MS = 86_400_000;
@@ -404,7 +404,8 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     // B 不是专家创建者：专家列表不出现 A 的专家，统计也不串。
     expect(bBody.agents.find((agent) => agent.agentId === agentId)).toBeUndefined();
 
-    await app.client.unsafe('delete from agents where id = any($1::text[])', [app.client.array([agentId, emptyAgentId], 'TEXT')],
-    );
+    await app.client.unsafe('delete from agents where id = any($1::text[])', [
+      app.client.array([agentId, emptyAgentId], 'TEXT'),
+    ]);
   });
 });

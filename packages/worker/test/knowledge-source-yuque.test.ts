@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { restoreFetch, stubFetch } from './fixtures/fetch.js';
+import { readFileSync } from 'node:fs';
 import { probeYuque, readYuque } from '../src/knowledge/source-yuque.js';
 import type { SourceConfig } from '../src/knowledge/sources.js';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 const BASE = 'http://127.0.0.1:4444';
 const TOKEN = 'yuque-token';
@@ -28,7 +28,8 @@ let calls: Call[] = [];
 
 function installFetch(handler: Handler): void {
   calls = [];
-  stubFetch(mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+  stubFetch(
+    mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       const call: Call = {
         method: request.method,

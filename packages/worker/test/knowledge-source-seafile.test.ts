@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { probeSeafile, readSeafile } from '../src/knowledge/source-seafile.js';
 import { SourceAuthError, type SourceConfig } from '../src/knowledge/sources.js';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 const SITE = 'http://127.0.0.1:9';
 const REPO = '11111111-2222-3333-4444-555555555555';

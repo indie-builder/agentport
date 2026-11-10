@@ -548,10 +548,7 @@ function WikiPageEditor({
       />
       {previewing ? (
         <Dialog open onOpenChange={(next) => (next ? undefined : setPreviewing(null))}>
-          <DialogShell
-            title={`预览 v${previewing.version}`}
-            className="max-w-215 sm:max-w-215"
-          >
+          <DialogShell title={`预览 v${previewing.version}`} className="max-w-215 sm:max-w-215">
             <Markdown text={previewing.markdown} />
           </DialogShell>
         </Dialog>

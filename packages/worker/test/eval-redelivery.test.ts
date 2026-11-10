@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
@@ -10,7 +11,6 @@ import { Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { type IsolatedRedis, startRedisContainer, stopRedisContainer } from './global-setup.js';
 import { createIsolatedDatabase } from './isolated-db.js';

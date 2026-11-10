@@ -29,9 +29,7 @@ export async function waitFor<T>(
       return await assertion();
     } catch (error) {
       iterations += 1;
-      const expired = fake
-        ? iterations > maxIterations
-        : performance.now() - started >= timeout;
+      const expired = fake ? iterations > maxIterations : performance.now() - started >= timeout;
       if (expired) throw error;
       if (fake) {
         jest.advanceTimersByTime(interval);

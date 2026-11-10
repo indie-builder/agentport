@@ -1,10 +1,10 @@
+import { afterAll, describe, expect, it, mock } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createDb, newId, schema } from '@agentport/db';
 import type { EvalRunJob } from '@agentport/shared';
 import { Queue, Worker } from 'bullmq';
 import { eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it, mock } from 'bun:test';
 import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 

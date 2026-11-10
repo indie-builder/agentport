@@ -1,8 +1,8 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { expectProblem, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 /** 只证明容器头成立的合成音频；负载是否可解码由转录端决定。 */
@@ -69,16 +69,21 @@ beforeAll(async () => {
 
 afterEach(async () => {
   if (baseIds.length > 0) {
-    await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+    await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+      app.client.array(baseIds, 'TEXT'),
+    ]);
     baseIds.length = 0;
   }
   if (serverIds.length > 0) {
-    await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array(serverIds, 'TEXT')]);
+    await app.client.unsafe('delete from servers where id = any($1::text[])', [
+      app.client.array(serverIds, 'TEXT'),
+    ]);
     serverIds.length = 0;
   }
   if (profileIds.length > 0) {
-    await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-    );
+    await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+      app.client.array(profileIds, 'TEXT'),
+    ]);
     profileIds.length = 0;
   }
 });
@@ -396,11 +401,13 @@ describe('audio upload entry', () => {
       const res = await upload(base.id, media);
       expect(res.statusCode, `${media.filename}: ${res.body}`).toBe(202);
       const { documentId, jobId } = res.json<{ documentId: string; jobId: string }>();
-      const row = await app.client.unsafe<{
-        mimeType: string;
-        title: string;
-        metadata: Record<string, unknown>;
-      }[]>('select mime_type as "mimeType", title, metadata from knowledge_documents where id = $1', [
+      const row = await app.client.unsafe<
+        {
+          mimeType: string;
+          title: string;
+          metadata: Record<string, unknown>;
+        }[]
+      >('select mime_type as "mimeType", title, metadata from knowledge_documents where id = $1', [
         documentId,
       ]);
       expect(row[0]!.mimeType).toBe(media.canonical);
@@ -438,7 +445,9 @@ describe('audio upload entry', () => {
     expect(disabledUpload.statusCode, disabledUpload.body).toBe(409);
     expect(await rowCounts(bound.id)).toEqual({ documents: 0, jobs: 0 });
 
-    await app.client.unsafe("update knowledge_bases set status = 'active' where id = $1", [bound.id]);
+    await app.client.unsafe("update knowledge_bases set status = 'active' where id = $1", [
+      bound.id,
+    ]);
     const disableProfile = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/model-profiles/${asr.id}`,

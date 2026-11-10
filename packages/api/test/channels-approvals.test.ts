@@ -1,9 +1,9 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { hashMcpToken } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { Channel, Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { RedisClient } from 'bun';
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   cleanup,
   createAgent,
@@ -81,7 +81,10 @@ describe.skipIf(!ready)('channel approvals', () => {
   afterAll(async () => {
     await listener.close();
     if (channelIds.length > 0) {
-      await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(channelIds, 'TEXT')])
+      await app.client
+        .unsafe('delete from channels where id = any($1::text[])', [
+          app.client.array(channelIds, 'TEXT'),
+        ])
         .catch(() => undefined);
     }
     await cleanup(app, { serverNames, agentSlugs });
@@ -92,11 +95,18 @@ describe.skipIf(!ready)('channel approvals', () => {
       channelAdmin.businessId,
       outsider.businessId,
     ];
-    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
-    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(channelIds, 'TEXT')]);
-    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
-    );
-    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+      app.client.array(channelIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
     redis.close();
     await app.close();
   });
@@ -190,10 +200,12 @@ describe.skipIf(!ready)('channel approvals', () => {
   const approvalState = async (
     approvalId: string,
   ): Promise<{ approved_at: Date | null; approved_by_business_id: string | null } | undefined> => {
-    const res = await app.client.unsafe<{
-      approved_at: Date | null;
-      approved_by_business_id: string | null;
-    }[]>('select approved_at, approved_by_business_id from approval_requests where id = $1', [
+    const res = await app.client.unsafe<
+      {
+        approved_at: Date | null;
+        approved_by_business_id: string | null;
+      }[]
+    >('select approved_at, approved_by_business_id from approval_requests where id = $1', [
       approvalId,
     ]);
     return res[0];
@@ -385,7 +397,8 @@ describe.skipIf(!ready)('channel approvals', () => {
     expect(denied.isError).toBe(true);
     expect(denied.content[0]?.text).toContain(`需要批准：${toolName}`);
 
-    const [approval] = await app.client.unsafe<{ id: string; channel_id: string }[]>(
+    const [approval] = await app.client
+      .unsafe<{ id: string; channel_id: string }[]>(
         'select id, channel_id from approval_requests where run_id = $1 and tool_name = $2',
         [runId, toolName],
       )

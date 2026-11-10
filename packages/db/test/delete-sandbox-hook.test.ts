@@ -1,6 +1,6 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import type { AccessFilter, AccessScope } from '@agentport/shared';
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as agentsRepo from '../src/repo/agents.js';

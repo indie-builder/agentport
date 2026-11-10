@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import {
   SESSION_CLEANUP_REQUEST_CHANNEL,
@@ -8,13 +9,12 @@ import {
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import pino from 'pino';
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { waitFor } from './fixtures/native-test.js';
 import {
   type SessionCleanupChannel,
   startSessionCleanupChannel,
 } from '../src/sandbox/session-cleanup.js';
 import type { SessionSandboxes } from '../src/sandbox/sessions.js';
+import { waitFor } from './fixtures/native-test.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9';
 

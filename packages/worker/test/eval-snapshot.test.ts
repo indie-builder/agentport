@@ -1,5 +1,5 @@
-import type { Database } from '@agentport/db';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import type { Database } from '@agentport/db';
 
 /**
  * 跑批开始时的用例快照契约：有快照就绝不再读活用例表。

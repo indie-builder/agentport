@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -10,7 +11,6 @@ import {
   outputListSchema,
   problemSchema,
 } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
@@ -59,7 +59,9 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs, runIds });
-    await app.client.unsafe('delete from conversations where id = any($1::text[])', [app.client.array(conversationIds, 'TEXT')]);
+    await app.client.unsafe('delete from conversations where id = any($1::text[])', [
+      app.client.array(conversationIds, 'TEXT'),
+    ]);
     for (const slug of agentSlugs) {
       await rm(join(app.config.WORKSPACES_DIR, slug, 'conversation-outputs'), {
         recursive: true,
