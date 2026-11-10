@@ -377,18 +377,31 @@ export function ManualDraftDialog({
   const save = useSaveKnowledgeDocumentManual(baseId);
   const [content, setContent] = useState('');
   const [initial, setInitial] = useState<KnowledgeManualDraft | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useKnowledgeDocumentJob(baseId, documentId, jobId);
-  const pending = save.isPending || (jobId !== null && !isTerminalKnowledgeJob(job.data?.status));
+  const phase = save.isPending
+    ? 'saving'
+    : jobId === null
+      ? initial === null
+        ? 'loading'
+        : 'editing'
+      : job.isError
+        ? 'poll-error'
+        : isTerminalKnowledgeJob(job.data?.status)
+          ? 'editing'
+          : 'parsing';
+  const pending = phase === 'saving' || phase === 'parsing';
   const draft = manual.data;
-  const dirty = initial !== null && content !== initial.content;
+  const dirty = saved !== null && content !== saved;
   const guard = useDraftGuard(dirty, pending, onClose);
 
   useEffect(() => {
     if (initial === null && draft !== undefined) {
       setContent(draft.content);
       setInitial(draft);
+      setSaved(draft.content);
     }
   }, [draft, initial]);
   useEffect(() => {
@@ -398,7 +411,8 @@ export function ManualDraftDialog({
       toastSuccess('草稿已解析，可在版本列表发布');
       guard.finish();
     } else {
-      setError(job.data?.error ? knowledgeJobErrorText(job.data.error) : '正文解析未完成，请重试');
+      const reason = knowledgeJobErrorText(job.data?.error);
+      setError(reason ? `草稿已保存，解析失败：${reason}` : '草稿已保存，但解析未完成，请重试');
       setJobId(null);
     }
   }, [jobId, job.data, guard.finish]);
@@ -437,7 +451,10 @@ export function ManualDraftDialog({
                   expectedVersionId: initial.versionId,
                 },
                 {
-                  onSuccess: (data) => setJobId(data.jobId),
+                  onSuccess: (data) => {
+                    setJobId(data.jobId);
+                    setSaved(content);
+                  },
                   onError: (reason) => setError(errorMessage(reason)),
                 },
               );
@@ -463,14 +480,22 @@ export function ManualDraftDialog({
               <Button type="button" variant="outline" onClick={guard.close} disabled={pending}>
                 取消
               </Button>
-              <Button type="submit" disabled={pending || content.trim() === ''} aria-busy={pending}>
-                {jobId !== null ? '解析中…' : pending ? '保存中…' : '保存草稿'}
+              <Button
+                type="submit"
+                disabled={pending || jobId !== null || content.trim() === ''}
+                aria-busy={pending}
+              >
+                {phase === 'parsing' ? '解析中…' : phase === 'saving' ? '保存中…' : '保存草稿'}
               </Button>
             </div>
           </form>
         ) : null}
-        {jobId !== null && job.isError ? (
-          <ErrorState error={job.error} onRetry={() => void job.refetch()} />
+        {phase === 'poll-error' ? (
+          <ErrorState
+            error={job.error}
+            onRetry={() => void job.refetch()}
+            title="草稿已保存，解析状态查询失败"
+          />
         ) : null}
         <DraftGuardDialogs guard={guard} draft="正文草稿会丢失。" pending={pending} />
       </DialogShell>
