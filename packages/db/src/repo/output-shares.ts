@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { conversations, outputShares } from '../schema.js';
+import { keysetBefore } from './keyset.js';
 
 export type OutputShareRow = typeof outputShares.$inferSelect;
 
@@ -123,10 +124,7 @@ export async function listActiveOwnedBy(
       .where(and(eq(outputShares.id, options.cursor), ...filters))
       .limit(1);
     if (!anchor) return null;
-    filters.push(sql`(${outputShares.createdAt}, ${outputShares.id}) < (
-      select cursor.created_at, cursor.id from ${outputShares} cursor
-      where cursor.id = ${options.cursor}
-    )`);
+    filters.push(keysetBefore(outputShares, options.cursor));
   }
 
   const rows = await db

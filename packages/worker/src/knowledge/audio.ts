@@ -3,7 +3,7 @@ import { type AsrProfile, transcribeAudio } from '@agentport/core';
 import type { KnowledgeAudioMetadata } from '@agentport/shared';
 import { KnowledgeParseError, type ParsedBlock, type ParsedDocument } from './parsing.js';
 
-export type ParsedAudioDocument = ParsedDocument & { audio: KnowledgeAudioMetadata };
+type ParsedAudioDocument = ParsedDocument & { audio: KnowledgeAudioMetadata };
 
 function cancelled(): KnowledgeParseError {
   return new KnowledgeParseError('aborted', '音频转录已取消');

@@ -18,7 +18,7 @@ import type { SessionSandboxes } from './sessions.js';
  * worker 关闭空闲容器后回一条 ACK。只是有限请求/应答，不是队列或第二套运行循环；
  * 请求不带凭据、宿主路径或 Docker 命令。
  */
-export interface SessionCleanupChannelOptions {
+interface SessionCleanupChannelOptions {
   redisUrl: string;
   logger: Logger;
   sessions: Pick<SessionSandboxes, 'closeIdle'>;
@@ -170,7 +170,7 @@ export async function startSessionCleanupChannel(
   };
 }
 
-export interface CloseSessionRuntimeOptions {
+interface CloseSessionRuntimeOptions {
   channel: SessionCleanupChannel;
   sessions: Pick<SessionSandboxes, 'close'>;
   provider: { destroyAll: () => Promise<void> };

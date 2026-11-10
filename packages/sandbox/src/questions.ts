@@ -8,12 +8,12 @@ import {
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 
 /** runner 需要把提问请求与关闭发给宿主；事件形状由 shared 的 ChatEvent 定义。 */
-export interface QuestionChannelEvents {
+interface QuestionChannelEvents {
   requested(event: { requestId: string; toolUseId: string; questions: NativeQuestion[] }): void;
   closed(requestId: string): void;
 }
 
-export interface QuestionChannel {
+interface QuestionChannel {
   /** 只放行原生 AskUserQuestion；其余工具一律 fail closed。 */
   canUseTool: CanUseTool;
   /** 运行结束/EOF：未决问题按拒绝收尾，并停止接受新提问。 */

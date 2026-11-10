@@ -16,7 +16,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { modelProxyUpstream } from '../upstream.js';
 
-export type ImageDescription = {
+type ImageDescription = {
   ocr: string | null;
   caption: string | null;
   warnings: string[];

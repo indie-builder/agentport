@@ -20,7 +20,7 @@ type JobRow = typeof schema.knowledgeJobs.$inferSelect;
 type WikiGeneratePayload = Extract<KnowledgeJobPayload, { type: 'wiki_generate' }>;
 
 /** 与契约 §6.6 固定：进程内工具名与 allowedTools 一一对应。 */
-export const WIKI_TOOL_NAMES = ['wiki_search', 'wiki_read', 'wiki_save_draft'] as const;
+const WIKI_TOOL_NAMES = ['wiki_search', 'wiki_read', 'wiki_save_draft'] as const;
 export const WIKI_ALLOWED_TOOLS = WIKI_TOOL_NAMES.map((name) => `mcp__knowledge__${name}`);
 
 const READ_LIMIT = 20_000;

@@ -78,7 +78,7 @@ export function resolveNativeCli(): string {
   return fail('启动', `沙盒缺少 ${process.platform}-${process.arch} 的官方 CLI 依赖`);
 }
 
-export interface NativePluginRunnerOptions {
+interface NativePluginRunnerOptions {
   /** 测试注入本地 fixture CLI；生产从 SDK 可选依赖解析。 */
   cliPath?: string;
   /** 测试用临时缓存根；容器内固定 /mnt/plugin-cache。 */

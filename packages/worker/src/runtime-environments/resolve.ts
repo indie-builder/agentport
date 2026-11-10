@@ -1,7 +1,7 @@
 import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
 
 /** `environmentId` 为 null 时查平台默认环境的线上版本。 */
-export type ResolveOnlineRuntimeEnvironment = (
+type ResolveOnlineRuntimeEnvironment = (
   environmentId: string | null,
 ) => Promise<ResolvedRuntimeEnvironment | null>;
 

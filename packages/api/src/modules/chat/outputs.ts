@@ -17,7 +17,7 @@ import type { AppContext, HttpEnv, RequestContext } from '../../http/context.js'
 import { requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { loadReadableConversation } from './access.js';
+import { CONVERSATION_MISSING, loadReadableConversation } from './access.js';
 import { openUiActionContent } from './openui-actions.js';
 export const PREVIEW_MAX_BYTES = 1024 * 1024;
 export function isTextPreview(mediaType: string): boolean {
@@ -76,14 +76,14 @@ export async function checkOutputSelection(
   if (!conversation) {
     return {
       code: 'CONVERSATION_NOT_FOUND',
-      message: '会话不存在，可能已被删除；请从会话列表重新打开',
+      message: CONVERSATION_MISSING,
     };
   }
   const slug = await agentSlug(context, conversation.agentId);
   if (slug === null) {
     return {
       code: 'CONVERSATION_NOT_FOUND',
-      message: '会话不存在，可能已被删除；请从会话列表重新打开',
+      message: CONVERSATION_MISSING,
     };
   }
   try {

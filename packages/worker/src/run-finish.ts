@@ -16,7 +16,7 @@ const CHANNEL_FINISH_NOTICE: Record<Exclude<RunFinishedEvent['status'], 'succeed
 type Db = ReturnType<typeof createDb>['db'];
 
 /** 终态写入时可一并保存的运行读数；省略的列保持原值。 */
-export interface RunFinishValues {
+interface RunFinishValues {
   sandboxId?: string;
   latencyMs?: number | null;
   costUsd?: string | null;

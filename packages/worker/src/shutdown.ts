@@ -10,7 +10,7 @@ export interface ShutdownStep {
   close: () => Promise<unknown>;
 }
 
-export interface ShutdownWaits {
+interface ShutdownWaits {
   shutdownMs: number;
   closeMs: number;
   databaseMs: number;

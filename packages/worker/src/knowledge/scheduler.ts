@@ -24,7 +24,7 @@ export interface KnowledgeJobsQueueLike {
   ) => Promise<unknown>;
 }
 
-export type KnowledgeSyncTriggerOutcome = 'fired' | 'skipped' | 'duplicate' | 'failed';
+type KnowledgeSyncTriggerOutcome = 'fired' | 'skipped' | 'duplicate' | 'failed';
 
 function schedulerId(sourceId: string): string {
   return `${SCHEDULER_ID_PREFIX}${sourceId}`;
@@ -166,7 +166,7 @@ export async function syncKnowledgeSchedulers(input: {
   }
 }
 
-export interface KnowledgeScheduler {
+interface KnowledgeScheduler {
   sync: () => Promise<void>;
   close: () => Promise<void>;
 }

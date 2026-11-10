@@ -44,8 +44,7 @@ export interface WikiUpdateInput {
   jobIds: string[];
 }
 
-export type IngestionDocument = Omit<ParsedDocument, 'blocks'> &
-  Partial<Pick<ParsedDocument, 'blocks'>>;
+type IngestionDocument = Omit<ParsedDocument, 'blocks'> & Partial<Pick<ParsedDocument, 'blocks'>>;
 
 export interface ChunkDraft {
   kind: 'text' | 'table' | 'image';

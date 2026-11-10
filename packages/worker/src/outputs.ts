@@ -86,7 +86,7 @@ export function outputPublishProblem(input: {
   return undefined;
 }
 
-export interface PublishRunOutputsInput {
+interface PublishRunOutputsInput {
   status: TerminalRunStatus;
   userMessageId: string;
   /** 本轮最后一条真实消息；只有工具调用的轮次也要取到，不能依赖助手文本。 */

@@ -149,14 +149,14 @@ type Db = ReturnType<typeof createDb>['db'];
 type RunRef = { id: string; conversationId: string };
 const RUN_REF = { id: schema.agentRuns.id, conversationId: schema.agentRuns.conversationId };
 
-export interface ReconcileCleanupInput {
+interface ReconcileCleanupInput {
   runId: string;
   conversationId: string;
   sandboxId: string;
 }
 
 /** 必传：有 sandboxId 时必须真正等到销毁结果，缺省不能被当成清理成功。 */
-export type ReconcileCleanup = (input: ReconcileCleanupInput) => Promise<void>;
+type ReconcileCleanup = (input: ReconcileCleanupInput) => Promise<void>;
 
 type RunningCandidate = RunRef & {
   status: (typeof schema.agentRuns.$inferSelect)['status'];

@@ -7,16 +7,16 @@ import { eq } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
 import { loadConfig } from './config.js';
 
-export const MAINTENANCE_QUEUE = 'maintenance';
+const MAINTENANCE_QUEUE = 'maintenance';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export interface Retention {
+interface Retention {
   runDays: number;
   messageDays: number;
   agentVersions: number;
 }
 
-export interface MaintenanceSummary extends Retention {
+interface MaintenanceSummary extends Retention {
   agentVersionsDeleted: number;
   runsDeleted: number;
   runMessagesDeleted: number;
