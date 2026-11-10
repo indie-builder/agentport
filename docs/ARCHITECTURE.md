@@ -413,12 +413,13 @@ data/workspaces/<agent-slug>/
 - **专家记忆策略（2026-11-08）**：`agents.memory_policy` 是平台侧运行策略，不属于 agent 定义、不进版本快照、不随导入导出。五个字段：`enabled`、`writeMode`（`native_auto` / `proposal_only`）、`injectPersonalMemory`、`injectRules`、`topicLimit`（3–48，默认 20）；默认值定义在 shared，DB 列默认值与之一致。
   - `enabled=false`：主会话不挂载 `/mnt/agent-memory`、不加载索引、新建提案 409；**子智能体记忆不受该开关约束**，仍按父策略决定只读/可写挂载。
   - `proposal_only`：关闭 SDK auto-memory、移除记忆目录 Edit 预批准，主会话与子智能体的记忆目录均只读挂载，容器内 Bash 也无法写入；提案仍是允许路径。
+  - 频道覆盖：频道 run 是共享执行上下文，强制 `writeMode=proposal_only`；启用记忆时专家与子智能体记忆只读，`enabled=false` 时专家记忆仍不挂载；私有 run 不受影响。
   - `injectPersonalMemory=false`：不投影、不挂载 `/mnt/user`、不安装 `UserPromptSubmit` 个人记忆 hook；频道与服务主体的既有边界不变。
   - `injectRules=false`：本轮不渲染 `.claude/rules/*.md`，旧文件随工作区刷新删除。
   - `topicLimit`：在 `writeMemoryTargetLocked` 统一校验，覆盖手工 PUT、创建、提案采纳与回滚；无法约束 `native_auto` 下 SDK 原生写入。
   - 只读派生：`GET /api/agents/:id/memory/overview`（KPI、健康检查、最近变更摘要与真实总数）、`GET /api/agents/:id/memory/assembly`（本轮固定注入块、按需主题、跳过原因与分项字节）、`PUT /api/agents/:id/memory/policy`（写审计 `agent.memory.policy.updated`）。三个端点分别按 `agents.memory.read` / `agents.memory.write` 做对象范围校验。
   - 已知边界：策略不随 agent 版本回滚；`topicLimit` 不约束原生写入；子智能体记忆不受 `enabled` 约束；工作区预览不传策略，预览文案按默认 `native_auto` 渲染。
-- **个人记忆（原个人偏好）不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。API 保存以 DB 事务提交为准，投影失败只记日志；worker 在每轮**私有**用户运行、挂载工作区前按 DB 重建该用户的投影，崩溃遗留的旧投影不会带入下一轮。频道 run 属于共享执行上下文，不投影、不挂载、也不注入触发者的个人记忆。注意这只覆盖**个人**记忆：专家与子智能体记忆按专家目录共享，频道里仍能读到，不能据此宣称私人信息已完全隔离。服务主体不重建也不挂个人记忆；重建失败则中止该轮运行。
+- **个人记忆（原个人偏好）不是官方用户级配置**：`settingSources` 仍为 `['project']`，不读取宿主 `~/.claude`；`_users/<sha256(businessId)>/CLAUDE.md` 只是平台维护的只读文件投影，DB 才是成功依据。API 保存以 DB 事务提交为准，投影失败只记日志；worker 在每轮**私有**用户运行、挂载工作区前按 DB 重建该用户的投影，崩溃遗留的旧投影不会带入下一轮。频道 run 属于共享执行上下文，不投影、不挂载、也不注入触发者的个人记忆。频道 run 在启用专家记忆时仍能读到专家与子智能体记忆，但本轮只读、不会写入；`enabled=false` 时专家记忆仍不挂载。只读不阻止频道 run 读取专家目录，私有 run 写入的记忆仍可能出现在频道回答中，不能据此宣称私人信息已完全隔离。服务主体不重建也不挂个人记忆；重建失败则中止该轮运行。
 - **个人记忆按 `businessId` 隔离**：投影目录与锁都以 `businessId` 为键；worker 从 DB 读取运行主体，服务主体没有个人记忆，也不回退到管理员。既有专家共享 auto-memory 的读写语义保持不变。
 - **记忆提案是用户触发的运行**：`agent_runs.trigger='review'`，目标为个人记忆、指定专家的某个记忆文件或规则；`agent_memory` 目标必须带 `name`，不设 `MEMORY.md` 隐式默认。一次记忆提案只处理一个文件，读已落库的会话快照（最多 10 段，可选用首尾消息固定窗口），`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema` 返回提案；沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停，不建沙盒、不追加消息、不写成果。快照在创建时固定：来源正文 + 目标正文 + 伴随索引合计不超过 256 KiB，超限入队前拒绝。证据必须是快照消息原文的连续子串，并带 `user_fact | confirmed_decision | assistant_suggestion` 归因：用户事实与已确认决定只能引用 user，助手建议只能引用 assistant 且仅作背景；非 null 正文至少有一条用户依据，纯助手建议不能变成可采纳记忆。
 - **确认制，不是自动进化**：提案写入个人记忆、专家记忆文件或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用才写目标并落账。没有无人值守的自动提取与发布。

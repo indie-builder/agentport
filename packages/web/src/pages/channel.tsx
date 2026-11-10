@@ -557,6 +557,7 @@ function ChannelWorkspace({
                 <span className="text-xs text-muted-foreground">尚未绑定智能体</span>
               ) : null}
             </div>
+            <span className="text-xs text-muted-foreground">频道内不会写入专家记忆。</span>
           </div>
           <div className="ml-auto flex shrink-0 items-center">
             <ChannelSettingsButton
@@ -840,6 +841,7 @@ function ChannelSidebarDetail({
             );
           })}
         </ul>
+        <p className="text-xs text-muted-foreground">频道内不会写入专家记忆。</p>
       </section>
     </aside>
   );
