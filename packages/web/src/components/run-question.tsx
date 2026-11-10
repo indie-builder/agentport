@@ -3,6 +3,7 @@ import type {
   PublicRunQuestion,
   RunQuestionStatus,
 } from '@agentport/shared';
+import { questionPhase } from '@agentport/shared';
 import { MessageCircleQuestion } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { errorMessage } from '../lib/api.js';
@@ -116,7 +117,9 @@ export function RunQuestionCard({
   const [drafts, setDrafts] = useState<Record<string, AnswerDraft>>({});
   const [now, setNow] = useState(() => Date.now());
   const deadline = Date.parse(question.expiresAt);
-  const expired = Number.isFinite(deadline) && now >= deadline;
+  const expired =
+    questionPhase({ status: question.status, expiresAt: new Date(deadline) }, new Date(now)) ===
+    'expired';
 
   // 打开的表单跨过期限也要立即变成只读，不依赖 worker 到时关闭记录。
   useEffect(() => {
