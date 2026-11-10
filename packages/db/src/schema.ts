@@ -133,7 +133,7 @@ export const agents = pgTable(
     ownerBusinessId: text('owner_business_id').notNull(),
     /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
     parentId: text('parent_id').references((): AnyPgColumn => agents.id, {
-      onDelete: 'set null',
+      onDelete: 'restrict',
     }),
     /** 绑定的命名运行环境；null 表示平台默认环境。 */
     runtimeEnvironmentId: text('runtime_environment_id').references(

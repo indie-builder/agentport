@@ -228,11 +228,11 @@ describe.skipIf(!ready)('short delete transactions', () => {
     });
     expect(await agentsRepo.getAgent(db, parent)).not.toBeNull();
 
-    expect(await agentsRepo.deleteAgent(db, { ...agentInput(parent), expected: snapshot! })).toBe(
-      true,
-    );
-    expect(await agentsRepo.getAgent(db, parent)).toBeNull();
-    expect(await repoChild(child)).toMatchObject({ id: child, parentId: null });
+    await expect(
+      agentsRepo.deleteAgent(db, { ...agentInput(parent), expected: snapshot! }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(await agentsRepo.getAgent(db, parent)).not.toBeNull();
+    expect(await repoChild(child)).toMatchObject({ id: child, parentId: parent });
     expect(await chatRepo.getConversation(db, childConversation)).not.toBeNull();
     expect(await chatRepo.getConversation(db, untouched)).not.toBeNull();
   });

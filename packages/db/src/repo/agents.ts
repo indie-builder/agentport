@@ -144,6 +144,22 @@ function agentDeletionWhere(input: AgentDeletionInput): SQL | undefined {
   );
 }
 
+function isParentAgentRestriction(err: unknown): boolean {
+  let cause: unknown = err;
+  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
+    if (
+      'errno' in cause &&
+      (cause.errno === '23001' || cause.errno === '23503') &&
+      'constraint' in cause &&
+      cause.constraint === 'agents_parent_id_agents_id_fk'
+    ) {
+      return true;
+    }
+    cause = 'cause' in cause ? cause.cause : undefined;
+  }
+  return false;
+}
+
 export async function listAgents(
   db: Database,
   access: AccessFilter,
@@ -648,20 +664,27 @@ export async function deleteAgent(
   db: Database,
   input: AgentDeletionInput & { expected: AgentDeletionSnapshot },
 ): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const actual = await readAgentDeletionSnapshot(tx, input, true);
-    if (actual === null) return false;
-    if (!sameAgentSnapshot(input.expected, actual)) {
-      throw new AppError('CONFLICT', '智能体或其会话在删除期间发生变化，请重试', {
-        retryable: true,
-      });
+  try {
+    return await db.transaction(async (tx) => {
+      const actual = await readAgentDeletionSnapshot(tx, input, true);
+      if (actual === null) return false;
+      if (!sameAgentSnapshot(input.expected, actual)) {
+        throw new AppError('CONFLICT', '智能体或其会话在删除期间发生变化，请重试', {
+          retryable: true,
+        });
+      }
+      const rows = await tx
+        .delete(agents)
+        .where(agentDeletionWhere(input))
+        .returning({ id: agents.id });
+      return rows.length > 0;
+    });
+  } catch (err) {
+    if (isParentAgentRestriction(err)) {
+      throw new AppError('CONFLICT', '该专家下仍有子专家，请先删除或迁移子专家后再删除');
     }
-    const rows = await tx
-      .delete(agents)
-      .where(agentDeletionWhere(input))
-      .returning({ id: agents.id });
-    return rows.length > 0;
-  });
+    throw err;
+  }
 }
 
 async function readAgentDeletionSnapshot(
