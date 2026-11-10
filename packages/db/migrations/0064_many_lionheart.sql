@@ -1,0 +1,1 @@
+ALTER TABLE "runtime_environment_versions" ADD CONSTRAINT "runtime_environment_versions_ready_image_check" CHECK ("runtime_environment_versions"."status" <> 'ready' or "runtime_environment_versions"."image_id" is not null);
