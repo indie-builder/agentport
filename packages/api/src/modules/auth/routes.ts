@@ -84,6 +84,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
         context.log.warn({ username }, 'login failed');
         await repo.audit.writeAudit(context.db, context.log, {
           actor: 'anonymous',
+          actorKind: 'anonymous',
           action: 'auth.login.failed',
           input: { username },
           status: 'denied',
@@ -98,6 +99,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
         await revokeUserSessions(context, session.user.id);
         await repo.audit.writeAudit(context.db, context.log, {
           actor: 'anonymous',
+          actorKind: 'anonymous',
           action: 'auth.login.failed',
           input: { username },
           status: 'denied',
@@ -128,6 +130,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
     forwardSetCookie(result.headers, context);
     await repo.audit.writeAudit(context.db, context.log, {
       actor: session?.user.businessId ?? 'anonymous',
+      actorKind: session === null ? 'anonymous' : 'user',
       action: 'auth.logout',
       status: 'ok',
       requestId: context.requestId,

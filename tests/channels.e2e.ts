@@ -546,3 +546,137 @@ test('a viewer can read the channel but cannot post', { session: 'admin' }, asyn
   });
   assert(denied.status === 403, `viewer 发消息应当 403（实际 ${denied.status}）`);
 });
+
+test('records agent audits and hides channel runs from non-members', { session: 'admin' }, async ({
+  app,
+  screen,
+  browser,
+}) => {
+  await app.open('/channels');
+  const agent = await createAgent(browser, 'identity');
+  const channel = await createChannel(browser, 'identity');
+  await bindAgent(browser, channel.id, agent.id);
+
+  await app.open(`/channels/${channel.id}`);
+  const text = `E2E 审计与授权 ${uniqueSuffix()}`;
+  await sendMention(screen, agent.name, text);
+  await waitForReply(screen, browser, `@${agent.name} ${text}`);
+
+  const runs = await runFixture('channels', 'runs', channel.id);
+  const run = runs[0];
+  assert(run !== undefined, `频道应当产生运行（实际 ${runs.length} 条）`);
+  const audits = await runFixture('channels', 'channelMessageAudits', channel.id);
+  assert(
+    audits.some(
+      (audit) => audit.actor_kind === 'agent' && audit.action === 'channel.message.posted',
+    ),
+    `频道智能体消息应当写入审计（实际 ${audits.length} 条）`,
+  );
+  assert(
+    audits.some(
+      (audit) =>
+        audit.actor === agent.id &&
+        audit.actor_kind === 'agent' &&
+        audit.action === 'channel.message.posted',
+    ),
+    `审计应记录智能体主体：${JSON.stringify(audits)}`,
+  );
+  const agentMessage = audits.find((audit) => audit.actor === agent.id);
+  assert(agentMessage !== undefined, '智能体消息审计缺少目标消息');
+  const auditList = await apiJson<{
+    items: Array<{ actor: string; actorKind: string; action: string }>;
+  }>(
+    browser,
+    'GET',
+    `/api/audit?action=channel.message.posted&target=${encodeURIComponent(agentMessage.target)}`,
+  );
+  assert(auditList.status === 200 && auditList.json !== null, `读取审计失败：${auditList.status}`);
+  assert(
+    auditList.json.items.some(
+      (item) =>
+        item.actor === agent.id &&
+        item.actorKind === 'agent' &&
+        item.action === 'channel.message.posted',
+    ),
+    `审计接口应返回智能体主体：${JSON.stringify(auditList.json.items)}`,
+  );
+
+  const conversation = await apiJson<{ code: string }>(
+    browser,
+    'GET',
+    `/api/conversations/${run.conversation_id}`,
+  );
+  assert(
+    conversation.status === 404 && conversation.json?.code === 'CONVERSATION_NOT_FOUND',
+    `频道会话不应从私有会话入口读取（实际 ${conversation.status} ${conversation.json?.code}）`,
+  );
+  const chat = await apiJson<{ code: string }>(browser, 'POST', '/api/chat', {
+    agentId: agent.id,
+    conversationId: run.conversation_id,
+    message: '管理员尝试从私有聊天入口进入频道会话',
+  });
+  assert(
+    chat.status === 404 && chat.json?.code === 'CONVERSATION_NOT_FOUND',
+    `频道会话不应从私有聊天入口进入（实际 ${chat.status} ${chat.json?.code}）`,
+  );
+
+  const outsider = await createAccount(browser, 'outsider');
+  await loginAs(browser, outsider);
+  const deniedRequests: Array<{
+    method: string;
+    path: string;
+    body?: unknown;
+    code?: string;
+    message?: string;
+  }> = [
+    { method: 'GET', path: `/api/channels/${channel.id}` },
+    { method: 'GET', path: `/api/channels/${channel.id}/messages` },
+    { method: 'GET', path: `/api/channels/${channel.id}/runs` },
+    { method: 'GET', path: `/api/channels/${channel.id}/runs/${run.id}` },
+    { method: 'GET', path: `/api/runs/${run.id}`, code: 'RUN_NOT_FOUND' },
+    { method: 'GET', path: `/api/channels/${channel.id}/runs/${run.id}/outputs` },
+    { method: 'GET', path: `/api/channels/${channel.id}/runs/${run.id}/questions` },
+    {
+      method: 'GET',
+      path: `/api/channels/${channel.id}/runs/${run.id}/outputs/content?path=report.md`,
+      message: '运行不存在或不属于该频道',
+    },
+    {
+      method: 'GET',
+      path: `/api/channels/${channel.id}/runs/${run.id}/outputs/download?path=report.md`,
+      message: '运行不存在或不属于该频道',
+    },
+    { method: 'POST', path: `/api/channels/${channel.id}/runs/${run.id}/stop` },
+    {
+      method: 'POST',
+      path: `/api/channels/${channel.id}/messages`,
+      body: { body: '非成员尝试发送频道消息' },
+    },
+  ];
+  for (const request of deniedRequests) {
+    const result = await apiJson<{ code: string; message: string }>(
+      browser,
+      request.method,
+      request.path,
+      request.body,
+    );
+    assert(
+      result.status === 404,
+      `${request.method} ${request.path} 对非成员应当 404（实际 ${result.status}）`,
+    );
+    assert(
+      result.json?.code === (request.code ?? 'NOT_FOUND'),
+      `${request.method} ${request.path} 错误码应为 ${request.code ?? 'NOT_FOUND'}（实际 ${result.json?.code}）`,
+    );
+    assert(
+      !(result.json?.message ?? '').startsWith('Route '),
+      `${request.method} ${request.path} 不应落到全局 404（实际 ${result.json?.message}）`,
+    );
+    if (request.message !== undefined) {
+      assert(
+        result.json?.message === request.message,
+        `${request.method} ${request.path} 错误信息应为 ${request.message}（实际 ${result.json?.message}）`,
+      );
+    }
+  }
+});

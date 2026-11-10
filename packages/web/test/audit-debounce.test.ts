@@ -44,6 +44,7 @@ function entry(id: string) {
   return {
     id,
     actor: 'admin',
+    actorKind: 'user',
     action: 'agent.create',
     target: null,
     status: 'ok' as const,

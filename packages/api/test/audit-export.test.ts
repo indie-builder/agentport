@@ -14,6 +14,7 @@ const ready = await infraReady;
 interface ExportedItem {
   id: string;
   actor: string;
+  actorKind: string;
   action: string;
   target: string | null;
   status: string;
@@ -42,11 +43,14 @@ describe.skipIf(!ready)('audit export', () => {
 
   afterAll(async () => {
     if (createdIds.length > 0) {
-      await app.client.unsafe('delete from audit_log where id = any($1::text[])', [app.client.array(createdIds, 'TEXT')]);
+      await app.client.unsafe('delete from audit_log where id = any($1::text[])', [
+        app.client.array(createdIds, 'TEXT'),
+      ]);
     }
     if (createdTargets.length > 0) {
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(createdTargets, 'TEXT')],
-      );
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(createdTargets, 'TEXT'),
+      ]);
     }
     await app.close();
   });
@@ -155,6 +159,7 @@ describe.skipIf(!ready)('audit export', () => {
       {
         id,
         actor: 'admin',
+        actorKind: 'service',
         action: 'agent.run',
         target,
         status: 'error',

@@ -238,6 +238,7 @@ export async function executeEvalRun(input: {
       yield* dbQuery(() =>
         repo.audit.writeAudit(db, logger, {
           actor: 'worker',
+          actorKind: 'service',
           action: 'eval.denied',
           target: evalRunId,
           status: 'denied',

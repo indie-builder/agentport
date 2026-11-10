@@ -643,6 +643,7 @@ const worker = new Worker(
     }
     await repo.audit.writeAudit(db, logger, {
       actor: 'worker',
+      actorKind: 'service',
       action: 'agent.run.started',
       target: runId,
       status: 'ok',

@@ -133,6 +133,7 @@ export async function publishRunFinished(input: {
   await publishRun(input.runId, input.event, input.logger);
   await repo.audit.writeAudit(input.db, input.logger, {
     actor: 'worker',
+    actorKind: 'service',
     action: input.audit.action,
     target: input.runId,
     status: input.audit.status,
