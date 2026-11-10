@@ -68,12 +68,13 @@ const MAX_SOURCES = 10;
 type TargetKind = MemoryReviewTarget['kind'];
 
 /** 列表视图只描述当前已加载记录的处理阶段，不冒充全局数量。 */
-export type MemoryReviewView = 'pending' | 'generating' | 'done';
+export type MemoryReviewView = 'pending' | 'generating' | 'aborted' | 'done';
 
 const reviewViewOptions = [
   { value: 'all', label: '全部' },
   { value: 'pending', label: '待审核' },
   { value: 'generating', label: '生成中' },
+  { value: 'aborted', label: '已中断' },
   { value: 'done', label: '已处理' },
 ] as const;
 
@@ -129,16 +130,16 @@ function reviewHasChanges(review: MemoryReview): boolean {
 /** 无需变更的提案不需要用户动作，归入已处理，避免占住待审核。 */
 function reviewViewOf(review: MemoryReview): MemoryReviewView {
   if (review.status === 'queued' || review.status === 'running') return 'generating';
-  if (review.status === 'succeeded' && review.decision === 'pending' && reviewHasChanges(review)) {
-    return 'pending';
-  }
+  if (review.status !== 'succeeded') return 'aborted';
+  if (review.decision === 'pending' && reviewHasChanges(review)) return 'pending';
   return 'done';
 }
 
 const reviewViewPriority: Record<MemoryReviewView, number> = {
   pending: 0,
   generating: 1,
-  done: 2,
+  aborted: 2,
+  done: 3,
 };
 
 function formatTimeout(ms: number): string {
@@ -248,7 +249,12 @@ export function MemoryReviews({
     ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
   ];
 
-  const viewCounts: Record<MemoryReviewView, number> = { pending: 0, generating: 0, done: 0 };
+  const viewCounts: Record<MemoryReviewView, number> = {
+    pending: 0,
+    generating: 0,
+    aborted: 0,
+    done: 0,
+  };
   for (const item of items) viewCounts[reviewViewOf(item)] += 1;
   const visibleItems = items
     .filter((item) => stage === null || reviewViewOf(item) === stage)
@@ -321,7 +327,9 @@ export function MemoryReviews({
             {reviews.data && items.length > 0 ? (
               <p className="text-xs text-muted-foreground">
                 当前已加载 {items.length} 条 · 待审核 {viewCounts.pending} · 生成中{' '}
-                {viewCounts.generating} · 已处理 {viewCounts.done}
+                {viewCounts.generating}
+                {viewCounts.aborted > 0 ? ` · 已中断 ${viewCounts.aborted}` : null} · 已处理{' '}
+                {viewCounts.done}
               </p>
             ) : null}
             {canReview ? (

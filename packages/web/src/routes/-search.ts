@@ -98,7 +98,7 @@ export const auditSearchSchema = z.object({
 export const personalReviewsSearchSchema = z.object({
   agent: z.string().min(1).optional().catch(undefined),
   run: z.string().min(1).optional().catch(undefined),
-  stage: z.enum(['pending', 'generating', 'done']).optional().catch(undefined),
+  stage: z.enum(['pending', 'generating', 'aborted', 'done']).optional().catch(undefined),
   view: listViewSchema,
   create: z
     .union([z.boolean(), z.enum(['true', 'false'])])
