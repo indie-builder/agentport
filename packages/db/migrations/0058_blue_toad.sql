@@ -1,0 +1,2 @@
+ALTER TABLE "run_questions" DROP CONSTRAINT "run_questions_status_check";--> statement-breakpoint
+ALTER TABLE "run_questions" ADD CONSTRAINT "run_questions_status_check" CHECK ("run_questions"."status" in ('pending', 'answered', 'declined', 'closed', 'expired'));

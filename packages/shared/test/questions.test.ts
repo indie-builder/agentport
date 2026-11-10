@@ -108,7 +108,7 @@ describe('run question', () => {
   });
 
   it('rejects unknown statuses and missing timestamps', () => {
-    expect(runQuestionSchema.safeParse({ ...runQuestion, status: 'expired' }).success).toBe(false);
+    expect(runQuestionSchema.safeParse({ ...runQuestion, status: 'archived' }).success).toBe(false);
     expect(runQuestionSchema.safeParse({ ...runQuestion, expiresAt: undefined }).success).toBe(
       false,
     );

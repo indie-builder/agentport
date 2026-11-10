@@ -407,6 +407,13 @@
       "when": 1794282402889,
       "tag": "0057_fancy_sumo",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794283729638,
+      "tag": "0058_blue_toad",
+      "breakpoints": true
     }
   ]
 }

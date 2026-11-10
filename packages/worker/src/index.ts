@@ -1011,6 +1011,8 @@ const worker = new Worker(
             list: () => repo.questions.listQuestions(db, runId),
             close: (reason, requestId) =>
               repo.questions.closeQuestions(db, runId, reason, requestId),
+            expireStale: () =>
+              repo.questions.expireStaleQuestions(db, { runId }).then(() => undefined),
           },
         });
         runLatencyMs = Date.now() - runStartedAt;
