@@ -556,6 +556,10 @@ export const memoryReviewsRouter = os.router({
       if (!detail) fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
       if (detail.decision === 'applied') fail('CONFLICT', '已采纳的审核不能改为拒绝');
       if (detail.decision === 'pending') {
+        const run = await repo.chat.getRun(context.db, detail.runId);
+        if (run?.status === 'queued' || run?.status === 'running') {
+          fail('CONFLICT', '审核尚未完成，暂时不能拒绝，请稍候');
+        }
         if (parsedTarget.success) {
           await assertNoPendingReviewWrite(context.db, context.config.WORKSPACES_DIR, {
             runId: detail.runId,
