@@ -479,7 +479,13 @@ export interface RequestedApproval {
  */
 export async function requestApproval(
   db: Database,
-  input: { runId: string; serverId: string; toolName: string; expiresAt?: Date | null },
+  input: {
+    runId: string;
+    serverId: string;
+    toolName: string;
+    expiresAt?: Date | null;
+    argumentsSummary?: Record<string, unknown> | null;
+  },
 ): Promise<RequestedApproval> {
   // 审批行归属频道：从 run 读取，调用方不必再传一次，也不会与 run 归属分叉。
   const [run] = await db
@@ -507,7 +513,10 @@ export async function requestApproval(
     })
     .onConflictDoUpdate({
       target: [approvalRequests.runId, approvalRequests.serverId, approvalRequests.toolName],
-      set: { expiresAt: sql`greatest(${approvalRequests.expiresAt}, excluded.expires_at)` },
+      set: {
+        expiresAt: sql`greatest(${approvalRequests.expiresAt}, excluded.expires_at)`,
+        argumentsSummary: sql`coalesce(${approvalRequests.argumentsSummary}, excluded.arguments_summary)`,
+      },
       setWhere: isNull(approvalRequests.approvedAt),
     })
     .returning(columns);

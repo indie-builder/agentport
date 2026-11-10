@@ -8,6 +8,7 @@ import { buildKnowledgeServer } from '../knowledge/mcp.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, toApiServer } from './repo.js';
+import { summarizeToolArguments } from './tool-arguments.js';
 
 function handlerFor(app: AppContext, serverId: string, runId: string | null): McpHttpHandler {
   return createMcpHandler(
@@ -46,12 +47,13 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
               isRunActive: async () =>
                 (await repo.runs.isRunActive(app.db, trustedRunId)) &&
                 !(await isRunCancelRequested(trustedRunId)),
-              onApprovalRequired: async (toolName, expiresAt) => {
+              onApprovalRequired: async (toolName, args, expiresAt) => {
                 const approval = await repo.runs.requestApproval(app.db, {
                   runId: trustedRunId,
                   serverId,
                   toolName,
                   expiresAt,
+                  argumentsSummary: summarizeToolArguments(args),
                 });
                 // 只有频道 run 需要实时提示；私有 run 仍走运行详情轮询，行为不变。
                 if (approval.channelId === null) return;

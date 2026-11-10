@@ -11,6 +11,7 @@ export interface ChannelApprovalItem {
   serverId: string;
   serverName: string | null;
   toolName: string;
+  argumentsSummary: Record<string, unknown> | null;
   createdAt: Date;
   approvedAt: Date | null;
   expiresAt: Date | null;
@@ -40,6 +41,7 @@ export async function listChannelApprovals(
       serverId: approvalRequests.serverId,
       serverName: servers.name,
       toolName: approvalRequests.toolName,
+      argumentsSummary: approvalRequests.argumentsSummary,
       createdAt: approvalRequests.createdAt,
       approvedAt: approvalRequests.approvedAt,
       expiresAt: approvalRequests.expiresAt,
@@ -94,6 +96,7 @@ export async function approveChannelApproval(
         serverId: approvalRequests.serverId,
         serverName: servers.name,
         toolName: approvalRequests.toolName,
+        argumentsSummary: approvalRequests.argumentsSummary,
         createdAt: approvalRequests.createdAt,
         approvedAt: approvalRequests.approvedAt,
         expiresAt: approvalRequests.expiresAt,
@@ -148,6 +151,7 @@ export async function approveChannelApproval(
         runId: approvalRequests.runId,
         serverId: approvalRequests.serverId,
         toolName: approvalRequests.toolName,
+        argumentsSummary: approvalRequests.argumentsSummary,
         createdAt: approvalRequests.createdAt,
         approvedAt: approvalRequests.approvedAt,
         approvedByBusinessId: approvalRequests.approvedByBusinessId,

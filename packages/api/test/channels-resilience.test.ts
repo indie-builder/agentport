@@ -204,7 +204,7 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
         (event) => event.type === 'message.created' && event.message.body === 'another',
       );
       const audit = await app.client.unsafe(
-        'select actor, subject_business_id, action, request_id from audit_log where target = $1 order by created_at',
+        "select actor, subject_business_id, action, request_id from audit_log where target = $1 and action = 'access.cross_user.conversations.read' order by created_at",
         [value.id],
       );
       expect(audit).toHaveLength(4);

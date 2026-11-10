@@ -845,6 +845,9 @@ function RunControls({
       ) : null}
       {pendingApprovals.map((approval) => {
         const isPending = active && approval.approvedAt === null;
+        const argumentEntries = approval.argumentsSummary
+          ? Object.entries(approval.argumentsSummary)
+          : [];
         return (
           <div
             key={approval.id}
@@ -874,6 +877,26 @@ function RunControls({
               >
                 批准
               </Button>
+            ) : null}
+            {argumentEntries.length > 0 ? (
+              <>
+                <p className="w-full text-xs text-muted-foreground">
+                  本轮调用参数；批准后该工具的全部调用均放行
+                </p>
+                <dl
+                  aria-label="工具调用参数"
+                  className="grid min-w-0 basis-full grid-cols-[96px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-sm"
+                >
+                  {argumentEntries.map(([key, value]) => (
+                    <div key={key} className="contents">
+                      <dt className="min-w-0 break-words text-muted-foreground">{key}</dt>
+                      <dd className="min-w-0 break-words font-mono text-xs text-fg [overflow-wrap:anywhere]">
+                        {formatArgumentValue(value)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
             ) : null}
           </div>
         );
@@ -944,4 +967,10 @@ function memberInitial(member: ChannelMember): string {
   return member.name
     ? member.name.slice(0, 1).toUpperCase()
     : shortId(member.businessId).slice(0, 2).toUpperCase();
+}
+
+function formatArgumentValue(value: unknown): string {
+  if (typeof value === 'string') return value === '' ? '""' : value;
+  if (value === null || typeof value !== 'object') return String(value);
+  return JSON.stringify(value);
 }

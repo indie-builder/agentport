@@ -673,7 +673,7 @@
 
 **依据**：Slack/Teams/Discord/Linear/GitHub Copilot/Claude Tag 等产品做法、OpenAI Agents SDK/AutoGen/CrewAI/LangGraph/Devin 等框架做法与当前代码现状三路调研汇合；市场证据与逐项理由见 docs/research/channel-architecture-review-2026-11-08.md 第 9 节。关键判断：显式编排优于自由群聊；并行单位是 task/session + 独立工作区；审批需展示参数并记双身份；shared 记忆不等于全局可读；socket proxy 不是多租户边界。
 
-**状态**：CH-04 已在本 PR 实现（channel_wakes 事务性 outbox、agent_runs 触发唯一索引、请求路径同步派发 + 启动/30 秒扫尾恢复）；其余项按上述顺序排期。D-21 仍为「暂不对外」，本决定不改变对外程度。
+**状态**：CH-04 已实现（channel_wakes 事务性 outbox、agent_runs 触发唯一索引、请求路径同步派发 + 启动/30 秒扫尾恢复）。CH-12 已实现，包括 `approval_requests.arguments_summary`、频道写操作审计、agent actor_kind 审计、以及频道审批卡展示脱敏参数；频道级独立 token 与授权收敛仍归 CH-17。其余项按上述顺序排期。D-21 仍为「暂不对外」，本决定不改变对外程度。
 
 ---
 

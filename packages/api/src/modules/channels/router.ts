@@ -18,7 +18,7 @@ import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { type SSEStreamingApi, streamSSE } from 'hono/streaming';
 import { z } from 'zod';
-import { authorize, authorizeObject, requireUser } from '../../http/access.js';
+import { actorOf, authorize, authorizeObject, requireUser } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
@@ -108,6 +108,29 @@ function toDetail(detail: repo.channels.ChannelDetail): ChannelDetail {
 function notFound(message = '频道不存在'): never {
   return fail('NOT_FOUND', message);
 }
+async function auditWrite(
+  context: RequestContext,
+  event: {
+    action: string;
+    target?: string;
+    input?: unknown;
+    subjectBusinessId?: string;
+    dedupeKey?: string;
+  },
+): Promise<void> {
+  await repo.audit.writeAudit(context.db, context.log, {
+    actor: actorOf(context),
+    action: event.action,
+    ...(event.target === undefined ? {} : { target: event.target }),
+    ...(event.input === undefined ? {} : { input: event.input }),
+    ...(event.subjectBusinessId === undefined
+      ? {}
+      : { subjectBusinessId: event.subjectBusinessId }),
+    ...(event.dedupeKey === undefined ? {} : { dedupeKey: event.dedupeKey }),
+    status: 'ok',
+    requestId: context.requestId,
+  });
+}
 async function publishMessage(
   context: RequestContext,
   channelId: string,
@@ -172,6 +195,11 @@ export const channelsMainRouter = {
       description: input.body.description ?? null,
       createdBy: principal.businessId,
     });
+    await auditWrite(context, {
+      action: 'channel.created',
+      target: channel.id,
+      input: { name: channel.name, description: channel.description },
+    });
     return toChannel(channel);
   }),
   detail: os.detail.handler(async ({ input, context }) => {
@@ -197,6 +225,11 @@ export const channelsMainRouter = {
       case 'forbidden':
         return forbidden('当前频道角色无权管理该频道');
       case 'ok':
+        await auditWrite(context, {
+          action: 'channel.updated',
+          target: result.channel.id,
+          input: input.body,
+        });
         return toChannel(result.channel);
     }
   }),
@@ -217,6 +250,12 @@ export const channelsMainRouter = {
       case 'conflict':
         return conflict('该账户已是频道成员');
       case 'ok':
+        await auditWrite(context, {
+          action: 'channel.member.added',
+          target: input.params.id,
+          subjectBusinessId: result.member.businessId,
+          input: { role: input.body.role },
+        });
         return toMember(result.member);
     }
   }),
@@ -238,6 +277,12 @@ export const channelsMainRouter = {
       case 'conflict':
         return conflict('最后一个 owner 不能降级');
       case 'ok':
+        await auditWrite(context, {
+          action: 'channel.member.role_updated',
+          target: input.params.id,
+          subjectBusinessId: result.member.businessId,
+          input: { role: input.body.role },
+        });
         return toMember(result.member);
     }
   }),
@@ -265,6 +310,12 @@ export const channelsMainRouter = {
             'channel member removal left runs uncancelled',
           );
         }
+        await auditWrite(context, {
+          action: 'channel.member.removed',
+          target: input.params.id,
+          subjectBusinessId: input.params.businessId,
+          input: { cancelledRuns: cancel.cancelled },
+        });
         return undefined;
       }
     }
@@ -295,6 +346,11 @@ export const channelsMainRouter = {
       case 'conflict':
         return conflict('该智能体已绑定此频道');
       case 'ok':
+        await auditWrite(context, {
+          action: 'channel.agent.bound',
+          target: input.params.id,
+          input: { agentId: input.body.agentId, autoWakeOnAll: input.body.autoWakeOnAll },
+        });
         return toBinding(result.binding);
     }
   }),
@@ -318,6 +374,11 @@ export const channelsMainRouter = {
             'channel agent removal left runs uncancelled',
           );
         }
+        await auditWrite(context, {
+          action: 'channel.agent.removed',
+          target: input.params.id,
+          input: { agentId: input.params.agentId, cancelledRuns: cancel.cancelled },
+        });
         return undefined;
       }
     }
@@ -371,6 +432,12 @@ export const channelsMainRouter = {
         return fail('INVALID_INPUT', `一次最多唤醒 ${CHANNEL_MAX_WAKE_AGENTS} 个智能体`);
       case 'ok': {
         const message = toMessage(result.message);
+        await auditWrite(context, {
+          action: 'channel.message.posted',
+          target: message.id,
+          input: { channelId: id, mentions, mentionAll },
+          dedupeKey: `aud_chmsg_${message.id.slice(4)}`,
+        });
         await publishMessage(context, id, message);
         await dispatchChannelWakes({
           db: context.db,

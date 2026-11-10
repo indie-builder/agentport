@@ -17,6 +17,7 @@ function toItem(item: repo.channelApprovals.ChannelApprovalItem) {
     serverId: item.serverId,
     serverName: item.serverName,
     toolName: item.toolName,
+    argumentsSummary: item.argumentsSummary,
     createdAt: item.createdAt.toISOString(),
     approvedAt: toIso(item.approvedAt),
     expiresAt: toIso(item.expiresAt),
