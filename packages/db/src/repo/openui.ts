@@ -229,7 +229,7 @@ export interface OpenUiApproval {
   id: string;
   approvedAt: Date | null;
   /** 会话级批准的有效期；null 只出现在未批准或旧数据上，一律视为未批准。 */
-  expiresAt: Date | null;
+  authorizationExpiresAt: Date | null;
 }
 
 /**
@@ -267,15 +267,15 @@ export async function requestOpenUiApproval(
         messageId: input.messageId,
         // 过期的批准要变回待批：清掉批准时间与有效期，重新走一次审批。
         approvedAt: null,
-        expiresAt: null,
+        authorizationExpiresAt: null,
       },
       // null 有效期也视为过期：旧数据不能变成永久批准。
-      setWhere: sql`${approvalRequests.approvedAt} is null or ${approvalRequests.expiresAt} is null or ${approvalRequests.expiresAt} < now()`,
+      setWhere: sql`${approvalRequests.approvedAt} is null or ${approvalRequests.authorizationExpiresAt} is null or ${approvalRequests.authorizationExpiresAt} < now()`,
     })
     .returning({
       id: approvalRequests.id,
       approvedAt: approvalRequests.approvedAt,
-      expiresAt: approvalRequests.expiresAt,
+      authorizationExpiresAt: approvalRequests.authorizationExpiresAt,
     });
   if (!row) throw new Error('approval insert returned no row');
   return row;
@@ -296,7 +296,7 @@ export async function approveOpenUiApproval(
     // 条件在 UPDATE 里判定：并发重复批准时只有一个请求真正写入有效期。
     .set({
       approvedAt: sql`now()`,
-      expiresAt: sql`now() + interval '8 hours'`,
+      authorizationExpiresAt: sql`now() + interval '8 hours'`,
     })
     .where(
       and(
@@ -309,7 +309,7 @@ export async function approveOpenUiApproval(
     .returning({
       id: approvalRequests.id,
       approvedAt: approvalRequests.approvedAt,
-      expiresAt: approvalRequests.expiresAt,
+      authorizationExpiresAt: approvalRequests.authorizationExpiresAt,
     });
   if (row) return row;
 
@@ -318,8 +318,8 @@ export async function approveOpenUiApproval(
     .select({
       id: approvalRequests.id,
       approvedAt: approvalRequests.approvedAt,
-      expiresAt: approvalRequests.expiresAt,
-      valid: sql<boolean>`${approvalRequests.expiresAt} > now()`,
+      authorizationExpiresAt: approvalRequests.authorizationExpiresAt,
+      valid: sql<boolean>`${approvalRequests.authorizationExpiresAt} > now()`,
     })
     .from(approvalRequests)
     .where(
@@ -332,7 +332,11 @@ export async function approveOpenUiApproval(
     .limit(1);
   if (!existing) return null;
   if (existing.valid === true) {
-    return { id: existing.id, approvedAt: existing.approvedAt, expiresAt: existing.expiresAt };
+    return {
+      id: existing.id,
+      approvedAt: existing.approvedAt,
+      authorizationExpiresAt: existing.authorizationExpiresAt,
+    };
   }
   throw new AppError(
     'CONFLICT',
@@ -351,7 +355,7 @@ export async function getOpenUiApproval(
     .select({
       id: approvalRequests.id,
       approvedAt: approvalRequests.approvedAt,
-      expiresAt: approvalRequests.expiresAt,
+      authorizationExpiresAt: approvalRequests.authorizationExpiresAt,
     })
     .from(approvalRequests)
     .where(
@@ -361,7 +365,7 @@ export async function getOpenUiApproval(
         eq(approvalRequests.toolName, toolName),
         isNull(approvalRequests.runId),
         // 过期或没有有效期的批准视同未批准：调用方会重新落一条待批记录。
-        gt(approvalRequests.expiresAt, sql`now()`),
+        gt(approvalRequests.authorizationExpiresAt, sql`now()`),
       ),
     )
     .limit(1);

@@ -381,24 +381,24 @@ describe.skipIf(!ready)('openui tools', () => {
     // 把有效期压到 1 小时后：重放不能再把它推回 8 小时。
     await app.db.execute(sql`
       update approval_requests
-      set approved_at = now() - interval '7 hours', expires_at = now() + interval '1 hour'
+      set approved_at = now() - interval '7 hours', authorization_expires_at = now() + interval '1 hour'
       where id = ${pending.approvalId}
     `);
-    const before = await app.client.unsafe<{ approved_at: Date; expires_at: Date }[]>(
-      'select approved_at, expires_at from approval_requests where id = $1',
+    const before = await app.client.unsafe<{ approved_at: Date; authorization_expires_at: Date }[]>(
+      'select approved_at, authorization_expires_at from approval_requests where id = $1',
       [pending.approvalId],
     );
 
     const again = await approve();
     expect(again.statusCode, again.body).toBe(200);
-    const after = await app.client.unsafe<{ approved_at: Date; expires_at: Date }[]>(
-      'select approved_at, expires_at from approval_requests where id = $1',
+    const after = await app.client.unsafe<{ approved_at: Date; authorization_expires_at: Date }[]>(
+      'select approved_at, authorization_expires_at from approval_requests where id = $1',
       [pending.approvalId],
     );
     expect(after[0]?.approved_at).toEqual(before[0]?.approved_at);
-    expect(after[0]?.expires_at).toEqual(before[0]?.expires_at);
+    expect(after[0]?.authorization_expires_at).toEqual(before[0]?.authorization_expires_at);
     expect(again.json<{ expiresAt: string }>().expiresAt).toBe(
-      before[0]?.expires_at.toISOString(),
+      before[0]?.authorization_expires_at.toISOString(),
     );
     expect((await callTool(conversationId, toolName, { messageId })).statusCode).toBe(200);
   });
@@ -420,7 +420,7 @@ describe.skipIf(!ready)('openui tools', () => {
     // 把批准时间挪到有效期之外：下一次调用必须重新走审批，不能永久放行。
     await app.db.execute(sql`
       update approval_requests
-      set expires_at = now() - interval '1 minute'
+      set authorization_expires_at = now() - interval '1 minute'
       where id = ${pending.approvalId}
     `);
 
@@ -431,11 +431,11 @@ describe.skipIf(!ready)('openui tools', () => {
       headers: auth(),
     });
     expectProblem(stale, 'CONFLICT');
-    const stillExpired = await app.client.unsafe<{ expires_at: Date }[]>(
-      'select expires_at from approval_requests where id = $1',
+    const stillExpired = await app.client.unsafe<{ authorization_expires_at: Date }[]>(
+      'select authorization_expires_at from approval_requests where id = $1',
       [pending.approvalId],
     );
-    expect(stillExpired[0]?.expires_at.getTime()).toBeLessThan(Date.now());
+    expect(stillExpired[0]?.authorization_expires_at.getTime()).toBeLessThan(Date.now());
 
     const again = await callTool(conversationId, toolName, { messageId });
     expect(again.statusCode, again.body).toBe(202);
@@ -470,7 +470,7 @@ describe.skipIf(!ready)('openui tools', () => {
     // 旧数据/手工写入的「已批准但没有有效期」：必须视同未批准。
     await app.db.execute(sql`
       update approval_requests
-      set approved_at = now(), expires_at = null
+      set approved_at = now(), authorization_expires_at = null
       where id = ${pending.approvalId}
     `);
 
@@ -479,12 +479,13 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(again.json<{ status: string }>().status).toBe('approval_required');
 
     // 重新走一次审批后，旧行会被清成待批，不会继续复用 null 有效期。
-    const row = await app.client.unsafe<{ approved_at: Date | null; expires_at: Date | null }[]>(
-      'select approved_at, expires_at from approval_requests where id = $1',
-      [pending.approvalId],
-    );
+    const row = await app.client.unsafe<
+      { approved_at: Date | null; authorization_expires_at: Date | null }[]
+    >('select approved_at, authorization_expires_at from approval_requests where id = $1', [
+      pending.approvalId,
+    ]);
     expect(row[0]?.approved_at).toBeNull();
-    expect(row[0]?.expires_at).toBeNull();
+    expect(row[0]?.authorization_expires_at).toBeNull();
   });
 
   it('rejects an unknown or cross-conversation approval id', async () => {
