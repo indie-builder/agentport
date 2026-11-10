@@ -414,6 +414,13 @@
       "when": 1794283729638,
       "tag": "0058_blue_toad",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794293298734,
+      "tag": "0059_careless_famine",
+      "breakpoints": true
     }
   ]
 }

@@ -264,7 +264,7 @@ export const chatToolsRouter = {
     return {
       approvalId: approved.id,
       approvedAt: approved.approvedAt?.toISOString() ?? null,
-      expiresAt: approved.expiresAt?.toISOString() ?? null,
+      expiresAt: approved.authorizationExpiresAt?.toISOString() ?? null,
     };
   }),
 };

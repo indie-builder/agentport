@@ -857,6 +857,7 @@ export const approvalRequests = pgTable(
     deniedAt: timestamp('denied_at', { withTimezone: true }),
     deniedByBusinessId: text('denied_by_business_id'),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
+    authorizationExpiresAt: timestamp('authorization_expires_at', { withTimezone: true }),
   },
   (t) => [
     check(
