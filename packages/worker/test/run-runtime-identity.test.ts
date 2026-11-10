@@ -68,7 +68,9 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
     ),
 }));
 
+const channelEventsActual = await import('../src/channel-events.js');
 mock.module('../src/channel-events.js', () => ({
+  ...channelEventsActual,
   publishChannelEventSafely: mocks.publishChannelEvent,
 }));
 
@@ -141,6 +143,7 @@ mock.module('../src/runner-client.js', () => {
     ...runnerClientActual,
     configureRunnerClient: mock(),
     closeRunnerClient: mock(),
+    clearRunCancel: mock(async () => undefined),
     acquireSessionSandbox: mocks.acquire,
     runInSandbox: mocks.run,
     publishRun: mocks.publishRun,

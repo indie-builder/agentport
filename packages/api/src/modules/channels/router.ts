@@ -32,6 +32,7 @@ import type { NativeHttpDependencies } from '../chat/http.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
 import { toMessage } from './mappers.js';
+import { channelsRunsRouter } from './runs.js';
 import { dispatchChannelWakes } from './wakes.js';
 
 const channelRepo = repo.channels;
@@ -668,4 +669,5 @@ export const channelsRouter = {
   ...channelsMainRouter,
   ...channelsControlRouter,
   ...channelsApprovalsRouter,
+  ...channelsRunsRouter,
 };

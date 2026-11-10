@@ -11,6 +11,7 @@ import { applyEvent, type ChatItem } from './chat-state.js';
 import {
   channelApprovalsQuery,
   channelMessagesQuery,
+  channelRunQuestionsQueryKey,
   channelRunsQuery,
   useChannelMessages,
   useChannelRuns,
@@ -101,8 +102,8 @@ export function useChannelStream(channelId: string) {
           channelMessagesQuery(channelId).queryKey,
           (previous) => mergeChannelMessages(previous ?? [], [event.message]),
         );
-        // 智能体回复已落库：流式正文让位给持久消息。
-        if (event.message.kind === 'agent' && event.message.runId) {
+        // 落库消息到达：本地流锚点让位给持久消息。
+        if (event.message.runId) {
           dropStream(event.message.runId);
         }
         void client.invalidateQueries({ queryKey: ['channels'] });
@@ -180,6 +181,16 @@ export function useChannelStream(channelId: string) {
         const parsed = chatEventSchema.safeParse(raw);
         if (!parsed.success) return;
         const event = parsed.data;
+        if (
+          event.type === 'question_requested' ||
+          event.type === 'question_updated' ||
+          event.type === 'question_closed'
+        ) {
+          void client.invalidateQueries({
+            queryKey: channelRunQuestionsQueryKey(channelId, run.runId),
+          });
+          return;
+        }
         if (event.type === 'run_started') {
           setStreams((previous) => {
             const current = previous[run.runId];

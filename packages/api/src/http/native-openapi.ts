@@ -376,6 +376,15 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
       responses: { ...protectedErrors, 200: events(chatEventSchema) },
     },
   },
+  '/channels/{id}/runs/{runId}/outputs/download': {
+    get: {
+      operationId: 'downloadChannelRunOutput',
+      description: '需要登录且为频道成员，运行必须属于此频道。返回成果原件。',
+      security: session,
+      parameters: [...params('id', 'runId'), ...query({ path: outputPathSchema })],
+      responses: { ...protectedErrors, 200: download },
+    },
+  },
   '/me/memory/download': {
     get: {
       operationId: 'downloadPersonalMemory',

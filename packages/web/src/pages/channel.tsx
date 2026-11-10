@@ -1,7 +1,14 @@
 import type { ChannelDetail, ChannelMember, ChannelMessage, ChannelRole } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArrowLeft, CircleStop, Hash, MessageSquare, ShieldAlert } from 'lucide-react';
+import {
+  ArrowLeft,
+  CircleStop,
+  Hash,
+  MessageSquare,
+  ShieldAlert,
+  SquareArrowOutUpRight,
+} from 'lucide-react';
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -11,9 +18,11 @@ import {
   useState,
 } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../components/agent-avatar.js';
+import { ChannelRunSheet } from '../components/channel-run-sheet.js';
 import { ChannelSettingsButton } from '../components/channel-settings.js';
 import { Composer, MessagePane } from '../components/chat-thread.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
+import { RunQuestionCard } from '../components/run-question.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';
@@ -38,8 +47,10 @@ import {
   useApproveChannelApproval,
   useChannel,
   useChannelApprovals,
+  useChannelRunQuestions,
   useChannels,
   useMarkChannelRead,
+  useRespondToChannelQuestion,
   useStopChannelRun,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -62,6 +73,7 @@ interface MentionTarget {
 interface TimelineEntry {
   headerAgentId?: string;
   control?: { runId: string; active: boolean };
+  detailRunId?: string;
 }
 
 export function ChannelPage({ channelId }: { channelId: string }) {
@@ -143,6 +155,7 @@ function ChannelWorkspace({
   const [mentionIndex, setMentionIndex] = useState(0);
   const [olderExhausted, setOlderExhausted] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [runSheetId, setRunSheetId] = useState<string | null>(null);
 
   const agentById = useMemo(
     () => new Map((agents.data ?? []).map((agent) => [agent.id, agent])),
@@ -179,6 +192,14 @@ function ChannelWorkspace({
     }
     return map;
   }, [stream.activeRuns, stream.streams]);
+  const canAnswerFor = useCallback(
+    (runId: string): boolean =>
+      channel.archivedAt === null &&
+      (channelRole === 'owner' ||
+        channelRole === 'admin' ||
+        (channelRole === 'member' && runInitiator.get(runId) === businessId)),
+    [businessId, channel.archivedAt, channelRole, runInitiator],
+  );
   const activeAgentIds = useMemo(
     () => new Set(stream.activeRuns.map((run) => run.agentId)),
     [stream.activeRuns],
@@ -219,10 +240,25 @@ function ChannelWorkspace({
           ...(message.runId === null ? {} : { runId: message.runId }),
         };
         items.push(item);
-        if (message.agentId !== null) meta.set(item, { headerAgentId: message.agentId });
+        const entry: TimelineEntry = {};
+        if (message.agentId !== null) entry.headerAgentId = message.agentId;
+        if (message.runId !== null) entry.detailRunId = message.runId;
+        if (entry.headerAgentId !== undefined || entry.detailRunId !== undefined)
+          meta.set(item, entry);
         continue;
       }
-      items.push({ kind: 'notice', id: message.id, text: message.body, tone: 'muted' });
+      const notice: ChatItem = {
+        kind: 'notice',
+        id: message.id,
+        text: message.body,
+        tone: 'muted',
+      };
+      items.push(notice);
+      if (message.runId !== null) {
+        const entry: TimelineEntry = { detailRunId: message.runId };
+        if (message.agentId !== null) entry.headerAgentId = message.agentId;
+        meta.set(notice, entry);
+      }
     }
     // 落库回复优先：同一 run 的流式正文不再重复显示。
     for (const item of Object.values(stream.streams)) {
@@ -240,6 +276,7 @@ function ChannelWorkspace({
       meta.set(anchor, {
         headerAgentId: item.agentId,
         control: { runId: item.runId, active: item.status === 'running' },
+        detailRunId: item.runId,
       });
       item.items.forEach((part, index) => {
         items.push({ ...part, id: `${item.runId}:${index}` } as ChatItem);
@@ -435,35 +472,28 @@ function ChannelWorkspace({
 
   const renderItemFooter = useCallback(
     (item: ChatItem) => {
-      const control = timeline.meta.get(item)?.control;
-      if (control === undefined) return null;
-      const manages =
-        channel.archivedAt === null &&
-        (channelRole === 'owner' ||
-          channelRole === 'admin' ||
-          (channelRole === 'member' && runInitiator.get(control.runId) === businessId));
+      const entry = timeline.meta.get(item);
+      if (entry === undefined) return null;
+      const runId = entry.detailRunId ?? entry.control?.runId;
+      if (runId === undefined) return null;
+      const active = entry.control?.active ?? false;
+      const canAnswer = canAnswerFor(runId);
       return (
         <RunControls
-          runId={control.runId}
-          active={control.active}
-          canStop={manages}
-          canApprove={manages}
-          approvals={pendingApprovals}
+          channelId={channel.id}
+          runId={runId}
+          active={active}
+          canStop={canAnswer}
+          canApprove={canAnswer}
+          canAnswer={canAnswer}
+          approvals={entry.control === undefined ? [] : pendingApprovals}
           stop={stop}
           approve={approve}
+          onOpenRun={setRunSheetId}
         />
       );
     },
-    [
-      approve,
-      businessId,
-      channel.archivedAt,
-      channelRole,
-      pendingApprovals,
-      runInitiator,
-      stop,
-      timeline,
-    ],
+    [approve, canAnswerFor, channel.id, pendingApprovals, stop, timeline],
   );
 
   return (
@@ -630,6 +660,12 @@ function ChannelWorkspace({
         agents={agents.data ?? []}
         activeAgentIds={activeAgentIds}
         waitingAgentIds={waitingAgentIds}
+      />
+      <ChannelRunSheet
+        channelId={channel.id}
+        runId={runSheetId}
+        canAnswer={runSheetId !== null && canAnswerFor(runSheetId)}
+        onClose={() => setRunSheetId(null)}
       />
     </div>
   );
@@ -810,97 +846,178 @@ function ChannelSidebarDetail({
 }
 
 function RunControls({
+  channelId,
   runId,
   active,
   canStop,
   canApprove,
+  canAnswer,
   approvals,
   stop,
   approve,
+  onOpenRun,
 }: {
+  channelId: string;
   runId: string;
   active: boolean;
   canStop: boolean;
   canApprove: boolean;
+  canAnswer: boolean;
   approvals: readonly ChannelApproval[];
   stop: ReturnType<typeof useStopChannelRun>;
   approve: ReturnType<typeof useApproveChannelApproval>;
+  onOpenRun: (runId: string) => void;
 }) {
   const pendingApprovals = approvals.filter((approval) => approval.runId === runId);
   const showStop = active && canStop;
-  if (!showStop && pendingApprovals.length === 0) return null;
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2">
-      {showStop ? (
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Button
           variant="outline"
           size="sm"
-          disabled={stop.isPending && stop.variables === runId}
-          aria-busy={stop.isPending && stop.variables === runId}
-          onClick={() => stop.mutate(runId, { onError: (error) => toastError(error) })}
+          aria-label={`查看运行 ${shortId(runId)}`}
+          onClick={() => onOpenRun(runId)}
         >
-          <CircleStop aria-hidden="true" />
-          停止
+          <SquareArrowOutUpRight aria-hidden="true" />
+          查看运行
         </Button>
-      ) : null}
-      {pendingApprovals.map((approval) => {
-        const isPending = active && approval.approvedAt === null;
-        const argumentEntries = approval.argumentsSummary
-          ? Object.entries(approval.argumentsSummary)
-          : [];
-        return (
-          <div
-            key={approval.id}
-            className="cds-card-surface flex min-w-0 flex-wrap items-center gap-2 rounded-card bg-surface px-3 py-2 text-sm"
+        {showStop ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={stop.isPending && stop.variables === runId}
+            aria-busy={stop.isPending && stop.variables === runId}
+            onClick={() => stop.mutate(runId, { onError: (error) => toastError(error) })}
           >
-            <ShieldAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
-            {isPending ? (
-              <span className="shrink-0 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
-                等待授权
+            <CircleStop aria-hidden="true" />
+            停止
+          </Button>
+        ) : null}
+        {pendingApprovals.map((approval) => {
+          const isPending = active && approval.approvedAt === null;
+          const argumentEntries = approval.argumentsSummary
+            ? Object.entries(approval.argumentsSummary)
+            : [];
+          return (
+            <div
+              key={approval.id}
+              className="cds-card-surface flex min-w-0 flex-wrap items-center gap-2 rounded-card bg-surface px-3 py-2 text-sm"
+            >
+              <ShieldAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
+              {isPending ? (
+                <span className="shrink-0 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
+                  等待授权
+                </span>
+              ) : null}
+              <span className="min-w-0 break-words text-fg">
+                需要批准：{approval.serverName ?? approval.serverId} · {approval.toolName}
               </span>
-            ) : null}
-            <span className="min-w-0 break-words text-fg">
-              需要批准：{approval.serverName ?? approval.serverId} · {approval.toolName}
-            </span>
-            {canApprove ? (
-              <Button
-                size="sm"
-                variant="default"
-                disabled={approve.isPending && approve.variables === approval.id}
-                aria-busy={approve.isPending && approve.variables === approval.id}
-                onClick={() =>
-                  approve.mutate(approval.id, {
-                    onSuccess: () => toastSuccess('已批准'),
-                    onError: (error) => toastError(error),
-                  })
-                }
-              >
-                批准
-              </Button>
-            ) : null}
-            {argumentEntries.length > 0 ? (
-              <>
-                <p className="w-full text-xs text-muted-foreground">
-                  本轮调用参数；批准后该工具的全部调用均放行
-                </p>
-                <dl
-                  aria-label="工具调用参数"
-                  className="grid min-w-0 basis-full grid-cols-[96px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-sm"
+              {canApprove ? (
+                <Button
+                  size="sm"
+                  variant="default"
+                  disabled={approve.isPending && approve.variables === approval.id}
+                  aria-busy={approve.isPending && approve.variables === approval.id}
+                  onClick={() =>
+                    approve.mutate(approval.id, {
+                      onSuccess: () => toastSuccess('已批准'),
+                      onError: (error) => toastError(error),
+                    })
+                  }
                 >
-                  {argumentEntries.map(([key, value]) => (
-                    <div key={key} className="contents">
-                      <dt className="min-w-0 break-words text-muted-foreground">{key}</dt>
-                      <dd className="min-w-0 break-words font-mono text-xs text-fg [overflow-wrap:anywhere]">
-                        {formatArgumentValue(value)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </>
-            ) : null}
-          </div>
-        );
-      })}
+                  批准
+                </Button>
+              ) : null}
+              {argumentEntries.length > 0 ? (
+                <>
+                  <p className="w-full text-xs text-muted-foreground">
+                    本轮调用参数；批准后该工具的全部调用均放行
+                  </p>
+                  <dl
+                    aria-label="工具调用参数"
+                    className="grid min-w-0 basis-full grid-cols-[96px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-sm"
+                  >
+                    {argumentEntries.map(([key, value]) => (
+                      <div key={key} className="contents">
+                        <dt className="min-w-0 break-words text-muted-foreground">{key}</dt>
+                        <dd className="min-w-0 break-words font-mono text-xs text-fg [overflow-wrap:anywhere]">
+                          {formatArgumentValue(value)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <ChannelRunQuestions
+        channelId={channelId}
+        runId={runId}
+        active={active}
+        canAnswer={canAnswer}
+      />
+    </div>
+  );
+}
+
+function ChannelRunQuestions({
+  channelId,
+  runId,
+  active,
+  canAnswer,
+}: {
+  channelId: string;
+  runId: string;
+  active: boolean;
+  canAnswer: boolean;
+}) {
+  if (!active) return null;
+  return (
+    <ActiveChannelRunQuestions
+      channelId={channelId}
+      runId={runId}
+      active={active}
+      canAnswer={canAnswer}
+    />
+  );
+}
+
+function ActiveChannelRunQuestions({
+  channelId,
+  runId,
+  active,
+  canAnswer,
+}: {
+  channelId: string;
+  runId: string;
+  active: boolean;
+  canAnswer: boolean;
+}) {
+  const questions = useChannelRunQuestions(channelId, runId, active);
+  const respond = useRespondToChannelQuestion(channelId);
+  if (questions.isError && questions.data === undefined) {
+    return (
+      <p role="alert" className="text-xs text-danger">
+        提问状态没有加载出来。
+      </p>
+    );
+  }
+  const pending = (questions.data?.items ?? []).filter((question) => question.status === 'pending');
+  if (pending.length === 0) return null;
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {pending.map((question) => (
+        <RunQuestionCard
+          key={question.requestId}
+          question={question}
+          live={canAnswer}
+          respond={respond}
+          readOnlyNote="由运行发起者或频道管理员回答。"
+        />
+      ))}
     </div>
   );
 }

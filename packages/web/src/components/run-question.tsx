@@ -34,6 +34,13 @@ interface AnswerDraft {
 
 const EMPTY: AnswerDraft = { picked: [], otherOn: false, other: '' };
 
+interface QuestionResponder {
+  mutate(input: { runId: string; requestId: string; response: PublicQuestionResponse }): void;
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+}
+
 /**
  * 服务端已把选项投影成稳定的 value（原数组序号）；这里只回传 value 与自由文本。
  * 「其他」未勾选时即使还留着隐藏输入值也不能带进回答。
@@ -65,10 +72,12 @@ function ReadOnlyQuestion({
   question,
   live,
   expired,
+  readOnlyNote,
 }: {
   question: PublicRunQuestion;
   live: boolean;
   expired: boolean;
+  readOnlyNote?: string;
 }) {
   const pending = question.status === 'pending';
   return (
@@ -95,7 +104,9 @@ function ReadOnlyQuestion({
       {pending && expired ? (
         <p className="text-xs text-muted-foreground">已超过回答时限，无法提交。</p>
       ) : pending ? (
-        <p className="text-xs text-muted-foreground">请在发起该提问的会话中回答。</p>
+        <p className="text-xs text-muted-foreground">
+          {readOnlyNote ?? '请在发起该提问的会话中回答。'}
+        </p>
       ) : null}
     </div>
   );
@@ -108,11 +119,16 @@ function ReadOnlyQuestion({
 export function RunQuestionCard({
   question,
   live,
+  respond,
+  readOnlyNote,
 }: {
   question: PublicRunQuestion;
   live: boolean;
+  respond?: QuestionResponder;
+  readOnlyNote?: string;
 }) {
-  const respond = useRespondToQuestion();
+  const fallback = useRespondToQuestion();
+  const responder = respond ?? fallback;
   const baseId = useId();
   const [drafts, setDrafts] = useState<Record<string, AnswerDraft>>({});
   const [now, setNow] = useState(() => Date.now());
@@ -159,19 +175,26 @@ export function RunQuestionCard({
     Object.keys(choices).length > 0 ? { answers, choices } : { answers };
 
   if (!live || question.status !== 'pending' || expired) {
-    return <ReadOnlyQuestion question={question} live={live} expired={expired} />;
+    return (
+      <ReadOnlyQuestion
+        question={question}
+        live={live}
+        expired={expired}
+        {...(readOnlyNote === undefined ? {} : { readOnlyNote })}
+      />
+    );
   }
 
   const submit = () => {
     if (!complete) return;
-    respond.mutate({
+    responder.mutate({
       runId: question.runId,
       requestId: question.requestId,
       response,
     });
   };
   const decline = () => {
-    respond.mutate({
+    responder.mutate({
       runId: question.runId,
       requestId: question.requestId,
       response: { decline: true },
@@ -196,7 +219,7 @@ export function RunQuestionCard({
           return (
             <fieldset
               key={item.question}
-              disabled={respond.isPending}
+              disabled={responder.isPending}
               className="flex min-w-0 flex-col gap-1.5"
             >
               <legend className="text-sm font-medium text-fg [overflow-wrap:anywhere]">
@@ -211,7 +234,7 @@ export function RunQuestionCard({
                         <Checkbox
                           id={id}
                           className="mt-0.5"
-                          disabled={respond.isPending}
+                          disabled={responder.isPending}
                           checked={draft.picked.includes(option.value)}
                           onCheckedChange={(checked) =>
                             update(index, {
@@ -237,7 +260,7 @@ export function RunQuestionCard({
                   <div className="flex items-center gap-2">
                     <Checkbox
                       id={otherId}
-                      disabled={respond.isPending}
+                      disabled={responder.isPending}
                       checked={draft.otherOn}
                       onCheckedChange={(checked) => update(index, { ...draft, otherOn: checked })}
                     />
@@ -246,7 +269,7 @@ export function RunQuestionCard({
                 </div>
               ) : (
                 <RadioGroup
-                  disabled={respond.isPending}
+                  disabled={responder.isPending}
                   value={draft.otherOn ? OTHER : (draft.picked[0] ?? '')}
                   onValueChange={(value) =>
                     update(
@@ -264,7 +287,7 @@ export function RunQuestionCard({
                         <RadioGroupItem
                           id={id}
                           value={option.value}
-                          disabled={respond.isPending}
+                          disabled={responder.isPending}
                           className="mt-0.5"
                         />
                         <div className="flex min-w-0 flex-col">
@@ -279,7 +302,7 @@ export function RunQuestionCard({
                     );
                   })}
                   <div className="flex items-center gap-2">
-                    <RadioGroupItem id={otherId} value={OTHER} disabled={respond.isPending} />
+                    <RadioGroupItem id={otherId} value={OTHER} disabled={responder.isPending} />
                     <Label htmlFor={otherId}>其他</Label>
                   </div>
                 </RadioGroup>
@@ -289,7 +312,7 @@ export function RunQuestionCard({
                   <FieldLabel htmlFor={otherInputId}>其他答案</FieldLabel>
                   <Textarea
                     id={otherInputId}
-                    disabled={respond.isPending}
+                    disabled={responder.isPending}
                     value={draft.other}
                     onChange={(event) => update(index, { ...draft, other: event.target.value })}
                   />
@@ -299,22 +322,22 @@ export function RunQuestionCard({
           );
         })}
       </FieldGroup>
-      {respond.isError ? (
+      {responder.isError ? (
         <p role="alert" className="text-xs text-danger [overflow-wrap:anywhere]">
-          {errorMessage(respond.error)}
+          {errorMessage(responder.error)}
         </p>
       ) : null}
       <div className="flex justify-end gap-2">
-        <Button variant="outline" size="sm" disabled={respond.isPending} onClick={decline}>
+        <Button variant="outline" size="sm" disabled={responder.isPending} onClick={decline}>
           暂不回答
         </Button>
         <Button
           size="sm"
-          disabled={!complete || respond.isPending}
-          aria-busy={respond.isPending}
+          disabled={!complete || responder.isPending}
+          aria-busy={responder.isPending}
           onClick={submit}
         >
-          {respond.isPending ? '提交中…' : '提交回答'}
+          {responder.isPending ? '提交中…' : '提交回答'}
         </Button>
       </div>
     </div>

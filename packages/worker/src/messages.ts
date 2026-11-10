@@ -407,7 +407,7 @@ export async function persistRunMessages(
         }
       }
     }
-    if (channelMessage !== undefined && lane.channelId !== null) {
+    if (lane.channelId !== null && channelMessage !== undefined) {
       await tx
         .update(schema.channels)
         .set({ updatedAt: new Date() })

@@ -619,6 +619,7 @@ export interface ListOutputFilesInput {
   limit: number;
   /** 上一页返回的 `nextBefore`。 */
   before?: string;
+  runId?: string;
 }
 
 const cursorSchema = z.object({
@@ -666,6 +667,7 @@ export async function listOutputFiles(input: ListOutputFilesInput): Promise<Outp
 
   const items: OutputFile[] = [];
   for (const { manifest } of await publishedVersions(input)) {
+    if (input.runId !== undefined && manifest.runId !== input.runId) continue;
     const changed = manifest.files
       .filter((file) => file.changed)
       .map((file) => fileOf(manifest, file))

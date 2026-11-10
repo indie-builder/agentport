@@ -766,10 +766,16 @@ export async function postMessage(
   });
 }
 
-/** 忙碌提示等系统消息：与频道时间线共用 seq，并推进列表排序时间。关闭后返回 null，不写误提示。 */
+/** 忙碌提示等系统消息：与频道时间线共用 seq 并推进排序时间；默认频道已关闭返回 null（allowArchived 可显式写入），传 runId 时按 (channelId, runId, kind='system') 幂等。 */
 export async function postSystemMessage(
   db: Database,
-  input: { channelId: string; agentId: string; body: string },
+  input: {
+    channelId: string;
+    agentId: string;
+    body: string;
+    runId?: string;
+    allowArchived?: boolean;
+  },
 ): Promise<ChannelMessageRow | null> {
   return db.transaction(async (tx) => {
     const [channel] = await tx
@@ -778,7 +784,21 @@ export async function postSystemMessage(
       .where(eq(channels.id, input.channelId))
       .for('update');
     if (!channel) fail('NOT_FOUND', '频道不存在，可能已被删除');
-    if (channel.archivedAt !== null) return null;
+    if (channel.archivedAt !== null && input.allowArchived !== true) return null;
+    if (input.runId !== undefined) {
+      const [existing] = await tx
+        .select({ id: channelMessages.id })
+        .from(channelMessages)
+        .where(
+          and(
+            eq(channelMessages.channelId, input.channelId),
+            eq(channelMessages.runId, input.runId),
+            eq(channelMessages.kind, 'system'),
+          ),
+        )
+        .limit(1);
+      if (existing) return null;
+    }
     const [inserted] = await tx
       .insert(channelMessages)
       .values({
@@ -786,6 +806,7 @@ export async function postSystemMessage(
         channelId: input.channelId,
         kind: 'system',
         agentId: input.agentId,
+        runId: input.runId ?? null,
         body: input.body,
       })
       .returning();
