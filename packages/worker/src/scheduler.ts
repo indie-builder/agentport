@@ -22,7 +22,7 @@ const ENQUEUE_ATTEMPTS = 3;
 type Db = ReturnType<typeof createDb>['db'];
 
 /** runner 侧只用到这两个方法；测试用同一个形状的假队列，不碰真实 Redis。 */
-export interface RunsQueueLike {
+interface RunsQueueLike {
   getWaitingCount: () => Promise<number>;
   add: (name: 'run', data: AgentRunJob, opts: { jobId: string }) => Promise<unknown>;
 }
@@ -35,9 +35,9 @@ export interface ScheduleTriggerJobLike {
   updateData: (data: ScheduleTriggerJob) => Promise<void>;
 }
 
-export type ScheduleTriggerOutcome = 'fired' | 'skipped' | 'duplicate' | 'failed';
+type ScheduleTriggerOutcome = 'fired' | 'skipped' | 'duplicate' | 'failed';
 
-export interface ScheduleScheduler {
+interface ScheduleScheduler {
   /** 读库对账：补齐缺失/变化者，删除库里已不存在的孤儿。 */
   sync: () => Promise<void>;
   close: () => Promise<void>;

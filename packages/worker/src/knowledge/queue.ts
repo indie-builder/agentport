@@ -41,7 +41,7 @@ export const KNOWLEDGE_TIMEOUT_MS: Record<KnowledgeJobRow['type'], number> = {
 };
 
 /** 分派所需依赖；队列与测试共用同一份判定。 */
-export interface DispatchDeps extends KnowledgeDeps {
+interface DispatchDeps extends KnowledgeDeps {
   knowledgeDir: string;
   wikiModel?: string | undefined;
   signal: AbortSignal;
@@ -71,7 +71,7 @@ export async function dispatchKnowledgeJob(
   return runKnowledgeJob(deps, job, deps.signal);
 }
 
-export interface KnowledgeWorkerConfig {
+interface KnowledgeWorkerConfig {
   db: KnowledgeDeps['db'];
   logger: Logger;
   redisUrl: string;

@@ -18,7 +18,7 @@ import {
  * 会话容器内的轻量 supervisor：stdin 收 start/input/cancel，按 run 拉起一次
  * runner，转发事件后确认整组子进程停稳。它不负责空闲计时与容器回收。
  */
-export interface SupervisorOptions {
+interface SupervisorOptions {
   stdin: Readable;
   stdout: Writable;
   /** 测试注入；生产固定为同目录的 runner.js。 */

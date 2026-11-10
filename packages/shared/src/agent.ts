@@ -3,7 +3,6 @@ import { slugSchema } from './params.js';
 
 /** 平台支持的权限模式；SDK 的 auto 依赖模型分类器，平台不开放。 */
 export const permissionModeSchema = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk']);
-export type PermissionMode = z.infer<typeof permissionModeSchema>;
 
 /** 内置工具列表，前端用来渲染「允许/禁止」开关。 */
 export const BUILTIN_TOOLS = [

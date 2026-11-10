@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
+import { keysetBefore } from './keyset.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
@@ -177,10 +178,7 @@ export async function listRuns(
     if (!cursor) return null;
     // shortcut: 两步查询，游标恰在两步之间被删只会得到空页；需要严格语义时改成单条 CTE。
     // 时间戳在库内读取并比较：JS Date 只有毫秒，转一手会丢掉微秒。
-    filters.push(sql`(${evalRuns.createdAt}, ${evalRuns.id}) < (
-      select cursor.created_at, cursor.id from ${evalRuns} cursor
-      where cursor.id = ${options.cursor}
-    )`);
+    filters.push(keysetBefore(evalRuns, options.cursor));
   }
   const rows = await db
     .select({

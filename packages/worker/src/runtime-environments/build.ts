@@ -55,7 +55,7 @@ function immutableBaseTagFor(sandboxImage: string, imageId: string): string {
   return `${repository}:runtime-base-${imageId.slice('sha256:'.length, 'sha256:'.length + 12)}`;
 }
 
-export interface RuntimeEnvironmentBuildSuccess {
+interface RuntimeEnvironmentBuildSuccess {
   ok: true;
   baseImageId: string;
   imageId: string;
@@ -64,7 +64,7 @@ export interface RuntimeEnvironmentBuildSuccess {
   logTruncated: boolean;
 }
 
-export interface RuntimeEnvironmentBuildFailure {
+interface RuntimeEnvironmentBuildFailure {
   ok: false;
   /** aborted 表示被关闭信号或超时打断；终态由 handler 按原因写入。 */
   aborted: boolean;
@@ -73,11 +73,11 @@ export interface RuntimeEnvironmentBuildFailure {
   logTruncated: boolean;
 }
 
-export type RuntimeEnvironmentBuildResult =
+type RuntimeEnvironmentBuildResult =
   | RuntimeEnvironmentBuildSuccess
   | RuntimeEnvironmentBuildFailure;
 
-export interface RuntimeEnvironmentBuildInput {
+interface RuntimeEnvironmentBuildInput {
   versionId: string;
   /** 版本创建时冻结的 Dockerfile 快照。 */
   dockerfile: string;
@@ -260,7 +260,7 @@ export interface RuntimeEnvironmentBuildStore {
   failBuild(versionId: string, error: string): Promise<void>;
 }
 
-export interface RuntimeEnvironmentBuildDeps {
+interface RuntimeEnvironmentBuildDeps {
   store: RuntimeEnvironmentBuildStore;
   logger: Logger;
   /** worker 关闭信号：abort 后当前构建按失败收尾，不留下 building。 */
@@ -384,7 +384,7 @@ export function createRuntimeEnvironmentBuildHandler(
   };
 }
 
-export interface RuntimeEnvironmentBuildWorkerConfig {
+interface RuntimeEnvironmentBuildWorkerConfig {
   store: RuntimeEnvironmentBuildStore;
   logger: Logger;
   redisUrl: string;

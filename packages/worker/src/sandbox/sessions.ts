@@ -76,7 +76,7 @@ export interface SessionSandboxLease {
   release(input: { reuse: boolean }): Promise<void>;
 }
 
-export interface SessionSandboxesOptions {
+interface SessionSandboxesOptions {
   provider: SandboxProvider;
   idleTimeoutMs: number;
   /** 同时存活的容器软上限；达到上限时先回收最久未用的空闲容器。 */
@@ -172,7 +172,7 @@ interface SessionEntry {
   lastUsedSeq: number;
 }
 
-export type SessionPhase =
+type SessionPhase =
   | 'creating'
   | 'starting'
   | 'ready-idle'
@@ -182,7 +182,7 @@ export type SessionPhase =
   | 'broken'
   | 'destroyed';
 
-export function sessionPhase(entry: SessionEntry): SessionPhase {
+function sessionPhase(entry: SessionEntry): SessionPhase {
   if (entry.destroying !== null) return 'destroying';
   if (entry.broken !== null) return 'broken';
   if (entry.alive === false) return 'destroyed';

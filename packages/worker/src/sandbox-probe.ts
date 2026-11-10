@@ -33,7 +33,7 @@ export interface ProbeSandboxOptions extends SandboxCreateOptions {
   command: string[];
 }
 
-export interface ProbeProvider {
+interface ProbeProvider {
   create(options: ProbeSandboxOptions): Promise<Sandbox>;
   destroy(sandbox: Sandbox): Promise<void>;
   destroyAll?(): Promise<void>;
@@ -55,7 +55,7 @@ export interface SandboxProbeDeps {
 }
 
 /** 试连结果回给 API：stderr 只进审计与日志，`serverTestResultSchema` 会把它剥掉。 */
-export interface ProbeOutcome extends ServerTestResult {
+interface ProbeOutcome extends ServerTestResult {
   stderr?: string;
 }
 

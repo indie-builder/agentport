@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, like, lt, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, like, lt, type SQL } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
+import { keysetBefore } from './keyset.js';
 
 export type AuditStatus = 'ok' | 'error' | 'denied';
 
@@ -127,9 +128,7 @@ export async function listAudit(db: Database, query: AuditQuery = {}): Promise<A
   // 时间戳游标用严格小于：调用方明确要求按时间筛选时，并列行由 beforeId 处理。
   if (query.before) filters.push(lt(auditLog.createdAt, query.before));
   if (query.beforeId) {
-    filters.push(sql`(${auditLog.createdAt}, ${auditLog.id}) < (
-      select cursor.created_at, cursor.id from ${auditLog} cursor where cursor.id = ${query.beforeId}
-    )`);
+    filters.push(keysetBefore(auditLog, query.beforeId));
   }
 
   return db

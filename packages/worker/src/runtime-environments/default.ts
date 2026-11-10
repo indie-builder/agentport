@@ -1,7 +1,7 @@
 import type { Logger } from 'pino';
 
 /** 默认环境登记只需这两个 DB 能力；与 repo 的方法一一对应。 */
-export interface DefaultEnvironmentStore {
+interface DefaultEnvironmentStore {
   getDefault: () => Promise<{ id: string } | null>;
   register: (image: { imageTag: string; imageId: string }) => Promise<unknown>;
 }
@@ -16,7 +16,7 @@ export interface DefaultEnvironmentDeps {
   logger: Logger;
 }
 
-export const DEFAULT_ENVIRONMENT_RETRY_MS = 60_000;
+const DEFAULT_ENVIRONMENT_RETRY_MS = 60_000;
 
 /**
  * 只在默认环境不存在时确保基座本地可用（缺失则 pull）并用真实 image ID 登记。

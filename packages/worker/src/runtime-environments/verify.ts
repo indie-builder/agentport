@@ -98,14 +98,14 @@ if (cliVersion.status !== 0 || cliVersion.stdout.trim() === '') {
 process.stdout.write('verify: ok\\n');
 `;
 
-export interface RuntimeEnvironmentImageVerifyInput {
+interface RuntimeEnvironmentImageVerifyInput {
   imageId: string;
   spawn?: SpawnFn | undefined;
   signal?: AbortSignal | undefined;
   onOutput?: (chunk: string) => void;
 }
 
-export type RuntimeEnvironmentImageVerifyResult =
+type RuntimeEnvironmentImageVerifyResult =
   | { ok: true }
   | { ok: false; aborted: boolean; error: string };
 

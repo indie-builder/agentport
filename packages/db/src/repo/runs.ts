@@ -33,6 +33,7 @@ import {
   servers,
 } from '../schema.js';
 import { messageText } from './chat.js';
+import { keysetBefore } from './keyset.js';
 
 export interface RunListItem {
   id: string;
@@ -224,10 +225,7 @@ export async function listPersonalRuns(
       .where(and(eq(agentRuns.id, options.cursor), ...filters))
       .limit(1);
     if (!anchor) return null;
-    filters.push(sql`(${agentRuns.createdAt}, ${agentRuns.id}) < (
-      select cursor.created_at, cursor.id from ${agentRuns} cursor
-      where cursor.id = ${options.cursor}
-    )`);
+    filters.push(keysetBefore(agentRuns, options.cursor));
   }
 
   const rows = await db

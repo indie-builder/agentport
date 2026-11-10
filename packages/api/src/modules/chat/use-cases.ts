@@ -24,6 +24,7 @@ import type { Config } from '../../config.js';
 import { getQueue } from '../../queue/producer.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime-deletion.js';
+import { CONVERSATION_MISSING } from './access.js';
 import {
   actionBytes,
   checkOpenUiActionSource,
@@ -45,7 +46,6 @@ export type StartRunDependencies = {
   ) => Promise<void>;
 };
 const chatRepo = repo.chat;
-const CONVERSATION_MISSING = '会话不存在，可能已被删除；请从会话列表重新打开';
 function attachmentConversationTitle(
   message: string,
   attachments: Array<{

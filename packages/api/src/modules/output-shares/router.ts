@@ -13,6 +13,7 @@ import type { OutputFile, OutputShare, PublicOutputShare } from '@agentport/shar
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { CONVERSATION_MISSING } from '../chat/access.js';
 import { agentSlug, decodeUtf8, isTextPreview, PREVIEW_MAX_BYTES } from '../chat/outputs.js';
 import { bearerToken, tokenMatches } from '../servers/bearer.js';
 
@@ -20,7 +21,6 @@ const os = implement(outputSharesContract).$context<RequestContext>();
 
 type OutputShareRow = repo.outputShares.OutputShareRow;
 
-const CONVERSATION_MISSING = '会话不存在，可能已被删除；请从会话列表重新打开';
 const SHARE_MISSING = '分享不存在或已失效';
 
 export function toOutputShare(

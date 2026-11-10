@@ -21,7 +21,7 @@ const ALLOWED_PREFIXES = ['/v1/messages', '/v1/messages/count_tokens', '/v1/mode
 /** 单次请求体上限；模型请求可能带大段上下文，但不能无限。 */
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
-export interface ModelProxyOptions {
+interface ModelProxyOptions {
   logger: Logger;
   /** 上游基址，例如 https://api.anthropic.com；未配置时不做代理。 */
   upstreamBaseUrl: string;

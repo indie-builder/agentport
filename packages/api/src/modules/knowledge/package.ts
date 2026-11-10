@@ -21,7 +21,12 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
-import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../agents/package-zip.js';
+import {
+  decodeZipEntries,
+  inspectZipEntries,
+  MAX_PATH_LENGTH,
+  type ZipReadLimits,
+} from '../agents/package-zip.js';
 import { blobPathFor, storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
 
 /**
@@ -39,7 +44,6 @@ const MAX_ORIGINAL_BYTES = 32 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 const MAX_VERSION_IMAGE_BYTES = 64 * 1024 * 1024;
 const MAX_ENTRIES = 5_000;
-const MAX_PATH_LENGTH = 512;
 const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
 const MAX_FOLDERS = 2_000;
 const MAX_TAGS = 2_000;

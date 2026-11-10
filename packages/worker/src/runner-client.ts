@@ -52,7 +52,7 @@ export interface SandboxQuestionCallbacks {
   expireStale?(): Promise<void>;
 }
 
-export interface SandboxRunInput {
+interface SandboxRunInput {
   runId: string;
   timeoutMs: number;
   /** 原样发给 runner 的任务对象；schema 由 shared 定义，runner 直接校验。 */
