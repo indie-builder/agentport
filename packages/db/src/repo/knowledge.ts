@@ -1136,6 +1136,7 @@ export async function setCurrentVersion(
   documentId: string,
   versionId: string,
   guard?: PublishGuard,
+  options?: { expectedCurrentVersionId: string | null },
 ): Promise<KnowledgeDocumentRow | null> {
   return db.transaction(async (tx) => {
     const [version] = await tx
@@ -1226,6 +1227,12 @@ export async function setCurrentVersion(
     if (guard) {
       if (guard.isAborted?.()) return null;
       if ((document.currentVersionId ?? null) !== guard.expectedCurrentVersionId) return null;
+    }
+    if (
+      options !== undefined &&
+      (document.currentVersionId ?? null) !== options.expectedCurrentVersionId
+    ) {
+      return null;
     }
     // 批次导入的草稿只能走 publishFaqImport 整批发布，逐条切版会破坏 replace 原子性；
     // 已正式发布的批次历史与普通发布版一样可回退。

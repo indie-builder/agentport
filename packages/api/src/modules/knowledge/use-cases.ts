@@ -3566,7 +3566,15 @@ async function publishFaqVersion(
   if (!chunkCount || chunkCount.count === 0) {
     fail('CONFLICT', 'FAQ 草稿索引尚未就绪，完成后再发布');
   }
-  const updated = await repo.knowledge.setCurrentVersion(deps.db, document.id, versionId);
+  const updated = await repo.knowledge.setCurrentVersion(
+    deps.db,
+    document.id,
+    versionId,
+    undefined,
+    {
+      expectedCurrentVersionId: expectedVersionId,
+    },
+  );
   if (!updated) fail('CONFLICT', 'FAQ 已停用、批次草稿或版本不可发布，请刷新后重试');
   return updated;
 }
