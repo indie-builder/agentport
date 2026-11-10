@@ -1288,12 +1288,13 @@ export async function runReindex(
         jobId: job.id,
       });
     } catch (err) {
-      if (err instanceof KnowledgeCancelled) throw err;
-      // profile 不匹配是整库配置问题，逐个吞掉只会让每个文档都静默失败。
-      if (err instanceof KnowledgeProfileMismatch) throw err;
+      // 取消/超时/配置失配也要收尾：无当前版本的文档已置 processing，不收尾会永久卡住。
       if (!document.currentVersionId) {
         await settleDocumentStatus(deps, document, 'failed');
       }
+      if (err instanceof KnowledgeCancelled) throw err;
+      // profile 不匹配是整库配置问题，逐个吞掉只会让每个文档都静默失败。
+      if (err instanceof KnowledgeProfileMismatch) throw err;
       failed += 1;
       deps.logger.warn({ err, documentId: document.id }, 'reindex document failed');
       // 临时模型/解析故障保持原类型，交给队列现有分类器重试；永久失败继续汇总。
