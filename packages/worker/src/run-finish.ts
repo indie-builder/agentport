@@ -2,10 +2,16 @@ import { type createDb, repo, schema } from '@agentport/db';
 import type { ChatEvent, RunErrorKind } from '@agentport/shared';
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { publishChannelEventSafely } from './channel-events.js';
+import { channelMessageEvent, publishChannelEventSafely } from './channel-events.js';
 import { clearRunCancel, publishRun } from './runner-client.js';
 
 export type RunFinishedEvent = Extract<ChatEvent, { type: 'run_finished' }>;
+
+const CHANNEL_FINISH_NOTICE: Record<Exclude<RunFinishedEvent['status'], 'succeeded'>, string> = {
+  failed: '运行失败，打开运行详情查看原因。',
+  timeout: '运行超时，未完成回复，打开运行详情查看原因。',
+  cancelled: '运行已停止，打开运行详情查看状态。',
+};
 
 type Db = ReturnType<typeof createDb>['db'];
 
@@ -71,6 +77,33 @@ export async function finalizeRun(input: {
   await clearRunCancel(input.runId, input.logger).catch((err: unknown) => {
     input.logger.warn({ err, runId: input.runId }, 'clear run cancel failed');
   });
+  if (row.channelId !== null && input.event.status !== 'succeeded') {
+    let notice: typeof schema.channelMessages.$inferSelect | null = null;
+    try {
+      notice = await repo.channels.postSystemMessage(input.db, {
+        channelId: row.channelId,
+        agentId: row.agentId,
+        runId: row.id,
+        allowArchived: true,
+        body: CHANNEL_FINISH_NOTICE[input.event.status],
+      });
+    } catch (err) {
+      input.logger.warn({ err, runId: row.id }, 'channel finish notice failed');
+    }
+    if (notice !== null) {
+      await publishChannelEventSafely(
+        row.channelId,
+        {
+          type: 'message.created',
+          channelId: row.channelId,
+          seq: notice.seq,
+          message: channelMessageEvent(notice),
+        },
+        input.logger,
+        { runId: row.id },
+      );
+    }
+  }
   // 频道终态只在 CAS 胜出后发一次；失败只记日志，不回滚也不触发重试。
   if (row.channelId !== null) {
     await publishChannelEventSafely(

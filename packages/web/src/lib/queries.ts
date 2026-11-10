@@ -81,6 +81,9 @@ import {
   api,
   type ChannelActiveRun,
   type ChannelApproval,
+  type ChannelRunDetail,
+  type ChannelRunOutputContent,
+  type ChannelRunQuestions,
   type Conversation,
   type ConversationDetail,
   type ConversationSearchOptions,
@@ -3026,6 +3029,21 @@ export const channelApprovalsQuery = (id: string) =>
     refetchInterval: 15_000,
   });
 
+export const channelRunDetailQueryKey = (channelId: string, runId: string) =>
+  ['channel-run-detail', channelId, runId] as const;
+
+export const channelRunQuestionsQueryKey = (channelId: string, runId: string) =>
+  ['channel-run-questions', channelId, runId] as const;
+
+export const channelRunOutputsQueryKey = (channelId: string, runId: string | null) =>
+  ['channel-run-outputs', channelId, runId] as const;
+
+const channelRunOutputContentQueryKey = (channelId: string, runId: string, path: string | null) =>
+  ['channel-run-output-content', channelId, runId, path] as const;
+
+const channelRunOutputBlobQueryKey = (channelId: string, runId: string, path: string | null) =>
+  ['channel-run-output-blob', channelId, runId, path] as const;
+
 export function useChannels() {
   return useQuery(channelsQuery);
 }
@@ -3182,5 +3200,106 @@ export function useMarkChannelRead(id: string) {
   return useMutation({
     mutationFn: (seq: number) => api.markChannelRead(id, seq),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['channels'] }),
+  });
+}
+
+export function useChannelRunDetail(channelId: string, runId: string) {
+  return useQuery<ChannelRunDetail>({
+    queryKey: channelRunDetailQueryKey(channelId, runId),
+    queryFn: ({ signal }) => api.channelRunDetail(channelId, runId, signal),
+    staleTime: 5_000,
+    refetchInterval: (query) => {
+      const status = query.state.data?.run.status;
+      return status === 'queued' || status === 'running' ? 2_000 : false;
+    },
+  });
+}
+
+export function useChannelRunQuestions(channelId: string, runId: string, active: boolean) {
+  const client = useQueryClient();
+  const previous = useRef({ channelId, runId, active });
+  useEffect(() => {
+    const wasActive =
+      previous.current.channelId === channelId &&
+      previous.current.runId === runId &&
+      previous.current.active;
+    previous.current = { channelId, runId, active };
+    if (active || !wasActive) return;
+    const queryKey = channelRunQuestionsQueryKey(channelId, runId);
+    void client.cancelQueries({ queryKey }).then(() => client.invalidateQueries({ queryKey }));
+  }, [channelId, runId, active, client]);
+  return useQuery<ChannelRunQuestions>({
+    queryKey: channelRunQuestionsQueryKey(channelId, runId),
+    queryFn: async () => {
+      const key = channelRunQuestionsQueryKey(channelId, runId);
+      const fetched = await api.channelRunQuestions(channelId, runId);
+      return {
+        items: mergeRunQuestions(
+          client.getQueryData<ChannelRunQuestions>(key)?.items,
+          fetched.items,
+        ),
+      };
+    },
+    staleTime: 0,
+    refetchInterval: active ? 2_000 : false,
+  });
+}
+
+export function useRespondToChannelQuestion(channelId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { runId: string; requestId: string; response: PublicQuestionResponse }) =>
+      api.respondToChannelQuestion(channelId, input.runId, input.requestId, input.response),
+    onSuccess: async (question) => {
+      const queryKey = channelRunQuestionsQueryKey(channelId, question.runId);
+      await client.cancelQueries({ queryKey });
+      client.setQueryData<ChannelRunQuestions>(queryKey, (previous) => ({
+        items: withRunQuestion(previous?.items, question),
+      }));
+    },
+  });
+}
+
+export function useChannelRunOutputs(channelId: string, runId: string | null) {
+  return useInfiniteQuery({
+    queryKey: channelRunOutputsQueryKey(channelId, runId),
+    queryFn: ({ pageParam, signal }) =>
+      api.channelRunOutputs(
+        channelId,
+        runId ?? '',
+        { limit: 50, ...(pageParam === null ? {} : { before: pageParam }) },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    enabled: runId !== null,
+    staleTime: 0,
+    select: (data) => ({
+      items: data.pages.flatMap((page) => page.items),
+      nextBefore: data.pages.at(-1)?.nextBefore ?? null,
+    }),
+  });
+}
+
+export function useChannelRunOutputContent(channelId: string, runId: string, path: string | null) {
+  return useQuery<ChannelRunOutputContent>({
+    queryKey: channelRunOutputContentQueryKey(channelId, runId, path),
+    queryFn: ({ signal }) => api.channelRunOutputContent(channelId, runId, path ?? '', signal),
+    enabled: path !== null,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useChannelRunOutputBlob(
+  channelId: string,
+  runId: string,
+  path: string | null,
+  enabled: boolean,
+) {
+  return useQuery<Blob>({
+    queryKey: channelRunOutputBlobQueryKey(channelId, runId, path),
+    queryFn: ({ signal }) => api.channelRunOutputBlob(channelId, runId, path ?? '', signal),
+    enabled: path !== null && enabled,
+    staleTime: 5 * 60_000,
   });
 }

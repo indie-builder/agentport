@@ -15,6 +15,12 @@ import {
   channelSchema,
   channelUpdateSchema,
   idParams,
+  outputContentSchema,
+  outputListSchema,
+  outputPathSchema,
+  publicQuestionResponseSchema,
+  publicRunQuestionSchema,
+  runDetailSchema,
   runStatusSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
@@ -31,6 +37,10 @@ const channelApprovalSchema = z.object({
   createdAt: z.string(),
   approvedAt: z.string().nullable(),
   expiresAt: z.string().nullable(),
+});
+const channelRunParams = z.object({
+  id: z.string().min(1),
+  runId: z.string().min(1),
 });
 export const channelsContract = {
   list: contractProcedure
@@ -137,6 +147,52 @@ export const channelsContract = {
     .route({ method: 'POST', path: '/channels/{id}/runs/{runId}/stop', successStatus: 202 })
     .input(z.object({ params: z.object({ id: z.string().min(1), runId: z.string().min(1) }) }))
     .output(z.object({ ok: z.literal(true) })),
+  runDetail: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({ method: 'GET', path: '/channels/{id}/runs/{runId}', successStatus: 200 })
+    .input(z.object({ params: channelRunParams }))
+    .output(runDetailSchema),
+  runQuestions: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({ method: 'GET', path: '/channels/{id}/runs/{runId}/questions', successStatus: 200 })
+    .input(z.object({ params: channelRunParams }))
+    .output(z.object({ items: z.array(publicRunQuestionSchema) })),
+  respondToRunQuestion: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({
+      method: 'POST',
+      path: '/channels/{id}/runs/{runId}/questions/{requestId}/response',
+      successStatus: 200,
+    })
+    .input(
+      z.object({
+        params: channelRunParams.extend({ requestId: z.string().min(1).max(256) }),
+        body: publicQuestionResponseSchema,
+      }),
+    )
+    .output(publicRunQuestionSchema),
+  runOutputs: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({ method: 'GET', path: '/channels/{id}/runs/{runId}/outputs', successStatus: 200 })
+    .input(
+      z.object({
+        params: channelRunParams,
+        query: z.object({
+          limit: z.coerce.number().int().min(1).max(100).default(50),
+          before: z.string().min(1).optional(),
+        }),
+      }),
+    )
+    .output(outputListSchema),
+  runOutputContent: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({
+      method: 'GET',
+      path: '/channels/{id}/runs/{runId}/outputs/content',
+      successStatus: 200,
+    })
+    .input(z.object({ params: channelRunParams, query: z.object({ path: outputPathSchema }) }))
+    .output(outputContentSchema),
   disconnectAgent: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
     .route({

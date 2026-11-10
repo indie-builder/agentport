@@ -295,6 +295,10 @@ export interface ChannelActiveRun {
 }
 
 export type ChannelApproval = ApiOutput<ApiClient['channels']['approve']>;
+export type ChannelRunDetail = ApiOutput<ApiClient['channels']['runDetail']>;
+export type ChannelRunQuestions = ApiOutput<ApiClient['channels']['runQuestions']>;
+export type ChannelRunOutputs = ApiOutput<ApiClient['channels']['runOutputs']>;
+export type ChannelRunOutputContent = ApiOutput<ApiClient['channels']['runOutputContent']>;
 
 interface ChannelMessageInput {
   body: string;
@@ -1191,6 +1195,58 @@ export const api = {
     rpc.channels.approve({ params: { id, approvalId } }),
   stopChannelRun: (id: string, runId: string): Promise<{ ok: boolean }> =>
     rpc.channels.stopRun({ params: { id, runId } }),
+  channelRunDetail: (id: string, runId: string, signal?: AbortSignal): Promise<ChannelRunDetail> =>
+    rpc.channels.runDetail({ params: { id, runId } }, clientOptions(signal)),
+  channelRunQuestions: (
+    id: string,
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<ChannelRunQuestions> =>
+    rpc.channels.runQuestions({ params: { id, runId } }, clientOptions(signal)),
+  respondToChannelQuestion: (
+    id: string,
+    runId: string,
+    requestId: string,
+    response: PublicQuestionResponse,
+  ): Promise<PublicRunQuestion> =>
+    rpc.channels.respondToRunQuestion({
+      params: { id, runId, requestId },
+      body: response,
+    }),
+  channelRunOutputs: (
+    id: string,
+    runId: string,
+    options: { limit?: number; before?: string } = {},
+    signal?: AbortSignal,
+  ): Promise<ChannelRunOutputs> =>
+    rpc.channels.runOutputs({ params: { id, runId }, query: options }, clientOptions(signal)),
+  channelRunOutputContent: (
+    id: string,
+    runId: string,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<ChannelRunOutputContent> =>
+    nativeRequest(
+      `/channels/${id}/runs/${encodeURIComponent(runId)}/outputs/content?path=${encodeURIComponent(path)}`,
+      'GET',
+      undefined,
+      signal,
+    ),
+  channelRunOutputBlob: (
+    id: string,
+    runId: string,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<Blob> =>
+    nativeRequest(
+      `/channels/${id}/runs/${encodeURIComponent(runId)}/outputs/download?path=${encodeURIComponent(path)}`,
+      'GET',
+      undefined,
+      signal,
+      'blob',
+    ),
+  channelRunOutputDownloadUrl: (id: string, runId: string, path: string): string =>
+    `/api/channels/${id}/runs/${encodeURIComponent(runId)}/outputs/download?path=${encodeURIComponent(path)}`,
 
   conversations: (agentId?: string, signal?: AbortSignal): Promise<Conversation[]> =>
     rpc.chat.listConversations(

@@ -253,6 +253,8 @@ worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也�
 
 M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade）、`approved_by_business_id`（可空 text）与 `arguments_summary`（可空 jsonb；写入前脱敏敏感键、截断长字符串与总长度），不新增审批状态列或独立计划审批表，也不回填旧行。频道写操作（创建、更新、成员与绑定变更、发消息）写 `audit_log`；worker 投影的 agent 频道消息以 `actor_kind='agent'` 记录，重放按消息 ID 的 dedupeKey 去重。关闭复用 `channels.archived_at`：`postMessage`、`admitChatRun` 频道分支在同一行锁内检查并拒绝新内容；`postSystemMessage` 已关闭时返回 `null`，不写忙碌误提示。`approval.requested` 是频道 SSE 的实时提示事件，审批状态仍以 `approval_requests` 行为准。频道 UI 已随 M4 提供列表页与频道详情页，并补齐成员增删与角色调整、频道设置、关闭、断开/移除智能体；频道附件仍属后续切片。消息列表首屏取最新一页，向上按 `before` 游标加载更早消息；成员显示名来自 `authUsers.name`，他人消息左对齐且不强制滚到底部。单条消息最多唤醒 5 个智能体（`CHANNEL_MAX_WAKE_AGENTS`）。频道 SSE 的 `message.created` 写 `id: <seq>` 并支持 `Last-Event-ID` 续传；Redis 订阅正常时保留 30 秒低频兜底轮询，订阅失败切回 3 秒。
 
+频道 run 工作现场已按频道作用域补齐：成员可读取 run 详情、提问与成果，入口为 `GET /channels/{id}/runs/{runId}`、`/questions`、`/outputs` 与 `/outputs/content|download`。授权先经 `getChannelRunForMember` 同时匹配 run 的 `channel_id` 与成员关系，非成员、跨频道与私有 run 一律按不存在处理；回答提问限 owner/admin 或触发该 run 的 member，viewer 拒绝。频道 run 以 failed/timeout/cancelled 结束时，`finalizeRun` 在终态 CAS 胜出后写一条 `kind='system'` 频道消息，按 `(channelId, runId, kind='system')` 幂等并发布 `message.created`；API 显式停止 queued run 复用同一 repo 与幂等键，批量 disconnect/close 不为每个 run 写 notice。成果读取复用 `listOutputFiles` 的 `runId` 过滤与 `readOutputFile` 的路径与普通文件校验；预览沿用 1MiB 与文本类型限制，不新增文件布局。
+
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
 前两个方向共用 MCP 协议与同一个 MCP handler，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。

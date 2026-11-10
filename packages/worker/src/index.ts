@@ -41,7 +41,7 @@ import { RedisClient } from 'bun';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
 import { promptWithAttachments } from './attachments.js';
-import { publishChannelEventSafely } from './channel-events.js';
+import { channelMessageEvent, publishChannelEventSafely } from './channel-events.js';
 import { loadConfig } from './config.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
 import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
@@ -1182,19 +1182,7 @@ const worker = new Worker(
             type: 'message.created',
             channelId: projectedChannelMessage.channelId,
             seq: projectedChannelMessage.seq,
-            message: {
-              id: projectedChannelMessage.id,
-              channelId: projectedChannelMessage.channelId,
-              seq: projectedChannelMessage.seq,
-              kind: projectedChannelMessage.kind,
-              authorBusinessId: projectedChannelMessage.authorBusinessId,
-              agentId: projectedChannelMessage.agentId,
-              runId: projectedChannelMessage.runId,
-              body: projectedChannelMessage.body,
-              clientMessageId: projectedChannelMessage.clientMessageId,
-              sourceMessageId: projectedChannelMessage.sourceMessageId,
-              createdAt: projectedChannelMessage.createdAt.toISOString(),
-            },
+            message: channelMessageEvent(projectedChannelMessage),
           },
           logger,
           { runId },

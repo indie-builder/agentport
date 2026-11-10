@@ -11,11 +11,12 @@ import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { publishChannelEvent } from '../../queue/producer.js';
+import { publishChannelEvent, publishChannelMessage } from '../../queue/producer.js';
 import { cancelAgentRun } from '../chat/cancel-run.js';
 import type { NativeHttpDependencies } from '../chat/http.js';
 import { writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
+import { toMessage } from './mappers.js';
 
 const channelControl = repo.channelControl;
 type ControlRun = repo.channelControl.ControlRun;
@@ -56,10 +57,27 @@ async function cancelRun(
   context: RequestContext,
   channelId: string,
   run: ControlRun,
+  recordNotice = false,
 ): Promise<boolean> {
   if (!isActiveRunStatus(run.status)) return false;
   const result = await cancelAgentRun(context, run.id);
-  if (result === 'queued') await publishChannelFinished(context, channelId, run);
+  if (result === 'queued') {
+    await publishChannelFinished(context, channelId, run);
+    if (recordNotice) {
+      try {
+        const notice = await repo.channels.postSystemMessage(context.db, {
+          channelId,
+          agentId: run.agentId,
+          runId: run.id,
+          allowArchived: true,
+          body: '运行已停止，打开运行详情查看状态。',
+        });
+        if (notice !== null) await publishChannelMessage(channelId, toMessage(notice));
+      } catch (err) {
+        context.log.warn({ err, runId: run.id }, 'channel stop notice failed');
+      }
+    }
+  }
   return result !== null;
 }
 type CancelRunBatchResult = {
@@ -113,7 +131,7 @@ export const channelsControlRouter = {
             : 'viewer 不能停止运行',
         );
       case 'ok': {
-        const cancelled = await cancelRun(context, id, result.run);
+        const cancelled = await cancelRun(context, id, result.run, true);
         if (cancelled) {
           await repo.audit.writeAudit(context.db, context.log, {
             actor: actorOf(context),
