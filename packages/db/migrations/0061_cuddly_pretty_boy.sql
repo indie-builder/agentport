@@ -1,0 +1,2 @@
+ALTER TABLE "memory_reviews" ADD CONSTRAINT "memory_reviews_applied_change_id_memory_changes_id_fk" FOREIGN KEY ("applied_change_id") REFERENCES "public"."memory_changes"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "memory_reviews" ADD CONSTRAINT "memory_reviews_applied_change_check" CHECK (("memory_reviews"."decision" = 'applied') = ("memory_reviews"."applied_change_id" is not null));
