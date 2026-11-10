@@ -172,6 +172,28 @@ interface SessionEntry {
   lastUsedSeq: number;
 }
 
+export type SessionPhase =
+  | 'creating'
+  | 'starting'
+  | 'ready-idle'
+  | 'leased'
+  | 'running'
+  | 'destroying'
+  | 'broken'
+  | 'destroyed';
+
+export function sessionPhase(entry: SessionEntry): SessionPhase {
+  if (entry.destroying !== null) return 'destroying';
+  if (entry.broken !== null) return 'broken';
+  if (entry.alive === false) return 'destroyed';
+  if (entry.active !== null) return 'running';
+  if (entry.sandbox !== null && entry.ready === true) {
+    return entry.leaseHeld ? 'leased' : 'ready-idle';
+  }
+  if (entry.sandbox !== null && entry.ready === false) return 'starting';
+  return 'creating';
+}
+
 /**
  * 记忆策略 → 记忆挂载：`enabled=false` 不挂 `/mnt/agent-memory`；只有 `native_auto` 允许容器内写。
  * `proposal_only` 按只读挂载，容器内 Bash 不能绕过 SDK 文件工具写记忆目录。
@@ -716,6 +738,7 @@ export class SessionSandboxes {
       this.logger.warn(
         {
           conversationId: entry.conversationId,
+          phase: sessionPhase(entry),
           active: live.length + 1,
           maxActive: this.maxActive,
         },
@@ -782,7 +805,12 @@ export class SessionSandboxes {
         const error = toError(err);
         entry.broken = error;
         this.logger.error(
-          { err, conversationId: entry.conversationId, sandboxId: sandbox.id },
+          {
+            err,
+            conversationId: entry.conversationId,
+            phase: sessionPhase(entry),
+            sandboxId: sandbox.id,
+          },
           'session sandbox cleanup failed',
         );
         throw error;
@@ -820,7 +848,7 @@ export class SessionSandboxes {
               discarding = true;
               pending = '';
               this.logger.warn(
-                { conversationId: entry.conversationId },
+                { conversationId: entry.conversationId, phase: sessionPhase(entry) },
                 'session supervisor line exceeded the 8MiB cap, dropped',
               );
             }
@@ -838,7 +866,7 @@ export class SessionSandboxes {
         pending = '';
         if (Buffer.byteLength(line) > SUPERVISOR_INPUT_MAX_BYTES) {
           this.logger.warn(
-            { conversationId: entry.conversationId },
+            { conversationId: entry.conversationId, phase: sessionPhase(entry) },
             'session supervisor line exceeded the 8MiB cap, dropped',
           );
           continue;
@@ -855,7 +883,7 @@ export class SessionSandboxes {
     });
     child.stdin.on('error', (err) => {
       this.logger.warn(
-        { err, conversationId: entry.conversationId },
+        { err, conversationId: entry.conversationId, phase: sessionPhase(entry) },
         'session supervisor stdin error',
       );
     });
@@ -878,6 +906,7 @@ export class SessionSandboxes {
       this.logger.warn(
         {
           conversationId: entry.conversationId,
+          phase: sessionPhase(entry),
           line: redactSecrets(line.slice(0, 500)),
         },
         'session supervisor emitted non-JSON line',
@@ -889,6 +918,7 @@ export class SessionSandboxes {
       this.logger.warn(
         {
           conversationId: entry.conversationId,
+          phase: sessionPhase(entry),
           line: redactSecrets(line.slice(0, 500)),
         },
         'session supervisor emitted non-contract frame',
@@ -937,7 +967,12 @@ export class SessionSandboxes {
         if (output.stopped) {
           if (output.error !== undefined) {
             this.logger.warn(
-              { conversationId: entry.conversationId, runId: output.runId, error: output.error },
+              {
+                conversationId: entry.conversationId,
+                phase: sessionPhase(entry),
+                runId: output.runId,
+                error: output.error,
+              },
               'session supervisor stopped the run with an error',
             );
           }
@@ -964,6 +999,7 @@ export class SessionSandboxes {
           this.logger.warn(
             {
               conversationId: entry.conversationId,
+              phase: sessionPhase(entry),
               runId: output.runId,
               code: output.code,
               message: output.message,
@@ -1013,7 +1049,7 @@ export class SessionSandboxes {
     entry.readyWaiter = null;
     waiter?.reject(new Error(message));
     if (entry.active !== null) this.settle(entry, entry.active, unconfirmed(message));
-    this.logger.warn({ conversationId: entry.conversationId }, message);
+    this.logger.warn({ conversationId: entry.conversationId, phase: sessionPhase(entry) }, message);
     // 客户端进程退出不能证明 daemon 已删除容器；leash 仍被持有时由 owner 销毁，
     // 空闲时也必须走 destroyEntry。失败保留 broken，close 会重试并报告。
     if (!entry.leaseHeld) {
@@ -1027,7 +1063,7 @@ export class SessionSandboxes {
     const child = entry.sandbox?.child;
     if (child === undefined || child.stdin.destroyed) {
       this.logger.warn(
-        { conversationId: entry.conversationId },
+        { conversationId: entry.conversationId, phase: sessionPhase(entry) },
         'session supervisor stdin is not writable',
       );
       return;
