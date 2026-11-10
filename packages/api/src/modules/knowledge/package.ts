@@ -23,9 +23,10 @@ import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
 import {
+  assertPackagePath,
   decodeZipEntries,
   inspectZipEntries,
-  MAX_PATH_LENGTH,
+  invalid,
   type ZipReadLimits,
 } from '../agents/package-zip.js';
 import { blobPathFor, storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
@@ -249,23 +250,10 @@ function withoutRuntimeMetadata(metadata: Record<string, unknown>): Record<strin
   return rest;
 }
 
-function invalid(message: string, path?: string): never {
-  fail('INVALID_INPUT', message, path === undefined ? undefined : { path });
-}
-
 /** 包内路径只允许规范相对 POSIX 路径；导入端从不按这些名字落盘。 */
 function assertEntryPath(path: string): void {
-  if (path.length === 0 || path.length > MAX_PATH_LENGTH) {
-    invalid(`包内路径长度必须在 1-${MAX_PATH_LENGTH} 之间`, path);
-  }
-  if (path.includes('\\')) invalid('包内路径不能包含反斜杠', path);
-  if (path.startsWith('/') || /^[A-Za-z]:/.test(path)) invalid('包内路径必须是相对路径', path);
-  if ([...path].some((character) => (character.codePointAt(0) ?? 0) < 0x20)) {
-    invalid('包内路径不能包含控制字符', path);
-  }
-  if (path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
-    invalid('包内路径不能包含空段、. 或 ..', path);
-  }
+  assertPackagePath(path);
+  if (path.endsWith('/')) invalid('包内路径不能包含空段、. 或 ..', path);
 }
 
 /**

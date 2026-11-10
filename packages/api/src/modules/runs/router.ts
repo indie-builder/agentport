@@ -10,13 +10,11 @@ import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import { toIso } from '../../lib/iso.js';
 import { authorizeRun, RUN_MISSING } from './access.js';
 import { runsQuestionsRouter } from './questions.js';
 
 const runsRepo = repo.runs;
-function toIso(value: Date | null): string | null {
-  return value === null ? null : value.toISOString();
-}
 function toItem(run: Awaited<ReturnType<typeof runsRepo.listRuns>>[number]) {
   return { ...run, startedAt: toIso(run.startedAt), endedAt: toIso(run.endedAt) };
 }

@@ -9,6 +9,7 @@ data/
 .env.local
 .DS_Store
 coverage/
+.vitest/
 *.tsbuildinfo
 .impeccable/
 # 仅保留 web 应用的设计系统快照，其余 .impeccable 临时评审产物不入库

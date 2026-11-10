@@ -1,19 +1,14 @@
 import { createHash } from 'node:crypto';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { z } from 'zod';
-import {
-  BINARY_MIME_BY_EXTENSION,
-  EXTENSION_BY_MIME,
-  extensionOf,
-  TEXT_MIME_BY_EXTENSION,
-} from './source-formats.js';
+import { EXTENSION_BY_MIME, extensionOf, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
   sourceFailure as failureOf,
   fetchChecked,
   SourceItemError as ItemError,
   readBytesCapped,
-  SourceAuthError,
+  rethrowAuth,
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
@@ -109,24 +104,11 @@ function safeSegment(segment: string): boolean {
   );
 }
 
-function mimeOf(name: string, declared: string | undefined): string | undefined {
-  const extension = extensionOf(name);
-  const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? TEXT_MIME_BY_EXTENSION[extension];
-  if (byExtension) return byExtension;
-  const mime = declared?.split(';')[0]?.trim().toLowerCase();
-  if (mime && mime !== 'application/octet-stream' && EXTENSION_BY_MIME[mime]) return mime;
-  return undefined;
-}
-
 function titleOf(relative: string, mime: string | undefined): string {
   const name = relative.slice(relative.lastIndexOf('/') + 1);
   if (extensionOf(name)) return name;
   const extension = mime ? EXTENSION_BY_MIME[mime] : undefined;
   return extension ? `${name}.${extension}` : name;
-}
-
-function rethrowAuth(err: unknown): void {
-  if (err instanceof SourceAuthError) throw err;
 }
 
 async function authenticate(config: SourceConfig): Promise<Auth> {

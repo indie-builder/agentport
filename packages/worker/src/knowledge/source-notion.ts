@@ -1,10 +1,10 @@
-import { errorText } from '@agentport/shared';
 import { z } from 'zod';
 import { BINARY_MIME_BY_EXTENSION, extensionOf } from './source-formats.js';
 import {
   type FetchOptions,
   fetchChecked,
   fetchJson,
+  makeSourceFailure,
   readBytesCapped,
   SourceAuthError,
   sourceNetworkOptions,
@@ -307,21 +307,7 @@ function notionBase(config: SourceConfig): string {
   return (config.url.trim() || NOTION_API).replace(/\/+$/, '');
 }
 
-function failureOf(
-  externalId: string,
-  title: string,
-  err: unknown,
-  retryable: boolean,
-): SourceFailure {
-  const truncated = err instanceof TruncatedError;
-  return {
-    externalId,
-    title,
-    code: truncated ? 'truncated' : retryable ? 'fetch_failed' : 'unsupported_type',
-    message: errorText(err).slice(0, 500),
-    retryable: truncated ? false : retryable,
-  };
-}
+const failureOf = makeSourceFailure((err) => err instanceof TruncatedError);
 
 /** 调用方取消不能被降级成单项失败：整轮读取必须立即结束。 */
 function rethrowAbort(err: unknown, signal: AbortSignal | undefined): void {

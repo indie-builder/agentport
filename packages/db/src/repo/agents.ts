@@ -38,6 +38,7 @@ import { insertAgentVersion, retryOnVersionConflict } from './agent-versions.js'
 import type { ConversationSandboxTarget } from './chat.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
+import { isPgCode } from './pg-errors.js';
 import { listAgentPluginBindingInputs } from './plugins.js';
 
 export type AgentRow = typeof agents.$inferSelect;
@@ -363,16 +364,6 @@ export async function createAgent(
   return row;
 }
 
-/** SQLSTATE 40001：串行化失败，调用方可安全重试整段事务。 */
-function isSerializationFailure(err: unknown): boolean {
-  let cause: unknown = err;
-  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if ('errno' in cause && cause.errno === '40001') return true;
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
-  return false;
-}
-
 /**
  * 复制智能体配置：绑定、规则、输出风格一并复制，子智能体不复制（只支持一层，且源对象不变）。
  * repeatable read + FOR SHARE 保证读到一致的源配置；版本从 v1 重新开始。
@@ -484,7 +475,7 @@ export async function duplicateAgent(
       ),
     );
   } catch (err) {
-    if (isSerializationFailure(err)) {
+    if (isPgCode(err, '40001')) {
       throw new AppError('CONFLICT', 'agent duplication conflict, retry later', {
         retryable: true,
       });

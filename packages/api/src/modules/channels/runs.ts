@@ -6,6 +6,7 @@ import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
+import { toIso } from '../../lib/iso.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
 import { agentSlug, decodeUtf8, isTextPreview, PREVIEW_MAX_BYTES } from '../chat/outputs.js';
 
@@ -15,10 +16,6 @@ const channelControl = repo.channelControl;
 const RUN_MISSING = '运行不存在，可能已被删除';
 const RUN_NOT_IN_CHANNEL = '运行不存在或不属于该频道';
 const ANSWER_FORBIDDEN = '当前频道角色无权回答该提问';
-
-function toIso(value: Date | null): string | null {
-  return value === null ? null : value.toISOString();
-}
 
 async function memberRun(context: RequestContext, channelId: string, runId: string) {
   const access = await channelControl.getChannelRunForMember(

@@ -31,10 +31,7 @@ export type {
 } from '@agentport/core';
 export {
   chunkDocument,
-  isAtomicBlock,
-  isFenceStart,
   isTableBlock,
-  isTableDelimiterLine,
   KnowledgeParseError,
   markdownBlocks,
 } from '@agentport/core';
