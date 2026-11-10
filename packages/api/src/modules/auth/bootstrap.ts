@@ -66,11 +66,14 @@ export async function ensureBootstrap(db: Database, config: Config): Promise<voi
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport:bootstrap'))`);
 
     const [initialized] = await tx
-      .select({ id: platformBootstrap.id })
+      .select({
+        id: platformBootstrap.id,
+        adminBusinessId: platformBootstrap.adminBusinessId,
+      })
       .from(platformBootstrap)
       .where(eq(platformBootstrap.id, repo.access.BOOTSTRAP_ID))
       .limit(1);
-    if (initialized) return;
+    if (initialized !== undefined && initialized.adminBusinessId !== null) return;
 
     const [existingAdmin] = await tx
       .select({ businessId: authUsers.businessId })
@@ -113,9 +116,13 @@ export async function ensureBootstrap(db: Database, config: Config): Promise<voi
       });
     }
 
+    const initializedAt = new Date();
     await tx
       .insert(platformBootstrap)
-      .values({ id: repo.access.BOOTSTRAP_ID, adminBusinessId, initializedAt: new Date() })
-      .onConflictDoNothing();
+      .values({ id: repo.access.BOOTSTRAP_ID, adminBusinessId, initializedAt })
+      .onConflictDoUpdate({
+        target: platformBootstrap.id,
+        set: { adminBusinessId, initializedAt },
+      });
   });
 }
