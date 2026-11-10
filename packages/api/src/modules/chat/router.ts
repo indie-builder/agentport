@@ -25,9 +25,9 @@ import {
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
-import { subscribeRun } from '../../queue/producer.js';
 import { authorizeRun, RUN_MISSING } from '../runs/access.js';
 import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
+import { relayRunEvents } from '../runs/stream.js';
 import { deleteConversationWithSandboxes } from '../runtime-deletion.js';
 import { CONVERSATION_MISSING, loadReadableConversation } from './access.js';
 import { cancelAgentRun } from './cancel-run.js';
@@ -38,9 +38,7 @@ import { chatOutputsRouter } from './outputs.js';
 import { deleteCreatedConversation, startRun } from './use-cases.js';
 
 const chatRepo = repo.chat;
-const TERMINAL_RECHECK_MS = 2000;
 
-type RunRow = NonNullable<Awaited<ReturnType<typeof chatRepo.getRun>>>;
 function hasPlatformScope(context: RequestContext, permissionId: PermissionId): boolean {
   const principal = context.principal;
   return (
@@ -386,149 +384,52 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
       c.header('Cache-Control', 'no-cache, no-transform');
       c.header('X-Accel-Buffering', 'no');
       return streamSSE(c, async (stream) => {
-        await stream.write('retry: 3000\n\n');
-        let resolveClosed!: () => void;
-        const ended = new Promise<void>((resolve) => {
-          resolveClosed = resolve;
-        });
-        let closed = false;
-        let finishing = false;
-        let recheckTimer: ReturnType<typeof setTimeout> | undefined;
-        const subscriptionAbort = new AbortController();
-        let subscription:
-          | {
-              close: () => void;
-            }
-          | undefined;
-        const cleanup = (): void => {
-          if (closed) return;
-          closed = true;
-          resolveClosed();
-          c.req.raw.signal.removeEventListener('abort', cleanup);
-          if (recheckTimer !== undefined) clearTimeout(recheckTimer);
-          subscriptionAbort.abort();
-          subscription?.close();
-        };
-        const finish = (): void => {
-          cleanup();
-          void stream.close();
-        };
-        const scheduleRecheck = (): void => {
-          if (closed || finishing) return;
-          recheckTimer = setTimeout(() => {
-            recheckTimer = undefined;
-            void recheck();
-          }, TERMINAL_RECHECK_MS);
-        };
-        const recheck = async (): Promise<void> => {
-          let current: RunRow | null;
-          try {
-            current = await chatRepo.getRun(context.db, runId);
-          } catch {
-            context.log.warn({ runId }, 'sse terminal recheck failed');
-            scheduleRecheck();
-            return;
-          }
-          if (closed || finishing) return;
-          if (current === null) {
-            finishing = true;
-            try {
-              await writeChatEvent(stream, {
-                type: 'run_unavailable',
-                message: '运行记录已不存在，已停止接收。',
-              });
-            } catch {
-              context.log.warn({ runId }, 'sse run unavailable write failed');
-            }
-            finish();
-            return;
-          }
-          try {
-            if (!hasPlatformScope(context, 'runs.read')) {
-              await authorize(context, 'runs.read', {
-                objectId: current.id,
-                createdBy: current.initiatedBy,
-                privateContent: true,
-              });
-            }
-          } catch {
-            finishing = true;
-            await writeChatEvent(stream, {
-              type: 'run_unavailable',
-              message: '当前账户已无权读取该运行，已停止接收。',
-            }).catch((err: unknown) => {
-              context.log.warn({ err, runId }, 'sse access recheck write failed');
-            });
-            finish();
-            return;
-          }
-          const missed = terminalRunEvent(current);
-          if (!missed) {
-            scheduleRecheck();
-            return;
-          }
-          finishing = true;
-          try {
-            await writeChatEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
-            await writeChatEvent(stream, missed);
-          } catch (err) {
-            context.log.error({ err, runId }, 'sse write failed');
-          }
-          finish();
-        };
-        stream.onAbort(cleanup);
-        if (c.req.raw.signal.aborted) cleanup();
-        else c.req.raw.signal.addEventListener('abort', cleanup, { once: true });
-        try {
-          subscription = await subscribeRun(
-            runId,
-            async (event) => {
-              if (closed || finishing) return;
-              const terminal =
-                event.type === 'run_finished' ||
-                event.type === 'error' ||
-                event.type === 'run_unavailable';
-              if (terminal) finishing = true;
-              try {
-                await writeChatEvent(stream, event);
-              } catch (err) {
-                context.log.error({ err, runId }, 'sse write failed');
-                finish();
-                return;
+        await relayRunEvents({
+          stream,
+          signal: c.req.raw.signal,
+          runId,
+          initialRun: run,
+          log: context.log,
+          domain: {
+            load: async () => {
+              const current = await chatRepo.getRun(context.db, runId);
+              if (current === null) return { kind: 'unavailable', reason: 'missing' };
+              if (!hasPlatformScope(context, 'runs.read')) {
+                try {
+                  await authorize(context, 'runs.read', {
+                    objectId: current.id,
+                    createdBy: current.initiatedBy,
+                    privateContent: true,
+                  });
+                } catch {
+                  return { kind: 'unavailable', reason: 'forbidden' };
+                }
               }
-              if (terminal) finish();
+              return { kind: 'run', run: current };
             },
-            subscriptionAbort.signal,
-          );
-        } catch (err) {
-          context.log.error({ err, runId }, 'sse subscribe failed');
-          try {
-            await writeChatEvent(stream, {
-              type: 'error',
-              message: '事件流中断，请刷新页面或重试',
-            });
-          } catch {}
-          finish();
-          return;
-        }
-        if (closed) {
-          subscription.close();
-          return;
-        }
-        const finished = terminalRunEvent(run);
-        if (finished) {
-          finishing = true;
-          try {
-            await writeChatEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
-            await writeChatEvent(stream, finished);
-          } catch (err) {
-            context.log.error({ err, runId }, 'sse write failed');
-          }
-          finish();
-          return;
-        }
-        scheduleRecheck();
-        await ended;
+            writeUnavailable: async (reason) => {
+              const message =
+                reason === 'missing'
+                  ? '运行记录已不存在，已停止接收。'
+                  : '当前账户已无权读取该运行，已停止接收。';
+              try {
+                await writeChatEvent(stream, { type: 'run_unavailable', message });
+              } catch (err) {
+                context.log.warn(
+                  reason === 'missing' ? { runId } : { err, runId },
+                  reason === 'missing'
+                    ? 'sse run unavailable write failed'
+                    : 'sse access recheck write failed',
+                );
+              }
+            },
+            labels: {
+              recheckFailed: 'sse terminal recheck failed',
+              writeFailed: 'sse write failed',
+              subscribeFailed: 'sse subscribe failed',
+            },
+          },
+        });
       });
     },
   );
