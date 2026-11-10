@@ -8,7 +8,7 @@ import {
   fetchJson,
   SourceItemError as ItemError,
   readBytesCapped,
-  SourceAuthError,
+  rethrowAuth,
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
@@ -115,10 +115,6 @@ function revisionOf(entry: Entry): string | undefined {
     value === undefined ? '' : String(value),
   );
   return parts.some((part) => part !== '') ? parts.join(':') : undefined;
-}
-
-function rethrowAuth(err: unknown): void {
-  if (err instanceof SourceAuthError) throw err;
 }
 
 async function authenticate(config: SourceConfig): Promise<Auth> {

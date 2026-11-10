@@ -16,7 +16,6 @@ export {
   emptyHeading,
   fenceCloser,
   fenceStartMarker,
-  isAtomicBlock,
   isFenceStart,
   isTableBlock,
   isTableDelimiterLine,

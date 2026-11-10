@@ -2,6 +2,7 @@ import type { ServerInput } from '@agentport/shared';
 import { httpUrlSchema, serverInputSchema, slugSchema } from '@agentport/shared';
 import { z } from 'zod';
 import { fail } from './errors.js';
+import { isRecord } from './record.js';
 
 /** `.mcp.json` 允许的最大字节数，与请求体上限一致。 */
 export const MCP_JSON_MAX_BYTES = 1_048_576;
@@ -69,10 +70,6 @@ function describeIssue(issue: z.core.$ZodIssue): string {
 
 function invalid(message: string): never {
   fail('INVALID_INPUT', message, { path: 'mcpJson' });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function parseEntry(name: string, entry: Record<string, unknown>): ServerInput {

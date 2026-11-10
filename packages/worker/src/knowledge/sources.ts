@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { errorText } from '@agentport/shared';
 import { parseFeed, parseJsonFeed } from 'feedsmith';
 import TurndownService from 'turndown';
 import { z } from 'zod';
@@ -10,6 +9,7 @@ import {
   fetchBytes,
   fetchChecked,
   fetchJson,
+  makeSourceFailure,
   readBytesCapped,
   readCapped,
   SourceAuthError,
@@ -100,21 +100,7 @@ async function fetchText(url: string, options: FetchOptions, label: string): Pro
   return readCapped(await fetchChecked(url, options), label);
 }
 
-function failureOf(
-  externalId: string,
-  title: string,
-  err: unknown,
-  retryable: boolean,
-): SourceFailure {
-  const truncated = err instanceof SourceTruncatedError;
-  return {
-    externalId,
-    title,
-    code: truncated ? 'truncated' : retryable ? 'fetch_failed' : 'unsupported_type',
-    message: errorText(err).slice(0, 500),
-    retryable: truncated ? false : retryable,
-  };
-}
+const failureOf = makeSourceFailure((err) => err instanceof SourceTruncatedError);
 
 function textContentType(value: string | null): boolean {
   if (!value) return false;

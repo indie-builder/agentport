@@ -14,6 +14,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import { extensionOf, isAbort, textOf, titleWithExtension } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -250,27 +251,10 @@ function assertListPage(response: ListResult): void {
   }
 }
 
-function isAbort(err: unknown, signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true || (err instanceof Error && err.name === 'AbortError');
-}
-
 function recordOf(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function textOf(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function extensionOf(value: string): string {
-  const dot = value.lastIndexOf('.');
-  return dot < 0 ? '' : value.slice(dot + 1).toLowerCase();
-}
-
-function titleWithExtension(name: string, extension: string): string {
-  return extensionOf(name) === extension.toLowerCase() ? name : `${name}.${extension}`;
 }
 
 function extensionFromContentType(contentType: string | null): string {

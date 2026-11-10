@@ -13,6 +13,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import { isAbort, textOf, titleWithExtension } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -164,23 +165,10 @@ function revisionOf(node: Node): string {
   return (node.modifiedTimestamp ?? node.modifiedTime ?? '').trim();
 }
 
-function isAbort(err: unknown, signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true || (err instanceof Error && err.name === 'AbortError');
-}
-
 function asString(value: unknown): string {
   if (typeof value === 'string') return value.trim();
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   return '';
-}
-
-function extensionOf(value: string): string {
-  const dot = value.lastIndexOf('.');
-  return dot < 0 ? '' : value.slice(dot + 1).toLowerCase();
-}
-
-function titleWithExtension(name: string, extension: string): string {
-  return extensionOf(name) === extension.toLowerCase() ? name : `${name}.${extension}`;
 }
 
 function isFolder(node: Node): boolean {
@@ -386,10 +374,6 @@ function recordOf(value: unknown): Block | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Block)
     : undefined;
-}
-
-function textOf(value: unknown): string {
-  return typeof value === 'string' ? value : '';
 }
 
 function levelOf(value: unknown): number {

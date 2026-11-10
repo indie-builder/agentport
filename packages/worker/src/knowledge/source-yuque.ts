@@ -1,6 +1,11 @@
-import { errorText } from '@agentport/shared';
 import { z } from 'zod';
-import { type FetchOptions, fetchJson, SourceAuthError, validateSourceUrl } from './source-http.js';
+import {
+  type FetchOptions,
+  fetchJson,
+  makeSourceFailure,
+  SourceAuthError,
+  validateSourceUrl,
+} from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
@@ -108,21 +113,7 @@ function skipped(externalId: string, title: string, message: string): SourceFail
   return { externalId, title, code: 'skipped', message: message.slice(0, 500), retryable: false };
 }
 
-function failureOf(
-  externalId: string,
-  title: string,
-  err: unknown,
-  retryable: boolean,
-): SourceFailure {
-  const truncated = err instanceof TruncatedError;
-  return {
-    externalId,
-    title,
-    code: truncated ? 'truncated' : retryable ? 'fetch_failed' : 'unsupported_type',
-    message: errorText(err).slice(0, 500),
-    retryable: truncated ? false : retryable,
-  };
-}
+const failureOf = makeSourceFailure((err) => err instanceof TruncatedError);
 
 function encodeLinkPath(value: string): string {
   return value.split('/').map(encodeURIComponent).join('/');

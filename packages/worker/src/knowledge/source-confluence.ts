@@ -1,10 +1,5 @@
 import { z } from 'zod';
-import {
-  BINARY_MIME_BY_EXTENSION,
-  EXTENSION_BY_MIME,
-  extensionOf,
-  TEXT_MIME_BY_EXTENSION,
-} from './source-formats.js';
+import { EXTENSION_BY_MIME, extensionOf, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
   sourceFailure as failureOf,
@@ -13,7 +8,7 @@ import {
   fetchJson,
   SourceItemError as ItemError,
   readBytesCapped,
-  SourceAuthError,
+  rethrowAuth,
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
@@ -335,19 +330,6 @@ async function fetchJsonWithNext<T>(
   if (!parsed.success) throw new Error(`${label} response does not match the expected schema`);
   const next = nextFromLinkHeader(response.headers);
   return { data: parsed.data, ...(next === undefined ? {} : { next }) };
-}
-
-function rethrowAuth(err: unknown): void {
-  if (err instanceof SourceAuthError) throw err;
-}
-
-function mimeOfFile(name: string, declared: string | undefined): string | undefined {
-  const extension = extensionOf(name);
-  const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? TEXT_MIME_BY_EXTENSION[extension];
-  if (byExtension) return byExtension;
-  const mime = declared?.split(';')[0]?.trim().toLowerCase();
-  if (mime && mime !== 'application/octet-stream' && EXTENSION_BY_MIME[mime]) return mime;
-  return undefined;
 }
 
 function filenameOf(title: string | undefined, id: string, mime: string | undefined): string {
@@ -872,7 +854,7 @@ async function emitAttachment(
 ): Promise<void> {
   const externalId = `confluence:attachment:${attachment.id}`;
   const declared = attachment.mediaType;
-  const mime = mimeOfFile(attachment.title ?? '', declared);
+  const mime = mimeOf(attachment.title ?? '', declared);
   const title = filenameOf(attachment.title, attachment.id, mime);
   if (!mime) {
     failures.push(

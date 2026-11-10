@@ -5,13 +5,10 @@ import { utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { toIso } from '../../lib/iso.js';
 import { toOutputShare } from '../output-shares/router.js';
 
 const os = implement(personalContract).$context<RequestContext>();
-
-function toIso(value: Date | null): string | null {
-  return value === null ? null : value.toISOString();
-}
 
 const SHARE_MISSING = '分享不存在或已失效';
 

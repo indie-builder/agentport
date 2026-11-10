@@ -13,6 +13,7 @@ import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../schema.js';
+import { isPgCode } from './pg-errors.js';
 
 export type RuntimeEnvironmentRow = typeof runtimeEnvironments.$inferSelect;
 export type RuntimeEnvironmentVersionRow = typeof runtimeEnvironmentVersions.$inferSelect;
@@ -71,15 +72,6 @@ export function toRuntimeEnvironmentVersionSummary(
     finishedAt: version.finishedAt,
     createdAt: version.createdAt,
   };
-}
-
-function isPgCode(err: unknown, code: string): boolean {
-  let cause: unknown = err;
-  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if ('errno' in cause && cause.errno === code) return true;
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
-  return false;
 }
 
 /** 名称冲突统一成 409；其他错误原样抛出。 */
