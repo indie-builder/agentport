@@ -1470,6 +1470,7 @@ async function seedDocuments(
       mimeType: 'text/markdown',
       sizeBytes: 0,
       status: statusOf(index),
+      disabledReason: statusOf(index) === 'disabled' ? 'source' : null,
       contentHash: values.contentHash ?? null,
       metadata: metadataOf(index),
       ...(values.createdAt ? { createdAt: values.createdAt(index) } : {}),

@@ -1004,6 +1004,7 @@ export async function runIngest(
     }
     return;
   }
+  if (document.status === 'disabled' || document.disabledReason !== null) return;
   // 手写草稿/上传/URL 都可能带输入快照；有快照时只消费快照，不再读运行时可变的 document。
   // 上传/URL 的初始导入没有快照，此时文档自身的 contentHash 就是本次合法输入。
   const snapshot = payload.input;
