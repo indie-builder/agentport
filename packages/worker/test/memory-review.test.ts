@@ -82,6 +82,8 @@ mock.module('../src/sandbox/sessions.js', () => ({
   SessionSandboxes: class {
     async close(): Promise<void> {}
   },
+  memoryMountFor: (policy: { enabled: boolean; writeMode: string }, memoryDir: string) =>
+    policy.enabled ? { memoryDir, memoryWritable: policy.writeMode === 'native_auto' } : {},
 }));
 
 const runnerClientActual = await import('../src/runner-client.js');
