@@ -102,6 +102,35 @@ export async function createPluginWithFiles(
   });
 }
 
+export async function replacePluginWithFiles(
+  db: Database,
+  id: string,
+  patch: Partial<PluginWrite>,
+  files: PluginFileWrite[],
+): Promise<PluginRow | null> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(plugins)
+      .set({ ...patch, updatedAt: touchUpdatedAt(plugins.updatedAt) })
+      .where(eq(plugins.id, id))
+      .returning();
+    if (!row) return null;
+    await tx.delete(pluginFiles).where(eq(pluginFiles.pluginId, id));
+    if (files.length > 0) {
+      await tx.insert(pluginFiles).values(
+        files.map((file) => ({
+          id: newId('pluginFile'),
+          pluginId: id,
+          path: file.path,
+          content: file.content,
+          executable: file.executable ?? false,
+        })),
+      );
+    }
+    return row;
+  });
+}
+
 /**
  * 乐观锁必须写进 SQL：先读再比再无条件更新，两个并发 PATCH 会都通过比较。
  * 返回 null 表示行不存在；抛 CONFLICT_STALE 表示 token 不匹配。

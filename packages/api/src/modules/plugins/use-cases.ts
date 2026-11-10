@@ -16,6 +16,18 @@ type PluginWriteDependencies = {
 export async function reusedPlugin(db: Db, row: PluginRow, warnings: string[] = []) {
   return { plugin: toApi(row, await pluginFiles(db, row.id)), warnings, reused: true };
 }
+function sameFiles(current: PluginFileInput[], next: PluginFileInput[]): boolean {
+  if (current.length !== next.length) return false;
+  const byPath = new Map(current.map((file) => [file.path, file]));
+  return next.every((file) => {
+    const stored = byPath.get(file.path);
+    return (
+      stored !== undefined &&
+      stored.content === file.content &&
+      (stored.executable ?? false) === (file.executable ?? false)
+    );
+  });
+}
 export async function adoptNativePlugin(
   deps: PluginWriteDependencies,
   params: {
@@ -26,9 +38,30 @@ export async function adoptNativePlugin(
   },
 ) {
   const existing = await repo.getPluginBySourceId(deps.db, params.pluginId);
-  if (existing) return reusedPlugin(deps.db, existing);
   const parsed = parsePluginFiles({ files: params.files, slug: params.slug });
   const { files: parsedFiles, ...input } = parsed.input;
+  if (existing) {
+    const current = await pluginFiles(deps.db, existing.id);
+    if (existing.version === parsed.input.version && sameFiles(current, parsedFiles)) {
+      return reusedPlugin(deps.db, existing);
+    }
+    const updated = await repo.replacePluginWithFiles(
+      deps.db,
+      existing.id,
+      toPluginWrite(input, params.pluginId),
+      parsedFiles,
+    );
+    if (!updated) return fail('NOT_FOUND', '插件已被删除，请重试');
+    await pluginRepo.audit.writeAudit(deps.db, deps.log, {
+      actor: deps.actor,
+      action: 'plugin.updated',
+      target: updated.id,
+      input: { slug: updated.slug, sourceId: params.pluginId, files: parsedFiles.length },
+      status: 'ok',
+      requestId: deps.requestId,
+    });
+    return { plugin: toApi(updated, parsedFiles), warnings: parsed.warnings, reused: true };
+  }
   try {
     const row = await repo.createPluginWithFiles(
       deps.db,
