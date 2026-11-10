@@ -11,13 +11,13 @@ import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { publishChannelEvent, subscribeRun } from '../../queue/producer.js';
+import { publishChannelEvent } from '../../queue/producer.js';
 import { cancelAgentRun } from '../chat/cancel-run.js';
 import type { NativeHttpDependencies } from '../chat/http.js';
-import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
+import { writeChatEvent } from '../runs/events.js';
+import { relayRunEvents } from '../runs/stream.js';
 
 const channelControl = repo.channelControl;
-const TERMINAL_RECHECK_MS = 2000;
 type ControlRun = repo.channelControl.ControlRun;
 function toActiveRun(run: ControlRun) {
   return {
@@ -233,162 +233,55 @@ export function registerChannelRunEventsHttp(
     c.header('Cache-Control', 'no-cache, no-transform');
     c.header('X-Accel-Buffering', 'no');
     return streamSSE(c, async (stream) => {
-      await stream.write('retry: 3000\n\n');
-      let resolveClosed!: () => void;
-      const ended = new Promise<void>((resolve) => {
-        resolveClosed = resolve;
-      });
-      let closed = false;
-      let finishing = false;
-      let recheckTimer: ReturnType<typeof setTimeout> | undefined;
-      const subscriptionAbort = new AbortController();
-      let subscription:
-        | {
-            close: () => void;
-          }
-        | undefined;
-      const cleanup = (): void => {
-        if (closed) return;
-        closed = true;
-        resolveClosed();
-        c.req.raw.signal.removeEventListener('abort', cleanup);
-        if (recheckTimer !== undefined) clearTimeout(recheckTimer);
-        subscriptionAbort.abort();
-        subscription?.close();
-      };
-      const finish = (): void => {
-        cleanup();
-        void stream.close();
-      };
-      const lostAccess = async (): Promise<void> => {
-        try {
-          await writeChatEvent(stream, {
-            type: 'run_unavailable',
-            message: '运行记录已不存在，或当前账户已无权读取该频道运行，已停止接收。',
-          });
-        } catch (err) {
-          context.log.warn({ err, runId }, 'channel run sse lost-access write failed');
-        } finally {
-          finish();
-        }
-      };
-      const scheduleRecheck = (): void => {
-        if (closed || finishing) return;
-        recheckTimer = setTimeout(() => {
-          recheckTimer = undefined;
-          void recheck();
-        }, TERMINAL_RECHECK_MS);
-      };
-      const recheck = async (): Promise<void> => {
-        let current: Awaited<ReturnType<typeof channelControl.getChannelRunForMember>>;
-        try {
-          current = await channelControl.getChannelRunForMember(context.db, businessId, id, runId);
-        } catch {
-          context.log.warn({ runId }, 'channel run sse recheck failed');
-          scheduleRecheck();
-          return;
-        }
-        if (closed || finishing) return;
-        if (!current) {
-          finishing = true;
-          await lostAccess();
-          return;
-        }
-        const missed = terminalRunEvent(current.run);
-        if (!missed) {
-          scheduleRecheck();
-          return;
-        }
-        finishing = true;
-        try {
-          await writeChatEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
-          await writeChatEvent(stream, missed);
-        } catch (err) {
-          context.log.error({ err, runId }, 'channel run sse write failed');
-        }
-        finish();
-      };
-      stream.onAbort(cleanup);
-      if (c.req.raw.signal.aborted) cleanup();
-      else c.req.raw.signal.addEventListener('abort', cleanup, { once: true });
-      try {
-        subscription = await subscribeRun(
-          runId,
-          async (event) => {
-            if (closed || finishing) return;
-            let access: Awaited<ReturnType<typeof channelControl.getChannelRunForMember>>;
+      await relayRunEvents({
+        stream,
+        signal: c.req.raw.signal,
+        runId,
+        initialRun: run,
+        log: context.log,
+        domain: {
+          load: async () => {
+            const current = await channelControl.getChannelRunForMember(
+              context.db,
+              businessId,
+              id,
+              runId,
+            );
+            return current
+              ? { kind: 'run', run: current.run }
+              : { kind: 'unavailable', reason: 'missing' };
+          },
+          guard: async () => {
             try {
-              access = await channelControl.getChannelRunForMember(
+              const current = await channelControl.getChannelRunForMember(
                 context.db,
                 businessId,
                 id,
                 runId,
               );
+              return current ? 'ok' : 'forbidden';
             } catch {
-              finishing = true;
-              context.log.error({ runId }, 'channel run sse membership check failed');
-              try {
-                await writeChatEvent(stream, {
-                  type: 'error',
-                  message: '事件流中断，请刷新页面或重试',
-                });
-              } catch (writeErr) {
-                context.log.error({ err: writeErr, runId }, 'channel run sse write failed');
-              }
-              finish();
-              return;
+              return 'error';
             }
-            if (closed || finishing) return;
-            if (!access) {
-              finishing = true;
-              await lostAccess();
-              return;
-            }
-            const terminal =
-              event.type === 'run_finished' ||
-              event.type === 'error' ||
-              event.type === 'run_unavailable';
-            if (terminal) finishing = true;
-            try {
-              await writeChatEvent(stream, event);
-            } catch (err) {
-              context.log.error({ err, runId }, 'channel run sse write failed');
-              finish();
-              return;
-            }
-            if (terminal) finish();
           },
-          subscriptionAbort.signal,
-        );
-      } catch (err) {
-        context.log.error({ err, runId }, 'channel run sse subscribe failed');
-        try {
-          await writeChatEvent(stream, {
-            type: 'error',
-            message: '事件流中断，请刷新页面或重试',
-          });
-        } catch {}
-        finish();
-        return;
-      }
-      if (closed) {
-        subscription.close();
-        return;
-      }
-      const finished = terminalRunEvent(run);
-      if (finished) {
-        finishing = true;
-        try {
-          await writeChatEvent(stream, { type: 'replay_truncated', reason: 'terminal_missing' });
-          await writeChatEvent(stream, finished);
-        } catch (err) {
-          context.log.error({ err, runId }, 'channel run sse write failed');
-        }
-        finish();
-        return;
-      }
-      scheduleRecheck();
-      await ended;
+          writeUnavailable: async () => {
+            try {
+              await writeChatEvent(stream, {
+                type: 'run_unavailable',
+                message: '运行记录已不存在，或当前账户已无权读取该频道运行，已停止接收。',
+              });
+            } catch (err) {
+              context.log.warn({ err, runId }, 'channel run sse lost-access write failed');
+            }
+          },
+          labels: {
+            recheckFailed: 'channel run sse recheck failed',
+            writeFailed: 'channel run sse write failed',
+            subscribeFailed: 'channel run sse subscribe failed',
+            guardFailed: 'channel run sse membership check failed',
+          },
+        },
+      });
     });
   });
 }
