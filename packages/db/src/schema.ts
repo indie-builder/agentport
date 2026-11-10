@@ -210,6 +210,10 @@ export const runtimeEnvironmentVersions = pgTable(
       'runtime_environment_versions_status_check',
       sql`${t.status} in ('queued', 'building', 'ready', 'failed')`,
     ),
+    check(
+      'runtime_environment_versions_ready_image_check',
+      sql`${t.status} <> 'ready' or ${t.imageId} is not null`,
+    ),
   ],
 );
 
