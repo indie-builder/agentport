@@ -18,7 +18,7 @@
 | [DECISIONS-PENDING.md](DECISIONS-PENDING.md) | 待决策与已决策事项（D- 编号） |
 | [OPERATIONS.md](OPERATIONS.md) | 部署、备份恢复、维护任务、故障排查、观测入口、压测 |
 | [RUNBOOK.md](RUNBOOK.md) | 故障处置手册 |
-| [FIRST-RUN.md](FIRST-RUN.md) | 首次跑起来的步骤 |
+| [FIRST-RUN.md](FIRST-RUN.md) | 历史首次部署实测记录（pnpm 时代；现行步骤见 [README](../README.md) / [OPERATIONS](OPERATIONS.md)） |
 | [SKILLS.md](SKILLS.md) | 项目适配、技能与插件更新 SOP |
 | [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) | OpenUI 组件契约、官方 spec 生成与升级行为回归 |
 | [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、Base UI 适配边界与项目令牌映射 |

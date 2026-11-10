@@ -23,4 +23,4 @@
 
 ## 验证
 
-schema/repo 改动跑 `bun run --filter @agentport/db typecheck` 与 `bun run test -- packages/db/src/test/<file>` 等相关后端套件。需要数据库的用例使用根 backend globalSetup 创建的隔离库，不写开发库；隔离方式与跳过条件见 [OPERATIONS](../../docs/OPERATIONS.md)。
+schema/repo 改动跑 `bun run --filter @agentport/db typecheck` 与 `bun run test -- packages/db/test/<file>` 等相关后端套件。需要数据库的用例使用根 backend globalSetup 创建的隔离库，不写开发库；隔离方式与跳过条件见 [OPERATIONS](../../docs/OPERATIONS.md)。

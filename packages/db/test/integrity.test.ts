@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
-import { createDb } from '../client.js';
-import { newId } from '../id.js';
-import * as chat from '../repo/chat.js';
-import * as evalRepo from '../repo/eval.js';
-import * as maintenance from '../repo/maintenance.js';
-import { agentRuns, agents, conversations } from '../schema.js';
+import { createDb } from '../src/client.js';
+import { newId } from '../src/id.js';
+import * as chat from '../src/repo/chat.js';
+import * as evalRepo from '../src/repo/eval.js';
+import * as maintenance from '../src/repo/maintenance.js';
+import { agentRuns, agents, conversations } from '../src/schema.js';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('请通过 bun run test 注入隔离的 DATABASE_URL');
