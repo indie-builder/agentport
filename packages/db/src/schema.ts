@@ -1237,10 +1237,18 @@ export const memoryReviews = pgTable(
     decision: text('decision', { enum: ['pending', 'applied', 'rejected'] })
       .notNull()
       .default('pending'),
-    appliedChangeId: text('applied_change_id'),
+    appliedChangeId: text('applied_change_id').references(() => memoryChanges.id, {
+      onDelete: 'cascade',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('memory_reviews_business_request_idx').on(t.businessId, t.requestKey)],
+  (t) => [
+    uniqueIndex('memory_reviews_business_request_idx').on(t.businessId, t.requestKey),
+    check(
+      'memory_reviews_applied_change_check',
+      sql`(${t.decision} = 'applied') = (${t.appliedChangeId} is not null)`,
+    ),
+  ],
 );
 
 /** 记忆变更账本：采纳提案或撤销时各写一行，before/after 保留完整快照。 */
