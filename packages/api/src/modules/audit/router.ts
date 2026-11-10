@@ -12,6 +12,7 @@ export function toItem(row: AuditRow) {
   return {
     id: row.id,
     actor: row.actor,
+    actorKind: row.actorKind,
     action: row.action,
     target: row.target,
     status: row.status,

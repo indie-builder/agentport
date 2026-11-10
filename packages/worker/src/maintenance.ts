@@ -66,6 +66,7 @@ export async function runMaintenance(
 
   await repo.audit.writeAudit(db, logger, {
     actor: 'worker',
+    actorKind: 'service',
     action: 'maintenance.pruned',
     target: JSON.stringify(summary),
     status: 'ok',

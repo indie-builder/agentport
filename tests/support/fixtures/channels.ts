@@ -75,8 +75,14 @@ export async function runCount(channelId: string) {
 
 export async function runs(channelId: string) {
   return sql<
-    { conversation_id: string; status: string }[]
-  >`select conversation_id, status from agent_runs where channel_id = ${channelId} order by created_at asc`;
+    { id: string; conversation_id: string; status: string }[]
+  >`select id, conversation_id, status from agent_runs where channel_id = ${channelId} order by created_at asc`;
+}
+
+export async function channelMessageAudits(channelId: string) {
+  return sql<
+    { actor: string; actor_kind: string; action: string; target: string }[]
+  >`select a.actor, a.actor_kind, a.action, a.target from audit_log a join channel_messages m on a.target = m.id where m.channel_id = ${channelId} order by a.created_at asc`;
 }
 
 export async function laneCount(channelId: string, agentId: string) {

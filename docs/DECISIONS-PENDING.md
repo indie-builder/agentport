@@ -673,7 +673,7 @@
 
 **依据**：Slack/Teams/Discord/Linear/GitHub Copilot/Claude Tag 等产品做法、OpenAI Agents SDK/AutoGen/CrewAI/LangGraph/Devin 等框架做法与当前代码现状三路调研汇合；市场证据与逐项理由见 docs/research/channel-architecture-review-2026-11-08.md 第 9 节。关键判断：显式编排优于自由群聊；并行单位是 task/session + 独立工作区；审批需展示参数并记双身份；shared 记忆不等于全局可读；socket proxy 不是多租户边界。
 
-**状态**：CH-04 已实现（channel_wakes 事务性 outbox、agent_runs 触发唯一索引、请求路径同步派发 + 启动/30 秒扫尾恢复）。CH-12 已实现，包括 `approval_requests.arguments_summary`、频道写操作审计、agent actor_kind 审计、以及频道审批卡展示脱敏参数；频道级独立 token 与授权收敛仍归 CH-17。CH-11 已实现（频道 run 详情、提问回答、成果列表/预览/下载、终态 system 记录与 SSE 发布）；CH-02 已实现（频道 run 强制专家记忆只读，私有 run 不受影响）；CH-14 已实现（频道绑定 paused 死状态删除；@all 保留并补频道设置「响应 @all」开关与输入区「通知全部（N）」人工确认入口；显式 mentions 与 mentionAll 并集超 5 整条拒绝且不落库），下一项为 CH-17 最小版。只读不阻止频道 run 读取专家目录，私有 run 写入的记忆仍可能出现在频道回答中。其余项按上述顺序排期。`run.error`、`sessionId`、`sandboxId` 等诊断字段当前对频道成员可见，D-21 对外前需先脱敏。D-21 仍为「暂不对外」，本决定不改变对外程度。
+**状态**：CH-04 已实现（channel_wakes 事务性 outbox、agent_runs 触发唯一索引、请求路径同步派发 + 启动/30 秒扫尾恢复）。CH-12 已实现，包括 `approval_requests.arguments_summary`、频道写操作审计、agent actor_kind 审计、以及频道审批卡展示脱敏参数；频道级独立 token 仍归 CH-17 的 D-21 对外条件。CH-11 已实现（频道 run 详情、提问回答、成果列表/预览/下载、终态 system 记录与 SSE 发布）；CH-02 已实现（频道 run 强制专家记忆只读，私有 run 不受影响）；CH-14 已实现（频道绑定 paused 死状态删除；@all 保留并补频道设置「响应 @all」开关与输入区「通知全部（N）」人工确认入口；显式 mentions 与 mentionAll 并集超 5 整条拒绝且不落库）；CH-17 最小版已实现（审计列表与导出返回 agent 主体，web 审计详情展示主体类型；成员触发即授权保持现状，不做频道级独立 token），下一项为 D-21 对外前的完整身份评估。只读不阻止频道 run 读取专家目录，私有 run 写入的记忆仍可能出现在频道回答中。其余项按上述顺序排期。`run.error`、`sessionId`、`sandboxId` 等诊断字段当前对频道成员可见，D-21 对外前需先脱敏。D-21 仍为「暂不对外」，本决定不改变对外程度。
 
 ---
 

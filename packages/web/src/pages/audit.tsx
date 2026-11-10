@@ -27,6 +27,13 @@ import { useAudit } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
 
+const actorKindLabel: Record<AuditEntry['actorKind'], string> = {
+  user: '用户',
+  service: '服务',
+  anonymous: '匿名',
+  agent: '智能体',
+};
+
 const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'all', label: '全部状态' },
   { value: 'ok', label: '成功' },
@@ -106,6 +113,8 @@ function auditDetails(row: AuditEntry) {
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
       <dt className="text-muted-foreground">操作者</dt>
       <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{row.actor}</dd>
+      <dt className="text-muted-foreground">主体类型</dt>
+      <dd className="min-w-0 text-fg">{actorKindLabel[row.actorKind]}</dd>
       <dt className="text-muted-foreground">事件 ID</dt>
       <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{row.id}</dd>
       <dt className="text-muted-foreground">输入摘要</dt>

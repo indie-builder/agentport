@@ -23,6 +23,7 @@ function entry(id: string, patch: Partial<AuditEntry> = {}): AuditEntry {
   return {
     id,
     actor: `actor-${id}`,
+    actorKind: 'user',
     action: 'agent.create',
     target: null,
     status: 'ok',
@@ -173,6 +174,7 @@ describe('audit row details', () => {
     );
     expect(toggle('audit_aaa').getAttribute('aria-expanded')).toBe('true');
     expect(detailValue(opened, '操作者')).toBe('admin');
+    expect(detailValue(opened, '主体类型')).toBe('用户');
     expect(detailValue(opened, '事件 ID')).toBe('audit_aaa');
     expect(detailValue(opened, '输入摘要')).toBe(DIGEST);
     expect(toggle('audit_bbb').getAttribute('aria-expanded')).toBe('false');

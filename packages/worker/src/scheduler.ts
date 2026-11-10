@@ -51,7 +51,14 @@ async function audit(
   status: 'ok' | 'error',
   input?: unknown,
 ): Promise<void> {
-  await repo.audit.writeAudit(db, logger, { actor: 'worker', action, target, status, input });
+  await repo.audit.writeAudit(db, logger, {
+    actor: 'worker',
+    actorKind: 'service',
+    action,
+    target,
+    status,
+    input,
+  });
 }
 
 /** 提交后的入队最多重试 3 次；最终失败只动仍 queued 的运行。 */

@@ -3,6 +3,8 @@ import { contractProcedure } from './base.js';
 
 export const auditStatusSchema = z.enum(['ok', 'error', 'denied']);
 
+export const auditActorKindSchema = z.enum(['user', 'service', 'anonymous', 'agent']);
+
 export const auditQuerySchema = z.object({
   action: z.string().trim().max(100).optional(),
   status: auditStatusSchema.optional(),
@@ -15,6 +17,7 @@ export const auditQuerySchema = z.object({
 export const auditItemSchema = z.object({
   id: z.string(),
   actor: z.string(),
+  actorKind: auditActorKindSchema,
   action: z.string(),
   target: z.string().nullable(),
   status: z.string().pipe(auditStatusSchema),

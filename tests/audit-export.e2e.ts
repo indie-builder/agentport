@@ -106,6 +106,7 @@ test('target filter narrows the list and the export', { session: 'admin' }, asyn
     expect(Object.keys(body.items[0] ?? {}).sort()).toEqual([
       'action',
       'actor',
+      'actorKind',
       'createdAt',
       'durationMs',
       'id',
