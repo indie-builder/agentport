@@ -439,6 +439,7 @@ describe('approval final refresh', () => {
       serverName: 'A',
       toolName: 'write',
       approvedAt: null,
+      deniedAt: null,
       createdAt: '',
     };
     vi.mocked(api.runApprovals).mockResolvedValue({ items: [approval] });
@@ -468,6 +469,7 @@ describe('approval final refresh', () => {
       serverName: 'A',
       toolName: 'write',
       approvedAt: null,
+      deniedAt: null,
       createdAt: '',
     };
     vi.mocked(api.runApprovals).mockResolvedValue({ items: [approval] });
@@ -520,6 +522,7 @@ describe('approval final refresh', () => {
       serverName: 'A',
       toolName: 'write',
       approvedAt: null,
+      deniedAt: null,
       createdAt: '',
     };
     vi.spyOn(api, 'sendChat').mockResolvedValue({

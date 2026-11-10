@@ -28,12 +28,16 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
       const approvals = trustedRunId
         ? await repo.runs.getApprovedToolNames(app.db, trustedRunId, serverId)
         : [];
+      const denied = trustedRunId
+        ? await repo.runs.getDeniedToolNames(app.db, trustedRunId, serverId)
+        : [];
       return buildGeneratedServer({
         name: server.name,
         baseUrl: server.baseUrl,
         headers: server.headers,
         tools,
         approvals,
+        denied,
         nodeEnv: app.config.NODE_ENV,
         // 只有真实 run 才挂起等待：外部客户端没有页面可批准，立即拒绝更诚实。
         ...(trustedRunId === null ? {} : { approvalWaitMs: app.config.APPROVAL_WAIT_MS }),
@@ -42,6 +46,7 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
           : {
               refreshApprovals: () =>
                 repo.runs.getApprovedToolNames(app.db, trustedRunId, serverId),
+              refreshDenied: () => repo.runs.getDeniedToolNames(app.db, trustedRunId, serverId),
               // run 结束后挂起的调用要立刻停下，不能等批准或把请求发到上游。
               // running 的取消只发 Redis 信号，终态由 worker 收尾；等待方据此提前停止。
               isRunActive: async () =>

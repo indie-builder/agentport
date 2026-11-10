@@ -14,6 +14,7 @@ export interface ChannelApprovalItem {
   argumentsSummary: Record<string, unknown> | null;
   createdAt: Date;
   approvedAt: Date | null;
+  deniedAt: Date | null;
   expiresAt: Date | null;
 }
 
@@ -44,6 +45,7 @@ export async function listChannelApprovals(
       argumentsSummary: approvalRequests.argumentsSummary,
       createdAt: approvalRequests.createdAt,
       approvedAt: approvalRequests.approvedAt,
+      deniedAt: approvalRequests.deniedAt,
       expiresAt: approvalRequests.expiresAt,
     })
     .from(approvalRequests)
@@ -55,6 +57,7 @@ export async function listChannelApprovals(
         eq(agentRuns.channelId, input.channelId),
         inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         isNull(approvalRequests.approvedAt),
+        isNull(approvalRequests.deniedAt),
         or(isNull(approvalRequests.expiresAt), gt(approvalRequests.expiresAt, new Date())),
       ),
     )
@@ -99,6 +102,7 @@ export async function approveChannelApproval(
         argumentsSummary: approvalRequests.argumentsSummary,
         createdAt: approvalRequests.createdAt,
         approvedAt: approvalRequests.approvedAt,
+        deniedAt: approvalRequests.deniedAt,
         expiresAt: approvalRequests.expiresAt,
       })
       .from(approvalRequests)
@@ -130,7 +134,9 @@ export async function approveChannelApproval(
     if (!isActiveRunStatus(run.status)) {
       return { kind: 'conflict', reason: 'run_inactive' };
     }
-    if (approval.approvedAt !== null) return { kind: 'conflict', reason: 'decided' };
+    if (approval.approvedAt !== null || approval.deniedAt !== null) {
+      return { kind: 'conflict', reason: 'decided' };
+    }
     if (approval.expiresAt !== null && approval.expiresAt.getTime() <= Date.now()) {
       return { kind: 'conflict', reason: 'expired' };
     }
@@ -143,6 +149,7 @@ export async function approveChannelApproval(
           eq(approvalRequests.id, input.approvalId),
           eq(approvalRequests.channelId, input.channelId),
           isNull(approvalRequests.approvedAt),
+          isNull(approvalRequests.deniedAt),
         ),
       )
       .returning({
@@ -155,6 +162,7 @@ export async function approveChannelApproval(
         createdAt: approvalRequests.createdAt,
         approvedAt: approvalRequests.approvedAt,
         approvedByBusinessId: approvalRequests.approvedByBusinessId,
+        deniedAt: approvalRequests.deniedAt,
         expiresAt: approvalRequests.expiresAt,
       });
     // 锁 run 后仍可能读到旧快照：CAS 落空说明另一事务已决定，按输家处理。

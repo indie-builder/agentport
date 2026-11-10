@@ -600,6 +600,7 @@ describe('confirmed chat UX defects', () => {
       serverName: null,
       toolName: 'write',
       approvedAt: null,
+      deniedAt: null,
       createdAt: '',
     }));
     vi.mocked(api.runApprovals).mockResolvedValue({ items: approvals });

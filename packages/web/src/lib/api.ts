@@ -963,6 +963,8 @@ export const api = {
     rpc.runs.approvals({ params: { id: runId } }),
   approveRun: (runId: string, serverId: string, toolName: string) =>
     rpc.runs.approve({ params: { id: runId }, body: { serverId, toolName } }),
+  denyRun: (runId: string, serverId: string, toolName: string) =>
+    rpc.runs.deny({ params: { id: runId }, body: { serverId, toolName } }),
 
   agents: (): Promise<AgentSummary[]> => rpc.agents.list({}),
   agent: (id: string, signal?: AbortSignal): Promise<Agent> =>

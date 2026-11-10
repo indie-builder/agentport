@@ -59,8 +59,13 @@ export const runsMainRouter = {
         toolName: row.toolName,
         createdAt: row.createdAt.toISOString(),
         approvedAt: row.approvedAt === null ? null : row.approvedAt.toISOString(),
+        deniedAt: toIso(row.deniedAt),
         expiresAt: toIso(row.expiresAt),
-        waiting: row.approvedAt === null && row.expiresAt !== null && row.expiresAt.getTime() > now,
+        waiting:
+          row.approvedAt === null &&
+          row.deniedAt === null &&
+          row.expiresAt !== null &&
+          row.expiresAt.getTime() > now,
       })),
     };
   }),
@@ -87,6 +92,37 @@ export const runsMainRouter = {
       toolName: approved.toolName,
       approvedAt: approved.approvedAt.toISOString(),
       waiting: approved.waiting,
+    };
+  }),
+  deny: os.deny.handler(async ({ input, context }) => {
+    const { serverId, toolName } = input.body;
+    await authorizeRun(context, input.params.id, 'runs.approve');
+    const denied = await runsRepo.denyTool(
+      context.db,
+      input.params.id,
+      serverId,
+      toolName,
+      actorOf(context),
+    );
+    if (!denied) {
+      return fail(
+        'APPROVAL_NOT_FOUND',
+        '这次工具调用没有待处理记录；它可能已批准、已拒绝或已失效，请刷新后重试',
+      );
+    }
+    await repo.audit.writeAudit(context.db, context.log, {
+      actor: actorOf(context),
+      action: 'agent.run.denied',
+      target: input.params.id,
+      input: { serverId: denied.serverId, toolName: denied.toolName },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return {
+      serverId: denied.serverId,
+      toolName: denied.toolName,
+      deniedAt: denied.deniedAt.toISOString(),
+      waiting: denied.waiting,
     };
   }),
   skillDraft: os.skillDraft.handler(async ({ input, context }) => {

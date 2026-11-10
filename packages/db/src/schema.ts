@@ -825,7 +825,7 @@ export const runQuestions = pgTable(
 );
 
 /**
- * 结构化的工具审批。行在工具被拒绝时由 MCP 端点写入（pending），用户批准后置 approved_at。
+ * 结构化的工具审批。行在工具被拒绝时由 MCP 端点写入（pending），用户批准或拒绝后置 approved_at / denied_at。
  * (run_id, server_id, tool_name) 唯一，审批因此不会跨 server 复用。
  * 生成式 UI 的工具调用没有 run：这些行 run_id 为空，改挂 conversation_id。
  */
@@ -854,9 +854,15 @@ export const approvalRequests = pgTable(
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     /** 频道内批准人的业务 ID；不是外键，与现有审计列保持同样的纯文本身份。 */
     approvedByBusinessId: text('approved_by_business_id'),
+    deniedAt: timestamp('denied_at', { withTimezone: true }),
+    deniedByBusinessId: text('denied_by_business_id'),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
   (t) => [
+    check(
+      'approval_requests_decision_check',
+      sql`not (${t.approvedAt} is not null and ${t.deniedAt} is not null)`,
+    ),
     uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName),
     // 同一会话对同一 server 工具只保留一条待批/已批记录；run 级行不受影响。
     uniqueIndex('approval_requests_openui_idx')

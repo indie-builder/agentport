@@ -400,6 +400,13 @@
       "when": 1794270542650,
       "tag": "0056_lonely_siren",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794282402889,
+      "tag": "0057_fancy_sumo",
+      "breakpoints": true
     }
   ]
 }

@@ -257,7 +257,7 @@
 | 能力 | 状态 | 证据 |
 |---|---|---|
 | 预览脱敏 | ✅ | 密钥值显示 `<已配置>`；generated 的 Authorization 运行时注入 |
-| 结构化工具审批 | ✅ | `approval_requests(run_id, server_id, tool_name)`；`POST /api/runs/:id/approve`；UI 改读 `/api/runs/:id/approvals` |
+| 结构化工具审批 | ✅ | `approval_requests(run_id, server_id, tool_name)`；`POST /api/runs/:id/approve` 与 `POST /api/runs/:id/deny`；UI 改读 `/api/runs/:id/approvals` |
 | 日志/落库脱敏 | ✅ | `redactSecrets` 覆盖 Bearer/sk-/ghp_/`KEY=value`/长 base64url；stderr 降为 debug |
 | 输出上限 | ✅ | 沙盒单字段默认 1 MiB（上限 1 MiB）；worker 单行 8 MiB；单 run 瞬时与落库各 2000 事件/32 MiB；UI 64 KB 折叠 |
 | 导入安全 | ✅ | 导入调用 `assertSafeUrl`；同名不同 kind 拒绝复用；写 `agent.imported` 审计 |

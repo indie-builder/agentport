@@ -1090,6 +1090,16 @@ export function useApproveRun() {
   });
 }
 
+export function useDenyRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { runId: string; serverId: string; toolName: string }) =>
+      api.denyRun(input.runId, input.serverId, input.toolName),
+    onSuccess: (_data, input) =>
+      void client.invalidateQueries({ queryKey: ['run-approvals', input.runId] }),
+  });
+}
+
 /** 取消排队中/运行中的运行；详情轮询会接着显示终态。 */
 export function useCancelRun() {
   const client = useQueryClient();
