@@ -435,6 +435,13 @@
       "when": 1794321573864,
       "tag": "0061_cuddly_pretty_boy",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794323176343,
+      "tag": "0062_pale_albert_cleary",
+      "breakpoints": true
     }
   ]
 }
