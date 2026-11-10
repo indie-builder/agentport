@@ -1,0 +1,2 @@
+ALTER TABLE "eval_runs" ADD CONSTRAINT "eval_runs_counts_check" CHECK ("eval_runs"."total" >= 0 and "eval_runs"."passed" >= 0 and "eval_runs"."passed" <= "eval_runs"."total");--> statement-breakpoint
+ALTER TABLE "user_preferences" ADD CONSTRAINT "user_preferences_revision_check" CHECK ("user_preferences"."revision" >= 0);

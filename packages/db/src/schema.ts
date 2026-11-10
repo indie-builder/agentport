@@ -955,6 +955,10 @@ export const evalRuns = pgTable(
       'eval_runs_status_check',
       sql`${t.status} in ('running', 'succeeded', 'failed', 'cancelled')`,
     ),
+    check(
+      'eval_runs_counts_check',
+      sql`${t.total} >= 0 and ${t.passed} >= 0 and ${t.passed} <= ${t.total}`,
+    ),
     // 同一智能体同时最多一个在跑的评估；DB 层兜底 API 的 409 检查并发竞态。
     uniqueIndex('eval_runs_agent_running_idx').on(t.agentId).where(eq(t.status, 'running')),
   ],
@@ -1205,12 +1209,16 @@ export const outputShares = pgTable(
 );
 
 /** 个人记忆：唯一一行文本，revision 做乐观并发控制；空内容时行可以不存在。 */
-export const userPreferences = pgTable('user_preferences', {
-  businessId: text('business_id').primaryKey(),
-  content: text('content').notNull().default(''),
-  revision: integer('revision').notNull().default(0),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const userPreferences = pgTable(
+  'user_preferences',
+  {
+    businessId: text('business_id').primaryKey(),
+    content: text('content').notNull().default(''),
+    revision: integer('revision').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('user_preferences_revision_check', sql`${t.revision} >= 0`)],
+);
 
 /**
  * 记忆审核：一次审核对应一条运行（runId 即主键），提案由模型生成、用户决定是否采纳。
