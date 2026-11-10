@@ -19,7 +19,7 @@ import {
   validateMemoryContent,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
@@ -425,15 +425,7 @@ export const memoryReviewsRouter = os.router({
         { jobId: review.runId, attempts: 1, removeOnComplete: 100, removeOnFail: 200 },
       );
     } catch {
-      await context.db
-        .update(schema.agentRuns)
-        .set({
-          status: 'failed',
-          endedAt: new Date(),
-          error: '记忆审核入队失败，请稍后重试。',
-          errorKind: 'infra',
-        })
-        .where(and(eq(schema.agentRuns.id, review.runId), eq(schema.agentRuns.status, 'queued')));
+      await context.db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, review.runId));
       fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
     }
 
