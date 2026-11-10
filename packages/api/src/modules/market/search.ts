@@ -1,5 +1,6 @@
 import { fail } from '@agentport/core';
 import type { MarketSkill } from '@agentport/shared';
+import { readCappedText } from './fetch-body.js';
 
 // shortcut: CLI 在用的公开搜索接口；官方 /api/v1 需 Vercel OIDC，上游收紧时再切。
 const SEARCH_URL = 'https://skills.sh/api/search';
@@ -43,7 +44,8 @@ export async function searchMarket(q: string): Promise<MarketSkill[]> {
       await response.body?.cancel();
       throw new Error(`skills.sh responded ${response.status}`);
     }
-    const body = (await response.json()) as { skills?: unknown };
+    const text = await readCappedText(response, '技能市场搜索响应超过大小限制');
+    const body = JSON.parse(text) as { skills?: unknown };
     if (!Array.isArray(body.skills)) throw new Error('unexpected search response');
     const data = body.skills.map(toSkill).filter((skill): skill is MarketSkill => skill !== null);
     cache.set(q, { at: Date.now(), data });
