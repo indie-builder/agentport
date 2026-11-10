@@ -637,4 +637,4 @@
 
 - **现象**：全量 `bun run test` 时，`packages/api/test/agent-package-zip.test.ts` 与 `packages/worker/test/run-pending-finish.test.ts` 的 afterAll 报 `agents_parent_id_agents_id_fk` 违反。
 - **原因**：`agents.parent_id` 是 `onDelete: 'restrict'`；测试清理按 slug/id 批量删除专家时不保证先删子专家，先删父专家会被数据库拒绝。
-- **规避**：测试清理先删 `parent_id is not null` 的子专家，再删其余专家；worker 测试的清理数组按「子在前、父在后」入栈，不要只依赖单条 `delete from agents where slug = any(...)`。
+- **规避**：测试清理先按 `parent_id` 删除目标 slug 专家的直接子专家，再删除目标专家；worker 测试的清理数组按「子在前、父在后」入栈，不要只依赖单条 `delete from agents where slug = any(...)`。

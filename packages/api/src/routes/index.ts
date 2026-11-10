@@ -81,7 +81,7 @@ const bodyLimits: ReadonlyArray<{ route: RegExp; maxSize: number }> = [
   },
   {
     route: /^POST \/api\/knowledge\/bases\/[^/]+\/faqs\/import$/,
-    maxSize: FAQ_MAX_BYTES * 2,
+    maxSize: FAQ_MAX_BYTES * 8 + 1024,
   },
 ];
 
