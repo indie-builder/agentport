@@ -2365,14 +2365,18 @@ export async function publishFaqImport(
       if (!metadata) throw new AppError('CONFLICT', 'FAQ 导入元数据缺失');
       const version = versionById.get(item.versionId);
       if (!version) throw new AppError('NOT_FOUND', 'FAQ 草稿版本不存在');
+      const current = documentById.get(item.documentId);
+      const manualDisabled =
+        current?.status === 'disabled' && current.disabledReason === 'manual';
+      const enabled = manualDisabled ? false : metadata.enabled;
       const [row] = await tx
         .update(knowledgeDocuments)
         .set({
           currentVersionId: item.versionId,
           // 切指针同时更新正文指纹，避免沿用上一版 contentHash。
           contentHash: version.blobSha256,
-          status: metadata.enabled ? 'ready' : 'disabled',
-          disabledReason: metadata.enabled ? null : 'manual',
+          status: enabled ? 'ready' : 'disabled',
+          disabledReason: enabled ? null : 'manual',
           updatedAt: new Date(),
         })
         .where(eq(knowledgeDocuments.id, item.documentId))
