@@ -1161,6 +1161,19 @@ const worker = new Worker(
 
       // DB 已提交的投影才是权威；Redis 只负责唤醒，失败不改变运行结果。
       if (projectedChannelMessage !== undefined) {
+        await repo.audit.writeAudit(db, logger, {
+          actor: agentId,
+          actorKind: 'agent',
+          action: 'channel.message.posted',
+          target: projectedChannelMessage.id,
+          input: {
+            channelId: projectedChannelMessage.channelId,
+            runId,
+            seq: projectedChannelMessage.seq,
+          },
+          status: 'ok',
+          dedupeKey: `aud_chmsg_${projectedChannelMessage.id.slice(4)}`,
+        });
         await publishChannelEventSafely(
           projectedChannelMessage.channelId,
           {

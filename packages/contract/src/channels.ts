@@ -27,6 +27,7 @@ const channelApprovalSchema = z.object({
   serverId: z.string(),
   serverName: z.string().nullable(),
   toolName: z.string(),
+  argumentsSummary: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.string(),
   approvedAt: z.string().nullable(),
   expiresAt: z.string().nullable(),

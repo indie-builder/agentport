@@ -9,7 +9,7 @@ export type AuditStatus = 'ok' | 'error' | 'denied';
 export interface AuditEvent {
   actor?: string;
   /** user 的 actor 是 businessId；service/anonymous 使用明确标识。 */
-  actorKind?: 'user' | 'service' | 'anonymous';
+  actorKind?: 'user' | 'service' | 'anonymous' | 'agent';
   /** 跨用户读取时的目标业务身份。 */
   subjectBusinessId?: string;
   action: string;
@@ -87,7 +87,7 @@ export interface AuditQuery {
 export interface AuditEntry {
   id: string;
   actor: string;
-  actorKind: 'user' | 'service' | 'anonymous';
+  actorKind: 'user' | 'service' | 'anonymous' | 'agent';
   subjectBusinessId: string | null;
   action: string;
   target: string | null;

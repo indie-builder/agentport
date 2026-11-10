@@ -101,7 +101,11 @@ it('keeps the execution pool free while calls wait for approval', async () => {
   expect(fifth.isError).toBe(true);
   expect(JSON.stringify(fifth.content)).toContain('需要批准');
   expect(onApprovalRequired).toHaveBeenCalledTimes(5);
-  expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', null);
+  expect(onApprovalRequired).toHaveBeenLastCalledWith(
+    'approve-tool',
+    expect.any(Object),
+    null,
+  );
 
   const results = await Promise.all(waiting);
   for (const result of results) expect(result.isError).toBe(true);
@@ -136,7 +140,11 @@ it('releases the wait slot when a suspended call ends', async () => {
   // 名额已归还：下一次调用重新进入挂起，而不是继续走立即拒绝。
   const call = handler('approve-tool')({}, { mcpReq: { signal } });
   await waitForAssertion(() =>
-    expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', expect.any(Date)),
+    expect(onApprovalRequired).toHaveBeenLastCalledWith(
+      'approve-tool',
+      expect.any(Object),
+      expect.any(Date),
+    ),
   );
   await call;
 });

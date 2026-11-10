@@ -28,7 +28,11 @@ export interface GeneratedServerInput {
    * 拒绝时持久化结构化审批请求，供 UI 读取；无 run 上下文时不传。
    * expiresAt 是这次调用的等待截止时刻，立即拒绝时为 null。
    */
-  onApprovalRequired?: (toolName: string, expiresAt: Date | null) => Promise<void>;
+  onApprovalRequired?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    expiresAt: Date | null,
+  ) => Promise<void>;
   /**
    * 等待人类批准的时长（D-18）。设置后，未批准的工具调用会挂起而不是立即失败：
    * 模型看到的是"这次工具调用比较慢"，批准后同一次调用直接拿到结果，
@@ -66,6 +70,7 @@ type ApprovalOutcome = 'approved' | 'timeout' | 'cancelled';
  */
 async function waitForApproval(
   toolName: string,
+  args: Record<string, unknown>,
   input: GeneratedServerInput,
   waitMs: number,
   signal: AbortSignal,
@@ -74,7 +79,7 @@ async function waitForApproval(
   if (signal.aborted) return 'cancelled';
   if (input.isRunActive && !(await input.isRunActive())) return 'cancelled';
   if (signal.aborted) return 'cancelled';
-  await input.onApprovalRequired?.(toolName, new Date(deadline));
+  await input.onApprovalRequired?.(toolName, args, new Date(deadline));
   while (Date.now() < deadline) {
     try {
       await sleep(APPROVAL_POLL_MS, undefined, { signal });
@@ -235,7 +240,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
               if (input.isRunActive && !(await input.isRunActive()))
                 return cancelledResult(tool.name);
               if (signal.aborted) return cancelledResult(tool.name);
-              await input.onApprovalRequired?.(tool.name, null);
+              await input.onApprovalRequired?.(tool.name, args, null);
               return {
                 isError: true,
                 content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],
@@ -244,7 +249,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
             // 真暂停：这次调用挂起，批准后继续执行，模型无需重试。
             // 等待名额是独立的；满了就走立即拒绝，不能让挂起把执行链路堵死。
             const outcome = await tryApprovalWait(() =>
-              waitForApproval(tool.name, input, waitMs, signal),
+              waitForApproval(tool.name, args, input, waitMs, signal),
             );
             if (outcome.accepted) {
               if (outcome.value === 'cancelled') return cancelledResult(tool.name);
@@ -259,7 +264,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
               if (input.isRunActive && !(await input.isRunActive()))
                 return cancelledResult(tool.name);
               if (signal.aborted) return cancelledResult(tool.name);
-              await input.onApprovalRequired?.(tool.name, null);
+              await input.onApprovalRequired?.(tool.name, args, null);
               return {
                 isError: true,
                 content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],

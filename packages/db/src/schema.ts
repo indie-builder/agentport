@@ -849,6 +849,7 @@ export const approvalRequests = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
     toolName: text('tool_name').notNull(),
+    argumentsSummary: jsonb('arguments_summary').$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     /** 频道内批准人的业务 ID；不是外键，与现有审计列保持同样的纯文本身份。 */
@@ -982,7 +983,7 @@ export const auditLog = pgTable(
     id: text('id').primaryKey(),
     /** actor 为已认证 businessId；anonymous 时可在 metadata 记录脱敏用户名。 */
     actor: text('actor').notNull().default('system'),
-    actorKind: text('actor_kind', { enum: ['user', 'service', 'anonymous'] })
+    actorKind: text('actor_kind', { enum: ['user', 'service', 'anonymous', 'agent'] })
       .notNull()
       .default('service'),
     /** 跨用户读取的目标业务身份。 */
