@@ -5,20 +5,12 @@ import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { and, asc, count, eq, ilike, inArray, ne, or, type SQL } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../client.js';
 import { authAccounts, authSessions, authUsers, roles, userRoles } from '../schema.js';
-import { assertCanRemoveActiveAdmin, lockAdminMutation } from './access.js';
+import { assertCanRemoveActiveAdmin, lockAdminMutation, toSummary } from './access.js';
 import { hasBusinessHistory, listIdentities } from './identities.js';
 
 export { hasBusinessHistory, listIdentities };
 
 type AccountRow = typeof authUsers.$inferSelect;
-
-function toSummary(row: { id: string; name: string; systemKey: string | null }): RoleSummary {
-  return {
-    id: row.id,
-    name: row.name,
-    systemKey: row.systemKey as RoleSummary['systemKey'],
-  };
-}
 
 async function rolesFor(db: DbHandle, businessIds: string[]): Promise<Map<string, RoleSummary[]>> {
   const map = new Map<string, RoleSummary[]>();

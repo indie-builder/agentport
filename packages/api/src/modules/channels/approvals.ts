@@ -4,11 +4,9 @@ import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { toIso } from '../../lib/iso.js';
 
 const approvalsRepo = repo.channelApprovals;
-function toIso(value: Date | null): string | null {
-  return value === null ? null : value.toISOString();
-}
 function toItem(item: repo.channelApprovals.ChannelApprovalItem) {
   return {
     id: item.id,

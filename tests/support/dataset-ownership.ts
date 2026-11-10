@@ -1,4 +1,4 @@
-export type OwnershipResolution<T> =
+type OwnershipResolution<T> =
   | { kind: 'reuse'; entity: T }
   | { kind: 'create' }
   | { kind: 'conflict'; message: string };

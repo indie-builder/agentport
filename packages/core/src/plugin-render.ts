@@ -1,3 +1,4 @@
+import { isRecord } from './record.js';
 import type { WorkspacePlugin } from './workspace.js';
 
 export interface PluginRenderFile {
@@ -23,23 +24,19 @@ function parseObject(content: string): Record<string, unknown> | null {
   }
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** MCP server 名可写在 manifest 内联对象里，也可写在 `.mcp.json`；两处都算。 */
 function mcpServerNamesOf(
   mcpContent: string | undefined,
   manifest: Record<string, unknown> | null,
 ): string[] {
   const names = new Set<string>();
-  if (manifest !== null && isObject(manifest.mcpServers)) {
+  if (manifest !== null && isRecord(manifest.mcpServers)) {
     for (const name of Object.keys(manifest.mcpServers)) names.add(name);
   }
   if (mcpContent !== undefined) {
     const parsed = parseObject(mcpContent);
     const servers = parsed === null ? null : (parsed.mcpServers ?? parsed);
-    if (isObject(servers)) {
+    if (isRecord(servers)) {
       for (const name of Object.keys(servers)) names.add(name);
     }
   }

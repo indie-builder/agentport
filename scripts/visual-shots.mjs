@@ -320,15 +320,6 @@ async function waitForHealthy(services) {
   );
 }
 
-function slugify(route) {
-  const slug = route
-    .replace(/^\//, '')
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase();
-  return slug || 'root';
-}
-
 function buildBrowserProgram({
   baseUrl,
   routes,

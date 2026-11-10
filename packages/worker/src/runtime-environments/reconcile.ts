@@ -2,6 +2,7 @@ import { RUNTIME_ENVIRONMENT_BUILDS_QUEUE, runtimeBuildEnqueueOptions } from '@a
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
+import { queueState } from '../queue-state.js';
 import {
   RUNTIME_ENVIRONMENT_BUILD_JOB,
   RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS,
@@ -40,14 +41,6 @@ export interface RuntimeEnvironmentBuildQueueLike {
     data: { versionId: string },
     opts: ReturnType<typeof runtimeBuildEnqueueOptions>,
   ) => Promise<unknown>;
-}
-
-async function queueState(
-  queue: RuntimeEnvironmentBuildQueueLike,
-  id: string,
-): Promise<string | null> {
-  const job = await queue.getJob(id);
-  return job ? job.getState() : null;
 }
 
 /**

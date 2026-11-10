@@ -150,6 +150,11 @@ export class SourceAuthError extends Error {
   }
 }
 
+/** 撤权失败必须上抛，不能降级为单项失败。 */
+export function rethrowAuth(err: unknown): void {
+  if (err instanceof SourceAuthError) throw err;
+}
+
 function requestSignal(signal?: AbortSignal): AbortSignal {
   return signal
     ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)])
@@ -401,5 +406,21 @@ export function sourceFailure(externalId: string, title: string, err: unknown): 
     code: itemError?.code ?? 'fetch_failed',
     message: errorText(err).slice(0, 500),
     retryable: itemError?.retryable ?? true,
+  };
+}
+
+/** 截断是终态；其余错误按调用方给出的可重试性归类为 fetch_failed / unsupported_type。 */
+export function makeSourceFailure(
+  isTruncated: (err: unknown) => boolean,
+): (externalId: string, title: string, err: unknown, retryable: boolean) => SourceFailure {
+  return (externalId, title, err, retryable) => {
+    const truncated = isTruncated(err);
+    return {
+      externalId,
+      title,
+      code: truncated ? 'truncated' : retryable ? 'fetch_failed' : 'unsupported_type',
+      message: errorText(err).slice(0, 500),
+      retryable: truncated ? false : retryable,
+    };
   };
 }

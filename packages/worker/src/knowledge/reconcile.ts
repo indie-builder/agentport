@@ -4,6 +4,7 @@ import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import { queueState } from '../queue-state.js';
 import { KNOWLEDGE_TIMEOUT_MS } from './queue.js';
 
 const RECONCILE_MS = 5 * 60_000;
@@ -28,11 +29,6 @@ export interface KnowledgeQueueLike {
     data: { jobId: string },
     opts: ReturnType<typeof knowledgeEnqueueOptions>,
   ) => Promise<unknown>;
-}
-
-async function queueState(queue: KnowledgeQueueLike, id: string): Promise<string | null> {
-  const job = await queue.getJob(id);
-  return job ? job.getState() : null;
 }
 
 /**

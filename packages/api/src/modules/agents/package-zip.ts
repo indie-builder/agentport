@@ -44,12 +44,12 @@ function hasControlCharacter(value: string): boolean {
   return [...value].some((character) => (character.codePointAt(0) ?? 0) < 0x20);
 }
 
-function invalid(message: string, path?: string): never {
+export function invalid(message: string, path?: string): never {
   fail('INVALID_INPUT', message, path === undefined ? undefined : { path });
 }
 
 /** 包内路径必须是规范的相对 POSIX 路径；反斜杠、绝对路径与 .. 一律拒绝。 */
-function assertPackagePath(path: string): void {
+export function assertPackagePath(path: string): void {
   if (path.length === 0 || path.length > MAX_PATH_LENGTH) {
     invalid(`包内路径长度必须在 1-${MAX_PATH_LENGTH} 之间`, path);
   }

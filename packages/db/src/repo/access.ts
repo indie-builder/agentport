@@ -41,11 +41,14 @@ export async function lockAdminMutation(tx: Transaction): Promise<number> {
   return row?.revision ?? 0;
 }
 
-type RoleRow = typeof roles.$inferSelect;
 type MatrixRow = { roleId: string; permissionId: string; scope: string };
 
-function toSummary(row: RoleRow): RoleSummary {
-  return { id: row.id, name: row.name, systemKey: row.systemKey ?? null };
+export function toSummary(row: {
+  id: string;
+  name: string;
+  systemKey: RoleSummary['systemKey'];
+}): RoleSummary {
+  return { id: row.id, name: row.name, systemKey: row.systemKey };
 }
 
 function toGrant(row: MatrixRow): PermissionGrant {
