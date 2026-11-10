@@ -1165,6 +1165,12 @@ export const api = {
     id: string,
     input: { agentId: string; autoWakeOnAll?: boolean },
   ): Promise<ChannelAgentBinding> => rpc.channels.addAgent({ params: { id }, body: input }),
+  updateChannelAgent: (
+    id: string,
+    agentId: string,
+    input: { autoWakeOnAll: boolean },
+  ): Promise<ChannelAgentBinding> =>
+    rpc.channels.updateAgent({ params: { id, agentId }, body: input }),
   updateChannel: (
     id: string,
     input: { name?: string; description?: string | null },

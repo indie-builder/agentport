@@ -507,6 +507,44 @@ export async function addAgentBinding(
   });
 }
 
+export async function updateAgentBinding(
+  db: Database,
+  subject: ChannelSubject,
+  channelId: string,
+  agentId: string,
+  input: { autoWakeOnAll: boolean },
+): Promise<
+  | { kind: 'ok'; binding: ChannelAgentBindingRow }
+  | NotFound
+  | { kind: 'forbidden'; reason: 'channel_role' }
+> {
+  return db.transaction(async (tx) => {
+    const [channel] = await tx
+      .select({ id: channels.id })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .for('update');
+    if (!channel) return { kind: 'not_found', target: 'channel' };
+    const role = await channelMemberRole(tx, channelId, subject.businessId);
+    if (role === null) return { kind: 'not_found', target: 'channel' };
+    if (!allows(role, 'manage')) {
+      return { kind: 'forbidden', reason: 'channel_role' };
+    }
+    const [binding] = await tx
+      .update(channelAgentBindings)
+      .set({ autoWakeOnAll: input.autoWakeOnAll })
+      .where(
+        and(
+          eq(channelAgentBindings.channelId, channelId),
+          eq(channelAgentBindings.agentId, agentId),
+        ),
+      )
+      .returning();
+    if (!binding) return { kind: 'not_found', target: 'agent' };
+    return { kind: 'ok', binding };
+  });
+}
+
 export async function removeAgentBinding(
   db: Database,
   subject: ChannelSubject,

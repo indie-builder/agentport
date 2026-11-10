@@ -1,10 +1,17 @@
-import type { ChannelDetail, ChannelMember, ChannelMessage, ChannelRole } from '@agentport/shared';
+import {
+  CHANNEL_MAX_WAKE_AGENTS,
+  type ChannelDetail,
+  type ChannelMember,
+  type ChannelMessage,
+  type ChannelRole,
+} from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowLeft,
   CircleStop,
   Hash,
+  Megaphone,
   MessageSquare,
   ShieldAlert,
   SquareArrowOutUpRight,
@@ -21,6 +28,7 @@ import { AgentAvatar, type AgentDisplay } from '../components/agent-avatar.js';
 import { ChannelRunSheet } from '../components/channel-run-sheet.js';
 import { ChannelSettingsButton } from '../components/channel-settings.js';
 import { Composer, MessagePane } from '../components/chat-thread.js';
+import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
 import { RunQuestionCard } from '../components/run-question.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
@@ -147,10 +155,13 @@ function ChannelWorkspace({
     clientMessageId: string;
     body: string;
     mentionIds: string[];
+    notifyAll: boolean;
   } | null>(null);
   const [input, setInput] = useState('');
   const [caret, setCaret] = useState(0);
   const [mentions, setMentions] = useState<MentionTarget[]>([]);
+  const [notifyAll, setNotifyAll] = useState(false);
+  const [confirmingNotifyAll, setConfirmingNotifyAll] = useState(false);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [olderExhausted, setOlderExhausted] = useState(false);
@@ -175,6 +186,28 @@ function ChannelWorkspace({
       }),
     [agentById, channel.agentBindings],
   );
+  const autoWakeAgents = useMemo(
+    () =>
+      channel.agentBindings.flatMap((binding) => {
+        const agent = agentById.get(binding.agentId);
+        return binding.status === 'active' && agent?.enabled !== false && binding.autoWakeOnAll
+          ? [{ agentId: binding.agentId, name: agent?.name ?? shortId(binding.agentId) }]
+          : [];
+      }),
+    [agentById, channel.agentBindings],
+  );
+  const wakeLimitExceeded = autoWakeAgents.length > CHANNEL_MAX_WAKE_AGENTS;
+  const notifyTargets = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const agent of autoWakeAgents) names.set(agent.agentId, agent.name);
+    for (const target of mentions) names.set(target.agentId, target.name);
+    return [...names.values()];
+  }, [autoWakeAgents, mentions]);
+  const notifyLimitExceeded = notifyAll && notifyTargets.length > CHANNEL_MAX_WAKE_AGENTS;
+
+  useEffect(() => {
+    if (notifyAll && (autoWakeAgents.length === 0 || wakeLimitExceeded)) setNotifyAll(false);
+  }, [autoWakeAgents.length, notifyAll, wakeLimitExceeded]);
 
   const runAgent = useMemo(() => {
     const map = new Map<string, string>();
@@ -345,20 +378,20 @@ function ChannelWorkspace({
     }
   }, [channel.id, client, loadingOlder, stream.messages]);
 
-  const send = async (): Promise<void> => {
+  const sendMessage = async (mentionAll: boolean): Promise<void> => {
     const body = input.trim();
-    if (!body || !canPost) return;
     const mentionIds = pruneMentions(input, mentions);
     const pending = pendingSend.current;
     const clientMessageId =
       pending !== null &&
       pending.body === body &&
+      pending.notifyAll === mentionAll &&
       pending.mentionIds.length === mentionIds.length &&
       pending.mentionIds.every((id, index) => id === mentionIds[index])
         ? pending.clientMessageId
         : crypto.randomUUID();
     const sentMentions = mentions;
-    pendingSend.current = { clientMessageId, body, mentionIds };
+    pendingSend.current = { clientMessageId, body, mentionIds, notifyAll: mentionAll };
     const optimistic: ChannelMessage = {
       id: `local-${clientMessageId}`,
       channelId: channel.id,
@@ -377,11 +410,13 @@ function ChannelWorkspace({
     inputRef.current = '';
     setMentions([]);
     setMention(null);
+    setNotifyAll(false);
     try {
       const saved = await api.postChannelMessage(channel.id, {
         body,
         clientMessageId,
         ...(mentionIds.length === 0 ? {} : { mentions: mentionIds }),
+        ...(mentionAll ? { mentionAll: true } : {}),
       });
       if (pendingSend.current?.clientMessageId === clientMessageId) pendingSend.current = null;
       setMessages((previous) => mergeChannelMessages(previous, [saved]));
@@ -392,9 +427,25 @@ function ChannelWorkspace({
         setInput(body);
         inputRef.current = body;
         setMentions(sentMentions);
+        setNotifyAll(mentionAll);
       }
       toastError(error);
     }
+  };
+
+  const send = async (): Promise<void> => {
+    if (!input.trim() || !canPost) return;
+    if (notifyAll) {
+      if (notifyLimitExceeded) {
+        toastError(
+          new Error(`一次最多唤醒 ${CHANNEL_MAX_WAKE_AGENTS} 个智能体，请减少 @ 或关闭通知全部。`),
+        );
+        return;
+      }
+      setConfirmingNotifyAll(true);
+      return;
+    }
+    await sendMessage(false);
   };
 
   const mentionOptions = useMemo(() => {
@@ -631,6 +682,33 @@ function ChannelWorkspace({
             频道已关闭，历史消息仍可查看。
           </p>
         ) : null}
+        {canPost && autoWakeAgents.length > 0 ? (
+          <div className="mx-auto flex w-full max-w-220 shrink-0 flex-wrap items-center gap-2 px-6">
+            <Button
+              variant={notifyAll ? 'secondary' : 'outline'}
+              size="sm"
+              aria-pressed={notifyAll}
+              disabled={wakeLimitExceeded}
+              onClick={() => setNotifyAll((value) => !value)}
+            >
+              <Megaphone aria-hidden="true" />
+              通知全部（{autoWakeAgents.length}）
+            </Button>
+            {wakeLimitExceeded ? (
+              <span className="text-xs text-warning">
+                超过单次上限 {CHANNEL_MAX_WAKE_AGENTS} 个，请在频道设置中调整
+              </span>
+            ) : notifyAll && notifyLimitExceeded ? (
+              <span className="text-xs text-warning">
+                将唤醒 {notifyTargets.length} 个，超过单次上限 {CHANNEL_MAX_WAKE_AGENTS} 个
+              </span>
+            ) : notifyAll ? (
+              <span className="text-xs text-muted-foreground">
+                将唤醒 {notifyTargets.length} 个智能体
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <Composer
           agent={null}
           send={send}
@@ -653,6 +731,15 @@ function ChannelWorkspace({
           onValueChange={changeInput}
           onKeyDown={handleKeyDown}
           placeholder={canPost ? '输入消息，@ 智能体…' : '频道只读'}
+        />
+        <ConfirmDialog
+          open={confirmingNotifyAll}
+          onClose={() => setConfirmingNotifyAll(false)}
+          title="发送通知全部？"
+          description={`将唤醒 ${notifyTargets.length} 个智能体：${notifyTargets.join('、')}。`}
+          confirmLabel="发送"
+          tone="default"
+          onConfirm={() => sendMessage(true)}
         />
       </section>
 
@@ -1067,12 +1154,11 @@ function MentionMenu({
 }
 
 function bindingStatus(
-  status: 'active' | 'paused' | 'disconnected',
+  status: 'active' | 'disconnected',
   active: boolean,
   waiting: boolean,
 ): { label: string; dot: string } {
   if (status === 'disconnected') return { label: '已断开', dot: 'bg-subtle' };
-  if (status === 'paused') return { label: '已暂停', dot: 'bg-subtle' };
   if (waiting) return { label: '等待审批', dot: 'bg-warning' };
   if (active) return { label: '运行中', dot: 'bg-fg' };
   return { label: '空闲', dot: 'bg-subtle' };

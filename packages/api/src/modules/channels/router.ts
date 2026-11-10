@@ -355,6 +355,37 @@ export const channelsMainRouter = {
         return toBinding(result.binding);
     }
   }),
+  updateAgent: os.updateAgent.handler(async ({ input, context }) => {
+    const access = await channelRepo.getChannelManageAccess(
+      context.db,
+      subjectFor(context),
+      input.params.id,
+    );
+    if (access.kind === 'not_found') return notFound();
+    if (access.kind === 'forbidden') {
+      return forbidden('当前频道角色无权管理智能体绑定');
+    }
+    const result = await channelRepo.updateAgentBinding(
+      context.db,
+      subjectFor(context),
+      input.params.id,
+      input.params.agentId,
+      { autoWakeOnAll: input.body.autoWakeOnAll },
+    );
+    switch (result.kind) {
+      case 'not_found':
+        return result.target === 'agent' ? notFound('智能体绑定不存在') : notFound();
+      case 'forbidden':
+        return forbidden('当前频道角色无权管理智能体绑定');
+      case 'ok':
+        await auditWrite(context, {
+          action: 'channel.agent.updated',
+          target: input.params.id,
+          input: { agentId: input.params.agentId, autoWakeOnAll: input.body.autoWakeOnAll },
+        });
+        return toBinding(result.binding);
+    }
+  }),
   removeAgent: os.removeAgent.handler(async ({ input, context }) => {
     const result = await channelRepo.removeAgentBinding(
       context.db,

@@ -20,6 +20,7 @@ import {
   useRemoveChannelAgent,
   useRemoveChannelMember,
   useUpdateChannel,
+  useUpdateChannelAgent,
   useUpdateChannelMember,
 } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -43,6 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select.js';
+import { Switch } from './ui/switch.js';
 import { Textarea } from './ui/textarea.js';
 
 const ROLE_LABEL: Record<ChannelRole, string> = {
@@ -59,7 +61,6 @@ const ROLE_OPTIONS = (Object.keys(ROLE_LABEL) as ChannelRole[]).map((value) => (
 
 const BINDING_STATUS_LABEL: Record<ChannelAgentBinding['status'], string> = {
   active: '已启用',
-  paused: '已暂停',
   disconnected: '已断开',
 };
 
@@ -471,6 +472,7 @@ function AgentsSection({
   agents: { id: string; name: string; description: string; enabled: boolean }[];
 }) {
   const bind = useBindChannelAgent(channel.id);
+  const update = useUpdateChannelAgent(channel.id);
   const disconnect = useDisconnectChannelAgent(channel.id);
   const remove = useRemoveChannelAgent(channel.id);
   const [selected, setSelected] = useState<string | null>(null);
@@ -493,6 +495,7 @@ function AgentsSection({
           const disconnectingThis =
             disconnect.isPending && disconnect.variables === binding.agentId;
           const removingThis = remove.isPending && remove.variables === binding.agentId;
+          const updatingThis = update.isPending && update.variables?.agentId === binding.agentId;
           return (
             <li
               key={binding.agentId}
@@ -505,6 +508,29 @@ function AgentsSection({
               <Badge variant={binding.status === 'active' ? 'default' : 'outline'}>
                 {BINDING_STATUS_LABEL[binding.status]}
               </Badge>
+              <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                响应 @all
+                <Switch
+                  size="sm"
+                  checked={binding.autoWakeOnAll}
+                  disabled={binding.status === 'disconnected' || updatingThis}
+                  aria-label={`${label} 响应 @all`}
+                  onCheckedChange={(checked) =>
+                    update.mutate(
+                      { agentId: binding.agentId, autoWakeOnAll: checked },
+                      {
+                        onSuccess: () =>
+                          toastSuccess(
+                            checked
+                              ? `已开启「${label}」的 @all 响应`
+                              : `已关闭「${label}」的 @all 响应`,
+                          ),
+                        onError: (error) => toastError(error),
+                      },
+                    )
+                  }
+                />
+              </span>
               {binding.status !== 'disconnected' ? (
                 <Button
                   variant="outline"
@@ -530,6 +556,9 @@ function AgentsSection({
           );
         })}
       </ul>
+      <p className="text-xs text-muted-foreground">
+        开启「响应 @all」的智能体会被「通知全部」唤醒。
+      </p>
       {bindable.length > 0 ? (
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">

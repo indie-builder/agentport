@@ -64,7 +64,7 @@ async function addMember(
 async function bindAgent(
   channelId: string,
   agentId: string,
-  options: { status?: 'active' | 'paused' | 'disconnected'; autoWakeOnAll?: boolean } = {},
+  options: { status?: 'active' | 'disconnected'; autoWakeOnAll?: boolean } = {},
 ): Promise<void> {
   await db.insert(channelAgentBindings).values({
     channelId,
@@ -314,14 +314,14 @@ describe.skipIf(!ready)('channel lane admission', () => {
     expect(lanes).toHaveLength(1);
   });
 
-  it('rejects paused bindings, outsiders and viewers', async () => {
-    const pausedAgent = await makeAgent();
+  it('rejects disconnected bindings, outsiders and viewers', async () => {
+    const disconnectedAgent = await makeAgent();
     const channelId = await makeChannel();
-    await bindAgent(channelId, pausedAgent, { status: 'paused' });
+    await bindAgent(channelId, disconnectedAgent, { status: 'disconnected' });
     const posted = await post(channelId, owner, 'hi');
     if (posted.kind !== 'ok') throw new Error('post failed');
 
-    expect((await rejection(admit(channelId, pausedAgent, posted.message.id))).code).toBe(
+    expect((await rejection(admit(channelId, disconnectedAgent, posted.message.id))).code).toBe(
       'CONFLICT',
     );
 
@@ -427,15 +427,15 @@ describe.skipIf(!ready)('channel mentions', () => {
     expect(result.wakeAgentIds).toEqual([agentId]);
   });
 
-  it('rejects mentions that are paused, disabled or unknown and writes no message', async () => {
-    const paused = await makeAgent();
+  it('rejects mentions that are disconnected, disabled or unknown and writes no message', async () => {
+    const disconnected = await makeAgent();
     const disabled = await makeAgent(false);
     const missing = newId('agent');
     const channelId = await makeChannel();
-    await bindAgent(channelId, paused, { status: 'paused' });
+    await bindAgent(channelId, disconnected, { status: 'disconnected' });
     await bindAgent(channelId, disabled);
 
-    for (const [index, agentId] of [paused, disabled, missing].entries()) {
+    for (const [index, agentId] of [disconnected, disabled, missing].entries()) {
       const body = `invalid-${index}`;
       const result = await post(channelId, owner, body, { mentions: [agentId] });
       expect(result).toEqual({ kind: 'invalid_mentions' });
@@ -447,12 +447,12 @@ describe.skipIf(!ready)('channel mentions', () => {
     const optedIn = await makeAgent();
     const notOptedIn = await makeAgent();
     const disabled = await makeAgent(false);
-    const paused = await makeAgent();
+    const disconnected = await makeAgent();
     const channelId = await makeChannel();
     await bindAgent(channelId, optedIn, { autoWakeOnAll: true });
     await bindAgent(channelId, notOptedIn);
     await bindAgent(channelId, disabled, { autoWakeOnAll: true });
-    await bindAgent(channelId, paused, { autoWakeOnAll: true, status: 'paused' });
+    await bindAgent(channelId, disconnected, { autoWakeOnAll: true, status: 'disconnected' });
 
     const result = await post(channelId, owner, '@all', {
       mentionAll: true,
