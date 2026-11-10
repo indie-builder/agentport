@@ -20,7 +20,7 @@
 packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维护的组件定义）
         │  createOpenUiDefinitions(kit, renderers)
         ├─▶ packages/web/src/openui/library.tsx   注入 react-lang 原语 + shadcn 渲染器
-        │        │  官方 CLI：pnpm openui:spec
+        │        │  官方 CLI：bun run openui:spec
         │        ▼
         │   packages/core/src/generated/openui.spec.json   提交进仓库的 LibrarySpec
         │        │
@@ -30,7 +30,7 @@ packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维�
 
 - `definitions.ts` 是**每个字段照抄官方源码**的手写 Zod；不是从 JSON Schema 反编译。
   反编译会丢 `default`、`min(2)`、`z.record` 的值类型、`.refine` 语义与 `reactive()` 绑定标记。
-- `meta.ts`（组件名/描述/12 分组/提示词示例与 40 条规则）由 `pnpm openui:meta` 从官方包抽取。
+- `meta.ts`（组件名/描述/12 分组/提示词示例与 40 条规则）由 `bun run openui:meta` 从官方包抽取。
 - `openui.spec.json` 由官方 CLI 从真实 web 库生成，**提交进 git**；主构建只读。
 - 只有 `library.tsx` 和 `definitions.ts` 接触官方契约；core 只接触生成物。
 
@@ -47,20 +47,20 @@ packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维�
 
 ## 升级步骤
 
-0. **先跑两个自检**：`pnpm openui:check`（契约）与 `pnpm openui:audit`（行为证据缺口）。
+0. **先跑两个自检**：`bun run openui:check`（契约）与 `bun run openui:audit`（行为证据缺口）。
    - `openui:check` 证明真实 library、现场重生成的 spec、官方 schema/default/refine/reactive 与兼容范围一致，**不证明 UI 交互等价**。
    - `openui:audit` 输出 behavior / render / nested（可交互但尚未登记证据）/ missing 四类组件数；缺口本身不判失败，比较时须用同一范围（同一登记口径与同一批组件），既有范围**不应上升**；新增组件或能力可以带来明确登记的新缺口，写进记录即可，不算回归。数字下降才说明行为验证在收敛。
    - 升级后两条各再跑一次，从具体失败和缺口变化定位影响范围。
    - 再跑差分渲染测试，检查**已选场景与归一量**是否出现新分歧（不是覆盖全部交互的保证）：
-     `pnpm exec vitest run --config packages/web/vitest.config.ts packages/web/test/openui-renderer-parity.test.ts`
+     `bunx vitest run --config packages/web/vitest.config.ts packages/web/test/openui-renderer-parity.test.ts`
    - 该测试里 Range 展示用例分别使用官方 `Date` 快照与本地 ISO 字符串快照，这是唯一一处两端输入形状不同；其余用例共用同一份 `initialState`。
 1. **读官方变更**：https://github.com/thesysdev/openui 的 release/CHANGELOG；涉及 Lang 语法、组件签名、promptOptions 时同步看 https://www.openui.com/docs。
 2. **按兼容声明选择升级包**（本项目锁精确版本）。下列是各包的更新命令，只有本次确需变更的包才执行：
 
    ```bash
-   pnpm add -Dw @openuidev/react-ui@<新版本> @openuidev/cli@<新版本>
-   pnpm --filter @agentport/core add @openuidev/lang-core@<新版本>
-   pnpm --filter @agentport/web add @openuidev/react-lang@<新版本>
+   bun add -d @openuidev/react-ui@<新版本> @openuidev/cli@<新版本>
+   bun add --cwd packages/core @openuidev/lang-core@<新版本>
+   bun add --cwd packages/web @openuidev/react-lang@<新版本>
    ```
 
    `react-ui`（生成期）与 `react-lang`（运行期）版本号不同步是上游常态；
@@ -72,14 +72,14 @@ packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维�
 4. **重新生成**：
 
    ```bash
-   pnpm openui:spec     # meta.ts + official CLI → core/src/generated/openui.spec.json
+   bun run openui:spec     # meta.ts + official CLI → core/src/generated/openui.spec.json
    ```
 
 5. **看差异**：
 
    ```bash
-   pnpm openui:check
-   pnpm exec vitest run packages/core/test/openui-library.test.ts packages/core/test/openui-parse-parity.test.ts
+   bun run openui:check
+   bunx vitest run packages/core/test/openui-library.test.ts packages/core/test/openui-parse-parity.test.ts
    ```
 
    这两条会精确指出：哪个组件签名漂了、哪个默认值/约束/record 类型/refine 丢了、
@@ -140,7 +140,7 @@ packages/shared/src/openui/definitions.ts   真实 Zod 契约（唯一手工维�
 
 ## 不建议做的事
 
-- 不要手改 `packages/core/src/generated/openui.spec.json`（会被 `pnpm openui:spec` 覆盖，check 会红）。
+- 不要手改 `packages/core/src/generated/openui.spec.json`（会被 `bun run openui:spec` 覆盖，check 会红）。
 - 不要从官方 JSON Schema 反编译 Zod（丢失语义，已试过）。
 - 不要绕过依赖声明单独升级：按实际 dependency/peer 范围判断需要联动的包，并执行 spec 与行为检查；官方没有要求所有包同时更新。
 - 不要为「跟上新版」一次性重写渲染器；先让 `openui:check` 与对照测试告诉你差在哪。

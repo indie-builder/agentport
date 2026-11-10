@@ -4,7 +4,7 @@
 
 ## 1. 环境变量
 
-所有变量从进程环境读取；本地开发由 `--env-file-if-exists=../../.env` 或 compose 的 `env_file` 注入。下表的「必填」指进程启动时校验失败会直接退出。启动时校验的 schema 只有两个：`packages/api/src/config.ts`（api）与 `packages/worker/src/config.ts`（worker）；表里「读取方」列为「未被 schema 读取」的变量由代码直接读 `process.env` 或只由 compose/脚本使用。
+所有变量从进程环境读取；本地开发由 `bun --env-file=../../.env` 或 compose 的 `env_file` 注入（`--env-file` 指向的文件缺失时 Bun 静默跳过，随后由下方必填变量校验失败退出）。下表的「必填」指进程启动时校验失败会直接退出。启动时校验的 schema 只有两个：`packages/api/src/config.ts`（api）与 `packages/worker/src/config.ts`（worker）；表里「读取方」列为「未被 schema 读取」的变量由代码直接读 `process.env` 或只由 compose/脚本使用。
 
 ### 1.1 通用（api schema）
 
