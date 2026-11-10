@@ -116,6 +116,14 @@ export async function claimScheduleTrigger(
     if (!owner) return 'duplicate';
     await lockRunResources(tx, owner.agentId);
 
+    // 提交前再读一次：触发可能是几分钟前投递的，期间 agent 可能被停用。
+    const [agent] = await tx
+      .select({ enabled: agents.enabled })
+      .from(agents)
+      .where(eq(agents.id, owner.agentId))
+      .limit(1);
+    if (!agent?.enabled) return 'agent_disabled';
+
     const claimedAt = new Date(input.triggerAt);
     const claimedAtIso = claimedAt.toISOString();
     const claimed = await tx
@@ -131,14 +139,6 @@ export async function claimScheduleTrigger(
       .returning();
     const schedule = claimed[0];
     if (!schedule) return 'duplicate';
-
-    // 提交前再读一次：触发可能是几分钟前投递的，期间 agent 可能被停用。
-    const [agent] = await tx
-      .select({ enabled: agents.enabled })
-      .from(agents)
-      .where(eq(agents.id, schedule.agentId))
-      .limit(1);
-    if (!agent?.enabled) return 'agent_disabled';
 
     const agentVersion = await latestAgentVersion(tx, schedule.agentId);
     await tx.insert(conversations).values({
