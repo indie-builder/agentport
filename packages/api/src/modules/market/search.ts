@@ -6,6 +6,7 @@ import { readCappedText } from './fetch-body.js';
 const SEARCH_URL = 'https://skills.sh/api/search';
 const TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_MAX_ENTRIES = 200;
 
 const cache = new Map<string, { at: number; data: MarketSkill[] }>();
 
@@ -49,6 +50,16 @@ export async function searchMarket(q: string): Promise<MarketSkill[]> {
     if (!Array.isArray(body.skills)) throw new Error('unexpected search response');
     const data = body.skills.map(toSkill).filter((skill): skill is MarketSkill => skill !== null);
     cache.set(q, { at: Date.now(), data });
+    if (cache.size > CACHE_MAX_ENTRIES) {
+      const now = Date.now();
+      for (const [key, entry] of cache) {
+        if (now - entry.at >= CACHE_TTL_MS) cache.delete(key);
+      }
+      for (const key of cache.keys()) {
+        if (cache.size <= CACHE_MAX_ENTRIES) break;
+        cache.delete(key);
+      }
+    }
     return data;
   } catch (err) {
     if (cached) return cached.data;

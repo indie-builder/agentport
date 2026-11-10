@@ -1,6 +1,5 @@
-import { repo } from '@agentport/db';
 import { describe, expect, it, mock } from 'bun:test';
-import { stubGlobal, unstubAllGlobals } from './native.js';
+import { repo } from '@agentport/db';
 import { snapshotToSkill } from '../src/modules/market/install.js';
 import {
   cleanup,
@@ -11,6 +10,7 @@ import {
   startApp,
   unique,
 } from './helpers.js';
+import { stubGlobal, unstubAllGlobals } from './native.js';
 
 const skillMd = `---
 name: Find Skills

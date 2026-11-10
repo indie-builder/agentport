@@ -1,5 +1,5 @@
-import type { Logger } from 'pino';
 import type { SSEStreamingApi } from 'hono/streaming';
+import type { Logger } from 'pino';
 import { subscribeRun } from '../../queue/producer.js';
 import { terminalRunEvent, writeChatEvent } from './events.js';
 

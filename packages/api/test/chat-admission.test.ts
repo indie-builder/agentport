@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -214,7 +214,8 @@ describe.skipIf(!ready)('chat admission', () => {
       prompt: 'latest question',
     });
     // 续聊身份在准入时就固定：平台生成的 uuid 与用户消息一一对应。
-    const [stored] = await app.client.unsafe<{ sdk_message_uuid: string }[]>(
+    const [stored] = await app.client
+      .unsafe<{ sdk_message_uuid: string }[]>(
         "select sdk_message_uuid from messages where run_id = $1 and role = 'user'",
         [runId],
       )
@@ -226,12 +227,14 @@ describe.skipIf(!ready)('chat admission', () => {
     const agent = await newAgent();
     const conversationId = await newConversation(agent.id);
     const locker = await app.client.reserve();
-    const lockerPid = (await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid'))
-      [0]?.pid;
+    const lockerPid = (await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid'))[0]
+      ?.pid;
 
     try {
       await locker.unsafe('begin');
-      await locker.unsafe('select id from conversations where id = $1 for update', [conversationId]);
+      await locker.unsafe('select id from conversations where id = $1 for update', [
+        conversationId,
+      ]);
 
       const pending = post(agent.id, conversationId, 'queued behind a lock');
       const blocked = await waitFor(async () => {
@@ -316,11 +319,13 @@ describe.skipIf(!ready)('chat admission', () => {
         message: '该智能体已停用，无法发起新对话；请到智能体页面启用后再试',
       });
 
-      const counts = await app.client.unsafe<{
-        conversations: string;
-        runs: string;
-        messages: string;
-      }[]>(
+      const counts = await app.client.unsafe<
+        {
+          conversations: string;
+          runs: string;
+          messages: string;
+        }[]
+      >(
         `select
            (select count(*) from conversations where agent_id = $1) as conversations,
            (select count(*) from agent_runs where agent_id = $1) as runs,

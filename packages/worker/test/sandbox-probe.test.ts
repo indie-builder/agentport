@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,13 +14,12 @@ import {
 import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
-import { bunRedisConnection } from './fixtures/bun-redis.js';
-import { waitFor } from './fixtures/native-test.js';
 import type { Config } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
 import type { Sandbox } from '../src/sandbox/provider.js';
 import type { ProbeSandboxOptions, SandboxProbeDeps } from '../src/sandbox-probe.js';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
+import { waitFor } from './fixtures/native-test.js';
 
 /** registerSandboxProbe 自建 provider；close 用例用替身覆盖 destroyAll。 */
 const docker = (() => ({ destroyAll: mock(async () => undefined) }))();

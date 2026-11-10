@@ -192,11 +192,9 @@ describe('internal skill library empty state', () => {
     };
     state.search = { q: 'nomatch', usage: 'bound' };
     await inspect(SkillsPage, (tree) => {
-      expect(
-        tree.some(
-          (node) => node.type === PageNote && node.props.title === '未添加技能',
-        ),
-      ).toBe(false);
+      expect(tree.some((node) => node.type === PageNote && node.props.title === '未添加技能')).toBe(
+        false,
+      );
       expect(
         tree.some((node) => node.type === PageNote && node.props.title === '没有匹配的技能'),
       ).toBe(true);

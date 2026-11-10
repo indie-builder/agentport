@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -5,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, repo } from '@agentport/db';
 import pino from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { executeRuntimeEnvironmentBuild } from '../src/runtime-environments/build.js';
 import { createRuntimeEnvironmentResolver } from '../src/runtime-environments/resolve.js';
 import { DockerSandboxProvider } from '../src/sandbox/docker.js';

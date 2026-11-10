@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,13 +12,12 @@ import {
   knowledgeSourceInputSchema,
 } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { readKnowledgeTarget } from '../../api/src/modules/knowledge/mcp.js';
 import { searchKnowledge } from '../../api/src/modules/knowledge/retrieval.js';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import { type KnowledgeDeps, runSync } from '../src/knowledge/ingestion.js';
 import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 // 全链路写入 documents/versions/chunks：独享随机库，避免和其它源同步套件互相收敛。
@@ -71,7 +71,8 @@ let handler: FetchHandler = () => new Response('not mocked', { status: 599 });
 beforeEach(() => {
   calls = [];
   handler = () => new Response('not mocked', { status: 599 });
-  stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
+  stubFetch(
+    mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(
         typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
       );

@@ -5,8 +5,8 @@ import { fail } from './errors.js';
 import { isRecord } from './record.js';
 
 /** `.mcp.json` 允许的最大字节数，与请求体上限一致。 */
-export const MCP_JSON_MAX_BYTES = 1_048_576;
-export const MCP_JSON_MAX_SERVERS = 100;
+const MCP_JSON_MAX_BYTES = 1_048_576;
+const MCP_JSON_MAX_SERVERS = 100;
 
 /** 入口即拒绝 `${...}`：SDK 可能展开模板，导入的配置不能把展开时机留到运行时。 */
 const plainString = z.string().refine((value) => !value.includes('${'), '不支持模板占位符');

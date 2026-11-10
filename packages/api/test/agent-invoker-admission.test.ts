@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { randomBytes } from 'node:crypto';
 import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import {
   cleanup,
@@ -63,14 +63,16 @@ describe.skipIf(!ready)('agent invoker admission', () => {
     expect(err.code).toBe('UPSTREAM_FAILED');
     expect(err.message).toMatch(/timed out/);
 
-    const rows = await app.client.unsafe<{
-      title: string;
-      trigger: string;
-      agent_version: number;
-      run_id: string;
-      content: { text?: string };
-      sdk_message_uuid: string | null;
-    }[]>(
+    const rows = await app.client.unsafe<
+      {
+        title: string;
+        trigger: string;
+        agent_version: number;
+        run_id: string;
+        content: { text?: string };
+        sdk_message_uuid: string | null;
+      }[]
+    >(
       `select c.title, r.trigger, r.agent_version, m.run_id, m.content, m.sdk_message_uuid
          from agent_runs r
          join conversations c on c.id = r.conversation_id
@@ -123,11 +125,13 @@ describe.skipIf(!ready)('agent invoker admission', () => {
       // Drizzle 包装了原始错误；能定位到失败语句即可，关键是下面的原子性。
       expect(err.message).toContain('insert into "messages"');
 
-      const counts = await app.client.unsafe<{
-        conversations: string;
-        runs: string;
-        messages: string;
-      }[]>(
+      const counts = await app.client.unsafe<
+        {
+          conversations: string;
+          runs: string;
+          messages: string;
+        }[]
+      >(
         `select
            (select count(*) from conversations where agent_id = $1) as conversations,
            (select count(*) from agent_runs where agent_id = $1) as runs,

@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -7,7 +8,6 @@ import { join } from 'node:path';
 import { hashMcpToken } from '@agentport/core';
 import { newId, schema } from '@agentport/db';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   createAgent,
@@ -248,21 +248,29 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   afterAll(async () => {
     await server.close();
     if (runIds.length > 0) {
-      await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [app.client.array(runIds, 'TEXT')]);
+      await app.client.unsafe('delete from agent_runs where id = any($1::text[])', [
+        app.client.array(runIds, 'TEXT'),
+      ]);
     }
     if (createdAgents.length > 0) {
-      await app.client.unsafe('delete from agents where slug = any($1::text[])', [app.client.array(createdAgents, 'TEXT')]);
+      await app.client.unsafe('delete from agents where slug = any($1::text[])', [
+        app.client.array(createdAgents, 'TEXT'),
+      ]);
     }
     if (createdBases.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(createdBases, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(createdBases, 'TEXT'),
+      ]);
     }
     if (createdServers.length > 0) {
-      await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array(createdServers, 'TEXT')]);
+      await app.client.unsafe('delete from servers where id = any($1::text[])', [
+        app.client.array(createdServers, 'TEXT'),
+      ]);
     }
     if (createdProfiles.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(createdProfiles, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(createdProfiles, 'TEXT'),
+      ]);
     }
     await app.close();
     await new Promise<void>((resolve) => embedFix.close(() => resolve()));
@@ -732,7 +740,9 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   it('returns BASE_DISABLED for every tool when the base is disabled', async () => {
-    await app.client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [baseId]);
+    await app.client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [
+      baseId,
+    ]);
     try {
       for (const [name, args] of [
         ['knowledge_search', { q: '令牌' }],
@@ -744,7 +754,9 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         expect(res.text).toContain('BASE_DISABLED');
       }
     } finally {
-      await app.client.unsafe("update knowledge_bases set status = 'active' where id = $1", [baseId]);
+      await app.client.unsafe("update knowledge_bases set status = 'active' where id = $1", [
+        baseId,
+      ]);
     }
   });
 

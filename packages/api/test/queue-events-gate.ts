@@ -156,8 +156,7 @@ function monitorArgs(line: string): string[] {
           index += 4;
           continue;
         }
-        value +=
-          escaped === 'n' ? '\n' : escaped === 'r' ? '\r' : escaped === 't' ? '\t' : escaped;
+        value += escaped === 'n' ? '\n' : escaped === 'r' ? '\r' : escaped === 't' ? '\t' : escaped;
         index += 2;
         continue;
       }

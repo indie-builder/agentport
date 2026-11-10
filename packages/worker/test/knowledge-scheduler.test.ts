@@ -1,11 +1,10 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_JOBS_QUEUE } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import {
   type KnowledgeJobsQueueLike,
   type KnowledgeSchedulerQueue,
@@ -13,6 +12,7 @@ import {
   startKnowledgeScheduler,
   syncKnowledgeSchedulers,
 } from '../src/knowledge/scheduler.js';
+import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 
 async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;

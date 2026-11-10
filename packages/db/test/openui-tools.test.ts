@@ -1,6 +1,6 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'bun:test';
 
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(

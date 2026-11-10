@@ -1,8 +1,8 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { infraReady, loginCookie, request, type TestApp, testConfig, unique } from './helpers.js';
 
@@ -111,11 +111,14 @@ describe.skipIf(!ready)('knowledge image routes', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -208,7 +211,9 @@ describe.skipIf(!ready)('knowledge image routes', () => {
   });
 
   it('禁用知识库后图片与详情仍按管理员鉴权读取', async () => {
-    await app.client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [baseId]);
+    await app.client.unsafe("update knowledge_bases set status = 'disabled' where id = $1", [
+      baseId,
+    ]);
     const res = await request(app, {
       method: 'GET',
       url: `/api/knowledge/versions/${versionId}/images/image-1.png`,

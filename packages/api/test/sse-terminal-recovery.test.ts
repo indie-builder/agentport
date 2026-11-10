@@ -1,7 +1,7 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { publishRun } from '../src/queue/producer.js';
 import {
   cleanup,
@@ -70,9 +70,10 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
   };
 
   const setTerminal = (runId: string): Promise<unknown> =>
-    app.client.unsafe("update agent_runs set status = 'succeeded', ended_at = now() where id = $1", [
-      runId,
-    ]);
+    app.client.unsafe(
+      "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
+      [runId],
+    );
 
   const openSse = async (
     runId: string,

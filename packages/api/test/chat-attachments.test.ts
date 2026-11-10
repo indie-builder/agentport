@@ -1,7 +1,7 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { getQueue } from '../src/queue/producer.js';
 import {
   cleanup,
@@ -321,11 +321,13 @@ describe.skipIf(!ready)('chat attachments', () => {
     }
     expectProblem(res, 'SERVICE_UNAVAILABLE');
 
-    const runs = await app.client.unsafe<{
-      id: string;
-      conversation_id: string;
-      status: string;
-    }[]>('select id, conversation_id, status from agent_runs where agent_id = $1', [agent.id]);
+    const runs = await app.client.unsafe<
+      {
+        id: string;
+        conversation_id: string;
+        status: string;
+      }[]
+    >('select id, conversation_id, status from agent_runs where agent_id = $1', [agent.id]);
     expect(runs).toHaveLength(1);
     expect(runs[0]?.status).toBe('failed');
     const conversationId = runs[0]?.conversation_id ?? '';

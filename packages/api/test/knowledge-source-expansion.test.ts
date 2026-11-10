@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decryptSecrets } from '@agentport/core';
 import { unzipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   infraReady,
   loginCookie,
@@ -149,11 +149,14 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -259,9 +262,9 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     );
     expect(stored[0]?.secrets_encrypted ?? '').not.toContain('rotated-lark-secret');
     // 显式 secrets 是整体替换，不与旧凭证合并；缺省 secrets 才保留原值。
-    expect(
-      decryptSecrets(stored[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY),
-    ).toEqual({ appSecret: 'rotated-lark-secret' });
+    expect(decryptSecrets(stored[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY)).toEqual({
+      appSecret: 'rotated-lark-secret',
+    });
     const clear = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${lark.id}`,
@@ -274,9 +277,9 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       'select secrets_encrypted from knowledge_sources where id = $1',
       [lark.id],
     );
-    expect(
-      decryptSecrets(retained[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY),
-    ).toEqual({ appSecret: 'rotated-lark-secret' });
+    expect(decryptSecrets(retained[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY)).toEqual(
+      { appSecret: 'rotated-lark-secret' },
+    );
   });
 
   it('rejects wrong range kinds, unsafe paths, and mode/secret mismatches', async () => {
@@ -473,20 +476,22 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
         [unique('ksrc_db'), baseId, type, type],
       );
     }
-    const unknownType = await app.client.unsafe(
-      'insert into knowledge_sources (id, base_id, type, name) values ($1, $2, $3, $4)',
-      [unique('ksrc_db'), baseId, 'unknown_source', 'unknown'],
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+    const unknownType = await app.client
+      .unsafe('insert into knowledge_sources (id, base_id, type, name) values ($1, $2, $3, $4)', [
+        unique('ksrc_db'),
+        baseId,
+        'unknown_source',
+        'unknown',
+      ])
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
     expect(unknownType).toMatchObject({ errno: '23514' });
 
-    const [source] = (
-      await app.client.unsafe<{ id: string }[]>(
-        'select id from knowledge_sources where base_id = $1 limit 1',
-        [baseId],
-      )
+    const [source] = await app.client.unsafe<{ id: string }[]>(
+      'select id from knowledge_sources where base_id = $1 limit 1',
+      [baseId],
     );
     const sourceId = source?.id ?? '';
     expect(sourceId).not.toBe('');
@@ -509,13 +514,15 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
         [unique('krng_db'), sourceId, kind, unique('ext')],
       );
     }
-    const unknownKind = await app.client.unsafe(
-      'insert into knowledge_source_ranges (id, source_id, kind, external_id) values ($1, $2, $3, $4)',
-      [unique('krng_db'), sourceId, 'unknown_kind', 'ext'],
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+    const unknownKind = await app.client
+      .unsafe(
+        'insert into knowledge_source_ranges (id, source_id, kind, external_id) values ($1, $2, $3, $4)',
+        [unique('krng_db'), sourceId, 'unknown_kind', 'ext'],
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
     expect(unknownKind).toMatchObject({ errno: '23514' });
 
     for (const type of SOURCE_TYPES) {
@@ -525,14 +532,16 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
         [unique('kdoc_db'), baseId, type, type],
       );
     }
-    const unknownDocument = await app.client.unsafe(
-      `insert into knowledge_documents (id, base_id, title, source_type, mime_type)
+    const unknownDocument = await app.client
+      .unsafe(
+        `insert into knowledge_documents (id, base_id, title, source_type, mime_type)
        values ($1, $2, 'unknown', 'unknown_source', 'text/markdown')`,
-      [unique('kdoc_db'), baseId],
-    ).then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+        [unique('kdoc_db'), baseId],
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
     expect(unknownDocument).toMatchObject({ errno: '23514' });
   });
 
@@ -747,21 +756,23 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     );
     expect(sources[0]?.n).toBe('0');
 
-    const rows = await app.client.unsafe<{
-      document_id: string;
-      source_type: string;
-      source_id: string;
-      source_path: string | null;
-      mime_type: string;
-      source_connection_id: string | null;
-      current_version_id: string;
-      metadata: Record<string, unknown>;
-      version_id: string;
-      blob_sha256: string;
-      markdown_sha256: string;
-      source_revision: string | null;
-      version_metadata: Record<string, unknown>;
-    }[]>(
+    const rows = await app.client.unsafe<
+      {
+        document_id: string;
+        source_type: string;
+        source_id: string;
+        source_path: string | null;
+        mime_type: string;
+        source_connection_id: string | null;
+        current_version_id: string;
+        metadata: Record<string, unknown>;
+        version_id: string;
+        blob_sha256: string;
+        markdown_sha256: string;
+        source_revision: string | null;
+        version_metadata: Record<string, unknown>;
+      }[]
+    >(
       `select d.id as document_id, d.source_type, d.source_id, d.source_path, d.mime_type,
               d.source_connection_id, d.current_version_id, d.metadata, v.id as version_id,
               v.blob_sha256, v.markdown_sha256, v.source_revision, v.metadata as version_metadata
@@ -793,16 +804,18 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       );
       expect(blob).toEqual(fixture.original);
 
-      const chunks = await app.client.unsafe<{
-        id: string;
-        version_id: string;
-        ordinal: number;
-        parent_ordinal: number | null;
-        index_role: string;
-        content: string;
-        edited_by_user: boolean;
-        locator: Record<string, unknown> | null;
-      }[]>(
+      const chunks = await app.client.unsafe<
+        {
+          id: string;
+          version_id: string;
+          ordinal: number;
+          parent_ordinal: number | null;
+          index_role: string;
+          content: string;
+          edited_by_user: boolean;
+          locator: Record<string, unknown> | null;
+        }[]
+      >(
         `select id, version_id, ordinal, parent_ordinal, index_role, content, edited_by_user, locator
            from knowledge_chunks where document_id = $1 order by ordinal`,
         [row.document_id],

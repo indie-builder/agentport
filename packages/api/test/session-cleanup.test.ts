@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:net';
 import {
@@ -7,7 +8,6 @@ import {
   sessionCleanupRequestSchema,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { closeSessionSandboxes } from '../src/queue/session-cleanup.js';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9';

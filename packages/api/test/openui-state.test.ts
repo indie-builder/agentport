@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -71,8 +71,9 @@ describe.skipIf(!ready)('openui state', () => {
 
   afterAll(async () => {
     if (conversationIds.length > 0) {
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(conversationIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(conversationIds, 'TEXT'),
+      ]);
     }
     await cleanup(app, { agentSlugs });
     await app.close();

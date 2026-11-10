@@ -3,13 +3,13 @@
  * 不执行任何东西、不落盘，由调用方决定是否插入为技能。
  */
 
-export interface DraftStep {
+interface DraftStep {
   kind: 'user' | 'assistant' | 'tool';
   text?: string;
   name?: string | null;
 }
 
-export interface SkillDraft {
+interface SkillDraft {
   slug: string;
   name: string;
   description: string;

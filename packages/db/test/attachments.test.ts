@@ -1,6 +1,6 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';

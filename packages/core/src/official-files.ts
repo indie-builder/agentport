@@ -78,7 +78,7 @@ export function parseClaudeMd(content: string): { name: string; systemPrompt: st
   return { name: heading[1].trim(), systemPrompt };
 }
 
-export interface ParsedChildAgent {
+interface ParsedChildAgent {
   slug: string;
   name: string;
   description: string;

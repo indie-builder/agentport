@@ -1,13 +1,12 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
 import { renderPlugin, renderWorkspace, toWorkspaceInput, unionById } from '@agentport/core';
 import { repo, type schema } from '@agentport/db';
-import { knowledgeMcpEntry, maskUrlCredentials, SECRET_MASK } from '@agentport/shared';
+import { knowledgeMcpEntry, maskUrlCredentials, PREVIEW_SECRET } from '@agentport/shared';
 import type { AppContext } from '../../http/context.js';
 import { str, strArray } from '../servers/repo.js';
 import { decryptSecrets } from '../servers/secrets.js';
 
 type ServerRow = typeof schema.servers.$inferSelect;
-const PREVIEW_SECRET = SECRET_MASK;
 const RUNTIME_AUTH_NOTE = 'Authorization 由运行时注入，不在此显示。';
 function sandboxApiUrl(): string {
   return process.env.SANDBOX_API_URL ?? 'http://host.docker.internal:3000';

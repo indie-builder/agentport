@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import {
   infraReady,
@@ -136,11 +136,14 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -440,10 +443,12 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(imported.folderId).not.toBeNull();
     expect(imported.tags).toEqual(['ops']);
 
-    const importedVersion = await app.client.unsafe<{
-      id: string;
-      images: Array<{ name: string; sha256: string; mimeType: string; page: number }>;
-    }[]>('select id, images from knowledge_document_versions where document_id = $1', [imported.id]);
+    const importedVersion = await app.client.unsafe<
+      {
+        id: string;
+        images: Array<{ name: string; sha256: string; mimeType: string; page: number }>;
+      }[]
+    >('select id, images from knowledge_document_versions where document_id = $1', [imported.id]);
     expect(importedVersion[0]!.id).not.toBe(versionId);
     expect(importedVersion[0]!.images).toEqual([
       {
@@ -459,11 +464,13 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     );
     expect(restored).toEqual(TINY_PNG);
 
-    const chunks = await app.client.unsafe<{
-      id: string;
-      embedding: string | null;
-      edited_by_user: boolean;
-    }[]>(
+    const chunks = await app.client.unsafe<
+      {
+        id: string;
+        embedding: string | null;
+        edited_by_user: boolean;
+      }[]
+    >(
       'select id, embedding::text, edited_by_user from knowledge_chunks where document_id = $1 order by ordinal limit 1',
       [imported.id],
     );

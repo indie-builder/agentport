@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -256,17 +256,14 @@ describe.skipIf(!ready)('eval result export', () => {
     });
 
     const rows = async () =>
-      (
-        await app.client.unsafe(
-          'select id, eval_run_id, case_id, passed, output from eval_results where eval_run_id = any($1::text[]) order by id', [app.client.array([own, other], 'TEXT')],
-        )
+      await app.client.unsafe(
+        'select id, eval_run_id, case_id, passed, output from eval_results where eval_run_id = any($1::text[]) order by id',
+        [app.client.array([own, other], 'TEXT')],
       );
     const runRow = async () =>
-      (
-        await app.client.unsafe(
-          'select status, total, passed, error, claimed_at, finished_at from eval_runs where id = $1',
-          [own],
-        )
+      await app.client.unsafe(
+        'select status, total, passed, error, claimed_at, finished_at from eval_runs where id = $1',
+        [own],
       );
     const before = { results: await rows(), run: await runRow() };
 

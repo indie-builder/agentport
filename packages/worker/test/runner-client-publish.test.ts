@@ -1,10 +1,10 @@
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { afterAll, describe, expect, it, spyOn } from 'bun:test';
-import { probeBunRedis } from './fixtures/bun-redis.js';
 import { closeRunnerClient, configureRunnerClient, publishRun } from '../src/runner-client.js';
+import { probeBunRedis } from './fixtures/bun-redis.js';
 
 async function probeRedis(): Promise<boolean> {
   return probeBunRedis(process.env.REDIS_URL);

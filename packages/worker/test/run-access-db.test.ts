@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createDb, newId, schema } from '@agentport/db';
 import { and, eq, inArray } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { checkQueuedRunAccess, checkUserAgentAccess } from '../src/run-access.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 

@@ -1,15 +1,15 @@
+import { afterEach, beforeEach, expect, it, mock } from 'bun:test';
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { afterEach, beforeEach, expect, it, mock } from 'bun:test';
-import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
 import { buildGeneratedServer } from '../src/modules/servers/generated.js';
+import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
 
 /** 工具 handler 的第二个参数：run 取消时 SDK 通过它传 abort signal。 */
 type ToolContext = { mcpReq: { signal: AbortSignal } };
 type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<CallToolResult>;
 
 // MCP 边界 mock：捕获 registerTool 的回调，直接驱动真实的 handler 逻辑。
-const mcp = ({ handlers: new Map<string, ToolHandler>() });
+const mcp = { handlers: new Map<string, ToolHandler>() };
 
 mock.module('@modelcontextprotocol/server', () => ({
   McpServer: class {

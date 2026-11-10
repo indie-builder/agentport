@@ -1,6 +1,6 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { newId, schema } from '@agentport/db';
 import type { Logger } from 'pino';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 const { publishRun, queueClose } = (() => {
   let failed!: () => void;

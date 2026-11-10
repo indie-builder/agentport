@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
 import { afterAll, afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { randomBytes } from 'node:crypto';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
@@ -17,7 +17,9 @@ const serverIds: string[] = [];
 afterEach(async () => {
   mock.restore();
   if (baseIds.length > 0) {
-    await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [client.array(baseIds, 'TEXT')]);
+    await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+      client.array(baseIds, 'TEXT'),
+    ]);
     baseIds.length = 0;
   }
   if (profileIds.length > 0) {
@@ -27,7 +29,9 @@ afterEach(async () => {
     profileIds.length = 0;
   }
   if (serverIds.length > 0) {
-    await client.unsafe('delete from servers where id = any($1::text[])', [client.array(serverIds, 'TEXT')]);
+    await client.unsafe('delete from servers where id = any($1::text[])', [
+      client.array(serverIds, 'TEXT'),
+    ]);
     serverIds.length = 0;
   }
 });

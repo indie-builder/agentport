@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -6,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '@agentport/db';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { type KnowledgeDeps, runReindex } from '../../worker/src/knowledge/ingestion.js';
 import { createParsingAdapter } from '../../worker/src/knowledge/parsing-adapter.js';
 import { buildApp } from '../src/app.js';
@@ -144,11 +144,14 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
     }
     await app.close();
     await Promise.all(servers.map((server) => new Promise((r) => server.close(r))));
@@ -286,11 +289,13 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       }
 
       // 409 不能留下部分配置。
-      const stored = await app.client.unsafe<{
-        model: string;
-        embedding_protocol: string;
-        image_input_enabled: boolean;
-      }[]>(
+      const stored = await app.client.unsafe<
+        {
+          model: string;
+          embedding_protocol: string;
+          image_input_enabled: boolean;
+        }[]
+      >(
         'select model, embedding_protocol, image_input_enabled from knowledge_model_profiles where id = $1',
         [cohereId],
       );
@@ -1220,13 +1225,15 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       await app.client.unsafe('delete from servers where id = $1', [seeded.serverId]);
       const imported = await importKnowledgePackage(app.db, knowledgeDir, pkg!.body);
       baseIds.push(imported.baseId);
-      const rows = await app.client.unsafe<{
-        kind: string;
-        enabled: boolean;
-        metadata: { imageRole: string; image: { name: string } };
-        search_text: string;
-        embedding: unknown;
-      }[]>(
+      const rows = await app.client.unsafe<
+        {
+          kind: string;
+          enabled: boolean;
+          metadata: { imageRole: string; image: { name: string } };
+          search_text: string;
+          embedding: unknown;
+        }[]
+      >(
         'select kind, enabled, metadata, search_text, embedding from knowledge_chunks where base_id = $1 order by ordinal',
         [imported.baseId],
       );
@@ -1379,11 +1386,13 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       const imported = await importKnowledgePackage(app.db, knowledgeDir, archive);
       baseIds.push(imported.baseId);
 
-      const rows = await app.client.unsafe<{
-        version: number;
-        images: Array<{ name: string; mimeType: string; page: number }>;
-        chunks: Array<{ image: { name: string; mimeType: string; page: number } }>;
-      }[]>(
+      const rows = await app.client.unsafe<
+        {
+          version: number;
+          images: Array<{ name: string; mimeType: string; page: number }>;
+          chunks: Array<{ image: { name: string; mimeType: string; page: number } }>;
+        }[]
+      >(
         `select v.version, v.images,
                 (select json_agg(c.metadata order by c.ordinal)
                    from knowledge_chunks c where c.version_id = v.id) as chunks
@@ -1507,12 +1516,14 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       if (!claimed) throw new Error('job missing');
       await runReindex(deps, claimed, new AbortController().signal);
 
-      const rows = await app.client.unsafe<{
-        kind: string;
-        metadata: { imageRole: string; image: { name: string } };
-        search_text: string;
-        embedding: string | null;
-      }[]>(
+      const rows = await app.client.unsafe<
+        {
+          kind: string;
+          metadata: { imageRole: string; image: { name: string } };
+          search_text: string;
+          embedding: string | null;
+        }[]
+      >(
         'select kind, metadata, search_text, embedding from knowledge_chunks where base_id = $1 order by ordinal',
         [imported.baseId],
       );

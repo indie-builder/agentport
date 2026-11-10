@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { eq } from 'drizzle-orm';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import { getRunDetail } from '../src/repo/runs.js';

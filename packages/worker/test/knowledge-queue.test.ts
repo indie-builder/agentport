@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -12,11 +13,10 @@ import {
 import { Queue, QueueEvents } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { KnowledgeCancelled, type KnowledgeConnector } from '../src/knowledge/ingestion.js';
 import { KNOWLEDGE_TIMEOUT_MS, startKnowledgeWorker } from '../src/knowledge/queue.js';
 import { type KnowledgeQueueLike, reconcileKnowledgeJobs } from '../src/knowledge/reconcile.js';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');

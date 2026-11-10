@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 /**

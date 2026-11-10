@@ -40,7 +40,7 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 const MiB = 1024 * 1024;
 
-export interface ConversationInputsIdentity {
+interface ConversationInputsIdentity {
   root: string;
   slug: string;
   conversationId: string;
@@ -51,7 +51,7 @@ export function conversationInputsDir(input: ConversationInputsIdentity): string
   return join(resolve(input.root), input.slug, INPUTS_DIR, input.conversationId);
 }
 
-export interface DecodedConversationAttachment {
+interface DecodedConversationAttachment {
   id: string;
   filename: string;
   mimeType: AttachmentMimeType;
@@ -300,7 +300,7 @@ async function writeFiles(
   }
 }
 
-export interface WriteConversationAttachmentsInput extends ConversationInputsIdentity {
+interface WriteConversationAttachmentsInput extends ConversationInputsIdentity {
   inputs: readonly ChatAttachmentInput[];
 }
 
@@ -340,7 +340,7 @@ export async function writeConversationAttachments(
   }));
 }
 
-export interface ReadConversationAttachmentInput extends ConversationInputsIdentity {
+interface ReadConversationAttachmentInput extends ConversationInputsIdentity {
   attachment: MessageAttachment;
 }
 
@@ -373,7 +373,7 @@ export async function readConversationAttachment(
   return { data: await readFile(full), filename, mimeType };
 }
 
-export interface CopyConversationInputsInput {
+interface CopyConversationInputsInput {
   root: string;
   slug: string;
   sourceConversationId: string;

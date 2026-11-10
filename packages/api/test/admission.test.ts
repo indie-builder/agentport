@@ -1,5 +1,5 @@
-import { repo } from '@agentport/db';
 import { expect, it, spyOn } from 'bun:test';
+import { repo } from '@agentport/db';
 import { getQueue } from '../src/queue/producer.js';
 import { cleanup, createAgent, loginCookie, request, startApp } from './helpers.js';
 

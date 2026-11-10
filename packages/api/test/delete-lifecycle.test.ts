@@ -1,10 +1,10 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createDb, newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { startRedisContainer, stopRedisContainer } from '../../worker/test/global-setup.js';
 import { createIsolatedDatabase, type IsolatedDatabase } from '../../worker/test/isolated-db.js';
 import {
@@ -420,9 +420,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
       await otherClient.unsafe('select pg_advisory_lock(hashtext($1))', [
         repo.locks.AGENT_BINDINGS_LOCK_KEY,
       ]);
-      const foreign = await otherClient.unsafe<{ pid: number }[]>(
-        'select pg_backend_pid() as pid',
-      );
+      const foreign = await otherClient.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
       expect(foreign[0]?.pid).toBeGreaterThan(0);
 
       // 本库无人持锁：集群里只有另一库的连接持同一键，必须返回 null 而不是它。

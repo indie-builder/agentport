@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6,7 +7,6 @@ import { promisify } from 'node:util';
 import { renderPlugin, WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from '@agentport/core';
 import type { Plugin } from '@agentport/shared';
 import { zipSync } from 'fflate';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   infraReady,
   loginCookie,
@@ -59,7 +59,9 @@ describe.skipIf(!ready)('plugin ZIP executable permissions', () => {
 
   afterAll(async () => {
     if (slugs.length > 0) {
-      await app.client.unsafe('delete from plugins where slug = any($1::text[])', [app.client.array(slugs, 'TEXT')]);
+      await app.client.unsafe('delete from plugins where slug = any($1::text[])', [
+        app.client.array(slugs, 'TEXT'),
+      ]);
     }
     await app.close();
   });

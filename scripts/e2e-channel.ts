@@ -1294,20 +1294,13 @@ async function main(): Promise<void> {
   const sandboxId1 = sandbox1?.sandbox_id ?? '';
   assert(sandboxId1 !== '', `第一条 run 记录 sandbox_id：${sandboxId1}`);
 
-  const mounts1 = await run('docker', [
-    'inspect',
-    '--format',
-    '{{json .Mounts}}',
-    sandboxId1,
-  ]);
+  const mounts1 = await run('docker', ['inspect', '--format', '{{json .Mounts}}', sandboxId1]);
   assert(mounts1.code === 0, `docker inspect 读取运行容器挂载（${sandboxId1}）`);
   const inspectedMounts1 = JSON.parse(mounts1.stdout) as Array<{
     Destination: string;
     RW: boolean;
   }>;
-  const memoryMount1 = inspectedMounts1.find(
-    (mount) => mount.Destination === '/mnt/agent-memory',
-  );
+  const memoryMount1 = inspectedMounts1.find((mount) => mount.Destination === '/mnt/agent-memory');
   assert(memoryMount1 !== undefined, '运行容器挂载了 /mnt/agent-memory');
   assert(
     memoryMount1.RW === false,
@@ -1325,10 +1318,7 @@ async function main(): Promise<void> {
     ),
     'utf8',
   );
-  assert(
-    channelClaudeMd.includes('该目录本轮只读'),
-    '频道 run 的 CLAUDE.md 宣称记忆目录只读',
-  );
+  assert(channelClaudeMd.includes('该目录本轮只读'), '频道 run 的 CLAUDE.md 宣称记忆目录只读');
   assert(
     !channelClaudeMd.includes('主会话可用 `Read`、`Write`、`Edit` 访问'),
     '频道 run 的 CLAUDE.md 不含可写记忆文案',

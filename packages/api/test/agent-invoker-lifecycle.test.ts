@@ -1,9 +1,9 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { repo } from '@agentport/db';
 import { RUN_CANCEL_PAYLOAD, runCancelKey, runStreamKey } from '@agentport/shared';
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { RedisClient } from 'bun';
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import { buildAgentServer } from '../src/modules/servers/agent-tools.js';
 import { getQueue } from '../src/queue/producer.js';
@@ -96,7 +96,8 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
         ? []
         : (
             await app.client.unsafe<{ id: string }[]>(
-              'select id from agent_runs where agent_id = any($1::text[])', [app.client.array(agentIds, 'TEXT')],
+              'select id from agent_runs where agent_id = any($1::text[])',
+              [app.client.array(agentIds, 'TEXT')],
             )
           ).map((row) => row.id);
     for (const runId of discovered) {
@@ -120,11 +121,9 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
   };
 
   const runsOf = async (agentId: string): Promise<RunRow[]> =>
-    (
-      await app.client.unsafe<RunRow[]>(
-        'select id, status, error, error_kind, ended_at from agent_runs where agent_id = $1 order by created_at desc',
-        [agentId],
-      )
+    await app.client.unsafe<RunRow[]>(
+      'select id, status, error, error_kind, ended_at from agent_runs where agent_id = $1 order by created_at desc',
+      [agentId],
     );
 
   it('rejects non-positive and non-finite timeouts before writing a conversation or run', async () => {
@@ -166,8 +165,9 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
   it('turns a rejected enqueue into a fixed error and an infra-failed run without leaking secrets', async () => {
     const agent = await newAgent('enqueue-fail');
     const queue = getQueue();
-    const spy = spyOn(queue, 'add')
-      .mockRejectedValueOnce(new Error('redis://:hunter2-secret@127.0.0.1:6379 refused'));
+    const spy = spyOn(queue, 'add').mockRejectedValueOnce(
+      new Error('redis://:hunter2-secret@127.0.0.1:6379 refused'),
+    );
     let err: { code?: string; message: string };
     try {
       err = await rejectionOf(

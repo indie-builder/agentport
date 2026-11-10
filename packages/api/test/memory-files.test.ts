@@ -1,7 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import {
   deleteMemoryFile,
   listMemoryFiles,
@@ -211,9 +211,7 @@ describe('memory files', () => {
 
   it('preserves the old file and cleans temporary files if atomic replacement fails', async () => {
     await writeMemoryFile(root, slug, 'MEMORY.md', 'old');
-    fsMocks.rename.mockRejectedValueOnce(
-      Object.assign(new Error('disk failure'), { code: 'EIO' }),
-    );
+    fsMocks.rename.mockRejectedValueOnce(Object.assign(new Error('disk failure'), { code: 'EIO' }));
     await expect(writeMemoryFile(root, slug, 'MEMORY.md', 'new')).rejects.toMatchObject({
       code: 'EIO',
     });

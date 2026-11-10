@@ -1,4 +1,6 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
+import * as fsActual from 'node:fs/promises';
 import {
   link,
   mkdir,
@@ -13,8 +15,6 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { PERSONAL_MEMORY_FILENAME } from '@agentport/shared';
-import * as fsActual from 'node:fs/promises';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const actualRename = fsActual.rename;
 const fsFaults = { failRename: false };

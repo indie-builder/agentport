@@ -1,9 +1,9 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { unzipSync, zipSync } from 'fflate';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import {
   expectProblem,
   infraReady,
@@ -162,11 +162,14 @@ afterEach(async () => {
 
 afterAll(async () => {
   if (baseIds.length > 0) {
-    await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+    await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+      app.client.array(baseIds, 'TEXT'),
+    ]);
   }
   if (profileIds.length > 0) {
-    await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-    );
+    await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+      app.client.array(profileIds, 'TEXT'),
+    ]);
   }
   await app.close();
   await rm(knowledgeDir, { recursive: true, force: true });
@@ -266,8 +269,12 @@ async function deleteBaseBySlug(slug: string): Promise<void> {
   );
   if (rows.length === 0) return;
   await app.client.unsafe('delete from knowledge_bases where slug = $1', [slug]);
-  await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array(rows.map((row) => row.server_id), 'TEXT')],
-  );
+  await app.client.unsafe('delete from servers where id = any($1::text[])', [
+    app.client.array(
+      rows.map((row) => row.server_id),
+      'TEXT',
+    ),
+  ]);
 }
 
 async function baseCountBySlug(slug: string): Promise<number> {
@@ -308,11 +315,13 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     );
     expect(base[0]!.asrProfileId).toBe(asrProfileId);
 
-    const versions = await app.client.unsafe<{
-      id: string;
-      metadata: Record<string, unknown>;
-      mimeType: string;
-    }[]>(
+    const versions = await app.client.unsafe<
+      {
+        id: string;
+        metadata: Record<string, unknown>;
+        mimeType: string;
+      }[]
+    >(
       `select id, metadata, mime_type as "mimeType" from knowledge_document_versions
        where document_id in (select id from knowledge_documents where base_id = $1)`,
       [baseId],
@@ -321,10 +330,11 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     expect(versions[0]!.metadata.audio).toEqual(AUDIO_METADATA);
     expect(versions[0]!.mimeType).toBe('audio/mpeg');
 
-    const chunks = await app.client.unsafe<{ locator: Record<string, unknown>; embedding: unknown }[]>(
-      'select locator, embedding from knowledge_chunks where version_id = $1 order by ordinal',
-      [versions[0]!.id],
-    );
+    const chunks = await app.client.unsafe<
+      { locator: Record<string, unknown>; embedding: unknown }[]
+    >('select locator, embedding from knowledge_chunks where version_id = $1 order by ordinal', [
+      versions[0]!.id,
+    ]);
     expect(chunks.map((chunk) => chunk.locator)).toEqual(TIME_LOCATORS);
     expect(chunks.every((chunk) => chunk.embedding === null)).toBe(true);
 
@@ -639,11 +649,13 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     const imported = await importPackage(archive);
     expect(imported.statusCode, imported.body).toBe(201);
     const { baseId: importedBaseId } = imported.json<{ baseId: string }>();
-    const document = await app.client.unsafe<{
-      status: string;
-      currentVersionId: string | null;
-      mimeType: string;
-    }[]>(
+    const document = await app.client.unsafe<
+      {
+        status: string;
+        currentVersionId: string | null;
+        mimeType: string;
+      }[]
+    >(
       `select status, current_version_id as "currentVersionId", mime_type as "mimeType"
        from knowledge_documents where base_id = $1`,
       [importedBaseId],

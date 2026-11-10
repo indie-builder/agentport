@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { Client } from '@modelcontextprotocol/client';
 import { type CallToolResult, InMemoryTransport } from '@modelcontextprotocol/server';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import { buildAgentServer } from '../src/modules/servers/agent-tools.js';

@@ -1,5 +1,5 @@
-import { segmentOpenUi } from '@agentport/shared';
 import { describe, expect, test } from 'bun:test';
+import { segmentOpenUi } from '@agentport/shared';
 import { resolveOpenUiResponse, resolveOpenUiResponseDetailed } from '../src/openui-response.js';
 
 /**

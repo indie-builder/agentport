@@ -1,9 +1,9 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Agent } from '@agentport/shared';
 import { chatEventSchema, RUN_CANCEL_PAYLOAD, runCancelKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { buildMessageRows } from '../../worker/src/messages.js';
 import { getQueue } from '../src/queue/producer.js';
 import {

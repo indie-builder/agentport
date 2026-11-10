@@ -41,11 +41,14 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
 
   afterAll(async () => {
     if (createdIds.length > 0) {
-      await app.client.unsafe('delete from audit_log where id = any($1::text[])', [app.client.array(createdIds, 'TEXT')]);
+      await app.client.unsafe('delete from audit_log where id = any($1::text[])', [
+        app.client.array(createdIds, 'TEXT'),
+      ]);
     }
     if (createdTargets.length > 0) {
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(createdTargets, 'TEXT')],
-      );
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(createdTargets, 'TEXT'),
+      ]);
     }
     await app.close();
   });
@@ -92,10 +95,22 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
          as t(id, action, status, created_at)`,
       [
         target,
-        app.client.array(rows.map((row) => row.id), 'TEXT'),
-        app.client.array(rows.map((row) => row.action ?? 'audit.page'), 'TEXT'),
-        app.client.array(rows.map((row) => row.status ?? 'ok'), 'TEXT'),
-        app.client.array(rows.map((row) => row.createdAt), 'TEXT'),
+        app.client.array(
+          rows.map((row) => row.id),
+          'TEXT',
+        ),
+        app.client.array(
+          rows.map((row) => row.action ?? 'audit.page'),
+          'TEXT',
+        ),
+        app.client.array(
+          rows.map((row) => row.status ?? 'ok'),
+          'TEXT',
+        ),
+        app.client.array(
+          rows.map((row) => row.createdAt),
+          'TEXT',
+        ),
       ],
     );
   }

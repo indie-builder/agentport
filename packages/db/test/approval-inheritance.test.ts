@@ -1,6 +1,6 @@
+import { afterAll, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sql';
-import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';

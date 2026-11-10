@@ -68,7 +68,7 @@
 `docker-build-strategies`、`docker-compose-patterns`、`mcp-builder`、`vercel-composition-patterns` 只在 `SKILL.md` 顶部各加一段中文 `Project convention`，`references/`、`scripts/` 等其余文件保持上游原样；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。约定只写项目关键边界与上游明确冲突，按任务实际需求做最小完整改动，不把当前文件细节固化为不可变架构。
 
 - **Docker**：沿用 Bun workspace 与既有构建层/沙盒边界；`docker-compose.yml` 文件名和现有服务沿用；多 worktree 共享基础设施；按需增改服务/网络，不无故新增，也不禁止有明确需求的功能；技能脚本可按内容与当次授权使用。
-- **MCP**：沿用现有 Hono `/mcp/:serverId`、`@modelcontextprotocol/node` 2.1.2、`@modelcontextprotocol/server` 2.4.0、shared/core 契约、鉴权、错误形状与返回格式，不另起部署、鉴权或校验层。
+- **MCP**：沿用现有 Hono `/mcp/:serverId`、`@modelcontextprotocol/server` 2.4.0、shared/core 契约、鉴权、错误形状与返回格式，不另起部署、鉴权或校验层；`@modelcontextprotocol/node` 2.1.2 仅测试使用。
 - **React 组合**：沿用 React 19 + Vite SPA 的既定设计栈、各类状态职责与真实复杂度门槛，不按上游重写现有封装或视觉。
 - **许可**：docker 两项补了上游根 `LICENSE`（Apache-2.0）；`mcp-builder` 随技能目录带 `LICENSE.txt`（Apache-2.0）；`vercel-composition-patterns` 上游无 LICENSE 文件，`SKILL.md` 声明 MIT，只登记来源事实。
 - 升级或重装后补回上述 `Project convention`；`metadata.json` 等文件是否由 CLI 复制按当次实物核对，`computedHash` 不改。

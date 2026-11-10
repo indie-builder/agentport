@@ -328,11 +328,7 @@ const staticAnchor =
         return <span className={cn(LINK_CLASS, 'text-fg')}>{children}</span>;
       }
       return (
-        <button
-          type="button"
-          onClick={() => fileLinks.onSelect(path)}
-          className={LINK_CLASS}
-        >
+        <button type="button" onClick={() => fileLinks.onSelect(path)} className={LINK_CLASS}>
           {children}
         </button>
       );

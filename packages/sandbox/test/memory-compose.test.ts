@@ -1,6 +1,6 @@
+import { describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'bun:test';
 
 interface Service {
   environment?: Record<string, string>;

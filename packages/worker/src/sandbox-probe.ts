@@ -59,6 +59,8 @@ interface ProbeOutcome extends ServerTestResult {
   stderr?: string;
 }
 
+const OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
+
 /** 只取容器 stdout 的第一条合法结果；其余行属于上游噪音。 */
 function parseResultLine(line: string): SandboxProbeOutput | null {
   let raw: unknown;
@@ -209,8 +211,15 @@ export async function runSandboxProbe(
 
     const { child } = created;
     let pending = '';
+    let outputTooLarge = false;
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
+      if (outputTooLarge) return;
+      if (Buffer.byteLength(pending) + Buffer.byteLength(chunk) > OUTPUT_MAX_BYTES) {
+        outputTooLarge = true;
+        finish({ exited: '__output_too_large__' });
+        return;
+      }
       pending += chunk;
       for (;;) {
         const newline = pending.indexOf('\n');
@@ -265,7 +274,9 @@ export async function runSandboxProbe(
         ? 'worker 正在关停，连接测试已取消'
         : outcome.exited === '__timeout__'
           ? `连接测试超时（${timeoutMs}ms），请检查 Server 是否能正常启动`
-          : `沙盒没有返回结果（${outcome.exited ?? 'unknown'}）`;
+          : outcome.exited === '__output_too_large__'
+            ? `沙盒输出超过 ${OUTPUT_MAX_BYTES} 字节上限`
+            : `沙盒没有返回结果（${outcome.exited ?? 'unknown'}）`;
     deps.logger.warn(
       { serverId, durationMs: Date.now() - startedAt, stderr: redactSecrets(stderr) },
       'sandbox probe failed',

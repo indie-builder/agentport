@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { DatabaseClient } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
@@ -32,7 +32,9 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
 
   afterAll(async () => {
     if (createdIds.length > 0) {
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(createdIds, 'TEXT')]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(createdIds, 'TEXT'),
+      ]);
     }
     await cleanup(app, { agentSlugs: createdSlugs });
     await app.close();

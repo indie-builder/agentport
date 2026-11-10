@@ -1,7 +1,7 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import { AGENT_PACKAGE_SIDECAR, DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { encodePackage } from '../src/modules/agents/package-zip.js';
 import {
   cleanup,
@@ -39,17 +39,21 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
   afterAll(async () => {
     await cleanup(app, { agentSlugs });
     if (environmentIds.length > 0) {
-      await app.client.unsafe('delete from agents where runtime_environment_id = any($1::text[])', [app.client.array(environmentIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from agents where runtime_environment_id = any($1::text[])', [
+        app.client.array(environmentIds, 'TEXT'),
+      ]);
       // 先断开线上指针，复合外键才允许删除版本。
       await app.client.unsafe(
-        'update runtime_environments set online_version_id = null where id = any($1::text[])', [app.client.array(environmentIds, 'TEXT')],
+        'update runtime_environments set online_version_id = null where id = any($1::text[])',
+        [app.client.array(environmentIds, 'TEXT')],
       );
       await app.client.unsafe(
-        'delete from runtime_environment_versions where environment_id = any($1::text[])', [app.client.array(environmentIds, 'TEXT')],
+        'delete from runtime_environment_versions where environment_id = any($1::text[])',
+        [app.client.array(environmentIds, 'TEXT')],
       );
-      await app.client.unsafe('delete from runtime_environments where id = any($1::text[])', [app.client.array(environmentIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from runtime_environments where id = any($1::text[])', [
+        app.client.array(environmentIds, 'TEXT'),
+      ]);
     }
     await app.close();
   });
@@ -73,10 +77,10 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
        values ($1, $2, $3, $4, 'ready', $4, $5, now())`,
       [versionId, id, DEFAULT_RUNTIME_DOCKERFILE, name, IMAGE_ID],
     );
-    await app.client.unsafe('update runtime_environments set online_version_id = $2 where id = $1', [
-      id,
-      versionId,
-    ]);
+    await app.client.unsafe(
+      'update runtime_environments set online_version_id = $2 where id = $1',
+      [id, versionId],
+    );
     return { id, name };
   };
 

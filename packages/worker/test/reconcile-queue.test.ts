@@ -1,10 +1,10 @@
+import { afterAll, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import { createDb, newId, schema } from '@agentport/db';
 import type { Queue } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
-import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 import { testAccess } from './fixtures/access.js';
+import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const { agentOwnership, conversationSubject, runSubjectFields } = testAccess(import.meta.url);

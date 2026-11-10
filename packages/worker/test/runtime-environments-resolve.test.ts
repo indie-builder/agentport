@@ -1,5 +1,5 @@
-import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
 import { describe, expect, it, mock } from 'bun:test';
+import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
 import { createRuntimeEnvironmentResolver } from '../src/runtime-environments/resolve.js';
 
 const identity: ResolvedRuntimeEnvironment = {

@@ -1,5 +1,5 @@
-import type { Skill } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import type { Skill } from '@agentport/shared';
 import {
   cleanup,
   expectProblem,

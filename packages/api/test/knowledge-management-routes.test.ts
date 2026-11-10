@@ -1,10 +1,10 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { newId, repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import {
   infraReady,
   loginCookie,
@@ -32,12 +32,15 @@ describe.skipIf(!ready)('knowledge management routes', () => {
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
       baseIds.length = 0;
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
       profileIds.length = 0;
     }
   });
@@ -115,11 +118,9 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     } = {},
   ) {
     // 版本 profile 必须与所属库一致，否则发布守卫会拒绝切指针。
-    const [baseRow] = (
-      await app.client.unsafe<{ embedding_profile_id: string }[]>(
-        'select embedding_profile_id from knowledge_bases where id = $1',
-        [baseId],
-      )
+    const [baseRow] = await app.client.unsafe<{ embedding_profile_id: string }[]>(
+      'select embedding_profile_id from knowledge_bases where id = $1',
+      [baseId],
     );
     const profileId = baseRow!.embedding_profile_id;
     const document = await repo.knowledge.createDocument(app.db, {
@@ -198,7 +199,9 @@ describe.skipIf(!ready)('knowledge management routes', () => {
         },
       },
     });
-    await app.client.unsafe(`update knowledge_jobs set status = 'succeeded' where id = $1`, [job.id]);
+    await app.client.unsafe(`update knowledge_jobs set status = 'succeeded' where id = $1`, [
+      job.id,
+    ]);
     const version = await repo.knowledge.createVersion(app.db, {
       documentId: input.documentId,
       blobSha256: blobSha,
@@ -616,11 +619,13 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     const newDocumentId = copied.json<{ results: Array<{ newDocumentId: string }> }>().results[0]!
       .newDocumentId;
-    const copyRow = await app.client.unsafe<{
-      source_type: string;
-      source_connection_id: string | null;
-      title: string;
-    }[]>('select source_type, source_connection_id, title from knowledge_documents where id = $1', [
+    const copyRow = await app.client.unsafe<
+      {
+        source_type: string;
+        source_connection_id: string | null;
+        title: string;
+      }[]
+    >('select source_type, source_connection_id, title from knowledge_documents where id = $1', [
       newDocumentId,
     ]);
     expect(copyRow[0], copied.body).toMatchObject({
@@ -748,9 +753,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       'select id from knowledge_documents where base_id = $1 order by id',
       [baseId],
     );
-    expect(afterDocuments.map((row) => row.id)).toEqual(
-      beforeDocuments.map((row) => row.id),
-    );
+    expect(afterDocuments.map((row) => row.id)).toEqual(beforeDocuments.map((row) => row.id));
     expect((await readdir(join(knowledgeDir, 'docs'))).sort()).toEqual(beforeDirs);
     expect(
       await readFile(
@@ -1126,11 +1129,13 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     );
     expect(faqRows[0]).toEqual({ content_kind: 'faq', faq });
 
-    const wikiRows = await app.client.unsafe<{
-      slug: string;
-      parent_slug: string | null;
-      position: number;
-    }[]>(
+    const wikiRows = await app.client.unsafe<
+      {
+        slug: string;
+        parent_slug: string | null;
+        position: number;
+      }[]
+    >(
       `select p.slug, parent.slug as parent_slug, p.position
        from knowledge_wiki_pages p
        left join knowledge_wiki_pages parent on parent.id = p.parent_id
@@ -1295,10 +1300,11 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       payload: { status: 'ready' },
     });
     expect(blocked.statusCode, blocked.body).toBe(409);
-    const stillDisabled = await app.client.unsafe<{ status: string; disabled_reason: string | null }[]>(
-      'select status, disabled_reason from knowledge_documents where id = $1',
-      [seeded.document.id],
-    );
+    const stillDisabled = await app.client.unsafe<
+      { status: string; disabled_reason: string | null }[]
+    >('select status, disabled_reason from knowledge_documents where id = $1', [
+      seeded.document.id,
+    ]);
     expect(stillDisabled[0]).toEqual({ status: 'disabled', disabled_reason: 'source' });
 
     const restored = await request(app, {
@@ -1580,11 +1586,13 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     );
     expect(importedPage[0]?.id).not.toBe(page.id);
 
-    const importedRows = await app.client.unsafe<{
-      content_kind: string;
-      metadata: Record<string, unknown>;
-      version_metadata: Record<string, unknown>;
-    }[]>(
+    const importedRows = await app.client.unsafe<
+      {
+        content_kind: string;
+        metadata: Record<string, unknown>;
+        version_metadata: Record<string, unknown>;
+      }[]
+    >(
       `select d.content_kind, d.metadata, v.metadata as version_metadata
        from knowledge_documents d
        join knowledge_document_versions v on v.document_id = d.id
@@ -1864,13 +1872,15 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const result = copied.json<{ results: Array<{ status: string; newDocumentId?: string }> }>()
       .results[0]!;
     expect(result.status).toBe('succeeded');
-    const copyRow = await app.client.unsafe<{
-      status: string;
-      disabled_reason: string | null;
-      source_type: string;
-      source_connection_id: string | null;
-      current_version_id: string;
-    }[]>(
+    const copyRow = await app.client.unsafe<
+      {
+        status: string;
+        disabled_reason: string | null;
+        source_type: string;
+        source_connection_id: string | null;
+        current_version_id: string;
+      }[]
+    >(
       `select status, disabled_reason, source_type, source_connection_id, current_version_id
        from knowledge_documents where id = $1`,
       [result.newDocumentId],
@@ -1942,7 +1952,9 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const okResult = ok.json<{ results: Array<{ status: string; newDocumentId?: string }> }>()
       .results[0]!;
     expect(okResult).toMatchObject({ status: 'succeeded' });
-    const copiedVersion = await app.client.unsafe<{ current_version_id: string; images: unknown[] }[]>(
+    const copiedVersion = await app.client.unsafe<
+      { current_version_id: string; images: unknown[] }[]
+    >(
       `select d.current_version_id, v.images
        from knowledge_documents d join knowledge_document_versions v on v.id = d.current_version_id
        where d.id = $1`,

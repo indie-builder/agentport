@@ -1,5 +1,5 @@
-import type { Server } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import type { Server } from '@agentport/shared';
 import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
@@ -42,10 +42,12 @@ describe.skipIf(!ready)('knowledge server is owned by the knowledge lifecycle', 
 
   afterAll(async () => {
     if (!app) return;
-    await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array([serverId, plainServerId], 'TEXT')],
-    );
-    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array([serverId, plainServerId], 'TEXT')],
-    );
+    await app.client.unsafe('delete from servers where id = any($1::text[])', [
+      app.client.array([serverId, plainServerId], 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+      app.client.array([serverId, plainServerId], 'TEXT'),
+    ]);
     await app.close();
   });
 

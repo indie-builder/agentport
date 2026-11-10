@@ -1,5 +1,5 @@
-import { knowledgeMcpEntry } from '@agentport/shared';
 import { describe, expect, it } from 'bun:test';
+import { knowledgeMcpEntry } from '@agentport/shared';
 
 /**
  * 预览与运行时必须渲染出同一个地址形状；这里固定运行时侧构造结果，

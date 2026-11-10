@@ -1,6 +1,6 @@
+import { describe, expect, it } from 'bun:test';
 import { AppError } from '@agentport/core';
 import { zipSync } from 'fflate';
-import { describe, expect, it } from 'bun:test';
 import { decodePackage } from '../src/modules/agents/package-zip.js';
 
 /**

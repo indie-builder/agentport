@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { decryptSecrets } from '@agentport/core';
 import type { Server } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   expectProblem,
@@ -46,11 +46,13 @@ describe.skipIf(!ready)('mcp.json import', () => {
     });
 
   const stored = async (name: string) => {
-    const rows = await app.client.unsafe<{
-      id: string;
-      config: string;
-      secrets_encrypted: string | null;
-    }[]>('select id, config::text as config, secrets_encrypted from servers where name = $1', [name]);
+    const rows = await app.client.unsafe<
+      {
+        id: string;
+        config: string;
+        secrets_encrypted: string | null;
+      }[]
+    >('select id, config::text as config, secrets_encrypted from servers where name = $1', [name]);
     return rows[0];
   };
 

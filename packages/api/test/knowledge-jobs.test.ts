@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,9 +8,8 @@ import {
   knowledgeCancelKey,
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
-import { RedisClient } from 'bun';
 import { createBunRedisClient, Queue } from 'bullmq';
-import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { RedisClient } from 'bun';
 import {
   KnowledgeCancelled,
   type KnowledgeConnector,
@@ -147,12 +147,15 @@ describe.skipIf(!ready)('knowledge job projections', () => {
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
       baseIds.length = 0;
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
       profileIds.length = 0;
     }
   });

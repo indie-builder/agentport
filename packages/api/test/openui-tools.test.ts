@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { newId, repo } from '@agentport/db';
@@ -5,7 +6,6 @@ import type { Agent, Server } from '@agentport/shared';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createRole } from './access-helpers.js';
 import {
   ADMIN_BUSINESS_ID,
@@ -90,8 +90,9 @@ describe.skipIf(!ready)('openui tools', () => {
   afterAll(async () => {
     await cleanup(app, { agentSlugs, serverNames });
     if (conversationIds.length > 0) {
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(conversationIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(conversationIds, 'TEXT'),
+      ]);
     }
     await app.close();
     await mcpHandler.close();
@@ -279,7 +280,9 @@ describe.skipIf(!ready)('openui tools', () => {
 
   it('rejects a disabled tool', async () => {
     const { conversationId, messageId, server } = await seedAgent();
-    await app.client.unsafe('update api_tools set enabled = false where server_id = $1', [server.id]);
+    await app.client.unsafe('update api_tools set enabled = false where server_id = $1', [
+      server.id,
+    ]);
     expectProblem(
       await callTool(conversationId, `mcp__${server.name}__get-user`, { messageId }),
       'FORBIDDEN',

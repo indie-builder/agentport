@@ -1,5 +1,5 @@
-import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'bun:test';
+import { and, eq } from 'drizzle-orm';
 import { persistRunMessages } from '../../worker/src/messages.js';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';

@@ -1,5 +1,5 @@
-import { RedisClient } from 'bun';
 import { createBunRedisClient } from 'bullmq';
+import { RedisClient } from 'bun';
 
 export async function probeBunRedis(url: string | undefined): Promise<boolean> {
   if (!url) return false;

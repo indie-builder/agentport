@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import { inspect } from 'node:util';
 import { repo } from '@agentport/db';
-import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import { buildApp } from '../src/app.js';
 import { getEvalQueue } from '../src/queue/producer.js';
 
@@ -54,7 +54,8 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
            select id from eval_runs where agent_id in (
              select id from agents where slug = any($1::text[])
            )
-         )`, [app.client.array(agentSlugs, 'TEXT')],
+         )`,
+        [app.client.array(agentSlugs, 'TEXT')],
       );
     }
     await cleanup(app, { agentSlugs });
@@ -205,9 +206,10 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
       expect(row?.finishedAt).not.toBeNull();
       expect(row?.error).toBeNull();
       expect(row?.passed).toBe(terminal === 'succeeded' ? 1 : 0);
-      const results = await app.client.unsafe('select id from eval_results where eval_run_id = $1', [
-        runId,
-      ]);
+      const results = await app.client.unsafe(
+        'select id from eval_results where eval_run_id = $1',
+        [runId],
+      );
       expect(results).toHaveLength(1);
     },
   );

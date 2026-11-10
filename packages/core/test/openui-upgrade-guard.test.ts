@@ -1,8 +1,8 @@
+import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { createOpenUiDefinitions } from '@agentport/shared';
 import { action, createLibrary, defineComponent, markReactive } from '@openuidev/lang-core';
 import { openuiChatLibrary } from '@openuidev/react-ui/genui-lib';
-import { describe, expect, test } from 'bun:test';
 import spec from '../src/generated/openui.spec.json' with { type: 'json' };
 
 /**

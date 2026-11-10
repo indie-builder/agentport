@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { fail } from './errors.js';
 import { type KnowledgeAudioFormat, knowledgeAudioFromMime } from './knowledge-audio.js';
 
-export type EmbeddingProtocol = 'openai' | 'cohere_v2';
+type EmbeddingProtocol = 'openai' | 'cohere_v2';
 
 export interface EmbeddingProfile {
   endpointUrl: string;
@@ -29,7 +29,7 @@ export interface AsrProfile {
   apiKey?: string;
 }
 
-export interface AudioSegment {
+interface AudioSegment {
   text: string;
   timeFromMs: number;
   timeToMs: number;
@@ -42,12 +42,7 @@ export interface AudioTranscript {
   segments: AudioSegment[];
 }
 
-export type KnowledgeModelFailureKind =
-  | 'auth'
-  | 'rate_limit'
-  | 'timeout'
-  | 'bad_response'
-  | 'unavailable';
+type KnowledgeModelFailureKind = 'auth' | 'rate_limit' | 'timeout' | 'bad_response' | 'unavailable';
 
 export class KnowledgeModelError extends Error {
   constructor(

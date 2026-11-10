@@ -1,3 +1,4 @@
+import { expect } from 'bun:test';
 import {
   type AccessScope,
   type ErrorCode,
@@ -8,7 +9,6 @@ import {
   problemSchema,
   type Role,
 } from '@agentport/shared';
-import { expect } from 'bun:test';
 import { AUTH_COOKIE } from '../src/modules/auth/types.js';
 import {
   infraReady,

@@ -1,5 +1,5 @@
-import { inspect } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
+import { inspect } from 'node:util';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { buildApp } from '../src/app.js';
 import { getQueue } from '../src/queue/producer.js';
@@ -98,12 +98,10 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
     });
 
   const runsOf = async (agentId: string): Promise<RunRow[]> =>
-    (
-      await app.client.unsafe<RunRow[]>(
-        `select id, conversation_id, status, error, error_kind, ended_at
+    await app.client.unsafe<RunRow[]>(
+      `select id, conversation_id, status, error, error_kind, ended_at
            from agent_runs where agent_id = $1 order by created_at, id`,
-        [agentId],
-      )
+      [agentId],
     );
 
   it('returns a fixed 503, records failed/infra, keeps the user message, and allows a retry', async () => {
@@ -193,10 +191,10 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
       const agentId = await newAgent();
       const queue = getQueue();
       const add = spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
-        await app.client.unsafe('update agent_runs set status = $2, ended_at = now() where id = $1', [
-          data.runId,
-          terminal,
-        ]);
+        await app.client.unsafe(
+          'update agent_runs set status = $2, ended_at = now() where id = $1',
+          [data.runId, terminal],
+        );
         throw new Error(DOWN);
       });
       let res: Awaited<ReturnType<typeof post>>;

@@ -1,5 +1,5 @@
-import { ACCESS_SCOPES, PERMISSIONS, type Role } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { ACCESS_SCOPES, PERMISSIONS, type Role } from '@agentport/shared';
 import {
   adminCookie,
   createRole,

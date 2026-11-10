@@ -1,5 +1,5 @@
-import type { Agent, Skill, SkillWithAgentCount, WorkspaceFiles } from '@agentport/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import type { Agent, Skill, SkillWithAgentCount, WorkspaceFiles } from '@agentport/shared';
 import {
   cleanup,
   createAgent,

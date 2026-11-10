@@ -1,11 +1,11 @@
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { ChatEvent, RunQuestion } from '@agentport/shared';
 import { type PublicRunQuestion, publicRunQuestion } from '@agentport/shared';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
-import { afterAll, describe, expect, it, spyOn } from 'bun:test';
-import { waitFor } from './fixtures/native-test.js';
 import * as messages from '../src/messages.js';
 import { testAccess } from './fixtures/access.js';
+import { waitFor } from './fixtures/native-test.js';
 
 const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
@@ -167,7 +167,7 @@ async function withLockedTx(
   const locker = await client.reserve();
   try {
     const [{ pid }] = await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
-    
+
     if (pid === undefined) throw new Error('lock client has no backend pid');
     await locker.unsafe('begin');
     await run(locker as unknown as LockClient, pid);

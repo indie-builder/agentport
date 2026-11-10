@@ -1,7 +1,7 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId, repo } from '@agentport/db';
 import { runEnqueueOptions } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import type { AgentInvoker } from '../src/modules/servers/agent-tools.js';
 import { registerServersHttp } from '../src/modules/servers/http.js';

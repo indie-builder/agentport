@@ -20,6 +20,7 @@ import { type NativeHttpDependencies, registerChatHttp } from '../modules/chat/h
 import { chatRouter } from '../modules/chat/router.js';
 import { registerEvalHttp } from '../modules/eval/http.js';
 import { evalRouter } from '../modules/eval/router.js';
+import { FAQ_MAX_BYTES } from '../modules/knowledge/faq.js';
 import { registerKnowledgeHttp } from '../modules/knowledge/http.js';
 import { KNOWLEDGE_PACKAGE_MAX_BYTES } from '../modules/knowledge/package.js';
 import { knowledgeRouter } from '../modules/knowledge/router.js';
@@ -77,6 +78,10 @@ const bodyLimits: ReadonlyArray<{ route: RegExp; maxSize: number }> = [
   {
     route: /^PUT \/api\/knowledge\/bases\/[^/]+\/documents\/upload$/,
     maxSize: KNOWLEDGE_UPLOAD_BODY_LIMIT,
+  },
+  {
+    route: /^POST \/api\/knowledge\/bases\/[^/]+\/faqs\/import$/,
+    maxSize: FAQ_MAX_BYTES * 8 + 1024,
   },
 ];
 

@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   type AsrProfile,
   type EmbeddingProfile,

@@ -1,6 +1,6 @@
 import { expect, it } from 'bun:test';
-import { waitForAssertion } from './native.js';
 import { runMcpExecution, tryApprovalWait } from '../src/plugins/concurrency.js';
+import { waitForAssertion } from './native.js';
 
 /**
  * 进程内名额只做计数，不需要 MCP/DB：直接拿 deferred 任务验证边界，

@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -71,7 +71,8 @@ describe.skipIf(!ready)('approval lifecycle', () => {
       serverId: server.id,
       toolName,
     });
-    const [request] = await app.client.unsafe<{ id: string }[]>('select id from approval_requests where run_id = $1', [run.id])
+    const [request] = await app.client
+      .unsafe<{ id: string }[]>('select id from approval_requests where run_id = $1', [run.id])
       .then((res) => res);
     if (!request) throw new Error('approval request was not inserted');
     return { runId: run.id, requestId: request.id, toolName };

@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -15,7 +16,6 @@ import {
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { deleteAgentWithSandboxes } from '../../api/src/modules/runtime-deletion.js';
 import { DockerSandboxProvider } from '../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
@@ -40,7 +40,9 @@ const isolatedDb = await createIsolatedDatabase(
   'worker_session_cleanup_docker',
   process.env.DATABASE_URL ?? '',
 );
-const { db, client } = createDb(isolatedDb?.url ?? 'postgres://unreachable@127.0.0.1:1/unavailable');
+const { db, client } = createDb(
+  isolatedDb?.url ?? 'postgres://unreachable@127.0.0.1:1/unavailable',
+);
 const dbReady = await client.unsafe('select 1').then(
   () => true,
   () => false,

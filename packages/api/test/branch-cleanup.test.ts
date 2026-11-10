@@ -1,8 +1,8 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { startRedisContainer, stopRedisContainer } from '../../worker/test/global-setup.js';
 import { getQueue } from '../src/queue/producer.js';
 import {

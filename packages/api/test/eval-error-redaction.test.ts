@@ -1,9 +1,9 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { DbError } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { handleEvalJobFailed } from '../../worker/src/eval-job.js';
 import { EVAL_FAILURE_PUBLIC_MESSAGE, executeEvalRun } from '../../worker/src/eval-runner.js';
 import {

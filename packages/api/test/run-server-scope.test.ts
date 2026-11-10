@@ -1,5 +1,5 @@
-import { newId, repo, schema } from '@agentport/db';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { newId, repo, schema } from '@agentport/db';
 import { ADMIN_BUSINESS_ID, infraReady, startApp, type TestApp } from './helpers.js';
 
 // run token 的授权边界：父智能体自己的绑定，加上启用的直接子级绑定。
@@ -17,9 +17,13 @@ describe.skipIf(!ready)('run token server scope', () => {
 
   afterEach(async () => {
     if (agents.length > 0)
-      await app.client.unsafe('delete from agents where id = any($1::text[])', [app.client.array(agents, 'TEXT')]);
+      await app.client.unsafe('delete from agents where id = any($1::text[])', [
+        app.client.array(agents, 'TEXT'),
+      ]);
     if (servers.length > 0)
-      await app.client.unsafe('delete from servers where id = any($1::text[])', [app.client.array(servers, 'TEXT')]);
+      await app.client.unsafe('delete from servers where id = any($1::text[])', [
+        app.client.array(servers, 'TEXT'),
+      ]);
     agents.length = 0;
     servers.length = 0;
   });

@@ -13,6 +13,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { modelProxyUpstream } from '../upstream.js';
 import { KnowledgeCancelled } from './ingestion.js';
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
@@ -250,9 +251,12 @@ function sdkOptions(input: {
     CLAUDE_CONFIG_DIR: input.cwd,
     CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
   };
-  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'] as const) {
+  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
     const value = process.env[key];
     if (value) env[key] = value;
+  }
+  if (process.env.ANTHROPIC_BASE_URL) {
+    env.ANTHROPIC_BASE_URL = modelProxyUpstream(process.env.ANTHROPIC_BASE_URL);
   }
   return {
     model: input.model,

@@ -1,7 +1,7 @@
-import type { AsrProfile, AudioTranscript } from '@agentport/core';
-import { KnowledgeModelError } from '@agentport/core';
-import * as coreActual from '@agentport/core';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import type { AsrProfile, AudioTranscript } from '@agentport/core';
+import * as coreActual from '@agentport/core';
+import { KnowledgeModelError } from '@agentport/core';
 
 const transcribe = mock();
 const coreSnapshot = { ...coreActual };

@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,6 @@ import {
 } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import { outputShareSchema } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { runMaintenance } from '../../worker/src/maintenance.js';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import {
@@ -178,7 +178,8 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       ]);
       expect(attachment).toEqual([{ run_id: null }]);
       const anchors = await app.client.unsafe(
-        'select id, run_id, content from messages where id = any($1::text[]) order by id', [app.client.array([source.userMessageId, source.afterMessageId], 'TEXT')],
+        'select id, run_id, content from messages where id = any($1::text[]) order by id',
+        [app.client.array([source.userMessageId, source.afterMessageId], 'TEXT')],
       );
       expect(anchors).toHaveLength(2);
       expect(anchors.every((row) => row.run_id === null)).toBe(true);

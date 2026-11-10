@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Agent } from '@agentport/shared';
 import { judge } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getEvalQueue } from '../src/queue/producer.js';
 import {
   cleanup,

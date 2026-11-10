@@ -1,5 +1,5 @@
-import { newId, repo } from '@agentport/db';
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { newId, repo } from '@agentport/db';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -29,7 +29,9 @@ describe.skipIf(!ready)('eval run cancellation', () => {
   afterAll(async () => {
     // 审计没有外键，目标行随 agent 级联删除后仍需显式清理。
     if (evalRunIds.length > 0) {
-      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(evalRunIds, 'TEXT')]);
+      await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+        app.client.array(evalRunIds, 'TEXT'),
+      ]);
     }
     await cleanup(app, { agentSlugs: createdAgents });
     await app.close();
@@ -69,11 +71,9 @@ describe.skipIf(!ready)('eval run cancellation', () => {
     });
 
   const cancelAudits = async (target: string) =>
-    (
-      await app.client.unsafe(
-        "select input_digest from audit_log where action = 'eval.run.cancelled' and target = $1",
-        [target],
-      )
+    await app.client.unsafe(
+      "select input_digest from audit_log where action = 'eval.run.cancelled' and target = $1",
+      [target],
     );
 
   it('requires auth', async () => {

@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createDb, newId, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { loadRunServerBindings } from '../src/server-bindings.js';
 import { testAccess } from './fixtures/access.js';
 

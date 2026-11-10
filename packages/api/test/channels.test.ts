@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId } from '@agentport/db';
 import type {
   Agent,
@@ -10,7 +11,6 @@ import type {
   ChannelMessage,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   cleanup,
   createAgent,
@@ -64,7 +64,8 @@ describe.skipIf(!ready)('channels', () => {
   afterAll(async () => {
     await server.close();
     for (const channelId of channelIds) {
-      await app.client.unsafe('delete from channels where id = $1', [channelId])
+      await app.client
+        .unsafe('delete from channels where id = $1', [channelId])
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs });
@@ -76,11 +77,18 @@ describe.skipIf(!ready)('channels', () => {
       outsider.businessId,
       ...noGrantBusinessIds,
     ];
-    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
-    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(channelIds, 'TEXT')]);
-    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
-    );
-    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+      app.client.array(channelIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
     redis.close();
     await app.close();
   });
@@ -224,9 +232,10 @@ describe.skipIf(!ready)('channels', () => {
     );
     expect(adminDelete.statusCode, adminDelete.body).toBe(404);
 
-    const messages = await app.client.unsafe('select id from channel_messages where channel_id = $1', [
-      channel.id,
-    ]);
+    const messages = await app.client.unsafe(
+      'select id from channel_messages where channel_id = $1',
+      [channel.id],
+    );
     expect(messages).toHaveLength(0);
     const bindings = await app.client.unsafe(
       'select agent_id from channel_agent_bindings where channel_id = $1',

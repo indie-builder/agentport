@@ -1,6 +1,6 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
@@ -419,11 +419,9 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     let rows = await rowsOf(sourceId);
     expect(rows.job?.status).toBe('running');
     expect(rows.source).toMatchObject({ cursor: {}, lastSyncStatus: null });
-    const [mismatched] = (
-      await client.unsafe<{ status: string; source_id: string }[]>(
-        'select status, source_id from knowledge_sync_runs where id = $1',
-        [pair.run.id],
-      )
+    const [mismatched] = await client.unsafe<{ status: string; source_id: string }[]>(
+      'select status, source_id from knowledge_sync_runs where id = $1',
+      [pair.run.id],
     );
     expect(mismatched).toMatchObject({ status: 'running', source_id: other });
 

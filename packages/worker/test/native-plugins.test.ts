@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,13 +11,12 @@ import {
 } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { bunRedisConnection } from './fixtures/bun-redis.js';
-import { waitFor } from './fixtures/native-test.js';
 import type { Config } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
 import type { NativePluginsDeps } from '../src/native-plugins.js';
 import type { Sandbox, SandboxCreateOptions } from '../src/sandbox/provider.js';
+import { bunRedisConnection } from './fixtures/bun-redis.js';
+import { waitFor } from './fixtures/native-test.js';
 
 /** registerNativePlugins 自建 provider；用可控替身覆盖 create/destroyAll。 */
 const docker = (() => ({

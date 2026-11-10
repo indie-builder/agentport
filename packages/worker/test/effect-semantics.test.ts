@@ -1,5 +1,5 @@
-import { Deferred, Effect, Exit, Fiber } from 'effect';
 import { describe, expect, it } from 'bun:test';
+import { Deferred, Effect, Exit, Fiber } from 'effect';
 import { RunFailure, runProgram } from '../../core/src/effect-runtime.js';
 
 describe('runProgram', () => {

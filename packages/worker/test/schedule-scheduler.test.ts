@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createDb, newId, schema } from '@agentport/db';
 import type { AgentRunJob, ScheduleTriggerJob } from '@agentport/shared';
@@ -5,10 +6,9 @@ import { RUNS_QUEUE, SCHEDULE_TRIGGERS_QUEUE, scheduleTriggerArgs } from '@agent
 import { Queue } from 'bullmq';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import type { ScheduleTriggerJobLike } from '../src/scheduler.js';
 import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
-import type { ScheduleTriggerJobLike } from '../src/scheduler.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const access = { check: mock() };

@@ -1,7 +1,7 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
@@ -70,11 +70,14 @@ describe.skipIf(!ready)('knowledge source routes', () => {
 
   afterAll(async () => {
     if (baseIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [app.client.array(baseIds, 'TEXT')]);
+      await app.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
+        app.client.array(baseIds, 'TEXT'),
+      ]);
     }
     if (profileIds.length > 0) {
-      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [app.client.array(profileIds, 'TEXT')],
-      );
+      await app.client.unsafe('delete from knowledge_model_profiles where id = any($1::text[])', [
+        app.client.array(profileIds, 'TEXT'),
+      ]);
     }
     await app.close();
     await rm(knowledgeDir, { recursive: true, force: true });
@@ -778,7 +781,9 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({ documents: 'delete', affected: 1 });
 
-    const gone = await app.client.unsafe('select 1 from knowledge_documents where id = $1', [removed]);
+    const gone = await app.client.unsafe('select 1 from knowledge_documents where id = $1', [
+      removed,
+    ]);
     expect(gone).toHaveLength(0);
     const other = await app.client.unsafe<{ status: string }[]>(
       'select status from knowledge_documents where id = $1',

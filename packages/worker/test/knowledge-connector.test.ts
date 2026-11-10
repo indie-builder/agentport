@@ -1,7 +1,6 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
-import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import type {
   ConnectorNetwork,
@@ -9,6 +8,7 @@ import type {
   SourceCheckpoint,
   SourceItem,
 } from '../src/knowledge/ingestion.js';
+import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 type Recorded = { path: string; headers: IncomingMessage['headers'] };
 
@@ -584,7 +584,8 @@ describe('connector item sourceId limit', () => {
   const imaSecrets = { apiKey: 'api-key' };
 
   function installImaFetch(lists: Record<string, string[]>): void {
-    stubFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
+    stubFetch(
+      mock(async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
         );

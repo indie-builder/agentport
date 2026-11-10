@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import {
   type Agent,
   type Channel,
@@ -6,7 +7,6 @@ import {
   RUN_QUEUE_MAX_WAITING,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { persistRunMessages } from '../../worker/src/messages.js';
 import { getQueue } from '../src/queue/producer.js';
 import {
@@ -66,23 +66,33 @@ describe.skipIf(!ready)('channel mentions', () => {
   afterAll(async () => {
     await server.close();
     if (channelIds.length > 0) {
-      const runs = await app.client.unsafe<{ id: string }[]>('select id from agent_runs where channel_id = any($1::text[])', [app.client.array(channelIds, 'TEXT')],
-        )
+      const runs = await app.client
+        .unsafe<{ id: string }[]>('select id from agent_runs where channel_id = any($1::text[])', [
+          app.client.array(channelIds, 'TEXT'),
+        ])
         .catch(() => []);
       for (const row of runs) {
         await getQueue()
           .remove(row.id)
           .catch(() => undefined);
       }
-      await app.client.unsafe('delete from channels where id = any($1::text[])', [app.client.array(channelIds, 'TEXT')])
+      await app.client
+        .unsafe('delete from channels where id = any($1::text[])', [
+          app.client.array(channelIds, 'TEXT'),
+        ])
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs });
     const businessIds = [owner.businessId, member.businessId, viewer.businessId];
-    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
-    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
-    );
-    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
     redis.close();
     await app.close();
   });
@@ -284,10 +294,7 @@ describe.skipIf(!ready)('channel mentions', () => {
       "select body from channel_messages where channel_id = $1 and kind = 'human' order by seq",
       [channel.id],
     );
-    expect(human.map((row) => row.body)).toEqual([
-      'first round prompt',
-      'second round prompt',
-    ]);
+    expect(human.map((row) => row.body)).toEqual(['first round prompt', 'second round prompt']);
     const injected = await app.client.unsafe<{ count: string }[]>(
       "select count(*) from channel_messages where channel_id = $1 and body like '%【频道上下文】%'",
       [channel.id],
@@ -308,8 +315,9 @@ describe.skipIf(!ready)('channel mentions', () => {
     const channel = await createChannel();
     const agent = await createBoundAgent(channel.id);
     await addMember(channel.id, viewer, 'viewer');
-    const waiting = spyOn(getQueue(), 'getWaitingCount')
-      .mockResolvedValue(RUN_QUEUE_MAX_WAITING + 1);
+    const waiting = spyOn(getQueue(), 'getWaitingCount').mockResolvedValue(
+      RUN_QUEUE_MAX_WAITING + 1,
+    );
     const mentionPayload: Record<string, unknown> = {
       body: 'mention full',
       mentions: [agent.id],

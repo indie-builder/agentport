@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getEvalQueue } from '../src/queue/producer.js';
 import {
   ADMIN_BUSINESS_ID,

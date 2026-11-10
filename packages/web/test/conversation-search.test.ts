@@ -48,7 +48,7 @@ describe('conversation search client', () => {
   it('omits undefined options', async () => {
     const fetch = mockFetch(Response.json({ items: [], nextBefore: null }));
     await api.searchConversations({});
-    expect(new URL((fetch.mock.calls[0]?.[0] as Request).url).pathname).toBe(
+    expect(new URL((fetch.mock.calls[0][0] as Request).url).pathname).toBe(
       '/api/conversations/search',
     );
   });

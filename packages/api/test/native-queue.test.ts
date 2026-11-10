@@ -1,7 +1,7 @@
-import { NATIVE_PLUGINS_QUEUE, type NativePluginAction } from '@agentport/shared';
-import { RedisClient } from 'bun';
-import { createBunRedisClient, type Job, Queue, Worker } from 'bullmq';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { NATIVE_PLUGINS_QUEUE, type NativePluginAction } from '@agentport/shared';
+import { createBunRedisClient, type Job, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 import { runNativePluginAction } from '../src/modules/plugins/native.js';
 import { infraReady } from './helpers.js';
 import {

@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import { repo } from '@agentport/db';
 import {
   type Channel,
@@ -7,7 +8,6 @@ import {
   runCancelKey,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import * as producerModule from '../src/queue/producer.js';
 import {
   closeProducer,
@@ -109,7 +109,8 @@ describe.skipIf(!ready)('channel control', () => {
   afterAll(async () => {
     await server.close();
     for (const channelId of channelIds) {
-      await app.client.unsafe('delete from channels where id = $1', [channelId])
+      await app.client
+        .unsafe('delete from channels where id = $1', [channelId])
         .catch(() => undefined);
     }
     await cleanup(app, { agentSlugs });
@@ -121,11 +122,18 @@ describe.skipIf(!ready)('channel control', () => {
       channelAdmin.businessId,
       outsider.businessId,
     ];
-    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
-    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [app.client.array(channelIds, 'TEXT')]);
-    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')],
-    );
-    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [app.client.array(businessIds, 'TEXT')]);
+    await app.client.unsafe('delete from audit_log where actor = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
+      app.client.array(channelIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from user_roles where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
+    await app.client.unsafe('delete from "user" where business_id = any($1::text[])', [
+      app.client.array(businessIds, 'TEXT'),
+    ]);
     await app.client.unsafe('delete from audit_log where actor = $1', [owner.businessId]);
     redis.close();
     await closeProducer();
@@ -779,15 +787,16 @@ describe.skipIf(!ready)('channel control', () => {
     let checks = 0;
     const original = repo.channelControl.getChannelRunForMember;
     // 第 1 次是 hijack 前的预检；第 2 次是回放首个事件的逐事件核验，先卡在这里。
-    const spy = spyOn(repo.channelControl, 'getChannelRunForMember')
-      .mockImplementation(async (...args) => {
+    const spy = spyOn(repo.channelControl, 'getChannelRunForMember').mockImplementation(
+      async (...args) => {
         checks += 1;
         if (checks === 2) {
           gateReached();
           await gateReleased;
         }
         return original(...args);
-      });
+      },
+    );
 
     let stream: Awaited<ReturnType<typeof openRunEvents>> | undefined;
     try {
@@ -826,12 +835,13 @@ describe.skipIf(!ready)('channel control', () => {
     let checks = 0;
     const original = repo.channelControl.getChannelRunForMember;
     // 第 1 次是 hijack 前的预检；第 2 次（首条回放事件）抛错，之后恢复正常查询。
-    const spy = spyOn(repo.channelControl, 'getChannelRunForMember')
-      .mockImplementation(async (...args) => {
+    const spy = spyOn(repo.channelControl, 'getChannelRunForMember').mockImplementation(
+      async (...args) => {
         checks += 1;
         if (checks === 2) throw new Error('membership lookup unavailable');
         return original(...args);
-      });
+      },
+    );
 
     let stream: Awaited<ReturnType<typeof openRunEvents>> | undefined;
     try {
