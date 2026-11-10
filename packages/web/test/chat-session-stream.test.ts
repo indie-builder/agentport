@@ -138,7 +138,7 @@ describe('chat account switch while the stream stays mounted', () => {
       conversationId: null,
       items: [],
       input: '',
-      run: null,
+      phase: { kind: 'idle' },
       lastRunId: null,
     });
     expect(savedDrafts()).toEqual({});
@@ -212,7 +212,7 @@ describe('chat account switch while the stream stays mounted', () => {
         conversationId: null,
         items: [],
         input: '',
-        run: null,
+        phase: { kind: 'idle' },
         lastRunId: null,
       });
     });
@@ -236,7 +236,7 @@ describe('chat account switch while the stream stays mounted', () => {
         conversationId: null,
         items: [],
         input: '',
-        run: null,
+        phase: { kind: 'idle' },
         lastRunId: null,
       });
 
@@ -261,7 +261,7 @@ describe('chat account switch while the stream stays mounted', () => {
 
     expect(source.closed).toBe(false);
     expect(useChatStore.getState().conversationId).toBe('conversation-a');
-    expect(useChatStore.getState().run).not.toBeNull();
+    expect(useChatStore.getState().phase.kind).not.toBe('idle');
 
     await act(async () => {
       source.emit({ type: 'text_delta', text: 'still A' });

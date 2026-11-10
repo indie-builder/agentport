@@ -6,8 +6,10 @@ import type { ApprovalRequest } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 
 vi.mock('../src/lib/chat-store.js', async (original) => {
-  const { useChatStore: store } = await original<typeof import('../src/lib/chat-store.js')>();
+  const actual = await original<typeof import('../src/lib/chat-store.js')>();
+  const { useChatStore: store } = actual;
   return {
+    ...actual,
     useChatStore: Object.assign(
       (selector: (state: ReturnType<typeof store.getState>) => unknown) =>
         selector(store.getState()),

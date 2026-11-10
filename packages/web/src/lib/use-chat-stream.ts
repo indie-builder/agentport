@@ -27,7 +27,7 @@ import {
   historyToItems,
   snapshotHistory,
 } from './chat-state.js';
-import { useChatStore } from './chat-store.js';
+import { advancePhase, type ChatPhaseEvent, isActivePhase, useChatStore } from './chat-store.js';
 import {
   chatKeys,
   type RunQuestionList,
@@ -45,6 +45,11 @@ type PersistedBlock = NonNullable<
 /** 已保存消息的分页上限；一个 run 的输出再多也不无限拉历史。 */
 const RECOVERY_PAGE_SIZE = 100;
 const RECOVERY_MAX_PAGES = 10;
+
+function dispatchPhase(event: ChatPhaseEvent): void {
+  const store = useChatStore.getState();
+  store.setPhase(advancePhase(store.phase, event));
+}
 
 /**
  * 按 `runId` 翻到本 run 的第一条消息。消息按时间正序、同一 run 连续，
@@ -263,9 +268,10 @@ export function useChatStream({
       const ownsRecovery = () => {
         if (!mountedRef.current || generationRef.current !== generation) return false;
         const current = useChatStore.getState();
+        const currentRunId = isActivePhase(current.phase) ? current.phase.runId : null;
         return (
           current.conversationId === accepted.conversationId &&
-          (current.run === null || current.run.runId === accepted.runId) &&
+          (current.phase.kind === 'idle' || currentRunId === accepted.runId) &&
           current.lastRunId === accepted.runId
         );
       };
@@ -307,7 +313,7 @@ export function useChatStream({
           ]);
       }
       if (!ownsRecovery()) return;
-      useChatStore.getState().setRun(null);
+      dispatchPhase({ type: 'finish' });
       recoveryRef.current = null;
     },
     [],
@@ -330,9 +336,7 @@ export function useChatStream({
 
       source.onopen = () => {
         if (!ownsStream()) return;
-        store.setRun((current) =>
-          current?.runId === accepted.runId ? { ...current, status: 'streaming' } : current,
-        );
+        dispatchPhase({ type: 'open' });
       };
 
       source.onmessage = (message) => {
@@ -363,16 +367,14 @@ export function useChatStream({
         if (event.type === 'error') {
           errored = true;
           // 协议 error 立即失去健康资格，回读轮询接替；连接清理仍交给 onerror。
-          store.setRun((current) =>
-            current?.runId === accepted.runId ? { ...current, status: 'detached' } : current,
-          );
+          dispatchPhase({ type: 'error' });
           return;
         }
         if (event.type === 'run_unavailable') {
           // 运行记录已被清理：服务端不会再补事件，也没有可回读的结果或读数。
           finished = true;
           closeStream();
-          store.setRun(null);
+          dispatchPhase({ type: 'finish' });
           store.setLastRunId(null);
           void client.invalidateQueries({
             queryKey: chatKeys.conversation(accepted.conversationId),
@@ -391,11 +393,9 @@ export function useChatStream({
           if (needsRecovery) {
             // 补全结束前保留本轮 run 屏障：下一轮不能抢在 canonical 落地前开始。
             recoveryRef.current = recoveryGeneration;
-            store.setRun((current) =>
-              current?.runId === accepted.runId ? { ...current, status: 'detached' } : current,
-            );
+            dispatchPhase({ type: 'recoveryStart' });
           } else {
-            store.setRun(null);
+            dispatchPhase({ type: 'finish' });
           }
           // 本轮回复落库后都带同一个 run_id；补到流式项上，下一轮开始后它也能按 id 取读数。
           // 按稳定块身份回填消息 id 与 canonical 快照：表单状态与 Query/Mutation 都要用它定位消息。
@@ -484,20 +484,28 @@ export function useChatStream({
         sourceRef.current = null;
         if (errored && attempt === 0) {
           // 服务端已明确报错并断流：保留 run，只标记事件流丢失，停止仍可用。
-          store.setRun((current) =>
-            current?.runId === accepted.runId ? { ...current, status: 'detached' } : current,
-          );
+          dispatchPhase({ type: 'error' });
           return;
         }
         if (attempt < 3) {
-          store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
+          dispatchPhase({
+            type: 'retry',
+            runId: accepted.runId,
+            attempt: attempt + 1,
+            startedAt: startedAtRef.current,
+          });
           retryRef.current = window.setTimeout(
             () => openStream(accepted, generation, attempt + 1),
             1500,
           );
           return;
         }
-        store.setRun({ ...accepted, status: 'detached', startedAt: startedAtRef.current });
+        dispatchPhase({
+          type: 'detached',
+          runId: accepted.runId,
+          reason: 'retries',
+          startedAt: startedAtRef.current,
+        });
         store.setItems((previous) => [
           ...previous,
           { kind: 'notice', tone: 'error', text: '事件流多次中断，已停止重连。' },
@@ -585,7 +593,12 @@ export function useChatStream({
             ? Date.parse(detail.run.startedAt)
             : Date.now();
           const accepted = { runId: detail.run.id, conversationId };
-          store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
+          dispatchPhase({
+            type: 'accept',
+            runId: accepted.runId,
+            startedAt: startedAtRef.current,
+            attempt: 1,
+          });
           replayTruncatedRef.current = false;
           openStream(accepted, generation, 1);
           return;
@@ -634,10 +647,10 @@ export function useChatStream({
           toastError(error);
           startedAtRef.current = Date.now();
           store.setLastRunId(latestRunId);
-          store.setRun({
+          dispatchPhase({
+            type: 'detached',
             runId: latestRunId,
-            conversationId,
-            status: 'detached',
+            reason: 'history',
             startedAt: startedAtRef.current,
           });
           // 手动重连会从头回放；base 保留旧轮与本轮用户气泡。
@@ -648,7 +661,7 @@ export function useChatStream({
         } else if (latestRunId) {
           // 运行记录已被清理：已保存历史照常显示，不能留下永远 detached 的假运行。
           store.setLastRunId(null);
-          store.setRun(null);
+          dispatchPhase({ type: 'finish' });
         }
       } finally {
         if (ownsHistory()) historyRequestRef.current = null;
@@ -670,12 +683,18 @@ export function useChatStream({
    */
   const send = async (text?: string, action?: ChatRequest['openuiAction']): Promise<void> => {
     const store = useChatStore.getState();
-    const { input, items, run, conversationId } = store;
+    const { input, items, phase, conversationId } = store;
     const outputRef = text === undefined ? store.outputRef : null;
     // 附件只随用户编辑的那次发送消费；组件动作不带走输入框里未发送的资料。
     const attachments = text === undefined ? store.pendingAttachments : [];
     const body = (text ?? input).trim();
-    if (!mountedRef.current || (!body && attachments.length === 0) || !agentId || run) return;
+    if (
+      !mountedRef.current ||
+      (!body && attachments.length === 0) ||
+      !agentId ||
+      phase.kind !== 'idle'
+    )
+      return;
     if (conversationId !== null && hydratedRef.current !== conversationId) return;
     const generation = ++generationRef.current;
     const ownsRequest = () => mountedRef.current && generationRef.current === generation;
@@ -698,12 +717,7 @@ export function useChatStream({
     baseItemsRef.current = nextItems;
     store.setItems(nextItems);
     startedAtRef.current = Date.now();
-    store.setRun({
-      runId: '',
-      conversationId: conversationId ?? '',
-      status: 'queued',
-      startedAt: startedAtRef.current,
-    });
+    dispatchPhase({ type: 'submit', startedAt: startedAtRef.current });
     try {
       // 读数在提交前完成：请求体只带 base64，不带 File 对象或 data: 前缀。
       // 没有附件时不插队等微任务，保持普通文本发送仍在当前 tick 内提交。
@@ -767,8 +781,12 @@ export function useChatStream({
         store.setPendingAttachments([]);
       }
       hydratedRef.current = accepted.conversationId;
-      // 事件流尚未 onopen；先按重连状态继续回读，onopen 才标记健康。
-      store.setRun({ ...accepted, status: 'reconnecting', startedAt: startedAtRef.current });
+      // 事件流尚未 onopen；先按连接中继续回读，onopen 才标记健康。
+      dispatchPhase({
+        type: 'accept',
+        runId: accepted.runId,
+        startedAt: startedAtRef.current,
+      });
       onAccepted(accepted, body);
       void client.invalidateQueries({ queryKey: chatKeys.conversations(agentId) });
       openStream(accepted, generation);
@@ -776,7 +794,7 @@ export function useChatStream({
       if (!ownsRequest()) return;
       // 等待期间可能已经输入了新草稿；读最新 store，只有输入框仍为空才回填原消息。
       const latest = useChatStore.getState();
-      latest.setRun(null);
+      dispatchPhase({ type: 'finish' });
       // 动作发送没有动过草稿，失败时也不回填按钮文案；恢复原文而不带 trim。
       if (text === undefined && latest.input === '') latest.setInput(input);
       // 没有 run 产生任何回答：撤回本地用户气泡，只留一条错误通知。
@@ -788,23 +806,28 @@ export function useChatStream({
   const reconcileRun = useCallback(
     async (detail: RunDetail['run']) => {
       const store = useChatStore.getState();
-      const current = store.run;
-      if (!mountedRef.current || !current || current.runId !== detail.id) return;
+      const current = store.phase;
+      if (!mountedRef.current || !isActivePhase(current) || current.runId !== detail.id) return;
       if (detail.status === 'queued' || detail.status === 'running') return;
       // A healthy stream can still have buffered text when the database becomes terminal.
-      if (current.status === 'streaming' && detail.status !== 'cancelled') return;
+      if (current.kind === 'streaming' && detail.status !== 'cancelled') return;
       if (recoveryRef.current !== null) return;
       closeStream();
       const generation = generationRef.current;
       recoveryRef.current = generation;
-      const ownsRecovery = () =>
-        mountedRef.current &&
-        generationRef.current === generation &&
-        useChatStore.getState().conversationId === current.conversationId &&
-        useChatStore.getState().run?.runId === current.runId;
+      const ownsRecovery = () => {
+        const phase = useChatStore.getState().phase;
+        return (
+          mountedRef.current &&
+          generationRef.current === generation &&
+          useChatStore.getState().conversationId === detail.conversationId &&
+          isActivePhase(phase) &&
+          phase.runId === current.runId
+        );
+      };
       try {
         // 完整读取本轮，不能拿最新一页覆盖已经加载的更早历史。
-        const { messages } = await loadRunMessages(current.conversationId, current.runId);
+        const { messages } = await loadRunMessages(detail.conversationId, current.runId);
         if (!ownsRecovery()) return;
         const loaded = useChatStore.getState().items;
         const promptIndex = loaded.findLastIndex(
@@ -814,7 +837,7 @@ export function useChatStream({
         const items = [...prefix, ...historyToItems(messages)];
         useChatStore.getState().setItems(items);
         setHistoryPrefix((previous) => {
-          if (previous !== null && previous.conversationId !== current.conversationId)
+          if (previous !== null && previous.conversationId !== detail.conversationId)
             return previous;
           // 稳定前缀之外可能已有只有 items、没有原始消息的轮次（普通 SSE 完成）。
           // 只有原始消息覆盖整段尾部时才推进边界与 count，否则保留前缀快照，
@@ -829,7 +852,7 @@ export function useChatStream({
             ...messages,
           ]);
           return {
-            conversationId: current.conversationId,
+            conversationId: detail.conversationId,
             boundaryId: merged.at(-1)?.id ?? null,
             messages: merged,
             count: items.length,
@@ -841,10 +864,10 @@ export function useChatStream({
       }
       if (!ownsRecovery()) return;
       recoveryRef.current = null;
-      hydratedRef.current = current.conversationId;
+      hydratedRef.current = detail.conversationId;
       const finished = { type: 'run_finished', status: detail.status } as const;
       store.setItems((items) => applyEvent(items, finished));
-      store.setRun(null);
+      dispatchPhase({ type: 'finish' });
       const durationMs = detail.latencyMs ?? Date.now() - current.startedAt;
       const tokens =
         detail.inputTokens === null && detail.outputTokens === null
@@ -861,7 +884,7 @@ export function useChatStream({
         ...(detail.error === null ? {} : { error: detail.error }),
       });
       // 恢复同样把终态读数并进缓存：下一次发送清空 lastRun 后，旧轮仍保留结果。
-      cacheRunMetrics(client, current.conversationId, {
+      cacheRunMetrics(client, detail.conversationId, {
         runId: detail.id,
         status: detail.status,
         turns: detail.turns,
@@ -873,25 +896,31 @@ export function useChatStream({
       });
       void client.invalidateQueries({ queryKey: chatKeys.conversations(agentId) });
       void client.invalidateQueries({
-        queryKey: chatKeys.outputs(current.conversationId),
+        queryKey: chatKeys.outputs(detail.conversationId),
       });
     },
     [closeStream, client, agentId],
   );
 
   const retryStream = () => {
-    const run = useChatStore.getState().run;
+    const { phase, conversationId } = useChatStore.getState();
     if (
-      !run?.runId ||
-      run.status !== 'detached' ||
+      !conversationId ||
+      !isActivePhase(phase) ||
+      phase.kind !== 'detached' ||
       !mountedRef.current ||
       recoveryRef.current !== null
     )
       return;
     // 手动重连先清掉上次中断留下的通知；自动重连则等回放首条事件再替换。
     useChatStore.getState().setItems(baseItemsRef.current);
-    useChatStore.getState().setRun({ ...run, status: 'reconnecting' });
-    openStream(run, generationRef.current, 1);
+    dispatchPhase({
+      type: 'retry',
+      runId: phase.runId,
+      attempt: 1,
+      startedAt: phase.startedAt,
+    });
+    openStream({ runId: phase.runId, conversationId }, generationRef.current, 1);
   };
 
   return {

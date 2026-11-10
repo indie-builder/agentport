@@ -179,7 +179,7 @@ describe('chat request ownership', () => {
     });
     expect(useChatStore.getState().input).toBe('original message');
     expect(useChatStore.getState().items).toEqual([]);
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
     expect(harness.sendChat).not.toHaveBeenCalled();
   });
 
@@ -383,7 +383,7 @@ describe('disconnected runs', () => {
       pending.resolve(accepted);
       await sending;
     });
-    expect(useChatStore.getState().run?.runId).toBe('run-a');
+    expect(useChatStore.getState().phase).toMatchObject({ runId: 'run-a' });
   });
 
   it('keeps loaded history when sending and replaying a response', async () => {
@@ -420,7 +420,11 @@ describe('disconnected runs', () => {
       sourceAt(-1).onerror?.();
       await vi.advanceTimersByTimeAsync(1500);
     }
-    expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'detached' });
+    expect(useChatStore.getState().phase).toMatchObject({
+      kind: 'detached',
+      runId: 'run-a',
+      reason: 'retries',
+    });
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -452,13 +456,20 @@ describe('disconnected runs', () => {
       };
       expect(typeof stream.reconcileRun).toBe('function');
       if (status === 'succeeded') {
-        useChatStore.getState().setRun((run) => run && { ...run, status: 'streaming' });
+        useChatStore
+          .getState()
+          .setPhase({ kind: 'streaming', runId: 'run-a', startedAt: Date.now() });
         await stream.reconcileRun(detail);
-        expect(useChatStore.getState().run?.runId).toBe('run-a');
-        useChatStore.getState().setRun((run) => run && { ...run, status: 'detached' });
+        expect(useChatStore.getState().phase).toMatchObject({ runId: 'run-a' });
+        useChatStore.getState().setPhase({
+          kind: 'detached',
+          runId: 'run-a',
+          reason: 'protocol',
+          startedAt: Date.now(),
+        });
       }
       await stream.reconcileRun(detail);
-      expect(useChatStore.getState().run).toBeNull();
+      expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
       expect(useChatStore.getState().lastRun).toMatchObject({
         runId: 'run-a',
         status,
@@ -483,7 +494,7 @@ describe('disconnected runs', () => {
     expect(useChatStore.getState().items).toEqual([
       { kind: 'user', text: 'original message', runId: 'run-a' },
     ]);
-    expect(useChatStore.getState().run?.status).toBe('reconnecting');
+    expect(useChatStore.getState().phase).toMatchObject({ kind: 'connecting', attempt: 1 });
   });
 
   it('keeps a server error cancellable until a confirmed terminal status', async () => {
@@ -493,7 +504,11 @@ describe('disconnected runs', () => {
     });
     sourceAt(0).emit({ type: 'error', message: 'connection lost' });
     sourceAt(0).onerror?.();
-    expect(useChatStore.getState().run).toMatchObject({ runId: 'run-a', status: 'detached' });
+    expect(useChatStore.getState().phase).toMatchObject({
+      kind: 'detached',
+      runId: 'run-a',
+      reason: 'protocol',
+    });
   });
 });
 
@@ -585,7 +600,7 @@ test('丢弃等待期间已离开的运行：不写 store、不回调、不开�
   const hook = render('a1', onAccepted);
 
   const sending = hook.send();
-  expect(useChatStore.getState().run?.status).toBe('queued');
+  expect(useChatStore.getState().phase).toMatchObject({ kind: 'submitting' });
 
   // 等待期间切换会话：关闭流并清空状态。
   hook.closeStream();
@@ -599,7 +614,7 @@ test('丢弃等待期间已离开的运行：不写 store、不回调、不开�
   expect(useChatStore.getState()).toMatchObject({
     conversationId: 'other',
     items: [],
-    run: null,
+    phase: { kind: 'idle' },
     lastRunId: null,
   });
 });
@@ -625,7 +640,7 @@ test('正常接受：保留用户气泡，开流，run_finished 后失效缓存�
   expect(useChatStore.getState().items.at(-1)).toEqual({ kind: 'text', text: 'yo' });
 
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
-  expect(useChatStore.getState().run).toBeNull();
+  expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversation', 'c1'] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversations'] });
   // 没有截断就只用流式结果，不为每次运行多发一次请求。
@@ -785,7 +800,7 @@ test('切换会话后迟到的恢复结果被丢弃', async () => {
   expect(useChatStore.getState()).toMatchObject({
     conversationId: 'other',
     items: [],
-    run: null,
+    phase: { kind: 'idle' },
     lastRunId: null,
   });
 });
@@ -803,7 +818,7 @@ test('截断结果补全完成前阻止发送，完成后才解除屏障', async
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
 
   // 补全未完成：保留本轮 run 屏障，发送不能抢在 canonical 落地前开始下一轮。
-  expect(useChatStore.getState().run).toMatchObject({ runId: 'r1' });
+  expect(useChatStore.getState().phase).toMatchObject({ kind: 'recovering', runId: 'r1' });
   useChatStore.getState().setInput('next');
   await hook.send();
   expect(apiMock.sendChat).toHaveBeenCalledTimes(1);
@@ -812,7 +827,7 @@ test('截断结果补全完成前阻止发送，完成后才解除屏障', async
   recovery.resolve(conversationPage([userMessage, assistantMessage('m2', 'canonical')]));
   await settle();
 
-  expect(useChatStore.getState().run).toBeNull();
+  expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
   expect(useChatStore.getState().items.map((item) => ('text' in item ? item.text : ''))).toEqual([
     'hi',
     'canonical',
@@ -865,8 +880,8 @@ test('恢复失败保留部分输出，并明确提示无法读取已保存结�
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
   await settle();
 
-  const { items, run, lastRun } = useChatStore.getState();
-  expect(run).toBeNull();
+  const { items, phase, lastRun } = useChatStore.getState();
+  expect(phase).toEqual({ kind: 'idle' });
   expect(lastRun).toMatchObject({ runId: 'r1' });
   expect(items.some((item) => item.kind === 'text' && item.text === 'partial')).toBe(true);
   expect(items.at(-1)).toEqual({
@@ -940,7 +955,11 @@ test('已关闭的流迟到的消息不能改写状态，也不能触发缓存�
   opened.onmessage?.(message({ type: 'text_delta', text: 'late' }));
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
 
-  expect(useChatStore.getState()).toMatchObject({ conversationId: 'other', items: [], run: null });
+  expect(useChatStore.getState()).toMatchObject({
+    conversationId: 'other',
+    items: [],
+    phase: { kind: 'idle' },
+  });
   expect(invalidate).not.toHaveBeenCalled();
 });
 
@@ -962,7 +981,7 @@ test('run_unavailable 结束本轮：保留部分输出并释放 run，不重连
     { kind: 'notice', tone: 'error', text: '运行记录已不存在，已停止接收。' },
   ]);
   expect(opened.closed).toBe(true);
-  expect(state.run).toBeNull();
+  expect(state.phase).toEqual({ kind: 'idle' });
   expect(state.lastRun).toBeNull();
   expect(state.lastRunId).toBeNull();
   // 记录已经不存在：不回读已保存结果，也不凭空补运行读数。
@@ -972,7 +991,7 @@ test('run_unavailable 结束本轮：保留部分输出并释放 run，不重连
 
   opened.onerror?.();
   expect(events.FakeEventSource.instances).toHaveLength(1);
-  expect(useChatStore.getState()).toMatchObject({ run: null, lastRun: null });
+  expect(useChatStore.getState()).toMatchObject({ phase: { kind: 'idle' }, lastRun: null });
 });
 
 test('run_unavailable 后可以继续发送，旧流迟到的事件不污染新一轮', async () => {
@@ -1010,22 +1029,22 @@ test('协议 error 立即失去健康资格但保留本轮，onerror 只负责�
   const opened = source();
   opened.onmessage?.(message({ type: 'error', message: '工具失败' }));
   // 服务端明确报错后不再视为健康流，回读轮询立即接替，不必等浏览器 onerror。
-  expect(useChatStore.getState().run?.status).toBe('detached');
+  expect(useChatStore.getState().phase).toMatchObject({ kind: 'detached', reason: 'protocol' });
 
   opened.onerror?.();
-  expect(useChatStore.getState().run?.status).toBe('detached');
+  expect(useChatStore.getState().phase).toMatchObject({ kind: 'detached', reason: 'protocol' });
   expect(events.FakeEventSource.instances).toHaveLength(1);
   expect(useChatStore.getState().lastRun).toBeNull();
 });
 
-test('已接受但事件流尚未打开时用 reconnecting，onopen 后才算健康', async () => {
+test('已接受但事件流尚未打开时用 connecting，onopen 后才算健康', async () => {
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   const hook = render('a1');
   await startRun(hook);
 
-  expect(useChatStore.getState().run?.status).toBe('reconnecting');
+  expect(useChatStore.getState().phase).toMatchObject({ kind: 'connecting', attempt: 0 });
   source().onopen?.();
-  expect(useChatStore.getState().run?.status).toBe('streaming');
+  expect(useChatStore.getState().phase).toMatchObject({ kind: 'streaming', runId: 'r1' });
 });
 
 test('离开后请求失败：不恢复旧输入、不追加错误通知', async () => {
@@ -1046,7 +1065,7 @@ test('离开后请求失败：不恢复旧输入、不追加错误通知', async
     conversationId: 'other',
     input: 'draft',
     items: [],
-    run: null,
+    phase: { kind: 'idle' },
   });
   expect(toastMock.toastError).not.toHaveBeenCalled();
 });

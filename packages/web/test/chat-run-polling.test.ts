@@ -185,7 +185,7 @@ describe('healthy stream detail polling', () => {
 
     source().onopen?.();
     await flush();
-    expect(useChatStore.getState().run?.status).toBe('streaming');
+    expect(useChatStore.getState().phase).toMatchObject({ kind: 'streaming' });
 
     const before = runReads();
     await flush(6_200);
@@ -219,10 +219,10 @@ describe('healthy stream detail polling', () => {
     await mount();
     source().onopen?.();
     await flush();
-    expect(useChatStore.getState().run?.status).toBe('streaming');
+    expect(useChatStore.getState().phase).toMatchObject({ kind: 'streaming' });
 
     source().emit({ type: 'error', message: 'run failed' });
-    expect(useChatStore.getState().run?.status).toBe('detached');
+    expect(useChatStore.getState().phase).toMatchObject({ kind: 'detached' });
 
     vi.mocked(api.run).mockResolvedValue({
       ...running,
@@ -231,7 +231,7 @@ describe('healthy stream detail polling', () => {
     const before = runReads();
     await flush(2_400);
     expect(runReads()).toBeGreaterThan(before);
-    expect(useChatStore.getState().run).toBeNull();
+    expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
     expect(useChatStore.getState().lastRun?.status).toBe('succeeded');
   });
 });
