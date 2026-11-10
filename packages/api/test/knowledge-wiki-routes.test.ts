@@ -685,9 +685,10 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     // w2 引用已停用来源：准备会写出 w2 blob，但发布事务在来源校验处 409。
     const documentId = await seedSourceDocument();
     const source = await addSourceVersion(documentId, 1);
-    await app.client.unsafe(`update knowledge_documents set status = 'disabled' where id = $1`, [
-      documentId,
-    ]);
+    await app.client.unsafe(
+      `update knowledge_documents set status = 'disabled', disabled_reason = 'source' where id = $1`,
+      [documentId],
+    );
     const w2 = await repo.knowledge.saveWikiVersion(app.db, page.id, {
       markdown: '# w2 正文',
       sourceChunkIds: [source.chunkId],
@@ -1172,8 +1173,9 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const versionId = `kdv_wiki${Math.random().toString(36).slice(2, 10)}`;
     const chunkId = `kchk_wiki${Math.random().toString(36).slice(2, 10)}`;
     await app.client.unsafe(
-      `insert into knowledge_documents (id, base_id, title, source_type, mime_type, status)
-       values ($1, $2, '来源文档', 'upload', 'text/markdown', 'disabled')`,
+      `insert into knowledge_documents
+         (id, base_id, title, source_type, mime_type, status, disabled_reason)
+       values ($1, $2, '来源文档', 'upload', 'text/markdown', 'disabled', 'source')`,
       [documentId, baseId],
     );
     await app.client.unsafe(

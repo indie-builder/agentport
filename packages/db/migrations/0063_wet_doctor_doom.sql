@@ -1,0 +1,1 @@
+ALTER TABLE "knowledge_documents" ADD CONSTRAINT "knowledge_documents_disabled_status_check" CHECK (("knowledge_documents"."status" = 'disabled') = ("knowledge_documents"."disabled_reason" is not null));

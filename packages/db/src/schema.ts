@@ -1504,6 +1504,10 @@ export const knowledgeDocuments = pgTable(
       'knowledge_documents_disabled_reason_check',
       sql`${t.disabledReason} is null or ${t.disabledReason} in ('manual', 'source', 'range', 'remote')`,
     ),
+    check(
+      'knowledge_documents_disabled_status_check',
+      sql`(${t.status} = 'disabled') = (${t.disabledReason} is not null)`,
+    ),
   ],
 );
 
