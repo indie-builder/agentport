@@ -21,6 +21,7 @@ export interface MaintenanceSummary extends Retention {
   runsDeleted: number;
   runMessagesDeleted: number;
   orphanMessagesDeleted: number;
+  channelMessagesDeleted: number;
   durationMs: number;
 }
 
@@ -55,12 +56,17 @@ export async function runMaintenance(
     retain.messageDays,
     pruneOptions,
   );
+  const channelMessagesDeleted = await repo.maintenance.pruneChannelMessages(
+    db,
+    retain.messageDays,
+  );
   const summary: MaintenanceSummary = {
     ...retain,
     agentVersionsDeleted,
     runsDeleted: runs.runs,
     runMessagesDeleted: runs.messages,
     orphanMessagesDeleted,
+    channelMessagesDeleted,
     durationMs: Date.now() - startedAt,
   };
 
@@ -101,7 +107,7 @@ export async function startMaintenanceWorker(input: {
   return worker;
 }
 
-// 手动触发：pnpm --filter @agentport/worker maintenance
+// 手动触发：bun run --filter @agentport/worker maintenance
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
   const logger = pino({ level: config.LOG_LEVEL });
