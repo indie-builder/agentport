@@ -123,7 +123,7 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
 | `RETAIN_RUN_DAYS` | 否 | `90` | worker | 已终态 run 及其消息的保留天数 |
-| `RETAIN_MESSAGE_DAYS` | 否 | `30` | worker | 无 `run_id` 的孤立消息保留天数 |
+| `RETAIN_MESSAGE_DAYS` | 否 | `30` | worker | 无 `run_id` 的孤立消息，以及全部频道消息的保留天数 |
 | `RETAIN_AGENT_VERSIONS` | 否 | `50` | worker | 每个智能体保留的版本数 |
 
 ### 1.5 知识库（api/worker 共享目录与可信端点配置）
@@ -448,6 +448,9 @@ worker 启动时注册 BullMQ 的 `maintenance` 每日重复任务（`upsertJobS
 | 清理智能体版本 | 每个 agent 只保留最近 `RETAIN_AGENT_VERSIONS` 个 | `agent_versions` |
 | 清理运行 | 已终态且结束超过 `RETAIN_RUN_DAYS` 的 run，连同其消息 | `agent_runs`、`messages.run_id` |
 | 清理孤立消息 | 无 `run_id` 且超过 `RETAIN_MESSAGE_DAYS` 的消息 | `messages` |
+| 清理频道消息 | 超过 `RETAIN_MESSAGE_DAYS` 的频道时间线消息，`channel_wakes` 随消息级联删除；`messages.channel_message_id` 与 `agent_runs.channel_trigger_message_id` 被置空，30–90 天窗口内的 run 会失去触发消息归因 | `channel_messages`、`channel_wakes` |
+
+频道消息按 `created_at` 删除会全表扫描；按 30 天保留量设计，单机规模可接受，消息量到十万级前评估加索引。
 
 `audit_log` 与 `eval_results` 不参与清理。每次执行写入一条 `maintenance.pruned` 审计，`target` 为 JSON 摘要。
 
@@ -457,7 +460,7 @@ worker 启动时注册 BullMQ 的 `maintenance` 每日重复任务（`upsertJobS
 bun run --filter @agentport/worker maintenance
 ```
 
-它会读取 `.env`、连接数据库、执行一次并打印摘要（`runsDeleted`、`runMessagesDeleted`、`orphanMessagesDeleted`、`agentVersionsDeleted`、`durationMs`）。
+它会读取 `.env`、连接数据库、执行一次并打印摘要（`runsDeleted`、`runMessagesDeleted`、`orphanMessagesDeleted`、`channelMessagesDeleted`、`agentVersionsDeleted`、`durationMs`）。
 
 注意：api 进程不读取这些保留变量，配置只需对 worker 生效。
 

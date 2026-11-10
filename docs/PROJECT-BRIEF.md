@@ -653,7 +653,7 @@ interface SandboxProvider {
 | 队列 | 用途 | 并发 | 重试 |
 |---|---|---|---|
 | `agent-runs` | 一次对话运行 | `AGENT_MAX_CONCURRENT`（默认 2） | `attempts: 2` + 指数退避；业务失败不重试 |
-| `maintenance` | 版本/运行/孤立消息清理 | 1 | 每日 repeatable job |
+| `maintenance` | 版本/运行/孤立消息/频道消息清理 | 1 | 每日 repeatable job |
 
 「测试连接」在 API 进程内直接执行（5 秒超时），不走队列。
 

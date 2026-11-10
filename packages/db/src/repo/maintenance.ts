@@ -1,7 +1,7 @@
 import { fail } from '@agentport/core';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
-import { agentRuns, agentVersions, messages } from '../schema.js';
+import { agentRuns, agentVersions, channelMessages, messages } from '../schema.js';
 
 export interface PruneRunsResult {
   runs: number;
@@ -133,6 +133,15 @@ export async function pruneOrphanMessages(
         select 1 from conversations c
         where c.id = ${messages.conversationId} and c.branch_of_message_id is not null
       )
+  `);
+  return (result as typeof result & { count: number }).count;
+}
+
+export async function pruneChannelMessages(db: Database, olderThanDays: number): Promise<number> {
+  const days = positive(olderThanDays, 'olderThanDays');
+  const result = await db.execute(sql`
+    delete from ${channelMessages}
+    where ${channelMessages.createdAt} < now() - make_interval(days => ${days})
   `);
   return (result as typeof result & { count: number }).count;
 }

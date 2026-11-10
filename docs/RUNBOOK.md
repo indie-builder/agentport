@@ -534,7 +534,7 @@ docker compose exec -T worker find /workspaces -mindepth 2 -maxdepth 2 -type d -
 # 3) 备份：正常情况下只保留 7 份；确认后手动删更老的
 ls -lh backups | tail -20
 
-# 4) 数据库：手动跑一次保留策略（默认保留 90 天 run / 30 天孤立消息）
+# 4) 数据库：手动跑一次保留策略（默认保留 90 天 run / 30 天孤立消息与频道消息）
 bun run --filter @agentport/worker maintenance
 
 # 5) 日志：滚动重启或截断（截断需要 root；更稳妥是给 compose 加 logging 上限）

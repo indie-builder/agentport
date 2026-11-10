@@ -213,7 +213,7 @@
 | 能力 | 状态 | 证据 |
 |---|---|---|
 | 子智能体单层委派 | ✅ | `agents.parent_id`；渲染 `.claude/agents/<child>.md`；仅 `allowSubAgents` 时放行 `Agent` 工具；拒绝自引用与两层 |
-| 数据保留 | ✅ | 版本保留 50、终态运行 90 天、孤立消息 30 天；每日 repeatable job + `pnpm --filter @agentport/worker maintenance` |
+| 数据保留 | ✅ | 版本保留 50、终态运行 90 天、孤立消息与频道消息 30 天；每日 repeatable job + `bun run --filter @agentport/worker maintenance` |
 | 指标端点 | ✅ | `GET /health/metrics`：进程 / 队列 / 连接池 / Redis ping，依赖不可用时返回 null 而非 500 |
 | 请求日志规范化 | ✅ | 按路由模板记录，`unmatched` 兜底；>2s 记 warn；SSE 排除 |
 | 平台健康卡片 | ✅ | 概览页 30s 轮询队列与内存 |
