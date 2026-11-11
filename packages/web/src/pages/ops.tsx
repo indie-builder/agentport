@@ -7,13 +7,14 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { AgentPicker } from '../components/agent/agent-picker.js';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import {
   Page,
   PageBody,
@@ -69,7 +70,7 @@ import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { fieldErrors, useFormBlocker } from '../lib/form.js';
+import { fieldErrors } from '../lib/form.js';
 import { formatRelative, formatUtcDateTime } from '../lib/format.js';
 import { meQuery, useAgents, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -592,7 +593,6 @@ function ScheduleDialog({
   onClose: () => void;
 }) {
   const client = useQueryClient();
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [deleted, setDeleted] = useState(false);
@@ -624,7 +624,7 @@ function ScheduleDialog({
     mutationFn: (input: ScheduleInput) => api.createSchedule(input),
     onSuccess: () => {
       toastSuccess('定时任务已创建');
-      finish();
+      guard.finish();
     },
     onError: toastError,
     onSettled: invalidate,
@@ -634,7 +634,7 @@ function ScheduleDialog({
       api.updateSchedule(schedule?.id ?? '', input),
     onSuccess: () => {
       toastSuccess('定时任务已更新');
-      finish();
+      guard.finish();
     },
     onError: (error) => {
       // 冲突就地保留草稿；只有用户确认重新加载才推进版本基线，绝不自动重发旧稿。
@@ -680,23 +680,7 @@ function ScheduleDialog({
       setReloading(false);
     }
   };
-  const blocker = useFormBlocker(dirty, pending);
-  // 成功回调在拦截发生前创建，读不到后来的 blocker：用 ref 拿最新一次。
-  const blockerRef = useRef(blocker);
-  useEffect(() => {
-    blockerRef.current = blocker;
-  }, [blocker]);
-  // 关闭会卸载弹层并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
-  const finish = (): void => {
-    blockerRef.current.reset?.();
-    onClose();
-  };
-  // Esc、遮罩、取消和关闭按钮走同一路径：有未保存输入时先确认。
-  const close = (): void => {
-    if (pending) return;
-    if (dirty) setConfirmDiscard(true);
-    else finish();
-  };
+  const guard = useDraftGuard(dirty, pending, onClose);
 
   const selectedAgent = agents.find((agent) => agent.id === watched.agentId);
   const agentOptions = [
@@ -783,7 +767,7 @@ function ScheduleDialog({
           details.cancel();
           return;
         }
-        if (!next) close();
+        if (!next) guard.close();
       }}
     >
       <DialogShell
@@ -1092,7 +1076,7 @@ function ScheduleDialog({
           </div>
 
           <div className="sticky -bottom-4 z-10 -mx-5 -mb-4 mt-4 flex justify-end gap-2 rounded-b-[var(--radius-dialog)] border-t border-line bg-surface px-5 py-4">
-            <Button variant="outline" onClick={close} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" aria-busy={pending} disabled={pending}>
@@ -1111,29 +1095,7 @@ function ScheduleDialog({
           confirmDisabled={pending}
           onConfirm={reload}
         />
-        <ConfirmDialog
-          open={confirmDiscard}
-          onClose={() => setConfirmDiscard(false)}
-          title="放弃未保存的更改？"
-          description="关闭后这次填写的定时任务内容会丢失。"
-          confirmLabel="放弃并关闭"
-          confirmDisabled={pending}
-          onConfirm={async () => {
-            if (!pending) finish();
-          }}
-        />
-        {/* 路由离开/刷新与弹层关闭共用同一确认文案；取消保留草稿，确认才真正离开。 */}
-        <ConfirmDialog
-          open={blocker.status === 'blocked'}
-          onClose={() => blocker.reset?.()}
-          title="放弃未保存的更改？"
-          description={
-            pending ? '正在保存，请等待请求完成。' : '离开后这次填写的定时任务内容会丢失。'
-          }
-          confirmLabel="放弃并离开"
-          confirmDisabled={pending}
-          onConfirm={async () => blocker.proceed()}
-        />
+        <DraftGuardDialogs guard={guard} draft="这次填写的定时任务内容会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );

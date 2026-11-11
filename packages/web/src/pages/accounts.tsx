@@ -12,10 +12,11 @@ import {
   Trash2,
   UsersRound,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import {
   Page,
   PageBody,
@@ -54,7 +55,6 @@ import { ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { type Account, ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { useFormBlocker } from '../lib/form.js';
 import { formatDate } from '../lib/format.js';
 import {
   meQuery,
@@ -486,59 +486,6 @@ function AccountRowActions({
   );
 }
 
-/** 关闭弹层与路由离开共用同一份放弃确认；请求中先取消关闭，成功关闭前结算被拦下的导航。 */
-function useDiscardGuard(dirty: boolean, pending: boolean, onClose: () => void) {
-  const blocker = useFormBlocker(dirty, pending);
-  const blockerRef = useRef(blocker);
-  useEffect(() => {
-    blockerRef.current = blocker;
-  }, [blocker]);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const finish = (): void => {
-    blockerRef.current.reset?.();
-    onClose();
-  };
-  const close = (): void => {
-    if (pending) return;
-    if (dirty) setConfirmDiscard(true);
-    else finish();
-  };
-  return { blocker, confirmDiscard, setConfirmDiscard, finish, close };
-}
-
-function DiscardGuards({
-  guard,
-  pending,
-}: {
-  guard: ReturnType<typeof useDiscardGuard>;
-  pending: boolean;
-}) {
-  return (
-    <>
-      <ConfirmDialog
-        open={guard.confirmDiscard}
-        onClose={() => guard.setConfirmDiscard(false)}
-        title="放弃未保存的更改？"
-        description="关闭后填写的内容会丢失。"
-        confirmLabel="放弃并关闭"
-        confirmDisabled={pending}
-        onConfirm={async () => {
-          if (!pending) guard.finish();
-        }}
-      />
-      <ConfirmDialog
-        open={guard.blocker.status === 'blocked'}
-        onClose={() => guard.blocker.reset?.()}
-        title="放弃未保存的更改？"
-        description={pending ? '正在保存，请等待请求完成。' : '离开后填写的内容会丢失。'}
-        confirmLabel="放弃并离开"
-        confirmDisabled={pending}
-        onConfirm={async () => guard.blocker.proceed()}
-      />
-    </>
-  );
-}
-
 function RoleChecks({
   directory,
   selected,
@@ -623,7 +570,7 @@ function CreateAccountDialog({
   const [saved, setSaved] = useState(false);
   const pending = create.isPending && !saved;
   const dirty = !saved && isDirty;
-  const guard = useDiscardGuard(dirty, pending, onClose);
+  const guard = useDraftGuard(dirty, pending, onClose);
   const rolesUnavailable = canAssignRoles && roleDirectory.roles === undefined;
   const businessError = errors.businessId?.message;
   const usernameError = errors.username?.message;
@@ -811,7 +758,7 @@ function CreateAccountDialog({
             </div>
           </FieldGroup>
         </form>
-        <DiscardGuards guard={guard} pending={pending} />
+        <DraftGuardDialogs guard={guard} draft="填写的内容会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -835,7 +782,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
   const [saved, setSaved] = useState(false);
   const pending = update.isPending && !saved;
   const dirty = !saved && isDirty;
-  const guard = useDiscardGuard(dirty, pending, onClose);
+  const guard = useDraftGuard(dirty, pending, onClose);
   const usernameError = errors.username?.message;
   const nameError = errors.name?.message;
 
@@ -919,7 +866,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
             </div>
           </FieldGroup>
         </form>
-        <DiscardGuards guard={guard} pending={pending} />
+        <DraftGuardDialogs guard={guard} draft="填写的内容会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -946,7 +893,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
   const [saved, setSaved] = useState(false);
   const pending = reset.isPending && !saved;
   const dirty = !saved && isDirty;
-  const guard = useDiscardGuard(dirty, pending, onClose);
+  const guard = useDraftGuard(dirty, pending, onClose);
   const passwordError = errors.password?.message;
   const confirmError = errors.confirm?.message;
 
@@ -1024,7 +971,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
             </div>
           </FieldGroup>
         </form>
-        <DiscardGuards guard={guard} pending={pending} />
+        <DraftGuardDialogs guard={guard} draft="填写的内容会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
@@ -1047,7 +994,7 @@ function AssignRolesDialog({
   const pending = save.isPending && !saved;
   const dirty =
     !saved && [...selected].sort().join('\u0000') !== [...initialRoleIds].sort().join('\u0000');
-  const guard = useDiscardGuard(dirty, pending, onClose);
+  const guard = useDraftGuard(dirty, pending, onClose);
   const rolesUnavailable = roleDirectory.roles === undefined;
 
   const submit = async (): Promise<void> => {
@@ -1117,7 +1064,7 @@ function AssignRolesDialog({
             </div>
           </FieldGroup>
         </form>
-        <DiscardGuards guard={guard} pending={pending} />
+        <DraftGuardDialogs guard={guard} draft="填写的内容会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );

@@ -15,12 +15,13 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
@@ -39,7 +40,6 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/fiel
 import { Input } from '../components/ui/input.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { can } from '../lib/access.js';
-import { useFormBlocker } from '../lib/form.js';
 import {
   meQuery,
   useDeletePlugin,
@@ -612,23 +612,7 @@ export function PluginDialog({
   });
   const errors = form.formState.errors;
   const dirty = form.formState.isDirty;
-  const blocker = useFormBlocker(dirty, pending);
-  const blockerRef = useRef(blocker);
-  useEffect(() => {
-    blockerRef.current = blocker;
-  }, [blocker]);
-  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
-  const finish = (): void => {
-    blockerRef.current.reset?.();
-    onClose();
-  };
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中一律不能关闭。
-  const close = (): void => {
-    if (pending) return;
-    if (dirty) setConfirmDiscard(true);
-    else finish();
-  };
+  const guard = useDraftGuard(dirty, pending, onClose);
 
   const submit = form.handleSubmit((values) => {
     if (pending) return;
@@ -642,7 +626,7 @@ export function PluginDialog({
       {
         onSuccess: () => {
           toastSuccess('插件已保存');
-          finish();
+          guard.finish();
         },
         onError: toastError,
       },
@@ -657,7 +641,7 @@ export function PluginDialog({
           details.cancel();
           return;
         }
-        if (!next) close();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="编辑插件" closeDisabled={pending} finalFocus={finalFocus}>
@@ -696,7 +680,7 @@ export function PluginDialog({
             </Field>
           </FieldGroup>
           <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={close} disabled={pending}>
+            <Button type="button" variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" aria-busy={pending} disabled={pending}>
@@ -704,28 +688,7 @@ export function PluginDialog({
             </Button>
           </div>
         </form>
-        <ConfirmDialog
-          open={confirmDiscard}
-          onClose={() => setConfirmDiscard(false)}
-          title="放弃未保存的更改？"
-          description="关闭后插件名称与描述的修改会丢失。"
-          confirmLabel="放弃并关闭"
-          confirmDisabled={pending}
-          onConfirm={async () => {
-            if (!pending) finish();
-          }}
-        />
-        <ConfirmDialog
-          open={blocker.status === 'blocked'}
-          onClose={() => blocker.reset?.()}
-          title="放弃未保存的更改？"
-          description={
-            pending ? '正在保存，请等待请求完成。' : '离开后插件名称与描述的修改会丢失。'
-          }
-          confirmLabel="放弃并离开"
-          confirmDisabled={pending}
-          onConfirm={async () => blocker.proceed()}
-        />
+        <DraftGuardDialogs guard={guard} draft="插件名称与描述的修改会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
