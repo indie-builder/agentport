@@ -103,7 +103,7 @@ import {
   toolsQuery,
   useAgentFiles,
   useAgentOptions,
-  useAgents,
+  useExperts,
   useKnowledgeBases,
   usePlugins,
   useRuntimeEnvironments,
@@ -183,7 +183,7 @@ export function AgentEditor({
   const knowledgeBases = useKnowledgeBases(canKnowledge);
   const skills = useSkills(canSkills);
   const plugins = usePlugins(canPlugins);
-  const agents = useAgents();
+  const agents = useExperts();
   const runtimeEnvironments = useRuntimeEnvironments(canRuntimeEnvironments);
   const optionServers = options.data?.servers ?? [];
   // 连接器目录只取摘要；完整 Server（含密钥/命令）仍只来自全局 servers 查询。

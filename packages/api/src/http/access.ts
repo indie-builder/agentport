@@ -5,6 +5,7 @@ import {
   type AccessResource,
   type AccessScope,
   type AgentAccess,
+  agentPermissionAllows,
   agentScopeAllows,
   PERMISSIONS,
   type PermissionGrant,
@@ -54,6 +55,14 @@ export async function authorize(
 ): Promise<void> {
   const principal = requireUser(context);
   const grants = principal.grants.filter((grant) => grant.permissionId === permissionId);
+  const cached: { value?: AgentRelation } = {};
+  if (resource?.agentId !== undefined && resource.privateContent !== true) {
+    const relation = await relationFor(context, principal, resource.agentId, cached);
+    if (relation.isDefault) {
+      if (agentPermissionAllows(grants, permissionId, relation, principal.businessId)) return;
+      throw new AppError('NOT_FOUND', '对象不存在');
+    }
+  }
   if (grants.length === 0) throw new AppError('FORBIDDEN', '没有该操作的权限');
   if (resource === undefined) {
     if (grants.some((grant) => grant.scope === 'platform' || grant.scope === 'own_data')) {
@@ -62,7 +71,6 @@ export async function authorize(
     throw new AppError('FORBIDDEN', '没有该操作的权限');
   }
 
-  const cached: { value?: AgentRelation } = {};
   let matched: PermissionGrant | undefined;
   for (const grant of grants) {
     if (grant.scope === 'platform') {
@@ -126,6 +134,9 @@ export async function agentAccess(context: RequestContext, agentId: string): Pro
   const principal = requireUser(context);
   const cached: { value?: AgentRelation } = {};
   const relation = await relationFor(context, principal, agentId, cached);
+  if (relation.isDefault) {
+    return { agentId, permissionIds: ['agents.read', 'agents.use'] };
+  }
   const granted = new Set(principal.grants.map((grant) => grant.permissionId));
   const permissionIds: PermissionId[] = [];
   for (const definition of PERMISSIONS) {

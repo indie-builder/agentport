@@ -77,7 +77,7 @@ export const overviewRouter = os.router({
               schema.agentRuns,
               and(eq(schema.agentRuns.agentId, schema.agents.id), inWindow, runScope),
             )
-            .where(agentScope)
+            .where(and(eq(schema.agents.isDefault, false), agentScope))
             .groupBy(schema.agents.id)
             .orderBy(desc(sql`max(${schema.agentRuns.startedAt})`))
         : context.db
@@ -93,7 +93,7 @@ export const overviewRouter = os.router({
             })
             .from(schema.agents)
             .leftJoin(agentRunStats, eq(agentRunStats.agentId, schema.agents.id))
-            .where(agentScope)
+            .where(and(eq(schema.agents.isDefault, false), agentScope))
             .orderBy(desc(agentRunStats.lastRunStartTime));
     const [[runAgg], agentRows, recent] = await Promise.all([
       context.db
@@ -102,8 +102,8 @@ export const overviewRouter = os.router({
             ? sql<number>`0::int`
             : sql<number>`(select count(*)::int from ${schema.servers} where ${schema.servers.kind} <> 'knowledge')`,
           agents: ownOnly
-            ? sql<number>`(select count(*)::int from ${schema.agents} where ${schema.agents.createdBy} = ${access.businessId})`
-            : sql<number>`(select count(*)::int from ${schema.agents})`,
+            ? sql<number>`(select count(*)::int from ${schema.agents} where ${schema.agents.createdBy} = ${access.businessId} and ${schema.agents.isDefault} = false)`
+            : sql<number>`(select count(*)::int from ${schema.agents} where ${schema.agents.isDefault} = false)`,
           running: sql<number>`count(*) filter (where ${schema.agentRuns.status} = 'running')::int`,
           total: sql<number>`count(*) filter (where ${inWindow})::int`,
           failed: sql<number>`count(*) filter (where ${inWindow} and ${schema.agentRuns.status} in ('failed','timeout'))::int`,

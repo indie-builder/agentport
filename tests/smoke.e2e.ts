@@ -131,7 +131,7 @@ test('smoke: chat runs to a terminal state', { session: 'admin' }, async ({
   test.skip(process.env.E2E_FULL !== '1', '需要 worker 与模型凭据，设置 E2E_FULL=1 才跑');
 
   await app.open('/chat');
-  const agentSelect = screen.getByRole('combobox', '选择专家');
+  const agentSelect = screen.getByRole('combobox', '召唤专家');
   await agentSelect.tap();
   await screen.getByRole('option').first().tap();
   await screen.getByRole('textbox', '消息').fill('hello');

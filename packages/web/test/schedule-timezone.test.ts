@@ -25,7 +25,7 @@ const { originalTimeZone } = vi.hoisted(() => {
 });
 
 const msw = createMsw();
-const agent = { id: 'agent-1', name: 'Expert A' } as Agent;
+const agent = { id: 'agent-1', name: 'Expert A', isDefault: false } as Agent;
 const dueAt = '2026-10-29T09:00:00.000Z';
 
 const schedule: Schedule = {

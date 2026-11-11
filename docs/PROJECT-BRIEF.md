@@ -349,8 +349,9 @@ api_tools(
 
 agents(
   id text pk                 -- TypeID，如 srv_/agt_/run_,
-  slug text unique,          -- 目录名，用于 workspaces/<slug>/
+  slug text unique,          -- 目录名，用于 workspaces/<slug>/；'assistant' 为平台默认助手保留
   name text,
+  is_default boolean not null default false,  -- 平台默认助手「通用助手」
   model text,
   system_prompt_md text,     -- 渲染为 CLAUDE.md
   allowed_tools jsonb,       -- 例如 ["mcp__crm-api__*"]
@@ -361,6 +362,8 @@ agents(
   created_at timestamptz,
   updated_at timestamptz
 )
+-- partial unique index agents_single_default_idx on (is_default) where is_default = true
+-- 只保证至多一个默认；恰好一个由 bootstrap 与 buildApp 启动时的幂等播种 ensureDefaultAssistant 保证
 
 agent_servers(agent_id text, server_id text, primary key (agent_id, server_id))
 

@@ -250,14 +250,27 @@ export function useChatStream({
     [closeStream],
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: changing agents revokes ownership of pending HTTP and SSE work.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       closeStream();
     };
-  }, [agentId, closeStream]);
+  }, [closeStream]);
+
+  const previousAgentId = useRef(agentId);
+  useEffect(() => {
+    if (previousAgentId.current === agentId) return;
+    const authoritativeFill =
+      previousAgentId.current === null &&
+      agentId !== null &&
+      conversationId !== null &&
+      hydratedRef.current === conversationId &&
+      history?.data?.conversation.id === conversationId &&
+      history.data.conversation.agentId === agentId;
+    previousAgentId.current = agentId;
+    if (!authoritativeFill) closeStream();
+  }, [agentId, conversationId, history?.data, closeStream]);
 
   /**
    * 截断后的异步补全：只在本轮仍是当前会话、没有新运行、也没切走时才落地。
@@ -688,14 +701,9 @@ export function useChatStream({
     // 附件只随用户编辑的那次发送消费；组件动作不带走输入框里未发送的资料。
     const attachments = text === undefined ? store.pendingAttachments : [];
     const body = (text ?? input).trim();
-    if (
-      !mountedRef.current ||
-      (!body && attachments.length === 0) ||
-      !agentId ||
-      phase.kind !== 'idle'
-    )
+    if (!mountedRef.current || (!body && attachments.length === 0) || phase.kind !== 'idle') return;
+    if (conversationId !== null && (hydratedRef.current !== conversationId || agentId === null))
       return;
-    if (conversationId !== null && hydratedRef.current !== conversationId) return;
     const generation = ++generationRef.current;
     const ownsRequest = () => mountedRef.current && generationRef.current === generation;
     replayTruncatedRef.current = false;
@@ -733,7 +741,7 @@ export function useChatStream({
       // 读取期间切会话/专家/新建已让本轮失效：不再上传，也不发起旧请求。
       if (!ownsRequest()) return;
       const accepted = await api.sendChat({
-        agentId,
+        ...(agentId === null ? {} : { agentId }),
         message: body,
         ...(conversationId ? { conversationId } : {}),
         ...(action ? { openuiAction: action } : {}),
@@ -788,7 +796,7 @@ export function useChatStream({
         startedAt: startedAtRef.current,
       });
       onAccepted(accepted, body);
-      void client.invalidateQueries({ queryKey: chatKeys.conversations(agentId) });
+      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
       openStream(accepted, generation);
     } catch (error) {
       if (!ownsRequest()) return;
@@ -894,12 +902,12 @@ export function useChatStream({
         error: detail.error,
         endedAt: detail.endedAt,
       });
-      void client.invalidateQueries({ queryKey: chatKeys.conversations(agentId) });
+      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
       void client.invalidateQueries({
         queryKey: chatKeys.outputs(detail.conversationId),
       });
     },
-    [closeStream, client, agentId],
+    [closeStream, client],
   );
 
   const retryStream = () => {

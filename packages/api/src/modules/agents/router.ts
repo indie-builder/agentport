@@ -86,6 +86,7 @@ function toSummary(row: allRepo.agents.AgentRow, serverIds?: string[]) {
     name: row.name,
     description: row.description,
     enabled: row.enabled,
+    isDefault: row.isDefault,
     createdBy: row.createdBy,
     ownerBusinessId: row.ownerBusinessId,
     slug: row.slug,
@@ -108,12 +109,21 @@ const os = implement(agentsContract).$context<RequestContext>();
 export const agentsRouter = os.router({
   list: os.list.handler(async ({ context }) => {
     const principal = requireUser(context);
-    const rows = await repo.listAgents(context.db, accessFilter(context, 'agents.read'), {
-      businessId: principal.businessId,
-      scopes: principal.grants
-        .filter((grant) => grant.permissionId === 'agents.config.read')
-        .map((grant) => grant.scope),
-    });
+    const rows = await repo.listAgents(
+      context.db,
+      {
+        businessId: principal.businessId,
+        scopes: principal.grants
+          .filter((grant) => grant.permissionId === 'agents.read')
+          .map((grant) => grant.scope),
+      },
+      {
+        businessId: principal.businessId,
+        scopes: principal.grants
+          .filter((grant) => grant.permissionId === 'agents.config.read')
+          .map((grant) => grant.scope),
+      },
+    );
     return rows.map((row) => toSummary(row, row.serverIds ?? undefined));
   }),
   create: os.create.handler(async ({ context, input: routeInput }) => {
@@ -436,7 +446,7 @@ export const agentsRouter = os.router({
     }
     return {
       version: row.version,
-      snapshot: row.snapshot,
+      snapshot: { ...row.snapshot, isDefault: current.isDefault },
       createdAt: row.createdAt.toISOString(),
     };
   }),

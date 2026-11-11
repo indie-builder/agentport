@@ -26,6 +26,7 @@ vi.mock('@agentport/core/workspace', async (importOriginal) => {
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'expert',
+  isDefault: false,
   parentId: null,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',

@@ -54,13 +54,13 @@ import {
 import { can } from '../../lib/access.js';
 import { api } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
-import { meQuery, useAgents, useDeleteAgent, useRuntimeEnvironments } from '../../lib/queries.js';
+import { meQuery, useDeleteAgent, useExperts, useRuntimeEnvironments } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { CreateAgentDialog } from './create-agent-dialog.js';
 import { badgeCreatedAt } from './shared.js';
 
 export function AgentsPage() {
-  const agents = useAgents();
+  const agents = useExperts();
   const me = useQuery(meQuery);
   const canCreate = can(me.data, 'agents.create');
   const canUse = can(me.data, 'agents.use');

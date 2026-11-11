@@ -724,6 +724,13 @@ export function useAgents() {
   return useQuery(agentsQuery);
 }
 
+export function useExperts() {
+  return useQuery({
+    ...agentsQuery,
+    select: (agents: AgentSummary[]) => agents.filter((agent) => !agent.isDefault),
+  });
+}
+
 /** 列表摘要：只用于选择器和卡片，不包含配置正文。 */
 export function useAgentSummary(id: string | null) {
   return useQuery({

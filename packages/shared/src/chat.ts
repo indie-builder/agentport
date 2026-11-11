@@ -37,7 +37,7 @@ export const SANDBOX_RUNTIME_ENV = {
 
 export const chatRequestSchema = z
   .object({
-    agentId: z.string(),
+    agentId: z.string().optional(),
     conversationId: z.string().optional(),
     // 沙盒把 prompt 走 stdin，超大输入会拖垮 worker；按 UTF-8 字节统一限制为 64KiB。
     message: z

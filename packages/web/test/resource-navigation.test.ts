@@ -58,6 +58,7 @@ vi.mock('../src/lib/queries.js', () => {
     },
     connectorCatalogQuery: { queryKey: ['connector-catalog'], queryFn: async () => [] },
     useAgents: () => ({ data: [] }),
+    useExperts: () => ({ data: [] }),
     useAgentOptions: () => ({
       data: undefined,
       isPending: false,
@@ -198,6 +199,7 @@ const allPermissions = PERMISSIONS.map((permission) => permission.id);
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'expert',
+  isDefault: false,
   parentId: null,
   createdAt: 'v1',
   updatedAt: 'v1',

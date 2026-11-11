@@ -1,27 +1,31 @@
 import { describe, expect, it } from 'bun:test';
-import type { AgentRelation } from '@agentport/shared';
-import { agentPermissionAllows, runExecutionSubject } from '../src/run-access.js';
+import { type AgentRelation, agentPermissionAllows } from '@agentport/shared';
+import { runExecutionSubject } from '../src/run-access.js';
 
 const owner: AgentRelation = {
   exists: true,
+  isDefault: false,
   ownerBusinessId: 'owner-a',
   canUse: true,
   canMaintain: true,
 };
 const member: AgentRelation = {
   exists: true,
+  isDefault: false,
   ownerBusinessId: 'owner-a',
   canUse: true,
   canMaintain: false,
 };
 const outsider: AgentRelation = {
   exists: true,
+  isDefault: false,
   ownerBusinessId: 'owner-a',
   canUse: false,
   canMaintain: false,
 };
 const missing: AgentRelation = {
   exists: false,
+  isDefault: false,
   ownerBusinessId: null,
   canUse: false,
   canMaintain: false,

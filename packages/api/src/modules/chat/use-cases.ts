@@ -88,7 +88,7 @@ export async function startRun(
   deps: StartRunDependencies,
 ) {
   const { openuiAction, attachments, ...chatInput } = body;
-  const { agentId, message, output } = chatInput;
+  const { message, output } = chatInput;
   const messageText = message ?? '';
   if (attachments !== undefined && openuiAction !== undefined) {
     return fail('INVALID_INPUT', '附件与生成式 UI 动作不能同时发送，请只保留一种');
@@ -118,6 +118,10 @@ export async function startRun(
     if (outputProblem !== null) {
       return fail(outputProblem.code, outputProblem.message);
     }
+  }
+  const agentId = chatInput.agentId ?? (await repo.agents.getDefaultAgent(deps.db))?.id;
+  if (agentId === undefined) {
+    return fail('SERVICE_UNAVAILABLE', '通用助手尚未初始化，请稍后重试');
   }
   if (!(await chatRepo.agentExists(deps.db, agentId))) {
     return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');

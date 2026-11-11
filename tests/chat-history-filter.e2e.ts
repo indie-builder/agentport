@@ -153,7 +153,7 @@ test('search stays cross-expert after switching experts in the history header', 
     await showHistory(screen);
 
     // 在历史头部换到另一位专家：列表只刷新到该专家，不保留上一位的会话。
-    await screen.getByRole('combobox', new RegExp(`选择专家：${fixture.names[0]}`)).tap();
+    await screen.getByRole('combobox', new RegExp(`切换专家：${fixture.names[0]}`)).tap();
     await screen.getByRole('option', new RegExp(fixture.names[1])).tap();
     await expect(browser).toHaveURL(new RegExp(`agent=${agentB}$`));
     const aside = browser.locator('aside[aria-label="会话历史"]');

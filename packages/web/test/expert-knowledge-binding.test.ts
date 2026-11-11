@@ -45,7 +45,7 @@ vi.mock('../src/lib/queries.js', async (original) => {
     // 通用 /api/servers 已过滤 knowledge；知识库只能从这里拿到 serverId 绑定。
     useKnowledgeBases: () => ({ data: mocks.bases, isPending: false, isError: false }),
     useSkills: () => ({ data: [], isPending: false, isError: false }),
-    useAgents: () => ({ data: mocks.agents, isPending: false, isError: false }),
+    useExperts: () => ({ data: mocks.agents, isPending: false, isError: false }),
     useUpdateAgent: () => ({ isPending: false, mutate: () => {} }),
     useAgentFiles: () => ({ data: undefined, isPending: true, isError: false, refetch: () => {} }),
     useAgentVersions: () => ({ data: [], isPending: false, isError: false }),
@@ -97,6 +97,7 @@ function agentWith(serverIds: string[]): Agent {
   return {
     ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
     id: 'expert',
+    isDefault: false,
     parentId: null,
     serverIds,
     createdAt: '2026-01-01',

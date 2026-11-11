@@ -42,6 +42,7 @@ vi.mock('../src/lib/queries.js', async (original) => {
     ...actual,
     meQuery: { queryKey: ['me'], queryFn: async () => state.me },
     useAgents: () => query(state.agents),
+    useExperts: () => query(state.agents),
     useAgentAccess: () => query({ agentId: 'agent-1', permissionIds: state.agentAccess }),
     useAgentSummary: () => query(state.agents[0]),
     useAgentDetail: () => query(state.agents[0]),
@@ -87,6 +88,7 @@ vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn
 const agent = {
   id: 'agent-1',
   slug: 'audit-agent',
+  isDefault: false,
   name: ' Audited agent ',
   description: '待审计专家',
   role: '通用助手',
