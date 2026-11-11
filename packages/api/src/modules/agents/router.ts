@@ -3,9 +3,16 @@ import { join } from 'node:path';
 import { agentsContract } from '@agentport/contract/agents';
 import { fail, parseAgentMd } from '@agentport/core';
 import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db';
+import { AGENT_HOOK_FILE_LIMIT } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
-import { accessFilter, agentAccess, authorize, requireUser } from '../../http/access.js';
+import {
+  accessFilter,
+  agentAccess,
+  authorize,
+  authorizeObject,
+  requireUser,
+} from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import {
@@ -30,6 +37,18 @@ import { unsupportedAllowedTool } from './validation.js';
 import { renderAgentWorkspace } from './workspace.js';
 import { toAgentPatch } from './write.js';
 
+type HookFileRow = Awaited<ReturnType<typeof allRepo.hooks.listHookFiles>>[number];
+function toHookFile(row: HookFileRow) {
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    path: row.path,
+    content: row.content,
+    executable: row.executable,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
 type OutputStyleRow = Awaited<ReturnType<typeof allRepo.outputStyles.listOutputStyles>>[number];
 function toOutputStyle(row: OutputStyleRow) {
   return {
@@ -381,6 +400,17 @@ export const agentsRouter = os.router({
     const current = await repo.getAgent(context.db, routeInput.params.id);
     if (!current) return notFound();
     await authorizeAgent(context, current, 'agents.files.read');
+    if (
+      current.hooksEnabled ||
+      (await allRepo.hooks.listHookFiles(context.db, current.id)).length > 0
+    ) {
+      await authorizeObject(
+        context,
+        'agents.hooks.read',
+        { agentId: current.id, createdBy: current.createdBy },
+        '对象不存在',
+      );
+    }
     const files = await renderAgentWorkspace(context, current.id);
     if (!files) return notFound();
     if (routeInput.query.reveal === '1') context.responseHeaders.set('Cache-Control', 'no-store');
@@ -711,6 +741,76 @@ export const agentsRouter = os.router({
       action: 'agent.output_style.deleted',
       target: agent.id,
       input: { slug: routeInput.params.slug },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return undefined;
+  }),
+  hooks: os.hooks.handler(async ({ context, input: routeInput }) => {
+    const agent = await authorizedAgent(context, routeInput.params.id, 'agents.hooks.read');
+    const files = await allRepo.hooks.listHookFiles(context.db, agent.id);
+    return {
+      enabled: agent.hooksEnabled,
+      config: agent.hooksConfig,
+      files: files.map(toHookFile),
+    };
+  }),
+  writeHooksSettings: os.writeHooksSettings.handler(async ({ context, input: routeInput }) => {
+    const principal = requireUser(context);
+    const agent = await authorizedAgent(context, routeInput.params.id, 'agents.hooks.write');
+    const updated = await allRepo.hooks.updateHooksSettings(context.db, agent.id, {
+      enabled: routeInput.body.enabled,
+      config: routeInput.body.config,
+    });
+    if (!updated) return notFound();
+    await allRepo.audit.writeAudit(context.db, context.log, {
+      actor: principal.businessId,
+      action: 'agent.hooks.settings.updated',
+      target: agent.id,
+      input: { enabled: routeInput.body.enabled },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    const files = await allRepo.hooks.listHookFiles(context.db, agent.id);
+    return {
+      enabled: routeInput.body.enabled,
+      config: routeInput.body.config,
+      files: files.map(toHookFile),
+    };
+  }),
+  writeHookFile: os.writeHookFile.handler(async ({ context, input: routeInput }) => {
+    const principal = requireUser(context);
+    const agent = await authorizedAgent(context, routeInput.params.id, 'agents.hooks.write');
+    const existing = await allRepo.hooks.listHookFiles(context.db, agent.id);
+    if (
+      existing.length >= AGENT_HOOK_FILE_LIMIT &&
+      !existing.some((file) => file.path === routeInput.body.path)
+    ) {
+      fail('INVALID_INPUT', `hook 脚本最多 ${AGENT_HOOK_FILE_LIMIT} 个，请先删除不用的脚本`);
+    }
+    const row = await allRepo.hooks.upsertHookFile(context.db, agent.id, routeInput.body);
+    await allRepo.audit.writeAudit(context.db, context.log, {
+      actor: principal.businessId,
+      action: 'agent.hook.file.updated',
+      target: agent.id,
+      input: { path: row.path },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return toHookFile(row);
+  }),
+  deleteHookFile: os.deleteHookFile.handler(async ({ context, input: routeInput }) => {
+    const principal = requireUser(context);
+    const agent = await authorizedAgent(context, routeInput.params.id, 'agents.hooks.write');
+    const removed = await allRepo.hooks.deleteHookFile(context.db, agent.id, routeInput.body.path);
+    if (!removed) {
+      fail('NOT_FOUND', 'hook 脚本不存在，可能已被删除；请刷新后重试');
+    }
+    await allRepo.audit.writeAudit(context.db, context.log, {
+      actor: principal.businessId,
+      action: 'agent.hook.file.deleted',
+      target: agent.id,
+      input: { path: routeInput.body.path },
       status: 'ok',
       requestId: context.requestId,
     });

@@ -101,6 +101,13 @@ export async function renderAgentWorkspace(
           content: row.content,
         }))
       : [];
+  const hookFiles = agent.hooksEnabled
+    ? (await repo.hooks.listHookFiles(app.db, agent.id)).map((file) => ({
+        path: file.path,
+        content: file.content,
+        executable: file.executable,
+      }))
+    : [];
   const styleRows = await repo.outputStyles.listOutputStyles(app.db, agent.id);
   const outputStyles = styleRows.map((r) => ({
     slug: r.slug,
@@ -140,6 +147,8 @@ export async function renderAgentWorkspace(
       rules,
       outputStyles,
       selectedOutputStyle,
+      ...(agent.hooksEnabled && agent.hooksConfig ? { hooks: agent.hooksConfig } : {}),
+      hookFiles,
       openuiTools,
       plugins,
     }),

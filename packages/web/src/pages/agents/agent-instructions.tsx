@@ -1,5 +1,6 @@
 import type { PermissionId } from '@agentport/shared';
 import { useEffect, useState } from 'react';
+import { HooksPanel } from '../../components/agent/hooks-panel.js';
 import { WorkflowsPanel } from '../../components/agent/workflow-panel.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { OutputStylesPanel, RulesPanel } from '../../components/memory/memory-panel.js';
@@ -90,10 +91,17 @@ export function AgentInstructions({
             onDirtyChange={setDirty}
             onPendingChange={setPending}
           />
-        ) : (
+        ) : instruction === 'workflows' ? (
           <WorkflowsPanel
             agentId={agentId}
             canWrite={hasAnyGrant(permissions, 'agents.workflows.write')}
+            onDirtyChange={setDirty}
+            onPendingChange={setPending}
+          />
+        ) : (
+          <HooksPanel
+            agentId={agentId}
+            canWrite={hasAnyGrant(permissions, 'agents.hooks.write')}
             onDirtyChange={setDirty}
             onPendingChange={setPending}
           />

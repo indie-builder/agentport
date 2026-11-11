@@ -155,6 +155,7 @@ export async function importAgent(
       workflows: result.counts.workflows,
       rules: result.counts.rules,
       outputStyles: result.counts.outputStyles,
+      hookFiles: result.counts.hookFiles,
       subAgents: result.createdSubAgents.length,
     },
     status: 'ok',

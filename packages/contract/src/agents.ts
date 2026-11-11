@@ -1,5 +1,10 @@
 import {
   agentDuplicateInputSchema,
+  agentHookFileInputSchema,
+  agentHookFilePathSchema,
+  agentHookFileSchema,
+  agentHooksSchema,
+  agentHooksSettingsInputSchema,
   agentInputSchema,
   agentMemberInputSchema,
   agentOptionsSchema,
@@ -85,6 +90,8 @@ const patchSchema = z
   })
   .strict();
 const importFileSchema = z.object({ agentMd: z.string().max(131072) });
+const hookFileBody = agentHookFileInputSchema;
+const hookFileDeleteBody = z.object({ path: agentHookFilePathSchema });
 const memberSchema = z.object({
   businessId: z.string(),
   name: z.string(),
@@ -227,6 +234,26 @@ export const agentsContract = {
     .meta({ access: { kind: 'permission', permissionId: 'agents.styles.write' } })
     .route({ method: 'DELETE', path: '/agents/{id}/output-styles/{slug}', successStatus: 204 })
     .input(z.object({ params: outputStyleParams }))
+    .output(z.void()),
+  hooks: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.hooks.read' } })
+    .route({ method: 'GET', path: '/agents/{id}/hooks', successStatus: 200 })
+    .input(z.object({ params: idParams }))
+    .output(agentHooksSchema),
+  writeHooksSettings: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.hooks.write' } })
+    .route({ method: 'PUT', path: '/agents/{id}/hooks/settings', successStatus: 200 })
+    .input(z.object({ params: idParams, body: agentHooksSettingsInputSchema }))
+    .output(agentHooksSchema),
+  writeHookFile: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.hooks.write' } })
+    .route({ method: 'PUT', path: '/agents/{id}/hooks/files', successStatus: 200 })
+    .input(z.object({ params: idParams, body: hookFileBody }))
+    .output(agentHookFileSchema),
+  deleteHookFile: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.hooks.write' } })
+    .route({ method: 'DELETE', path: '/agents/{id}/hooks/files', successStatus: 204 })
+    .input(z.object({ params: idParams, body: hookFileDeleteBody }))
     .output(z.void()),
   members: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.members.manage' } })

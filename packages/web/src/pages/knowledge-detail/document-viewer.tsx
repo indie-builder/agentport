@@ -1,12 +1,19 @@
 import { type KnowledgeDocument, knowledgeAudioMetadataSchema } from '@agentport/shared';
 import { PanelLeftDashed, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { CodeBlock } from '../../components/code-block.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { KnowledgeImage, stripImageReferences } from '../../components/knowledge/knowledge-citations.js';
-import { DocumentVersionPicker, ManualDraftDialog } from '../../components/knowledge/knowledge-documents.js';
+import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
+import {
+  KnowledgeImage,
+  stripImageReferences,
+} from '../../components/knowledge/knowledge-citations.js';
+import {
+  DocumentVersionPicker,
+  ManualDraftDialog,
+} from '../../components/knowledge/knowledge-documents.js';
 import {
   documentStatusLabel,
   documentStatusTone,
@@ -31,7 +38,6 @@ import {
   type KnowledgeVersionImage,
 } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
-import { useFormBlocker } from '../../lib/form.js';
 import { formatRelative } from '../../lib/format.js';
 import {
   useCreateKnowledgeChunk,
@@ -569,21 +575,10 @@ function ChunkDialog({
   const { isDirty } = formState;
   const trimmed = watch('content').trim();
   const [error, setError] = useState<string | null>(null);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const pending = update.isPending || create.isPending;
   const dirty = isDirty;
-  const blocker = useFormBlocker(dirty, pending);
-  // 保存/重载回调在拦截发生前创建，不能读当时的 blocker 快照。
-  const blockerRef = useRef(blocker);
-  useEffect(() => {
-    blockerRef.current = blocker;
-  }, [blocker]);
-  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则其 resolver 永远挂着。
-  const finish = (): void => {
-    blockerRef.current.reset?.();
-    onClose();
-  };
+  const guard = useDraftGuard(dirty, pending, onClose);
   // 图片向量是真实图 embedding；改正文会让它和图片脱节，只允许在列表里启停。
   const vectorChunk = chunk?.metadata?.imageRole === 'vector';
 
@@ -606,12 +601,6 @@ function ChunkDialog({
     );
   }
 
-  const close = (): void => {
-    if (pending) return;
-    if (dirty) setConfirmDiscard(true);
-    else finish();
-  };
-
   const submit = handleSubmit((values: ChunkFormValues) => {
     setError(null);
     const patch = {
@@ -621,7 +610,7 @@ function ChunkDialog({
     const handlers = {
       onSuccess: () => {
         toastSuccess(creating ? '分块已新增，正在补建向量' : '分块已保存，正在补建向量');
-        finish();
+        guard.finish();
       },
       onError: (reason: unknown) => {
         setError(errorMessage(reason));
@@ -639,7 +628,7 @@ function ChunkDialog({
           details.cancel();
           return;
         }
-        if (!next) close();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title={creating ? '新增分块' : '编辑分块'} closeDisabled={pending}>
@@ -677,7 +666,7 @@ function ChunkDialog({
                 重新加载
               </Button>
             ) : null}
-            <Button type="button" variant="outline" onClick={close} disabled={pending}>
+            <Button type="button" variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" disabled={pending || trimmed === ''} aria-busy={pending}>
@@ -685,17 +674,7 @@ function ChunkDialog({
             </Button>
           </div>
         </form>
-        <ConfirmDialog
-          open={confirmDiscard}
-          onClose={() => setConfirmDiscard(false)}
-          title="放弃未保存的更改？"
-          description="关闭后分块正文草稿会丢失。"
-          confirmLabel="放弃并关闭"
-          confirmDisabled={pending}
-          onConfirm={async () => {
-            if (!pending) finish();
-          }}
-        />
+        <DraftGuardDialogs guard={guard} draft="分块正文草稿会丢失。" pending={pending} />
         <ConfirmDialog
           open={confirmReload}
           onClose={() => setConfirmReload(false)}
@@ -709,15 +688,6 @@ function ChunkDialog({
             else await update.reset();
             await onReload();
           }}
-        />
-        <ConfirmDialog
-          open={blocker.status === 'blocked'}
-          onClose={() => blocker.reset?.()}
-          title="放弃未保存的更改？"
-          description={pending ? '正在保存，请等待请求完成。' : '离开后分块正文草稿会丢失。'}
-          confirmLabel="放弃并离开"
-          confirmDisabled={pending}
-          onConfirm={async () => blocker.proceed()}
         />
       </DialogShell>
     </Dialog>
