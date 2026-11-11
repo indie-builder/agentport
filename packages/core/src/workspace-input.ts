@@ -63,6 +63,8 @@ export function toWorkspaceInput(params: {
     body: string;
   }>;
   selectedOutputStyle?: string | null;
+  hooks?: Record<string, unknown> | null;
+  hookFiles?: Array<{ path: string; content: string; executable: boolean }>;
   /** 生成式 UI 工具目录；与提示词同源，调用方查一次后两侧共用。 */
   openuiTools?: OpenUiToolDescriptor[];
   /** 已按绑定授权过滤的插件；预览与运行共用同一份。 */
@@ -82,6 +84,8 @@ export function toWorkspaceInput(params: {
       ? { outputStyles: params.outputStyles }
       : {}),
     ...(params.selectedOutputStyle ? { selectedOutputStyle: params.selectedOutputStyle } : {}),
+    ...(params.hooks && Object.keys(params.hooks).length > 0 ? { hooks: params.hooks } : {}),
+    ...(params.hookFiles && params.hookFiles.length > 0 ? { hookFiles: params.hookFiles } : {}),
     ...(params.plugins && params.plugins.length > 0 ? { plugins: params.plugins } : {}),
     ...(agent.allowedTools.length > 0 ? { toolsAllow: agent.allowedTools } : {}),
     ...(agent.disallowedTools.length > 0 ? { toolsDeny: agent.disallowedTools } : {}),

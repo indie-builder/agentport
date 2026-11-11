@@ -241,6 +241,69 @@ export const agentWorkflowSchema = agentWorkflowInputSchema.and(
 
 export type AgentWorkflow = z.infer<typeof agentWorkflowSchema>;
 
+export const AGENT_HOOK_CONTENT_MAX = 200_000;
+export const AGENT_HOOKS_CONFIG_MAX = 65_536;
+export const AGENT_HOOK_FILE_LIMIT = 50;
+
+export const agentHookFilePathSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(
+    /^(?!.*(?:^|\/)\.{1,2}(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/,
+    '路径必须是相对路径，且不能包含 .、.. 或空路径段',
+  );
+
+function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+  }
+  return bytes;
+}
+
+export const agentHooksConfigSchema = z
+  .record(z.string().min(1).max(100), z.unknown())
+  .nullable()
+  .default(null)
+  .refine(
+    (config) => config === null || utf8ByteLength(JSON.stringify(config)) <= AGENT_HOOKS_CONFIG_MAX,
+    `hooks 配置不能超过 ${AGENT_HOOKS_CONFIG_MAX} 字节`,
+  );
+
+export const agentHookFileInputSchema = z
+  .object({
+    path: agentHookFilePathSchema,
+    content: z.string().max(AGENT_HOOK_CONTENT_MAX).default(''),
+    executable: z.boolean().default(false),
+  })
+  .strict();
+
+export const agentHookFileSchema = agentHookFileInputSchema.and(
+  z.object({
+    id: z.string(),
+    agentId: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+
+export type AgentHookFileInput = z.infer<typeof agentHookFileInputSchema>;
+export type AgentHookFile = z.infer<typeof agentHookFileSchema>;
+
+export const agentHooksSettingsInputSchema = z
+  .object({ enabled: z.boolean(), config: agentHooksConfigSchema })
+  .strict();
+
+export const agentHooksSchema = z.object({
+  enabled: z.boolean(),
+  config: z.record(z.string(), z.unknown()).nullable(),
+  files: z.array(agentHookFileSchema),
+});
+
+export type AgentHooks = z.infer<typeof agentHooksSchema>;
+
 export interface SkillResourcePathConflict {
   path: string;
   conflictingPath: string;
@@ -379,6 +442,9 @@ export const workspaceFilesSchema = z.object({
   workflows: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   rules: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   outputStyles: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  hookFiles: z
+    .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
+    .default([]),
   selectedOutputStyle: z.string().nullable().default(null),
   /** 渲染到 `.claude/plugins/<slug>/` 的插件目录树；与运行时同一份裁剪结果。 */
   plugins: z

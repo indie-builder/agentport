@@ -1,5 +1,7 @@
 import type {
   Agent,
+  AgentHookFile,
+  AgentHooks,
   AgentInput,
   AgentMemoryAssembly,
   AgentMemoryOverview,
@@ -381,6 +383,55 @@ export function useDeleteAgentWorkflow() {
     mutationFn: (vars: { agentId: string; workflowId: string }) =>
       api.deleteAgentWorkflow(vars.agentId, vars.workflowId),
     onSuccess: (_data, vars) => invalidateAgentWorkflows(client, vars.agentId),
+  });
+}
+
+export const agentHooksQuery = (id: string) =>
+  queryOptions<AgentHooks>({
+    queryKey: ['agent-hooks', id],
+    queryFn: () => api.agentHooks(id),
+  });
+
+function invalidateAgentHooks(client: QueryClient, agentId: string): void {
+  void client.invalidateQueries({ queryKey: agentHooksQuery(agentId).queryKey });
+  void client.invalidateQueries({ queryKey: ['agent-files', agentId] });
+}
+
+export function useWriteAgentHooksSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      agentId: string;
+      enabled: boolean;
+      config: Record<string, unknown> | null;
+    }) =>
+      api.writeAgentHooksSettings(vars.agentId, {
+        enabled: vars.enabled,
+        config: vars.config,
+      }),
+    onSuccess: (_data, vars) => invalidateAgentHooks(client, vars.agentId),
+  });
+}
+
+export function useWriteAgentHookFile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      agentId: string;
+      path: string;
+      content: string;
+      executable: boolean;
+    }): Promise<AgentHookFile> => api.writeAgentHookFile(vars.agentId, vars),
+    onSuccess: (_data, vars) => invalidateAgentHooks(client, vars.agentId),
+  });
+}
+
+export function useDeleteAgentHookFile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; path: string }) =>
+      api.deleteAgentHookFile(vars.agentId, vars.path),
+    onSuccess: (_data, vars) => invalidateAgentHooks(client, vars.agentId),
   });
 }
 

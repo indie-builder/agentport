@@ -197,7 +197,12 @@ const TAB_PERMISSIONS: Record<TabId, readonly PermissionId[] | null> = {
   overview: null,
   config: ['agents.config.read'],
   memory: ['agents.memory.read'],
-  instructions: ['agents.rules.read', 'agents.styles.read', 'agents.workflows.read'],
+  instructions: [
+    'agents.rules.read',
+    'agents.styles.read',
+    'agents.workflows.read',
+    'agents.hooks.read',
+  ],
   files: ['agents.files.read'],
 };
 
@@ -205,6 +210,7 @@ export const INSTRUCTION_PERMISSIONS: Record<AgentInstruction, PermissionId> = {
   rules: 'agents.rules.read',
   styles: 'agents.styles.read',
   workflows: 'agents.workflows.read',
+  hooks: 'agents.hooks.read',
 };
 
 export function canOpenTab(id: TabId, permissions: readonly PermissionId[]): boolean {
@@ -233,14 +239,14 @@ export function activeAgentTab(value: unknown, permissions: readonly PermissionI
     : (available[0]?.id ?? 'overview');
 }
 
-/** 工作流是 project 级能力，子智能体只能使用有读权的规则与输出风格。 */
+/** 工作流与 hooks 是 project 级能力，子智能体只能使用有读权的规则与输出风格。 */
 export function availableInstructions(
   permissions: readonly PermissionId[],
   isSubAgent: boolean,
 ): (typeof instructionItems)[number][] {
   return instructionItems.filter(
     (item) =>
-      (item.id !== 'workflows' || !isSubAgent) &&
+      ((item.id !== 'workflows' && item.id !== 'hooks') || !isSubAgent) &&
       hasAnyGrant(permissions, INSTRUCTION_PERMISSIONS[item.id]),
   );
 }
@@ -343,6 +349,12 @@ export function listWorkspaceFiles(files: AgentFiles): FileEntry[] {
       path: `output-styles/${style.slug}.md`,
       group: '输出风格',
       content: style.content,
+    })),
+    ...(files.hookFiles ?? []).map((file) => ({
+      id: `.claude/hooks/${file.path}`,
+      path: `hooks/${file.path}`,
+      group: 'Hooks',
+      content: file.content,
     })),
     ...(files.plugins ?? []).flatMap((plugin) =>
       plugin.files.map((file) => ({

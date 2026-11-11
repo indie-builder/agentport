@@ -14,6 +14,7 @@ export const idPrefixes = {
   skill: 'skl',
   skillFile: 'skf',
   agentWorkflow: 'awf',
+  agentHookFile: 'ahk',
   plugin: 'plg',
   pluginFile: 'plf',
   rule: 'rule',

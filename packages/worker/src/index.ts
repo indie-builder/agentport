@@ -259,6 +259,8 @@ async function writeWorkspace(
   }>,
   selectedOutputStyle: string | null,
   workflows: Array<{ slug: string; content: string }>,
+  hooks: Record<string, unknown> | null,
+  hookFiles: Array<{ path: string; content: string; executable: boolean }>,
   plugins: WorkspacePlugin[],
   /** 本轮已解析的专家记忆策略：CLAUDE.md 的记忆文案必须与记忆挂载权限同源。 */
   memoryPolicy: MemoryPolicy,
@@ -286,6 +288,8 @@ async function writeWorkspace(
       outputStyles,
       selectedOutputStyle,
       workflows,
+      ...(hooks ? { hooks } : {}),
+      hookFiles,
       openuiTools,
       plugins,
       memoryPolicy,
@@ -352,6 +356,19 @@ async function writeWorkspace(
       await writeFile(join(stylesDir, `${style.slug}.md`), style.content, {
         encoding: 'utf8',
         mode: WORKSPACE_FILE_MODE,
+      });
+    }
+  }
+  const hooksDir = join(dir, '.claude', 'hooks');
+  await rm(hooksDir, { recursive: true, force: true });
+  if (files.hookFiles.length > 0) {
+    await mkdir(hooksDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+    for (const file of files.hookFiles) {
+      const filePath = join(hooksDir, file.path);
+      await mkdir(join(filePath, '..'), { mode: WORKSPACE_DIR_MODE, recursive: true });
+      await writeFile(filePath, file.content, {
+        encoding: 'utf8',
+        mode: file.executable ? WORKSPACE_DIR_MODE : WORKSPACE_FILE_MODE,
       });
     }
   }
@@ -940,6 +957,13 @@ const worker = new Worker(
               }))
             : [];
         const runPlugins = await loadAgentPlugins(agent);
+        const hookFiles = agent.hooksEnabled
+          ? (await repo.hooks.listHookFiles(db, agentId)).map((row) => ({
+              path: row.path,
+              content: row.content,
+              executable: row.executable,
+            }))
+          : [];
 
         const {
           dir: workspaceDir,
@@ -958,6 +982,8 @@ const worker = new Worker(
           outputStyles,
           selectedOutputStyle,
           workflows,
+          agent.hooksEnabled ? agent.hooksConfig : null,
+          hookFiles,
           runPlugins,
           runMemoryPolicy,
         );

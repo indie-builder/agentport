@@ -1,5 +1,7 @@
 import {
   type AgentInput,
+  agentHookFilePathSchema,
+  agentHooksConfigSchema,
   CONFIGURABLE_DISALLOWED_TOOLS,
   DEFAULT_DISALLOWED_TOOLS,
   DEFAULT_MEMORY_POLICY,
@@ -37,6 +39,7 @@ export interface WorkspaceFiles {
   outputStyles: Array<{ slug: string; content: string }>;
   /** 选中的输出风格名（写入 settings.outputStyle）；null 表示用默认。 */
   selectedOutputStyle: string | null;
+  hookFiles: Array<{ path: string; content: string; executable: boolean }>;
   /**
    * 插件根目录树：渲染到 `.claude/plugins/<slug>/<path>`，运行时整目录交给 SDK `plugins`。
    * 只含本次运行要加载的插件（受绑定的 hooks/MCP 授权过滤）。
@@ -95,6 +98,8 @@ export interface WorkspaceInput {
   }>;
   /** 选中的输出风格名；undefined/null 表示默认。 */
   selectedOutputStyle?: string | null;
+  hooks?: Record<string, unknown> | null;
+  hookFiles?: Array<{ path: string; content: string; executable: boolean }>;
   /** 本次运行要加载的插件；调用方已按绑定授权过滤完 hooks/MCP。 */
   plugins?: WorkspacePlugin[];
   toolsAllow?: string[];
@@ -566,6 +571,11 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
     if (!allSkills.has(skill.slug)) allSkills.set(skill.slug, skill);
   }
 
+  const hooks = input.hooks ?? null;
+  if (hooks !== null && !agentHooksConfigSchema.safeParse(hooks).success) {
+    fail('INVALID_INPUT', 'hooks 配置无效或超过大小上限', { path: '/hooks' });
+  }
+
   return {
     mcpJson: `${JSON.stringify({ mcpServers }, null, 2)}\n`,
     claudeMd: renderClaudeMd(input),
@@ -598,6 +608,12 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
       content: renderOutputStyleMd(style),
     })),
     selectedOutputStyle: input.selectedOutputStyle ?? null,
+    hookFiles: (input.hookFiles ?? []).map((file) => {
+      if (!agentHookFilePathSchema.safeParse(file.path).success) {
+        fail('INVALID_INPUT', `hook 脚本路径无效：${file.path}`, { path: '/hooks' });
+      }
+      return file;
+    }),
     plugins: (input.plugins ?? []).map((plugin) => ({
       slug: plugin.slug,
       files: plugin.files,
@@ -606,6 +622,7 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
       {
         env: SANDBOX_RUNTIME_ENV,
         ...(input.selectedOutputStyle ? { outputStyle: input.selectedOutputStyle } : {}),
+        ...(hooks !== null && Object.keys(hooks).length > 0 ? { hooks } : {}),
       },
       null,
       2,
