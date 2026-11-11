@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@agentport/shared": "workspace:*",
-    "@orpc/contract": "1.16.1",
+    "@orpc/contract": "1.16.2",
     "zod": "catalog:"
   }
 }
