@@ -18,6 +18,7 @@ import {
   useKnowledgeBases,
   useRuns,
 } from '../../lib/queries.js';
+import { HEALTH_LABEL, HEALTH_TONE } from '../memory/health-status.js';
 import { PageSection } from '../page.js';
 import { RunStatusBadge } from '../run/run-status-badge.js';
 import { LoadingState } from '../states.js';
@@ -36,19 +37,6 @@ export type AgentOverviewTarget = {
   instruction?: AgentInstruction | undefined;
   section?: AgentSection | undefined;
   view?: MemoryView | undefined;
-};
-
-const HEALTH_TONE: Record<MemoryHealth['level'], 'success' | 'warn' | 'danger'> = {
-  ok: 'success',
-  warn: 'warn',
-  danger: 'danger',
-};
-
-/** 状态不只靠颜色：徽章同时给出文字档位。 */
-const HEALTH_LABEL: Record<MemoryHealth['level'], string> = {
-  ok: '正常',
-  warn: '注意',
-  danger: '异常',
 };
 
 const TRIGGER_LABEL: Record<string, string> = {

@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Download, FileText } from 'lucide-react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 import {
   formatBytes,
@@ -26,6 +26,7 @@ import { CopyButton } from '../copy-button.js';
 import { Markdown } from '../markdown.js';
 import { BlobImage } from '../media/blob-image.js';
 import { BlobPdf } from '../media/blob-pdf.js';
+import { Metric } from '../metric-label.js';
 import { PageNote } from '../page.js';
 import { RunQuestionCard } from '../run/run-question.js';
 import { RunStatusBadge } from '../run/run-status-badge.js';
@@ -357,18 +358,5 @@ function ChannelRunSheetContent({
         )}
       </div>
     </SheetContent>
-  );
-}
-
-function Metric({ label, value, danger }: { label: string; value: ReactNode; danger?: boolean }) {
-  return (
-    <span className="inline-flex min-w-0 flex-wrap items-baseline gap-1.5">
-      <span className="text-2xs text-muted-foreground">{label}</span>
-      <span
-        className={danger ? 'font-mono tabular-nums text-danger' : 'font-mono tabular-nums text-fg'}
-      >
-        {value}
-      </span>
-    </span>
   );
 }
