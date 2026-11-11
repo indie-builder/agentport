@@ -1,7 +1,7 @@
 import { evalDatasetSchema } from '@agentport/shared';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleStop, Download, GitCompare, Pencil, Play, Plus, Trash2, Upload } from 'lucide-react';
-import { type ComponentProps, useEffect, useRef, useState } from 'react';
+import { type ComponentProps, useRef, useState } from 'react';
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -10,6 +10,7 @@ import { CodeBlock } from '../components/code-block.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import { FilterSelect } from '../components/filter-select.js';
 import {
   Page,
@@ -52,7 +53,6 @@ import {
   type EvalRun,
 } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
-import { useFormBlocker } from '../lib/form.js';
 import {
   evalComparisonStatusLabel,
   evalComparisonStatusVariant,
@@ -1102,7 +1102,6 @@ function CaseDialog({
   });
   const { errors, isDirty } = formState;
   const values = watch();
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const dirty = isDirty;
 
   const submit = handleSubmit((form) => {
@@ -1113,7 +1112,7 @@ function CaseDialog({
     };
     const done = (): void => {
       toastSuccess(testCase ? '用例已更新' : '用例已创建');
-      finish();
+      guard.finish();
     };
     if (testCase) {
       update.mutate(
@@ -1129,21 +1128,7 @@ function CaseDialog({
   });
 
   const pending = create.isPending || update.isPending;
-  const blocker = useFormBlocker(dirty, pending);
-  const blockerRef = useRef(blocker);
-  useEffect(() => {
-    blockerRef.current = blocker;
-  }, [blocker]);
-  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
-  const finish = (): void => {
-    blockerRef.current.reset?.();
-    onClose();
-  };
-  const close = (): void => {
-    if (pending) return;
-    if (dirty) setConfirmDiscard(true);
-    else finish();
-  };
+  const guard = useDraftGuard(dirty, pending, onClose);
 
   return (
     <Dialog
@@ -1153,7 +1138,7 @@ function CaseDialog({
           details.cancel();
           return;
         }
-        if (!next) close();
+        if (!next) guard.close();
       }}
     >
       <DialogShell
@@ -1230,7 +1215,7 @@ function CaseDialog({
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={close} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button type="submit" disabled={pending} aria-busy={pending}>
@@ -1238,26 +1223,7 @@ function CaseDialog({
             </Button>
           </div>
         </form>
-        <ConfirmDialog
-          open={confirmDiscard}
-          onClose={() => setConfirmDiscard(false)}
-          title="放弃未保存的更改？"
-          description="关闭后这条用例的修改会丢失。"
-          confirmLabel="放弃并关闭"
-          confirmDisabled={pending}
-          onConfirm={async () => {
-            if (!pending) finish();
-          }}
-        />
-        <ConfirmDialog
-          open={blocker.status === 'blocked'}
-          onClose={() => blocker.reset?.()}
-          title="放弃未保存的更改？"
-          description={pending ? '正在保存，请等待请求完成。' : '离开后这条用例的修改会丢失。'}
-          confirmLabel="放弃并离开"
-          confirmDisabled={pending}
-          onConfirm={async () => blocker.proceed()}
-        />
+        <DraftGuardDialogs guard={guard} draft="这条用例的修改会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
