@@ -20,19 +20,13 @@ export async function getSkillFilesBySkillIds(
   db: Database,
   skillIds: string[],
 ): Promise<Map<string, SkillFileRow[]>> {
-  const map = new Map<string, SkillFileRow[]>();
-  if (skillIds.length === 0) return map;
+  if (skillIds.length === 0) return new Map();
   const rows = await db
     .select()
     .from(skillFiles)
     .where(inArray(skillFiles.skillId, skillIds))
     .orderBy(asc(skillFiles.path), asc(skillFiles.id));
-  for (const row of rows) {
-    const list = map.get(row.skillId) ?? [];
-    list.push(row);
-    map.set(row.skillId, list);
-  }
-  return map;
+  return Map.groupBy(rows, (row) => row.skillId);
 }
 
 /** 写入或覆盖同路径资源文件（唯一键 skill_id+path）。 */

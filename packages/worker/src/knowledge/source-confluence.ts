@@ -461,17 +461,41 @@ async function listCloudPages(
   id: string,
   signal: AbortSignal | undefined,
 ): Promise<z.infer<typeof cloudPageSummarySchema>[]> {
-  const resourceId = encodeURIComponent(id);
-  const first = pageApiUrl(
+  return listCloudChildPages(
     auth,
-    `/spaces/${resourceId}/pages?status=current&depth=all&limit=${PAGE_SIZE}`,
+    `/spaces/${encodeURIComponent(id)}/pages?status=current&depth=all&limit=${PAGE_SIZE}`,
+    'confluence space pages',
+    signal,
   );
-  return collect(first, auth, 'confluence space pages', async (url) => {
+}
+
+async function listDcContentPages(
+  auth: Auth,
+  path: string,
+  label: string,
+  signal: AbortSignal | undefined,
+): Promise<z.infer<typeof dcPageSummarySchema>[]> {
+  return collect(pageApiUrl(auth, path), auth, label, async (url) => {
+    const body = await fetchJson(url, dcPageListSchema, jsonOptions(auth, signal), label);
+    return {
+      results: body.results,
+      ...(body._links?.next === undefined ? {} : { next: body._links.next }),
+    };
+  });
+}
+
+async function listCloudChildPages(
+  auth: Auth,
+  path: string,
+  label: string,
+  signal: AbortSignal | undefined,
+): Promise<z.infer<typeof cloudPageSummarySchema>[]> {
+  return collect(pageApiUrl(auth, path), auth, label, async (url) => {
     const { data, next } = await fetchJsonWithNext(
       url,
       cloudPageListSchema,
       jsonOptions(auth, signal),
-      'confluence space pages',
+      label,
     );
     const providerNext = data._links?.next ?? next;
     return {
@@ -486,22 +510,12 @@ async function listDcPages(
   spaceKey: string,
   signal: AbortSignal | undefined,
 ): Promise<z.infer<typeof dcPageSummarySchema>[]> {
-  const first = pageApiUrl(
+  return listDcContentPages(
     auth,
     `/space/${encodeURIComponent(spaceKey)}/content/page?start=0&limit=${DC_PAGE_SIZE}&expand=space,version`,
+    'confluence space pages',
+    signal,
   );
-  return collect(first, auth, 'confluence space pages', async (url) => {
-    const body = await fetchJson(
-      url,
-      dcPageListSchema,
-      jsonOptions(auth, signal),
-      'confluence space pages',
-    );
-    return {
-      results: body.results,
-      ...(body._links?.next === undefined ? {} : { next: body._links.next }),
-    };
-  });
 }
 
 async function listChildPages(
@@ -509,23 +523,12 @@ async function listChildPages(
   parentId: string,
   signal: AbortSignal | undefined,
 ): Promise<z.infer<typeof cloudPageSummarySchema>[]> {
-  const first = pageApiUrl(
+  return listCloudChildPages(
     auth,
     `/pages/${encodeURIComponent(parentId)}/direct-children?limit=${PAGE_SIZE}`,
+    'confluence page children',
+    signal,
   );
-  return collect(first, auth, 'confluence page children', async (url) => {
-    const { data, next } = await fetchJsonWithNext(
-      url,
-      cloudPageListSchema,
-      jsonOptions(auth, signal),
-      'confluence page children',
-    );
-    const providerNext = data._links?.next ?? next;
-    return {
-      results: data.results,
-      ...(providerNext === undefined ? {} : { next: providerNext }),
-    };
-  });
 }
 
 async function listChildFolders(
@@ -533,23 +536,12 @@ async function listChildFolders(
   folderId: string,
   signal: AbortSignal | undefined,
 ): Promise<z.infer<typeof cloudPageSummarySchema>[]> {
-  const first = pageApiUrl(
+  return listCloudChildPages(
     auth,
     `/folders/${encodeURIComponent(folderId)}/direct-children?limit=${PAGE_SIZE}`,
+    'confluence folder children',
+    signal,
   );
-  return collect(first, auth, 'confluence folder children', async (url) => {
-    const { data, next } = await fetchJsonWithNext(
-      url,
-      cloudPageListSchema,
-      jsonOptions(auth, signal),
-      'confluence folder children',
-    );
-    const providerNext = data._links?.next ?? next;
-    return {
-      results: data.results,
-      ...(providerNext === undefined ? {} : { next: providerNext }),
-    };
-  });
 }
 
 async function listDcChildPages(
@@ -557,22 +549,12 @@ async function listDcChildPages(
   parentId: string,
   signal: AbortSignal | undefined,
 ): Promise<z.infer<typeof dcPageSummarySchema>[]> {
-  const first = pageApiUrl(
+  return listDcContentPages(
     auth,
     `/content/${encodeURIComponent(parentId)}/child/page?start=0&limit=${DC_PAGE_SIZE}&expand=space,version`,
+    'confluence page children',
+    signal,
   );
-  return collect(first, auth, 'confluence page children', async (url) => {
-    const body = await fetchJson(
-      url,
-      dcPageListSchema,
-      jsonOptions(auth, signal),
-      'confluence page children',
-    );
-    return {
-      results: body.results,
-      ...(body._links?.next === undefined ? {} : { next: body._links.next }),
-    };
-  });
 }
 
 async function collectCloudTree(

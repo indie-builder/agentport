@@ -175,19 +175,13 @@ export async function getPluginFilesByPluginIds(
   db: Database,
   pluginIds: string[],
 ): Promise<Map<string, PluginFileRow[]>> {
-  const map = new Map<string, PluginFileRow[]>();
-  if (pluginIds.length === 0) return map;
+  if (pluginIds.length === 0) return new Map();
   const rows = await db
     .select()
     .from(pluginFiles)
     .where(inArray(pluginFiles.pluginId, pluginIds))
     .orderBy(asc(pluginFiles.path), asc(pluginFiles.id));
-  for (const row of rows) {
-    const list = map.get(row.pluginId) ?? [];
-    list.push(row);
-    map.set(row.pluginId, list);
-  }
-  return map;
+  return Map.groupBy(rows, (row) => row.pluginId);
 }
 
 export async function listAgentPluginBindings(

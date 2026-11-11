@@ -3,10 +3,10 @@ import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf, requireUser } from '../../http/access.js';
+import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { toIso } from '../../lib/iso.js';
-import { toOutputShare } from '../output-shares/router.js';
+import { auditShareRevoked, toOutputShare } from '../output-shares/router.js';
 
 const os = implement(personalContract).$context<RequestContext>();
 
@@ -41,14 +41,7 @@ export const personalRouter = os.router({
     if (owned.revokedAt === null) {
       const row = await repo.outputShares.revokeOwned(context.db, businessId, input.params.id);
       if (row !== null) {
-        await repo.audit.writeAudit(context.db, context.log, {
-          actor: actorOf(context),
-          action: 'share.revoked',
-          target: row.id,
-          input: { conversationId: row.conversationId, runId: row.runId, path: row.path },
-          status: 'ok',
-          requestId: context.requestId,
-        });
+        await auditShareRevoked(context, row);
       }
     }
     return undefined;

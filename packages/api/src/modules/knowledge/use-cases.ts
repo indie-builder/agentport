@@ -306,11 +306,6 @@ function safeDecode(value: string): string {
   }
 }
 
-function titleFromFilename(filename: string): string {
-  const withoutExtension = filename.replace(/\.[^.]+$/, '');
-  return (withoutExtension.length > 0 ? withoutExtension : filename).slice(0, 300);
-}
-
 async function assertKnowledgeEndpoint(
   raw: string,
   config: { KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: string; NODE_ENV: string | undefined },
@@ -2256,7 +2251,7 @@ export async function createUrlDocument(
   return importDocument(deps, {
     baseId: base.id,
     folderId: body.folderId,
-    title: body.title ?? titleFromFilename(fetched.filename),
+    title: body.title ?? fileTitle(fetched.filename),
     sourceType: 'url',
     sourceUrl,
     mimeType: fetched.mimeType,
