@@ -287,7 +287,6 @@ export const agentHookFileSchema = agentHookFileInputSchema.and(
   }),
 );
 
-export type AgentHookFileInput = z.infer<typeof agentHookFileInputSchema>;
 export type AgentHookFile = z.infer<typeof agentHookFileSchema>;
 
 export const agentHooksSettingsInputSchema = z

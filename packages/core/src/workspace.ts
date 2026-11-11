@@ -10,6 +10,7 @@ import {
   type OpenUiToolDescriptor,
   SANDBOX_RUNTIME_ENV,
   slugSchema,
+  type WorkspaceFiles,
 } from '@agentport/shared';
 import { fail } from './errors.js';
 import {
@@ -21,35 +22,7 @@ import { openuiSystemPrompt } from './openui-prompt.js';
 import type { SkillProvenance } from './skill-md.js';
 import type { McpJsonEntry } from './tools.js';
 
-export interface WorkspaceFiles {
-  mcpJson: string;
-  claudeMd: string;
-  agentMd: string;
-  skills: Array<{
-    slug: string;
-    content: string;
-    files: Array<{ path: string; content: string }>;
-  }>;
-  subAgents: Array<{ slug: string; content: string }>;
-  /** 工作流：`.claude/workflows/<slug>.js` 的完整脚本。 */
-  workflows: Array<{ slug: string; content: string }>;
-  /** 项目规则：`.claude/rules/<slug>.md` 的完整内容。 */
-  rules: Array<{ slug: string; content: string }>;
-  /** 自定义输出风格：`.claude/output-styles/<slug>.md` 的完整内容。 */
-  outputStyles: Array<{ slug: string; content: string }>;
-  /** 选中的输出风格名（写入 settings.outputStyle）；null 表示用默认。 */
-  selectedOutputStyle: string | null;
-  hookFiles: Array<{ path: string; content: string; executable: boolean }>;
-  /**
-   * 插件根目录树：渲染到 `.claude/plugins/<slug>/<path>`，运行时整目录交给 SDK `plugins`。
-   * 只含本次运行要加载的插件（受绑定的 hooks/MCP 授权过滤）。
-   */
-  plugins: Array<{
-    slug: string;
-    files: Array<{ path: string; content: string; executable: boolean }>;
-  }>;
-  settingsJson: string;
-}
+export type { WorkspaceFiles };
 
 export interface WorkspaceAgent {
   slug: string;

@@ -189,24 +189,6 @@ function toPreviewEntry(row: ServerRow, selfUrl: string): McpJsonEntry {
     headers: {},
   };
 }
-async function boundSkillsByAgent(
-  db: Database,
-  agentIds: string[],
-): Promise<Map<string, SkillRow[]>> {
-  const rows = await db
-    .select({ agentId: agentSkills.agentId, skill: skills })
-    .from(agentSkills)
-    .innerJoin(skills, eq(agentSkills.skillId, skills.id))
-    .where(inArray(agentSkills.agentId, agentIds))
-    .orderBy(asc(agentSkills.agentId), asc(skills.slug));
-  const out = new Map<string, SkillRow[]>();
-  for (const row of rows) {
-    const list = out.get(row.agentId);
-    if (list) list.push(row.skill);
-    else out.set(row.agentId, [row.skill]);
-  }
-  return out;
-}
 async function rulesByAgent(db: Database, agentIds: string[]): Promise<Map<string, RuleRow[]>> {
   const rows = await db
     .select()
@@ -343,7 +325,7 @@ export async function buildAgentPackage(
   const agentIds = [row.id, ...children.map((child) => child.id)];
   const [serversByAgent, skillsByAgent, rulesMap, stylesMap, workflows] = await Promise.all([
     repo.agents.getBoundServersByAgentIds(db, agentIds),
-    boundSkillsByAgent(db, agentIds),
+    repo.agents.getBoundSkillsByAgentIds(db, agentIds),
     rulesByAgent(db, agentIds),
     stylesByAgent(db, agentIds),
     row.parentId === null ? repo.workflows.listWorkflows(db, row.id) : Promise.resolve([]),
