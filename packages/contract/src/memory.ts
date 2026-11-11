@@ -23,13 +23,11 @@ export const personalMemoryWriteResponseSchema = personalMemorySchema.extend({
 
 export const memoryVersionListSchema = z.object({ items: z.array(memoryChangeSchema) });
 
-const agentParams = z.object({ id: z.string().min(1) });
-
-export const agentMemoryVersionParams = agentParams.extend({
+export const agentMemoryVersionParams = idParams.extend({
   name: z.string().regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md'),
 });
 
-export const agentRuleVersionParams = agentParams.extend({ slug: slugSchema });
+export const agentRuleVersionParams = idParams.extend({ slug: slugSchema });
 
 /** 记忆策略写入体：整份策略替换，不提供局部 patch。 */
 export const agentMemoryPolicyBodySchema = z.object({ policy: memoryPolicySchema }).strict();
@@ -63,17 +61,17 @@ export const memoryContract = {
     .meta({ access: { kind: 'permission', permissionId: 'agents.rules.read' } }),
   agentMemoryOverview: contractProcedure
     .route({ method: 'GET', path: '/agents/{id}/memory/overview' })
-    .input(z.object({ params: agentParams }))
+    .input(z.object({ params: idParams }))
     .output(agentMemoryOverviewSchema)
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.read' } }),
   agentMemoryAssembly: contractProcedure
     .route({ method: 'GET', path: '/agents/{id}/memory/assembly' })
-    .input(z.object({ params: agentParams }))
+    .input(z.object({ params: idParams }))
     .output(agentMemoryAssemblySchema)
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.read' } }),
   updateAgentMemoryPolicy: contractProcedure
     .route({ method: 'PUT', path: '/agents/{id}/memory/policy' })
-    .input(z.object({ params: agentParams, body: agentMemoryPolicyBodySchema }))
+    .input(z.object({ params: idParams, body: agentMemoryPolicyBodySchema }))
     .output(agentMemoryPolicyResponseSchema)
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.write' } }),
   rollback: contractProcedure

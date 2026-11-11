@@ -4,7 +4,7 @@ import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { queueState } from '../queue-state.js';
+import { ACTIVE_STATES, queueState } from '../queue-state.js';
 import { KNOWLEDGE_TIMEOUT_MS } from './queue.js';
 
 const RECONCILE_MS = 5 * 60_000;
@@ -16,9 +16,6 @@ const DAY_MS = 24 * 60 * 60_000;
 const RUNNING_GRACE_MS = 5 * 60_000;
 
 export const KNOWLEDGE_LOST_ERROR = 'knowledge worker lost track of this job';
-
-/** 队列里仍有工作（waiting/delayed/active/prioritized）就保留；job 消失或已终态才算丢失。 */
-const ACTIVE_STATES = new Set(['waiting', 'delayed', 'active', 'prioritized', 'waiting-children']);
 
 export interface KnowledgeQueueLike {
   getJob: (id: string) => Promise<{ getState: () => Promise<string> } | undefined>;
