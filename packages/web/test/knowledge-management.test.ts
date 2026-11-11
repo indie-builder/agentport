@@ -5433,26 +5433,15 @@ describe('knowledge expert usage', () => {
     ownerBusinessId: 'test-admin',
   });
 
-  it('reads per-agent access and reports unreadable relationships instead of empty usage', async () => {
+  it('reads agent summaries and reports unreadable relationships instead of empty usage', async () => {
     documentList();
     server.use(
-      http.get('/api/auth/me', () =>
-        HttpResponse.json(meWith(['knowledge.read', 'agents.read', 'agents.config.read'])),
-      ),
+      http.get('/api/auth/me', () => HttpResponse.json(meWith(['knowledge.read', 'agents.read']))),
       http.get('/api/agents', () =>
-        HttpResponse.json([summary('agent_a', '文档专家'), summary('agent_b', '外部专家')]),
-      ),
-      http.get('/api/agents/agent_a/access', () =>
-        HttpResponse.json({
-          agentId: 'agent_a',
-          permissionIds: ['agents.read', 'agents.config.read'],
-        }),
-      ),
-      http.get('/api/agents/agent_b/access', () =>
-        HttpResponse.json({ agentId: 'agent_b', permissionIds: ['agents.read'] }),
-      ),
-      http.get('/api/agents/agent_a', () =>
-        HttpResponse.json({ ...summary('agent_a', '文档专家'), serverIds: ['srv_1'] }),
+        HttpResponse.json([
+          { ...summary('agent_a', '文档专家'), serverIds: ['srv_1'] },
+          summary('agent_b', '外部专家'),
+        ]),
       ),
     );
     await mount('/knowledge/kb_1');
@@ -5472,8 +5461,8 @@ describe('knowledge expert usage', () => {
     expect(document.querySelector<HTMLAnchorElement>('a[href="/agents"]')?.textContent).toContain(
       '选择其他专家',
     );
-    // 没有 agents.config.read 的专家不取详情，也绝不把摘要缺 serverIds 当成未绑定。
-    expect(calls.some((item) => item.path === '/api/agents/agent_b')).toBe(false);
+    // 单请求取列表之外不逐个查专家详情或权限，也绝不把摘要缺 serverIds 当成未绑定。
+    expect(calls.filter((item) => item.path.startsWith('/api/agents/'))).toEqual([]);
   });
 
   it('offers the agents list when no expert is bound yet', async () => {
