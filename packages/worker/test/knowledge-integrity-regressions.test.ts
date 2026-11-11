@@ -207,23 +207,23 @@ async function makeSource(
   type: 'feed' | 'gitlab' = 'gitlab',
 ): Promise<{ sourceId: string }> {
   fixtureBase.deps.connectors = { ...fixtureBase.deps.connectors, [type]: connector };
-  const source = await repo.knowledge.createSource(db, {
+  const { source } = await repo.knowledge.createSource(db, {
     baseId: fixtureBase.baseId,
     type,
     name: type,
     config: {},
     secretsEncrypted: null,
     syncCron: null,
+    ranges: [
+      {
+        kind: type === 'feed' ? 'feed' : 'gitlab_project',
+        externalId: type === 'feed' ? `${fixtureUrl}/feed` : 'group/proj',
+        ref: null,
+        paths: [],
+        enabled: true,
+      },
+    ],
   });
-  await repo.knowledge.replaceRanges(db, source.id, [
-    {
-      kind: type === 'feed' ? 'feed' : 'gitlab_project',
-      externalId: type === 'feed' ? `${fixtureUrl}/feed` : 'group/proj',
-      ref: null,
-      paths: [],
-      enabled: true,
-    },
-  ]);
   return { sourceId: source.id };
 }
 

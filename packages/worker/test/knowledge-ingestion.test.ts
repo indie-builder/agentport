@@ -1616,23 +1616,23 @@ describe.skipIf(!ready)('runSync', () => {
   ): Promise<{ sourceId: string; syncRunId: string; jobId: string }> {
     const type = options.type ?? 'feed';
     fixtureBase.deps.connectors = { ...fixtureBase.deps.connectors, [type]: connector };
-    const source = await repo.knowledge.createSource(db, {
+    const { source } = await repo.knowledge.createSource(db, {
       baseId: fixtureBase.baseId,
       type,
       name: type,
       config: { syncDeletions: true },
       secretsEncrypted: null,
       syncCron: null,
+      ranges: [
+        {
+          kind: type === 'feed' ? 'feed' : 'gitlab_project',
+          externalId: 'https://example.com/feed',
+          ref: null,
+          paths: [],
+          enabled: true,
+        },
+      ],
     });
-    await repo.knowledge.replaceRanges(db, source.id, [
-      {
-        kind: type === 'feed' ? 'feed' : 'gitlab_project',
-        externalId: 'https://example.com/feed',
-        ref: null,
-        paths: [],
-        enabled: true,
-      },
-    ]);
     const created = await repo.knowledge.createSyncJob(db, source.id);
     if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
     // 暂停来源仍要覆盖 runSync 的取消分支：先用真实创建事务拿到 pair，再停用。
@@ -1737,23 +1737,23 @@ describe.skipIf(!ready)('runSync', () => {
         await onCheckpoint({}, { complete: true });
       },
     };
-    const source = await repo.knowledge.createSource(db, {
+    const { source } = await repo.knowledge.createSource(db, {
       baseId: fixtureBase.baseId,
       type: 'gitlab',
       name: 'gitlab-many',
       config: { syncDeletions: true },
       secretsEncrypted: null,
       syncCron: null,
+      ranges: [
+        {
+          kind: 'gitlab_project',
+          externalId: 'group/proj',
+          ref: 'main',
+          paths: [],
+          enabled: true,
+        },
+      ],
     });
-    await repo.knowledge.replaceRanges(db, source.id, [
-      {
-        kind: 'gitlab_project',
-        externalId: 'group/proj',
-        ref: 'main',
-        paths: [],
-        enabled: true,
-      },
-    ]);
     fixtureBase.deps.connectors = { ...fixtureBase.deps.connectors, gitlab: emptyConnector };
     // 全部归本来源且都不在列举结果里：任何未翻到的页都会漏掉 disable。
     const documentIds = await seedDocuments(fixtureBase, OVER_PAGE, {

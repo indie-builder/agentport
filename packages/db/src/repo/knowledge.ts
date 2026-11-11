@@ -1043,10 +1043,24 @@ export async function listReadableDocuments(
  * 人工停用原因不被来源同步覆盖；归属只看 source_connection_id。
  */
 export async function disableDocumentsBySource(
-  db: DbHandle,
+  db: Database,
   sourceId: string,
 ): Promise<KnowledgeDocumentRow[]> {
-  return db
+  return db.transaction(async (tx) => {
+    const rows = await disableDocumentsBySourceTx(tx, sourceId);
+    await markWikiStaleByDocumentsTx(
+      tx,
+      rows.map((row) => row.id),
+    );
+    return rows;
+  });
+}
+
+async function disableDocumentsBySourceTx(
+  tx: Transaction,
+  sourceId: string,
+): Promise<KnowledgeDocumentRow[]> {
+  return tx
     .update(knowledgeDocuments)
     .set({
       status: 'disabled',
@@ -2621,18 +2635,22 @@ export interface CreateSourceInput {
   config: Record<string, unknown>;
   secretsEncrypted: string | null;
   syncCron: string | null;
+  ranges: RangeInput[];
 }
 
 export async function createSource(
   db: Database,
   input: CreateSourceInput,
-): Promise<KnowledgeSourceRow> {
-  const [row] = await db
-    .insert(knowledgeSources)
-    .values({ id: newId('knowledgeSource'), ...input })
-    .returning();
-  if (!row) throw new Error('knowledge source insert returned no row');
-  return row;
+): Promise<{ source: KnowledgeSourceRow; ranges: KnowledgeSourceRangeRow[] }> {
+  const { ranges, ...fields } = input;
+  return db.transaction(async (tx) => {
+    const [source] = await tx
+      .insert(knowledgeSources)
+      .values({ id: newId('knowledgeSource'), ...fields })
+      .returning();
+    if (!source) throw new Error('knowledge source insert returned no row');
+    return { source, ranges: await replaceRangesTx(tx, source.id, ranges) };
+  });
 }
 
 export async function getSource(db: Database, id: string): Promise<KnowledgeSourceRow | null> {
@@ -2708,7 +2726,7 @@ export async function deleteSource(
       .where(eq(knowledgeDocuments.sourceConnectionId, id))
       .orderBy(asc(knowledgeDocuments.id))
       .for('update');
-    const affectedRows = documents === 'keep' ? await disableDocumentsBySource(tx, id) : rows;
+    const affectedRows = documents === 'keep' ? await disableDocumentsBySourceTx(tx, id) : rows;
     const documentIds = affectedRows.map((row) => row.id);
     await markWikiStaleByDocumentsTx(tx, documentIds);
     if (documents === 'delete' && documentIds.length > 0) {

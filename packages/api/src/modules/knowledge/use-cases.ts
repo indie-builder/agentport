@@ -2617,22 +2617,16 @@ export async function createSource(
   }
   const issues = configIssues(input.type, input.config, input.secrets, input.ranges);
   if (issues.length > 0) throw new AppError('INVALID_INPUT', issues.join('；'));
-  const source = await repo.knowledge.createSource(deps.db, {
+  const { source, ranges } = await repo.knowledge.createSource(deps.db, {
     baseId: base.id,
     type: input.type,
     name: input.name,
     config: input.config,
     secretsEncrypted: encryptIfAny(deps, input.secrets) ?? null,
     syncCron: input.syncCron,
+    ranges: input.ranges,
   });
-  try {
-    const ranges = await repo.knowledge.replaceRanges(deps.db, source.id, input.ranges);
-    return toSource(source, ranges);
-  } catch (err) {
-    await repo.knowledge.deleteSource(deps.db, source.id, 'delete');
-    if (isPgCode(err, '23505')) throw new AppError('CONFLICT', '存在重复的来源范围');
-    throw err;
-  }
+  return toSource(source, ranges);
 }
 
 function parsePatchInput(

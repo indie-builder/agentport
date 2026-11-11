@@ -1121,17 +1121,20 @@ describe('searchKnowledge', () => {
   });
 
   it('来源范围撤权后关键词命中也不返回', async () => {
-    const source = await repo.knowledge.createSource(db, {
+    const {
+      source,
+      ranges: [range],
+    } = await repo.knowledge.createSource(db, {
       baseId,
       type: 'github',
       name: `src-${Math.random().toString(36).slice(2, 8)}`,
       config: { baseUrl: 'https://api.github.com', projectId: 'o/r' },
       secretsEncrypted: null,
       syncCron: null,
+      ranges: [
+        { kind: 'github_repo', externalId: 'o/r', ref: null, paths: ['docs'], enabled: true },
+      ],
     });
-    const [range] = await repo.knowledge.replaceRanges(db, source.id, [
-      { kind: 'github_repo', externalId: 'o/r', ref: null, paths: ['docs'], enabled: true },
-    ]);
     const document = await seedDocument({
       title: '外部文档',
       sourceConnectionId: source.id,

@@ -197,7 +197,7 @@ async function makeSource(
   fixtureBase: FixtureBase,
   input: KnowledgeSourceInput,
 ): Promise<{ sourceId: string; rangeIds: string[] }> {
-  const source = await repo.knowledge.createSource(db, {
+  const { source, ranges } = await repo.knowledge.createSource(db, {
     baseId: fixtureBase.baseId,
     type: input.type,
     name: input.name,
@@ -207,18 +207,14 @@ async function makeSource(
         ? encryptSecrets({ ...input.secrets }, SECRET_KEY)
         : null,
     syncCron: input.syncCron,
-  });
-  const ranges = await repo.knowledge.replaceRanges(
-    db,
-    source.id,
-    input.ranges.map((range) => ({
+    ranges: input.ranges.map((range) => ({
       kind: range.kind,
       externalId: range.externalId,
       ref: range.ref,
       paths: range.paths,
       enabled: range.enabled,
     })),
-  );
+  });
   return { sourceId: source.id, rangeIds: ranges.map((range) => range.id) };
 }
 

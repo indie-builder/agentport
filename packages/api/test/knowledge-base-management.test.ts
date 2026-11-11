@@ -169,6 +169,7 @@ describe.skipIf(!ready)('knowledge base management', () => {
       config: {},
       secretsEncrypted: null,
       syncCron: null,
+      ranges: [],
     });
     await repo.knowledge.createFolder(app.db, {
       baseId: empty.id,

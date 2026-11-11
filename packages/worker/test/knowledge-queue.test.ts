@@ -109,17 +109,17 @@ async function seedJob(): Promise<{ jobId: string; documentId: string; baseId: s
 /** 同步三表终态测试：真实来源 + 启用范围 + createSyncJob 的 queued pair。 */
 async function seedSyncPair() {
   const { baseId } = await seedJob();
-  const source = await repo.knowledge.createSource(db, {
+  const { source } = await repo.knowledge.createSource(db, {
     baseId,
     type: 'feed',
     name: `sync-terminal-${randomUUID().slice(0, 8)}`,
     config: { syncDeletions: false },
     secretsEncrypted: null,
     syncCron: null,
+    ranges: [
+      { kind: 'feed', externalId: 'https://example.com/feed', ref: null, paths: [], enabled: true },
+    ],
   });
-  await repo.knowledge.replaceRanges(db, source.id, [
-    { kind: 'feed', externalId: 'https://example.com/feed', ref: null, paths: [], enabled: true },
-  ]);
   const created = await repo.knowledge.createSyncJob(db, source.id);
   if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
   return { sourceId: source.id, job: created.job, run: created.run };
@@ -493,17 +493,23 @@ describe('knowledge worker queue', () => {
       .set({ endpointUrl: `http://127.0.0.1:${address.port}` })
       .where(eq(schema.knowledgeModelProfiles.id, base.embeddingProfileId));
 
-    const source = await repo.knowledge.createSource(db, {
+    const { source } = await repo.knowledge.createSource(db, {
       baseId,
       type: 'feed',
       name: 'sync-retry-feed',
       config: { syncDeletions: false },
       secretsEncrypted: null,
       syncCron: null,
+      ranges: [
+        {
+          kind: 'feed',
+          externalId: 'https://example.com/feed',
+          ref: null,
+          paths: [],
+          enabled: true,
+        },
+      ],
     });
-    await repo.knowledge.replaceRanges(db, source.id, [
-      { kind: 'feed', externalId: 'https://example.com/feed', ref: null, paths: [], enabled: true },
-    ]);
     const created = await repo.knowledge.createSyncJob(db, source.id);
     if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
     const { job } = created;
