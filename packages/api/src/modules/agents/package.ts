@@ -21,6 +21,7 @@ import {
 } from '@agentport/core';
 import type { Database, Transaction } from '@agentport/db';
 import {
+  agentHookFiles,
   agentOutputStyles,
   agentRules,
   agentServers,
@@ -50,6 +51,9 @@ import {
   AGENT_PACKAGE_PATHS,
   AGENT_PACKAGE_SIDECAR,
   AGENT_PACKAGE_SIDECAR_VERSION,
+  agentHookFileInputSchema,
+  agentHookFilePathSchema,
+  agentHooksConfigSchema,
   agentPackageSidecarSchema,
   findSkillResourcePathConflict,
   knowledgeTokenEnv,
@@ -60,7 +64,7 @@ import {
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { isPgCode } from '../../http/errors.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
-import { decodePackage, encodePackage } from './package-zip.js';
+import { decodePackage, encodePackageEntries } from './package-zip.js';
 import { unsupportedAllowedTool } from './validation.js';
 import { toAgentConfigValues } from './write.js';
 
@@ -322,6 +326,7 @@ export interface AgentPackageFiles {
   files: Record<string, string>;
   slug: string;
   warnings: string[];
+  executablePaths?: readonly string[];
 }
 export async function buildAgentPackage(
   db: Database,
@@ -396,6 +401,12 @@ export async function buildAgentPackage(
     entry: toPreviewEntry(server, selfUrl),
   }));
   const selectedOutputStyle = rootStyles.find((style) => style.isSelected)?.slug ?? null;
+  const hookFiles = await repo.hooks.listHookFiles(db, row.id);
+  checkExportLimit(
+    hookFiles.length,
+    AGENT_PACKAGE_LIMITS.hookFiles,
+    `该智能体有 ${hookFiles.length} 个 hook 脚本，超过导出上限 ${AGENT_PACKAGE_LIMITS.hookFiles} 个；请先减少脚本`,
+  );
   const workspace = renderWorkspace(
     toWorkspaceInput({
       agent: { ...row, serverNames: rootServers.map((server) => server.name) },
@@ -422,10 +433,17 @@ export async function buildAgentPackage(
   for (const workflow of workflows) {
     files[`${AGENT_PACKAGE_PATHS.workflowsDir}${workflow.slug}.js`] = workflow.content;
   }
+  const executablePaths: string[] = [];
+  for (const file of hookFiles) {
+    const path = `${AGENT_PACKAGE_PATHS.hooksDir}${file.path}`;
+    files[path] = file.content;
+    if (file.executable) executablePaths.push(path);
+  }
   files[AGENT_PACKAGE_PATHS.settings] = `${JSON.stringify(
     {
       env: PORTABLE_TODO_ENV,
       ...(selectedOutputStyle === null ? {} : { outputStyle: selectedOutputStyle }),
+      ...(row.hooksEnabled && row.hooksConfig ? { hooks: row.hooksConfig } : {}),
     },
     null,
     2,
@@ -526,7 +544,7 @@ export async function buildAgentPackage(
       : [
           `该专家绑定了 ${boundPlugins.length} 个插件，插件代码不随专家包导出；导入后需要在本机插件库重新绑定`,
         ];
-  return { files, slug: row.slug, warnings };
+  return { files, slug: row.slug, warnings, executablePaths };
 }
 export function packAgentPackage(pkg: AgentPackageFiles): Buffer {
   const uncompressedBytes = Object.values(pkg.files).reduce(
@@ -538,7 +556,14 @@ export function packAgentPackage(pkg: AgentPackageFiles): Buffer {
     AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
     '专家包解压后超过 4 MiB，请减少提示词、技能或工具定义后重试',
   );
-  const body = encodePackage(pkg.files);
+  const executablePaths = new Set(pkg.executablePaths);
+  const body = encodePackageEntries(
+    Object.entries(pkg.files).map(([path, content]) => ({
+      path,
+      content,
+      executable: executablePaths.has(path),
+    })),
+  );
   if (body.byteLength > AGENT_PACKAGE_MAX_BYTES) {
     fail('CONFLICT', '专家包超过 1 MiB，请减少提示词、技能或工具定义后重试');
   }
@@ -558,6 +583,10 @@ interface ParsedPackage {
   workflows: PackageWorkflowInput[];
   rules: PackageRuleInput[];
   styles: PackageStyleInput[];
+  hooks: {
+    config: Record<string, unknown> | null;
+    files: Array<{ path: string; content: string; executable: boolean }>;
+  };
   runtimeEnvironmentName?: string;
 }
 interface PackageInput {
@@ -624,6 +653,10 @@ function isKnownPath(path: string): boolean {
   }
   if (path.startsWith(AGENT_PACKAGE_PATHS.workflowsDir)) {
     return /^[^/]+\.js$/.test(path.slice(AGENT_PACKAGE_PATHS.workflowsDir.length));
+  }
+  if (path.startsWith(AGENT_PACKAGE_PATHS.hooksDir)) {
+    return agentHookFilePathSchema.safeParse(path.slice(AGENT_PACKAGE_PATHS.hooksDir.length))
+      .success;
   }
   return false;
 }
@@ -695,6 +728,7 @@ export function parseAgentPackage(
   options: {
     slug?: string;
     name?: string;
+    executables?: ReadonlyMap<string, boolean>;
   },
 ): ParsedPackage {
   for (const path of files.keys()) {
@@ -769,7 +803,28 @@ export function parseAgentPackage(
     AGENT_PACKAGE_LIMITS.rules,
     `规则超过 ${AGENT_PACKAGE_LIMITS.rules} 条，请减少后重试`,
   );
-  const selectedStyle = readSelectedOutputStyle(files.get(AGENT_PACKAGE_PATHS.settings));
+  const portableSettings = readPortableSettings(files.get(AGENT_PACKAGE_PATHS.settings));
+  const selectedStyle = portableSettings.outputStyle;
+  const hookFiles = [...files]
+    .filter(([path]) => path.startsWith(AGENT_PACKAGE_PATHS.hooksDir))
+    .map(([path, content]) => {
+      const parsed = agentHookFileInputSchema.safeParse({
+        path: path.slice(AGENT_PACKAGE_PATHS.hooksDir.length),
+        content,
+        executable: options.executables?.get(path) ?? false,
+      });
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        fail('INVALID_INPUT', `hook 脚本不合法：${issue?.message ?? '字段校验失败'}`, { path });
+      }
+      return parsed.data;
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+  checkLimit(
+    hookFiles.length,
+    AGENT_PACKAGE_LIMITS.hookFiles,
+    `hook 脚本超过 ${AGENT_PACKAGE_LIMITS.hookFiles} 个，请减少后重试`,
+  );
   const styleBodies = listMarkdown(files, AGENT_PACKAGE_PATHS.outputStylesDir).map((file) =>
     parseOutputStyleMd(file.content, file.slug, file.path),
   );
@@ -927,13 +982,17 @@ export function parseAgentPackage(
     workflows: workflowList,
     rules,
     styles,
+    hooks: { config: portableSettings.hooks, files: hookFiles },
     ...(sidecar.agent.runtimeEnvironmentName === undefined
       ? {}
       : { runtimeEnvironmentName: sidecar.agent.runtimeEnvironmentName }),
   };
 }
-function readSelectedOutputStyle(settings: string | undefined): string | null {
-  if (settings === undefined) return null;
+function readPortableSettings(settings: string | undefined): {
+  outputStyle: string | null;
+  hooks: Record<string, unknown> | null;
+} {
+  if (settings === undefined) return { outputStyle: null, hooks: null };
   let raw: unknown;
   try {
     raw = JSON.parse(settings);
@@ -948,20 +1007,31 @@ function readSelectedOutputStyle(settings: string | undefined): string | null {
     });
   }
   const keys = Object.keys(raw);
-  const unsupported = keys.filter((key) => key !== 'outputStyle' && key !== 'env');
+  const unsupported = keys.filter(
+    (key) => key !== 'outputStyle' && key !== 'env' && key !== 'hooks',
+  );
   if (unsupported.length > 0) {
     fail('INVALID_INPUT', '.claude/settings.json 含平台不支持的配置项', {
       path: AGENT_PACKAGE_PATHS.settings,
     });
   }
-  const outputStyle = (raw as Record<string, unknown>).outputStyle;
-  if (outputStyle === undefined) return null;
-  if (typeof outputStyle !== 'string') {
+  const record = raw as Record<string, unknown>;
+  const outputStyle = record.outputStyle;
+  if (outputStyle !== undefined && typeof outputStyle !== 'string') {
     fail('INVALID_INPUT', '.claude/settings.json 的 outputStyle 必须是字符串', {
       path: `${AGENT_PACKAGE_PATHS.settings}/outputStyle`,
     });
   }
-  return outputStyle;
+  const parsedHooks = agentHooksConfigSchema.safeParse(record.hooks);
+  if (!parsedHooks.success) {
+    fail('INVALID_INPUT', '.claude/settings.json 的 hooks 配置无效或超过大小上限', {
+      path: `${AGENT_PACKAGE_PATHS.settings}/hooks`,
+    });
+  }
+  return {
+    outputStyle: typeof outputStyle === 'string' ? outputStyle : null,
+    hooks: parsedHooks.data,
+  };
 }
 function serverConfig(input: ServerInput): Record<string, unknown> {
   switch (input.kind) {
@@ -1284,6 +1354,8 @@ export async function importAgentPackage(
           createdBy: options.businessId,
           ownerBusinessId: options.businessId,
           ...toAgentValues(parsed.agent.input, runtimeEnvironmentId),
+          hooksEnabled: false,
+          hooksConfig: parsed.hooks.config,
         })
         .returning();
       if (!row) throw new Error('agent insert returned no row');
@@ -1298,6 +1370,15 @@ export async function importAgentPackage(
           .values(skillIds.map((skillId) => ({ agentId: row.id, skillId })));
       }
       await insertAgentFiles(tx, row.id, parsed.rules, parsed.styles, parsed.workflows);
+      if (parsed.hooks.files.length > 0) {
+        await tx.insert(agentHookFiles).values(
+          parsed.hooks.files.map((file) => ({
+            id: newId('agentHookFile'),
+            agentId: row.id,
+            ...file,
+          })),
+        );
+      }
       const createdSubAgents: string[] = [];
       const childIds: string[] = [];
       const childSnapshots: ReturnType<typeof repo.agents.toAgent>[] = [];
@@ -1360,6 +1441,7 @@ export async function importAgentPackage(
           outputStyles:
             parsed.styles.length +
             parsed.children.reduce((count, child) => count + child.outputStyles.length, 0),
+          hookFiles: parsed.hooks.files.length,
           subAgents: createdSubAgents.length,
         },
       };
@@ -1379,5 +1461,6 @@ export interface ImportCounts {
   workflows: number;
   rules: number;
   outputStyles: number;
+  hookFiles: number;
   subAgents: number;
 }

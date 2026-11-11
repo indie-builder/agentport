@@ -22,7 +22,7 @@ import { withMemoryTargetLock } from '../memory/changes.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import { buildAgentPackage, packAgentPackage, parseAgentPackage } from './package.js';
-import { decodePackage, encodePackage } from './package-zip.js';
+import { decodePackageEntries, encodePackage, type PackageEntry } from './package-zip.js';
 import { importAgent } from './use-cases.js';
 import { renderAgentWorkspace } from './workspace.js';
 
@@ -48,16 +48,20 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
       if (c.req.header('content-type')?.split(';')[0]?.trim() !== 'application/zip')
         fail('UNSUPPORTED_MEDIA_TYPE', '不支持的 Content-Type，请使用 application/zip');
       const query = agentImportQuerySchema.parse(c.req.query());
-      let files: Map<string, string>;
+      let entries: Map<string, PackageEntry>;
       try {
-        files = decodePackage(Buffer.from(await c.req.arrayBuffer()));
+        entries = decodePackageEntries(Buffer.from(await c.req.arrayBuffer()));
       } catch (error) {
         fail('INVALID_INPUT', error instanceof Error ? error.message : '专家包无法解析');
       }
-      const parsed = parseAgentPackage(files, {
-        ...(query.slug === undefined ? {} : { slug: query.slug }),
-        ...(query.name === undefined ? {} : { name: query.name }),
-      });
+      const parsed = parseAgentPackage(
+        new Map([...entries].map(([path, entry]) => [path, entry.content])),
+        {
+          ...(query.slug === undefined ? {} : { slug: query.slug }),
+          ...(query.name === undefined ? {} : { name: query.name }),
+          executables: new Map([...entries].map(([path, entry]) => [path, entry.executable])),
+        },
+      );
       const principal = requireUser(context);
       await authorize(context, 'agents.create', { createdBy: principal.businessId });
       const serverNames = [...new Set(parsed.servers.map((entry) => entry.name))];
@@ -118,6 +122,14 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
         await authorizeObject(
           context,
           permissionId,
+          { agentId: row.id },
+          '智能体不存在，可能已被删除；请刷新后重试',
+        );
+      }
+      if (row.hooksEnabled || (await repo.hooks.listHookFiles(context.db, row.id)).length > 0) {
+        await authorizeObject(
+          context,
+          'agents.hooks.read',
           { agentId: row.id },
           '智能体不存在，可能已被删除；请刷新后重试',
         );

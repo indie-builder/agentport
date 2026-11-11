@@ -4,6 +4,8 @@ import type {
   Account,
   Agent,
   AgentAccess,
+  AgentHookFile,
+  AgentHooks,
   AgentInput,
   AgentMember,
   AgentMemoryAssembly,
@@ -1056,6 +1058,17 @@ export const api = {
     }),
   deleteAgentWorkflow: (id: string, workflowId: string): Promise<void> =>
     rpc.workflows.delete({ params: { id, workflowId } }),
+  agentHooks: (id: string): Promise<AgentHooks> => rpc.agents.hooks({ params: { id } }),
+  writeAgentHooksSettings: (
+    id: string,
+    input: { enabled: boolean; config: Record<string, unknown> | null },
+  ): Promise<AgentHooks> => rpc.agents.writeHooksSettings({ params: { id }, body: input }),
+  writeAgentHookFile: (
+    id: string,
+    input: { path: string; content: string; executable: boolean },
+  ): Promise<AgentHookFile> => rpc.agents.writeHookFile({ params: { id }, body: input }),
+  deleteAgentHookFile: (id: string, path: string): Promise<void> =>
+    rpc.agents.deleteHookFile({ params: { id }, body: { path } }),
   agentMemoryFile: (id: string, name: string): Promise<MemoryFileContent> =>
     rpc.agents.memoryFile({ params: { id, name } }),
   agentMemoryOverview: (id: string): Promise<AgentMemoryOverview> =>

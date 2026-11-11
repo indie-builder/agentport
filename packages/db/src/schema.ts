@@ -145,6 +145,8 @@ export const agents = pgTable(
       .$type<MemoryPolicy>()
       .notNull()
       .default(DEFAULT_MEMORY_POLICY),
+    hooksEnabled: boolean('hooks_enabled').notNull().default(false),
+    hooksConfig: jsonb('hooks_config').$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -454,6 +456,25 @@ export const agentWorkflows = pgTable(
   (t) => [
     uniqueIndex('agent_workflows_agent_slug_idx').on(t.agentId, t.slug),
     index('agent_workflows_agent_idx').on(t.agentId),
+  ],
+);
+
+export const agentHookFiles = pgTable(
+  'agent_hook_files',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    content: text('content').notNull().default(''),
+    executable: boolean('executable').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('agent_hook_files_agent_path_idx').on(t.agentId, t.path),
+    index('agent_hook_files_agent_idx').on(t.agentId),
   ],
 );
 
@@ -1985,6 +2006,7 @@ export const schema = {
   agentRules,
   agentOutputStyles,
   agentWorkflows,
+  agentHookFiles,
   agentServers,
   agentVersions,
   runtimeEnvironmentVersions,
