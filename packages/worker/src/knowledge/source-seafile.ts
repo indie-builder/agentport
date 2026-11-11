@@ -13,6 +13,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { trimSlash } from './source-paths.js';
+import { parseInitialCursor } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -44,8 +45,6 @@ const entrySchema = z.object({
 
 const listingSchema = z.array(entrySchema);
 const downloadLinkSchema = z.string();
-
-const cursorSchema = z.object({ version: z.literal(1), initial: z.boolean() });
 
 type Entry = z.infer<typeof entrySchema>;
 type Auth = {
@@ -376,10 +375,7 @@ export async function readSeafile(
   cursor: Record<string, unknown> | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SourceSnapshot> {
-  const previous =
-    cursor === undefined || Object.keys(cursor).length === 0
-      ? undefined
-      : cursorSchema.parse(cursor);
+  const previous = parseInitialCursor(cursor);
   const auth = await authenticate(config);
   signal?.throwIfAborted();
 

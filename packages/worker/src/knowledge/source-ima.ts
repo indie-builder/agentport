@@ -14,7 +14,14 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
-import { extensionOf, isAbort, signalOption, textOf, titleWithExtension } from './source-utils.js';
+import {
+  extensionOf,
+  isAbort,
+  parseInitialCursor,
+  signalOption,
+  textOf,
+  titleWithExtension,
+} from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -463,10 +470,7 @@ export async function readIma(
   cursor: Record<string, unknown> | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SourceSnapshot> {
-  const previous =
-    cursor === undefined || Object.keys(cursor).length === 0
-      ? undefined
-      : z.object({ version: z.literal(1), initial: z.boolean() }).parse(cursor);
+  const previous = parseInitialCursor(cursor);
   const auth = authenticate(config);
   const items: SourceItem[] = [];
   const failures: SourceFailure[] = [];

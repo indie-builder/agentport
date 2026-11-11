@@ -1,5 +1,5 @@
 import { type Database, repo } from '@agentport/db';
-import { type AgentRunJob, runEnqueueOptions } from '@agentport/shared';
+import { type AgentRunJob, errorText, runEnqueueOptions } from '@agentport/shared';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { AppError } from '../../http/errors.js';
@@ -31,10 +31,6 @@ type WakeContext = {
 
 type WakeDispatchResult = { enqueued: number; skipped: number; retried: number; failed: number };
 type WakeOutcome = keyof WakeDispatchResult;
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 function retryAt(attempts: number): Date {
   return new Date(Date.now() + Math.min(5_000 * 2 ** (attempts - 1), 300_000));
@@ -99,7 +95,7 @@ async function handleEnqueueFailure(
     await channelWakeRepo.markChannelWakeFailed(context.db, {
       id: wake.id,
       claimedAt: wake.claimedAt as Date,
-      lastError: errorMessage(err),
+      lastError: errorText(err),
     });
     await postNotice(context, wake, WAKE_FAILED_NOTICE);
     return 'failed';
@@ -107,7 +103,7 @@ async function handleEnqueueFailure(
   await channelWakeRepo.markChannelWakeRetry(context.db, {
     id: wake.id,
     claimedAt: wake.claimedAt as Date,
-    lastError: errorMessage(err),
+    lastError: errorText(err),
     nextAttemptAt: retryAt(wake.attempts),
   });
   return 'retried';
@@ -209,7 +205,7 @@ async function dispatchWake(
     await channelWakeRepo.markChannelWakeRetry(context.db, {
       id: wake.id,
       claimedAt: wake.claimedAt as Date,
-      lastError: errorMessage(err),
+      lastError: errorText(err),
       nextAttemptAt: retryAt(wake.attempts),
     });
     return 'retried';
@@ -265,7 +261,7 @@ export async function dispatchChannelWakes(input: {
         await channelWakeRepo.markChannelWakeRetry(input.db, {
           id: wake.id,
           claimedAt: wake.claimedAt as Date,
-          lastError: errorMessage(err),
+          lastError: errorText(err),
           nextAttemptAt: retryAt(wake.attempts),
         });
         result.retried += 1;
