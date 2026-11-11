@@ -2,6 +2,7 @@ import {
   apiToolInputSchema,
   apiToolSchema,
   connectorCatalogSchema,
+  gatewayServerSchema,
   generatedServerSchema,
   httpServerSchema,
   idParams,
@@ -15,7 +16,7 @@ import { contractProcedure } from './base.js';
 
 const toolParams = idParams.extend({ toolId: z.string().min(1) });
 const serverPatchSchema = z.object({
-  kind: z.enum(['stdio', 'http', 'generated']).optional(),
+  kind: z.enum(['stdio', 'http', 'generated', 'gateway']).optional(),
   name: stdioServerSchema.shape.name.optional(),
   description: stdioServerSchema.shape.description.removeDefault().optional(),
   command: stdioServerSchema.shape.command.optional(),
@@ -23,6 +24,7 @@ const serverPatchSchema = z.object({
   env: stdioServerSchema.shape.env.removeDefault().optional(),
   url: httpServerSchema.shape.url.optional(),
   baseUrl: generatedServerSchema.shape.baseUrl.optional(),
+  serverIds: gatewayServerSchema.shape.serverIds.optional(),
   headers: httpServerSchema.shape.headers.removeDefault().optional(),
   expectedUpdatedAt: z.coerce.date().optional(),
 });
@@ -47,7 +49,7 @@ const serverTestBodySchema = z
 const importedServerSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
-  kind: z.enum(['stdio', 'http', 'generated']),
+  kind: z.enum(['stdio', 'http', 'generated', 'gateway']),
   secretKeys: z.array(z.string()),
 });
 const readServers = contractProcedure.meta({

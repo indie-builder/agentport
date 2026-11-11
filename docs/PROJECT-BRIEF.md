@@ -36,6 +36,7 @@
 - 需要**自建 MCP Client**，并把它引进智能体里。
 - 智能体绑定 MCP Server 之后，可以直接调用其工具。
 - MCP 相关配置最终**都以 `.mcp.json` 的形式落地**，适配 Claude Code 的规范。
+- 后续追加（D-81）：需要**独立的 MCP 统一聚合网关**——把多个已配置的 MCP 源聚合成一个模块/端点，供平台各智能体按需引用，并写入各自 `.mcp.json` 的 MCP 连接层。
 
 ### 1.3 三端划分
 
@@ -321,6 +322,10 @@ worker ──消费 agent-runs / knowledge-jobs──▶ Sandbox (容器/microVM
 
 知识库也遵循同一官方表达：平台为每个知识库自动生成一个 `servers.kind='knowledge'` 的内部连接，运行时在 `.mcp.json` 里写成标准 `http` 条目（`/mcp/<serverId>` + run 短期 token）。这个 kind 只存在于数据库与读路径，**不进入用户可提交的 `serverInputSchema`**，因此不能通过创建/导入伪造，也不出现在 `/api/servers` 列表。知识正文、索引和 Wiki 都是平台内容资源，不写进 `.claude/` 目录。
 
+### 4.5 MCP 统一聚合网关（gateway，D-81）
+
+在生成的 generated 连接器之外，新增第五类连接器 `servers.kind='gateway'`（“统一聚合”）：`config` 存 `serverIds` 与长期 `mcpToken`（后者供外部 Host 使用，与 generated 同款），把多个已配置的 `http`（外部 MCP）与 `generated`（HTTP→MCP）上游聚合成一个 MCP 端点 `/mcp/<serverId>`。端点初始化时连接各上游、`listTools`，以 `<upstreamName>__<toolName>`（≤64 字符、冲突加后缀、总数上限 200）注册工具；工具调用按命名空间路由到对应上游并透传 `CallToolResult`；单个上游不可达时其工具缺席并记日志，不影响其余。聚合端点复用 generated 的鉴权模型（沙盒按 run 短期 token、外部客户端用长 `mcpToken`）。因为 gateway 本身是一条 server，智能体绑定后由既有渲染链路写入其 `.mcp.json`（`/mcp/<id>` + run 短期 token），实现“配置一次、各智能体直接引用”。不聚合 stdio（需沙盒）/ knowledge / 其它 gateway（禁止嵌套），也不做网关内单工具过滤或改写。已知限制：聚合调用无 run 审批上下文（上游 `requiresApproval` 工具会被立即拒绝，审批不跨网关透传）；网关绑定不随专家包导出（`serverIds` 不可跨实例移植，导出时告警）。
+
 ---
 
 ## 5. 数据模型
@@ -329,8 +334,8 @@ worker ──消费 agent-runs / knowledge-jobs──▶ Sandbox (容器/microVM
 servers(
   id text pk                 -- TypeID，如 srv_/agt_/run_,
   name text unique,
-  kind text check (kind in ('stdio','http','generated','knowledge')),  -- knowledge 仅平台内部写
-  config jsonb,              -- command/args/url/headers 等非敏感字段
+  kind text check (kind in ('stdio','http','generated','knowledge','gateway')),  -- knowledge 平台内部写；gateway 聚合 http/generated 上游
+  config jsonb,              -- stdio/http/generated 的 command/url 等；gateway: { serverIds, mcpToken }
   secrets_encrypted text,    -- AES-256-GCM：env、Authorization 等
   created_at timestamptz,
   updated_at timestamptz

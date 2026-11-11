@@ -1,0 +1,2 @@
+ALTER TABLE "servers" DROP CONSTRAINT "servers_kind_check";--> statement-breakpoint
+ALTER TABLE "servers" ADD CONSTRAINT "servers_kind_check" CHECK ("servers"."kind" in ('stdio', 'http', 'generated', 'knowledge', 'gateway'));

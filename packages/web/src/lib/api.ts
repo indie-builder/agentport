@@ -166,7 +166,7 @@ export interface McpImportResult {
   servers: Array<{
     id: string;
     name: string;
-    kind: 'stdio' | 'http' | 'generated';
+    kind: 'stdio' | 'http' | 'generated' | 'gateway';
     secretKeys: string[];
   }>;
   warnings: string[];

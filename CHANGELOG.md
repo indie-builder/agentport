@@ -4,6 +4,7 @@
 
 ### 智能体能力
 
+- MCP 统一聚合网关：新增独立「统一聚合」模块与连接器类型 `gateway`——把多个已配置的 `http`/`generated` MCP 源聚合为单一端点 `/mcp/<gatewayId>`，工具按 `上游__工具` 命名空间化；作为 server 被智能体绑定后写入其 `.mcp.json`（`/mcp/<id>` + run 短期 token）。复用 servers 绑定/token/审计，不聚合 stdio/knowledge、不嵌套网关，工具上限 200。验收见 USER-STORIES EPIC 12。
 - 聊天附件：随消息上传文本/图片/PDF，按会话持久化后只读挂载到 `/mnt/inputs`，主智能体用原生 `Read` 读取；图片与 PDF 由官方工具处理，长 PDF 依赖沙盒新增的 `poppler-utils`。消息只存元数据并支持历史下载，分支复制引用附件、删源后独立，旧 run 清理保留附件消息。Office 等走知识库；输入合计 10MiB，不新增上传服务或云盘。
 
 - 原生澄清提问：以官方 `AskUserQuestion/canUseTool` 等待用户回答，同一调用/同一 run 继续；问题贯通持久化、SSE、聊天与运行详情，刷新可恢复作答；新建默认 `default`，显式 `dontAsk` 保持拒绝交互。公开以题序号/选项序号提交并统一脱敏，SDK 与 DB 保留原值；MCP 副作用审批继续独立。证据见 任务记录。

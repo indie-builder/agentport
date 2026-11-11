@@ -55,6 +55,9 @@ export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Ser
       config: { knowledgeBaseId: str(config.knowledgeBaseId) },
     };
   }
+  if (row.kind === 'gateway') {
+    return { ...base, kind: 'gateway', serverIds: strArray(config.serverIds) };
+  }
   if (row.kind === 'stdio') {
     const args = config.args;
     return {
@@ -100,6 +103,11 @@ function splitInput(
         config: { baseUrl: input.baseUrl, mcpToken: mcpToken ?? randomToken() },
         secretsEncrypted:
           Object.keys(input.headers).length > 0 ? encryptSecrets(input.headers, keyB64url) : null,
+      };
+    case 'gateway':
+      return {
+        config: { serverIds: input.serverIds, mcpToken: mcpToken ?? randomToken() },
+        secretsEncrypted: null,
       };
   }
 }
@@ -190,7 +198,9 @@ export async function createServers(
           id,
           name: input.name,
           kind: input.kind,
-          secretKeys: Object.keys(input.kind === 'stdio' ? input.env : input.headers),
+          secretKeys: Object.keys(
+            input.kind === 'stdio' ? input.env : input.kind === 'gateway' ? {} : input.headers,
+          ),
         } satisfies ImportedServerSummary,
       };
     });
@@ -210,6 +220,7 @@ export interface ServerPatch {
   url?: string | undefined;
   baseUrl?: string | undefined;
   headers?: Record<string, string> | undefined;
+  serverIds?: string[] | undefined;
 }
 
 /** PATCH 语义：kind 不可变；env/headers 整体替换，值为 '••••' 的键沿用旧值。 */
@@ -276,6 +287,13 @@ export async function updateServer(
         description: patch.description ?? current.description,
         baseUrl: patch.baseUrl ?? current.baseUrl,
         headers: mergedSecrets(patch.headers, current.headers),
+      };
+    } else if (current.kind === 'gateway') {
+      next = {
+        kind: 'gateway',
+        name: patch.name ?? current.name,
+        description: patch.description ?? current.description,
+        serverIds: patch.serverIds ?? current.serverIds,
       };
     } else {
       // 知识库连接由知识库生命周期管理；路由层已拒绝，这里兜住其他调用方。
@@ -367,7 +385,7 @@ export async function rotateMcpToken(db: Db, id: string): Promise<string | null>
   // token 在锁内生成并写回：与并发 PATCH 串行化，不会出现「PATCH 又写回旧 token」。
   return db.transaction(async (tx) => {
     const row = await repo.servers.lockServer(tx, id);
-    if (row?.kind !== 'generated') return null;
+    if (row?.kind !== 'generated' && row?.kind !== 'gateway') return null;
     const token = randomToken();
     const updated = await repo.servers.updateServer(tx, id, {
       config: { ...row.config, mcpToken: token },

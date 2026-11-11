@@ -257,7 +257,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
-前两个方向共用 MCP 协议与同一个 MCP handler，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。
+前两个方向共用 MCP 协议与同一个 MCP handler，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。另有 `gateway`（D-81，统一聚合，端点 `/mcp/:serverId`）复用同一 handler 与鉴权，把多个 `http`/`generated` 上游的工具按 `<upstream>__<tool>` 聚合；详见 PROJECT-BRIEF §4.5 与下方 `servers.kind` 说明。
 
 | 维度 | HTTP → MCP（`/mcp/:serverId`，generated） | 平台 → MCP（`/mcp`） | 内置知识 MCP（`/mcp/:serverId`，knowledge） |
 |---|---|---|---|
@@ -277,7 +277,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 - 都使用常量时间比较 Bearer token。
 - `/mcp/:serverId` 先校验请求头 `x-agentport-run-id` 对应 run 的短期 token（且该智能体必须绑定此 server），失败再回退长期 `mcpToken`；`kind='knowledge'` 没有长期 token 回退。
 
-`servers.kind` 因此有四种取值：`stdio`、`http`、`generated` 属于用户可创建/导入的连接；`knowledge` 是平台内部的第四种，只能由知识库生命周期写入（name `kb-<slug>`，config 只有 `{ knowledgeBaseId }`）。读写类型分离：`serverKindSchema` 与读联合包含 `knowledge`，`serverInputSchema` 只含前三种。它不出现在 `/api/servers` 列表，也不能经该接口 PATCH/DELETE；URL 永远由运行时拼 `/mcp/:serverId`。共享的 `knowledgeMcpEntry()` 是预览与运行时的唯一构造点，避免两处漂移。
+`servers.kind` 因此有五种取值：`stdio`、`http`、`generated`、`gateway` 属于用户可创建/导入的连接；`knowledge` 是平台内部的第五种，只能由知识库生命周期写入（name `kb-<slug>`，config 只有 `{ knowledgeBaseId }`）。`gateway`（D-81，统一聚合）`config = { serverIds, mcpToken }`，端点复用 `/mcp/<serverId>`，把多个 `http`/`generated` 上游的工具按 `<upstreamName>__<toolName>` 聚合，绑定与渲染同 generated（写入智能体 `.mcp.json` 的 `/mcp/<id>` + run 短期 token）。读写类型分离：`serverKindSchema` 与读联合包含 `knowledge`，`serverInputSchema` 含 stdio/http/generated/gateway。knowledge 不出现在 `/api/servers` 列表，也不能经该接口 PATCH/DELETE；它的 URL 永远由运行时拼 `/mcp/:serverId`。共享的 `knowledgeMcpEntry()` 是预览与运行时的唯一构造点，避免两处漂移。
 
 内置知识连接的工具是只读的：`knowledge_search` 返回带 `target`/`chunkId`/标题/页码/`score`/`scoreKind`/分路 `scores` 的命中，并完整保留 `degraded`/`warnings`/`directAnswer`；`knowledge_read` 只读当前有效发布版正文，用 `offset`（Unicode code point）与 `nextOffset` 分页读完并返回 `totalCharacters`，不再固定 20,000 字符截断；`knowledge_list` 按 `(updatedAt,id,kind)` 游标只列出当前可读对象；`knowledge_read_image` 仅在该库启用图片处理时注册，读取版本图片（详见 §6.2.1）。参数里带别的 `baseId` 返回 `BASE_MISMATCH` 工具错误而不是静默换库；库被禁用时已注册工具都返回 `BASE_DISABLED`。没有写入、上传、删除或重建工具。
 
@@ -305,7 +305,7 @@ data/workspaces/<agent-slug>/
 
 | 文件 | 内容来源 | 说明 |
 |---|---|---|
-| `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers（env/headers 含解密后的上游 secrets），generated 写 `${SANDBOX_API_URL}/mcp/<id>` + 按 run 的短期 Bearer token 与 `x-agentport-run-id` |
+| `.mcp.json` | `agent_servers` + `servers` | `mcpServers` 映射；stdio 写 command/args/env，http 写 url/headers（env/headers 含解密后的上游 secrets），generated 与 gateway 写 `${SANDBOX_API_URL}/mcp/<id>` + 按 run 的短期 Bearer token 与 `x-agentport-run-id` |
 | `CLAUDE.md` | `agents.system_prompt_md` | 系统提示词 + 工具说明 + 技能 + 子智能体清单（含实际 `maxTurns` 与委派等待规则）+ 多步骤任务用原生 `TodoWrite` 维护清单的约束；前台执行与单层委派由运行时环境变量强制，不再逐次写在提示里 |
 | `.claude/agents/<child-slug>.md` | 子智能体配置 | YAML frontmatter：`name`、`description`、`model`、`mcpServers`（按名引用根 `.mcp.json`）、`disallowedTools`、`maxTurns`、`memory` 及子级绑定的 `skills`；`memory` 仅接受官方 `project`，`user` / `local` 拒绝。**不写 `tools`**，否则 SDK 派生时按名字解析 MCP 工具会得到空集并拒绝启动。父级不写 server 级 `disallowedTools`：子级继承会话权限，server 级 deny 会把子级工具一起移除，父级越权改由 PreToolUse 边界 hook 拒绝。主智能体自己的 md 只用于预览（`GET /api/agents/:id/files`），不落盘，避免被当成可委派子智能体 |
 | `.claude/skills/<slug>/SKILL.md` | `skills` 表 | frontmatter：`name`、`description`，正文为技能步骤 |

@@ -677,6 +677,18 @@
 
 ---
 
+## D-81 ✅ MCP 统一聚合网关（2026-11-11）
+
+**问题**：企业有多个 MCP 源（外部 MCP 的 `http` + 内部 HTTP→MCP 的 `generated`），让每个智能体逐个绑定重复且易漂移，缺少统一出口；用户要求一个独立的统一聚合模块，配置好的内容可在各智能体直接引用并写入其 `.mcp.json`。
+
+**决定**：新增连接器类型 `servers.kind='gateway'`（“统一聚合”），`config = { serverIds, mcpToken }`（`mcpToken` 与 generated 同款，供外部 Host）；聚合现有 `http` 与 `generated` 上游，暴露单一端点 `/mcp/<gatewayId>`，工具名 `<upstream>__<tool>`（≤64、冲突加后缀、上限 200）；作为 server 被智能体绑定后按 generated 同款方式写入 `.mcp.json`（`/mcp/<id>` + run 短期 token）。复用 `servers` 表 / 绑定模型 / token / 审计，不新增表，也不新增第二套 MCP 路由或执行底座。
+
+**边界**：不聚合 stdio（需沙盒）/ knowledge / 其它 gateway（不嵌套）；不做网关内单工具过滤或改写（MVP 暴露上游全部工具）；上游不可达时该上游工具静默缺席并记日志，不影响其余上游。网关聚合调用无 run 审批上下文：调用带 `requiresApproval` 的 generated 上游工具会被立即拒绝，审批语义不跨网关透传。网关绑定不随专家包导出（`serverIds` 不可跨实例移植），导出时在 `warnings` 明确提示。验收见 `docs/USER-STORIES.md` EPIC 12。
+
+**状态**：本任务 PR 交付，合并状态以 GitHub 为准。
+
+---
+
 ## 决策记录格式
 
 决策后请在此处标注：

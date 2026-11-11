@@ -17,6 +17,7 @@ import { Route as ShellAccountsRouteImport } from './routes/_shell/accounts'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellChatRouteImport } from './routes/_shell/chat'
 import { Route as ShellEvalRouteImport } from './routes/_shell/eval'
+import { Route as ShellGatewaysRouteImport } from './routes/_shell/gateways'
 import { Route as ShellOperationsRouteImport } from './routes/_shell/operations'
 import { Route as ShellPersonalRouteImport } from './routes/_shell/personal'
 import { Route as ShellRolesRouteImport } from './routes/_shell/roles'
@@ -82,6 +83,11 @@ const ShellChatRoute = ShellChatRouteImport.update({
 const ShellEvalRoute = ShellEvalRouteImport.update({
   id: '/eval',
   path: '/eval',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellGatewaysRoute = ShellGatewaysRouteImport.update({
+  id: '/gateways',
+  path: '/gateways',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellOperationsRoute = ShellOperationsRouteImport.update({
@@ -230,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
+  '/gateways': typeof ShellGatewaysRoute
   '/operations': typeof ShellOperationsRoute
   '/personal': typeof ShellPersonalRouteWithChildren
   '/roles': typeof ShellRolesRoute
@@ -265,6 +272,7 @@ export interface FileRoutesByTo {
   '/audit': typeof ShellAuditRoute
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
+  '/gateways': typeof ShellGatewaysRoute
   '/operations': typeof ShellOperationsRoute
   '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
@@ -302,6 +310,7 @@ export interface FileRoutesById {
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/chat': typeof ShellChatRoute
   '/_shell/eval': typeof ShellEvalRoute
+  '/_shell/gateways': typeof ShellGatewaysRoute
   '/_shell/operations': typeof ShellOperationsRoute
   '/_shell/personal': typeof ShellPersonalRouteWithChildren
   '/_shell/roles': typeof ShellRolesRoute
@@ -341,6 +350,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
+    | '/gateways'
     | '/operations'
     | '/personal'
     | '/roles'
@@ -376,6 +386,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/chat'
     | '/eval'
+    | '/gateways'
     | '/operations'
     | '/roles'
     | '/schedules'
@@ -412,6 +423,7 @@ export interface FileRouteTypes {
     | '/_shell/audit'
     | '/_shell/chat'
     | '/_shell/eval'
+    | '/_shell/gateways'
     | '/_shell/operations'
     | '/_shell/personal'
     | '/_shell/roles'
@@ -504,6 +516,13 @@ declare module '@tanstack/react-router' {
       path: '/eval'
       fullPath: '/eval'
       preLoaderRoute: typeof ShellEvalRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/gateways': {
+      id: '/_shell/gateways'
+      path: '/gateways'
+      fullPath: '/gateways'
+      preLoaderRoute: typeof ShellGatewaysRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/operations': {
@@ -728,6 +747,7 @@ interface ShellRouteChildren {
   ShellAuditRoute: typeof ShellAuditRoute
   ShellChatRoute: typeof ShellChatRoute
   ShellEvalRoute: typeof ShellEvalRoute
+  ShellGatewaysRoute: typeof ShellGatewaysRoute
   ShellOperationsRoute: typeof ShellOperationsRoute
   ShellPersonalRoute: typeof ShellPersonalRouteWithChildren
   ShellRolesRoute: typeof ShellRolesRoute
@@ -756,6 +776,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAuditRoute: ShellAuditRoute,
   ShellChatRoute: ShellChatRoute,
   ShellEvalRoute: ShellEvalRoute,
+  ShellGatewaysRoute: ShellGatewaysRoute,
   ShellOperationsRoute: ShellOperationsRoute,
   ShellPersonalRoute: ShellPersonalRouteWithChildren,
   ShellRolesRoute: ShellRolesRoute,

@@ -423,6 +423,7 @@ describe('business and operations navigation contexts', () => {
         '/channels',
         '/schedules',
         '/skills',
+        '/gateways',
         '/eval',
       ]);
       expect(view.host.querySelector('a[aria-label="运维"]')?.getAttribute('href')).toBe(
@@ -486,6 +487,7 @@ describe('business and operations navigation contexts', () => {
         '/channels',
         '/schedules',
         '/skills',
+        '/gateways',
         '/eval',
       ]);
       expect(activeNavLinks(view.host)).toEqual([]);

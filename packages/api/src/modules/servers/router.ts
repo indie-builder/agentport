@@ -13,6 +13,7 @@ import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { connectorCatalog } from './connector-catalog-data.js';
+import { testGatewayConnection } from './gateway.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
 import { testStdioInSandbox } from './sandbox-probe.js';
@@ -36,6 +37,26 @@ function rethrowConflict(err: unknown): never {
   throw err;
 }
 
+async function assertGatewaySources(
+  db: RequestContext['db'],
+  serverIds: string[],
+  selfId?: string,
+): Promise<void> {
+  if (new Set(serverIds).size !== serverIds.length) {
+    fail('INVALID_INPUT', '聚合来源不能重复');
+  }
+  if (selfId !== undefined && serverIds.includes(selfId)) {
+    fail('INVALID_INPUT', '聚合来源不能包含自身');
+  }
+  const rows = await Promise.all(serverIds.map((id) => repo.getServerRow(db, id)));
+  if (rows.some((row) => row === null)) {
+    fail('INVALID_INPUT', '聚合来源不存在，请刷新后重试');
+  }
+  if (rows.some((row) => row !== null && row.kind !== 'http' && row.kind !== 'generated')) {
+    fail('INVALID_INPUT', '只能聚合 HTTP 或平台生成的 MCP Server');
+  }
+}
+
 const os = implement(serversContract).$context<RequestContext>();
 
 export const serversRouter = os.router({
@@ -49,6 +70,8 @@ export const serversRouter = os.router({
         await assertSafeUrl(input.url, context.config.NODE_ENV);
       } else if (input.kind === 'generated') {
         await assertSafeUrl(input.baseUrl, context.config.NODE_ENV);
+      } else if (input.kind === 'gateway') {
+        await assertGatewaySources(context.db, input.serverIds);
       }
       const created = await repo.createServer(context.db, input, context.config.APP_SECRET_KEY);
       await writeAudit(context.db, context.log, {
@@ -96,10 +119,10 @@ export const serversRouter = os.router({
   token: os.token.handler(async ({ input, context }) => {
     const row = await repo.getServerRow(context.db, input.params.id);
     if (!row) return notFound('server');
-    if (row.kind !== 'generated') {
+    if (row.kind !== 'generated' && row.kind !== 'gateway') {
       return fail(
         'INVALID_INPUT',
-        '只有平台生成的 Server 才有访问 token；其他类型请在连接配置里填写上游凭据',
+        '只有平台生成的 Server 或统一聚合才有访问 token；其他类型请在连接配置里填写上游凭据',
       );
     }
     const token = await getMcpToken(context.db, row.id);
@@ -111,10 +134,10 @@ export const serversRouter = os.router({
   rotateToken: os.rotateToken.handler(async ({ input, context }) => {
     const row = await repo.getServerRow(context.db, input.params.id);
     if (!row) return notFound('server');
-    if (row.kind !== 'generated') {
+    if (row.kind !== 'generated' && row.kind !== 'gateway') {
       return fail(
         'INVALID_INPUT',
-        '只有平台生成的 Server 才能轮换 token；其他类型请在连接配置里更新上游凭据',
+        '只有平台生成的 Server 或统一聚合才能轮换 token；其他类型请在连接配置里更新上游凭据',
       );
     }
     const token = await repo.rotateMcpToken(context.db, row.id);
@@ -141,6 +164,8 @@ export const serversRouter = os.router({
         await assertSafeUrl(body.url, context.config.NODE_ENV);
       } else if (row.kind === 'generated' && body.baseUrl !== undefined) {
         await assertSafeUrl(body.baseUrl, context.config.NODE_ENV);
+      } else if (row.kind === 'gateway' && body.serverIds !== undefined) {
+        await assertGatewaySources(context.db, body.serverIds, id);
       }
       const updated = await repo.updateServer(
         context.db,
@@ -198,17 +223,25 @@ export const serversRouter = os.router({
         ? await testStdioInSandbox(server.id, context.log, {
             ...(runtimeEnvironmentId == null ? {} : { runtimeEnvironmentId }),
           })
-        : await testConnection(
-            server,
-            context.config.NODE_ENV,
-            server.kind === 'generated'
-              ? {
-                  baseUrl: context.config.SELF_URL,
-                  token: (await getMcpToken(context.db, server.id)) ?? '',
-                }
-              : undefined,
-            context.log,
-          );
+        : server.kind === 'gateway'
+          ? await testGatewayConnection({
+              db: context.db,
+              server,
+              key: context.config.APP_SECRET_KEY,
+              nodeEnv: context.config.NODE_ENV,
+              log: context.log,
+            })
+          : await testConnection(
+              server,
+              context.config.NODE_ENV,
+              server.kind === 'generated'
+                ? {
+                    baseUrl: context.config.SELF_URL,
+                    token: (await getMcpToken(context.db, server.id)) ?? '',
+                  }
+                : undefined,
+              context.log,
+            );
     await writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'mcp.server.tested',

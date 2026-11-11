@@ -6,6 +6,7 @@ import type { AppContext, RequestContext } from '../../http/context.js';
 import { isRunCancelRequested, publishChannelEvent } from '../../queue/producer.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
 import { bearerToken, tokenMatches } from './bearer.js';
+import { buildGatewayServer } from './gateway.js';
 import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, toApiServer } from './repo.js';
 import { summarizeToolArguments } from './tool-arguments.js';
@@ -16,6 +17,15 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
       const row = await getServerRow(app.db, serverId);
       // 鉴权已在路由层完成；这里再查一次是为了拿到最新工具定义。
       if (!row) throw new Error('server disappeared');
+      if (row.kind === 'gateway') {
+        return buildGatewayServer({
+          db: app.db,
+          serverId,
+          key: app.config.APP_SECRET_KEY,
+          nodeEnv: app.config.NODE_ENV,
+          log: app.log,
+        });
+      }
       const server = toApiServer(row, app.config.APP_SECRET_KEY);
       if (server.kind !== 'generated') throw new Error('not a generated server');
       const tools = await listTools(app.db, serverId);
@@ -124,7 +134,9 @@ export async function serverMcpResponse(
       knowledgeDir: context.config.KNOWLEDGE_DIR,
     }).fetch(request);
   }
-  if (row?.kind !== 'generated') fail('NOT_FOUND', 'generated server not found');
+  if (row?.kind !== 'generated' && row?.kind !== 'gateway') {
+    fail('NOT_FOUND', 'generated/gateway server not found');
+  }
   const runToken = runId === null ? null : await repo.runs.getRunToken(context.db, runId, serverId);
   const runTokenOk =
     runToken !== null &&

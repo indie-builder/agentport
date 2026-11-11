@@ -11,7 +11,7 @@ export type ApiToolRow = typeof apiTools.$inferSelect;
 
 export interface ServerWrite {
   name: string;
-  kind: 'stdio' | 'http' | 'generated';
+  kind: 'stdio' | 'http' | 'generated' | 'gateway';
   description: string;
   config: Record<string, unknown>;
   secretsEncrypted: string | null;

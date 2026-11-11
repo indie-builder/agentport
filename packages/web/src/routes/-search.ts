@@ -27,6 +27,8 @@ export const serversSearchSchema = resourceSearchSchema.extend({
   kind: z.enum(['stdio', 'http', 'generated']).optional().catch(undefined),
 });
 
+export const gatewaysSearchSchema = resourceSearchSchema;
+
 export const agentsSearchSchema = resourceSearchSchema.extend({
   // 默认发现已启用的专家；all 与 disabled 是筛选里的显式选项。
   status: z.enum(['all', 'enabled', 'disabled']).optional().catch(undefined),

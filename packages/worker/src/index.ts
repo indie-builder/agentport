@@ -190,13 +190,13 @@ function toEntry(
   const entry = previewMcpEntry(
     { kind: input.kind, config: input },
     {
-      ...(input.kind === 'stdio' ? input.env : input.headers),
-      ...(input.kind === 'generated'
+      ...(input.kind === 'stdio' ? input.env : input.kind === 'gateway' ? {} : input.headers),
+      ...(input.kind === 'generated' || input.kind === 'gateway'
         ? { Authorization: `Bearer ${runToken}`, 'x-agentport-run-id': runId }
         : secrets),
     },
   );
-  return input.kind === 'generated' && 'url' in entry
+  return (input.kind === 'generated' || input.kind === 'gateway') && 'url' in entry
     ? { ...entry, url: `${apiUrl}/mcp/${server.id}` }
     : entry;
 }

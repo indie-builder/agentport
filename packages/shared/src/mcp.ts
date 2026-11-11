@@ -4,7 +4,7 @@ import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
 import { parseUrl } from './url.js';
 
 /** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
-export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge']);
+export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge', 'gateway']);
 export type ServerKind = z.infer<typeof serverKindSchema>;
 
 export const SECRET_MASK = '••••';
@@ -110,6 +110,17 @@ export const generatedServerSchema = z.object({
   headers: z.record(z.string(), z.string()).default({}),
 });
 
+/** 把多个 http/generated server 聚合成一个 MCP 端点；不含密钥。 */
+export const gatewayServerSchema = z.object({
+  ...baseServer,
+  kind: z.literal('gateway'),
+  serverIds: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(50)
+    .refine((ids) => new Set(ids).size === ids.length, '聚合来源不能重复'),
+});
+
 /** 平台为每个知识库自动生成的内置 server；只接受 run 短期 token，不走用户 CRUD。 */
 export const knowledgeServerSchema = z.object({
   kind: z.literal('knowledge'),
@@ -122,6 +133,7 @@ export const serverInputSchema = z.discriminatedUnion('kind', [
   stdioServerSchema,
   httpServerSchema,
   generatedServerSchema,
+  gatewayServerSchema,
 ]);
 
 export type ServerInput = z.infer<typeof serverInputSchema>;
@@ -151,6 +163,7 @@ export const serverSchema = z.discriminatedUnion('kind', [
   httpServerSchema.extend({ ...serverIdFields, url: maskedHttpUrlSchema }),
   generatedServerSchema.extend({ ...serverIdFields, baseUrl: maskedHttpUrlSchema }),
   knowledgeServerSchema.extend(serverIdFields),
+  gatewayServerSchema.extend(serverIdFields),
 ]);
 
 export type Server = z.infer<typeof serverSchema>;

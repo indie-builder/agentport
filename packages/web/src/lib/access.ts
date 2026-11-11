@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   LibraryBig,
   MessagesSquare,
+  Network,
   Puzzle,
   ScrollText,
   Share2,
@@ -92,6 +93,12 @@ const pages = {
     permissionIds: ['skills.read', 'market.read'],
   },
   servers: { to: '/servers', label: '连接器', icon: Cable, permissionIds: ['servers.read'] },
+  gateways: {
+    to: '/gateways',
+    label: '统一聚合',
+    icon: Network,
+    permissionIds: ['servers.read'],
+  },
   plugins: { to: '/plugins', label: '插件', icon: Puzzle, permissionIds: ['plugins.read'] },
   knowledge: {
     to: '/knowledge',
@@ -195,6 +202,7 @@ export const BUILD_MENU: readonly MenuItem[] = [
     icon: Cable,
     permissionIds: RESOURCE_MENU.flatMap((item) => [...item.permissionIds]),
   },
+  pages.gateways,
   pages.eval,
 ];
 
@@ -237,6 +245,7 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/schedules': pages.schedules,
   '/_shell/skills': { ...pages.skills, label: '资源' },
   '/_shell/servers': pages.servers,
+  '/_shell/gateways': pages.gateways,
   '/_shell/plugins/': pages.plugins,
   '/_shell/plugins/$pluginId': pages.plugins,
   '/_shell/knowledge/': pages.knowledge,

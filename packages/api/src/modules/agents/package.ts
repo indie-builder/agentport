@@ -340,12 +340,17 @@ export async function buildAgentPackage(
     rulesByAgent(db, agentIds),
     stylesByAgent(db, agentIds),
   ]);
-  const rootServers = serversByAgent.get(row.id) ?? [];
+  const boundRootServers = serversByAgent.get(row.id) ?? [];
   const rootSkills = skillsByAgent.get(row.id) ?? [];
-  const allServers = unionById([
-    rootServers,
+  const boundServers = unionById([
+    boundRootServers,
     ...children.map((child) => serversByAgent.get(child.id) ?? []),
   ]);
+  const gatewayCount = boundServers.filter((server) => server.kind === 'gateway').length;
+  const rootServers = boundRootServers.filter((server) => server.kind !== 'gateway');
+  const allServers = boundServers.filter((server) => server.kind !== 'gateway');
+  const serversOf = (agentId: string) =>
+    (serversByAgent.get(agentId) ?? []).filter((server) => server.kind !== 'gateway');
   const allSkills = unionById([
     rootSkills,
     ...children.map((child) => skillsByAgent.get(child.id) ?? []),
@@ -395,7 +400,7 @@ export async function buildAgentPackage(
       skills: rootSkills.map(withFiles),
       subAgents: children.map((child) => ({
         ...child,
-        serverNames: (serversByAgent.get(child.id) ?? []).map((server) => server.name),
+        serverNames: serversOf(child.id).map((server) => server.name),
         skills: (skillsByAgent.get(child.id) ?? []).map(withFiles),
       })),
       rules: toPortableRules(rootRules),
@@ -428,7 +433,7 @@ export async function buildAgentPackage(
     files[`${AGENT_PACKAGE_PATHS.agentsDir}${child.slug}.md`] = renderSubAgentMd({
       agent: toWorkspaceAgent({
         ...child,
-        serverNames: (serversByAgent.get(child.id) ?? []).map((server) => server.name),
+        serverNames: serversOf(child.id).map((server) => server.name),
       }),
       servers: allServerEntries,
       skills: (skillsByAgent.get(child.id) ?? []).map(withFiles),
@@ -507,14 +512,19 @@ export async function buildAgentPackage(
     fail('INVALID_INPUT', message, path === undefined ? undefined : { path });
   }
   files[AGENT_PACKAGE_SIDECAR] = `${JSON.stringify(parsed.data, null, 2)}\n`;
+  const warnings: string[] = [];
+  if (gatewayCount > 0) {
+    warnings.push(
+      `该专家绑定了 ${gatewayCount} 个 MCP 统一聚合网关，网关不随专家包导出；导入后需在目标实例重新绑定`,
+    );
+  }
   const pluginBindings = await repo.plugins.listAgentPluginBindingInputs(db, [row.id]);
   const boundPlugins = pluginBindings.get(row.id) ?? [];
-  const warnings =
-    boundPlugins.length === 0
-      ? []
-      : [
-          `该专家绑定了 ${boundPlugins.length} 个插件，插件代码不随专家包导出；导入后需要在本机插件库重新绑定`,
-        ];
+  if (boundPlugins.length > 0) {
+    warnings.push(
+      `该专家绑定了 ${boundPlugins.length} 个插件，插件代码不随专家包导出；导入后需要在本机插件库重新绑定`,
+    );
+  }
   return { files, slug: row.slug, warnings };
 }
 export function packAgentPackage(pkg: AgentPackageFiles): Buffer {
@@ -933,6 +943,8 @@ function serverConfig(input: ServerInput): Record<string, unknown> {
       return { url: input.url };
     case 'generated':
       return { baseUrl: input.baseUrl, mcpToken: randomBytes(32).toString('base64url') };
+    case 'gateway':
+      return { serverIds: input.serverIds };
   }
 }
 function nonSecretConfig(input: ServerInput): Record<string, unknown> {
