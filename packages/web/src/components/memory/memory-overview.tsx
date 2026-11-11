@@ -9,19 +9,7 @@ import { StatusBadge } from '../status-badge.js';
 import { Button } from '../ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
-
-const HEALTH_TONE: Record<MemoryHealth['level'], 'success' | 'warn' | 'danger'> = {
-  ok: 'success',
-  warn: 'warn',
-  danger: 'danger',
-};
-
-/** 状态不只靠颜色：徽章同时给出文字档位。 */
-const HEALTH_LABEL: Record<MemoryHealth['level'], string> = {
-  ok: '正常',
-  warn: '注意',
-  danger: '异常',
-};
+import { HEALTH_LABEL, HEALTH_TONE } from './health-status.js';
 
 const TRIGGER_LABEL: Record<AgentMemoryAssembly['blocks'][number]['trigger'], string> = {
   'every-run': '每轮加载',

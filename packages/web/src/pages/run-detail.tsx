@@ -1,12 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { ArrowLeft, CircleAlert, CircleStop, RotateCcw, Sparkles } from 'lucide-react';
-import { type ReactNode, useRef } from 'react';
+import { useRef } from 'react';
 import { CopyButton } from '../components/copy-button.js';
+import { Metric } from '../components/metric-label.js';
 import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../components/page.js';
 import { RunQuestionCard } from '../components/run/run-question.js';
 import { RunStatusBadge } from '../components/run/run-status-badge.js';
-import { questionForStep, StepInspector, stepIcons, stepName } from '../components/run/run-steps.js';
+import {
+  questionForStep,
+  StepInspector,
+  stepIcons,
+  stepName,
+} from '../components/run/run-steps.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { can } from '../lib/access.js';
@@ -541,17 +547,6 @@ export function RunDetailPage() {
         </PageSection>
       </PageBody>
     </Page>
-  );
-}
-
-function Metric({ label, value, danger }: { label: string; value: ReactNode; danger?: boolean }) {
-  return (
-    <span className="inline-flex min-w-0 flex-wrap items-baseline gap-1.5">
-      <span className="text-2xs text-muted-foreground">{label}</span>
-      <span className={cn('font-mono tabular-nums', danger ? 'text-danger' : 'text-fg')}>
-        {value}
-      </span>
-    </span>
   );
 }
 
