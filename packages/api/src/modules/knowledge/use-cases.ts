@@ -2629,7 +2629,7 @@ export async function createSource(
     const ranges = await repo.knowledge.replaceRanges(deps.db, source.id, input.ranges);
     return toSource(source, ranges);
   } catch (err) {
-    await repo.knowledge.deleteSource(deps.db, source.id);
+    await repo.knowledge.deleteSource(deps.db, source.id, 'delete');
     if (isPgCode(err, '23505')) throw new AppError('CONFLICT', '存在重复的来源范围');
     throw err;
   }
@@ -2718,28 +2718,9 @@ export async function deleteSource(
   sourceId: string,
   documents: 'keep' | 'delete',
 ) {
-  const source = await repo.knowledge.getSource(deps.db, sourceId);
-  if (!source) notFound('来源');
-  let affected: number;
-  if (documents === 'keep') {
-    const disabled = await repo.knowledge.disableDocumentsBySource(deps.db, source.id);
-    for (const document of disabled) {
-      await repo.knowledge.markWikiStaleByDocument(deps.db, document.id);
-    }
-    affected = disabled.length;
-  } else {
-    const rows = await deps.db
-      .select({ id: schema.knowledgeDocuments.id })
-      .from(schema.knowledgeDocuments)
-      .where(eq(schema.knowledgeDocuments.sourceConnectionId, source.id));
-    for (const row of rows) {
-      await repo.knowledge.markWikiStaleByDocument(deps.db, row.id);
-      await repo.knowledge.deleteDocument(deps.db, row.id);
-    }
-    affected = rows.length;
-  }
-  await repo.knowledge.deleteSource(deps.db, source.id);
-  return { documents, affected };
+  const result = await repo.knowledge.deleteSource(deps.db, sourceId, documents);
+  if (!result) notFound('来源');
+  return result;
 }
 
 export async function testSource(deps: KnowledgeDeps, sourceId: string) {

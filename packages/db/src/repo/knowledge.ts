@@ -1043,7 +1043,7 @@ export async function listReadableDocuments(
  * 人工停用原因不被来源同步覆盖；归属只看 source_connection_id。
  */
 export async function disableDocumentsBySource(
-  db: Database,
+  db: DbHandle,
   sourceId: string,
 ): Promise<KnowledgeDocumentRow[]> {
   return db
@@ -2690,12 +2690,33 @@ export async function updateSource(
   return row ?? null;
 }
 
-export async function deleteSource(db: Database, id: string): Promise<boolean> {
-  const rows = await db
-    .delete(knowledgeSources)
-    .where(eq(knowledgeSources.id, id))
-    .returning({ id: knowledgeSources.id });
-  return rows.length > 0;
+export async function deleteSource(
+  db: Database,
+  id: string,
+  documents: 'keep' | 'delete',
+): Promise<{ documents: 'keep' | 'delete'; affected: number } | null> {
+  return db.transaction(async (tx) => {
+    const [source] = await tx
+      .select({ id: knowledgeSources.id })
+      .from(knowledgeSources)
+      .where(eq(knowledgeSources.id, id))
+      .for('update');
+    if (!source) return null;
+    const rows = await tx
+      .select({ id: knowledgeDocuments.id })
+      .from(knowledgeDocuments)
+      .where(eq(knowledgeDocuments.sourceConnectionId, id))
+      .orderBy(asc(knowledgeDocuments.id))
+      .for('update');
+    const affectedRows = documents === 'keep' ? await disableDocumentsBySource(tx, id) : rows;
+    const documentIds = affectedRows.map((row) => row.id);
+    await markWikiStaleByDocumentsTx(tx, documentIds);
+    if (documents === 'delete' && documentIds.length > 0) {
+      await tx.delete(knowledgeDocuments).where(inArray(knowledgeDocuments.id, documentIds));
+    }
+    await tx.delete(knowledgeSources).where(eq(knowledgeSources.id, id));
+    return { documents, affected: affectedRows.length };
+  });
 }
 
 export interface RangeInput {
