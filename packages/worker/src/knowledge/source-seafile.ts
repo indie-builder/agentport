@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { BINARY_MIME_BY_EXTENSION, extensionOf, TEXT_MIME_BY_EXTENSION } from './source-formats.js';
+import { extensionOf, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
   sourceFailure as failureOf,
@@ -103,11 +103,6 @@ function fileExternalId(repoId: string, relative: string): string {
 
 function directoryExternalId(repoId: string, relative: string): string {
   return `seafile:dir:${repoId}:${pathHash(relative)}`;
-}
-
-function mimeOf(name: string): string | undefined {
-  const extension = extensionOf(name);
-  return BINARY_MIME_BY_EXTENSION[extension] ?? TEXT_MIME_BY_EXTENSION[extension];
 }
 
 function revisionOf(entry: Entry): string | undefined {
@@ -254,7 +249,7 @@ async function emitFile(
 ): Promise<void> {
   const externalId = fileExternalId(auth.repoId, relative);
   if (seen.has(externalId)) return;
-  const mime = mimeOf(entry.name);
+  const mime = mimeOf(entry.name, undefined);
   if (!mime) {
     failures.push(
       failureOf(

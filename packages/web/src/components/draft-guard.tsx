@@ -27,10 +27,12 @@ export function useDraftGuard(dirty: boolean, pending: boolean, onClose: () => v
 export function DraftGuardDialogs({
   guard,
   draft,
+  closeDraft,
   pending,
 }: {
   guard: ReturnType<typeof useDraftGuard>;
   draft: string;
+  closeDraft?: string;
   pending: boolean;
 }) {
   return (
@@ -39,7 +41,7 @@ export function DraftGuardDialogs({
         open={guard.confirmDiscard}
         onClose={() => guard.setConfirmDiscard(false)}
         title="放弃未保存的更改？"
-        description={`关闭后${draft}`}
+        description={`关闭后${closeDraft ?? draft}`}
         confirmLabel="放弃并关闭"
         confirmDisabled={pending}
         onConfirm={async () => {

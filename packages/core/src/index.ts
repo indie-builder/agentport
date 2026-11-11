@@ -26,7 +26,6 @@ export {
   type ParsedBlock,
   type ParsedDocument,
   type ParsedImage,
-  type ParseErrorCode,
   splitLines,
 } from './knowledge-chunking.js';
 export {

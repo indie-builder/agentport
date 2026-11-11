@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
@@ -45,7 +46,6 @@ import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { useFormBlocker } from '../lib/form.js';
 import { formatTokens } from '../lib/format.js';
 import {
   meQuery,
@@ -615,12 +615,13 @@ export function SkillDialog({
   // RHF 是唯一数据源；支持文件编辑器有自己的草稿与请求，两者一起保护弹层关闭。
   const rhf = useZodForm(skillFormSchema, { defaultValues: initial });
   const errors = rhf.formState.errors;
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [filesDirty, setFilesDirty] = useState(false);
   const [filesSaving, setFilesSaving] = useState(false);
   // 保存成功后只前进版本基线，弹层可继续编辑支持文件而不带旧版本号。
   const [baseline, setBaseline] = useState(skill?.updatedAt);
   const dirty = rhf.formState.isDirty || filesDirty;
+  const pending = create.isPending || update.isPending || filesSaving;
+  const guard = useDraftGuard(dirty, pending, onClose);
 
   const submit = rhf.handleSubmit((values) => {
     if (readOnly || pending) return;
@@ -641,7 +642,7 @@ export function SkillDialog({
             rhf.reset(values);
             setBaseline(saved.updatedAt);
             // 支持文件草稿由各自编辑器保存，主表单保存不丢弃它们。
-            if (!filesDirty) finish();
+            if (!filesDirty) guard.finish();
           },
           onError,
         },
@@ -650,30 +651,12 @@ export function SkillDialog({
       create.mutate(values, {
         onSuccess: () => {
           toastSuccess('技能已创建');
-          finish();
+          guard.finish();
         },
         onError,
       });
     }
   });
-
-  const pending = create.isPending || update.isPending || filesSaving;
-  const blocker = useFormBlocker(dirty, pending);
-  const blockerRef = useRef(blocker);
-  useEffect(() => {
-    blockerRef.current = blocker;
-  }, [blocker]);
-  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
-  const finish = (): void => {
-    blockerRef.current.reset?.();
-    onClose();
-  };
-  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中不能丢弃。
-  const close = (): void => {
-    if (pending) return;
-    if (dirty) setConfirmDiscard(true);
-    else finish();
-  };
 
   return (
     <Dialog
@@ -683,7 +666,7 @@ export function SkillDialog({
           details.cancel();
           return;
         }
-        if (!next) close();
+        if (!next) guard.close();
       }}
     >
       <DialogShell
@@ -795,12 +778,12 @@ export function SkillDialog({
           ) : null}
           <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
             {readOnly ? (
-              <Button variant="outline" onClick={close} disabled={pending}>
+              <Button variant="outline" onClick={guard.close} disabled={pending}>
                 关闭
               </Button>
             ) : (
               <>
-                <Button variant="outline" onClick={close} disabled={pending}>
+                <Button variant="outline" onClick={guard.close} disabled={pending}>
                   取消
                 </Button>
                 <Button type="submit" aria-busy={pending} disabled={pending}>
@@ -810,27 +793,11 @@ export function SkillDialog({
             )}
           </div>
         </form>
-        <ConfirmDialog
-          open={confirmDiscard}
-          onClose={() => setConfirmDiscard(false)}
-          title="放弃未保存的更改？"
-          description="关闭后技能内容与未添加完的支持文件会丢失。"
-          confirmLabel="放弃并关闭"
-          confirmDisabled={pending}
-          onConfirm={async () => {
-            if (!pending) finish();
-          }}
-        />
-        <ConfirmDialog
-          open={blocker.status === 'blocked'}
-          onClose={() => blocker.reset?.()}
-          title="放弃未保存的更改？"
-          description={
-            pending ? '正在保存，请等待请求完成。' : '离开后技能内容与支持文件草稿会丢失。'
-          }
-          confirmLabel="放弃并离开"
-          confirmDisabled={pending}
-          onConfirm={async () => blocker.proceed()}
+        <DraftGuardDialogs
+          guard={guard}
+          draft="技能内容与支持文件草稿会丢失。"
+          closeDraft="技能内容与未添加完的支持文件会丢失。"
+          pending={pending}
         />
       </DialogShell>
     </Dialog>

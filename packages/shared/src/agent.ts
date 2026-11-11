@@ -228,8 +228,6 @@ export const agentWorkflowInputSchema = z.object({
   content: z.string().min(1).max(AGENT_WORKFLOW_CONTENT_MAX),
 });
 
-export type AgentWorkflowInput = z.infer<typeof agentWorkflowInputSchema>;
-
 export const agentWorkflowSchema = agentWorkflowInputSchema.and(
   z.object({
     id: z.string(),
