@@ -7,6 +7,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import { encodePathSegments } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -115,15 +116,11 @@ function skipped(externalId: string, title: string, message: string): SourceFail
 
 const failureOf = makeSourceFailure((err) => err instanceof TruncatedError);
 
-function encodeLinkPath(value: string): string {
-  return value.split('/').map(encodeURIComponent).join('/');
-}
-
 function sourceUrlOf(ctx: YuqueContext, detail: Detail, summary: Summary): string {
   const namespace = detail.book?.namespace;
   const slug = detail.slug ?? summary.slug;
   if (!namespace || !slug) return '';
-  return `${ctx.base}/${encodeLinkPath(namespace)}/${encodeURIComponent(slug)}`;
+  return `${ctx.base}/${encodePathSegments(namespace)}/${encodeURIComponent(slug)}`;
 }
 
 /** 列表必须读到真实终页；重复 ID、越界、total 未到齐都失败，不能拿 offset 递增当完整证明。 */

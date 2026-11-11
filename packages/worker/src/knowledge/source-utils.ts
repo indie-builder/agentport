@@ -11,6 +11,15 @@ export function extensionOf(value: string): string {
   return dot < 0 ? '' : value.slice(dot + 1).toLowerCase();
 }
 
+export function signalOption(signal: AbortSignal | undefined): { signal?: AbortSignal } {
+  return signal === undefined ? {} : { signal };
+}
+
+/** Human-facing link: encode each segment (`#`, `?`, spaces) but keep `/` as hierarchy. */
+export function encodePathSegments(value: string): string {
+  return value.split('/').map(encodeURIComponent).join('/');
+}
+
 export function titleWithExtension(name: string, extension: string): string {
   return extensionOf(name) === extension.toLowerCase() ? name : `${name}.${extension}`;
 }

@@ -27,7 +27,7 @@ import {
 import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { modelProxyUpstream } from './upstream.js';
+import { sdkEnv } from './upstream.js';
 
 /** 测试可替换 query；真实运行时直接用官方实现。 */
 export type MemoryReviewQueryFn = (params: {
@@ -302,19 +302,7 @@ function sdkOptions(input: {
   cwd: string;
   controller: AbortController;
 }): Options {
-  const env: Record<string, string> = {
-    PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-    HOME: input.cwd,
-    CLAUDE_CONFIG_DIR: input.cwd,
-    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
-  };
-  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
-    const value = process.env[key];
-    if (value) env[key] = value;
-  }
-  if (process.env.ANTHROPIC_BASE_URL) {
-    env.ANTHROPIC_BASE_URL = modelProxyUpstream(process.env.ANTHROPIC_BASE_URL);
-  }
+  const env = sdkEnv(input.cwd);
   return {
     model: input.model,
     cwd: input.cwd,

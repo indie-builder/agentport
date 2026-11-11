@@ -22,13 +22,7 @@ import { z } from 'zod';
 import { assertUsableImage } from './image-processing.js';
 
 // 结构感知分块与解析错误类型只有 core 一份实现；worker 保持同名导出口，调用方不变。
-export type {
-  PageRange,
-  ParsedBlock,
-  ParsedDocument,
-  ParsedImage,
-  ParseErrorCode,
-} from '@agentport/core';
+export type { ParsedBlock, ParsedDocument, ParsedImage } from '@agentport/core';
 export {
   chunkDocument,
   isTableBlock,
