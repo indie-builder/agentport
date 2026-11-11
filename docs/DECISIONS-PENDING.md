@@ -583,7 +583,7 @@
 
 **决定**：新建 `memory_reviews` 与 `memory_changes`。回顾是 `agent_runs.trigger='review'`，复用官方 `query()`：`tools: []`、`settingSources: []`、`persistSession: false`、关闭 auto-memory，`outputFormat: json_schema`；沿用专家 `timeoutMs`、`maxBudgetUsd`、`maxTurns`，支持取消与 worker 关停，不建沙盒、不追加消息、不写成果。证据必须是来源消息原文的连续子串。提案目标为个人偏好、专家 `MEMORY.md` 或专家规则；采用、拒绝、回滚与手工编辑共用目标级 advisory lock，采用后才写目标并落账。专家记忆先写 `.memory-journal/`、原子 rename、再提交账本，失败按原字节恢复或保留日志。`MEMORY.md` 采纳限制 200 行 / 25KB。
 
-**边界**：这是用户触发、逐次确认的回顾，不是自动进化。受控提案的浏览器主路径已通过（主题回顾、双文件采纳/回滚、ZIP 下载与回导，详见 D-75 与任务记录）；真实模型生成提案并采纳的完整链路仍未做浏览器验收。子智能体记忆未实现（2026-10-30 当时结论）。2026-10-31 后续状态：子智能体独立记忆源码评审已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS），SDK 最新接口 16/16、浏览器全部 PASS、stable 25 文件 376、web 72、outputs 31、migration 隔离库通过；运行整合 13 文件 195/195 PASS，整体未提交、未合并，状态见任务记录。
+**边界**：这是用户触发、逐次确认的回顾，不是自动进化。受控提案的浏览器主路径已通过（主题回顾、双文件采纳/回滚、ZIP 下载与回导，详见 D-75 与任务记录）；真实模型生成提案并采纳的完整链路仍未做浏览器验收。子智能体记忆未实现（2026-10-30 当时结论）。2026-10-31 后续状态：子智能体独立记忆源码评审已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS），SDK 最新接口 16/16、浏览器全部 PASS、stable 25 文件 376、web 72、outputs 31、migration 隔离库通过；运行整合 13 文件 195/195 PASS，已实现并合入 main（`50ae93e4`），状态见任务记录。
 
 ## D-73 不引入外部记忆服务，先用官方文件与 PostgreSQL（2026-10-30）
 
