@@ -86,6 +86,7 @@ import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors, useFormBlocker } from '../lib/form.js';
 import { formatDateTime, formatDuration, formatRelative, shortId } from '../lib/format.js';
+import { errorMessage } from '../lib/orpc.js';
 import {
   connectorCatalogQuery,
   meQuery,
@@ -288,7 +289,15 @@ export function ServersPage() {
             );
           }
         },
-        onError: (error) => toastError(error),
+        onError: (error) => {
+          setTested((previous) =>
+            new Map(previous).set(server.id, {
+              at: new Date().toISOString(),
+              result: { ok: false, tools: [], error: errorMessage(error), durationMs: 0 },
+            }),
+          );
+          toastError(error);
+        },
       },
     );
   };
