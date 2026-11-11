@@ -11,6 +11,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import { parseInitialCursor } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -184,8 +185,6 @@ const settingsSchema = z.object({
   rangeKind: z.enum(['notion_page', 'notion_database', 'notion_data_source']),
   resourceId: z.string(),
 });
-
-const cursorSchema = z.object({ version: z.literal(1), initial: z.boolean() });
 
 type Page = z.infer<typeof pageSchema>;
 type Block = z.infer<typeof blockSchema>;
@@ -984,10 +983,7 @@ export async function readNotion(
   cursor: Record<string, unknown> | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SourceSnapshot> {
-  const previous =
-    cursor === undefined || Object.keys(cursor).length === 0
-      ? undefined
-      : cursorSchema.parse(cursor);
+  const previous = parseInitialCursor(cursor);
   const settings = settingsSchema.parse(config.settings);
   const apiKey = config.credentials.apiKey?.trim();
   if (!apiKey) throw new Error('notion credentials.apiKey is required');

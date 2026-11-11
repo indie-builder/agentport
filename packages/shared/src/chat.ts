@@ -215,6 +215,11 @@ export const chatEventSchema = z.discriminatedUnion('type', [
 
 export type ChatEvent = z.infer<typeof chatEventSchema>;
 
+export function streamBlockIdOf(event: ChatEvent): string | undefined {
+  if (!('streamBlockId' in event)) return undefined;
+  return typeof event.streamBlockId === 'string' ? event.streamBlockId : undefined;
+}
+
 /** 事件里的失败分类只有三档；sandbox 与 timeout 都归入不可重试的服务端失败。 */
 export function wireFailureKind(reason: RunErrorKind): WireFailureKind {
   if (reason === 'cancelled') return 'cancelled';

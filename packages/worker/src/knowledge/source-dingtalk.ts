@@ -13,7 +13,13 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
-import { isAbort, signalOption, textOf, titleWithExtension } from './source-utils.js';
+import {
+  isAbort,
+  parseInitialCursor,
+  signalOption,
+  textOf,
+  titleWithExtension,
+} from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -819,10 +825,7 @@ export async function readDingtalk(
   cursor: Record<string, unknown> | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SourceSnapshot> {
-  const previous =
-    cursor === undefined || Object.keys(cursor).length === 0
-      ? undefined
-      : z.object({ version: z.literal(1), initial: z.boolean() }).parse(cursor);
+  const previous = parseInitialCursor(cursor);
   const auth = await authenticate(config, signal);
   const root = await resolveRoot(auth, signal);
   const items: SourceItem[] = [];

@@ -7,7 +7,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
-import { encodePathSegments } from './source-utils.js';
+import { encodePathSegments, parseInitialCursor } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -64,8 +64,6 @@ const userSchema = z.looseObject({
 });
 
 const settingsSchema = z.object({ repoId: z.string() });
-
-const cursorSchema = z.object({ version: z.literal(1), initial: z.boolean() });
 
 type Summary = z.infer<typeof summarySchema>;
 type Detail = z.infer<typeof detailSchema>['data'];
@@ -234,10 +232,7 @@ export async function readYuque(
   cursor: Record<string, unknown> | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SourceSnapshot> {
-  const previous =
-    cursor === undefined || Object.keys(cursor).length === 0
-      ? undefined
-      : cursorSchema.parse(cursor);
+  const previous = parseInitialCursor(cursor);
   const settings = settingsSchema.parse(config.settings);
   const token = config.credentials.apiToken?.trim();
   if (!token) throw new Error('yuque credentials.apiToken is required');

@@ -1,3 +1,14 @@
+import { z } from 'zod';
+
+const sourceCursorSchema = z.object({ version: z.literal(1), initial: z.boolean() });
+
+export function parseInitialCursor(
+  cursor: Record<string, unknown> | undefined,
+): z.infer<typeof sourceCursorSchema> | undefined {
+  if (cursor === undefined || Object.keys(cursor).length === 0) return undefined;
+  return sourceCursorSchema.parse(cursor);
+}
+
 export function isAbort(err: unknown, signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true || (err instanceof Error && err.name === 'AbortError');
 }
