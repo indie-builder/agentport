@@ -281,6 +281,10 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 内置知识连接的工具是只读的：`knowledge_search` 返回带 `target`/`chunkId`/标题/页码/`score`/`scoreKind`/分路 `scores` 的命中，并完整保留 `degraded`/`warnings`/`directAnswer`；`knowledge_read` 只读当前有效发布版正文，用 `offset`（Unicode code point）与 `nextOffset` 分页读完并返回 `totalCharacters`，不再固定 20,000 字符截断；`knowledge_list` 按 `(updatedAt,id,kind)` 游标只列出当前可读对象；`knowledge_read_image` 仅在该库启用图片处理时注册，读取版本图片（详见 §6.2.1）。参数里带别的 `baseId` 返回 `BASE_MISMATCH` 工具错误而不是静默换库；库被禁用时已注册工具都返回 `BASE_DISABLED`。没有写入、上传、删除或重建工具。
 
+generated 连接器的 OpenAPI 导入是一条单向流水线：`@agentport/core` 的 `parseOpenApiDocument` 解析 OpenAPI 3.x / Swagger 2.0（JSON 或 YAML、本地 `$ref`、`allOf`/`anyOf`/`oneOf`、path/query/body 映射）并产出 `api_tools` 形状的候选；contract `tools.previewOpenApi`（`POST /servers/{id}/tools/import-openapi/preview`）只解析不写库，`tools.importOpenApi`（`POST .../import-openapi`，201）按可选 `selectedNames` 过滤后交给 db 的 `createApiTools` 在单事务内整批插入，不部分写入；仅 `kind='generated'` 可用，写审计 `server.tools.imported`，同名唯一冲突返回 409，超过 200 个 operation 返回 `PAYLOAD_TOO_LARGE`，非法或校验失败的 spec 返回 `INVALID_INPUT`。解析只关闭本地 `$ref`，外部引用、循环引用与无法可靠展开的 `anyOf`/`oneOf` 记 warning 后跳过；每个工具只有一个 `paramsIn`（`query` 或 `body`），不映射 header/cookie。web 在连接器工具编辑器内提供「导入 OpenAPI」弹层，粘贴或上传 spec 后先预览勾选再导入。
+
+generated 连接器的信任边界统一走 `assertServerEndpoint`（`modules/servers/ssrf.ts`）：环境变量 `GENERATED_PRIVATE_HOST_ALLOWLIST` 是逗号分隔的 `host` 或 `host:port`，命中同一主机名（未写端口则不限制有效端口）时跳过私网地址拒绝，其余目标仍交给 `assertSafeUrl` 做原有 SSRF 校验，公网行为不变。该白名单在创建/保存、测试连接、`/mcp/:serverId` 运行调用、对话工具与专家包导入五处一致生效；不带通配符、网段或 DNS 后缀匹配，未授权私网仍返回 `INVALID_URL`。它与模型端点的 `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 是两份独立配置，只由部署方通过环境变量设置。
+
 ## 5. 工作区文件模型
 
 数据库是真相源；定义文件仍是每次运行前重新渲染的只读快照，会话级目录只提供稳定挂载根。

@@ -1499,6 +1499,21 @@ export function useCreateTool(serverId: string) {
   });
 }
 
+export function usePreviewOpenApi(serverId: string) {
+  return useMutation({
+    mutationFn: (spec: string) => api.previewOpenApiTools(serverId, spec),
+  });
+}
+
+export function useImportOpenApi(serverId: string) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (vars: { spec: string; selectedNames: string[] }) =>
+      api.importOpenApiTools(serverId, vars.spec, vars.selectedNames),
+    onSuccess: () => invalidate('tools'),
+  });
+}
+
 export function useSetToolEnabled(serverId: string) {
   const client = useQueryClient();
   return useMutation({

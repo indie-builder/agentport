@@ -59,7 +59,7 @@ import {
 } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { isPgCode } from '../../http/errors.js';
-import { assertSafeUrl } from '../servers/ssrf.js';
+import { assertSafeUrl, assertServerEndpoint } from '../servers/ssrf.js';
 import { decodePackage, encodePackage } from './package-zip.js';
 import { unsupportedAllowedTool } from './validation.js';
 import { toAgentConfigValues } from './write.js';
@@ -1082,6 +1082,7 @@ export async function importAgentPackage(
     nodeEnv: string;
     selfUrl: string;
     businessId: string;
+    privateHostAllowlist?: string | undefined;
     runtimeEnvironmentId?: string | undefined;
   },
 ): Promise<
@@ -1115,7 +1116,11 @@ export async function importAgentPackage(
     if (knowledge && input.kind === 'http' && knownKnowledge.get(input.name) === input.url)
       continue;
     if (input.kind === 'http') await assertSafeUrl(input.url, options.nodeEnv);
-    else if (input.kind === 'generated') await assertSafeUrl(input.baseUrl, options.nodeEnv);
+    else if (input.kind === 'generated')
+      await assertServerEndpoint(input.baseUrl, {
+        nodeEnv: options.nodeEnv,
+        allowlist: options.privateHostAllowlist ?? '',
+      });
   }
   const warnings: string[] = [];
   const created = await db

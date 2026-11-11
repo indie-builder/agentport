@@ -675,6 +675,28 @@
 
 **状态**：CH-04 已实现（channel_wakes 事务性 outbox、agent_runs 触发唯一索引、请求路径同步派发 + 启动/30 秒扫尾恢复）。CH-12 已实现，包括 `approval_requests.arguments_summary`、频道写操作审计、agent actor_kind 审计、以及频道审批卡展示脱敏参数；频道级独立 token 仍归 CH-17 的 D-21 对外条件。CH-11 已实现（频道 run 详情、提问回答、成果列表/预览/下载、终态 system 记录与 SSE 发布）；CH-02 已实现（频道 run 强制专家记忆只读，私有 run 不受影响）；CH-14 已实现（频道绑定 paused 死状态删除；@all 保留并补频道设置「响应 @all」开关与输入区「通知全部（N）」人工确认入口；显式 mentions 与 mentionAll 并集超 5 整条拒绝且不落库）；CH-17 最小版已实现（审计列表与导出返回 agent 主体，web 审计详情展示主体类型；成员触发即授权保持现状，不做频道级独立 token），下一项为 D-21 对外前的完整身份评估。只读不阻止频道 run 读取专家目录，私有 run 写入的记忆仍可能出现在频道回答中。其余项按上述顺序排期。`run.error`、`sessionId`、`sandboxId` 等诊断字段当前对频道成员可见，D-21 对外前需先脱敏。D-21 仍为「暂不对外」，本决定不改变对外程度。M5 复核：去重（clientMessageId 唯一 + run 唯一索引 + SSE seq 游标）、prompt 注入按 sender 归因（上下文按消息自身 sender 标注，触发消息校验为当前成员本人）、断线回放（Last-Event-ID + DB 补拉 + 逐事件权限复核）已由现有实现覆盖；本次补频道消息保留期清理；D-16 触发条件复核结论不变（维持方案 A，已知 socket 风险按 D-16 记录接受，D-21 对外前升级）。
 
+## D-81 ⛔ 已撤回：MCP 统一聚合网关（2026-11-11 决定，2026-11-12 撤回）
+
+**原方向**：新增 `servers.kind='gateway'`，用一个独立端点聚合多个 `http` / `generated` 上游，工具名加前缀并支持裁剪、启停与逐上游健康（分支 PR #290，未合入 main）。
+
+**撤回原因**：该方向把「企业内部/外部 HTTP 接口接入」从现有 generated 连接器上拆走，另造了一层连接器类型、页面、工具命名与审批语义，和「不新建模块、复用现有 HTTP→MCP 闭环」的约束冲突；generated 连接器本身可以直接补齐内网可达、OpenAPI 导入与工具管理，不需要聚合层。PR #290 已关闭，`gateway` 类型不进入 shared/db/contract/api/worker/web。
+
+**替代方向**：见 D-82，在 generated 连接器上补齐 HTTP→MCP 的完整能力。
+
+---
+
+## D-82 ✅ generated 连接器补齐 HTTP→MCP（2026-11-12）
+
+**决定**：
+
+- **(a) OpenAPI 导入用自研 core 解析 + 手动映射模型**。`parseOpenApiDocument` 只解析文档并产出 `api_tools` 候选，不引入 OpenAPI 运行时代理或第三方转换器；沿用现有单 `paramsIn`（`query` 或 `body`）模型，header/cookie 参数不映射，`anyOf`/`oneOf` 等无法可靠展开的结构降级为 warning；单个 spec 上限 200 个 operation，仅支持本地 `$ref`。导入与预览共用同一解析器，避免前后端两套语义。
+- **(b) 内网放行用环境级白名单**。新增 `GENERATED_PRIVATE_HOST_ALLOWLIST`（逗号分隔 `host` 或 `host:port`），复用知识库 `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 的既有模式；`assertServerEndpoint` 只对精确匹配的显式主机跳过私网拒绝，其余目标仍走 `assertSafeUrl`。不做通配符、网段或 DNS 后缀放行，也不放宽公网校验；DNS 重绑定的残余风险沿用既有网络层 allowlist 建议。
+- **(c) 错误码沿用现有集合**。非法/无效 spec、工具校验失败用 `INVALID_INPUT`；超过 200 个 operation 用 `PAYLOAD_TOO_LARGE`；同名工具唯一冲突沿用既有冲突映射返回 409。不新增错误码，也不新增平行错误信封。
+
+**边界**：仅 `kind='generated'` 支持导入；整批写入在一个事务内，不部分落库；导入写审计 `server.tools.imported`。不聚合 stdio/knowledge，不重造 MCP 路由、执行底座或审批语义。
+
+**影响面**：`packages/core/src/openapi.ts`、`packages/contract/src/servers.ts`、`packages/api/src/modules/servers/{router,ssrf,generated,test-connection}.ts`、`packages/db/src/repo/servers.ts`、`packages/web/src/components/server/import-openapi-dialog.tsx`；验收见 [USER-STORIES.md](USER-STORIES.md) US-1.5–US-1.7。
+
 ---
 
 ## 决策记录格式

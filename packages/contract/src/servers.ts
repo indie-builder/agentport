@@ -112,6 +112,30 @@ export const serversContract = {
       .route({ method: 'POST', path: '/servers/{id}/tools', successStatus: 201 })
       .input(z.object({ params: idParams, body: apiToolInputSchema }))
       .output(apiToolSchema),
+    previewOpenApi: manageTools
+      .route({ method: 'POST', path: '/servers/{id}/tools/import-openapi/preview' })
+      .input(
+        z.object({ params: idParams, body: z.object({ spec: z.string().min(1).max(5_000_000) }) }),
+      )
+      .output(
+        z.object({
+          tools: z.array(apiToolInputSchema),
+          warnings: z.array(z.string()),
+          total: z.number().int(),
+        }),
+      ),
+    importOpenApi: manageTools
+      .route({ method: 'POST', path: '/servers/{id}/tools/import-openapi', successStatus: 201 })
+      .input(
+        z.object({
+          params: idParams,
+          body: z.object({
+            spec: z.string().min(1).max(5_000_000),
+            selectedNames: z.array(z.string()).optional(),
+          }),
+        }),
+      )
+      .output(z.object({ created: z.array(apiToolSchema), warnings: z.array(z.string()) })),
     update: manageTools
       .route({ method: 'PATCH', path: '/servers/{id}/tools/{toolId}' })
       .input(z.object({ params: toolParams, body: toolPatchSchema }))

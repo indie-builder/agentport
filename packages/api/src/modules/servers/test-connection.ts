@@ -3,7 +3,7 @@ import { limitToolCatalog, redactSecrets } from '@agentport/shared';
 import type { Transport } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { Cause, Effect, type Scope } from 'effect';
-import { assertSafeUrl } from './ssrf.js';
+import { assertSafeUrl, assertServerEndpoint } from './ssrf.js';
 
 const TIMEOUT_MS = 5000;
 
@@ -95,13 +95,16 @@ export async function testConnection(
   nodeEnv: string | undefined = process.env.NODE_ENV,
   self?: SelfMcp,
   logger?: TestLogger,
+  privateHostAllowlist = '',
 ): Promise<ServerTestResult> {
   const startedAt = Date.now();
 
   const program = Effect.gen(function* () {
     if (server.kind === 'http') yield* Effect.promise(() => assertSafeUrl(server.url, nodeEnv));
     if (server.kind === 'generated') {
-      yield* Effect.promise(() => assertSafeUrl(server.baseUrl, nodeEnv));
+      yield* Effect.promise(() =>
+        assertServerEndpoint(server.baseUrl, { nodeEnv, allowlist: privateHostAllowlist }),
+      );
     }
     return yield* Effect.scoped(connectAndList(server, self));
   });

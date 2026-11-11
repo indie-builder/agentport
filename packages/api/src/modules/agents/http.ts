@@ -90,6 +90,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
           nodeEnv: context.config.NODE_ENV,
           selfUrl: context.config.SELF_URL,
           businessId: principal.businessId,
+          privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
           ...(query.runtimeEnvironmentId === undefined
             ? {}
             : { runtimeEnvironmentId: query.runtimeEnvironmentId }),

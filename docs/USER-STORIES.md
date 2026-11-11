@@ -54,6 +54,33 @@
 - 成功展示 serverInfo、工具名与描述、耗时。
 - 每次测试写入审计。
 
+### US-1.5 从 OpenAPI/Swagger 批量导入工具
+**作为** 管理员，**我想** 上传或粘贴 OpenAPI 文档并挑选用得上的接口，**以便** 不逐个手填就把一批 HTTP 接口变成 MCP 工具。
+
+验收：
+- 仅 `kind='generated'` 的连接器显示「导入 OpenAPI」入口；支持 OpenAPI 3.x 与 Swagger 2.0，JSON 或 YAML。
+- 预览返回可导入的工具、`warnings` 与总数，且不写库；用户可按工具名勾选要导入的接口。
+- 导入整批在一个事务内完成，不部分写入；成功后工具立即出现在该连接器的工具列表并可被智能体绑定。
+- 超过 200 个 operation 返回 `PAYLOAD_TOO_LARGE`；非法 spec 或工具校验失败返回 `INVALID_INPUT`；同名工具唯一冲突返回 409。
+- 导入写审计 `server.tools.imported`；外部 `$ref`、循环引用与无法可靠展开的组合结构记 warning 后跳过，不静默丢接口。
+
+### US-1.6 连接企业内网 HTTP 服务
+**作为** 管理员，**我想** 让白名单内的内网 API 也能生成 MCP 工具，**以便** 把公司内部服务接给智能体。
+
+验收：
+- 部署方通过 `GENERATED_PRIVATE_HOST_ALLOWLIST` 配置逗号分隔的 `host` 或 `host:port`；命中精确主机（未写端口则不限制端口）时跳过私网拒绝。
+- 白名单主机在创建/保存、测试连接、`/mcp/:serverId` 运行调用、对话工具与专家包导入中均可正常使用。
+- 未列入白名单的私网、回环、link-local 目标仍返回 `INVALID_URL`；公网地址行为不变。
+- 白名单不支持通配符、网段或 DNS 后缀；普通用户不能通过界面修改。
+
+### US-1.7 用加密 headers 调用外部服务鉴权
+**作为** 管理员，**我想** 为外部 HTTP 连接配置 Bearer、API Key 或 Basic 鉴权头，**以便** 受保护的上游 API 能被安全调用。
+
+验收：
+- 请求头值加密入库，列表、详情与工具预览只返回脱敏值。
+- 支持 `Authorization: Bearer <token>`、自定义 API Key 头与 `Authorization: Basic <base64>`；调用时按配置注入上游请求。
+- URL 中不接受账号密码，凭证只能经加密 headers 配置；上游鉴权失败以工具调用错误返回，不泄露密钥。
+
 ---
 
 ## EPIC 2 — 专家定义

@@ -39,6 +39,7 @@ import { FilterSelect } from '../components/filter-select.js';
 import { PageNote } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
+import { ImportOpenApiDialog } from '../components/server/import-openapi-dialog.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
@@ -1337,6 +1338,7 @@ function ToolEditorDialog({
   const [formDirty, setFormDirty] = useState(false);
   const [formPending, setFormPending] = useState(false);
   const [discard, setDiscard] = useState<{ run: () => void } | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const guarded = (run: () => void): void => {
     if (formPending || setEnabled.isPending || remove.isPending) return;
@@ -1381,6 +1383,18 @@ function ToolEditorDialog({
         className="max-w-3xl sm:max-w-3xl"
       >
         <div className="flex flex-col gap-5">
+          {server.kind === 'generated' ? (
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={formPending || setEnabled.isPending || remove.isPending}
+                onClick={() => setImportOpen(true)}
+              >
+                <Upload data-icon="inline-start" aria-hidden="true" /> 导入 OpenAPI
+              </Button>
+            </div>
+          ) : null}
           {tools.isPending ? <LoadingState rows={2} /> : null}
           {tools.isError ? (
             <ErrorState error={tools.error} onRetry={() => void tools.refetch()} />
@@ -1516,6 +1530,13 @@ function ToolEditorDialog({
               discard?.run();
             }}
           />
+          {importOpen ? (
+            <ImportOpenApiDialog
+              server={server}
+              getReturnFocus={getReturnFocus}
+              onClose={() => setImportOpen(false)}
+            />
+          ) : null}
         </div>
       </DialogShell>
     </Dialog>

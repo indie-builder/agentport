@@ -779,6 +779,7 @@ interface SandboxProvider {
 | M4 | 队列 + 沙盒 | ✅ 已完成：BullMQ → Docker 容器 → Agent SDK → SSE 回传 text/tool 事件 |
 | M5 | 生产化 | ✅ 审计、E2E、CI、限流、CSP、会话吊销、乐观锁、外键、备份恢复、Runbook、状态页均已落地（缺少持久化 HITL 与模型凭证代理，见 [SECURITY.md](SECURITY.md) M12a） |
 | M6 | 强隔离（可选） | ⬜ 未开始（`SandboxProvider` 接口已就位；D-12 决定暂不接入） |
+| M7 | HTTP→MCP 完整化 | ✅ 已完成：generated 连接器支持 OpenAPI 3.x / Swagger 2.0 批量导入工具；`GENERATED_PRIVATE_HOST_ALLOWLIST` 放行显式内网主机，创建/保存/测试/运行/对话/专家包导入全链路生效 |
 
 ---
 
@@ -789,7 +790,7 @@ interface SandboxProvider {
    - **Docker 镜像名**：`agentport/api`、`agentport/worker`、`agentport/sandbox`。
    - **展示名**：PACE（仓库与包名仍为 `agentport`）。
 2. **登录方式**：Better Auth（username/密码 + Drizzle adapter，会话写 PostgreSQL，httpOnly Cookie `agentport_token`），不使用 JWT，也不在 Redis 校验会话。多账户/RBAC 已在本工作树实现、未合入 main、已通过最终 review、准备发布：稳定 `businessId`、默认四角色、DB 可配置的角色·功能矩阵与对象范围、私有会话/个人记忆隔离；见 §18 与任务记录。
-3. **HTTP→MCP 的输入方式**：当前先做手动建工具，表结构按可导入 OpenAPI 设计。是否要 OpenAPI 导入？
+3. ~~**HTTP→MCP 的输入方式**~~ 已实现：手动建工具保留，generated 连接器另支持 OpenAPI 3.x / Swagger 2.0（JSON/YAML）批量导入，先预览勾选再整批写入；企业内网目标由 `GENERATED_PRIVATE_HOST_ALLOWLIST` 显式放行。范围与流水线见 [ARCHITECTURE §4](ARCHITECTURE.md#4-http--mcp平台--mcp-与内置知识-mcp)，不引入聚合网关。
 4. **智能体是否允许非 MCP 工具**：Bash 默认启用；原生 Read/Write/Edit 仅限记忆、产出、附件与技能参考；其余内置工具默认禁止。
 5. ~~**Redis 镜像标签**~~ 已确认 `redis:8-alpine` 可用（§15.2）；当前配置为 Redis 8.10.3（`redis:8.10.3-alpine`）。
 6. **沙盒默认后端**：Docker（起步）→ microsandbox（升级）。是否接受先 Docker？

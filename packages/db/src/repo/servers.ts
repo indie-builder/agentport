@@ -1,5 +1,5 @@
 import { AppError } from '@agentport/core';
-import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
+import type { ApiToolInput, ResolvedRuntimeEnvironment } from '@agentport/shared';
 import { and, asc, eq } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
@@ -148,6 +148,21 @@ export async function createApiTool(db: Database, input: ApiToolWrite): Promise<
     .returning();
   if (!row) throw new Error('api tool insert returned no row');
   return row;
+}
+
+/** 整批写入：单事务保证导入失败时一行都不落库。 */
+export async function createApiTools(
+  db: Database,
+  serverId: string,
+  inputs: ApiToolInput[],
+): Promise<ApiToolRow[]> {
+  if (inputs.length === 0) return [];
+  return db.transaction((tx) =>
+    tx
+      .insert(apiTools)
+      .values(inputs.map((input) => ({ id: newId('tool'), serverId, ...input })))
+      .returning(),
+  );
 }
 
 export async function updateApiTool(

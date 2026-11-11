@@ -24,6 +24,7 @@ const ssrfMock = mock(async () => undefined);
 
 mock.module('../src/modules/servers/ssrf.js', () => ({
   assertSafeUrl: ssrfMock,
+  assertServerEndpoint: ssrfMock,
 }));
 
 const tool: ApiTool = {

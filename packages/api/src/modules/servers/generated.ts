@@ -3,11 +3,13 @@ import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { runMcpExecution, tryApprovalWait } from '../../plugins/concurrency.js';
-import { assertSafeUrl } from './ssrf.js';
+import { assertServerEndpoint } from './ssrf.js';
 
 export interface GeneratedServerInput {
   /** 决定 SSRF 是否放行 localhost；与 test-connection 保持同一来源。 */
   nodeEnv?: string | undefined;
+  /** 显式配置的私网主机；只对这些主机的 upstream 放行内网地址。 */
+  privateHostAllowlist: string;
   name: string;
   baseUrl: string;
   headers: Record<string, string>;
@@ -120,7 +122,7 @@ function fillPath(
   args: Record<string, unknown>,
 ): { path: string; rest: Record<string, unknown> } {
   const rest: Record<string, unknown> = { ...args };
-  const path = template.replace(/\{(\w+)\}/g, (_match, key: string) => {
+  const path = template.replace(/\{([^{}]+)\}/g, (_match, key: string) => {
     const value = rest[key];
     delete rest[key];
     return encodeURIComponent(value === undefined ? '' : String(value));
@@ -161,6 +163,7 @@ async function callUpstream(
   headers: Record<string, string>,
   args: Record<string, unknown>,
   nodeEnv: string | undefined,
+  privateHostAllowlist: string,
   signal: AbortSignal,
   isRunActive: (() => Promise<boolean>) | undefined,
 ): Promise<CallToolResult> {
@@ -178,7 +181,10 @@ async function callUpstream(
   const { path, rest } = fillPath(tool.pathTemplate, args);
   const url = new URL(baseUrl.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
   // 与 test-connection 一致：nodeEnv 决定是否放行 localhost，避免「测得通但跑不通」。
-  await assertSafeUrl(url.toString(), nodeEnv);
+  await assertServerEndpoint(url.toString(), {
+    nodeEnv,
+    allowlist: privateHostAllowlist,
+  });
   // DNS 校验期间可能已被取消或 run 已结束：在真正发请求前关掉这个窗口。
   if (signal.aborted) return cancelledResult(tool.name);
   if (isRunActive && !(await isRunActive())) return cancelledResult(tool.name);
@@ -293,6 +299,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
           input.headers,
           args,
           input.nodeEnv,
+          input.privateHostAllowlist,
           signal,
           input.isRunActive,
         );

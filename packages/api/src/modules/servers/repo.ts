@@ -341,6 +341,15 @@ export async function createTool(db: Db, serverId: string, input: ApiToolInput):
   return toApiTool(row);
 }
 
+export async function createTools(
+  db: Db,
+  serverId: string,
+  inputs: ApiToolInput[],
+): Promise<ApiTool[]> {
+  const rows = await repo.servers.createApiTools(db, serverId, inputs);
+  return rows.map(toApiTool);
+}
+
 export async function updateTool(
   db: Db,
   serverId: string,
