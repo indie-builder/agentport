@@ -13,7 +13,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import type { AppContext, HttpEnv, RequestContext } from '../../http/context.js';
+import type { AppContext, HttpContext, HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
@@ -169,28 +169,32 @@ export const chatOutputsRouter = {
     }
   }),
 };
+async function readRequestedOutput(c: HttpContext) {
+  const context = requestContext(c);
+  const input = z
+    .object({
+      params: z.object({ id: outputOwnerIdSchema, runId: outputOwnerIdSchema }),
+      query: z.object({ path: outputPathSchema }),
+    })
+    .parse({ params: c.req.param(), query: c.req.query() });
+  const conversation = await loadReadableConversation(context, input.params.id);
+  const slug = await agentSlug(context, conversation.agentId);
+  if (slug === null) fail('NOT_FOUND', '成果文件不存在，可能已被清理');
+  return readOutputFile({
+    root: context.config.WORKSPACES_DIR,
+    slug,
+    conversationId: conversation.id,
+    runId: input.params.runId,
+    path: input.query.path,
+  });
+}
+
 export function registerChatOutputsHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/conversations/:id/outputs/:runId/content',
     access({ kind: 'permission', permissionId: 'conversations.read' }),
     async (c) => {
-      const context = requestContext(c);
-      const input = z
-        .object({
-          params: z.object({ id: outputOwnerIdSchema, runId: outputOwnerIdSchema }),
-          query: z.object({ path: outputPathSchema }),
-        })
-        .parse({ params: c.req.param(), query: c.req.query() });
-      const conversation = await loadReadableConversation(context, input.params.id);
-      const slug = await agentSlug(context, conversation.agentId);
-      if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
-      const { file, data } = await readOutputFile({
-        root: context.config.WORKSPACES_DIR,
-        slug,
-        conversationId: conversation.id,
-        runId: input.params.runId,
-        path: input.query.path,
-      });
+      const { file, data } = await readRequestedOutput(c);
       if (data.length > PREVIEW_MAX_BYTES) {
         return fail('PAYLOAD_TOO_LARGE', '文件超过 1MiB，请下载原件查看');
       }
@@ -208,23 +212,7 @@ export function registerChatOutputsHttp(app: Hono<HttpEnv>): void {
     '/api/conversations/:id/outputs/:runId/download',
     access({ kind: 'permission', permissionId: 'conversations.read' }),
     async (c) => {
-      const context = requestContext(c);
-      const input = z
-        .object({
-          params: z.object({ id: outputOwnerIdSchema, runId: outputOwnerIdSchema }),
-          query: z.object({ path: outputPathSchema }),
-        })
-        .parse({ params: c.req.param(), query: c.req.query() });
-      const conversation = await loadReadableConversation(context, input.params.id);
-      const slug = await agentSlug(context, conversation.agentId);
-      if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
-      const { file, data } = await readOutputFile({
-        root: context.config.WORKSPACES_DIR,
-        slug,
-        conversationId: conversation.id,
-        runId: input.params.runId,
-        path: input.query.path,
-      });
+      const { file, data } = await readRequestedOutput(c);
       c.header('Content-Type', safeMediaType(file.mediaType));
       c.header('Content-Disposition', contentDisposition(file.path));
       c.header('Cache-Control', 'no-store');

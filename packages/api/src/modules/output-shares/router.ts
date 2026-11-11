@@ -41,6 +41,20 @@ export function toOutputShare(
   };
 }
 
+export async function auditShareRevoked(
+  context: RequestContext,
+  row: OutputShareRow,
+): Promise<void> {
+  await repo.audit.writeAudit(context.db, context.log, {
+    actor: actorOf(context),
+    action: 'share.revoked',
+    target: row.id,
+    input: { conversationId: row.conversationId, runId: row.runId, path: row.path },
+    status: 'ok',
+    requestId: context.requestId,
+  });
+}
+
 function publicFile(file: OutputFile, sha256: string): PublicOutputShare['file'] {
   return {
     name: file.path.split('/').at(-1) ?? 'download',
@@ -190,14 +204,7 @@ export const outputSharesRouter = os.router({
     }
     const row = await repo.outputShares.revoke(context.db, input.params.id);
     if (row !== null) {
-      await repo.audit.writeAudit(context.db, context.log, {
-        actor: actorOf(context),
-        action: 'share.revoked',
-        target: row.id,
-        input: { conversationId: row.conversationId, runId: row.runId, path: row.path },
-        status: 'ok',
-        requestId: context.requestId,
-      });
+      await auditShareRevoked(context, row);
     }
     return undefined;
   }),
