@@ -11,7 +11,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
+import { KnowledgeDetailPage } from '../src/pages/knowledge-detail/index.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 

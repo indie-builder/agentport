@@ -26,7 +26,7 @@ import {
   AgentsPage,
   CreateAgentDialog,
   VersionHistory,
-} from '../src/pages/agents.js';
+} from '../src/pages/agents/index.js';
 
 const TEST_PERMISSIONS = PERMISSIONS.map((permission) => permission.id);
 

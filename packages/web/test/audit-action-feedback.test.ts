@@ -8,7 +8,7 @@ import { Composer } from '../src/components/chat-thread.js';
 import { MemoryPanel } from '../src/components/memory-panel.js';
 import { api } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
-import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
+import { AgentDetailPage, AgentsPage } from '../src/pages/agents/index.js';
 import { PluginsPage } from '../src/pages/plugins.js';
 import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environment-detail.js';
 

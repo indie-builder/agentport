@@ -21,7 +21,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { toastError } from '../src/lib/toast.js';
-import { AgentDetailPage } from '../src/pages/agents.js';
+import { AgentDetailPage } from '../src/pages/agents/index.js';
 import { agentDetailSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));

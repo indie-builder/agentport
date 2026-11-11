@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccessDenied } from '../src/components/app-shell.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { AccountsPage } from '../src/pages/accounts.js';
-import { AgentDetailPage } from '../src/pages/agents.js';
+import { AgentDetailPage } from '../src/pages/agents/index.js';
 import { RolesPage } from '../src/pages/roles.js';
 import { rolesSearchSchema } from '../src/routes/-search.js';
 

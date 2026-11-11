@@ -4,7 +4,7 @@ import { createElement, isValidElement, type ReactElement, type ReactNode } from
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Combobox, ComboboxList } from '../src/components/ui/combobox.js';
-import { AgentEditor } from '../src/pages/agents.js';
+import { AgentEditor } from '../src/pages/agents/index.js';
 import { allAccessMe } from './me-fixture.js';
 
 vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));

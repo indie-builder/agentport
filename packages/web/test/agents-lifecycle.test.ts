@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
 import { useAgentSummary } from '../src/lib/queries.js';
-import { AgentDetailPage, AgentsPage } from '../src/pages/agents.js';
+import { AgentDetailPage, AgentsPage } from '../src/pages/agents/index.js';
 import { allAccessMe } from './me-fixture.js';
 
 vi.mock('@agentport/core/workspace', async (importOriginal) => {

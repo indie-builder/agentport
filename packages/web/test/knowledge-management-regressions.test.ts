@@ -15,7 +15,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BatchActionDialog, ManualDraftDialog } from '../src/components/knowledge-documents.js';
 import { knowledgeKeys } from '../src/lib/queries.js';
-import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
+import { KnowledgeDetailPage } from '../src/pages/knowledge-detail/index.js';
 import { knowledgeDetailSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
