@@ -95,3 +95,43 @@ export function toWorkspaceInput(params: {
     ...(params.memoryPolicy ? { memoryPolicy: params.memoryPolicy } : {}),
   };
 }
+
+export function toRuleEntries(
+  rows: Array<{ slug: string; content: string; globs: string }>,
+): Array<{ slug: string; content: string; globs: string }> {
+  return rows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
+}
+
+export function toWorkflowEntries(
+  rows: Array<{ slug: string; content: string }>,
+): Array<{ slug: string; content: string }> {
+  return rows.map((r) => ({ slug: r.slug, content: r.content }));
+}
+
+export function toOutputStyleSelection(
+  rows: Array<{
+    slug: string;
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+    isSelected: boolean;
+  }>,
+): {
+  outputStyles: Array<{
+    slug: string;
+    description: string;
+    keepCodingInstructions: boolean;
+    body: string;
+  }>;
+  selectedOutputStyle: string | null;
+} {
+  return {
+    outputStyles: rows.map((r) => ({
+      slug: r.slug,
+      description: r.description,
+      keepCodingInstructions: r.keepCodingInstructions,
+      body: r.body,
+    })),
+    selectedOutputStyle: rows.find((r) => r.isSelected)?.slug ?? null,
+  };
+}

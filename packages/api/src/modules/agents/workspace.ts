@@ -1,5 +1,13 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
-import { renderPlugin, renderWorkspace, toWorkspaceInput, unionById } from '@agentport/core';
+import {
+  renderPlugin,
+  renderWorkspace,
+  toOutputStyleSelection,
+  toRuleEntries,
+  toWorkflowEntries,
+  toWorkspaceInput,
+  unionById,
+} from '@agentport/core';
 import { repo, type schema } from '@agentport/db';
 import { knowledgeMcpEntry, maskUrlCredentials, PREVIEW_SECRET } from '@agentport/shared';
 import type { AppContext } from '../../http/context.js';
@@ -93,13 +101,10 @@ export async function renderAgentWorkspace(
     serverNames: (serversByAgent.get(row.id) ?? []).map((server) => server.name),
   }));
   const ruleRows = await repo.rules.listRules(app.db, agent.id);
-  const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
+  const rules = toRuleEntries(ruleRows);
   const workflows =
     agent.parentId === null
-      ? (await repo.workflows.listWorkflows(app.db, agent.id)).map((row) => ({
-          slug: row.slug,
-          content: row.content,
-        }))
+      ? toWorkflowEntries(await repo.workflows.listWorkflows(app.db, agent.id))
       : [];
   const hookFiles = agent.hooksEnabled
     ? (await repo.hooks.listHookFiles(app.db, agent.id)).map((file) => ({
@@ -109,13 +114,7 @@ export async function renderAgentWorkspace(
       }))
     : [];
   const styleRows = await repo.outputStyles.listOutputStyles(app.db, agent.id);
-  const outputStyles = styleRows.map((r) => ({
-    slug: r.slug,
-    description: r.description,
-    keepCodingInstructions: r.keepCodingInstructions,
-    body: r.body,
-  }));
-  const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
+  const { outputStyles, selectedOutputStyle } = toOutputStyleSelection(styleRows);
   const openuiTools =
     agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(app.db, agent.id) : [];
   const pluginBindings =
