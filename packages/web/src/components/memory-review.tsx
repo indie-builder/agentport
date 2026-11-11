@@ -684,6 +684,8 @@ function createInitialState(
   };
 }
 
+type ComposerPhase = 'editing' | 'discard' | 'closing';
+
 function CreateMemoryReviewDialog({
   agents,
   defaultAgentId,
@@ -720,9 +722,8 @@ function CreateMemoryReviewDialog({
   const [instruction, setInstruction] = useState(initial.instruction);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [fieldErrors, setFieldErrors] = useState<CreateFieldErrors>({});
-  const [discardOpen, setDiscardOpen] = useState(false);
-  // 关闭时先把 dirty 置为 false，再让 URL 变化；否则自己的 blocker 会拦住关闭。
-  const [closing, setClosing] = useState(false);
+  // 关闭阶段先把 dirty 置为 false，再让 URL 变化；否则自己的 blocker 会拦住关闭。
+  const [phase, setPhase] = useState<ComposerPhase>('editing');
   const idempotency = useRef<{ fingerprint: string; key: string } | null>(null);
   const sourcesBoxRef = useRef<HTMLDivElement>(null);
   const create = useCreateMemoryReview();
@@ -782,7 +783,7 @@ function CreateMemoryReviewDialog({
         : { kind: 'agent_rule', agentId: targetAgentId, slug: ruleSlug };
   const summaryTargetDisplay = targetDisplay(summaryTarget, agents);
   const dirty =
-    !closing &&
+    phase !== 'closing' &&
     (modelAgentId !== initial.modelAgentId ||
       targetKind !== initial.targetKind ||
       targetAgentId !== initial.targetAgentId ||
@@ -821,15 +822,15 @@ function CreateMemoryReviewDialog({
   const requestClose = (): void => {
     if (create.isPending) return;
     if (dirty) {
-      setDiscardOpen(true);
+      setPhase('discard');
       return;
     }
-    setClosing(true);
+    setPhase('closing');
   };
 
   useEffect(() => {
-    if (closing) onClose();
-  }, [closing, onClose]);
+    if (phase === 'closing') onClose();
+  }, [phase, onClose]);
 
   const changeTargetKind = (next: TargetKind): void => {
     setTargetKind(next);
@@ -966,7 +967,7 @@ function CreateMemoryReviewDialog({
           toastSuccess('已发起记忆提案');
           // 关闭会卸载 blocker，先取消被拦下的返回导航，避免地址栏与路由停在不同的地址。
           if (latestBlocker.current.status === 'blocked') latestBlocker.current.reset?.();
-          setClosing(true);
+          setPhase('closing');
         },
         onError: (error) =>
           setFieldErrors((previous) => ({ ...previous, form: errorMessage(error) })),
@@ -1525,9 +1526,9 @@ function CreateMemoryReviewDialog({
       </DialogShell>
 
       <ConfirmDialog
-        open={discardOpen || leaving}
+        open={phase === 'discard' || leaving}
         onClose={() => {
-          setDiscardOpen(false);
+          setPhase((previous) => (previous === 'closing' ? previous : 'editing'));
           blocker.reset?.();
         }}
         title="放弃新建的提案？"
@@ -1535,12 +1536,12 @@ function CreateMemoryReviewDialog({
         confirmLabel={leaving ? '放弃并离开' : '放弃并关闭'}
         confirmDisabled={create.isPending}
         onConfirm={async () => {
-          setDiscardOpen(false);
           if (leaving) {
+            setPhase('editing');
             blocker.proceed();
             return;
           }
-          setClosing(true);
+          setPhase('closing');
         }}
       />
     </Dialog>
