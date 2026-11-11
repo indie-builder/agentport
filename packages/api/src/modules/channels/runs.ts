@@ -3,12 +3,12 @@ import { fail, listOutputFiles, readOutputFile } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { type OutputFile, outputContentSchema, publicRunQuestion } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf, requireUser } from '../../http/access.js';
+import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { toIso } from '../../lib/iso.js';
-import { isRunCancelRequested } from '../../queue/producer.js';
 import { agentSlug, decodeUtf8, isTextPreview, PREVIEW_MAX_BYTES } from '../chat/outputs.js';
+import { answerRunQuestion } from '../runs/questions.js';
 
 const runsRepo = repo.runs;
 const questionsRepo = repo.questions;
@@ -104,25 +104,7 @@ export const channelsRunsRouter = {
     if (access.role === 'member' && access.run.initiatedBy !== businessId) {
       return fail('FORBIDDEN', ANSWER_FORBIDDEN);
     }
-    if (await isRunCancelRequested(runId)) {
-      return fail('CONFLICT', '运行正在停止，无法回答这次提问');
-    }
-    const question = await questionsRepo.respondToQuestion(
-      context.db,
-      runId,
-      requestId,
-      input.body,
-    );
-    if (!question) return fail('NOT_FOUND', '这次提问不存在，可能已失效；请刷新后重试');
-    await repo.audit.writeAudit(context.db, context.log, {
-      actor: actorOf(context),
-      action: 'agent.run.question.responded',
-      target: runId,
-      input: { requestId, status: question.status },
-      status: 'ok',
-      requestId: context.requestId,
-    });
-    return publicRunQuestion(question);
+    return answerRunQuestion(context, runId, requestId, input.body);
   }),
   runOutputs: os.runOutputs.handler(async ({ input, context }) => {
     const { id, runId } = input.params;

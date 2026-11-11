@@ -38,7 +38,7 @@ import {
   skills,
 } from '../schema.js';
 import { insertAgentVersion, retryOnVersionConflict } from './agent-versions.js';
-import type { ConversationSandboxTarget } from './chat.js';
+import { type ConversationSandboxTarget, sameTargets } from './chat.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
 import { isPgCode } from './pg-errors.js';
@@ -819,24 +819,6 @@ function sameAgentSnapshot(
     sameIdSet(expected.childIds, actual.childIds) &&
     sameIdSet(expected.affectedAgentIds, actual.affectedAgentIds) &&
     sameTargets(expected.targets, actual.targets)
-  );
-}
-
-function sameTargets(
-  left: ConversationSandboxTarget[],
-  right: ConversationSandboxTarget[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((target, index) => {
-      const other = right[index];
-      return (
-        other !== undefined &&
-        target.conversationId === other.conversationId &&
-        target.sandboxIds.length === other.sandboxIds.length &&
-        target.sandboxIds.every((id, sandboxIndex) => id === other.sandboxIds[sandboxIndex])
-      );
-    })
   );
 }
 
