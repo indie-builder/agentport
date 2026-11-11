@@ -79,7 +79,7 @@ export function HooksPanel({
     baseline !== null && (enabled !== baseline.enabled || configDraft !== baseline.config);
   const fileDirty = creating
     ? pathDraft.trim() !== '' || contentDraft !== ''
-    : current !== null && current.content !== contentDraft;
+    : current !== null && (current.content !== contentDraft || current.executable !== executable);
   const dirty = settingsDirty || fileDirty;
   const saving = saveSettings.isPending || saveFile.isPending;
   const pending = saving || removeFile.isPending;

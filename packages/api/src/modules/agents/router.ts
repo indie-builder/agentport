@@ -394,6 +394,12 @@ export const agentsRouter = os.router({
     const current = await repo.getAgent(context.db, routeInput.params.id);
     if (!current) return notFound();
     await authorizeAgent(context, current, 'agents.files.read');
+    if (
+      current.hooksEnabled ||
+      (await allRepo.hooks.listHookFiles(context.db, current.id)).length > 0
+    ) {
+      await authorizeAgent(context, current, 'agents.hooks.read');
+    }
     const files = await renderAgentWorkspace(context, current.id);
     if (!files) return notFound();
     if (routeInput.query.reveal === '1') context.responseHeaders.set('Cache-Control', 'no-store');

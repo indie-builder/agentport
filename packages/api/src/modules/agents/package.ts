@@ -51,6 +51,7 @@ import {
   AGENT_PACKAGE_PATHS,
   AGENT_PACKAGE_SIDECAR,
   AGENT_PACKAGE_SIDECAR_VERSION,
+  agentHookFileInputSchema,
   agentHookFilePathSchema,
   agentHooksConfigSchema,
   agentPackageSidecarSchema,
@@ -63,7 +64,7 @@ import {
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { isPgCode } from '../../http/errors.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
-import { decodePackage, encodePackage } from './package-zip.js';
+import { decodePackage, encodePackageEntries } from './package-zip.js';
 import { unsupportedAllowedTool } from './validation.js';
 import { toAgentConfigValues } from './write.js';
 
@@ -325,6 +326,7 @@ export interface AgentPackageFiles {
   files: Record<string, string>;
   slug: string;
   warnings: string[];
+  executablePaths?: readonly string[];
 }
 export async function buildAgentPackage(
   db: Database,
@@ -431,8 +433,11 @@ export async function buildAgentPackage(
   for (const workflow of workflows) {
     files[`${AGENT_PACKAGE_PATHS.workflowsDir}${workflow.slug}.js`] = workflow.content;
   }
+  const executablePaths: string[] = [];
   for (const file of hookFiles) {
-    files[`${AGENT_PACKAGE_PATHS.hooksDir}${file.path}`] = file.content;
+    const path = `${AGENT_PACKAGE_PATHS.hooksDir}${file.path}`;
+    files[path] = file.content;
+    if (file.executable) executablePaths.push(path);
   }
   files[AGENT_PACKAGE_PATHS.settings] = `${JSON.stringify(
     {
@@ -539,7 +544,7 @@ export async function buildAgentPackage(
       : [
           `该专家绑定了 ${boundPlugins.length} 个插件，插件代码不随专家包导出；导入后需要在本机插件库重新绑定`,
         ];
-  return { files, slug: row.slug, warnings };
+  return { files, slug: row.slug, warnings, executablePaths };
 }
 export function packAgentPackage(pkg: AgentPackageFiles): Buffer {
   const uncompressedBytes = Object.values(pkg.files).reduce(
@@ -551,7 +556,14 @@ export function packAgentPackage(pkg: AgentPackageFiles): Buffer {
     AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
     '专家包解压后超过 4 MiB，请减少提示词、技能或工具定义后重试',
   );
-  const body = encodePackage(pkg.files);
+  const executablePaths = new Set(pkg.executablePaths);
+  const body = encodePackageEntries(
+    Object.entries(pkg.files).map(([path, content]) => ({
+      path,
+      content,
+      executable: executablePaths.has(path),
+    })),
+  );
   if (body.byteLength > AGENT_PACKAGE_MAX_BYTES) {
     fail('CONFLICT', '专家包超过 1 MiB，请减少提示词、技能或工具定义后重试');
   }
@@ -573,7 +585,7 @@ interface ParsedPackage {
   styles: PackageStyleInput[];
   hooks: {
     config: Record<string, unknown> | null;
-    files: Array<{ path: string; content: string }>;
+    files: Array<{ path: string; content: string; executable: boolean }>;
   };
   runtimeEnvironmentName?: string;
 }
@@ -716,6 +728,7 @@ export function parseAgentPackage(
   options: {
     slug?: string;
     name?: string;
+    executables?: ReadonlyMap<string, boolean>;
   },
 ): ParsedPackage {
   for (const path of files.keys()) {
@@ -794,10 +807,18 @@ export function parseAgentPackage(
   const selectedStyle = portableSettings.outputStyle;
   const hookFiles = [...files]
     .filter(([path]) => path.startsWith(AGENT_PACKAGE_PATHS.hooksDir))
-    .map(([path, content]) => ({
-      path: path.slice(AGENT_PACKAGE_PATHS.hooksDir.length),
-      content,
-    }))
+    .map(([path, content]) => {
+      const parsed = agentHookFileInputSchema.safeParse({
+        path: path.slice(AGENT_PACKAGE_PATHS.hooksDir.length),
+        content,
+        executable: options.executables?.get(path) ?? false,
+      });
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        fail('INVALID_INPUT', `hook 脚本不合法：${issue?.message ?? '字段校验失败'}`, { path });
+      }
+      return parsed.data;
+    })
     .sort((a, b) => a.path.localeCompare(b.path));
   checkLimit(
     hookFiles.length,
@@ -1355,7 +1376,6 @@ export async function importAgentPackage(
             id: newId('agentHookFile'),
             agentId: row.id,
             ...file,
-            executable: true,
           })),
         );
       }
