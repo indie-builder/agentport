@@ -30,9 +30,9 @@ import {
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { type Control, type Path, type PathValue, useController, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
-import { AgentOverview } from '../../components/agent-overview.js';
+import { AgentOverview } from '../../components/agent/agent-overview.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { MemoryPanel } from '../../components/memory-panel.js';
+import { MemoryPanel } from '../../components/memory/memory-panel.js';
 import { PageBody, PageTopbar } from '../../components/page.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { ErrorState, LoadingState } from '../../components/states.js';

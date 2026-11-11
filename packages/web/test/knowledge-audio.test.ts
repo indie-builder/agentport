@@ -15,8 +15,8 @@ import { z } from 'zod';
 import {
   KnowledgeProfilesDialog,
   KnowledgeSettingsDialog,
-} from '../src/components/knowledge-settings.js';
-import { locatorLabel } from '../src/components/knowledge-shared.js';
+} from '../src/components/knowledge/knowledge-settings.js';
+import { locatorLabel } from '../src/components/knowledge/knowledge-shared.js';
 import { toastError } from '../src/lib/toast.js';
 import { KnowledgePage } from '../src/pages/knowledge.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge-detail/index.js';

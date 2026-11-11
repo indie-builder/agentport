@@ -1,7 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AssistantText } from '../src/components/openui-message.js';
+import { AssistantText } from '../src/components/chat/openui-message.js';
 
 // 让渲染器 chunk 真的挂起一次：预载 module 会让 Suspense 直接跳过 fallback，测不到等待态。
 // 放行后 React.lazy 与模块都会被缓存，所以「等待态」用例必须排在第一。

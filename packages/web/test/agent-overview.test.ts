@@ -18,7 +18,7 @@ import {
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AgentOverview, type AgentOverviewTarget } from '../src/components/agent-overview.js';
+import { AgentOverview, type AgentOverviewTarget } from '../src/components/agent/agent-overview.js';
 import { api } from '../src/lib/api.js';
 import { formatDateTime } from '../src/lib/format.js';
 

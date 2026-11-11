@@ -5,15 +5,15 @@ import { z } from 'zod';
 import { CodeBlock } from '../../components/code-block.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { KnowledgeImage, stripImageReferences } from '../../components/knowledge-citations.js';
-import { DocumentVersionPicker, ManualDraftDialog } from '../../components/knowledge-documents.js';
+import { KnowledgeImage, stripImageReferences } from '../../components/knowledge/knowledge-citations.js';
+import { DocumentVersionPicker, ManualDraftDialog } from '../../components/knowledge/knowledge-documents.js';
 import {
   documentStatusLabel,
   documentStatusTone,
   isAudioMimeType,
   locatorLabel,
   versionLabel,
-} from '../../components/knowledge-shared.js';
+} from '../../components/knowledge/knowledge-shared.js';
 import { Markdown } from '../../components/markdown.js';
 import { PageSection } from '../../components/page.js';
 import { ReaderToolbar } from '../../components/reader-toolbar.js';

@@ -1,7 +1,7 @@
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApprovalCard, Composer } from '../src/components/chat-thread.js';
+import { ApprovalCard, Composer } from '../src/components/chat/chat-thread.js';
 import type { ApprovalRequest } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 

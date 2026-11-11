@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RunQuestionCard } from '../src/components/run-question.js';
+import { RunQuestionCard } from '../src/components/run/run-question.js';
 import { api } from '../src/lib/api.js';
 
 const at = '2026-10-28T00:00:00.000Z';

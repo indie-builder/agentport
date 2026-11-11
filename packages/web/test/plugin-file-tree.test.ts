@@ -2,7 +2,7 @@ import type { PluginFileInput } from '@agentport/shared';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PluginFileTree } from '../src/components/plugin-file-tree.js';
+import { PluginFileTree } from '../src/components/plugin/plugin-file-tree.js';
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;

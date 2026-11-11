@@ -9,7 +9,7 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Ellipsis, IdCard, Plus, Upload } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import digitalTwinPortrait from '../../assets/agents/digital-twin.png';
-import { AgentAvatar, createShowcaseAvatars } from '../../components/agent-avatar.js';
+import { AgentAvatar, createShowcaseAvatars } from '../../components/agent/agent-avatar.js';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';

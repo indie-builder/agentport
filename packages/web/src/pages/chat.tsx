@@ -38,7 +38,7 @@ import {
   useState,
 } from 'react';
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
-import { AgentPicker } from '../components/agent-picker.js';
+import { AgentPicker } from '../components/agent/agent-picker.js';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import {
   Composer,
@@ -46,10 +46,10 @@ import {
   RunFooter,
   RunReconciliation,
   runStatusText,
-} from '../components/chat-thread.js';
+} from '../components/chat/chat-thread.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { ConversationOutputs, type OutputSelection } from '../components/conversation-outputs.js';
-import { ConversationSearch } from '../components/conversation-search.js';
+import { ConversationOutputs, type OutputSelection } from '../components/chat/conversation-outputs.js';
+import { ConversationSearch } from '../components/chat/conversation-search.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';

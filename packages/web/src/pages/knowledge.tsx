@@ -21,13 +21,13 @@ import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { FilterSelect } from '../components/filter-select.js';
-import { BaseInfoDialog } from '../components/knowledge-base-info.js';
-import { DuplicateBaseDialog } from '../components/knowledge-duplicate-dialog.js';
+import { BaseInfoDialog } from '../components/knowledge/knowledge-base-info.js';
+import { DuplicateBaseDialog } from '../components/knowledge/knowledge-duplicate-dialog.js';
 import {
   KnowledgeProfilesDialog,
   KnowledgeSettingsDialog,
-} from '../components/knowledge-settings.js';
-import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge-shared.js';
+} from '../components/knowledge/knowledge-settings.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge/knowledge-shared.js';
 import {
   Collapsible,
   CollapsibleContent,

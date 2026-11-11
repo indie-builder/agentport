@@ -1,6 +1,6 @@
 import type { KnowledgeJob } from '@agentport/shared';
 import { BusinessIllustration } from '../../components/business-illustration.js';
-import { jobStatusLabel, jobStatusTone, jobTypeLabel } from '../../components/knowledge-shared.js';
+import { jobStatusLabel, jobStatusTone, jobTypeLabel } from '../../components/knowledge/knowledge-shared.js';
 import { PageNote } from '../../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';

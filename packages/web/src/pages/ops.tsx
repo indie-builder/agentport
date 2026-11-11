@@ -10,7 +10,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
-import { AgentPicker } from '../components/agent-picker.js';
+import { AgentPicker } from '../components/agent/agent-picker.js';
 import { BusinessIllustration } from '../components/business-illustration.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';

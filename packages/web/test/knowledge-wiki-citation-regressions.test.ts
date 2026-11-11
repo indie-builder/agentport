@@ -8,8 +8,8 @@ import {
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { KnowledgeCitations } from '../src/components/knowledge-citations.js';
-import { WikiTab } from '../src/components/knowledge-wiki.js';
+import { KnowledgeCitations } from '../src/components/knowledge/knowledge-citations.js';
+import { WikiTab } from '../src/components/knowledge/knowledge-wiki.js';
 
 interface Call {
   url: string;

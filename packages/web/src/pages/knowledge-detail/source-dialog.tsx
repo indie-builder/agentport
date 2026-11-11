@@ -2,7 +2,7 @@ import type { KnowledgeSourceInput } from '@agentport/shared';
 import { useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../../components/knowledge-shared.js';
+import { DraftGuardDialogs, useDraftGuard } from '../../components/knowledge/knowledge-shared.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';

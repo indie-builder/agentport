@@ -6,7 +6,7 @@ import {
   KnowledgeCitations,
   knowledgeHitsFromTool,
   stripImageReferences,
-} from '../src/components/knowledge-citations.js';
+} from '../src/components/knowledge/knowledge-citations.js';
 
 function requestUrl(input: RequestInfo | URL): string {
   return input instanceof Request ? input.url : String(input);

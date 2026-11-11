@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Hash, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { DialogShell } from '../components/dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge-shared.js';
+import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge/knowledge-shared.js';
 import {
   Page,
   PageBody,

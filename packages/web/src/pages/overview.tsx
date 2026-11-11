@@ -18,7 +18,7 @@ import {
   PageSection,
   PageTopbar,
 } from '../components/page.js';
-import { RunStatusBadge } from '../components/run-status-badge.js';
+import { RunStatusBadge } from '../components/run/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
