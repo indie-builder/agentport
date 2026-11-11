@@ -15,7 +15,6 @@ const skillFileParams = z.object({
 });
 const skillFields = skillInputSchema.shape;
 const patchSchema = z.object({
-  slug: skillFields.slug.optional(),
   name: skillFields.name.optional(),
   description: skillFields.description.optional(),
   body: skillFields.body.removeDefault().optional(),

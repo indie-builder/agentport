@@ -40,7 +40,7 @@ export async function installMarketSkill(
       if (await skills.getSkillBySourceId(deps.db, input.id)) {
         return fail('CONFLICT', '该技能已安装');
       }
-      return fail('CONFLICT', '已有同名技能占用该 slug，请先删除或重命名后再安装');
+      return fail('CONFLICT', '已有同名技能占用该 slug，请先删除后再安装');
     }
     throw err;
   }

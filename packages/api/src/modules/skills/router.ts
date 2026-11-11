@@ -59,7 +59,6 @@ export const skillsRouter = os.router({
   update: os.update.handler(async ({ context, input: routeInput }) => {
     const input = routeInput.body;
     const patch: Partial<SkillWrite> = {
-      ...(input.slug === undefined ? {} : { slug: input.slug }),
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.description === undefined ? {} : { description: input.description }),
       ...(input.body === undefined ? {} : { body: input.body }),
