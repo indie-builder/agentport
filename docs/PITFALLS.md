@@ -638,3 +638,9 @@
 - **现象**：全量 `bun run test` 时，`packages/api/test/agent-package-zip.test.ts` 与 `packages/worker/test/run-pending-finish.test.ts` 的 afterAll 报 `agents_parent_id_agents_id_fk` 违反。
 - **原因**：`agents.parent_id` 是 `onDelete: 'restrict'`；测试清理按 slug/id 批量删除专家时不保证先删子专家，先删父专家会被数据库拒绝。
 - **规避**：测试清理先按 `parent_id` 删除目标 slug 专家的直接子专家，再删除目标专家；worker 测试的清理数组按「子在前、父在后」入栈，不要只依赖单条 `delete from agents where slug = any(...)`。
+
+## 数据库：事务内按预读行计算写入集合会漏掉并发新增行
+
+- **现象**：删除来源并保留文档时，接口返回 `affected: 1`，实际该来源停用了 2 篇文档，第二篇的 Wiki 也没有标记过期；返回值与日志都正常。
+- **原因**：`deleteSource` 先 `SELECT ... FOR UPDATE` 文档并按旧行算 affected，随后才 `UPDATE` 该来源全部文档。READ COMMITTED 下同一事务不同语句的可见集合可以不同；持有来源行 `FOR UPDATE` 也挡不住没有外键约束的 `source_connection_id` 插入，而同步流程正是先 `createDocument` 再对来源取 SHARE 锁，新文档落在两条语句之间。
+- **规避**：写入行集合从变更语句的 `RETURNING` 取：keep 分支用停用的 `UPDATE ... RETURNING` 同时计算 affected 与后续 Wiki stale，不凭预读行或父行锁推断。锁序保持现状，不为此加锁。并发验证用真实 PG 锁住首篇文档让 SELECT 等待、插入第二篇后释放，并观察 `pg_locks` 确认等待关系，不用固定 sleep 推先后。

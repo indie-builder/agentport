@@ -244,6 +244,13 @@ describe('subscription preparation cancellation', () => {
             rejectPending = reject;
           }),
       );
+      if (pending === 'subscribe') {
+        redisMock.unsubscribe.mockImplementationOnce(() => {
+          throw new Error(
+            'RedisClient.prototype.unsubscribe can only be called while in subscriber mode.',
+          );
+        });
+      }
       const { lease } = fixture();
       const closing = new AbortController();
       const running = runInSandbox({

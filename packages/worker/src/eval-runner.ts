@@ -164,17 +164,16 @@ function runOneCase(
         new Error(`run ended with ${current.status}${current.error ? `: ${current.error}` : ''}`),
       );
     }
+    if (current.status === 'succeeded') {
+      const messages = yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId));
+      return { output: assistantText(messages) };
+    }
     if (Result.isFailure(completion)) {
       return yield* Effect.fail(
         Date.now() >= deadline ? new Error('run timed out') : completion.failure,
       );
     }
-    if (current.status !== 'succeeded') {
-      return yield* Effect.fail(new Error(`run ended with ${current.status}`));
-    }
-
-    const messages = yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId));
-    return { output: assistantText(messages) };
+    return yield* Effect.fail(new Error(`run ended with ${current.status}`));
   });
 }
 

@@ -1019,9 +1019,11 @@ function subscribeCancel(
           if (handlers?.size === 0) cancelHandlers.delete(channel);
           signal?.removeEventListener('abort', onCancel);
           // 同一连接按序发送 UNSUBSCRIBE，不能等它的 ACK 把 shutdown 再次挂住。
-          void redis.unsubscribe(channel, handler).catch((err: unknown) => {
-            logger.warn({ err, runId }, 'cancel unsubscribe failed');
-          });
+          void Promise.resolve()
+            .then(() => redis.unsubscribe(channel, handler))
+            .catch((err: unknown) => {
+              logger.warn({ err, runId }, 'cancel unsubscribe failed');
+            });
         }),
     );
     yield* Effect.tryPromise({
