@@ -19,7 +19,7 @@ import { z } from 'zod';
 import { useKnowledgeSearch } from '../src/lib/queries.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { KnowledgePage } from '../src/pages/knowledge.js';
-import { KnowledgeDetailPage } from '../src/pages/knowledge-detail.js';
+import { KnowledgeDetailPage } from '../src/pages/knowledge-detail/index.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 

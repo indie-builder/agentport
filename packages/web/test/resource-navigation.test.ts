@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../src/components/confirm-dialog.js';
 import { ResourcePage } from '../src/components/resource-page.js';
 import { ApiError, api } from '../src/lib/api.js';
-import { AgentEditor } from '../src/pages/agents.js';
+import { AgentEditor } from '../src/pages/agents/index.js';
 import { ServerFormDialog, ServersPage } from '../src/pages/servers.js';
 import { SkillsPage } from '../src/pages/skills.js';
 

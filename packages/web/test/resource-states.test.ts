@@ -21,7 +21,7 @@ import { Switch } from '../src/components/ui/switch.js';
 import { Textarea } from '../src/components/ui/textarea.js';
 import { Toggle } from '../src/components/ui/toggle.js';
 import { api } from '../src/lib/api.js';
-import { AgentEditor, AgentsPage } from '../src/pages/agents.js';
+import { AgentEditor, AgentsPage } from '../src/pages/agents/index.js';
 import { ServersPage } from '../src/pages/servers.js';
 import { allAccessMe } from './me-fixture.js';
 

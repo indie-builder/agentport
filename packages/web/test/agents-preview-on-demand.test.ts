@@ -3,7 +3,7 @@ import { type Agent, PERMISSIONS } from '@agentport/shared';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AgentEditor } from '../src/pages/agents.js';
+import { AgentEditor } from '../src/pages/agents/index.js';
 
 vi.mock('@/components/ui/button', () => import('../src/components/ui/button.js'));
 vi.mock('@/components/ui/input-group', () => import('../src/components/ui/input-group.js'));

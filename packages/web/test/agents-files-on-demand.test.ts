@@ -12,7 +12,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
-import { AgentEditor } from '../src/pages/agents.js';
+import { AgentEditor } from '../src/pages/agents/index.js';
 import { agentDetailSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 

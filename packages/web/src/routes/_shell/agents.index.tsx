@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { AgentsPage } from '../../pages/agents.js';
+import { AgentsPage } from '../../pages/agents/index.js';
 import { agentsSearchSchema } from '../-search.js';
 
 export const Route = createFileRoute('/_shell/agents/')({
