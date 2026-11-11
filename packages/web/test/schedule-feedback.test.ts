@@ -21,7 +21,7 @@ vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn
 
 const msw = createMsw();
 
-const agent = { id: 'agent-1', name: 'Expert A' } as Agent;
+const agent = { id: 'agent-1', name: 'Expert A', isDefault: false } as Agent;
 const schedule: Schedule = {
   id: 'sch_1',
   agentId: 'agent-1',

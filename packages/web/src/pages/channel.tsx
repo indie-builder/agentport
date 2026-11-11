@@ -615,7 +615,7 @@ function ChannelWorkspace({
               channel={channel}
               businessId={businessId}
               role={channelRole}
-              agents={agents.data ?? []}
+              agents={(agents.data ?? []).filter((agent) => !agent.isDefault)}
             />
           </div>
           {channel.description ? (

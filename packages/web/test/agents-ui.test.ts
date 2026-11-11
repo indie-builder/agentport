@@ -86,8 +86,8 @@ vi.mock('../src/lib/queries.js', () => ({
     queryKey: ['me'],
     queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
   },
-  useAgents: () => ({
-    data: state.agents,
+  useExperts: () => ({
+    data: state.agents.filter((agent) => !agent.isDefault),
     isPending: state.agentsPending,
     isError: state.agentsError,
     error: new Error('Agents unavailable'),
@@ -196,6 +196,7 @@ const parent = {
   maxBudgetUsd: 2,
   timeoutMs: 600_000,
   enabled: true,
+  isDefault: false,
   parentId: null,
   runtimeEnvironmentId: null,
   createdAt: '2026-01-01',

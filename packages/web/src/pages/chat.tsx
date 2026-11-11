@@ -8,7 +8,7 @@ import {
   type PublicRunQuestion,
 } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
+import { useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Bot,
   Check,
@@ -39,7 +39,6 @@ import {
 } from 'react';
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 import { AgentPicker } from '../components/agent/agent-picker.js';
-import { BusinessIllustration } from '../components/business-illustration.js';
 import {
   Composer,
   MessagePane,
@@ -47,14 +46,17 @@ import {
   RunReconciliation,
   runStatusText,
 } from '../components/chat/chat-thread.js';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { ConversationOutputs, type OutputSelection } from '../components/chat/conversation-outputs.js';
+import {
+  ConversationOutputs,
+  type OutputSelection,
+} from '../components/chat/conversation-outputs.js';
 import { ConversationSearch } from '../components/chat/conversation-search.js';
+import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
+import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
@@ -92,19 +94,17 @@ import type {
   OpenUiToolCallInput,
 } from '../openui/renderer.js';
 
+const EMPTY_AGENTS: AgentSummary[] = [];
+
 export function ChatPage() {
   const search = useSearch({ from: '/_shell/chat' });
   const navigate = useNavigate();
   const agents = useAgents();
-  const me = useQuery(meQuery);
-  const canCreate = can(me.data, 'agents.create');
-  const canReadAgents = can(me.data, 'agents.read');
   const conversationId = search.conversation ?? null;
   const detail = useConversation(conversationId);
 
   // 已打开会话时，服务端记录才是真相；URL 只是它的镜像。
   const serverAgentId = detail.data?.conversation.agentId ?? null;
-  // 裸 /chat 不替用户挑第一位专家；必须由 URL 或已有会话明确归属。
   const activeAgentId = serverAgentId ?? search.agent ?? null;
 
   // URL 里的 agent 与会话不一致时，用会话的真实归属校正 URL（replace，不进历史）。
@@ -121,51 +121,13 @@ export function ChatPage() {
     void navigate({ to: '/chat', search: {}, replace: true });
   };
 
-  // 只有还没有缓存数据时才整页替换。已有专家缓存但后台刷新失败时继续渲染工作区，
-  // 否则 cleanup 会清掉未发送附件、草稿与当前会话，错误改由工作区内提示并可重试。
-  if (!agents.data || agents.data.length === 0) {
-    return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
-        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
-        {agents.isPending ? (
-          <LoadingState rows={3} />
-        ) : agents.isError ? (
-          <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
-        ) : me.isPending ? (
-          <LoadingState rows={3} />
-        ) : me.isError ? (
-          <ErrorState error={me.error} onRetry={() => void me.refetch()} />
-        ) : canCreate ? (
-          <EmptyState
-            illustration={<BusinessIllustration name="agents" />}
-            title="先创建一位专家"
-            description="创建后即可在这里开始对话。"
-            action={
-              <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
-                前往专家
-              </Link>
-            }
-          />
-        ) : (
-          <EmptyState
-            illustration={<BusinessIllustration name="agents" />}
-            title="暂无可用专家"
-            description="请联系管理员分配。"
-            action={
-              canReadAgents ? (
-                <Link to="/agents" className={buttonVariants({ variant: 'outline' })}>
-                  前往专家
-                </Link>
-              ) : undefined
-            }
-          />
-        )}
-      </Page>
-    );
-  }
-
   // URL 指向的 agent 不存在：不静默改成第一个，免得把消息发给别的 agent。
-  if (!conversationId && search.agent && !agents.data.some((item) => item.id === search.agent)) {
+  if (
+    !conversationId &&
+    search.agent &&
+    agents.isSuccess &&
+    !agents.data.some((item) => item.id === search.agent)
+  ) {
     return (
       <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
         <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
@@ -187,7 +149,7 @@ export function ChatPage() {
   // 不会因为新会话的数据刚到就卸载整个工作区、掐断事件流。
   return (
     <ChatWorkspace
-      agents={agents.data}
+      agents={agents.data ?? EMPTY_AGENTS}
       agentId={activeAgentId}
       conversationId={conversationId}
       agentsError={agents.isError ? agents.error : null}
@@ -225,7 +187,8 @@ export function ChatPage() {
                   outputMode: previous.outputMode,
                 }
               : {}),
-            ...(activeAgentId && agents.data.some((item) => item.id === activeAgentId)
+            ...(activeAgentId &&
+            agents.data?.some((item) => item.id === activeAgentId && !item.isDefault)
               ? { agent: activeAgentId }
               : {}),
             ...(id ? { conversation: id } : {}),
@@ -234,7 +197,7 @@ export function ChatPage() {
         });
       }}
       onAgentChange={(id) => {
-        void navigate({ to: '/chat', search: { agent: id } });
+        void navigate({ to: '/chat', search: id === null ? {} : { agent: id } });
       }}
       // 搜索结果一次导航同时写入专家与会话；不能走 switchAgent，那会清空目标会话。
       onSelectSearchResult={(item) => {
@@ -277,15 +240,17 @@ function ChatWorkspace({
   output: OutputSelection | null;
   onSelectOutput: (selection: OutputSelection) => void;
   onConversationChange: (conversationId: string | null, replace?: boolean) => void;
-  onAgentChange: (agentId: string) => void;
+  onAgentChange: (agentId: string | null) => void;
   onSelectSearchResult: (item: ConversationSearchItem) => void;
 }) {
   const agent = agents.find((item) => item.id === agentId) ?? null;
-  const agentOptions = agents.map((item) => ({
-    value: item.id,
-    label: item.name,
-    agent: item,
-  }));
+  const agentOptions = agents
+    .filter((item) => item.enabled && !item.isDefault)
+    .map((item) => ({
+      value: item.id,
+      label: item.name,
+      agent: item,
+    }));
   const items = useChatStore((state) => state.items);
   const phase = useChatStore((state) => state.phase);
   const runId = isActivePhase(phase) ? phase.runId : null;
@@ -364,8 +329,8 @@ function ChatWorkspace({
 
   // 空态或运行结束后把焦点交还输入框，键盘用户不用再找一次。
   useEffect(() => {
-    if (agentId && !running && items.length === 0) composerRef.current?.focus();
-  }, [agentId, running, items.length]);
+    if (!running && items.length === 0) composerRef.current?.focus();
+  }, [running, items.length]);
 
   const history = useMemo(
     () =>
@@ -546,7 +511,7 @@ function ChatWorkspace({
     });
   }, [detail.hasNextPage, detail.isFetching, detail.fetchNextPage, running]);
 
-  const switchAgent = (id: string): void => {
+  const switchAgent = (id: string | null): void => {
     if (id === agentId) return;
     stream.closeStream();
     stream.hydratedRef.current = null;
@@ -567,7 +532,6 @@ function ChatWorkspace({
       history={history}
       // 未选专家时 query 是 disabled，isPending 会一直是 true；这里据此显示真实空态。
       pending={agentId !== null && conversations.isPending}
-      hasAgent={agentId !== null}
       error={conversations.isError ? conversations.error : null}
       onRetry={() => void conversations.refetch()}
       conversationId={conversationId}
@@ -649,11 +613,14 @@ function ChatWorkspace({
     <ChatColumn
       header={header}
       agent={agent}
+      agentId={agentId}
       conversationId={conversationId}
       detail={detail}
       agentsError={agentsError}
       onRetryAgents={onRetryAgents}
-      historyReady={conversationId === null || hydrated.current === conversationId}
+      historyReady={
+        conversationId === null || (agentId !== null && hydrated.current === conversationId)
+      }
       runApprovals={runApprovals}
       onRetryStream={stream.retryStream}
       reconcileRun={stream.reconcileRun}
@@ -951,7 +918,7 @@ function ChatTopBar({
   agentOptions: Array<{ value: string; label: string; agent?: AgentSummary }>;
   /** 桌面历史展开或窄屏抽屉打开时，专家选择交给历史头部。 */
   showAgentPicker: boolean;
-  onSwitchAgent: (id: string) => void;
+  onSwitchAgent: (id: string | null) => void;
   historyVisible: boolean;
   historyPanelId: string;
   onToggleHistory: () => void;
@@ -1000,12 +967,24 @@ function ChatTopBar({
       {showAgentPicker ? (
         <div className="min-w-0 shrink basis-44">
           <AgentPicker
-            agent={agent}
+            agent={agent?.isDefault ? null : agent}
             agentId={agent?.id ?? null}
             agentOptions={agentOptions}
             onSwitchAgent={onSwitchAgent}
+            placeholder="通用助手"
+            triggerAriaLabel={agent && !agent.isDefault ? `切换专家：${agent.name}` : '召唤专家'}
+            disabled={agentOptions.length === 0}
           />
         </div>
+      ) : null}
+      {showAgentPicker && agent && !agent.isDefault ? (
+        <Button
+          variant="ghost"
+          aria-label="移除专家，回到通用助手"
+          onClick={() => onSwitchAgent(null)}
+        >
+          移除专家
+        </Button>
       ) : null}
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <h1
@@ -1240,22 +1219,36 @@ function HistoryHeader({
   agent?: AgentSummary | null;
   agentId?: string | null;
   agentOptions?: Array<{ value: string; label: string; agent?: AgentSummary }>;
-  onSwitchAgent?: (id: string) => void;
+  onSwitchAgent?: (id: string | null) => void;
 }) {
   return (
     <div className="flex h-14 shrink-0 items-center gap-1 px-3">
       {agentOptions && onSwitchAgent ? (
         <div className="min-w-0 flex-1">
           <AgentPicker
-            agent={agent ?? null}
+            agent={agent?.isDefault ? null : (agent ?? null)}
             agentId={agentId ?? null}
             agentOptions={agentOptions}
             onSwitchAgent={onSwitchAgent}
+            placeholder="通用助手"
+            triggerAriaLabel={agent && !agent.isDefault ? `切换专家：${agent.name}` : '召唤专家'}
+            disabled={agentOptions.length === 0}
           />
         </div>
       ) : (
         <div className="flex-1" />
       )}
+      {agent && !agent.isDefault && onSwitchAgent ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="移除专家，回到通用助手"
+          title="移除专家"
+          onClick={() => onSwitchAgent(null)}
+        >
+          <X />
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         size="icon"
@@ -1283,7 +1276,6 @@ interface HistoryEntry {
 function HistoryPanel({
   history,
   pending,
-  hasAgent,
   error,
   onRetry,
   conversationId,
@@ -1295,7 +1287,6 @@ function HistoryPanel({
 }: {
   history: HistoryEntry[];
   pending: boolean;
-  hasAgent: boolean;
   error: unknown;
   onRetry: () => void;
   conversationId: string | null;
@@ -1323,9 +1314,7 @@ function HistoryPanel({
         {pending ? <LoadingState rows={4} /> : null}
         {error ? <ErrorState error={error} onRetry={onRetry} /> : null}
         {history.length === 0 && !pending && !error ? (
-          <p className="px-2 py-5 text-sm text-muted-foreground">
-            {hasAgent ? '开始对话后，记录会出现在这里。' : '先选择专家。'}
-          </p>
+          <p className="px-2 py-5 text-sm text-muted-foreground">开始对话后，记录会出现在这里。</p>
         ) : null}
         <ul className="flex flex-col gap-0.5">
           {history.map((conversation) => (
@@ -1405,6 +1394,7 @@ function HistoryPanel({
 function ChatColumn({
   header,
   agent,
+  agentId,
   conversationId,
   detail,
   agentsError,
@@ -1440,6 +1430,7 @@ function ChatColumn({
   /** 消息列专属头部，在消息页内、消息流之前渲染。 */
   header: ReactNode;
   agent: AgentSummary | null;
+  agentId: string | null;
   conversationId: string | null;
   detail: ReturnType<typeof useConversation>;
   agentsError: unknown | null;
@@ -1518,6 +1509,7 @@ function ChatColumn({
   const composer = (
     <Composer
       agent={agent}
+      enabled={agentId === null || agent !== null}
       send={send}
       textareaRef={composerRef}
       lastRunId={lastRunId}
@@ -1649,8 +1641,7 @@ function ChatColumn({
           />
         ) : null}
 
-        {/* 建议入口在输入框上方 8px，只有欢迎且已选专家时出现；点击只填草稿。 */}
-        {showWelcome && agent ? (
+        {showWelcome && (agentId === null || agent !== null) ? (
           <div className="mx-auto flex w-full max-w-220 shrink-0 flex-wrap gap-2 px-6 pb-2">
             {welcomeSuggestions.map(({ label, icon: Icon, prompt }) => (
               <Button

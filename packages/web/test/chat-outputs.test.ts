@@ -36,6 +36,7 @@ const adminMe = {
 const agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'agent-a',
+  isDefault: false,
   parentId: null,
   createdAt: '',
   updatedAt: '',
@@ -2121,13 +2122,13 @@ describe('default expert selection', () => {
     const panel = host.querySelector<HTMLElement>('aside[aria-label="会话历史"]');
     if (!panel) throw new Error('Missing history panel');
     expect(panel.querySelector('[aria-busy="true"]')).toBeNull();
-    expect(panel.textContent).toContain('先选择专家');
+    expect(panel.textContent).toContain('开始对话后，记录会出现在这里。');
     expect(api.conversations).not.toHaveBeenCalled();
 
     // 专家选择随历史展开进入面板头部；历史仍显示真实空态。
-    const picker = panel.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
+    const picker = panel.querySelector<HTMLButtonElement>('button[aria-label="召唤专家"]');
     if (!picker) throw new Error('Missing history header expert picker');
-    expect(host.querySelectorAll('button[aria-label="选择专家"]')).toHaveLength(1);
+    expect(host.querySelectorAll('button[aria-label="召唤专家"]')).toHaveLength(1);
     await act(async () => picker.click());
     await flush();
     const choice = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>
@@ -2141,14 +2142,14 @@ describe('default expert selection', () => {
     expect(panel.querySelector('[aria-busy="true"]')).toBeNull();
   });
 
-  it('waits for an explicit expert on bare /chat instead of selecting the first one', async () => {
+  it('allows bare chat without selecting the first expert', async () => {
     useTwoAgents();
     await mount('/chat');
     expect(router.state.location.search).toEqual({});
-    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
-    expect(picker?.textContent).toContain('选择专家');
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="召唤专家"]');
+    expect(picker?.textContent).toContain('通用助手');
     expect(picker?.textContent).not.toContain(agent.name);
-    expect(message().disabled).toBe(true);
+    expect(message().disabled).toBe(false);
 
     await act(async () => picker?.click());
     await flush();
@@ -2166,7 +2167,7 @@ describe('default expert selection', () => {
     useTwoAgents();
     await mount('/chat?agent=agent-b');
     expect(
-      host.querySelector<HTMLButtonElement>('button[aria-label="选择专家：Other Expert"]'),
+      host.querySelector<HTMLButtonElement>('button[aria-label="切换专家：Other Expert"]'),
     ).not.toBeNull();
     expect(router.state.location.search).toEqual({ agent: 'agent-b' });
   });
@@ -2180,7 +2181,7 @@ describe('default expert selection', () => {
       conversation: 'conversation-a',
     });
     expect(
-      host.querySelector<HTMLButtonElement>('button[aria-label="选择专家：Expert"]'),
+      host.querySelector<HTMLButtonElement>('button[aria-label="切换专家：Expert"]'),
     ).not.toBeNull();
   });
 });
@@ -2271,7 +2272,7 @@ describe('output refresh and conversation isolation', () => {
     if (!toggle) throw new Error('Missing history toggle');
     await act(async () => toggle.click());
     await flush();
-    const picker = host.querySelector<HTMLButtonElement>('button[aria-label^="选择专家"]');
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label^="切换专家"]');
     if (!picker) throw new Error('Missing expert picker');
     await act(async () => picker.click());
     await flush();

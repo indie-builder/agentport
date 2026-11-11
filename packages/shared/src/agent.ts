@@ -136,6 +136,7 @@ export const agentSchema = agentInputSchema.extend({ role: z.string().default('�
     ownerBusinessId: z.string(),
     /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
     parentId: z.string().nullable(),
+    isDefault: z.boolean(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),
@@ -149,6 +150,7 @@ export const agentSummarySchema = z.object({
   name: z.string(),
   description: z.string(),
   enabled: z.boolean(),
+  isDefault: z.boolean(),
   createdBy: z.string(),
   ownerBusinessId: z.string(),
   role: z.string().optional(),

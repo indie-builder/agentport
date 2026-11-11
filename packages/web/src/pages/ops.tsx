@@ -72,7 +72,7 @@ import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { fieldErrors } from '../lib/form.js';
 import { formatRelative, formatUtcDateTime } from '../lib/format.js';
-import { meQuery, useAgents, useSchedules } from '../lib/queries.js';
+import { meQuery, useExperts, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -253,7 +253,7 @@ export function SchedulesPage() {
     void navigate({ to: '/schedules', search: { ...search, view: next }, replace: true });
   };
   const schedules = useSchedules();
-  const agents = useAgents();
+  const agents = useExperts();
   const me = useQuery(meQuery);
   const canManage = can(me.data, 'schedules.manage');
   // 专家列表失败只影响新建/编辑里的专家选择；列表页本身仍可用，错误在弹层内展示。

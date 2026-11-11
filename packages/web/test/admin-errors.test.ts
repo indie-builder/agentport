@@ -42,6 +42,7 @@ vi.mock('../src/lib/queries.js', () => ({
     data: { permissionIds: ['eval.read', 'eval.manage', 'eval.execute'] },
   }),
   useAgents: () => ({ data: [{ id: 'agent', name: 'Expert' }], isSuccess: true }),
+  useExperts: () => ({ data: [{ id: 'agent', name: 'Expert', isDefault: false }], isSuccess: true }),
   useEvalCases: () => ({ data: [], isSuccess: true }),
   useEvalRuns: () => ({
     data: { pages: [{ items: [state.detail.evalRun], nextCursor: null }] },

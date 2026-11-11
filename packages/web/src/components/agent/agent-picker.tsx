@@ -98,9 +98,18 @@ export function AgentPicker({
           render={
             <Button
               variant="ghost"
-              aria-label={agent ? `选择专家：${agent.name}` : '选择专家'}
+              ref={triggerRef}
+              onBlur={onBlur}
+              disabled={disabled}
+              id={triggerId}
+              aria-label={triggerAriaLabel ?? (agent ? `选择专家：${agent.name}` : placeholder)}
+              aria-invalid={ariaInvalid}
+              aria-describedby={ariaDescribedby}
               title="切换专家"
-              className="h-8 w-full min-w-0 justify-start gap-2 px-2 font-normal"
+              className={cn(
+                'h-8 w-full min-w-0 justify-start gap-2 px-2 font-normal',
+                triggerClassName,
+              )}
             />
           }
         >
@@ -110,7 +119,7 @@ export function AgentPicker({
             <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
           )}
           <span className="min-w-0 flex-1 truncate text-left text-sm text-fg">
-            {agent?.name ?? '选择专家'}
+            {agent?.name ?? selectedLabel ?? placeholder}
           </span>
         </ComboboxTrigger>
       )}

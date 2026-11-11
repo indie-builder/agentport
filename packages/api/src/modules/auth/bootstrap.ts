@@ -56,6 +56,13 @@ async function seedDefaultRoles(tx: Transaction): Promise<string> {
   return admin.id;
 }
 
+export async function ensureDefaultAssistant(db: Database): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport:bootstrap'))`);
+    await repo.agents.ensureDefaultAgent(tx, BOOTSTRAP_ADMIN_BUSINESS_ID);
+  });
+}
+
 /**
  * 仅首次安装时播种管理员。marker 一旦存在就永不重播环境密码；
  * 已有启用中的系统管理员时只记初始化完成，不改其密码/身份/角色。
@@ -64,6 +71,8 @@ export async function ensureBootstrap(db: Database, config: Config): Promise<voi
   await db.transaction(async (tx) => {
     // 并发首登时只有一个事务能看见「未初始化」。
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport:bootstrap'))`);
+
+    await repo.agents.ensureDefaultAgent(tx, BOOTSTRAP_ADMIN_BUSINESS_ID);
 
     const [initialized] = await tx
       .select({

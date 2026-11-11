@@ -20,6 +20,7 @@ vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'expert',
+  isDefault: false,
   parentId: null,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
@@ -99,6 +100,13 @@ async function mount(component: typeof ChatPage | typeof AgentsPage, initialEntr
 }
 
 beforeEach(() => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+  }));
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -122,39 +130,43 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe('chat empty state follows agent permissions', () => {
-  it('offers the original creation step to an account that can create experts', async () => {
+describe('chat workspace without experts', () => {
+  it('keeps bare chat available to an account that can create experts', async () => {
     client.setQueryData(['agents'], []);
     client.setQueryData(['me'], creatorMe);
     await mount(ChatPage, '/chat');
-    await waitFor(() => host.textContent?.includes('先创建一位专家'));
-    expect(host.textContent).toContain('创建后即可在这里开始对话。');
-    expect(host.textContent).toContain('前往专家');
-  });
-
-  it('does not tell a reader to create an expert and points to the expert list', async () => {
-    client.setQueryData(['agents'], []);
-    client.setQueryData(['me'], readerMe);
-    await mount(ChatPage, '/chat');
-    await waitFor(() => host.textContent?.includes('暂无可用专家'));
-    expect(host.textContent).toContain('请联系管理员分配。');
-    expect(host.textContent).not.toContain('先创建一位专家');
-    expect(host.textContent).toContain('前往专家');
-  });
-
-  it('does not link to the expert list without agents.read', async () => {
-    client.setQueryData(['agents'], []);
-    client.setQueryData(['me'], noAgentReadMe);
-    await mount(ChatPage, '/chat');
-    await waitFor(() => host.textContent?.includes('暂无可用专家'));
+    const composer = await waitFor(() => host.querySelector<HTMLTextAreaElement>('textarea'));
+    expect(composer).not.toBeNull();
+    expect(composer?.disabled).toBe(false);
+    expect(host.textContent).toContain('通用助手');
     expect(host.textContent).not.toContain('前往专家');
   });
 
-  it('does not show creation guidance while permissions are unknown', async () => {
+  it('keeps the workspace visible for a reader without assigned experts', async () => {
+    client.setQueryData(['agents'], []);
+    client.setQueryData(['me'], readerMe);
+    await mount(ChatPage, '/chat');
+    expect(host.querySelector('textarea')).not.toBeNull();
+    expect(host.textContent).toContain('通用助手');
+    expect(host.textContent).not.toContain('先创建一位专家');
+    expect(host.textContent).not.toContain('请联系管理员分配。');
+  });
+
+  it('keeps bare chat visible without agents.read', async () => {
+    client.setQueryData(['agents'], []);
+    client.setQueryData(['me'], noAgentReadMe);
+    await mount(ChatPage, '/chat');
+    expect(host.querySelector('textarea')).not.toBeNull();
+    expect(host.textContent).toContain('通用助手');
+    expect(host.textContent).not.toContain('前往专家');
+  });
+
+  it('keeps the workspace mounted while permissions are unknown', async () => {
     client.setQueryData(['agents'], []);
     vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(() => {}));
     await mount(ChatPage, '/chat');
-    await waitFor(() => host.querySelector('[role="status"][aria-label="加载中"]'));
+    expect(host.querySelector('textarea')).not.toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')?.disabled).toBe(true);
     expect(host.textContent).not.toContain('先创建一位专家');
     expect(host.textContent).not.toContain('暂无可用专家');
   });
@@ -174,8 +186,11 @@ describe('agent list empty state follows agent permissions', () => {
     expect(host.textContent).not.toContain('暂无可用专家');
   });
 
-  it('explains an unassigned reader without claiming the platform has no experts', async () => {
-    client.setQueryData(['agents'], []);
+  it('explains an unassigned reader without listing the default assistant as an expert', async () => {
+    client.setQueryData(
+      ['agents'],
+      [{ ...agent, id: 'assistant', name: '通用助手', isDefault: true }],
+    );
     client.setQueryData(['me'], readerMe);
     client.setQueryData(['runtime-environments'], []);
     await mount(AgentsPage, '/agents');

@@ -645,6 +645,24 @@
 - **原因**：`deleteSource` 先 `SELECT ... FOR UPDATE` 文档并按旧行算 affected，随后才 `UPDATE` 该来源全部文档。READ COMMITTED 下同一事务不同语句的可见集合可以不同；持有来源行 `FOR UPDATE` 也挡不住没有外键约束的 `source_connection_id` 插入，而同步流程正是先 `createDocument` 再对来源取 SHARE 锁，新文档落在两条语句之间。
 - **规避**：写入行集合从变更语句的 `RETURNING` 取：keep 分支用停用的 `UPDATE ... RETURNING` 同时计算 affected 与后续 Wiki stale，不凭预读行或父行锁推断。锁序保持现状，不为此加锁。并发验证用真实 PG 锁住首篇文档让 SELECT 等待、插入第二篇后释放，并观察 `pg_locks` 确认等待关系，不用固定 sleep 推先后。
 
+## 默认助手：默认解析点必须唯一
+
+- **现象**：裸聊由前端回填或计算默认 id 后再发送，服务端与前端各自解析默认，默认行变化或多端并发时两处结果不一致，会话可能绑到错误专家。
+- **原因**：默认对象是运行数据，前端缓存与会话摘要可能滞后；把解析拆到多处就失去唯一真源。
+- **规避**：唯一解析点是 server `startRun` 的 `agentId ?? getDefaultAgent().id`，DB 按 `is_default` 查询；前端裸聊只省略 `agentId`，不新增默认查询接口、不解析默认 id。
+
+## 前端：会话绑定 ID 回填会触发 SSE 关流
+
+- **现象**：裸 `/chat` 首次发送已连上 SSE，收到会话详情后流被立刻关闭，页面停在重连或断流状态。
+- **原因**：`useChatStream` 内 agentId 从 null 回填为真实默认 id 会命中 agent 变更 effect；普通专家切换需要关流，但同一次提交的权威回填不应关流。
+- **规避**：拆分 effect：mount/unmount 只依赖 `closeStream`；agent 变更 effect 用前一 agentId 判断，唯一不关流情形是「前值 null + 当前 conversation 的 agentId 回填为真实 id + `hydratedRef` 属于该会话」。真实专家切换、切会话与账号 reset 仍作废流。
+
+## 数据库：partial unique index 只保证「至多一个」，不保证「恰好一个」
+
+- **现象**：`agents_single_default_idx` 已存在，空库或默认行被删后仍可能没有任何默认助手，裸聊解析不到 agent。
+- **原因**：partial unique index 只约束 `is_default = true` 的行最多一行，缺少默认行不会报错；它与该索引条件被序列化成 `$1` 是两件不同的事。
+- **规避**：恰好一个由启动时幂等播种 `ensureDefaultAssistant`（bootstrap 与 `buildApp` 共用同一 `agentport:bootstrap` 锁）保证；默认对象由授权规则禁止改/删，播种重复执行不改配置、ID 与版本。不要用索引或 SQL 唯一性检查代替播种。
+
 ## 来源鉴权：派生更新回滚不代表已经撤权
 
 - **现象**：真实队列收到 GitLab HTTP 401 后，文档停用触发器报错，来源仍是 active，两篇文档、两页 Wiki 和两个检索命中仍可读。把来源状态、文档停用和 Wiki stale 全放进 `replaceSourceScope` 事务，Wiki 触发器失败后也会完整回滚到可读状态。

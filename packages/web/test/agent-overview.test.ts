@@ -36,6 +36,7 @@ const agent: Agent = {
   }),
   id: 'expert',
   role: '内容运营',
+  isDefault: false,
   parentId: null,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-02-02T08:00:00Z',

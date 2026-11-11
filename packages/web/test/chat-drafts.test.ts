@@ -28,6 +28,7 @@ const adminMe = {
 const agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'agent-a',
+  isDefault: false,
   parentId: null,
   createdAt: '',
   updatedAt: '',
@@ -35,6 +36,7 @@ const agent = {
 const other = {
   ...agentInputSchema.parse({ slug: 'other', name: 'Other Expert' }),
   id: 'agent-b',
+  isDefault: false,
   parentId: null,
   createdAt: '',
   updatedAt: '',
@@ -453,7 +455,7 @@ describe('conversation drafts', () => {
         host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]')?.click(),
       );
       await flush();
-      const picker = host.querySelector<HTMLButtonElement>('button[aria-label^="选择专家"]');
+      const picker = host.querySelector<HTMLButtonElement>('button[aria-label^="切换专家"]');
       if (!picker) throw new Error('Missing expert picker');
       await act(async () => picker.click());
       await flush();

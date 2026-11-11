@@ -64,7 +64,6 @@ import {
 } from '../lib/format.js';
 import {
   useAgentAccess,
-  useAgents,
   useCancelEvalRun,
   useCreateEvalCase,
   useDeleteEvalCase,
@@ -72,6 +71,7 @@ import {
   useEvalComparison,
   useEvalRun,
   useEvalRuns,
+  useExperts,
   useImportEvalDataset,
   useStartEvalRun,
   useUpdateEvalCase,
@@ -218,7 +218,7 @@ type EvalSearchPatch = {
 };
 
 export function EvalPage() {
-  const agents = useAgents();
+  const agents = useExperts();
   const navigate = useNavigate();
   // 专家、选中的运行和比较两侧都放在 URL 里：刷新、分享、前进后退都保留。
   const search = useSearch({ from: '/_shell/eval' });
