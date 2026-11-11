@@ -3,7 +3,6 @@ import { lstat, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promise
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import {
@@ -18,6 +17,7 @@ import {
   type PluginFileInput,
   pluginFileInputSchema,
 } from '@agentport/shared';
+import { readTask } from './stdin-task.js';
 
 /**
  * 容器内入口：在一次性沙盒里调用官方 Claude Code CLI 安装/枚举/读取市场插件，
@@ -404,25 +404,10 @@ export async function runNativePluginAction(
   }
 }
 
-/** 只取第一行，不读 EOF：宿主写完任务后保持 stdin 打开。 */
-async function readTask(): Promise<unknown> {
-  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  try {
-    for await (const line of rl) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      return JSON.parse(trimmed);
-    }
-  } finally {
-    rl.close();
-  }
-  throw new Error('stdin closed before the native plugin task arrived');
-}
-
 async function main(): Promise<void> {
   let output: NativePluginOutput;
   try {
-    const parsed = nativePluginActionSchema.safeParse(await readTask());
+    const parsed = nativePluginActionSchema.safeParse(await readTask('native plugin task'));
     if (!parsed.success) throw new Error('原生插件任务格式无效');
     output = await runNativePluginAction(parsed.data);
   } catch (err) {

@@ -4,6 +4,7 @@ import TurndownService from 'turndown';
 import { z } from 'zod';
 import { probeConfluence, readConfluence } from './source-confluence.js';
 import { probeDingtalk, readDingtalk } from './source-dingtalk.js';
+import { BINARY_MIME_BY_EXTENSION, extensionOf, TEXT_MIME_BY_EXTENSION } from './source-formats.js';
 import {
   type FetchOptions,
   fetchBytes,
@@ -22,6 +23,7 @@ import { probeNextcloud, readNextcloud } from './source-nextcloud.js';
 import { probeNotion, readNotion } from './source-notion.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import { probeSeafile, readSeafile } from './source-seafile.js';
+import { encodePathSegments, signalOption } from './source-utils.js';
 import { probeYuque, readYuque } from './source-yuque.js';
 
 export { SourceAuthError, validateSourceUrl } from './source-http.js';
@@ -323,43 +325,12 @@ async function readRss(
 // ---------------------------------------------------------------------------
 
 const MIME_BY_EXTENSION: Record<string, string> = {
-  '.md': 'text/markdown',
-  '.markdown': 'text/markdown',
-  '.mdx': 'text/markdown',
-  '.txt': 'text/plain',
-  '.html': 'text/html',
-  '.htm': 'text/html',
-  '.csv': 'text/csv',
-  '.json': 'application/json',
-  '.xml': 'application/xml',
-  '.yaml': 'application/yaml',
-  '.yml': 'application/yaml',
+  ...TEXT_MIME_BY_EXTENSION,
   '.rst': 'text/plain',
   '.adoc': 'text/plain',
 };
 
-/** 解析器（Docling/图片）支持的原字节格式；仓库与网盘按 MIME 交给 parser，不在 source 层解码。 */
-const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.doc': 'application/msword',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.ppt': 'application/vnd.ms-powerpoint',
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.xls': 'application/vnd.ms-excel',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.odt': 'application/vnd.oasis.opendocument.text',
-  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
-  '.odp': 'application/vnd.oasis.opendocument.presentation',
-  '.rtf': 'application/rtf',
-  '.epub': 'application/epub+zip',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-};
-
-/** 响应 Content-Type 反查后缀；只认上面两张表里的格式，octet-stream 不是格式证据。 */
+/** 响应 Content-Type 反查后缀；只认文本与二进制格式表，octet-stream 不是格式证据。 */
 const EXTENSION_BY_MIME: Record<string, string> = {};
 for (const [extension, mime] of Object.entries({
   ...MIME_BY_EXTENSION,
@@ -385,11 +356,6 @@ const gitlabConfigSchema = z.object({
   paths: z.array(z.string()).optional(),
 });
 
-function extensionOf(path: string): string {
-  const dot = path.lastIndexOf('.');
-  return dot < 0 ? '' : path.slice(dot).toLowerCase();
-}
-
 /**
  * 下载响应头可能缺失或误报文本；扩展名指向的格式优先，未知原件保持字节交给 parser。
  */
@@ -405,11 +371,6 @@ function driveFileMime(fileName: string, contentType: string | null): string {
 function inScope(file: string, roots: string[]): boolean {
   if (roots.length === 0) return true;
   return roots.some((root) => file === root || file.startsWith(`${root.replace(/\/+$/, '')}/`));
-}
-
-/** Human-facing link: encode each segment (`#`, `?`, spaces) but keep `/` as hierarchy. */
-function encodePathSegments(value: string): string {
-  return value.split('/').map(encodeURIComponent).join('/');
 }
 
 async function readGitlab(
@@ -1671,7 +1632,7 @@ async function readFeishu(
  * 任何一步失败都抛错，由调用方记入该 range 的检查结果。
  */
 export async function probeSource(config: SourceConfig, signal?: AbortSignal): Promise<void> {
-  const signalOptions = signal === undefined ? {} : { signal };
+  const signalOptions = signalOption(signal);
   switch (config.type) {
     case 'rss': {
       const origins = sourceNetworkOptions(config);

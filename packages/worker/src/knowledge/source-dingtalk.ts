@@ -13,7 +13,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
-import { isAbort, textOf, titleWithExtension } from './source-utils.js';
+import { isAbort, signalOption, textOf, titleWithExtension } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -118,10 +118,6 @@ type Auth = {
   settings: Settings;
   headers: Record<string, string>;
 };
-
-function signalOption(signal: AbortSignal | undefined): { signal?: AbortSignal } {
-  return signal === undefined ? {} : { signal };
-}
 
 function apiOptions(auth: Auth, signal: AbortSignal | undefined) {
   return {

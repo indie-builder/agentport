@@ -14,7 +14,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import sharp from 'sharp';
 import { z } from 'zod';
-import { modelProxyUpstream } from '../upstream.js';
+import { sdkEnv } from '../upstream.js';
 
 type ImageDescription = {
   ocr: string | null;
@@ -88,19 +88,7 @@ async function runAction(input: {
   const cwd = await mkdtemp(join(tmpdir(), 'pace-knowledge-image-'));
   let messages: AsyncGenerator<SDKMessage, void> | undefined;
 
-  const env: Record<string, string> = {
-    PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-    HOME: cwd,
-    CLAUDE_CONFIG_DIR: cwd,
-    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
-  };
-  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
-    const value = process.env[key];
-    if (value) env[key] = value;
-  }
-  if (process.env.ANTHROPIC_BASE_URL) {
-    env.ANTHROPIC_BASE_URL = modelProxyUpstream(process.env.ANTHROPIC_BASE_URL);
-  }
+  const env = sdkEnv(cwd);
 
   const options: Options = {
     model: input.model,

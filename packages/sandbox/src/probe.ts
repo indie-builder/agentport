@@ -1,4 +1,3 @@
-import { createInterface } from 'node:readline';
 import type { Readable } from 'node:stream';
 import {
   errorText,
@@ -8,6 +7,7 @@ import {
 } from '@agentport/shared';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { readTask } from './stdin-task.js';
 
 /**
  * 容器内入口：从 stdin 读一行 stdio 配置，连一次并 listTools，向 stdout 写一行结果。
@@ -29,21 +29,6 @@ function log(message: string): void {
 
 function emit(result: ProbeResult): void {
   process.stdout.write(`${JSON.stringify(result)}\n`);
-}
-
-/** 只取第一行，不读 EOF：宿主写完任务后保持 stdin 打开。 */
-async function readTask(): Promise<unknown> {
-  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  try {
-    for await (const line of rl) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      return JSON.parse(trimmed);
-    }
-  } finally {
-    rl.close();
-  }
-  throw new Error('stdin closed before the probe task arrived');
 }
 
 /** 客户端 close 失败不能覆盖真正的结果；超时与 close 都过 `finally`。 */
@@ -85,7 +70,7 @@ async function probe(task: { command: string; args: string[]; env: Record<string
 }
 
 try {
-  const parsed = sandboxProbeTaskSchema.safeParse(await readTask());
+  const parsed = sandboxProbeTaskSchema.safeParse(await readTask('probe task'));
   if (!parsed.success) throw new Error('试连任务格式无效');
   const { version, listed } = await probe(parsed.data);
   const tools = limitToolCatalog(listed.tools);
