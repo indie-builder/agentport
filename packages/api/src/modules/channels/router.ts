@@ -31,7 +31,6 @@ import {
 import type { NativeHttpDependencies } from '../chat/http.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
-import { toMessage } from './mappers.js';
 import { channelsRunsRouter } from './runs.js';
 import { dispatchChannelWakes } from './wakes.js';
 
@@ -428,7 +427,7 @@ export const channelsMainRouter = {
     );
     if (result.kind === 'not_found') return notFound();
     await auditRead(context, { id: input.params.id, createdBy: result.createdBy });
-    return result.items.map(toMessage);
+    return result.items.map(repo.channels.toChannelMessage);
   }),
   postMessage: os.postMessage.handler(async ({ input, context }) => {
     const { id } = input.params;
@@ -463,7 +462,7 @@ export const channelsMainRouter = {
       case 'too_many_wakes':
         return fail('INVALID_INPUT', `一次最多唤醒 ${CHANNEL_MAX_WAKE_AGENTS} 个智能体`);
       case 'ok': {
-        const message = toMessage(result.message);
+        const message = repo.channels.toChannelMessage(result.message);
         await auditWrite(context, {
           action: 'channel.message.posted',
           target: message.id,
@@ -564,7 +563,7 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
             await lostAccess();
             return;
           }
-          const message = toMessage(row);
+          const message = repo.channels.toChannelMessage(row);
           cursor = message.seq;
           await writeEvent(
             stream,
