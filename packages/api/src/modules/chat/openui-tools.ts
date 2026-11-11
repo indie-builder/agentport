@@ -16,6 +16,7 @@ import type { AppContext, RequestContext } from '../../http/context.js';
 import { buildGeneratedServer } from '../servers/generated.js';
 import { getServerWithSecrets, listTools } from '../servers/repo.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
+import { loadOpenuiConversation } from './access.js';
 import { hasOpenUiBlock } from './openui-actions.js';
 
 const CLIENT_TIMEOUT_MS = 35000;
@@ -120,15 +121,10 @@ export const chatToolsRouter = {
   callOpenuiTool: os.callOpenuiTool.handler(async ({ input, context }) => {
     const { conversationId, toolName } = input.params;
     const { args, messageId, blockKey } = input.body;
-    const conversation = await repo.chat.getConversation(context.db, conversationId);
-    if (!conversation) {
-      return fail('CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
-    }
-    await authorizeObject(
+    const conversation = await loadOpenuiConversation(
       context,
+      conversationId,
       'conversations.update',
-      { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
-      '会话不存在，可能已被删除；请刷新后重试',
     );
     await authorizeObject(
       context,
@@ -232,16 +228,7 @@ export const chatToolsRouter = {
   }),
   approveOpenuiTool: os.approveOpenuiTool.handler(async ({ input, context }) => {
     const { conversationId, approvalId } = input.params;
-    const conversation = await repo.chat.getConversation(context.db, conversationId);
-    if (!conversation) {
-      return fail('CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
-    }
-    await authorizeObject(
-      context,
-      'runs.approve',
-      { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
-      '会话不存在，可能已被删除；请刷新后重试',
-    );
+    await loadOpenuiConversation(context, conversationId, 'runs.approve');
     const approved = await repo.openui.approveOpenUiApproval(
       context.db,
       conversationId,
