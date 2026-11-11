@@ -3,8 +3,9 @@ import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { OPENUI_STATE_MAX_BYTES } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf, authorizeObject } from '../../http/access.js';
+import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { loadOpenuiConversation } from './access.js';
 import { hasOpenUiBlock } from './openui-actions.js';
 
 function topLevelText(content: unknown):
@@ -25,16 +26,7 @@ export const chatStateRouter = {
   saveOpenuiState: os.saveOpenuiState.handler(async ({ input, context }) => {
     const { conversationId, messageId } = input.params;
     const { blockKey, state } = input.body;
-    const conversation = await repo.chat.getConversation(context.db, conversationId);
-    if (!conversation) {
-      return fail('CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除；请刷新后重试');
-    }
-    await authorizeObject(
-      context,
-      'conversations.update',
-      { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
-      '会话不存在，可能已被删除；请刷新后重试',
-    );
+    await loadOpenuiConversation(context, conversationId, 'conversations.update');
     const message = await repo.openui.getMessageInConversation(
       context.db,
       conversationId,
