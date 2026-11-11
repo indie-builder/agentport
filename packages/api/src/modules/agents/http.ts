@@ -64,9 +64,6 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
       );
       const principal = requireUser(context);
       await authorize(context, 'agents.create', { createdBy: principal.businessId });
-      if (parsed.hooks.config !== null || parsed.hooks.files.length > 0) {
-        await authorize(context, 'agents.hooks.write', { createdBy: principal.businessId });
-      }
       const serverNames = [...new Set(parsed.servers.map((entry) => entry.name))];
       if (serverNames.length > 0) {
         const existing = await context.db

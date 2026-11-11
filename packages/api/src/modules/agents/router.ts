@@ -6,7 +6,13 @@ import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db'
 import { AGENT_HOOK_FILE_LIMIT } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
-import { accessFilter, agentAccess, authorize, requireUser } from '../../http/access.js';
+import {
+  accessFilter,
+  agentAccess,
+  authorize,
+  authorizeObject,
+  requireUser,
+} from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import {
@@ -398,7 +404,12 @@ export const agentsRouter = os.router({
       current.hooksEnabled ||
       (await allRepo.hooks.listHookFiles(context.db, current.id)).length > 0
     ) {
-      await authorizeAgent(context, current, 'agents.hooks.read');
+      await authorizeObject(
+        context,
+        'agents.hooks.read',
+        { agentId: current.id, createdBy: current.createdBy },
+        '对象不存在',
+      );
     }
     const files = await renderAgentWorkspace(context, current.id);
     if (!files) return notFound();

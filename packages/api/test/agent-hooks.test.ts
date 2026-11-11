@@ -252,7 +252,7 @@ describe.skipIf(!ready)('agent file hooks', () => {
     expect(JSON.parse(files.settingsJson)).not.toHaveProperty('hooks');
   });
 
-  it('requires hooks.read for preview and export, and hooks.write for import', async () => {
+  it('requires hooks.read for preview and export', async () => {
     const limited = await createUser(
       await createRole([
         { permissionId: 'agents.files.read', scope: 'platform' },
@@ -286,7 +286,7 @@ describe.skipIf(!ready)('agent file hooks', () => {
       url: `/api/agents/${withHooks.id}/files`,
       headers: { cookie: limited.cookie },
     });
-    expectProblem(deniedPreview, 'FORBIDDEN');
+    expectProblem(deniedPreview, 'NOT_FOUND');
     const deniedExport = await requestZip(
       app,
       'GET',
@@ -318,7 +318,15 @@ describe.skipIf(!ready)('agent file hooks', () => {
         },
       }),
     );
-    expectProblem(hooksImport, 'FORBIDDEN');
+    expect(hooksImport.statusCode, hooksImport.body).toBe(201);
+    const hooksImported = hooksImport.json<{ agent: Agent }>().agent;
+    agentIds.push(hooksImported.id);
+    agentSlugs.push(hooksImported.slug);
+    const importedRows = await app.client.unsafe<{ hooks_enabled: boolean }[]>(
+      'select hooks_enabled from agents where id = $1',
+      [hooksImported.id],
+    );
+    expect(importedRows[0]?.hooks_enabled).toBe(false);
 
     const plainSlug = unique('hooks-limited-plain');
     agentSlugs.push(plainSlug);
@@ -331,6 +339,52 @@ describe.skipIf(!ready)('agent file hooks', () => {
     );
     expect(plainImport.statusCode, plainImport.body).toBe(201);
     agentSlugs.push(plainImport.json<{ agent: Agent }>().agent.slug);
+  });
+
+  it('imports hooks for an owned-agent reader without hooks.write', async () => {
+    const scoped = await createUser(
+      await createRole([
+        { permissionId: 'agents.import', scope: 'own_data' },
+        { permissionId: 'agents.create', scope: 'own_data' },
+        { permissionId: 'agents.hooks.read', scope: 'owned_agents' },
+      ]),
+    );
+
+    const slug = unique('hooks-owned-import');
+    agentSlugs.push(slug);
+    const res = await requestZip(
+      app,
+      'POST',
+      '/api/import/agents',
+      scoped.cookie,
+      packageZip({
+        agent: { slug, name: `Imported ${slug}` },
+        extraFiles: {
+          [AGENT_PACKAGE_PATHS.settings]: JSON.stringify({ hooks: hooksConfig }),
+          [`${AGENT_PACKAGE_PATHS.hooksDir}guard.sh`]: '#!/bin/sh\n',
+        },
+      }),
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const imported = res.json<{ agent: Agent }>().agent;
+    agentIds.push(imported.id);
+    const rows = await app.client.unsafe<{ hooks_enabled: boolean }[]>(
+      'select hooks_enabled from agents where id = $1',
+      [imported.id],
+    );
+    expect(rows[0]?.hooks_enabled).toBe(false);
+
+    const hooks = await request(app, {
+      method: 'GET',
+      url: `/api/agents/${imported.id}/hooks`,
+      headers: { cookie: scoped.cookie },
+    });
+    expect(hooks.statusCode, hooks.body).toBe(200);
+    expect(hooks.json<AgentHooks>()).toMatchObject({
+      enabled: false,
+      config: hooksConfig,
+      files: [{ path: 'guard.sh' }],
+    });
   });
 
   it('preserves hook executable bits across export and re-import', async () => {
