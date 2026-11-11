@@ -1,23 +1,22 @@
 import type { PermissionId } from '@agentport/shared';
 import { useEffect, useState } from 'react';
+import { WorkflowsPanel } from '../../components/agent/workflow-panel.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { OutputStylesPanel, RulesPanel } from '../../components/memory/memory-panel.js';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { hasAnyGrant } from '../../lib/access.js';
-import {
-  type AgentInstruction,
-  agentInstructions as instructionItems,
-} from '../../lib/detail-tabs.js';
-import { INSTRUCTION_PERMISSIONS } from './shared.js';
+import type { AgentInstruction } from '../../lib/detail-tabs.js';
+import { availableInstructions } from './shared.js';
 
 /**
- * 「指令」任务：项目规则与输出风格共用一张卡片，分段只在两者都可读时出现。
+ * 「指令」任务：项目规则、输出风格与工作流共用一张卡片，分段只在可读项不止一个时出现。
  * 分段切换会卸载另一个面板，所以带草稿时先确认；脏与在途状态继续回传给任务级保护。
  */
 export function AgentInstructions({
   agentId,
   permissions,
   instruction,
+  isSubAgent = false,
   onInstructionChange,
   onDirtyChange,
   onPendingChange,
@@ -25,13 +24,12 @@ export function AgentInstructions({
   agentId: string;
   permissions: readonly PermissionId[];
   instruction: AgentInstruction;
+  isSubAgent?: boolean;
   onInstructionChange: (next: AgentInstruction) => void;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
 }) {
-  const options = instructionItems.filter((item) =>
-    hasAnyGrant(permissions, INSTRUCTION_PERMISSIONS[item.id]),
-  );
+  const options = availableInstructions(permissions, isSubAgent);
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState(false);
   const [pendingInstruction, setPendingInstruction] = useState<AgentInstruction | null>(null);
@@ -85,10 +83,17 @@ export function AgentInstructions({
             onDirtyChange={setDirty}
             onPendingChange={setPending}
           />
-        ) : (
+        ) : instruction === 'styles' ? (
           <OutputStylesPanel
             agentId={agentId}
             canWrite={hasAnyGrant(permissions, 'agents.styles.write')}
+            onDirtyChange={setDirty}
+            onPendingChange={setPending}
+          />
+        ) : (
+          <WorkflowsPanel
+            agentId={agentId}
+            canWrite={hasAnyGrant(permissions, 'agents.workflows.write')}
             onDirtyChange={setDirty}
             onPendingChange={setPending}
           />

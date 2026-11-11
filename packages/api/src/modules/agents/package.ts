@@ -9,6 +9,7 @@ import {
   parseOutputStyleMd,
   parseRuleMd,
   parseSkillMd,
+  parseWorkflowMeta,
   renderOutputStyleMd,
   renderRuleMd,
   renderSkillMd,
@@ -25,6 +26,7 @@ import {
   agentServers,
   agentSkills,
   agents,
+  agentWorkflows,
   apiTools,
   newId,
   repo,
@@ -334,11 +336,12 @@ export async function buildAgentPackage(
     `该智能体有 ${children.length} 个子智能体，超过导出上限 ${AGENT_PACKAGE_LIMITS.subAgents} 个；请先减少子智能体`,
   );
   const agentIds = [row.id, ...children.map((child) => child.id)];
-  const [serversByAgent, skillsByAgent, rulesMap, stylesMap] = await Promise.all([
+  const [serversByAgent, skillsByAgent, rulesMap, stylesMap, workflows] = await Promise.all([
     repo.agents.getBoundServersByAgentIds(db, agentIds),
     boundSkillsByAgent(db, agentIds),
     rulesByAgent(db, agentIds),
     stylesByAgent(db, agentIds),
+    row.parentId === null ? repo.workflows.listWorkflows(db, row.id) : Promise.resolve([]),
   ]);
   const rootServers = serversByAgent.get(row.id) ?? [];
   const rootSkills = skillsByAgent.get(row.id) ?? [];
@@ -368,6 +371,11 @@ export async function buildAgentPackage(
     ...repo.skills.toSkillDefinition(skill),
     files: skillFiles.get(skill.id) ?? [],
   });
+  checkExportLimit(
+    workflows.length,
+    AGENT_PACKAGE_LIMITS.workflows,
+    `该智能体有 ${workflows.length} 个工作流，超过导出上限 ${AGENT_PACKAGE_LIMITS.workflows} 个；请先减少工作流`,
+  );
   const rootRules = rulesMap.get(row.id) ?? [];
   const rootStyles = stylesMap.get(row.id) ?? [];
   assertDefinitionLimits(rootRules, rootStyles, row.slug, '');
@@ -410,6 +418,9 @@ export async function buildAgentPackage(
   }
   for (const style of rootStyles) {
     files[`${AGENT_PACKAGE_PATHS.outputStylesDir}${style.slug}.md`] = renderOutputStyleMd(style);
+  }
+  for (const workflow of workflows) {
+    files[`${AGENT_PACKAGE_PATHS.workflowsDir}${workflow.slug}.js`] = workflow.content;
   }
   files[AGENT_PACKAGE_PATHS.settings] = `${JSON.stringify(
     {
@@ -544,6 +555,7 @@ interface ParsedPackage {
   servers: PackageServer[];
   children: PackageChildInput[];
   skills: PackageSkillInput[];
+  workflows: PackageWorkflowInput[];
   rules: PackageRuleInput[];
   styles: PackageStyleInput[];
   runtimeEnvironmentName?: string;
@@ -569,6 +581,12 @@ interface PackageSkillInput {
     path: string;
     content: string;
   }>;
+}
+interface PackageWorkflowInput {
+  slug: string;
+  name: string;
+  description: string;
+  content: string;
 }
 interface PackageRuleInput {
   slug: string;
@@ -603,6 +621,9 @@ function isKnownPath(path: string): boolean {
   if (path.startsWith(AGENT_PACKAGE_PATHS.skillsDir)) {
     const rest = path.slice(AGENT_PACKAGE_PATHS.skillsDir.length).split('/');
     return rest.length >= 2 && (rest[0] ?? '').length > 0;
+  }
+  if (path.startsWith(AGENT_PACKAGE_PATHS.workflowsDir)) {
+    return /^[^/]+\.js$/.test(path.slice(AGENT_PACKAGE_PATHS.workflowsDir.length));
   }
   return false;
 }
@@ -767,6 +788,22 @@ export function parseAgentPackage(
       path: AGENT_PACKAGE_PATHS.settings,
     });
   }
+  const workflowList: PackageWorkflowInput[] = [];
+  for (const [path, content] of files) {
+    if (!path.startsWith(AGENT_PACKAGE_PATHS.workflowsDir)) continue;
+    const slug = path.slice(AGENT_PACKAGE_PATHS.workflowsDir.length).replace(/\.js$/, '');
+    if (!slugSchema.safeParse(slug).success) {
+      fail('INVALID_INPUT', `工作流文件名「${slug}」必须是合法 slug`, { path });
+    }
+    workflowList.push({ slug, ...parseWorkflowMeta(content), content });
+  }
+  workflowList.sort((a, b) => a.slug.localeCompare(b.slug));
+  duplicateSlugs(workflowList, '工作流', AGENT_PACKAGE_PATHS.workflowsDir);
+  checkLimit(
+    workflowList.length,
+    AGENT_PACKAGE_LIMITS.workflows,
+    `工作流超过 ${AGENT_PACKAGE_LIMITS.workflows} 个，请减少后重试`,
+  );
   const skillDirectories = new Map<string, Map<string, string>>();
   for (const [path, content] of files) {
     if (!path.startsWith(AGENT_PACKAGE_PATHS.skillsDir)) continue;
@@ -887,6 +924,7 @@ export function parseAgentPackage(
     servers: sidecar.servers,
     children,
     skills: skillList,
+    workflows: workflowList,
     rules,
     styles,
     ...(sidecar.agent.runtimeEnvironmentName === undefined
@@ -989,6 +1027,7 @@ async function insertAgentFiles(
   agentId: string,
   rules: PackageRuleInput[],
   styles: PackageStyleInput[],
+  workflows: PackageWorkflowInput[],
 ): Promise<void> {
   if (rules.length > 0) {
     await tx
@@ -999,6 +1038,11 @@ async function insertAgentFiles(
     await tx
       .insert(agentOutputStyles)
       .values(styles.map((style) => ({ id: newId('outputStyle'), agentId, ...style })));
+  }
+  if (workflows.length > 0) {
+    await tx
+      .insert(agentWorkflows)
+      .values(workflows.map((workflow) => ({ id: newId('agentWorkflow'), agentId, ...workflow })));
   }
 }
 async function resolveRuntimeEnvironmentId(
@@ -1253,7 +1297,7 @@ export async function importAgentPackage(
           .insert(agentSkills)
           .values(skillIds.map((skillId) => ({ agentId: row.id, skillId })));
       }
-      await insertAgentFiles(tx, row.id, parsed.rules, parsed.styles);
+      await insertAgentFiles(tx, row.id, parsed.rules, parsed.styles, parsed.workflows);
       const createdSubAgents: string[] = [];
       const childIds: string[] = [];
       const childSnapshots: ReturnType<typeof repo.agents.toAgent>[] = [];
@@ -1286,7 +1330,7 @@ export async function importAgentPackage(
             .insert(agentSkills)
             .values(childSkillIds.map((skillId) => ({ agentId: childRow.id, skillId })));
         }
-        await insertAgentFiles(tx, childRow.id, child.rules, child.outputStyles);
+        await insertAgentFiles(tx, childRow.id, child.rules, child.outputStyles, []);
         childSnapshots.push(repo.agents.toAgent(childRow, childServerIds, childSkillIds));
         childIds.push(childRow.id);
         createdSubAgents.push(childRow.slug);
@@ -1309,6 +1353,7 @@ export async function importAgentPackage(
           servers: serverEntries.length,
           skills: parsed.skills.length,
           files: parsed.skills.reduce((count, skill) => count + skill.files.length, 0),
+          workflows: parsed.workflows.length,
           rules:
             parsed.rules.length +
             parsed.children.reduce((count, child) => count + child.rules.length, 0),
@@ -1331,6 +1376,7 @@ export interface ImportCounts {
   servers: number;
   skills: number;
   files: number;
+  workflows: number;
   rules: number;
   outputStyles: number;
   subAgents: number;

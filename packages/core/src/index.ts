@@ -72,6 +72,7 @@ export { decryptSecrets, encryptSecrets } from './secrets.js';
 export { buildSkillDraft } from './skill-draft.js';
 export { type ParsedSkill, parseSkillMd, type SkillProvenance } from './skill-md.js';
 export type { McpJsonEntry } from './tools.js';
+export { parseWorkflowMeta } from './workflow-file.js';
 export {
   renderOutputStyleMd,
   renderRuleMd,

@@ -54,6 +54,7 @@ export function toWorkspaceInput(params: {
   servers: Array<{ name: string; entry: McpJsonEntry }>;
   skills: WorkspaceSkill[];
   subAgents: WorkspaceAgentRow[];
+  workflows?: Array<{ slug: string; content: string }>;
   rules?: Array<{ slug: string; content: string; globs: string }>;
   outputStyles?: Array<{
     slug: string;
@@ -75,6 +76,7 @@ export function toWorkspaceInput(params: {
     servers: params.servers,
     skills: params.skills,
     subAgents: params.subAgents.filter((row) => row.enabled).map(toWorkspaceAgent),
+    ...(params.workflows && params.workflows.length > 0 ? { workflows: params.workflows } : {}),
     ...(params.rules && params.rules.length > 0 ? { rules: params.rules } : {}),
     ...(params.outputStyles && params.outputStyles.length > 0
       ? { outputStyles: params.outputStyles }

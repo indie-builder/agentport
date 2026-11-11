@@ -17,6 +17,7 @@ import { runsContract } from './runs.js';
 import { runtimeEnvironmentsContract } from './runtime-environments.js';
 import { serversContract } from './servers.js';
 import { skillsContract } from './skills.js';
+import { workflowsContract } from './workflows.js';
 
 export * from './access.js';
 export * from './agents.js';
@@ -40,6 +41,7 @@ export * from './runs.js';
 export * from './runtime-environments.js';
 export * from './servers.js';
 export * from './skills.js';
+export * from './workflows.js';
 
 export const apiContract: {
   agents: typeof agentsContract;
@@ -61,6 +63,7 @@ export const apiContract: {
   runtimeEnvironments: typeof runtimeEnvironmentsContract;
   servers: typeof serversContract;
   skills: typeof skillsContract;
+  workflows: typeof workflowsContract;
 } = {
   agents: agentsContract,
   audit: auditContract,
@@ -81,4 +84,5 @@ export const apiContract: {
   runtimeEnvironments: runtimeEnvironmentsContract,
   servers: serversContract,
   skills: skillsContract,
+  workflows: workflowsContract,
 };

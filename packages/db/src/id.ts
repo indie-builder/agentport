@@ -13,6 +13,7 @@ export const idPrefixes = {
   runtimeEnvironmentVersion: 'rtev',
   skill: 'skl',
   skillFile: 'skf',
+  agentWorkflow: 'awf',
   plugin: 'plg',
   pluginFile: 'plf',
   rule: 'rule',

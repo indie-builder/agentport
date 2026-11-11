@@ -211,6 +211,36 @@ export const skillSchema = skillInputSchema.and(
 
 export type Skill = z.infer<typeof skillSchema>;
 
+/** 工作流脚本字符上限；API 保存与 core 解析器共用。 */
+export const AGENT_WORKFLOW_CONTENT_MAX = 131_072;
+export const AGENT_WORKFLOW_NAME_MAX = 200;
+export const AGENT_WORKFLOW_DESCRIPTION_MAX = 2_000;
+
+/** 工作流：官方 `.claude/workflows/<slug>.js`；name/description 来自脚本内 `meta`。 */
+export const agentWorkflowInputSchema = z.object({
+  slug: slugSchema,
+  name: z
+    .string()
+    .min(1)
+    .max(AGENT_WORKFLOW_NAME_MAX)
+    .refine((value) => !/[\r\n]/.test(value), '显示名不能包含换行'),
+  description: z.string().max(AGENT_WORKFLOW_DESCRIPTION_MAX).default(''),
+  content: z.string().min(1).max(AGENT_WORKFLOW_CONTENT_MAX),
+});
+
+export type AgentWorkflowInput = z.infer<typeof agentWorkflowInputSchema>;
+
+export const agentWorkflowSchema = agentWorkflowInputSchema.and(
+  z.object({
+    id: z.string(),
+    agentId: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+
+export type AgentWorkflow = z.infer<typeof agentWorkflowSchema>;
+
 export interface SkillResourcePathConflict {
   path: string;
   conflictingPath: string;
@@ -346,6 +376,7 @@ export const workspaceFilesSchema = z.object({
     )
     .default([]),
   subAgents: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
+  workflows: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   rules: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   outputStyles: z.array(z.object({ slug: z.string(), content: z.string() })).default([]),
   selectedOutputStyle: z.string().nullable().default(null),

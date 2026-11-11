@@ -60,6 +60,15 @@ export async function validateSubAgents(
       return `「${row.name}」绑定了插件；插件只在会话级加载，请先解除它的插件绑定`;
     }
   }
+  const workflowAgentIds = await allRepo.workflows.listAgentIdsWithWorkflows(
+    db,
+    rows.map((row) => row.id),
+  );
+  for (const row of rows) {
+    if (workflowAgentIds.has(row.id)) {
+      return `「${row.name}」已有工作流；工作流是 project 级能力，请先删除它的工作流再设为子智能体`;
+    }
+  }
   return undefined;
 }
 export async function validateRuntimeEnvironment(
@@ -143,6 +152,7 @@ export async function importAgent(
       servers: { created: result.createdServers.length, reused: result.reusedServers.length },
       skills: result.createdSkills.length,
       files: result.counts.files,
+      workflows: result.counts.workflows,
       rules: result.counts.rules,
       outputStyles: result.counts.outputStyles,
       subAgents: result.createdSubAgents.length,

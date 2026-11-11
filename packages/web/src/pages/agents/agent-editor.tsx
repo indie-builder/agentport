@@ -280,6 +280,7 @@ export function AgentEditor({
   const instruction = activeInstruction(
     asInstruction(search.tab) ?? search.instruction,
     permissions,
+    agent.parentId !== null,
   );
   const [activeSection, setActiveSectionState] = useState<SectionId>(sectionFromUrl);
   const activeFile = search.file ?? '.mcp.json';
@@ -2248,6 +2249,7 @@ export function AgentEditor({
             agentId={agent.id}
             permissions={permissions}
             instruction={instruction}
+            isSubAgent={agent.parentId !== null}
             onInstructionChange={(next) => navigateSearch({ instruction: next })}
             onDirtyChange={setChildDirty}
             onPendingChange={setChildPending}

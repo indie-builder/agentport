@@ -433,6 +433,30 @@ export const agentOutputStyles = pgTable(
   ],
 );
 
+/**
+ * 智能体工作流（官方 `.claude/workflows/<slug>.js`）。
+ * content 是完整脚本，name/description 由保存时解析的 meta 填充。
+ */
+export const agentWorkflows = pgTable(
+  'agent_workflows',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('agent_workflows_agent_slug_idx').on(t.agentId, t.slug),
+    index('agent_workflows_agent_idx').on(t.agentId),
+  ],
+);
+
 export const agentServers = pgTable(
   'agent_servers',
   {
@@ -1960,6 +1984,7 @@ export const schema = {
   skillFiles,
   agentRules,
   agentOutputStyles,
+  agentWorkflows,
   agentServers,
   agentVersions,
   runtimeEnvironmentVersions,

@@ -30,6 +30,7 @@ import {
   agentServers,
   agentSkills,
   agents,
+  agentWorkflows,
   conversations,
   servers,
   skills,
@@ -40,6 +41,7 @@ import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
 import { isPgCode } from './pg-errors.js';
 import { listAgentPluginBindingInputs } from './plugins.js';
+import { listAgentIdsWithWorkflows } from './workflows.js';
 
 export type AgentRow = typeof agents.$inferSelect;
 
@@ -280,6 +282,15 @@ async function lockSubAgentBindings(
       `「${row?.name ?? bound[0]?.agentId}」绑定了插件；插件只在会话级加载，请先解除它的插件绑定`,
     );
   }
+  const workflowAgentIds = await listAgentIdsWithWorkflows(tx, subAgentIds);
+  if (workflowAgentIds.size > 0) {
+    const agentId = subAgentIds.find((id) => workflowAgentIds.has(id));
+    const row = rows.find((candidate) => candidate.id === agentId);
+    throw new AppError(
+      'INVALID_INPUT',
+      `「${row?.name ?? agentId}」已有工作流；工作流是 project 级能力，请先删除它的工作流再设为子智能体`,
+    );
+  }
 }
 
 /**
@@ -401,6 +412,10 @@ export async function duplicateAgent(
             .select()
             .from(agentOutputStyles)
             .where(eq(agentOutputStyles.agentId, sourceId));
+          const workflowRows = await tx
+            .select()
+            .from(agentWorkflows)
+            .where(eq(agentWorkflows.agentId, sourceId));
 
           const id = newId('agent');
           const [created] = await tx
@@ -463,6 +478,19 @@ export async function duplicateAgent(
                 keepCodingInstructions: row.keepCodingInstructions,
                 body: row.body,
                 isSelected: row.isSelected,
+              })),
+            );
+          }
+
+          if (workflowRows.length > 0) {
+            await tx.insert(agentWorkflows).values(
+              workflowRows.map((row) => ({
+                id: newId('agentWorkflow'),
+                agentId: id,
+                slug: row.slug,
+                name: row.name,
+                description: row.description,
+                content: row.content,
               })),
             );
           }

@@ -24,10 +24,11 @@ export type AgentSection = (typeof agentSections)[number]['id'];
  */
 export const legacyAgentTabs = ['rules', 'styles'] as const;
 
-/** 「指令」页内部分段：项目规则与输出风格各自保留原有面板与权限。 */
+/** 「指令」页内部分段：项目规则、输出风格与工作流各自保留原有面板与权限。 */
 export const agentInstructions = [
   { id: 'rules', label: '项目规则' },
   { id: 'styles', label: '输出风格' },
+  { id: 'workflows', label: '工作流' },
 ] as const;
 
 export type AgentInstruction = (typeof agentInstructions)[number]['id'];

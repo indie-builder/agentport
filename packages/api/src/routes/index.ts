@@ -42,6 +42,7 @@ import { registerServersHttp } from '../modules/servers/http.js';
 import { serversRouter } from '../modules/servers/router.js';
 import { registerSkillsHttp } from '../modules/skills/http.js';
 import { skillsRouter } from '../modules/skills/router.js';
+import { workflowsRouter } from '../modules/workflows/router.js';
 import { registerOpenApi } from '../plugins/openapi.js';
 
 type RpcContract = Omit<typeof apiContract, 'auth'> & {
@@ -68,6 +69,7 @@ export const apiRouter: Router<RpcContract, RequestContext> = {
   runtimeEnvironments: runtimeEnvironmentsRouter,
   servers: serversRouter,
   skills: skillsRouter,
+  workflows: workflowsRouter,
 };
 
 const JSON_BODY_LIMIT = 1_048_576;

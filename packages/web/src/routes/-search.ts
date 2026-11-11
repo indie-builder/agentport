@@ -42,7 +42,7 @@ export const agentDetailSearchSchema = z.object({
     .enum([...agentTabs.map((item) => item.id), ...legacyAgentTabs])
     .optional()
     .catch(undefined),
-  /** 「指令」页内的项目规则 / 输出风格；缺省 rules。 */
+  /** 「指令」页内的项目规则 / 输出风格 / 工作流；缺省取第一个可读项。 */
   instruction: z
     .enum(agentInstructions.map((item) => item.id))
     .optional()
