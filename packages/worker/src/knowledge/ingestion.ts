@@ -1668,14 +1668,14 @@ export async function runSync(
     // 明确失权（401/403/已知飞书鉴权码）才撤权：停源 + 旧文档退出检索与 read + Wiki 显式 stale。
     // 网络、限流、超时等临时故障保持 active，可继续重试。
     const authError = err instanceof SourceAuthError;
-    if (authError) {
-      const disabled = await repo.knowledge.disableDocumentsBySource(deps.db, source.id);
-      for (const document of disabled) {
-        await repo.knowledge.markWikiStaleByDocument(deps.db, document.id);
-      }
-    }
     if (authError || (err instanceof KnowledgeModelError && err.kind === 'auth')) {
-      await repo.knowledge.updateSource(deps.db, source.id, { status: 'auth_error' });
+      try {
+        await repo.knowledge.updateSource(deps.db, source.id, { status: 'auth_error' });
+      } finally {
+        if (authError) {
+          await repo.knowledge.disableDocumentsBySource(deps.db, source.id);
+        }
+      }
     }
     // job 与 sync run 的终态统一由队列写；这里保留游标与旧版本，原样抛错给队列分类。
     throw err;

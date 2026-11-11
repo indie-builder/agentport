@@ -125,28 +125,24 @@ async function seedSource(
   ranges: RangeSeed[],
   status: knowledge.KnowledgeSourceRow['status'] = 'active',
 ) {
-  const source = await knowledge.createSource(db, {
+  const { source, ranges: rows } = await knowledge.createSource(db, {
     baseId,
     type: 'gitlab',
     name: `source-${suffix()}`,
     config: {},
     secretsEncrypted: null,
     syncCron: null,
-  });
-  if (status !== 'active') {
-    await knowledge.updateSource(db, source.id, { status });
-  }
-  const rows = await knowledge.replaceRanges(
-    db,
-    source.id,
-    ranges.map((range) => ({
+    ranges: ranges.map((range) => ({
       kind: range.kind,
       externalId: range.externalId,
       ref: range.ref ?? null,
       paths: range.paths ?? [],
       enabled: range.enabled ?? true,
     })),
-  );
+  });
+  if (status !== 'active') {
+    await knowledge.updateSource(db, source.id, { status });
+  }
   return { source, ranges: rows };
 }
 

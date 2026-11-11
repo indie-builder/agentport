@@ -27,13 +27,14 @@ let sourceId = '';
 const cleanups: Array<() => Promise<void>> = [];
 
 async function makeSource(): Promise<string> {
-  const source = await knowledge.createSource(db, {
+  const { source } = await knowledge.createSource(db, {
     baseId,
     type: 'feed',
     name: `feed-${suffix()}`,
     config: {},
     secretsEncrypted: null,
     syncCron: null,
+    ranges: [],
   });
   return source.id;
 }

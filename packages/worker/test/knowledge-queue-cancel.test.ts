@@ -74,23 +74,23 @@ describe('knowledge queue cancellation across attempts', () => {
         rerankProfileId: null,
         settings: { chunkTokens: 400, chunkOverlap: 40, wikiAutoUpdate: false },
       });
-      const source = await repo.knowledge.createSource(db, {
+      const { source } = await repo.knowledge.createSource(db, {
         baseId: base.id,
         type: 'feed',
         name: mode,
         config: {},
         secretsEncrypted: null,
         syncCron: null,
+        ranges: [
+          {
+            kind: 'feed',
+            externalId: 'https://example.com/feed',
+            ref: null,
+            paths: [],
+            enabled: true,
+          },
+        ],
       });
-      await repo.knowledge.replaceRanges(db, source.id, [
-        {
-          kind: 'feed',
-          externalId: 'https://example.com/feed',
-          ref: null,
-          paths: [],
-          enabled: true,
-        },
-      ]);
       const pair = await repo.knowledge.createSyncJob(db, source.id);
       if (pair.status !== 'created') throw new Error(pair.status);
       const { job } = pair;

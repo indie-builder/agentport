@@ -4,7 +4,7 @@ description: Provides comprehensive Drizzle ORM patterns for schema definition, 
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 
-> **Project convention (applies to this file and the linked `references/`):** PostgreSQL only, on Drizzle ORM 0.45.4 and Drizzle Kit 0.31.11. Schema is `packages/db/src/schema.ts`. Primary keys for regular business entities are `text('id').primaryKey()` TypeIDs generated in the application with `newId(entity)` from `@agentport/db`; do not copy the `serial` examples. Authentication, join tables, idempotency keys, and other identifiers follow `docs/PROJECT-BRIEF.md#162-id-约定`. Migrations are generated and applied with `pnpm db:generate` then `pnpm db:migrate`; do not introduce `push` as the workflow.
+> **Project convention (applies to this file and the linked `references/`):** PostgreSQL only, on Drizzle ORM 0.45.4 and Drizzle Kit 0.31.11. Schema is `packages/db/src/schema.ts`. Primary keys for regular business entities are `text('id').primaryKey()` TypeIDs generated in the application with `newId(entity)` from `@agentport/db`; do not copy the `serial` examples. Authentication, join tables, idempotency keys, and other identifiers follow `docs/PROJECT-BRIEF.md#162-id-约定`. Migrations are generated and applied with `bun run db:generate` then `bun run db:migrate`; do not introduce `push` as the workflow.
 
 # Drizzle ORM Patterns
 

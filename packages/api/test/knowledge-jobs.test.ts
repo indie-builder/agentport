@@ -415,17 +415,23 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
         JSON.stringify({ chunkTokens: 400, chunkOverlap: 40, wikiAutoUpdate: false }),
       ],
     );
-    const source = await repo.knowledge.createSource(app.db, {
+    const { source } = await repo.knowledge.createSource(app.db, {
       baseId,
       type: 'feed',
       name: `race-${suffix}`,
       config: { syncDeletions: false },
       secretsEncrypted: null,
       syncCron: null,
+      ranges: [
+        {
+          kind: 'feed',
+          externalId: 'https://example.com/feed',
+          ref: null,
+          paths: [],
+          enabled: true,
+        },
+      ],
     });
-    await repo.knowledge.replaceRanges(app.db, source.id, [
-      { kind: 'feed', externalId: 'https://example.com/feed', ref: null, paths: [], enabled: true },
-    ]);
     const created = await repo.knowledge.createSyncJob(app.db, source.id);
     if (created.status !== 'created') throw new Error(`pair not created: ${created.status}`);
     return { sourceId: source.id, jobId: created.job.id, runId: created.run.id };
