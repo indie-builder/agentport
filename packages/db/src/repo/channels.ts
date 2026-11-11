@@ -1,5 +1,10 @@
 import { fail } from '@agentport/core';
-import { ACTIVE_RUN_STATUSES, CHANNEL_MAX_WAKE_AGENTS, type ChannelRole } from '@agentport/shared';
+import {
+  ACTIVE_RUN_STATUSES,
+  CHANNEL_MAX_WAKE_AGENTS,
+  type ChannelMessage,
+  type ChannelRole,
+} from '@agentport/shared';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
@@ -24,6 +29,23 @@ export type ChannelMemberRow = typeof channelMembers.$inferSelect & {
 };
 export type ChannelAgentBindingRow = typeof channelAgentBindings.$inferSelect;
 export type ChannelMessageRow = typeof channelMessages.$inferSelect;
+
+export function toChannelMessage(row: ChannelMessageRow): ChannelMessage {
+  return {
+    id: row.id,
+    channelId: row.channelId,
+    seq: row.seq,
+    kind: row.kind,
+    authorBusinessId: row.authorBusinessId,
+    agentId: row.agentId,
+    runId: row.runId,
+    body: row.body,
+    clientMessageId: row.clientMessageId,
+    sourceMessageId: row.sourceMessageId,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 export type ChannelActiveRunRow = Pick<
   typeof agentRuns.$inferSelect,
   'id' | 'agentId' | 'status' | 'initiatedBy' | 'startedAt'

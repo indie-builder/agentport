@@ -5,7 +5,6 @@ import type { Logger } from 'pino';
 import { AppError } from '../../http/errors.js';
 import { publishChannelMessage } from '../../queue/producer.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
-import { toMessage } from './mappers.js';
 
 const channelRepo = repo.channels;
 const channelWakeRepo = repo.channelWakes;
@@ -54,7 +53,7 @@ async function postNotice(
     });
     if (notice === null) return;
     try {
-      await publishChannelMessage(target.channelId, toMessage(notice));
+      await publishChannelMessage(target.channelId, repo.channels.toChannelMessage(notice));
     } catch (err) {
       context.log.warn(
         { err, channelId: target.channelId },

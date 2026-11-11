@@ -2,7 +2,7 @@ import { type createDb, repo, schema } from '@agentport/db';
 import type { ChatEvent, RunErrorKind } from '@agentport/shared';
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { channelMessageEvent, publishChannelEventSafely } from './channel-events.js';
+import { publishChannelEventSafely } from './channel-events.js';
 import { clearRunCancel, publishRun } from './runner-client.js';
 
 export type RunFinishedEvent = Extract<ChatEvent, { type: 'run_finished' }>;
@@ -97,7 +97,7 @@ export async function finalizeRun(input: {
           type: 'message.created',
           channelId: row.channelId,
           seq: notice.seq,
-          message: channelMessageEvent(notice),
+          message: repo.channels.toChannelMessage(notice),
         },
         input.logger,
         { runId: row.id },
