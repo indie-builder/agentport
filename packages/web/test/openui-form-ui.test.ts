@@ -1,7 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AssistantText } from '../src/components/openui-message.js';
+import { AssistantText } from '../src/components/chat/openui-message.js';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
 /**

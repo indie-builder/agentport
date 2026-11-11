@@ -1,4 +1,4 @@
-import { jobStatusLabel, jobStatusTone } from '../../components/knowledge-shared.js';
+import { jobStatusLabel, jobStatusTone } from '../../components/knowledge/knowledge-shared.js';
 import { ErrorState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';

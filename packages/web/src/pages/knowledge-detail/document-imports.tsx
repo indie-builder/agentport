@@ -5,7 +5,7 @@ import {
   DraftGuardDialogs,
   treeFolders,
   useDraftGuard,
-} from '../../components/knowledge-shared.js';
+} from '../../components/knowledge/knowledge-shared.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { SourceEditor } from '../../components/source-editor.js';
 import { Button } from '../../components/ui/button.js';

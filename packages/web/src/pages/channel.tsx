@@ -24,13 +24,13 @@ import {
   useRef,
   useState,
 } from 'react';
-import { AgentAvatar, type AgentDisplay } from '../components/agent-avatar.js';
-import { ChannelRunSheet } from '../components/channel-run-sheet.js';
-import { ChannelSettingsButton } from '../components/channel-settings.js';
-import { Composer, MessagePane } from '../components/chat-thread.js';
+import { AgentAvatar, type AgentDisplay } from '../components/agent/agent-avatar.js';
+import { ChannelRunSheet } from '../components/channel/channel-run-sheet.js';
+import { ChannelSettingsButton } from '../components/channel/channel-settings.js';
+import { Composer, MessagePane } from '../components/chat/chat-thread.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
-import { RunQuestionCard } from '../components/run-question.js';
+import { RunQuestionCard } from '../components/run/run-question.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';
 import { Button } from '../components/ui/button.js';

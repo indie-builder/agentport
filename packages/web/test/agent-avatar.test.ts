@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentAvatar } from '../src/components/agent-avatar.js';
+import { agentAvatar } from '../src/components/agent/agent-avatar.js';
 
 const pick = (name: string, description = '', slug = name) =>
   agentAvatar({ name, slug, description });

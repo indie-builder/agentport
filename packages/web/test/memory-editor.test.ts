@@ -12,7 +12,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryPanel, OutputStylesPanel, RulesPanel } from '../src/components/memory-panel.js';
+import {
+  MemoryPanel,
+  OutputStylesPanel,
+  RulesPanel,
+} from '../src/components/memory/memory-panel.js';
 import { api } from '../src/lib/api.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));

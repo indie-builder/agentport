@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { jobStatusLabel, sourceStatusLabel } from '../../components/knowledge-shared.js';
+import { jobStatusLabel, sourceStatusLabel } from '../../components/knowledge/knowledge-shared.js';
 import { Collapsible, CollapsibleContent } from '../../components/motion-collapsible.js';
 import { PageToolbar } from '../../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';

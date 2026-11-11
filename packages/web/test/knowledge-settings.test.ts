@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import {
   KnowledgeProfilesDialog,
   KnowledgeSettingsDialog,
-} from '../src/components/knowledge-settings.js';
+} from '../src/components/knowledge/knowledge-settings.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';

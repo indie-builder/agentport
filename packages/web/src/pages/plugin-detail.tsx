@@ -16,8 +16,8 @@ import {
   isPluginMarkdown,
   PluginDocument,
   pluginFileTitle,
-} from '../components/plugin-document.js';
-import { PluginFileTree } from '../components/plugin-file-tree.js';
+} from '../components/plugin/plugin-document.js';
+import { PluginFileTree } from '../components/plugin/plugin-file-tree.js';
 import { ReaderToolbar } from '../components/reader-toolbar.js';
 import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
 import { Badge } from '../components/ui/badge.js';

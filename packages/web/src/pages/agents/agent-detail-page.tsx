@@ -10,12 +10,12 @@ import {
 } from '@tanstack/react-router';
 import { ArrowLeft, Bot, Ellipsis, Trash2 } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
-import { AgentAvatar } from '../../components/agent-avatar.js';
-import { AgentOverview } from '../../components/agent-overview.js';
+import { AgentAvatar } from '../../components/agent/agent-avatar.js';
+import { AgentOverview } from '../../components/agent/agent-overview.js';
 import { CodeBlock } from '../../components/code-block.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { MemoryPanel } from '../../components/memory-panel.js';
+import { MemoryPanel } from '../../components/memory/memory-panel.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../../components/page.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';

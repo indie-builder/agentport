@@ -17,14 +17,14 @@ import { useEffect, useRef, useState } from 'react';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { FilterSelect } from '../../components/filter-select.js';
-import { BatchActionDialog } from '../../components/knowledge-documents.js';
+import { BatchActionDialog } from '../../components/knowledge/knowledge-documents.js';
 import {
   AUDIO_MAX_BYTES,
   documentStatusLabel,
   documentStatusTone,
   isAudioUpload,
   treeFolders,
-} from '../../components/knowledge-shared.js';
+} from '../../components/knowledge/knowledge-shared.js';
 import { PageNote, PageToolbar } from '../../components/page.js';
 import { SearchInput } from '../../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';

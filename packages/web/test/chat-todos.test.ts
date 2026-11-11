@@ -2,7 +2,7 @@ import type { ChatEvent, ConversationMessage, ProgressTodo } from '@agentport/sh
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
-import { MessagePane } from '../src/components/chat-thread.js';
+import { MessagePane } from '../src/components/chat/chat-thread.js';
 import {
   applyEvent,
   type ChatItem,

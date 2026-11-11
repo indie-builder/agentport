@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryPolicyPanel } from '../src/components/memory-policy.js';
+import { MemoryPolicyPanel } from '../src/components/memory/memory-policy.js';
 import { api } from '../src/lib/api.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
 

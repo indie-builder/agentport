@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { MessagePane } from '../src/components/chat-thread.js';
+import { MessagePane } from '../src/components/chat/chat-thread.js';
 import type { ConversationDetail } from '../src/lib/api.js';
 import {
   type ChatItem,

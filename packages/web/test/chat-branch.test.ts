@@ -2,7 +2,7 @@ import type { ConversationMessage } from '@agentport/shared';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test, vi } from 'vitest';
-import { MessagePane } from '../src/components/chat-thread.js';
+import { MessagePane } from '../src/components/chat/chat-thread.js';
 import { historyToItems } from '../src/lib/chat-state.js';
 
 vi.mock('@/components/ui/button', async () => import('../src/components/ui/button.js'));

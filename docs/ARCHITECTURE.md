@@ -54,14 +54,14 @@
 
 | 页面 | 职责 | 会碰到的共享件 |
 |---|---|---|
-| `agents/`（`index.tsx` 桶导出 `AgentsPage`/`AgentDetailPage`；`agents-page`、`agent-detail-page`、`agent-editor`、`version-history`、`create-agent-dialog`、`shared` 等） | 专家/智能体：列表、配置表单、版本历史、文件视图 | `page.tsx`、`agent-avatar.tsx`、`resource-page.tsx`、`dialog-shell.tsx`；目录内 `shared.ts` |
-| `chat.tsx` | 对话三栏：会话列表、消息流、右侧产出；SSE 生命周期 | `agent-avatar.tsx`、`openui-message.tsx`、`code-block.tsx`、`motion-collapsible.tsx`、`knowledge-citations.tsx` |
-| `knowledge-detail/`（`index.tsx` 桶导出 `KnowledgeDetailPage`；`knowledge-detail-page`、`documents-tab`、`sources-tab`、`jobs-tab`、`document-*`/`source-*` 等组件、`shared` 等） | 单个知识库：文档、来源、Wiki、检索调试 | `knowledge-citations.tsx`、`source-editor.tsx`、`markdown.tsx`、`filter-select.tsx`；目录内 `shared.ts` |
+| `agents/`（`index.tsx` 桶导出 `AgentsPage`/`AgentDetailPage`；`agents-page`、`agent-detail-page`、`agent-editor`、`version-history`、`create-agent-dialog`、`shared` 等） | 专家/智能体：列表、配置表单、版本历史、文件视图 | `page.tsx`、`agent/agent-avatar.tsx`、`resource-page.tsx`、`dialog-shell.tsx`；目录内 `shared.ts` |
+| `chat.tsx` | 对话三栏：会话列表、消息流、右侧产出；SSE 生命周期 | `agent/agent-avatar.tsx`、`chat/openui-message.tsx`、`code-block.tsx`、`motion-collapsible.tsx`、`knowledge/knowledge-citations.tsx` |
+| `knowledge-detail/`（`index.tsx` 桶导出 `KnowledgeDetailPage`；`knowledge-detail-page`、`documents-tab`、`sources-tab`、`jobs-tab`、`document-*`/`source-*` 等组件、`shared` 等） | 单个知识库：文档、来源、Wiki、检索调试 | `knowledge/knowledge-citations.tsx`、`source-editor.tsx`、`markdown.tsx`、`filter-select.tsx`；目录内 `shared.ts` |
 | `servers.tsx` | 连接器：MCP/stdio/生成式 server、工具目录、测试连接 | `resource-page.tsx`、`dialog-shell.tsx`、`filter-select.tsx`、`source-editor.tsx` |
 | `eval.tsx` | 评估：数据集、跑批、结果对比 | `data-table.tsx`、`dialog-shell.tsx` |
-| 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`、`personal-profile`、`personal-memory`、`personal-security`、`personal-shares`、`personal-usage`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge-settings.tsx`，个人模块五页沿用标准 Page/表格/Dialog 并共用 `personal-profile.tsx` 的个人导航外壳 | 同上，优先复用而不是新写 |
+| 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`、`personal-profile`、`personal-memory`、`personal-security`、`personal-shares`、`personal-usage`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge/knowledge-settings.tsx`，个人模块五页沿用标准 Page/表格/Dialog 并共用 `personal-profile.tsx` 的个人导航外壳 | 同上，优先复用而不是新写 |
 
-页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。
+页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。业务组件按域收进 `components/<域>/`（`knowledge`、`memory`、`run`、`channel`、`plugin`、`agent`、`chat`、`media`），泛用组件留在 `components/` 根，`components/ui/` 为无样式原语。
 
 ### 1.2 状态与副作用库的职责边界
 
@@ -353,7 +353,7 @@ data/workspaces/<agent-slug>/
 | `packages/api/src/modules/chat/openui-tools.ts` | `POST /api/chat/:conversationId/openui/tools/:toolName`：Query/Mutation 执行桥；`POST /api/chat/:conversationId/openui/approvals/:approvalId/approve`：会话级批准 |
 | `packages/worker/src/openui-action.ts` | 将已校验动作上下文/表单值完整追加给模型；大小应在 API 边界拒绝，不能在 worker 静默省略 |
 | `packages/web/src/openui/library.tsx` | 真实 Zod/reactive 定义配上 shadcn 组件实现，官方 CLI 和浏览器共享同一个 library |
-| `packages/web/src/openui/renderer.tsx`、`components/openui-message.tsx` | 按围栏分段、状态恢复、原生工具错误/重试及完整动作回传 |
+| `packages/web/src/openui/renderer.tsx`、`components/chat/openui-message.tsx` | 按围栏分段、状态恢复、原生工具错误/重试及完整动作回传 |
 
 要点：
 

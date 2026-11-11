@@ -9,7 +9,7 @@ import {
   DraftGuardDialogs,
   treeFolders,
   useDraftGuard,
-} from '../../components/knowledge-shared.js';
+} from '../../components/knowledge/knowledge-shared.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';

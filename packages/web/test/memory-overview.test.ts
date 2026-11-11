@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryOverview } from '../src/components/memory-overview.js';
+import { MemoryOverview } from '../src/components/memory/memory-overview.js';
 import { api } from '../src/lib/api.js';
 
 const recentChange: AgentMemoryOverview['recentChanges'][number] = {

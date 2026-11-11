@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MessagePane } from '../src/components/chat-thread.js';
+import { MessagePane } from '../src/components/chat/chat-thread.js';
 import { api } from '../src/lib/api.js';
 import { historyToItems } from '../src/lib/chat-state.js';
 import { useChatStore } from '../src/lib/chat-store.js';

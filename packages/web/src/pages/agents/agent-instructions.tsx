@@ -1,7 +1,7 @@
 import type { PermissionId } from '@agentport/shared';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { OutputStylesPanel, RulesPanel } from '../../components/memory-panel.js';
+import { OutputStylesPanel, RulesPanel } from '../../components/memory/memory-panel.js';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { hasAnyGrant } from '../../lib/access.js';
 import {

@@ -1,7 +1,7 @@
 import { act, createElement, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BlobPdf } from '../src/components/blob-pdf.js';
+import { BlobPdf } from '../src/components/media/blob-pdf.js';
 
 const UNSUPPORTED = '当前浏览器不支持 PDF 预览，请下载原件查看。';
 const INVALID = '文件不是可预览的 PDF，请下载原件查看。';

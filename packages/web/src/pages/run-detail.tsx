@@ -4,9 +4,9 @@ import { ArrowLeft, CircleAlert, CircleStop, RotateCcw, Sparkles } from 'lucide-
 import { type ReactNode, useRef } from 'react';
 import { CopyButton } from '../components/copy-button.js';
 import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../components/page.js';
-import { RunQuestionCard } from '../components/run-question.js';
-import { RunStatusBadge } from '../components/run-status-badge.js';
-import { questionForStep, StepInspector, stepIcons, stepName } from '../components/run-steps.js';
+import { RunQuestionCard } from '../components/run/run-question.js';
+import { RunStatusBadge } from '../components/run/run-status-badge.js';
+import { questionForStep, StepInspector, stepIcons, stepName } from '../components/run/run-steps.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
 import { can } from '../lib/access.js';
