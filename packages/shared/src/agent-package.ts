@@ -32,6 +32,7 @@ export const AGENT_PACKAGE_PATHS = {
   settings: '.claude/settings.json',
   agentsDir: '.claude/agents/',
   skillsDir: '.claude/skills/',
+  workflowsDir: '.claude/workflows/',
   rulesDir: '.claude/rules/',
   outputStylesDir: '.claude/output-styles/',
   sidecar: AGENT_PACKAGE_SIDECAR,
@@ -44,6 +45,7 @@ export const AGENT_PACKAGE_LIMITS = {
   rules: 50,
   outputStyles: 20,
   skillFiles: 50,
+  workflows: 50,
   servers: 100,
   tools: 2_000,
 } as const;

@@ -65,6 +65,8 @@ const catalog = [
   { id: 'agents.rules.write', label: '修改规则', treePath: ['专家', '规则'], scopes: MWP },
   { id: 'agents.styles.read', label: '读取输出风格', treePath: ['专家', '输出风格'], scopes: MWP },
   { id: 'agents.styles.write', label: '修改输出风格', treePath: ['专家', '输出风格'], scopes: MWP },
+  { id: 'agents.workflows.read', label: '读取工作流', treePath: ['专家', '工作流'], scopes: MWP },
+  { id: 'agents.workflows.write', label: '修改工作流', treePath: ['专家', '工作流'], scopes: MWP },
   { id: 'agents.files.read', label: '读取完整文件', treePath: ['专家', '完整文件'], scopes: MWP },
   {
     id: 'agents.bindings.manage',
@@ -349,6 +351,7 @@ const READ_DEPENDENCIES: Partial<Record<PermissionId, PermissionId>> = {
   'agents.config.update': 'agents.config.read',
   'agents.rules.write': 'agents.rules.read',
   'agents.styles.write': 'agents.styles.read',
+  'agents.workflows.write': 'agents.workflows.read',
   'agents.memory.write': 'agents.memory.read',
   'agents.versions.restore': 'agents.versions.read',
   'agents.bindings.manage': 'agents.read',
@@ -404,6 +407,7 @@ const EXPORT_DEPENDENCIES: PermissionId[] = [
   'agents.config.read',
   'agents.rules.read',
   'agents.styles.read',
+  'agents.workflows.read',
   'agents.memory.read',
 ];
 
@@ -634,6 +638,8 @@ const C_MAINTENANCE_PERMISSIONS: PermissionId[] = [
   'agents.rules.write',
   'agents.styles.read',
   'agents.styles.write',
+  'agents.workflows.read',
+  'agents.workflows.write',
   'agents.files.read',
   'agents.bindings.manage',
   'agents.enable',

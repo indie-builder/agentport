@@ -316,6 +316,8 @@ const allowedTools = [
   ...task.extraAllowedTools.filter((rule) => !/^(Read|Write|Edit)(\(|$)/.test(rule)),
   // dontAsk 下未预批准的工具会被拒绝；委派时需显式放行 Agent。
   ...(task.allowSubAgents || hasPluginAgents ? ['Agent'] : []),
+  // Workflows 只在工作区确实带官方脚本时放行；子代理仍受既有工具权限约束。
+  ...(task.hasWorkflows ? ['Workflow'] : []),
 ];
 const abortController = new AbortController();
 process.once('SIGTERM', () => abortController.abort());

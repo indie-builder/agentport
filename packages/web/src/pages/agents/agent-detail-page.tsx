@@ -408,9 +408,11 @@ function RestrictedAgentTabs({
       : (available[0]?.id ?? 'overview');
   };
   const tab = permittedTab(search.tab);
+  const isSubAgent = (agent.parentId ?? null) !== null;
   const instruction = activeInstruction(
     asInstruction(search.tab) ?? search.instruction,
     permissions,
+    isSubAgent,
   );
   // 旧书签 tab=rules|styles 改写为 instructions + instruction，replace 不堆历史。
   useEffect(() => {
@@ -509,6 +511,7 @@ function RestrictedAgentTabs({
             agentId={agentId}
             permissions={permissions}
             instruction={instruction}
+            isSubAgent={isSubAgent}
             onInstructionChange={(next) => navigateSearch({ instruction: next })}
             onDirtyChange={setChildDirty}
             onPendingChange={setChildPending}

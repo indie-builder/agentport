@@ -5,6 +5,7 @@ import type {
   AgentMemoryOverview,
   AgentOptions,
   AgentPatch,
+  AgentWorkflow,
   ApiTool,
   ApiToolInput,
   Attention,
@@ -334,6 +335,54 @@ export const agentOutputStylesQuery = (id: string) =>
     queryKey: ['agent-output-styles', id],
     queryFn: () => api.agentOutputStyles(id),
   });
+
+export const agentWorkflowsQuery = (id: string) =>
+  queryOptions<AgentWorkflow[]>({
+    queryKey: ['agent-workflows', id],
+    queryFn: () => api.agentWorkflows(id),
+  });
+
+function invalidateAgentWorkflows(client: QueryClient, agentId: string): void {
+  void client.invalidateQueries({ queryKey: agentWorkflowsQuery(agentId).queryKey });
+  void client.invalidateQueries({ queryKey: ['agent-files', agentId] });
+}
+
+export function useCreateAgentWorkflow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; slug: string; content: string }) =>
+      api.createAgentWorkflow(vars.agentId, { slug: vars.slug, content: vars.content }),
+    onSuccess: (_workflow, vars) => invalidateAgentWorkflows(client, vars.agentId),
+  });
+}
+
+export function useUpdateAgentWorkflow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      agentId: string;
+      workflowId: string;
+      content: string;
+      expectedUpdatedAt?: string;
+    }) =>
+      api.updateAgentWorkflow(vars.agentId, vars.workflowId, {
+        content: vars.content,
+        ...(vars.expectedUpdatedAt === undefined
+          ? {}
+          : { expectedUpdatedAt: vars.expectedUpdatedAt }),
+      }),
+    onSuccess: (_workflow, vars) => invalidateAgentWorkflows(client, vars.agentId),
+  });
+}
+
+export function useDeleteAgentWorkflow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { agentId: string; workflowId: string }) =>
+      api.deleteAgentWorkflow(vars.agentId, vars.workflowId),
+    onSuccess: (_data, vars) => invalidateAgentWorkflows(client, vars.agentId),
+  });
+}
 
 export const agentMemoryFileQuery = (id: string, name: string) =>
   queryOptions<MemoryFileContent>({

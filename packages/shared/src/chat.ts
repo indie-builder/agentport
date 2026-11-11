@@ -248,6 +248,8 @@ export const sandboxTaskSchema = z
     mcpServers: z.array(z.string()).default([]),
     /** 主会话可用的技能 slug；子智能体技能由它自己的 frontmatter 声明。 */
     skills: z.array(z.string()).default([]),
+    /** 工作区带 `.claude/workflows/*.js` 时为真：runner 预批准 Workflow 工具。 */
+    hasWorkflows: z.boolean().default(false),
     /** 父级显式放行的额外工具（allowedTools）。 */
     extraAllowedTools: z.array(z.string()).default([]),
     /** 父级额外禁用的工具；子级不会继承这一项。 */

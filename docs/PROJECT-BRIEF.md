@@ -918,6 +918,7 @@ bun run dev
 | run | `run` | `run_01m5ag7sq6eh7bw81dxdrhkvec` |
 | runtime environment | `rte` | — |
 | runtime environment version | `rtev` | — |
+| agent workflow | `awf` | — |
 | audit | `aud` | — |
 | knowledge base | `kb` | `kb_01m6k4s2n8x7…` |
 | knowledge folder | `kfd` | — |

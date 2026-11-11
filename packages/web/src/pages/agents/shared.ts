@@ -190,20 +190,21 @@ export type SectionId = AgentSection;
 export type TabId = AgentTab;
 
 /**
- * 概览没有权限叶，所有能打开该专家的人都可见；「指令」页只要规则或输出风格之一可读即可进入。
+ * 概览没有权限叶，所有能打开该专家的人都可见；「指令」页只要规则、输出风格或工作流之一可读即可进入。
  * 内层分段再按各自权限决定渲染哪一项。
  */
 const TAB_PERMISSIONS: Record<TabId, readonly PermissionId[] | null> = {
   overview: null,
   config: ['agents.config.read'],
   memory: ['agents.memory.read'],
-  instructions: ['agents.rules.read', 'agents.styles.read'],
+  instructions: ['agents.rules.read', 'agents.styles.read', 'agents.workflows.read'],
   files: ['agents.files.read'],
 };
 
 export const INSTRUCTION_PERMISSIONS: Record<AgentInstruction, PermissionId> = {
   rules: 'agents.rules.read',
   styles: 'agents.styles.read',
+  workflows: 'agents.workflows.read',
 };
 
 export function canOpenTab(id: TabId, permissions: readonly PermissionId[]): boolean {
@@ -212,7 +213,9 @@ export function canOpenTab(id: TabId, permissions: readonly PermissionId[]): boo
 }
 
 export function asInstruction(value: unknown): AgentInstruction | undefined {
-  return value === 'rules' || value === 'styles' ? value : undefined;
+  return instructionItems.some((item) => item.id === value)
+    ? (value as AgentInstruction)
+    : undefined;
 }
 
 /** 旧书签的 rules / styles 指向合并后的「指令」页。 */
@@ -230,14 +233,25 @@ export function activeAgentTab(value: unknown, permissions: readonly PermissionI
     : (available[0]?.id ?? 'overview');
 }
 
+/** 工作流是 project 级能力，子智能体只能使用有读权的规则与输出风格。 */
+export function availableInstructions(
+  permissions: readonly PermissionId[],
+  isSubAgent: boolean,
+): (typeof instructionItems)[number][] {
+  return instructionItems.filter(
+    (item) =>
+      (item.id !== 'workflows' || !isSubAgent) &&
+      hasAnyGrant(permissions, INSTRUCTION_PERMISSIONS[item.id]),
+  );
+}
+
 /** 指令分段只保留有读权的一项；URL 值失效时回落到第一个可读项。 */
 export function activeInstruction(
   value: unknown,
   permissions: readonly PermissionId[],
+  isSubAgent = false,
 ): AgentInstruction | undefined {
-  const available = instructionItems.filter((item) =>
-    hasAnyGrant(permissions, INSTRUCTION_PERMISSIONS[item.id]),
-  );
+  const available = availableInstructions(permissions, isSubAgent);
   const requested = asInstruction(value) ?? available[0]?.id;
   return available.some((item) => item.id === requested) ? requested : available[0]?.id;
 }
@@ -311,6 +325,12 @@ export function listWorkspaceFiles(files: AgentFiles): FileEntry[] {
       path: `agents/${subAgent.slug}.md`,
       group: '子智能体',
       content: subAgent.content,
+    })),
+    ...(files.workflows ?? []).map((workflow) => ({
+      id: `.claude/workflows/${workflow.slug}.js`,
+      path: `workflows/${workflow.slug}.js`,
+      group: '工作流',
+      content: workflow.content,
     })),
     ...(files.rules ?? []).map((rule) => ({
       id: `.claude/rules/${rule.slug}.md`,

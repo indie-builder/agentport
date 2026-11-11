@@ -112,6 +112,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
         'agents.config.read',
         'agents.rules.read',
         'agents.styles.read',
+        'agents.workflows.read',
         'agents.memory.read',
       ] as const) {
         await authorizeObject(

@@ -7,6 +7,7 @@ import {
   type MemoryPolicy,
   type OpenUiToolDescriptor,
   SANDBOX_RUNTIME_ENV,
+  slugSchema,
 } from '@agentport/shared';
 import { fail } from './errors.js';
 import {
@@ -28,6 +29,8 @@ export interface WorkspaceFiles {
     files: Array<{ path: string; content: string }>;
   }>;
   subAgents: Array<{ slug: string; content: string }>;
+  /** 工作流：`.claude/workflows/<slug>.js` 的完整脚本。 */
+  workflows: Array<{ slug: string; content: string }>;
   /** 项目规则：`.claude/rules/<slug>.md` 的完整内容。 */
   rules: Array<{ slug: string; content: string }>;
   /** 自定义输出风格：`.claude/output-styles/<slug>.md` 的完整内容。 */
@@ -79,6 +82,8 @@ export interface WorkspaceInput {
   skills?: WorkspaceSkill[];
   /** 单层委派：这些子智能体渲染到 .claude/agents/，主智能体获得 Agent 工具。 */
   subAgents?: WorkspaceAgent[];
+  /** 工作流：{ slug, content }；content 是完整官方脚本，原样落盘。 */
+  workflows?: Array<{ slug: string; content: string }>;
   /** 项目规则：{ slug, content, globs? }。 */
   rules?: Array<{ slug: string; content: string; globs?: string }>;
   /** 自定义输出风格：{ slug, description, keepCodingInstructions, body }。 */
@@ -578,6 +583,12 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
         ...(subAgent.skills ? { skills: subAgent.skills } : {}),
       }),
     })),
+    workflows: (input.workflows ?? []).map((workflow) => {
+      if (!slugSchema.safeParse(workflow.slug).success) {
+        fail('INVALID_INPUT', `工作流 slug 无效：${workflow.slug}`, { path: '/workflows' });
+      }
+      return workflow;
+    }),
     rules: (input.rules ?? []).map((rule) => ({
       slug: rule.slug,
       content: renderRuleMd(rule),

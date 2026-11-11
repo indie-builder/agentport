@@ -94,6 +94,13 @@ export async function renderAgentWorkspace(
   }));
   const ruleRows = await repo.rules.listRules(app.db, agent.id);
   const rules = ruleRows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
+  const workflows =
+    agent.parentId === null
+      ? (await repo.workflows.listWorkflows(app.db, agent.id)).map((row) => ({
+          slug: row.slug,
+          content: row.content,
+        }))
+      : [];
   const styleRows = await repo.outputStyles.listOutputStyles(app.db, agent.id);
   const outputStyles = styleRows.map((r) => ({
     slug: r.slug,
@@ -129,6 +136,7 @@ export async function renderAgentWorkspace(
       servers,
       skills: skillsWithFiles,
       subAgents,
+      workflows,
       rules,
       outputStyles,
       selectedOutputStyle,

@@ -258,10 +258,11 @@ async function writeWorkspace(
     body: string;
   }>,
   selectedOutputStyle: string | null,
+  workflows: Array<{ slug: string; content: string }>,
   plugins: WorkspacePlugin[],
   /** 本轮已解析的专家记忆策略：CLAUDE.md 的记忆文案必须与记忆挂载权限同源。 */
   memoryPolicy: MemoryPolicy,
-): Promise<{ dir: string; hasSubAgents: boolean }> {
+): Promise<{ dir: string; hasSubAgents: boolean; hasWorkflows: boolean }> {
   // 生成式 UI 的工具目录与提示词、执行桥同源：这里查一次，渲染时写进 CLAUDE.md。
   const openuiTools =
     agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(db, agent.id) : [];
@@ -284,6 +285,7 @@ async function writeWorkspace(
       rules,
       outputStyles,
       selectedOutputStyle,
+      workflows,
       openuiTools,
       plugins,
       memoryPolicy,
@@ -325,6 +327,18 @@ async function writeWorkspace(
       const filePath = join(target, file.path);
       await mkdir(join(filePath, '..'), { mode: WORKSPACE_DIR_MODE, recursive: true });
       await writeFile(filePath, file.content, { encoding: 'utf8', mode: WORKSPACE_FILE_MODE });
+    }
+  }
+  // 工作流每次重建：先清旧目录，避免解绑/删除的工作流继续被 SDK 发现。
+  const workflowsDir = join(dir, '.claude', 'workflows');
+  await rm(workflowsDir, { recursive: true, force: true });
+  if (files.workflows.length > 0) {
+    await mkdir(workflowsDir, { mode: WORKSPACE_DIR_MODE, recursive: true });
+    for (const workflow of files.workflows) {
+      await writeFile(join(workflowsDir, `${workflow.slug}.js`), workflow.content, {
+        encoding: 'utf8',
+        mode: WORKSPACE_FILE_MODE,
+      });
     }
   }
   // 项目规则每次重建：写到 .claude/rules/<slug>.md，由 project source 随会话加载。
@@ -375,7 +389,11 @@ async function writeWorkspace(
     { runId, dir, mode: WORKSPACE_FILE_MODE.toString(8) },
     'workspace permissions applied',
   );
-  return { dir, hasSubAgents: files.subAgents.length > 0 };
+  return {
+    dir,
+    hasSubAgents: files.subAgents.length > 0,
+    hasWorkflows: files.workflows.length > 0,
+  };
 }
 
 /** 沙盒里的地址：容器内 127.0.0.1 指向容器自身，必须改写成宿主别名。 */
@@ -914,9 +932,20 @@ const worker = new Worker(
           body: r.body,
         }));
         const selectedOutputStyle = styleRows.find((r) => r.isSelected)?.slug ?? null;
+        const workflows =
+          agent.parentId === null
+            ? (await repo.workflows.listWorkflows(db, agentId)).map((row) => ({
+                slug: row.slug,
+                content: row.content,
+              }))
+            : [];
         const runPlugins = await loadAgentPlugins(agent);
 
-        const { dir: workspaceDir, hasSubAgents } = await writeWorkspace(
+        const {
+          dir: workspaceDir,
+          hasSubAgents,
+          hasWorkflows,
+        } = await writeWorkspace(
           { ...agent, serverNames: parentServerNames },
           runId,
           serverRows.map((server) => ({
@@ -928,6 +957,7 @@ const worker = new Worker(
           rules,
           outputStyles,
           selectedOutputStyle,
+          workflows,
           runPlugins,
           runMemoryPolicy,
         );
@@ -963,6 +993,7 @@ const worker = new Worker(
           permissionMode: permissionModeSchema.parse(agent.permissionMode),
           mcpServers: parentServerNames,
           skills: skillRows.map((skill) => skill.slug),
+          hasWorkflows,
           extraAllowedTools: agent.allowedTools,
           extraDisallowedTools: agent.disallowedTools,
           ...(agent.effort === null ? {} : { effort: effortSchema.parse(agent.effort) }),

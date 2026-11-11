@@ -27,3 +27,4 @@ export * as servers from './servers.js';
 export * as skillFiles from './skill-files.js';
 export * as skills from './skills.js';
 export * as userPreferences from './user-preferences.js';
+export * as workflows from './workflows.js';
