@@ -47,9 +47,12 @@ import {
   RunReconciliation,
   runStatusText,
 } from '../components/chat/chat-thread.js';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { ConversationOutputs, type OutputSelection } from '../components/chat/conversation-outputs.js';
+import {
+  ConversationOutputs,
+  type OutputSelection,
+} from '../components/chat/conversation-outputs.js';
 import { ConversationSearch } from '../components/chat/conversation-search.js';
+import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { Page, PageHeader } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
