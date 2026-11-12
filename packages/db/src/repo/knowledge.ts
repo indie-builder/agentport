@@ -1653,7 +1653,8 @@ export async function countEditedChunks(db: Database, versionId: string): Promis
     .select({ count: sql<number>`count(*)::int` })
     .from(knowledgeChunks)
     .where(and(eq(knowledgeChunks.versionId, versionId), eq(knowledgeChunks.editedByUser, true)));
-  if ((row?.count ?? 0) > 0) return row?.count ?? 0;
+  const editedCount = row?.count ?? 0;
+  if (editedCount > 0) return editedCount;
   // 删除后版本里已没有可标记的叶块；版本级 manualChanges 仍证明人工改过，不能被同步覆盖。
   const [version] = await db
     .select({ metadata: knowledgeDocumentVersions.metadata })
