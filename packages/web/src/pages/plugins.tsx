@@ -50,6 +50,7 @@ import {
   usePlugins,
   useUpdatePlugin,
 } from '../lib/queries.js';
+import { matchesQuery } from '../lib/search.js';
 import { compareBySort } from '../lib/sort.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
@@ -106,9 +107,7 @@ export function PluginsPage() {
     const term = query.trim().toLocaleLowerCase();
     return (plugins.data ?? [])
       .filter((plugin) =>
-        [plugin.name, plugin.slug, plugin.runtimeName, plugin.description].some((value) =>
-          value.toLocaleLowerCase().includes(term),
-        ),
+        matchesQuery([plugin.name, plugin.slug, plugin.runtimeName, plugin.description], term),
       )
       .sort((a, b) => compareBySort(a, b, sort));
   }, [plugins.data, query, sort]);

@@ -57,6 +57,7 @@ import {
   useSkills,
   useUpdateSkill,
 } from '../lib/queries.js';
+import { matchesQuery } from '../lib/search.js';
 import { compareBySort } from '../lib/sort.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
@@ -168,9 +169,7 @@ export function SkillsPage() {
         (skill) =>
           (usage === 'all' ||
             (usage === 'bound' ? skill.agentCount > 0 : skill.agentCount === 0)) &&
-          [skill.name, skill.slug, skill.description, skill.body].some((value) =>
-            value.toLocaleLowerCase().includes(term),
-          ),
+          matchesQuery([skill.name, skill.slug, skill.description, skill.body], term),
       )
       .sort((a, b) => compareBySort(a, b, sort));
   }, [skills.data, query, sort, usage]);
