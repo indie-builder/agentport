@@ -39,13 +39,9 @@ import {
 } from './personal.js';
 
 export async function agentSlug(db: Database, agentId: string): Promise<string> {
-  const [row] = await db
-    .select({ slug: schema.agents.slug })
-    .from(schema.agents)
-    .where(eq(schema.agents.id, agentId))
-    .limit(1);
-  if (!row) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
-  return row.slug;
+  const slug = await repo.agents.findAgentSlug(db, agentId);
+  if (slug === null) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
+  return slug;
 }
 
 /**
@@ -842,7 +838,6 @@ export async function writeMemoryTargetLocked(
       if (input.before === undefined) return recordManualSameContent(db, input, target, current);
       if (input.sourceReviewRunId) fail('CONFLICT', '该提案不需要改动记忆文件');
       const before = input.before;
-      if (!before) throw new Error('memory change requires a baseline');
       return db.transaction((tx) =>
         insertChange(tx as unknown as Database, { ...input, after }, target.agentId, before),
       );

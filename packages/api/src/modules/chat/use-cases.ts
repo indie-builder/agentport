@@ -6,7 +6,7 @@ import {
   fail,
   writeConversationAttachments,
 } from '@agentport/core';
-import { type Database, newId, repo, schema } from '@agentport/db';
+import { type Database, newId, repo } from '@agentport/db';
 import {
   type AccessResource,
   attachmentExtension,
@@ -18,7 +18,6 @@ import {
   runEnqueueOptions,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
-import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
 import { getQueue } from '../../queue/producer.js';
@@ -169,12 +168,8 @@ export async function startRun(
         return fail('CONVERSATION_NOT_FOUND', '会话不存在或不属于该智能体；请从会话列表重新打开');
       }
     }
-    const [agent] = await deps.db
-      .select({ slug: schema.agents.slug })
-      .from(schema.agents)
-      .where(eq(schema.agents.id, agentId))
-      .limit(1);
-    if (!agent) {
+    const agentSlug = await repo.agents.findAgentSlug(deps.db, agentId);
+    if (agentSlug === null) {
       if (createdConversationId !== undefined) {
         await deleteCreatedConversation(deps, createdConversationId, principal.businessId).catch(
           () => undefined,
@@ -182,11 +177,11 @@ export async function startRun(
       }
       return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
     }
-    attachmentSlug = agent.slug;
+    attachmentSlug = agentSlug;
     try {
       writtenAttachments = await writeConversationAttachments({
         root: deps.config.WORKSPACES_DIR,
-        slug: agent.slug,
+        slug: agentSlug,
         conversationId: requestedConversationId,
         inputs: attachments,
       });
