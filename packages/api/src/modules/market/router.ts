@@ -8,7 +8,7 @@ import { installMarketSkill } from './use-cases.js';
 
 const os = implement(marketContract).$context<RequestContext>();
 export const marketRouter = os.router({
-  list: os.list.handler(async ({ context, input: routeInput }) => {
+  list: os.list.handler(async ({ input: routeInput }) => {
     const { view, q } = routeInput.query;
     if (q === undefined) return fetchLeaderboard(view ?? 'all-time');
     if (q.length < 2) return [];

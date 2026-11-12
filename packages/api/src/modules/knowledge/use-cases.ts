@@ -714,8 +714,10 @@ function configIssues(
   ranges: ConfigIssueRange[],
 ): string[] {
   const issues: string[] = [];
-  const text = (key: string): string =>
-    typeof config[key] === 'string' ? (config[key] as string).trim() : '';
+  const text = (key: string): string => {
+    const value = config[key];
+    return typeof value === 'string' ? value.trim() : '';
+  };
   const validUrl = (key: string): boolean => {
     try {
       new URL(text(key));
