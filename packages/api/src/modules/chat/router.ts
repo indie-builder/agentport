@@ -54,7 +54,7 @@ function hasPlatformScope(context: RequestContext, permissionId: PermissionId): 
 }
 
 const os = implement(chatContract).$context<RequestContext>();
-export const chatMainRouter = {
+const chatMainRouter = {
   startRun: os.startRun.handler(async ({ input, context }) => {
     const result = await startRun(requireUser(context), input.body, {
       db: context.db,

@@ -84,7 +84,7 @@ export function isTableBlock(content: string): boolean {
 }
 
 /** Tables/code stay whole for chunking, including GFM tables without outer pipes. */
-export function isAtomicBlock(content: string): boolean {
+function isAtomicBlock(content: string): boolean {
   return isTableBlock(content) || isFenceStart(content);
 }
 

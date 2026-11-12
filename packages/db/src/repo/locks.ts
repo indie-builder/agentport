@@ -28,7 +28,7 @@ export async function lockAgentBindings(db: LockDb): Promise<void> {
 }
 
 /** 事务级 advisory lock，事务结束自动释放；调用方必须在事务里使用。 */
-export async function lockMemoryKey(db: LockDb, key: string): Promise<void> {
+async function lockMemoryKey(db: LockDb, key: string): Promise<void> {
   await db.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
 }
 
@@ -59,7 +59,7 @@ export function memoryTargetLockKey(
   return target.kind === 'personal' ? `user:${userId}` : `agent:${target.agentId}`;
 }
 
-export function agentMemoryLockKey(agentId: string): string {
+function agentMemoryLockKey(agentId: string): string {
   return `agent:${agentId}`;
 }
 

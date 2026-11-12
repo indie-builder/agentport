@@ -10,7 +10,7 @@ import { registerChannelRunEventsHttp } from './control.js';
 import { registerChannelEventsHttp } from './router.js';
 import { readChannelRunOutput } from './runs.js';
 
-export function registerChannelRunOutputsHttp(app: Hono<HttpEnv>): void {
+function registerChannelRunOutputsHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/channels/:id/runs/:runId/outputs/download',
     access({ kind: 'authenticated' }),

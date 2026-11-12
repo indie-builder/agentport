@@ -49,7 +49,7 @@ type RpcContract = Omit<typeof apiContract, 'auth'> & {
   auth: Omit<typeof apiContract.auth, keyof typeof authNativeContract>;
 };
 
-export const apiRouter: Router<RpcContract, RequestContext> = {
+const apiRouter: Router<RpcContract, RequestContext> = {
   agents: agentsRouter,
   audit: auditRouter,
   auth: authRouter,

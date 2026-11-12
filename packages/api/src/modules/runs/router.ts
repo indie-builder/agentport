@@ -19,7 +19,7 @@ function toItem(run: Awaited<ReturnType<typeof runsRepo.listRuns>>[number]) {
   return { ...run, startedAt: toIso(run.startedAt), endedAt: toIso(run.endedAt) };
 }
 const os = implement(runsContract).$context<RequestContext>();
-export const runsMainRouter = {
+const runsMainRouter = {
   list: os.list.handler(async ({ input, context }) => {
     const { agentId, status, trigger, limit } = input.query;
     const items = await runsRepo.listRuns(context.db, {

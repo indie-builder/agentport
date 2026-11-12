@@ -181,7 +181,7 @@ function parseEventCursor(raw: string | undefined): number | undefined {
   return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 const os = implement(channelsContract).$context<RequestContext>();
-export const channelsMainRouter = {
+const channelsMainRouter = {
   list: os.list.handler(async ({ context }) => {
     const items = await channelRepo.listChannels(context.db, subjectFor(context));
     await Promise.all(items.map((channel) => auditRead(context, channel)));

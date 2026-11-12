@@ -148,7 +148,7 @@ export async function agentAccess(context: RequestContext, agentId: string): Pro
   return { agentId, permissionIds };
 }
 
-export function grantedScopes(context: RequestContext, permissionId: PermissionId): AccessScope[] {
+function grantedScopes(context: RequestContext, permissionId: PermissionId): AccessScope[] {
   const scopes = new Set<AccessScope>();
   for (const grant of requireUser(context).grants) {
     if (grant.permissionId === permissionId) scopes.add(grant.scope);
