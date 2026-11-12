@@ -85,6 +85,7 @@ import {
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
 import { slugFromName } from '../lib/slug.js';
+import { compareBySort } from '../lib/sort.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -344,10 +345,7 @@ export function KnowledgePage() {
   };
 
   // 置顶项整体排在前面，组内继续沿用当前排序规则。
-  const compareBases = (a: KnowledgeBase, b: KnowledgeBase): number =>
-    sort === 'name'
-      ? a.name.localeCompare(b.name, 'zh-CN')
-      : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  const compareBases = (a: KnowledgeBase, b: KnowledgeBase): number => compareBySort(a, b, sort);
   const visible = baseItems
     .filter((base) => status === undefined || base.status === status)
     .filter((base) => {

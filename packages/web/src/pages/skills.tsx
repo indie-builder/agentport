@@ -57,6 +57,7 @@ import {
   useSkills,
   useUpdateSkill,
 } from '../lib/queries.js';
+import { compareBySort } from '../lib/sort.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -171,11 +172,7 @@ export function SkillsPage() {
             value.toLocaleLowerCase().includes(term),
           ),
       )
-      .sort((a, b) =>
-        sort === 'name'
-          ? a.name.localeCompare(b.name, 'zh-CN')
-          : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
+      .sort((a, b) => compareBySort(a, b, sort));
   }, [skills.data, query, sort, usage]);
 
   if (scope === 'market') {
