@@ -61,6 +61,7 @@ async function callTool(
       tools: apiTools,
       approvals: [bareName],
       nodeEnv: context.config.NODE_ENV,
+      privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
     });
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     await built.connect(serverSide);

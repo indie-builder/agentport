@@ -11,6 +11,11 @@
 - 接入原生 `TodoWrite` 任务清单：运行配置与专家包可移植启用，成功快照贯通 SSE、消息保存、历史恢复与按轮展示；停止/失败不改写步骤状态。
 - 会话成果：原生 Read/Write/Edit 写入独立 `/mnt/outputs` 草稿，每轮发布不可变文件快照；成果面板支持版本选择、Markdown/源码预览、下载与“基于此版本修改”，分支按历史边界复制，停止后保留已写文件；不新增成果表或云存储服务。
 
+### 连接器
+
+- generated 连接器补齐内部/外部 HTTP→MCP：新增 `GENERATED_PRIVATE_HOST_ALLOWLIST` 与 `assertServerEndpoint`，对显式白名单主机放行私网，贯穿创建/保存/测试/运行/对话/专家包导入；支持 OpenAPI 3.x / Swagger 2.0（JSON/YAML）批量导入，先预览勾选再单事务写入，web 提供「导入 OpenAPI」弹层。仅 `kind='generated'` 可用，导入写审计，错误码沿用现有集合；不引入聚合网关。
+- 工具定义支持 outputSchema：导入时从 OpenAPI 的 `application/json` 响应 schema（仅 object 根）推导并存 `api_tools.output_schema`（可空，迁移 0069），声明后成功调用同时返回 `structuredContent`；工具编辑器支持行内多选批量启停、「试跑」弹层与连接器「专家」列反查绑定智能体，新增 `tools.batchSetEnabled` / `tools.testInvoke` 并写审计。
+
 ### 规则文件
 
 - 规则文件改以 `AGENTS.md` 为真源：根与 `packages/*` 的 `CLAUDE.md` 改为指向同级 `AGENTS.md` 的相对软链接。中立格式持有正文，Claude 系 Harness 经链接读取，Codex、Cursor 等直接读 `AGENTS.md`，不产生第二份副本。

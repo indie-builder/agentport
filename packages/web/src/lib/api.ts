@@ -135,6 +135,27 @@ export interface PluginImportResult {
   warnings: string[];
 }
 
+/** OpenAPI 解析预览：tools 为可直接创建的工具定义，warnings 不阻断导入。 */
+export interface OpenApiPreviewResult {
+  tools: ApiToolInput[];
+  warnings: string[];
+  total: number;
+}
+
+export interface OpenApiImportResult {
+  created: ApiTool[];
+  warnings: string[];
+}
+
+/** 单工具试跑结果；ok 为 false 时 error 说明上游返回或请求失败的原因。 */
+export interface TestInvokeResult {
+  ok: boolean;
+  text?: string | undefined;
+  isError?: boolean | undefined;
+  error?: string | undefined;
+  durationMs: number;
+}
+
 /** 官方 CLI 缓存里的插件；imported 表示同一来源已经加入平台插件库。 */
 export interface NativeInstalledPlugin extends SharedNativeInstalledPlugin {
   imported: boolean;
@@ -966,6 +987,29 @@ export const api = {
     patch: Partial<ApiToolInput> & { enabled?: boolean },
   ): Promise<ApiTool> =>
     rpc.servers.tools.update({ params: { id: serverId, toolId }, body: patch }),
+  previewOpenApiTools: (serverId: string, spec: string): Promise<OpenApiPreviewResult> =>
+    rpc.servers.tools.previewOpenApi({ params: { id: serverId }, body: { spec } }),
+  importOpenApiTools: (
+    serverId: string,
+    spec: string,
+    selectedNames?: string[],
+  ): Promise<OpenApiImportResult> =>
+    rpc.servers.tools.importOpenApi({
+      params: { id: serverId },
+      body: selectedNames ? { spec, selectedNames } : { spec },
+    }),
+  batchSetToolsEnabled: (
+    serverId: string,
+    toolIds: string[],
+    enabled: boolean,
+  ): Promise<{ updated: number }> =>
+    rpc.servers.tools.batchSetEnabled({ params: { id: serverId }, body: { toolIds, enabled } }),
+  testInvokeTool: (
+    serverId: string,
+    toolId: string,
+    args: Record<string, unknown>,
+  ): Promise<TestInvokeResult> =>
+    rpc.servers.tools.testInvoke({ params: { id: serverId, toolId }, body: { args } }),
   runApprovals: (runId: string): Promise<ApprovalRequestList> =>
     rpc.runs.approvals({ params: { id: runId } }),
   approveRun: (runId: string, serverId: string, toolName: string) =>

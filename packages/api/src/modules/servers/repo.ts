@@ -314,6 +314,7 @@ function toApiTool(row: repo.servers.ApiToolRow): ApiTool {
     method: row.method as ApiTool['method'],
     pathTemplate: row.pathTemplate,
     inputSchema: row.inputSchema,
+    outputSchema: row.outputSchema,
     paramsIn: row.paramsIn,
     enabled: row.enabled,
     requiresApproval: row.requiresApproval,
@@ -334,10 +335,20 @@ export async function createTool(db: Db, serverId: string, input: ApiToolInput):
     method: input.method,
     pathTemplate: input.pathTemplate,
     inputSchema: input.inputSchema,
+    outputSchema: input.outputSchema ?? null,
     paramsIn: input.paramsIn,
     requiresApproval: input.requiresApproval,
   });
   return toApiTool(row);
+}
+
+export async function createTools(
+  db: Db,
+  serverId: string,
+  inputs: ApiToolInput[],
+): Promise<ApiTool[]> {
+  const rows = await repo.servers.createApiTools(db, serverId, inputs);
+  return rows.map(toApiTool);
 }
 
 export async function updateTool(

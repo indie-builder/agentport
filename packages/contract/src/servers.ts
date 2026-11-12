@@ -33,6 +33,7 @@ const toolPatchSchema = z
     method: apiToolInputSchema.shape.method.removeDefault().optional(),
     pathTemplate: apiToolInputSchema.shape.pathTemplate.optional(),
     inputSchema: apiToolInputSchema.shape.inputSchema.removeDefault().optional(),
+    outputSchema: apiToolInputSchema.shape.outputSchema.optional(),
     paramsIn: apiToolInputSchema.shape.paramsIn.removeDefault().optional(),
     requiresApproval: apiToolInputSchema.shape.requiresApproval.removeDefault().optional(),
     enabled: z.boolean().optional(),
@@ -112,6 +113,60 @@ export const serversContract = {
       .route({ method: 'POST', path: '/servers/{id}/tools', successStatus: 201 })
       .input(z.object({ params: idParams, body: apiToolInputSchema }))
       .output(apiToolSchema),
+    previewOpenApi: manageTools
+      .route({ method: 'POST', path: '/servers/{id}/tools/import-openapi/preview' })
+      .input(
+        z.object({ params: idParams, body: z.object({ spec: z.string().min(1).max(5_000_000) }) }),
+      )
+      .output(
+        z.object({
+          tools: z.array(apiToolInputSchema),
+          warnings: z.array(z.string()),
+          total: z.number().int(),
+        }),
+      ),
+    importOpenApi: manageTools
+      .route({ method: 'POST', path: '/servers/{id}/tools/import-openapi', successStatus: 201 })
+      .input(
+        z.object({
+          params: idParams,
+          body: z.object({
+            spec: z.string().min(1).max(5_000_000),
+            selectedNames: z.array(z.string()).optional(),
+          }),
+        }),
+      )
+      .output(z.object({ created: z.array(apiToolSchema), warnings: z.array(z.string()) })),
+    batchSetEnabled: manageTools
+      .route({ method: 'POST', path: '/servers/{id}/tools/batch-enabled' })
+      .input(
+        z.object({
+          params: idParams,
+          body: z.object({
+            toolIds: z.array(z.string().min(1)).min(1).max(200),
+            enabled: z.boolean(),
+          }),
+        }),
+      )
+      .output(z.object({ updated: z.number().int() })),
+    testInvoke: manageTools
+      .meta({ rateLimit: 20 })
+      .route({ method: 'POST', path: '/servers/{id}/tools/{toolId}/test-invoke' })
+      .input(
+        z.object({
+          params: toolParams,
+          body: z.object({ args: z.record(z.string(), z.unknown()).default({}) }),
+        }),
+      )
+      .output(
+        z.object({
+          ok: z.boolean(),
+          text: z.string().optional(),
+          isError: z.boolean().optional(),
+          error: z.string().optional(),
+          durationMs: z.number().int(),
+        }),
+      ),
     update: manageTools
       .route({ method: 'PATCH', path: '/servers/{id}/tools/{toolId}' })
       .input(z.object({ params: toolParams, body: toolPatchSchema }))

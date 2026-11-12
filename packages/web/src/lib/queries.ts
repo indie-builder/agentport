@@ -1549,10 +1549,42 @@ export function useRotateServerToken(serverId: string) {
   });
 }
 
+/** 批量启停：成功后失效工具列表，勾选状态由调用方清空。 */
+export function useBatchSetToolsEnabled(serverId: string) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (vars: { toolIds: string[]; enabled: boolean }) =>
+      api.batchSetToolsEnabled(serverId, vars.toolIds, vars.enabled),
+    onSuccess: () => invalidate('tools'),
+  });
+}
+
+export function useTestInvokeTool(serverId: string) {
+  return useMutation({
+    mutationFn: (vars: { toolId: string; args: Record<string, unknown> }) =>
+      api.testInvokeTool(serverId, vars.toolId, vars.args),
+  });
+}
+
 export function useCreateTool(serverId: string) {
   const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (input: ApiToolInput) => api.createTool(serverId, input),
+    onSuccess: () => invalidate('tools'),
+  });
+}
+
+export function usePreviewOpenApi(serverId: string) {
+  return useMutation({
+    mutationFn: (spec: string) => api.previewOpenApiTools(serverId, spec),
+  });
+}
+
+export function useImportOpenApi(serverId: string) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (vars: { spec: string; selectedNames: string[] }) =>
+      api.importOpenApiTools(serverId, vars.spec, vars.selectedNames),
     onSuccess: () => invalidate('tools'),
   });
 }

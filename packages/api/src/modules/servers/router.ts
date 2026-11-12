@@ -1,22 +1,26 @@
 import { serversContract } from '@agentport/contract/servers';
-import { fail, isAppError, parseMcpJson } from '@agentport/core';
+import { fail, isAppError, parseMcpJson, parseOpenApiDocument } from '@agentport/core';
 import { repo as dbRepo } from '@agentport/db';
 import {
+  type ApiToolInput,
+  apiToolInputSchema,
   connectorCatalogSchema,
   maskSecret,
   type ServerTestResult,
   serverTestResultSchema,
 } from '@agentport/shared';
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { implement } from '@orpc/server';
 import { z } from 'zod';
 import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { connectorCatalog } from './connector-catalog-data.js';
+import { buildGeneratedServer } from './generated.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
 import { testStdioInSandbox } from './sandbox-probe.js';
-import { assertSafeUrl } from './ssrf.js';
+import { assertSafeUrl, assertServerEndpoint } from './ssrf.js';
 import { testConnection } from './test-connection.js';
 
 const writeAudit = dbRepo.audit.writeAudit;
@@ -48,7 +52,10 @@ export const serversRouter = os.router({
       if (input.kind === 'http') {
         await assertSafeUrl(input.url, context.config.NODE_ENV);
       } else if (input.kind === 'generated') {
-        await assertSafeUrl(input.baseUrl, context.config.NODE_ENV);
+        await assertServerEndpoint(input.baseUrl, {
+          nodeEnv: context.config.NODE_ENV,
+          allowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
+        });
       }
       const created = await repo.createServer(context.db, input, context.config.APP_SECRET_KEY);
       await writeAudit(context.db, context.log, {
@@ -140,7 +147,10 @@ export const serversRouter = os.router({
       if (row.kind === 'http' && body.url !== undefined) {
         await assertSafeUrl(body.url, context.config.NODE_ENV);
       } else if (row.kind === 'generated' && body.baseUrl !== undefined) {
-        await assertSafeUrl(body.baseUrl, context.config.NODE_ENV);
+        await assertServerEndpoint(body.baseUrl, {
+          nodeEnv: context.config.NODE_ENV,
+          allowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
+        });
       }
       const updated = await repo.updateServer(
         context.db,
@@ -208,6 +218,7 @@ export const serversRouter = os.router({
                 }
               : undefined,
             context.log,
+            context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
           );
     await writeAudit(context.db, context.log, {
       actor: actorOf(context),
@@ -270,6 +281,138 @@ export const serversRouter = os.router({
         rethrowConflict(err);
       }
     }),
+    previewOpenApi: os.tools.previewOpenApi.handler(async ({ input, context }) => {
+      const row = await repo.getServerRow(context.db, input.params.id);
+      if (!row) return notFound('server');
+      if (row.kind !== 'generated') {
+        return fail('INVALID_INPUT', '仅 generated 连接器支持 OpenAPI 导入');
+      }
+      const { tools, warnings } = parseOpenApiDocument(input.body.spec);
+      return { tools, warnings, total: tools.length };
+    }),
+    importOpenApi: os.tools.importOpenApi.handler(async ({ input, context }) => {
+      const { id } = input.params;
+      const row = await repo.getServerRow(context.db, id);
+      if (!row) return notFound('server');
+      if (row.kind !== 'generated') {
+        return fail('INVALID_INPUT', '仅 generated 连接器支持 OpenAPI 导入');
+      }
+      const { tools, warnings } = parseOpenApiDocument(input.body.spec);
+      const selectedNames = input.body.selectedNames
+        ? new Set(input.body.selectedNames)
+        : undefined;
+      const inputs: ApiToolInput[] = [];
+      for (const tool of tools) {
+        if (selectedNames && !selectedNames.has(tool.name)) continue;
+        const parsed = apiToolInputSchema.safeParse(tool);
+        if (!parsed.success) {
+          return fail(
+            'INVALID_INPUT',
+            `工具「${tool.name}」的 OpenAPI 定义无效：${parsed.error.issues[0]?.message ?? '校验失败'}`,
+          );
+        }
+        inputs.push(parsed.data);
+      }
+      try {
+        const created = await repo.createTools(context.db, id, inputs);
+        await writeAudit(context.db, context.log, {
+          actor: actorOf(context),
+          action: 'server.tools.imported',
+          target: id,
+          input: { count: created.length },
+          status: 'ok',
+          requestId: context.requestId,
+        });
+        return { created, warnings };
+      } catch (err) {
+        if (isPgCode(err, '23505')) {
+          return fail('CONFLICT', '工具名已被同一连接器占用，请先删除同名工具再导入');
+        }
+        throw err;
+      }
+    }),
+    batchSetEnabled: os.tools.batchSetEnabled.handler(async ({ input, context }) => {
+      const { id } = input.params;
+      const { toolIds, enabled } = input.body;
+      const row = await repo.getServerRow(context.db, id);
+      if (!row) return notFound('server');
+      if (row.kind !== 'generated') {
+        return fail('INVALID_INPUT', '仅 generated 连接器支持工具管理');
+      }
+      let updated = 0;
+      for (const toolId of toolIds) {
+        const tool = await repo.updateTool(context.db, id, toolId, { enabled });
+        if (tool) updated += 1;
+      }
+      await writeAudit(context.db, context.log, {
+        actor: actorOf(context),
+        action: 'server.tools.batch-enabled',
+        target: id,
+        input: { updated, enabled },
+        status: 'ok',
+        requestId: context.requestId,
+      });
+      return { updated };
+    }),
+    testInvoke: os.tools.testInvoke.handler(async ({ input, context }) => {
+      const { id, toolId } = input.params;
+      const server = await getServerWithSecrets(context.db, id, context.config.APP_SECRET_KEY);
+      if (!server) return notFound('server');
+      if (server.kind !== 'generated') {
+        return fail('INVALID_INPUT', '仅 generated 连接器支持工具测试');
+      }
+      const tool = (await repo.listTools(context.db, id)).find((entry) => entry.id === toolId);
+      if (!tool) return notFound('tool');
+      const built = buildGeneratedServer({
+        name: server.name,
+        baseUrl: server.baseUrl,
+        headers: server.headers,
+        tools: [{ ...tool, enabled: true, requiresApproval: false }],
+        approvals: [tool.name],
+        nodeEnv: context.config.NODE_ENV,
+        privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
+      });
+      const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+      await built.connect(serverSide);
+      const client = new Client({ name: 'agentport-tools-test', version: '0.1.0' });
+      const startedAt = Date.now();
+      let ok = false;
+      try {
+        await client.connect(clientSide);
+        const result = await client.callTool(
+          { name: tool.name, arguments: input.body.args },
+          { timeout: 35_000 },
+        );
+        const text = result.content
+          ?.filter((item) => item.type === 'text')
+          .map((item) => item.text ?? '')[0];
+        ok = result.isError !== true;
+        return {
+          ok,
+          ...(text === undefined ? {} : { text }),
+          isError: result.isError === true,
+          durationMs: Date.now() - startedAt,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : '工具调用失败',
+          durationMs: Date.now() - startedAt,
+        };
+      } finally {
+        // 只记录结果摘要：参数、解密头与响应体可能含敏感数据，不进审计。
+        await writeAudit(context.db, context.log, {
+          actor: actorOf(context),
+          action: 'server.tools.test-invoked',
+          target: `${id}/${toolId}`,
+          input: { ok, durationMs: Date.now() - startedAt },
+          status: ok ? 'ok' : 'error',
+          requestId: context.requestId,
+        });
+        await client.close().catch(() => undefined);
+        await built.close().catch(() => undefined);
+      }
+    }),
     update: os.tools.update.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
       const body = input.body;
@@ -279,6 +422,7 @@ export const serversRouter = os.router({
       if (body.method !== undefined) patch.method = body.method;
       if (body.pathTemplate !== undefined) patch.pathTemplate = body.pathTemplate;
       if (body.inputSchema !== undefined) patch.inputSchema = body.inputSchema;
+      if ('outputSchema' in body) patch.outputSchema = body.outputSchema ?? null;
       if (body.paramsIn !== undefined) patch.paramsIn = body.paramsIn;
       if (body.requiresApproval !== undefined) patch.requiresApproval = body.requiresApproval;
       if (body.enabled !== undefined) patch.enabled = body.enabled;

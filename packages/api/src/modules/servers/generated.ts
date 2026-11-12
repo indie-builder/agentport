@@ -3,11 +3,13 @@ import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { runMcpExecution, tryApprovalWait } from '../../plugins/concurrency.js';
-import { assertSafeUrl } from './ssrf.js';
+import { assertServerEndpoint } from './ssrf.js';
 
 export interface GeneratedServerInput {
   /** 决定 SSRF 是否放行 localhost；与 test-connection 保持同一来源。 */
   nodeEnv?: string | undefined;
+  /** 显式配置的私网主机；只对这些主机的 upstream 放行内网地址。 */
+  privateHostAllowlist: string;
   name: string;
   baseUrl: string;
   headers: Record<string, string>;
@@ -120,7 +122,7 @@ function fillPath(
   args: Record<string, unknown>,
 ): { path: string; rest: Record<string, unknown> } {
   const rest: Record<string, unknown> = { ...args };
-  const path = template.replace(/\{(\w+)\}/g, (_match, key: string) => {
+  const path = template.replace(/\{([^{}]+)\}/g, (_match, key: string) => {
     const value = rest[key];
     delete rest[key];
     return encodeURIComponent(value === undefined ? '' : String(value));
@@ -161,6 +163,7 @@ async function callUpstream(
   headers: Record<string, string>,
   args: Record<string, unknown>,
   nodeEnv: string | undefined,
+  privateHostAllowlist: string,
   signal: AbortSignal,
   isRunActive: (() => Promise<boolean>) | undefined,
 ): Promise<CallToolResult> {
@@ -178,7 +181,10 @@ async function callUpstream(
   const { path, rest } = fillPath(tool.pathTemplate, args);
   const url = new URL(baseUrl.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
   // 与 test-connection 一致：nodeEnv 决定是否放行 localhost，避免「测得通但跑不通」。
-  await assertSafeUrl(url.toString(), nodeEnv);
+  await assertServerEndpoint(url.toString(), {
+    nodeEnv,
+    allowlist: privateHostAllowlist,
+  });
   // DNS 校验期间可能已被取消或 run 已结束：在真正发请求前关掉这个窗口。
   if (signal.aborted) return cancelledResult(tool.name);
   if (isRunActive && !(await isRunActive())) return cancelledResult(tool.name);
@@ -233,11 +239,17 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
     const inputSchema = fromJsonSchema<Record<string, unknown>>(
       tool.inputSchema as Parameters<typeof fromJsonSchema>[0],
     );
+    const outputSchema = tool.outputSchema
+      ? fromJsonSchema<Record<string, unknown>>(
+          tool.outputSchema as Parameters<typeof fromJsonSchema>[0],
+        )
+      : undefined;
     server.registerTool(
       tool.name,
       {
         description: tool.description || `${tool.method} ${tool.pathTemplate}`,
         inputSchema,
+        ...(outputSchema ? { outputSchema } : {}),
       },
       async (args, ctx) => {
         const signal = ctx.mcpReq.signal;
@@ -287,15 +299,32 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
             }
           }
         }
-        return callUpstream(
+        const result = await callUpstream(
           tool,
           input.baseUrl,
           input.headers,
           args,
           input.nodeEnv,
+          input.privateHostAllowlist,
           signal,
           input.isRunActive,
         );
+        if (!tool.outputSchema || result.isError) return result;
+        const text = result.content?.find((item) => item.type === 'text')?.text ?? '';
+        try {
+          // MCP SDK 要求声明 outputSchema 的工具必须返回 structuredContent，否则整次调用被判失败。
+          return { ...result, structuredContent: JSON.parse(text) };
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `上游返回非 JSON，无法满足 outputSchema：${err instanceof Error ? err.message : '解析失败'}`,
+              },
+            ],
+          };
+        }
       },
     );
   }

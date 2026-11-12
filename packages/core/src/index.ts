@@ -46,6 +46,11 @@ export {
   parseOutputStyleMd,
   parseRuleMd,
 } from './official-files.js';
+export {
+  type ImportedHttpTool,
+  type ParsedOpenApi,
+  parseOpenApiDocument,
+} from './openapi.js';
 export { resolveOpenUiResponse } from './openui-response.js';
 export {
   captureOutputDraft,

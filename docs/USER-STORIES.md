@@ -54,6 +54,49 @@
 - 成功展示 serverInfo、工具名与描述、耗时。
 - 每次测试写入审计。
 
+### US-1.5 从 OpenAPI/Swagger 批量导入工具
+**作为** 管理员，**我想** 上传或粘贴 OpenAPI 文档并挑选用得上的接口，**以便** 不逐个手填就把一批 HTTP 接口变成 MCP 工具。
+
+验收：
+- 仅 `kind='generated'` 的连接器显示「导入 OpenAPI」入口；支持 OpenAPI 3.x 与 Swagger 2.0，JSON 或 YAML。
+- 预览返回可导入的工具、`warnings` 与总数，且不写库；用户可按工具名勾选要导入的接口。
+- 导入整批在一个事务内完成，不部分写入；成功后工具立即出现在该连接器的工具列表并可被智能体绑定。
+- 超过 200 个 operation 返回 `PAYLOAD_TOO_LARGE`；非法 spec 或工具校验失败返回 `INVALID_INPUT`；同名工具唯一冲突返回 409。
+- 导入写审计 `server.tools.imported`；外部 `$ref`、循环引用与无法可靠展开的组合结构记 warning 后跳过，不静默丢接口。
+
+### US-1.6 连接企业内网 HTTP 服务
+**作为** 管理员，**我想** 让白名单内的内网 API 也能生成 MCP 工具，**以便** 把公司内部服务接给智能体。
+
+验收：
+- 部署方通过 `GENERATED_PRIVATE_HOST_ALLOWLIST` 配置逗号分隔的 `host` 或 `host:port`；命中精确主机（未写端口则不限制端口）时跳过私网拒绝。
+- 白名单主机在创建/保存、测试连接、`/mcp/:serverId` 运行调用、对话工具与专家包导入中均可正常使用。
+- 未列入白名单的私网、回环、link-local 目标仍返回 `INVALID_URL`；公网地址行为不变。
+- 白名单不支持通配符、网段或 DNS 后缀；普通用户不能通过界面修改。
+
+### US-1.7 用加密 headers 调用外部服务鉴权
+**作为** 管理员，**我想** 为外部 HTTP 连接配置 Bearer、API Key 或 Basic 鉴权头，**以便** 受保护的上游 API 能被安全调用。
+
+验收：
+- 请求头值加密入库，列表、详情与工具预览只返回脱敏值。
+- 支持 `Authorization: Bearer <token>`、自定义 API Key 头与 `Authorization: Basic <base64>`；调用时按配置注入上游请求。
+- URL 中不接受账号密码，凭证只能经加密 headers 配置；上游鉴权失败以工具调用错误返回，不泄露密钥。
+
+### US-1.8 批量启停工具、试跑单个工具并查看引用
+**作为** 管理员，**我想** 一次启停多个工具、单独试跑一个工具，并看到哪些智能体在用这个连接器，**以便** 快速调整暴露给智能体的工具集合并排查调用问题。
+
+验收：
+- 工具编辑器支持行内多选批量启停，调用 `tools.batchSetEnabled`（`POST /servers/{id}/tools/batch-enabled`）；仅 `kind='generated'` 可用，写审计。
+- 单工具「试跑」弹层调用 `tools.testInvoke`（`POST /servers/{id}/tools/{toolId}/test-invoke`）：即使工具当前停用也临时强制启用，绕过 MCP 副作用审批，但仍受 `GENERATED_PRIVATE_HOST_ALLOWLIST` 与 SSRF 校验约束；返回 `{ ok, text, error, durationMs }`，每次试跑写审计。
+- 连接器列表的「专家」列可点击查看绑定了该连接器的智能体名称。
+
+### US-1.9 声明 outputSchema 的工具返回结构化内容
+**作为** 智能体，**我想** 调用声明了 outputSchema 的工具时直接拿到结构化结果，**以便** 不重复解析文本就能使用返回值。
+
+验收：
+- OpenAPI 导入时，响应声明 `application/json` 且根为 object 的工具把 schema 存入 `api_tools.output_schema`（可空 jsonb）；其余工具留空，导入照常成功。
+- 工具注册时声明非空 outputSchema，成功调用在文本之外返回 `structuredContent`；上游返回非 JSON 时以工具错误返回，不伪造结构化内容。
+- 工具 PATCH 可修改或清空 outputSchema，下一次请求生效。
+
 ---
 
 ## EPIC 2 — 专家定义

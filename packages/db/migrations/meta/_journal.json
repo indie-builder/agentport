@@ -484,6 +484,13 @@
       "when": 1794419010383,
       "tag": "0068_fat_doctor_faustus",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1794497540686,
+      "tag": "0069_short_makkari",
+      "breakpoints": true
     }
   ]
 }

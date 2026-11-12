@@ -20,6 +20,7 @@ mock.module('@modelcontextprotocol/server', () => ({
 
 mock.module('../src/modules/servers/ssrf.js', () => ({
   assertSafeUrl: mock(async () => undefined),
+  assertServerEndpoint: mock(async () => undefined),
 }));
 
 const approvalTool: ApiTool = {

@@ -92,6 +92,8 @@ export const apiTools = pgTable(
     method: text('method').notNull(),
     pathTemplate: text('path_template').notNull(),
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>().notNull(),
+    /** MCP outputSchema；导入时来自 OpenAPI 响应结构，未声明为 null。 */
+    outputSchema: jsonb('output_schema').$type<Record<string, unknown>>(),
     paramsIn: text('params_in', { enum: ['query', 'body'] })
       .notNull()
       .default('query'),
