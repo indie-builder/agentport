@@ -1427,12 +1427,8 @@ worker.on('failed', async (job, err) => {
   if (!parsed.success) return;
   const { runId, agentId } = parsed.data;
   try {
-    const [agent] = await db
-      .select({ slug: schema.agents.slug })
-      .from(schema.agents)
-      .where(eq(schema.agents.id, agentId))
-      .limit(1);
-    if (agent) await rm(join(workspacesDir, agent.slug, runId), { recursive: true, force: true });
+    const slug = await repo.agents.findAgentSlug(db, agentId);
+    if (slug !== null) await rm(join(workspacesDir, slug, runId), { recursive: true, force: true });
   } catch (cleanupError) {
     logger.warn({ err: cleanupError, runId }, 'workspace cleanup failed');
   }

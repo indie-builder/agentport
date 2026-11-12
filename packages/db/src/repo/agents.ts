@@ -212,6 +212,15 @@ export async function getAgent(db: DbHandle, id: string): Promise<AgentRow | nul
   return row ?? null;
 }
 
+export async function findAgentSlug(db: DbHandle, agentId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ slug: agents.slug })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1);
+  return row?.slug ?? null;
+}
+
 export async function getDefaultAgent(db: DbHandle): Promise<AgentRow | null> {
   const [row] = await db.select().from(agents).where(eq(agents.isDefault, true)).limit(1);
   return row ?? null;

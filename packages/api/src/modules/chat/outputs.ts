@@ -1,6 +1,6 @@
 import { chatContract } from '@agentport/contract/chat';
 import { fail, listOutputFiles, readOutputFile } from '@agentport/core';
-import { repo, schema } from '@agentport/db';
+import { repo } from '@agentport/db';
 import {
   type ErrorCode,
   type OpenUiAction,
@@ -10,7 +10,6 @@ import {
   outputPathSchema,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppContext, HttpContext, HttpEnv, RequestContext } from '../../http/context.js';
@@ -38,12 +37,7 @@ export async function agentSlug(
   context: Pick<AppContext, 'db'>,
   agentId: string,
 ): Promise<string | null> {
-  const [row] = await context.db
-    .select({ slug: schema.agents.slug })
-    .from(schema.agents)
-    .where(eq(schema.agents.id, agentId))
-    .limit(1);
-  return row?.slug ?? null;
+  return repo.agents.findAgentSlug(context.db, agentId);
 }
 function selectionProblem(err: unknown): {
   code: ErrorCode;
