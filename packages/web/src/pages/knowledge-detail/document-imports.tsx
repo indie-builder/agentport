@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { DialogShell } from '../../components/dialog-shell.js';
 import {
   DraftGuardDialogs,
-  treeFolders,
+  folderOptions,
   useDraftGuard,
 } from '../../components/knowledge/knowledge-shared.js';
 import { RequiredMark } from '../../components/required-mark.js';
@@ -45,13 +45,7 @@ function ImportFolderField({
   disabled: boolean;
   onChange: (folderId: string) => void;
 }) {
-  const options = [
-    { value: 'null', label: '未分类' },
-    ...treeFolders(folders).map((folder) => ({
-      value: folder.id,
-      label: `${'　'.repeat(folder.depth)}${folder.label}`,
-    })),
-  ];
+  const options = folderOptions(folders);
   return (
     <Field className="gap-1.5">
       <FieldLabel htmlFor={id}>文件夹</FieldLabel>

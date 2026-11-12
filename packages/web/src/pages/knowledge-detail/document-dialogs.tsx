@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import {
   DraftGuardDialogs,
+  folderOptions,
   treeFolders,
   useDraftGuard,
 } from '../../components/knowledge/knowledge-shared.js';
@@ -420,13 +421,7 @@ export function DocumentDialog({
                       onValueChange={(next) => {
                         if (next !== null) field.onChange(next);
                       }}
-                      items={[
-                        { value: 'null', label: '未分类' },
-                        ...treeFolders(folders).map((folder) => ({
-                          value: folder.id,
-                          label: `${'　'.repeat(folder.depth)}${folder.label}`,
-                        })),
-                      ]}
+                      items={folderOptions(folders)}
                     >
                       <SelectTrigger id="document-folder" className="w-full">
                         <SelectValue />

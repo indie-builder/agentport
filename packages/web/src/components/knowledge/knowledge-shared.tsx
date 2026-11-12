@@ -120,6 +120,16 @@ export function treeFolders(
   return rows;
 }
 
+export function folderOptions(folders: KnowledgeFolder[]): Array<{ value: string; label: string }> {
+  return [
+    { value: 'null', label: '未分类' },
+    ...treeFolders(folders).map((folder) => ({
+      value: folder.id,
+      label: `${'　'.repeat(folder.depth)}${folder.label}`,
+    })),
+  ];
+}
+
 export function versionLabel(version: KnowledgeDocumentVersion): string {
   return `v${version.version} · ${originLabel[version.origin] ?? version.origin}`;
 }

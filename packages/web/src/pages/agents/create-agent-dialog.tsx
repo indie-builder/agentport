@@ -35,6 +35,7 @@ import { ApiError } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { useCreateAgent, useDuplicateAgent } from '../../lib/queries.js';
+import { slugFromName } from '../../lib/slug.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import {
@@ -89,11 +90,7 @@ export function CreateAgentDialog({
   const submit = rhf.handleSubmit(
     (draft) => {
       if (create.isPending) return;
-      const generatedSlug = draft.name
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]+/g, '-')
-        .replace(/^[-_]+|[-_]+$/g, '')
-        .slice(0, 64);
+      const generatedSlug = slugFromName(draft.name);
       const input = inputFromDraft({
         ...draft,
         slug: draft.slug || generatedSlug || `agent-${crypto.randomUUID().slice(0, 8)}`,

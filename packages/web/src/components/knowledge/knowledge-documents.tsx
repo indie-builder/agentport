@@ -35,7 +35,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select.js';
-import { DraftGuardDialogs, treeFolders, useDraftGuard, versionLabel } from './knowledge-shared.js';
+import {
+  DraftGuardDialogs,
+  folderOptions,
+  useDraftGuard,
+  versionLabel,
+} from './knowledge-shared.js';
 
 const batchActionLabel = {
   move: '移动',
@@ -139,13 +144,7 @@ export function BatchActionDialog({
   );
   const tagsValue = watch('tags');
   const [results, setResults] = useState<KnowledgeBatchResult[] | null>(null);
-  const folderOptions = [
-    { value: 'null', label: '未分类' },
-    ...treeFolders(folders).map((folder) => ({
-      value: folder.id,
-      label: `${'　'.repeat(folder.depth)}${folder.label}`,
-    })),
-  ];
+  const options = folderOptions(folders);
   const tagList = tagsValue
     .split(',')
     .map((item) => item.trim())
@@ -207,14 +206,14 @@ export function BatchActionDialog({
                       onValueChange={(next) => {
                         if (next !== null) field.onChange(next);
                       }}
-                      items={folderOptions}
+                      items={options}
                     >
                       <SelectTrigger id="knowledge-batch-folder" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          {folderOptions.map((option) => (
+                          {options.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}
                             </SelectItem>

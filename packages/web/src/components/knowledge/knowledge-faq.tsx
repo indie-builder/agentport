@@ -66,6 +66,7 @@ import { FaqRetrievalControls, KnowledgeSearchResults } from './knowledge-search
 import {
   DraftGuardDialogs,
   documentStatusLabel,
+  folderOptions,
   treeFolders,
   useDraftGuard,
   versionLabel,
@@ -255,13 +256,7 @@ function FaqEditorForm({
   const isRecommended = form.watch('isRecommended');
   const dirty = form.formState.isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
-  const folderOptions = [
-    { value: 'null', label: '未分类' },
-    ...treeFolders(folders).map((folder) => ({
-      value: folder.id,
-      label: `${'　'.repeat(folder.depth)}${folder.label}`,
-    })),
-  ];
+  const options = folderOptions(folders);
   const expectedVersionId = initialDetail?.draftVersion?.id ?? initialDetail?.publishedVersion?.id;
   const answerErrors = form.formState.errors.answers;
   const answersRootError = rootErrorMessage(answerErrors);
@@ -365,14 +360,14 @@ function FaqEditorForm({
                   if (next !== null)
                     form.setValue('folderId', next, { shouldDirty: true, shouldValidate: true });
                 }}
-                items={folderOptions}
+                items={options}
               >
                 <SelectTrigger id="faq-folder" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {folderOptions.map((option) => (
+                    {options.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>

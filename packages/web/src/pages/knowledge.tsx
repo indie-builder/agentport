@@ -84,6 +84,7 @@ import {
   useSetKnowledgeBasePin,
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
+import { slugFromName } from '../lib/slug.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -777,11 +778,7 @@ function CreateBaseDialog({
       return;
     }
     // 与专家创建同一条规则：显式 slug 优先，否则按名称规范化；纯中文规范化为空时用随机后缀。
-    const generatedSlug = values.name
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, '-')
-      .replace(/^[-_]+|[-_]+$/g, '')
-      .slice(0, 64);
+    const generatedSlug = slugFromName(values.name);
     const slug = values.slug || generatedSlug || `kb-${crypto.randomUUID().slice(0, 8)}`;
     create.mutate(
       {
