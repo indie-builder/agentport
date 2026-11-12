@@ -2112,7 +2112,10 @@ describe('default expert selection', () => {
     vi.mocked(api.agents).mockResolvedValue([agent, other]);
   }
 
-  it('shows a real history empty state on bare /chat instead of a permanent skeleton', async () => {
+  it('shows the default assistant history empty state on bare /chat instead of a permanent skeleton', async () => {
+    const assistant = { ...agent, id: 'assistant', name: '通用助手', isDefault: true };
+    client.setQueryData(['agents'], [assistant, agent]);
+    vi.mocked(api.agents).mockResolvedValue([assistant, agent]);
     await mount('/chat');
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
     if (!toggle) throw new Error('Missing history toggle');
@@ -2123,7 +2126,7 @@ describe('default expert selection', () => {
     if (!panel) throw new Error('Missing history panel');
     expect(panel.querySelector('[aria-busy="true"]')).toBeNull();
     expect(panel.textContent).toContain('开始对话后，记录会出现在这里。');
-    expect(api.conversations).not.toHaveBeenCalled();
+    expect(api.conversations).toHaveBeenCalledWith(assistant.id, expect.any(AbortSignal));
 
     // 专家选择随历史展开进入面板头部；历史仍显示真实空态。
     const picker = panel.querySelector<HTMLButtonElement>('button[aria-label="召唤专家"]');
