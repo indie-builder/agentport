@@ -164,6 +164,8 @@ export const apiToolInputSchema = z.object({
   pathTemplate: z.string().min(1),
   /** JSON Schema，用于生成 MCP tool 的 inputSchema */
   inputSchema: z.record(z.string(), z.unknown()).default({ type: 'object', properties: {} }),
+  /** MCP tool outputSchema（JSON Schema），来自 OpenAPI 响应结构；可为空 */
+  outputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
   /** 参数放在 query 还是 body */
   paramsIn: z.enum(['query', 'body']).default('query'),
   /** 调用前需要在运行页批准；未批准时平台 MCP 端点直接返回错误。 */

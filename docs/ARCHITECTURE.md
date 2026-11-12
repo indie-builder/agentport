@@ -285,6 +285,10 @@ generated 连接器的 OpenAPI 导入是一条单向流水线：`@agentport/core
 
 generated 连接器的信任边界统一走 `assertServerEndpoint`（`modules/servers/ssrf.ts`）：环境变量 `GENERATED_PRIVATE_HOST_ALLOWLIST` 是逗号分隔的 `host` 或 `host:port`，命中同一主机名（未写端口则不限制有效端口）时跳过私网地址拒绝，其余目标仍交给 `assertSafeUrl` 做原有 SSRF 校验，公网行为不变。该白名单在创建/保存、测试连接、`/mcp/:serverId` 运行调用、对话工具与专家包导入五处一致生效；不带通配符、网段或 DNS 后缀匹配，未授权私网仍返回 `INVALID_URL`。它与模型端点的 `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 是两份独立配置，只由部署方通过环境变量设置。
 
+工具定义可携带 outputSchema。OpenAPI 导入时，若 operation 的响应声明 `application/json` 且根为 object，解析器把该 schema 写入 `api_tools.output_schema`（迁移 0068 新增的可空 jsonb 列）；没有响应 schema 或根不是 object 的工具留空，不影响导入。`/mcp/:serverId` 注册工具时把非空 outputSchema 作为 `registerTool` 的 outputSchema 声明，成功调用在文本结果之外同时返回 `structuredContent`；上游返回非 JSON 时以工具错误返回，不伪造结构化内容。工具 PATCH 可修改或清空 outputSchema，下一次请求重建 handler 后生效。
+
+工具管理补齐两条端点：`tools.batchSetEnabled`（`POST /servers/{id}/tools/batch-enabled`）一次启停多个工具，仅 `kind='generated'` 可用并写审计；`tools.testInvoke`（`POST /servers/{id}/tools/{toolId}/test-invoke`）试跑单个工具，临时强制启用并绕过 MCP 副作用审批，但仍走 `assertServerEndpoint` 的 SSRF 校验，返回 `{ ok, text, error, durationMs }` 并写审计。web 工具编辑器支持行内多选批量启停与「试跑」弹层；连接器列表的「专家」列可点击查看绑定了该连接器的智能体名称。
+
 ## 5. 工作区文件模型
 
 数据库是真相源；定义文件仍是每次运行前重新渲染的只读快照，会话级目录只提供稳定挂载根。

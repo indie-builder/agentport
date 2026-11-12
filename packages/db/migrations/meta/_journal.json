@@ -477,6 +477,13 @@
       "when": 1794415912577,
       "tag": "0067_nebulous_darkhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1794496585168,
+      "tag": "0068_outstanding_black_cat",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,8 @@ export interface ImportedHttpTool {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   pathTemplate: string;
   inputSchema: Record<string, unknown>;
+  /** 响应结构的 JSON Schema；MCP outputSchema 要求 object 根，缺失或非 object 时为 undefined。 */
+  outputSchema?: Record<string, unknown> | null | undefined;
   paramsIn: 'query' | 'body';
   requiresApproval: boolean;
 }
@@ -307,6 +309,54 @@ function requestBodySchema(
   return { schema: media.schema, required: resolved.required === true };
 }
 
+/** MCP outputSchema 只接受 object 根；组合类型要求每个分支都是 object 根。 */
+function isObjectRoot(schema: Record<string, unknown>): boolean {
+  if (schema.type === 'object' || isRecord(schema.properties)) return true;
+  for (const keyword of ['allOf', 'anyOf', 'oneOf'] as const) {
+    const branches = schema[keyword];
+    if (Array.isArray(branches)) {
+      return (
+        branches.length > 0 &&
+        branches.every((branch) => isRecord(branch) && isObjectRoot(branch))
+      );
+    }
+  }
+  return false;
+}
+
+/** 取成功响应的 JSON Schema；MCP outputSchema 只接受 object 根，其余按未声明处理。 */
+function responseSchema(
+  operation: Record<string, unknown>,
+  ctx: Ctx,
+  label: string,
+  openapi3: boolean,
+): Record<string, unknown> | undefined {
+  const responses = resolveNode(operation.responses, ctx, `${label}的响应`);
+  if (!responses) return undefined;
+  let status: string | undefined;
+  if (openapi3) {
+    status = ['200', '201'].find((key) => Object.hasOwn(responses, key));
+    status ??= Object.keys(responses).find((key) => /^2\d\d$/.test(key));
+    status ??= Object.hasOwn(responses, 'default') ? 'default' : undefined;
+  } else if (Object.hasOwn(responses, '200')) {
+    status = '200';
+  }
+  if (!status) return undefined;
+  const response = resolveNode(responses[status], ctx, `${label}的响应`);
+  if (!response) return undefined;
+  let source: unknown;
+  if (openapi3) {
+    const media = isRecord(response.content) ? response.content['application/json'] : undefined;
+    source = isRecord(media) ? media.schema : undefined;
+  } else {
+    source = response.schema;
+  }
+  if (source === undefined) return undefined;
+  const converted = convertSchema(source, ctx, `${label}的响应`, new Set(), 0);
+  if (!converted) return undefined;
+  return isObjectRoot(converted) ? converted : undefined;
+}
+
 function readParameters(value: unknown, ctx: Ctx, label: string): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];
   const result: Record<string, unknown>[] = [];
@@ -451,6 +501,7 @@ function buildTool(
       properties: { ...pathProperties, ...payloadProperties },
       required: [...new Set(required)],
     },
+    outputSchema: responseSchema(operation, ctx, label, openapi3),
     paramsIn: isRead ? 'query' : 'body',
     requiresApproval: false,
   };

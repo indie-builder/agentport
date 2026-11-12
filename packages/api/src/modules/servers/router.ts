@@ -9,12 +9,14 @@ import {
   type ServerTestResult,
   serverTestResultSchema,
 } from '@agentport/shared';
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { implement } from '@orpc/server';
 import { z } from 'zod';
 import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { connectorCatalog } from './connector-catalog-data.js';
+import { buildGeneratedServer } from './generated.js';
 import * as repo from './repo.js';
 import { getMcpToken, getServerWithSecrets } from './repo.js';
 import { testStdioInSandbox } from './sandbox-probe.js';
@@ -329,6 +331,88 @@ export const serversRouter = os.router({
         throw err;
       }
     }),
+    batchSetEnabled: os.tools.batchSetEnabled.handler(async ({ input, context }) => {
+      const { id } = input.params;
+      const { toolIds, enabled } = input.body;
+      const row = await repo.getServerRow(context.db, id);
+      if (!row) return notFound('server');
+      if (row.kind !== 'generated') {
+        return fail('INVALID_INPUT', '仅 generated 连接器支持工具管理');
+      }
+      let updated = 0;
+      for (const toolId of toolIds) {
+        const tool = await repo.updateTool(context.db, id, toolId, { enabled });
+        if (tool) updated += 1;
+      }
+      await writeAudit(context.db, context.log, {
+        actor: actorOf(context),
+        action: 'server.tools.batch-enabled',
+        target: id,
+        input: { updated, enabled },
+        status: 'ok',
+        requestId: context.requestId,
+      });
+      return { updated };
+    }),
+    testInvoke: os.tools.testInvoke.handler(async ({ input, context }) => {
+      const { id, toolId } = input.params;
+      const server = await getServerWithSecrets(context.db, id, context.config.APP_SECRET_KEY);
+      if (!server) return notFound('server');
+      if (server.kind !== 'generated') {
+        return fail('INVALID_INPUT', '仅 generated 连接器支持工具测试');
+      }
+      const tool = (await repo.listTools(context.db, id)).find((entry) => entry.id === toolId);
+      if (!tool) return notFound('tool');
+      const built = buildGeneratedServer({
+        name: server.name,
+        baseUrl: server.baseUrl,
+        headers: server.headers,
+        tools: [{ ...tool, enabled: true, requiresApproval: false }],
+        approvals: [tool.name],
+        nodeEnv: context.config.NODE_ENV,
+        privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
+      });
+      const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+      await built.connect(serverSide);
+      const client = new Client({ name: 'agentport-tools-test', version: '0.1.0' });
+      const startedAt = Date.now();
+      let ok = false;
+      try {
+        await client.connect(clientSide);
+        const result = await client.callTool(
+          { name: tool.name, arguments: input.body.args },
+          { timeout: 35_000 },
+        );
+        const text = result.content
+          ?.filter((item) => item.type === 'text')
+          .map((item) => item.text ?? '')[0];
+        ok = result.isError !== true;
+        return {
+          ok,
+          ...(text === undefined ? {} : { text }),
+          isError: result.isError === true,
+          durationMs: Date.now() - startedAt,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : '工具调用失败',
+          durationMs: Date.now() - startedAt,
+        };
+      } finally {
+        // 只记录结果摘要：参数、解密头与响应体可能含敏感数据，不进审计。
+        await writeAudit(context.db, context.log, {
+          actor: actorOf(context),
+          action: 'server.tools.test-invoked',
+          target: `${id}/${toolId}`,
+          input: { ok, durationMs: Date.now() - startedAt },
+          status: ok ? 'ok' : 'error',
+          requestId: context.requestId,
+        });
+        await client.close().catch(() => undefined);
+        await built.close().catch(() => undefined);
+      }
+    }),
     update: os.tools.update.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
       const body = input.body;
@@ -338,6 +422,7 @@ export const serversRouter = os.router({
       if (body.method !== undefined) patch.method = body.method;
       if (body.pathTemplate !== undefined) patch.pathTemplate = body.pathTemplate;
       if (body.inputSchema !== undefined) patch.inputSchema = body.inputSchema;
+      if ('outputSchema' in body) patch.outputSchema = body.outputSchema ?? null;
       if (body.paramsIn !== undefined) patch.paramsIn = body.paramsIn;
       if (body.requiresApproval !== undefined) patch.requiresApproval = body.requiresApproval;
       if (body.enabled !== undefined) patch.enabled = body.enabled;

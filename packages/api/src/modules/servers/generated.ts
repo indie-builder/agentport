@@ -239,11 +239,17 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
     const inputSchema = fromJsonSchema<Record<string, unknown>>(
       tool.inputSchema as Parameters<typeof fromJsonSchema>[0],
     );
+    const outputSchema = tool.outputSchema
+      ? fromJsonSchema<Record<string, unknown>>(
+          tool.outputSchema as Parameters<typeof fromJsonSchema>[0],
+        )
+      : undefined;
     server.registerTool(
       tool.name,
       {
         description: tool.description || `${tool.method} ${tool.pathTemplate}`,
         inputSchema,
+        ...(outputSchema ? { outputSchema } : {}),
       },
       async (args, ctx) => {
         const signal = ctx.mcpReq.signal;
@@ -293,7 +299,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
             }
           }
         }
-        return callUpstream(
+        const result = await callUpstream(
           tool,
           input.baseUrl,
           input.headers,
@@ -303,6 +309,22 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
           signal,
           input.isRunActive,
         );
+        if (!tool.outputSchema || result.isError) return result;
+        const text = result.content?.find((item) => item.type === 'text')?.text ?? '';
+        try {
+          // MCP SDK 要求声明 outputSchema 的工具必须返回 structuredContent，否则整次调用被判失败。
+          return { ...result, structuredContent: JSON.parse(text) };
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `上游返回非 JSON，无法满足 outputSchema：${err instanceof Error ? err.message : '解析失败'}`,
+              },
+            ],
+          };
+        }
       },
     );
   }

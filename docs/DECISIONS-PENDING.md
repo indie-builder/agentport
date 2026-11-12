@@ -699,6 +699,19 @@
 
 ---
 
+## D-83 ✅ generated 连接器补齐工具 outputSchema 与工具管理（2026-11-12）
+
+**决定**：
+
+- **(a) outputSchema 存 `api_tools.output_schema` 可空列，成功调用同时返回 `structuredContent`**。导入时只从响应的 `application/json` schema 且根为 object 推导；没有响应 schema 或根不是 object 时留空，不改变导入的成功/失败语义。`registerTool` 只声明非空 outputSchema，成功调用返回文本加 `structuredContent`；上游返回非 JSON 时以工具错误返回，不伪造结构化内容。工具 PATCH 可修改或清空该列，与其他工具字段共用同一编辑入口。
+- **(b) 工具批量启停与单工具试跑作为管理端点**。`tools.batchSetEnabled`（`POST /servers/{id}/tools/batch-enabled`）一次启停多个工具，仅 `kind='generated'` 可用并写审计；`tools.testInvoke`（`POST /servers/{id}/tools/{toolId}/test-invoke`）试跑单个工具，临时强制启用并绕过 MCP 副作用审批，但仍走 `assertServerEndpoint` 的 SSRF allowlist，返回 `{ ok, text, error, durationMs }` 并写审计。不新增执行底座或第二条审批路径。
+
+**边界**：不解析响应 header/cookie，不引入 JSON Schema 运行时校验；outputSchema 只用于声明与结构化返回，不改变上游调用。批量启停不改工具定义正文，试跑结果不落库。
+
+**影响面**：`packages/core/src/openapi.ts`、`packages/contract/src/servers.ts`、`packages/api/src/modules/servers/{router,generated,repo}.ts`、`packages/db/src/repo/servers.ts`、`packages/db/migrations/0068_*.sql`、`packages/web/src/components/server/test-invoke-dialog.tsx`、`packages/web/src/pages/servers.tsx`；验收见 [USER-STORIES.md](USER-STORIES.md) US-1.8–US-1.9。
+
+---
+
 ## 决策记录格式
 
 决策后请在此处标注：

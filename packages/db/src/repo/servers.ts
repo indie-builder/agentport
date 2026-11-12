@@ -24,6 +24,7 @@ export interface ApiToolWrite {
   method: string;
   pathTemplate: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown> | null;
   paramsIn: 'query' | 'body';
   requiresApproval: boolean;
 }
@@ -38,6 +39,7 @@ export interface ApiToolPatch {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   pathTemplate?: string;
   inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown> | null;
   paramsIn?: 'query' | 'body';
   enabled?: boolean;
   requiresApproval?: boolean;

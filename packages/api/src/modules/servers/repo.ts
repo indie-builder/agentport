@@ -315,6 +315,7 @@ export function toApiTool(row: repo.servers.ApiToolRow): ApiTool {
     method: row.method as ApiTool['method'],
     pathTemplate: row.pathTemplate,
     inputSchema: row.inputSchema,
+    outputSchema: row.outputSchema,
     paramsIn: row.paramsIn,
     enabled: row.enabled,
     requiresApproval: row.requiresApproval,
@@ -335,6 +336,7 @@ export async function createTool(db: Db, serverId: string, input: ApiToolInput):
     method: input.method,
     pathTemplate: input.pathTemplate,
     inputSchema: input.inputSchema,
+    outputSchema: input.outputSchema ?? null,
     paramsIn: input.paramsIn,
     requiresApproval: input.requiresApproval,
   });
