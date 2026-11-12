@@ -84,6 +84,7 @@ import {
   useSetKnowledgeBasePin,
   useUpdateKnowledgeBase,
 } from '../lib/queries.js';
+import { matchesQuery } from '../lib/search.js';
 import { slugFromName } from '../lib/slug.js';
 import { compareBySort } from '../lib/sort.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -350,12 +351,7 @@ export function KnowledgePage() {
     .filter((base) => status === undefined || base.status === status)
     .filter((base) => {
       const term = query.trim().toLocaleLowerCase();
-      return (
-        term === '' ||
-        [base.name, base.slug, base.description].some((value) =>
-          value.toLocaleLowerCase().includes(term),
-        )
-      );
+      return term === '' || matchesQuery([base.name, base.slug, base.description], term);
     })
     .sort((a, b) => {
       const pinnedA = pinnedIds.has(a.id);
