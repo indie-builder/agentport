@@ -56,12 +56,11 @@ export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Ser
     };
   }
   if (row.kind === 'stdio') {
-    const args = config.args;
     return {
       ...base,
       kind: 'stdio',
-      command: typeof config.command === 'string' ? config.command : '',
-      args: Array.isArray(args) ? args.filter((a): a is string => typeof a === 'string') : [],
+      command: str(config.command),
+      args: strArray(config.args),
       env: secrets,
     };
   }

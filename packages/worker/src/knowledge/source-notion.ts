@@ -518,7 +518,7 @@ function pageContent(title: string, page: Page, markdown: string): string {
 }
 
 function fileUrl(file: FileObject): string | undefined {
-  return file.file?.url ?? file.external?.url ?? undefined;
+  return file.file?.url ?? file.external?.url;
 }
 
 function isExpiredFile(file: FileObject): boolean {

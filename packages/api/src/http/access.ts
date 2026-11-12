@@ -79,20 +79,9 @@ export async function authorize(
       matched = grant;
       break;
     }
-    if (resource.privateContent) {
+    if (resource.privateContent || grant.scope === 'own_data') {
       if (
         grant.scope === 'own_data' &&
-        resource.createdBy !== null &&
-        resource.createdBy !== undefined &&
-        resource.createdBy === principal.businessId
-      ) {
-        matched = grant;
-        break;
-      }
-      continue;
-    }
-    if (grant.scope === 'own_data') {
-      if (
         resource.createdBy !== null &&
         resource.createdBy !== undefined &&
         resource.createdBy === principal.businessId
