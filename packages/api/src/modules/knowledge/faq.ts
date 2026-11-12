@@ -15,7 +15,7 @@ import type { z } from 'zod';
 import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../agents/package-zip.js';
 
 /** 批量导入/导出上限：完整处理或明确报错，不静默截断。 */
-export const FAQ_MAX_ITEMS = 500;
+const FAQ_MAX_ITEMS = 500;
 export const FAQ_MAX_BYTES = 2 * 1024 * 1024;
 /** xlsx 实际解压总字节上限（含 XML/共享字符串），解析前按中央目录与实际输出双重校验。 */
 export const FAQ_MAX_XLSX_DECOMPRESSED_BYTES = 32 * 1024 * 1024;
@@ -36,7 +36,7 @@ export type FaqImportOperation = KnowledgeFaqImportResult['operation'];
 
 export type FaqInput = z.infer<typeof knowledgeFaqInputSchema>;
 
-export const FAQ_COLUMNS = [
+const FAQ_COLUMNS = [
   'question',
   'similarQuestions',
   'negativeQuestions',

@@ -23,7 +23,7 @@ export const RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT = 64 * 1024;
 
 const DEFAULT_ENVIRONMENT_LOCK = 'agentport.runtime-environment-default';
 
-export function toRuntimeEnvironment(row: RuntimeEnvironmentRow): RuntimeEnvironment {
+function toRuntimeEnvironment(row: RuntimeEnvironmentRow): RuntimeEnvironment {
   return {
     id: row.id,
     name: row.name,
@@ -35,9 +35,7 @@ export function toRuntimeEnvironment(row: RuntimeEnvironmentRow): RuntimeEnviron
   };
 }
 
-export function toRuntimeEnvironmentVersion(
-  row: RuntimeEnvironmentVersionRow,
-): RuntimeEnvironmentVersion {
+function toRuntimeEnvironmentVersion(row: RuntimeEnvironmentVersionRow): RuntimeEnvironmentVersion {
   return {
     id: row.id,
     environmentId: row.environmentId,

@@ -305,7 +305,7 @@ export async function deleteServer(db: Db, id: string): Promise<boolean> {
   return repo.servers.deleteServer(db, id);
 }
 
-export function toApiTool(row: repo.servers.ApiToolRow): ApiTool {
+function toApiTool(row: repo.servers.ApiToolRow): ApiTool {
   return {
     id: row.id,
     serverId: row.serverId,

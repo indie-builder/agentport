@@ -215,7 +215,7 @@ export type Skill = z.infer<typeof skillSchema>;
 
 /** 工作流脚本字符上限；API 保存与 core 解析器共用。 */
 export const AGENT_WORKFLOW_CONTENT_MAX = 131_072;
-export const AGENT_WORKFLOW_NAME_MAX = 200;
+const AGENT_WORKFLOW_NAME_MAX = 200;
 export const AGENT_WORKFLOW_DESCRIPTION_MAX = 2_000;
 
 /** 工作流：官方 `.claude/workflows/<slug>.js`；name/description 来自脚本内 `meta`。 */

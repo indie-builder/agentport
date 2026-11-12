@@ -2,7 +2,7 @@ import { AppError } from '@agentport/core';
 import { getTrustedOrigins, isTrustedOrigin } from '../../config.js';
 import type { RequestContext } from '../../http/context.js';
 
-export function isOriginAllowed(context: RequestContext): boolean {
+function isOriginAllowed(context: RequestContext): boolean {
   const origin = context.request.headers.get('origin');
   if (!origin) return true;
   if (origin === new URL(context.request.url).origin) return true;

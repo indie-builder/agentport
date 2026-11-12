@@ -55,7 +55,7 @@ async function jobCounts(queue: {
   };
 }
 
-export async function collectMetrics(deps: AppContext): Promise<HealthMetrics> {
+async function collectMetrics(deps: AppContext): Promise<HealthMetrics> {
   const [queue, knowledgeQueue, redisPing, dbPing] = await Promise.all([
     attempt(deps.log, 'queue', () => jobCounts(getQueue())),
     attempt(deps.log, 'knowledge queue', () => jobCounts(getKnowledgeQueue())),
@@ -89,7 +89,7 @@ function getRedisClient(url: string): RedisClient {
   return redisClient;
 }
 
-export async function pingRedis(deps: AppContext): Promise<number> {
+async function pingRedis(deps: AppContext): Promise<number> {
   const client = getRedisClient(deps.config.REDIS_URL);
   const started = Date.now();
   let timer: NodeJS.Timeout | undefined;

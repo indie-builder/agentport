@@ -44,21 +44,21 @@ export interface GeneratedServerInput {
 }
 
 /** 未批准时的固定文案：前端靠这段文本识别审批请求。 */
-export function approvalRequiredMessage(toolName: string): string {
+function approvalRequiredMessage(toolName: string): string {
   return `需要批准：${toolName}。请在运行详情页批准后重试。`;
 }
 
 /** 挂起等待期间给模型的说明；批准后不会返回它。 */
-export function approvalTimeoutMessage(toolName: string, waitMs: number): string {
+function approvalTimeoutMessage(toolName: string, waitMs: number): string {
   return `需要批准：${toolName}。已等待 ${Math.round(waitMs / 1000)} 秒仍未批准，本次调用取消。`;
 }
 
 /** 调用方已取消（连接断开）或 run 已结束时给模型的说明；与超时区分开。 */
-export function callCancelledMessage(toolName: string): string {
+function callCancelledMessage(toolName: string): string {
   return `调用已取消：${toolName}。运行已结束或请求已断开；已发送的上游请求可能仍在处理。`;
 }
 
-export function approvalDeniedMessage(toolName: string): string {
+function approvalDeniedMessage(toolName: string): string {
   return `已拒绝：${toolName}。用户拒绝了本次调用。`;
 }
 

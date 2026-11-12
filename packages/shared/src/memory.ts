@@ -24,7 +24,7 @@ export const MEMORY_FILE_MAX_BYTES = 200_000;
 export const MEMORY_TOPIC_STALE_DAYS = 60;
 
 /** 专家记忆写入方式：`native_auto` 由 SDK auto-memory 直接写，`proposal_only` 只能经记忆提案写入。 */
-export const memoryWriteModeSchema = z.enum(['native_auto', 'proposal_only']);
+const memoryWriteModeSchema = z.enum(['native_auto', 'proposal_only']);
 
 /**
  * 专家记忆策略：只约束运行期如何挂载/注入记忆，不改变官方记忆文件本身。
