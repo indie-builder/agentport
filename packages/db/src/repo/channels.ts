@@ -96,6 +96,22 @@ export async function channelMemberRole(
   return row?.role ?? null;
 }
 
+type ManageRoleAccess =
+  | { kind: 'not_found'; target: 'channel' }
+  | { kind: 'forbidden'; reason: 'channel_role' }
+  | { kind: 'ok'; role: ChannelRole };
+
+async function requireManageRole(
+  tx: Parameters<typeof channelMemberRole>[0],
+  channelId: string,
+  businessId: string,
+): Promise<ManageRoleAccess> {
+  const role = await channelMemberRole(tx, channelId, businessId);
+  if (role === null) return { kind: 'not_found', target: 'channel' };
+  if (!allows(role, 'manage')) return { kind: 'forbidden', reason: 'channel_role' };
+  return { kind: 'ok', role };
+}
+
 export async function listChannels(
   db: Database,
   subject: ChannelSubject,
@@ -268,11 +284,8 @@ export async function updateChannel(
       .where(eq(channels.id, channelId))
       .for('update');
     if (!channel) return { kind: 'not_found', target: 'channel' };
-    const role = await channelMemberRole(tx, channelId, subject.businessId);
-    if (role === null) return { kind: 'not_found', target: 'channel' };
-    if (!allows(role, 'manage')) {
-      return { kind: 'forbidden', reason: 'channel_role' };
-    }
+    const access = await requireManageRole(tx, channelId, subject.businessId);
+    if (access.kind !== 'ok') return access;
     const [updated] = await tx
       .update(channels)
       .set({
@@ -305,11 +318,9 @@ export async function addMember(
       .where(eq(channels.id, channelId))
       .for('update');
     if (!channel) return { kind: 'not_found', target: 'channel' };
-    const role = await channelMemberRole(tx, channelId, subject.businessId);
-    if (role === null) return { kind: 'not_found', target: 'channel' };
-    if (!allows(role, 'manage')) {
-      return { kind: 'forbidden', reason: 'channel_role' };
-    }
+    const access = await requireManageRole(tx, channelId, subject.businessId);
+    if (access.kind !== 'ok') return access;
+    const role = access.role;
     // owner 授予只看频道 owner；admin 不能借 manage 提升自己人。
     if (input.role === 'owner' && role !== 'owner') {
       return { kind: 'forbidden', reason: 'owner_only' };
@@ -351,11 +362,9 @@ export async function updateMemberRole(
       .where(eq(channels.id, channelId))
       .for('update');
     if (!channel) return { kind: 'not_found', target: 'channel' };
-    const callerRole = await channelMemberRole(tx, channelId, subject.businessId);
-    if (callerRole === null) return { kind: 'not_found', target: 'channel' };
-    if (!allows(callerRole, 'manage')) {
-      return { kind: 'forbidden', reason: 'channel_role' };
-    }
+    const access = await requireManageRole(tx, channelId, subject.businessId);
+    if (access.kind !== 'ok') return access;
+    const callerRole = access.role;
     const targetRole = await channelMemberRole(tx, channelId, businessId);
     if (targetRole === null) return { kind: 'not_found', target: 'member' };
     if (callerRole !== 'owner' && (targetRole === 'owner' || role === 'owner')) {
@@ -406,11 +415,9 @@ export async function removeMember(
       .where(eq(channels.id, channelId))
       .for('update');
     if (!channel) return { kind: 'not_found', target: 'channel' };
-    const role = await channelMemberRole(tx, channelId, subject.businessId);
-    if (role === null) return { kind: 'not_found', target: 'channel' };
-    if (!allows(role, 'manage')) {
-      return { kind: 'forbidden', reason: 'channel_role' };
-    }
+    const access = await requireManageRole(tx, channelId, subject.businessId);
+    if (access.kind !== 'ok') return access;
+    const role = access.role;
     const targetRole = await channelMemberRole(tx, channelId, businessId);
     if (targetRole === null) return { kind: 'not_found', target: 'member' };
     if (targetRole === 'owner' && role !== 'owner') {
@@ -493,11 +500,8 @@ export async function addAgentBinding(
       .where(eq(channels.id, channelId))
       .for('update');
     if (!channel) return { kind: 'not_found', target: 'channel' };
-    const role = await channelMemberRole(tx, channelId, subject.businessId);
-    if (role === null) return { kind: 'not_found', target: 'channel' };
-    if (!allows(role, 'manage')) {
-      return { kind: 'forbidden', reason: 'channel_role' };
-    }
+    const access = await requireManageRole(tx, channelId, subject.businessId);
+    if (access.kind !== 'ok') return access;
     const [agent] = await tx
       .select({ id: agents.id })
       .from(agents)
@@ -547,11 +551,8 @@ export async function updateAgentBinding(
       .where(eq(channels.id, channelId))
       .for('update');
     if (!channel) return { kind: 'not_found', target: 'channel' };
-    const role = await channelMemberRole(tx, channelId, subject.businessId);
-    if (role === null) return { kind: 'not_found', target: 'channel' };
-    if (!allows(role, 'manage')) {
-      return { kind: 'forbidden', reason: 'channel_role' };
-    }
+    const access = await requireManageRole(tx, channelId, subject.businessId);
+    if (access.kind !== 'ok') return access;
     const [binding] = await tx
       .update(channelAgentBindings)
       .set({ autoWakeOnAll: input.autoWakeOnAll })
@@ -584,11 +585,8 @@ export async function removeAgentBinding(
       .where(eq(channels.id, channelId))
       .for('update');
     if (!channel) return { kind: 'not_found', target: 'channel' };
-    const role = await channelMemberRole(tx, channelId, subject.businessId);
-    if (role === null) return { kind: 'not_found', target: 'channel' };
-    if (!allows(role, 'manage')) {
-      return { kind: 'forbidden', reason: 'channel_role' };
-    }
+    const access = await requireManageRole(tx, channelId, subject.businessId);
+    if (access.kind !== 'ok') return access;
     const [removed] = await tx
       .delete(channelAgentBindings)
       .where(
