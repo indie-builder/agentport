@@ -244,6 +244,8 @@ function ChatWorkspace({
   onSelectSearchResult: (item: ConversationSearchItem) => void;
 }) {
   const agent = agents.find((item) => item.id === agentId) ?? null;
+  const defaultAgentId = agents.find((item) => item.isDefault)?.id ?? null;
+  const historyAgentId = agentId ?? defaultAgentId;
   const agentOptions = agents
     .filter((item) => item.enabled && !item.isDefault)
     .map((item) => ({
@@ -279,7 +281,7 @@ function ChatWorkspace({
   const desktop = useMediaQuery(DESKTOP);
   const wide = useMediaQuery(WIDE);
 
-  const conversations = useConversations(agentId);
+  const conversations = useConversations(historyAgentId);
   const detail = useConversation(conversationId);
   const runApprovals = useRunApprovals(runId || lastRunId, runId !== null);
   // 提问状态来自 Query：SSE 快照和回答结果都写这里，不在 Zustand 里再存一份。
@@ -530,8 +532,7 @@ function ChatWorkspace({
   const renderHistoryPanel = (inSheet: boolean) => (
     <HistoryPanel
       history={history}
-      // 未选专家时 query 是 disabled，isPending 会一直是 true；这里据此显示真实空态。
-      pending={agentId !== null && conversations.isPending}
+      pending={historyAgentId !== null && conversations.isPending}
       error={conversations.isError ? conversations.error : null}
       onRetry={() => void conversations.refetch()}
       conversationId={conversationId}
