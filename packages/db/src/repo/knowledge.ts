@@ -1240,12 +1240,9 @@ export async function setCurrentVersion(
     }
     if (guard) {
       if (guard.isAborted?.()) return null;
-      if ((document.currentVersionId ?? null) !== guard.expectedCurrentVersionId) return null;
+      if (document.currentVersionId !== guard.expectedCurrentVersionId) return null;
     }
-    if (
-      options !== undefined &&
-      (document.currentVersionId ?? null) !== options.expectedCurrentVersionId
-    ) {
+    if (options !== undefined && document.currentVersionId !== options.expectedCurrentVersionId) {
       return null;
     }
     // 批次导入的草稿只能走 publishFaqImport 整批发布，逐条切版会破坏 replace 原子性；
@@ -1352,7 +1349,7 @@ export async function activateDocumentVersion(
       .where(eq(knowledgeDocuments.id, input.documentId))
       .for('update');
     if (!document) throw new AppError('NOT_FOUND', '文档不存在，可能已被删除');
-    if ((document.currentVersionId ?? null) !== input.expectedVersionId) {
+    if (document.currentVersionId !== input.expectedVersionId) {
       throw new AppError('CONFLICT_STALE', '文档版本已变化，请刷新后重试');
     }
     const [version] = await tx
@@ -2297,7 +2294,7 @@ export async function publishFaqImport(
       if (!chunkCount || chunkCount.count === 0) {
         throw new AppError('CONFLICT', 'FAQ 草稿索引尚未就绪');
       }
-      if ((document.currentVersionId ?? null) !== item.expectedVersionId) {
+      if (document.currentVersionId !== item.expectedVersionId) {
         throw new AppError('CONFLICT_STALE', 'FAQ 线上版本已变化，请刷新后重试');
       }
       const [latestBatchDraft] = await tx
@@ -2336,7 +2333,7 @@ export async function publishFaqImport(
       for (const target of replaceTargets) {
         const document = documentById.get(target.documentId);
         if (!document) throw new AppError('CONFLICT_STALE', '旧 FAQ 已删除，请刷新后重试');
-        if ((document.currentVersionId ?? null) !== target.currentVersionId) {
+        if (document.currentVersionId !== target.currentVersionId) {
           throw new AppError('CONFLICT_STALE', '旧 FAQ 线上版本已变化，请刷新后重试');
         }
         if (new Date(document.updatedAt).getTime() !== new Date(target.updatedAt).getTime()) {

@@ -3510,7 +3510,7 @@ async function publishFaqVersion(
   versionId: string,
   expectedVersionId: string | null,
 ) {
-  if ((document.currentVersionId ?? null) !== expectedVersionId) {
+  if (document.currentVersionId !== expectedVersionId) {
     fail('CONFLICT_STALE', 'FAQ 版本已变化，请刷新后重试');
   }
   const version = await repo.knowledge.getVersion(deps.db, versionId);
@@ -3783,7 +3783,7 @@ export async function updateFaq(
   if (base.status !== 'active') throw new AppError('CONFLICT', '知识库已禁用，启用后再编辑 FAQ');
   const latest = await latestFaqVersion(deps, document.id);
   const latestIsDraft = latest !== null && !isPublishedFaqVersion(document, latest);
-  const expectedVersionId = latestIsDraft ? latest.id : (document.currentVersionId ?? null);
+  const expectedVersionId = latestIsDraft ? latest.id : document.currentVersionId;
   if (expectedVersionId !== body.expectedVersionId) {
     throw new AppError('CONFLICT_STALE', 'FAQ 已被修改，请刷新后重试');
   }
