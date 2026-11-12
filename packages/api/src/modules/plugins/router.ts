@@ -23,7 +23,7 @@ function nameOfPluginId(pluginId: string): string {
 }
 const os = implement(pluginsContract).$context<RequestContext>();
 export const pluginsRouter = os.router({
-  list: os.list.handler(async ({ context, input: routeInput }) => {
+  list: os.list.handler(async ({ context }) => {
     const rows = await repo.listPlugins(context.db);
     return rows.map(
       (row): PluginWithAgentCount => ({
@@ -32,7 +32,7 @@ export const pluginsRouter = os.router({
       }),
     );
   }),
-  native: os.native.handler(async ({ context, input: routeInput }) => {
+  native: os.native.handler(async ({ context }) => {
     const output = await runNativePluginAction(context.config.REDIS_URL, context.log, {
       action: 'list',
     });

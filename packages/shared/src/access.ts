@@ -442,10 +442,31 @@ export function scopeCovers(candidate: AccessScope, required: AccessScope): bool
 
 export type AgentRelation = {
   exists: boolean;
+  isDefault: boolean;
   ownerBusinessId: string | null;
   canUse: boolean;
   canMaintain: boolean;
 };
+
+/**
+ * 与目录一致的单个 grant 范围判定：同一条授权必须同时匹配权限叶和对象范围，
+ * 多角色结果不能拼接。平台范围也只对真实存在的对象生效。
+ */
+export function agentPermissionAllows(
+  grants: readonly PermissionGrant[],
+  permissionId: PermissionGrant['permissionId'],
+  relation: AgentRelation,
+  businessId: string,
+): boolean {
+  if (!relation.exists) return false;
+  if (relation.isDefault) {
+    return permissionId === 'agents.read' || permissionId === 'agents.use';
+  }
+  return grants.some(
+    (grant) =>
+      grant.permissionId === permissionId && agentScopeAllows(grant.scope, relation, businessId),
+  );
+}
 
 export function agentScopeAllows(
   scope: AccessScope,

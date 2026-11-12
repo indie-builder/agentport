@@ -6,6 +6,7 @@ import {
   type PublicRunQuestion,
   redactJson,
   redactSecrets,
+  streamBlockIdOf,
 } from '@agentport/shared';
 import { and, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 
@@ -17,15 +18,6 @@ function parseToolInput(raw: string | undefined): unknown {
   } catch {
     return { raw };
   }
-}
-
-/**
- * 块身份随消息落库，但只在本次运行内有效：`blockIndex` 会被 SDK 的后续消息重用，
- * 前端实时对齐要用运行内稳定的 id。shared 的事件类型加上该字段前先按存在性读取。
- */
-function streamBlockIdOf(event: ChatEvent): string | undefined {
-  if (!('streamBlockId' in event)) return undefined;
-  return typeof event.streamBlockId === 'string' ? event.streamBlockId : undefined;
 }
 
 interface MessageRow {

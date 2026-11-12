@@ -37,7 +37,7 @@ export const SANDBOX_RUNTIME_ENV = {
 
 export const chatRequestSchema = z
   .object({
-    agentId: z.string(),
+    agentId: z.string().optional(),
     conversationId: z.string().optional(),
     // 沙盒把 prompt 走 stdin，超大输入会拖垮 worker；按 UTF-8 字节统一限制为 64KiB。
     message: z
@@ -214,6 +214,11 @@ export const chatEventSchema = z.discriminatedUnion('type', [
 ]);
 
 export type ChatEvent = z.infer<typeof chatEventSchema>;
+
+export function streamBlockIdOf(event: ChatEvent): string | undefined {
+  if (!('streamBlockId' in event)) return undefined;
+  return typeof event.streamBlockId === 'string' ? event.streamBlockId : undefined;
+}
 
 /** 事件里的失败分类只有三档；sandbox 与 timeout 都归入不可重试的服务端失败。 */
 export function wireFailureKind(reason: RunErrorKind): WireFailureKind {

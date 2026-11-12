@@ -40,6 +40,17 @@ export async function enqueueKnowledgeJob(job: { id: string }): Promise<void> {
   await getKnowledgeQueue().add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
 }
 
+export async function enqueueKnowledgeJobs(jobs: { id: string }[]): Promise<void> {
+  if (jobs.length === 0) return;
+  await getKnowledgeQueue().addBulk(
+    jobs.map((job) => ({
+      name: 'knowledge',
+      data: { jobId: job.id },
+      opts: knowledgeEnqueueOptions(job.id),
+    })),
+  );
+}
+
 export function createJob(
   db: JobDb,
   input: {

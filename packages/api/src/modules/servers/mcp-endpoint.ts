@@ -10,6 +10,23 @@ import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, toApiServer } from './repo.js';
 import { summarizeToolArguments } from './tool-arguments.js';
 
+async function validRunToken(
+  context: RequestContext,
+  runId: string | null,
+  serverId: string,
+  token: string | undefined,
+): Promise<boolean> {
+  if (runId === null) return false;
+  const runToken = await repo.runs.getRunToken(context.db, runId, serverId);
+  return (
+    runToken !== null &&
+    runToken.hash !== null &&
+    runToken.expiresAt !== null &&
+    runToken.expiresAt.getTime() > Date.now() &&
+    tokenMatches(runToken.hash, token, hashMcpToken)
+  );
+}
+
 function handlerFor(app: AppContext, serverId: string, runId: string | null): McpHttpHandler {
   return createMcpHandler(
     async () => {
@@ -102,15 +119,7 @@ export async function serverMcpResponse(
   const runId = request.headers.get('x-agentport-run-id');
   const token = bearerToken(request.headers.get('authorization') ?? undefined);
   if (row?.kind === 'knowledge') {
-    const runToken =
-      runId === null ? null : await repo.runs.getRunToken(context.db, runId, serverId);
-    const ok =
-      runToken !== null &&
-      runToken.hash !== null &&
-      runToken.expiresAt !== null &&
-      runToken.expiresAt.getTime() > Date.now() &&
-      tokenMatches(runToken.hash, token, hashMcpToken);
-    if (!ok || runId === null) {
+    if (runId === null || !(await validRunToken(context, runId, serverId, token))) {
       context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
       fail('UNAUTHORIZED', 'invalid bearer token');
     }
@@ -126,14 +135,10 @@ export async function serverMcpResponse(
     }).fetch(request);
   }
   if (row?.kind !== 'generated') fail('NOT_FOUND', 'generated server not found');
-  const runToken = runId === null ? null : await repo.runs.getRunToken(context.db, runId, serverId);
-  const runTokenOk =
-    runToken !== null &&
-    runToken.hash !== null &&
-    runToken.expiresAt !== null &&
-    runToken.expiresAt.getTime() > Date.now() &&
-    tokenMatches(runToken.hash, token, hashMcpToken);
-  if (!runTokenOk && !tokenMatches(row.config.mcpToken, token)) {
+  if (
+    !(await validRunToken(context, runId, serverId, token)) &&
+    !tokenMatches(row.config.mcpToken, token)
+  ) {
     context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
     fail('UNAUTHORIZED', 'invalid bearer token');
   }

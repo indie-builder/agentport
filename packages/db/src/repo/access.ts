@@ -126,21 +126,29 @@ export async function getAgentRelation(
   businessId: string,
 ): Promise<{
   exists: boolean;
+  isDefault: boolean;
   ownerBusinessId: string | null;
   canUse: boolean;
   canMaintain: boolean;
 }> {
   const [agent] = await db
-    .select({ id: agents.id, ownerBusinessId: agents.ownerBusinessId })
+    .select({ id: agents.id, isDefault: agents.isDefault, ownerBusinessId: agents.ownerBusinessId })
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1);
   if (!agent) {
-    return { exists: false, ownerBusinessId: null, canUse: false, canMaintain: false };
+    return {
+      exists: false,
+      isDefault: false,
+      ownerBusinessId: null,
+      canUse: false,
+      canMaintain: false,
+    };
   }
   if (agent.ownerBusinessId === businessId) {
     return {
       exists: true,
+      isDefault: agent.isDefault,
       ownerBusinessId: agent.ownerBusinessId,
       canUse: true,
       canMaintain: true,
@@ -153,6 +161,7 @@ export async function getAgentRelation(
     .limit(1);
   return {
     exists: true,
+    isDefault: agent.isDefault,
     ownerBusinessId: agent.ownerBusinessId,
     canUse: member?.canUse ?? false,
     canMaintain: member?.canMaintain ?? false,

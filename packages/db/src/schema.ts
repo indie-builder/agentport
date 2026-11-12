@@ -133,6 +133,7 @@ export const agents = pgTable(
     createdBy: text('created_by').notNull(),
     /** 当前负责人；成员授权与转交都看它。 */
     ownerBusinessId: text('owner_business_id').notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
     /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
     parentId: text('parent_id').references((): AnyPgColumn => agents.id, {
       onDelete: 'restrict',
@@ -154,6 +155,7 @@ export const agents = pgTable(
   },
   (t) => [
     uniqueIndex('agents_slug_idx').on(t.slug),
+    uniqueIndex('agents_single_default_idx').on(t.isDefault).where(sql`${t.isDefault} = true`),
     index('agents_owner_idx').on(t.ownerBusinessId),
     index('agents_parent_idx').on(t.parentId),
     index('agents_runtime_environment_idx')

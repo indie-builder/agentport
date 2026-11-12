@@ -208,6 +208,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       'description',
       'enabled',
       'id',
+      'isDefault',
       'model',
       'name',
       'ownerBusinessId',

@@ -40,6 +40,7 @@ const agentA: Agent = {
   maxBudgetUsd: 2,
   timeoutMs: 600_000,
   enabled: true,
+  isDefault: false,
   parentId: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',

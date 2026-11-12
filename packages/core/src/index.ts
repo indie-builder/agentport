@@ -88,4 +88,10 @@ export {
   type WorkspacePlugin,
   type WorkspaceSkill,
 } from './workspace.js';
-export { toWorkspaceAgent, toWorkspaceInput } from './workspace-input.js';
+export {
+  toOutputStyleSelection,
+  toRuleEntries,
+  toWorkflowEntries,
+  toWorkspaceAgent,
+  toWorkspaceInput,
+} from './workspace-input.js';

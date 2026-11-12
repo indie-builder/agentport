@@ -38,6 +38,7 @@ const adminMe = {
 const agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'agent-a',
+  isDefault: false,
   parentId: null,
   createdAt: '',
   updatedAt: '',
@@ -833,34 +834,88 @@ describe('live terminal outcomes across a follow-up send', () => {
 });
 
 describe('chat shell layout', () => {
-  it('does not auto-pick an expert on bare /chat and disables the composer', async () => {
-    await mount();
-    // 裸 /chat 不替用户选 agents[0]：选择器停在「选择专家」，而不是显示 Expert。
-    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家"]');
+  it('sends bare chat without choosing an expert and keeps the authoritative default stream', async () => {
+    const assistant = { ...agent, id: 'assistant', name: '通用助手', isDefault: true };
+    client.setQueryData(['agents'], [assistant, agent]);
+    vi.mocked(api.agents).mockResolvedValue([assistant, agent]);
+    vi.mocked(api.conversation).mockResolvedValue({
+      conversation: { id: 'conversation-default', agentId: assistant.id, title: '', createdAt: '' },
+      runMetrics: [],
+      nextBefore: null,
+      messages: [],
+    });
+    vi.mocked(api.run).mockResolvedValue({
+      ...terminal,
+      run: {
+        ...terminal.run,
+        id: 'run-default',
+        conversationId: 'conversation-default',
+        agentId: assistant.id,
+        status: 'running',
+      },
+    });
+    const send = vi.spyOn(api, 'sendChat').mockResolvedValue({
+      runId: 'run-default',
+      conversationId: 'conversation-default',
+    });
+    const router = await mount();
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="召唤专家"]');
     expect(picker).not.toBeNull();
-    expect(picker?.textContent).toContain('选择专家');
+    expect(picker?.textContent).toContain('通用助手');
     expect(picker?.textContent).not.toContain('Expert');
     expect(
       host.querySelector('button[aria-label="显示会话历史"]')?.parentElement?.contains(picker),
     ).toBe(true);
-    expect(host.querySelectorAll('button[aria-label="选择专家"]')).toHaveLength(1);
-    // 没有明确归属时不能输入或发送。
-    expect(message().disabled).toBe(true);
+    expect(host.querySelectorAll('button[aria-label="召唤专家"]')).toHaveLength(1);
+    expect(message().disabled).toBe(false);
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.disabled).toBe(
       true,
     );
-    // 未选专家时也不给建议任务，避免点了却没有可发送的对象。
-    expect(
-      [...host.querySelectorAll('button')].some(
-        (button) => button.textContent?.trim() === '制定计划',
-      ),
-    ).toBe(false);
+    const suggestion = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '制定计划',
+    );
+    expect(suggestion).toBeDefined();
+    await act(async () => suggestion?.click());
+    expect(message().value).toBe('帮我把一个目标拆成可执行的步骤，先询问我需要完成什么。');
+    expect(document.activeElement).toBe(message());
+    expect(send).not.toHaveBeenCalled();
+    await type('直接开始');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.click(),
+    );
+    await flush();
+    expect(send).toHaveBeenCalledWith({ message: '直接开始' });
+    expect(router.state.location.search).toEqual({
+      agent: assistant.id,
+      conversation: 'conversation-default',
+    });
+    expect(Source.instances).toHaveLength(1);
+    const source = Source.instances[0];
+    expect(source?.closed).toBe(false);
+    await act(async () => {
+      source?.onopen?.();
+      source?.emit({ type: 'text_delta', text: '通用助手回答', blockIndex: 0 });
+    });
+    expect(host.textContent).toContain('直接开始');
+    expect(host.textContent).toContain('通用助手回答');
+    expect(host.querySelector('[aria-label="召唤专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="移除专家，回到通用助手"]')).toBeNull();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="显示会话历史"]')?.click(),
+    );
+    await flush();
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[aria-label="新建会话"]')?.click(),
+    );
+    await flush();
+    expect(router.state.location.search).toEqual({});
+    expect(source?.closed).toBe(true);
   });
 
   it('shows the current expert in the chat header without opening history', async () => {
     await mount('/chat?agent=agent-a');
     // 历史收起时头部直接显示当前专家，不用先展开历史抽屉。
-    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
+    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
     expect(welcomePicker).not.toBeNull();
     expect(welcomePicker?.textContent).toContain('Expert');
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
@@ -875,9 +930,9 @@ describe('chat shell layout', () => {
     const sheet = document.querySelector('[role="dialog"]');
     expect(sheet).not.toBeNull();
     expect(sheet?.querySelector('h1')).toBeNull();
-    expect(sheet?.querySelector('[aria-label^="选择专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label^="选择专家"]')).toBeNull();
-    expect(document.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(sheet?.querySelector('[aria-label^="切换专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="切换专家"]')).toBeNull();
+    expect(document.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
@@ -894,6 +949,7 @@ describe('chat shell layout', () => {
     const other = {
       ...agentInputSchema.parse({ slug: 'other', name: 'Other Expert' }),
       id: 'agent-b',
+      isDefault: false,
       parentId: null,
       createdAt: '',
       updatedAt: '',
@@ -906,7 +962,7 @@ describe('chat shell layout', () => {
 
     expect(host.textContent).toContain('old prompt');
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
-    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="选择专家：Expert"]');
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="切换专家：Expert"]');
     if (!picker) throw new Error('Missing header expert picker');
     await act(async () => picker.click());
     await flush();
@@ -926,6 +982,7 @@ describe('chat shell layout', () => {
     const slugOnly = {
       ...agentInputSchema.parse({ slug: 'hidden-slug-x', name: 'Plain Name' }),
       id: 'agent-slug',
+      isDefault: false,
       parentId: null,
       createdAt: '',
       updatedAt: '',
@@ -934,7 +991,7 @@ describe('chat shell layout', () => {
     vi.mocked(api.agents).mockResolvedValue([agent, slugOnly]);
     await mount();
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]')?.click(),
+      host.querySelector<HTMLButtonElement>('[aria-label="召唤专家"]')?.click(),
     );
     await flush();
     const search = document.querySelector<HTMLInputElement>('[aria-label="搜索专家"]');
@@ -970,12 +1027,12 @@ describe('chat shell layout', () => {
 
     // 收起时唯一选择器在消息头部，不属于任何历史 aside。
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
-    const collapsedPicker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
+    const collapsedPicker = host.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
     if (!collapsedPicker) throw new Error('Missing expert picker');
     expect(collapsedPicker.closest('aside')).toBeNull();
     expect(collapsedPicker.closest('[data-slot="page"]')).toBe(page);
     expect(collapsedPicker.textContent).toContain('Expert');
-    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     expect(page.querySelector('button[aria-label="搜索会话"]')).not.toBeNull();
     const toggle = page.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
     if (!toggle) throw new Error('Missing history toggle');
@@ -986,11 +1043,11 @@ describe('chat shell layout', () => {
     await flush();
     const history = host.querySelector('aside[aria-label="会话历史"]');
     if (!history) throw new Error('Missing history panel');
-    const expandedPicker = history.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
+    const expandedPicker = history.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
     if (!expandedPicker) throw new Error('Missing history header expert picker');
     expect(expandedPicker.closest('aside')).toBe(history);
     expect(history.querySelector('button[aria-label="新建会话"]')).not.toBeNull();
-    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     // 触发器仍显示头像、名称与 ComboboxTrigger 默认的下箭头。
     expect(expandedPicker.querySelector('img')).not.toBeNull();
     expect(expandedPicker.textContent).toContain('Expert');
@@ -1015,11 +1072,11 @@ describe('chat shell layout', () => {
     );
     await flush();
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
-    const restoredPicker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
+    const restoredPicker = host.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
     if (!restoredPicker) throw new Error('Missing restored expert picker');
     expect(restoredPicker.closest('aside')).toBeNull();
     expect(restoredPicker.closest('[data-slot="page"]')).toBe(page);
-    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     expect(restoredPicker.querySelector('img')).not.toBeNull();
     expect(restoredPicker.textContent).toContain('Expert');
     expect(restoredPicker.querySelectorAll('svg.lucide-chevron-down')).toHaveLength(1);
@@ -1039,17 +1096,17 @@ describe('chat shell layout', () => {
     // 窄屏打开抽屉：选择器在抽屉里，欢迎态不重复。
     await act(async () => useChatStore.setState({ historyOpen: true }));
     await flush();
-    expect(document.querySelector('[role="dialog"] [aria-label^="选择专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label^="选择专家"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"] [aria-label^="切换专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="切换专家"]')).toBeNull();
 
     // 放大到 lg：抽屉消失、桌面历史仍折叠，欢迎态必须重新给出选择器。
     await act(async () => resize(1024));
     await flush();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
+    const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
     expect(welcomePicker).not.toBeNull();
     expect(welcomePicker?.textContent).toContain('Expert');
-    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
@@ -1057,9 +1114,9 @@ describe('chat shell layout', () => {
     // 再缩回窄屏：historyOpen 仍为 true，抽屉恢复，欢迎态选择器让位给抽屉。
     await act(async () => resize(600));
     await flush();
-    expect(document.querySelector('[role="dialog"] [aria-label^="选择专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label^="选择专家"]')).toBeNull();
-    expect(document.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(document.querySelector('[role="dialog"] [aria-label^="切换专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="切换专家"]')).toBeNull();
+    expect(document.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
   });
 
   it('restores the history header picker after narrowing with desktop history open', async () => {
@@ -1073,16 +1130,16 @@ describe('chat shell layout', () => {
     await flush();
     const history = host.querySelector('aside[aria-label="会话历史"]');
     if (!history) throw new Error('Missing history panel');
-    expect(history.querySelector('[aria-label^="选择专家"]')?.textContent).toContain('Expert');
-    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(history.querySelector('[aria-label^="切换专家"]')?.textContent).toContain('Expert');
+    expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
 
     // 缩窄到 lg 以下且 historyOpen=false：没有抽屉，欢迎态必须给出选择器。
     await act(async () => resize(600));
     await flush();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
-    expect(host.querySelector('[aria-label^="选择专家"]')?.textContent).toContain('Expert');
-    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(host.querySelector('[aria-label^="切换专家"]')?.textContent).toContain('Expert');
+    expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
@@ -1092,8 +1149,8 @@ describe('chat shell layout', () => {
     await flush();
     const reopened = host.querySelector('aside[aria-label="会话历史"]');
     expect(reopened).not.toBeNull();
-    expect(reopened?.querySelector('[aria-label^="选择专家"]')?.textContent).toContain('Expert');
-    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(reopened?.querySelector('[aria-label^="切换专家"]')?.textContent).toContain('Expert');
+    expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
       '未命名会话',
     ]);
@@ -1110,6 +1167,7 @@ describe('chat shell layout', () => {
     const other = {
       ...agentInputSchema.parse({ slug: 'other', name: 'Other Expert' }),
       id: 'agent-b',
+      isDefault: false,
       parentId: null,
       createdAt: '',
       updatedAt: '',
@@ -1151,9 +1209,9 @@ describe('chat shell layout', () => {
     // 历史展开时从历史头部切换专家，顶栏不再保留第二个选择器。
     const history = host.querySelector('aside[aria-label="会话历史"]');
     if (!history) throw new Error('Missing history panel');
-    const picker = history.querySelector<HTMLButtonElement>('[aria-label^="选择专家"]');
+    const picker = history.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
     if (!picker) throw new Error('Missing history header expert picker');
-    expect(host.querySelectorAll('[aria-label^="选择专家"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
     expect(picker.disabled).toBe(false);
     await act(async () => picker.click());
     await flush();
@@ -1181,6 +1239,15 @@ describe('chat shell layout', () => {
     expect(host.textContent).toContain('未命名会话');
     expect(vi.mocked(api.conversations)).toHaveBeenCalledWith('agent-b', expect.any(AbortSignal));
     expect(message().value).toBe('unfinished draft');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="移除专家，回到通用助手"]')?.click(),
+    );
+    await flush();
+    expect(router.state.location.search).toEqual({});
+    expect(useChatStore.getState().items).toEqual([]);
+    expect(message().value).toBe('unfinished draft');
+    expect(host.querySelector('[aria-label="召唤专家"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="移除专家，回到通用助手"]')).toBeNull();
     expect(remove).not.toHaveBeenCalled();
   });
 

@@ -101,7 +101,7 @@ const memberSchema = z.object({
 });
 export const agentsContract = {
   list: contractProcedure
-    .meta({ access: { kind: 'permission', permissionId: 'agents.read' } })
+    .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'GET', path: '/agents', successStatus: 200 })
     .input(z.object({}))
     .output(z.array(agentSummarySchema)),

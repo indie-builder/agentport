@@ -9,6 +9,31 @@ import { isRunCancelRequested } from '../../queue/producer.js';
 import { authorizeRun } from './access.js';
 
 const questionsRepo = repo.questions;
+
+export async function answerRunQuestion(
+  context: RequestContext,
+  runId: string,
+  requestId: string,
+  body: Parameters<typeof questionsRepo.respondToQuestion>[3],
+): Promise<ReturnType<typeof publicRunQuestion>> {
+  if (await isRunCancelRequested(runId)) {
+    fail('CONFLICT', '运行正在停止，无法回答这次提问');
+  }
+  const question = await questionsRepo.respondToQuestion(context.db, runId, requestId, body);
+  if (!question) {
+    fail('NOT_FOUND', '这次提问不存在，可能已失效；请刷新后重试');
+  }
+  await repo.audit.writeAudit(context.db, context.log, {
+    actor: actorOf(context),
+    action: 'agent.run.question.responded',
+    target: runId,
+    input: { requestId, status: question.status },
+    status: 'ok',
+    requestId: context.requestId,
+  });
+  return publicRunQuestion(question);
+}
+
 const os = implement(runsContract).$context<RequestContext>();
 export const runsQuestionsRouter = {
   questions: os.questions.handler(async ({ input, context }) => {
@@ -22,26 +47,6 @@ export const runsQuestionsRouter = {
   respondToQuestion: os.respondToQuestion.handler(async ({ input, context }) => {
     const { id: runId, requestId } = input.params;
     await authorizeRun(context, runId, 'runs.questions.answer');
-    if (await isRunCancelRequested(runId)) {
-      return fail('CONFLICT', '运行正在停止，无法回答这次提问');
-    }
-    const question = await questionsRepo.respondToQuestion(
-      context.db,
-      runId,
-      requestId,
-      input.body,
-    );
-    if (!question) {
-      return fail('NOT_FOUND', '这次提问不存在，可能已失效；请刷新后重试');
-    }
-    await repo.audit.writeAudit(context.db, context.log, {
-      actor: actorOf(context),
-      action: 'agent.run.question.responded',
-      target: runId,
-      input: { requestId, status: question.status },
-      status: 'ok',
-      requestId: context.requestId,
-    });
-    return publicRunQuestion(question);
+    return answerRunQuestion(context, runId, requestId, input.body);
   }),
 };

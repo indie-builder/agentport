@@ -250,6 +250,24 @@ async function readConversationDeletionSnapshot(
   };
 }
 
+export function sameTargets(
+  left: ConversationSandboxTarget[],
+  right: ConversationSandboxTarget[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((target, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        target.conversationId === other.conversationId &&
+        target.sandboxIds.length === other.sandboxIds.length &&
+        target.sandboxIds.every((id, sandboxIndex) => id === other.sandboxIds[sandboxIndex])
+      );
+    })
+  );
+}
+
 function sameConversationSnapshot(
   expected: ConversationDeletionSnapshot,
   actual: ConversationDeletionSnapshot,
@@ -259,16 +277,7 @@ function sameConversationSnapshot(
     expected.agentId === actual.agentId &&
     expected.agentSlug === actual.agentSlug &&
     expected.createdBy === actual.createdBy &&
-    expected.targets.length === actual.targets.length &&
-    expected.targets.every((target, index) => {
-      const other = actual.targets[index];
-      return (
-        other !== undefined &&
-        target.conversationId === other.conversationId &&
-        target.sandboxIds.length === other.sandboxIds.length &&
-        target.sandboxIds.every((id, sandboxIndex) => id === other.sandboxIds[sandboxIndex])
-      );
-    })
+    sameTargets(expected.targets, actual.targets)
   );
 }
 

@@ -13,6 +13,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { trimSlash } from './source-paths.js';
+import { parseInitialCursor } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -37,8 +38,6 @@ const settingsSchema = z.object({
   username: z.string().trim().min(1),
   path: z.string().trim().min(1),
 });
-
-const cursorSchema = z.object({ version: z.literal(1), initial: z.boolean() });
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -650,10 +649,7 @@ export async function readNextcloud(
   cursor: Record<string, unknown> | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SourceSnapshot> {
-  const previous =
-    cursor === undefined || Object.keys(cursor).length === 0
-      ? undefined
-      : cursorSchema.parse(cursor);
+  const previous = parseInitialCursor(cursor);
   const auth = await authenticate(config);
   signal?.throwIfAborted();
 

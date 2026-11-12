@@ -164,7 +164,7 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 
 分步说明：
 
-1. `POST /api/chat` 校验 agent 是否存在，创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），投递 `agent-runs` 队列（`jobId = runId`；载荷只有 `runId`、`agentId`、`conversationId` 与本轮 `prompt`，不携带历史文本；`attempts: 2`，指数退避 5s；仅当排队数 ≤ 100 时才入队，否则 503），写审计，返回 202。续聊/分支状态由 worker 从 DB 读取。
+1. `POST /api/chat` 校验 agent 是否存在（请求省略 `agentId` 时由 `startRun` 解析为平台默认助手「通用助手」，前端裸聊不计算也不发送默认 id），创建或复用 conversation，写 user 消息，创建 `agent_runs` 行（`queued`），投递 `agent-runs` 队列（`jobId = runId`；载荷只有 `runId`、`agentId`、`conversationId` 与本轮 `prompt`，不携带历史文本；`attempts: 2`，指数退避 5s；仅当排队数 ≤ 100 时才入队，否则 503），写审计，返回 202。续聊/分支状态由 worker 从 DB 读取。
 2. `GET /api/chat/:runId/events` 先订阅 Redis Stream，从 `0` 开始回放，因此 POST 与建连之间的事件不会丢；已结束的 run 直接补发终态。
 3. worker 消费 job：若 run 已被取消则跳过；条件认领 `queued → running` 后发布 `run_started`。发布失败时把仍为 `running` 的行条件回退 `queued` 并清 `startedAt`，再抛出原错误，使 BullMQ 重试能重新认领；不把行留在 `running`。若这次已是最后一次尝试（回退后停在 `queued`），或回退自身失败（停在 `running`），由现有 reconciler 收敛：`queued` 用 worker 的 `AGENT_TIMEOUT_MS`（默认 10 分钟）从 `createdAt` 起算，`running` 用该 agent 当前 `timeoutMs` 从 `startedAt` 起算。两者都加 5 分钟宽限并先探测队列：只有 job 已消失或已到终态才条件置 failed；`running` 即使已超过超时上限，job 仍处于 `active`/`waiting`/`delayed` 等有效状态或 Redis 探测失败时保持 running，因此调低专家 timeout 不会终止仍在执行的有效 job。每 5 分钟扫描，通常从各自起算点 15–20 分钟内以通用 `LOST_RUN_ERROR` 收敛；这是常态时延，不是发布失败后的保证期限，也不额外加锁或补偿。
 4. worker 从 DB 读 agent、绑定的 server、技能、子智能体，解密 server 密钥，签发本次 run 的短期 MCP token，调用 `renderWorkspace()` 把官方定义刷新写入 `WORKSPACES_DIR/<slug>/session-sandboxes/<conversationId>/workspace/`；该会话目录只读挂载，每轮覆盖定义内容，根目录不按 run 重命名或删除。
@@ -184,6 +184,8 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 事件流健康与回读（2026-10-31）：`streaming` 只在 EventSource `onopen` 后成立；发送已接受但尚未连上时为 `reconnecting`，`onerror`、协议 error 与重试耗尽转 `detached`。会话内 `RunReconciliation` 仅在 run 状态不是 `streaming` 时保留每 2 秒完整 `GET /runs/:id` 回读；健康窗口只保留首次详情请求，服务端每 2 秒终态补偿、断线回放、canonical 恢复与审批/原生提问独立轮询不变，取消的 `onSettled` invalidate 仍可回读。
 
 账户级状态撤销（2026-10-31）：显式退出由 `logoutAccount` 同时清 Query 与聊天 store（草稿、消息、附件、run/成果引用等），并同步递增 `accountEpoch`；`/me` 确认业务身份时同身份不清稿，换人或无归属先 reset。已挂载的聊天页订阅该信号同步 `closeStream()`（递增 generation、关闭 EventSource、清重试计时器），晚到发送、恢复与 SSE 事件不能写回新账户；401 与改密重登仍只清 Query 并保留草稿。
+
+默认助手与召唤/移除专家：纯 AI Chat 就是平台默认助手「通用助手」；默认解析点唯一在 server `startRun` 的 `agentId ?? getDefaultAgent().id`，DB 按 `is_default` 识别默认行，不按 slug/name/role。前端裸 `/chat` 发送时省略 `agentId`，不新增默认查询接口、不解析默认 id。召唤或移除专家都是切会话：选中专家进入该专家的新会话，移除则回到不带 agent 的裸 `/chat` 新会话；旧会话与其后台 run 原样保留，只解除旧事件流订阅，不取消运行、不重建沙盒。会话仍恰好绑定一个 agent，`conversations.agentId` / `agent_runs.agentId` 的 NOT NULL 外键与绑定守卫不变。slug `assistant` 为保留字，用户创建、复制与导入在 `createAgent` 处拒绝；若启动时已有普通专家占用该 slug，播种明确报错，不覆盖或升级原专家。
 
 会话串行与范围：同一会话的 run 通过 lease 串行执行，lease 持续到消息与本轮成果发布完成；不同会话相互独立。首版仍是现有单 worker 的进程内管理，不包含多 worker 路由、容器池、快照或新 provider；空闲容器计入资源占用，但不计入 `AGENT_MAX_CONCURRENT` 的同时执行数。容器复用只省创建/启动（缓存镜像基线约 122ms/次），不跳过每轮 SDK query 启动，不算也不承诺 SDK 冷启动优化。实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核。当时的旧 Vitest 入口 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK + 本地假 Anthropic SSE 4 例，均从当前源码独立临时编译）；该数字不代表迁移到 `bun:test` 后的当前结果。真实付费模型与浏览器全链路未测，不据此声称生产可用或多 worker 支持。
 
@@ -672,6 +674,8 @@ runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`ag
 - 每条授权 = 动作（功能树叶节点）+ 对象范围（全部/本人/被指定）；判定必须同时满足 permission 与 scope。
 - 多角色合并完整授权结果：不把 A 角色的动作与 B 角色的范围拼接。
 - 服务端每个业务入口声明并执行动作授权与对象范围检查；前端菜单与动作由同一功能目录驱动。
+- 平台默认助手「通用助手」是对象授权例外：所有已认证用户可 `agents.read` / `agents.use`，其余专家管理动作（含平台管理员）一律拒绝，保证默认对象持续不可改、不可删。判定集中在 api `http/access.ts` 授权边界；`privateContent` 请求绝不走该放行分支。worker 开跑前复用同一 `agentPermissionAllows` 策略，api 与 worker 不各留一份。
+- 数据库部分唯一索引 `agents_single_default_idx` 只保证「至多一个默认」；「恰好一个」由 bootstrap 与 `buildApp` 启动时的幂等播种 `ensureDefaultAssistant` 保证。已有默认行时播种直接返回，不改配置、ID 与版本。
 - 角色页为「顶部横向角色列 × 左侧纵向功能层级树」的勾选矩阵：左侧父功能下缩进显示子功能并整组展开收起，不平铺父子名称；中间单元格只放勾选状态，父级按叶权限三态聚合，授权范围在矩阵外的角色设置中配置，整张矩阵一次保存。后台仍保存完整矩阵，评估与定时任务分立。
 - 至少保留一名未停用的活跃管理员；删除、停用、降权或矩阵保存导致无管理员时返回 409。
 
@@ -688,6 +692,7 @@ runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`ag
 
 - 私有会话、用户消息、运行与个人记忆按 `businessId` 归属；个人记忆按 `businessId` 独立目录与锁隔离，不与其他用户共享。
 - 既有专家共享 auto-memory 的读写语义不变；个人记忆与专家记忆不互相替代，也不因账户隔离把专家记忆改成只读或私有。
+- 平台默认助手的 `memoryPolicy.enabled=false`，不读写专家共享 auto-memory；个人记忆仍按 `businessId` 隔离。这是默认助手的独立配置，不放宽其他专家的共享记忆语义。
 - 平台管理员可跨用户运维与审计并留痕；负责人、维护人员不因角色获得其他用户正文读取权。
 - `/mcp` 平台 token、`/mcp/:serverId` Bearer token 与 `/s/<shareId>#<token>` 分享 token 保持独立边界；登录用户权限不扩展到这些凭据。
 

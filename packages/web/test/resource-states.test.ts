@@ -61,6 +61,7 @@ vi.mock('../src/lib/queries.js', async (original) => {
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
   id: 'expert',
+  isDefault: false,
   parentId: null,
   createdAt: '2026-01-01',
   updatedAt: '2026-01-01',

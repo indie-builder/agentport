@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { type McpToolSummary, mcpToolSummarySchema } from './mcp.js';
+import { type McpToolSummary, serverTestResultSchema } from './mcp.js';
 import { utf8Bytes } from './utf8.js';
 
 /** stdio 试连独立队列：与 agent run 分开，试连不会占住运行并发。 */
@@ -31,11 +31,11 @@ export const sandboxProbeTaskSchema = z.object({
 });
 
 /** 容器 stdout 的单行结果；durationMs/stderr 由宿主侧补，避免进程内自计时。 */
-export const sandboxProbeOutputSchema = z.object({
-  ok: z.boolean(),
-  serverInfo: z.object({ name: z.string(), version: z.string() }).optional(),
-  tools: z.array(mcpToolSummarySchema).default([]),
-  error: z.string().optional(),
+export const sandboxProbeOutputSchema = serverTestResultSchema.pick({
+  ok: true,
+  serverInfo: true,
+  tools: true,
+  error: true,
 });
 export type SandboxProbeOutput = z.infer<typeof sandboxProbeOutputSchema>;
 

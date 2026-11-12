@@ -24,6 +24,7 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
+import type { ZodType } from 'zod';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
@@ -134,27 +135,20 @@ export async function publishKnowledgeCancel(jobId: string): Promise<void> {
   );
 }
 
-function parseChatEvent(payload: string): ChatEvent | null {
+function parseEvent<T>(payload: string, schema: ZodType<T>): T | null {
   let raw: unknown;
   try {
     raw = JSON.parse(payload);
   } catch {
     return null;
   }
-  const parsed = chatEventSchema.safeParse(raw);
+  const parsed = schema.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 
-function parseChannelEvent(payload: string): ChannelEvent | null {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(payload);
-  } catch {
-    return null;
-  }
-  const parsed = channelEventSchema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
-}
+const parseChatEvent = (payload: string): ChatEvent | null => parseEvent(payload, chatEventSchema);
+const parseChannelEvent = (payload: string): ChannelEvent | null =>
+  parseEvent(payload, channelEventSchema);
 
 export async function publishRun(runId: string, event: ChatEvent): Promise<void> {
   const redis = getClient();

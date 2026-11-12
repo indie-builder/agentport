@@ -1,7 +1,6 @@
 import { type Database, repo, schema } from '@agentport/db';
 import {
-  type AgentRelation,
-  agentScopeAllows,
+  agentPermissionAllows,
   type ExecutionSubject,
   type PermissionGrant,
 } from '@agentport/shared';
@@ -29,22 +28,6 @@ export function runExecutionSubject(row: {
     return { kind: 'service', serviceId: row.serviceId };
   }
   return null;
-}
-
-/**
- * 与 shared 目录一致的单个 grant 范围判定：同一条授权必须同时匹配权限叶和对象范围，
- * 多角色结果不能拼接。平台范围也只对真实存在的对象生效。
- */
-export function agentPermissionAllows(
-  grants: readonly PermissionGrant[],
-  permissionId: PermissionGrant['permissionId'],
-  relation: AgentRelation,
-  businessId: string,
-): boolean {
-  return grants.some(
-    (grant) =>
-      grant.permissionId === permissionId && agentScopeAllows(grant.scope, relation, businessId),
-  );
 }
 
 /**

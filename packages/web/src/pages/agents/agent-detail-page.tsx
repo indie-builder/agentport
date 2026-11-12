@@ -68,7 +68,7 @@ export function AgentDetailPage() {
   const summary = useAgentSummary(params.agentId);
   const access = useAgentAccess(params.agentId);
   const permissions = access.data?.permissionIds ?? [];
-  const canReadConfig = hasAnyGrant(permissions, 'agents.config.read');
+  const canReadConfig = !summary.data?.isDefault && hasAnyGrant(permissions, 'agents.config.read');
   const detail = useAgentDetail(params.agentId, canReadConfig);
   const remove = useDeleteAgent();
   const toggleEnable = useUpdateAgent();
@@ -169,6 +169,23 @@ export function AgentDetailPage() {
             }
           />
         </PageBody>
+      </Page>
+    );
+  }
+
+  if (current.isDefault) {
+    return (
+      <Page>
+        <PageTopbar>
+          <PageHeader
+            title={current.name}
+            actions={
+              <Link to="/chat" search={{}} className={buttonVariants()}>
+                前往对话
+              </Link>
+            }
+          />
+        </PageTopbar>
       </Page>
     );
   }

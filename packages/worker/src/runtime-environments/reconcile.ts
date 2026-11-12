@@ -2,7 +2,7 @@ import { RUNTIME_ENVIRONMENT_BUILDS_QUEUE, runtimeBuildEnqueueOptions } from '@a
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { queueState } from '../queue-state.js';
+import { ACTIVE_STATES, queueState } from '../queue-state.js';
 import {
   RUNTIME_ENVIRONMENT_BUILD_JOB,
   RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS,
@@ -17,8 +17,6 @@ const QUEUED_STALE_MS = 2 * RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS;
 
 export const RUNTIME_ENVIRONMENT_BUILD_LOST_ERROR =
   'runtime environment build worker lost track of this build';
-
-const ACTIVE_STATES = new Set(['waiting', 'delayed', 'active', 'prioritized', 'waiting-children']);
 
 /** 对账只读这些列；字段名与 DB 行保持一致。 */
 export interface RuntimeEnvironmentBuildPending {

@@ -16,7 +16,6 @@ import { cancelAgentRun } from '../chat/cancel-run.js';
 import type { NativeHttpDependencies } from '../chat/http.js';
 import { writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
-import { toMessage } from './mappers.js';
 
 const channelControl = repo.channelControl;
 type ControlRun = repo.channelControl.ControlRun;
@@ -72,7 +71,8 @@ async function cancelRun(
           allowArchived: true,
           body: '运行已停止，打开运行详情查看状态。',
         });
-        if (notice !== null) await publishChannelMessage(channelId, toMessage(notice));
+        if (notice !== null)
+          await publishChannelMessage(channelId, repo.channels.toChannelMessage(notice));
       } catch (err) {
         context.log.warn({ err, runId: run.id }, 'channel stop notice failed');
       }

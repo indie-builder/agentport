@@ -4,6 +4,8 @@ import {
   type AccessFilter,
   type Agent,
   type AgentDuplicateInput,
+  agentInputSchema,
+  DEFAULT_MEMORY_POLICY,
   type MemoryPolicy,
   resolveMemoryPolicy,
 } from '@agentport/shared';
@@ -36,7 +38,7 @@ import {
   skills,
 } from '../schema.js';
 import { insertAgentVersion, retryOnVersionConflict } from './agent-versions.js';
-import type { ConversationSandboxTarget } from './chat.js';
+import { type ConversationSandboxTarget, sameTargets } from './chat.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
 import { isPgCode } from './pg-errors.js';
@@ -44,6 +46,18 @@ import { listAgentPluginBindingInputs } from './plugins.js';
 import { listAgentIdsWithWorkflows } from './workflows.js';
 
 export type AgentRow = typeof agents.$inferSelect;
+
+const DEFAULT_AGENT_SLUG = 'assistant';
+const DEFAULT_AGENT_NAME = '通用助手';
+
+function assertNotReservedSlug(slug: string): void {
+  if (slug === DEFAULT_AGENT_SLUG) {
+    throw new AppError(
+      'INVALID_INPUT',
+      `slug '${DEFAULT_AGENT_SLUG}' 保留给平台通用助手，请换一个`,
+    );
+  }
+}
 
 export interface AgentWrite {
   slug: string;
@@ -104,6 +118,7 @@ export function toAgent(
     timeoutMs: row.timeoutMs,
     ...(row.effort === null ? {} : { effort: row.effort }),
     enabled: row.enabled,
+    isDefault: row.isDefault,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -129,6 +144,12 @@ function agentReadScopeWhere(access: AccessFilter): SQL | undefined {
   }
   if (visible.length === 0) return sql`false`;
   return or(...visible);
+}
+
+function agentListScopeWhere(access: AccessFilter): SQL | undefined {
+  const scope = agentReadScopeWhere(access);
+  if (scope === undefined) return undefined;
+  return or(eq(agents.isDefault, true), scope);
 }
 
 /** agents.delete 只接受 owned_agents / platform，不因 can_use/can_maintain 扩大删除范围。 */
@@ -172,14 +193,16 @@ export async function listAgents(
   return db
     .select({
       ...getTableColumns(agents),
-      serverIds: sql<string[] | null>`case when ${configScope ?? sql`true`} then
+      serverIds: sql<
+        string[] | null
+      >`case when ${configScope ?? sql`true`} and not ${agents.isDefault} then
         coalesce(array_agg(${agentServers.serverId} order by ${agentServers.serverId})
           filter (where ${agentServers.serverId} is not null), '{}'::text[])
         else null end`,
     })
     .from(agents)
     .leftJoin(agentServers, eq(agentServers.agentId, agents.id))
-    .where(agentReadScopeWhere(access))
+    .where(agentListScopeWhere(access))
     .groupBy(agents.id)
     .orderBy(asc(agents.createdAt), asc(agents.id));
 }
@@ -187,6 +210,53 @@ export async function listAgents(
 export async function getAgent(db: DbHandle, id: string): Promise<AgentRow | null> {
   const [row] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   return row ?? null;
+}
+
+export async function getDefaultAgent(db: DbHandle): Promise<AgentRow | null> {
+  const [row] = await db.select().from(agents).where(eq(agents.isDefault, true)).limit(1);
+  return row ?? null;
+}
+
+export async function ensureDefaultAgent(
+  tx: Transaction,
+  ownerBusinessId: string,
+): Promise<AgentRow> {
+  const existing = await getDefaultAgent(tx);
+  if (existing !== null) return existing;
+  const [conflict] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(eq(agents.slug, DEFAULT_AGENT_SLUG))
+    .limit(1);
+  if (conflict !== undefined) {
+    throw new AppError(
+      'CONFLICT',
+      `slug '${DEFAULT_AGENT_SLUG}' 已被普通专家占用，无法创建通用助手`,
+    );
+  }
+  const id = newId('agent');
+  const [row] = await tx
+    .insert(agents)
+    .values({
+      id,
+      slug: DEFAULT_AGENT_SLUG,
+      name: DEFAULT_AGENT_NAME,
+      role: DEFAULT_AGENT_NAME,
+      description: '',
+      systemPromptMd: '',
+      model: agentInputSchema.shape.model.parse(undefined),
+      createdBy: ownerBusinessId,
+      ownerBusinessId,
+      isDefault: true,
+      enabled: true,
+      parentId: null,
+      runtimeEnvironmentId: null,
+      memoryPolicy: { ...DEFAULT_MEMORY_POLICY, enabled: false },
+    })
+    .returning();
+  if (!row) throw new Error('default agent insert returned no row');
+  await insertAgentVersion(tx, id, toAgent(row, [], []));
+  return row;
 }
 
 /** 只读记忆策略：行不存在返回 null；已落库 JSON 非法时按默认策略运行。 */
@@ -329,6 +399,7 @@ export async function createAgent(
   subAgentIds: string[] = [],
   pluginBindings: Agent['pluginBindings'] = [],
 ): Promise<AgentRow> {
+  assertNotReservedSlug(input.slug);
   const id = newId('agent');
   const [row] = await retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
@@ -385,6 +456,7 @@ export async function duplicateAgent(
   input: AgentDuplicateInput,
   ownerBusinessId: string,
 ): Promise<Agent | null> {
+  assertNotReservedSlug(input.slug);
   try {
     return await retryOnVersionConflict(() =>
       db.transaction(
@@ -747,24 +819,6 @@ function sameAgentSnapshot(
     sameIdSet(expected.childIds, actual.childIds) &&
     sameIdSet(expected.affectedAgentIds, actual.affectedAgentIds) &&
     sameTargets(expected.targets, actual.targets)
-  );
-}
-
-function sameTargets(
-  left: ConversationSandboxTarget[],
-  right: ConversationSandboxTarget[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((target, index) => {
-      const other = right[index];
-      return (
-        other !== undefined &&
-        target.conversationId === other.conversationId &&
-        target.sandboxIds.length === other.sandboxIds.length &&
-        target.sandboxIds.every((id, sandboxIndex) => id === other.sandboxIds[sandboxIndex])
-      );
-    })
   );
 }
 

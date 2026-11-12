@@ -1,5 +1,10 @@
 import { fail } from '@agentport/core';
-import { ACTIVE_RUN_STATUSES, CHANNEL_MAX_WAKE_AGENTS, type ChannelRole } from '@agentport/shared';
+import {
+  ACTIVE_RUN_STATUSES,
+  CHANNEL_MAX_WAKE_AGENTS,
+  type ChannelMessage,
+  type ChannelRole,
+} from '@agentport/shared';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
@@ -24,6 +29,23 @@ export type ChannelMemberRow = typeof channelMembers.$inferSelect & {
 };
 export type ChannelAgentBindingRow = typeof channelAgentBindings.$inferSelect;
 export type ChannelMessageRow = typeof channelMessages.$inferSelect;
+
+export function toChannelMessage(row: ChannelMessageRow): ChannelMessage {
+  return {
+    id: row.id,
+    channelId: row.channelId,
+    seq: row.seq,
+    kind: row.kind,
+    authorBusinessId: row.authorBusinessId,
+    agentId: row.agentId,
+    runId: row.runId,
+    body: row.body,
+    clientMessageId: row.clientMessageId,
+    sourceMessageId: row.sourceMessageId,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 export type ChannelActiveRunRow = Pick<
   typeof agentRuns.$inferSelect,
   'id' | 'agentId' | 'status' | 'initiatedBy' | 'startedAt'
@@ -757,7 +779,6 @@ export async function postMessage(
     // 唤醒会拉起 run：只有真实 owner/admin/member 可以带 @ 发言。
     let wakeAgentIds: string[] = [];
     if ((input.mentions?.length ?? 0) > 0 || input.mentionAll === true) {
-      if (role === null) return { kind: 'not_found', target: 'channel' };
       if (role === 'viewer') return { kind: 'forbidden', reason: 'channel_role' };
       const resolved = await resolveWakeAgents(tx, channelId, input);
       if (resolved === null) return { kind: 'invalid_mentions' };

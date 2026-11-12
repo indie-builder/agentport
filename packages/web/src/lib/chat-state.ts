@@ -6,6 +6,7 @@ import {
   type PublicRunQuestion,
   progressTodoSchema,
   publicRunQuestionSchema,
+  streamBlockIdOf,
 } from '@agentport/shared';
 import type { ConversationDetail } from './api.js';
 
@@ -99,12 +100,6 @@ export function toolFailed(result: string | undefined): boolean {
     text.startsWith('Error:') ||
     text.startsWith('error:')
   );
-}
-
-/** shared 事件类型加上 worker 补发的运行内块身份；shared 定稿前先按存在性读取。 */
-function streamBlockIdOf(event: ChatEvent): string | undefined {
-  if (!('streamBlockId' in event)) return undefined;
-  return typeof event.streamBlockId === 'string' ? event.streamBlockId : undefined;
 }
 
 /**
