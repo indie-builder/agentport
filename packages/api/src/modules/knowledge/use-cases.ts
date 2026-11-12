@@ -77,6 +77,7 @@ import {
   createJob,
   documentWire,
   enqueueKnowledgeJob,
+  enqueueKnowledgeJobs,
   ensureKnowledgeServer,
   type KnowledgeDocumentRow,
   storeBlob,
@@ -3987,11 +3988,11 @@ export async function importFaqs(
     ),
   });
   const jobs = new Map(saved.items.map((item) => [item.documentId, item]));
-  for (const item of saved.items) {
-    await enqueueKnowledgeJob({ id: item.jobId }).catch((err: unknown) => {
-      deps.log.warn({ err, jobId: item.jobId }, 'FAQ 导入任务入队失败，等待对账补投');
-    });
-  }
+  await enqueueKnowledgeJobs(saved.items.map((item) => ({ id: item.jobId }))).catch(
+    (err: unknown) => {
+      deps.log.warn({ err }, 'FAQ 导入任务入队失败，等待对账补投');
+    },
+  );
   const results = plan.results.map((result) => {
     const item = result.documentId ? jobs.get(result.documentId) : undefined;
     return item
