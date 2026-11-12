@@ -15,7 +15,7 @@ function notFound() {
 }
 const os = implement(skillsContract).$context<RequestContext>();
 export const skillsRouter = os.router({
-  list: os.list.handler(async ({ context, input: routeInput }) => {
+  list: os.list.handler(async ({ context }) => {
     const rows = await repo.listSkills(context.db);
     return rows.map((row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }));
   }),

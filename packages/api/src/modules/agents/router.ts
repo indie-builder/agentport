@@ -206,7 +206,7 @@ export const agentsRouter = os.router({
       rethrowConflict(err);
     }
   }),
-  options: os.options.handler(async ({ context, input: routeInput }) => {
+  options: os.options.handler(async ({ context }) => {
     const principal = requireUser(context);
     if (!principal.grants.some((grant) => grant.permissionId === 'agents.bindings.manage')) {
       throw new AppError('FORBIDDEN', '没有管理专家资源绑定的权限');

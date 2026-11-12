@@ -651,7 +651,7 @@ export async function searchKnowledge(
 
   if (query.rerank && candidates.length > 0) {
     rerankState = 'unavailable';
-    if (base.rerankProfileId && candidates.length > 0) {
+    if (base.rerankProfileId) {
       const rerankProfile = await repo.knowledge.getModelProfileWithSecret(
         db,
         base.rerankProfileId,
