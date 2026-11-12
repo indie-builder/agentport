@@ -1,5 +1,5 @@
 {
-  "id": "7df141ff-64d0-4f0f-b90c-71d7380ed345",
+  "id": "54ff3310-83ff-4127-8ead-b0593e2b2200",
   "prevId": "95ee563c-ff1d-438b-a3db-ab02f95551ff",
   "version": "7",
   "dialect": "postgresql",
@@ -1658,6 +1658,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "is_default": {
+          "name": "is_default",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "parent_id": {
           "name": "parent_id",
           "type": "text",
@@ -1717,6 +1724,22 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agents_single_default_idx": {
+          "name": "agents_single_default_idx",
+          "columns": [
+            {
+              "expression": "is_default",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"agents\".\"is_default\" = true",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1861,12 +1884,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
-        },
-        "output_schema": {
-          "name": "output_schema",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "params_in": {
           "name": "params_in",

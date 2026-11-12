@@ -1,1 +1,0 @@
-ALTER TABLE "api_tools" ADD COLUMN "output_schema" jsonb;

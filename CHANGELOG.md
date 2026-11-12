@@ -14,6 +14,7 @@
 ### 连接器
 
 - generated 连接器补齐内部/外部 HTTP→MCP：新增 `GENERATED_PRIVATE_HOST_ALLOWLIST` 与 `assertServerEndpoint`，对显式白名单主机放行私网，贯穿创建/保存/测试/运行/对话/专家包导入；支持 OpenAPI 3.x / Swagger 2.0（JSON/YAML）批量导入，先预览勾选再单事务写入，web 提供「导入 OpenAPI」弹层。仅 `kind='generated'` 可用，导入写审计，错误码沿用现有集合；不引入聚合网关。
+- 工具定义支持 outputSchema：导入时从 OpenAPI 的 `application/json` 响应 schema（仅 object 根）推导并存 `api_tools.output_schema`（可空，迁移 0068），声明后成功调用同时返回 `structuredContent`；工具编辑器支持行内多选批量启停、「试跑」弹层与连接器「专家」列反查绑定智能体，新增 `tools.batchSetEnabled` / `tools.testInvoke` 并写审计。
 
 ### 规则文件
 
