@@ -1,6 +1,6 @@
 import type { KnowledgeDocument } from '@agentport/shared';
 import { Pencil, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -26,7 +26,6 @@ import {
   SelectValue,
 } from '../../components/ui/select.js';
 import type { KnowledgeFolder, KnowledgeTag } from '../../lib/api.js';
-import { useFormBlocker } from '../../lib/form.js';
 import {
   useCreateKnowledgeFolder,
   useCreateKnowledgeTag,
@@ -343,25 +342,8 @@ export function DocumentDialog({
     },
   );
   const { isDirty } = formState;
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pending = update.isPending;
-  const dirty = isDirty;
-  const blocker = useFormBlocker(dirty, pending);
-  // 保存回调在拦截发生前创建，不能读当时的 blocker 快照。
-  const blockerRef = useRef(blocker);
-  useEffect(() => {
-    blockerRef.current = blocker;
-  }, [blocker]);
-  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则其 resolver 永远挂着。
-  const finish = (): void => {
-    blockerRef.current.reset?.();
-    onClose();
-  };
-  const close = (): void => {
-    if (pending) return;
-    if (dirty) setConfirmDiscard(true);
-    else finish();
-  };
+  const guard = useDraftGuard(isDirty, pending, onClose);
   const submit = handleSubmit((values: DocumentPropertiesValues) => {
     update.mutate(
       {
@@ -381,7 +363,7 @@ export function DocumentDialog({
       {
         onSuccess: () => {
           toastSuccess('文档已更新');
-          finish();
+          guard.finish();
         },
         onError: toastError,
       },
@@ -396,7 +378,7 @@ export function DocumentDialog({
           details.cancel();
           return;
         }
-        if (!next) close();
+        if (!next) guard.close();
       }}
     >
       <DialogShell title="编辑文档" closeDisabled={pending}>
@@ -484,7 +466,7 @@ export function DocumentDialog({
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={close} disabled={pending}>
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
             <Button
@@ -496,26 +478,7 @@ export function DocumentDialog({
             </Button>
           </div>
         </form>
-        <ConfirmDialog
-          open={confirmDiscard}
-          onClose={() => setConfirmDiscard(false)}
-          title="放弃未保存的更改？"
-          description="关闭后文档属性草稿会丢失。"
-          confirmLabel="放弃并关闭"
-          confirmDisabled={pending}
-          onConfirm={async () => {
-            if (!pending) finish();
-          }}
-        />
-        <ConfirmDialog
-          open={blocker.status === 'blocked'}
-          onClose={() => blocker.reset?.()}
-          title="放弃未保存的更改？"
-          description={pending ? '正在保存，请等待请求完成。' : '离开后文档属性草稿会丢失。'}
-          confirmLabel="放弃并离开"
-          confirmDisabled={pending}
-          onConfirm={async () => blocker.proceed()}
-        />
+        <DraftGuardDialogs guard={guard} draft="文档属性草稿会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>
   );
