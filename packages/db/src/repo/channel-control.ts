@@ -2,7 +2,7 @@ import { ACTIVE_RUN_STATUSES, type ChannelRole } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { agentRuns, channelAgentBindings, channelMembers, channels } from '../schema.js';
-import { type ChannelActiveRunRow, channelMemberRole } from './channels.js';
+import { type ChannelActiveRunRow, channelMemberRole, lockChannel } from './channels.js';
 
 export type ChannelRunRow = typeof agentRuns.$inferSelect;
 
@@ -67,12 +67,7 @@ export async function stopRun(
   runId: string,
 ): Promise<{ kind: 'ok'; run: ControlRun } | NotFound | Forbidden> {
   return db.transaction(async (tx) => {
-    const [channel] = await tx
-      .select({ id: channels.id })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .for('update');
-    if (!channel) return { kind: 'not_found', target: 'channel' };
+    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
     const role = await memberRole(tx, channelId, businessId);
     if (role === null) return { kind: 'not_found', target: 'channel' };
     if (role === 'viewer') return { kind: 'forbidden', reason: 'channel_role' };
@@ -102,12 +97,7 @@ export async function disconnectAgent(
   agentId: string,
 ): Promise<{ kind: 'ok'; runs: ControlRun[] } | NotFound | Forbidden> {
   return db.transaction(async (tx) => {
-    const [channel] = await tx
-      .select({ id: channels.id })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .for('update');
-    if (!channel) return { kind: 'not_found', target: 'channel' };
+    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
     const role = await memberRole(tx, channelId, businessId);
     if (role === null) return { kind: 'not_found', target: 'channel' };
     if (role !== 'owner' && role !== 'admin') return { kind: 'forbidden', reason: 'channel_role' };
