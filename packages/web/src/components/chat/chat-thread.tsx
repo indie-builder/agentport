@@ -1393,8 +1393,12 @@ const MessagePart = memo(function MessagePart({
       return (
         <div className="flex min-w-0 flex-col gap-2">
           {item.text ? (
-            <Bubble align={item.self === false ? 'start' : 'end'} variant="secondary">
-              <BubbleContent>
+            <Bubble
+              align={item.self === false ? 'start' : 'end'}
+              variant="secondary"
+              className="max-w-[85%]"
+            >
+              <BubbleContent className="px-4 py-3 text-base leading-[22px]">
                 <FoldingMessageBody text={item.text} />
               </BubbleContent>
             </Bubble>
