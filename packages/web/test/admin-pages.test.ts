@@ -85,7 +85,10 @@ vi.mock('../src/lib/queries.js', () => ({
   useOverviewTimeseries: () => ({ data: [], isPending: false }),
   useRuns: () => ({ data: { items: [] } }),
   useAgents: () => ({ data: [{ id: 'agent', name: 'Expert' }], isSuccess: true }),
-  useExperts: () => ({ data: [{ id: 'agent', name: 'Expert', isDefault: false }], isSuccess: true }),
+  useExperts: () => ({
+    data: [{ id: 'agent', name: 'Expert', isDefault: false }],
+    isSuccess: true,
+  }),
   useEvalCases: () => ({ data: [], isSuccess: true }),
   useEvalRuns: () => ({
     data: { pages: [{ items: state.runs, nextCursor: null }] },
