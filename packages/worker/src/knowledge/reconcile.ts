@@ -4,6 +4,7 @@ import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import { startIntervalTicker } from '../interval-ticker.js';
 import { ACTIVE_STATES, queueState } from '../queue-state.js';
 import { KNOWLEDGE_TIMEOUT_MS } from './queue.js';
 
@@ -181,28 +182,19 @@ export function startKnowledgeReconciler(input: {
   });
   queue.on('error', () => input.logger.warn('knowledge queue connection failed'));
 
-  let busy = false;
-  let inFlight: Promise<void> = Promise.resolve();
-  const tick = (): void => {
-    if (busy) return;
-    busy = true;
-    inFlight = reconcileKnowledgeJobs(input.db, input.logger, queue)
-      .then(() => ensureDailyCleanup(input.db, input.logger, queue))
-      .then(() => undefined)
-      .catch((err: unknown) => {
-        input.logger.error({ err }, 'knowledge reconcile failed');
-      })
-      .finally(() => {
-        busy = false;
-      });
-  };
-  tick();
-  const timer = setInterval(tick, RECONCILE_MS);
-  timer.unref();
+  const stopTicker = startIntervalTicker(
+    () =>
+      reconcileKnowledgeJobs(input.db, input.logger, queue)
+        .then(() => ensureDailyCleanup(input.db, input.logger, queue))
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          input.logger.error({ err }, 'knowledge reconcile failed');
+        }),
+    RECONCILE_MS,
+  );
 
   return async () => {
-    clearInterval(timer);
-    await inFlight;
+    await stopTicker();
     await queue.close();
     await connection.quit();
   };

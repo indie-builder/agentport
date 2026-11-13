@@ -6,6 +6,7 @@ import { RedisClient } from 'bun';
 import { and, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { Effect, Result, Schedule } from 'effect';
 import type { Logger } from 'pino';
+import { startIntervalTicker } from './interval-ticker.js';
 import { finalizeRun, type RunFinishedEvent } from './run-finish.js';
 
 const RECONCILE_EVERY_MS = 5 * 60 * 1000;
@@ -376,30 +377,20 @@ export function startReconciler(input: {
   queue.on('error', () => input.logger.warn('run queue connection failed'));
   const evalQueue = new Queue(EVAL_RUNS_QUEUE, { connection });
   evalQueue.on('error', () => input.logger.warn('eval queue connection failed'));
-  let busy = false;
-  let inFlight: Promise<void> = Promise.resolve();
-  const tick = (): void => {
-    if (busy) return;
-    busy = true;
-    inFlight = Promise.allSettled([
-      reconcileOrphanedRuns(input.db, input.logger, input.agentTimeoutMs, queue, input.cleanup),
-      reconcileOrphanedEvalRuns(input.db, input.logger, evalQueue),
-    ])
-      .then((results) => {
+  const stopTicker = startIntervalTicker(
+    () =>
+      Promise.allSettled([
+        reconcileOrphanedRuns(input.db, input.logger, input.agentTimeoutMs, queue, input.cleanup),
+        reconcileOrphanedEvalRuns(input.db, input.logger, evalQueue),
+      ]).then((results) => {
         if (results.some((result) => result.status === 'rejected')) {
           input.logger.error('reconcile failed');
         }
-      })
-      .finally(() => {
-        busy = false;
-      });
-  };
-  tick();
-  const timer = setInterval(tick, RECONCILE_EVERY_MS);
-  timer.unref();
+      }),
+    RECONCILE_EVERY_MS,
+  );
   return async () => {
-    clearInterval(timer);
-    await inFlight;
+    await stopTicker();
     await Promise.all([queue.close(), evalQueue.close()]);
     await connection.quit();
   };
