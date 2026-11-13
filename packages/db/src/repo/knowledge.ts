@@ -35,6 +35,7 @@ import {
   knowledgeWikiSources,
   knowledgeWikiVersions,
 } from '../schema.js';
+import { paginate } from './keyset.js';
 
 export type KnowledgeBaseRow = typeof knowledgeBases.$inferSelect;
 export type KnowledgeFolderRow = typeof knowledgeFolders.$inferSelect;
@@ -81,10 +82,6 @@ export interface PageOptions {
 /** 列表统一按 (created_at, id) 倒序，游标是上一页最后一行 id。 */
 function pageLimit(options: PageOptions): number {
   return Math.min(Math.max(options.limit ?? 50, 1), 200);
-}
-
-function nextCursor<T extends { id: string }>(rows: T[], limit: number): string | null {
-  return rows.length > limit ? (rows[limit - 1]?.id ?? null) : null;
 }
 
 /**
@@ -359,7 +356,7 @@ export async function listBases(
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(knowledgeBases.createdAt), desc(knowledgeBases.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 export interface BasePatch {
@@ -592,7 +589,7 @@ export async function listBaseActivity(
     targetKind: row.target_kind,
     createdAt: toDate(row.created_at),
   }));
-  return { items: items.slice(0, limit), nextCursor: nextCursor(items, limit) };
+  return paginate(items, limit);
 }
 
 // ---------------------------------------------------------------------------
@@ -624,7 +621,7 @@ export async function listFolders(
     .where(and(...filters))
     .orderBy(asc(knowledgeFolders.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 export async function getFolder(db: DbHandle, id: string): Promise<KnowledgeFolderRow | null> {
@@ -924,7 +921,7 @@ export async function listDocuments(
     .where(and(...filters))
     .orderBy(desc(knowledgeDocuments.createdAt), desc(knowledgeDocuments.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 export interface DocumentPatch {
@@ -1036,7 +1033,7 @@ export async function listReadableDocuments(
     .where(and(...filters))
     .orderBy(desc(knowledgeDocuments.updatedAt), desc(knowledgeDocuments.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 /** 外部来源失权/删除：文档置 disabled，不物理删、不参与检索。
@@ -1437,7 +1434,7 @@ export async function listVersions(
     .where(and(...filters))
     .orderBy(desc(knowledgeDocumentVersions.createdAt), desc(knowledgeDocumentVersions.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 /** 版本列表：复用 listVersions，并标出哪一版是当前可读版。 */
@@ -1604,7 +1601,7 @@ export async function listChunks(
     .where(and(...chunkPageFilters(versionId, options)))
     .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 /** 展示与导出只需要元数据：显式投影，避免把 1024 维向量读出来。 */
@@ -1641,7 +1638,7 @@ export async function listChunkSummaries(
     .where(and(...chunkPageFilters(versionId, options)))
     .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 /** 人工编辑总数取整版聚合，不能靠分页首页推断（>200 条时会漏）。 */
@@ -2480,7 +2477,7 @@ export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(knowledgeJobs.createdAt), desc(knowledgeJobs.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 /** 同步任务的 payload 关联；缺失或与行上的 sourceId 不一致都是跨行数据错误。 */
@@ -2678,7 +2675,7 @@ export async function listSources(
     .where(and(...filters))
     .orderBy(desc(knowledgeSources.createdAt), desc(knowledgeSources.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 export interface SourcePatch {
@@ -3102,7 +3099,7 @@ export async function listSyncRuns(
     .where(and(...filters))
     .orderBy(desc(knowledgeSyncRuns.createdAt), desc(knowledgeSyncRuns.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 export interface RecordSyncItemInput {
@@ -3152,7 +3149,7 @@ export async function listSyncItems(
     .where(and(...filters))
     .orderBy(desc(knowledgeSyncItems.createdAt), desc(knowledgeSyncItems.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 // ---------------------------------------------------------------------------
@@ -3197,7 +3194,7 @@ export async function listWikiPages(
     .where(and(...filters))
     .orderBy(desc(knowledgeWikiPages.createdAt), desc(knowledgeWikiPages.id))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 export interface SaveWikiVersionInput {
@@ -3470,7 +3467,7 @@ export async function listWikiVersions(
     .where(and(...filters))
     .orderBy(desc(knowledgeWikiVersions.version))
     .limit(limit + 1);
-  return { items: rows.slice(0, limit), nextCursor: nextCursor(rows, limit) };
+  return paginate(rows, limit);
 }
 
 /**
