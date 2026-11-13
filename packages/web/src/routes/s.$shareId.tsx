@@ -13,6 +13,7 @@ import { Button } from '../components/ui/button.js';
 import { ApiError, api } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
 import { formatBytes, formatDateTime } from '../lib/format.js';
+import { type SharePreviewKind, sharePreviewKind } from '../lib/output-preview.js';
 import { toastError } from '../lib/toast.js';
 
 type ShareFile = PublicOutputShare['file'];
@@ -21,20 +22,6 @@ type LoadState =
   | { status: 'invalid' }
   | { status: 'error'; error: unknown }
   | { status: 'ready'; file: ShareFile };
-
-type PreviewKind = 'markdown' | 'code' | 'image' | 'pdf' | 'none';
-
-function previewKind(mediaType: string): PreviewKind {
-  const type = mediaType.split(';')[0]?.trim().toLowerCase() ?? '';
-  if (type === 'text/markdown' || type === 'text/x-markdown') return 'markdown';
-  if (type.startsWith('text/') || type === 'application/json' || type === 'image/svg+xml') {
-    return 'code';
-  }
-  if (type === 'image/png' || type === 'image/jpeg' || type === 'image/gif') return 'image';
-  if (type === 'image/webp') return 'image';
-  if (type === 'application/pdf') return 'pdf';
-  return 'none';
-}
 
 function shareError(error: unknown): Error {
   let message = '请稍后重试，若仍失败请联系分享者确认链接是否可用。';
@@ -168,7 +155,7 @@ function keepTokenOnAnchorClick(event: MouseEvent): void {
 }
 
 function SharedFile({ shareId, token, file }: { shareId: string; token: string; file: ShareFile }) {
-  const kind = previewKind(file.mediaType);
+  const kind = sharePreviewKind(file.mediaType);
   const [downloading, setDownloading] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
@@ -237,7 +224,7 @@ function SharePreview({
   shareId: string;
   token: string;
   file: ShareFile;
-  kind: Exclude<PreviewKind, 'none'>;
+  kind: Exclude<SharePreviewKind, 'none'>;
 }) {
   const [state, setState] = useState<PreviewState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
