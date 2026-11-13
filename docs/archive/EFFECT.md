@@ -46,7 +46,7 @@ BullMQ 仍然负责任务分发与重试；Effect 负责单个任务内部。
 3. **不复刻框架能力。** 不用 `effect/http` 替代 Fastify，不用 Layer 管连接池。
 4. **不替换 zod。** 校验链路（zod → Fastify schema → 前端）保持不变。
 
-边界细则以 [ARCHITECTURE §1.2](ARCHITECTURE.md#12-状态与副作用库的职责边界) 与各包规则为准（[core](../packages/core/AGENTS.md#effect-运行时)、[api](../packages/api/AGENTS.md#effect-边界)、[worker](../packages/worker/AGENTS.md#effect-边界)），本文不重复。
+边界细则以 [ARCHITECTURE §1.2](../ARCHITECTURE.md#12-状态与副作用库的职责边界) 与各包规则为准（[core](../../packages/core/AGENTS.md#effect-运行时)、[api](../../packages/api/AGENTS.md#effect-边界)、[worker](../../packages/worker/AGENTS.md#effect-边界)），本文不重复。
 
 ## 运行时契约
 

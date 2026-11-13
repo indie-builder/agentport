@@ -111,7 +111,7 @@ SDK 侧确认：`initializationResult().agents` 在沙盒里能看到 `subverify
 | `packages/core/test/workspace-input.test.ts` | 断言子智能体 md 不含 `tools:` |
 | `packages/api/test/agents.test.ts` | 同步断言 |
 | `packages/api/test/sse-subscribers.test.ts` | 新增并发发布去重用例 |
-| `docs/ARCHITECTURE.md`、`docs/IMPL-CONTRACTS.md` | 更新工作区文件语义 |
+| `docs/ARCHITECTURE.md`、`docs/archive/IMPL-CONTRACTS.md` | 更新工作区文件语义 |
 
 **部署提醒**：修改 `packages/sandbox/src` 后必须重建镜像。`pnpm run up` 只在镜像不存在时构建，已存在的机器要 `pnpm run up --rebuild`。手动构建从仓库根执行 `docker build --target sandbox -t agentport/sandbox:dev .`，依赖安装、`pnpm -r build` 与 shared 打包都在镜像内完成（详见 OPERATIONS「2.2.1 手动构建沙盒镜像」）。
 

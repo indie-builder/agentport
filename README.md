@@ -156,12 +156,12 @@ agentport/
 | [PRODUCT.md](PRODUCT.md) | 产品定位、用户、原则与约束 |
 | [docs/PROJECT-BRIEF.md](docs/PROJECT-BRIEF.md) | 需求、选型与实现记录；部分早期结论已被后续实现取代 |
 | [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) | PACE 品牌、token 与组件规范 |
-| [docs/IMPL-CONTRACTS.md](docs/IMPL-CONTRACTS.md) | 并行开发时的接口契约（历史文档） |
+| [docs/archive/IMPL-CONTRACTS.md](docs/archive/IMPL-CONTRACTS.md) | 并行开发时的接口契约（历史文档） |
 | [docs/CAPABILITY-GAP.md](docs/CAPABILITY-GAP.md) | 对标行业基线后的能力差距与补齐记录 |
 | [docs/DECISIONS-PENDING.md](docs/DECISIONS-PENDING.md) | 待决策事项与已执行状态回填 |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | 当前状态、质量基线、已知限制、下一步 |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | 凌晨处置手册：症状 → 判断 → 处置 → 验证 |
-| [docs/SUBAGENTS-VERIFICATION.md](docs/SUBAGENTS-VERIFICATION.md) | 子智能体委派的真实端到端验证记录 |
+| [docs/archive/SUBAGENTS-VERIFICATION.md](docs/archive/SUBAGENTS-VERIFICATION.md) | 子智能体委派的真实端到端验证记录 |
 | [docs/SECURITY.md](docs/SECURITY.md) | 安全审查记录与剩余项 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本与变更记录 |
 

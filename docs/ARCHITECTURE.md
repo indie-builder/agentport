@@ -82,6 +82,18 @@ packages/api/src/http/                Hono 与 oRPC 适配：context、orpc、mi
 packages/api/src/routes/index.ts      把契约 router 挂到 /api
 ```
 
+模块内文件角色词表：
+
+| 文件 | 职责 |
+|---|---|
+| `router.ts` | oRPC 契约的薄适配：授权、对象范围、状态转换、错误 |
+| `use-cases.ts` | 仅真实多步编排才存在 |
+| `http.ts` | 原生 HTTP 边界：auth、MCP、SSE、文件与 ZIP |
+| `access.ts` | 域内对象级授权 |
+| `write.ts` / `api.ts` / `service.ts` | 写入/映射辅助：row↔wire 投影与写入映射；现状三种命名并存，职责相同，后续可统一 |
+
+单文件软上限约 500 行；超出时按子域拆分为目录并用 `index.ts`/同名 barrel 保持对外入口不变。
+
 - 契约路径不带 `/api`，根入口统一加前缀；对外 REST 方法与路径不变，不做 `/v1` 迁移。契约同时生成 OpenAPI 3.1.1 文档（`GET /api/openapi.json`）与需登录的 Scalar 页面 `/api/docs`；MCP 端点不在 REST JSON 契约内。
 - `router.ts` 不承载通用机制。同一职责只留一处：SQL、事务、CAS 与 `AccessFilter` 在 `@agentport/db`；渲染、错误分类与纯函数在 `@agentport/core`。
 - 不要求每个领域固定 `router.ts`、`http.ts`、`use-cases.ts` 文件组合，也不新增聚合根、仓储接口、`DomainError` 或通用状态机。
