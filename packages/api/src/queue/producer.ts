@@ -14,7 +14,9 @@ import {
   EVAL_RUNS_QUEUE,
   KNOWLEDGE_CANCEL_PAYLOAD,
   KNOWLEDGE_JOBS_QUEUE,
+  KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
   knowledgeCancelKey,
+  MAINTENANCE_QUEUE,
   NATIVE_PLUGINS_QUEUE,
   parseJsonAs,
   RUN_CANCEL_PAYLOAD,
@@ -29,8 +31,6 @@ import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
-const KNOWLEDGE_SYNC_TRIGGERS_QUEUE = 'knowledge-sync-triggers';
-const MAINTENANCE_QUEUE = 'maintenance';
 const MONITORED_QUEUES = [
   SANDBOX_PROBES_QUEUE,
   NATIVE_PLUGINS_QUEUE,

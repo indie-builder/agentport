@@ -5,6 +5,13 @@ import { slugSchema } from './params.js';
 /** 知识库任务队列；jobId 即 knowledge_jobs.id，重复投递由 BullMQ 去重。 */
 export const KNOWLEDGE_JOBS_QUEUE = 'knowledge-jobs';
 
+/**
+ * 轻触发队列：scheduler 的每次触发只带 sourceId，到点后由 worker 创建
+ * knowledge_sync_runs + knowledge_jobs 再投递到知识队列。
+ * 不能直接在知识队列上重复使用同一个 DB job id：BullMQ 会把后续触发当成重复 job 丢掉。
+ */
+export const KNOWLEDGE_SYNC_TRIGGERS_QUEUE = 'knowledge-sync-triggers';
+
 /** 运行中取消：API 写键，worker 每秒轮询到非空后 abort；值本身不承载信息。 */
 export const KNOWLEDGE_CANCEL_PAYLOAD = '1';
 

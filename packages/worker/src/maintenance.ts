@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { outputMessageAnchors } from '@agentport/core';
 import { createDb, repo, schema } from '@agentport/db';
+import { MAINTENANCE_QUEUE } from '@agentport/shared';
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
@@ -8,7 +9,6 @@ import pino, { type Logger } from 'pino';
 import { loadConfig } from './config.js';
 import { version } from './version.js';
 
-const MAINTENANCE_QUEUE = 'maintenance';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface Retention {
