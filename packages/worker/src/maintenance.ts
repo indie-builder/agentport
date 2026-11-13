@@ -6,6 +6,7 @@ import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
 import { loadConfig } from './config.js';
+import { version } from './version.js';
 
 const MAINTENANCE_QUEUE = 'maintenance';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -110,7 +111,10 @@ export async function startMaintenanceWorker(input: {
 // 手动触发：bun run --filter @agentport/worker maintenance
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
-  const logger = pino({ level: config.LOG_LEVEL });
+  const logger = pino({
+    level: config.LOG_LEVEL,
+    base: { service: 'worker', env: config.NODE_ENV, version },
+  });
   const { db, client } = createDb(config.DATABASE_URL);
   try {
     await runMaintenance(

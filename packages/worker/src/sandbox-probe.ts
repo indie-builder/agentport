@@ -26,6 +26,7 @@ import type { Config } from './config.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions } from './sandbox/provider.js';
+import { version } from './version.js';
 
 export interface ProbeSandboxOptions extends SandboxCreateOptions {
   /** 覆盖镜像 ENTRYPOINT。 */
@@ -311,7 +312,10 @@ export async function registerSandboxProbe(
   });
   const deps: SandboxProbeDeps = {
     db: handle.db,
-    logger: pino({ level: config.LOG_LEVEL }),
+    logger: pino({
+      level: config.LOG_LEVEL,
+      base: { service: 'worker', env: config.NODE_ENV, version },
+    }),
     provider,
     resolveRuntimeEnvironment,
     workspacesDir: config.WORKSPACES_DIR,

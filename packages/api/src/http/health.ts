@@ -12,6 +12,7 @@ interface QueueCounts {
   completed: number;
   failed: number;
   delayed: number;
+  oldestWaitingMs: number | null;
 }
 
 export interface HealthMetrics {
@@ -44,14 +45,19 @@ async function attempt<T>(log: Logger, name: string, fn: () => Promise<T>): Prom
 
 async function jobCounts(queue: {
   getJobCounts: (...states: typeof JOB_STATES) => Promise<Record<string, number>>;
+  getWaiting: (start: number, end: number) => Promise<{ timestamp: number }[]>;
 }): Promise<QueueCounts> {
-  const counts = await queue.getJobCounts(...JOB_STATES);
+  const [counts, waiting] = await Promise.all([
+    queue.getJobCounts(...JOB_STATES),
+    queue.getWaiting(0, 0).catch(() => []),
+  ]);
   return {
     waiting: counts.waiting ?? 0,
     active: counts.active ?? 0,
     completed: counts.completed ?? 0,
     failed: counts.failed ?? 0,
     delayed: counts.delayed ?? 0,
+    oldestWaitingMs: waiting[0] === undefined ? null : Date.now() - waiting[0].timestamp,
   };
 }
 

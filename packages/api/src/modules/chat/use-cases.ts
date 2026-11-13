@@ -264,6 +264,7 @@ export async function startRun(
     }
     fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
   }
+  deps.log.info({ runId: run.id }, 'run enqueued');
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: principal.businessId,
     action: 'agent.run.requested',

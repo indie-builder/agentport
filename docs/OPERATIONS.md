@@ -531,18 +531,20 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 
 ## 6. 观测入口
 
+日志基字段、`requestId`/`runId` 关联与 PostgreSQL 慢查询日志见 [OBSERVABILITY.md](OBSERVABILITY.md)。
+
 | 入口 | 内容 | 鉴权 |
 |---|---|---|
 | `GET /health/live` | 进程存活 | 无 |
 | `GET /health/ready` | DB 查询 + Redis ping；任一失败返回 503 与 `status: degraded` | 无 |
-| `GET /health/metrics` | 进程（uptime、RSS、`bunVersion`）、队列计数、`db.connected`/`pingMs`/`maxConnections`、Redis ping 延迟；`knowledgeQueue` 为知识队列五态 `waiting/active/completed/failed/delayed`（单项失败返回 `null`），整体仍 200 | 登录（`requireAuth`） |
+| `GET /health/metrics` | 进程（uptime、RSS、`bunVersion`）、队列计数、`db.connected`/`pingMs`/`maxConnections`、Redis ping 延迟；`queue`/`knowledgeQueue` 为五态 `waiting/active/completed/failed/delayed`，并带 `oldestWaitingMs`（最老 waiting job 的等待时长，无 job 或该项读取失败为 `null`），单项失败返回 `null`，整体仍 200 | `operations.read` 权限 |
 | `/api/overview` | 统计卡、智能体聚合（运行数、成本、错误率、P50/P99、tokens）、最近 20 条运行；`days` 限制 1–3650、默认 7，统计最近 N 个 UTC 自然日（含今天）；连接器计数排除内部知识连接 | 登录 |
 | `/api/overview/timeseries` | 与概况相同自然日窗口，默认 7；恰好 N 个 UTC 日期点，包含无运行日期的零值 | 登录 |
 | `/api/runs`、`/api/runs/:id` | 运行列表与 trace 步骤 | 登录 |
 | `/api/audit` | 审计事件，可按 action / status / 时间过滤 | 登录 |
 | 页面「审计」 | 同上，按时间倒序 | 登录 |
 | 页面「运行」→ 详情 | 状态、耗时、轮次、成本、token、错误、步骤时间线（子智能体内部调用缩进）；「用同样输入重新运行」 |
-| 页面「系统状态」`/status` | live / ready / metrics 三面板，10 秒刷新；浏览器内只读自检 | 登录（metrics 接口同样需要登录） |
+| 页面「系统状态」`/status` | live / ready / metrics 三面板，10 秒刷新；浏览器内只读自检 | 登录；metrics 接口需 `operations.read` 权限 |
 | api 日志 | pino JSON（生产）/ pino-pretty（开发）；按路由模板记录，>2s 记 `slow request`，SSE 不打慢请求 | stdout |
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 
