@@ -214,7 +214,7 @@ function parseRules(css: string): Rule[] {
   let order = 0;
   for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selector = match[1].trim();
-    if (!selector.startsWith('.')) continue;
+    if (!selector.startsWith('.') && !selector.startsWith(':is(')) continue;
     const declarations = new Map<string, string>();
     for (const entry of match[2].split(';')) {
       const colon = entry.indexOf(':');

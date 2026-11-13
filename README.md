@@ -2,7 +2,7 @@
 
 PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：把 HTTP API 或 MCP Server 接进来，用文件定义智能体，在隔离沙盒里运行，并观测每一次调用。
 
-产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `bun.lock` 为准：Bun 1.4.3、Node.js >=24.22.2 <25、React 19.3、Vite 8.3、Hono 4.13、oRPC 1.16、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.14.0）。
+产品名 **PACE**；仓库、包名与镜像名使用 `agentport`。依赖版本以 `package.json` / `bun.lock` 为准：Bun 1.4.4、Node.js >=24.22.2 <25、React 19.3、Vite 8.3、Hono 4.13、oRPC 1.16、PostgreSQL 18、Redis 8。项目版本见根 `package.json`（当前 0.14.0）。
 
 ## 能力
 
@@ -25,7 +25,7 @@ PACE（仓库名 `agentport`）是一个单机优先的智能体运行平台：�
 
 ### 前置条件
 
-- Bun 1.4.3（`packageManager` 已固定，依赖与脚本都用 Bun）
+- Bun 1.4.4（`packageManager` 已固定，依赖与脚本都用 Bun）
 - Node.js >=24.22.2 <25（24 LTS，当前 24.22.2；镜像基座与尚未迁移的 `node` 脚本使用）
 - Docker Engine 与 Docker Compose
 - 备份优先使用宿主 `pg_dump` / `psql`（PostgreSQL 客户端），缺失时回退到 compose 的 postgres 容器
