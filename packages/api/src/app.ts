@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { createDb } from '@agentport/db';
 import { Hono } from 'hono';
 import { requestId } from 'hono/request-id';
@@ -14,12 +15,15 @@ import { closeScheduleQueue } from './modules/ops/schedule-sync.js';
 import { registerRoutes } from './routes/index.js';
 import type { AppRuntime } from './types.js';
 
+const { version }: { version: string } = createRequire(import.meta.url)('../../../package.json');
+
 export async function buildApp(
   config: Config,
   options: { timeout?: (request: Request, seconds: number) => void } = {},
 ): Promise<AppRuntime> {
   const log = pino({
     level: config.LOG_LEVEL,
+    base: { service: 'api', env: config.NODE_ENV, version },
     redact: {
       paths: [
         'req.headers.authorization',

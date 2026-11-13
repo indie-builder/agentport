@@ -17,6 +17,7 @@
 | [SECURITY.md](SECURITY.md) | 安全模型与已知风险（含 Docker socket、M- 编号事项） |
 | [DECISIONS-PENDING.md](DECISIONS-PENDING.md) | 待决策与已决策事项（D- 编号） |
 | [OPERATIONS.md](OPERATIONS.md) | 部署、备份恢复、维护任务、故障排查、观测入口、压测 |
+| [OBSERVABILITY.md](OBSERVABILITY.md) | 日志基字段、requestId/runId 关联、PostgreSQL 慢查询与锁日志、`/health/metrics` 队列字段与排障配方 |
 | [RUNBOOK.md](RUNBOOK.md) | 故障处置手册 |
 | [FIRST-RUN.md](FIRST-RUN.md) | 历史首次部署实测记录（pnpm 时代；现行步骤见 [README](../README.md) / [OPERATIONS](OPERATIONS.md)） |
 | [SKILLS.md](SKILLS.md) | 项目适配、技能与插件更新 SOP |

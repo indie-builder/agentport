@@ -11,6 +11,7 @@ services:
     # 已用 `docker buildx imagetools inspect` 与 Hub manifest 响应核对。
     image: pgvector/pgvector:pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
     restart: unless-stopped
+    command: ['postgres', '-c', 'log_min_duration_statement=200', '-c', 'log_lock_waits=on', '-c', 'log_temp_files=0']
     environment:
       POSTGRES_USER: agentport
       POSTGRES_PASSWORD: agentport

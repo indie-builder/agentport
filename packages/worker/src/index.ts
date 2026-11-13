@@ -110,9 +110,13 @@ import {
 } from './session-workspace.js';
 import { runShutdown } from './shutdown.js';
 import { modelProxyUpstream } from './upstream.js';
+import { version } from './version.js';
 
 const config = loadConfig();
-const logger = pino({ level: config.LOG_LEVEL });
+const logger = pino({
+  level: config.LOG_LEVEL,
+  base: { service: 'worker', env: config.NODE_ENV, version },
+});
 
 // 缺关键配置时 loadConfig 已抛错，进程直接退出。
 configureRunnerClient(config.REDIS_URL);

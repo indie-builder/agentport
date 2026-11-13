@@ -20,6 +20,7 @@ import type { Config } from './config.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from './sandbox/provider.js';
+import { version } from './version.js';
 
 /** 结果行上限：快照本身另有 4MiB 业务限制，这里兜住异常输出。 */
 const OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
@@ -276,7 +277,10 @@ export async function registerNativePlugins(
     resolveRuntimeEnvironment,
     workspacesDir: config.WORKSPACES_DIR,
     hostWorkspacesDir: config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR,
-    logger: pino({ level: config.LOG_LEVEL }),
+    logger: pino({
+      level: config.LOG_LEVEL,
+      base: { service: 'worker', env: config.NODE_ENV, version },
+    }),
     closing: closing.signal,
   };
 
