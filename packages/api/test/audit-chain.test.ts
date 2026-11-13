@@ -13,6 +13,8 @@ interface VerifyBody {
   ok: boolean;
   checked: number;
   brokenSeq: string | null;
+  nextAfterSeq: number | null;
+  complete: boolean;
 }
 
 describe.skipIf(!ready || isolated === null)('audit hash chain', () => {
@@ -55,6 +57,49 @@ describe.skipIf(!ready || isolated === null)('audit hash chain', () => {
     expect(result.brokenSeq).toBeNull();
   });
 
+  it('verifies the chain page by page', async () => {
+    const target = unique('audit-chain-page');
+    for (let i = 0; i < 5; i += 1) {
+      await repo.audit.writeAudit(app.db, logger, {
+        action: 'audit.chain.page',
+        target,
+        status: 'ok',
+      });
+    }
+
+    const [countRow] = await app.client.unsafe<{ count: string }[]>(
+      'select count(*) from audit_log where hash is not null',
+    );
+    const total = Number(countRow?.count);
+
+    let afterSeq: number | null = null;
+    let checked = 0;
+    let pages = 0;
+    const cursors: number[] = [];
+    for (;;) {
+      const page = await repo.audit.verifyAuditChain(app.db, {
+        ...(afterSeq === null ? {} : { afterSeq }),
+        limit: 2,
+      });
+      expect(page.ok).toBe(true);
+      checked += page.checked;
+      pages += 1;
+      const next = page.nextAfterSeq;
+      if (page.complete) {
+        expect(next).toBeNull();
+        break;
+      }
+      if (next === null) throw new Error('nextAfterSeq missing before chain end');
+      cursors.push(next);
+      afterSeq = next;
+    }
+
+    expect(pages).toBeGreaterThan(1);
+    expect(checked).toBe(total);
+    expect(new Set(cursors).size).toBe(cursors.length);
+    expect([...cursors].sort((a, b) => a - b)).toEqual(cursors);
+  });
+
   it('detects a tampered chained row', async () => {
     const target = unique('audit-chain-tamper');
     await repo.audit.writeAudit(app.db, logger, {
@@ -75,11 +120,32 @@ describe.skipIf(!ready || isolated === null)('audit hash chain', () => {
     expect(result.brokenSeq).toBe(row.chain_seq);
   });
 
+  it('rejects a deleted cursor row instead of treating it as chain end', async () => {
+    const first = await repo.audit.verifyAuditChain(app.db, { limit: 2 });
+    expect(first.ok).toBe(true);
+    const cursor = first.nextAfterSeq;
+    if (cursor === null) throw new Error('expected more than one page');
+
+    await app.client.unsafe('delete from audit_log where chain_seq = $1', [cursor]);
+
+    const result = await repo.audit.verifyAuditChain(app.db, { afterSeq: cursor });
+    expect(result.ok).toBe(false);
+    expect(result.checked).toBe(0);
+    expect(result.brokenSeq).toBe(String(cursor));
+    expect(result.complete).toBe(false);
+  });
+
   it('exposes the verification result over HTTP', async () => {
     const res = await verify();
     expect(res.statusCode, res.body).toBe(200);
     const body = res.json<VerifyBody>();
-    expect(Object.keys(body).sort()).toEqual(['brokenSeq', 'checked', 'ok']);
+    expect(Object.keys(body).sort()).toEqual([
+      'brokenSeq',
+      'checked',
+      'complete',
+      'nextAfterSeq',
+      'ok',
+    ]);
     expect(typeof body.ok).toBe('boolean');
     expect(Number.isInteger(body.checked)).toBe(true);
   });

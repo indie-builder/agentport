@@ -57,5 +57,10 @@ export const auditRouter = os.router({
     }
     return { items: rows.map(toItem) };
   }),
-  verify: os.verify.handler(async ({ context }) => repo.audit.verifyAuditChain(context.db)),
+  verify: os.verify.handler(async ({ input, context }) =>
+    repo.audit.verifyAuditChain(context.db, {
+      ...(input.query.afterSeq === undefined ? {} : { afterSeq: input.query.afterSeq }),
+      ...(input.query.limit === undefined ? {} : { limit: input.query.limit }),
+    }),
+  ),
 });

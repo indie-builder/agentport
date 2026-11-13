@@ -35,11 +35,21 @@ export const auditContract = {
     .meta({ access: { kind: 'permission', permissionId: 'audit.read' } }),
   verify: contractProcedure
     .route({ method: 'GET', path: '/audit/verify' })
+    .input(
+      z.object({
+        query: z.object({
+          afterSeq: z.coerce.number().int().nonnegative().optional(),
+          limit: z.coerce.number().int().positive().max(5000).optional(),
+        }),
+      }),
+    )
     .output(
       z.object({
         ok: z.boolean(),
         checked: z.number().int(),
         brokenSeq: z.string().nullable(),
+        nextAfterSeq: z.number().int().nullable(),
+        complete: z.boolean(),
       }),
     )
     .meta({ access: { kind: 'permission', permissionId: 'audit.read' } }),
