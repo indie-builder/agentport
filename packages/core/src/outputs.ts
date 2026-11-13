@@ -316,16 +316,20 @@ interface OutputDraftIdentity extends ConversationIdentity {
   runId: string;
 }
 
+async function blockedDraftPath(input: OutputDraftIdentity): Promise<string> {
+  return trustedPath(
+    input,
+    [...conversationSegments(input), DRAFTS, `${runIdOf(input.runId)}.blocked`],
+    'runId',
+  );
+}
+
 /** 标记放在挂载目录之外，BullMQ 重试复用草稿时仍能看到未停稳状态。 */
 export async function setOutputDraftBlocked(
   input: OutputDraftIdentity,
   problem: string | null,
 ): Promise<void> {
-  const path = await trustedPath(
-    input,
-    [...conversationSegments(input), DRAFTS, `${runIdOf(input.runId)}.blocked`],
-    'runId',
-  );
+  const path = await blockedDraftPath(input);
   if (problem === null) {
     await rm(path, { force: true });
   } else {
@@ -340,11 +344,7 @@ export async function setOutputDraftBlocked(
 }
 
 export async function outputDraftBlockedReason(input: OutputDraftIdentity): Promise<string | null> {
-  const path = await trustedPath(
-    input,
-    [...conversationSegments(input), DRAFTS, `${runIdOf(input.runId)}.blocked`],
-    'runId',
-  );
+  const path = await blockedDraftPath(input);
   return readRegularFile(input, path, 'blocked')
     .then((data) => data.toString('utf8'))
     .catch((error: unknown) => {
