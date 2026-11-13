@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { fail, isAppError } from '@agentport/core';
+import { randomUUID } from 'node:crypto';
+import { fail, isAppError, sha256Hex } from '@agentport/core';
 import type {
   KnowledgeFaq,
   KnowledgeFaqImportIssue,
@@ -127,16 +127,14 @@ export function faqContentHash(faq: FaqEntry): string {
     [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))].sort();
   const normalizedUnique = (values: string[]): string[] =>
     [...new Set(values.map(normalizeFaqQuestion).filter((value) => value.length > 0))].sort();
-  return createHash('sha256')
-    .update(
-      JSON.stringify([
-        normalizeFaqQuestion(faq.question),
-        normalizedUnique(faq.similarQuestions),
-        normalizedUnique(faq.negativeQuestions),
-        sortedUnique(faq.answers),
-      ]),
-    )
-    .digest('hex');
+  return sha256Hex(
+    JSON.stringify([
+      normalizeFaqQuestion(faq.question),
+      normalizedUnique(faq.similarQuestions),
+      normalizedUnique(faq.negativeQuestions),
+      sortedUnique(faq.answers),
+    ]),
+  );
 }
 
 function issue(field: string, code: string, message: string): FaqImportIssue {
