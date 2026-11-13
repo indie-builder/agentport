@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { sha256Hex } from '@agentport/core';
-import { and, asc, desc, eq, gt, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
@@ -207,6 +207,9 @@ export interface AuditQuery {
   status?: AuditStatus;
   /** 精确匹配资源 ID。 */
   target?: string;
+  actor?: string;
+  actorKind?: 'user' | 'service' | 'anonymous' | 'agent';
+  since?: Date;
   limit?: number;
   /** 独立时间范围：只取该时间之前的事件。 */
   before?: Date;
@@ -262,6 +265,9 @@ export async function listAudit(db: Database, query: AuditQuery = {}): Promise<A
   }
   if (query.status) filters.push(eq(auditLog.status, query.status));
   if (query.target) filters.push(eq(auditLog.target, query.target));
+  if (query.actor) filters.push(eq(auditLog.actor, query.actor));
+  if (query.actorKind) filters.push(eq(auditLog.actorKind, query.actorKind));
+  if (query.since) filters.push(gte(auditLog.createdAt, query.since));
   // 时间戳游标用严格小于：调用方明确要求按时间筛选时，并列行由 beforeId 处理。
   if (query.before) filters.push(lt(auditLog.createdAt, query.before));
   if (query.beforeId) {

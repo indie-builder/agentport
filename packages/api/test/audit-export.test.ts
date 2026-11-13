@@ -290,4 +290,71 @@ describe.skipIf(!ready)('audit export', () => {
   it('requires authentication for NDJSON exports', async () => {
     expectProblem(await exportAudit('?format=ndjson', false), 'UNAUTHORIZED');
   });
+
+  it('filters by actor, actorKind and since on list and export', async () => {
+    const actorTarget = unique('target');
+    createdTargets.push(actorTarget);
+    const aliceId = await seedAudit({ action: 'agent.run', target: actorTarget, actor: 'alice' });
+    const bobId = await seedAudit({ action: 'agent.run', target: actorTarget, actor: 'bob' });
+
+    const actorQuery = `?target=${encodeURIComponent(actorTarget)}&actor=alice`;
+    const actorExport = await exportAudit(actorQuery);
+    expect(actorExport.statusCode, actorExport.body).toBe(200);
+    expect(actorExport.json<ExportBody>().items.map((row) => row.id)).toEqual([aliceId]);
+    expect(actorExport.json<ExportBody>().items.map((row) => row.id)).not.toContain(bobId);
+    const actorList = await listAudit(actorQuery);
+    expect(actorList.statusCode, actorList.body).toBe(200);
+    expect(actorList.json<{ items: { id: string }[] }>().items.map((row) => row.id)).toEqual([
+      aliceId,
+    ]);
+    const actorNdjson = await exportAudit(`${actorQuery}&format=ndjson`);
+    expect(actorNdjson.statusCode, actorNdjson.body).toBe(200);
+    const actorRows = parseLines(actorNdjson.body);
+    expect(actorRows).toHaveLength(1);
+    expect(actorRows[0]?.id).toBe(aliceId);
+    expect(actorRows[0]?.id).not.toBe(bobId);
+
+    const kindTarget = unique('target');
+    createdTargets.push(kindTarget);
+    const userId = `audit-export-${unique('row')}`;
+    const serviceId = `audit-export-${unique('row')}`;
+    createdIds.push(userId, serviceId);
+    await app.client.unsafe(
+      `insert into audit_log (id, actor, actor_kind, action, target, status)
+       values ($1, 'alice', 'user', 'agent.run', $3, 'ok'), ($2, 'alice', 'service', 'agent.run', $3, 'ok')`,
+      [userId, serviceId, kindTarget],
+    );
+
+    const kindQuery = `?target=${encodeURIComponent(kindTarget)}&actorKind=user`;
+    const kindExport = await exportAudit(kindQuery);
+    expect(kindExport.statusCode, kindExport.body).toBe(200);
+    expect(kindExport.json<ExportBody>().items.map((row) => row.id)).toEqual([userId]);
+    const kindList = await listAudit(kindQuery);
+    expect(kindList.statusCode, kindList.body).toBe(200);
+    expect(kindList.json<{ items: { id: string }[] }>().items.map((row) => row.id)).toEqual([
+      userId,
+    ]);
+
+    const sinceTarget = unique('target');
+    createdTargets.push(sinceTarget);
+    const oldId = `audit-export-${unique('row')}`;
+    const newId = `audit-export-${unique('row')}`;
+    createdIds.push(oldId, newId);
+    await app.client.unsafe(
+      `insert into audit_log (id, actor, action, target, status, created_at)
+       values ($1, 'admin', 'agent.run', $3, 'ok', now() - interval '2 hours'), ($2, 'admin', 'agent.run', $3, 'ok', now())`,
+      [oldId, newId, sinceTarget],
+    );
+
+    const sinceQuery = `?target=${encodeURIComponent(sinceTarget)}&since=${encodeURIComponent(new Date(Date.now() - 3600_000).toISOString())}`;
+    const sinceExport = await exportAudit(sinceQuery);
+    expect(sinceExport.statusCode, sinceExport.body).toBe(200);
+    expect(sinceExport.json<ExportBody>().items.map((row) => row.id)).toEqual([newId]);
+    expect(sinceExport.json<ExportBody>().items.map((row) => row.id)).not.toContain(oldId);
+    const sinceList = await listAudit(sinceQuery);
+    expect(sinceList.statusCode, sinceList.body).toBe(200);
+    expect(sinceList.json<{ items: { id: string }[] }>().items.map((row) => row.id)).toEqual([
+      newId,
+    ]);
+  });
 });

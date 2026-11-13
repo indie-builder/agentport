@@ -122,7 +122,7 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
     get: {
       operationId: 'exportAudit',
       description:
-        '需要 audit.read。format=ndjson 返回 application/x-ndjson，每行一个事件，按 chain_seq 升序，含 chainSeq/prevHash/hash，用 afterSeq 游标分页（响应头 x-next-after-seq），空页表示结束；format=json（默认）返回审计快照，最多 limit 条，超限返回 409。',
+        '需要 audit.read。可用 actor、actorKind、since（created_at 下限）与 before（created_at 上限）组合过滤。format=ndjson 返回 application/x-ndjson，每行一个事件，按 chain_seq 升序，含 chainSeq/prevHash/hash，用 afterSeq 游标分页（响应头 x-next-after-seq），空页表示结束；format=json（默认）返回审计快照，最多 limit 条，超限返回 409。',
       security: session,
       parameters: query(auditExportQuerySchema.shape),
       responses: {
