@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type EvalRunDetail } from '../src/lib/api.js';
-import { EvalPage } from '../src/pages/eval.js';
+import { EvalPage } from '../src/pages/eval/index.js';
 import { LoginPage } from '../src/pages/login.js';
 
 const state = vi.hoisted(() => ({

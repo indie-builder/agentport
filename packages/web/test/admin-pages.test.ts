@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type EvalRun, type HealthMetrics, type Overview } from '../src/lib/api.js';
-import { EvalPage } from '../src/pages/eval.js';
+import { EvalPage } from '../src/pages/eval/index.js';
 import { LoginPage } from '../src/pages/login.js';
 import { OverviewPage } from '../src/pages/overview.js';
 import { StatusPage } from '../src/pages/status.js';

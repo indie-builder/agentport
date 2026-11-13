@@ -24,7 +24,7 @@ import {
 import { useChatStore } from '../src/lib/chat-store.js';
 import { runQuestionsQueryKey } from '../src/lib/queries.js';
 import { toastError } from '../src/lib/toast.js';
-import { ChatPage } from '../src/pages/chat.js';
+import { ChatPage } from '../src/pages/chat/index.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 

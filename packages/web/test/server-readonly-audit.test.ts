@@ -2,7 +2,7 @@ import type { AuthMe, Server } from '@agentport/shared';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ServersPage } from '../src/pages/servers.js';
+import { ServersPage } from '../src/pages/servers/index.js';
 import { allAccessMe } from './me-fixture.js';
 
 const state = vi.hoisted(() => ({

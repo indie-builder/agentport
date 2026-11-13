@@ -18,7 +18,7 @@ import {
   type RunListItem,
   type RunStatus,
 } from '../src/lib/api.js';
-import { EvalPage } from '../src/pages/eval.js';
+import { EvalPage } from '../src/pages/eval/index.js';
 import { RunTrendCard } from '../src/pages/overview.js';
 import { RunsPage } from '../src/pages/runs/index.js';
 import { evalSearchSchema } from '../src/routes/-search.js';
