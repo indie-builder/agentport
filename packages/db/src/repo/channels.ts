@@ -112,13 +112,20 @@ async function requireManageRole(
   return { kind: 'ok', role };
 }
 
-export async function lockChannel(tx: DbHandle, channelId: string): Promise<boolean> {
+export async function lockChannelRow(
+  tx: DbHandle,
+  channelId: string,
+): Promise<{ id: string; archivedAt: Date | null } | undefined> {
   const [row] = await tx
-    .select({ id: channels.id })
+    .select({ id: channels.id, archivedAt: channels.archivedAt })
     .from(channels)
     .where(eq(channels.id, channelId))
     .for('update');
-  return row !== undefined;
+  return row;
+}
+
+export async function lockChannel(tx: DbHandle, channelId: string): Promise<boolean> {
+  return (await lockChannelRow(tx, channelId)) !== undefined;
 }
 
 type ChannelManageDenied =
@@ -715,11 +722,7 @@ export async function postMessage(
   | { kind: 'too_many_wakes' }
 > {
   return db.transaction(async (tx) => {
-    const [channel] = await tx
-      .select({ id: channels.id, archivedAt: channels.archivedAt })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .for('update');
+    const channel = await lockChannelRow(tx, channelId);
     if (!channel) return { kind: 'not_found', target: 'channel' };
     const role = await channelMemberRole(tx, channelId, subject.businessId);
     if (role === null) return { kind: 'not_found', target: 'channel' };
@@ -803,11 +806,7 @@ export async function postSystemMessage(
   },
 ): Promise<ChannelMessageRow | null> {
   return db.transaction(async (tx) => {
-    const [channel] = await tx
-      .select({ id: channels.id, archivedAt: channels.archivedAt })
-      .from(channels)
-      .where(eq(channels.id, input.channelId))
-      .for('update');
+    const channel = await lockChannelRow(tx, input.channelId);
     if (!channel) fail('NOT_FOUND', '频道不存在，可能已被删除');
     if (channel.archivedAt !== null && input.allowArchived !== true) return null;
     if (input.runId !== undefined) {
