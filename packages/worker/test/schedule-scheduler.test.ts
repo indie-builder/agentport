@@ -6,19 +6,19 @@ import { RUNS_QUEUE, SCHEDULE_TRIGGERS_QUEUE, scheduleTriggerArgs } from '@agent
 import { Queue } from 'bullmq';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import type { ScheduleTriggerJobLike } from '../src/scheduler.js';
+import type { ScheduleTriggerJobLike } from '../src/scheduling/scheduler.js';
 import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const access = { check: mock() };
-const runAccessActual = await import('../src/run-access.js');
-mock.module('../src/run-access.js', () => ({
+const runAccessActual = await import('../src/runs/run-access.js');
+mock.module('../src/runs/run-access.js', () => ({
   ...runAccessActual,
   checkUserAgentAccess: access.check,
 }));
 
-const { processScheduleTrigger, startScheduleScheduler } = await import('../src/scheduler.js');
+const { processScheduleTrigger, startScheduleScheduler } = await import('../src/scheduling/scheduler.js');
 
 async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;

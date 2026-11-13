@@ -15,7 +15,7 @@ import {
 } from '@agentport/shared';
 import { desc, eq } from 'drizzle-orm';
 
-import { toHostWorkspacePath } from './session-workspace.js';
+import { toHostWorkspacePath } from '../session-workspace.js';
 
 export interface RunOutputsIdentity {
   workspacesDir: string;

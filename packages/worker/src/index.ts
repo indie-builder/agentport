@@ -43,17 +43,17 @@ import { createBunRedisClient, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import pino, { type Logger } from 'pino';
-import { promptWithAttachments } from './attachments.js';
-import { publishChannelEventSafely } from './channel-events.js';
+import { promptWithAttachments } from './runs/attachments.js';
+import { publishChannelEventSafely } from './channels/channel-events.js';
 import { loadConfig } from './config.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
 import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
-import { readForkUuidMap } from './fork-uuids.js';
+import { readForkUuidMap } from './runs/fork-uuids.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
 import { startKnowledgeScheduler } from './knowledge/scheduler.js';
 import { startMaintenanceWorker } from './maintenance.js';
-import { executeMemoryReview } from './memory-review.js';
+import { executeMemoryReview } from './memory/memory-review.js';
 import {
   type PersistedChannelMessage,
   type PersistedMessage,
@@ -61,7 +61,7 @@ import {
 } from './messages.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
 import { registerNativePlugins } from './native-plugins.js';
-import { promptWithOpenUiAction } from './openui-action.js';
+import { promptWithOpenUiAction } from './runs/openui-action.js';
 import {
   lastMessageIdOfRun,
   prepareRunOutputs,
@@ -69,16 +69,16 @@ import {
   publishRunOutputsIfSettled,
   recordOutputSandboxSettlement,
   selectedOutput,
-} from './outputs.js';
-import { personalMemoryBusinessIdForRun, projectPersonalMemory } from './personal-memory.js';
-import { startReconciler } from './reconcile.js';
-import { checkQueuedRunAccess, type RunAccessDenial, runExecutionSubject } from './run-access.js';
+} from './runs/outputs.js';
+import { personalMemoryBusinessIdForRun, projectPersonalMemory } from './memory/personal-memory.js';
+import { startReconciler } from './scheduling/reconcile.js';
+import { checkQueuedRunAccess, type RunAccessDenial, runExecutionSubject } from './runs/run-access.js';
 import {
   finalizeRun,
   handOffPendingFinish,
   publishRunFinished,
   type RunFinishedEvent,
-} from './run-finish.js';
+} from './runs/run-finish.js';
 import type { SandboxRunOutcome } from './runner-client.js';
 import {
   acquireSessionSandbox,
@@ -100,7 +100,7 @@ import { SandboxCleanupError } from './sandbox/provider.js';
 import { closeSessionRuntime, startSessionCleanupChannel } from './sandbox/session-cleanup.js';
 import { memoryMountFor, SessionSandboxes, type SessionSandboxLease } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
-import { startScheduleScheduler } from './scheduler.js';
+import { startScheduleScheduler } from './scheduling/scheduler.js';
 import { loadRunServerBindings } from './server-bindings.js';
 import {
   ensureSessionWorkspace,

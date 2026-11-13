@@ -15,7 +15,7 @@ const publishRun = mock<() => Promise<void>>().mockResolvedValue(undefined);
 const runnerClientActual = await import('../src/runner-client.js');
 mock.module('../src/runner-client.js', () => ({ ...runnerClientActual, publishRun }));
 
-const { LOST_RUN_ERROR, reconcileOrphanedRuns } = await import('../src/reconcile.js');
+const { LOST_RUN_ERROR, reconcileOrphanedRuns } = await import('../src/scheduling/reconcile.js');
 
 const AGENT_TIMEOUT_MS = 10_000;
 const GRACE_MS = 5 * 60_000;

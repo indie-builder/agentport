@@ -13,7 +13,7 @@ import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { checkUserAgentAccess } from './run-access.js';
+import { checkUserAgentAccess } from '../runs/run-access.js';
 
 /** 每 5 分钟与库对账一次：补缺失的 scheduler、删孤儿，不动已存在且未变的。 */
 const RECONCILE_MS = 5 * 60_000;

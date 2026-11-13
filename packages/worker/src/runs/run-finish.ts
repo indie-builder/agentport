@@ -2,8 +2,8 @@ import { type createDb, repo, schema } from '@agentport/db';
 import type { ChatEvent, RunErrorKind } from '@agentport/shared';
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { publishChannelEventSafely } from './channel-events.js';
-import { clearRunCancel, publishRun } from './runner-client.js';
+import { publishChannelEventSafely } from '../channels/channel-events.js';
+import { clearRunCancel, publishRun } from '../runner-client.js';
 
 export type RunFinishedEvent = Extract<ChatEvent, { type: 'run_finished' }>;
 

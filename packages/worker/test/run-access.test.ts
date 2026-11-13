@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { type AgentRelation, agentPermissionAllows } from '@agentport/shared';
-import { runExecutionSubject } from '../src/run-access.js';
+import { runExecutionSubject } from '../src/runs/run-access.js';
 
 const owner: AgentRelation = {
   exists: true,

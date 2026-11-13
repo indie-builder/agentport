@@ -471,7 +471,7 @@ agent 动作有独立审计主体；频道成员触发 agent 时权限来源明�
 - 市场事实：ChatGPT in Slack 不带入个人 memory（https://help.openai.com/en/articles/12462158）；Asana memories 遵守任务隐私（https://help.asana.com/s/article/understanding-access-control-for-ai-teammates）；Claude Tag 把频道 notes 与 workspace notes 分层（https://claude.com/docs/claude-tag/concepts/how-it-works）。
 - 本项目判断：内部多账户频道的记忆写入边界必须先收紧；频道级记忆是新产品能力，当前没有真实需求，缓做。只读策略成本最小且能消除「一个用户私聊信息出现在另一个用户频道回答中」的主要风险。
 - 做法：频道 run 强制专家记忆只读（worker 挂载时用 `readOnly` 覆盖，提示词同步说明只读）；文档与 UI 写明限制；频道级记忆缓做。
-- 代码事实：频道 run 已排除触发者个人记忆（`packages/worker/src/personal-memory.ts`）；专家记忆仍按 agent 记忆策略共享（`packages/worker/src/index.ts:686-703`、`docs/ARCHITECTURE.md:419`）。
+- 代码事实：频道 run 已排除触发者个人记忆（`packages/worker/src/memory/personal-memory.ts`）；专家记忆仍按 agent 记忆策略共享（`packages/worker/src/index.ts:686-703`、`docs/ARCHITECTURE.md:419`）。
 
 ### 9.5 CH-14 死状态与 @all：拆两半，S
 

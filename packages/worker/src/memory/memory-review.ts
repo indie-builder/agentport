@@ -27,7 +27,7 @@ import {
 import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { sdkEnv } from './upstream.js';
+import { sdkEnv } from '../upstream.js';
 
 /** 测试可替换 query；真实运行时直接用官方实现。 */
 export type MemoryReviewQueryFn = (params: {

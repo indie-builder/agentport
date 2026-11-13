@@ -14,7 +14,7 @@ import {
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import { executeMemoryReview, type MemoryReviewQueryFn } from '../src/memory-review.js';
+import { executeMemoryReview, type MemoryReviewQueryFn } from '../src/memory/memory-review.js';
 import { probeBunRedis } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
@@ -26,8 +26,8 @@ const mocks = (() => ({
   dbHandles: [] as Array<{ client: { close(): Promise<void> } }>,
 }))();
 
-const runAccessActual = await import('../src/run-access.js');
-mock.module('../src/run-access.js', () => ({
+const runAccessActual = await import('../src/runs/run-access.js');
+mock.module('../src/runs/run-access.js', () => ({
   ...runAccessActual,
   checkUserAgentAccess: async () => null,
 }));
@@ -110,7 +110,7 @@ mock.module('../src/runtime-environments/reconcile.js', () => ({
   startRuntimeEnvironmentBuildReconciler: () => () => undefined,
 }));
 
-mock.module('../src/reconcile.js', () => ({
+mock.module('../src/scheduling/reconcile.js', () => ({
   startReconciler: () => () => undefined,
 }));
 
@@ -126,7 +126,7 @@ mock.module('../src/knowledge/scheduler.js', () => ({
   startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-mock.module('../src/scheduler.js', () => ({
+mock.module('../src/scheduling/scheduler.js', () => ({
   startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 

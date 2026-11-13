@@ -14,7 +14,7 @@ const publishRun = mock<() => Promise<void>>().mockResolvedValue(undefined);
 const runnerClientActual = await import('../src/runner-client.js');
 mock.module('../src/runner-client.js', () => ({ ...runnerClientActual, publishRun }));
 
-const { reconcileOrphanedEvalRuns } = await import('../src/reconcile.js');
+const { reconcileOrphanedEvalRuns } = await import('../src/scheduling/reconcile.js');
 
 const STALE_MS = 2 * 60 * 60_000;
 const RUNNING = { status: 'running', error: null, finishedAt: null };

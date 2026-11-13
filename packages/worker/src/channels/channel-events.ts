@@ -1,6 +1,6 @@
 import type { ChannelEvent } from '@agentport/shared';
 import type { Logger } from 'pino';
-import { publishChannelEvent } from './runner-client.js';
+import { publishChannelEvent } from '../runner-client.js';
 
 /** 频道通知是尽力而为：失败只记日志，不能让 run 失败或触发重试，DB 仍是权威。 */
 export async function publishChannelEventSafely(
