@@ -28,7 +28,7 @@ import {
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { api, errorMessage, type RunListItem, type RunStatus } from '../lib/api.js';
-import { downloadBlob } from '../lib/browser-files.js';
+import { downloadJson } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
 import {
   formatCost,
@@ -256,10 +256,7 @@ export function RunsPage() {
         ...(agentId ? { agentId } : {}),
         ...(status ? { status } : {}),
       });
-      downloadBlob(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-        'runs.json',
-      );
+      downloadJson(data, 'runs.json');
     } catch (error) {
       toastError(error);
     } finally {

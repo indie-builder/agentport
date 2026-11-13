@@ -52,7 +52,7 @@ import {
   type EvalResult,
   type EvalRun,
 } from '../lib/api.js';
-import { downloadBlob } from '../lib/browser-files.js';
+import { downloadJson } from '../lib/browser-files.js';
 import { guardedOpenChange } from '../lib/dialog-guard.js';
 import {
   evalComparisonStatusLabel,
@@ -301,10 +301,7 @@ export function EvalPage() {
     setExporting(true);
     try {
       const data = await api.exportEvalDataset(effectiveAgentId);
-      downloadBlob(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-        'eval-cases.json',
-      );
+      downloadJson(data, 'eval-cases.json');
     } catch (error) {
       toastError(error);
     } finally {
@@ -764,10 +761,7 @@ function EvalRunResults({ id }: { id: string }) {
     setExporting(true);
     try {
       const data = await api.exportEvalRun(id);
-      downloadBlob(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-        'eval-result.json',
-      );
+      downloadJson(data, 'eval-result.json');
     } catch (error) {
       toastError(error);
     } finally {

@@ -12,6 +12,10 @@ export function downloadBlob(blob: Blob, filename: string): void {
   }
 }
 
+export function downloadJson(value: unknown, filename: string): void {
+  downloadBlob(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }), filename);
+}
+
 export function readFileBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
