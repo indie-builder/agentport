@@ -38,7 +38,7 @@ const tool: ApiTool = {
   pathTemplate: '/hello',
   inputSchema: { type: 'object', properties: {} },
   paramsIn: 'query',
-  requiresApproval: true,
+  approvalMode: 'ask',
 };
 
 const baseInput = {

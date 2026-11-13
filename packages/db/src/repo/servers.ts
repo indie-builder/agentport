@@ -26,7 +26,7 @@ export interface ApiToolWrite {
   inputSchema: Record<string, unknown>;
   outputSchema?: Record<string, unknown> | null;
   paramsIn: 'query' | 'body';
-  requiresApproval: boolean;
+  approvalMode: 'allow' | 'ask' | 'deny';
 }
 
 /**
@@ -42,7 +42,7 @@ export interface ApiToolPatch {
   outputSchema?: Record<string, unknown> | null;
   paramsIn?: 'query' | 'body';
   enabled?: boolean;
-  requiresApproval?: boolean;
+  approvalMode?: 'allow' | 'ask' | 'deny';
 }
 
 export async function listServers(db: Database): Promise<ServerRow[]> {

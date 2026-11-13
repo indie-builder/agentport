@@ -13,8 +13,8 @@ export interface OpenUiToolRow {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  /** 调用前是否需要在会话里批准；只有 generated 工具声明了它。 */
-  requiresApproval: boolean;
+  /** allow 直接执行；ask 调用前需要在会话里批准；deny 直接拒绝；只有 generated 工具声明了它。 */
+  approvalMode: 'allow' | 'ask' | 'deny';
 }
 
 /** 与 SDK 的 MCP 工具名匹配一致：精确名、server 通配 `mcp__srv__*`、整个 server。 */
@@ -66,7 +66,7 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
             name: apiTools.name,
             description: apiTools.description,
             inputSchema: apiTools.inputSchema,
-            requiresApproval: apiTools.requiresApproval,
+            approvalMode: apiTools.approvalMode,
           })
           .from(apiTools)
           .where(and(inArray(apiTools.serverId, generatedIds), eq(apiTools.enabled, true)))
@@ -83,7 +83,7 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
             name: tool.name,
             description: tool.description,
             inputSchema: tool.inputSchema,
-            requiresApproval: tool.requiresApproval,
+            approvalMode: tool.approvalMode,
           }))
         : readHttpCatalog(server.config);
     for (const tool of tools) {
@@ -99,7 +99,7 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
         name,
         description: tool.description,
         inputSchema: tool.inputSchema,
-        requiresApproval: tool.requiresApproval,
+        approvalMode: tool.approvalMode,
       });
     }
   }
@@ -111,7 +111,7 @@ function readHttpCatalog(config: Record<string, unknown>): Array<{
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  requiresApproval: boolean;
+  approvalMode: 'allow' | 'ask' | 'deny';
 }> {
   const catalog = config.toolCatalog;
   if (!Array.isArray(catalog)) return [];
@@ -127,7 +127,7 @@ function readHttpCatalog(config: Record<string, unknown>): Array<{
           typeof inputSchema === 'object' && inputSchema !== null
             ? (inputSchema as Record<string, unknown>)
             : { type: 'object', properties: {} },
-        requiresApproval: false,
+        approvalMode: 'allow',
       },
     ];
   });

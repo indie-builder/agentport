@@ -9,7 +9,7 @@ const tool: ApiToolInput = {
   pathTemplate: '/users',
   inputSchema: {},
   paramsIn: 'query',
-  requiresApproval: false,
+  approvalMode: 'allow',
 };
 
 describe('connector environment/header lines', () => {
@@ -81,13 +81,13 @@ describe('tool form validation', () => {
 
   it('submits parsed schema and retains approval settings when placeholders are defined', () => {
     const result = validateToolInput(
-      { ...tool, pathTemplate: '/users/{id}', requiresApproval: true },
+      { ...tool, pathTemplate: '/users/{id}', approvalMode: 'ask' },
       '{"type":"object","properties":{"id":{"type":"string"}}}',
     );
     expect(result.data).toEqual({
       ...tool,
       pathTemplate: '/users/{id}',
-      requiresApproval: true,
+      approvalMode: 'ask',
       inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
     });
   });

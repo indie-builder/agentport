@@ -12,7 +12,7 @@ export interface ImportedHttpTool {
   /** 响应结构的 JSON Schema；MCP outputSchema 要求 object 根，缺失或非 object 时为 undefined。 */
   outputSchema?: Record<string, unknown> | null | undefined;
   paramsIn: 'query' | 'body';
-  requiresApproval: boolean;
+  approvalMode: 'allow' | 'ask' | 'deny';
 }
 
 export interface ParsedOpenApi {
@@ -504,7 +504,7 @@ function buildTool(
     },
     outputSchema: responseSchema(operation, ctx, label, openapi3),
     paramsIn: isRead ? 'query' : 'body',
-    requiresApproval: false,
+    approvalMode: 'allow',
   };
 }
 

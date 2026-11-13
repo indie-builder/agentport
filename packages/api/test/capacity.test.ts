@@ -34,7 +34,7 @@ const approvalTool: ApiTool = {
   pathTemplate: '/hello',
   inputSchema: { type: 'object', properties: {} },
   paramsIn: 'query',
-  requiresApproval: true,
+  approvalMode: 'ask',
 };
 
 const plainTool: ApiTool = {
@@ -42,7 +42,7 @@ const plainTool: ApiTool = {
   id: 'tool_2',
   name: 'plain-tool',
   pathTemplate: '/plain',
-  requiresApproval: false,
+  approvalMode: 'allow',
 };
 
 const baseInput = {

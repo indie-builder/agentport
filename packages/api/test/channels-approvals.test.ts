@@ -356,7 +356,7 @@ describe.skipIf(!ready)('channel approvals', () => {
       pathTemplate: '/users/{id}',
       inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
       paramsIn: 'query',
-      requiresApproval: true,
+      approvalMode: 'ask',
     });
     expect(created.statusCode, created.body).toBe(201);
 

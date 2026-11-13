@@ -563,7 +563,7 @@ describe('expert creation lifecycle', () => {
     expect(section?.textContent).toContain('默认启用');
     expect(section?.textContent).toContain('Docker 挂载边界');
     expect(section?.textContent).toContain('绑定连接器的全部工具加入 SDK allowedTools 预批准');
-    expect(section?.textContent).toContain('工具若设置 requiresApproval，仍须通过服务端审批');
+    expect(section?.textContent).toContain('工具若将审批策略设为「需要审批」，仍须通过服务端审批');
     expect(section?.textContent).toContain('可挂起等待批准');
     expect(section?.textContent).not.toContain('无需逐次批准');
     expect(section?.textContent).not.toContain('留空表示全部已绑定工具');

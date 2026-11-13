@@ -161,7 +161,7 @@ function toExportedServer(
               inputSchema: tool.inputSchema,
               paramsIn: tool.paramsIn,
               enabled: tool.enabled,
-              requiresApproval: tool.requiresApproval,
+              approvalMode: tool.approvalMode,
             }),
           ),
         }),

@@ -75,7 +75,7 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
         pathTemplate: '/thing',
         inputSchema: { type: 'object', properties: {} },
         paramsIn: 'query',
-        requiresApproval: true,
+        approvalMode: 'ask',
       },
     });
     expect(toolRes.statusCode, toolRes.body).toBe(201);

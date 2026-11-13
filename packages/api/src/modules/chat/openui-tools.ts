@@ -171,13 +171,24 @@ export const chatToolsRouter = {
     }
     const invalid = await validateArgs(tool.inputSchema, args);
     if (invalid !== null) return fail('INVALID_INPUT', `工具参数不合法：${invalid}`);
+    if (tool.approvalMode === 'deny') {
+      await repo.audit.writeAudit(context.db, context.log, {
+        actor: actorOf(context),
+        action: 'openui.tool.denied',
+        target: conversationId,
+        input: { toolName: tool.name, blockKey },
+        status: 'denied',
+        requestId: context.requestId,
+      });
+      return fail('FORBIDDEN', '该工具被策略禁止调用；请联系管理员');
+    }
     const approval = await repo.openui.getOpenUiApproval(
       context.db,
       conversationId,
       tool.serverId,
       tool.name,
     );
-    if (tool.requiresApproval && approval?.approvedAt == null) {
+    if (tool.approvalMode === 'ask' && approval?.approvedAt == null) {
       const pending = await repo.openui.requestOpenUiApproval(context.db, {
         conversationId,
         messageId,

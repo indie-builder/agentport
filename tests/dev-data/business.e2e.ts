@@ -56,7 +56,12 @@ interface AgentDetail extends AgentSummary {
 interface ConnectorRef {
   id: string;
   name: string;
-  tools: Array<{ name: string; method: string; requiresApproval: boolean; enabled: boolean }>;
+  tools: Array<{
+    name: string;
+    method: string;
+    approvalMode: 'allow' | 'ask' | 'deny';
+    enabled: boolean;
+  }>;
 }
 
 interface ScenarioState {
@@ -700,13 +705,15 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   for (const server of generatedServers) {
     const tools = await api<ConnectorRef['tools']>(browser, `/api/servers/${server.id}/tools`);
     const ref: ConnectorRef = { id: server.id, name: server.name, tools };
-    if (tools.some((tool) => tool.enabled && tool.requiresApproval && tool.method === 'GET'))
+    if (tools.some((tool) => tool.enabled && tool.approvalMode === 'ask' && tool.method === 'GET'))
       approvalConnector ??= ref;
-    if (tools.some((tool) => tool.enabled && !tool.requiresApproval && tool.method === 'GET'))
+    if (
+      tools.some((tool) => tool.enabled && tool.approvalMode === 'allow' && tool.method === 'GET')
+    )
       readOnlyConnector ??= ref;
   }
   if (!readOnlyConnector) gaps.add('没有可用的只读生成连接器工具（GET 且无需审批）');
-  if (!approvalConnector) gaps.add('没有 requiresApproval 工具，无法产生真实审批场景');
+  if (!approvalConnector) gaps.add('没有需要审批的工具，无法产生真实审批场景');
 
   manifest.entities.skills = skills;
   manifest.entities.plugin = plugins[0] ?? null;
@@ -1301,13 +1308,13 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
 
   const readTool = must(
     readOnlyConnector?.tools.find(
-      (tool) => tool.enabled && !tool.requiresApproval && tool.method === 'GET',
+      (tool) => tool.enabled && tool.approvalMode === 'allow' && tool.method === 'GET',
     ),
     '缺少普通 GET 工具',
   );
   const approvalTool = must(
     approvalConnector?.tools.find(
-      (tool) => tool.enabled && tool.requiresApproval && tool.method === 'GET',
+      (tool) => tool.enabled && tool.approvalMode === 'ask' && tool.method === 'GET',
     ),
     '缺少审批 GET 工具',
   );
@@ -1370,7 +1377,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     mode: 'ui',
   });
 
-  // 审批批准 1：连接器工具 requiresApproval=true，批准后运行继续成功。
+  // 审批批准 1：连接器工具 approvalMode='ask'，批准后运行继续成功。
   if (approvalConnector) {
     await ensureScenario({
       key: 'approval-approved',
@@ -1382,7 +1389,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     });
   } else {
     scenario('approval-approved').status = 'blocked';
-    scenario('approval-approved').detail = '缺少 requiresApproval 工具';
+    scenario('approval-approved').detail = '缺少需要审批的工具';
     save();
   }
 
@@ -1398,7 +1405,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     });
   } else {
     scenario('approval-cancel').status = 'blocked';
-    scenario('approval-cancel').detail = '缺少 requiresApproval 工具';
+    scenario('approval-cancel').detail = '缺少需要审批的工具';
   }
 
   // 停止：运行开始后立刻在输入框发送位点击停止。

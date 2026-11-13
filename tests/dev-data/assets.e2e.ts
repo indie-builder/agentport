@@ -48,7 +48,7 @@ const tools = [
     pathTemplate: '/users/{id}',
     paramsIn: 'query',
     schema: ID_SCHEMA,
-    requiresApproval: false,
+    approvalMode: 'allow',
     enabled: true,
   },
   {
@@ -58,7 +58,7 @@ const tools = [
     pathTemplate: '/todos/{id}',
     paramsIn: 'query',
     schema: ID_SCHEMA,
-    requiresApproval: true,
+    approvalMode: 'ask',
     enabled: true,
   },
   {
@@ -68,7 +68,7 @@ const tools = [
     pathTemplate: '/albums/{id}',
     paramsIn: 'query',
     schema: ID_SCHEMA,
-    requiresApproval: false,
+    approvalMode: 'allow',
     enabled: false,
   },
 ] as const;
@@ -180,7 +180,7 @@ interface ApiTool {
   pathTemplate: string;
   paramsIn: string;
   inputSchema: Record<string, unknown>;
-  requiresApproval: boolean;
+  approvalMode: 'allow' | 'ask' | 'deny';
   enabled: boolean;
 }
 
@@ -342,7 +342,7 @@ test('assets verify: read-only dataset check', { session: 'admin', tags: ['verif
     expect(tool.pathTemplate).toBe(spec.pathTemplate);
     expect(tool.paramsIn).toBe(spec.paramsIn);
     expect(tool.description).toBe(spec.description);
-    expect(tool.requiresApproval).toBe(spec.requiresApproval);
+    expect(tool.approvalMode).toBe(spec.approvalMode);
     expect(tool.enabled).toBe(spec.enabled);
     expect(sameSchema(tool.inputSchema, spec.schema)).toBe(true);
   }
@@ -663,13 +663,18 @@ async function ensureTools(
       const tool = list.find((item) => item.id === record.id);
       if (!tool) fail(`工具 ${spec.name} 已被删除`);
       assertToolContent(tool, spec);
-      if (tool.requiresApproval !== spec.requiresApproval) {
-        await active.getByRole('checkbox', `批准工具 ${spec.name}`, { exact: true }).tap();
+      if (tool.approvalMode !== spec.approvalMode) {
+        await ctx.screen.getByRole('combobox', `审批策略 ${spec.name}`).tap();
+        await ctx.browser
+          .locator('[role="option"]')
+          .filter({ hasText: spec.approvalMode === 'ask' ? '需要审批' : '允许' })
+          .first()
+          .click();
+        await ctx.browser.keyboard.press('Escape');
         await poll(
           () => readTools(ctx, server.id),
-          (rows) =>
-            rows.find((item) => item.id === record.id)?.requiresApproval === spec.requiresApproval,
-          `工具 ${spec.name} 审批开关`,
+          (rows) => rows.find((item) => item.id === record.id)?.approvalMode === spec.approvalMode,
+          `工具 ${spec.name} 审批策略`,
         );
       }
       if (tool.enabled !== spec.enabled) {
@@ -698,7 +703,7 @@ async function ensureTools(
     assertToolContent(tool, spec);
     if (!record?.ready) throw new Error(`工具 ${spec.name} 尚未完成数据集构建`);
     if (tool.id !== record.id) fail(`工具 ${spec.name} 的 ID 与 manifest 不一致`);
-    if (tool.requiresApproval !== spec.requiresApproval || tool.enabled !== spec.enabled) {
+    if (tool.approvalMode !== spec.approvalMode || tool.enabled !== spec.enabled) {
       fail(`工具 ${spec.name} 的审批或启用状态已被修改`);
     }
   }

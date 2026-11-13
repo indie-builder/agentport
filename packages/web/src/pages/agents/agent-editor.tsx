@@ -1821,8 +1821,8 @@ export function AgentEditor({
                           /workspace）。启用内置工具会扩大攻击面。
                         </p>
                         <p>
-                          平台将绑定连接器的全部工具加入 SDK allowedTools 预批准；工具若设置
-                          requiresApproval，仍须通过服务端审批，可挂起等待批准。请仅绑定可信连接器。
+                          平台将绑定连接器的全部工具加入 SDK allowedTools
+                          预批准；工具若将审批策略设为「需要审批」，仍须通过服务端审批，可挂起等待批准。请仅绑定可信连接器。
                         </p>
                       </div>
                       <FieldGroup className="gap-5">

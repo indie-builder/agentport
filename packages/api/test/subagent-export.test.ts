@@ -163,7 +163,7 @@ describe.skipIf(!ready)('subagent export', () => {
     const rootTool = await createTool(rootServer.id, {
       name: 'root-tool',
       pathTemplate: '/root',
-      requiresApproval: true,
+      approvalMode: 'ask',
     });
     const sharedTool = await createTool(sharedServer.id, {
       name: 'shared-tool',
@@ -285,7 +285,7 @@ describe.skipIf(!ready)('subagent export', () => {
           inputSchema: { type: 'object', properties: {} },
           paramsIn: 'query',
           enabled: false,
-          requiresApproval: true,
+          approvalMode: 'ask',
         },
       ],
     );

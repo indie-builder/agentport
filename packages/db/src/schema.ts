@@ -104,7 +104,9 @@ export const apiTools = pgTable(
       .notNull()
       .default('query'),
     enabled: boolean('enabled').notNull().default(true),
-    requiresApproval: boolean('requires_approval').notNull().default(false),
+    approvalMode: text('approval_mode', { enum: ['allow', 'ask', 'deny'] })
+      .notNull()
+      .default('allow'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('api_tools_server_name_idx').on(t.serverId, t.name)],

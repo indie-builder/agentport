@@ -168,10 +168,14 @@ export function useImportOpenApi(serverId: string) {
 export function useSetToolEnabled(serverId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { toolId: string; enabled?: boolean; requiresApproval?: boolean }) =>
+    mutationFn: (vars: {
+      toolId: string;
+      enabled?: boolean;
+      approvalMode?: ApiTool['approvalMode'];
+    }) =>
       api.updateTool(serverId, vars.toolId, {
         ...(vars.enabled === undefined ? {} : { enabled: vars.enabled }),
-        ...(vars.requiresApproval === undefined ? {} : { requiresApproval: vars.requiresApproval }),
+        ...(vars.approvalMode === undefined ? {} : { approvalMode: vars.approvalMode }),
       }),
     onSuccess: (tool) => {
       client.setQueryData<ApiTool[]>(['tools', serverId], (old) =>

@@ -69,7 +69,7 @@ async function addGeneratedTool(
   metadata: {
     description?: string;
     inputSchema?: Record<string, unknown>;
-    requiresApproval?: boolean;
+    approvalMode?: 'allow' | 'ask' | 'deny';
   } = {},
 ) {
   await db.insert(schema.apiTools).values({
@@ -80,7 +80,7 @@ async function addGeneratedTool(
     method: 'GET',
     pathTemplate: `/${name}`,
     inputSchema: metadata.inputSchema ?? { type: 'object', properties: {} },
-    requiresApproval: metadata.requiresApproval ?? false,
+    approvalMode: metadata.approvalMode ?? 'allow',
     enabled,
   });
 }
@@ -138,7 +138,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
     await addGeneratedTool(serverId, 'zeta', true, {
       description: 'zeta tool',
       inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
-      requiresApproval: true,
+      approvalMode: 'ask',
     });
     await addGeneratedTool(serverId, 'alpha', true, { description: 'alpha tool' });
     await bind(agentId, serverId);
@@ -151,7 +151,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         name: `mcp__${serverName}__alpha`,
         description: 'alpha tool',
         inputSchema: { type: 'object', properties: {} },
-        requiresApproval: false,
+        approvalMode: 'allow',
       },
       {
         serverId,
@@ -160,7 +160,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         name: `mcp__${serverName}__zeta`,
         description: 'zeta tool',
         inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
-        requiresApproval: true,
+        approvalMode: 'ask',
       },
     ]);
   });
@@ -185,7 +185,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
     await addGeneratedTool(lastGenId, 'bravo', true, {
       description: 'bravo tool',
       inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
-      requiresApproval: true,
+      approvalMode: 'ask',
     });
     await addGeneratedTool(lastGenId, 'alpha', true);
     for (const id of [httpId, firstGenId, emptyGenId, lastGenId]) await bind(agentId, id);
@@ -202,7 +202,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         name: `mcp__${httpName}__search`,
         description: 'search the web',
         inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
-        requiresApproval: false,
+        approvalMode: 'allow',
       },
       {
         serverId: firstGenId,
@@ -211,7 +211,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         name: `mcp__${firstGenName}__alpha`,
         description: 'alpha tool',
         inputSchema: { type: 'object', properties: {} },
-        requiresApproval: false,
+        approvalMode: 'allow',
       },
       {
         serverId: firstGenId,
@@ -220,7 +220,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         name: `mcp__${firstGenName}__gamma`,
         description: 'gamma tool',
         inputSchema: { type: 'object', properties: {} },
-        requiresApproval: false,
+        approvalMode: 'allow',
       },
       {
         serverId: lastGenId,
@@ -229,7 +229,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         name: `mcp__${lastGenName}__alpha`,
         description: 'alpha tool',
         inputSchema: { type: 'object', properties: {} },
-        requiresApproval: false,
+        approvalMode: 'allow',
       },
       {
         serverId: lastGenId,
@@ -238,7 +238,7 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
         name: `mcp__${lastGenName}__bravo`,
         description: 'bravo tool',
         inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
-        requiresApproval: true,
+        approvalMode: 'ask',
       },
     ]);
   });
