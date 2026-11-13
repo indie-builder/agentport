@@ -7,6 +7,8 @@
 > 文档入口见 [docs/README.md](docs/README.md)；研发流程规范见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)；跨任务踩坑见 [docs/PITFALLS.md](docs/PITFALLS.md)，开工前或报错时先读。各包专属规则见「模块规则」。
 >
 > 同目录 `CLAUDE.md`（根与各 `packages/*`）是指向本文件的软链接，供 Claude 系 Harness 加载。**唯一真源是本文件 `AGENTS.md`**：只改 `AGENTS.md`，不要用实体副本替换链接，也不要因两者内容相同而视为重复。
+>
+> This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
 
 ## 0. 第一性原则：文件系统即智能体定义（最高约束）
 
