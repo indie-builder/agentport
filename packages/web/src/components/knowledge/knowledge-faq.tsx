@@ -1,4 +1,4 @@
-import { knowledgeDocumentStatusSchema, knowledgeFaqImportMetadataSchema } from '@agentport/shared';
+import { knowledgeFaqImportMetadataSchema } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Download, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -68,6 +68,7 @@ import {
   DraftGuardDialogs,
   documentStatusLabel,
   folderOptions,
+  parseKnowledgeDocumentStatusFilter,
   treeFolders,
   useDraftGuard,
   versionLabel,
@@ -1400,12 +1401,8 @@ export function FaqTab({
   const settledQuery = useDebouncedValue(query.trim(), 300);
   const [status, setStatus] = useState<'all' | KnowledgeFaqSummary['status']>('all');
   const applyStatus = (next: string): void => {
-    if (next === 'all') {
-      setStatus('all');
-      return;
-    }
-    const parsed = knowledgeDocumentStatusSchema.safeParse(next);
-    if (parsed.success) setStatus(parsed.data);
+    const value = parseKnowledgeDocumentStatusFilter(next);
+    if (value !== undefined) setStatus(value);
   };
   const [folder, setFolder] = useState('all');
   const [recommended, setRecommended] = useState('all');

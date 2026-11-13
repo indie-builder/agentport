@@ -1,3 +1,4 @@
+import { type KnowledgeDocument, knowledgeDocumentStatusSchema } from '@agentport/shared';
 import type {
   KnowledgeContentKind,
   KnowledgeDocumentVersion,
@@ -68,6 +69,14 @@ export const contentKindLabel: Record<KnowledgeContentKind, string> = {
   faq: 'FAQ',
   wiki: 'Wiki',
 };
+
+export function parseKnowledgeDocumentStatusFilter(
+  next: string,
+): 'all' | KnowledgeDocument['status'] | undefined {
+  if (next === 'all') return 'all';
+  const parsed = knowledgeDocumentStatusSchema.safeParse(next);
+  return parsed.success ? parsed.data : undefined;
+}
 
 export const originLabel: Record<KnowledgeVersionOrigin, string> = {
   source: '来源解析',
