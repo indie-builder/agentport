@@ -57,4 +57,5 @@ export const auditRouter = os.router({
     }
     return { items: rows.map(toItem) };
   }),
+  verify: os.verify.handler(async ({ context }) => repo.audit.verifyAuditChain(context.db)),
 });

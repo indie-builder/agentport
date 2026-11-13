@@ -401,7 +401,10 @@ audit_log(
   status text,
   duration_ms int,
   request_id text,
-  created_at timestamptz
+  created_at timestamptz,
+  chain_seq bigserial,       -- 链顺序
+  prev_hash text,            -- 上一条 hash，首条为 null
+  hash text                  -- 本条内容与 prev_hash 的 SHA-256
 )
 ```
 

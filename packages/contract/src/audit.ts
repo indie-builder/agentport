@@ -33,4 +33,14 @@ export const auditContract = {
     .input(z.object({ query: auditQuerySchema }))
     .output(z.object({ items: z.array(auditItemSchema) }))
     .meta({ access: { kind: 'permission', permissionId: 'audit.read' } }),
+  verify: contractProcedure
+    .route({ method: 'GET', path: '/audit/verify' })
+    .output(
+      z.object({
+        ok: z.boolean(),
+        checked: z.number().int(),
+        brokenSeq: z.string().nullable(),
+      }),
+    )
+    .meta({ access: { kind: 'permission', permissionId: 'audit.read' } }),
 };
