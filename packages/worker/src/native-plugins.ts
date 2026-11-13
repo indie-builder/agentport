@@ -10,6 +10,7 @@ import {
   type NativePluginOutput,
   nativePluginActionSchema,
   nativePluginOutputSchema,
+  parseJsonAs,
   redactSecrets,
 } from '@agentport/shared';
 import { createBunRedisClient, Worker } from 'bullmq';
@@ -64,14 +65,7 @@ async function ensureCacheDir(deps: NativePluginsDeps): Promise<string> {
 
 /** 只取容器 stdout 的第一条合法结果；其余行属于 CLI 噪音。 */
 function parseResultLine(line: string): NativePluginOutput | null {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  const parsed = nativePluginOutputSchema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
+  return parseJsonAs(line, nativePluginOutputSchema);
 }
 
 /**
