@@ -5,6 +5,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { authorizeRun, RUN_MISSING } from '../runs/access.js';
 import { agentNotFound, importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
 const os = implement(evalContract).$context<RequestContext>();
@@ -54,6 +55,38 @@ export const evalRouter = os.router({
         action: 'eval.case.created',
         target: row.id,
         input: { agentId: input.body.agentId, name: input.body.name },
+        status: 'ok',
+        requestId: context.requestId,
+      });
+      return toEvalCase(row);
+    }),
+    fromRun: os.cases.fromRun.handler(async ({ input, context }) => {
+      const businessId = requireUser(context).businessId;
+      await authorizeRun(context, input.body.runId, 'runs.read');
+      const detail = await repo.runs.getRunDetail(context.db, input.body.runId);
+      if (!detail) fail('RUN_NOT_FOUND', RUN_MISSING);
+      const prompt = detail.steps.find((step) => step.kind === 'user')?.text;
+      if (!prompt || !prompt.trim()) {
+        fail('INVALID_INPUT', '该运行没有可用的用户输入，无法生成评估用例');
+      }
+      const expectation =
+        [...detail.steps].reverse().find((step) => step.kind === 'assistant')?.text ?? '';
+      const agentId = detail.run.agentId;
+      await authorizeEvalAgent(context, agentId, ['eval.read', 'eval.manage']);
+      const rawName = input.body.name ?? detail.conversation.title;
+      const name = (rawName.trim() ? rawName.trim() : `运行 ${detail.run.id}`).slice(0, 128);
+      const row = await evalRepo.createCase(context.db, newId('evalCase'), {
+        agentId,
+        name,
+        prompt: prompt.slice(0, 20_000),
+        expectation: expectation.slice(0, 5_000),
+        createdBy: businessId,
+      });
+      await repo.audit.writeAudit(context.db, context.log, {
+        actor: actorOf(context),
+        action: 'eval.case.created',
+        target: row.id,
+        input: { agentId, name, fromRun: detail.run.id },
         status: 'ok',
         requestId: context.requestId,
       });

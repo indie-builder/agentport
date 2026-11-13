@@ -69,6 +69,18 @@ export const evalContract = {
       .input(z.object({ body: evalImportBodySchema }))
       .output(evalDatasetImportResultSchema)
       .meta({ access: { kind: 'permission', permissionId: 'eval.manage' } }),
+    fromRun: contractProcedure
+      .route({ method: 'POST', path: '/eval/cases/from-run', successStatus: 201 })
+      .input(
+        z.object({
+          body: z.object({
+            runId: z.string().min(1),
+            name: z.string().trim().min(1).max(128).optional(),
+          }),
+        }),
+      )
+      .output(evalCaseSchema)
+      .meta({ access: { kind: 'permission', permissionId: 'eval.manage' } }),
   },
   runs: {
     list: contractProcedure
