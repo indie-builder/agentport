@@ -12,6 +12,7 @@ import {
   useSavePersonalMemory,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
 import { Markdown } from '../markdown.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../motion-collapsible.js';
@@ -61,10 +62,7 @@ export function PersonalMemoryPanel({
   const dirty = editing && draft !== null && draft !== memory.data?.content;
   const pending = save.isPending || rollback.isPending;
 
-  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
-  useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   useEffect(() => {
     if (editing || !restoreFocus.current) return;

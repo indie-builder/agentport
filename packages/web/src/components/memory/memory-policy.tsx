@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { Controller } from 'react-hook-form';
 import { agentMemoryOverviewQuery, useUpdateAgentMemoryPolicy } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import { ErrorState, LoadingState } from '../states.js';
 import { Button } from '../ui/button.js';
@@ -68,10 +69,7 @@ function PolicyForm({
     if (!dirty) reset(policy);
   }, [policy, dirty, reset]);
 
-  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
-  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   const submit = handleSubmit((values) => {
     if (disabled) return;

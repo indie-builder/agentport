@@ -17,6 +17,7 @@ import {
   useRollbackMemoryChange,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
 import { BusinessIllustration } from '../business-illustration.js';
 import { CodeBlock } from '../code-block.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
@@ -162,10 +163,7 @@ export function MemoryPanel({
   const pending = filesPending || policyPending;
 
   // 路由离开与任务切换仍由父级用合并后的状态统一保护。
-  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
-  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   const applyView = (next: MemoryView): void => {
     setLocalView(next);
@@ -292,10 +290,7 @@ function MemoryFilesPanel({
   const dirty = editorDirty || (creating && name.trim() !== '');
   const pending = editorPending || remove.isPending || create.isPending;
   // 路由离开与任务切换由父级用合并后的状态统一保护。
-  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
-  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   const submitNewFile = (event: React.FormEvent): void => {
     event.preventDefault();
@@ -582,10 +577,7 @@ function MemoryFileEditor({
   };
 
   // 父级需要用脏状态拦截切换文件与路由离开。
-  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
-  useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   if (file.isPending) return <LoadingState rows={4} />;
   if (file.data === undefined) {
@@ -841,10 +833,7 @@ export function RulesPanel({
     else apply(action);
   };
 
-  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
-  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   // 列表就绪但还没有选中项、也不在新建时，默认打开第一条；
   // 有选中项或草稿时不会覆盖，避免抢走正在编辑的内容。
@@ -1177,10 +1166,7 @@ export function OutputStylesPanel({
     else apply(action);
   };
 
-  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
-  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   // 列表就绪但还没有选中项、也不在新建时，默认打开第一条；
   // 有选中项或草稿时不会覆盖，避免抢走正在编辑的内容。

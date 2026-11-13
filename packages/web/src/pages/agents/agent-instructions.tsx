@@ -1,5 +1,5 @@
 import type { PermissionId } from '@agentport/shared';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { HooksPanel } from '../../components/agent/hooks-panel.js';
 import { WorkflowsPanel } from '../../components/agent/workflow-panel.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -7,6 +7,7 @@ import { OutputStylesPanel, RulesPanel } from '../../components/memory/memory-pa
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { hasAnyGrant } from '../../lib/access.js';
 import type { AgentInstruction } from '../../lib/detail-tabs.js';
+import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
 import { availableInstructions } from './shared.js';
 
 /**
@@ -35,10 +36,7 @@ export function AgentInstructions({
   const [pending, setPending] = useState(false);
   const [pendingInstruction, setPendingInstruction] = useState<AgentInstruction | null>(null);
 
-  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
-  useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   const apply = (next: AgentInstruction): void => {
     setPendingInstruction(null);

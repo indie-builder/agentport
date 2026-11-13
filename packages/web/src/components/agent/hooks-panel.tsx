@@ -11,6 +11,7 @@ import {
   useWriteAgentHooksSettings,
 } from '../../lib/queries.js';
 import { toastSuccess } from '../../lib/toast.js';
+import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
 import { SourceEditor } from '../source-editor.js';
 import { EmptyState, ErrorState, LoadingState } from '../states.js';
@@ -93,10 +94,7 @@ export function HooksPanel({
     setBaseline({ enabled: data.enabled, config: text });
   }, [hooks.data, baseline]);
 
-  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
-  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
-  useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
-  useEffect(() => () => onPendingChange?.(false), [onPendingChange]);
+  useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   useEffect(() => {
     if (autoSelected.current || hooks.data === undefined) return;
