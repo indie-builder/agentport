@@ -2,6 +2,7 @@ import { AlertTriangle } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { type ReactNode, useState } from 'react';
 import { cn } from '../lib/cn.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import { toastError } from '../lib/toast.js';
 import { DialogShell } from './dialog-shell.js';
 import { Button } from './ui/button.js';
@@ -48,16 +49,7 @@ export function ConfirmDialog({
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) onClose();
-      }}
-    >
+    <Dialog open={open} onOpenChange={guardedOpenChange(pending, onClose)}>
       <DialogShell
         title={title}
         className="max-w-md sm:max-w-md"

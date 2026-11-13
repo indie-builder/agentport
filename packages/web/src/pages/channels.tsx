@@ -38,6 +38,7 @@ import { Textarea } from '../components/ui/textarea.js';
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import { formatRelative } from '../lib/format.js';
 import { meQuery, useChannels, useCreateChannel } from '../lib/queries.js';
 import { toastError } from '../lib/toast.js';
@@ -290,16 +291,7 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title="新建频道" closeDisabled={pending}>
         <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
           <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>

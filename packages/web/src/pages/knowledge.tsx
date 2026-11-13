@@ -69,6 +69,7 @@ import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import { formatDateTime, formatRelative } from '../lib/format.js';
 import {
   meQuery,
@@ -796,16 +797,7 @@ function CreateBaseDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title="新建知识库" closeDisabled={pending} finalFocus={finalFocus}>
         <form
           onSubmit={(event) => {

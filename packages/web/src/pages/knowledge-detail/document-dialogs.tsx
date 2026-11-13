@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '../../components/ui/select.js';
 import type { KnowledgeFolder, KnowledgeTag } from '../../lib/api.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import {
   useCreateKnowledgeFolder,
   useCreateKnowledgeTag,
@@ -90,16 +91,7 @@ export function FolderDialog({
   };
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title={title} closeDisabled={pending} finalFocus={finalFocus}>
         <form
           className="flex flex-col gap-4"
@@ -170,16 +162,7 @@ export function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => 
 
   return (
     <>
-      <Dialog
-        open
-        onOpenChange={(next, details) => {
-          if (pending) {
-            details.cancel();
-            return;
-          }
-          if (!next) guard.close();
-        }}
-      >
+      <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
         <DialogShell title="管理标签" closeDisabled={pending}>
           <form
             className="flex items-end gap-2"
@@ -371,16 +354,7 @@ export function DocumentDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title="编辑文档" closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>

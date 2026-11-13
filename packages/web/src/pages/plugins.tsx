@@ -40,6 +40,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/fiel
 import { Input } from '../components/ui/input.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { can } from '../lib/access.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import {
   meQuery,
   useDeletePlugin,
@@ -408,16 +409,7 @@ function InstallPluginDialog({
   };
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) onClose();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, onClose)}>
       <DialogShell title="安装插件" closeDisabled={pending} finalFocus={finalFocus}>
         {results.length > 0 ? (
           <div role="status" className="flex flex-col gap-1 border-y py-2 text-sm">
@@ -630,16 +622,7 @@ export function PluginDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title="编辑插件" closeDisabled={pending} finalFocus={finalFocus}>
         <form
           onSubmit={(event) => {

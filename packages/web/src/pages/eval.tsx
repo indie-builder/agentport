@@ -53,6 +53,7 @@ import {
   type EvalRun,
 } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import {
   evalComparisonStatusLabel,
   evalComparisonStatusVariant,
@@ -1131,16 +1132,7 @@ function CaseDialog({
   const guard = useDraftGuard(dirty, pending, onClose);
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title={testCase ? '编辑用例' : '新建用例'}
         description="运行评估时，每个用例都会发起一次真实运行。"
