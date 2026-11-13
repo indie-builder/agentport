@@ -24,6 +24,7 @@ export interface HealthMetrics {
 }
 
 const CHECK_TIMEOUT_MS = 1_500;
+const WAITING_TIMEOUT_MS = 1_000;
 const JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
 
 let redisClient: RedisClient | null = null;
@@ -47,9 +48,17 @@ async function jobCounts(queue: {
   getJobCounts: (...states: typeof JOB_STATES) => Promise<Record<string, number>>;
   getWaiting: (start: number, end: number) => Promise<{ timestamp: number }[]>;
 }): Promise<QueueCounts> {
+  let waitingTimer: NodeJS.Timeout | undefined;
   const [counts, waiting] = await Promise.all([
     queue.getJobCounts(...JOB_STATES),
-    queue.getWaiting(0, 0).catch(() => []),
+    Promise.race([
+      queue.getWaiting(0, 0),
+      new Promise<{ timestamp: number }[]>((resolve) => {
+        waitingTimer = setTimeout(() => resolve([]), WAITING_TIMEOUT_MS).unref();
+      }),
+    ])
+      .catch(() => [])
+      .finally(() => clearTimeout(waitingTimer)),
   ]);
   return {
     waiting: counts.waiting ?? 0,
