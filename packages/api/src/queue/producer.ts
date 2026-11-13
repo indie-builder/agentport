@@ -15,6 +15,7 @@ import {
   KNOWLEDGE_CANCEL_PAYLOAD,
   KNOWLEDGE_JOBS_QUEUE,
   knowledgeCancelKey,
+  parseJsonAs,
   RUN_CANCEL_PAYLOAD,
   RUNS_QUEUE,
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
@@ -24,7 +25,6 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
-import type { ZodType } from 'zod';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
@@ -135,20 +135,9 @@ export async function publishKnowledgeCancel(jobId: string): Promise<void> {
   );
 }
 
-function parseEvent<T>(payload: string, schema: ZodType<T>): T | null {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(payload);
-  } catch {
-    return null;
-  }
-  const parsed = schema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
-}
-
-const parseChatEvent = (payload: string): ChatEvent | null => parseEvent(payload, chatEventSchema);
+const parseChatEvent = (payload: string): ChatEvent | null => parseJsonAs(payload, chatEventSchema);
 const parseChannelEvent = (payload: string): ChannelEvent | null =>
-  parseEvent(payload, channelEventSchema);
+  parseJsonAs(payload, channelEventSchema);
 
 export async function publishRun(runId: string, event: ChatEvent): Promise<void> {
   const redis = getClient();

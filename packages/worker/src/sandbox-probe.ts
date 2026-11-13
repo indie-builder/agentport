@@ -6,6 +6,7 @@ import { createDb, repo } from '@agentport/db';
 import {
   errorText,
   limitToolCatalog,
+  parseJsonAs,
   type ResolvedRuntimeEnvironment,
   redactSecrets,
   SANDBOX_PROBE_STARTUP_TIMEOUT_MS,
@@ -63,14 +64,7 @@ const OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
 
 /** 只取容器 stdout 的第一条合法结果；其余行属于上游噪音。 */
 function parseResultLine(line: string): SandboxProbeOutput | null {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  const parsed = sandboxProbeOutputSchema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
+  return parseJsonAs(line, sandboxProbeOutputSchema);
 }
 
 /**
