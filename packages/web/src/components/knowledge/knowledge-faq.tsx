@@ -1912,16 +1912,7 @@ function FaqHistoryDialog({
     selected.metadata.faqImport !== undefined &&
     selected.metadata.publication !== 'published';
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (rollback.isPending) {
-          details.cancel();
-          return;
-        }
-        if (!next) onClose();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(rollback.isPending, onClose)}>
       <DialogShell
         title="FAQ 版本历史"
         closeDisabled={rollback.isPending}
@@ -2059,16 +2050,7 @@ function FaqPublishDialog({
   const indexSucceeded = draftJobId === null || jobStatus === 'succeeded';
   const indexFailed = jobStatus === 'failed' || jobStatus === 'cancelled';
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (publish.isPending) {
-          details.cancel();
-          return;
-        }
-        if (!next) onClose();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(publish.isPending, onClose)}>
       <DialogShell title="发布 FAQ" closeDisabled={publish.isPending}>
         {cached === undefined && detail.isPending ? <LoadingState rows={2} /> : null}
         {cached === undefined && detail.isError ? (
