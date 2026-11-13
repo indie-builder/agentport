@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, like, lt, type SQL } from 'drizzle-orm';
+import { sha256Hex } from '@agentport/core';
+import { and, asc, desc, eq, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
@@ -41,6 +42,41 @@ function digest(input: unknown): string | null {
   }
 }
 
+interface AuditHashMaterial {
+  prevHash: string | null;
+  id: string;
+  actor: string;
+  actorKind: string;
+  subjectBusinessId: string | null;
+  action: string;
+  target: string | null;
+  inputDigest: string | null;
+  status: string;
+  durationMs: number | null;
+  requestId: string | null;
+  createdAt: Date;
+}
+
+// 字段顺序即哈希协议：校验端与写入端必须共用这一处。
+function chainHash(row: AuditHashMaterial): string {
+  return sha256Hex(
+    JSON.stringify([
+      row.prevHash,
+      row.id,
+      row.actor,
+      row.actorKind,
+      row.subjectBusinessId,
+      row.action,
+      row.target,
+      row.inputDigest,
+      row.status,
+      row.durationMs,
+      row.requestId,
+      row.createdAt.toISOString(),
+    ]),
+  );
+}
+
 /**
  * 审计写入失败不能影响主流程：业务已经成功，丢一条审计比返回 500 更好。
  * 失败只记日志。API 与 worker 共用这一处，ID 统一走 TypeID。
@@ -62,14 +98,68 @@ export async function writeAudit(
       status: event.status,
       durationMs: event.durationMs ?? null,
       requestId: event.requestId ?? null,
+      createdAt: new Date(),
     };
-    // 有幂等键时不覆盖已有行：重试只是重复上报同一件事。
-    await (event.dedupeKey
-      ? db.insert(auditLog).values(row).onConflictDoNothing()
-      : db.insert(auditLog).values(row));
+    await db.transaction(async (tx) => {
+      // 事务级 advisory lock 把「读上一条 hash + 插入」串行化，并发写入不会分成两叉。
+      await tx.execute(sql`select pg_advisory_xact_lock(781236)`);
+      const [last] = await tx
+        .select({ hash: auditLog.hash })
+        .from(auditLog)
+        .where(isNotNull(auditLog.hash))
+        .orderBy(desc(auditLog.chainSeq))
+        .limit(1);
+      const chained = { ...row, prevHash: last?.hash ?? null };
+      const values = { ...chained, hash: chainHash(chained) };
+      // 有幂等键时不覆盖已有行：重试只是重复上报同一件事。
+      await (event.dedupeKey
+        ? tx.insert(auditLog).values(values).onConflictDoNothing()
+        : tx.insert(auditLog).values(values));
+    });
   } catch (err) {
     logger.warn({ err, action: event.action }, 'audit write failed');
   }
+}
+
+export interface AuditChainVerification {
+  ok: boolean;
+  checked: number;
+  brokenSeq: string | null;
+}
+
+export async function verifyAuditChain(db: Database): Promise<AuditChainVerification> {
+  const rows = await db
+    .select({
+      chainSeq: auditLog.chainSeq,
+      prevHash: auditLog.prevHash,
+      hash: auditLog.hash,
+      id: auditLog.id,
+      actor: auditLog.actor,
+      actorKind: auditLog.actorKind,
+      subjectBusinessId: auditLog.subjectBusinessId,
+      action: auditLog.action,
+      target: auditLog.target,
+      inputDigest: auditLog.inputDigest,
+      status: auditLog.status,
+      durationMs: auditLog.durationMs,
+      requestId: auditLog.requestId,
+      createdAt: auditLog.createdAt,
+    })
+    .from(auditLog)
+    .orderBy(asc(auditLog.chainSeq));
+
+  let previousHash: string | null = null;
+  let checked = 0;
+  for (const row of rows) {
+    // hash 为 null 的行（迁移前旧数据）不在链上，跳过。
+    if (row.hash === null) continue;
+    if (row.prevHash !== previousHash || row.hash !== chainHash(row)) {
+      return { ok: false, checked, brokenSeq: String(row.chainSeq) };
+    }
+    previousHash = row.hash;
+    checked += 1;
+  }
+  return { ok: true, checked, brokenSeq: null };
 }
 
 export interface AuditQuery {

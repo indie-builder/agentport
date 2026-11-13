@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { bigserial, check, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
 export const auditLog = pgTable(
   'audit_log',
@@ -19,9 +19,13 @@ export const auditLog = pgTable(
     durationMs: integer('duration_ms'),
     requestId: text('request_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    chainSeq: bigserial('chain_seq', { mode: 'number' }).notNull(),
+    prevHash: text('prev_hash'),
+    hash: text('hash'),
   },
   (t) => [
     index('audit_log_created_idx').on(t.createdAt),
+    index('audit_log_chain_seq_idx').on(t.chainSeq),
     // action LIKE 'x%' 走 text_pattern_ops（C collation 下才能用前缀索引）；
     // 尾随列让「前缀 + 时间倒序 + id 游标」整个查询都在索引里完成。
     index('audit_log_action_created_idx').on(

@@ -498,6 +498,13 @@
       "when": 1794590123734,
       "tag": "0070_faulty_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794593421377,
+      "tag": "0071_bright_green_goblin",
+      "breakpoints": true
     }
   ]
 }
