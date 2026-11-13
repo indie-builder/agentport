@@ -25,6 +25,7 @@ import {
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
+import { beginSse } from '../../http/sse.js';
 import { authorizeRun, RUN_MISSING } from '../runs/access.js';
 import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
@@ -384,9 +385,7 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
         .parse({ params: c.req.param(), query: c.req.query() });
       const { runId } = input.params;
       const run = await authorizeRun(context, runId, 'runs.read');
-      deps.timeout(c.req.raw, 0);
-      c.header('Cache-Control', 'no-cache, no-transform');
-      c.header('X-Accel-Buffering', 'no');
+      beginSse(c, deps.timeout);
       return streamSSE(c, async (stream) => {
         await relayRunEvents({
           stream,
