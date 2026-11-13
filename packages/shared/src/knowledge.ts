@@ -154,6 +154,14 @@ export const knowledgeSourceTypeSchema = z.enum([
 
 export type KnowledgeSourceType = z.infer<typeof knowledgeSourceTypeSchema>;
 
+export const knowledgeSourceConfigTypeSchema = knowledgeSourceTypeSchema.exclude([
+  'upload',
+  'url',
+  'manual',
+]);
+
+export type KnowledgeSourceConfigType = z.infer<typeof knowledgeSourceConfigTypeSchema>;
+
 /**
  * 新增来源的 range externalId 入口上限。worker 把文档写成
  * `<connectionId>:<leaf externalId>`，连接 ID 固定 31 字符，ZIP 清单上限 500；
