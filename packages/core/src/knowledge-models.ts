@@ -111,31 +111,48 @@ async function readJsonResponse(
   }
 }
 
-async function postJson(
+async function postWithTimeout(
   url: string,
-  body: unknown,
-  profile: { apiKey?: string },
+  init: { headers: Record<string, string>; body: NonNullable<RequestInit['body']> },
+  timeoutMs: number,
   signal: AbortSignal | undefined,
 ): Promise<unknown> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let response: Response;
   try {
     response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(profile.apiKey ? { authorization: `Bearer ${profile.apiKey}` } : {}),
-      },
-      body: JSON.stringify(body),
       // 凭证随请求头走；重定向到另一个 origin 会把凭证暴露给不可信主机。
       redirect: 'error',
+      headers: init.headers,
+      body: init.body,
       signal: combined,
     });
   } catch (err) {
     classifyFetchFailure(err, url, timeout, signal);
   }
   return readJsonResponse(response, url, timeout, signal);
+}
+
+async function postJson(
+  url: string,
+  body: unknown,
+  profile: { apiKey?: string },
+  signal: AbortSignal | undefined,
+): Promise<unknown> {
+  return postWithTimeout(
+    url,
+    {
+      headers: {
+        'content-type': 'application/json',
+        ...(profile.apiKey ? { authorization: `Bearer ${profile.apiKey}` } : {}),
+      },
+      body: JSON.stringify(body),
+    },
+    REQUEST_TIMEOUT_MS,
+    signal,
+  );
 }
 
 /** 响应是信任边界：index 必须唯一、在输入范围内，分数/向量值必须是有限数。 */
@@ -357,21 +374,12 @@ async function postMultipart(
   profile: { apiKey?: string },
   signal: AbortSignal | undefined,
 ): Promise<unknown> {
-  const timeout = AbortSignal.timeout(ASR_TIMEOUT_MS);
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: profile.apiKey ? { authorization: `Bearer ${profile.apiKey}` } : {},
-      body: form,
-      redirect: 'error',
-      signal: combined,
-    });
-  } catch (err) {
-    classifyFetchFailure(err, url, timeout, signal);
-  }
-  return readJsonResponse(response, url, timeout, signal);
+  return postWithTimeout(
+    url,
+    { headers: profile.apiKey ? { authorization: `Bearer ${profile.apiKey}` } : {}, body: form },
+    ASR_TIMEOUT_MS,
+    signal,
+  );
 }
 
 /** 只实现 OpenAI Transcriptions multipart + verbose_json 段级时间协议。 */
