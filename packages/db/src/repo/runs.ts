@@ -33,7 +33,7 @@ import {
   servers,
 } from '../schema.js';
 import { messageText } from './chat.js';
-import { keysetBefore } from './keyset.js';
+import { keysetBefore, paginate } from './keyset.js';
 
 export interface RunListItem {
   id: string;
@@ -245,9 +245,7 @@ export async function listPersonalRuns(
     .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
     .limit(options.limit + 1);
 
-  const hasMore = rows.length > options.limit;
-  const items = hasMore ? rows.slice(0, options.limit) : rows;
-  return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
+  return paginate(rows, options.limit);
 }
 
 /** 个人使用汇总：窗口按 run.createdAt，tokens/cost 只统计已记录值。 */

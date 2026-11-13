@@ -3,7 +3,7 @@ import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
-import { keysetBefore } from './keyset.js';
+import { keysetBefore, paginate } from './keyset.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
@@ -195,9 +195,7 @@ export async function listRuns(
     .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(desc(evalRuns.createdAt), desc(evalRuns.id))
     .limit(options.limit + 1);
-  const hasMore = rows.length > options.limit;
-  const items = hasMore ? rows.slice(0, options.limit) : rows;
-  return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
+  return paginate(rows, options.limit);
 }
 
 /** 同一智能体只允许一个在跑的评估；API 层据此返回 409。 */

@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { conversations, outputShares } from '../schema.js';
-import { keysetBefore } from './keyset.js';
+import { keysetBefore, paginate } from './keyset.js';
 
 export type OutputShareRow = typeof outputShares.$inferSelect;
 
@@ -145,9 +145,7 @@ export async function listActiveOwnedBy(
     .orderBy(desc(outputShares.createdAt), desc(outputShares.id))
     .limit(options.limit + 1);
 
-  const hasMore = rows.length > options.limit;
-  const items = hasMore ? rows.slice(0, options.limit) : rows;
-  return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
+  return paginate(rows, options.limit);
 }
 
 /** 本人来源会话下的分享，含已撤销行；用于区分「已撤销」与「不存在/他人」。 */
