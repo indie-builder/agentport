@@ -120,7 +120,7 @@ export function CodeBlock({
     >
       {large && (
         // Keep compact disclosure text and its focus ring; the primitive supplies no styling.
-        <CollapsibleTrigger className="px-3 py-2 text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <CollapsibleTrigger className="px-3 py-2 text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-code-block-fg)]">
           {expanded ? '收起内容' : '内容过大，点击查看'}
         </CollapsibleTrigger>
       )}
@@ -130,7 +130,7 @@ export function CodeBlock({
             value={code}
             label={copyLabel}
             showLabel
-            className="absolute right-2 top-2 z-10 bg-surface/90 text-fg [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+            className="absolute right-2 top-2 z-10 bg-surface/90 text-fg [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 focus-visible:ring-[color:var(--color-code-block-fg)]"
           />
         ) : null}
         {/* 滚动区可聚焦，键盘用户才能用方向键/PageDown 浏览超长内容。 */}
@@ -138,7 +138,7 @@ export function CodeBlock({
           // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
           tabIndex={0}
           aria-label="代码内容"
-          className="overflow-auto overscroll-contain"
+          className="overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--color-code-block-fg)]"
           style={{ maxHeight }}
         >
           <pre className="py-3 font-mono text-xs leading-5">

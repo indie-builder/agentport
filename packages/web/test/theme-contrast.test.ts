@@ -115,24 +115,14 @@ describe('CDS light theme token contract', () => {
     expect(ratio('--color-chart-runs', '--color-surface')).toBeGreaterThanOrEqual(3);
   });
 
-  it('keeps petrol actions and focus readable with neutral filled controls', () => {
-    expect(token('--color-button-primary')).toEqual(parse('#315d67'));
-    expect(token('--color-button-primary-hover')).toEqual(parse('#284f58'));
-    expect(token('--color-button-primary-active')).toEqual(parse('#204149'));
+  it('keeps actions, links and focus neutral and readable', () => {
+    expect(token('--color-link')).toEqual(token('--color-fg'));
+    expect(token('--color-ring')).toEqual(token('--color-fg'));
     expect(token('--color-primary-foreground')).toEqual(parse('#ffffff'));
     expect(token('--color-primary')).toEqual(parse('#0b0b0b'));
     expect(token('--color-primary-hover')).toEqual(parse('#0b0b0b'));
     expect(token('--color-selected-foreground')).toEqual(token('--color-fg'));
     expect(token('--color-accent-foreground')).toEqual(token('--color-fg'));
-    for (const background of [
-      '--color-button-primary',
-      '--color-button-primary-hover',
-      '--color-button-primary-active',
-    ] as const) {
-      expect(ratio('--color-primary-foreground', background), background).toBeGreaterThanOrEqual(
-        4.5,
-      );
-    }
     for (const background of [
       '--color-surface',
       '--color-canvas',

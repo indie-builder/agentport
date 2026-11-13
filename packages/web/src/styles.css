@@ -31,7 +31,7 @@
   --color-line: rgba(0, 0, 0, 0.10);
   --color-line-strong: rgba(0, 0, 0, 0.20);
   --color-fg: #202b2e;
-  --color-link: #2c5660;
+  --color-link: var(--color-fg);
   /*
    * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
    * 文字色走 muted-foreground。两者不能共用同一个变量。
@@ -50,9 +50,6 @@
 
   --color-primary-hover: #0b0b0b;
   --color-selected-foreground: var(--color-fg);
-  --color-button-primary: #315d67;
-  --color-button-primary-hover: #284f58;
-  --color-button-primary-active: #204149;
 
   --color-ink: var(--color-fg);
 
@@ -171,7 +168,7 @@
    */
   --color-input: var(--color-line);
   --color-input-focus: #bdbdbd;
-  --color-ring: #4d7079;
+  --color-ring: var(--color-fg);
 
   /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
   --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
@@ -281,7 +278,7 @@
   }
 
   ::selection {
-    background: color-mix(in srgb, var(--color-button-primary) 22%, transparent);
+    background: color-mix(in srgb, var(--color-fg) 16%, transparent);
     color: var(--color-fg);
   }
 
@@ -289,8 +286,8 @@
   [data-streamdown="code-block"]::selection,
   .cds-code-surface ::selection,
   .cds-code-surface::selection {
-    background: color-mix(in srgb, var(--color-button-primary) 38%, transparent);
-    color: var(--color-primary-foreground);
+    background: color-mix(in srgb, #ffffff 28%, transparent);
+    color: var(--color-code-block-fg);
   }
 
   ::-webkit-scrollbar {
