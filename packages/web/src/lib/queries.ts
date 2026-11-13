@@ -60,6 +60,7 @@ import type {
 import {
   infiniteQueryOptions,
   QueryClient,
+  type QueryKey,
   queryOptions,
   useInfiniteQuery,
   useMutation,
@@ -67,7 +68,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   type Account,
@@ -1169,19 +1170,23 @@ export function useRevokeOutputShare() {
   });
 }
 
+function useRefetchWhenRunEnds(identity: string, active: boolean, queryKey: QueryKey): void {
+  const client = useQueryClient();
+  const previous = useRef({ identity, active });
+  useEffect(() => {
+    const wasActive = previous.current.identity === identity && previous.current.active;
+    previous.current = { identity, active };
+    if (!identity || active || !wasActive) return;
+    void client.cancelQueries({ queryKey }).then(() => client.invalidateQueries({ queryKey }));
+  }, [identity, active, client, queryKey]);
+}
+
 /** 审批请求由 MCP 端点在工具被拒时写入；运行期间轮询，结束后停。 */
 export function useRunApprovals(runId: string | null, active = true) {
-  const client = useQueryClient();
-  const previous = useRef({ runId, active });
-  useEffect(() => {
-    const wasActive = previous.current.runId === runId && previous.current.active;
-    previous.current = { runId, active };
-    if (!runId || active || !wasActive) return;
-    const queryKey = ['run-approvals', runId];
-    void client.cancelQueries({ queryKey }).then(() => client.invalidateQueries({ queryKey }));
-  }, [runId, active, client]);
+  const queryKey = useMemo(() => ['run-approvals', runId], [runId]);
+  useRefetchWhenRunEnds(runId ?? '', active, queryKey);
   return useQuery<ApprovalRequestList>({
-    queryKey: ['run-approvals', runId],
+    queryKey,
     queryFn: () => api.runApprovals(runId ?? ''),
     enabled: runId !== null,
     // 只有运行还在进行时才轮询；结束后停止，避免在后台一直打接口。
@@ -1268,15 +1273,8 @@ export function mergeRunQuestions(
 /** 实时运行才轮询；结束后保留最后一次快照，刷新页面时历史里的工具快照仍可读。 */
 export function useRunQuestions(runId: string | null, active = true) {
   const client = useQueryClient();
-  const previous = useRef({ runId, active });
-  useEffect(() => {
-    const wasActive = previous.current.runId === runId && previous.current.active;
-    previous.current = { runId, active };
-    if (!runId || active || !wasActive) return;
-    // 终态时再取一次，确保关闭/回答结果不只依赖最后一条 SSE。
-    const queryKey = runQuestionsQueryKey(runId);
-    void client.cancelQueries({ queryKey }).then(() => client.invalidateQueries({ queryKey }));
-  }, [runId, active, client]);
+  const queryKey = useMemo(() => runQuestionsQueryKey(runId ?? ''), [runId]);
+  useRefetchWhenRunEnds(runId ?? '', active, queryKey);
   return useQuery<RunQuestionList>({
     queryKey: runQuestionsQueryKey(runId ?? ''),
     queryFn: async () => {
@@ -3368,17 +3366,8 @@ export function useChannelRunDetail(channelId: string, runId: string) {
 
 export function useChannelRunQuestions(channelId: string, runId: string, active: boolean) {
   const client = useQueryClient();
-  const previous = useRef({ channelId, runId, active });
-  useEffect(() => {
-    const wasActive =
-      previous.current.channelId === channelId &&
-      previous.current.runId === runId &&
-      previous.current.active;
-    previous.current = { channelId, runId, active };
-    if (active || !wasActive) return;
-    const queryKey = channelRunQuestionsQueryKey(channelId, runId);
-    void client.cancelQueries({ queryKey }).then(() => client.invalidateQueries({ queryKey }));
-  }, [channelId, runId, active, client]);
+  const queryKey = useMemo(() => channelRunQuestionsQueryKey(channelId, runId), [channelId, runId]);
+  useRefetchWhenRunEnds(`${channelId}/${runId}`, active, queryKey);
   return useQuery<ChannelRunQuestions>({
     queryKey: channelRunQuestionsQueryKey(channelId, runId),
     queryFn: async () => {
