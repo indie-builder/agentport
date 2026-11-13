@@ -2,7 +2,7 @@ import { knowledgeTargetSchema } from '@agentport/shared';
 import { useState } from 'react';
 import { z } from 'zod';
 import { errorMessage } from '../../lib/api.js';
-import { downloadBlob } from '../../lib/browser-files.js';
+import { downloadJson } from '../../lib/browser-files.js';
 import { useEvaluateKnowledgeRetrieval } from '../../lib/queries.js';
 import { Button } from '../ui/button.js';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '../ui/field.js';
@@ -160,10 +160,7 @@ export function KnowledgeEvaluations({
             disabled={!report || pending}
             onClick={() => {
               if (!report) return;
-              downloadBlob(
-                new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }),
-                `retrieval-evaluation-${baseId}.json`,
-              );
+              downloadJson(report, `retrieval-evaluation-${baseId}.json`);
             }}
           >
             下载结果

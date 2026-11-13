@@ -16,7 +16,7 @@ import { ErrorState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { type AuditEntry, type AuditStatus, api } from '../lib/api.js';
-import { downloadBlob } from '../lib/browser-files.js';
+import { downloadJson } from '../lib/browser-files.js';
 import {
   auditStatusLabel,
   auditStatusVariant,
@@ -153,10 +153,7 @@ export function AuditPage() {
         ...(status === 'all' ? {} : { status }),
         ...(settledTarget ? { target: settledTarget } : {}),
       });
-      downloadBlob(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-        'audit.json',
-      );
+      downloadJson(data, 'audit.json');
     } catch (error) {
       toastError(error);
     } finally {
