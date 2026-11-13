@@ -6,7 +6,7 @@ import {
   type ChannelRole,
 } from '@agentport/shared';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
-import type { Database, DbHandle } from '../client.js';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
   agentRuns,
@@ -119,6 +119,24 @@ export async function lockChannel(tx: DbHandle, channelId: string): Promise<bool
     .where(eq(channels.id, channelId))
     .for('update');
   return row !== undefined;
+}
+
+type ChannelManageDenied =
+  | { kind: 'not_found'; target: 'channel' }
+  | { kind: 'forbidden'; reason: 'channel_role' };
+
+async function withChannelManage<T>(
+  db: Database,
+  subject: ChannelSubject,
+  channelId: string,
+  body: (tx: Transaction, role: ChannelRole) => Promise<T>,
+): Promise<T | ChannelManageDenied> {
+  return db.transaction(async (tx) => {
+    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
+    const access = await requireManageRole(tx, channelId, subject.businessId);
+    if (access.kind !== 'ok') return access;
+    return body(tx, access.role);
+  });
 }
 
 export async function listChannels(
@@ -286,10 +304,7 @@ export async function updateChannel(
 ): Promise<
   { kind: 'ok'; channel: ChannelRow } | NotFound | { kind: 'forbidden'; reason: 'channel_role' }
 > {
-  return db.transaction(async (tx) => {
-    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
-    const access = await requireManageRole(tx, channelId, subject.businessId);
-    if (access.kind !== 'ok') return access;
+  return withChannelManage(db, subject, channelId, async (tx) => {
     const [updated] = await tx
       .update(channels)
       .set({
@@ -315,11 +330,7 @@ export async function addMember(
   | { kind: 'forbidden'; reason: 'channel_role' | 'owner_only' | 'account_disabled' }
   | { kind: 'conflict'; reason: 'member_exists' }
 > {
-  return db.transaction(async (tx) => {
-    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
-    const access = await requireManageRole(tx, channelId, subject.businessId);
-    if (access.kind !== 'ok') return access;
-    const role = access.role;
+  return withChannelManage(db, subject, channelId, async (tx, role) => {
     // owner 授予只看频道 owner；admin 不能借 manage 提升自己人。
     if (input.role === 'owner' && role !== 'owner') {
       return { kind: 'forbidden', reason: 'owner_only' };
@@ -354,11 +365,7 @@ export async function updateMemberRole(
   | { kind: 'forbidden'; reason: 'channel_role' | 'owner_only' }
   | { kind: 'conflict'; reason: 'last_owner' }
 > {
-  return db.transaction(async (tx) => {
-    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
-    const access = await requireManageRole(tx, channelId, subject.businessId);
-    if (access.kind !== 'ok') return access;
-    const callerRole = access.role;
+  return withChannelManage(db, subject, channelId, async (tx, callerRole) => {
     const targetRole = await channelMemberRole(tx, channelId, businessId);
     if (targetRole === null) return { kind: 'not_found', target: 'member' };
     if (callerRole !== 'owner' && (targetRole === 'owner' || role === 'owner')) {
@@ -402,11 +409,7 @@ export async function removeMember(
   | { kind: 'forbidden'; reason: 'channel_role' | 'owner_only' }
   | { kind: 'conflict'; reason: 'last_owner' }
 > {
-  return db.transaction(async (tx) => {
-    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
-    const access = await requireManageRole(tx, channelId, subject.businessId);
-    if (access.kind !== 'ok') return access;
-    const role = access.role;
+  return withChannelManage(db, subject, channelId, async (tx, role) => {
     const targetRole = await channelMemberRole(tx, channelId, businessId);
     if (targetRole === null) return { kind: 'not_found', target: 'member' };
     if (targetRole === 'owner' && role !== 'owner') {
@@ -482,10 +485,7 @@ export async function addAgentBinding(
   | { kind: 'forbidden'; reason: 'channel_role' }
   | { kind: 'conflict'; reason: 'binding_exists' }
 > {
-  return db.transaction(async (tx) => {
-    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
-    const access = await requireManageRole(tx, channelId, subject.businessId);
-    if (access.kind !== 'ok') return access;
+  return withChannelManage(db, subject, channelId, async (tx) => {
     const [agent] = await tx
       .select({ id: agents.id })
       .from(agents)
@@ -528,10 +528,7 @@ export async function updateAgentBinding(
   | NotFound
   | { kind: 'forbidden'; reason: 'channel_role' }
 > {
-  return db.transaction(async (tx) => {
-    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
-    const access = await requireManageRole(tx, channelId, subject.businessId);
-    if (access.kind !== 'ok') return access;
+  return withChannelManage(db, subject, channelId, async (tx) => {
     const [binding] = await tx
       .update(channelAgentBindings)
       .set({ autoWakeOnAll: input.autoWakeOnAll })
@@ -557,10 +554,7 @@ export async function removeAgentBinding(
   | NotFound
   | { kind: 'forbidden'; reason: 'channel_role' }
 > {
-  return db.transaction(async (tx) => {
-    if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
-    const access = await requireManageRole(tx, channelId, subject.businessId);
-    if (access.kind !== 'ok') return access;
+  return withChannelManage(db, subject, channelId, async (tx) => {
     const [removed] = await tx
       .delete(channelAgentBindings)
       .where(
