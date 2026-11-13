@@ -11,7 +11,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
-import { parseInitialCursor } from './source-utils.js';
+import { parseInitialCursor, snapshotOf } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -1017,13 +1017,7 @@ export async function readNotion(
     }
   }
 
-  return {
-    items: ctx.items,
-    ...(ctx.failures.length > 0 ? { failures: ctx.failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    // 任一页面/附件/查询不完整都不能证明全集，删除推导据此关闭。
-    complete: ctx.failures.length === 0,
-  };
+  return snapshotOf(ctx.items, ctx.failures, previous);
 }
 
 /** 只核选定对象的 metadata；不遍历、不推进游标、不下载附件。 */

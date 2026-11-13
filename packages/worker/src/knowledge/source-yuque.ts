@@ -7,7 +7,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
-import { encodePathSegments, parseInitialCursor } from './source-utils.js';
+import { encodePathSegments, parseInitialCursor, snapshotOf } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -288,12 +288,7 @@ export async function readYuque(
     }
   }
 
-  return {
-    items,
-    ...(failures.length > 0 ? { failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    complete: failures.length === 0,
-  };
+  return snapshotOf(items, failures, previous);
 }
 
 /** 只核 token 与选定 repo 的可读性；不拉详情、不推进游标。 */

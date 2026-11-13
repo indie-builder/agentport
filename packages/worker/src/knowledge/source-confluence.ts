@@ -13,7 +13,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, trimSlash, uniquePath } from './source-paths.js';
-import { parseInitialCursor } from './source-utils.js';
+import { parseInitialCursor, snapshotOf } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -977,12 +977,7 @@ export async function readConfluence(
     }
   }
 
-  return {
-    items,
-    ...(failures.length > 0 ? { failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    complete: failures.length === 0,
-  };
+  return snapshotOf(items, failures, previous);
 }
 
 export async function probeConfluence(
