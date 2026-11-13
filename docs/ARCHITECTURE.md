@@ -90,7 +90,7 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 | `use-cases.ts` | 仅真实多步编排才存在 |
 | `http.ts` | 原生 HTTP 边界：auth、MCP、SSE、文件与 ZIP |
 | `access.ts` | 域内对象级授权 |
-| `write.ts` / `api.ts` / `service.ts` | 写入/映射辅助：row↔wire 投影与写入映射；现状三种命名并存，职责相同，后续可统一 |
+| `write.ts` / `api.ts` / `service.ts` | 命名并存的辅助文件，职责不同：`agents/write.ts` 只做输入→写入映射；`api.ts` 兼做 row↔wire 投影与写入映射；`knowledge/service.ts` 还承载 blob 存储与队列副作用；其他映射位置包括 `servers/repo.ts.toApiServer` 与 `agents/use-cases.ts.toWrite` |
 
 单文件软上限约 500 行；超出时按子域拆分为目录并用 `index.ts`/同名 barrel 保持对外入口不变。
 

@@ -263,9 +263,9 @@ export function validateMemoryContent(name: string, content: string): string | n
   return null;
 }
 
-export const memoryReviewDecisionSchema = z.enum(['pending', 'applied', 'rejected']);
+export const memoryReviewDecisionValueSchema = z.enum(['pending', 'applied', 'rejected']);
 
-export type MemoryReviewDecision = z.infer<typeof memoryReviewDecisionSchema>;
+export type MemoryReviewDecision = z.infer<typeof memoryReviewDecisionValueSchema>;
 
 /** 变更只会在事务提交时落账，不存在 prepared 中间态。 */
 export const memoryChangeStateSchema = z.literal('applied');
@@ -277,7 +277,7 @@ export const memoryReviewSchema = z.object({
   modelAgentId: z.string(),
   target: memoryReviewTargetSchema,
   status: runStatusSchema,
-  decision: memoryReviewDecisionSchema,
+  decision: memoryReviewDecisionValueSchema,
   sources: z.array(
     z.object({
       conversationId: z.string(),
