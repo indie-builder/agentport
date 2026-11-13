@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import type { HttpEnv } from '../../http/context.js';
-import { requestContext } from '../../http/context.js';
+import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { loadReadableConversation } from './access.js';
@@ -17,14 +17,15 @@ export function registerChatAttachmentsHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'conversations.read' }),
     async (c) => {
       const context = requestContext(c);
-      const input = z
-        .object({
+      const input = parseRequest(
+        c,
+        z.object({
           params: z.object({
             id: z.string().min(1),
             attachmentId: z.string().min(1),
           }),
-        })
-        .parse({ params: c.req.param(), query: c.req.query() });
+        }),
+      );
       const conversation = await loadReadableConversation(context, input.params.id);
       const attachment = await repo.chat.findConversationAttachment(
         context.db,

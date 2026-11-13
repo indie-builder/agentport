@@ -7,7 +7,7 @@ import type { Hono } from 'hono';
 import { z } from 'zod';
 import { accessFilter, actorOf } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
-import { requestContext } from '../../http/context.js';
+import { parseRequest, requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { toIso } from '../../lib/iso.js';
@@ -174,11 +174,12 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'runs.export' }),
     async (c) => {
       const context = requestContext(c);
-      const input = z
-        .object({
+      const input = parseRequest(
+        c,
+        z.object({
           query: runExportQuerySchema,
-        })
-        .parse({ params: c.req.param(), query: c.req.query() });
+        }),
+      );
       const { agentId, status, trigger, limit } = input.query;
       const items = await runsRepo.listRuns(context.db, {
         ...(agentId === undefined ? {} : { agentId }),

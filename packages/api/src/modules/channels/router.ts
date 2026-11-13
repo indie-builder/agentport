@@ -20,7 +20,7 @@ import { type SSEStreamingApi, streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { actorOf, authorize, authorizeObject, requireUser } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
-import { requestContext } from '../../http/context.js';
+import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
 import {
@@ -495,9 +495,7 @@ const channelsMainRouter = {
 export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDependencies): void {
   app.get('/api/channels/:id/events', access({ kind: 'authenticated' }), async (c) => {
     const context = requestContext(c);
-    const input = z
-      .object({ params: idParams, query: channelEventsQuerySchema })
-      .parse({ params: c.req.param(), query: c.req.query() });
+    const input = parseRequest(c, z.object({ params: idParams, query: channelEventsQuerySchema }));
     const { id } = input.params;
     const subject = subjectFor(context);
     const readAccess = await channelRepo.getChannelReadAccess(context.db, subject, id);
