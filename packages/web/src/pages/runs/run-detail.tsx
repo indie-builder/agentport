@@ -1,6 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, CircleAlert, CircleStop, RotateCcw, Sparkles } from 'lucide-react';
+import {
+  ArrowLeft,
+  CircleAlert,
+  CircleStop,
+  ClipboardList,
+  RotateCcw,
+  Sparkles,
+} from 'lucide-react';
 import { useRef } from 'react';
 import { CopyButton } from '../../components/copy-button.js';
 import { Metric } from '../../components/metric-label.js';
@@ -31,6 +38,7 @@ import {
   meQuery,
   useApproveRun,
   useCancelRun,
+  useCreateEvalCaseFromRun,
   useDenyRun,
   useRerun,
   useRun,
@@ -56,6 +64,7 @@ export function RunDetailPage() {
   const canApprove = can(me.data, 'runs.approve');
   const canAnswer = can(me.data, 'runs.questions.answer');
   const canRerun = can(me.data, 'conversations.create');
+  const canEval = can(me.data, 'eval.manage');
   const navigate = useNavigate();
   // 状态尚未读取或仍在排队时也轮询，终态转换负责最后刷新。
   const status = run.data?.run.status;
@@ -162,6 +171,15 @@ export function RunDetailPage() {
     });
   };
 
+  const evalCaseMutation = useCreateEvalCaseFromRun();
+  const saveAsEvalCase = (): void => {
+    if (!run.data) return;
+    evalCaseMutation.mutate(run.data.run.id, {
+      onSuccess: (evalCase) => toastSuccess(`已生成评估用例「${evalCase.name}」`),
+      onError: (error) => toastError(error),
+    });
+  };
+
   const cancel = (): void => {
     if (!run.data) return;
     cancelMutation.mutate(run.data.run.id, {
@@ -231,6 +249,17 @@ export function RunDetailPage() {
               >
                 <Sparkles data-icon="inline-start" aria-hidden="true" />
                 {draftMutation.isPending ? '生成中…' : '存为技能'}
+              </Button>
+            ) : null}
+            {terminal && hasPrompt && canEval ? (
+              <Button
+                variant="outline"
+                disabled={evalCaseMutation.isPending}
+                aria-busy={evalCaseMutation.isPending}
+                onClick={saveAsEvalCase}
+              >
+                <ClipboardList data-icon="inline-start" aria-hidden="true" />
+                {evalCaseMutation.isPending ? '生成中…' : '存为评估用例'}
               </Button>
             ) : null}
           </>
