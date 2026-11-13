@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
-import { fail, isAppError } from '@agentport/core';
+import { fail, isAppError, sha256Hex } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
@@ -58,7 +57,7 @@ function canonical(value: unknown): string {
 }
 
 function requestHash(input: unknown): string {
-  return createHash('sha256').update(canonical(input)).digest('hex');
+  return sha256Hex(canonical(input));
 }
 
 async function messagesInSource(

@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { chmod, lstat, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fail } from '@agentport/core';
+import { fail, sha256Hex } from '@agentport/core';
 import { hasErrorCode, type MemoryReviewTarget, memoryFileNameSchema } from '@agentport/shared';
 import { z } from 'zod';
 import { withMemoryJournalDir } from '../agents/memory-files.js';
@@ -49,11 +49,11 @@ export type MemoryJournalEntry = z.infer<typeof journalSchema>;
 
 /** 缺失文件用 null 参与比较，与空文件区分开。 */
 export function memorySha256(content: string | null): string | null {
-  return content === null ? null : createHash('sha256').update(content, 'utf8').digest('hex');
+  return content === null ? null : sha256Hex(content);
 }
 
 export function bufferSha256(content: Buffer | null): string | null {
-  return content === null ? null : createHash('sha256').update(content).digest('hex');
+  return content === null ? null : sha256Hex(content);
 }
 
 function journalName(operationId: string): string {

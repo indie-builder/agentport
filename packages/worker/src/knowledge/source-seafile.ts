@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '@agentport/core';
 import { z } from 'zod';
 import { extensionOf, mimeOf } from './source-formats.js';
 import {
@@ -94,7 +94,7 @@ function absolutePath(relative: string): string {
 }
 
 function pathHash(relative: string): string {
-  return createHash('sha256').update(absolutePath(relative), 'utf8').digest('hex');
+  return sha256Hex(absolutePath(relative));
 }
 
 function fileExternalId(repoId: string, relative: string): string {
