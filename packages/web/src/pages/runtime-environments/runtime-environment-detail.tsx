@@ -16,9 +16,9 @@ import {
 } from 'lucide-react';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { DialogShell } from '../components/dialog-shell.js';
-import { FilterSelect } from '../components/filter-select.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { DialogShell } from '../../components/dialog-shell.js';
+import { FilterSelect } from '../../components/filter-select.js';
 import {
   Page,
   PageBody,
@@ -26,20 +26,20 @@ import {
   PageNote,
   PageSection,
   PageTopbar,
-} from '../components/page.js';
-import { ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
-import { Dialog } from '../components/ui/dialog.js';
+} from '../../components/page.js';
+import { ErrorState, LoadingState } from '../../components/states.js';
+import { Badge } from '../../components/ui/badge.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Dialog } from '../../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '../components/ui/dropdown-menu.js';
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
+} from '../../components/ui/dropdown-menu.js';
+import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import { Input } from '../../components/ui/input.js';
 import {
   Table,
   TableBody,
@@ -47,10 +47,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '../components/ui/table.js';
-import { Textarea } from '../components/ui/textarea.js';
-import { useFormBlocker } from '../lib/form.js';
-import { formatRelative, shortId } from '../lib/format.js';
+} from '../../components/ui/table.js';
+import { Textarea } from '../../components/ui/textarea.js';
+import { useFormBlocker } from '../../lib/form.js';
+import { formatRelative, shortId } from '../../lib/format.js';
 import {
   useBuildRuntimeEnvironment,
   useDeleteRuntimeEnvironment,
@@ -59,9 +59,9 @@ import {
   useRuntimeEnvironmentVersion,
   useRuntimeEnvironmentVersions,
   useUpdateRuntimeEnvironment,
-} from '../lib/queries.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
-import { useZodForm } from '../lib/use-zod-form.js';
+} from '../../lib/queries.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 
 type BuildStatus = RuntimeEnvironmentVersionStatus;
 

@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReaderToolbar } from '../src/components/reader-toolbar.js';
 import { NotFoundPage } from '../src/pages/not-found.js';
-import { PluginDetailPage } from '../src/pages/plugin-detail.js';
+import { PluginDetailPage } from '../src/pages/plugins/plugin-detail.js';
 
 const state = vi.hoisted(() => ({
   search: {} as Record<string, string | undefined>,

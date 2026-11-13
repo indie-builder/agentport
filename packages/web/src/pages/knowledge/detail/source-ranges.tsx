@@ -1,8 +1,8 @@
 import { Plus, Trash2 } from 'lucide-react';
-import { RequiredMark } from '../../components/required-mark.js';
-import { Button } from '../../components/ui/button.js';
-import { Field, FieldDescription, FieldError, FieldLabel } from '../../components/ui/field.js';
-import { Input } from '../../components/ui/input.js';
+import { RequiredMark } from '../../../components/required-mark.js';
+import { Button } from '../../../components/ui/button.js';
+import { Field, FieldDescription, FieldError, FieldLabel } from '../../../components/ui/field.js';
+import { Input } from '../../../components/ui/input.js';
 import {
   Select,
   SelectContent,
@@ -10,8 +10,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../../components/ui/select.js';
-import { Switch } from '../../components/ui/switch.js';
+} from '../../../components/ui/select.js';
+import { Switch } from '../../../components/ui/switch.js';
 import {
   newRangeDraft,
   type RangeDraft,

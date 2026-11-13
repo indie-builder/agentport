@@ -11,8 +11,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type RunDetail, type RunListItem } from '../src/lib/api.js';
-import { RunDetailPage } from '../src/pages/run-detail.js';
-import { RunsPage } from '../src/pages/runs.js';
+import { RunDetailPage } from '../src/pages/runs/run-detail.js';
+import { RunsPage } from '../src/pages/runs/index.js';
 import {
   personalUsageSearchSchema,
   runDetailSearchSchema,

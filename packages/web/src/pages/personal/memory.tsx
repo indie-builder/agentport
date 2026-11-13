@@ -1,13 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { MemoryReviews, type MemoryReviewView } from '../components/memory/memory-review.js';
-import { PersonalMemoryPanel } from '../components/memory/personal-memory-panel.js';
-import { Page, PageBody, PageHeader, PageTopbar } from '../components/page.js';
-import { can } from '../lib/access.js';
-import { useFormBlocker } from '../lib/form.js';
-import { meQuery } from '../lib/queries.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { MemoryReviews, type MemoryReviewView } from '../../components/memory/memory-review.js';
+import { PersonalMemoryPanel } from '../../components/memory/personal-memory-panel.js';
+import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
+import { can } from '../../lib/access.js';
+import { useFormBlocker } from '../../lib/form.js';
+import { meQuery } from '../../lib/queries.js';
 
 export function PersonalMemoryPage() {
   const me = useQuery(meQuery);

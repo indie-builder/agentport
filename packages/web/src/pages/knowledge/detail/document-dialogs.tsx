@@ -3,20 +3,20 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
-import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { DialogShell } from '../../components/dialog-shell.js';
+import { ConfirmDialog } from '../../../components/confirm-dialog.js';
+import { DialogShell } from '../../../components/dialog-shell.js';
 import {
   DraftGuardDialogs,
   folderOptions,
   treeFolders,
   useDraftGuard,
-} from '../../components/knowledge/knowledge-shared.js';
-import { RequiredMark } from '../../components/required-mark.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
-import { Button } from '../../components/ui/button.js';
-import { Dialog } from '../../components/ui/dialog.js';
-import { Field, FieldGroup, FieldLabel } from '../../components/ui/field.js';
-import { Input } from '../../components/ui/input.js';
+} from '../../../components/knowledge/knowledge-shared.js';
+import { RequiredMark } from '../../../components/required-mark.js';
+import { ErrorState, InlineEmpty, LoadingState } from '../../../components/states.js';
+import { Button } from '../../../components/ui/button.js';
+import { Dialog } from '../../../components/ui/dialog.js';
+import { Field, FieldGroup, FieldLabel } from '../../../components/ui/field.js';
+import { Input } from '../../../components/ui/input.js';
 import {
   Select,
   SelectContent,
@@ -24,9 +24,9 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../../components/ui/select.js';
-import type { KnowledgeFolder, KnowledgeTag } from '../../lib/api.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+} from '../../../components/ui/select.js';
+import type { KnowledgeFolder, KnowledgeTag } from '../../../lib/api.js';
+import { guardedOpenChange } from '../../../lib/dialog-guard.js';
 import {
   useCreateKnowledgeFolder,
   useCreateKnowledgeTag,
@@ -35,9 +35,9 @@ import {
   useRenameKnowledgeTag,
   useUpdateKnowledgeDocument,
   useUpdateKnowledgeFolder,
-} from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
-import { useZodForm } from '../../lib/use-zod-form.js';
+} from '../../../lib/queries.js';
+import { toastError, toastSuccess } from '../../../lib/toast.js';
+import { useZodForm } from '../../../lib/use-zod-form.js';
 
 export function FolderDialog({
   baseId,

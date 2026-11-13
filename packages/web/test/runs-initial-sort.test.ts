@@ -11,7 +11,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type RunListItem, type RunStatus } from '../src/lib/api.js';
-import { RunsPage } from '../src/pages/runs.js';
+import { RunsPage } from '../src/pages/runs/index.js';
 
 function run(id: string, startedAt: string | null): RunListItem {
   return {

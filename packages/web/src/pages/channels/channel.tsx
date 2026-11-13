@@ -24,29 +24,29 @@ import {
   useRef,
   useState,
 } from 'react';
-import { AgentAvatar, type AgentDisplay } from '../components/agent/agent-avatar.js';
-import { ChannelRunSheet } from '../components/channel/channel-run-sheet.js';
-import { ChannelSettingsButton } from '../components/channel/channel-settings.js';
-import { Composer, MessagePane } from '../components/chat/chat-thread.js';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
-import { RunQuestionCard } from '../components/run/run-question.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
-import { Button } from '../components/ui/button.js';
-import { authenticated, can } from '../lib/access.js';
-import { api, type ChannelApproval } from '../lib/api.js';
+import { AgentAvatar, type AgentDisplay } from '../../components/agent/agent-avatar.js';
+import { ChannelRunSheet } from '../../components/channel/channel-run-sheet.js';
+import { ChannelSettingsButton } from '../../components/channel/channel-settings.js';
+import { Composer, MessagePane } from '../../components/chat/chat-thread.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../../components/page.js';
+import { RunQuestionCard } from '../../components/run/run-question.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
+import { Badge } from '../../components/ui/badge.js';
+import { Button } from '../../components/ui/button.js';
+import { authenticated, can } from '../../lib/access.js';
+import { api, type ChannelApproval } from '../../lib/api.js';
 import {
   applyMention,
   mentionQueryAt,
   mergeChannelMessages,
   pruneMentions,
   visibleReadSeq,
-} from '../lib/channel-state.js';
-import type { ChatItem } from '../lib/chat-state.js';
-import type { RunMetrics } from '../lib/chat-store.js';
-import { cn } from '../lib/cn.js';
-import { shortId } from '../lib/format.js';
+} from '../../lib/channel-state.js';
+import type { ChatItem } from '../../lib/chat-state.js';
+import type { RunMetrics } from '../../lib/chat-store.js';
+import { cn } from '../../lib/cn.js';
+import { shortId } from '../../lib/format.js';
 import {
   CHANNEL_MESSAGES_PAGE_SIZE,
   channelMessagesQuery,
@@ -60,9 +60,9 @@ import {
   useMarkChannelRead,
   useRespondToChannelQuestion,
   useStopChannelRun,
-} from '../lib/queries.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
-import { useChannelStream } from '../lib/use-channel-stream.js';
+} from '../../lib/queries.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useChannelStream } from '../../lib/use-channel-stream.js';
 
 const ROLE_LABEL: Record<ChannelRole, string> = {
   owner: '所有者',

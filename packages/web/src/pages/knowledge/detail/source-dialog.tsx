@@ -1,19 +1,19 @@
 import type { KnowledgeSourceInput } from '@agentport/shared';
 import { useState } from 'react';
-import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { DialogShell } from '../../components/dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../../components/knowledge/knowledge-shared.js';
-import { RequiredMark } from '../../components/required-mark.js';
-import { Button } from '../../components/ui/button.js';
-import { Dialog } from '../../components/ui/dialog.js';
+import { ConfirmDialog } from '../../../components/confirm-dialog.js';
+import { DialogShell } from '../../../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../../../components/knowledge/knowledge-shared.js';
+import { RequiredMark } from '../../../components/required-mark.js';
+import { Button } from '../../../components/ui/button.js';
+import { Dialog } from '../../../components/ui/dialog.js';
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '../../components/ui/field.js';
-import { Input } from '../../components/ui/input.js';
+} from '../../../components/ui/field.js';
+import { Input } from '../../../components/ui/input.js';
 import {
   Select,
   SelectContent,
@@ -21,13 +21,13 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../../components/ui/select.js';
-import { Switch } from '../../components/ui/switch.js';
-import type { KnowledgeSource } from '../../lib/api.js';
-import { cn } from '../../lib/cn.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
-import { useCreateKnowledgeSource, useUpdateKnowledgeSource } from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
+} from '../../../components/ui/select.js';
+import { Switch } from '../../../components/ui/switch.js';
+import type { KnowledgeSource } from '../../../lib/api.js';
+import { cn } from '../../../lib/cn.js';
+import { guardedOpenChange } from '../../../lib/dialog-guard.js';
+import { useCreateKnowledgeSource, useUpdateKnowledgeSource } from '../../../lib/queries.js';
+import { toastError, toastSuccess } from '../../../lib/toast.js';
 import {
   type AuthMode,
   authModeOptions,

@@ -2,44 +2,44 @@ import { type KnowledgeDocument, knowledgeAudioMetadataSchema } from '@agentport
 import { PanelLeftDashed, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
-import { CodeBlock } from '../../components/code-block.js';
-import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { DialogShell } from '../../components/dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
+import { CodeBlock } from '../../../components/code-block.js';
+import { ConfirmDialog } from '../../../components/confirm-dialog.js';
+import { DialogShell } from '../../../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../../../components/draft-guard.js';
 import {
   KnowledgeImage,
   stripImageReferences,
-} from '../../components/knowledge/knowledge-citations.js';
+} from '../../../components/knowledge/knowledge-citations.js';
 import {
   DocumentVersionPicker,
   ManualDraftDialog,
-} from '../../components/knowledge/knowledge-documents.js';
+} from '../../../components/knowledge/knowledge-documents.js';
 import {
   documentStatusLabel,
   documentStatusTone,
   isAudioMimeType,
   locatorLabel,
   versionLabel,
-} from '../../components/knowledge/knowledge-shared.js';
-import { Markdown } from '../../components/markdown.js';
-import { PageSection } from '../../components/page.js';
-import { ReaderToolbar } from '../../components/reader-toolbar.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
-import { StatusBadge } from '../../components/status-badge.js';
-import { Button } from '../../components/ui/button.js';
-import { Dialog } from '../../components/ui/dialog.js';
-import { Field, FieldError, FieldLabel } from '../../components/ui/field.js';
-import { Input } from '../../components/ui/input.js';
-import { Textarea } from '../../components/ui/textarea.js';
+} from '../../../components/knowledge/knowledge-shared.js';
+import { Markdown } from '../../../components/markdown.js';
+import { PageSection } from '../../../components/page.js';
+import { ReaderToolbar } from '../../../components/reader-toolbar.js';
+import { ErrorState, InlineEmpty, LoadingState } from '../../../components/states.js';
+import { StatusBadge } from '../../../components/status-badge.js';
+import { Button } from '../../../components/ui/button.js';
+import { Dialog } from '../../../components/ui/dialog.js';
+import { Field, FieldError, FieldLabel } from '../../../components/ui/field.js';
+import { Input } from '../../../components/ui/input.js';
+import { Textarea } from '../../../components/ui/textarea.js';
 import {
   api,
   errorMessage,
   type KnowledgeChunk,
   type KnowledgeVersionImage,
-} from '../../lib/api.js';
-import { cn } from '../../lib/cn.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
-import { formatRelative } from '../../lib/format.js';
+} from '../../../lib/api.js';
+import { cn } from '../../../lib/cn.js';
+import { guardedOpenChange } from '../../../lib/dialog-guard.js';
+import { formatRelative } from '../../../lib/format.js';
 import {
   useCreateKnowledgeChunk,
   useDeleteKnowledgeChunk,
@@ -50,9 +50,9 @@ import {
   usePublishKnowledgeDocumentVersion,
   useRollbackKnowledgeDocument,
   useUpdateKnowledgeChunk,
-} from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
-import { useZodForm } from '../../lib/use-zod-form.js';
+} from '../../../lib/queries.js';
+import { toastError, toastSuccess } from '../../../lib/toast.js';
+import { useZodForm } from '../../../lib/use-zod-form.js';
 
 // ---- 文档查看 -------------------------------------------------------------
 

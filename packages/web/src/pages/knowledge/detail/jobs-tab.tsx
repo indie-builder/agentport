@@ -1,14 +1,14 @@
 import type { KnowledgeJob } from '@agentport/shared';
-import { BusinessIllustration } from '../../components/business-illustration.js';
+import { BusinessIllustration } from '../../../components/business-illustration.js';
 import {
   jobStatusLabel,
   jobStatusTone,
   jobTypeLabel,
-} from '../../components/knowledge/knowledge-shared.js';
-import { PageNote } from '../../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
-import { StatusBadge } from '../../components/status-badge.js';
-import { Button } from '../../components/ui/button.js';
+} from '../../../components/knowledge/knowledge-shared.js';
+import { PageNote } from '../../../components/page.js';
+import { EmptyState, ErrorState, LoadingState } from '../../../components/states.js';
+import { StatusBadge } from '../../../components/status-badge.js';
+import { Button } from '../../../components/ui/button.js';
 import {
   Table,
   TableBody,
@@ -16,16 +16,16 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '../../components/ui/table.js';
-import { formatDateTime, formatDuration, formatRelative } from '../../lib/format.js';
-import { knowledgeJobErrorText } from '../../lib/knowledge-errors.js';
+} from '../../../components/ui/table.js';
+import { formatDateTime, formatDuration, formatRelative } from '../../../lib/format.js';
+import { knowledgeJobErrorText } from '../../../lib/knowledge-errors.js';
 import {
   knowledgeShouldPoll,
   useCancelKnowledgeJob,
   useKnowledgeJobs,
   useRetryKnowledgeJob,
-} from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
+} from '../../../lib/queries.js';
+import { toastError, toastSuccess } from '../../../lib/toast.js';
 
 // ---- 处理记录 -------------------------------------------------------------
 

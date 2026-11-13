@@ -9,18 +9,18 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Box, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { DialogShell } from '../components/dialog-shell.js';
-import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../components/page.js';
-import { RequiredMark } from '../components/required-mark.js';
-import { SearchInput } from '../components/search-input.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
-import { Button } from '../components/ui/button.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
-import { Dialog } from '../components/ui/dialog.js';
-import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { DialogShell } from '../../components/dialog-shell.js';
+import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../../components/page.js';
+import { RequiredMark } from '../../components/required-mark.js';
+import { SearchInput } from '../../components/search-input.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
+import { Badge } from '../../components/ui/badge.js';
+import { Button } from '../../components/ui/button.js';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
+import { Dialog } from '../../components/ui/dialog.js';
+import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import { Input } from '../../components/ui/input.js';
 import {
   Table,
   TableBody,
@@ -28,16 +28,16 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '../components/ui/table.js';
-import { Textarea } from '../components/ui/textarea.js';
-import { ViewToggle } from '../components/view-toggle.js';
-import { can } from '../lib/access.js';
-import { guardedOpenChange } from '../lib/dialog-guard.js';
-import { useFormBlocker } from '../lib/form.js';
-import { formatRelative, shortId } from '../lib/format.js';
-import { meQuery, useCreateRuntimeEnvironment, useRuntimeEnvironments } from '../lib/queries.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
-import { useZodForm } from '../lib/use-zod-form.js';
+} from '../../components/ui/table.js';
+import { Textarea } from '../../components/ui/textarea.js';
+import { ViewToggle } from '../../components/view-toggle.js';
+import { can } from '../../lib/access.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { useFormBlocker } from '../../lib/form.js';
+import { formatRelative, shortId } from '../../lib/format.js';
+import { meQuery, useCreateRuntimeEnvironment, useRuntimeEnvironments } from '../../lib/queries.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 
 export function RuntimeEnvironmentsPage() {
   const environments = useRuntimeEnvironments();

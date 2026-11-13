@@ -4,35 +4,35 @@ import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, Download, FolderOpen, PanelLeftDashed } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { BusinessIllustration } from '../components/business-illustration.js';
-import { CodeBlockCopyAllowed } from '../components/code-block.js';
+import { BusinessIllustration } from '../../components/business-illustration.js';
+import { CodeBlockCopyAllowed } from '../../components/code-block.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '../components/motion-collapsible.js';
-import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../components/page.js';
+} from '../../components/motion-collapsible.js';
+import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../../components/page.js';
 import {
   isPluginMarkdown,
   PluginDocument,
   pluginFileTitle,
-} from '../components/plugin/plugin-document.js';
-import { PluginFileTree } from '../components/plugin/plugin-file-tree.js';
-import { ReaderToolbar } from '../components/reader-toolbar.js';
-import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
+} from '../../components/plugin/plugin-document.js';
+import { PluginFileTree } from '../../components/plugin/plugin-file-tree.js';
+import { ReaderToolbar } from '../../components/reader-toolbar.js';
+import { EmptyState, ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
+import { Badge } from '../../components/ui/badge.js';
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from '../components/ui/breadcrumb.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
-import { ApiError } from '../lib/api.js';
-import { usePlugin } from '../lib/queries.js';
-import { useMediaQuery } from '../lib/use-media-query.js';
+} from '../../components/ui/breadcrumb.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
+import { ApiError } from '../../lib/api.js';
+import { usePlugin } from '../../lib/queries.js';
+import { useMediaQuery } from '../../lib/use-media-query.js';
 
 type Mode = 'read' | 'source';
 type Tab = 'intro' | 'content';

@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Hash, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { DialogShell } from '../components/dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge/knowledge-shared.js';
+import { DialogShell } from '../../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../../components/knowledge/knowledge-shared.js';
 import {
   Page,
   PageBody,
@@ -12,20 +12,20 @@ import {
   PageNote,
   PageSection,
   PageTopbar,
-} from '../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
-import { Button } from '../components/ui/button.js';
+} from '../../components/page.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
+import { Badge } from '../../components/ui/badge.js';
+import { Button } from '../../components/ui/button.js';
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '../components/ui/card.js';
-import { Dialog } from '../components/ui/dialog.js';
-import { Field, FieldError, FieldLabel } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
+} from '../../components/ui/card.js';
+import { Dialog } from '../../components/ui/dialog.js';
+import { Field, FieldError, FieldLabel } from '../../components/ui/field.js';
+import { Input } from '../../components/ui/input.js';
 import {
   Table,
   TableBody,
@@ -33,16 +33,16 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '../components/ui/table.js';
-import { Textarea } from '../components/ui/textarea.js';
-import { type ListView, ViewToggle } from '../components/view-toggle.js';
-import { can } from '../lib/access.js';
-import { cn } from '../lib/cn.js';
-import { guardedOpenChange } from '../lib/dialog-guard.js';
-import { formatRelative } from '../lib/format.js';
-import { meQuery, useChannels, useCreateChannel } from '../lib/queries.js';
-import { toastError } from '../lib/toast.js';
-import { useZodForm } from '../lib/use-zod-form.js';
+} from '../../components/ui/table.js';
+import { Textarea } from '../../components/ui/textarea.js';
+import { type ListView, ViewToggle } from '../../components/view-toggle.js';
+import { can } from '../../lib/access.js';
+import { cn } from '../../lib/cn.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { formatRelative } from '../../lib/format.js';
+import { meQuery, useChannels, useCreateChannel } from '../../lib/queries.js';
+import { toastError } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 
 export function ChannelsPage() {
   const me = useQuery(meQuery);

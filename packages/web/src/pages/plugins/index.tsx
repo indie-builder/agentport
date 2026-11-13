@@ -18,29 +18,29 @@ import {
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { BusinessIllustration } from '../components/business-illustration.js';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { DialogShell } from '../components/dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
-import { PageNote } from '../components/page.js';
-import { RequiredMark } from '../components/required-mark.js';
-import { ResourcePage } from '../components/resource-page.js';
-import { ErrorState, InlineEmpty, LoadingState } from '../components/states.js';
-import { Badge } from '../components/ui/badge.js';
-import { Button } from '../components/ui/button.js';
-import { Dialog } from '../components/ui/dialog.js';
+import { BusinessIllustration } from '../../components/business-illustration.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { DialogShell } from '../../components/dialog-shell.js';
+import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
+import { PageNote } from '../../components/page.js';
+import { RequiredMark } from '../../components/required-mark.js';
+import { ResourcePage } from '../../components/resource-page.js';
+import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
+import { Badge } from '../../components/ui/badge.js';
+import { Button } from '../../components/ui/button.js';
+import { Dialog } from '../../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '../components/ui/dropdown-menu.js';
-import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
-import { can } from '../lib/access.js';
-import { guardedOpenChange } from '../lib/dialog-guard.js';
+} from '../../components/ui/dropdown-menu.js';
+import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import { Input } from '../../components/ui/input.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
+import { can } from '../../lib/access.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import {
   meQuery,
   useDeletePlugin,
@@ -50,11 +50,11 @@ import {
   useNativePlugins,
   usePlugins,
   useUpdatePlugin,
-} from '../lib/queries.js';
-import { matchesQuery } from '../lib/search.js';
-import { compareBySort } from '../lib/sort.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
-import { useZodForm } from '../lib/use-zod-form.js';
+} from '../../lib/queries.js';
+import { matchesQuery } from '../../lib/search.js';
+import { compareBySort } from '../../lib/sort.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 
 const maxPluginBytes = 4_194_304;
 

@@ -3,12 +3,12 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { KeyRound } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { z } from 'zod';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '../components/motion-collapsible.js';
+} from '../../components/motion-collapsible.js';
 import {
   Page,
   PageBody,
@@ -16,25 +16,25 @@ import {
   PageNote,
   PageSection,
   PageTopbar,
-} from '../components/page.js';
-import { ErrorState, LoadingState } from '../components/states.js';
-import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card.js';
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
-import { type ListView, ViewToggle } from '../components/view-toggle.js';
-import { ApiError, errorMessage } from '../lib/api.js';
-import { formatDateTime } from '../lib/format.js';
+} from '../../components/page.js';
+import { ErrorState, LoadingState } from '../../components/states.js';
+import { StatusBadge } from '../../components/status-badge.js';
+import { Button } from '../../components/ui/button.js';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
+import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import { Input } from '../../components/ui/input.js';
+import { type ListView, ViewToggle } from '../../components/view-toggle.js';
+import { ApiError, errorMessage } from '../../lib/api.js';
+import { formatDateTime } from '../../lib/format.js';
 import {
   clearSessionQueries,
   logoutAccount,
   useChangePassword,
   usePersonalSessions,
   useRevokePersonalSession,
-} from '../lib/queries.js';
-import { toastSuccess } from '../lib/toast.js';
-import { useZodForm } from '../lib/use-zod-form.js';
+} from '../../lib/queries.js';
+import { toastSuccess } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 
 const passwordFormSchema = z
   .object({

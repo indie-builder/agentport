@@ -1,23 +1,23 @@
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
-import { DialogShell } from '../../components/dialog-shell.js';
+import { DialogShell } from '../../../components/dialog-shell.js';
 import {
   DraftGuardDialogs,
   folderOptions,
   useDraftGuard,
-} from '../../components/knowledge/knowledge-shared.js';
-import { RequiredMark } from '../../components/required-mark.js';
-import { SourceEditor } from '../../components/source-editor.js';
-import { Button } from '../../components/ui/button.js';
-import { Dialog } from '../../components/ui/dialog.js';
+} from '../../../components/knowledge/knowledge-shared.js';
+import { RequiredMark } from '../../../components/required-mark.js';
+import { SourceEditor } from '../../../components/source-editor.js';
+import { Button } from '../../../components/ui/button.js';
+import { Dialog } from '../../../components/ui/dialog.js';
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '../../components/ui/field.js';
-import { Input } from '../../components/ui/input.js';
+} from '../../../components/ui/field.js';
+import { Input } from '../../../components/ui/input.js';
 import {
   Select,
   SelectContent,
@@ -25,12 +25,12 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../../components/ui/select.js';
-import type { KnowledgeFolder } from '../../lib/api.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
-import { useCreateKnowledgeManualDocument, useImportKnowledgeUrl } from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
-import { useZodForm } from '../../lib/use-zod-form.js';
+} from '../../../components/ui/select.js';
+import type { KnowledgeFolder } from '../../../lib/api.js';
+import { guardedOpenChange } from '../../../lib/dialog-guard.js';
+import { useCreateKnowledgeManualDocument, useImportKnowledgeUrl } from '../../../lib/queries.js';
+import { toastError, toastSuccess } from '../../../lib/toast.js';
+import { useZodForm } from '../../../lib/use-zod-form.js';
 
 /** 手写正文 / 网址导入共用文件夹选择；默认落在当前浏览的文件夹。 */
 function ImportFolderField({

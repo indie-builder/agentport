@@ -13,7 +13,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { shortId } from '../src/lib/format.js';
-import { PersonalUsagePage } from '../src/pages/personal-usage.js';
+import { PersonalUsagePage } from '../src/pages/personal/usage.js';
 import { personalUsageSearchSchema } from '../src/routes/-search.js';
 
 function meWith(permissionIds: PermissionId[]): AuthMe {

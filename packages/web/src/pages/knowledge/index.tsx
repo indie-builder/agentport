@@ -18,44 +18,44 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { DialogShell } from '../components/dialog-shell.js';
-import { FilterSelect } from '../components/filter-select.js';
-import { BaseInfoDialog } from '../components/knowledge/knowledge-base-info.js';
-import { DuplicateBaseDialog } from '../components/knowledge/knowledge-duplicate-dialog.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { DialogShell } from '../../components/dialog-shell.js';
+import { FilterSelect } from '../../components/filter-select.js';
+import { BaseInfoDialog } from '../../components/knowledge/knowledge-base-info.js';
+import { DuplicateBaseDialog } from '../../components/knowledge/knowledge-duplicate-dialog.js';
 import {
   KnowledgeProfilesDialog,
   KnowledgeSettingsDialog,
-} from '../components/knowledge/knowledge-settings.js';
-import { DraftGuardDialogs, useDraftGuard } from '../components/knowledge/knowledge-shared.js';
+} from '../../components/knowledge/knowledge-settings.js';
+import { DraftGuardDialogs, useDraftGuard } from '../../components/knowledge/knowledge-shared.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '../components/motion-collapsible.js';
-import { PageNote } from '../components/page.js';
-import { RequiredMark } from '../components/required-mark.js';
-import { ResourcePage } from '../components/resource-page.js';
-import { ErrorState, LoadingState } from '../components/states.js';
-import { StatusBadge } from '../components/status-badge.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
-import { Checkbox } from '../components/ui/checkbox.js';
-import { Dialog } from '../components/ui/dialog.js';
+} from '../../components/motion-collapsible.js';
+import { PageNote } from '../../components/page.js';
+import { RequiredMark } from '../../components/required-mark.js';
+import { ResourcePage } from '../../components/resource-page.js';
+import { ErrorState, LoadingState } from '../../components/states.js';
+import { StatusBadge } from '../../components/status-badge.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Checkbox } from '../../components/ui/checkbox.js';
+import { Dialog } from '../../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '../components/ui/dropdown-menu.js';
+} from '../../components/ui/dropdown-menu.js';
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
+} from '../../components/ui/field.js';
+import { Input } from '../../components/ui/input.js';
 import {
   Select,
   SelectContent,
@@ -63,14 +63,14 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../components/ui/select.js';
-import { Textarea } from '../components/ui/textarea.js';
-import { can } from '../lib/access.js';
-import { errorMessage } from '../lib/api.js';
-import { downloadBlob } from '../lib/browser-files.js';
-import { cn } from '../lib/cn.js';
-import { guardedOpenChange } from '../lib/dialog-guard.js';
-import { formatDateTime, formatRelative } from '../lib/format.js';
+} from '../../components/ui/select.js';
+import { Textarea } from '../../components/ui/textarea.js';
+import { can } from '../../lib/access.js';
+import { errorMessage } from '../../lib/api.js';
+import { downloadBlob } from '../../lib/browser-files.js';
+import { cn } from '../../lib/cn.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { formatDateTime, formatRelative } from '../../lib/format.js';
 import {
   meQuery,
   useAgents,
@@ -84,12 +84,12 @@ import {
   useKnowledgeModelProfileSelections,
   useSetKnowledgeBasePin,
   useUpdateKnowledgeBase,
-} from '../lib/queries.js';
-import { matchesQuery } from '../lib/search.js';
-import { slugFromName } from '../lib/slug.js';
-import { compareBySort } from '../lib/sort.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
-import { useZodForm } from '../lib/use-zod-form.js';
+} from '../../lib/queries.js';
+import { matchesQuery } from '../../lib/search.js';
+import { slugFromName } from '../../lib/slug.js';
+import { compareBySort } from '../../lib/sort.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 
 const baseFormSchema = z.object({
   // 留空表示按名称自动生成；显式填写时仍沿用原有格式约束。

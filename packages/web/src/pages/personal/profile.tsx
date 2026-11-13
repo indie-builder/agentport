@@ -2,22 +2,22 @@ import { updatePersonalProfileInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '../components/motion-collapsible.js';
-import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../components/page.js';
-import { Button } from '../components/ui/button.js';
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
-import { Input } from '../components/ui/input.js';
-import { authenticated } from '../lib/access.js';
-import { errorMessage } from '../lib/api.js';
-import { useFormBlocker } from '../lib/form.js';
-import { meQuery, useUpdatePersonalProfile } from '../lib/queries.js';
-import { toastSuccess } from '../lib/toast.js';
-import { useZodForm } from '../lib/use-zod-form.js';
+} from '../../components/motion-collapsible.js';
+import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
+import { Button } from '../../components/ui/button.js';
+import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import { Input } from '../../components/ui/input.js';
+import { authenticated } from '../../lib/access.js';
+import { errorMessage } from '../../lib/api.js';
+import { useFormBlocker } from '../../lib/form.js';
+import { meQuery, useUpdatePersonalProfile } from '../../lib/queries.js';
+import { toastSuccess } from '../../lib/toast.js';
+import { useZodForm } from '../../lib/use-zod-form.js';
 
 // 短字段统一 448px；横向标签列 96px，值列与表单、提交按钮共用同一轴线。
 const FIELD_VALUE = 'flex w-full min-w-0 max-w-112 flex-1 flex-col gap-1.5';

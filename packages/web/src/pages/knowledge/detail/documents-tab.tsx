@@ -14,10 +14,10 @@ import {
   Upload,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { BusinessIllustration } from '../../components/business-illustration.js';
-import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { FilterSelect } from '../../components/filter-select.js';
-import { BatchActionDialog } from '../../components/knowledge/knowledge-documents.js';
+import { BusinessIllustration } from '../../../components/business-illustration.js';
+import { ConfirmDialog } from '../../../components/confirm-dialog.js';
+import { FilterSelect } from '../../../components/filter-select.js';
+import { BatchActionDialog } from '../../../components/knowledge/knowledge-documents.js';
 import {
   AUDIO_MAX_BYTES,
   documentStatusLabel,
@@ -25,20 +25,20 @@ import {
   isAudioUpload,
   parseKnowledgeDocumentStatusFilter,
   treeFolders,
-} from '../../components/knowledge/knowledge-shared.js';
-import { PageNote, PageToolbar } from '../../components/page.js';
-import { SearchInput } from '../../components/search-input.js';
-import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
-import { StatusBadge } from '../../components/status-badge.js';
-import { Button } from '../../components/ui/button.js';
-import { Checkbox } from '../../components/ui/checkbox.js';
+} from '../../../components/knowledge/knowledge-shared.js';
+import { PageNote, PageToolbar } from '../../../components/page.js';
+import { SearchInput } from '../../../components/search-input.js';
+import { EmptyState, ErrorState, LoadingState } from '../../../components/states.js';
+import { StatusBadge } from '../../../components/status-badge.js';
+import { Button } from '../../../components/ui/button.js';
+import { Checkbox } from '../../../components/ui/checkbox.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '../../components/ui/dropdown-menu.js';
+} from '../../../components/ui/dropdown-menu.js';
 import {
   Table,
   TableBody,
@@ -46,12 +46,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '../../components/ui/table.js';
-import type { KnowledgeFolder } from '../../lib/api.js';
-import { readFileBase64 } from '../../lib/browser-files.js';
-import { cn } from '../../lib/cn.js';
-import { useFormBlocker } from '../../lib/form.js';
-import { formatDateTime, formatRelative } from '../../lib/format.js';
+} from '../../../components/ui/table.js';
+import type { KnowledgeFolder } from '../../../lib/api.js';
+import { readFileBase64 } from '../../../lib/browser-files.js';
+import { cn } from '../../../lib/cn.js';
+import { useFormBlocker } from '../../../lib/form.js';
+import { formatDateTime, formatRelative } from '../../../lib/format.js';
 import {
   knowledgeShouldPoll,
   useDeleteKnowledgeDocument,
@@ -62,9 +62,9 @@ import {
   useKnowledgeTags,
   useReprocessKnowledgeDocument,
   useUploadKnowledgeDocument,
-} from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
-import { useDebouncedValue } from '../../lib/use-debounced-value.js';
+} from '../../../lib/queries.js';
+import { toastError, toastSuccess } from '../../../lib/toast.js';
+import { useDebouncedValue } from '../../../lib/use-debounced-value.js';
 import { DocumentDialog, FolderDialog, TagDialog } from './document-dialogs.js';
 import { ManualDocumentDialog, UrlImportDialog } from './document-imports.js';
 import { DocumentViewer } from './document-viewer.js';

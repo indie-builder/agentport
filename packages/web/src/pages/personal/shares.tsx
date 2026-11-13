@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';
-import { BusinessIllustration } from '../components/business-illustration.js';
-import { ConfirmDialog } from '../components/confirm-dialog.js';
-import { CopyButton } from '../components/copy-button.js';
-import { type DataColumn, DataTable } from '../components/data-table.js';
+import { BusinessIllustration } from '../../components/business-illustration.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { CopyButton } from '../../components/copy-button.js';
+import { type DataColumn, DataTable } from '../../components/data-table.js';
 import {
   Page,
   PageBody,
@@ -14,18 +14,18 @@ import {
   PageNote,
   PageToolbar,
   PageTopbar,
-} from '../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card.js';
-import { FieldError } from '../components/ui/field.js';
-import { type ListView, ViewToggle } from '../components/view-toggle.js';
-import { can } from '../lib/access.js';
-import { errorMessage } from '../lib/api.js';
-import { cn } from '../lib/cn.js';
-import { formatDateTime } from '../lib/format.js';
-import { meQuery, usePersonalOutputShares, useRevokePersonalOutputShare } from '../lib/queries.js';
-import { toastSuccess } from '../lib/toast.js';
+} from '../../components/page.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
+import { FieldError } from '../../components/ui/field.js';
+import { type ListView, ViewToggle } from '../../components/view-toggle.js';
+import { can } from '../../lib/access.js';
+import { errorMessage } from '../../lib/api.js';
+import { cn } from '../../lib/cn.js';
+import { formatDateTime } from '../../lib/format.js';
+import { meQuery, usePersonalOutputShares, useRevokePersonalOutputShare } from '../../lib/queries.js';
+import { toastSuccess } from '../../lib/toast.js';
 
 function shareLink(share: PersonalOutputShare): string {
   return `${window.location.origin}${share.urlPath}`;

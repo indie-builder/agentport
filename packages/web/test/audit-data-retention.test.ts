@@ -20,7 +20,7 @@ import {
 } from '../src/lib/api.js';
 import { EvalPage } from '../src/pages/eval.js';
 import { RunTrendCard } from '../src/pages/overview.js';
-import { RunsPage } from '../src/pages/runs.js';
+import { RunsPage } from '../src/pages/runs/index.js';
 import { evalSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));

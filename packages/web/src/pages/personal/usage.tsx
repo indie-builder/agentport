@@ -4,8 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { type DataColumn, DataTable } from '../components/data-table.js';
-import { FilterSelect } from '../components/filter-select.js';
+import { type DataColumn, DataTable } from '../../components/data-table.js';
+import { FilterSelect } from '../../components/filter-select.js';
 import {
   Page,
   PageBody,
@@ -14,10 +14,10 @@ import {
   PageSection,
   PageToolbar,
   PageTopbar,
-} from '../components/page.js';
-import { RunStatusBadge } from '../components/run/run-status-badge.js';
-import { ErrorState, LoadingState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
+} from '../../components/page.js';
+import { RunStatusBadge } from '../../components/run/run-status-badge.js';
+import { ErrorState, LoadingState } from '../../components/states.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
 import {
   Card,
   CardAction,
@@ -25,10 +25,10 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from '../components/ui/card.js';
-import { type ListView, ViewToggle } from '../components/view-toggle.js';
-import { can } from '../lib/access.js';
-import type { RunStatus } from '../lib/api.js';
+} from '../../components/ui/card.js';
+import { type ListView, ViewToggle } from '../../components/view-toggle.js';
+import { can } from '../../lib/access.js';
+import type { RunStatus } from '../../lib/api.js';
 import {
   formatCost,
   formatDateTime,
@@ -37,8 +37,8 @@ import {
   formatUtcDateTime,
   runStatusLabel,
   shortId,
-} from '../lib/format.js';
-import { agentsQuery, meQuery, usePersonalRuns, usePersonalUsage } from '../lib/queries.js';
+} from '../../lib/format.js';
+import { agentsQuery, meQuery, usePersonalRuns, usePersonalUsage } from '../../lib/queries.js';
 
 const triggers = runTriggerSchema.options;
 type Trigger = (typeof triggers)[number];

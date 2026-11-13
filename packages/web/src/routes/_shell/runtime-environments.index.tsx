@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { RuntimeEnvironmentsPage } from '../../pages/runtime-environments.js';
+import { RuntimeEnvironmentsPage } from '../../pages/runtime-environments/index.js';
 import { runtimeEnvironmentsSearchSchema } from '../-search.js';
 
 export const Route = createFileRoute('/_shell/runtime-environments/')({

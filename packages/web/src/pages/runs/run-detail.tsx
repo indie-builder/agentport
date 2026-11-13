@@ -2,23 +2,23 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { ArrowLeft, CircleAlert, CircleStop, RotateCcw, Sparkles } from 'lucide-react';
 import { useRef } from 'react';
-import { CopyButton } from '../components/copy-button.js';
-import { Metric } from '../components/metric-label.js';
-import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../components/page.js';
-import { RunQuestionCard } from '../components/run/run-question.js';
-import { RunStatusBadge } from '../components/run/run-status-badge.js';
+import { CopyButton } from '../../components/copy-button.js';
+import { Metric } from '../../components/metric-label.js';
+import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
+import { RunQuestionCard } from '../../components/run/run-question.js';
+import { RunStatusBadge } from '../../components/run/run-status-badge.js';
 import {
   questionForStep,
   StepInspector,
   stepIcons,
   stepName,
-} from '../components/run/run-steps.js';
-import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
-import { Button, buttonVariants } from '../components/ui/button.js';
-import { can } from '../lib/access.js';
-import type { ApprovalRequest } from '../lib/api.js';
-import { questionFromContent } from '../lib/chat-state.js';
-import { cn } from '../lib/cn.js';
+} from '../../components/run/run-steps.js';
+import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
+import { can } from '../../lib/access.js';
+import type { ApprovalRequest } from '../../lib/api.js';
+import { questionFromContent } from '../../lib/chat-state.js';
+import { cn } from '../../lib/cn.js';
 import {
   formatCost,
   formatDateTime,
@@ -26,7 +26,7 @@ import {
   formatTokens,
   runStatusLabel,
   shortId,
-} from '../lib/format.js';
+} from '../../lib/format.js';
 import {
   meQuery,
   useApproveRun,
@@ -37,8 +37,8 @@ import {
   useRunApprovals,
   useRunQuestions,
   useSkillDraftFromRun,
-} from '../lib/queries.js';
-import { toastError, toastSuccess } from '../lib/toast.js';
+} from '../../lib/queries.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
 
 function elapsed(at: string, start: string | null): number {
   const base = new Date(start ?? at).getTime();

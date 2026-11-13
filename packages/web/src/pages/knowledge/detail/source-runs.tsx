@@ -1,14 +1,14 @@
-import { jobStatusLabel, jobStatusTone } from '../../components/knowledge/knowledge-shared.js';
-import { ErrorState } from '../../components/states.js';
-import { StatusBadge } from '../../components/status-badge.js';
-import { Button } from '../../components/ui/button.js';
-import { formatDateTime } from '../../lib/format.js';
-import { knowledgeJobErrorText } from '../../lib/knowledge-errors.js';
+import { jobStatusLabel, jobStatusTone } from '../../../components/knowledge/knowledge-shared.js';
+import { ErrorState } from '../../../components/states.js';
+import { StatusBadge } from '../../../components/status-badge.js';
+import { Button } from '../../../components/ui/button.js';
+import { formatDateTime } from '../../../lib/format.js';
+import { knowledgeJobErrorText } from '../../../lib/knowledge-errors.js';
 import {
   useKnowledgeJobDetail,
   useKnowledgeSourceRuns,
   useKnowledgeSyncItems,
-} from '../../lib/queries.js';
+} from '../../../lib/queries.js';
 
 /** 每个展开的来源各自取同步记录；收起动画期间仍显示自己的数据。 */
 export function SourceProbeStatus({ jobId }: { jobId: string }) {

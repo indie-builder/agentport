@@ -3,19 +3,19 @@ import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { BusinessIllustration } from '../../components/business-illustration.js';
-import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import { jobStatusLabel, sourceStatusLabel } from '../../components/knowledge/knowledge-shared.js';
-import { Collapsible, CollapsibleContent } from '../../components/motion-collapsible.js';
-import { PageToolbar } from '../../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
-import { StatusBadge } from '../../components/status-badge.js';
-import { Button } from '../../components/ui/button.js';
-import { Checkbox } from '../../components/ui/checkbox.js';
-import { FieldLabel } from '../../components/ui/field.js';
-import type { KnowledgeSource } from '../../lib/api.js';
-import { formatRelative } from '../../lib/format.js';
-import { knowledgeJobErrorText } from '../../lib/knowledge-errors.js';
+import { BusinessIllustration } from '../../../components/business-illustration.js';
+import { ConfirmDialog } from '../../../components/confirm-dialog.js';
+import { jobStatusLabel, sourceStatusLabel } from '../../../components/knowledge/knowledge-shared.js';
+import { Collapsible, CollapsibleContent } from '../../../components/motion-collapsible.js';
+import { PageToolbar } from '../../../components/page.js';
+import { EmptyState, ErrorState, LoadingState } from '../../../components/states.js';
+import { StatusBadge } from '../../../components/status-badge.js';
+import { Button } from '../../../components/ui/button.js';
+import { Checkbox } from '../../../components/ui/checkbox.js';
+import { FieldLabel } from '../../../components/ui/field.js';
+import type { KnowledgeSource } from '../../../lib/api.js';
+import { formatRelative } from '../../../lib/format.js';
+import { knowledgeJobErrorText } from '../../../lib/knowledge-errors.js';
 import {
   isMissingJob,
   isTerminalKnowledgeJob,
@@ -27,8 +27,8 @@ import {
   useKnowledgeSources,
   useSyncKnowledgeSource,
   useTestKnowledgeSource,
-} from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
+} from '../../../lib/queries.js';
+import { toastError, toastSuccess } from '../../../lib/toast.js';
 import { type KnowledgeCaps, sourceProvider, sourceTargetSummary } from './shared.js';
 import { SourceDialog } from './source-dialog.js';
 import { SourceProbeStatus, SourceRuns } from './source-runs.js';

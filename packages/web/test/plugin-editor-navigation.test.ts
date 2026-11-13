@@ -4,7 +4,7 @@ import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
-import { PluginDialog } from '../src/pages/plugins.js';
+import { PluginDialog } from '../src/pages/plugins/index.js';
 import { captureBlockedNavigations, routerFor, settled } from './navigation-blocker.js';
 
 vi.mock('../src/lib/toast.js', () => ({

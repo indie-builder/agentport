@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
 import { toastError } from '../src/lib/toast.js';
-import { PluginsPage } from '../src/pages/plugins.js';
+import { PluginsPage } from '../src/pages/plugins/index.js';
 import { allAccessMe } from './me-fixture.js';
 
 const state = vi.hoisted(() => ({

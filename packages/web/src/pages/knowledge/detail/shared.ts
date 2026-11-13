@@ -13,7 +13,7 @@ import {
   NotebookText,
   Rss,
 } from 'lucide-react';
-import type { KnowledgeSource } from '../../lib/api.js';
+import type { KnowledgeSource } from '../../../lib/api.js';
 
 /** 按叶权限控制每个主操作、行菜单与子编辑器；展示与否只由这里决定。 */
 export type KnowledgeCaps = {
