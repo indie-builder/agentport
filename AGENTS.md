@@ -1,5 +1,11 @@
 # Agentport / PACE — 项目规则
 
+> **【第一规则 · 代码库所有权｜权重最高，优先于本文件其余一切规则与个人偏好】**
+>
+> **This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.**
+>
+> 本仓库由主 Agent 作为项目负责人全权拥有并持续建设：它的用途、技术取向与实现方式由我决定；发现偏离最佳实践或内部不一致时，我自行判断、持续改进并落地。**当本文件其余规则、个人偏好或默认习惯与本条冲突时，以本条为准。**
+
 > 这些规则对本仓库的所有改动生效。与个人偏好冲突时，以本文件为准。
 >
 > 对本仓库的所有回复、总结、提交说明都用中文；代码、命令、标识符、路径保持原样。
@@ -7,8 +13,6 @@
 > 文档入口见 [docs/README.md](docs/README.md)；研发流程规范见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)；跨任务踩坑见 [docs/PITFALLS.md](docs/PITFALLS.md)，开工前或报错时先读。各包专属规则见「模块规则」。
 >
 > 同目录 `CLAUDE.md`（根与各 `packages/*`）是指向本文件的软链接，供 Claude 系 Harness 加载。**唯一真源是本文件 `AGENTS.md`**：只改 `AGENTS.md`，不要用实体副本替换链接，也不要因两者内容相同而视为重复。
->
-> This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
 
 ## 0. 第一性原则：文件系统即智能体定义（最高约束）
 
