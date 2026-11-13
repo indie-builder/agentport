@@ -97,7 +97,7 @@
 
 ## 后端
 
-- **运行时与包管理统一 Bun 1.4.3（`bun.lock`）。** 安装依赖用 `bun install --frozen-lockfile`，项目脚本用 `bun run <script>`；Node.js 24 只用于镜像基座与尚未迁移的 `node` 脚本，不新增 pnpm/npm 用法。
+- **运行时与包管理统一 Bun 1.4.4（`bun.lock`）。** 安装依赖用 `bun install --frozen-lockfile`，项目脚本用 `bun run <script>`；Node.js 24 只用于镜像基座与尚未迁移的 `node` 脚本，不新增 pnpm/npm 用法。
 - **路由与入口规则见模块。** oRPC 契约、Hono 根入口、`access` 元数据、`requireAuth` 与错误返回形状见 [packages/api/AGENTS.md](packages/api/AGENTS.md) 与 [docs/VALIDATION.md](docs/VALIDATION.md)。
 - **数据库变更见模块。** Drizzle schema、`bun run db:generate` + `bun run db:migrate` 与同步 `docs/` 的要求见 [packages/db/AGENTS.md](packages/db/AGENTS.md)。
 - **业务实体 ID：** 常规业务实体主键统一使用 TypeID；生成入口与命名空间规则见 [packages/db/AGENTS.md](packages/db/AGENTS.md)，完整约定见 [ID 约定](docs/PROJECT-BRIEF.md#162-id-约定)。其他包按该规范使用，不各自实现 ID 生成。

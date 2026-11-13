@@ -1,7 +1,7 @@
 # Agentport · 智能体平台 · 项目简报
 
 > 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
-> 最后更新：2026-11-06 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Bun 1.4.3、Hono 4.13、oRPC 1.16、Drizzle 0.45 bun-sql 等）；原始诉求与历史决策保持原样。
+> 最后更新：2026-11-13 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Bun 1.4.4、Hono 4.13、oRPC 1.16、Drizzle 0.45 bun-sql 等）；原始诉求与历史决策保持原样。
 > 项目名：**Agentport**（仓库与包名保持 `agentport`；对外展示名 **PACE**，见 [USER-STORIES.md](USER-STORIES.md)）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
@@ -111,9 +111,9 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 用途 | 选型 | 版本 | 备注 |
 |---|---|---|---|
 | 语言 | TypeScript | 7.0.2 | 当前 stable |
-| 运行时 | Bun | 1.4.3 | `packageManager` 与 `engines.bun` 固定；api/worker/sandbox 都用 `bun` 启动 |
+| 运行时 | Bun | 1.4.4 | `packageManager` 与 `engines.bun` 固定；api/worker/sandbox 都用 `bun` 启动 |
 | 运行时基座 | Node.js | 24 LTS | 要求 24 的最新补丁版本（当前 24.22.2）；`engines` 为 `>=24.22.2 <25`，容器镜像 `node:24-alpine` 只作基座并复制 Bun 二进制 |
-| 包管理 | Bun workspaces | 1.4.3 | 锁文件 `bun.lock`；脚本用 `bun run <script>` |
+| 包管理 | Bun workspaces | 1.4.4 | 锁文件 `bun.lock`；脚本用 `bun run <script>` |
 | Lint + 格式化 | Biome | 2.6.4 | 替代 ESLint + Prettier |
 | 开发运行 | nodemon 3.1.14，由 Bun 执行 | 3.1.14 | api/worker 的 watch 包装；Bun 原生 watch 不等待 async 清理，故保留 nodemon，仅开发依赖 |
 | 生产构建 | tsc | 7.0.2 | Bun 直接运行 `dist`，不引入打包器 |
@@ -154,7 +154,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | ORM | Drizzle ORM（`drizzle-orm/bun-sql`） | 0.45.4 |
 | 迁移工具 | drizzle-kit | 0.31.11 |
 | 数据库 | PostgreSQL | 镜像 `pgvector/pgvector:pg18`（基于 PostgreSQL 18，内置 vector 扩展） |
-| PG 驱动 | Bun 原生 `SQL`（`createDb()` 返回 `{ db, client }`） | Bun 1.4.3 内置 |
+| PG 驱动 | Bun 原生 `SQL`（`createDb()` 返回 `{ db, client }`） | Bun 1.4.4 内置 |
 | 连接上限 | Bun SQL `max`（`DB_POOL_MAX`，默认 10） | — |
 | 日志 | pino | 10.4.0 |
 | 日志美化（dev） | pino-pretty | 13.2.0 |
@@ -164,11 +164,11 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 限流 | `hono-rate-limiter` + RedisStore | 0.5.4 |
 | 压缩 | `hono/compress` | 4.13.16 |
 | 静态托管 | `hono/bun` 的 `serveStatic` | 4.13.16 |
-| 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.15 |
-| API 文档 | oRPC OpenAPI 3.1.1 + `@scalar/hono-api-reference`（`/api/openapi.json`、`/api/docs`，需登录） | 0.12.18 |
+| 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.23 |
+| API 文档 | oRPC OpenAPI 3.1.1 + `@scalar/hono-api-reference`（`/api/openapi.json`、`/api/docs`，需登录） | 0.12.20 |
 | 过载保护 | 未接入；`/health/live`、`/health/ready` 由 `http/health.ts` 自行实现 | — |
-| Redis 客户端 | Bun 原生 `RedisClient`；BullMQ 用官方 `createBunRedisClient` | Bun 1.4.3 内置 |
-| 队列 | BullMQ | 6.5.3 |
+| Redis 客户端 | Bun 原生 `RedisClient`；BullMQ 用官方 `createBunRedisClient` | Bun 1.4.4 内置 |
+| 队列 | BullMQ | 6.7.6 |
 | 队列面板 | 不接（见 D-15） | — |
 | 队列遥测 | 不接 | — |
 | 并发控制 | p-limit | 7.3.3 |
@@ -203,7 +203,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| 后端单元/集成测试 | `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate`） | Bun 1.4.3 |
+| 后端单元/集成测试 | `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate`） | Bun 1.4.4 |
 | 前端单元测试 | Vitest（`bun run test:web`，jsdom） | 5.0.5 |
 | 覆盖率 | 未配置 | — |
 | E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.22.0 / 0.15.4 |

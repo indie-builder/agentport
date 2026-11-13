@@ -150,7 +150,7 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 
 ### 2.1 前置
 
-- Bun 1.4.3（`packageManager` 已固定；依赖安装、脚本与 api/worker/sandbox 入口都用 Bun）
+- Bun 1.4.4（`packageManager` 已固定；依赖安装、脚本与 api/worker/sandbox 入口都用 Bun）
 - Node.js 24 LTS（要求 24 的最新补丁版本，当前 24.22.2；`engines` 为 `>=24.22.2 <25`，用于镜像基座与尚未迁移的 `node` 脚本）
 - Bun 默认不执行未列入根 `package.json` `trustedDependencies` 的生命周期脚本；当前放行 `esbuild` 与 `msgpackr-extract`。`@openuidev/lang-core` 的 postinstall 只上报匿名安装遥测，因此不加白名单。新增带安装脚本的依赖时显式补决定，不让脚本静默运行。
 - Docker Engine + Compose

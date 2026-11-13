@@ -646,7 +646,7 @@ worker 在 run 完成时传 `dedupeKey: aud_<runId 去掉前缀>`，因此 BullM
 runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`agentRunJobSchema`），所以该包是
 **镜像的运行时依赖**。镜像不再从宿主复制 `dist` 或维护独立 manifest：
 
-- 根 Dockerfile 基于 `node:24-alpine` 并复制 Bun 1.4.3 二进制；build stage 用 `bun install --frozen-lockfile` 安装 workspace 依赖，再执行 `bun run build`。
+- 根 Dockerfile 基于 `node:24-alpine` 并复制 Bun 1.4.4 二进制；build stage 用 `bun install --frozen-lockfile` 安装 workspace 依赖，再执行 `bun run build`。
 - `runtime` target 用 `bun install --production --frozen-lockfile --filter @agentport/api --filter @agentport/worker` 安装生产依赖，再复制各包的 `dist`；容器入口是 `bun packages/api/dist/index.js` 与 `bun packages/worker/dist/index.js`。
 - `sandbox` target 单独安装 `@agentport/sandbox` 的生产依赖并复制 sandbox 与 shared 的 `dist`，验证 `dist/runner.js` 与 Agent SDK 原生 CLI 可执行；`git` 仅为官方插件市场安装保留，`poppler-utils` 供官方长 PDF 分页读取，`bash` 是官方 CLI 执行 Bash 工具所需的真实 shell（缺失会报 `No suitable shell found`）。
 - 命名运行环境以该 target 的本地镜像为基座：构建时只发送冻结 Dockerfile，基座固定为 image ID 派生的不可变 tag，产物是独立版本、默认复用 BuildKit 缓存；`docker-cli`/`buildx` 只装进 worker 的 `runtime` target，不进沙盒基座。

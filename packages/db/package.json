@@ -19,7 +19,7 @@
   "dependencies": {
     "@agentport/core": "workspace:*",
     "@agentport/shared": "workspace:*",
-    "better-auth": "1.7.20",
+    "better-auth": "1.7.23",
     "drizzle-orm": "catalog:",
     "typeid-js": "1.2.0"
   },
