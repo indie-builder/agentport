@@ -10,14 +10,7 @@ import { Button } from '../ui/button.js';
 import { Checkbox } from '../ui/checkbox.js';
 import { Dialog } from '../ui/dialog.js';
 import { Field, FieldDescription, FieldLabel } from '../ui/field.js';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../ui/table.js';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
 import { Textarea } from '../ui/textarea.js';
 
 /** 粘贴或上传 OpenAPI/Swagger 文档，预览后按名称挑选要创建的 MCP 工具。 */

@@ -316,8 +316,7 @@ function isObjectRoot(schema: Record<string, unknown>): boolean {
     const branches = schema[keyword];
     if (Array.isArray(branches)) {
       return (
-        branches.length > 0 &&
-        branches.every((branch) => isRecord(branch) && isObjectRoot(branch))
+        branches.length > 0 && branches.every((branch) => isRecord(branch) && isObjectRoot(branch))
       );
     }
   }
