@@ -13,7 +13,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { trimSlash } from './source-paths.js';
-import { parseInitialCursor } from './source-utils.js';
+import { parseInitialCursor, snapshotOf } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -662,12 +662,7 @@ export async function readNextcloud(
   const failures: SourceFailure[] = [];
   await walk(auth, auth.relative, items, failures, new Set(), signal);
 
-  return {
-    items,
-    ...(failures.length > 0 ? { failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    complete: failures.length === 0,
-  };
+  return snapshotOf(items, failures, previous);
 }
 
 export async function probeNextcloud(

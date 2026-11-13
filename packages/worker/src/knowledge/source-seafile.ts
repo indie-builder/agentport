@@ -13,7 +13,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { trimSlash } from './source-paths.js';
-import { parseInitialCursor } from './source-utils.js';
+import { parseInitialCursor, snapshotOf } from './source-utils.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
@@ -389,12 +389,7 @@ export async function readSeafile(
     await walk(auth, root, items, failures, seen, visited, signal, true);
   }
 
-  return {
-    items,
-    ...(failures.length > 0 ? { failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    complete: failures.length === 0,
-  };
+  return snapshotOf(items, failures, previous);
 }
 
 export async function probeSeafile(

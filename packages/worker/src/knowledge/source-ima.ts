@@ -19,6 +19,7 @@ import {
   isAbort,
   parseInitialCursor,
   signalOption,
+  snapshotOf,
   textOf,
   titleWithExtension,
 } from './source-utils.js';
@@ -562,12 +563,7 @@ export async function readIma(
     }
   }
 
-  return {
-    items,
-    ...(failures.length > 0 ? { failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    complete: failures.length === 0,
-  };
+  return snapshotOf(items, failures, previous);
 }
 
 export async function probeIma(

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 const sourceCursorSchema = z.object({ version: z.literal(1), initial: z.boolean() });
 
@@ -7,6 +8,19 @@ export function parseInitialCursor(
 ): z.infer<typeof sourceCursorSchema> | undefined {
   if (cursor === undefined || Object.keys(cursor).length === 0) return undefined;
   return sourceCursorSchema.parse(cursor);
+}
+
+export function snapshotOf(
+  items: SourceItem[],
+  failures: SourceFailure[],
+  previous: ReturnType<typeof parseInitialCursor>,
+): SourceSnapshot {
+  return {
+    items,
+    ...(failures.length > 0 ? { failures } : {}),
+    cursor: { version: 1, initial: previous === undefined },
+    complete: failures.length === 0,
+  };
 }
 
 export function isAbort(err: unknown, signal: AbortSignal | undefined): boolean {

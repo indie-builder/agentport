@@ -23,7 +23,7 @@ import { probeNextcloud, readNextcloud } from './source-nextcloud.js';
 import { probeNotion, readNotion } from './source-notion.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import { probeSeafile, readSeafile } from './source-seafile.js';
-import { encodePathSegments, signalOption } from './source-utils.js';
+import { encodePathSegments, signalOption, snapshotOf } from './source-utils.js';
 import { probeYuque, readYuque } from './source-yuque.js';
 
 export { SourceAuthError, validateSourceUrl } from './source-http.js';
@@ -480,13 +480,7 @@ async function readGitlab(
     }
   }
 
-  return {
-    items,
-    ...(failures.length > 0 ? { failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    // The tree was read completely above; any HTTP/pagination failure threw.
-    complete: failures.length === 0,
-  };
+  return snapshotOf(items, failures, previous);
 }
 
 // ---------------------------------------------------------------------------
@@ -644,13 +638,7 @@ async function readGithub(
     }
   }
 
-  return {
-    items,
-    ...(failures.length > 0 ? { failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    // truncated 已在上面明确抛错；能走到这里说明树是完整的。
-    complete: failures.length === 0,
-  };
+  return snapshotOf(items, failures, previous);
 }
 
 // ---------------------------------------------------------------------------
@@ -1616,13 +1604,7 @@ async function readFeishu(
     throw new Error('feishu settings need spaceId or folderToken');
   }
 
-  return {
-    items,
-    ...(failures.length > 0 ? { failures } : {}),
-    cursor: { version: 1, initial: previous === undefined },
-    // 任何单项失败都不能证明完整枚举，删除推导据此关闭。
-    complete: failures.length === 0,
-  };
+  return snapshotOf(items, failures, previous);
 }
 
 // ---------------------------------------------------------------------------
