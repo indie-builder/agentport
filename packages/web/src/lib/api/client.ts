@@ -187,6 +187,7 @@ export const api = {
   respondToQuestion: runs.respondToQuestion,
   skillDraftFromRun: runs.skillDraftFromRun,
   attention: ops.attention,
+  agentStats: ops.agentStats,
   schedules: ops.schedules,
   createSchedule: ops.createSchedule,
   updateSchedule: ops.updateSchedule,

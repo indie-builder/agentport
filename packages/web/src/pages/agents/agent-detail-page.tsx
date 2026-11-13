@@ -469,6 +469,7 @@ function RestrictedAgentTabs({
     instruction?: AgentInstruction | undefined;
     view?: MemoryView | undefined;
     file?: string | undefined;
+    usageDays?: 7 | 30 | 90 | undefined;
   }): void => {
     void navigate({
       to: '/agents/$agentId',
@@ -508,6 +509,7 @@ function RestrictedAgentTabs({
             config={null}
             permissions={permissions}
             canViewRuns={canViewRuns}
+            usageDays={search.usageDays ?? 30}
             onNavigate={navigateSearch}
           />
         ) : null}

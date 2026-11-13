@@ -24,6 +24,13 @@ export const agentDetailQuery = (id: string, enabled = true) =>
     staleTime: 0,
   });
 
+export const agentStatsQuery = (agentId: string, days: number) =>
+  queryOptions({
+    queryKey: ['agent-stats', agentId, days],
+    queryFn: () => api.agentStats(agentId, days),
+    staleTime: 60_000,
+  });
+
 export const agentAccessQuery = (id: string | null) =>
   queryOptions<AgentAccess>({
     queryKey: ['agent-access', id],
