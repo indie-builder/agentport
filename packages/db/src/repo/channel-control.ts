@@ -2,7 +2,12 @@ import { ACTIVE_RUN_STATUSES, type ChannelRole } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { agentRuns, channelAgentBindings, channelMembers, channels } from '../schema.js';
-import { type ChannelActiveRunRow, channelMemberRole, lockChannel } from './channels.js';
+import {
+  type ChannelActiveRunRow,
+  channelMemberRole,
+  lockChannel,
+  lockChannelRow,
+} from './channels.js';
 
 export type ChannelRunRow = typeof agentRuns.$inferSelect;
 
@@ -136,11 +141,7 @@ export async function closeChannel(
   channelId: string,
 ): Promise<{ kind: 'ok'; archivedAt: Date; runs: ControlRun[] } | NotFound | Forbidden> {
   return db.transaction(async (tx) => {
-    const [channel] = await tx
-      .select({ id: channels.id, archivedAt: channels.archivedAt })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .for('update');
+    const channel = await lockChannelRow(tx, channelId);
     if (!channel) return { kind: 'not_found', target: 'channel' };
     const role = await memberRole(tx, channelId, businessId);
     if (role === null) return { kind: 'not_found', target: 'channel' };

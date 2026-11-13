@@ -23,11 +23,10 @@ import {
   agents,
   channelAgentBindings,
   channelMessages,
-  channels,
   conversations,
   messages,
 } from '../schema.js';
-import { channelMemberRole } from './channels.js';
+import { channelMemberRole, lockChannelRow } from './channels.js';
 import { lockAgentBindings, lockRunResources } from './locks.js';
 import { inheritApprovals } from './runs.js';
 
@@ -1025,12 +1024,7 @@ export async function admitChatRun(
         fail('INVALID_INPUT', '频道触发必须由自然人发起');
       }
       // 频道行锁把同一频道的准入与发消息串行化，lane 的取建不靠裸查再插。
-      const [channel] = await tx
-        .select({ id: channels.id, archivedAt: channels.archivedAt })
-        .from(channels)
-        .where(eq(channels.id, channelId))
-        .limit(1)
-        .for('update');
+      const channel = await lockChannelRow(tx, channelId);
       if (!channel) fail('NOT_FOUND', '频道不存在，可能已被删除');
       if (channel.archivedAt !== null) fail('CONFLICT', '频道已归档，无法触发智能体');
       const role = await channelMemberRole(tx, channelId, input.subject.businessId);
