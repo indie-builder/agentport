@@ -22,6 +22,7 @@ import { actorOf, authorize, authorizeObject, requireUser } from '../../http/acc
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
+import { beginSse } from '../../http/sse.js';
 import {
   getQueue,
   publishChannelMessage,
@@ -515,9 +516,7 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
     });
     if (initial.kind === 'not_found') return notFound();
     await auditRead(context, { id, createdBy: initial.createdBy });
-    deps.timeout(c.req.raw, 0);
-    c.header('Cache-Control', 'no-cache, no-transform');
-    c.header('X-Accel-Buffering', 'no');
+    beginSse(c, deps.timeout);
     let cursor = initialCursor;
     return streamSSE(c, async (stream) => {
       await stream.write('retry: 3000\n\n');

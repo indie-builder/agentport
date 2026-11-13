@@ -11,6 +11,7 @@ import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import { beginSse } from '../../http/sse.js';
 import { publishChannelEvent, publishChannelMessage } from '../../queue/producer.js';
 import { cancelAgentRun } from '../chat/cancel-run.js';
 import type { NativeHttpDependencies } from '../chat/http.js';
@@ -247,9 +248,7 @@ export function registerChannelRunEventsHttp(
     const access = await channelControl.getChannelRunForMember(context.db, businessId, id, runId);
     if (!access) return notFound('运行不存在或不属于该频道');
     const run = access.run;
-    deps.timeout(c.req.raw, 0);
-    c.header('Cache-Control', 'no-cache, no-transform');
-    c.header('X-Accel-Buffering', 'no');
+    beginSse(c, deps.timeout);
     return streamSSE(c, async (stream) => {
       await relayRunEvents({
         stream,
