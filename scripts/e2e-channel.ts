@@ -51,6 +51,10 @@ const E2E_RUN_ARGS = process.argv.slice(2);
 if (E2E_RUN_ARGS[0] === '--') E2E_RUN_ARGS.shift();
 const UI_PORT = Number(process.env.E2E_CHANNEL_UI_PORT ?? 3310);
 const EXECUTION_MODE = MODE === 'execution';
+const SUITE_MODE = MODE === 'suite';
+const WITH_WORKER = process.env.E2E_CHANNEL_WITH_WORKER === '1';
+const REAL_MODEL = SUITE_MODE && process.env.E2E_CHANNEL_REAL_MODEL === '1';
+const NEED_FAKE_MODEL = !SUITE_MODE || (WITH_WORKER && !REAL_MODEL);
 const executionToken = randomBytes(32).toString('hex');
 const executionOutput = join(REPO, '.e2e', `execution-${executionToken.slice(0, 24)}`);
 let executionContract: ReturnType<typeof parseExecutionContract> | undefined;
@@ -223,7 +227,11 @@ function runBrowserE2e(env: Record<string, string>): Promise<number> {
         join(REPO, 'node_modules/e2e/dist/cli/bin.js'),
         'run',
         '--config',
-        EXECUTION_MODE ? 'e2e.execution.config.ts' : 'e2e.channels.config.ts',
+        EXECUTION_MODE
+          ? 'e2e.execution.config.ts'
+          : SUITE_MODE
+            ? 'e2e.config.ts'
+            : 'e2e.channels.config.ts',
         '--reporter',
         'list',
         ...(EXECUTION_MODE ? ['--output', executionOutput, '--no-cache'] : []),
@@ -283,6 +291,7 @@ async function runStackMode(databaseUrl: string, redisUrl: string, baseUrl: stri
           E2E_FAKE_MODEL_URL: `http://127.0.0.1:${FAKE_PORT}`,
         }
       : {}),
+    ...(SUITE_MODE && !WITH_WORKER ? { E2E_WORKER_PAUSED: '1' } : {}),
   };
   console.log('\n========== 浏览器 E2E 栈已就绪 ==========');
   for (const [key, value] of Object.entries(env)) {
@@ -308,7 +317,9 @@ async function runStackMode(databaseUrl: string, redisUrl: string, baseUrl: stri
   logStep(
     EXECUTION_MODE
       ? '运行浏览器 E2E：eval-execution 与 runtime-build'
-      : '运行浏览器 E2E：tests/channels.e2e.ts',
+      : SUITE_MODE
+        ? '运行默认 E2E 套件（e2e.config.ts）'
+        : '运行浏览器 E2E：tests/channels.e2e.ts',
   );
   if (E2E_RUN_ARGS.length > 0) info(`透传 e2e 参数：${E2E_RUN_ARGS.join(' ')}`);
   const code = await runBrowserE2e(env);
@@ -965,54 +976,57 @@ async function main(): Promise<void> {
   if (docker.code !== 0) fail(`Docker 不可用：${docker.stderr.trim()}`);
   info(`Docker ${docker.stdout.trim()}`);
 
-  // 旧镜像可能存在但不含当前 worker 需要的 supervisor；按必需产物判断，避免假通过。
-  const requiredEntry = 'dist/session-supervisor.js';
-  const inspectImage = async (): Promise<string | null> => {
-    const inspected = await run('docker', ['image', 'inspect', IMAGE, '--format', '{{.Id}}'], {
-      timeoutMs: 15_000,
-    });
-    return inspected.code === 0 ? inspected.stdout.trim() : null;
-  };
-  const probeEntry = async (): Promise<boolean> => {
-    if ((await inspectImage()) === null) return false;
-    const probed = await run(
-      'docker',
-      ['run', '--rm', '--entrypoint', 'ls', IMAGE, requiredEntry],
-      {
-        timeoutMs: 30_000,
-      },
-    );
-    return probed.code === 0;
-  };
+  let imageId: string | null = null;
+  if (!SUITE_MODE) {
+    // 旧镜像可能存在但不含当前 worker 需要的 supervisor；按必需产物判断，避免假通过。
+    const requiredEntry = 'dist/session-supervisor.js';
+    const inspectImage = async (): Promise<string | null> => {
+      const inspected = await run('docker', ['image', 'inspect', IMAGE, '--format', '{{.Id}}'], {
+        timeoutMs: 15_000,
+      });
+      return inspected.code === 0 ? inspected.stdout.trim() : null;
+    };
+    const probeEntry = async (): Promise<boolean> => {
+      if ((await inspectImage()) === null) return false;
+      const probed = await run(
+        'docker',
+        ['run', '--rm', '--entrypoint', 'ls', IMAGE, requiredEntry],
+        {
+          timeoutMs: 30_000,
+        },
+      );
+      return probed.code === 0;
+    };
 
-  const imageReady = await probeEntry();
-  if (EXECUTION_MODE && (!imageReady || process.env.E2E_CHANNEL_REBUILD_IMAGE === '1')) {
-    fail('execution 模式要求已构建的沙盒基座，不允许覆盖已有 tag');
-  }
-  if (!imageReady || process.env.E2E_CHANNEL_REBUILD_IMAGE === '1') {
-    info(
-      imageReady
-        ? '按 E2E_CHANNEL_REBUILD_IMAGE=1 重建沙盒镜像'
-        : `镜像 ${IMAGE} 缺失或不含 ${requiredEntry}，开始构建（可能需要几分钟）`,
-    );
-    const built = await run('docker', ['build', '--target', 'sandbox', '-t', IMAGE, '.'], {
-      timeoutMs: 900_000,
-    });
-    if (built.code !== 0) fail(`构建 ${IMAGE} 失败：${built.stderr.trim().slice(-2000)}`);
-  }
-  const imageId = await inspectImage();
-  assert(imageId !== null, `沙盒镜像可用：${IMAGE}`);
-  assert(await probeEntry(), `镜像包含当前 supervisor：${requiredEntry}`);
-  info(`image id: ${imageId}`);
-  if (EXECUTION_MODE) {
-    IMAGE = `agentport/e2e-${randomBytes(12).toString('hex')}:base`;
-    const tagged = await run('docker', ['tag', imageId ?? fail('缺少基座 image ID'), IMAGE]);
-    if (tagged.code !== 0) fail(tagged.stderr);
-    executionTags.add(IMAGE);
-    executionTags.add(
-      `${IMAGE.slice(0, IMAGE.lastIndexOf(':'))}:runtime-base-${imageId?.slice(7, 19)}`,
-    );
-    info(`本轮独享基座 tag：${IMAGE}`);
+    const imageReady = await probeEntry();
+    if (EXECUTION_MODE && (!imageReady || process.env.E2E_CHANNEL_REBUILD_IMAGE === '1')) {
+      fail('execution 模式要求已构建的沙盒基座，不允许覆盖已有 tag');
+    }
+    if (!imageReady || process.env.E2E_CHANNEL_REBUILD_IMAGE === '1') {
+      info(
+        imageReady
+          ? '按 E2E_CHANNEL_REBUILD_IMAGE=1 重建沙盒镜像'
+          : `镜像 ${IMAGE} 缺失或不含 ${requiredEntry}，开始构建（可能需要几分钟）`,
+      );
+      const built = await run('docker', ['build', '--target', 'sandbox', '-t', IMAGE, '.'], {
+        timeoutMs: 900_000,
+      });
+      if (built.code !== 0) fail(`构建 ${IMAGE} 失败：${built.stderr.trim().slice(-2000)}`);
+    }
+    imageId = await inspectImage();
+    assert(imageId !== null, `沙盒镜像可用：${IMAGE}`);
+    assert(await probeEntry(), `镜像包含当前 supervisor：${requiredEntry}`);
+    info(`image id: ${imageId}`);
+    if (EXECUTION_MODE) {
+      IMAGE = `agentport/e2e-${randomBytes(12).toString('hex')}:base`;
+      const tagged = await run('docker', ['tag', imageId ?? fail('缺少基座 image ID'), IMAGE]);
+      if (tagged.code !== 0) fail(tagged.stderr);
+      executionTags.add(IMAGE);
+      executionTags.add(
+        `${IMAGE.slice(0, IMAGE.lastIndexOf(':'))}:runtime-base-${imageId?.slice(7, 19)}`,
+      );
+      info(`本轮独享基座 tag：${IMAGE}`);
+    }
   }
 
   logStep('启动隔离 PostgreSQL（随机库）与临时 Redis 容器');
@@ -1026,10 +1040,12 @@ async function main(): Promise<void> {
   const created = createDb(database.url);
   client = created.client;
 
-  if (EXECUTION_MODE) FAKE_PORT = await freePort();
-  logStep(`启动假 Anthropic SSE（端口 ${FAKE_PORT}）`);
-  fake = await startFakeAnthropic(FAKE_PORT);
-  info(`http://127.0.0.1:${FAKE_PORT}`);
+  if (NEED_FAKE_MODEL) {
+    if (EXECUTION_MODE) FAKE_PORT = await freePort();
+    logStep(`启动假 Anthropic SSE（端口 ${FAKE_PORT}）`);
+    fake = await startFakeAnthropic(FAKE_PORT);
+    info(`http://127.0.0.1:${FAKE_PORT}`);
+  }
 
   runRoot = await realpath(await mkdtemp(join(tmpdir(), 'agentport-e2e-channel-')));
   const workspacesDir = join(runRoot, 'workspaces');
@@ -1101,68 +1117,84 @@ async function main(): Promise<void> {
   ]);
   info(`api ready：${baseUrl}`);
 
-  logStep('启动 worker 子进程（真实 Docker 沙盒 + SDK，模型指向假 SSE）');
-  const workerEnv: NodeJS.ProcessEnv = {
-    ...baseEnv,
-    NODE_ENV: 'development',
-    LOG_LEVEL: 'info',
-    DATABASE_URL: database.url,
-    REDIS_URL: redis.url,
-    APP_SECRET_KEY: appSecret,
-    ANTHROPIC_BASE_URL: `http://127.0.0.1:${FAKE_PORT}`,
-    // 非空凭证让 worker 启用模型代理；真实值永远不会离开宿主进程。
-    ANTHROPIC_AUTH_TOKEN: 'e2e-channel-fake-token',
-    ANTHROPIC_API_KEY: '',
-    MODEL_PROXY_PORT: String(modelProxyPort),
-    WORKSPACES_DIR: workspacesDir,
-    HOST_WORKSPACES_DIR: workspacesDir,
-    KNOWLEDGE_DIR: knowledgeDir,
-    SANDBOX_IMAGE: IMAGE,
-    SANDBOX_API_URL: `http://host.docker.internal:${apiPort}`,
-    SANDBOX_EGRESS: 'open',
-    SANDBOX_MAX_ACTIVE: '2',
-    SANDBOX_IDLE_TIMEOUT_MS: '30000',
-    AGENT_MAX_CONCURRENT: '1',
-    AGENT_TIMEOUT_MS: '120000',
-  };
-  workerProcess = spawn('bun', [join(REPO, 'packages/worker/src/index.ts')], {
-    cwd: join(REPO, 'packages/worker'),
-    detached: EXECUTION_MODE,
-    env: workerEnv,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const workerCapture = captureOutput(workerProcess);
-  const workerLogs = (): string => workerCapture.tail(140);
-  workerTail = workerLogs;
-
-  await Promise.race([
-    pollUntil('worker 就绪日志 "worker started"', 120_000, async () => {
-      if (workerProcess?.exitCode !== null)
-        throw new Error(`worker 已退出 (${workerProcess?.exitCode})`);
-      return workerCapture.all().includes('worker started');
-    }),
-    childExit(workerProcess).then(() => {
-      throw new Error(`worker 在就绪前退出：\n${workerLogs()}`);
-    }),
-  ]);
-  info('worker 已启动');
-
-  const defaultEnvironment = await pollUntil('默认运行环境登记', 30_000, async () => {
-    const result = await created.client.unsafe<{ image_id: string }[]>(
-      `select v.image_id
-         from runtime_environments e
-         join runtime_environment_versions v on v.id = e.online_version_id
-        where e.is_default = true
-        limit 1`,
+  if (!SUITE_MODE || WITH_WORKER) {
+    logStep(
+      `启动 worker 子进程（真实 Docker 沙盒 + SDK，模型${REAL_MODEL ? '用真实凭证' : '指向假 SSE'}）`,
     );
-    return result[0] ?? null;
-  });
-  assert(
-    defaultEnvironment.image_id === imageId,
-    `默认运行环境使用本次沙盒镜像（${defaultEnvironment.image_id}）`,
-  );
+    const workerEnv: NodeJS.ProcessEnv = {
+      ...baseEnv,
+      NODE_ENV: 'development',
+      LOG_LEVEL: 'info',
+      DATABASE_URL: database.url,
+      REDIS_URL: redis.url,
+      APP_SECRET_KEY: appSecret,
+      ...(REAL_MODEL
+        ? {
+            ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? '',
+            ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN ?? '',
+            ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+          }
+        : {
+            ANTHROPIC_BASE_URL: `http://127.0.0.1:${FAKE_PORT}`,
+            // 非空凭证让 worker 启用模型代理；真实值永远不会离开宿主进程。
+            ANTHROPIC_AUTH_TOKEN: 'e2e-channel-fake-token',
+            ANTHROPIC_API_KEY: '',
+          }),
+      MODEL_PROXY_PORT: String(modelProxyPort),
+      WORKSPACES_DIR: workspacesDir,
+      HOST_WORKSPACES_DIR: workspacesDir,
+      KNOWLEDGE_DIR: knowledgeDir,
+      SANDBOX_IMAGE: IMAGE,
+      SANDBOX_API_URL: `http://host.docker.internal:${apiPort}`,
+      SANDBOX_EGRESS: 'open',
+      SANDBOX_MAX_ACTIVE: '2',
+      SANDBOX_IDLE_TIMEOUT_MS: '30000',
+      AGENT_MAX_CONCURRENT: '1',
+      AGENT_TIMEOUT_MS: '120000',
+    };
+    workerProcess = spawn('bun', [join(REPO, 'packages/worker/src/index.ts')], {
+      cwd: join(REPO, 'packages/worker'),
+      detached: EXECUTION_MODE,
+      env: workerEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const workerCapture = captureOutput(workerProcess);
+    const workerLogs = (): string => workerCapture.tail(140);
+    workerTail = workerLogs;
+
+    await Promise.race([
+      pollUntil('worker 就绪日志 "worker started"', 120_000, async () => {
+        if (workerProcess?.exitCode !== null)
+          throw new Error(`worker 已退出 (${workerProcess?.exitCode})`);
+        return workerCapture.all().includes('worker started');
+      }),
+      childExit(workerProcess).then(() => {
+        throw new Error(`worker 在就绪前退出：\n${workerLogs()}`);
+      }),
+    ]);
+    info('worker 已启动');
+
+    const defaultEnvironment = await pollUntil('默认运行环境登记', 30_000, async () => {
+      const result = await created.client.unsafe<{ image_id: string }[]>(
+        `select v.image_id
+           from runtime_environments e
+           join runtime_environment_versions v on v.id = e.online_version_id
+          where e.is_default = true
+          limit 1`,
+      );
+      return result[0] ?? null;
+    });
+    if (!SUITE_MODE) {
+      assert(
+        defaultEnvironment.image_id === imageId,
+        `默认运行环境使用本次沙盒镜像（${defaultEnvironment.image_id}）`,
+      );
+    }
+  }
 
   if (EXECUTION_MODE) {
+    const workerPid = workerProcess?.pid;
+    if (workerPid === undefined) fail('worker 未启动');
     const inspectedRedis = await run('docker', ['inspect', '--format', '{{.Id}}', redis.name]);
     if (inspectedRedis.code !== 0) fail(inspectedRedis.stderr);
     executionContract = parseExecutionContract({
@@ -1175,7 +1207,7 @@ async function main(): Promise<void> {
       fakeModelUrl: `http://127.0.0.1:${FAKE_PORT}`,
       sandboxImage: IMAGE,
       ownerPid: process.pid,
-      workerPid: workerProcess.pid,
+      workerPid,
       token: executionToken,
     });
     await writeFile(join(runRoot, 'execution-contract.json'), JSON.stringify(executionContract), {
@@ -1183,7 +1215,7 @@ async function main(): Promise<void> {
       mode: 0o600,
     });
     info(
-      `本轮隔离资源：${JSON.stringify({ database: database.name, redisContainerId: executionContract.redisContainerId, workerPid: workerProcess.pid, appUrl: baseUrl })}`,
+      `本轮隔离资源：${JSON.stringify({ database: database.name, redisContainerId: executionContract.redisContainerId, workerPid, appUrl: baseUrl })}`,
     );
   }
 
@@ -1193,6 +1225,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  const fakeModel = fake ?? fail('假模型未启动');
   logStep('HTTP 登录并创建智能体、频道、绑定');
   const login = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
@@ -1265,7 +1298,7 @@ async function main(): Promise<void> {
   assert(runStarted1.runId !== undefined, `SSE 收到 run.started（${runStarted1.runId}）`);
 
   const firstReply = await pollUntil('假模型收到第一条频道消息', 60_000, async () =>
-    fake.messageRequests.find((request) => channelCurrentBody(request.prompt) === firstBody),
+    fakeModel.messageRequests.find((request) => channelCurrentBody(request.prompt) === firstBody),
   );
   info(`假模型第一条回复：${firstReply.reply}`);
 
@@ -1346,7 +1379,7 @@ async function main(): Promise<void> {
   assert(runStarted2.runId !== undefined, `SSE 收到第二次 run.started（${runStarted2.runId}）`);
 
   const secondReply = await pollUntil('假模型收到第二条频道消息', 60_000, async () =>
-    fake.messageRequests.find((request) => channelCurrentBody(request.prompt) === secondBody),
+    fakeModel.messageRequests.find((request) => channelCurrentBody(request.prompt) === secondBody),
   );
   info(`假模型第二条回复：${secondReply.reply}`);
 
@@ -1450,7 +1483,7 @@ async function main(): Promise<void> {
     '回复带 source_message_id 指向 lane messages',
   );
 
-  const messageRequests = fake.messageRequests;
+  const messageRequests = fakeModel.messageRequests;
   // CLI 会额外发一次会话标题生成请求；频道主请求的正文在【当前消息】之后。
   const mainRequests = messageRequests.filter((request) => {
     const body = channelCurrentBody(request.prompt);
@@ -1477,7 +1510,7 @@ async function main(): Promise<void> {
   );
   const unexpectedPaths = [
     ...new Set(
-      fake.requests
+      fakeModel.requests
         .map((request) => request.path)
         .filter(
           (path) =>

@@ -53,6 +53,7 @@ test('golden export downloads a claude directory zip and re-imports through the 
   await expect(actions).toBeVisible();
   await actions.tap();
   await screen.getByRole('menuitem', '配置').tap();
+  await expect(screen.getByRole('button', '身份', { exact: true })).toBeVisible();
 
   const download = await browser.waitForDownload(async () => {
     await screen.getByRole('button', '更多操作').tap();
@@ -87,6 +88,7 @@ test('golden export downloads a claude directory zip and re-imports through the 
   await expect(screen.getByText('已导入「', { exact: false }).first()).toBeVisible();
   await expect(screen.getByRole('dialog', '导入提示')).toBeVisible();
   await screen.getByRole('button', '关闭', { exact: true }).tap();
+  await screen.getByRole('tab', '配置', { exact: true }).tap();
   await expect(screen.getByRole('button', '更多操作')).toBeVisible();
 });
 
@@ -100,13 +102,14 @@ test('oversize export reports the 1 MiB error and keeps the editor usable', {
   await app.open(`/agents?q=${encodeURIComponent(fixture.slug)}`);
   await screen.getByRole('button', `操作 ${fixture.name}`).tap();
   await screen.getByRole('menuitem', '配置').tap();
+  await expect(screen.getByRole('button', '身份', { exact: true })).toBeVisible();
 
   await screen.getByRole('button', '更多操作').tap();
   await screen.getByRole('menuitem', '导出 ZIP').tap();
 
   await expect(screen.getByText('专家包超过 1 MiB', { exact: false }).first()).toBeVisible();
   // 失败不导航、不关闭编辑器；触发器恢复可再次点击。
-  await expect(browser).toHaveURL(new RegExp(`/agents/${fixture.id}$`));
+  expect(new URL(await browser.url()).pathname).toBe(`/agents/${fixture.id}`);
   await expect(screen.getByRole('button', '更多操作')).toBeEnabled();
   await screen.getByRole('button', '更多操作').tap();
   await expect(screen.getByRole('menuitem', '导出 ZIP')).toBeEnabled();
