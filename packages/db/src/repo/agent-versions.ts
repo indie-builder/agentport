@@ -4,6 +4,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { agentVersions } from '../schema.js';
+import { isPgConstraint } from './pg-errors.js';
 
 export type AgentVersionRow = typeof agentVersions.$inferSelect;
 
@@ -32,19 +33,7 @@ export async function insertAgentVersion(
 }
 
 function isVersionConflict(err: unknown): boolean {
-  let cause: unknown = err;
-  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if (
-      'errno' in cause &&
-      cause.errno === '23505' &&
-      'constraint' in cause &&
-      cause.constraint === 'agent_versions_agent_version_idx'
-    ) {
-      return true;
-    }
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
-  return false;
+  return isPgConstraint(err, ['23505'], 'agent_versions_agent_version_idx');
 }
 
 /** 并发下两个事务可能读到同一个 max；唯一约束冲突时整段事务重试一次。 */

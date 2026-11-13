@@ -1,7 +1,12 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fail, inspectKnowledgeAudio, isAppError, segmentForSearch } from '@agentport/core';
+import {
+  fail,
+  inspectKnowledgeAudio,
+  isAppError,
+  segmentForSearch,
+  sha256Hex,
+} from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   knowledgeAudioMetadataSchema,
@@ -240,10 +245,6 @@ const manifestSchema = z.object({
 type Manifest = z.infer<typeof manifestSchema>;
 type DocumentPackage = z.infer<typeof documentSchema>;
 
-function hash(data: Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
-}
-
 /** faqImport/faqImportJobId 是运行态批次身份；导出与导入都不带它，避免冒充新库的进行中批次。 */
 function withoutRuntimeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
   const { faqImport: _batch, faqImportJobId: _job, ...rest } = metadata;
@@ -314,7 +315,7 @@ function verifiedFiles(files: Map<string, Buffer>, manifest: Manifest): Map<stri
     const entry = listed.get(path);
     if (!entry) invalid(`知识包包含未登记的条目「${path}」`, path);
     if (entry.size !== data.length) invalid(`「${path}」大小与 manifest 不符`, path);
-    if (entry.sha256 !== hash(data)) invalid(`「${path}」内容与 sha256 不符`, path);
+    if (entry.sha256 !== sha256Hex(data)) invalid(`「${path}」内容与 sha256 不符`, path);
   }
   for (const path of listed.keys()) {
     if (!files.has(path)) invalid(`知识包缺少文件「${path}」`, path);
@@ -552,7 +553,7 @@ export async function exportKnowledgePackage(
   const files: Manifest['files'] = [];
   const addFile = (path: string, data: Buffer) => {
     entries[path] = data;
-    files.push({ path, sha256: hash(data), size: data.length });
+    files.push({ path, sha256: sha256Hex(data), size: data.length });
   };
 
   const documentPackages: Manifest['documents'] = [];
@@ -578,7 +579,7 @@ export async function exportKnowledgePackage(
       if (!original) {
         fail('CONFLICT', `文档「${document.title}」的待处理原件缺失，无法导出`);
       }
-      if (hash(original) !== blobSha256) {
+      if (sha256Hex(original) !== blobSha256) {
         fail('CONFLICT', `文档「${document.title}」的待处理原件与记录的 sha256 不符，无法导出`);
       }
       if (original.length > MAX_ORIGINAL_BYTES) {
@@ -636,7 +637,7 @@ export async function exportKnowledgePackage(
           `文档「${document.title}」的原件缺失（版本 ${version.version}），无法导出`,
         );
       }
-      if (hash(original) !== version.blobSha256) {
+      if (sha256Hex(original) !== version.blobSha256) {
         fail('CONFLICT', `文档「${document.title}」的原件与记录的 sha256 不符，无法导出`);
       }
       if (original.length > MAX_ORIGINAL_BYTES) {
@@ -681,7 +682,7 @@ export async function exportKnowledgePackage(
             `文档「${document.title}」的图片「${image.name}」缺失（版本 ${version.version}），无法导出`,
           );
         }
-        if (hash(data) !== image.sha256) {
+        if (sha256Hex(data) !== image.sha256) {
           fail(
             'CONFLICT',
             `文档「${document.title}」的图片「${image.name}」与记录的 sha256 不符，无法导出`,
@@ -717,7 +718,7 @@ export async function exportKnowledgePackage(
         mimeType: version.mimeType,
         sizeBytes: version.sizeBytes,
         blobSha256: version.blobSha256,
-        markdownSha256: markdown === null ? null : hash(Buffer.from(markdown, 'utf8')),
+        markdownSha256: markdown === null ? null : sha256Hex(Buffer.from(markdown, 'utf8')),
         sourceRevision: version.sourceRevision,
         parseStatus: version.parseStatus,
         pageMap: version.pageMap,
@@ -1336,7 +1337,7 @@ async function storeBlob(
   data: Buffer,
   created: string[],
 ): Promise<void> {
-  if (hash(data) !== expectedSha) invalid('原件内容与 manifest 的 sha256 不符');
+  if (sha256Hex(data) !== expectedSha) invalid('原件内容与 manifest 的 sha256 不符');
   const target = blobPathFor(knowledgeDir, expectedSha);
   if (await stat(target).catch(() => null)) return;
   await storeDocumentBlob(knowledgeDir, data);
@@ -1398,7 +1399,7 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
       if (document.sizeBytes !== original.length || pending.sizeBytes !== original.length) {
         invalid(`文档「${document.title}」的声明大小与待处理原件不符`, pending.originalPath);
       }
-      if (hash(original) !== pending.blobSha256) {
+      if (sha256Hex(original) !== pending.blobSha256) {
         invalid(`文档「${document.title}」的待处理原件与 sha256 不符`, pending.originalPath);
       }
     } else if (document.pending !== null) {
@@ -1451,7 +1452,7 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
             image.path,
           );
         }
-        if (hash(data) !== image.sha256) {
+        if (sha256Hex(data) !== image.sha256) {
           invalid(`图片「${image.name}」内容与清单 sha256 不符`, image.path);
         }
       }

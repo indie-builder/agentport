@@ -41,7 +41,7 @@ import { insertAgentVersion, retryOnVersionConflict } from './agent-versions.js'
 import { type ConversationSandboxTarget, sameTargets } from './chat.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
-import { isPgCode } from './pg-errors.js';
+import { isPgCode, isPgConstraint } from './pg-errors.js';
 import { listAgentPluginBindingInputs } from './plugins.js';
 import { listAgentIdsWithWorkflows } from './workflows.js';
 
@@ -169,19 +169,7 @@ function agentDeletionWhere(input: AgentDeletionInput): SQL | undefined {
 }
 
 function isParentAgentRestriction(err: unknown): boolean {
-  let cause: unknown = err;
-  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if (
-      'errno' in cause &&
-      (cause.errno === '23001' || cause.errno === '23503') &&
-      'constraint' in cause &&
-      cause.constraint === 'agents_parent_id_agents_id_fk'
-    ) {
-      return true;
-    }
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
-  return false;
+  return isPgConstraint(err, ['23001', '23503'], 'agents_parent_id_agents_id_fk');
 }
 
 export async function listAgents(
