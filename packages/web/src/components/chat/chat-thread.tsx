@@ -1326,7 +1326,7 @@ function FoldingMessageBody({ text }: { text: string }) {
     const observer = new ResizeObserver(measure);
     observer.observe(body);
     return () => observer.disconnect();
-  }, [text]);
+  }, []);
 
   const collapsed = overflowing && !expanded;
   const maskImage = collapsed

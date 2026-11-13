@@ -14,7 +14,7 @@ import {
   RotateCcw,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -129,15 +129,16 @@ export function RuntimeEnvironmentDetailPage() {
   const logTriggerRef = useRef<HTMLElement | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
   const baselineIdRef = useRef<string | null>(null);
+  const readIsDirty = useEffectEvent(() => form.formState.isDirty);
 
   useEffect(() => {
     const data = environment.data;
     if (!data) return;
     // 同实体刷新时编辑中的草稿不推进基线；切换实体则强制重置到新实体值。
-    if (baselineIdRef.current === data.id && form.formState.isDirty) return;
+    if (baselineIdRef.current === data.id && readIsDirty()) return;
     reset({ name: data.name, dockerfile: data.dockerfile });
     baselineIdRef.current = data.id;
-  }, [environment.data]);
+  }, [environment.data, reset]);
 
   const updateSearch = (patch: {
     status?: BuildStatus | undefined;
