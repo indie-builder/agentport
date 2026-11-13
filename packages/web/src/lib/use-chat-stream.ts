@@ -5,6 +5,7 @@ import {
   type ConversationMessage,
   type ConversationRunMetrics,
   chatEventSchema,
+  parseJsonAs,
 } from '@agentport/shared';
 import type { InfiniteData, QueryClient, UseQueryResult } from '@tanstack/react-query';
 import { useQueryClient } from '@tanstack/react-query';
@@ -354,15 +355,8 @@ export function useChatStream({
 
       source.onmessage = (message) => {
         if (!ownsStream()) return;
-        let raw: unknown;
-        try {
-          raw = JSON.parse(message.data);
-        } catch {
-          return;
-        }
-        const parsed = chatEventSchema.safeParse(raw);
-        if (!parsed.success) return;
-        const event = parsed.data;
+        const event = parseJsonAs(message.data, chatEventSchema);
+        if (event === null) return;
         if (replayPending) {
           replayPending = false;
           store.setItems(baseItemsRef.current);

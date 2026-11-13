@@ -3,6 +3,7 @@ import {
   type ChatEvent,
   channelEventSchema,
   chatEventSchema,
+  parseJsonAs,
 } from '@agentport/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -87,15 +88,8 @@ export function useChannelStream(channelId: string) {
     };
     source.onopen = refreshLifecycle;
     source.onmessage = (message) => {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(message.data);
-      } catch {
-        return;
-      }
-      const parsed = channelEventSchema.safeParse(raw);
-      if (!parsed.success) return;
-      const event = parsed.data;
+      const event = parseJsonAs(message.data, channelEventSchema);
+      if (event === null) return;
       if (event.type === 'message.created') {
         cursorRef.current.after = Math.max(cursorRef.current.after, event.seq);
         client.setQueryData<ChannelMessage[]>(
@@ -172,15 +166,8 @@ export function useChannelStream(channelId: string) {
       );
       runSources.current.set(run.runId, source);
       source.onmessage = (message) => {
-        let raw: unknown;
-        try {
-          raw = JSON.parse(message.data);
-        } catch {
-          return;
-        }
-        const parsed = chatEventSchema.safeParse(raw);
-        if (!parsed.success) return;
-        const event = parsed.data;
+        const event = parseJsonAs(message.data, chatEventSchema);
+        if (event === null) return;
         if (
           event.type === 'question_requested' ||
           event.type === 'question_updated' ||
