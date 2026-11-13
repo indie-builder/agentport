@@ -1553,7 +1553,9 @@ export async function uploadDocument(
       parts.length > 1
         ? await folderForPath(deps.db, base.id, body.folderId, parts.slice(0, -1))
         : body.folderId;
-    title = body.title ?? fileTitle(parts.at(-1)!);
+    const filename = parts.at(-1);
+    if (filename === undefined) throw new AppError('INVALID_INPUT', 'relativePath 缺少文件名');
+    title = body.title ?? fileTitle(filename);
   }
   const sha = await storeBlob(deps.config.KNOWLEDGE_DIR, data);
   const document = await repo.knowledge.createDocument(deps.db, {
@@ -1671,7 +1673,11 @@ export async function updateDocument(
     await repo.knowledge.setDocumentTags(
       deps.db,
       row.id,
-      tags.map((name) => idByName.get(name)!),
+      tags.map((name) => {
+        const id = idByName.get(name);
+        if (id === undefined) throw new Error('knowledge tag upsert lost its row');
+        return id;
+      }),
     );
   }
   if (fields.length > 0) {
@@ -1866,12 +1872,11 @@ export async function updateChunk(
   const chunks = await collectChunks(deps.db, target.version.id);
   const index = chunks.findIndex((chunk) => chunk.id === current.id);
   if (index < 0) notFound('分块');
-  const contentChanged = body.content !== undefined && body.content !== current.content;
+  const content = body.content;
+  const contentChanged = content !== undefined && content !== current.content;
   const headingChanged = body.heading !== undefined && body.heading !== current.heading;
   const patch = {
-    ...(contentChanged
-      ? { content: body.content!, searchText: segmentForSearch(body.content!), embedding: null }
-      : {}),
+    ...(contentChanged ? { content, searchText: segmentForSearch(content), embedding: null } : {}),
     ...(headingChanged ? { heading: body.heading ?? null } : {}),
     ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
   };
