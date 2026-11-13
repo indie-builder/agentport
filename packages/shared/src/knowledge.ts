@@ -653,26 +653,30 @@ export const knowledgeSyncItemSchema = z.object({
 
 export type KnowledgeSyncItem = z.infer<typeof knowledgeSyncItemSchema>;
 
+export const knowledgeSourceRangeKindSchema = z.enum([
+  'wiki_space',
+  'wiki_node',
+  'drive_folder',
+  'gitlab_project',
+  'github_repo',
+  'feed',
+  'notion_page',
+  'notion_database',
+  'notion_data_source',
+  'confluence_space',
+  'confluence_page',
+  'yuque_repo',
+  'dingtalk_workspace',
+  'dingtalk_node',
+  'ima_kb',
+  'seafile_repo',
+  'nextcloud_path',
+]);
+
+export type KnowledgeSourceRangeKind = z.infer<typeof knowledgeSourceRangeKindSchema>;
+
 export const knowledgeSourceRangeInputSchema = z.object({
-  kind: z.enum([
-    'wiki_space',
-    'wiki_node',
-    'drive_folder',
-    'gitlab_project',
-    'github_repo',
-    'feed',
-    'notion_page',
-    'notion_database',
-    'notion_data_source',
-    'confluence_space',
-    'confluence_page',
-    'yuque_repo',
-    'dingtalk_workspace',
-    'dingtalk_node',
-    'ima_kb',
-    'seafile_repo',
-    'nextcloud_path',
-  ]),
+  kind: knowledgeSourceRangeKindSchema,
   externalId: z.string().min(1),
   ref: z.string().nullable().default(null),
   paths: z.array(z.string()).default([]),
