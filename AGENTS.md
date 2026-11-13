@@ -1,10 +1,10 @@
 # Agentport / PACE — 项目规则
 
-> **【第一规则 · 代码库所有权｜权重最高】**
+> **【Rule 1 · Codebase ownership｜Highest priority】**
 >
 > **This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.**
 >
-> 本仓库由主 Agent 作为负责人全权决定其用途与实现、并持续建设；遇到与最佳实践或内部一致性不符时，自行判断并改进。**与其余规则或个人偏好冲突时，以本条为准。**
+> The main agent owns it: it fully decides what this codebase is for and how it is built, and keeps building on it. When something conflicts with best practice or internal consistency, it decides and improves on its own. Where this rule conflicts with any other rule or personal preference, this rule takes precedence.
 
 > 这些规则对本仓库的所有改动生效。与个人偏好冲突时，以本文件为准。
 >
