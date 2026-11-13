@@ -23,7 +23,7 @@ import {
   requireUser,
 } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
-import { requestContext } from '../../http/context.js';
+import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
 import { authorizeRun, RUN_MISSING } from '../runs/access.js';
@@ -380,9 +380,7 @@ export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDepen
     access({ kind: 'permission', permissionId: 'runs.read' }),
     async (c) => {
       const context = requestContext(c);
-      const input = z
-        .object({ params: z.object({ runId: z.string().min(1) }) })
-        .parse({ params: c.req.param(), query: c.req.query() });
+      const input = parseRequest(c, z.object({ params: z.object({ runId: z.string().min(1) }) }));
       const { runId } = input.params;
       const run = await authorizeRun(context, runId, 'runs.read');
       beginSse(c, deps.timeout);

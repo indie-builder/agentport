@@ -8,7 +8,7 @@ import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
-import { requestContext } from '../../http/context.js';
+import { parseRequest, requestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
@@ -240,9 +240,10 @@ export function registerChannelRunEventsHttp(
 ): void {
   app.get('/api/channels/:id/runs/:runId/events', access({ kind: 'authenticated' }), async (c) => {
     const context = requestContext(c);
-    const input = z
-      .object({ params: z.object({ id: z.string().min(1), runId: z.string().min(1) }) })
-      .parse({ params: c.req.param(), query: c.req.query() });
+    const input = parseRequest(
+      c,
+      z.object({ params: z.object({ id: z.string().min(1), runId: z.string().min(1) }) }),
+    );
     const { id, runId } = input.params;
     const businessId = requireUser(context).businessId;
     const access = await channelControl.getChannelRunForMember(context.db, businessId, id, runId);

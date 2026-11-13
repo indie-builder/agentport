@@ -13,7 +13,7 @@ import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppContext, HttpContext, HttpEnv, RequestContext } from '../../http/context.js';
-import { requestContext } from '../../http/context.js';
+import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { CONVERSATION_MISSING, loadReadableConversation } from './access.js';
@@ -165,12 +165,13 @@ export const chatOutputsRouter = {
 };
 async function readRequestedOutput(c: HttpContext) {
   const context = requestContext(c);
-  const input = z
-    .object({
+  const input = parseRequest(
+    c,
+    z.object({
       params: z.object({ id: outputOwnerIdSchema, runId: outputOwnerIdSchema }),
       query: z.object({ path: outputPathSchema }),
-    })
-    .parse({ params: c.req.param(), query: c.req.query() });
+    }),
+  );
   const conversation = await loadReadableConversation(context, input.params.id);
   const slug = await agentSlug(context, conversation.agentId);
   if (slug === null) fail('NOT_FOUND', '成果文件不存在，可能已被清理');
