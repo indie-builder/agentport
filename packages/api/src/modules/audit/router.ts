@@ -27,17 +27,23 @@ type AuditQueryParams = {
   action?: string | undefined;
   status?: 'ok' | 'error' | 'denied' | undefined;
   target?: string | undefined;
+  actor?: string | undefined;
+  actorKind?: 'user' | 'service' | 'anonymous' | 'agent' | undefined;
+  since?: string | undefined;
   limit?: number | undefined;
   before?: string | undefined;
   beforeId?: string | undefined;
 };
 
 export function auditOptions(query: AuditQueryParams): repo.audit.AuditQuery {
-  const { action, status, target, limit, before, beforeId } = query;
+  const { action, status, target, actor, actorKind, since, limit, before, beforeId } = query;
   return {
     ...(action ? { action } : {}),
     ...(status ? { status } : {}),
     ...(target ? { target } : {}),
+    ...(actor ? { actor } : {}),
+    ...(actorKind ? { actorKind } : {}),
+    ...(since === undefined ? {} : { since: new Date(since) }),
     ...(limit === undefined ? {} : { limit }),
     ...(before === undefined ? {} : { before: new Date(before) }),
     ...(beforeId === undefined ? {} : { beforeId }),
