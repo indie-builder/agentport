@@ -65,6 +65,19 @@ describe.skipIf(!ready)('audit export', () => {
   const listAudit = (query = '') =>
     request(app, { method: 'GET', url: `/api/audit${query}`, headers: { cookie } });
 
+  const parseLines = (body: string) =>
+    body
+      .trim()
+      .split('\n')
+      .map(
+        (line) =>
+          JSON.parse(line) as ExportedItem & {
+            chainSeq: number;
+            prevHash: string | null;
+            hash: string | null;
+          },
+      );
+
   /** 直接落库：写入路径已在别处覆盖，这里只验证读路径。 */
   async function seedAudit(options: {
     action: string;
@@ -219,5 +232,62 @@ describe.skipIf(!ready)('audit export', () => {
     expect((await exportAudit(`?target=${encodeURIComponent(target)}`)).statusCode).toBe(200);
 
     expect(await row()).toEqual(before);
+  });
+
+  it('exports NDJSON rows in chain_seq order with chain fields', async () => {
+    const target = unique('target');
+    createdTargets.push(target);
+    const first = await seedAudit({ action: 'agent.run', target });
+    const second = await seedAudit({ action: 'agent.run', target });
+
+    const res = await exportAudit(`?target=${encodeURIComponent(target)}&format=ndjson`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/x-ndjson');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="audit.ndjson"');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+
+    const rows = parseLines(res.body);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.id).sort()).toEqual([first, second].sort());
+    for (const [index, row] of rows.entries()) {
+      if (index > 0) expect(row.chainSeq).toBeGreaterThan(rows[index - 1]!.chainSeq);
+      expect(typeof row.chainSeq).toBe('number');
+      expect(Object.hasOwn(row, 'prevHash')).toBe(true);
+      expect(Object.hasOwn(row, 'hash')).toBe(true);
+      expect(row.prevHash === null || typeof row.prevHash === 'string').toBe(true);
+      expect(row.hash === null || typeof row.hash === 'string').toBe(true);
+    }
+  });
+
+  it('pages NDJSON exports with the afterSeq cursor', async () => {
+    const target = unique('target');
+    createdTargets.push(target);
+    const ids = [
+      await seedAudit({ action: 'agent.run', target }),
+      await seedAudit({ action: 'agent.run', target }),
+      await seedAudit({ action: 'agent.run', target }),
+    ];
+    const query = `?target=${encodeURIComponent(target)}&format=ndjson&limit=2`;
+
+    const firstPage = await exportAudit(query);
+    expect(firstPage.statusCode, firstPage.body).toBe(200);
+    const firstRows = parseLines(firstPage.body);
+    expect(firstRows).toHaveLength(2);
+    const cursor = firstRows.at(-1)!.chainSeq;
+    expect(firstPage.headers.get('x-next-after-seq')).toBe(String(cursor));
+
+    const secondPage = await exportAudit(`${query}&afterSeq=${cursor}`);
+    expect(secondPage.statusCode, secondPage.body).toBe(200);
+    const secondRows = parseLines(secondPage.body);
+    expect(secondRows).toHaveLength(1);
+
+    const exported = [...firstRows, ...secondRows].map((row) => row.id);
+    expect(new Set(exported).size).toBe(3);
+    expect(exported.sort()).toEqual([...ids].sort());
+  });
+
+  it('requires authentication for NDJSON exports', async () => {
+    expectProblem(await exportAudit('?format=ndjson', false), 'UNAUTHORIZED');
   });
 });
