@@ -29,6 +29,7 @@ import { marketRouter } from '../modules/market/router.js';
 import { registerMemoryHttp } from '../modules/memory/http.js';
 import { memoryRouter } from '../modules/memory/router.js';
 import { memoryReviewsRouter } from '../modules/memory-reviews/router.js';
+import { registerOpsQueuesHttp } from '../modules/ops/http.js';
 import { opsRouter } from '../modules/ops/router.js';
 import { registerOutputSharesHttp } from '../modules/output-shares/http.js';
 import { outputSharesRouter } from '../modules/output-shares/router.js';
@@ -109,6 +110,7 @@ export function registerRoutes(
   registerServersHttp(app, runtime);
   registerKnowledgeHttp(app);
   registerAuditHttp(app);
+  registerOpsQueuesHttp(app, runtime);
   registerEvalHttp(app);
   registerMemoryHttp(app);
   registerOutputSharesHttp(app);
