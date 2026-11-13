@@ -72,3 +72,21 @@ export const EXTENSION_BY_MIME: Record<string, string> = {
   'application/json': 'json',
   'application/xml': 'xml',
 };
+
+export const MIME_BY_EXTENSION: Record<string, string> = {
+  ...TEXT_MIME_BY_EXTENSION,
+  '.rst': 'text/plain',
+  '.adoc': 'text/plain',
+};
+
+export function textContentType(value: string | null): boolean {
+  if (!value) return false;
+  const mime = value.split(';')[0]?.trim().toLowerCase() ?? '';
+  return (
+    mime.startsWith('text/') ||
+    mime === 'application/json' ||
+    mime === 'application/xml' ||
+    mime.endsWith('+json') ||
+    mime.endsWith('+xml')
+  );
+}

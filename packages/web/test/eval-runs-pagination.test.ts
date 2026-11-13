@@ -11,7 +11,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type EvalRun, type EvalRunPage } from '../src/lib/api.js';
-import { EvalPage } from '../src/pages/eval.js';
+import { EvalPage } from '../src/pages/eval/index.js';
 import { evalSearchSchema } from '../src/routes/-search.js';
 
 let root: Root;

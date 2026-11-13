@@ -21,7 +21,7 @@ import {
   type EvalRunPage,
 } from '../src/lib/api.js';
 import { shortId } from '../src/lib/format.js';
-import { EvalPage } from '../src/pages/eval.js';
+import { EvalPage } from '../src/pages/eval/index.js';
 import { evalSearchSchema } from '../src/routes/-search.js';
 
 let root: Root;

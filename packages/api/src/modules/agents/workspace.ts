@@ -5,13 +5,17 @@ import {
   toOutputStyleSelection,
   toRuleEntries,
   toWorkflowEntries,
-  toWorkspaceInput,
   unionById,
 } from '@agentport/core';
+import { resolveWorkspaceMemoryPolicy, toWorkspaceInput } from '@agentport/core/workspace-input';
 import { repo, type schema } from '@agentport/db';
-import { knowledgeMcpEntry, maskUrlCredentials, PREVIEW_SECRET } from '@agentport/shared';
+import {
+  generatedMcpEntry,
+  knowledgeMcpEntry,
+  PREVIEW_SECRET,
+  previewMcpEntry,
+} from '@agentport/shared';
 import type { AppContext } from '../../http/context.js';
-import { str, strArray } from '../servers/repo.js';
 import { decryptSecrets } from '../servers/secrets.js';
 
 type ServerRow = typeof schema.servers.$inferSelect;
@@ -39,24 +43,25 @@ function toEntry(row: ServerRow, secretKeys: string[]): McpJsonEntry {
       _note: RUNTIME_AUTH_NOTE,
     };
   }
-  if (row.kind === 'stdio') {
-    return {
-      command: str(config.command),
-      args: strArray(config.args),
-      env: maskValues(secretKeys),
-    };
+  const configuredValues = row.kind === 'stdio' ? config.env : config.headers;
+  const configuredKeys =
+    configuredValues && typeof configuredValues === 'object' ? Object.keys(configuredValues) : [];
+  const values = maskValues([...configuredKeys, ...secretKeys]);
+  if (row.kind === 'stdio' || row.kind === 'http') {
+    return previewMcpEntry(row, values);
   }
-  if (row.kind === 'http') {
-    return {
-      type: 'http',
-      url: maskUrlCredentials(str(config.url)),
-      headers: maskValues(secretKeys),
-    };
-  }
+  const entry = generatedMcpEntry(
+    {
+      apiUrl: sandboxApiUrl(),
+      serverId: row.id,
+      runId: '<run-id>',
+      runToken: '<run-token>',
+    },
+    values,
+  );
   return {
-    type: 'http' as const,
-    url: `${sandboxApiUrl()}/mcp/${row.id}`,
-    headers: maskValues(secretKeys, true),
+    ...entry,
+    headers: maskValues(Object.keys(values), true),
     _note: RUNTIME_AUTH_NOTE,
   };
 }
@@ -100,8 +105,10 @@ export async function renderAgentWorkspace(
     skills: (childSkills.get(row.id) ?? []).map(withFiles),
     serverNames: (serversByAgent.get(row.id) ?? []).map((server) => server.name),
   }));
-  const ruleRows = await repo.rules.listRules(app.db, agent.id);
-  const rules = toRuleEntries(ruleRows);
+  const memoryPolicy = resolveWorkspaceMemoryPolicy(agent.memoryPolicy, { mode: 'preview' });
+  const rules = memoryPolicy.injectRules
+    ? toRuleEntries(await repo.rules.listRules(app.db, agent.id))
+    : [];
   const workflows =
     agent.parentId === null
       ? toWorkflowEntries(await repo.workflows.listWorkflows(app.db, agent.id))
@@ -138,6 +145,7 @@ export async function renderAgentWorkspace(
   );
   return renderWorkspace(
     toWorkspaceInput({
+      memoryPolicy,
       agent: { ...agent, serverNames: rootServers.map((server) => server.name) },
       servers,
       skills: skillsWithFiles,

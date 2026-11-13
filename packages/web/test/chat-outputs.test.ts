@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type ConversationDetail, type RunDetail } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 import { formatDateTime } from '../src/lib/format.js';
-import { ChatPage } from '../src/pages/chat.js';
+import { ChatPage } from '../src/pages/chat/index.js';
 import { chatSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));

@@ -12,7 +12,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentsPage } from '../src/pages/agents/index.js';
-import { ChatPage } from '../src/pages/chat.js';
+import { ChatPage } from '../src/pages/chat/index.js';
 import { agentsSearchSchema, chatSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));

@@ -1,3 +1,4 @@
+import { appendStreamEvent } from '@agentport/core';
 import type {
   AgentRunJob,
   ChannelEvent,
@@ -26,6 +27,7 @@ import {
   runEventsConnectionName,
   runStreamKey,
   SANDBOX_PROBES_QUEUE,
+  STREAM_TTL_SECONDS,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
@@ -37,13 +39,6 @@ const MONITORED_QUEUES = [
   KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
   MAINTENANCE_QUEUE,
 ] as const;
-
-/**
- * 事件通道用 Redis Stream 而不是 pub/sub：
- * pub/sub 在订阅建立前发出的事件会永久丢失（客户端从 POST 到建连之间常见）。
- * Stream 允许从 0 回放；每次发布刷新 TTL，超过 1 小时没有任何新事件时整条流过期。
- */
-const STREAM_TTL_SECONDS = 3600;
 
 /**
  * 每次 XRANGE/XREAD 的条数上限。首次回放从流头逐页读完，COUNT 2 只限制单页驻留，
@@ -163,23 +158,14 @@ const parseChannelEvent = (payload: string): ChannelEvent | null =>
   parseJsonAs(payload, channelEventSchema);
 
 export async function publishRun(runId: string, event: ChatEvent): Promise<void> {
-  const redis = getClient();
-  const key = runStreamKey(runId);
-  await Promise.all([
-    redis.send('XADD', [key, '*', 'payload', JSON.stringify(event)]),
-    redis.expire(key, STREAM_TTL_SECONDS),
-  ]);
+  await appendStreamEvent(getClient(), runStreamKey(runId), event);
 }
 
 /** 频道事件只做唤醒；订阅端按 DB 的 seq 补拉，不信任这里的正文。 */
 export async function publishChannelEvent(channelId: string, event: ChannelEvent): Promise<void> {
   const redis = getChannelClient();
   if (!redis.connected) await redis.connect();
-  const key = channelStreamKey(channelId);
-  await Promise.all([
-    redis.send('XADD', [key, '*', 'payload', JSON.stringify(event)]),
-    redis.expire(key, STREAM_TTL_SECONDS),
-  ]);
+  await appendStreamEvent(redis, channelStreamKey(channelId), event);
 }
 
 export async function publishChannelMessage(

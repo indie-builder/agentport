@@ -1,4 +1,9 @@
-import type { AgentInput, MemoryPolicy, OpenUiToolDescriptor } from '@agentport/shared';
+import {
+  type AgentInput,
+  type MemoryPolicy,
+  type OpenUiToolDescriptor,
+  resolveMemoryPolicy,
+} from '@agentport/shared';
 import type { McpJsonEntry } from './tools.js';
 import type {
   WorkspaceAgent,
@@ -45,10 +50,16 @@ export function toWorkspaceAgent(row: WorkspaceAgentRow): WorkspaceAgent {
   };
 }
 
-/**
- * agent + 绑定 → renderWorkspace 输入。servers 的 entry 由调用方构造：
- * 预览用密钥占位，运行时用解密后的真实值；这里只负责组装与过滤已停用的子智能体。
- */
+export function resolveWorkspaceMemoryPolicy(
+  value: unknown,
+  context: { mode: 'preview' } | { mode: 'run'; channelId: string | null },
+): MemoryPolicy {
+  const policy = resolveMemoryPolicy(value);
+  return context.mode === 'run' && context.channelId !== null
+    ? { ...policy, writeMode: 'proposal_only' }
+    : policy;
+}
+
 export function toWorkspaceInput(params: {
   agent: WorkspaceAgentRow;
   servers: Array<{ name: string; entry: McpJsonEntry }>;
@@ -72,14 +83,16 @@ export function toWorkspaceInput(params: {
   /** 专家记忆策略；worker 传已解析的策略，未传时按默认（可读可写）渲染。 */
   memoryPolicy?: MemoryPolicy;
 }): WorkspaceInput {
-  const { agent } = params;
+  const { agent, memoryPolicy } = params;
   return {
     agent: toWorkspaceAgent(agent),
     servers: params.servers,
     skills: params.skills,
     subAgents: params.subAgents.filter((row) => row.enabled).map(toWorkspaceAgent),
     ...(params.workflows && params.workflows.length > 0 ? { workflows: params.workflows } : {}),
-    ...(params.rules && params.rules.length > 0 ? { rules: params.rules } : {}),
+    ...(memoryPolicy?.injectRules !== false && params.rules && params.rules.length > 0
+      ? { rules: params.rules }
+      : {}),
     ...(params.outputStyles && params.outputStyles.length > 0
       ? { outputStyles: params.outputStyles }
       : {}),
@@ -92,7 +105,7 @@ export function toWorkspaceInput(params: {
     ...(params.openuiTools && params.openuiTools.length > 0
       ? { openuiTools: params.openuiTools }
       : {}),
-    ...(params.memoryPolicy ? { memoryPolicy: params.memoryPolicy } : {}),
+    ...(memoryPolicy ? { memoryPolicy } : {}),
   };
 }
 

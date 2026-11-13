@@ -11,7 +11,7 @@
 
 ## Schema 与迁移
 
-- 表定义只在 `src/schema.ts` 改；迁移用 `bun run db:generate` 生成到 `migrations/` 并提交，再执行 `bun run db:migrate`。生成后检查 SQL，已应用的迁移不回改；不为旧数据保留兼容层。
+- 表定义只在 `src/schema/<domain>.ts` 改，`src/schema.ts` 保留 barrel 与 schema 聚合对象；迁移用 `bun run db:generate` 生成到 `migrations/` 并提交，再执行 `bun run db:migrate`。生成后检查 SQL，已应用的迁移不回改；不为旧数据保留兼容层。
 - DB schema 变更后同步 docs 中对应的表/字段说明（如 [ARCHITECTURE](../../docs/ARCHITECTURE.md)、[PROJECT-BRIEF](../../docs/PROJECT-BRIEF.md)）。这里指数据库 schema，不是 HTTP 路由 schema。
 - 新表/列明确 nullable、默认值与约束，不靠隐式行为；再跑迁移。
 

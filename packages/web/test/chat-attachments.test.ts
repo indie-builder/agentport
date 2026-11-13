@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { api, type ChatAccepted, type ConversationDetail } from '../src/lib/api.js';
 import { historyToItems } from '../src/lib/chat-state.js';
 import { useChatStore } from '../src/lib/chat-store.js';
-import { ChatPage } from '../src/pages/chat.js';
+import { ChatPage } from '../src/pages/chat/index.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 

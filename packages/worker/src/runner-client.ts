@@ -1,4 +1,4 @@
-import { isRetryableFailure, RunFailure } from '@agentport/core';
+import { appendStreamEvent, isRetryableFailure, RunFailure } from '@agentport/core';
 import {
   type ChannelEvent,
   type ChatEvent,
@@ -425,12 +425,7 @@ function getCancelSubscriber(logger: Logger): RedisClient {
 
 /** 事件写 Redis Stream（与 API 的订阅端一致），可从流头回放；BLOCK 订阅者由 XADD 直接唤醒。 */
 export async function publishRun(runId: string, event: ChatEvent, logger: Logger): Promise<void> {
-  const key = runStreamKey(runId);
-  const redis = getPublisher(logger);
-  await Promise.all([
-    redis.send('XADD', [key, '*', 'payload', JSON.stringify(event)]),
-    redis.expire(key, 3600),
-  ]);
+  await appendStreamEvent(getPublisher(logger), runStreamKey(runId), event);
 }
 
 export async function clearRunCancel(runId: string, logger: Logger): Promise<void> {
@@ -455,13 +450,8 @@ export async function publishChannelEvent(
   event: ChannelEvent,
   logger: Logger,
 ): Promise<void> {
-  const key = channelStreamKey(channelId);
-  const redis = getPublisher(logger);
   await withPublishTimeout(
-    Promise.all([
-      redis.send('XADD', [key, '*', 'payload', JSON.stringify(event)]),
-      redis.expire(key, 3600),
-    ]),
+    appendStreamEvent(getPublisher(logger), channelStreamKey(channelId), event),
     CHANNEL_PUBLISH_TIMEOUT_MS,
   );
 }

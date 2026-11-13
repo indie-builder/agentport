@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { api } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
-import { ChatPage } from '../src/pages/chat.js';
+import { ChatPage } from '../src/pages/chat/index.js';
 
 const expert = (slug: string, name: string, id: string) => ({
   ...agentInputSchema.parse({ slug, name }),

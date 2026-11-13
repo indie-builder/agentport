@@ -3,7 +3,7 @@ import { EditorView } from '@codemirror/view';
 import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ToolForm } from '../src/pages/servers.js';
+import { ToolForm } from '../src/pages/servers/index.js';
 
 const state = vi.hoisted(() => ({
   createPending: false,
