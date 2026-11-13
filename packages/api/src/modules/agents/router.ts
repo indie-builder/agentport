@@ -20,7 +20,7 @@ import {
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
-import { deleteAgentWithSandboxes } from '../runtime-deletion.js';
+import { deleteAgentWithSandboxes } from '../runtime/runtime-deletion.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import {

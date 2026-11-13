@@ -1,6 +1,6 @@
 import { repo } from '@agentport/db';
 import type { SQL } from 'bun';
-import { closeSessionSandboxes } from '../queue/session-cleanup.js';
+import { closeSessionSandboxes } from '../../queue/session-cleanup.js';
 
 const { AGENT_BINDINGS_LOCK_KEY, withAdvisoryLock } = repo.locks;
 
