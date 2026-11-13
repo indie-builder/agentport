@@ -70,6 +70,18 @@ docker compose logs postgres | grep 'duration:'
 
 `oldestWaitingMs` 为 `null` 表示当前没有 waiting job，或该次读取失败；读取失败不影响同队列的计数。它只看 `waiting` 列表，不含 `delayed` 与尚未进入 waiting 的优先级 job。
 
+## 队列面板 /api/ops/queues
+
+Bull Board 只读面板，覆盖 `agent-runs`、`eval-runs`、`knowledge-jobs`、`runtime-environment-builds`、`schedule-triggers`、`sandbox-probes`、`native-plugins`、`knowledge-sync-triggers`、`maintenance` 九个队列的计数、job 详情与调度器状态。
+
+访问 `http://<api>/api/ops/queues`，需要登录且具备 `operations.read` 权限，与 `/health/metrics` 相同；未授权返回 `Problem` 形状的 401/403。页面、静态资源与面板内部 JSON 接口都在同一权限校验之后。
+
+面板全部队列以只读模式挂载，新增、重试、删除、清空、暂停与调度器写入都不会改变队列：队列级写接口返回 405，面板级批量 pause/resume 对只读队列不执行任何操作。需要修改队列时仍走业务入口或运维脚本。
+
+面板是第三方 UI（Bull Board），其内部接口的错误响应沿用 Bull Board 自己的 `{error:{key}}` 形状，是本 API「唯一 Problem 错误形状」的明确例外。不要把这个子应用的错误改写成 Problem，那会破坏面板前端；面板边界之外的 API 路由仍一律用 Problem。
+
+`operations.read` 持有人能在面板看到 job 的 payload，可能含 prompt、模型输出与日志正文，属敏感信息，只授予可信运维或专用智能体。
+
 ## 排障配方
 
 1. 有 `requestId`：在 API 日志中检索该 id，看路由、状态码、耗时与错误，并取到它触发的 `runId`。

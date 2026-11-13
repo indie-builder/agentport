@@ -15,6 +15,7 @@ import {
   KNOWLEDGE_CANCEL_PAYLOAD,
   KNOWLEDGE_JOBS_QUEUE,
   knowledgeCancelKey,
+  NATIVE_PLUGINS_QUEUE,
   parseJsonAs,
   RUN_CANCEL_PAYLOAD,
   RUNS_QUEUE,
@@ -22,11 +23,20 @@ import {
   runCancelKey,
   runEventsConnectionName,
   runStreamKey,
+  SANDBOX_PROBES_QUEUE,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+const KNOWLEDGE_SYNC_TRIGGERS_QUEUE = 'knowledge-sync-triggers';
+const MAINTENANCE_QUEUE = 'maintenance';
+const MONITORED_QUEUES = [
+  SANDBOX_PROBES_QUEUE,
+  NATIVE_PLUGINS_QUEUE,
+  KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
+  MAINTENANCE_QUEUE,
+] as const;
 
 /**
  * 事件通道用 Redis Stream 而不是 pub/sub：
@@ -57,6 +67,7 @@ let queue: Queue<AgentRunJob> | undefined;
 let evalQueue: Queue<EvalRunJob> | undefined;
 let knowledgeQueue: Queue<{ jobId: string }> | undefined;
 let runtimeEnvironmentBuildQueue: Queue<RuntimeEnvironmentBuildJob> | undefined;
+let monitoringQueues: Queue[] | undefined;
 let client: RedisClient | undefined;
 let channelClient: RedisClient | undefined;
 let queueConnection: ReturnType<typeof createBunRedisClient> | undefined;
@@ -103,6 +114,18 @@ export function getRuntimeEnvironmentBuildQueue(): Queue<RuntimeEnvironmentBuild
     runtimeEnvironmentBuildQueue.on('error', logRedisError);
   }
   return runtimeEnvironmentBuildQueue;
+}
+
+export function getMonitoringQueues(): Queue[] {
+  monitoringQueues ??= MONITORED_QUEUES.map((name) => {
+    const monitored = new Queue(name, {
+      connection: getQueueConnection(),
+      skipMetasUpdate: true,
+    });
+    monitored.on('error', logRedisError);
+    return monitored;
+  });
+  return monitoringQueues;
 }
 
 function getClient(): RedisClient {
@@ -369,21 +392,30 @@ export async function closeProducer(): Promise<void> {
   if (channelClient) channelClient.onclose = () => undefined;
   channelClient?.close();
   channelClient = undefined;
-  const closing = [queue, evalQueue, knowledgeQueue, runtimeEnvironmentBuildQueue, client] as const;
+  const closing = [
+    queue,
+    evalQueue,
+    knowledgeQueue,
+    runtimeEnvironmentBuildQueue,
+    monitoringQueues,
+    client,
+  ] as const;
   queue = undefined;
   evalQueue = undefined;
   knowledgeQueue = undefined;
   runtimeEnvironmentBuildQueue = undefined;
+  monitoringQueues = undefined;
   client = undefined;
   await Promise.allSettled([
     closing[0]?.close(),
     closing[1]?.close(),
     closing[2]?.close(),
     closing[3]?.close(),
+    ...(closing[4] ?? []).map((monitored) => monitored.close()),
     ...[...subscriptions.values()].map((close) => close()),
   ]);
-  if (closing[4]) closing[4].onclose = () => undefined;
-  closing[4]?.close();
+  if (closing[5]) closing[5].onclose = () => undefined;
+  closing[5]?.close();
   await queueConnection?.quit();
   queueConnection = undefined;
   subscriptions.clear();
