@@ -758,16 +758,7 @@ export function KnowledgeProfilesDialog({
 
   return (
     <>
-      <Dialog
-        open
-        onOpenChange={(next, details) => {
-          if (formPending) {
-            details.cancel();
-            return;
-          }
-          if (!next) guard.close();
-        }}
-      >
+      <Dialog open onOpenChange={guardedOpenChange(formPending, guard.close)}>
         <DialogShell
           title="模型配置"
           description="知识库的 embedding、重排与音频转录 profile；凭证只写不回显。"
