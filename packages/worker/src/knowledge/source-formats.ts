@@ -37,14 +37,18 @@ export function extensionOf(name: string): string {
   return dot < 0 ? '' : name.slice(dot).toLowerCase();
 }
 
+export function declaredMime(contentType: string | null | undefined): string | undefined {
+  const mime = contentType?.split(';')[0]?.trim().toLowerCase();
+  return mime && mime !== 'application/octet-stream' ? mime : undefined;
+}
+
 /** 扩展名优先于上传声明；声明只接受已知 MIME，octet-stream 不算。 */
 export function mimeOf(name: string, declared: string | undefined): string | undefined {
   const extension = extensionOf(name);
   const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? TEXT_MIME_BY_EXTENSION[extension];
   if (byExtension) return byExtension;
-  const mime = declared?.split(';')[0]?.trim().toLowerCase();
-  if (mime && mime !== 'application/octet-stream' && EXTENSION_BY_MIME[mime]) return mime;
-  return undefined;
+  const mime = declaredMime(declared);
+  return mime && EXTENSION_BY_MIME[mime] ? mime : undefined;
 }
 
 export const EXTENSION_BY_MIME: Record<string, string> = {

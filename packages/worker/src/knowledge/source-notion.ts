@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BINARY_MIME_BY_EXTENSION, extensionOf } from './source-formats.js';
+import { BINARY_MIME_BY_EXTENSION, declaredMime, extensionOf } from './source-formats.js';
 import {
   type FetchOptions,
   fetchChecked,
@@ -215,9 +215,7 @@ function mimeForName(name: string, contentType: string | null): string {
   const byExtension =
     BINARY_MIME_BY_EXTENSION[extensionOf(name)] ?? TEXT_MIME_BY_EXTENSION[extensionOf(name)];
   if (byExtension) return byExtension;
-  const declared = contentType?.split(';')[0]?.trim().toLowerCase();
-  if (declared && declared !== 'application/octet-stream') return declared;
-  return 'application/octet-stream';
+  return declaredMime(contentType) ?? 'application/octet-stream';
 }
 
 function ensureExtension(name: string, mimeType: string): string {

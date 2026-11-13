@@ -4,7 +4,12 @@ import TurndownService from 'turndown';
 import { z } from 'zod';
 import { probeConfluence, readConfluence } from './source-confluence.js';
 import { probeDingtalk, readDingtalk } from './source-dingtalk.js';
-import { BINARY_MIME_BY_EXTENSION, extensionOf, TEXT_MIME_BY_EXTENSION } from './source-formats.js';
+import {
+  BINARY_MIME_BY_EXTENSION,
+  declaredMime,
+  extensionOf,
+  TEXT_MIME_BY_EXTENSION,
+} from './source-formats.js';
 import {
   type FetchOptions,
   fetchBytes,
@@ -363,9 +368,7 @@ function driveFileMime(fileName: string, contentType: string | null): string {
   const extension = extensionOf(fileName);
   const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? MIME_BY_EXTENSION[extension];
   if (byExtension) return byExtension;
-  const declared = contentType?.split(';')[0]?.trim().toLowerCase();
-  if (declared && declared !== 'application/octet-stream') return declared;
-  return 'application/octet-stream';
+  return declaredMime(contentType) ?? 'application/octet-stream';
 }
 
 function inScope(file: string, roots: string[]): boolean {
