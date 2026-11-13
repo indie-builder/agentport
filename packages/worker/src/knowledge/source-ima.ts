@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { errorText } from '@agentport/shared';
 import { z } from 'zod';
+import { declaredMime } from './source-formats.js';
 import {
   sourceFailure as failureOf,
   fetchChecked,
@@ -284,9 +285,7 @@ function mediaExtension(mediaType: number, contentType: string | null, title: st
 function mediaMime(mediaType: number, extension: string, contentType: string | null): string {
   const byExtension = MIME_BY_EXTENSION[extension];
   if (byExtension) return byExtension;
-  const declared = contentType?.split(';')[0]?.trim().toLowerCase();
-  if (declared && declared !== 'application/octet-stream') return declared;
-  return MEDIA[mediaType]?.mime ?? 'application/octet-stream';
+  return declaredMime(contentType) ?? MEDIA[mediaType]?.mime ?? 'application/octet-stream';
 }
 
 function sanitizeDownloadError(err: unknown): Error {
