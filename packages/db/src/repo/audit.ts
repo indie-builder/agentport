@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { sha256Hex } from '@agentport/core';
-import { and, asc, desc, eq, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
@@ -125,9 +125,34 @@ export interface AuditChainVerification {
   ok: boolean;
   checked: number;
   brokenSeq: string | null;
+  nextAfterSeq: number | null;
+  complete: boolean;
 }
 
-export async function verifyAuditChain(db: Database): Promise<AuditChainVerification> {
+export async function verifyAuditChain(
+  db: Database,
+  opts: { afterSeq?: number; limit?: number } = {},
+): Promise<AuditChainVerification> {
+  const limit = Math.min(Math.max(opts.limit ?? 1000, 1), 5000);
+  // 0 或省略视作从创世开始；游标行被删时不能当作链尾成功。
+  const afterSeq = opts.afterSeq != null && opts.afterSeq > 0 ? opts.afterSeq : 0;
+  let expectedPrev: string | null = null;
+  if (afterSeq > 0) {
+    const [cursor] = await db
+      .select({ hash: auditLog.hash })
+      .from(auditLog)
+      .where(eq(auditLog.chainSeq, afterSeq));
+    if (!cursor || cursor.hash === null) {
+      return {
+        ok: false,
+        checked: 0,
+        brokenSeq: String(afterSeq),
+        nextAfterSeq: null,
+        complete: false,
+      };
+    }
+    expectedPrev = cursor.hash;
+  }
   const rows = await db
     .select({
       chainSeq: auditLog.chainSeq,
@@ -146,20 +171,34 @@ export async function verifyAuditChain(db: Database): Promise<AuditChainVerifica
       createdAt: auditLog.createdAt,
     })
     .from(auditLog)
-    .orderBy(asc(auditLog.chainSeq));
+    .where(and(isNotNull(auditLog.hash), gt(auditLog.chainSeq, afterSeq)))
+    .orderBy(asc(auditLog.chainSeq))
+    .limit(limit + 1);
 
-  let previousHash: string | null = null;
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
   let checked = 0;
-  for (const row of rows) {
-    // hash 为 null 的行（迁移前旧数据）不在链上，跳过。
-    if (row.hash === null) continue;
-    if (row.prevHash !== previousHash || row.hash !== chainHash(row)) {
-      return { ok: false, checked, brokenSeq: String(row.chainSeq) };
+  for (const row of page) {
+    if (row.prevHash !== expectedPrev || row.hash !== chainHash(row)) {
+      return {
+        ok: false,
+        checked,
+        brokenSeq: String(row.chainSeq),
+        nextAfterSeq: null,
+        complete: false,
+      };
     }
-    previousHash = row.hash;
+    expectedPrev = row.hash;
     checked += 1;
   }
-  return { ok: true, checked, brokenSeq: null };
+  const last = page.at(-1);
+  return {
+    ok: true,
+    checked,
+    brokenSeq: null,
+    nextAfterSeq: hasMore && last ? last.chainSeq : null,
+    complete: !hasMore,
+  };
 }
 
 export interface AuditQuery {

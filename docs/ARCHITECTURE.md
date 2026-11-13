@@ -655,7 +655,7 @@ worker 在 run 完成时传 `dedupeKey: aud_<runId 去掉前缀>`，因此 BullM
 
 ### 7.2.1 审计哈希链
 
-每次写入在自开事务内先取 `pg_advisory_xact_lock(781236)`，把「读上一条 hash + 插入」串行化，并发写入不会分叉。`chain_seq`（bigserial）给出链顺序；`hash` 是 `[prev_hash, id, actor, actor_kind, subject_business_id, action, target, input_digest, status, duration_ms, request_id, created_at]` 固定顺序 JSON 的 SHA-256。迁移前旧行的 `hash` 为 null，作为未上链前缀跳过。`GET /api/audit/verify`（`audit.read`）按 `chain_seq` 升序重算，返回 `{ ok, checked, brokenSeq }`；首个不符行的 `chain_seq` 写进 `brokenSeq`。哈希链可发现中间行被改写或删除，无法发现末尾行被截断。
+每次写入在自开事务内先取 `pg_advisory_xact_lock(781236)`，把「读上一条 hash + 插入」串行化，并发写入不会分叉。`chain_seq`（bigserial）给出链顺序；`hash` 是 `[prev_hash, id, actor, actor_kind, subject_business_id, action, target, input_digest, status, duration_ms, request_id, created_at]` 固定顺序 JSON 的 SHA-256。迁移前旧行的 `hash` 为 null，作为未上链前缀跳过。`GET /api/audit/verify`（`audit.read`）按 `chain_seq` 升序分页重算，返回 `{ ok, checked, brokenSeq, nextAfterSeq, complete }`；`afterSeq`/`limit`（默认 1000，上限 5000）用于续页，`nextAfterSeq` 是下一页游标，`complete` 表示是否已到链尾；首个不符行的 `chain_seq` 写进 `brokenSeq`。哈希链可发现中间行被改写或删除，无法发现末尾行被截断。
 
 ### 7.3 沙盒镜像自包含 workspace 依赖
 
