@@ -11,6 +11,8 @@ export interface AuditQuery {
   action?: string;
   status?: AuditStatus;
   target?: string;
+  actor?: string;
+  actorKind?: AuditEntry['actorKind'];
   limit?: number;
   /** ISO 时间戳；与 beforeId 相互独立，由调用方自行选择。 */
   before?: string;
@@ -32,6 +34,8 @@ export default {
     if (query.action) params.set('action', query.action);
     if (query.status) params.set('status', query.status);
     if (query.target) params.set('target', query.target);
+    if (query.actor) params.set('actor', query.actor);
+    if (query.actorKind) params.set('actorKind', query.actorKind);
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return nativeRequest(`/audit/export${search}`);
   },
