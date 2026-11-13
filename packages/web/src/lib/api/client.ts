@@ -213,6 +213,7 @@ export const api = {
   exportAudit: audit.exportAudit,
   evalCases: evalApi.evalCases,
   createEvalCase: evalApi.createEvalCase,
+  createEvalCaseFromRun: evalApi.createEvalCaseFromRun,
   updateEvalCase: evalApi.updateEvalCase,
   deleteEvalCase: evalApi.deleteEvalCase,
   exportEvalDataset: evalApi.exportEvalDataset,

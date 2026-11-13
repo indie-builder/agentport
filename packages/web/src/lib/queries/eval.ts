@@ -25,6 +25,14 @@ export function useCreateEvalCase() {
   });
 }
 
+export function useCreateEvalCaseFromRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.createEvalCaseFromRun(runId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+  });
+}
+
 export function useImportEvalDataset() {
   const client = useQueryClient();
   return useMutation({
