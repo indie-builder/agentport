@@ -60,6 +60,13 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
       headers: withCookie ? { cookie } : {},
     });
 
+  const exportRunTrajectory = (id: string, withCookie = true) =>
+    request(app, {
+      method: 'GET',
+      url: `/api/runs/${id}/export`,
+      headers: withCookie ? { cookie } : {},
+    });
+
   async function seedAgent(): Promise<{ id: string; name: string }> {
     const id = unique('runs-export-agent');
     const name = `Agent ${id}`;
@@ -116,6 +123,55 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
 
   it('requires authentication', async () => {
     expectProblem(await exportRuns('', false), 'UNAUTHORIZED');
+  });
+
+  it('exports a single run trajectory to its owner', async () => {
+    const agent = await seedAgent();
+    const id = await seedRun({ agentId: agent.id, status: 'succeeded' });
+    const [runRow] = await app.client.unsafe<{ conversation_id: string }[]>(
+      'select conversation_id from agent_runs where id = $1',
+      [id],
+    );
+    const conversationId = runRow.conversation_id;
+    await app.client.unsafe(
+      `insert into messages (id, conversation_id, role, content, run_id, created_at)
+       values ($1, $2, 'user', $3::jsonb, $4, now()),
+              ($5, $2, 'assistant', $6::jsonb, $4, now() + interval '1 second')`,
+      [
+        unique('msg'),
+        conversationId,
+        JSON.stringify({ text: '请总结这份报告' }),
+        id,
+        unique('msg'),
+        JSON.stringify({ type: 'text', text: '这是总结。' }),
+      ],
+    );
+
+    const res = await exportRunTrajectory(id);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.headers.get('content-disposition')).toBe(`attachment; filename="run-${id}.json"`);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+
+    const body = res.json<{
+      format: string;
+      run: { id: string };
+      conversation: { id: string };
+      steps: Array<{ kind: string; text?: string }>;
+    }>();
+    expect(body.format).toBe('agentport/run-trajectory@1');
+    expect(body.run.id).toBe(id);
+    expect(body.conversation.id).toBe(conversationId);
+    const userSteps = body.steps.filter((step) => step.kind === 'user');
+    const assistantSteps = body.steps.filter((step) => step.kind === 'assistant');
+    expect(userSteps.some((step) => step.text === '请总结这份报告')).toBe(true);
+    expect(assistantSteps.some((step) => step.text === '这是总结。')).toBe(true);
+  });
+
+  it('rejects unauthenticated and unknown runs', async () => {
+    expectProblem(await exportRunTrajectory(unique('runs-export-run'), false), 'UNAUTHORIZED');
+    expectProblem(await exportRunTrajectory('run-does-not-exist'), 'RUN_NOT_FOUND');
   });
 
   it('filters by agent and status exactly', async () => {

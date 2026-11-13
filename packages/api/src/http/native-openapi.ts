@@ -13,6 +13,7 @@ import {
   outputPathSchema,
   pluginSchema,
   problemSchema,
+  runDetailSchema,
   runListItemSchema,
 } from '@agentport/shared';
 import { isObjectSchema, type OpenAPI, toOpenAPIParameters, toOpenAPISchema } from '@orpc/openapi';
@@ -434,6 +435,26 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
           }),
         ),
         409: problem,
+      },
+    },
+  },
+  '/runs/{id}/export': {
+    get: {
+      operationId: 'exportRunTrajectory',
+      description:
+        '需要 runs.export；导出单次运行轨迹（run 元数据、steps、会话归属）为 agentport/run-trajectory@1。',
+      security: session,
+      parameters: params('id'),
+      responses: {
+        ...protectedErrors,
+        200: jsonAttachment(
+          'RunTrajectory',
+          z.object({
+            format: z.literal('agentport/run-trajectory@1'),
+            exportedAt,
+            ...runDetailSchema.shape,
+          }),
+        ),
       },
     },
   },

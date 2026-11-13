@@ -204,6 +204,33 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
       );
     },
   );
+  app.get(
+    '/api/runs/:id/export',
+    access({ kind: 'permission', permissionId: 'runs.export' }),
+    async (c) => {
+      const context = requestContext(c);
+      const id = c.req.param('id');
+      await authorizeRun(context, id, 'runs.export');
+      const detail = await runsRepo.getRunDetail(context.db, id);
+      if (!detail) return fail('RUN_NOT_FOUND', RUN_MISSING);
+      const body = JSON.stringify({
+        format: 'agentport/run-trajectory@1',
+        exportedAt: new Date().toISOString(),
+        run: {
+          ...detail.run,
+          startedAt: toIso(detail.run.startedAt),
+          endedAt: toIso(detail.run.endedAt),
+        },
+        steps: detail.steps,
+        conversation: detail.conversation,
+      });
+      c.header('content-disposition', `attachment; filename="run-${id}.json"`);
+      c.header('cache-control', 'no-store');
+      c.header('x-content-type-options', 'nosniff');
+      c.header('Content-Type', 'application/json');
+      return c.body(body);
+    },
+  );
 }
 
 export const runsRouter = { ...runsMainRouter, ...runsQuestionsRouter };
