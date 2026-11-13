@@ -41,6 +41,14 @@ const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'denied', label: '拒绝' },
 ];
 
+const actorKindOptions: Array<{ value: AuditEntry['actorKind'] | 'all'; label: string }> = [
+  { value: 'all', label: '全部主体类型' },
+  ...(['user', 'service', 'anonymous', 'agent'] as const).map((kind) => ({
+    value: kind,
+    label: actorKindLabel[kind],
+  })),
+];
+
 const columns: DataColumn<AuditEntry>[] = [
   {
     id: 'createdAt',
@@ -131,18 +139,31 @@ export function AuditPage() {
   const action = search.action ?? '';
   const status = search.status ?? 'all';
   const target = search.target ?? '';
+  const actor = search.actor ?? '';
+  const actorKind = search.actorKind ?? 'all';
   const [exporting, setExporting] = useState(false);
   const settledAction = useDebouncedValue(action.trim(), 300);
   const settledTarget = useDebouncedValue(target.trim(), 300);
+  const settledActor = useDebouncedValue(actor.trim(), 300);
   const audit = useAudit({
     ...(settledAction ? { action: settledAction } : {}),
     ...(status === 'all' ? {} : { status }),
     ...(settledTarget ? { target: settledTarget } : {}),
+    ...(settledActor ? { actor: settledActor } : {}),
+    ...(actorKind === 'all' ? {} : { actorKind }),
   });
 
   const rows = audit.data?.pages.flatMap((page) => page.items) ?? [];
-  const filtered = Boolean(settledAction) || status !== 'all' || Boolean(settledTarget);
-  const searchPending = action.trim() !== settledAction || target.trim() !== settledTarget;
+  const filtered =
+    Boolean(settledAction) ||
+    status !== 'all' ||
+    Boolean(settledTarget) ||
+    Boolean(settledActor) ||
+    actorKind !== 'all';
+  const searchPending =
+    action.trim() !== settledAction ||
+    target.trim() !== settledTarget ||
+    actor.trim() !== settledActor;
 
   const exportAudit = async (): Promise<void> => {
     setExporting(true);
@@ -152,6 +173,8 @@ export function AuditPage() {
         ...(settledAction ? { action: settledAction } : {}),
         ...(status === 'all' ? {} : { status }),
         ...(settledTarget ? { target: settledTarget } : {}),
+        ...(settledActor ? { actor: settledActor } : {}),
+        ...(actorKind === 'all' ? {} : { actorKind }),
       });
       downloadJson(data, 'audit.json');
     } catch (error) {
@@ -219,6 +242,34 @@ export function AuditPage() {
               })
             }
             className="w-full sm:w-56"
+          />
+          <SearchInput
+            label="按操作者过滤"
+            placeholder="操作者，如 alice"
+            value={actor}
+            onChange={(value) =>
+              void navigate({
+                to: '/audit',
+                search: { ...search, actor: value || undefined },
+                replace: true,
+              })
+            }
+            className="w-full sm:w-56"
+          />
+          <FilterSelect
+            value={actorKind}
+            onValueChange={(next) =>
+              void navigate({
+                to: '/audit',
+                search: {
+                  ...search,
+                  actorKind: next === 'all' ? undefined : (next as AuditEntry['actorKind']),
+                },
+              })
+            }
+            options={actorKindOptions}
+            label="按主体类型过滤"
+            className="w-full sm:w-36"
           />
           <FilterSelect
             value={status}
