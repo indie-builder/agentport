@@ -25,7 +25,7 @@
 
 ## Effect 边界
 
-- `runner-client.ts`、`eval-runner.ts`、`reconcile.ts` 用 Effect 管单任务内的取消、超时、资源作用域、类型化错误与有界并发（`raceAll`、`forEach`、`retry` 等）；普通 Promise 流程不机械改写。
+- `runner-client.ts`、`eval-runner.ts`、`scheduling/reconcile.ts` 用 Effect 管单任务内的取消、超时、资源作用域、类型化错误与有界并发（`raceAll`、`forEach`、`retry` 等）；普通 Promise 流程不机械改写。
 - 容器生命周期仍归 `SessionSandboxes`，任务分发与重试仍归 BullMQ，AI 执行仍只有 Claude Agent SDK 一套；Effect 不接管这些框架职责，也不另造执行循环或服务层。
 - 失败分类统一用 core 的 `RunFailure` / `isRetryableFailure`；Effect 类型不进入队列 payload 或对外签名。
 
