@@ -154,7 +154,7 @@ describe.skipIf(!ready)('openui tools', () => {
         method: 'GET',
         pathTemplate: '/invoices',
         inputSchema: { type: 'object', properties: {} },
-        requiresApproval: true,
+        approvalMode: 'ask',
       },
     ]) {
       const res = await request(app, {

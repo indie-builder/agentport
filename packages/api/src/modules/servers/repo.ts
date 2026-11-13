@@ -317,7 +317,7 @@ function toApiTool(row: repo.servers.ApiToolRow): ApiTool {
     outputSchema: row.outputSchema,
     paramsIn: row.paramsIn,
     enabled: row.enabled,
-    requiresApproval: row.requiresApproval,
+    approvalMode: row.approvalMode,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -337,7 +337,7 @@ export async function createTool(db: Db, serverId: string, input: ApiToolInput):
     inputSchema: input.inputSchema,
     outputSchema: input.outputSchema ?? null,
     paramsIn: input.paramsIn,
-    requiresApproval: input.requiresApproval,
+    approvalMode: input.approvalMode,
   });
   return toApiTool(row);
 }

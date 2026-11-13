@@ -35,7 +35,7 @@ interface PortableTool {
   inputSchema: Record<string, unknown>;
   paramsIn: string;
   enabled: boolean;
-  requiresApproval: boolean;
+  approvalMode: 'allow' | 'ask' | 'deny';
 }
 
 describe.skipIf(!ready)('sub-agent packages (official files)', () => {
@@ -157,7 +157,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
               pathTemplate: '/list-a',
               inputSchema: { type: 'object', properties: {} },
               paramsIn: 'query',
-              requiresApproval: false,
+              approvalMode: 'allow',
               enabled: true,
             },
           ],
@@ -467,7 +467,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
               pathTemplate: '/root-tool',
               inputSchema: { type: 'object', properties: {} },
               paramsIn: 'query',
-              requiresApproval: true,
+              approvalMode: 'ask',
               enabled: false,
             },
           ],
@@ -497,7 +497,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
           pathTemplate: '/root-tool',
           inputSchema: { type: 'object', properties: {} },
           paramsIn: 'query',
-          requiresApproval: true,
+          approvalMode: 'ask',
           enabled: false,
         },
       ],
@@ -621,7 +621,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
               pathTemplate: '/child-tool',
               inputSchema: { type: 'object', properties: {} },
               paramsIn: 'body',
-              requiresApproval: true,
+              approvalMode: 'ask',
               enabled: true,
             },
           ],
@@ -655,7 +655,7 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
           pathTemplate: '/child-tool',
           inputSchema: { type: 'object', properties: {} },
           paramsIn: 'body',
-          requiresApproval: true,
+          approvalMode: 'ask',
           enabled: true,
         },
       ] satisfies PortableTool[],

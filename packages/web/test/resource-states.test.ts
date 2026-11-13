@@ -130,7 +130,7 @@ const tool: ApiTool = {
   pathTemplate: '/users',
   inputSchema: {},
   paramsIn: 'query',
-  requiresApproval: false,
+  approvalMode: 'allow',
   enabled: true,
   createdAt: '2026-01-01',
   updatedAt: '2026-01-01',
@@ -469,7 +469,7 @@ describe('resource async state regressions', () => {
     expect(await request.clone().json()).toEqual({ runtimeEnvironmentId: namedEnvironment.id });
   });
 
-  it('locks only the approval checkbox whose tool is being edited', () => {
+  it('locks only the approval select whose tool is being edited', () => {
     const queryClient = client();
     queryClient.setQueryData(['tools', server.id], [tool, { ...tool, id: 'other', name: 'other' }]);
     let dialog: Element | undefined;
@@ -501,13 +501,14 @@ describe('resource async state regressions', () => {
           )();
           return;
         }
-        expect(
-          required(tree, (node) => node.props['aria-label'] === '批准工具 list-users').props
-            .disabled,
-        ).toBe(true);
-        expect(
-          required(tree, (node) => node.props['aria-label'] === '批准工具 other').props.disabled,
-        ).toBe(false);
+        const approvalSelects = tree.filter(
+          (node) =>
+            node.type === Select &&
+            Array.isArray(node.props.items) &&
+            (node.props.items as Array<{ value: string }>).some((item) => item.value === 'ask'),
+        );
+        expect(approvalSelects[0]?.props.disabled).toBe(true);
+        expect(approvalSelects[1]?.props.disabled).toBe(false);
         expect(
           required(tree, (node) => node.props['aria-label'] === '启用工具 list-users').props
             .disabled,

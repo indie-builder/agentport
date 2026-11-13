@@ -35,7 +35,7 @@ const toolPatchSchema = z
     inputSchema: apiToolInputSchema.shape.inputSchema.removeDefault().optional(),
     outputSchema: apiToolInputSchema.shape.outputSchema.optional(),
     paramsIn: apiToolInputSchema.shape.paramsIn.removeDefault().optional(),
-    requiresApproval: apiToolInputSchema.shape.requiresApproval.removeDefault().optional(),
+    approvalMode: apiToolInputSchema.shape.approvalMode.removeDefault().optional(),
     enabled: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: '至少需要修改一项' });

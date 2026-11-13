@@ -48,7 +48,7 @@ interface PortableTool {
   pathTemplate: string;
   inputSchema: Record<string, unknown>;
   paramsIn: 'query' | 'body';
-  requiresApproval: boolean;
+  approvalMode: 'allow' | 'ask' | 'deny';
   enabled: boolean;
 }
 
@@ -65,23 +65,15 @@ function makeTool(overrides: Partial<PortableTool> & { name: string }): Portable
     pathTemplate: `/${overrides.name}`,
     inputSchema: { type: 'object', properties: {} },
     paramsIn: 'query',
-    requiresApproval: false,
+    approvalMode: 'allow',
     enabled: true,
     ...overrides,
   };
 }
 
 function portable(tool: PortableTool): PortableTool {
-  const {
-    name,
-    description,
-    method,
-    pathTemplate,
-    inputSchema,
-    paramsIn,
-    enabled,
-    requiresApproval,
-  } = tool;
+  const { name, description, method, pathTemplate, inputSchema, paramsIn, enabled, approvalMode } =
+    tool;
   return {
     name,
     description,
@@ -90,7 +82,7 @@ function portable(tool: PortableTool): PortableTool {
     inputSchema,
     paramsIn,
     enabled,
-    requiresApproval,
+    approvalMode,
   };
 }
 
@@ -650,7 +642,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         pathTemplate: '/users',
         inputSchema: { type: 'object', properties: { name: { type: 'string' } } },
         paramsIn: 'body',
-        requiresApproval: true,
+        approvalMode: 'ask',
       }),
       makeTool({
         name: 'delete-user',

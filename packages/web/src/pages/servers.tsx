@@ -1444,7 +1444,7 @@ function ToolEditorDialog({
   const setTool = async (vars: {
     toolId: string;
     enabled?: boolean;
-    requiresApproval?: boolean;
+    approvalMode?: ApiTool['approvalMode'];
   }): Promise<void> => {
     if (switching.current || busy) return;
     switching.current = true;
@@ -1548,7 +1548,7 @@ function ToolEditorDialog({
                     <TableHead>路径</TableHead>
                     <TableHead className="w-20">参数</TableHead>
                     <TableHead className="w-16">启用</TableHead>
-                    <TableHead className="w-16">审批</TableHead>
+                    <TableHead className="w-28">审批</TableHead>
                     <TableHead className="w-20">
                       <span className="sr-only">操作</span>
                     </TableHead>
@@ -1597,15 +1597,28 @@ function ToolEditorDialog({
                         />
                       </TableCell>
                       <TableCell>
-                        <Checkbox
-                          className="size-3.5"
-                          aria-label={`批准工具 ${tool.name}`}
-                          checked={tool.requiresApproval}
+                        <Select
+                          value={tool.approvalMode}
+                          items={approvalOptions}
                           disabled={editing?.id === tool.id || busy}
-                          onCheckedChange={(requiresApproval) =>
-                            void setTool({ toolId: tool.id, requiresApproval })
-                          }
-                        />
+                          onValueChange={(approvalMode) => {
+                            if (approvalMode !== null)
+                              void setTool({ toolId: tool.id, approvalMode });
+                          }}
+                        >
+                          <SelectTrigger className="w-full" aria-label={`审批策略 ${tool.name}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {approvalOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
@@ -1713,8 +1726,14 @@ interface ToolFormValues {
   pathTemplate: string;
   inputSchema: string;
   paramsIn: ApiToolInput['paramsIn'];
-  requiresApproval: boolean;
+  approvalMode: ApiToolInput['approvalMode'];
 }
+
+const approvalOptions = [
+  { value: 'allow', label: '允许' },
+  { value: 'ask', label: '需要审批' },
+  { value: 'deny', label: '禁止' },
+];
 
 const blankSchemaText = '{\n  "type": "object",\n  "properties": {}\n}';
 
@@ -1725,7 +1744,7 @@ const blankToolForm: ToolFormValues = {
   pathTemplate: '/',
   inputSchema: blankSchemaText,
   paramsIn: 'query',
-  requiresApproval: false,
+  approvalMode: 'allow',
 };
 
 /** validateToolInput 只读 form 的标量字段，schema 文本单独传入。 */
@@ -1737,7 +1756,7 @@ function toolPayload(values: ToolFormValues): ApiToolInput {
     pathTemplate: values.pathTemplate,
     inputSchema: {},
     paramsIn: values.paramsIn,
-    requiresApproval: values.requiresApproval,
+    approvalMode: values.approvalMode,
   };
 }
 
@@ -1749,7 +1768,7 @@ const toolFormSchema = z
     pathTemplate: z.string(),
     inputSchema: z.string(),
     paramsIn: z.enum(['query', 'body']),
-    requiresApproval: z.boolean(),
+    approvalMode: z.enum(['allow', 'ask', 'deny']),
   })
   .superRefine((values, ctx) => {
     const result = validateToolInput(toolPayload(values), values.inputSchema);
@@ -1767,7 +1786,7 @@ function toolToForm(tool: ApiTool): ToolFormValues {
     pathTemplate: tool.pathTemplate,
     inputSchema: JSON.stringify(tool.inputSchema, null, 2),
     paramsIn: tool.paramsIn,
-    requiresApproval: tool.requiresApproval,
+    approvalMode: tool.approvalMode,
   };
 }
 
@@ -2032,23 +2051,35 @@ export function ToolForm({
         />
         <FieldError id={`tool-schema-error-${serverId}`}>{errors.inputSchema?.message}</FieldError>
       </Field>
-      <Field data-disabled={pending} orientation="horizontal" className="pt-1 sm:col-span-6">
+      <Field data-disabled={pending} className="gap-1.5 sm:col-span-2">
+        <FieldLabel htmlFor={`tool-approval-${serverId}`}>审批策略</FieldLabel>
         <Controller
           control={control}
-          name="requiresApproval"
+          name="approvalMode"
           render={({ field }) => (
-            <Checkbox
-              ref={field.ref}
+            <Select
               disabled={pending}
-              id={`tool-approval-${serverId}`}
-              className="size-3.5"
-              checked={field.value}
-              onCheckedChange={(requiresApproval) => field.onChange(requiresApproval)}
-              onBlur={field.onBlur}
-            />
+              value={field.value}
+              onValueChange={(next) => {
+                if (next !== null) field.onChange(next);
+              }}
+              items={approvalOptions}
+            >
+              <SelectTrigger id={`tool-approval-${serverId}`} ref={field.ref} onBlur={field.onBlur}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {approvalOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           )}
         />
-        <FieldLabel htmlFor={`tool-approval-${serverId}`}>调用前需要人工批准</FieldLabel>
       </Field>
       <div className="flex items-start pt-2">
         <Button type="submit" size="sm" disabled={pending || !watched.name}>

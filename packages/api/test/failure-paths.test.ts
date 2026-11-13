@@ -313,7 +313,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
         method: 'GET',
         pathTemplate: '/users/{id}',
         paramsIn: 'query',
-        requiresApproval: true,
+        approvalMode: 'ask',
       },
     });
     expect(tool.statusCode).toBe(201);

@@ -37,6 +37,7 @@ export interface GeneratedServerInput {
     args: Record<string, unknown>,
     expiresAt: Date | null,
   ) => Promise<void>;
+  onDenied?: (toolName: string, args: Record<string, unknown>) => Promise<void>;
   /**
    * 等待人类批准的时长（D-18）。设置后，未批准的工具调用会挂起而不是立即失败：
    * 模型看到的是"这次工具调用比较慢"，批准后同一次调用直接拿到结果，
@@ -70,6 +71,14 @@ function cancelledResult(toolName: string): CallToolResult {
 
 function deniedResult(toolName: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: approvalDeniedMessage(toolName) }] };
+}
+
+function policyDeniedMessage(toolName: string): string {
+  return `禁止调用：${toolName}。该工具被策略禁止调用，请联系管理员。`;
+}
+
+function policyDeniedResult(toolName: string): CallToolResult {
+  return { isError: true, content: [{ type: 'text', text: policyDeniedMessage(toolName) }] };
 }
 
 const APPROVAL_POLL_MS = 500;
@@ -255,7 +264,11 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
         const signal = ctx.mcpReq.signal;
         if (signal.aborted) return cancelledResult(tool.name);
         if (input.isRunActive && !(await input.isRunActive())) return cancelledResult(tool.name);
-        if (tool.requiresApproval) {
+        if (tool.approvalMode === 'deny') {
+          await input.onDenied?.(tool.name, args);
+          return policyDeniedResult(tool.name);
+        }
+        if (tool.approvalMode === 'ask') {
           const approvals = input.refreshApprovals
             ? await input.refreshApprovals()
             : input.approvals;

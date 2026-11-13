@@ -168,8 +168,8 @@ export const apiToolInputSchema = z.object({
   outputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
   /** 参数放在 query 还是 body */
   paramsIn: z.enum(['query', 'body']).default('query'),
-  /** 调用前需要在运行页批准；未批准时平台 MCP 端点直接返回错误。 */
-  requiresApproval: z.boolean().default(false),
+  /** allow 直接执行；ask 调用前需在运行页批准；deny 直接拒绝。 */
+  approvalMode: z.enum(['allow', 'ask', 'deny']).default('allow'),
 });
 
 export type ApiToolInput = z.infer<typeof apiToolInputSchema>;

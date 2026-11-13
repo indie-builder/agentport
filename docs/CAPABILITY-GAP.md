@@ -236,7 +236,7 @@
 |---|---|---|
 | 部署可移植 | ✅ | compose 去掉 `${PWD}`，改用命名卷 + `HOST_WORKSPACES_DIR`；在 `/tmp` 下 `--project-directory` 验证通过 |
 | 部署自检 | ✅ | `pnpm smoke` 覆盖健康、登录、三类列表、MCP 鉴权；实测输出 `SMOKE OK` |
-| 工具审批（最小） | ✅ | `api_tools.requires_approval` + `agent_runs.approvals`；未批准返回明确文案；`POST /api/runs/:id/approve`；20 个相关测试 |
+| 工具审批（最小） | ✅ | `api_tools.approval_mode`（allow/ask/deny） + `agent_runs.approvals`；ask 未批准返回明确文案，deny 直接拒绝；`POST /api/runs/:id/approve`；20 个相关测试 |
 | 文档收口 | ✅ | README（概览 + 命令 + 安全要点）、ARCHITECTURE、OPERATIONS（环境变量、部署、排障、压测） |
 | 文档与代码一致性 | ✅ | 修正 15 处偏差（`SANDBOX_NETWORK`→`SANDBOX_EGRESS`、`pnpm -r typecheck` 写法、迁移非自动、`PLATFORM_MCP_TOKEN` 未文档化等） |
 | 禁用智能体拦截 | ✅ | `POST /api/chat` 返回 409 并给下一步 |

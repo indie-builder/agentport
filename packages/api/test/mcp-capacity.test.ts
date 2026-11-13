@@ -110,8 +110,8 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
     server = res.json<Server>();
 
     for (const tool of [
-      { name: 'waiting-tool', requiresApproval: true },
-      { name: 'free-tool', requiresApproval: false },
+      { name: 'waiting-tool', approvalMode: 'ask' },
+      { name: 'free-tool', approvalMode: 'allow' },
     ]) {
       const toolRes = await request(app, {
         method: 'POST',

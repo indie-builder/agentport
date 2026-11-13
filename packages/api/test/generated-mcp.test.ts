@@ -28,7 +28,9 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   let baseUrl: string;
   let server: Server;
   let token: string;
+  let upstreamCalls = 0;
   const upstream = createServer((request, response) => {
+    upstreamCalls += 1;
     if (request.url?.split('?')[0] !== '/users/1') {
       response.writeHead(404).end();
       return;
@@ -85,6 +87,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
 
   afterAll(async () => {
     await listener.close();
+    await app.client.unsafe('delete from audit_log where target = $1', [server.id]);
     await cleanup(app, { serverNames: createdServers, agentSlugs: createdAgents, runIds });
     await app.close();
     await new Promise<void>((resolve, reject) =>
@@ -138,12 +141,12 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
         pathTemplate: '/users/{id}',
         inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
         paramsIn: 'query',
-        requiresApproval: true,
+        approvalMode: 'ask',
       },
     });
     expect(res.statusCode).toBe(201);
-    const tool = res.json<{ id: string; requiresApproval: boolean }>();
-    expect(tool.requiresApproval).toBe(true);
+    const tool = res.json<{ id: string; approvalMode: 'allow' | 'ask' | 'deny' }>();
+    expect(tool.approvalMode).toBe('ask');
 
     // 审批只接受该 run 所属智能体实际绑定、且要求批准的工具，因此落一个真实 agent。
     const agent = (
@@ -233,6 +236,44 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     expect(allowed.isError).toBeFalsy();
   });
 
+  it('denies a policy-blocked tool without calling upstream and audits it', async () => {
+    const res = await request(app, {
+      method: 'POST',
+      url: `/api/servers/${server.id}/tools`,
+      headers: { cookie },
+      payload: {
+        name: 'denied-user',
+        method: 'GET',
+        pathTemplate: '/users/{id}',
+        inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
+        paramsIn: 'query',
+        approvalMode: 'deny',
+      },
+    });
+    expect(res.statusCode).toBe(201);
+
+    const before = upstreamCalls;
+    const client = new Client({ name: 'agentport-test', version: '0.0.0' });
+    const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+    });
+    try {
+      await client.connect(transport);
+      const result = await client.callTool({ name: 'denied-user', arguments: { id: 1 } });
+      expect(result.isError).toBe(true);
+      expect(result.content[0]).toMatchObject({ text: expect.stringContaining('禁止调用') });
+    } finally {
+      await client.close();
+    }
+    expect(upstreamCalls).toBe(before);
+
+    const rows = await app.client.unsafe<{ count: number }[]>(
+      "select count(*)::int as count from audit_log where action = 'mcp.tool.denied' and target = $1",
+      [server.id],
+    );
+    expect(rows[0]?.count).toBeGreaterThan(0);
+  });
+
   it('reports the tool catalog from a real self test connection', async () => {
     // 用已监听的真实端口做 SELF_URL：测试连接会以 MCP client 连回平台自身。
     const testServer = await startApp({ SELF_URL: baseUrl });
@@ -287,7 +328,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           pathTemplate: '/users/{id}',
           inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
           paramsIn: 'query',
-          requiresApproval: true,
+          approvalMode: 'ask',
         },
       });
       expect(toolRes.statusCode).toBe(201);
@@ -371,7 +412,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           pathTemplate: '/users/{id}',
           inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
           paramsIn: 'query',
-          requiresApproval: true,
+          approvalMode: 'ask',
         },
       });
       expect(toolRes.statusCode).toBe(201);

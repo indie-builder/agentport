@@ -57,6 +57,14 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
         denied,
         nodeEnv: app.config.NODE_ENV,
         privateHostAllowlist: app.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
+        onDenied: async (toolName, args) => {
+          await repo.audit.writeAudit(app.db, app.log, {
+            action: 'mcp.tool.denied',
+            target: serverId,
+            input: { toolName, runId: trustedRunId, args: summarizeToolArguments(args) },
+            status: 'denied',
+          });
+        },
         // 只有真实 run 才挂起等待：外部客户端没有页面可批准，立即拒绝更诚实。
         ...(trustedRunId === null ? {} : { approvalWaitMs: app.config.APPROVAL_WAIT_MS }),
         ...(trustedRunId === null

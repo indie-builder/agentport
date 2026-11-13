@@ -39,7 +39,7 @@ const tool: ApiTool = {
   pathTemplate: '/users',
   inputSchema: { type: 'object', properties: {} },
   paramsIn: 'query',
-  requiresApproval: false,
+  approvalMode: 'allow',
   enabled: true,
   createdAt: '2026-01-01',
 };

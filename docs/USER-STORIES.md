@@ -133,7 +133,7 @@
 **作为** 管理员，**我想** 控制智能体能做什么、花多少、跑多久。
 
 验收：
-- 可配置 `permissionMode`、`allowedTools`、`disallowedTools`。权限页面明确 SDK `allowedTools` 预批准与工具自身 `requiresApproval` 的服务端审批是两层约束；`default` 的宿主回调仅处理原生澄清提问，其余未预批准调用仍拒绝，不替代工具自身审批。
+- 可配置 `permissionMode`、`allowedTools`、`disallowedTools`。权限页面明确 SDK `allowedTools` 预批准与工具自身 `approvalMode='ask'` 的服务端审批是两层约束；`default` 的宿主回调仅处理原生澄清提问，其余未预批准调用仍拒绝，不替代工具自身审批。
 - `permissionMode` 支持 `default`（新建默认）、`plan`、`dontAsk` 与 `acceptEdits`，直接透传 Agent SDK；显式 `dontAsk` 拒绝原生交互提问，不进入回调。`auto` 依赖模型分类器，平台无法审计其决定，保存时返回 400。权限模式不会解除平台固定禁用的内置工具。
 - 可配置 `maxTurns`、`maxBudgetUsd`、`timeoutMs`。
 - 可配置 `effort`（可选）。

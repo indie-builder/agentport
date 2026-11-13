@@ -367,7 +367,9 @@ export const serversRouter = os.router({
         name: server.name,
         baseUrl: server.baseUrl,
         headers: server.headers,
-        tools: [{ ...tool, enabled: true, requiresApproval: false }],
+        tools: [
+          { ...tool, enabled: true, approvalMode: tool.approvalMode === 'deny' ? 'deny' : 'allow' },
+        ],
         approvals: [tool.name],
         nodeEnv: context.config.NODE_ENV,
         privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
@@ -424,7 +426,7 @@ export const serversRouter = os.router({
       if (body.inputSchema !== undefined) patch.inputSchema = body.inputSchema;
       if ('outputSchema' in body) patch.outputSchema = body.outputSchema ?? null;
       if (body.paramsIn !== undefined) patch.paramsIn = body.paramsIn;
-      if (body.requiresApproval !== undefined) patch.requiresApproval = body.requiresApproval;
+      if (body.approvalMode !== undefined) patch.approvalMode = body.approvalMode;
       if (body.enabled !== undefined) patch.enabled = body.enabled;
       let tool: Awaited<ReturnType<typeof repo.updateTool>>;
       try {
