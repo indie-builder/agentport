@@ -198,13 +198,9 @@ async function stopChild(child: ChildProcess | undefined, label: string): Promis
   await childExit(child);
 }
 
-/** 浏览器模式需要 api 托管生产构建；已存在则复用，E2E_CHANNEL_REBUILD_WEB=1 强制重建。 */
+/** 浏览器模式需要 api 托管生产构建；每次从当前源码重建（约 1s），绝不复用陈旧产物。 */
 async function ensureWebBuild(): Promise<void> {
   const index = join(WEB_DIST, 'index.html');
-  if (process.env.E2E_CHANNEL_REBUILD_WEB !== '1' && existsSync(index)) {
-    info(`复用已构建 web：${WEB_DIST}`);
-    return;
-  }
   logStep('构建 web 静态产物');
   const built = await run('bun', ['run', '--filter', '@agentport/web', 'build'], {
     timeoutMs: 600_000,
