@@ -212,6 +212,8 @@ export interface AuditQuery {
   before?: Date;
   /** 分页时间戳由记录ID在库内读取，保留微秒精度。 */
   beforeId?: string;
+  afterSeq?: number;
+  order?: 'asc' | 'desc';
 }
 
 export interface AuditEntry {
@@ -226,6 +228,9 @@ export interface AuditEntry {
   requestId: string | null;
   inputDigest: string | null;
   createdAt: Date;
+  chainSeq: number;
+  prevHash: string | null;
+  hash: string | null;
 }
 
 // 选择字段而不是 select()：输入只以 digest 存在，这里更不会把任何原文带出去。
@@ -241,6 +246,9 @@ const columns = {
   requestId: auditLog.requestId,
   inputDigest: auditLog.inputDigest,
   createdAt: auditLog.createdAt,
+  chainSeq: auditLog.chainSeq,
+  prevHash: auditLog.prevHash,
+  hash: auditLog.hash,
 };
 
 export async function listAudit(db: Database, query: AuditQuery = {}): Promise<AuditEntry[]> {
@@ -259,12 +267,17 @@ export async function listAudit(db: Database, query: AuditQuery = {}): Promise<A
   if (query.beforeId) {
     filters.push(keysetBefore(auditLog, query.beforeId));
   }
+  if (query.afterSeq != null) filters.push(gt(auditLog.chainSeq, query.afterSeq));
 
   return db
     .select(columns)
     .from(auditLog)
     .where(filters.length > 0 ? and(...filters) : undefined)
-    .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+    .orderBy(
+      ...(query.order === 'asc'
+        ? [asc(auditLog.chainSeq)]
+        : [desc(auditLog.createdAt), desc(auditLog.id)]),
+    )
     .limit(limit);
 }
 

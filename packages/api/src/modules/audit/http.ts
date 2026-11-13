@@ -9,6 +9,8 @@ import { auditOptions, toItem } from './router.js';
 
 export const auditExportQuerySchema = auditQuerySchema.extend({
   limit: z.coerce.number().int().positive().max(1000).default(1000),
+  format: z.enum(['json', 'ndjson']).default('json'),
+  afterSeq: z.coerce.number().int().nonnegative().optional(),
 });
 
 export function registerAuditHttp(app: Hono<HttpEnv>): void {
@@ -24,6 +26,43 @@ export function registerAuditHttp(app: Hono<HttpEnv>): void {
       if (!parsed.success)
         fail('INVALID_INPUT', parsed.error.issues[0]?.message ?? 'invalid request');
       const query = parsed.data;
+
+      if (query.format === 'ndjson') {
+        if (query.beforeId !== undefined)
+          fail('INVALID_INPUT', 'NDJSON 导出不支持 beforeId 游标，请改用 afterSeq');
+        const chain = await repo.audit.listAudit(context.db, {
+          ...auditOptions({
+            action: query.action,
+            status: query.status,
+            target: query.target,
+            before: query.before,
+            limit: query.limit,
+          }),
+          order: 'asc',
+          ...(query.afterSeq === undefined ? {} : { afterSeq: query.afterSeq }),
+        });
+        const last = chain.at(-1);
+        const lines = chain
+          .map((row) =>
+            JSON.stringify({
+              ...toItem(row),
+              chainSeq: row.chainSeq,
+              prevHash: row.prevHash,
+              hash: row.hash,
+            }),
+          )
+          .join('\n');
+        return new Response(lines.length > 0 ? `${lines}\n` : '', {
+          status: 200,
+          headers: {
+            'content-type': 'application/x-ndjson; charset=utf-8',
+            'content-disposition': 'attachment; filename="audit.ndjson"',
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+            ...(last ? { 'x-next-after-seq': String(last.chainSeq) } : {}),
+          },
+        });
+      }
 
       const rows = await repo.audit.listAudit(context.db, {
         ...auditOptions(query),
