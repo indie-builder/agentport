@@ -1802,18 +1802,21 @@ export async function runKnowledgeJob(
   deps: KnowledgeDeps,
   job: KnowledgeJobRow,
   signal: AbortSignal,
-): Promise<KnowledgeJobResult | void> {
+): Promise<KnowledgeJobResult | undefined> {
   switch (job.type) {
     case 'ingest':
-      return runIngest(deps, job, signal);
+      await runIngest(deps, job, signal);
+      return;
     case 'reindex':
-      return runReindex(deps, job, signal);
+      await runReindex(deps, job, signal);
+      return;
     case 'sync':
       return { result: await runSync(deps, job, signal) };
     case 'source_probe':
       return { probeResult: await runSourceProbe(deps, job, signal) };
     case 'cleanup':
-      return runCleanup(deps, job, signal);
+      await runCleanup(deps, job, signal);
+      return;
     case 'wiki_generate':
       throw new Error('wiki_generate 由 P5 的 wiki worker 处理');
   }

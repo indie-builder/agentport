@@ -506,7 +506,7 @@ export async function exportKnowledgePackage(
   const asr = base.asrProfileId
     ? await repo.knowledge.getModelProfileWithSecret(db, base.asrProfileId)
     : null;
-  if (base.asrProfileId && (!asr || asr.kind !== 'asr')) {
+  if (base.asrProfileId && asr?.kind !== 'asr') {
     fail('CONFLICT', '知识库引用的 ASR profile 不存在或类型不符，无法导出');
   }
 
@@ -975,7 +975,7 @@ export async function importKnowledgePackage(
         ),
       )
       .limit(1);
-    if (!asr || !asr.enabled || asr.model !== expectedModel) {
+    if (!asr?.enabled || asr.model !== expectedModel) {
       fail(
         'CONFLICT',
         `缺少匹配的 ASR 模型 profile「${manifest.base.asrProfileName}」（需启用且 model=${expectedModel}）；请先创建同名 profile 再导入`,

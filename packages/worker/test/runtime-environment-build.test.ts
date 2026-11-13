@@ -18,7 +18,7 @@ import type { SpawnFn } from '../src/runtime-environments/command.js';
 import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 
 const SANDBOX_IMAGE = 'repo/sandbox:dev';
-const DOCKERFILE = 'ARG RUNTIME_BASE_IMAGE\nFROM ${RUNTIME_BASE_IMAGE}\n';
+const DOCKERFILE = `ARG RUNTIME_BASE_IMAGE\nFROM \${RUNTIME_BASE_IMAGE}\n`;
 const BASE_ID = `sha256:${'b'.repeat(64)}`;
 const BUILT_ID = `sha256:${'a'.repeat(64)}`;
 
