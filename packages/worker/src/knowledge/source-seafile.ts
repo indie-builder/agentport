@@ -7,6 +7,7 @@ import {
   fetchChecked,
   fetchJson,
   SourceItemError as ItemError,
+  parseJsonResponse,
   readBytesCapped,
   rethrowAuth,
   sourceNetworkOptions,
@@ -189,17 +190,8 @@ async function fetchDownloadLink(
   // the fileserver download, so the download header cannot be the only evidence.
   const objectId = response.headers.get('oid');
   const text = new TextDecoder().decode(await readBytesCapped(response, 'seafile download link'));
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw new Error('seafile download link returned invalid JSON');
-  }
-  const parsed = downloadLinkSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error('seafile download link response does not match the expected schema');
-  }
-  return { url: parsed.data, objectId };
+  const url = parseJsonResponse(text, downloadLinkSchema, 'seafile download link');
+  return { url, objectId };
 }
 
 async function downloadFile(

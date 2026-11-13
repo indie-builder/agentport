@@ -7,6 +7,7 @@ import {
   fetchChecked,
   fetchJson,
   SourceItemError as ItemError,
+  parseJsonResponse,
   readBytesCapped,
   rethrowAuth,
   sourceNetworkOptions,
@@ -319,16 +320,9 @@ async function fetchJsonWithNext<T>(
 ): Promise<{ data: T; next?: string }> {
   const response = await fetchChecked(url, options);
   const text = new TextDecoder().decode(await readBytesCapped(response, label));
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw new Error(`${label} returned invalid JSON`);
-  }
-  const parsed = schema.safeParse(value);
-  if (!parsed.success) throw new Error(`${label} response does not match the expected schema`);
+  const data = parseJsonResponse(text, schema, label);
   const next = nextFromLinkHeader(response.headers);
-  return { data: parsed.data, ...(next === undefined ? {} : { next }) };
+  return { data, ...(next === undefined ? {} : { next }) };
 }
 
 function filenameOf(title: string | undefined, id: string, mime: string | undefined): string {

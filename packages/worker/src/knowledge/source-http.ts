@@ -311,13 +311,7 @@ export async function fetchBytes(
   return readBytesCapped(await fetchChecked(url, options), label);
 }
 
-export async function fetchJson<T>(
-  url: string,
-  schema: z.ZodType<T>,
-  options: FetchOptions,
-  label: string,
-): Promise<T> {
-  const text = await fetchText(url, options, label);
+export function parseJsonResponse<T>(text: string, schema: z.ZodType<T>, label: string): T {
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -325,10 +319,18 @@ export async function fetchJson<T>(
     throw new Error(`${label} returned invalid JSON`);
   }
   const parsed = schema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error(`${label} response does not match the expected schema`);
-  }
+  if (!parsed.success) throw new Error(`${label} response does not match the expected schema`);
   return parsed.data;
+}
+
+export async function fetchJson<T>(
+  url: string,
+  schema: z.ZodType<T>,
+  options: FetchOptions,
+  label: string,
+): Promise<T> {
+  const text = await fetchText(url, options, label);
+  return parseJsonResponse(text, schema, label);
 }
 
 export function sourceNetworkOptions(config: {
