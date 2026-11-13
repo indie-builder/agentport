@@ -692,9 +692,7 @@ describe('error and focus states stay distinguishable', () => {
   it('merges the shared helper so Links match the neutral default', () => {
     // helper 直接输出 cva 时，调用方追加的 className 仍要按 Tailwind 冲突规则覆盖。
     const primary = probeClasses('button-helper-default');
-    expect(winning(rules, primary, {}, false, 'background-color')).toBe(
-      'var(--color-background)',
-    );
+    expect(winning(rules, primary, {}, false, 'background-color')).toBe('var(--color-background)');
     expect(winning(rules, primary, {}, false, 'border-color')).toBe('var(--color-border)');
     expect(winning(rules, primary, {}, true, 'border-color')).toBe('var(--color-border)');
     expect(ringVisible(rules, primary, {}, true)).toBe(true);
