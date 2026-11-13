@@ -32,6 +32,7 @@ import {
 import { Textarea } from '../components/ui/textarea.js';
 import { ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import { useFormBlocker } from '../lib/form.js';
 import { formatRelative, shortId } from '../lib/format.js';
 import { meQuery, useCreateRuntimeEnvironment, useRuntimeEnvironments } from '../lib/queries.js';
@@ -311,16 +312,7 @@ function CreateEnvironmentDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, close)}>
       <DialogShell title="新建运行环境" finalFocus={getReturnFocus} closeDisabled={pending}>
         <form
           className="flex flex-col gap-5"

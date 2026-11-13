@@ -1,5 +1,6 @@
 import type { KnowledgeBase } from '@agentport/shared';
 import { z } from 'zod';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import { useUpdateKnowledgeBase } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
@@ -54,16 +55,7 @@ export function BaseInfoDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title="编辑信息" closeDisabled={pending} finalFocus={finalFocus}>
         <form
           className="flex flex-col gap-4"

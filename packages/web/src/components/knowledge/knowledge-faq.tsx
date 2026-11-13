@@ -14,6 +14,7 @@ import type {
 } from '../../lib/api.js';
 import { api, errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import {
   isTerminalKnowledgeJob,
   knowledgeKeys,
@@ -302,16 +303,7 @@ function FaqEditorForm({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title={initialDetail ? '编辑 FAQ' : '新建 FAQ'}
         closeDisabled={pending}
@@ -915,16 +907,7 @@ function FaqImportDialog({
       : 'text-xs text-danger';
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title={canImport ? '导入 FAQ' : '批次发布 FAQ'}
         closeDisabled={pending}

@@ -46,6 +46,7 @@ import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import { formatTokens } from '../lib/format.js';
 import {
   meQuery,
@@ -655,16 +656,7 @@ export function SkillDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title={skill ? (readOnly ? `查看「${skill.name}」` : '编辑技能') : '新建技能'}
         closeDisabled={pending}

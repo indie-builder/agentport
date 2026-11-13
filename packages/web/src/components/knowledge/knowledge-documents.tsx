@@ -9,6 +9,7 @@ import type {
   KnowledgeManualDraft,
 } from '../../lib/api.js';
 import { errorMessage } from '../../lib/api.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import { knowledgeJobErrorText } from '../../lib/knowledge-errors.js';
 import {
   isTerminalKnowledgeJob,
@@ -417,16 +418,7 @@ export function ManualDraftDialog({
   }, [jobId, job.data, guard.finish]);
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title={`编辑正文 · ${title}`} closeDisabled={pending}>
         {manual.isPending ? <LoadingState rows={4} /> : null}
         {manual.isError ? (

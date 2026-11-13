@@ -6,6 +6,7 @@ import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { can } from '../../lib/access.js';
 import { api, errorMessage, type KnowledgeModelProfile } from '../../lib/api.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import {
   meQuery,
   useCreateKnowledgeModelProfile,
@@ -257,16 +258,7 @@ export function KnowledgeSettingsDialog({
 
   return (
     <>
-      <Dialog
-        open
-        onOpenChange={(next, details) => {
-          if (pending) {
-            details.cancel();
-            return;
-          }
-          if (!next) guard.close();
-        }}
-      >
+      <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
         <DialogShell title="知识库设置" closeDisabled={pending} finalFocus={finalFocus}>
           <form className="flex flex-col gap-4" noValidate onSubmit={save}>
             <FieldGroup className="grid gap-3 sm:grid-cols-2">

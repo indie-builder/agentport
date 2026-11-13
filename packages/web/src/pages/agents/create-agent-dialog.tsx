@@ -33,6 +33,7 @@ import {
 import { Textarea } from '../../components/ui/textarea.js';
 import { ApiError } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { useCreateAgent, useDuplicateAgent } from '../../lib/queries.js';
 import { slugFromName } from '../../lib/slug.js';
@@ -110,16 +111,7 @@ export function CreateAgentDialog({
   );
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (create.isPending) {
-          details.cancel();
-          return;
-        }
-        if (!next) close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(create.isPending, close)}>
       <DialogShell
         title={isTwin ? '创建数字分身' : '新建专家'}
         description="连接器与运行限制可在创建后配置。"
@@ -377,16 +369,7 @@ export function DuplicateAgentDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (duplicate.isPending) {
-          details.cancel();
-          return;
-        }
-        if (!next) close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(duplicate.isPending, close)}>
       <DialogShell
         title="克隆专家"
         description="不包含子专家、记忆与历史记录。"

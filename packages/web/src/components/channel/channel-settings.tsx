@@ -11,6 +11,7 @@ import { Plus, Settings, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Controller, type UseFormReturn } from 'react-hook-form';
 import type { z } from 'zod';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import { shortId } from '../../lib/format.js';
 import {
   useAddChannelMember,
@@ -138,16 +139,7 @@ function ChannelSettingsDialog({
   const guard = useDraftGuard(dirty, pending, onClose);
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title="频道设置" closeDisabled={pending}>
         <div className="flex flex-col gap-5">
           <BasicInfoSection form={basic} update={update} />

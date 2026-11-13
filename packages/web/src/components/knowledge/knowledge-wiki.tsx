@@ -10,6 +10,7 @@ import type {
 } from '../../lib/api.js';
 import { errorMessage } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
 import {
   knowledgeKeys,
@@ -739,16 +740,7 @@ function WikiOrganizeDialog({
     );
   });
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title="组织 Wiki 页面" closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
@@ -925,16 +917,7 @@ function WikiMarkdownDialog({
 
   return (
     <>
-      <Dialog
-        open
-        onOpenChange={(next, details) => {
-          if (pending) {
-            details.cancel();
-            return;
-          }
-          if (!next) guard.close();
-        }}
-      >
+      <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
         <DialogShell title="编辑 Wiki 正文" closeDisabled={pending}>
           <form
             className="flex flex-col gap-4"
@@ -1076,16 +1059,7 @@ function CreateWikiPageDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title="新建 Wiki 页面" closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>

@@ -70,6 +70,7 @@ import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import { fieldErrors } from '../lib/form.js';
 import { formatRelative, formatUtcDateTime } from '../lib/format.js';
 import { meQuery, useExperts, useSchedules } from '../lib/queries.js';
@@ -760,16 +761,7 @@ function ScheduleDialog({
       : '创建任务';
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title={schedule ? '编辑定时任务' : '新建定时任务'}
         closeDisabled={pending}

@@ -38,6 +38,7 @@ import {
   type KnowledgeVersionImage,
 } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
+import { guardedOpenChange } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
 import {
   useCreateKnowledgeChunk,
@@ -621,16 +622,7 @@ function ChunkDialog({
   });
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell title={creating ? '新增分块' : '编辑分块'} closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <Field className="gap-1.5">

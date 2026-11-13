@@ -55,6 +55,7 @@ import { ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { type Account, ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { guardedOpenChange } from '../lib/dialog-guard.js';
 import { formatDate } from '../lib/format.js';
 import {
   meQuery,
@@ -610,16 +611,7 @@ function CreateAccountDialog({
   );
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title="新建账户"
         description="业务 ID 创建后不可修改，也不会回收给其他人。"
@@ -809,16 +801,7 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
   );
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title={`编辑账户「${account.name}」`}
         description={`业务 ID ${account.businessId} 创建后不可修改。`}
@@ -914,16 +897,7 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
   );
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title={`重置「${account.name}」的密码`}
         description="重置会立即撤销该账户的全部旧会话。"
@@ -1015,16 +989,7 @@ function AssignRolesDialog({
   };
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next, details) => {
-        if (pending) {
-          details.cancel();
-          return;
-        }
-        if (!next) guard.close();
-      }}
-    >
+    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
       <DialogShell
         title={`分配「${account.name}」的角色`}
         description="角色决定该账户的页面与操作权限。"
