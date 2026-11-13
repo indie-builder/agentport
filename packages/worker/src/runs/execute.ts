@@ -10,6 +10,7 @@ import {
   toRuleEntries,
   toWorkflowEntries,
 } from '@agentport/core';
+import { resolveWorkspaceMemoryPolicy } from '@agentport/core/workspace-input';
 import { type createDb, repo, schema } from '@agentport/db';
 import {
   agentRunJobSchema,
@@ -19,7 +20,6 @@ import {
   type MemoryPolicy,
   messageAttachments,
   permissionModeSchema,
-  resolveMemoryPolicy,
   type SandboxTaskInput,
   wireFailureKind,
 } from '@agentport/shared';
@@ -284,9 +284,10 @@ export async function runAgentJob(
       if (!agent) throw new Error(`agent ${agentId} not found`);
       agentSlugForRun = agent.slug;
       // 同一行已带 memoryPolicy 列：直接解析，避免为本轮再查一次 agent。
-      const memoryPolicy = resolveMemoryPolicy(agent.memoryPolicy);
-      const runMemoryPolicy: MemoryPolicy =
-        run.channelId === null ? memoryPolicy : { ...memoryPolicy, writeMode: 'proposal_only' };
+      const runMemoryPolicy = resolveWorkspaceMemoryPolicy(agent.memoryPolicy, {
+        mode: 'run',
+        channelId: run.channelId,
+      });
       // 单层委派：只取直接子智能体。容器取得前查一次并沿用到结束；A 保证准入到结束集合稳定。
       const subAgentRows: SubAgentRow[] = await db
         .select()

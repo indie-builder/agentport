@@ -72,6 +72,7 @@ export {
 } from './personal-memory.js';
 export { renderPlugin } from './plugin-render.js';
 export { installProcessGuards } from './process-guards.js';
+export { appendStreamEvent } from './run-stream.js';
 export { decryptSecrets, encryptSecrets } from './secrets.js';
 export { buildSkillDraft } from './skill-draft.js';
 export { type ParsedSkill, parseSkillMd, type SkillProvenance } from './skill-md.js';

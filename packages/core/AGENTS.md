@@ -5,7 +5,7 @@
 ## 职责与边界
 
 - core 是 api/worker/web 共用的纯机制层：官方文件渲染与解析、路径/名称校验、MCP 条目、密钥加解密、知识模型 HTTP 客户端。不碰数据库，不放 HTTP 路由、队列、沙盒编排或业务状态机。
-- 纯函数模块不读写宿主文件、不启动进程。显式 I/O 入口集中在 `outputs.ts`（会话产出草稿/快照）、`attachments.ts`（会话输入附件）与 `personal-memory.ts`（个人偏好投影）；它们按调用方传入的根工作，不读环境变量或 CWD 猜目录。`path-segments.ts` 仅供 outputs/attachments 内部检查已有路径段，不从包入口公开；根目录、错误映射与写入权限仍归各入口。
+- 纯函数模块不读写宿主文件、不启动进程。显式 I/O 入口集中在 `outputs.ts`（会话产出草稿/快照）、`attachments.ts`（会话输入附件）、`personal-memory.ts`（个人偏好投影）与 `run-stream.ts`（run/频道事件流写入）；前三个按调用方传入的根工作，不读环境变量或 CWD 猜目录。`run-stream.ts` 是注入 `send` / `expire` 的事件写入机制：`appendStreamEvent()` 写事件并续 TTL，key 与 TTL 规则来自 `@agentport/shared`，不建立或持有连接、不设超时、不碰业务队列。`path-segments.ts` 仅供 outputs/attachments 内部检查已有路径段，不从包入口公开；根目录、错误映射与写入权限仍归各入口。
 - `knowledge-models.ts` 只发 HTTP；失败分类是 worker 重试策略的依据，不在这里写队列或 DB。
 
 ## 唯一实现

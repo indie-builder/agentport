@@ -4,6 +4,9 @@ export const RUNS_QUEUE = 'agent-runs';
 export const EVAL_RUNS_QUEUE = 'eval-runs';
 
 export const RUN_CANCEL_PAYLOAD = '1';
+
+export const STREAM_TTL_SECONDS = 3600;
+
 /** At ~40KiB per job this bounds waiting history near 4MiB per queue. */
 export const RUN_QUEUE_MAX_WAITING = 100;
 

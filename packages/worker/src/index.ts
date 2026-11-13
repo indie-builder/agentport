@@ -8,10 +8,10 @@ import {
   RunFailure,
   renderPlugin,
   renderWorkspace,
-  toWorkspaceInput,
   WORKSPACE_DIR_MODE,
   WORKSPACE_FILE_MODE,
 } from '@agentport/core';
+import { toWorkspaceInput } from '@agentport/core/workspace-input';
 import { createDb, repo, schema } from '@agentport/db';
 import {
   ACTIVE_RUN_STATUSES,
@@ -19,6 +19,7 @@ import {
   CONFIG_CONTAINER_DIR,
   EVAL_RUNS_QUEUE,
   effortSchema,
+  generatedMcpEntry,
   knowledgeMcpEntry,
   type MemoryPolicy,
   permissionModeSchema,
@@ -153,18 +154,13 @@ function toEntry(
     kind: server.kind,
   });
   // stdio 命令有意由容器内的 SDK 启动，须在沙盒镜像中可用；不在 worker 宿主执行。
-  const entry = previewMcpEntry(
+  if (input.kind === 'generated') {
+    return generatedMcpEntry({ apiUrl, serverId: server.id, runId, runToken }, input.headers);
+  }
+  return previewMcpEntry(
     { kind: input.kind, config: input },
-    {
-      ...(input.kind === 'stdio' ? input.env : input.headers),
-      ...(input.kind === 'generated'
-        ? { Authorization: `Bearer ${runToken}`, 'x-agentport-run-id': runId }
-        : secrets),
-    },
+    { ...(input.kind === 'stdio' ? input.env : input.headers), ...secrets },
   );
-  return input.kind === 'generated' && 'url' in entry
-    ? { ...entry, url: `${apiUrl}/mcp/${server.id}` }
-    : entry;
 }
 
 /**

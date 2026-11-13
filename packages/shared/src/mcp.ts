@@ -73,6 +73,21 @@ export function knowledgeMcpEntry(input: {
   };
 }
 
+export function generatedMcpEntry(
+  input: Parameters<typeof knowledgeMcpEntry>[0],
+  headers: Record<string, string> = {},
+) {
+  return {
+    type: 'http' as const,
+    url: `${input.apiUrl}/mcp/${input.serverId}`,
+    headers: {
+      ...headers,
+      Authorization: `Bearer ${input.runToken}`,
+      'x-agentport-run-id': input.runId,
+    },
+  };
+}
+
 const baseServer = {
   name: slugSchema,
   description: z.string().max(500).default(''),

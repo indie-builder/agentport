@@ -659,7 +659,7 @@
 
 **决定**：新增 `agents.memory_policy` 单列 jsonb（`enabled` / `writeMode` / `injectPersonalMemory` / `injectRules` / `topicLimit`），默认值与 shared 同源；运行期由 worker/sandbox 消费，`proposal_only` 采用只读挂载，而不是只靠工具 hook。新增 `GET .../memory/overview`、`GET .../memory/assembly`、`PUT .../memory/policy` 三个端点与专家记忆页签的概览/文件/策略三视图；概览与装配全部由现有文件与账本派生，不新增记忆表、不引入检索索引或外部服务。
 
-**边界**：策略不进 agent 版本快照、不随导入导出；`topicLimit` 不约束 `native_auto` 下的 SDK 原生写入；`enabled` 只停主会话记忆，子智能体记忆仍按父策略决定读写挂载；工作区预览不传策略，按默认文案渲染。确认制不变；自动提案、注入预算截断与主题预载未实现。
+**边界**：策略不进 agent 版本快照、不随导入导出；`topicLimit` 不约束 `native_auto` 下的 SDK 原生写入；`enabled` 只停主会话记忆，子智能体记忆仍按父策略决定读写挂载；工作区预览应用保存的 `memoryPolicy` 与 `injectRules`，与普通私有 run 一致。确认制不变；自动提案、注入预算截断与主题预载未实现。
 
 **状态**：本工作树实现，全量 typecheck 与 build 通过；shared 12、api 78（三文件组合连跑三次）、worker/sandbox 与 web 记忆相关套件通过；独立终审 PASS WITH FIXES，必修项已修复并复核。真实模型记忆质量与跨 run 召回未审计，不能据此宣称已上线。
 
