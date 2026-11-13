@@ -1,17 +1,15 @@
-'use client';
-
-import { cn } from 'cn';
 import { ChevronRightIcon } from 'lucide-react';
 import type * as React from 'react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible.js';
 
-/** 官方 shadcn Trace，去掉 shimmer 并改用项目焦点/圆角令牌；静态动效基准不允许流动高亮。 */
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/cn';
+
 function Trace({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="trace"
       className={cn(
-        'flex w-full min-w-0 flex-col gap-2 *:has-[>[data-slot=trace-line]]:flex *:has-[>[data-slot=trace-line]]:w-fit *:has-[>[data-slot=trace-line]]:max-w-full *:has-[>[data-slot=trace-line]]:min-w-0 *:has-[>[data-slot=trace-line]]:rounded-icon *:has-[>[data-slot=trace-line]]:text-left *:has-[>[data-slot=trace-line]]:outline-none *:has-[>[data-slot=trace-line]]:focus-visible:ring-2 *:has-[>[data-slot=trace-line]]:focus-visible:ring-ring',
+        'flex w-full min-w-0 flex-col gap-2 *:has-[>[data-slot=trace-line]]:flex *:has-[>[data-slot=trace-line]]:w-fit *:has-[>[data-slot=trace-line]]:max-w-full *:has-[>[data-slot=trace-line]]:min-w-0 *:has-[>[data-slot=trace-line]]:rounded-md *:has-[>[data-slot=trace-line]]:text-left *:has-[>[data-slot=trace-line]]:outline-none *:has-[>[data-slot=trace-line]]:focus-visible:ring-3 *:has-[>[data-slot=trace-line]]:focus-visible:ring-ring/50',
         className,
       )}
       {...props}
@@ -31,7 +29,7 @@ function TraceLine({
       data-slot="trace-line"
       data-status={status}
       className={cn(
-        'flex w-fit max-w-full min-w-0 items-center gap-2 text-sm text-muted-foreground transition-colors in-[a,button]:cursor-pointer in-[a:hover,button:hover]:text-fg data-[status=error]:text-danger data-[status=error]:in-[a:hover,button:hover]:text-danger data-[status=pending]:[&_[data-slot=trace-icon]]:opacity-60',
+        'flex w-fit max-w-full min-w-0 items-center gap-2 text-sm text-muted-foreground transition-colors in-[a,button]:cursor-pointer in-[a:hover,button:hover]:text-foreground data-[status=error]:text-destructive data-[status=error]:in-[a:hover,button:hover]:text-destructive data-[status=pending]:[&_[data-slot=trace-icon]]:opacity-60 data-[status=running]:*:data-[slot=trace-title]:shimmer',
         className,
       )}
       {...props}
@@ -54,7 +52,13 @@ function TraceIcon({ className, ...props }: React.ComponentProps<'span'>) {
 }
 
 function TraceTitle({ className, ...props }: React.ComponentProps<'span'>) {
-  return <span data-slot="trace-title" className={cn('min-w-0 truncate', className)} {...props} />;
+  return (
+    <span
+      data-slot="trace-title"
+      className={cn('min-w-0 truncate motion-reduce:shimmer-none', className)}
+      {...props}
+    />
+  );
 }
 
 function TraceDescription({ className, ...props }: React.ComponentProps<'span'>) {
@@ -96,13 +100,13 @@ function TraceCollapsibleTrigger({
     <CollapsibleTrigger
       data-slot="trace-collapsible-trigger"
       className={cn(
-        'group/trace-collapsible-trigger flex w-fit max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-icon text-left text-muted-foreground transition-colors outline-none hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring has-[[data-status=error]]:text-danger',
+        'group/trace-collapsible-trigger flex w-fit max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-left text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 has-[[data-status=error]]:text-destructive',
         className,
       )}
       {...props}
     >
       {children}
-      <TraceIcon className="transition-transform duration-150 ease-out-soft group-aria-expanded/trace-collapsible-trigger:rotate-90 motion-reduce:transition-none">
+      <TraceIcon className="transition-transform group-aria-expanded/trace-collapsible-trigger:rotate-90">
         <ChevronRightIcon />
       </TraceIcon>
     </CollapsibleTrigger>
@@ -117,13 +121,13 @@ function TraceCollapsibleContent({
   return (
     <CollapsibleContent
       data-slot="trace-collapsible-content"
-      className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] duration-150 ease-out-soft data-ending-style:h-0 data-starting-style:h-0 motion-reduce:transition-none"
+      className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] duration-200 data-ending-style:h-0 data-starting-style:h-0"
       {...props}
     >
       <div
         data-slot="trace-collapsible-content-inner"
         className={cn(
-          'mt-1.5 mb-1 ml-[calc(--spacing(2)-1px)] min-w-0 border-l border-line pr-1 pl-4 leading-relaxed wrap-break-word text-muted-foreground',
+          'mt-2 mb-1 ml-[calc(--spacing(2)-1px)] min-w-0 border-l pr-1 pl-4 leading-relaxed wrap-break-word text-muted-foreground',
           className,
         )}
       >

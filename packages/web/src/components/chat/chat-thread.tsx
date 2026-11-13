@@ -18,8 +18,9 @@ import {
   CircleAlert,
   CircleCheck,
   CircleStop,
-  Download,
+  FileText,
   GitBranch,
+  Image,
   ListChecks,
   LoaderCircle,
   Paperclip,
@@ -72,7 +73,19 @@ import { KnowledgeCitations, knowledgeHitsFromTool } from '../knowledge/knowledg
 import { RunOutputs } from '../run/run-outputs.js';
 import { RunQuestionCard } from '../run/run-question.js';
 import { ErrorState, LoadingState } from '../states.js';
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+  AttachmentTrigger,
+} from '../ui/attachment.js';
 import { Badge } from '../ui/badge.js';
+import { Bubble, BubbleContent } from '../ui/bubble.js';
 import { Button } from '../ui/button.js';
 import {
   InputGroup,
@@ -80,6 +93,7 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from '../ui/input-group.js';
+import { Marker, MarkerContent, MarkerIcon } from '../ui/marker.js';
 import { Message, MessageContent, MessageGroup } from '../ui/message.js';
 import {
   MessageScroller,
@@ -258,42 +272,40 @@ export function Composer({
             </div>
           ) : null}
           {attachments.length > 0 ? (
-            <ul
-              aria-label="待发送资料"
-              className="flex w-full min-w-0 flex-wrap items-center gap-2 px-4 pt-3"
-            >
+            <AttachmentGroup role="list" aria-label="待发送资料" className="w-full px-4 pt-3">
               {attachments.map((file, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: 同名文件可重复选择，位置即身份
-                <li key={`${file.name}-${index}`} className="flex min-w-0 items-center gap-1">
-                  <Badge variant="outline" className="min-w-0 max-w-full">
-                    <span aria-hidden="true" className="shrink-0 font-mono text-2xs">
-                      {filenameExtension(file.name).toUpperCase() || 'FILE'}
-                    </span>
-                    <span title={file.name} className="min-w-0 truncate">
-                      {middleTruncate(file.name)}
-                    </span>
-                    <span className="shrink-0 text-2xs text-muted-foreground">
-                      {formatBytes(file.size)}
-                    </span>
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`移除 ${file.name}`}
-                    title="移除资料"
-                    disabled={locked}
-                    onClick={() =>
-                      setPendingAttachments(
-                        pendingAttachments.filter((_, position) => position !== index),
-                      )
-                    }
-                    className="text-muted-foreground"
-                  >
-                    <X />
-                  </Button>
-                </li>
+                <Attachment key={`${file.name}-${index}`} role="listitem" size="sm" state="idle">
+                  <AttachmentMedia variant={file.type.startsWith('image/') ? 'image' : 'icon'}>
+                    {file.type.startsWith('image/') ? (
+                      <Image aria-hidden="true" />
+                    ) : (
+                      <FileText aria-hidden="true" />
+                    )}
+                  </AttachmentMedia>
+                  <AttachmentContent>
+                    <AttachmentTitle title={file.name}>{middleTruncate(file.name)}</AttachmentTitle>
+                    <AttachmentDescription>{formatBytes(file.size)}</AttachmentDescription>
+                  </AttachmentContent>
+                  <AttachmentActions>
+                    <AttachmentAction
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`移除 ${file.name}`}
+                      title="移除资料"
+                      disabled={locked}
+                      onClick={() =>
+                        setPendingAttachments(
+                          pendingAttachments.filter((_, position) => position !== index),
+                        )
+                      }
+                    >
+                      <X />
+                    </AttachmentAction>
+                  </AttachmentActions>
+                </Attachment>
               ))}
-            </ul>
+            </AttachmentGroup>
           ) : null}
           <InputGroupTextarea
             ref={textareaRef}
@@ -780,14 +792,7 @@ export function MessagePane({
                           align={turn.user ? (turnSelf ? 'end' : 'start') : 'start'}
                           className="text-base"
                         >
-                          <MessageContent
-                            className={cn(
-                              'min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]',
-                              turn.user &&
-                                turnSelf &&
-                                'w-fit max-w-[85%] rounded-[var(--radius-bubble)] bg-selected px-4 py-3 text-fg',
-                            )}
-                          >
+                          <MessageContent className="min-w-0 max-w-full gap-4 [overflow-wrap:anywhere]">
                             <span className="sr-only">
                               {turn.user ? (turnSelf ? '我' : '成员') : '助手'}
                             </span>
@@ -1387,44 +1392,50 @@ const MessagePart = memo(function MessagePart({
       // 不覆盖行高：气泡与助手正文共用 base 14/22。附图消息可以没有正文。
       return (
         <div className="flex min-w-0 flex-col gap-2">
-          {item.text ? <FoldingMessageBody text={item.text} /> : null}
+          {item.text ? (
+            <Bubble align={item.self === false ? 'start' : 'end'} variant="secondary">
+              <BubbleContent>
+                <FoldingMessageBody text={item.text} />
+              </BubbleContent>
+            </Bubble>
+          ) : null}
           {item.attachments && item.attachments.length > 0 ? (
-            <ul aria-label="附件" className="flex min-w-0 flex-wrap gap-2">
+            <AttachmentGroup role="list" aria-label="附件">
               {item.attachments.map((attachment, index) => (
-                <li
+                <Attachment
                   key={attachment.id ?? `${attachment.filename}-${index}`}
-                  className="flex min-w-0"
+                  role="listitem"
+                  size="sm"
+                  state="done"
                 >
-                  {/* 历史项才有下载地址：整枚标签就是链接，键盘与读屏都能直接触发。 */}
-                  <Badge
-                    variant="outline"
-                    render={
-                      attachment.downloadUrl ? (
-                        // biome-ignore lint/a11y/useAnchorContent: 名称由 aria-label 提供，可见内容由 Badge 子节点注入
+                  <AttachmentMedia
+                    variant={attachment.mimeType.startsWith('image/') ? 'image' : 'icon'}
+                  >
+                    {attachment.mimeType.startsWith('image/') ? (
+                      <Image aria-hidden="true" />
+                    ) : (
+                      <FileText aria-hidden="true" />
+                    )}
+                  </AttachmentMedia>
+                  <AttachmentContent>
+                    <AttachmentTitle title={attachment.filename}>
+                      {middleTruncate(attachment.filename)}
+                    </AttachmentTitle>
+                    <AttachmentDescription>{formatBytes(attachment.size)}</AttachmentDescription>
+                  </AttachmentContent>
+                  {attachment.downloadUrl ? (
+                    <AttachmentTrigger
+                      render={
                         <a
                           href={attachment.downloadUrl}
                           aria-label={`下载 ${attachment.filename}（${formatBytes(attachment.size)}）`}
                         />
-                      ) : undefined
-                    }
-                    className="min-w-0 max-w-full"
-                  >
-                    <span aria-hidden="true" className="shrink-0 font-mono text-2xs">
-                      {filenameExtension(attachment.filename).toUpperCase() || 'FILE'}
-                    </span>
-                    <span title={attachment.filename} className="min-w-0 truncate">
-                      {middleTruncate(attachment.filename)}
-                    </span>
-                    <span className="shrink-0 text-2xs text-muted-foreground">
-                      {formatBytes(attachment.size)}
-                    </span>
-                    {attachment.downloadUrl ? (
-                      <Download aria-hidden="true" className="shrink-0" />
-                    ) : null}
-                  </Badge>
-                </li>
+                      }
+                    />
+                  ) : null}
+                </Attachment>
               ))}
-            </ul>
+            </AttachmentGroup>
           ) : null}
         </div>
       );
@@ -1451,25 +1462,31 @@ const MessagePart = memo(function MessagePart({
       );
     case 'notice':
       return (
-        <div
-          className={cn(
-            'flex min-w-0 items-center gap-1.5 text-sm [overflow-wrap:anywhere]',
+        <Marker
+          variant="default"
+          className={
             item.tone === 'ok'
               ? 'text-success'
               : item.tone === 'error'
                 ? 'text-danger'
-                : 'text-muted-foreground',
-          )}
+                : 'text-muted-foreground'
+          }
         >
-          <span
-            className={cn(
-              'size-1 rounded-full',
-              item.tone === 'ok' ? 'bg-success' : item.tone === 'error' ? 'bg-danger' : 'bg-subtle',
-            )}
-            aria-hidden="true"
-          />
-          {item.text}
-        </div>
+          <MarkerIcon className="flex items-center justify-center">
+            <span
+              className={cn(
+                'size-1 rounded-full',
+                item.tone === 'ok'
+                  ? 'bg-success'
+                  : item.tone === 'error'
+                    ? 'bg-danger'
+                    : 'bg-subtle',
+              )}
+              aria-hidden="true"
+            />
+          </MarkerIcon>
+          <MarkerContent>{item.text}</MarkerContent>
+        </Marker>
       );
   }
 });
