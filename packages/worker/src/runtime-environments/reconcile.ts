@@ -2,6 +2,7 @@ import { RUNTIME_ENVIRONMENT_BUILDS_QUEUE, runtimeBuildEnqueueOptions } from '@a
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
+import { startIntervalTicker } from '../interval-ticker.js';
 import { ACTIVE_STATES, queueState } from '../queue-state.js';
 import {
   RUNTIME_ENVIRONMENT_BUILD_JOB,
@@ -126,27 +127,18 @@ export function startRuntimeEnvironmentBuildReconciler(input: {
   });
   queue.on('error', () => input.logger.warn('runtime environment build queue connection failed'));
 
-  let busy = false;
-  let inFlight: Promise<void> = Promise.resolve();
-  const tick = (): void => {
-    if (busy) return;
-    busy = true;
-    inFlight = reconcileRuntimeEnvironmentBuilds(input.store, input.logger, queue)
-      .then(() => undefined)
-      .catch((err: unknown) => {
-        input.logger.error({ err }, 'runtime environment build reconcile failed');
-      })
-      .finally(() => {
-        busy = false;
-      });
-  };
-  tick();
-  const timer = setInterval(tick, RECONCILE_MS);
-  timer.unref();
+  const stopTicker = startIntervalTicker(
+    () =>
+      reconcileRuntimeEnvironmentBuilds(input.store, input.logger, queue)
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          input.logger.error({ err }, 'runtime environment build reconcile failed');
+        }),
+    RECONCILE_MS,
+  );
 
   return async () => {
-    clearInterval(timer);
-    await inFlight;
+    await stopTicker();
     await queue.close();
     await connection.quit();
   };
