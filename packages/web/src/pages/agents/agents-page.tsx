@@ -427,7 +427,13 @@ export function AgentsPage() {
                             <DropdownMenuGroup>
                               <DropdownMenuItem
                                 disabled={importing}
-                                onClick={() => openAgent(agent.id)}
+                                onClick={() =>
+                                  void navigate({
+                                    to: '/agents/$agentId',
+                                    params: { agentId: agent.id },
+                                    search: { tab: 'config' },
+                                  })
+                                }
                               >
                                 配置
                               </DropdownMenuItem>

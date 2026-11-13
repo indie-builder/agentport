@@ -79,7 +79,7 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
 
     await screen.getByRole('button', '.mcp.json 与 frontmatter 草稿', { exact: true }).tap();
     await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();
-    await screen.getByRole('tab', '完整文件', { exact: true }).tap();
+    await screen.getByRole('tab', '文件与版本', { exact: true }).tap();
     await screen.getByRole('button', '.mcp.json', { exact: true }).tap();
     await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();
 
@@ -123,19 +123,63 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
   }
 });
 
-test('smoke: chat runs to a terminal state', { session: 'admin' }, async ({
+test('smoke: chat runs to a successful terminal state', { session: 'admin' }, async ({
   app,
   screen,
+  browser,
   agent,
 }) => {
   test.skip(process.env.E2E_FULL !== '1', '需要 worker 与模型凭据，设置 E2E_FULL=1 才跑');
 
-  await app.open('/chat');
-  const agentSelect = screen.getByRole('combobox', '召唤专家');
-  await agentSelect.tap();
-  await screen.getByRole('option').first().tap();
-  await screen.getByRole('textbox', '消息').fill('hello');
-  await screen.getByRole('button', '发送消息').tap();
+  await app.open('/agents');
 
-  await agent.waitFor('the chat shows a finished, failed, timed-out or stopped run');
+  const run = Date.now().toString(36);
+  const created = await browserFetch(browser, 'POST', '/api/agents', {
+    slug: `e2e-chat-${run}`,
+    name: `E2E 对话 ${run}`,
+    model: process.env.E2E_CHAT_MODEL ?? 'group/haiku',
+  });
+  if (created.status !== 201) {
+    throw new Error(`创建临时专家失败 ${created.status}：${created.text}`);
+  }
+  const agentId = (JSON.parse(created.text) as { id: string }).id;
+
+  let failure: unknown;
+  try {
+    await app.open(`/chat?agent=${agentId}`);
+    await screen.getByRole('textbox', '消息').fill('hello');
+    await screen.getByRole('button', '发送消息').tap();
+    await agent.waitFor('the chat run has finished and is no longer streaming', {
+      timeout: 90_000,
+      interval: 3_000,
+    });
+
+    const deadline = Date.now() + 20_000;
+    let latest: { status: string; error: string | null } | undefined;
+    while (Date.now() < deadline) {
+      const list = JSON.parse(
+        (await browserFetch(browser, 'GET', `/api/runs?agentId=${agentId}&limit=1`)).text,
+      ) as { items: Array<{ status: string; error: string | null }> };
+      latest = list.items[0];
+      if (latest !== undefined && !['queued', 'running'].includes(latest.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    if (latest?.status !== 'succeeded') {
+      throw new Error(
+        `聊天运行未成功：status=${latest?.status ?? 'missing'} error=${latest?.error ?? ''}`,
+      );
+    }
+  } catch (error) {
+    failure = error;
+  }
+
+  const deleted = await browserFetch(browser, 'DELETE', `/api/agents/${agentId}`);
+  if (deleted.status !== 204) {
+    const cleanupError = new Error(`清理临时专家失败 ${deleted.status}：${deleted.text}`);
+    if (failure !== undefined) {
+      throw new AggregateError([failure, cleanupError], '对话用例与专家清理均失败');
+    }
+    throw cleanupError;
+  }
+  if (failure !== undefined) throw failure;
 });

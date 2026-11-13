@@ -1,8 +1,7 @@
 import { createRequire } from 'node:module';
 import { RedisClient } from 'bun';
 import { newId } from '../../../packages/db/src/index.js';
-import { RUNS_QUEUE } from '../../../packages/shared/src/chat.js';
-import { runCancelKey, runStreamKey } from '../../../packages/shared/src/run-stream.js';
+import { RUNS_QUEUE, runCancelKey, runStreamKey } from '../../../packages/shared/src/run-stream.js';
 import { redis, client as sql } from './database.js';
 
 interface Fixture {

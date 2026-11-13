@@ -28,6 +28,12 @@
 - **原因**：模型代理无条件把上游 loopback 改写成 `host.docker.internal`；该别名只在容器内可解析，宿主进程访问同一网关会失败。
 - **规避**：只有 worker 自身在容器内时才改写（`packages/worker/src/upstream.ts`，用 `/.dockerenv` 判定）；沙盒侧地址仍必须改写。改到这里时不要把它和沙盒的 `toHostUrl` 混用。
 
+## 测试：陈旧沙盒镜像让 strict schema 拒绝新字段
+
+- **现象**：频道 E2E 在沙盒启动阶段反复超时，worker 日志为 `retryable sandbox failure: 出现未知的键(key): "hasWorkflows"`，而该镜像此前能跑。
+- **原因**：`agentport/sandbox:dev` 是旧构建，容器内 `/app/dist` 早于当前 `sandboxTaskSchema` 增加的 `hasWorkflows` 字段；该 schema 是 `.strict()`，worker 按环境线上版本把含新字段的任务发给旧镜像即被拒。
+- **规避**：用当前根 `Dockerfile` 的 `sandbox` target 重建镜像并作为 `SANDBOX_IMAGE`（`docker build --target sandbox -t agentport/sandbox:e2e-current .`）；`bun run e2e:suite` 不重建镜像，跑真实 worker 前先确认镜像含当前 `dist`。不要靠放宽 schema 或加兼容字段绕过。
+
 ## 复制到 worktree 的 `.env` 可能比刚确认的配置旧
 
 - **现象**：新 worktree 起了服务，但用户刚确认的管理员密码失效；或 `.env` 缺 `APP_SECRET_KEY` / `ANTHROPIC_API_KEY` 起不来，装好依赖后前端也可能无法解析 `@agentport/shared`。

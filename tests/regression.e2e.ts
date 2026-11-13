@@ -111,23 +111,51 @@ test('resource tabs preserve navigation and searchable URL state', { session: 'a
 }) => {
   // 资源中心只剩技能/连接器/插件/知识库；专家独立为业务入口，不再混在资源页签里。
   await app.open('/servers');
-  const resourceNav = browser.locator('nav[aria-label="资源类型"]');
-  await expect(resourceNav.getByRole('link', '技能', { exact: true })).toBeVisible();
-  await expect(resourceNav.getByRole('link', '专家', { exact: true })).toHaveCount(0);
-  await resourceNav.getByRole('link', '技能', { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/skills$/);
-  await screen.getByRole('searchbox', '搜索技能').fill('resource-no-match');
-  await expect(browser).toHaveURL(/\/skills\?q=resource-no-match$/);
-  await expect(screen.getByText('没有匹配的技能', { exact: true })).toBeVisible();
-  await screen.getByRole('button', '清除：搜索技能').tap();
-  await expect(browser).toHaveURL(/\/skills$/);
-  await resourceNav.getByRole('link', '连接器', { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/servers$/);
-  await screen.getByRole('combobox', '按来源筛选').tap();
-  await screen.getByRole('option', '本地命令', { exact: true }).tap();
-  await expect(browser).toHaveURL(/\/servers\?kind=stdio$/);
-  await app.open('/servers?kind=stdio');
-  await expect(screen.getByRole('combobox', '按来源筛选')).toHaveText('本地命令');
+  const slug = `e2e-resource-tabs-${Date.now().toString(36)}`;
+  const created = await browserFetch(browser, 'POST', '/api/skills', {
+    slug,
+    name: `E2E 资源页签 ${slug}`,
+    description: '资源页签与 URL 状态用例的临时技能',
+    body: '',
+  });
+  if (created.status !== 201) {
+    throw new Error(`创建临时技能失败 ${created.status}：${created.text}`);
+  }
+  const skillId = (JSON.parse(created.text) as { id: string }).id;
+  let failure: unknown;
+  try {
+    const resourceNav = browser.locator('nav[aria-label="资源类型"]');
+    await expect(resourceNav.getByRole('link', '技能', { exact: true })).toBeVisible();
+    await expect(resourceNav.getByRole('link', '专家', { exact: true })).toHaveCount(0);
+    await resourceNav.getByRole('link', '技能', { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/skills$/);
+    await screen.getByRole('searchbox', '搜索技能').fill('resource-no-match');
+    await expect(browser).toHaveURL(/\/skills\?q=resource-no-match$/);
+    await expect(screen.getByText('没有匹配的技能', { exact: true })).toBeVisible();
+    await screen.getByRole('button', '清除：搜索技能').tap();
+    await expect(browser).toHaveURL(/\/skills$/);
+    await expect(
+      screen.getByRole('button', { name: `E2E 资源页签 ${slug}`, exact: true }),
+    ).toBeVisible();
+    await resourceNav.getByRole('link', '连接器', { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/servers$/);
+    await screen.getByRole('combobox', '按来源筛选').tap();
+    await screen.getByRole('option', '本地命令', { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/servers\?kind=stdio$/);
+    await app.open('/servers?kind=stdio');
+    await expect(screen.getByRole('combobox', '按来源筛选')).toHaveText('本地命令');
+  } catch (error) {
+    failure = error;
+  }
+  const deleted = await browserFetch(browser, 'DELETE', `/api/skills/${skillId}`);
+  if (deleted.status !== 204) {
+    const cleanupError = new Error(`清理临时技能失败 ${deleted.status}：${deleted.text}`);
+    if (failure !== undefined) {
+      throw new AggregateError([failure, cleanupError], '资源页签用例与技能清理均失败');
+    }
+    throw cleanupError;
+  }
+  if (failure !== undefined) throw failure;
 });
 
 test('all workspaces render the shared page shell', { session: 'admin' }, async ({
