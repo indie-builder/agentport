@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const MAINTENANCE_QUEUE = 'maintenance';
+
 /** 运行来源：对话 / 外部 MCP / 定时 / 事件 / 记忆审核 / 频道。 */
 export const runTriggerSchema = z.enum(['chat', 'mcp', 'schedule', 'event', 'review', 'channel']);
 export type RunTrigger = z.infer<typeof runTriggerSchema>;

@@ -1,15 +1,13 @@
 import { type createDb, repo, schema } from '@agentport/db';
-import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
+import {
+  KNOWLEDGE_JOBS_QUEUE,
+  KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
+  knowledgeEnqueueOptions,
+} from '@agentport/shared';
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 
-/**
- * 轻触发队列：scheduler 的每次触发只带 sourceId，到点后由本模块创建
- * knowledge_sync_runs + knowledge_jobs 再投递到知识队列。
- * 不能直接在知识队列上重复使用同一个 DB job id：BullMQ 会把后续触发当成重复 job 丢掉。
- */
-const KNOWLEDGE_SYNC_TRIGGERS_QUEUE = 'knowledge-sync-triggers';
 const SCHEDULER_ID_PREFIX = 'knowledge-sync:';
 const RECONCILE_MS = 5 * 60_000;
 const ENQUEUE_ATTEMPTS = 3;

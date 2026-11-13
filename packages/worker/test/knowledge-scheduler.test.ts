@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createDb, newId, repo, schema } from '@agentport/db';
-import { KNOWLEDGE_JOBS_QUEUE } from '@agentport/shared';
+import { KNOWLEDGE_JOBS_QUEUE, KNOWLEDGE_SYNC_TRIGGERS_QUEUE } from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
@@ -91,7 +91,7 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
   beforeAll(async () => {
     ({ db, client } = createDb(process.env.DATABASE_URL ?? ''));
     triggersRedis = bunRedisConnection(redisUrl);
-    triggers = new Queue<{ sourceId: string }>('knowledge-sync-triggers', {
+    triggers = new Queue<{ sourceId: string }>(KNOWLEDGE_SYNC_TRIGGERS_QUEUE, {
       connection: triggersRedis.connection,
       prefix,
     });
