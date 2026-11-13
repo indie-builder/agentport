@@ -3,6 +3,7 @@ import { rpc } from '../orpc.js';
 
 export default {
   attention: (): Promise<Attention> => rpc.ops.attention(),
+  agentStats: (id: string, days: number) => rpc.ops.agentStats({ params: { id }, query: { days } }),
   schedules: (): Promise<Schedule[]> => rpc.ops.schedules.list(),
   createSchedule: (input: ScheduleInput): Promise<Schedule> =>
     rpc.ops.schedules.create({ body: input }),

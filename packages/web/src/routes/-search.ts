@@ -56,6 +56,11 @@ export const agentDetailSearchSchema = z.object({
     .optional()
     .catch(undefined),
   file: z.string().optional().catch(undefined),
+  usageDays: z.coerce
+    .number()
+    .pipe(z.union([z.literal(7), z.literal(30), z.literal(90)]))
+    .optional()
+    .catch(undefined),
 });
 
 export const skillsSearchSchema = resourceSearchSchema.extend({

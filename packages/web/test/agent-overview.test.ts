@@ -20,7 +20,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentOverview, type AgentOverviewTarget } from '../src/components/agent/agent-overview.js';
 import { api } from '../src/lib/api.js';
-import { formatDateTime } from '../src/lib/format.js';
+import {
+  formatCost,
+  formatDateTime,
+  formatDuration,
+  formatPercent,
+  formatTokens,
+} from '../src/lib/format.js';
 
 const agent: Agent = {
   ...agentInputSchema.parse({
@@ -116,6 +122,24 @@ const run = {
   trigger: 'schedule' as const,
 };
 
+const agentStats = {
+  agentId: agent.id,
+  runCount: 25,
+  running: 0,
+  failed: 2,
+  succeeded: 23,
+  totalCost: 1.25,
+  totalTokens: 12_500,
+  errorRate: 0.08,
+  latencyP50: 1500,
+  latencyP99: 60_000,
+  lastRunStartTime: '2026-03-02T02:30:00.000Z',
+  daily: [
+    { day: '2026-03-01', runs: 10, cost: 0.5 },
+    { day: '2026-03-02', runs: 15, cost: 0.75 },
+  ],
+};
+
 const allPermissions: PermissionId[] = PERMISSIONS.filter((permission) =>
   [
     'agents.read',
@@ -179,6 +203,7 @@ async function mount(options: {
   agent?: Partial<Pick<Agent, 'description' | 'role' | 'enabled' | 'updatedAt'>>;
   canReadKnowledge?: boolean;
   canViewRuns?: boolean;
+  usageDays?: number;
   onNavigate?: (next: AgentOverviewTarget) => void;
 }) {
   const props = {
@@ -188,6 +213,7 @@ async function mount(options: {
     permissions: options.permissions ?? allPermissions,
     canReadKnowledge: options.canReadKnowledge ?? true,
     canViewRuns: options.canViewRuns ?? true,
+    usageDays: options.usageDays,
     onNavigate: options.onNavigate ?? (() => {}),
   };
   const rootRoute = createRootRoute({ component: Outlet });
@@ -231,6 +257,7 @@ beforeEach(() => {
     items: [knowledgeBase],
     nextCursor: null,
   });
+  vi.spyOn(api, 'agentStats').mockResolvedValue(agentStats);
   vi.spyOn(api, 'runs').mockResolvedValue({ items: [] } satisfies RunList);
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, retryOnMount: false }, mutations: { retry: false } },
@@ -420,11 +447,106 @@ describe('agent overview', () => {
     expect(link?.getAttribute('href')).toBe('/runs?agent=expert');
   });
 
+  it('shows usage metrics and daily data for the selected window', async () => {
+    const navigations: AgentOverviewTarget[] = [];
+    await mount({ onNavigate: (next) => navigations.push(next) });
+
+    await waitFor(() => host.textContent?.includes(formatCost(agentStats.totalCost)));
+    const text = host.textContent ?? '';
+    expect(text).toContain('用量趋势');
+    expect(text).toContain(formatCost(agentStats.totalCost));
+    expect(text).toContain(String(agentStats.runCount));
+    expect(text).toContain(formatPercent(agentStats.errorRate));
+    expect(text).toContain(formatTokens(agentStats.totalTokens));
+    expect(text).toContain(formatDuration(agentStats.latencyP50));
+    expect(text).toContain(formatDuration(agentStats.latencyP99));
+    expect(api.agentStats).toHaveBeenCalledWith(agent.id, 30);
+    expect(button('近 30 天').getAttribute('aria-pressed')).toBe('true');
+
+    await click(button('查看每日数据'));
+    await waitFor(() => host.textContent?.includes('2026-03-01'));
+    expect(host.textContent).toContain(formatCost(agentStats.daily[0]?.cost));
+    expect(host.textContent).toContain(formatCost(agentStats.daily[1]?.cost));
+
+    await click(button('近 7 天'));
+    await waitFor(() => vi.mocked(api.agentStats).mock.calls.some(([, days]) => days === 7));
+    expect(api.agentStats).toHaveBeenCalledWith(agent.id, 7);
+    expect(button('近 7 天').getAttribute('aria-pressed')).toBe('true');
+    expect(navigations).toEqual([{ usageDays: 7 }]);
+  });
+
+  it('fills missing UTC days with zero runs and cost in the daily data', async () => {
+    vi.mocked(api.agentStats).mockResolvedValue({
+      ...agentStats,
+      daily: [
+        { day: '2026-03-01', runs: 2, cost: 0.1 },
+        { day: '2026-03-04', runs: 1, cost: 0.05 },
+      ],
+    });
+    await mount({});
+    await waitFor(() => button('查看每日数据'));
+    await click(button('查看每日数据'));
+
+    const rows = [...host.querySelectorAll('tbody tr')].map((row) =>
+      [...row.querySelectorAll('td')].map((cell) => cell.textContent),
+    );
+    expect(rows).toEqual([
+      ['2026-03-01', '2', formatCost(0.1)],
+      ['2026-03-02', '0', formatCost(0)],
+      ['2026-03-03', '0', formatCost(0)],
+      ['2026-03-04', '1', formatCost(0.05)],
+    ]);
+    expect(host.querySelectorAll('[role="img"]')).toHaveLength(4);
+  });
+
+  it.each([
+    { usageDays: 90, expectedDays: 90 },
+    { usageDays: 14, expectedDays: 30 },
+  ])(
+    'seeds the usage window from $usageDays as $expectedDays days',
+    async ({ usageDays, expectedDays }) => {
+      await mount({ usageDays });
+
+      await waitFor(() => vi.mocked(api.agentStats).mock.calls.length > 0);
+      expect(api.agentStats).toHaveBeenCalledWith(agent.id, expectedDays);
+      expect(button(`近 ${expectedDays} 天`).getAttribute('aria-pressed')).toBe('true');
+    },
+  );
+
+  it('reports a failed usage query and retries it', async () => {
+    vi.mocked(api.agentStats).mockRejectedValue(new Error('统计加载失败'));
+    await mount({});
+
+    await waitFor(() => host.textContent?.includes('用量趋势没有加载出来'));
+    expect(host.textContent).toContain('统计加载失败');
+    vi.mocked(api.agentStats).mockResolvedValue(agentStats);
+    await click(button('重试'));
+    await waitFor(() => host.textContent?.includes(formatCost(agentStats.totalCost)));
+    expect(host.textContent).toContain(formatCost(agentStats.totalCost));
+    expect(host.textContent).not.toContain('用量趋势没有加载出来');
+  });
+
+  it('shows the empty usage state without drawing daily bars', async () => {
+    vi.mocked(api.agentStats).mockResolvedValue({ ...agentStats, runCount: 0, daily: [] });
+    await mount({});
+
+    await waitFor(() =>
+      [...host.querySelectorAll('p')].some((item) => item.textContent === '近 30 天没有运行记录。'),
+    );
+    expect([...host.querySelectorAll('p')].map((item) => item.textContent)).toContain(
+      '近 30 天没有运行记录。',
+    );
+    expect(host.textContent).not.toContain('每日运行量');
+    expect(host.textContent).not.toContain('查看每日数据');
+  });
+
   it('hides the run block without runs.read', async () => {
     await mount({ canViewRuns: false });
 
     await waitFor(() => row('专家记忆'));
     expect(host.textContent).not.toContain('最近运行');
+    expect(host.textContent).not.toContain('用量趋势');
     expect(api.runs).not.toHaveBeenCalled();
+    expect(api.agentStats).not.toHaveBeenCalled();
   });
 });

@@ -303,6 +303,7 @@ export function AgentEditor({
     section?: SectionId | undefined;
     view?: MemoryView | undefined;
     file?: string | undefined;
+    usageDays?: 7 | 30 | 90 | undefined;
   }): void => {
     void navigate({
       to: '/agents/$agentId',
@@ -1016,6 +1017,7 @@ export function AgentEditor({
             permissions={permissions}
             canReadKnowledge={canKnowledge}
             canViewRuns={canViewRuns}
+            usageDays={search.usageDays ?? 30}
             onNavigate={navigateSearch}
           />
         ) : null}
